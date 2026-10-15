@@ -298,12 +298,19 @@ export type RpcCommand =
 	| { id?: string; type: "remove_directory"; path: string }
 	| { id?: string; type: "move_session"; path: string }
 	// Git worktrees (tab × worktree binding, plan/20). get_git_status feeds the
-	// footer git segment; worktree_create materializes branch omp/gui/<name> at
-	// ~/.omp/wt/gui-<name>-<hash7>; worktree_remove refuses dirty unless force.
+	// footer git segment; worktree_create materializes branch <branchPrefix ?? omp/gui/><name> at
+	// ~/.omp/wt/gui-<name>-<hash7> (prefix rules: shared/worktree-branch.ts); worktree_remove refuses dirty unless force.
 	| { id?: string; type: "get_git_status" }
 	| { id?: string; type: "get_git_changes" }
 	| { id?: string; type: "get_git_diff"; path: string }
-	| { id?: string; type: "worktree_create"; name: string; baseCwd?: string; baseRef?: "HEAD" | "default" }
+	| {
+			id?: string;
+			type: "worktree_create";
+			name: string;
+			baseCwd?: string;
+			baseRef?: "HEAD" | "default";
+			branchPrefix?: string;
+	  }
 	| { id?: string; type: "worktree_remove"; path: string; force?: boolean }
 	// omp's `worktree.onStart` / `worktree.onExit` as the live session resolves them (omp 18.8.6+).
 	| { id?: string; type: "worktree_lifecycle_settings" }

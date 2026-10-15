@@ -1,5 +1,6 @@
 /** Pure parsers/projections for the GUI-side git commands (unit-tested). */
 import * as path from "node:path";
+import { GUI_WORKTREE_BRANCH_PREFIX } from "../../../shared/worktree-branch";
 
 export interface GitStatusEntry {
 	path: string;
@@ -197,15 +198,16 @@ export function worktreeSlug(raw: string): string | null {
 	return slug;
 }
 
-/** Candidate `{path, branch}` for GUI worktree attempt `suffix` (1 = bare name). */
+/** Candidate `{path, branch}` for GUI worktree attempt `suffix` (1 = bare name); the folder name never takes the prefix. */
 export function guiWorktreeCandidate(
 	slug: string,
 	repoHash: string,
 	suffix: number,
 	baseDir: string,
+	branchPrefix = GUI_WORKTREE_BRANCH_PREFIX,
 ): { name: string; branch: string; path: string } {
 	const name = suffix === 1 ? slug : `${slug}-${suffix}`;
-	return { name, branch: `omp/gui/${name}`, path: path.join(baseDir, `gui-${name}-${repoHash}`) };
+	return { name, branch: `${branchPrefix}${name}`, path: path.join(baseDir, `gui-${name}-${repoHash}`) };
 }
 
 export interface PrDiffFile {

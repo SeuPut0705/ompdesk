@@ -72,18 +72,26 @@ export const methods: BridgeMethods = {
 		 * Stock's `maybeAutoCreateWorktree` creation step
 		 * (`handleWorktreeCommand(undefined, { keepChanges: false })`): a new
 		 * `wt/<timestamp>` branch at clean `HEAD`, under the agent worktree base.
-		 * The GUI then starts the tab's omp in it instead of moving this session.
+		 * With the user's branch prefix (main validated it against
+		 * src/shared/worktree-branch.ts) stock's `wt/` gives way to it and the
+		 * timestamp stays. The GUI then starts the tab's omp in it instead of
+		 * moving this session.
 		 */
-		worktree_lifecycle_create: async (_params, env) => {
+		worktree_lifecycle_create: async (params, env) => {
 			const session = env.session();
+			const prefix = (params as { branchPrefix?: unknown } | null)?.branchPrefix;
+			if (prefix !== undefined && (typeof prefix !== "string" || !/^[A-Za-z0-9._/-]{1,40}$/.test(prefix))) {
+				throw new Error("branchPrefix must be 1-40 characters of letters, digits, . _ - /");
+			}
 			const [{ createSessionWorktree, defaultSessionWorktreeBranch }, { getWorktreesDir }] = await Promise.all([
 				import("@oh-my-pi/pi-coding-agent/session/session-worktree"),
 				import("@oh-my-pi/pi-utils"),
 			]);
+			const stockBranch = defaultSessionWorktreeBranch();
 			const worktree = await createSessionWorktree(
 				session.sessionManager.getCwd(),
 				session.settings,
-				defaultSessionWorktreeBranch(),
+				prefix ? `${prefix}${stockBranch.replace(/^wt\//, "")}` : stockBranch,
 				{ keepChanges: false },
 			);
 			if (worktree.cloneError) {

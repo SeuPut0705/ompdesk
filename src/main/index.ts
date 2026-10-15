@@ -27,6 +27,7 @@ import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
+import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { installQuitGuard, quitApproved, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -471,6 +472,7 @@ app.whenReady().then(() => {
 		{ bind: (tabId, worktree) => sidecarPool.bindWorktree(tabId, worktree) },
 		prompts,
 		worktreeWindows,
+		{ branchPrefix: () => worktreeBranchPrefix(prefsStore().get(WORKTREE_BRANCH_PREFIX_PREF)) },
 	);
 	worktreePrompts = prompts;
 	worktreeLifecycle = lifecycle;

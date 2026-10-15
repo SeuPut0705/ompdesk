@@ -926,7 +926,7 @@ if (process.argv[2] === "stats") {
 			onExit: values["worktree.onExit"],
 			eligible: primaryCheckout(process.cwd()) !== null,
 		}),
-		worktree_lifecycle_create: () => {
+		worktree_lifecycle_create: params => {
 			const cwd = process.cwd();
 			const primary = primaryCheckout(cwd);
 			const root = process.env.OMP_WORKTREE_DIR;
@@ -937,7 +937,7 @@ if (process.argv[2] === "stats") {
 			const pad = (n: number) => String(n).padStart(2, "0");
 			const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 			// Two tabs can start in the same second; stock would refuse the second name.
-			const branch = `wt/${stamp}-${process.pid}`;
+			const branch = `${typeof params.branchPrefix === "string" ? params.branchPrefix : "wt/"}${stamp}-${process.pid}`;
 			const baseCommit = gitIn(cwd, "rev-parse", "HEAD");
 			const target = nodePath.join(
 				root,

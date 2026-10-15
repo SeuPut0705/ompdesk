@@ -84,7 +84,10 @@ export interface SessionRpcClient {
 	getGitStatus(): Promise<RpcResponse>;
 	getGitChanges(): Promise<RpcResponse>;
 	getGitDiff(path: string): Promise<RpcResponse>;
-	worktreeCreate(name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }): Promise<RpcResponse>;
+	worktreeCreate(
+		name: string,
+		options?: { baseCwd?: string; baseRef?: "HEAD" | "default"; branchPrefix?: string },
+	): Promise<RpcResponse>;
 	worktreeRemove(path: string, force?: boolean): Promise<RpcResponse>;
 	prRepo(): Promise<RpcResponse>;
 	prList(
@@ -443,7 +446,13 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getGitDiff: path => rpcCommand({ type: "get_git_diff", path }),
 		// Worktree and PR commands run in main; RPC_COMMAND_TIMEOUTS holds their budgets.
 		worktreeCreate: (name, options) =>
-			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }),
+			rpcCommand({
+				type: "worktree_create",
+				name,
+				baseCwd: options?.baseCwd,
+				baseRef: options?.baseRef,
+				...(options?.branchPrefix ? { branchPrefix: options.branchPrefix } : {}),
+			}),
 		worktreeRemove: (path, force) => rpcCommand({ type: "worktree_remove", path, force }),
 		prRepo: () => rpcCommand({ type: "pr_repo" }),
 		prList: (state, limit, view) => rpcCommand({ type: "pr_list", state, limit, view }),

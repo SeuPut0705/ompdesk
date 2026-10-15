@@ -77,6 +77,18 @@ describe("removeWorktree", () => {
 		await removeWorktree({ path: old.path }, bridge, outside);
 		expect(await pathExists(old.path)).toBe(false);
 	});
+	it("names the branch with the user's prefix, keeps the folder name, and refuses a prefix git would reject", async () => {
+		await initRepo(outside);
+		const plain = await createWorktree(outside, { name: "plain" }, bridge);
+		expect(plain.branch).toBe("omp/gui/plain");
+		const created = await createWorktree(outside, { name: "login", branchPrefix: "alice/" }, bridge);
+		expect(created.branch).toBe("alice/login");
+		expect(created.path).toBe(path.join(root, "gui-login-abc1234"));
+		expect(gitSync(outside, "branch", "--list", "alice/login")).toContain("alice/login");
+		await expect(createWorktree(outside, { name: "x", branchPrefix: "../evil/" }, bridge)).rejects.toMatchObject({
+			code: "invalid_name",
+		});
+	});
 	it("refuses a primary checkout under the root and a linked checkout subdirectory", async () => {
 		const primary = path.join(root, "user-clone");
 		await initRepo(primary);

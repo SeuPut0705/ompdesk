@@ -10,6 +10,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
+import { worktreeBranchPrefix } from "../../../shared/worktree-branch";
 import { type BridgeClient, LocalCommandError } from "../types";
 import { getGitStatus, primaryRoot, repoRoot } from "./changes";
 import { DEFAULT_TIMEOUT_MS, git, gitRaw, withRepoLock } from "./exec";
@@ -70,7 +71,7 @@ export async function stockWorktreeLocation(
 
 export async function createWorktree(
 	sessionCwd: string,
-	input: { name: string; baseCwd?: string; baseRef?: "HEAD" | "default" },
+	input: { name: string; baseCwd?: string; baseRef?: "HEAD" | "default"; branchPrefix?: string },
 	bridge: Pick<BridgeClient, "request">,
 ): Promise<RpcWorktreeCreateResult> {
 	const slug = worktreeSlug(input.name);
@@ -80,6 +81,10 @@ export async function createWorktree(
 			"invalid_name",
 		);
 	}
+	const branchPrefix = input.branchPrefix === undefined ? undefined : worktreeBranchPrefix(input.branchPrefix);
+	if (branchPrefix === null) {
+		throw new LocalCommandError(`Invalid worktree branch prefix "${input.branchPrefix}".`, "invalid_name");
+	}
 	const baseCwd = input.baseCwd ?? sessionCwd;
 	if (!(await repoRoot(baseCwd))) throw new LocalCommandError(`Not a git repository: ${baseCwd}`, "not_a_repo");
 	const primary = await primaryRoot(baseCwd);
@@ -88,7 +93,7 @@ export async function createWorktree(
 
 	return withRepoLock(primary, async () => {
 		for (let suffix = 1; suffix <= MAX_SUFFIX; suffix++) {
-			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root);
+			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root, branchPrefix);
 			// A half-created dir (no .git yet) still makes `git worktree add` fail with "exists".
 			if ((await pathTaken(candidate.path)) || (await branchExists(primary, candidate.branch))) continue;
 			try {

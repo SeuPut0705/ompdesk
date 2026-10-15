@@ -169,7 +169,15 @@ export const ko: Record<string, string> = {
 
 	// Per-session worktrees (worktree.onStart / worktree.onExit, omp 18.8.6+)
 	"worktreeLifecycle.startTitle": "이 세션용 워크트리를 만들까요?",
-	"worktreeLifecycle.startBody": "새 wt/* 브랜치에서 작업해요. 지금 체크아웃은 그대로 둬요.",
+	"worktreeLifecycle.startBody":
+		"별도 폴더의 새 브랜치에서 작업해요(설정에서 접두사를 정하지 않으면 wt/…). 지금 체크아웃은 그대로 둬요.",
+	"settings.worktrees": "워크트리",
+	"settings.worktreeBranchPrefix": "워크트리 브랜치 접두사",
+	"settings.worktreeBranchPrefix.desc":
+		"새 워크트리 탭과 세션 워크트리의 브랜치가 이 이름으로 시작해요. 비워 두면 omp/gui/와 wt/를 써요.",
+	"settings.worktreeBranchPrefix.example": "예: {branch}",
+	"settings.worktreeBranchPrefix.invalid":
+		"영문, 숫자, . _ - /만 쓰고 /, -, _ 중 하나로 끝내세요. 폴더 이름은 점으로 시작할 수 없어요.",
 	"worktreeLifecycle.create": "워크트리 만들기",
 	"worktreeLifecycle.skip": "이 체크아웃 사용",
 	"worktreeLifecycle.exitTitle": "워크트리를 삭제할까요?",

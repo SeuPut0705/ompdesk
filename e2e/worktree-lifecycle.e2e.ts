@@ -28,7 +28,7 @@ const exists = (file: string) =>
 		() => false,
 	);
 
-async function launch(policy: string): Promise<void> {
+async function launch(policy: string, language: "en" | "ko" = "en"): Promise<void> {
 	profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-wt-lifecycle-")));
 	project = path.join(profile, "project");
 	worktreeRoot = path.join(profile, "wt");
@@ -42,7 +42,7 @@ async function launch(policy: string): Promise<void> {
 	await fs.writeFile(path.join(project, "README.md"), "hello\n");
 	git(project, "add", ".");
 	git(project, "commit", "-q", "-m", "init");
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -223,3 +223,55 @@ test.describe("worktree.onStart = ask, worktree.onExit = keep", () => {
 		expect(worktreeList()).toContain(ownedPath);
 	});
 });
+
+// C82: Settings › Projects & launch › Worktree branch prefix names both the worktree tab's branch
+// (⌥T dialog → worktree_create) and the session worktree's (stock wt/ gives way, the timestamp stays).
+for (const { language, theme, label } of [
+	{
+		language: "en" as const,
+		theme: "light" as const,
+		label: { field: "Worktree branch prefix", name: "Name", submit: "Create & open" },
+	},
+	{
+		language: "ko" as const,
+		theme: "dark" as const,
+		label: { field: "워크트리 브랜치 접두사", name: "이름", submit: "만들고 열기" },
+	},
+]) {
+	test(`worktree branch prefix names worktree tab and session branches (${language}, ${theme})`, async () => {
+		await launch("create:keep", language);
+		await page.emulateMedia({ colorScheme: theme });
+		const settings = page.locator("[data-settings-page]");
+		await page.keyboard.press("ControlOrMeta+Comma");
+		await expect(settings).toBeVisible();
+		await settings.locator('[data-settings-section="workspace"]').click();
+		const row = settings.locator("#setting-gui-worktreeBranchPrefix");
+		const field = row.getByRole("textbox", { name: label.field, exact: true });
+		await field.fill("../x");
+		await expect(field).toHaveAttribute("aria-invalid", "true");
+		await field.fill("alice/");
+		await field.press("Enter");
+		await expect(row).toContainText("alice/fix-login");
+		await expect.poll(() => page.evaluate(() => window.omp.prefs.get("worktreeBranchPrefix"))).toBe("alice/");
+		const captures = process.env.OMP_GUI_WORKTREE_CAPTURES;
+		if (captures) {
+			await row.scrollIntoViewIfNeeded();
+			await page.screenshot({ path: path.join(captures, `worktree-prefix-${language}-${theme}.png`) });
+		}
+		await page.keyboard.press("Escape");
+		await expect(settings).toHaveCount(0);
+
+		// The session worktree first: a tab opened from a worktree tab's own folder is not a primary checkout.
+		const tab = await openTab();
+		expect(tab.worktree?.branch).toMatch(/^alice\/\d{8}-\d{6}/);
+		expect(git(project, "branch", "--list", tab.worktree?.branch ?? "")).toContain(tab.worktree?.branch);
+
+		await page.keyboard.press("Alt+t");
+		const dialog = page.getByRole("dialog");
+		await dialog.getByRole("textbox", { name: label.name, exact: true }).fill("login");
+		await expect(dialog).toContainText("alice/login");
+		await dialog.getByRole("button", { name: label.submit, exact: true }).click();
+		await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+		expect(git(project, "branch", "--list", "alice/login")).toContain("alice/login");
+	});
+}

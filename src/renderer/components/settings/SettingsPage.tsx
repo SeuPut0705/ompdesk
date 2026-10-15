@@ -73,6 +73,7 @@ import { SettingsNavigationProvider } from "./settings-navigation";
 import { searchSettings } from "./settings-search";
 import { UpdatesSection } from "./UpdatesSection";
 import { WorkspaceSection } from "./WorkspaceSection";
+import { WorktreeBranchPrefixRow } from "./WorktreeBranchPrefixRow";
 
 const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	general: SlidersHorizontal,
@@ -306,6 +307,9 @@ export function SettingsPage() {
 					<>
 						<WorkspaceSection />
 						<LaunchProfileSection />
+						<SettingsSection id="settings-workspace-worktrees" scope="app" title={t("settings.worktrees")}>
+							<WorktreeBranchPrefixRow />
+						</SettingsSection>
 						<OwnedSchemaSettings section="workspace" />
 					</>
 				);

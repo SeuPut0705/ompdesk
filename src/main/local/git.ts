@@ -32,6 +32,7 @@ export const handlers: Record<string, LocalHandler> = {
 				name: str(command.name) ?? "",
 				baseCwd: str(command.baseCwd),
 				baseRef: command.baseRef === "default" ? "default" : "HEAD",
+				branchPrefix: str(command.branchPrefix),
 			},
 			ctx.bridge,
 		),

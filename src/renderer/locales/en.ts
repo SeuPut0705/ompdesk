@@ -173,7 +173,15 @@ export const en: Record<string, string> = {
 
 	// Per-session worktrees (worktree.onStart / worktree.onExit, omp 18.8.6+)
 	"worktreeLifecycle.startTitle": "Create a worktree for this session?",
-	"worktreeLifecycle.startBody": "Work happens on a new wt/* branch; this checkout stays untouched.",
+	"worktreeLifecycle.startBody":
+		"Work happens on a new branch in its own folder (wt/… unless you set a prefix in Settings); this checkout stays untouched.",
+	"settings.worktrees": "Worktrees",
+	"settings.worktreeBranchPrefix": "Worktree branch prefix",
+	"settings.worktreeBranchPrefix.desc":
+		"New worktree tabs and session worktrees start their branch with this. Leave it empty for omp/gui/ and wt/.",
+	"settings.worktreeBranchPrefix.example": "Example: {branch}",
+	"settings.worktreeBranchPrefix.invalid":
+		"Use letters, digits, . _ - and /, end with /, - or _, and don't start a folder with a dot.",
 	"worktreeLifecycle.create": "Create worktree",
 	"worktreeLifecycle.skip": "Use this checkout",
 	"worktreeLifecycle.exitTitle": "Remove worktree?",

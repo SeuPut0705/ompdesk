@@ -254,6 +254,8 @@ function message(error: unknown): string {
 export interface WorktreeLifecycleOptions {
 	/** How long removal waits for the tab's omp to exit before keeping the worktree. */
 	processExitTimeoutMs?: number;
+	/** The user's worktree branch prefix (shared/worktree-branch.ts), read at each start; null keeps stock's `wt/`. */
+	branchPrefix?: () => string | null;
 }
 
 export class WorktreeLifecycle {
@@ -261,6 +263,7 @@ export class WorktreeLifecycle {
 	readonly #prompts: WorktreePrompts;
 	readonly #windows: WorktreeWindows;
 	readonly #processExitTimeoutMs: number;
+	readonly #branchPrefix: () => string | null;
 	/** Tab → the worktree `onStart` created for it this launch. */
 	readonly #owned = new Map<string, OwnedWorktree>();
 	/** Exits under way; quit waits for them. */
@@ -276,6 +279,7 @@ export class WorktreeLifecycle {
 		this.#prompts = prompts;
 		this.#windows = windows;
 		this.#processExitTimeoutMs = options.processExitTimeoutMs ?? PROCESS_EXIT_TIMEOUT_MS;
+		this.#branchPrefix = options.branchPrefix ?? (() => null);
 	}
 
 	/** Whether the tab owns a lifecycle worktree. */
@@ -305,7 +309,10 @@ export class WorktreeLifecycle {
 			if (!bridge.connected) return null;
 			let worktree: LifecycleWorktree;
 			try {
-				const created = createdSchema.safeParse(await bridge.request("worktree_lifecycle_create"));
+				const branchPrefix = this.#branchPrefix();
+				const created = createdSchema.safeParse(
+					await bridge.request("worktree_lifecycle_create", branchPrefix ? { branchPrefix } : undefined),
+				);
 				if (!created.success) throw new Error("omp returned an unexpected worktree");
 				worktree = created.data;
 			} catch (error) {

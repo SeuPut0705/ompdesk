@@ -1,7 +1,8 @@
 import { useTabRpc } from "../../lib/tab-rpc";
 /**
  * Worktree-create dialog (plan/20 — tab × worktree binding): names a new
- * branch omp/gui/<slug> checked out at ~/.omp/wt/gui-<slug>-<hash7>, then
+ * branch <prefix><slug> (Settings › Project folders › Worktree branch prefix,
+ * else omp/gui/) checked out at ~/.omp/wt/gui-<slug>-<hash7>, then
  * opens a tab bound to it. The create RPC rides the ACTIVE tab's sidecar
  * (baseCwd defaults to its session cwd; a Sidebar group pins it via
  * ui.worktreeDialog.baseCwd). The hash-suffixed path is computed agent-side —
@@ -10,6 +11,11 @@ import { useTabRpc } from "../../lib/tab-rpc";
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
+import {
+	GUI_WORKTREE_BRANCH_PREFIX,
+	WORKTREE_BRANCH_PREFIX_PREF,
+	worktreeBranchPrefix,
+} from "../../../shared/worktree-branch";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
@@ -42,6 +48,7 @@ export function WorktreeDialog() {
 	const [creating, setCreating] = useState(false);
 	const [created, setCreated] = useState<RpcWorktreeCreateResult | null>(null);
 	const [error, setError] = useState<InlineFailure | null>(null);
+	const [branchPrefix, setBranchPrefix] = useState<string | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -52,6 +59,19 @@ export function WorktreeDialog() {
 		setCreated(null);
 		setError(null);
 		requestAnimationFrame(() => inputRef.current?.focus());
+		let live = true;
+		// Started inside a promise so a missing prefs API (tests) leaves the default prefix.
+		void Promise.resolve()
+			.then(() => window.omp.prefs.get(WORKTREE_BRANCH_PREFIX_PREF))
+			.then(
+				stored => {
+					if (live) setBranchPrefix(worktreeBranchPrefix(stored));
+				},
+				() => undefined,
+			);
+		return () => {
+			live = false;
+		};
 	}, [dialog]);
 
 	const slug = slugify(name);
@@ -69,6 +89,7 @@ export function WorktreeDialog() {
 				const response = await tabRpc.worktreeCreate(name, {
 					baseCwd: dialog?.baseCwd ?? sessionCwd,
 					baseRef,
+					...(branchPrefix ? { branchPrefix } : {}),
 				});
 				if (!response.success) {
 					setError(
@@ -140,7 +161,7 @@ export function WorktreeDialog() {
 				/>
 				{validName && (
 					<p className="text-sc-sm text-(--sc-text-muted)">
-						{t("worktree.branchPreview", { branch: `omp/gui/${slug}` })}
+						{t("worktree.branchPreview", { branch: `${branchPrefix ?? GUI_WORKTREE_BRANCH_PREFIX}${slug}` })}
 					</p>
 				)}
 				<p className="text-sc-sm text-(--sc-text-secondary)">{t("worktree.baseScope")}</p>

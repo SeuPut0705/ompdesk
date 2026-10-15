@@ -38,13 +38,15 @@ function fakeWindows(live: number[] = [WIN]) {
 
 function fakeBridge(handlers: Record<string, () => unknown>) {
 	const calls: string[] = [];
+	const params: Array<{ method: string; params: unknown }> = [];
 	let connected = true;
 	const bridge: BridgeClient = {
 		get connected() {
 			return connected;
 		},
-		request: async <T>(method: string): Promise<T> => {
+		request: async <T>(method: string, payload?: unknown): Promise<T> => {
 			calls.push(method);
+			params.push({ method, params: payload });
 			const handler = handlers[method];
 			if (!handler) throw new Error(`unsupported_omp: ${method}`);
 			return (await handler()) as T;
@@ -54,6 +56,7 @@ function fakeBridge(handlers: Record<string, () => unknown>) {
 	return {
 		bridge,
 		calls,
+		params,
 		disconnect: () => {
 			connected = false;
 		},
@@ -201,6 +204,20 @@ describe("WorktreeLifecycle", () => {
 			lifecycle: true,
 		});
 		expect(lifecycle.owns("tab")).toBe(true);
+	});
+
+	it("asks stock for the user's branch prefix when one is set, and for stock's own name otherwise", async () => {
+		const prefixed = setup([WIN], { branchPrefix: () => "alice/" });
+		const withPrefix = creatingBridge(settings({ onStart: "create" }));
+		await prefixed.lifecycle.startGate("tab", WIN)(withPrefix.bridge, repo);
+		expect(withPrefix.params.find(call => call.method === "worktree_lifecycle_create")?.params).toEqual({
+			branchPrefix: "alice/",
+		});
+
+		const plain = setup();
+		const withoutPrefix = creatingBridge(settings({ onStart: "create" }), "20261009-120001");
+		await plain.lifecycle.startGate("tab2", WIN)(withoutPrefix.bridge, repo);
+		expect(withoutPrefix.params.find(call => call.method === "worktree_lifecycle_create")?.params).toBeUndefined();
 	});
 
 	it("does nothing when onStart is off, the cwd is not eligible, or omp lacks the feature", async () => {
