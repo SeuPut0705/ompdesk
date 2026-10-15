@@ -14,7 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, renameSync, writeFileSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { IpcMain } from "electron";
 import {
@@ -367,11 +367,17 @@ export class ScheduleService {
 		const file = this.#options.file;
 		this.#writes = this.#writes
 			.then(async () => {
-				// dispose() already wrote the final state synchronously; an older snapshot must not land after it.
+				// dispose() writes the final state synchronously; an older snapshot must not land after it. The check
+				// runs again once the temp file is written, and the rename is synchronous, so a quit that comes while
+				// this write is in flight cannot slip between the check and the rename.
 				if (this.#disposed) return;
 				const temp = `${file}.tmp`;
 				await writeFile(temp, snapshot);
-				await rename(temp, file);
+				if (this.#disposed) {
+					await rm(temp, { force: true });
+					return;
+				}
+				renameSync(temp, file);
 			})
 			.catch(error => console.error("[schedules] couldn't save:", error));
 		this.#options.onState(this.state());
