@@ -432,6 +432,15 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases:
 			"models.yml providers endpoint API baseUrl transport discovery price capabilities 직접 추가 엔드포인트 URL 가격",
 	},
+	{
+		id: "modelOverrides",
+		section: "models",
+		sub: "custom",
+		rowId: "settings-models-overrides",
+		labelKey: "modelOverrides.title",
+		aliases:
+			"modelOverrides context window max output tokens reasoning levels effort wire api replay 모델 재정의 컨텍스트 사고 수준",
+	},
 	...[
 		"systemPrompt",
 		"appendSystemPrompt",

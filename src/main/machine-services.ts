@@ -24,13 +24,14 @@ import type {
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
+	ModelOverrideInput,
 	UpdateStatus,
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
-import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
+import { deleteModelsProvider, listModelsProviders, setModelOverride, upsertModelsProvider } from "./models-config";
 import { modelsConfigMetadata } from "./models-config-stock";
 import type { OmpResolution } from "./omp-runtime";
 import {
@@ -48,6 +49,8 @@ export interface MachineServices {
 	listProviders(): Promise<CustomProvidersConfig>;
 	upsertProvider(input: CustomProviderInput): Promise<void>;
 	deleteProvider(id: string): Promise<void>;
+	/** Write (or with `null`, remove) one model's models.yml `modelOverrides` entry (B43). */
+	setModelOverride(provider: string, modelId: string, override: ModelOverrideInput | null): Promise<void>;
 	/** A stats API read; failures resolve as `{error, unavailable, stopped?}` (never reject). */
 	fetchStats(path: string, params?: Record<string, string>): Promise<unknown>;
 	/**
@@ -166,6 +169,10 @@ export class LocalMachine implements MachineServices {
 
 	async upsertProvider(input: CustomProviderInput): Promise<void> {
 		await upsertModelsProvider(input);
+	}
+
+	async setModelOverride(provider: string, modelId: string, override: ModelOverrideInput | null): Promise<void> {
+		await setModelOverride(provider, modelId, override);
 	}
 
 	async deleteProvider(id: string): Promise<void> {
@@ -330,6 +337,10 @@ export class RemoteMachine implements MachineServices {
 
 	async deleteProvider(id: string): Promise<void> {
 		await this.#request("host.models.delete", { id });
+	}
+
+	async setModelOverride(provider: string, modelId: string, override: ModelOverrideInput | null): Promise<void> {
+		await this.#request("host.models.override", { provider, modelId, override });
 	}
 
 	async fetchStats(path: string, params?: Record<string, string>): Promise<unknown> {

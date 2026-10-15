@@ -15,6 +15,7 @@
  * - Settings, Usage and Stats of a remote tab read the host's own machine
  *   (machine-services.ts): `host.models.list {}` → CustomProvidersConfig (providers + stock options),
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
+ *   `host.models.override {provider, modelId, override: ModelOverrideInput | null}`,
  *   `host.stats.fetch {path, params?}` → the stats reply,
  *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean,
  *   `host.modelSetup.run {request: ModelSetupRequest}` → IpcModelSetupRunResult,
@@ -41,6 +42,7 @@ import type {
 	HostDesktopState,
 	IpcBenchmarkRunOptions,
 	IpcFsReadBinaryResult,
+	ModelOverrideInput,
 	UpdateStatus,
 } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
@@ -181,6 +183,23 @@ export const CustomProviderInputSchema: z.ZodType<CustomProviderInput> = z.objec
 	transport: z.literal("pi-native").optional(),
 	extraBody: z.record(z.unknown()).optional(),
 	models: z.array(CustomProviderModelInputSchema),
+});
+
+/** `host.models.override` entry: one model's overrides, checked before it touches the host's models.yml. */
+export const ModelOverrideInputSchema: z.ZodType<ModelOverrideInput> = z.object({
+	name: z.string().optional(),
+	api: ProviderApi.optional(),
+	reasoning: z.boolean().optional(),
+	thinking: z
+		.object({
+			mode: z.custom<CustomModelThinkingMode>(value => typeof value === "string"),
+			efforts: z.array(Effort).min(1),
+			effortMap: z.record(z.string()).optional(),
+		})
+		.optional(),
+	contextWindow: OptionalNumber,
+	maxTokens: OptionalNumber,
+	replayReasoning: z.boolean().optional(),
 });
 
 /** `host.bench.run` options; benchmarkArgs bounds the numbers and selectors. */

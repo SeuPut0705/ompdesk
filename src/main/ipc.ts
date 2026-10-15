@@ -87,7 +87,7 @@ import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
 import { registerPreviewHost } from "./preview/host";
-import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
+import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
@@ -1134,6 +1134,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (event, id: string, device?: unknown) =>
 		machineFor(event, device).deleteProvider(id),
+	);
+
+	ipcMain.handle(
+		IPC_COMMANDS.MODELS_OVERRIDE_SET,
+		(event, provider: unknown, modelId: unknown, override: unknown, device?: unknown) => {
+			if (typeof provider !== "string" || !provider || typeof modelId !== "string" || !modelId) {
+				throw codedError("invalid_preference_key", "Invalid model override target");
+			}
+			return machineFor(event, device).setModelOverride(
+				provider,
+				modelId,
+				ModelOverrideInputSchema.nullable().parse(override),
+			);
+		},
 	);
 
 	// Account rotation is per machine: a paired host's tabs follow the host's own pref.

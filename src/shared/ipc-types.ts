@@ -178,6 +178,7 @@ export const IPC_COMMANDS = {
 	MODELS_PROVIDER_UPSERT: "models:provider-upsert",
 	/** Delete a custom provider from models.yml */
 	MODELS_PROVIDER_DELETE: "models:provider-delete",
+	MODELS_OVERRIDE_SET: "models:override-set",
 	/** Open the agent's models.yml in the system editor (created when missing; falls back to revealing it in the file manager) */
 	MODELS_CONFIG_OPEN: "models:config-open",
 	/** The account-rotation pref of a machine (a paired host, or this device) and whether its omp supports even mode */
@@ -690,6 +691,30 @@ export interface CustomProviderView {
 	extraBody?: Record<string, unknown>;
 	models: CustomProviderModelInput[];
 	builtin: boolean;
+	/** `modelOverrides` by model id: changes to models this provider already has (B43). */
+	modelOverrides?: Record<string, ModelOverrideInput>;
+}
+
+/**
+ * One models.yml `providers.<provider>.modelOverrides.<modelId>` entry as the
+ * GUI edits it (stock ModelOverrideSchema; a field left out inherits the
+ * model's own value). Keys the GUI does not render survive an edit.
+ */
+export interface ModelOverrideInput {
+	name?: string;
+	/** Wire format (stock `api`). */
+	api?: CustomProviderApi;
+	reasoning?: boolean;
+	/** Reasoning levels and, per level, the value sent on the wire (`thinking.effortMap`). */
+	thinking?: {
+		mode: CustomModelThinkingMode;
+		efforts: CustomModelEffort[];
+		effortMap?: Partial<Record<CustomModelEffort, string>>;
+	};
+	contextWindow?: number;
+	maxTokens?: number;
+	/** Send earlier reasoning back with tool calls (`compat.requiresReasoningContentForToolCalls`). */
+	replayReasoning?: boolean;
 }
 
 export interface IpcSessionsListPayload {
@@ -1558,6 +1583,13 @@ export interface OmpApi {
 		listProviders(device?: string): Promise<CustomProvidersConfig>;
 		upsertProvider(input: CustomProviderInput, device?: string): Promise<void>;
 		deleteProvider(id: string, device?: string): Promise<void>;
+		/** Write (or with `null`, remove) one model's `modelOverrides` entry under `provider` (B43). */
+		setModelOverride(
+			provider: string,
+			modelId: string,
+			override: ModelOverrideInput | null,
+			device?: string,
+		): Promise<void>;
 		/** Opens this device's file only; a paired host's fails with code `remote_path_native`. */
 		openConfig(device?: string): Promise<{ path: string; opened: boolean }>;
 	};

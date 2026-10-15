@@ -42,6 +42,7 @@ import type {
 	LogBatch,
 	MenuAction,
 	MenuActionPayload,
+	ModelOverrideInput,
 	NotificationClickPayload,
 	OmpApi,
 	PeerLimits,
@@ -396,6 +397,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, input, device) as Promise<void>,
 		deleteProvider: (id: string, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_DELETE, id, device) as Promise<void>,
+		setModelOverride: (provider: string, modelId: string, override: ModelOverrideInput | null, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_OVERRIDE_SET, provider, modelId, override, device) as Promise<void>,
 		openConfig: (device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN, device) as Promise<{ path: string; opened: boolean }>,
 	},

@@ -15,6 +15,7 @@ import type {
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
+	ModelOverrideInput,
 } from "../../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
@@ -151,6 +152,7 @@ function fakeMachine() {
 		),
 		upsertProvider: vi.fn(async (_input: CustomProviderInput) => {}),
 		deleteProvider: vi.fn(async (_id: string) => {}),
+		setModelOverride: vi.fn(async (_provider: string, _modelId: string, _override: ModelOverrideInput | null) => {}),
 		fetchStats: vi.fn(async (path: string, params?: Record<string, string>): Promise<unknown> => ({ path, params })),
 		runBenchmark: vi.fn(
 			async (
@@ -647,6 +649,23 @@ describe("LocalHostServices host.* calls", () => {
 			/Invalid host.models.delete/,
 		);
 		expect(machine.deleteProvider).toHaveBeenCalledTimes(1);
+
+		// B43: one model's overrides on the host's models.yml; a reset sends null.
+		const override = { contextWindow: 64_000, replayReasoning: true };
+		await services.call(x.peer, "host.models.override", { provider: "anthropic", modelId: "m", override }, x);
+		expect(machine.setModelOverride).toHaveBeenCalledWith("anthropic", "m", override);
+		await services.call(x.peer, "host.models.override", { provider: "anthropic", modelId: "m", override: null }, x);
+		expect(machine.setModelOverride).toHaveBeenLastCalledWith("anthropic", "m", null);
+		const emptyLadder = { thinking: { mode: "effort", efforts: [] } };
+		await expect(
+			services.call(
+				x.peer,
+				"host.models.override",
+				{ provider: "anthropic", modelId: "m", override: emptyLadder },
+				x,
+			),
+		).rejects.toThrow(/Invalid host.models.override/);
+		expect(machine.setModelOverride).toHaveBeenCalledTimes(2);
 	});
 
 	it("reads and writes this machine's account-rotation pref, refusing an unknown mode", async () => {

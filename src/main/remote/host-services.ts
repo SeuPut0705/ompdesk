@@ -66,6 +66,7 @@ import {
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
+	ModelOverrideInputSchema,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
@@ -176,6 +177,11 @@ const LaunchProfileGetParams = z.object({ cwd: AbsolutePath });
 const LaunchProfileUpdateParams = z.object({ cwd: AbsolutePath, patch: z.record(z.unknown()) });
 const ModelsUpsertParams = z.object({ input: CustomProviderInputSchema });
 const ModelsDeleteParams = z.object({ id: z.string().min(1) });
+const ModelsOverrideParams = z.object({
+	provider: z.string().min(1).max(200),
+	modelId: z.string().min(1).max(400),
+	override: ModelOverrideInputSchema.nullable(),
+});
 const StatsFetchParams = z.object({ path: z.string().min(1).max(512), params: z.record(z.string()).optional() });
 const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
 const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
@@ -374,6 +380,11 @@ export class LocalHostServices implements HostServices {
 			case "host.models.delete":
 				await this.#deps.machine.deleteProvider(parse(ModelsDeleteParams, method, params).id);
 				return null;
+			case "host.models.override": {
+				const { provider, modelId, override } = parse(ModelsOverrideParams, method, params);
+				await this.#deps.machine.setModelOverride(provider, modelId, override);
+				return null;
+			}
 			case "host.stats.fetch": {
 				const { path, params: query } = parse(StatsFetchParams, method, params);
 				return this.#deps.machine.fetchStats(path, query);

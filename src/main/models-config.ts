@@ -26,6 +26,7 @@ import type {
 	CustomProviderModelInput,
 	CustomProviderModelThinking,
 	CustomProviderView,
+	ModelOverrideInput,
 } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
 import { type ModelsConfigMetadata, modelsConfigMetadata, normalizeModelsConfig } from "./models-config-stock";
@@ -226,6 +227,41 @@ function modelToView(raw: unknown): CustomProviderModelInput | null {
 	return view;
 }
 
+/** A `modelOverrides` entry's GUI-rendered fields; anything else in it stays in the file only. */
+function overrideToView(raw: unknown): ModelOverrideInput | null {
+	if (!raw || typeof raw !== "object") return null;
+	const rec = raw as Record<string, unknown>;
+	const view: ModelOverrideInput = {};
+	const name = asString(rec.name);
+	if (name) view.name = name;
+	const api = asApi(rec.api);
+	if (api) view.api = api;
+	const reasoning = asBoolean(rec.reasoning);
+	if (reasoning !== undefined) view.reasoning = reasoning;
+	const thinking = asThinking(rec.thinking);
+	if (thinking) {
+		const rawMap = (rec.thinking as Record<string, unknown>).effortMap;
+		const effortMap: Partial<Record<CustomModelEffort, string>> = {};
+		if (rawMap && typeof rawMap === "object") {
+			for (const [effort, wire] of Object.entries(rawMap)) {
+				if (options.efforts.includes(effort) && typeof wire === "string" && wire) {
+					effortMap[effort as CustomModelEffort] = wire;
+				}
+			}
+		}
+		view.thinking = { mode: thinking.mode, efforts: thinking.efforts };
+		if (Object.keys(effortMap).length > 0) view.thinking.effortMap = effortMap;
+	}
+	const contextWindow = asNumber(rec.contextWindow);
+	if (contextWindow !== undefined) view.contextWindow = contextWindow;
+	const maxTokens = asNumber(rec.maxTokens);
+	if (maxTokens !== undefined) view.maxTokens = maxTokens;
+	const compat = rec.compat && typeof rec.compat === "object" ? (rec.compat as Record<string, unknown>) : undefined;
+	const replay = asBoolean(compat?.requiresReasoningContentForToolCalls);
+	if (replay !== undefined) view.replayReasoning = replay;
+	return view;
+}
+
 function toView(id: string, raw: unknown): CustomProviderView & { apiKey?: string } {
 	const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
 	const models: CustomProviderModelInput[] = [];
@@ -257,8 +293,19 @@ function toView(id: string, raw: unknown): CustomProviderView & { apiKey?: strin
 		extraBody: extraBody && Object.keys(extraBody).length > 0 ? extraBody : undefined,
 		models,
 		builtin: options.builtinProviders.includes(id),
+		modelOverrides: overridesToView(rec.modelOverrides),
 		apiKey: typeof rec.apiKey === "string" ? rec.apiKey : undefined,
 	};
+}
+
+function overridesToView(raw: unknown): Record<string, ModelOverrideInput> | undefined {
+	if (!raw || typeof raw !== "object") return undefined;
+	const views: Record<string, ModelOverrideInput> = {};
+	for (const [modelId, entry] of Object.entries(raw)) {
+		const view = overrideToView(entry);
+		if (view) views[modelId] = view;
+	}
+	return Object.keys(views).length > 0 ? views : undefined;
 }
 
 /** List configured providers (custom + user overrides), apiKey masked. */
@@ -388,6 +435,81 @@ export function deleteModelsProvider(id: string): Promise<void> {
 		const data = await readModelsFile();
 		if (!(id in data.providers)) return;
 		data.doc.deleteIn(["providers", id]);
+		await writeModelsFile(data.doc);
+	});
+	mutation = operation.catch(() => undefined);
+	return operation;
+}
+
+/**
+ * Write (or with `null`, remove) one model's `modelOverrides` entry under any
+ * provider, built-in ones included (B43). Rendered fields are set-or-deleted;
+ * the entry's other keys (cost, headers, compat flags, effortMap levels the
+ * ladder no longer has…) survive. A built-in provider entry left with nothing
+ * is removed, so resetting the last override leaves models.yml as it was.
+ */
+export function setModelOverride(provider: string, modelId: string, input: ModelOverrideInput | null): Promise<void> {
+	const operation = mutation.then(async () => {
+		options = await modelsConfigMetadata();
+		const data = await readModelsFile();
+		const before = data.doc.toJS()?.providers?.[provider];
+		const entry: Record<string, unknown> =
+			before && typeof before === "object" ? { ...(before as Record<string, unknown>) } : {};
+		const overrides: Record<string, unknown> =
+			entry.modelOverrides && typeof entry.modelOverrides === "object"
+				? { ...(entry.modelOverrides as Record<string, unknown>) }
+				: {};
+		if (input === null) {
+			delete overrides[modelId];
+		} else {
+			const existing = overrides[modelId];
+			const merged: Record<string, unknown> =
+				existing && typeof existing === "object" ? { ...(existing as Record<string, unknown>) } : {};
+			setOrDelete(merged, "name", input.name);
+			setOrDelete(merged, "api", input.api);
+			setOrDelete(merged, "reasoning", input.reasoning);
+			setOrDelete(merged, "contextWindow", input.contextWindow);
+			setOrDelete(merged, "maxTokens", input.maxTokens);
+			if (input.thinking) {
+				const base =
+					merged.thinking && typeof merged.thinking === "object"
+						? { ...(merged.thinking as Record<string, unknown>) }
+						: {};
+				// The legacy range keys restate the ladder `efforts` now holds (see mergeModel).
+				delete base.levels;
+				delete base.minLevel;
+				delete base.maxLevel;
+				const thinking: Record<string, unknown> = {
+					...base,
+					mode: input.thinking.mode,
+					efforts: input.thinking.efforts,
+				};
+				setOrDelete(
+					thinking,
+					"effortMap",
+					input.thinking.effortMap && Object.keys(input.thinking.effortMap).length > 0
+						? input.thinking.effortMap
+						: undefined,
+				);
+				merged.thinking = thinking;
+			} else {
+				delete merged.thinking;
+			}
+			const compat =
+				merged.compat && typeof merged.compat === "object" ? { ...(merged.compat as Record<string, unknown>) } : {};
+			setOrDelete(compat, "requiresReasoningContentForToolCalls", input.replayReasoning);
+			if (Object.keys(compat).length > 0) merged.compat = compat;
+			else delete merged.compat;
+			if (Object.keys(merged).length > 0) overrides[modelId] = merged;
+			else delete overrides[modelId];
+		}
+		if (Object.keys(overrides).length > 0) entry.modelOverrides = overrides;
+		else delete entry.modelOverrides;
+		if (Object.keys(entry).length === 0) {
+			if (before !== undefined) data.doc.deleteIn(["providers", provider]);
+		} else {
+			applyYamlDiff(data.doc, before, entry, ["providers", provider]);
+		}
 		await writeModelsFile(data.doc);
 	});
 	mutation = operation.catch(() => undefined);

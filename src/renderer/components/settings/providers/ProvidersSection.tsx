@@ -27,6 +27,7 @@ import { Button, ConfirmDialog, IconButton, InlineNotice, ListRow, Spinner } fro
 import { SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { ModelOverrides } from "./ModelOverrides";
 import { ProviderAccounts, useProviderAccounts } from "./ProviderAccounts";
 import {
 	type ProviderCatalog,
@@ -507,6 +508,7 @@ export function ProvidersSection({
 				onDelete={setPendingDelete}
 				onEdit={config => openProviderConfig(config)}
 			/>
+			<ModelOverrides catalog={catalog} />
 		</>
 	);
 }

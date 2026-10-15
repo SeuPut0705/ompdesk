@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { parse } from "yaml";
 import type { CustomProviderInput } from "../shared/ipc-types";
-import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
+import {
+	deleteModelsProvider,
+	listModelsProviders,
+	modelsPath,
+	setModelOverride,
+	upsertModelsProvider,
+} from "./models-config";
 import { modelsConfigMetadata } from "./models-config-stock";
 import { ompPackageRoot, systemOmp } from "./omp-runtime";
 import { CustomProviderInputSchema } from "./remote/app-protocol";
@@ -183,6 +189,52 @@ providers:
 		expect(existsSync(join(dir, "models.yaml"))).toBe(false);
 		await deleteModelsProvider(minimal.id);
 		expect(await listModelsProviders()).toEqual([]);
+	});
+
+	test("writes a built-in model's overrides, keeps unrendered keys, and a reset leaves no entry", async () => {
+		writeFileSync(
+			modelsPath(),
+			`providers:
+  anthropic:
+    modelOverrides:
+      claude-x:
+        cost: {input: 1, output: 2, cacheRead: 0, cacheWrite: 0}
+        compat: {supportsStore: false}
+`,
+		);
+		await setModelOverride("anthropic", "claude-x", {
+			contextWindow: 64_000,
+			maxTokens: 8_000,
+			api: "anthropic-messages",
+			thinking: { mode: "effort", efforts: ["low", "high"], effortMap: { high: "max" } },
+			replayReasoning: true,
+		});
+		const written = parse(readFileSync(modelsPath(), "utf8")).providers.anthropic.modelOverrides["claude-x"];
+		expect(written).toMatchObject({
+			contextWindow: 64_000,
+			maxTokens: 8_000,
+			cost: { input: 1, output: 2 },
+			compat: { supportsStore: false, requiresReasoningContentForToolCalls: true },
+			thinking: { mode: "effort", efforts: ["low", "high"], effortMap: { high: "max" } },
+		});
+		const view = (await listModelsProviders()).find(provider => provider.id === "anthropic");
+		expect(view?.builtin).toBe(true);
+		expect(view?.modelOverrides?.["claude-x"]).toEqual({
+			api: "anthropic-messages",
+			contextWindow: 64_000,
+			maxTokens: 8_000,
+			thinking: { mode: "effort", efforts: ["low", "high"], effortMap: { high: "max" } },
+			replayReasoning: true,
+		});
+
+		// Clearing every rendered field keeps the hand-written keys.
+		await setModelOverride("anthropic", "claude-x", {});
+		expect(parse(readFileSync(modelsPath(), "utf8")).providers.anthropic.modelOverrides["claude-x"]).toEqual({
+			cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+			compat: { supportsStore: false },
+		});
+		await setModelOverride("anthropic", "claude-x", null);
+		expect(parse(readFileSync(modelsPath(), "utf8")).providers ?? {}).not.toHaveProperty("anthropic");
 	});
 });
 
