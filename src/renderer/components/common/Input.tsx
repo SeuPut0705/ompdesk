@@ -177,7 +177,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
 		const el = innerRef.current;
 		if (!el || !autoGrow) return;
 		el.style.height = "0px";
-		el.style.height = `${el.scrollHeight}px`;
+		// scrollHeight leaves the border out and the box is border-box: without it the field scrolls by its border.
+		el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 	}, [autoGrow]);
 
 	useLayoutEffect(resize, [resize]);

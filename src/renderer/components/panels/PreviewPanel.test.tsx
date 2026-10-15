@@ -4,7 +4,9 @@ import {
 	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	isLoopbackUrl,
+	PREVIEW_PROBLEM_LIMIT,
 	previewAddress,
+	previewProblemCount,
 	previewUrl,
 	reducePreviewState,
 } from "../../../shared/preview";
@@ -122,5 +124,10 @@ describe("browser preview", () => {
 		expect(clampPreviewZoom(0.3)).toBe(0.5);
 		expect(clampPreviewZoom(5)).toBe(2);
 		expect(clampPreviewZoom(Number.NaN)).toBe(1);
+	});
+	it("counts console problems up to the cap and says '+' once older ones were dropped", () => {
+		expect(previewProblemCount(2)).toBe("2");
+		expect(previewProblemCount(PREVIEW_PROBLEM_LIMIT - 1)).toBe(String(PREVIEW_PROBLEM_LIMIT - 1));
+		expect(previewProblemCount(PREVIEW_PROBLEM_LIMIT)).toBe(`${PREVIEW_PROBLEM_LIMIT}+`);
 	});
 });

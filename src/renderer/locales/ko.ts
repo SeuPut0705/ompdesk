@@ -4209,6 +4209,7 @@ export const ko: Record<string, string> = {
 	"panel.preview.problemsTitle": "페이지 문제",
 	"panel.preview.problemsHint": "이 페이지를 마지막으로 불러온 뒤 콘솔에 남은 오류와 경고예요.",
 	"panel.preview.crashed": "이 페이지가 멈췄어요",
+	"panel.preview.problemsCapped": "최근 {count}개만 보여 줘요. 이전 항목은 지웠어요.",
 	"panel.preview.restore": "페이지 복구하기",
 	"panel.preview.download": "이 페이지가 {name} 파일을 내려받으려고 했어요. 미리보기는 파일을 저장하지 않아요.",
 	"panel.preview.unresponsive": "이 페이지가 응답하지 않아요.",

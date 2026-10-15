@@ -20,8 +20,9 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
+import { SessionRuntimeProvider, sessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
+import { CLOSED_FILE_VIEW, COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
 import { IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
@@ -117,7 +118,24 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 	const panelTab = useUiStore(s => s.panelTab);
 	const panelSubagent = useUiStore(s => s.panelSubagent);
 	const activeTabId = useTabsStore(s => s.activeTabId);
-	return (
+	const fileEditDirty = useUiStore(s => s.fileEditDirty);
+	const fileEditTabId = useUiStore(s => s.fileEditTabId);
+	// Unsaved edits in the Files editor belong to the tab whose file they are. A click into another pane (or a
+	// session pick) moves the focus without losing them: the panel stays on that tab until the edits end, then
+	// closes its file view like any other session switch.
+	useEffect(() => {
+		const ui = useUiStore.getState();
+		if (fileEditDirty) {
+			if (ui.fileEditTabId === null) ui.setFileEditTabId(activeTabId);
+			return;
+		}
+		const owner = ui.fileEditTabId;
+		if (owner === null) return;
+		ui.setFileEditTabId(null);
+		if (owner !== activeTabId) useUiStore.setState(CLOSED_FILE_VIEW);
+	}, [fileEditDirty, activeTabId]);
+	const pinned = fileEditDirty && panelTab === "files" ? sessionRuntime(fileEditTabId) : null;
+	const views = (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 			{panelTab !== "terminal" && panelTab !== "preview" && (
 				<div
@@ -130,7 +148,7 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 				key={
 					panelTab === "subagent"
 						? `subagent:${panelSubagent?.tabId}:${panelSubagent?.agentId}`
-						: `${activeTabId ?? "no-tab"}:${panelTab}`
+						: `${pinned?.tabId ?? activeTabId ?? "no-tab"}:${panelTab}`
 				}
 			>
 				{panelTab === "terminal" && <TerminalPanel />}
@@ -147,6 +165,9 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 			</PanelErrorBoundary>
 		</div>
 	);
+	// Always wrapped, so pinning to the editing tab changes the context value and never the tree (which would remount the editor).
+	const runtime = pinned ?? sessionRuntime(activeTabId);
+	return runtime ? <SessionRuntimeProvider runtime={runtime}>{views}</SessionRuntimeProvider> : views;
 }
 
 /**

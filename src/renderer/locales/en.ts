@@ -4224,6 +4224,7 @@ export const en: Record<string, string> = {
 	"panel.preview.problemsHint": "Console errors and warnings from this page since it last loaded.",
 	"panel.preview.crashed": "This page stopped working",
 	"panel.preview.restore": "Restore page",
+	"panel.preview.problemsCapped": "Showing the latest {count}; older ones were dropped.",
 	"panel.preview.download": "This page tried to download {name}. The preview doesn't save files.",
 	"panel.preview.unresponsive": "This page isn't responding.",
 	"panel.preview.problemsCopy": "Copy problems",

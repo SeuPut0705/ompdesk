@@ -450,6 +450,11 @@ export function Sidebar() {
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
 	const [archivedOpen, setArchivedOpen] = useState(false);
+	const archivedRef = useRef<HTMLElement>(null);
+	// The section sits at the end of the list: opening it brings it to the top, or its rows stay below the fold.
+	useEffect(() => {
+		if (archivedOpen) archivedRef.current?.scrollIntoView?.({ block: "start" });
+	}, [archivedOpen]);
 	const [archivedMenu, setArchivedMenu] = useState<ContextMenuAnchor | null>(null);
 	// Project display alias rename (group header inline input).
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
@@ -1155,6 +1160,7 @@ export function Sidebar() {
 		return (
 			<Fragment key={session.path}>
 				<ListRow
+					actionCount={[true, archivable, variant === "archived", deletable].filter(Boolean).length}
 					actions={
 						indexed ? (
 							<>
@@ -1658,7 +1664,7 @@ export function Sidebar() {
 						</div>
 					)}
 					{archivedRows.length > 0 && (
-						<section className="mt-3" data-sidebar-archived>
+						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
 							<div
 								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}

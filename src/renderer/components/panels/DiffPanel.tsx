@@ -19,6 +19,7 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { type ChangesMode, useUiStore } from "../../stores/ui";
 import { EmptyState, IconButton, Select } from "../common";
 import { workspaceRelativePath } from "./FilesPanel";
 import { PANEL_ROW, PanelToolbar } from "./PanelChrome";
@@ -543,7 +544,8 @@ export function DiffPanel() {
 	const allCandidates = useEditCandidates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [split, setSplit] = useState(false);
-	const [mode, setMode] = useState<"repository" | "commits" | "current" | "timeline" | "artifacts">("repository");
+	const mode = useUiStore(state => state.changesMode);
+	const setMode = useUiStore(state => state.setChangesMode);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const cwd = useSessionStore(state => state.cwd);
 	const candidates = useMemo(
@@ -557,7 +559,7 @@ export function DiffPanel() {
 			aria-label={t("diffPanel.title")}
 			controlSize="sm"
 			value={mode}
-			onChange={event => setMode(event.target.value as typeof mode)}
+			onChange={event => setMode(event.target.value as ChangesMode)}
 			options={(["repository", "commits", "current", "timeline", "artifacts"] as const).map(value => ({
 				value,
 				label: t(`diffPanel.mode.${value}`),

@@ -225,4 +225,55 @@ describe("RepositoryChanges", () => {
 		expect(document.querySelector('button[title="src/a.ts"]')).toBeNull();
 		expect(bodyText()).not.toContain("git status failed");
 	});
+
+	const answer = (...paths: string[]) => ({
+		type: "response",
+		command: "get_git_changes",
+		success: true,
+		data: changes(...paths),
+	});
+
+	it("reads the checkout again when the window comes back, so an agent's edits show without a click", async () => {
+		installMockOmp(async () => answer("src/a.ts"));
+		await mount();
+		getGitChanges.mockImplementation(async () => answer("src/a.ts", "src/b.ts"));
+		await act(async () => {
+			document.dispatchEvent(new Event("visibilitychange"));
+		});
+		await flush();
+		expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
+	});
+
+	it("keeps watching while it shows: a file changed on disk appears on its own, an unchanged checkout does not reload", async () => {
+		vi.useFakeTimers();
+		try {
+			installMockOmp(async () => answer("src/a.ts"));
+			container = document.createElement("div") as unknown as TestElement;
+			document.body.appendChild(container as never);
+			root = createRoot(container as unknown as Element);
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<RepositoryChanges />
+					</I18nProvider>,
+				);
+				await vi.advanceTimersByTimeAsync(0);
+			});
+			const loads = getGitChanges.mock.calls.length;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(10_000);
+			});
+			// Polled reads happened, but the same answer kept the list as it was (no reload on top of them).
+			expect(getGitChanges.mock.calls.length).toBeGreaterThan(loads);
+			const polled = getGitChanges.mock.calls.length - loads;
+			getGitChanges.mockImplementation(async () => answer("src/a.ts", "src/b.ts"));
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(10_000);
+			});
+			expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
+			expect(polled).toBeGreaterThan(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

@@ -28,6 +28,8 @@ export interface ListRowProps {
 	meta?: ReactNode;
 	/** Row actions (IconButton size sm); shown on hover / focus-within / selected. */
 	actions?: ReactNode;
+	/** How many actions show at most, so the title keeps clear of them (room for two when omitted). */
+	actionCount?: number;
 	/** Always-visible control at the right edge (e.g. a disclosure); actions show to its left. */
 	trailing?: ReactNode;
 	selected?: boolean;
@@ -46,12 +48,24 @@ export interface ListRowProps {
 		DataAttributes;
 }
 
+/**
+ * Right padding that keeps the title clear of the overlaid actions: n buttons of 28px, the 2px gaps and
+ * the 6px edge offset. Static strings, so Tailwind finds them.
+ */
+const ACTION_ROOM = [
+	{ reveal: "group-focus-within/row:pr-9 group-hover/row:pr-9", always: "pr-9" },
+	{ reveal: "group-focus-within/row:pr-14 group-hover/row:pr-14", always: "pr-14" },
+	{ reveal: "group-focus-within/row:pr-24 group-hover/row:pr-24", always: "pr-24" },
+	{ reveal: "group-focus-within/row:pr-32 group-hover/row:pr-32", always: "pr-32" },
+] as const;
+
 export function ListRow({
 	title,
 	description,
 	leading,
 	meta,
 	actions,
+	actionCount,
 	trailing,
 	selected,
 	disabled,
@@ -61,6 +75,7 @@ export function ListRow({
 	rowProps,
 	buttonProps,
 }: ListRowProps) {
+	const room = ACTION_ROOM[Math.min(Math.max(actionCount ?? 2, 1), ACTION_ROOM.length) - 1] ?? ACTION_ROOM[1];
 	// Overlaid on the right edge (left of `trailing`) so hidden actions never
 	// reserve the width the title needs at rest.
 	const actionsOverlay = actions && (
@@ -94,8 +109,8 @@ export function ListRow({
 				className={cx(
 					"min-w-0 flex-1",
 					// Actions overlay the right edge; make room only while they show.
-					actions != null && "group-focus-within/row:pr-14 group-hover/row:pr-14",
-					actions != null && selected && "pr-14",
+					actions != null && room.reveal,
+					actions != null && selected && room.always,
 				)}
 			>
 				{onClick ? (

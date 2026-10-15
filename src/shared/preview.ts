@@ -90,6 +90,10 @@ export interface PreviewState {
 /** What one tab's page reports; the strip fields come from the window. */
 export type PreviewPageState = Omit<PreviewState, "tabs" | "activeTab">;
 export const PREVIEW_PROBLEM_LIMIT = 50;
+/** The count a panel shows for `count` kept problems: at the cap older ones were dropped, so it reads "50+". */
+export function previewProblemCount(count: number): string {
+	return count >= PREVIEW_PROBLEM_LIMIT ? `${count}+` : String(count);
+}
 export const EMPTY_PREVIEW_PAGE: PreviewPageState = {
 	url: "",
 	title: "",

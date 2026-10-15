@@ -61,6 +61,16 @@ export async function inspect(page: Page, shot: string): Promise<Finding[]> {
 			const overlapY = Math.min(box.bottom, anchor.bottom) - Math.max(box.top, anchor.top);
 			if (overlapX > 2 && overlapY > 2) out.push({ kind: "menu-covers-trigger", detail: describe(trigger) });
 		}
+		// A short or empty text field never scrolls: a scrollbar there means its box is a pixel too small for its own line.
+		for (const area of document.querySelectorAll("textarea")) {
+			const box = area.getBoundingClientRect();
+			if (box.width === 0 || box.height === 0 || getComputedStyle(area).visibility === "hidden") continue;
+			if (area.scrollHeight > area.clientHeight + 1 && area.value.length < 80 && !area.value.includes("\n"))
+				out.push({
+					kind: "textarea-scrolls",
+					detail: `${describe(area)} scrollHeight ${area.scrollHeight} > clientHeight ${area.clientHeight} (${Math.round(box.width)}x${Math.round(box.height)})`,
+				});
+		}
 		// Reduced motion: nothing animates longer than a frame.
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches)
 			for (const animation of document.getAnimations()) {

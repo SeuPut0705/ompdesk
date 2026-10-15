@@ -28,6 +28,7 @@ import {
 	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	isLoopbackUrl,
+	PREVIEW_PROBLEM_LIMIT,
 	PREVIEW_TAB_LIMIT,
 	PREVIEW_VIEWPORTS,
 	PREVIEW_ZOOM_MAX,
@@ -35,6 +36,7 @@ import {
 	type PreviewRequest,
 	type PreviewViewport,
 	previewAddress,
+	previewProblemCount,
 	reducePreviewState,
 } from "../../../shared/preview";
 import { useT } from "../../lib/i18n";
@@ -383,7 +385,7 @@ export function PreviewPanel() {
 					{state.problems.length > 0 && (
 						<Button
 							ref={problemsAnchor}
-							aria-label={t("panel.preview.problems", { count: state.problems.length })}
+							aria-label={t("panel.preview.problems", { count: previewProblemCount(state.problems.length) })}
 							aria-expanded={problemsOpen}
 							aria-haspopup="dialog"
 							icon={<AlertTriangle />}
@@ -393,7 +395,7 @@ export function PreviewPanel() {
 							data-preview-problems
 							onClick={() => setProblemsOpen(open => !open)}
 						>
-							{state.problems.length}
+							{previewProblemCount(state.problems.length)}
 						</Button>
 					)}
 					<IconButton
@@ -434,7 +436,11 @@ export function PreviewPanel() {
 				<div className="flex items-start gap-2 pb-2">
 					<div className="min-w-0 flex-1">
 						<div className="text-sc-md font-semibold text-(--sc-text)">{t("panel.preview.problemsTitle")}</div>
-						<p className="text-sc-xs text-(--sc-text-muted)">{t("panel.preview.problemsHint")}</p>
+						<p className="text-sc-xs text-(--sc-text-muted)">
+							{t("panel.preview.problemsHint")}
+							{state.problems.length >= PREVIEW_PROBLEM_LIMIT &&
+								` ${t("panel.preview.problemsCapped", { count: PREVIEW_PROBLEM_LIMIT })}`}
+						</p>
 					</div>
 					<CopyButton label={t("panel.preview.problemsCopy")} size="sm" text={problemsText} />
 					<Button

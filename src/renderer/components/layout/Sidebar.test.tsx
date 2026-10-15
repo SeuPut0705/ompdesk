@@ -1526,6 +1526,22 @@ describe("Sidebar archive, grouping and move", () => {
 		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
 	});
 
+	it("scrolls the Archived section to the top of the list when it opens, so its rows are not left below the fold", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true, archivedSessions: ["/work/alpha/one.jsonl"] });
+		await mount(<Sidebar />);
+		const reveal = vi.fn();
+		const section = archivedSection();
+		if (!section) throw new Error("expected the Archived section");
+		Object.defineProperty(section, "scrollIntoView", { configurable: true, value: reveal });
+		await fire(archivedHeader(), "onClick");
+		expect(reveal).toHaveBeenCalledWith({ block: "start" });
+		reveal.mockClear();
+		await fire(archivedHeader(), "onClick");
+		expect(reveal).not.toHaveBeenCalled();
+	});
+
 	it("keeps an archived session a tab holds in its list, and refuses to archive an open session", async () => {
 		installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "/work/alpha/one.jsonl", cwd: "/work/alpha", isStreaming: false });

@@ -20,12 +20,25 @@ export const PANEL_TABS = [
 	"memory",
 ] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
+/** The Files view with nothing open: what a session switch (or the end of edits that outlived one) leaves. */
+export const CLOSED_FILE_VIEW: Pick<
+	UiStore,
+	"filePreviewPath" | "filePreviewLine" | "fileTabs" | "filesRevealPath" | "filePreviewExpanded"
+> = {
+	filePreviewPath: null,
+	filePreviewLine: null,
+	fileTabs: [],
+	filesRevealPath: null,
+	filePreviewExpanded: false,
+};
+
 /**
  * What the side panel shows: a session view, or one subagent's transcript
  * (`panelSubagent`). The subagent view stays out of `PANEL_TABS`, which feeds
  * the default-view setting and the `panel.*` shortcuts.
  */
 export type PanelView = PanelTab | "subagent";
+export type ChangesMode = "repository" | "commits" | "current" | "timeline" | "artifacts";
 /** The subagent the side panel shows: its owning tab (whose omp writes its session) and its id. */
 export interface PanelSubagent {
 	tabId: string;
@@ -114,6 +127,9 @@ interface UiStore {
 	panelVisible: boolean;
 	panelTab: PanelView;
 	panelSubagent: PanelSubagent | null;
+	/** The Changes panel's source; kept here so another view or a narrower window (a remount) does not reset it. */
+	changesMode: ChangesMode;
+	setChangesMode: (mode: ChangesMode) => void;
 	previewUrl: string | null;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
@@ -131,6 +147,9 @@ interface UiStore {
 	filesSearchSeq: number;
 	/** The Files viewer's editor holds unsaved edits: switching to another file waits in `pendingFileSwitch`. */
 	fileEditDirty: boolean;
+	/** The tab whose Files editor holds those edits: the panel stays on it while another session takes the focus. */
+	fileEditTabId: string | null;
+	setFileEditTabId: (tabId: string | null) => void;
 	/** A file switch held back by unsaved edits; the viewer applies it after "Discard" or drops it on Cancel. */
 	pendingFileSwitch: Partial<UiStore> | null;
 	setFileEditDirty: (dirty: boolean) => void;
@@ -387,12 +406,15 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelVisible: false,
 	panelTab: "diff",
 	panelSubagent: null,
+	changesMode: "repository",
+	setChangesMode: changesMode => set({ changesMode }),
 	filePreviewPath: null,
 	filePreviewLine: null,
 	fileTabs: [],
 	filesRevealPath: null,
 	filesSearchSeq: 0,
 	fileEditDirty: false,
+	fileEditTabId: null,
 	pendingFileSwitch: null,
 	terminalFocusId: null,
 	filePreviewExpanded: false,
@@ -481,6 +503,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		else set({ ...next, panelTab: "files", panelVisible: true });
 	},
 	setFileEditDirty: dirty => set({ fileEditDirty: dirty }),
+	setFileEditTabId: fileEditTabId => set({ fileEditTabId }),
 	resolveFileSwitch: proceed => {
 		const pending = get().pendingFileSwitch;
 		if (proceed && pending) set({ ...pending, pendingFileSwitch: null, fileEditDirty: false });
@@ -650,11 +673,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeDialog: null,
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
-			filePreviewPath: null,
-			filePreviewLine: null,
-			fileTabs: [],
-			filesRevealPath: null,
-			filePreviewExpanded: false,
+			// An editor with unsaved edits stays: the panel pins to the tab that owns it (PanelContainer).
+			...(get().fileEditDirty ? {} : CLOSED_FILE_VIEW),
 			terminalExpanded: false,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,

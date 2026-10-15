@@ -49,6 +49,9 @@ export const STATUS_STYLE: Record<string, string> = {
 
 const CHECKBOX = "size-4 shrink-0 accent-(--sc-accent) disabled:cursor-not-allowed";
 
+/** How often the open list asks git again while the window is visible. */
+const REPOSITORY_WATCH_MS = 3000;
+
 /** Git metadata is chrome, not source. Keep the shared tool diff renderer unchanged. */
 export function parseRepositoryDiff(diff: string) {
 	return parseDiff(
@@ -80,6 +83,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	const [discarding, setDiscarding] = useState<string[] | null>(null);
 	const [menu, setMenu] = useState<{ anchor: ContextMenuAnchor; file: ChangedFile } | null>(null);
 	const loadedFor = useRef<TabRpc | null>(null);
+	const loadedSignature = useRef("");
 	const reload = useCallback(() => setRefresh(value => value + 1), []);
 	const runner = useScmAction(rpc, reload);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh explicitly reloads the checkout.
@@ -98,6 +102,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
 				loadedFor.current = rpc;
 				const data = response.data as RpcGitChanges;
+				loadedSignature.current = JSON.stringify(data);
 				setChanges(data);
 				setSelected(previous => (data.files.some(file => file.path === previous) ? previous : ""));
 			})
@@ -111,6 +116,31 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			active = false;
 		};
 	}, [rpc, refresh, t]);
+	// The checkout changes under an open panel (the agent edits, the user saves in Files or an editor): read it
+	// again when the window comes back and while it shows, and reload only when the answer differs.
+	useEffect(() => {
+		let active = true;
+		let reading = false;
+		const check = async () => {
+			if (document.hidden || reading) return;
+			reading = true;
+			try {
+				const response = await rpc.getGitChanges();
+				if (active && response.success && JSON.stringify(response.data) !== loadedSignature.current) reload();
+			} catch {
+				// A failed read keeps the list as it is; the next tick tries again.
+			} finally {
+				reading = false;
+			}
+		};
+		const timer = window.setInterval(() => void check(), REPOSITORY_WATCH_MS);
+		document.addEventListener("visibilitychange", check);
+		return () => {
+			active = false;
+			window.clearInterval(timer);
+			document.removeEventListener("visibilitychange", check);
+		};
+	}, [rpc, reload]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a refresh must also reload the selected diff.
 	useEffect(() => {
 		let active = true;

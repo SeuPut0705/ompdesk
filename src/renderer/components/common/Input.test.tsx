@@ -90,3 +90,36 @@ it("describes a field by its error once there is one, and keeps a caller's own d
 	expect(labelText(select)).toBe("Protocol");
 	expect(description(select)).toBe("The API shape the endpoint speaks.");
 });
+
+it("grows an auto-grow field to its content plus its border, so an empty field has nothing to scroll", async () => {
+	// A layout stand-in: 18px of padding and 2px of border around one 18px line, border-box sizing.
+	const PADDING = 16;
+	const BORDER = 2;
+	const LINE = 18;
+	const height = (element: Element) => Number.parseFloat((element as HTMLElement).style.height) || 0;
+	const prototype = HTMLElement.prototype;
+	Object.defineProperties(prototype, {
+		scrollHeight: { configurable: true, get: () => PADDING + LINE },
+		offsetHeight: {
+			configurable: true,
+			get(this: Element) {
+				return Math.max(height(this), PADDING + BORDER);
+			},
+		},
+		clientHeight: {
+			configurable: true,
+			get(this: Element) {
+				return Math.max(height(this) - BORDER, PADDING);
+			},
+		},
+	});
+	try {
+		await render(<TextArea autoGrow label="Message" />);
+		const textarea = document.body.querySelector("textarea") as unknown as HTMLElement;
+		expect(textarea.style.height).toBe(`${PADDING + LINE + BORDER}px`);
+		// Box 36px + border 2px: the content (34px) fits the client box exactly.
+		expect(textarea.scrollHeight).toBeLessThanOrEqual(textarea.clientHeight);
+	} finally {
+		for (const key of ["scrollHeight", "offsetHeight", "clientHeight"]) Reflect.deleteProperty(prototype, key);
+	}
+});
