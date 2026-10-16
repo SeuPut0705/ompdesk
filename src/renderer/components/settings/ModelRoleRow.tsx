@@ -226,8 +226,22 @@ export function ModelRoleRow({
 
 	return (
 		<SettingsRow
-			// A role tag is a name, not a state: neutral like every other tag.
-			badge={custom ? <Badge>@{entry.id}</Badge> : entry.tag ? <Badge>{entry.tag}</Badge> : undefined}
+			// A role tag is a name, not a state: neutral like every other tag. What an empty role follows sits
+			// on the same line, muted and truncated (full text on hover).
+			badge={
+				<>
+					{custom ? <Badge>@{entry.id}</Badge> : entry.tag ? <Badge>{entry.tag}</Badge> : undefined}
+					{fallback && (
+						<span
+							className="min-w-0 flex-1 basis-24 truncate text-sc-xs text-(--sc-text-muted)"
+							data-role-fallback
+							title={fallback}
+						>
+							{fallback}
+						</span>
+					)}
+				</>
+			}
 			control={
 				<div className="flex items-center gap-1">
 					<ModelValueSelect
@@ -281,7 +295,6 @@ export function ModelRoleRow({
 					t={t}
 					usage={usage}
 				/>
-				{fallback && <p className="text-sc-xs text-(--sc-text-muted)">{fallback}</p>}
 				{agents && (
 					<p className="text-sc-xs text-(--sc-text-muted)">
 						{agents.installed.length > 0 && (

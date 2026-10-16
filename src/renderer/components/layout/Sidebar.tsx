@@ -9,7 +9,6 @@ import {
 	ArrowUp,
 	BarChart3,
 	Bot,
-	CalendarClock,
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
@@ -17,7 +16,6 @@ import {
 	Compass,
 	Copy,
 	ExternalLink,
-	Files,
 	Folder,
 	FolderInput,
 	FolderOpen,
@@ -25,10 +23,7 @@ import {
 	FolderSearch,
 	GitBranch,
 	GitBranchPlus,
-	GitCompareArrows,
-	Globe,
 	History,
-	Hourglass,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -50,7 +45,6 @@ import {
 	Sparkles,
 	SquarePen,
 	SquareTerminal,
-	Terminal,
 	Trash2,
 	X,
 	XCircle,
@@ -114,6 +108,7 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../onboarding/StarterGuide";
+import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
@@ -207,12 +202,12 @@ function showPanelView(tab: PanelTab): void {
 
 /** Footer shortcuts the user pins in Settings › General (usage renders as bars, the rest as rows). */
 const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage">, { icon: typeof Bot; open: () => void }> = {
-	terminal: { icon: Terminal, open: () => showPanelView("terminal") },
-	diff: { icon: GitCompareArrows, open: () => showPanelView("diff") },
-	preview: { icon: Globe, open: () => showPanelView("preview") },
-	files: { icon: Files, open: () => showPanelView("files") },
-	jobs: { icon: Hourglass, open: () => showPanelView("jobs") },
-	schedules: { icon: CalendarClock, open: () => useUiStore.getState().openSettings("schedules") },
+	terminal: { icon: RAIL_PIN_ICONS.terminal, open: () => showPanelView("terminal") },
+	diff: { icon: RAIL_PIN_ICONS.diff, open: () => showPanelView("diff") },
+	preview: { icon: RAIL_PIN_ICONS.preview, open: () => showPanelView("preview") },
+	files: { icon: RAIL_PIN_ICONS.files, open: () => showPanelView("files") },
+	jobs: { icon: RAIL_PIN_ICONS.jobs, open: () => showPanelView("jobs") },
+	schedules: { icon: RAIL_PIN_ICONS.schedules, open: () => useUiStore.getState().openSettings("schedules") },
 };
 
 function useHelpItems(): ContextMenuItem[] {

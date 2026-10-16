@@ -19,7 +19,7 @@ import {
 	RotateCcw,
 	Volume2,
 } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { createElement, useEffect, useId, useState } from "react";
 import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, RESUME_INTERRUPTED_PREF } from "../../../shared/desktop-prefs";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
 import { saveGuiPreference } from "../../lib/display-preferences";
@@ -29,6 +29,7 @@ import { playChime } from "../../lib/notification-sound";
 import { RAIL_PIN_LABEL_KEYS, RAIL_PINS, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { migrateDefaultPanelTab, PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
 import { Button, Select } from "../common";
+import { RAIL_PIN_ICONS } from "../layout/rail-pin-icons";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
@@ -268,6 +269,7 @@ function SidebarShortcutsSection() {
 					checked={railPins.includes(pin)}
 					id={`setting-gui-railPin-${pin}`}
 					key={pin}
+					icon={createElement(RAIL_PIN_ICONS[pin])}
 					label={t(RAIL_PIN_LABEL_KEYS[pin])}
 					onCheckedChange={() => void useSidebarPrefs.getState().toggleRailPin(pin)}
 				/>
