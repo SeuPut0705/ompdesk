@@ -162,13 +162,13 @@ export interface IpcDeps {
 	mediaStreams: MediaStreams;
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
-}
 	/**
 	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
 	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`
 	 * what a window that is not the host's calls it.
 	 */
 	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
+}
 
 /**
  * Resolve the sidecar that owns the calling window. Routing derives from
