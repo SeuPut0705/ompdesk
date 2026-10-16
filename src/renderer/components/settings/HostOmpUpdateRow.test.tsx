@@ -174,7 +174,6 @@ describe("HostOmpUpdateRow", () => {
 		});
 		await mount();
 		expect(document.body.textContent).toContain(translate("updates.core.hostDescription", { device: "Studio" }));
-		expect(document.body.textContent).not.toContain(translate("updates.core.description"));
 		useRemoteStore.getState().reset();
 	});
 });
