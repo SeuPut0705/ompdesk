@@ -512,7 +512,7 @@ describe("title language and length", () => {
 		const retryPrompt = world.script.prompts[1] ?? "";
 		expect(retryPrompt.startsWith(world.session.titleSystemPrompt ?? "-")).toBe(true);
 		expect(retryPrompt).toContain('Shorter: the title "작업 현황판 화면 디자인" is too long');
-		expect(retryPrompt).toContain("Keep the key noun");
+		expect(retryPrompt).toContain("Keep the subject and the head noun");
 		expect(world.manager.getSessionName()).toBe("작업 현황판 디자인");
 		// The title, its retry, and the (cardless) rename.
 		expect(await attach(world.session)).toMatchObject({ requests: 3 });
@@ -531,24 +531,24 @@ describe("title language and length", () => {
 		expect(world.manager.getSessionName()).toBe("작업 현황판 화면 디자인");
 	});
 
-	it("past the hard cap drops leading words in Korean, so the head noun stays", async () => {
+	it("past the hard cap drops generic words, then leading ones in Korean, so the head noun stays", async () => {
 		await replyLanguage.reply_language_set({ language: "Korean" });
 		const world = build({ cards: false });
 		world.script.generate.mockResolvedValue("로그인 화면 비밀번호 오류 메시지 표시 버그");
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("비밀번호 틀려도 에러가 안 보여") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("비밀번호 오류 메시지 표시 버그");
+		expect(world.manager.getSessionName()).toBe("비밀번호 오류 표시 버그");
 	});
 
 	it("keeps the first answer when the retry fails", async () => {
 		const world = build({ cards: false });
-		world.script.generate.mockResolvedValue("Settings page dark mode toggle added");
+		world.script.generate.mockResolvedValue("Dark mode toggle support added");
 		world.script.shorter.mockRejectedValue(new Error("offline"));
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("add dark mode") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("Settings page dark mode toggle added");
+		expect(world.manager.getSessionName()).toBe("Dark mode toggle support added");
 	});
 
 	it("retries a regenerated title from the answer itself (stock built the context), a card the person chose kept", async () => {

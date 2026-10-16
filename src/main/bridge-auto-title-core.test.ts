@@ -222,7 +222,7 @@ describe("title language and length", () => {
 	});
 
 	it("tells a title within the limits from one that needs the retry", () => {
-		expect([TITLE_HARD_CJK_CHARS, TITLE_HARD_CHARS]).toEqual([18, 40]);
+		expect([TITLE_HARD_CJK_CHARS, TITLE_HARD_CHARS]).toEqual([14, 32]);
 		for (const title of ["로그인 오류 수정", "작업 현황판 디자인", "Fix login bug", "Session title shortening rules"])
 			expect(titleFits(title), title).toBe(true);
 		for (const title of [
@@ -234,28 +234,45 @@ describe("title language and length", () => {
 			expect(titleFits(title), title).toBe(false);
 	});
 
-	it("asks the retry for a shorter title that keeps the key noun", () => {
+	it("shows the first pass two compressions, and the retry all four with the rules", () => {
+		const first = titleLanguageLine("Korean");
+		expect(first).toContain('"로그인 비밀번호 에러 메시지 버그 수정" → "로그인 오류 수정"');
+		expect(first).toContain('"CSV export empty with filters" → "Empty CSV export"');
+		expect(first).not.toContain("현황판");
+		expect(first).toContain("Keep the subject and the head noun");
 		const line = titleShorterLine("작업 현황판 화면 디자인");
 		expect(line).toContain('the title "작업 현황판 화면 디자인" is too long');
 		expect(line).toContain(`at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese`);
 		expect(line).toContain(`${TITLE_MAX_CHARS} characters otherwise, spaces included`);
-		expect(line).toContain("Keep the key noun");
+		expect(line).toContain("Keep the subject and the head noun");
+		expect(line).toContain("drop modifiers and generic tails (화면, 메시지, 로직, 기능, 관련");
+		for (const pair of [
+			'"로그인 비밀번호 에러 메시지 버그 수정" → "로그인 오류 수정"',
+			'"작업 현황판 화면 디자인 개선" → "현황판 디자인"',
+			'"결제 API 재시도 로직" → "결제 재시도"',
+			'"CSV export empty with filters" → "Empty CSV export"',
+		])
+			expect(line).toContain(pair);
 	});
 
-	it("keeps a title whole up to the hard cap, then cuts whole words: leading ones in Korean, trailing ones otherwise", () => {
+	it("keeps a title whole up to the hard cap, then cuts whole words: generic then leading ones in Korean, trailing ones otherwise", () => {
 		// Within the hard cap nothing is cut, whatever the word count: the head noun stays.
 		expect(conciseTitle("Fix login bug")).toBe("Fix login bug");
 		expect(conciseTitle("작업 현황판 화면 디자인")).toBe("작업 현황판 화면 디자인");
-		expect(conciseTitle("로그인 비밀번호 오류 메시지 버그")).toBe("로그인 비밀번호 오류 메시지 버그");
-		expect(conciseTitle("Settings page dark mode toggle added")).toBe("Settings page dark mode toggle added");
-		// Korean past 18 characters: the leading words go.
-		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("언어로 짧게 생성하도록 수정");
-		expect(conciseTitle("로그인 화면 비밀번호 오류 메시지 표시 버그")).toBe("비밀번호 오류 메시지 표시 버그");
-		// Latin past 40 characters: the trailing words go, never ending on a function word.
-		expect(conciseTitle("Internationalization and localization configuration refactoring")).toBe(
-			"Internationalization and localization",
-		);
+		expect(conciseTitle("CSV export empty with filters")).toBe("CSV export empty with filters");
+		// Korean past 14 characters: the generic words go first (the real answers of the last audit)…
+		expect(conciseTitle("로그인 에러 메시지 버그 수정")).toBe("로그인 에러 버그 수정");
+		expect(conciseTitle("작업 현황판 화면 디자인 개선")).toBe("작업 현황판 디자인 개선");
+		expect(conciseTitle("로그인 비밀번호 오류 메시지 버그")).toBe("로그인 비밀번호 오류 버그");
+		// …then the leading words.
+		expect(conciseTitle("로그인 화면 비밀번호 오류 메시지 표시 버그")).toBe("비밀번호 오류 표시 버그");
+		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("짧게 생성하도록 수정");
+		// Latin past 32 characters: the trailing words go, never ending on a function word.
+		expect(conciseTitle("Settings page dark mode toggle added")).toBe("Settings page dark mode toggle");
 		expect(conciseTitle("Fix the flaky upload test in the integration suite")).toBe("Fix the flaky upload test");
+		expect(conciseTitle("Internationalization and localization configuration refactoring")).toBe(
+			"Internationalization",
+		);
 		// One word longer than the cap stays whole: never part of a word.
 		const unspaced = "修复会话标题语言设置问题并且保持简短不要太长";
 		expect(unspaced.length).toBeGreaterThan(TITLE_HARD_CJK_CHARS);

@@ -158,8 +158,26 @@ export const TITLE_MAX_CJK_CHARS = 12;
 /** The most characters a title in any other script should have. */
 export const TITLE_MAX_CHARS = 30;
 /** Past the limits above even after the retry, a title is kept whole up to these; only longer ones are cut. */
-export const TITLE_HARD_CJK_CHARS = 18;
-export const TITLE_HARD_CHARS = 40;
+export const TITLE_HARD_CJK_CHARS = 14;
+export const TITLE_HARD_CHARS = 32;
+
+/** Long answers and the short titles they compress to, shown to the title model (the first two on the first pass). */
+const COMPRESSIONS = [
+	'"로그인 비밀번호 에러 메시지 버그 수정" → "로그인 오류 수정"',
+	'"CSV export empty with filters" → "Empty CSV export"',
+	'"작업 현황판 화면 디자인 개선" → "현황판 디자인"',
+	'"결제 API 재시도 로직" → "결제 재시도"',
+] as const;
+
+/** Generic Korean words a title over the hard cap loses before any other word. */
+const CJK_FILLER: Readonly<Record<string, true>> = {
+	화면: true,
+	메시지: true,
+	로직: true,
+	기능: true,
+	관련: true,
+	부분: true,
+};
 
 /**
  * The line that puts a title in the person's language and keeps it short and plain, appended to stock's own
@@ -172,15 +190,16 @@ export const TITLE_HARD_CHARS = 40;
  */
 export function titleLanguageLine(language: string | undefined): string {
 	const fallback = language ? `; when that is unclear (only code, names or a mix), write it in ${language}` : "";
-	return `Language, length and form (this overrides the 3-6 words and the imperative phrase above): write the title in the language the user writes in, even though the examples above are in English${fallback}. Make it a plain noun phrase that summarizes the task, like "Login error fix" or "로그인 오류 수정": 2-${TITLE_MAX_WORDS} words, never more, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included. When the task needs more, choose fewer and broader words and keep the key noun. The title is plain text: no punctuation, quotes or emoji, no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
+	return `Language, length and form (this overrides the 3-6 words and the imperative phrase above): write the title in the language the user writes in, even though the examples above are in English${fallback}. Make it a plain noun phrase that summarizes the task: 2-${TITLE_MAX_WORDS} words, never more, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included. Keep the subject and the head noun; drop modifiers and generic words (화면, 메시지, 로직, 기능, "with …"), for example ${COMPRESSIONS.slice(0, 2).join(", ")}. The title is plain text: no punctuation, quotes or emoji, no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
 }
 
 /**
- * The line added for the one retry of a title past the limits: names the answer that was too long and asks for a
- * shorter one that keeps the key noun (in Korean the last word, which a cut from the end would lose).
+ * The line added for the one retry of a title past the limits: names the answer that was too long and shows how
+ * long answers compress (modifiers and generic tails dropped, the subject and head noun kept; in Korean the head
+ * noun comes last, which a cut from the end would lose).
  */
 export function titleShorterLine(tooLong: string): string {
-	return `Shorter: the title "${tooLong}" is too long. Write a shorter title for the same task: at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included, 2-${TITLE_MAX_WORDS} words. Keep the key noun (the thing the task is about; in Korean usually the last word) and drop modifiers instead.`;
+	return `Shorter: the title "${tooLong}" is too long. Write a shorter title for the same task: at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included, 2-${TITLE_MAX_WORDS} words. Keep the subject and the head noun (in Korean usually the last word); drop modifiers and generic tails (화면, 메시지, 로직, 기능, 관련, "with …"). Examples: ${COMPRESSIONS.join(", ")}.`;
 }
 
 const CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
@@ -199,9 +218,9 @@ export function titleFits(title: string): boolean {
  * `title` (without its card) as the session keeps it once the retry is spent: whole up to
  * {@link TITLE_HARD_CJK_CHARS} characters in Korean, Chinese or Japanese and {@link TITLE_HARD_CHARS} otherwise,
  * whatever its word count. A longer one is cut to whole words, never an ellipsis and never part of a word (one word
- * longer than the cap stays whole): in Korean, Chinese or Japanese the leading words go, since the head noun comes
- * last; otherwise the trailing ones, never leaving an English function word, a
- * punctuation-only word or a separator (`,` `:` `;` `-`) at the end.
+ * longer than the cap stays whole): in Korean, Chinese or Japanese the generic words go first (화면, 메시지, 로직,
+ * 기능, 관련, 부분), then the leading words, since the head noun comes last; otherwise the trailing ones, never
+ * leaving an English function word, a punctuation-only word or a separator (`,` `:` `;` `-`) at the end.
  */
 export function conciseTitle(title: string): string {
 	const words = title.trim().split(/\s+/);
@@ -210,6 +229,11 @@ export function conciseTitle(title: string): string {
 	if (words.join(" ").length <= cap) return words.join(" ");
 	const kept = [...words];
 	if (cjk) {
+		while (kept.length > 1 && kept.join(" ").length > cap) {
+			const filler = kept.findIndex(word => CJK_FILLER[word] === true);
+			if (filler < 0) break;
+			kept.splice(filler, 1);
+		}
 		while (kept.length > 1 && kept.join(" ").length > cap) kept.shift();
 		while (kept.length > 1 && !HAS_WORD.test(kept[0] ?? "")) kept.shift();
 		return kept.join(" ").replace(/^[\s,:;\-–—/&]+/u, "") || kept.join(" ");

@@ -17,6 +17,8 @@ import { realOmpProfile } from "./real-omp";
 // kept whole up to the hard cap; the model's own answers come from the bridge's `auto-title: title` line in the
 // private profile's omp log (`<profile>/logs`).
 const RESULT_FILE = "/tmp/real-auto-title.json";
+// The first four are also the compression examples the title prompt shows (auto-title-core.ts); the last two are
+// held out, so the audit also sees messages the examples do not answer.
 const CASES = [
 	{
 		replyLanguage: "Korean",
@@ -34,6 +36,15 @@ const CASES = [
 		replyLanguage: null,
 		prompt:
 			"The CSV export button downloads an empty file whenever the table has filters applied; tell me in one sentence where to look first.",
+	},
+	{
+		replyLanguage: "Korean",
+		prompt: "알림 설정 화면에서 토글을 꺼도 푸시 알림이 계속 오는 문제를 어디부터 보면 될지 한 문장으로 알려 줘.",
+	},
+	{
+		replyLanguage: null,
+		prompt:
+			"Our nightly backup job to S3 silently skips files larger than 5 GB; in one sentence, what should I check first?",
 	},
 ] as const;
 const HANGUL = /\p{Script=Hangul}/u;
