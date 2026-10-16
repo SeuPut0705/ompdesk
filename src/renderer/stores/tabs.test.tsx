@@ -354,6 +354,25 @@ describe("tabs store boot reconciliation", () => {
 		expect(useTabsStore.getState().tabs[0]).toMatchObject({ sessionId: "s-new", title: undefined });
 	});
 
+	it("forgets a background tab's deleted session: no file, id or title survives", () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t1",
+			cwd: "/beta",
+			status: "asleep",
+			sessionPath: "/sessions/beta.jsonl",
+			sessionId: "s-beta",
+			title: "Beta title",
+		});
+		// Main's forgetSession: the session was deleted under the tab.
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "asleep", sessionPath: null });
+		const tab = useTabsStore.getState().tabs.find(entry => entry.id === "t1");
+		expect(tab).toMatchObject({ sessionPath: undefined, sessionId: undefined, title: undefined });
+	});
+
 	it("retains unsent input when restarting an unpersisted session changes its identity", () => {
 		seedTabs();
 		useTabsStore

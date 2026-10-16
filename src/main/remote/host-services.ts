@@ -130,7 +130,7 @@ export interface HostServicesDeps {
 		| "sessionOwnerIsLive"
 		| "commandForSession"
 		| "commandForIdleSession"
-		| "noteSessionFile"
+		| "forgetSession"
 		| "allSidecars"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */

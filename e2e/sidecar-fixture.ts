@@ -346,15 +346,28 @@ if (process.argv[2] === "stats") {
 			: undefined;
 	const sessionCreated = new Date().toISOString();
 	let sessionTitle = "";
+	/**
+	 * The session stock `new_session` started (drop_session's replacement): the
+	 * journal's identity and file from then on, until a `switch_session`.
+	 */
+	let fresh: { id: string; file: string | undefined; created: string } | undefined;
+	let freshCount = 0;
 	const persistSession = () => {
-		if (!sessionFile || entries.length === 0) return;
+		const file = fresh ? fresh.file : sessionFile;
+		if (!file || entries.length === 0) return;
 		const lines = [
 			{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() },
-			{ type: "session", version: 3, id: sessionId, timestamp: sessionCreated, cwd: process.cwd() },
+			{
+				type: "session",
+				version: 3,
+				id: fresh?.id ?? sessionId,
+				timestamp: fresh?.created ?? sessionCreated,
+				cwd: process.cwd(),
+			},
 			...entries,
 		];
-		fs.mkdirSync(nodePath.dirname(sessionFile), { recursive: true });
-		fs.writeFileSync(sessionFile, `${lines.map(line => JSON.stringify(line)).join("\n")}\n`);
+		fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+		fs.writeFileSync(file, `${lines.map(line => JSON.stringify(line)).join("\n")}\n`);
 	};
 	const append = (fields: { type: string; [key: string]: unknown }, time: number | string, persist = true) => {
 		entries.push({
@@ -551,8 +564,16 @@ if (process.argv[2] === "stats") {
 		steeringMode: "all",
 		followUpMode: "all",
 		interruptMode: "immediate",
-		sessionId: resumed?.id ?? sessionId,
-		...(resumed ? { sessionFile: resumed.file } : sessionFile ? { sessionFile } : {}),
+		sessionId: fresh?.id ?? resumed?.id ?? sessionId,
+		...(fresh
+			? fresh.file
+				? { sessionFile: fresh.file }
+				: {}
+			: resumed
+				? { sessionFile: resumed.file }
+				: sessionFile
+					? { sessionFile }
+					: {}),
 		sessionName: sessionTitle || "Audit session",
 		autoCompactionEnabled: true,
 		queuedMessageCount: lanes.steering.length + lanes.followUp.length,
@@ -1819,7 +1840,8 @@ if (process.argv[2] === "stats") {
 		"sessions.delete": params => {
 			const target = params.sessionPath;
 			if (typeof target !== "string" || !target.endsWith(".jsonl")) throw new Error("Invalid session path");
-			if (target === sessionFile) throw new Error("Cannot delete the active session");
+			// Stock's guard: never the file the live session now writes (drop_session runs after new_session).
+			if (target === state().sessionFile) throw new Error("Cannot delete the active session");
 			fs.rmSync(target, { force: true });
 			fs.rmSync(target.slice(0, -6), { recursive: true, force: true });
 			return null;
@@ -4847,7 +4869,26 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				// The stored file becomes the live journal, as it was written.
 				const header = loadJournal(sessionPath);
 				resumed = { id: header.id ?? sessionId, file: sessionPath };
+				fresh = undefined;
 				sessionTitle = header.title ?? "";
+				ok({ cancelled: false });
+				break;
+			}
+			// Stock `new_session` (≥ 18.11): an empty session replaces the journal and its
+			// header is on disk before the answer; the previous file stays where it was.
+			case "new_session": {
+				entries.length = 0;
+				activeLeafId = null;
+				sessionTitle = "";
+				titleIsAuto = false;
+				const id = `fixture-new-${process.pid}-${++freshCount}`;
+				const file = sessionFile ? nodePath.join(nodePath.dirname(sessionFile), `${id}.jsonl`) : undefined;
+				fresh = { id, file, created: new Date().toISOString() };
+				if (file) {
+					fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+					const header = { type: "session", version: 3, id, timestamp: fresh.created, cwd: process.cwd() };
+					fs.writeFileSync(file, `${JSON.stringify(header)}\n`);
+				}
 				ok({ cancelled: false });
 				break;
 			}

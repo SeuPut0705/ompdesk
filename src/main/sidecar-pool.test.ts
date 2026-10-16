@@ -1208,6 +1208,30 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
 	});
 
+	it("forgetSession drops a deleted session's file, id and title from the tab and its saved layout", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		// A restored tab that never started: it holds the stored session only by path and title.
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl", "agent", undefined, false, false, true, "Beta title");
+		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
+		sidecars[1]?.emitSessionInfo({ sessionId: "b-1", title: "Kept" });
+
+		pool.forgetSession("tab-a", "/sessions/a.jsonl");
+		expect(pool.sessionOwner("/sessions/a.jsonl")).toBeNull();
+		const pushed = fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data;
+		expect(pushed).toMatchObject({ tabId: "tab-a", sessionPath: null });
+		expect(pushed).not.toHaveProperty("title");
+		expect(pushed).not.toHaveProperty("sessionId");
+		// A relaunch must not bring the deleted session's row back under the tab.
+		expect(pool.tabLayoutForWindow(fw.win)?.tabs[0]).toEqual({ cwd: "/a", kind: "agent" });
+
+		// A tab that already reported its next session keeps it.
+		sidecars[1]?.emitSessionIdentity({ sessionId: "b-2", sessionFile: "/sessions/b2.jsonl" });
+		pool.forgetSession("tab-b", "/sessions/b.jsonl");
+		expect(pool.sessionOwner("/sessions/b2.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
+		expect(pool.tabsForWindow(fw.win)[1]).toMatchObject({ sessionPath: "/sessions/b2.jsonl", sessionId: "b-2" });
+	});
+
 	it("foreignSessionOwner blocks only foreign attaches", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

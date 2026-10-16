@@ -15,7 +15,7 @@ import type { SidecarPool } from "./sidecar-pool";
 
 export type SessionTabs = Pick<
 	SidecarPool,
-	"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "commandForIdleSession" | "noteSessionFile"
+	"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "commandForIdleSession" | "forgetSession"
 >;
 
 export async function deleteSession(
@@ -32,11 +32,13 @@ export async function deleteSession(
 		const data = response.data;
 		if (typeof data === "object" && data !== null && "cancelled" in data && data.cancelled === true)
 			throw codedError("session_delete_cancelled", "Session deletion was cancelled");
-		// The owner moved on to a fresh, not-yet-saved session.
-		tabs.noteSessionFile(owner.tabId, null);
+		// The owner moved on to a fresh session (drop_session reported its identity); a tab
+		// that did not report it yet drops the deleted session's file, id and title.
+		tabs.forgetSession(owner.tabId, sessionPath);
 		return;
 	}
-	if (owner) tabs.noteSessionFile(owner.tabId, null);
+	// A tab without a process: the file is the session, and the tab wakes into a fresh one.
+	if (owner) tabs.forgetSession(owner.tabId, sessionPath);
 	await deleteStored();
 }
 

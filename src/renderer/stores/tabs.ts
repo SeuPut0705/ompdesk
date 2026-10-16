@@ -192,7 +192,7 @@ function projectSessionTab(
 		device: info.device ?? previous?.device,
 		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
 		sessionPath: info.sessionPath === undefined ? previous?.sessionPath : (info.sessionPath ?? undefined),
-		sessionId: info.sessionId ?? previous?.sessionId,
+		sessionId: info.sessionId ?? (sessionChanged ? undefined : previous?.sessionId),
 		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,

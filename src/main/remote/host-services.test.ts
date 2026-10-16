@@ -144,8 +144,8 @@ function fakeLocalTabs() {
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
 		commandForSession: (_path, command) => tab.rpcClient.command(command),
 		commandForIdleSession: (_path, command) => tab.rpcClient.command(command),
-		noteSessionFile: (tabId, sessionFile) => {
-			for (const [path, owner] of owned) if (owner.tabId === tabId && !sessionFile) owned.delete(path);
+		forgetSession: (tabId, sessionPath) => {
+			if (owned.get(sessionPath)?.tabId === tabId) owned.delete(sessionPath);
 		},
 		allSidecars: () => [tab as unknown as SidecarLike],
 	};

@@ -1010,6 +1010,22 @@ export class SidecarPool {
 	}
 
 	/**
+	 * `sessionPath` was deleted under this tab: its file, id and title go too, so
+	 * the sidebar and the saved layout keep no row for a session that is gone
+	 * (the tab is a fresh session now, or becomes one when it wakes). A tab
+	 * that already reported its next session keeps that one.
+	 */
+	forgetSession(tabId: string, sessionPath: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || entry.sessionFile !== sessionPath) return;
+		this.#unregisterSessionFile(entry);
+		entry.sessionId = undefined;
+		entry.title = undefined;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
+	}
+
+	/**
 	 * Re-root a tab to its live session's cwd. `switch_session` re-roots the
 	 * agent with no main-observable event, so the chip and every `sidecar.cwd`
 	 * consumer stay frozen at the spawn cwd until this is called — the RPC

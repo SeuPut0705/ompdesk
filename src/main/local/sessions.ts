@@ -118,14 +118,18 @@ export const handlers: Record<string, LocalHandler> = {
 		return result;
 	},
 
-	/** Fork `newSession({ drop: true })`: leave for a fresh session, then delete the one left behind. */
+	/**
+	 * Fork `newSession({ drop: true })`: leave for a fresh session, then delete the one left behind.
+	 * The `get_state` after the transition is what tells main the tab's new session (file, id, no
+	 * title): without it a background tab keeps the deleted session's title and id.
+	 */
 	drop_session: async (_command, ctx) => {
 		const state = await ctx.send<RunState>({ type: "get_state" });
 		if (state.isStreaming || state.isCompacting) throw new Error("Cannot delete a session while it is running");
 		const { cancelled } = await ctx.send<{ cancelled: boolean }>({ type: "new_session" });
-		if (!cancelled && state.sessionFile) {
-			await ctx.bridge.request("sessions.delete", { sessionPath: state.sessionFile });
-		}
+		if (cancelled) return { cancelled };
+		await ctx.send({ type: "get_state" });
+		if (state.sessionFile) await ctx.bridge.request("sessions.delete", { sessionPath: state.sessionFile });
 		return { cancelled };
 	},
 
