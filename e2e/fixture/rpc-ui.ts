@@ -566,6 +566,65 @@ export function runRpcUi(): void {
 		scheduleRecap();
 		scheduleNextPrompt("turn");
 	};
+	/**
+	 * Stock's goal continuation (rpc-goal.ts `#scheduleContinuation`): `goal create` on an idle session starts the goal's
+	 * own turn at once, ahead of a prompt the host sends right after it. Only with `OMP_GUI_TEST_GOAL_TURN` (JSON
+	 * `{holdMs?, complete?}`): the turn runs `holdMs` (default 300), takes the queued steers as stock's loop does, and
+	 * with `complete` ends the goal as stock's `goal` tool does (`goal_updated` complete, state exiting, then no goal).
+	 */
+	const goalTurnScript: { holdMs?: number; complete?: boolean } | undefined = (() => {
+		try {
+			return process.env.OMP_GUI_TEST_GOAL_TURN ? JSON.parse(process.env.OMP_GUI_TEST_GOAL_TURN) : undefined;
+		} catch {
+			return undefined;
+		}
+	})();
+	let goalTurnRunning = false;
+	const startGoalTurn = () => {
+		if (!goalTurnScript || isStreaming || boardGoal?.status !== "active") return;
+		isStreaming = true;
+		goalTurnRunning = true;
+		write({ type: "agent_start" });
+		setTimeout(() => {
+			const turn: AgentMessage[] = [];
+			const steers = lanes.steering.splice(0);
+			if (steers.length > 0) emitQueue();
+			for (const text of steers) {
+				const message: AgentMessage = {
+					role: "user",
+					content: [{ type: "text", text }],
+					steering: true,
+					timestamp: Date.now(),
+				};
+				appendMessage(message);
+				write({ type: "message_start", message });
+				write({ type: "message_end", message });
+				turn.push(message);
+			}
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Local fixture reply" }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			turn.push(answer);
+			if (goalTurnScript.complete && boardGoal) {
+				const completed = { ...boardGoal, status: "complete" };
+				write({
+					type: "goal_updated",
+					goal: completed,
+					state: { enabled: false, mode: "exiting", reason: "completed", goal: completed },
+				});
+				boardGoal = undefined;
+			}
+			goalTurnRunning = false;
+			endTurn(turn);
+		}, goalTurnScript.holdMs ?? 300);
+	};
 	/** Stock's `subagent_lifecycle` frame for one roster subagent (any subscription level but `off`). */
 	const writeLifecycle = (agent: SubagentSnapshot, status: "started" | "completed") =>
 		write({
@@ -1797,19 +1856,26 @@ export function runRpcUi(): void {
 		},
 		// gui-bridge modes/auto-mode.ts: the fake "classifier" reads keywords. A big change is plan, a completion
 		// condition is goal, anything else none; an undone decision stops further ones in the session.
-		"modes.auto_mode_decide": params => {
+		// `OMP_GUI_TEST_AUTO_MODE_DELAY_MS` holds every answer that long, as the real judge's ~1 s round trip does.
+		"modes.auto_mode_decide": (params, reply) => {
 			const message = typeof params.message === "string" ? params.message : "";
-			if (autoModeSuppressed) return { mode: "none", reason: "suppressed", latencyMs: 0 };
-			if (/\buntil\b.*\b(pass|green|done)\b/i.test(message)) {
-				return {
-					mode: "goal",
-					objective: message.replace(/\s+/g, " ").trim(),
-					latencyMs: 12,
-					model: "fixture/smol",
-				};
-			}
-			if (/\b(refactor|migrate)\b/i.test(message)) return { mode: "plan", latencyMs: 12, model: "fixture/smol" };
-			return { mode: "none", reason: "classified_none", latencyMs: 12, model: "fixture/smol" };
+			const decide = () => {
+				if (autoModeSuppressed) return { mode: "none", reason: "suppressed", latencyMs: 0 };
+				if (/\buntil\b.*\b(pass|green|done)\b/i.test(message)) {
+					return {
+						mode: "goal",
+						objective: message.replace(/\s+/g, " ").trim(),
+						latencyMs: 12,
+						model: "fixture/smol",
+					};
+				}
+				if (/\b(refactor|migrate)\b/i.test(message)) return { mode: "plan", latencyMs: 12, model: "fixture/smol" };
+				return { mode: "none", reason: "classified_none", latencyMs: 12, model: "fixture/smol" };
+			};
+			const delayMs = Number(process.env.OMP_GUI_TEST_AUTO_MODE_DELAY_MS) || 0;
+			if (delayMs <= 0) return decide();
+			setTimeout(() => reply(decide()), delayMs);
+			return undefined;
 		},
 		"modes.auto_mode_undo": params => {
 			autoModeSuppressed = true;
@@ -4023,6 +4089,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						? { goal: boardGoal, state: { enabled: true, mode: "goal", goal: boardGoal } }
 						: { goal: null, state: null },
 				);
+				// Stock admits the goal's own turn right after answering (setImmediate, then waitForIdle).
+				if (command.op === "create") setImmediate(startGoalTurn);
 				break;
 			case "get_available_commands":
 				ok({
@@ -4806,6 +4874,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					lanes[command.streamingBehavior === "steer" ? "steering" : "followUp"].push(text("message"));
 					ok();
 					emitQueue();
+					break;
+				}
+				// Stock refuses a plain prompt while a turn runs (AgentBusyError). Elsewhere the fixture lets one start a turn.
+				if (goalTurnRunning && !text("message").startsWith("/")) {
+					fail(
+						"Agent is already processing. Use steer() or followUp() to queue messages, or wait for completion.",
+					);
 					break;
 				}
 				prompt(text("message"), ok);

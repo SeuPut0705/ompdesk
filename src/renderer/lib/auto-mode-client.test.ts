@@ -156,8 +156,51 @@ describe("planComposerSubmit and the automatic choice", () => {
 		expect(rpc.prompt).toHaveBeenLastCalledWith(BIG, []);
 	});
 
+	it("sends the prompt as a steer after a goal decision, so the goal's own turn cannot refuse it", async () => {
+		// Stock's `goal create` starts the goal's turn at once; a plain prompt arriving then is refused as busy, and
+		// the composer put the sent text back as "Message not sent".
+		const message = "keep going until all the tests pass";
+		const goal = rig({ mode: "goal", objective: message, latencyMs: 200 });
+		const submit = planComposerSubmit({
+			...base,
+			message,
+			isStreaming: false,
+			beforePrompt: () =>
+				runAutoMode({
+					message,
+					isStreaming: false,
+					session: goal.session,
+					rpc: goal.rpc,
+					readPref: async () => true,
+				}),
+		});
+		if (submit.kind !== "send") throw new Error("expected send");
+		await submit.request();
+		expect(rpc.prompt).toHaveBeenLastCalledWith(message, [], "steer");
+
+		for (const decision of [planned, { mode: "none", reason: "classified_none", latencyMs: 100 } as const]) {
+			const other = rig(decision);
+			const plain = planComposerSubmit({
+				...base,
+				message: BIG,
+				isStreaming: false,
+				beforePrompt: () =>
+					runAutoMode({
+						message: BIG,
+						isStreaming: false,
+						session: other.session,
+						rpc: other.rpc,
+						readPref: async () => true,
+					}),
+			});
+			if (plain.kind !== "send") throw new Error("expected send");
+			await plain.request();
+			expect(rpc.prompt).toHaveBeenLastCalledWith(BIG, []);
+		}
+	});
+
 	it("never runs it for steer, follow-up or a slash command", async () => {
-		const beforePrompt = vi.fn(async () => {});
+		const beforePrompt = vi.fn(async () => null);
 		for (const input of [
 			{ message: BIG, isStreaming: true, mode: "steer" as const },
 			{ message: BIG, isStreaming: true, mode: "followUp" as const },

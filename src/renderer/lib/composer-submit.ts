@@ -8,6 +8,7 @@
  * reflects the mutation.
  */
 
+import type { AutoModeDecision } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import type { AvailableCommand, ImageContent, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
 import { toast, toastError } from "../stores/toast";
@@ -99,8 +100,8 @@ export function planComposerSubmit(input: {
 	mode: ComposerSendMode;
 	commands: AvailableCommand[];
 	rpc?: Pick<TabRpc, "compact" | "followUp" | "prompt" | "steer">;
-	/** Runs just before a plain (non-slash, non-streaming) prompt is sent. */
-	beforePrompt?: () => Promise<unknown>;
+	/** Runs just before a plain (non-slash, non-streaming) prompt is sent: the automatic mode choice. */
+	beforePrompt?: () => Promise<AutoModeDecision | null | undefined>;
 	/**
 	 * Other devices may send to this tab (a shared tab, or a page on a phone), so this window's idea of
 	 * "running" can be a beat stale: a plain message goes as a prompt carrying how to join a run
@@ -163,8 +164,11 @@ export function planComposerSubmit(input: {
 		kind: "send",
 		request: async () => {
 			// The automatic mode choice (lib/auto-mode-client.ts) never throws and is bounded; it runs only for a plain prompt.
-			if (!isSlashCommand) await input.beforePrompt?.();
-			return rpc.prompt(message, images);
+			const choice = isSlashCommand ? undefined : await input.beforePrompt?.();
+			// Main started a goal with stock `goal create`, which on an idle session admits the goal's own turn at once,
+			// ahead of this prompt; stock refuses a plain prompt while a turn runs, and the composer then put the sent
+			// text back as "Message not sent". As a steer it joins that turn, or starts one when none runs yet.
+			return choice?.mode === "goal" ? rpc.prompt(message, images, "steer") : rpc.prompt(message, images);
 		},
 	};
 }

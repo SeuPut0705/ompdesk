@@ -4,7 +4,10 @@
  * and the opt-in e2e/real-auto-mode.e2e.ts). Covers: a big-change prompt enters plan mode with the "Auto: Plan"
  * chip and one-click undo, "until tests pass" starts a goal, a question stays in no mode, the Mode popover's switch
  * and Settings' row share the pref, a manually chosen mode is never overridden, and an undo stops further
- * automatic decisions in that session.
+ * automatic decisions in that session. With the decision held like the real judge (`OMP_GUI_TEST_AUTO_MODE_DELAY_MS`)
+ * and stock's own goal turn on `goal create` (`OMP_GUI_TEST_GOAL_TURN`), a typed or accepted-suggestion prompt
+ * empties the composer at Enter and never comes back to it, and a completed automatic goal drops its chip so the
+ * next prompt is classified afresh.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -75,6 +78,7 @@ test("a big change enters plan mode with a chip, one click undoes it; a question
 		await send(page, "refactor the whole settings module across all files", 2);
 		await expect(chip(page)).toHaveText("Auto: Plan");
 		await expect(modeButton(page)).toContainText("Plan");
+		await expect(composer(page)).toHaveValue("");
 		expect((await recordsOfType(record, "modes.auto_mode_decide")).length).toBe(2);
 
 		await chip(page).click();
@@ -96,6 +100,7 @@ test("a prompt with a completion condition starts a goal", async () => {
 	try {
 		await send(page, "keep going until all the tests pass", 1);
 		await expect(chip(page)).toHaveText("Auto: Goal");
+		await expect(composer(page)).toHaveValue("");
 		const writes = async () => (await recordsOfType(record, "goal")).filter(frame => frame.op !== "get");
 		expect(await writes()).toMatchObject([{ op: "create", objective: "keep going until all the tests pass" }]);
 		await chip(page).click();
@@ -135,6 +140,104 @@ test("a prompt sent in a mode the user picked is not classified", async () => {
 		await send(page, "refactor the whole settings module across all files", 1);
 		await expect(chip(page)).toHaveCount(0);
 		expect(await recordsOfType(record, "modes.auto_mode_decide")).toHaveLength(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+const PLAN_PROMPT = "refactor the whole settings module across all files";
+const GOAL_PROMPT = "keep going until all the tests pass";
+/** The real judge answers in about a second; the composer must be empty for all of it. */
+const SLOW_CHOICE = { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "800" };
+
+/** Press Enter and check the composer emptied at once, before the choice is in. */
+async function sendAndSeeItClear(page: Page): Promise<void> {
+	await composer(page).press("Enter");
+	await expect(composer(page)).toHaveValue("");
+	await expect(chip(page)).toHaveCount(0);
+}
+
+/** Take the placeholder suggestion (Tab) after a first turn. */
+async function acceptSuggestion(page: Page, suggestion: string): Promise<void> {
+	await send(page, "hello there", 1);
+	await expect(composer(page)).toHaveAttribute("placeholder", suggestion, { timeout: 30_000 });
+	await composer(page).focus();
+	await page.keyboard.press("Tab");
+	await expect(composer(page)).toHaveValue(suggestion);
+}
+
+test("an accepted suggestion the choice puts in plan mode leaves the composer empty", async () => {
+	const launched = await launch(
+		{},
+		{ ...SLOW_CHOICE, OMP_GUI_TEST_NEXT_PROMPT: JSON.stringify({ candidates: [PLAN_PROMPT] }) },
+	);
+	const { page } = launched;
+	try {
+		await acceptSuggestion(page, PLAN_PROMPT);
+		await sendAndSeeItClear(page);
+		await expect(chip(page)).toHaveText("Auto: Plan");
+		await expect(page.getByText("Local fixture reply")).toHaveCount(2, { timeout: 30_000 });
+		await expect(composer(page)).toHaveValue("");
+		await expect(page.getByText("Message not sent")).toHaveCount(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+for (const way of ["a typed prompt", "an accepted suggestion"] as const)
+	test(`${way} that starts a goal joins the goal's own turn and never comes back to the composer`, async () => {
+		const launched = await launch(
+			{},
+			{
+				...SLOW_CHOICE,
+				// Stock's `goal create` starts the goal's turn at once, ahead of the prompt.
+				OMP_GUI_TEST_GOAL_TURN: JSON.stringify({ holdMs: 600 }),
+				OMP_GUI_TEST_NEXT_PROMPT: JSON.stringify({ candidates: [GOAL_PROMPT] }),
+			},
+		);
+		const { page, record } = launched;
+		try {
+			if (way === "a typed prompt") await composer(page).fill(GOAL_PROMPT);
+			else await acceptSuggestion(page, GOAL_PROMPT);
+			await sendAndSeeItClear(page);
+			await expect(chip(page)).toHaveText("Auto: Goal");
+			await expect(page.getByText("Local fixture reply")).toHaveCount(way === "a typed prompt" ? 1 : 2, {
+				timeout: 30_000,
+			});
+			await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+			await expect(composer(page)).toHaveValue("");
+			await expect(page.getByText("Message not sent")).toHaveCount(0);
+			const prompts = (await recordsOfType(record, "prompt")).filter(frame => frame.message === GOAL_PROMPT);
+			expect(prompts).toMatchObject([{ streamingBehavior: "steer" }]);
+		} finally {
+			await finish(launched);
+		}
+	});
+
+test("a goal the choice started ends with its chip and goal mode, and the next prompt is classified afresh", async () => {
+	const launched = await launch(
+		{},
+		{ ...SLOW_CHOICE, OMP_GUI_TEST_GOAL_TURN: JSON.stringify({ holdMs: 1500, complete: true }) },
+	);
+	const { page, record } = launched;
+	try {
+		await composer(page).fill(GOAL_PROMPT);
+		await sendAndSeeItClear(page);
+		await expect(chip(page)).toHaveText("Auto: Goal");
+		// The goal's turn completes it the way stock's `goal` tool does.
+		await expect(page.getByText("Local fixture reply")).toHaveCount(1, { timeout: 30_000 });
+		await expect(chip(page)).toHaveCount(0);
+		expect((await page.evaluate(() => window.omp.rpc.getGoal())).data).toMatchObject({ enabled: false });
+
+		await composer(page).fill(PLAN_PROMPT);
+		await sendAndSeeItClear(page);
+		await expect(chip(page)).toHaveText("Auto: Plan");
+		expect(await recordsOfType(record, "modes.auto_mode_decide")).toMatchObject([
+			{ message: GOAL_PROMPT },
+			{ message: PLAN_PROMPT },
+		]);
+		await expect(page.getByText("Local fixture reply")).toHaveCount(2, { timeout: 30_000 });
+		await expect(composer(page)).toHaveValue("");
 	} finally {
 		await finish(launched);
 	}
