@@ -131,10 +131,12 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 	const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
 	const eventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
 	const selection = sessionRuntimeStore<ModelStore>(tabId, "model")?.getState();
+	const restarts = restartGenerations.get(runtime);
 	try {
 		const res = await runtime.command({ type: "get_state" });
 		if (
 			sessionRuntime(tabId) !== runtime ||
+			restartGenerations.get(runtime) !== restarts ||
 			sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId !== sessionId ||
 			!res.success ||
 			res.data == null
@@ -452,6 +454,8 @@ export async function loadOlderTranscript(
 }
 
 const hydrationVersions = new WeakMap<SessionRuntime, number>();
+/** Bumped by `supersedeTabHydration`: a read answered by the process before it may not land. */
+const restartGenerations = new WeakMap<SessionRuntime, number>();
 let legacyHydrationVersion = 0;
 
 /** The stores one hydration writes: a tab runtime's own, or the focus-following hooks on the legacy path. */
@@ -684,15 +688,20 @@ export function hydrateTabSession(tabId: string, fallbackName?: string): Promise
 }
 
 /**
- * The tab's omp process is going away (restart, crash, respawn on a session): a hydration already in
- * flight reads that process, so it may neither land nor be joined. Landing, its `get_state` would end
- * the restart's recovery (`applySessionState`) before the new process reports the fresh id of an
- * unsaved session, and the runtime replaced for that id would drop the composer's unsent draft.
+ * The tab's omp process is going away (restart, crash, respawn on a session): every read already in
+ * flight — a hydration, the agent_start re-sync, the runtime-less legacy hydration of the active tab —
+ * answers from that process, so none may land and no hydration may be joined. Landing, its `get_state`
+ * would end the restart's recovery (`applySessionState`) before the new process reports the fresh id of
+ * an unsaved session, and the runtime replaced for that id would drop the composer's unsent draft.
  */
 export function supersedeTabHydration(tabId: string): void {
+	// The legacy path reads whichever tab main routes the window to: the active one.
+	const activeTabId = useTabsStore.getState().activeTabId;
+	if (activeTabId === null || activeTabId === tabId) legacyHydrationVersion++;
 	const runtime = sessionRuntime(tabId);
 	if (!runtime) return;
 	hydrationVersions.set(runtime, (hydrationVersions.get(runtime) ?? 0) + 1);
+	restartGenerations.set(runtime, (restartGenerations.get(runtime) ?? 0) + 1);
 	inFlightHydrations.delete(runtime);
 }
 

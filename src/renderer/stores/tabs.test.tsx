@@ -35,7 +35,7 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } from "../../shared/split-layout";
-import { attachTabSession, hydrateTabSession } from "../hooks/use-rpc-events";
+import { attachTabSession, hydrateSession, hydrateTabSession, refreshSessionState } from "../hooks/use-rpc-events";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { routeCommands } from "../test-support/route-commands";
@@ -431,6 +431,63 @@ describe("tabs store boot reconciliation", () => {
 			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "after-restart" });
 		newState.resolve(ok(serverState({ sessionId: "after-restart" })));
 		await fresh;
+		expect(useComposerStore.getState().draft).toBe("unsent recovery draft");
+	});
+
+	it("keeps the draft when an agent_start re-sync of the process being restarted lands during the restart", async () => {
+		seedTabs();
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "before-restart" });
+		useSessionStore.setState({ sessionId: "before-restart" });
+		useComposerStore.getState().setDraft("unsent recovery draft");
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		const stale = refreshSessionState("t0");
+		// TAB_STATUS starting lands before the full status channel resets the session store.
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "starting",
+			sessionId: "before-restart",
+		});
+		oldState.resolve(ok(serverState({ sessionId: "before-restart" })));
+		await stale;
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "after-restart" });
+		expect(useComposerStore.getState().draft).toBe("unsent recovery draft");
+	});
+
+	it("keeps the draft when a runtime-less hydration of the process being restarted lands during the restart", async () => {
+		// Boot race: the active tab has no runtime yet, so hydration takes the legacy path.
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t0", cwd: "/alpha", status: "ready", sessionId: "before-restart", unreadDone: false },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		setFocusedSessionRuntime("t0");
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		const stale = hydrateSession();
+		expect(sessionRuntime("t0")).toBeNull();
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "starting",
+			sessionId: "before-restart",
+		});
+		useComposerStore.getState().setDraft("unsent recovery draft");
+		oldState.resolve(ok(serverState({ sessionId: "before-restart" })));
+		await stale;
+		expect(useSessionStore.getState().sessionId).toBe("");
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "after-restart" });
 		expect(useComposerStore.getState().draft).toBe("unsent recovery draft");
 	});
 });
