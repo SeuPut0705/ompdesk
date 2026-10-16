@@ -4696,7 +4696,7 @@ export const ko: Record<string, string> = {
 		"여기서 세션을 마우스 오른쪽 버튼으로 누르고 오른쪽으로 분할이나 아래로 분할을 고르면 지금 세션 옆에 열려요.",
 	"starter.step.panel.title": "사이드 패널 열기",
 	"starter.step.panel.hint": "사이드 패널을 열면 완료돼요.",
-	"starter.step.panel.tour": "터미널, 변경 사항, 미리 보기, 파일이 사이드 패널에 있어요. 여기를 눌러 열어 보세요.",
+	"starter.step.panel.tour": "터미널, 변경 사항, 미리보기, 파일이 사이드 패널에 있어요. 여기를 눌러 열어 보세요.",
 	"updates.core.name": "omp",
 	"diagnostics.name": "플러그인 점검",
 	"diagnostics.description":
