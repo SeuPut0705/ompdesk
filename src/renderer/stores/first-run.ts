@@ -20,7 +20,14 @@ interface FirstRunState {
 	phase: FirstRunPhase;
 	/** Provider connected in this setup; its models are offered first. */
 	connectedProvider: string | null;
+	/**
+	 * The connect step was opened before omp could say whether a provider serves (right after machine setup
+	 * installed it): the gate's check settles it, so the step neither moves on nor is saved before that.
+	 */
+	provisional: boolean;
 	setPhase: (phase: FirstRunPhase, connectedProvider?: string | null) => void;
+	/** Open the connect step ahead of the gate's provider check (see `provisional`). */
+	openProvisional: () => void;
 	reset: () => void;
 	/**
 	 * The "Add custom endpoint" form is open on the connect step. Kept here, not in the step: the session pane
@@ -33,18 +40,23 @@ interface FirstRunState {
 export const useFirstRunStore = create<FirstRunState>()((set, get) => ({
 	phase: "idle",
 	connectedProvider: null,
+	provisional: false,
 	customForm: false,
 	setCustomForm: customForm => set({ customForm }),
 	setPhase: (phase, connectedProvider) => {
-		if (phase !== get().phase) {
+		if (phase !== get().phase || get().provisional) {
 			// Resume is a convenience: a failed write only means the next launch starts over.
 			void window.omp.prefs.set(FIRST_RUN_STEP_PREF, phase === "idle" ? undefined : phase).catch(() => {});
 		}
 		set({
 			phase,
+			provisional: false,
 			connectedProvider: connectedProvider === undefined ? get().connectedProvider : connectedProvider,
 			customForm: phase === "connect" ? get().customForm : false,
 		});
 	},
-	reset: () => set({ phase: "idle", connectedProvider: null, customForm: false }),
+	openProvisional: () => {
+		if (get().phase === "idle") set({ phase: "connect", provisional: true, connectedProvider: null });
+	},
+	reset: () => set({ phase: "idle", provisional: false, connectedProvider: null, customForm: false }),
 }));

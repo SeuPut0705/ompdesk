@@ -26,7 +26,7 @@ import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, Kbd, ListRow, Modal, Spinner } from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
-import { useProviderCatalog } from "../settings/providers/ProviderList";
+import { type ProviderCatalog, useProviderCatalog } from "../settings/providers/ProviderList";
 import { ProviderLoginPanel, useProviderLogin } from "../settings/providers/ProviderLogin";
 import { ProviderPicker } from "../settings/providers/ProviderPicker";
 import {
@@ -34,6 +34,7 @@ import {
 	hasUsableModelProvider,
 	modelDisplayName,
 	pickDefaultModel,
+	STARTER_PROVIDERS,
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
@@ -110,7 +111,14 @@ function revealSetup(): void {
 function ConnectStep() {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
-	const catalog = useProviderCatalog();
+	const live = useProviderCatalog();
+	// Before omp answers (its first boot after machine setup installed it) the step shows the recommended
+	// providers, not a spinner or a "not connected" error; their buttons wait for the session, and the live
+	// catalog replaces them as soon as it is ready.
+	const catalog: ProviderCatalog =
+		!live.sidecarReady && live.providers.length === 0
+			? { ...live, providers: [...STARTER_PROVIDERS], error: null, loading: false }
+			: live;
 	const customForm = useFirstRunStore(state => state.customForm);
 	const setCustomForm = useFirstRunStore(state => state.setCustomForm);
 	const { providers, customConfigs, load } = catalog;
@@ -129,12 +137,14 @@ function ConnectStep() {
 	);
 	const login = useProviderLogin(advance);
 
-	// Connected somewhere else meanwhile (Settings, the CLI, env): move on.
+	// Connected somewhere else meanwhile (Settings, the CLI, env): move on. A step opened ahead of the gate's
+	// check waits for it (a serving provider there means no setup at all).
+	const provisional = useFirstRunStore(state => state.provisional);
 	useEffect(() => {
-		if (customForm || login.state.running || !hasUsableModelProvider(providers, customConfigs)) return;
+		if (provisional || customForm || login.state.running || !hasUsableModelProvider(providers, customConfigs)) return;
 		const [first] = servingProviderIds(providers, customConfigs);
 		setPhase("model", first ?? null);
-	}, [customConfigs, customForm, login.state.running, providers, setPhase]);
+	}, [customConfigs, customForm, login.state.running, provisional, providers, setPhase]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `customForm` is the trigger; the effect reads the DOM.
 	useEffect(() => {

@@ -26,6 +26,7 @@ import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { summarizeMessagesOutput } from "../../lib/turn-meter";
+import { useFirstRunStore } from "../../stores/first-run";
 import { liveWorkKey, useLiveWorkStore } from "../../stores/live-work";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView } from "../../stores/remote";
@@ -364,6 +365,7 @@ function SessionTranscript() {
 	const starters = isChat ? CHAT_STARTERS : STARTERS;
 	/** No provider yet: the inline first-run setup takes the empty state's place. */
 	const firstRunActive = useFirstRunActive();
+	const firstRunOpen = useFirstRunStore(state => state.phase) !== "idle";
 
 	// A history page about to be prepended (see `capturePrependAnchor`): until the
 	// effect below has positioned it, the row the reader is on stays where it is.
@@ -939,12 +941,16 @@ function SessionTranscript() {
 						)}
 					</div>
 				)}
-				{status === "starting" && rows.length === 0 && !switchPending && (
+				{status === "starting" && !firstRunOpen && rows.length === 0 && !switchPending && (
 					<Spinner className="flex justify-center py-3" />
 				)}
-				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && firstRunActive && (
-					<FirstRunSetup />
-				)}
+				{/* An open first-run step stays up while omp starts (right after machine setup installed it): its
+				    providers fill in when the session is ready. */}
+				{(status !== "starting" || firstRunOpen) &&
+					rows.length === 0 &&
+					!isStreaming &&
+					!switchPending &&
+					firstRunActive && <FirstRunSetup />}
 				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
 					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
 						<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />

@@ -11,6 +11,7 @@ import type { ProviderInfo } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { FIRST_RUN_STEP_PREF, isResumableFirstRunStep, useFirstRunStore } from "../../stores/first-run";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -25,9 +26,21 @@ export function FirstRunGate() {
 	const status = useSessionStore(state => state.status);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const checkedThisLaunch = useRef(false);
+	const ompInstalled = useMachineSetupStore(state => state.ompInstalled);
+	const takeover = useMachineSetupStore(state => state.takeover);
 
 	// The first window's React tree is up (this gate mounts with App): a launch timing mark.
 	useEffect(() => window.omp.runtime.startupMark("renderer-mounted"), []);
+
+	// Machine setup just installed omp, so it never ran and holds no provider: the provider step shows the
+	// moment the setup screen leaves, while omp's first boot runs (seconds on Windows, where cmd.exe, a cold
+	// disk and the virus scan of a fresh install all sit in it); its providers fill in once the session is
+	// ready. The check below settles it: no serving provider keeps it, one that serves after all (an omp
+	// reinstalled over an agent dir with credentials) closes it again.
+	useEffect(() => {
+		if (!ompInstalled || takeover || checkedThisLaunch.current) return;
+		useFirstRunStore.getState().openProvisional();
+	}, [ompInstalled, takeover]);
 
 	useEffect(() => {
 		if (status !== "ready" || checkedThisLaunch.current) return;
@@ -51,6 +64,7 @@ export function FirstRunGate() {
 				useFirstRunStore.getState().setPhase("connect", null);
 				return;
 			}
+			if (useFirstRunStore.getState().provisional) useFirstRunStore.getState().setPhase("idle", null);
 			const resume = savedStep.status === "fulfilled" ? savedStep.value : undefined;
 			if (isResumableFirstRunStep(resume)) {
 				useFirstRunStore.getState().setPhase(resume, null);

@@ -8,6 +8,7 @@ import type { ModelInfo, ProviderInfo, ProvidersResult, RpcResponse } from "../.
 import { I18nProvider, translate } from "../../lib/i18n";
 import { FIRST_RUN_STEP_PREF, useFirstRunStore } from "../../stores/first-run";
 import { useGithubAuthStore } from "../../stores/github-auth";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
@@ -117,6 +118,7 @@ afterEach(async () => {
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	useFirstRunStore.getState().reset();
 	useModelStore.getState().reset();
+	useMachineSetupStore.getState().reset();
 	useSessionStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 	useGithubAuthStore.getState().reset();
@@ -171,6 +173,48 @@ describe("FirstRunGate", () => {
 		await mount(<FirstRunGate />);
 		expect(rpc.setModel).not.toHaveBeenCalled();
 		expect(rpc.setModelRole).not.toHaveBeenCalled();
+	});
+
+	it("shows the provider step from static rows while a just-installed omp starts, then the live list", async () => {
+		catalog = { ...catalog, providers: [apple, anthropic], models: [onDevice] };
+		useMachineSetupStore.setState({ ompInstalled: true, takeover: false });
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		await mount(
+			<>
+				<FirstRunGate />
+				<FirstRunSetup />
+			</>,
+		);
+		// No omp answer yet: the recommended providers, waiting for the session, and no error.
+		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: true });
+		expect(rpc.getProviders).not.toHaveBeenCalled();
+		const starter = document.querySelector<HTMLButtonElement>('[data-provider-connect="openai-codex"]');
+		expect(starter?.disabled).toBe(true);
+		expect(text()).not.toContain(translate("providers.notConnected"));
+		expect(document.querySelector('[role="alert"]')).toBeNull();
+
+		await act(async () => useSessionStore.getState().setStatus("ready", "/tmp/project"));
+		await act(async () => delay(0));
+		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: false });
+		expect(text()).toContain("Anthropic (Claude Pro/Max)");
+		expect(document.querySelector('[data-provider-connect="openai-codex"]')).toBeNull();
+	});
+
+	it("closes a step opened ahead of the check when a provider serves after all", async () => {
+		catalog = { ...catalog, providers: [acme, apple], models: [onDevice, opus] };
+		useMachineSetupStore.setState({ ompInstalled: true, takeover: false });
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		await mount(
+			<>
+				<FirstRunGate />
+				<FirstRunSetup />
+			</>,
+		);
+		expect(useFirstRunStore.getState().phase).toBe("connect");
+		await act(async () => useSessionStore.getState().setStatus("ready", "/tmp/project"));
+		await act(async () => delay(0));
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(text()).not.toContain(translate("setup.title"));
 	});
 });
 

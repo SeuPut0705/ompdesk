@@ -29,6 +29,8 @@ export interface LocalSidecarDeps {
 	bridgeDir: string;
 	builtinDir: string;
 	builtinReaPref: () => unknown;
+	/** A tab's session became ready (every time; the caller keeps what it needs). */
+	onReady?: () => void;
 	/** Proxy env per spawn (GUI pref → inherited env → system proxy). */
 	proxyEnv: () => Promise<Record<string, string>>;
 	bridgeHealth: BridgeHealth;
@@ -121,6 +123,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 		sc.on("status", ({ status }) => {
 			if (status !== "ready") return;
 			markStartup("sidecar-ready");
+			deps.onReady?.();
 			const client = sc.rpcClient;
 			if (!client) return;
 			client

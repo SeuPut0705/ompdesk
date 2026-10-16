@@ -94,15 +94,18 @@ interface Launched {
 
 /**
  * A fresh profile: prefs hold only the language and theme. `installing`: omp is
- * absent and the fake installer puts it in place; otherwise the fixture omp is
- * there from the start. The fixture is signed out, so the provider step shows.
+ * absent and the fake installer puts it in place; `real`: the system omp on an
+ * empty agent dir (no credentials, provider keys removed from the environment);
+ * otherwise the fixture omp is there from the start. The fixture is signed out,
+ * so the provider step shows.
  */
 async function launch(
 	name: string,
 	language: "en" | "ko",
 	theme: "light" | "dark",
-	installing: boolean,
+	mode: "installing" | "present" | "real",
 ): Promise<Launched> {
+	const installing = mode === "installing";
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-gui-first-run-${name}-`));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -111,11 +114,16 @@ async function launch(
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(installerDir)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, themeName: theme }));
 	const omp = await fixtureOmp(root);
-	const env: Record<string, string> = {
-		OMP_GUI_OMP: omp,
-		OMP_GUI_TEST_LOGIN: "1",
-		OMP_GUI_TEST_SIGNED_OUT: "1",
-	};
+	const env: Record<string, string | undefined> =
+		mode === "real"
+			? Object.fromEntries([
+					["OMP_GUI_OMP", undefined],
+					// A provider key in this shell would make a provider serve: a first-time user has none.
+					...Object.keys(process.env)
+						.filter(key => /_API_KEY$|_TOKEN$/.test(key))
+						.map(key => [key, undefined] as const),
+				])
+			: { OMP_GUI_OMP: omp, OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_SIGNED_OUT: "1" };
 	let download: DownloadServer | null = null;
 	if (installing) {
 		await fs.rename(omp, `${omp}.staged`);
@@ -233,7 +241,7 @@ for (const language of ["en", "ko"] as const) {
 	for (const theme of ["light", "dark"] as const) {
 		test(`first-run: no errors while omp is missing or installing; the provider step follows (${language} ${theme})`, async () => {
 			test.setTimeout(120_000);
-			const launched = await launch(`${language}-${theme}`, language, theme, true);
+			const launched = await launch(`${language}-${theme}`, language, theme, "installing");
 			const { page } = launched;
 			try {
 				const takeover = page.getByTestId("setup-takeover");
@@ -280,11 +288,31 @@ for (const language of ["en", "ko"] as const) {
 }
 
 test("first-run: wizard timing, launch with omp present → provider step", async () => {
-	const launched = await launch("timing", "en", "dark", false);
+	const launched = await launch("timing", "en", "dark", "present");
 	try {
 		await expect(launched.page.locator('[data-first-run-step="connect"]')).toBeVisible({ timeout: 30_000 });
 		await report(launched, "launch");
 		expect(await trouble(launched.page)).toEqual([]);
+	} finally {
+		await launched.close();
+	}
+});
+
+/**
+ * Opt-in (`OMP_GUI_REAL_FIRST_START=1`): the real boot cost of the user's installed omp on a fresh agent
+ * dir, which the fake omp cannot show (its bundle load, cold provider discovery, a virus scan).
+ */
+test("first-run: wizard timing on the real omp (fresh agent dir)", async () => {
+	test.skip(process.env.OMP_GUI_REAL_FIRST_START !== "1", "set OMP_GUI_REAL_FIRST_START=1 to measure the real omp");
+	test.setTimeout(120_000);
+	const launched = await launch("real", "en", "dark", "real");
+	try {
+		await expect(launched.page.locator('[data-first-run-step="connect"]')).toBeVisible({ timeout: 60_000 });
+		await expect(launched.page.locator("[data-provider-picker]")).toBeVisible({ timeout: 60_000 });
+		await expect
+			.poll(async () => (await startupMarks(launched))["sidecar-ready"], { timeout: 60_000 })
+			.toBeGreaterThan(0);
+		await report(launched, "real omp launch");
 	} finally {
 		await launched.close();
 	}

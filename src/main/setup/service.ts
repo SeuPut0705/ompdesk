@@ -70,6 +70,8 @@ export interface SetupServiceDeps {
 	onState: (state: SetupState) => void;
 	/** omp became usable after an install: restart what failed for lack of it. */
 	onOmpReady: () => void;
+	/** Resolves when setup's automatic optional installs may start (main: once the first tab is ready). */
+	beforeOptional?: () => Promise<void>;
 	detect?: (platform: SetupPlatform, bunInstall: string) => Promise<Detection>;
 	runner?: SetupRunner;
 	fetchText?: FetchText;
@@ -213,14 +215,19 @@ export class SetupService {
 		};
 	}
 
-	/** Detect, then (when automatic) install what is missing: required first, optional in the background. */
-	start(): Promise<void> {
-		return this.#enqueue(async () => {
+	/**
+	 * Detect, then (when automatic) install what is missing: required first, optional in the background once
+	 * `beforeOptional` lets them (the first tab boots before gh and Node compete with it for the machine).
+	 */
+	async start(): Promise<void> {
+		await this.#enqueue(async () => {
 			await this.#detect();
 			if (!this.#deps.automatic || this.#deps.platform === "other") return;
 			await this.#runRequired(false);
-			await this.#runOptionalAfterRequired();
 		});
+		if (!this.#deps.automatic || this.#deps.platform === "other") return;
+		await this.#deps.beforeOptional?.();
+		await this.#enqueue(() => this.#runOptionalAfterRequired());
 	}
 
 	/** Retry `item` now. A required item retries every missing required item in order. */

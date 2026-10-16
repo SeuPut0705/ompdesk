@@ -300,6 +300,8 @@ function parsePacResult(pac: string): string | undefined {
 
 /** Representative URL for system-proxy resolution (codex's OAuth backend). */
 const SYSTEM_PROXY_PROBE_URL = "https://chatgpt.com";
+/** How long the stats server and setup's optional installs wait for a first ready tab before starting anyway. */
+const FIRST_TAB_GRACE_MS = 30_000;
 
 async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
 	const pref = prefsStore().get("proxyUrl");
@@ -511,10 +513,20 @@ app.whenReady().then(() => {
 		for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
 	});
 	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
+	// The first local tab boots alone: the stats server and machine setup's optional installs (gh, Node;
+	// winget on Windows) wait until a tab's session is ready, or FIRST_TAB_GRACE_MS when none comes (only
+	// paired-host tabs, an omp that cannot start). Measured by e2e/first-run-no-omp.e2e.ts.
+	const firstTabReady = Promise.withResolvers<void>();
+	const afterFirstTab = (): Promise<void> => {
+		const grace = Promise.withResolvers<void>();
+		setTimeout(grace.resolve, FIRST_TAB_GRACE_MS).unref();
+		return Promise.race([firstTabReady.promise, grace.promise]);
+	};
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
 		builtinReaPref: () => prefsStore().get(REA_PREF),
+		onReady: () => firstTabReady.resolve(),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,
 		sessionKinds,
@@ -656,7 +668,8 @@ app.whenReady().then(() => {
 	// missing or too-old omp already surfaces on every tab; the dashboard just
 	// stays unavailable until setup installs omp (launchStats runs again then).
 	const launchStats = () =>
-		Promise.all([systemOmp(), spawnPath()])
+		afterFirstTab()
+			.then(() => Promise.all([systemOmp(), spawnPath()]))
 			.then(([resolution, basePath]) => {
 				// A quit tears the stats server down: a launch that resolves after it must not start a new one.
 				if (!resolution.ok || statsServer || quitApproved()) return;
@@ -715,6 +728,7 @@ app.whenReady().then(() => {
 			}
 			if (usable.refused) sessionIndex.onChange?.();
 		},
+		beforeOptional: afterFirstTab,
 		onOmpReady: () => {
 			markStartup("omp-ready");
 			void launchStats();

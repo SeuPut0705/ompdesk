@@ -21,6 +21,12 @@ interface MachineSetupStore {
 	 */
 	installSeen: boolean;
 	/**
+	 * omp was not installed at all when this launch looked, and machine setup has
+	 * since installed it: an omp that never ran holds no provider, so the
+	 * first-run provider step can show before the session is ready.
+	 */
+	ompInstalled: boolean;
+	/**
 	 * The full-window setup screen is up (App publishes `useMachineSetupNeeded()`
 	 * here), so non-React entry points (menu actions, deep links, shortcuts) can
 	 * tell that the rest of the app is blocked.
@@ -39,17 +45,24 @@ interface MachineSetupStore {
 let unsubscribe: (() => void) | null = null;
 
 export const useMachineSetupStore = create<MachineSetupStore>()((set, get) => {
-	const apply = (state: SetupState) =>
+	/** omp's presence was `missing` in a state this launch saw. */
+	let ompSeenMissing = false;
+	const apply = (state: SetupState) => {
+		const presence = state.items.find(item => item.id === "omp")?.presence?.kind;
+		if (presence === "missing") ompSeenMissing = true;
 		set({
 			state,
 			loadError: null,
 			installSeen: get().installSeen || !state.ompReady || state.requiredRunning,
+			ompInstalled: ompSeenMissing && presence === "present",
 		});
+	};
 	return {
 		state: null,
 		loadError: null,
 		loading: false,
 		installSeen: false,
+		ompInstalled: false,
 		takeover: false,
 		load: async () => {
 			set({ loading: true });
@@ -85,7 +98,15 @@ export const useMachineSetupStore = create<MachineSetupStore>()((set, get) => {
 		reset: () => {
 			unsubscribe?.();
 			unsubscribe = null;
-			set({ state: null, loadError: null, loading: false, installSeen: false, takeover: false });
+			ompSeenMissing = false;
+			set({
+				state: null,
+				loadError: null,
+				loading: false,
+				installSeen: false,
+				ompInstalled: false,
+				takeover: false,
+			});
 		},
 	};
 });

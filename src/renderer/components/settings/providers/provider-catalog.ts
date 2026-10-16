@@ -8,16 +8,33 @@ import type { ModelInfo, ProviderDiscoveryState, ProviderInfo } from "../../../.
 
 /**
  * Providers offered first to someone who has none yet: the subscriptions and
- * gateways most people already have, in omp's own `/login` order.
+ * gateways most people already have, in omp's own `/login` order, with the
+ * names omp lists them under.
  */
-export const RECOMMENDED_PROVIDER_IDS: readonly string[] = [
-	"anthropic",
-	"openai-codex",
-	"github-copilot",
-	"openrouter",
-	"google-gemini-cli",
-	"deepseek",
+const RECOMMENDED_PROVIDERS: readonly (readonly [id: string, name: string])[] = [
+	["anthropic", "Anthropic"],
+	["openai-codex", "OpenAI Codex"],
+	["github-copilot", "GitHub Copilot"],
+	["openrouter", "OpenRouter"],
+	["google-gemini-cli", "Google Gemini CLI"],
+	["deepseek", "DeepSeek"],
 ];
+
+export const RECOMMENDED_PROVIDER_IDS: readonly string[] = RECOMMENDED_PROVIDERS.map(([id]) => id);
+
+/**
+ * The first-run provider step's rows before omp answers (its first boot right
+ * after machine setup installed it): the recommended providers, signed out.
+ * The live catalog replaces them as soon as the session is ready.
+ */
+export const STARTER_PROVIDERS: readonly ProviderInfo[] = RECOMMENDED_PROVIDERS.map(([id, name]) => ({
+	id,
+	name,
+	authenticated: false,
+	loginAvailable: true,
+	disabled: false,
+	modelCount: 0,
+}));
 
 /**
  * Smallest context window a coding session can work in. A system prompt plus

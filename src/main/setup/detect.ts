@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { REA_NODE_REQUIREMENT } from "../../shared/builtin-mcp";
 import type { SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
-import { parseOmpVersion, resolveOmp } from "../omp-runtime";
+import { parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
 import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { findGitBash } from "./paths";
@@ -46,8 +46,17 @@ async function versionOf(bin: string, env: NodeJS.ProcessEnv, platform: SetupPla
 	}
 }
 
+/**
+ * The first detection of a launch shares the process-wide resolution the first tab, the stats server and
+ * the stock helper use (one `omp --version` per launch; on Windows that is a cmd.exe and an omp boot).
+ * Every later detection follows an install or an update, so it resolves again and refreshes that shared
+ * result for them too. `MIN_OMP_VERSION` gates both the same way (`resolveOmp`).
+ */
+let launchResolutionUsed = false;
+
 async function detectOmp(): Promise<{ presence: SetupPresence; bin: string | null }> {
-	const resolution = await resolveOmp();
+	const resolution = await (launchResolutionUsed ? refreshSystemOmp() : systemOmp());
+	launchResolutionUsed = true;
 	if (resolution.ok) {
 		return {
 			presence: { kind: "present", version: resolution.runtime.version, path: resolution.runtime.bin },

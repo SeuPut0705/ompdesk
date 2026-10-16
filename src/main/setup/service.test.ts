@@ -71,6 +71,8 @@ function harness(
 		toolOutput?: string;
 		holdTool?: boolean;
 		fetchText?: (url: string) => Promise<string>;
+		/** Main's gate for the optional installs (the first ready tab). */
+		beforeOptional?: () => Promise<void>;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
@@ -144,6 +146,7 @@ function harness(
 			}),
 		...(options.testDownload ? { testDownload: options.testDownload } : {}),
 		...(options.now ? { now: options.now } : {}),
+		...(options.beforeOptional ? { beforeOptional: options.beforeOptional } : {}),
 	};
 	const service = new SetupService(deps);
 	const phase = (id: SetupItemId) => service.state().items.find(item => item.id === id)?.phase;
@@ -212,6 +215,24 @@ describe("SetupService", () => {
 		expect(h.spawned[1]?.spec.args).toEqual(["git", "xcode-select"]);
 		expect(h.spawned[2]?.spec.args).toEqual(["node", "brew"]);
 		expect(h.onOmpReady).toHaveBeenCalledTimes(1);
+	});
+
+	it("holds the optional installs until main lets them start (the first tab boots alone)", async () => {
+		const gate = Promise.withResolvers<void>();
+		const asked = Promise.withResolvers<void>();
+		const h = harness(machine({ omp: missing, git: missing }), {
+			beforeOptional: () => {
+				asked.resolve();
+				return gate.promise;
+			},
+		});
+		const started = h.service.start();
+		await asked.promise;
+		expect(h.onOmpReady).toHaveBeenCalledTimes(1);
+		expect(h.items()).toEqual(["omp"]);
+		gate.resolve();
+		await started;
+		expect(h.items()).toEqual(["omp", "git"]);
 	});
 
 	it("leaves the Xcode tools to macOS's dialog and says so", async () => {
