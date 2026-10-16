@@ -364,7 +364,7 @@ export const ko: Record<string, string> = {
 	"input.paste.title": "{lines}줄 · {chars}자 붙여넣음",
 	"input.paste.inline": "그대로 붙여넣기",
 	"input.paste.wrap": "블록으로 감싸서 첨부",
-	"input.paste.hint": "Esc로 취소",
+	"input.paste.hint": "Enter로 그대로 붙여넣기 · Esc로 취소",
 	"input.paste.cancel": "취소",
 	"input.paste.saveFile": "파일로 저장",
 	"input.paste.saveFailed": "붙여넣은 내용을 파일로 저장하지 못했어요",

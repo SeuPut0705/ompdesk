@@ -100,7 +100,11 @@ function queued(id: string, text: string): RpcQueuedMessage {
 	return { id, text, editable: true, timestamp: 1 };
 }
 
+/** The composer's focus hand-back, called once a row's control is gone. */
+let settled: Mock<() => void>;
+
 async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[]): Promise<void> {
+	settled = vi.fn();
 	queueRemove = vi.fn(async () => ok({ removed: true }));
 	queueMove = vi.fn(async () => ok({ lane: "steering", index: 0 }));
 	queueEdit = vi.fn(async () => ok({ updated: true }));
@@ -121,7 +125,7 @@ async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[])
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ComposerQueue />
+				<ComposerQueue onSettled={settled} />
 			</I18nProvider>,
 		);
 	});
@@ -165,6 +169,7 @@ describe("ComposerQueue", () => {
 		await click(buttonByLabel("Send now as a steer"));
 		expect(queueMove).toHaveBeenCalledWith("f1", Number.MAX_SAFE_INTEGER, "steering");
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["f1"]);
+		expect(settled).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows Send now only on follow-up rows, as stock promotes only follow-ups", async () => {
@@ -185,6 +190,7 @@ describe("ComposerQueue", () => {
 		expect(queueRemove).toHaveBeenCalledWith("s2");
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1"]);
 		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1"]);
+		expect(settled).toHaveBeenCalledTimes(1);
 	});
 
 	it("cancels an edit on Escape without letting it reach the app-wide Escape", async () => {
@@ -195,6 +201,7 @@ describe("ComposerQueue", () => {
 		expect(result).toEqual({ prevented: true, stopped: true });
 		expect(document.querySelector("textarea")).toBeNull();
 		expect(queueEdit).not.toHaveBeenCalled();
+		expect(settled).toHaveBeenCalledTimes(1);
 	});
 
 	it("saves an edit on Enter", async () => {
@@ -204,5 +211,14 @@ describe("ComposerQueue", () => {
 		await pressKey("Enter");
 		await flush();
 		expect(queueEdit).toHaveBeenCalledWith("s1", "after");
+		expect(settled).toHaveBeenCalledTimes(1);
+	});
+
+	it("hands focus back once Clear all takes the tray away", async () => {
+		await mount([queued("s1", "one")], [queued("f1", "two")]);
+		const clear = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Clear all");
+		if (!clear) throw new Error("Clear all missing");
+		await click(clear as unknown as TestElement);
+		expect(settled).toHaveBeenCalledTimes(1);
 	});
 });

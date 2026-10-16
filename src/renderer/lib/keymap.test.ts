@@ -190,6 +190,15 @@ describe("detectConflicts", () => {
 			{ kind: "warning", chord: "⌃R", actionIds: ["retry", "composer.history"] },
 		]);
 	});
+
+	it("warns for the composer's follow-up chord on each platform: ⌃↵ on macOS, ⌥↵ on Windows", () => {
+		expect(detectConflicts(KEYMAP_ACTIONS, { retry: ["⌃↵"] }, "mac")).toEqual([
+			{ kind: "warning", chord: "⌃↵", actionIds: ["retry", "composer.followUp"] },
+		]);
+		expect(detectConflicts(KEYMAP_ACTIONS, { retry: ["⌥↵"] }, "windows")).toEqual([
+			{ kind: "warning", chord: "⌥↵", actionIds: ["retry", "composer.followUp"] },
+		]);
+	});
 });
 
 describe("hotkey reference table", () => {

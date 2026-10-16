@@ -61,7 +61,7 @@ import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
 import { webRuntime } from "../web/runtime";
-import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
+import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "./composer";
 import { type AwaitedInput, awaitedInput, type ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import type { MessagesStore } from "./messages";
@@ -1191,20 +1191,19 @@ export function restoreTabComposer(
 	originComposer?: StoreApi<ComposerStore>,
 ): void {
 	if (!tabId) return;
-	const prependDraft = (current: string): string => (current ? `${draft}\n${current}` : draft);
 	const session = sessionRuntimeStore<SessionStore>(tabId, "session");
 	const composer = sessionRuntimeStore<ComposerStore>(tabId, "composer");
 	if (!session || !composer) {
 		if (useTabsStore.getState().activeTabId !== tabId || useSessionStore.getState().sessionId !== sessionId) return;
 		useComposerStore.setState(current => ({
-			draft: prependDraft(current.draft),
+			draft: prependToDraft(draft, current.draft),
 			images: [...images, ...current.images],
 		}));
 		return;
 	}
 	if (originComposer ? composer !== originComposer : session.getState().sessionId !== sessionId) return;
 	composer.setState(current => ({
-		draft: prependDraft(current.draft),
+		draft: prependToDraft(draft, current.draft),
 		images: [...images, ...current.images],
 	}));
 }

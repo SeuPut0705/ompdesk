@@ -15,7 +15,8 @@ import { fuzzyScore } from "../../../lib/fuzzy-score";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
-import { MAX_MENTION_FILE_ITEMS, MAX_MENU_ITEMS, MENTION_SCHEMES } from "./input-area-utils";
+import { fileMentionFor } from "./composer-files";
+import { MAX_MENTION_FILE_ITEMS, MAX_MENU_ITEMS, MENTION_SCHEMES, mentionToken } from "./input-area-utils";
 
 export interface CompletionItem {
 	value: string;
@@ -51,6 +52,29 @@ export function applyCompletion(text: string, cursor: number, menu: CompletionMe
 		text: `${text.slice(0, menu.rangeStart)}${item.value}${text.slice(cursor)}`,
 		caret: menu.rangeStart + item.value.length,
 	};
+}
+
+/**
+ * Whether a slash token typed after prompt text (`prose … /tok`) offers the skill `name`: stock's
+ * `midPromptSkillTokenMatches` (pi-tui autocomplete.ts), copied because stock cannot run in the renderer.
+ * The bare `/` and any prefix of `skill:` list every skill, an explicit `skill:…` query matches the name or
+ * description as a subsequence, anything else must start the bare name or one of its hyphen segments
+ * (`/hum` → `skill:humanizer`, `/last` → `skill:research-last30days`): a stray `/word` in prose opens nothing.
+ */
+export function midPromptSkillMatches(token: string, name: string, description = ""): boolean {
+	const lowerToken = token.toLowerCase();
+	const lowerName = name.toLowerCase();
+	if ("skill:".startsWith(lowerToken)) return true;
+	if (lowerToken.startsWith("skill:")) {
+		const subsequenceOf = (target: string) => {
+			let matched = 0;
+			for (let index = 0; index < target.length && matched < lowerToken.length; index++)
+				if (target[index] === lowerToken[matched]) matched++;
+			return matched === lowerToken.length;
+		};
+		return subsequenceOf(lowerName) || subsequenceOf(description.toLowerCase());
+	}
+	return lowerName.startsWith("skill:") && `-${lowerName.slice("skill:".length)}`.includes(`-${lowerToken}`);
 }
 
 export function useCompletionMenu({
@@ -186,10 +210,30 @@ export function useCompletionMenu({
 			};
 		}
 
-		// 3. Slash command NAMES at a word boundary.
+		// 3. Slash command NAMES at a word boundary: every command at the start of the draft, only
+		// skills after prompt text (stock's mid-prompt skill lookup), so `hello /re` opens no command menu.
 		const cmdMatch = /(^|\s)\/([\w:.-]*)$/i.exec(before);
 		if (cmdMatch) {
 			const query = (cmdMatch[2] ?? "").toLowerCase();
+			const rangeStart = cursor - query.length - 1;
+			if (before.slice(0, rangeStart).trim() !== "") {
+				const items = commands
+					.filter(
+						command =>
+							command.name.startsWith("skill:") &&
+							midPromptSkillMatches(query, command.name, command.description),
+					)
+					.slice(0, MAX_MENU_ITEMS)
+					.map(command => ({
+						value: `/${command.name} `,
+						label: `/${command.name}`,
+						description: command.description,
+					}));
+				apply({ source: "command", rangeStart, items });
+				return () => {
+					cancelled = true;
+				};
+			}
 			// Exact name/alias first, then prefix, then substring: typing `/plan` +
 			// Enter must pick /plan, not an earlier-listed `/skill:…-plan`.
 			const rank = (command: AvailableCommand): number => {
@@ -210,7 +254,7 @@ export function useCompletionMenu({
 					label: `/${command.name}`,
 					description: command.description,
 				}));
-			apply({ source: "command", rangeStart: cursor - query.length - 1, items });
+			apply({ source: "command", rangeStart, items });
 			return () => {
 				cancelled = true;
 			};
@@ -245,25 +289,27 @@ export function useCompletionMenu({
 			};
 		}
 
-		// 5. @ mention: workspace files (fuzzy) above internal URL schemes.
-		const mentionMatch = /(^|\s)@([\w./-]*)$/.exec(before);
-		if (mentionMatch) {
-			const q = mentionMatch[2] ?? "";
+		// 5. @ mention: workspace files (fuzzy) above internal URL schemes. A picked path with a space
+		// goes in quoted (`@"My Report.md"`), the form stock's mention parser reads whole.
+		const mention = mentionToken(before);
+		if (mention) {
+			// macOS file names may be decomposed (NFD) while typed Hangul is composed (NFC).
+			const q = mention.query.normalize("NFC");
 			const items: CompletionItem[] = [];
 			const scored: { path: string; score: number }[] = [];
 			for (const path of filePaths) {
-				const score = fuzzyScore(q, path);
+				const score = fuzzyScore(q, path.normalize("NFC"));
 				if (score !== null) scored.push({ path, score });
 			}
 			scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
 			for (const { path } of scored.slice(0, MAX_MENTION_FILE_ITEMS)) {
-				items.push({ value: `@${path} `, label: path });
+				items.push({ value: `${fileMentionFor(path, "")} `, label: path });
 			}
 			const lowerQuery = q.toLowerCase();
 			for (const scheme of MENTION_SCHEMES) {
 				if (scheme.toLowerCase().includes(lowerQuery)) items.push({ value: scheme, label: scheme });
 			}
-			apply({ source: "mention", rangeStart: cursor - q.length - 1, items });
+			apply({ source: "mention", rangeStart: mention.start, items });
 			return () => {
 				cancelled = true;
 			};

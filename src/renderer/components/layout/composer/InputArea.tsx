@@ -32,7 +32,7 @@ import { historyImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { parseComposerMode } from "../../../lib/input-modes";
-import { formatShortcut, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
+import { chordFromEvent, formatShortcut, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
 import { continueList } from "../../../lib/list-continue";
 import { abortActiveTurn } from "../../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
@@ -58,10 +58,10 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../../lib/voice";
-import { type ComposerImage, type ComposerStore, useComposerStore } from "../../../stores/composer";
+import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
-import { useInputHistoryStore } from "../../../stores/input-history";
+import { type InputHistoryContext, useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
 import { useNextPromptStore } from "../../../stores/next-prompt";
@@ -77,13 +77,13 @@ import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
-import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
+import { fileMentionFor, fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { DraftFileCards } from "./DraftFileCards";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
-import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
+import { cachedMentionFiles, editFieldText, fileToImage, listMentionFiles, mentionToken } from "./input-area-utils";
 import { chipIndexForCode, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
@@ -111,6 +111,21 @@ const browserStorage: Storage | undefined = (() => {
 
 /** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
 const NARROW_FIELD_PX = 290;
+
+/**
+ * Grow the field to fit its text, up to ~40% of the pane (one line while empty); the expanded composer
+ * fills the pane instead, its height is CSS's.
+ */
+function fitFieldHeight(el: HTMLTextAreaElement, expanded: boolean): void {
+	if (expanded) {
+		el.style.height = "";
+		return;
+	}
+	el.style.height = "0px";
+	const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
+	const maxHeight = el.value.length === 0 ? 24 : paneHeight * 0.4;
+	el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+}
 
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
@@ -177,10 +192,31 @@ export function InputArea() {
 		if (!isStreaming) setMode("prompt");
 	}, [isStreaming]);
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	/**
+	 * A menu the user closed (Esc, ←/→, a click): the same token's menu stays closed while the draft is
+	 * unchanged, so moving the caret back into the token does not bring it back; any edit lifts it.
+	 */
+	const dismissedMenu = useRef<{ source: CompletionMenu["source"]; rangeStart: number; draft: string } | null>(null);
 	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
 	const publishMenu = useCallback((next: CompletionMenu | null) => {
-		setMenu(current => (current && next && sameCompletionMenu(current, next) ? current : next));
+		const dismissed = dismissedMenu.current;
+		if (dismissed && textareaRef.current?.value !== dismissed.draft) dismissedMenu.current = null;
+		const shown =
+			dismissedMenu.current?.source === next?.source && dismissedMenu.current?.rangeStart === next?.rangeStart
+				? null
+				: next;
+		setMenu(current => (current && shown && sameCompletionMenu(current, shown) ? current : shown));
 	}, []);
+	const dismissMenu = () => {
+		if (menu)
+			dismissedMenu.current = {
+				source: menu.source,
+				rangeStart: menu.rangeStart,
+				draft: textareaRef.current?.value ?? text,
+			};
+		setMenu(null);
+	};
 	const [commands, setCommands] = useState<AvailableCommand[]>([]);
 	const sending = useComposerStore(state => state.sending);
 	const setSending = useComposerStore(state => state.setSending);
@@ -247,17 +283,25 @@ export function InputArea() {
 		return () => clearTimeout(timer);
 	}, [text, draftStore, draftLoadedFor]);
 
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	/** True while the composer writes its own draft into the field: the field's onChange then only mirrors it. */
+	const ownEdit = useRef(false);
 	/**
 	 * Write the draft and its caret in one task. A caret placed on a later frame moved
 	 * whatever the next keys did meanwhile (a select-all, typed text); written here,
-	 * React finds its value already in the field and leaves the caret alone.
+	 * React finds its value already in the field and leaves the caret alone. In the
+	 * focused field the write is one native edit (editFieldText), so Cmd/Ctrl+Z undoes it
+	 * and brings back what was there; a value set by script corrupted the undo stack.
 	 */
 	const placeDraft = useCallback(
 		(next: string, caret: number) => {
 			const el = textareaRef.current;
 			if (el) {
-				el.value = next;
+				ownEdit.current = true;
+				try {
+					if (!editFieldText(el, next)) el.value = next;
+				} finally {
+					ownEdit.current = false;
+				}
 				el.setSelectionRange(caret, caret);
 			}
 			setText(next);
@@ -315,17 +359,26 @@ export function InputArea() {
 		complete: nextPromptView.completeInline,
 	});
 	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
-	// it shows the short prompt instead of a hint cut mid-glyph.
+	// it shows the short prompt instead of a hint cut mid-glyph. A new width also rewraps the draft, so the
+	// field's height is fitted again (a side panel opening made the draft scroll inside a too-short field).
 	const [fieldNarrow, setFieldNarrow] = useState(false);
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el || typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver(() => setFieldNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_FIELD_PX));
+		let width = el.clientWidth;
+		const observer = new ResizeObserver(() => {
+			setFieldNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_FIELD_PX);
+			if (el.clientWidth === width) return;
+			width = el.clientWidth;
+			fitFieldHeight(el, expanded);
+		});
 		observer.observe(el);
 		return () => observer.disconnect();
-	}, []);
+	}, [expanded]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const mountedRef = useRef(true);
+	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
+	const ownsTake = useRef(false);
 
 	// New and empty sessions start with the caret in the composer, unless
 	// something else (a dialog, another field) already holds focus. The end of
@@ -352,12 +405,13 @@ export function InputArea() {
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [pasteMenu]);
 
-	// An in-flight dictation is cancelled (never transcribed) if the composer unmounts.
+	// This composer's in-flight dictation is cancelled (never transcribed) if it unmounts; the
+	// recording slot is app-wide, and closing one split pane must not end another pane's take.
 	useEffect(() => {
 		mountedRef.current = true;
 		return () => {
 			mountedRef.current = false;
-			cancelVoiceRecording();
+			if (ownsTake.current) cancelVoiceRecording();
 		};
 	}, []);
 
@@ -430,19 +484,10 @@ export function InputArea() {
 		};
 	}, [status, sessionId, runtimeTabId, rpc]);
 
-	// Auto-grow the textarea to fit its content (up to ~40% of the pane). The
-	// expanded composer fills the pane instead (CSS owns its height).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the field's height follows its text (read from the element)
 	useEffect(() => {
 		const el = textareaRef.current;
-		if (!el) return;
-		if (expanded) {
-			el.style.height = "";
-			return;
-		}
-		el.style.height = "0px";
-		const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
-		const maxHeight = text.length === 0 ? 24 : paneHeight * 0.4;
-		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+		if (el) fitFieldHeight(el, expanded);
 	}, [text, expanded]);
 
 	// Contextual argument hint (TUI ghost-text parity), from stock for builtins.
@@ -458,23 +503,21 @@ export function InputArea() {
 		setMenu: publishMenu,
 	});
 
-	// Reset the mention file list when the session cwd changes (cache is per-cwd).
+	// The `@` menu's files: the last listing of this cwd at once, and while an `@` token is typed a
+	// fresh one (debounced, so a fleeting "@" walks nothing; listMentionFiles walks again only once
+	// its listing is old, so files the agent created show up).
 	useEffect(() => {
-		setFilePaths(mentionFileCache.get(cwd) ?? []);
+		setFilePaths(cachedMentionFiles(cwd) ?? []);
 	}, [cwd]);
-
-	// Lazy-load workspace files for @mention completion: debounced so a fleeting
-	// "@" doesn't trigger the walk, then cached per cwd for instant filtering.
 	useEffect(() => {
 		if (!routeReady) return;
-		if (mentionFileCache.has(cwd)) return;
 		const el = textareaRef.current;
-		const before = text.slice(0, el?.selectionStart ?? text.length);
-		if (!/(^|\s)@[\w./-]*$/.test(before)) return;
+		if (!mentionToken(text.slice(0, el?.selectionStart ?? text.length))) return;
 		const key = cwd;
 		const timer = setTimeout(() => {
 			void listMentionFiles(key, runtimeTabId).then(paths => {
-				if (sessionRuntimeStore<SessionStore>(runtimeTabId, "session")?.getState().cwd === key) setFilePaths(paths);
+				const session = sessionRuntimeStore<SessionStore>(runtimeTabId, "session") ?? useSessionStore;
+				if (session.getState().cwd === key) setFilePaths(paths);
 			});
 		}, MENTION_FS_DEBOUNCE_MS);
 		return () => clearTimeout(timer);
@@ -486,7 +529,8 @@ export function InputArea() {
 			if ((detail?.tabId ?? useTabsStore.getState().activeTabId) !== runtimeTabId) return;
 			const path = detail?.path;
 			if (!path) return;
-			setText(current => `${current}${current && !current.endsWith(" ") ? " " : ""}@${path} `);
+			const mention = fileMentionFor(path, "");
+			setText(current => `${current}${current && !current.endsWith(" ") ? " " : ""}${mention} `);
 			requestAnimationFrame(() => textareaRef.current?.focus());
 		};
 		window.addEventListener("omp:insert-mention", onInsertMention);
@@ -518,7 +562,7 @@ export function InputArea() {
 					textareaRef.current?.value ??
 					sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ??
 					"";
-				placeDraft(detail?.prepend && current.trim() ? `${next}\n\n${current}` : next, next.length);
+				placeDraft(detail?.prepend ? prependToDraft(next, current) : next, next.length);
 			}
 			if (restoredImages.length > 0) {
 				setImages(current => [
@@ -599,6 +643,8 @@ export function InputArea() {
 		if (!pasteMenu) return;
 		const pendingPaste = pasteMenu;
 		setPasteMenu(null);
+		// The menu's button leaves with it: typing goes on in the field while the file is written.
+		textareaRef.current?.focus();
 		// Capture tab AND session at click time: after the RPC resolves,
 		// `setText` may belong to a different tab's draft (tab switch) or a
 		// different session's draft (in-place session replace). Both success
@@ -651,18 +697,27 @@ export function InputArea() {
 		setMenu,
 		setSending,
 	});
-	/** A submit that went out (the draft emptied) makes this session's suggestion stale. */
+	/**
+	 * Send the draft; true when it went out (the draft emptied), which also makes this session's
+	 * suggestion stale. False when nothing left: empty, still sending or connecting, delivery unknown.
+	 */
 	const send = useCallback(
-		(overrideText?: string, forceMode?: SendMode) => {
+		(overrideText?: string, forceMode?: SendMode): boolean => {
 			const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
 			const hadContent = (overrideText ?? composer.getState().draft).trim() !== "" || images.length > 0;
 			dispatchSend(overrideText, forceMode);
 			const after = composer.getState();
-			if (hadContent && after.draft === "" && after.images.length === 0)
-				useNextPromptStore.getState().clear(nextPromptKey);
+			const sent = hadContent && after.draft === "" && after.images.length === 0;
+			if (sent) useNextPromptStore.getState().clear(nextPromptKey);
+			return sent;
 		},
 		[dispatchSend, runtimeTabId, images.length, nextPromptKey],
 	);
+	/** The send of the latest render: a take transcribed later sends what the composer holds then (pictures, mode, run). */
+	const sendRef = useRef(send);
+	useEffect(() => {
+		sendRef.current = send;
+	}, [send]);
 
 	// Mic dictation (stt.enabled): click starts capture, click again (or Enter)
 	// stops and transcribes, Esc discards; the transcript inserts at the
@@ -675,6 +730,7 @@ export function InputArea() {
 			return;
 		}
 		setDictation("starting");
+		ownsTake.current = true;
 		sendAfterDictationRef.current = false;
 		void recordAndTranscribe({
 			onRecording: () => {
@@ -689,6 +745,7 @@ export function InputArea() {
 				if (mountedRef.current) setDictation("transcribing");
 			},
 		}).then(async result => {
+			ownsTake.current = false;
 			if (!mountedRef.current) return;
 			const sendAfter = sendAfterDictationRef.current;
 			sendAfterDictationRef.current = false;
@@ -708,7 +765,7 @@ export function InputArea() {
 			if (!mountedRef.current) return;
 			if (!insert) {
 				// Nothing heard: "Stop and send" still sends what the draft already holds.
-				if (sendAfter && textareaRef.current?.value.trim()) send();
+				if (sendAfter && textareaRef.current?.value.trim()) sendRef.current();
 				return;
 			}
 			// Read the live DOM value/caret: the user may have typed mid-recording.
@@ -724,9 +781,9 @@ export function InputArea() {
 			const next = `${before}${insertedText}${after}`;
 			el?.focus();
 			placeDraft(next, start + insertedText.length);
-			if (evaluation.submit || sendAfter) send(next);
+			if (evaluation.submit || sendAfter) sendRef.current(next);
 		});
-	}, [recording, dictation, send, t, placeDraft]);
+	}, [recording, dictation, t, placeDraft]);
 
 	// While the mic is open, Enter ends the take (transcribe and insert) and Esc
 	// discards it, before any other key handler (the composer's, App's abort).
@@ -773,10 +830,36 @@ export function InputArea() {
 			if (response.text === null) return;
 			// The written-back text is fully inline: consume the draft's paste blobs.
 			dropReferencedPastes(draft);
-			setText(response.text);
+			placeDraft(response.text, response.text.length);
 		} finally {
 			if (mountedRef.current) setExternalBusy(false);
 		}
+	};
+
+	const historyContext = (): InputHistoryContext => ({
+		cwd,
+		owner: `${runtimeTabId}:${sessionId}`,
+		device: historyDevice,
+	});
+	/** ↑/↓ (or a ⌃R pick) is showing history entries for this composer, the draft waiting in the stash. */
+	const browsingHistory = (context: InputHistoryContext) => {
+		const history = useInputHistoryStore.getState();
+		return (
+			history.navIndex !== -1 &&
+			history.navContext?.owner === context.owner &&
+			history.navContext?.cwd === context.cwd &&
+			history.navContext?.device === context.device
+		);
+	};
+	/**
+	 * Show a history entry the history store moved to: the draft's own pictures step aside while
+	 * browsing and come back with it, an entry brings the pictures it was sent with.
+	 */
+	const showRecalled = (recalled: string, wasBrowsing: boolean, caret: number) => {
+		if (!wasBrowsing) navDraftImages.current = images;
+		const backToDraft = useInputHistoryStore.getState().navIndex === -1;
+		setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
+		placeDraft(recalled, caret);
 	};
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -784,12 +867,23 @@ export function InputArea() {
 		// window is open, Enter and friends belong to the IME — committing the
 		// composition must never send the message.
 		if (isImeKeyEvent(e)) return;
-		// Pending paste choice: Esc cancels the decision without inserting text.
+		// Pending paste choice: Enter takes the first form (inline), Esc cancels it. Keys that would edit
+		// the field under the menu wait: the paste has no place in the draft until it has its form.
 		if (pasteMenu) {
 			if (e.key === "Escape") {
 				e.preventDefault();
 				setPasteMenu(null);
-			}
+			} else if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+				e.preventDefault();
+				choosePasteInline();
+			} else if (
+				e.key === "Enter" ||
+				e.key === "Backspace" ||
+				e.key === "Delete" ||
+				(e.key.length === 1 && !e.metaKey && !e.ctrlKey) ||
+				((e.metaKey || e.ctrlKey) && (e.code === "KeyZ" || e.code === "KeyY" || e.code === "KeyX"))
+			)
+				e.preventDefault();
 			return;
 		}
 		// Ghost text: Tab takes it, Esc hides it (and only then keeps Esc's other meanings off);
@@ -824,15 +918,17 @@ export function InputArea() {
 		}
 		if (nextPrompt !== undefined && text === "" && (e.key === "Tab" || e.key === "ArrowRight") && plainKey) {
 			e.preventDefault();
-			setText(nextPrompt);
+			placeDraft(nextPrompt, nextPrompt.length);
 			nextPromptView.accepted();
 			return;
 		}
 		if (menu && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-			setMenu(null);
+			dismissMenu();
 			return;
 		}
-		if (menu) {
+		// The menu takes plain keys only: Shift+Enter still adds a line, ⌘↵ still sends, Shift+Tab
+		// and Shift+arrows keep their own meaning.
+		if (menu && plainKey) {
 			const count = menu.items.length;
 			// Home/End jump to the ends, PageUp/PageDown move a page; the caret stays put.
 			const paged =
@@ -868,18 +964,21 @@ export function InputArea() {
 			}
 			if (e.key === "Escape") {
 				e.preventDefault();
-				setMenu(null);
+				dismissMenu();
 				return;
 			}
 		}
+		// The composer's own chords are read from the physical key, as keymap.ts reads every chord:
+		// `e.key` is "R" with Caps Lock on and another letter on a non-Latin layout.
+		const chord = chordFromEvent(e);
 		// Ctrl+R: history search overlay (TUI `app.history.search`).
-		if (e.key === "r" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+		if (chord === "⌃R") {
 			e.preventDefault();
 			setHistorySearchOpen(open => !open);
 			return;
 		}
 		// ⌃G: expand / collapse the composer in place.
-		if (e.key === "g" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+		if (chord === "⌃G") {
 			e.preventDefault();
 			toggleExpanded();
 			return;
@@ -893,32 +992,19 @@ export function InputArea() {
 		}
 		// ⌃J inserts a newline at the caret (macOS: on Windows Ctrl+J toggles the panel), continuing a list;
 		// ⌃U deletes the selection, or back to the start of the line.
-		if (
-			e.key === "j" &&
-			PLATFORM === "mac" &&
-			e.ctrlKey &&
-			!e.metaKey &&
-			!e.altKey &&
-			!e.shiftKey &&
-			continueListAtCaret()
-		) {
+		const newline = chord === "⌃J" && PLATFORM === "mac";
+		if (newline && continueListAtCaret()) {
 			e.preventDefault();
 			return;
 		}
-		if (
-			((e.key === "j" && PLATFORM === "mac") || e.key === "u") &&
-			e.ctrlKey &&
-			!e.metaKey &&
-			!e.altKey &&
-			!e.shiftKey
-		) {
+		if (newline || chord === "⌃U") {
 			const el = textareaRef.current;
 			if (!el) return;
 			e.preventDefault();
 			const start = el.selectionStart ?? text.length;
 			const end = el.selectionEnd ?? start;
-			const from = e.key === "j" || start !== end ? start : start === 0 ? 0 : text.lastIndexOf("\n", start - 1) + 1;
-			const insert = e.key === "j" ? "\n" : "";
+			const from = newline || start !== end ? start : start === 0 ? 0 : text.lastIndexOf("\n", start - 1) + 1;
+			const insert = newline ? "\n" : "";
 			placeDraft(`${text.slice(0, from)}${insert}${text.slice(end)}`, from + insert.length);
 			return;
 		}
@@ -948,7 +1034,8 @@ export function InputArea() {
 				}
 				useInputHistoryStore.getState().record(expandPasteMarkers(text), cwd, rpc, historyDevice);
 				dropReferencedPastes(text);
-				setText("");
+				// One native edit: Cmd/Ctrl+Z brings the cleared text back.
+				placeDraft("", 0);
 				setImages([]);
 				setEscHint(false);
 				return;
@@ -973,13 +1060,9 @@ export function InputArea() {
 				const caretStart = el.selectionStart ?? 0;
 				const caretEnd = el.selectionEnd ?? caretStart;
 				const history = useInputHistoryStore.getState();
-				const context = { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice };
+				const context = historyContext();
 				const older = e.key === "ArrowUp";
-				const wasBrowsing =
-					history.navIndex !== -1 &&
-					history.navContext?.owner === context.owner &&
-					history.navContext?.cwd === context.cwd &&
-					history.navContext?.device === context.device;
+				const wasBrowsing = browsingHistory(context);
 				const recalled =
 					older && caretEnd === 0
 						? history.prev(text, context)
@@ -988,11 +1071,7 @@ export function InputArea() {
 							: undefined;
 				if (recalled !== undefined) {
 					e.preventDefault();
-					// The draft's own pictures step aside while browsing and come back with it.
-					if (!wasBrowsing) navDraftImages.current = images;
-					const backToDraft = useInputHistoryStore.getState().navIndex === -1;
-					setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
-					placeDraft(recalled, older ? 0 : recalled.length);
+					showRecalled(recalled, wasBrowsing, older ? 0 : recalled.length);
 					return;
 				}
 			}
@@ -1020,36 +1099,58 @@ export function InputArea() {
 			e.preventDefault();
 			// A held Enter sends once, never again on auto-repeat.
 			if (e.repeat) return;
-			if (expanded) setExpanded(false);
-			send(undefined, followUp ? "followUp" : undefined);
+			// ⌘↵ collapses the expanded composer only once the draft went out.
+			if (send(undefined, followUp ? "followUp" : undefined) && expanded) setExpanded(false);
 		}
 	};
 
 	const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
 		const files = Array.from(e.clipboardData.files);
+		const pasted = e.clipboardData.getData("text/plain");
 		if (files.length > 0) {
 			e.preventDefault();
+			// A clipboard may hold files and text together (a picture copied with its caption): the text
+			// goes in too. A file manager's copy also carries the files' names as text: that text is the
+			// files themselves, already attached.
+			const names = new Set(files.map(file => file.name));
+			const lines = pasted
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.filter(line => line !== "");
+			if (lines.some(line => !names.has(line) && !names.has(line.split(/[\\/]/).at(-1) ?? "")))
+				pasteText(pasted, true);
 			attachFiles(files);
 			return;
 		}
-		// Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse
-		// to a `[Paste #N]` marker past the marker threshold; past the (separate,
-		// line-count-only) menu threshold, offer the inline/wrapped choice first.
-		const pasted = e.clipboardData.getData("text/plain");
-		if (!pasted) return;
+		if (pasted && pasteText(pasted, false)) e.preventDefault();
+	};
+
+	/**
+	 * A clipboard's text. Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse to a
+	 * `[Paste #N]` marker past the marker threshold; past the (separate, line-count-only) menu threshold,
+	 * offer the inline/wrapped choice first. A small paste is the field's own default unless `own` (the
+	 * default was cancelled for a file beside it): then it goes in at the caret here. False when the
+	 * field's default paste should run.
+	 */
+	const pasteText = (pasted: string, own: boolean): boolean => {
 		const content = pasted
 			.replace(/\r\n?/g, "\n")
 			.normalize("NFC")
 			.replace(/\t/g, "   ")
 			.replace(/[\x00-\x08\x0B-\x1F]/g, "");
-		if (!isMarkerSized(content)) return; // small paste: default textarea behavior
-		e.preventDefault();
-		const lineCount = content.split("\n").length;
-		if (shouldOfferPasteMenu(lineCount, pasteMenuThreshold)) {
-			setPasteMenu({ content, lineCount });
-			return;
+		if (!isMarkerSized(content)) {
+			if (!own) return false;
+			const el = textareaRef.current;
+			const current = el?.value ?? text;
+			const start = el?.selectionStart ?? current.length;
+			const end = el?.selectionEnd ?? start;
+			placeDraft(`${current.slice(0, start)}${content}${current.slice(end)}`, start + content.length);
+			return true;
 		}
-		insertPasteBlob(content);
+		const lineCount = content.split("\n").length;
+		if (shouldOfferPasteMenu(lineCount, pasteMenuThreshold)) setPasteMenu({ content, lineCount });
+		else insertPasteBlob(content);
+		return true;
 	};
 
 	const modeLabel = mode === "followUp" ? t("input.followUp") : t("input.steer");
@@ -1208,13 +1309,20 @@ export function InputArea() {
 							<Button onClick={choosePasteSaveFile} size="sm">
 								{t("input.paste.saveFile")}
 							</Button>
-							<Button onClick={() => setPasteMenu(null)} size="sm" variant="ghost">
+							<Button
+								onClick={() => {
+									setPasteMenu(null);
+									textareaRef.current?.focus();
+								}}
+								size="sm"
+								variant="ghost"
+							>
 								{t("input.paste.cancel")}
 							</Button>
 						</div>
 					</div>
 				)}
-				<ComposerQueue />
+				<ComposerQueue onSettled={() => textareaRef.current?.focus()} />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
@@ -1271,7 +1379,13 @@ export function InputArea() {
 							onSelect={prompt => {
 								setHistorySearchOpen(false);
 								textareaRef.current?.focus();
-								placeDraft(prompt, prompt.length);
+								// A pick replaces the draft the way ↑ does: the draft and its pictures wait in the
+								// history's stash (↓ brings them back), and Cmd/Ctrl+Z restores the text.
+								const context = historyContext();
+								const wasBrowsing = browsingHistory(context);
+								if (useInputHistoryStore.getState().recall(prompt, text, context))
+									showRecalled(prompt, wasBrowsing, prompt.length);
+								else placeDraft(prompt, prompt.length);
 							}}
 							onClose={() => {
 								setHistorySearchOpen(false);
@@ -1388,9 +1502,11 @@ export function InputArea() {
 											className="omp-composer-attachment-remove absolute -top-1.5 -right-1.5"
 											icon={<X />}
 											label={t("input.removeAttachment", { index: index + 1 })}
-											onClick={() =>
-												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
-											}
+											onClick={() => {
+												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index));
+												// The button leaves with its picture: typing goes on in the field, never on <body>.
+												textareaRef.current?.focus();
+											}}
 											size="sm"
 											variant="secondary"
 										/>
@@ -1418,7 +1534,16 @@ export function InputArea() {
 								))}
 							</ul>
 						)}
-						<DraftFileCards onRemove={path => setText(current => removeFileMention(current, path))} text={text} />
+						<DraftFileCards
+							onRemove={path => {
+								// The card leaves with its mention: one native edit in the focused field (⌘Z puts it back).
+								const el = textareaRef.current;
+								el?.focus();
+								const next = removeFileMention(el?.value ?? text, path);
+								placeDraft(next, next.length);
+							}}
+							text={text}
+						/>
 						<PastedTextDialog
 							onClose={() => setEditingPaste(null)}
 							onSave={(id, content) => {
@@ -1430,6 +1555,7 @@ export function InputArea() {
 						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
 								ref={textareaRef}
+								data-composer-input
 								aria-activedescendant={menu ? `${menuId}-${menu.index}` : undefined}
 								aria-autocomplete={menu ? "list" : undefined}
 								aria-controls={menu ? menuId : undefined}
@@ -1440,15 +1566,29 @@ export function InputArea() {
 								spellCheck
 								value={text}
 								onChange={event => {
-									useInputHistoryStore.getState().resetNav();
 									const value = event.target.value;
-									// TUI parity (custom-editor.ts:1001-1007): the moment the buffer
-									// becomes exactly the queue prefix, a newline starts the list body.
-									if (value === "->" || value === "=>") {
-										setText(`${value}\n`);
+									// The composer's own write (placeDraft): only mirror it.
+									if (ownEdit.current) {
+										setText(value);
 										return;
 									}
+									useInputHistoryStore.getState().resetNav();
 									setText(value);
+									// TUI parity (custom-editor.ts:1001-1007): the moment typing makes the buffer
+									// exactly the queue prefix, a newline starts the list body. Only typing does:
+									// Backspace or an undo back to `->` must leave it, or the prefix never goes.
+									const inputType = (event.nativeEvent as InputEvent | undefined)?.inputType ?? "";
+									if (
+										(value === "->" || value === "=>") &&
+										value.length > text.length &&
+										!inputType.startsWith("history")
+									) {
+										// After this input event: the newline is the composer's own edit, its own undo step.
+										queueMicrotask(() => {
+											if (textareaRef.current?.value === value) placeDraft(`${value}\n`, value.length + 1);
+										});
+										return;
+									}
 									// Emoji inline replace (TUI parity): `:name:` fires on the closing
 									// colon, emoticons fire on a trailing space/tab/newline.
 									if (emojiAutocomplete) {
@@ -1718,8 +1858,8 @@ export function InputArea() {
 													icon={<ArrowUp strokeWidth={2.25} />}
 													label={t("input.send")}
 													onClick={() => {
-														if (expanded) setExpanded(false);
-														send();
+														// The expanded composer collapses only once the draft went out.
+														if (send() && expanded) setExpanded(false);
 														// The button disables itself once the draft clears; a disabled
 														// focused control swallows keystrokes (⌘, and friends), so keep
 														// typing focus in the composer like Enter does.

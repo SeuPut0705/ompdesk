@@ -27,10 +27,12 @@ const QueueRow = memo(function QueueRow({
 	item,
 	lane,
 	actions,
+	onSettled,
 }: {
 	item: RpcQueuedMessage;
 	lane: QueueLane;
 	actions: QueueActions;
+	onSettled: () => void;
 }) {
 	const t = useT();
 	const [editing, setEditing] = useState(false);
@@ -45,14 +47,18 @@ const QueueRow = memo(function QueueRow({
 	const MoveIcon = lane === "followUp" ? CornerDownRight : ListPlus;
 	const notConnected = actions.ready ? undefined : t("common.notConnected");
 
+	// Each of these takes away the control that had focus (the edit field, a row that moves lanes or
+	// leaves): focus goes back to the composer instead of falling to <body>.
 	const cancelEdit = () => {
 		setDraft(item.text);
 		setEditing(false);
+		onSettled();
 	};
 	const saveEdit = () => {
 		const next = draft.trim();
 		if (next.length > 0 && next !== item.text) actions.edit(lane, item.id, next);
 		setEditing(false);
+		onSettled();
 	};
 	const onEditKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (isImeKeyEvent(event)) return;
@@ -134,7 +140,10 @@ const QueueRow = memo(function QueueRow({
 					disabled={!actions.ready}
 					icon={<MoveIcon />}
 					label={notConnected ?? moveLabel}
-					onClick={() => actions.moveToLane(lane, item.id)}
+					onClick={() => {
+						actions.moveToLane(lane, item.id);
+						onSettled();
+					}}
 					size="sm"
 				/>
 				<IconButton
@@ -142,7 +151,10 @@ const QueueRow = memo(function QueueRow({
 					disabled={!actions.ready}
 					icon={<X />}
 					label={notConnected ?? t("queuePanel.remove")}
-					onClick={() => actions.remove(lane, item.id)}
+					onClick={() => {
+						actions.remove(lane, item.id);
+						onSettled();
+					}}
 					size="sm"
 				/>
 			</span>
@@ -150,7 +162,8 @@ const QueueRow = memo(function QueueRow({
 	);
 });
 
-export function ComposerQueue() {
+/** `onSettled`: a row's edit, move or removal ended with its control gone; the composer takes focus back. */
+export function ComposerQueue({ onSettled }: { onSettled: () => void }) {
 	const t = useT();
 	const { steering, followUp } = useQueuedMessages();
 	const actions = useQueueActions();
@@ -160,6 +173,8 @@ export function ComposerQueue() {
 	const clearAll = () => {
 		if (steering.length > 0) actions.clearLane("steering");
 		if (followUp.length > 0) actions.clearLane("followUp");
+		// The tray leaves with its rows, and the button with it.
+		onSettled();
 	};
 
 	// The tray sits behind the composer's top edge: it runs down under the
@@ -188,10 +203,10 @@ export function ComposerQueue() {
 			</div>
 			<ul className="max-h-36 overflow-y-auto overscroll-contain px-1 pb-1.5">
 				{steering.map(item => (
-					<QueueRow actions={actions} item={item} key={item.id} lane="steering" />
+					<QueueRow actions={actions} item={item} key={item.id} lane="steering" onSettled={onSettled} />
 				))}
 				{followUp.map(item => (
-					<QueueRow actions={actions} item={item} key={item.id} lane="followUp" />
+					<QueueRow actions={actions} item={item} key={item.id} lane="followUp" onSettled={onSettled} />
 				))}
 			</ul>
 		</section>

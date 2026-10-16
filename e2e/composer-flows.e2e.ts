@@ -9,7 +9,13 @@
  * - Stop and Esc withdraw a prompt the automatic mode choice still holds back: nothing reaches
  *   omp, the plan it picked ends, the draft returns (there was no Stop, and Esc Esc opened the
  *   rewind picker);
- * - the unsent draft survives a renderer reload and an app relaunch.
+ * - the unsent draft survives a renderer reload and an app relaunch;
+ * - the completion menu: never a command menu mid-sentence, Shift+Enter is a newline, a closed menu
+ *   stays closed while the caret moves, `@` reads Hangul and quotes a path with a space;
+ * - `->` comes off with Backspace; ⌘Z undoes a completion and a ⌃R pick (the draft comes back);
+ * - removing a picture, a file card, a queued message or cancelling the paste choice leaves typing
+ *   in the field; a file pasted with text keeps the text; keys wait while the paste choice is open;
+ * - the field grows again when it gets narrower.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -229,6 +235,183 @@ test("the unsent draft survives a renderer reload and an app relaunch", async ()
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await exitApp(launched.app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+const menu = (page: Page) => page.locator('[role="listbox"][aria-label="Suggestions"]');
+
+test("the completion menu keeps modified keys and its closing; `->` comes off; ⌘Z undoes completions and ⌃R picks", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("menu");
+	await fs.writeFile(path.join(dirs.project, "문서.md"), "korean\n");
+	await fs.writeFile(path.join(dirs.project, "My Report.md"), "report\n");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		await input.click();
+		// Mid-sentence a slash offers skills only (the fixture's skills may match): never `/retry`.
+		await page.keyboard.type("hello /re");
+		await page.waitForTimeout(300);
+		const rows = await menu(page).getByRole("option").allInnerTexts();
+		expect(rows.filter(row => !row.startsWith("/skill:"))).toEqual([]);
+		// At the start it opens, and Shift+Enter is still a newline, never the completion.
+		await input.fill("");
+		await page.keyboard.type("/re");
+		await expect(menu(page)).toBeVisible();
+		await page.keyboard.press("Shift+Enter");
+		await expect(input).toHaveValue("/re\n");
+
+		// Closed with Esc, it stays closed while the caret moves through its token.
+		await input.fill("");
+		await page.keyboard.type("/re");
+		await expect(menu(page)).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(menu(page)).toHaveCount(0);
+		await page.keyboard.press("ArrowLeft");
+		await page.keyboard.press("ArrowRight");
+		await page.waitForTimeout(300);
+		await expect(menu(page)).toHaveCount(0);
+		// Typing opens it again; the picked completion is one undo step.
+		await page.keyboard.type("t");
+		await expect(menu(page)).toBeVisible();
+		await page.keyboard.press("Tab");
+		await expect(input).toHaveValue("/retry ");
+		await page.keyboard.press("Meta+z");
+		await expect(input).toHaveValue("/ret");
+
+		// `@` reads Hangul, and a picked name with a space goes in quoted, as stock reads it.
+		await input.fill("");
+		await page.keyboard.type("see @문");
+		await expect(menu(page).getByRole("option").first()).toHaveText("문서.md");
+		await input.fill("");
+		await page.keyboard.type('see @"My R');
+		await expect(menu(page).getByRole("option").first()).toHaveText("My Report.md");
+		await page.keyboard.press("Enter");
+		await expect(input).toHaveValue('see @"My Report.md" ');
+
+		// `->` gets its newline from typing only: Backspace takes it off.
+		await input.fill("");
+		await page.keyboard.type("->");
+		await expect(input).toHaveValue("->\n");
+		await page.keyboard.press("Backspace");
+		await expect(input).toHaveValue("->");
+		await page.keyboard.press("Backspace");
+		await expect(input).toHaveValue("-");
+
+		// A ⌃R pick replaces the draft as one edit: ⌘Z brings the draft back.
+		await input.fill("older prompt");
+		await input.press("Enter");
+		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual(["older prompt"]);
+		await expect(stop(page)).toHaveCount(0, { timeout: 20_000 });
+		await input.fill("precious draft");
+		await page.keyboard.press("Control+r");
+		await page.getByRole("dialog", { name: "History" }).getByRole("option", { name: "older prompt" }).click();
+		await expect(input).toHaveValue("older prompt");
+		await expect(input).toBeFocused();
+		await page.keyboard.press("Meta+z");
+		await expect(input).toHaveValue("precious draft");
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("removing an attachment, a card or a queued message, or cancelling a paste, keeps typing in the field", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("focus-after");
+	await fs.writeFile(path.join(dirs.project, "notes.md"), "notes\n");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		// A picture pasted with its caption: both arrive.
+		await input.focus();
+		await page.evaluate(() => {
+			const field = document.querySelector<HTMLTextAreaElement>(".omp-composer-input");
+			const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+			const data = new DataTransfer();
+			data.items.add(new File([Uint8Array.from(atob(png), c => c.charCodeAt(0))], "p.png", { type: "image/png" }));
+			data.setData("text/plain", "caption text");
+			field?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+		});
+		await expect(input).toHaveValue("caption text");
+		const removeImage = page.getByRole("button", { name: "Remove image 1" });
+		await expect(removeImage).toHaveCount(1);
+		await removeImage.click();
+		await expect(removeImage).toHaveCount(0);
+		expect(await composerFocused(page)).toBe(true);
+		await page.keyboard.type("!");
+		await expect(input).toHaveValue("caption text!");
+
+		// A file card's ✕.
+		await input.fill("see @notes.md ");
+		const removeCard = page.getByRole("button", { name: "Remove notes.md" });
+		await expect(removeCard).toBeVisible();
+		await removeCard.click();
+		await expect(removeCard).toHaveCount(0);
+		expect(await composerFocused(page)).toBe(true);
+
+		// The paste choice: other keys wait, Cancel hands typing back, Enter pastes inline.
+		await input.fill("");
+		const block = Array.from({ length: 120 }, (_, line) => `row ${line}`).join("\n");
+		await pasteText(page, block);
+		const choice = page.getByRole("dialog", { name: /Pasted 120 lines/ });
+		await expect(choice).toBeVisible();
+		await page.keyboard.press("x");
+		await expect(input).toHaveValue("");
+		await choice.getByRole("button", { name: "Cancel" }).click();
+		await expect(choice).toHaveCount(0);
+		expect(await composerFocused(page)).toBe(true);
+		await pasteText(page, block);
+		await expect(choice).toBeVisible();
+		await page.keyboard.press("Enter");
+		await expect(input).toHaveValue(/^\[Paste #\d+, \+120 lines\]$/);
+
+		// A queued steer's edit and removal.
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(stop(page)).toBeVisible();
+		await input.fill("queued one");
+		await input.press("Enter");
+		const tray = page.locator(".omp-composer-queue");
+		await expect(tray.locator("li")).toHaveCount(1);
+		await tray.locator("li").first().hover();
+		await tray.getByRole("button", { name: "Edit" }).click();
+		const editor = page.getByLabel("Queued message text");
+		await editor.fill("queued edited");
+		await editor.press("Enter");
+		await expect(editor).toHaveCount(0);
+		expect(await composerFocused(page)).toBe(true);
+		await tray.locator("li").first().hover();
+		await tray.getByRole("button", { name: "Remove", exact: true }).click();
+		await expect(tray).toHaveCount(0);
+		expect(await composerFocused(page)).toBe(true);
+		await stop(page).click();
+		await expect(stop(page)).toHaveCount(0);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("the field fits its draft again when it gets narrower", async () => {
+	test.setTimeout(90_000);
+	const dirs = await profile("width");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		await input.fill(
+			Array.from({ length: 5 }, () => "a long line of words that wraps once the composer gets narrower").join(" "),
+		);
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(720, 860));
+		await expect
+			.poll(() => input.evaluate(el => el.scrollHeight - el.clientHeight), { timeout: 5_000 })
+			.toBeLessThanOrEqual(1);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
 		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });

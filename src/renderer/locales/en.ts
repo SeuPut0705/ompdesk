@@ -371,7 +371,7 @@ export const en: Record<string, string> = {
 	"input.paste.title": "Pasted {lines} lines · {chars} chars",
 	"input.paste.inline": "Paste inline",
 	"input.paste.wrap": "Attach as wrapped block",
-	"input.paste.hint": "Esc to cancel",
+	"input.paste.hint": "Enter to paste inline · Esc to cancel",
 	"input.paste.cancel": "Cancel",
 	"input.paste.saveFile": "Save as file",
 	"input.paste.saveFailed": "Couldn't save the paste as a file",

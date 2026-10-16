@@ -88,6 +88,8 @@ export interface ReservedChord {
 	readonly hotkeyGroup: ReservedChordGroup;
 	/** Bound on macOS only: on Windows the same ⌃ chord is a ⌘→⌃ default of an action. */
 	readonly macOnly?: true;
+	/** The chord on Windows when it is not the ⌘→⌃ spelling of `chord`. */
+	readonly windowsChord?: string;
 }
 
 /** actionId → replacement chord list (canonical or aliased; sanitized on hydration). */
@@ -645,6 +647,14 @@ const COMPOSER_CHORDS: readonly ReservedChord[] = [
 		macOnly: true,
 	},
 	{ id: "composer.deleteLine", labelKey: "hotkeys.row.composerDeleteLine", chord: "⌃U", hotkeyGroup: "input" },
+	// isComposerFollowUpKey: ⌃↵ on macOS, ⌥↵ on Windows (where ⌃↵ is the send chord).
+	{
+		id: "composer.followUp",
+		labelKey: "hotkeys.row.followUpSend",
+		chord: composerFollowUpChord("mac"),
+		windowsChord: composerFollowUpChord("windows"),
+		hotkeyGroup: "input",
+	},
 ];
 
 /** Every chord the GUI already owns that the registry cannot dispatch (macOS spelling). */
@@ -663,7 +673,7 @@ export function reservedChords(platform: KeymapPlatform = PLATFORM): readonly Re
 	if (platform === "mac") return RESERVED_CHORDS;
 	return RESERVED_CHORDS.filter(entry => !entry.macOnly).map(entry => ({
 		...entry,
-		chord: platformChord(entry.chord, platform),
+		chord: entry.windowsChord ?? platformChord(entry.chord, platform),
 	}));
 }
 

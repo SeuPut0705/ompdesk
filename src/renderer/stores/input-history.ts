@@ -100,6 +100,11 @@ interface InputHistoryStore {
 	recent: (limit?: number) => InputHistoryEntry[];
 	prev: (currentDraft: string, context?: InputHistoryContext) => string | undefined;
 	next: (context?: InputHistoryContext) => string | undefined;
+	/**
+	 * Jump to the entry holding `prompt` (a ⌃R pick) as if ↑ had reached it: the draft is stashed like
+	 * ↑ stashes it, so ↓ walks back to it. False when the loaded entries do not hold the prompt.
+	 */
+	recall: (prompt: string, currentDraft: string, context?: InputHistoryContext) => boolean;
 	resetNav: () => void;
 }
 
@@ -212,6 +217,21 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 		}
 		set({ navIndex: nextIndex });
 		return entries[nextIndex]?.prompt;
+	},
+	recall: (prompt, currentDraft, context) => {
+		const state = get();
+		const index = workspaceHistory(
+			state.entries.filter(entry => entry.device === context?.device),
+			context?.cwd,
+		).findIndex(entry => entry.prompt === prompt);
+		if (index === -1) return false;
+		const browsing =
+			state.navIndex !== -1 &&
+			state.navContext?.owner === context?.owner &&
+			state.navContext?.cwd === context?.cwd &&
+			state.navContext?.device === context?.device;
+		set({ navIndex: index, navDraft: browsing ? state.navDraft : currentDraft, navContext: context });
+		return true;
 	},
 	resetNav: () => {
 		if (get().navIndex !== -1 || get().navContext !== undefined)

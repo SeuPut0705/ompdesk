@@ -23,33 +23,91 @@ function flattenFilePaths(entries: FsTreeEntry[], out: string[]): void {
 	}
 }
 
+/**
+ * How long one listing answers the `@` menu: the next `@` after it walks the tree again, so files the
+ * agent created since show up.
+ */
+export const MENTION_FILES_TTL_MS = 30_000;
+
 /** @mention file lists, cached per session cwd; inflight dedupes concurrent walks. */
 const mentionFileInflight = new Map<string, Promise<string[]>>();
-export const mentionFileCache = new Map<string, string[]>();
-export function listMentionFiles(cwd: string, tabId?: string | null): Promise<string[]> {
+const mentionFileCache = new Map<string, { paths: string[]; at: number }>();
+
+/** The last listing of `cwd`, fresh or not: what the `@` menu shows until the next walk lands. */
+export function cachedMentionFiles(cwd: string): string[] | undefined {
+	return mentionFileCache.get(cwd)?.paths;
+}
+
+/** Forget every listing (tests). */
+export function clearMentionFiles(): void {
+	mentionFileCache.clear();
+	mentionFileInflight.clear();
+}
+
+/**
+ * The workspace's files for the `@` menu: the cached listing while it is fresh, else one walk. A failed
+ * walk is never remembered (the next `@` tries again) and answers with the last good listing, if any.
+ */
+export function listMentionFiles(cwd: string, tabId?: string | null, now = Date.now()): Promise<string[]> {
 	const cached = mentionFileCache.get(cwd);
-	if (cached) return Promise.resolve(cached);
+	if (cached && now - cached.at < MENTION_FILES_TTL_MS) return Promise.resolve(cached.paths);
 	const inflight = mentionFileInflight.get(cwd);
 	if (inflight) return inflight;
 	const task = window.omp.fs
 		.list(undefined, MENTION_FS_DEPTH, MENTION_FS_MAX_ENTRIES, tabId ?? undefined)
 		.then(result => {
+			if (!result.ok) return cached?.paths ?? [];
 			const paths: string[] = [];
-			if (result.ok) flattenFilePaths(result.entries, paths);
+			flattenFilePaths(result.entries, paths);
 			paths.sort();
-			mentionFileCache.set(cwd, paths);
+			mentionFileCache.set(cwd, { paths, at: now });
 			return paths;
 		})
-		.catch(() => {
-			// Best-effort: on IPC failure the @ menu falls back to scheme entries
-			// only; nothing is cached so the next attempt retries the walk.
-			return [] as string[];
-		})
+		.catch(() => cached?.paths ?? [])
 		.finally(() => {
 			mentionFileInflight.delete(cwd);
 		});
 	mentionFileInflight.set(cwd, task);
 	return task;
+}
+
+/**
+ * The `@` file token that ends at the caret, read as stock's `extractAtFilePrefix` reads it (pi-tui
+ * autocomplete.ts; a renderer copy, stock cannot run here): `@` at the start or after whitespace, then
+ * either an open quote (`@"My Re`, a path with spaces) or any run of characters up to stock's path
+ * delimiters (space, tab, `"`, `'`, `=`), so Hangul and other non-ASCII names count. `start` is the `@`.
+ */
+export function mentionToken(before: string): { start: number; query: string; quoted: boolean } | null {
+	const quoted = /(^|\s)@"([^"]*)$/.exec(before);
+	if (quoted) return { start: quoted.index + (quoted[1] ?? "").length, query: quoted[2] ?? "", quoted: true };
+	const bare = /(^|\s)@([^\s"'=]*)$/.exec(before);
+	if (bare) return { start: bare.index + (bare[1] ?? "").length, query: bare[2] ?? "", quoted: false };
+	return null;
+}
+
+/**
+ * Rewrite a focused field's text as one native edit, so Cmd/Ctrl+Z undoes exactly this change (a value
+ * written by script leaves the browser's undo stack pointing into text that is gone). Only the changed
+ * middle is replaced. False when the field is not focused or the browser refuses the edit: the caller
+ * then writes the value itself.
+ */
+export function editFieldText(el: HTMLTextAreaElement, next: string): boolean {
+	const doc = el.ownerDocument;
+	if (typeof doc.execCommand !== "function" || doc.activeElement !== el) return false;
+	const value = el.value;
+	if (value === next) return true;
+	const shorter = Math.min(value.length, next.length);
+	let start = 0;
+	while (start < shorter && value[start] === next[start]) start++;
+	// Never split a surrogate pair: half an emoji is not text the field can insert.
+	if (start > 0 && /[\uD800-\uDBFF]/.test(value.charAt(start - 1))) start--;
+	let end = 0;
+	while (end < shorter - start && value[value.length - 1 - end] === next[next.length - 1 - end]) end++;
+	if (end > 0 && /[\uDC00-\uDFFF]/.test(value.charAt(value.length - end))) end--;
+	const insert = next.slice(start, next.length - end);
+	el.setSelectionRange(start, value.length - end);
+	const done = insert === "" ? doc.execCommand("delete") : doc.execCommand("insertText", false, insert);
+	return done && el.value === next;
 }
 
 /**

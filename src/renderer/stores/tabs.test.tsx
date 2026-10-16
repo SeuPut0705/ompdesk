@@ -746,7 +746,8 @@ describe("tabs store switch", () => {
 		expect(useComposerStore.getState().images).toEqual([]);
 
 		await useTabsStore.getState().switchTab("t0");
-		expect(useComposerStore.getState().draft).toBe("failed-t0\ndraft-t0");
+		// Joined like the abort and dequeue restores (`omp:fill-composer` prepend): a blank line between.
+		expect(useComposerStore.getState().draft).toBe("failed-t0\n\ndraft-t0");
 		expect(useComposerStore.getState().images.map(image => image.content.data)).toEqual(["failed-image", "image-t0"]);
 	});
 

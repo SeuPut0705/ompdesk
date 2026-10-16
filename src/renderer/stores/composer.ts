@@ -16,6 +16,14 @@ export interface ComposerImage {
 	preview: string;
 }
 
+/**
+ * Text handed back to the composer (a failed send, a dequeued or withdrawn message) goes ahead of the
+ * draft typed meanwhile, a blank line between: every restore joins the same way.
+ */
+export function prependToDraft(restored: string, draft: string): string {
+	return draft.trim() ? `${restored}\n\n${draft}` : restored;
+}
+
 export interface ComposerStore {
 	draft: string;
 	sending: boolean;

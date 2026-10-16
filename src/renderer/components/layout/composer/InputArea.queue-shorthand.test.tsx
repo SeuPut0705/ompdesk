@@ -12,7 +12,7 @@ import { resetSessionSurface } from "../../../hooks/use-session-switch";
 import { clearHistoryImages, rememberHistoryImages } from "../../../lib/history-images";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../../lib/paste-blobs";
-import { METER_BARS } from "../../../lib/voice";
+import { METER_BARS, recordAndTranscribe, stopVoiceRecording } from "../../../lib/voice";
 import { useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
@@ -35,6 +35,7 @@ import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { type FakeMic, FakeStream, installFakeMic, uninstallFakeMic } from "../../../test-support/dictation";
 import { InputArea } from "./InputArea";
+import { clearMentionFiles } from "./input-area-utils";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -305,7 +306,8 @@ describe("InputArea queue shorthand submit", () => {
 			error: "Process restarted before acknowledgement",
 		});
 		await flush();
-		expect(useComposerStore.getState().draft).toBe("preserve in-flight input\nnext draft");
+		// Joined like every restore (prependToDraft): a blank line between.
+		expect(useComposerStore.getState().draft).toBe("preserve in-flight input\n\nnext draft");
 		expect(useComposerStore.getState().submissionUncertain).toBe(true);
 		expect(useComposerStore.getState().sending).toBe(false);
 		await pressEnter(findTextarea());
@@ -1979,5 +1981,299 @@ describe("InputArea markdown list continuation", () => {
 		setCaret("1) a".length);
 		await pressKey({ key: "Enter" });
 		expect(useComposerStore.getState().draft).toBe("1) a\n2) ");
+	});
+});
+
+/** Composer audit, Oct 2026 (local composer-audit.md): M2–M8 and the Low items the component owns. */
+describe("InputArea composer audit", () => {
+	afterEach(() => clearMentionFiles());
+
+	function setCaret(start: number, end = start): void {
+		Object.assign(findTextarea(), { selectionStart: start, selectionEnd: end });
+	}
+	function draft(): string {
+		return useComposerStore.getState().draft;
+	}
+	function options(): string[] {
+		return Array.from(document.querySelectorAll('[role="option"]')).map(option => option.textContent ?? "");
+	}
+	async function deliverCommands(commands: unknown[]): Promise<void> {
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () => deliver(commands, "t0"));
+	}
+	/** Type `value` with the caret at its end, then let the menu derive. */
+	async function typeDraft(value: string): Promise<void> {
+		setCaret(value.length);
+		await typeInto(findTextarea(), value);
+		await flush();
+	}
+	function reactProps<T>(element: unknown): T {
+		const record = element as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+		if (!key) throw new Error("react props not found");
+		return record[key] as T;
+	}
+	const image = (data: string) => ({
+		content: { type: "image" as const, data, mimeType: "image/png" },
+		preview: data,
+	});
+
+	it("M2: a slash after prompt text offers skills only, as stock's mid-prompt lookup does", async () => {
+		await mount();
+		await deliverCommands([{ name: "retry" }, { name: "skill:review", source: "skill" }]);
+		await typeDraft("hello /ret");
+		expect(options()).toEqual([]);
+		await typeDraft("hello /re");
+		expect(options()).toEqual(["/skill:review"]);
+		await typeDraft("/re");
+		expect(options()).toContain("/retry");
+	});
+
+	it("M2: Shift+Enter and ⌘↵ keep their meaning while the menu is open", async () => {
+		await mount();
+		await deliverCommands([{ name: "skill:review", source: "skill" }]);
+		await typeDraft("check /rev");
+		expect(options()).toHaveLength(1);
+		// Shift+Enter: the field's own newline, never the completion.
+		expect((await pressKey({ key: "Enter", shiftKey: true })).defaultPrevented).toBe(false);
+		expect(draft()).toBe("check /rev");
+		// ⌘↵ sends what is typed (a steer while the turn runs).
+		await pressKey({ key: "Enter", metaKey: true });
+		await flush();
+		expect(steer).toHaveBeenCalledWith("check /rev", []);
+	});
+
+	it("L1: a menu closed with Esc or ← stays closed while the caret moves in its token, until an edit", async () => {
+		await mount();
+		await deliverCommands([{ name: "retry" }, { name: "review" }]);
+		await typeDraft("/re");
+		expect(options().length).toBeGreaterThan(0);
+		const caretMoved = async (at: number) => {
+			setCaret(at);
+			await act(async () => {
+				findTextarea().dispatchEvent(new Event("keyup"));
+			});
+			await flush();
+		};
+		await pressKey({ key: "Escape" });
+		expect(options()).toEqual([]);
+		await caretMoved(2);
+		await caretMoved(3);
+		expect(options()).toEqual([]);
+		await pressKey({ key: "ArrowLeft" });
+		await caretMoved(3);
+		expect(options()).toEqual([]);
+		// Typing opens it again.
+		await typeDraft("/ret");
+		expect(options()).toContain("/retry");
+		await pressKey({ key: "ArrowLeft" });
+		await caretMoved(3);
+		await caretMoved(4);
+		expect(options()).toEqual([]);
+	});
+
+	it("M3: Backspace from `->` + newline leaves `->`; only typing adds the newline", async () => {
+		await mount();
+		await typeDraft("-");
+		await typeDraft("->");
+		expect(draft()).toBe("->\n");
+		await typeDraft("->");
+		expect(draft()).toBe("->");
+		await typeDraft("-");
+		expect(draft()).toBe("-");
+	});
+
+	it("M4: the @ menu reads Hangul, and a picked path with a space goes in quoted", async () => {
+		await mount();
+		const list = vi.fn(async () => ({
+			ok: true,
+			entries: ["문서.md", "My Report.md", "src/a.ts"].map(path => ({ kind: "file", path, name: path })),
+		}));
+		Reflect.set(window.omp.fs, "list", list);
+		await typeDraft("see @문");
+		// The listing waits out the mention debounce.
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 200);
+			await promise;
+		});
+		await flush();
+		expect(options()[0]).toBe("문서.md");
+		await typeDraft('see @"My Re');
+		expect(options()[0]).toBe("My Report.md");
+		await pressKey({ key: "Enter" });
+		expect(draft()).toBe('see @"My Report.md" ');
+	});
+
+	it("M5: removing a picture puts typing back in the field", async () => {
+		await mount();
+		await act(async () => useComposerStore.getState().setImages([image("AA==")]));
+		const focus = vi.fn();
+		Reflect.set(findTextarea(), "focus", focus);
+		const remove = document.querySelector(
+			`button[aria-label="${translate("input.removeAttachment", { index: 1 })}"]`,
+		) as unknown as TestElement | null;
+		if (!remove) throw new Error("remove button missing");
+		await click(remove);
+		expect(useComposerStore.getState().images).toEqual([]);
+		expect(focus).toHaveBeenCalled();
+	});
+
+	it("M6: a clipboard holding a file and text keeps the text", async () => {
+		await mount();
+		const { onPaste } = reactProps<{ onPaste: (event: object) => void }>(findTextarea());
+		// A file with a path becomes a mention (a picture would attach; both skip the text the same way).
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () => "/tmp/report.pdf";
+		const file = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
+		await act(async () =>
+			onPaste({
+				clipboardData: { files: [file], getData: (type: string) => (type === "text/plain" ? "caption text" : "") },
+				preventDefault: () => {},
+			}),
+		);
+		await flush();
+		expect(draft()).toBe("caption text @report.pdf ");
+		// A file manager's copy names the files as text: that is the file, not a caption.
+		await typeInto(findTextarea(), "");
+		setCaret(0);
+		await act(async () =>
+			onPaste({
+				clipboardData: {
+					files: [file],
+					getData: (type: string) => (type === "text/plain" ? "/tmp/report.pdf" : ""),
+				},
+				preventDefault: () => {},
+			}),
+		);
+		await flush();
+		expect(draft()).toBe("@report.pdf ");
+	});
+
+	it("M7: a ⌃R pick stashes the draft and its pictures like ↑, so ↓ brings them back", async () => {
+		await mount();
+		await act(async () =>
+			useInputHistoryStore.setState({
+				entries: [{ prompt: "older prompt", ts: 100, cwd: "/tmp", transient: true }],
+			}),
+		);
+		await typeDraft("precious draft");
+		await act(async () => useComposerStore.getState().setImages([image("AQ==")]));
+		await pressKey({ key: "r", code: "KeyR", ctrlKey: true });
+		await flush();
+		const row = Array.from(document.querySelectorAll('[role="option"]')).find(option =>
+			option.textContent?.includes("older prompt"),
+		) as unknown as TestElement | undefined;
+		if (!row) throw new Error("history row missing");
+		await click(row);
+		expect(draft()).toBe("older prompt");
+		expect(useComposerStore.getState().images).toEqual([]);
+		setCaret("older prompt".length);
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(true);
+		expect(draft()).toBe("precious draft");
+		expect(useComposerStore.getState().images.map(item => item.content.data)).toEqual(["AQ=="]);
+	});
+
+	it("M8: a completion goes in as one native edit of the changed span, so undo restores the typed text", async () => {
+		await mount();
+		await deliverCommands([{ name: "retry" }]);
+		await typeDraft("/re");
+		const field = findTextarea() as unknown as { value: string; selectionStart: number; selectionEnd: number };
+		const doc = document as unknown as { execCommand?: unknown };
+		const calls: unknown[][] = [];
+		doc.execCommand = (...args: unknown[]) => {
+			calls.push([...args, field.selectionStart, field.selectionEnd]);
+			field.value =
+				field.value.slice(0, field.selectionStart) + String(args[2]) + field.value.slice(field.selectionEnd);
+			return true;
+		};
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => findTextarea() });
+		try {
+			await pressKey({ key: "Tab" });
+		} finally {
+			delete doc.execCommand;
+			Reflect.deleteProperty(document, "activeElement");
+		}
+		expect(calls).toEqual([["insertText", false, "try ", 3, 3]]);
+		expect(draft()).toBe("/retry ");
+	});
+
+	it("L2: ⌘↵ on an empty expanded composer leaves it expanded", async () => {
+		await mount();
+		await pressKey({ key: "g", code: "KeyG", ctrlKey: true });
+		expect(isExpanded()).toBe(true);
+		await pressKey({ key: "Enter", metaKey: true });
+		expect(isExpanded()).toBe(true);
+		await typeDraft("go");
+		await pressKey({ key: "Enter", metaKey: true });
+		await flush();
+		expect(isExpanded()).toBe(false);
+	});
+
+	it("L5: ⌃R and ⌃U read the physical key (Caps Lock, other layouts)", async () => {
+		await mount();
+		await typeDraft("one two");
+		await pressKey({ key: "U", code: "KeyU", ctrlKey: true });
+		expect(draft()).toBe("");
+		await pressKey({ key: "ㄱ", code: "KeyR", ctrlKey: true });
+		expect(document.querySelector('[role="dialog"][aria-label="History"]')).not.toBeNull();
+	});
+
+	it("L6: with the paste choice open, Enter pastes inline and typing leaves the field alone", async () => {
+		await mount();
+		const { onPaste } = reactProps<{ onPaste: (event: object) => void }>(findTextarea());
+		// Past the default paste-menu threshold (100 lines).
+		const block = Array.from({ length: 120 }, (_, line) => `row ${line}`).join("\n");
+		await act(async () =>
+			onPaste({
+				clipboardData: { files: [], getData: (type: string) => (type === "text/plain" ? block : "") },
+				preventDefault: () => {},
+			}),
+		);
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect((await pressKey({ key: "x" })).defaultPrevented).toBe(true);
+		expect((await pressKey({ key: "Enter" })).defaultPrevented).toBe(true);
+		expect(expandPasteMarkers(draft())).toBe(block);
+	});
+
+	it("L4: Stop and send sends a picture added while recording", async () => {
+		installFakeMic();
+		try {
+			await mount();
+			const transcribeAudio = vi.fn(async () => ok({ text: "hello there" }));
+			Object.assign(window.omp.rpc, { transcribeAudio, getSettings: vi.fn(async () => ok({ values: {} })) });
+			await act(async () => useSettingsStore.setState({ sttEnabled: true }));
+			const mic = document.querySelector(
+				`button[aria-label="${translate("voice.mic.start")}"]`,
+			) as unknown as TestElement | null;
+			if (!mic) throw new Error("mic button missing");
+			await click(mic);
+			await flush();
+			await act(async () => useComposerStore.getState().setImages([image("AQ==")]));
+			const stopAndSend = document.querySelector("button[data-dictation-send]") as unknown as TestElement | null;
+			if (!stopAndSend) throw new Error("Stop and send missing");
+			await click(stopAndSend);
+			await flush();
+			await flush();
+			expect(steer).toHaveBeenCalledWith("hello there", [image("AQ==").content]);
+		} finally {
+			uninstallFakeMic();
+		}
+	});
+
+	it("L8: closing a composer leaves another pane's dictation running", async () => {
+		installFakeMic();
+		try {
+			await mount();
+			const transcribeAudio = vi.fn(async () => ok({ text: "other pane" }));
+			Object.assign(window.omp.rpc, { transcribeAudio });
+			const take = recordAndTranscribe();
+			await flush();
+			await act(async () => root.render(<div />));
+			stopVoiceRecording();
+			await expect(take).resolves.toEqual({ text: "other pane" });
+		} finally {
+			uninstallFakeMic();
+		}
 	});
 });
