@@ -191,7 +191,11 @@ for (const language of ["en", "ko"] as const)
 				const strong = await cpu(app, 4000);
 				let bare = strong;
 				if (software) {
-					await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
+					// Hidden, not removed: React still owns the node and unmounts it later.
+					await page.evaluate(() => {
+						const cue = document.querySelector<HTMLElement>(".omp-composer-live");
+						if (cue) cue.style.display = "none";
+					});
 					bare = await cpu(app, 4000);
 				}
 				for (const id of ["sa-explore", "sa-nested"]) await fixture(page, `fixture:subagents:finish:${id}`);
