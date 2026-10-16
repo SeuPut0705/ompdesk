@@ -9,7 +9,7 @@
  * counterpart; `boundary` = refused for a web device. Main → renderer: `pass` = the payload goes out
  * unchanged; `transform` = the host rewrites it for a web page; `client` = the page makes it itself.
  */
-import { AGENT_CONTROL_VIEW } from "../../shared/agent-control";
+import { AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import {
 	MOBILE_WEB_COMMAND,
@@ -85,7 +85,8 @@ export type IpcChannel =
 	| typeof WEB_PAIRING_RESPOND
 	| "terminal:shells"
 	| "terminal:request"
-	| typeof AGENT_CONTROL_VIEW;
+	| typeof AGENT_CONTROL_VIEW
+	| typeof AGENT_CONTROL_REVIEW;
 
 type RequestDirection = "invoke" | "send";
 
@@ -465,4 +466,5 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[WEB_DEVICES_CHANGED]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
 	[WEB_PAIRING_REQUEST]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
 	[AGENT_CONTROL_VIEW]: { dir: "push", mode: "pass" },
+	[AGENT_CONTROL_REVIEW]: { dir: "push", mode: "pass" },
 };

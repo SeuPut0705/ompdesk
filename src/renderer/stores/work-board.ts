@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /** The work board's sections, in the order it lists them. */
-export type WorkBoardSectionId = "waiting" | "turn" | "running" | "todos" | "goal" | "last";
+export type WorkBoardSectionId = "waiting" | "review" | "turn" | "running" | "todos" | "goal" | "last";
 
 const PREF = "workBoardCollapsed";
 
@@ -30,7 +30,7 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 		try {
 			const saved = await window.omp?.prefs?.get?.(PREF);
 			if (!saved || typeof saved !== "object") return;
-			const known: WorkBoardSectionId[] = ["waiting", "turn", "running", "todos", "goal", "last"];
+			const known: WorkBoardSectionId[] = ["waiting", "review", "turn", "running", "todos", "goal", "last"];
 			const collapsed = Object.fromEntries(
 				known.filter(id => (saved as Record<string, unknown>)[id] === true).map(id => [id, true as const]),
 			);

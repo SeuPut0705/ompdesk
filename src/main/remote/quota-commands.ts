@@ -71,6 +71,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	// An OMPdesk control tool's confirmation card: a stock extension-UI confirm, no model.
 	"agent_control_confirm",
 	"agent_control_note",
+	"agent_control_review",
 	"abort",
 	"abort_and_restore_queue",
 	"abort_bash",

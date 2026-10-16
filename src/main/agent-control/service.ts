@@ -19,6 +19,10 @@ import {
 	AGENT_CARD_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
+	type AgentReviewAction,
+	type AgentReviewItem,
+	type AgentReviewOutcome,
+	type AgentReviewResult,
 	isApprovalSelect,
 	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
@@ -39,6 +43,7 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
+import { type BranchFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
 import { AgentLimits, LimitError } from "./limits";
 import {
 	type AnswerArgs,
@@ -119,6 +124,12 @@ export interface AgentControlHost {
 	markAnswered(tabId: string, byTitle: string): Promise<void>;
 	/** Close a session's tab and delete its saved file (the sidebar's delete). */
 	deleteSession(callerTabId: string, tabId: string): Promise<void>;
+	/** Git facts of a session's worktree (this computer's sessions only). Rejects with a readable message. */
+	branchFacts(worktree: WorktreeRef): Promise<BranchFacts>;
+	/** Merge the worktree's branch into its parent checkout (local, never pushed). */
+	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
+	/** Remove a closed session's worktree and branch. */
+	discardWorktree(worktree: WorktreeRef): Promise<void>;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -127,7 +138,14 @@ export interface AgentControlHost {
 	beforeFirstPrompt?(child: OpenedChild): Promise<void>;
 	/** Card and label text in the person's language. */
 	text(
-		key: "stopTitle" | "stopMessage" | "closeMessage" | "deleteMessage" | "answeredBy",
+		key:
+			| "stopTitle"
+			| "stopMessage"
+			| "closeMessage"
+			| "deleteMessage"
+			| "answeredBy"
+			| "mergeTitle"
+			| "mergeMessage",
 		params: Record<string, string>,
 	): string;
 }
@@ -252,6 +270,10 @@ export class AgentControl {
 	readonly #opened = new Map<string, Set<string>>();
 	/** Tabs whose stop or close is in flight. */
 	readonly #closing = new Set<string>();
+	/** Children whose review item the person settled (approved, discarded, dismissed). */
+	readonly #reviewed = new Set<string>();
+	/** Files a child's last merge conflicted in, until it merges. */
+	readonly #conflicts = new Map<string, string[]>();
 
 	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
 		this.#host = host;
@@ -275,6 +297,8 @@ export class AgentControl {
 		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
 		this.#closing.delete(tabId);
+		this.#reviewed.delete(tabId);
+		this.#conflicts.delete(tabId);
 	}
 
 	/** Programmatic open (Autopilot): the same path as the tool, with a tag the tool never sets. */
@@ -353,6 +377,14 @@ export class AgentControl {
 			case T.stop: {
 				const args = ARGS[T.stop].parse(raw);
 				return this.#stop(caller, tabs, this.#resolve(tabs, args.session, caller, "stop"), args);
+			}
+			case T.compare: {
+				const args = ARGS[T.compare].parse(raw ?? {});
+				return this.#compare(caller, tabs, args.sessions);
+			}
+			case T.merge: {
+				const args = ARGS[T.merge].parse(raw);
+				return this.#merge(caller, this.#resolve(tabs, args.session, caller, "merge"));
 			}
 		}
 	}
@@ -861,6 +893,193 @@ export class AgentControl {
 		return args.close
 			? `Stopped and closed ${label(target)} (its session stays saved).`
 			: `Stopped ${label(target)}.`;
+	}
+
+	async #describe(caller: ControlTab, tab: ControlTab): Promise<string> {
+		this.#refuseHidden(tab, caller);
+		const session = await this.#state(tab);
+		const head = `- ${tab.tabId} ${label(tab)}: ${this.#stateLine(tab, session)}`;
+		const answer = session.last ? `final answer: ${oneLine(session.last, 700)}` : "final answer: (none yet)";
+		if (!tab.worktree) return `${head}\n  no worktree: nothing to compare as a branch.\n  ${answer}`;
+		if (tab.deviceName)
+			return `${head}\n  its worktree is on ${tab.deviceName}; comparing branches works on this computer's sessions only.\n  ${answer}`;
+		try {
+			const facts = await this.#host.branchFacts(tab.worktree);
+			const added = facts.files.reduce((sum, file) => sum + file.added, 0);
+			const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
+			const shown = facts.files
+				.slice(0, 12)
+				.map(file => `${file.path} +${file.added} −${file.removed}`)
+				.join(", ");
+			const more = facts.files.length > 12 ? `, … ${facts.files.length - 12} more` : "";
+			const problem = mergeProblem(tab.worktree, facts);
+			return [
+				head,
+				`  branch ${facts.branch} → ${facts.baseBranch ?? "(detached)"}: ${facts.commitsAhead} commit(s) ahead, ${facts.files.length} file(s) changed (+${added} −${removed})${facts.merged ? ", already merged" : ""}`,
+				`  uncommitted ${facts.uncommitted}, untracked ${facts.untracked}${shown ? `\n  files: ${shown}${more}` : ""}`,
+				`  ${problem ? `cannot merge yet: ${problem}` : "ready to merge with ompdesk_merge"}`,
+				`  ${answer}`,
+			].join("\n");
+		} catch (error) {
+			return `${head}\n  could not read its branch: ${error instanceof Error ? error.message : String(error)}\n  ${answer}`;
+		}
+	}
+
+	/** Facts for each worktree session: diff stat, uncommitted work and the final answer. Runs no tests. */
+	async #compare(caller: ControlTab, tabs: ControlTab[], ids: string[] | undefined): Promise<string> {
+		const own = this.#openedBy(caller.tabId, tabs);
+		const targets = ids
+			? ids.map(id => this.#resolve(tabs, id, caller, "compare"))
+			: tabs.filter(tab => own.has(tab.tabId) && tab.worktree);
+		if (targets.length === 0)
+			fail("No worktree sessions to compare. Open sessions with worktree: true, or pass sessions.");
+		const blocks = await Promise.all(targets.map(tab => this.#describe(caller, tab)));
+		return `${blocks.join("\n")}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer.`;
+	}
+
+	/** Merge a worktree session's branch into the parent checkout: one card unless the user turned it off. */
+	async #merge(caller: ControlTab, target: ControlTab): Promise<string> {
+		const worktree = this.#mergeable(caller, target);
+		const facts = await this.#host.branchFacts(worktree);
+		const problem = mergeProblem(worktree, facts);
+		if (problem) fail(problem);
+		if (!this.#host.manageEnabled()) {
+			const approved = await this.#host.confirm(
+				caller.tabId,
+				this.#host.text("mergeTitle", {}),
+				this.#host.text("mergeMessage", {
+					caller: caller.title || "—",
+					target: target.title || target.tabId,
+					branch: worktree.branch,
+					base: facts.baseBranch ?? "",
+					cwd: worktree.baseCwd,
+				}),
+			);
+			if (!approved)
+				return `The user declined the merge of ${worktree.branch}. Do not ask again unless they tell you to.`;
+		}
+		return this.#runMerge(target, worktree);
+	}
+
+	#mergeable(caller: ControlTab, target: ControlTab): WorktreeRef {
+		this.#refuseHidden(target, caller);
+		if (!target.worktree)
+			fail(`${label(target)} has no worktree branch to merge (open sessions with worktree: true).`);
+		if (target.deviceName)
+			fail(`${label(target)} runs on ${target.deviceName}; merging works on this computer's sessions only.`);
+		if (target.busy || target.asks.length > 0)
+			fail(`${label(target)} is still working or waiting; collect its result first.`);
+		return target.worktree;
+	}
+
+	async #runMerge(target: ControlTab, worktree: WorktreeRef): Promise<string> {
+		const outcome = await this.#host.mergeBranch(worktree, target.title);
+		if (!outcome.merged) {
+			this.#conflicts.set(target.tabId, outcome.files);
+			fail(
+				`Merge conflict in ${outcome.files.join(", ")}: the merge was aborted and ${worktree.baseCwd} is unchanged. Ask ${label(target)} to rebase or resolve against the parent's branch, then try again.`,
+			);
+		}
+		this.#conflicts.delete(target.tabId);
+		this.#reviewed.add(target.tabId);
+		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.`;
+	}
+
+	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem> {
+		const session = await this.#state(tab);
+		const running = tab.busy || tab.asks.length > 0 || (tab.status !== "ready" && tab.status !== "running");
+		const conflict = this.#conflicts.get(tab.tabId);
+		const item: AgentReviewItem = {
+			tabId: tab.tabId,
+			title: tab.title,
+			state: running ? "running" : conflict ? "conflict" : "needs-review",
+			commitsAhead: 0,
+			files: 0,
+			added: 0,
+			removed: 0,
+			uncommitted: 0,
+			answer: session.last ? oneLine(session.last, 240) : "",
+			...(conflict ? { note: conflict.join(", ") } : {}),
+		};
+		if (!tab.worktree || tab.deviceName) return item;
+		try {
+			const facts = await this.#host.branchFacts(tab.worktree);
+			return {
+				...item,
+				branch: facts.branch,
+				baseBranch: facts.baseBranch,
+				commitsAhead: facts.commitsAhead,
+				files: facts.files.length,
+				added: facts.files.reduce((sum, file) => sum + file.added, 0),
+				removed: facts.files.reduce((sum, file) => sum + file.removed, 0),
+				uncommitted: facts.uncommitted,
+			};
+		} catch {
+			return { ...item, branch: tab.worktree.branch };
+		}
+	}
+
+	/** The sessions `callerTabId` opened that wait for the person (or still run), for the work board. */
+	async reviewItems(callerTabId: string): Promise<AgentReviewItem[]> {
+		const tabs = this.#host.tabs(callerTabId);
+		if (!tabs) return [];
+		const own = this.#openedBy(callerTabId, tabs);
+		const children = tabs.filter(tab => own.has(tab.tabId) && !this.#reviewed.has(tab.tabId) && !tab.hidden);
+		return Promise.all(children.map(tab => this.#reviewItem(tab)));
+	}
+
+	/**
+	 * The board's buttons: Approve merges a worktree session's branch into the parent checkout (the person's click is
+	 * the confirmation) and accepts a session without one; Discard stops and closes the session and removes its
+	 * worktree and branch; Dismiss only hides the item. Only sessions this one opened. Throws a readable message.
+	 */
+	async review(callerTabId: string, action: AgentReviewAction, child?: string): Promise<AgentReviewResult> {
+		if (action === "list") return { items: await this.reviewItems(callerTabId) };
+		const tabs = this.#host.tabs(callerTabId);
+		const caller = tabs?.find(tab => tab.tabId === callerTabId);
+		const target = tabs?.find(tab => tab.tabId === child);
+		if (!tabs || !caller || !target || !this.#openedBy(callerTabId, tabs).has(target.tabId))
+			throw new Error("That session is not one this session opened.");
+		let message: string | undefined;
+		let outcome: AgentReviewOutcome = action === "discard" ? "discarded" : "dismissed";
+		if (action === "approve") {
+			if (target.worktree) {
+				const worktree = this.#mergeable(caller, target);
+				const problem = mergeProblem(worktree, await this.#host.branchFacts(worktree));
+				if (problem) throw new Error(problem);
+				try {
+					message = await this.#runMerge(target, worktree);
+					outcome = "merged";
+				} catch (error) {
+					if (error instanceof ToolError)
+						return { items: await this.reviewItems(callerTabId), outcome: "conflict", message: error.message };
+					throw error;
+				}
+			} else {
+				this.#reviewed.add(target.tabId);
+				outcome = "accepted";
+			}
+		} else if (action === "discard") {
+			this.#closing.add(target.tabId);
+			try {
+				if (target.status === "ready" || target.status === "running")
+					await this.#host.command(target.tabId, { type: "abort" }).catch(() => undefined);
+				this.#host.view(callerTabId, { tabId: target.tabId, how: "close" });
+				await this.#whenGone(callerTabId, target.tabId);
+				if (target.worktree && !target.deviceName) await this.#host.discardWorktree(target.worktree);
+			} finally {
+				this.#closing.delete(target.tabId);
+			}
+			this.#reviewed.add(target.tabId);
+		} else this.#reviewed.add(target.tabId);
+		return { items: await this.reviewItems(callerTabId), outcome, ...(message ? { message } : {}) };
+	}
+
+	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
+	async #whenGone(callerTabId: string, tabId: string): Promise<void> {
+		const deadline = Date.now() + 10_000;
+		while (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
+			await this.#nextChange(Math.min(500, deadline - Date.now()));
 	}
 }
 

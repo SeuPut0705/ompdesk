@@ -586,6 +586,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
+		// The work board's review queue (src/main/agent-control): answered here, never sent to omp.
+		if (cmd.type === "agent_control_review") {
+			if (!issuerTabId)
+				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
+			try {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: true,
+					data: await agentControl.review(win, issuerTabId, cmd.action, cmd.child),
+				};
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					code: "agent_control_review_failed",
+				};
+			}
+		}
 		// Every window that shows the tab has its own composer draft; its omp hears "empty" only when all
 		// of them are (multi-viewer). One window's report passes as it is.
 		if (issuerTabId && (cmd.type === "set_idle_compaction_draft" || cmd.type === "set_next_prompt_draft")) {
@@ -717,7 +740,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
-	const agentControl = new AgentControlRuntime({
+	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		pool: sidecarPool,
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
 			dispatchRpcCommand(win, sidecar, tabId, {

@@ -4,7 +4,7 @@
  */
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import type { AgentControlViewEvent } from "./agent-control";
+import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { ExtensionUpdateState } from "./extension-update";
@@ -1612,6 +1612,8 @@ export interface OmpApi {
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
 		onAgentControlView(callback: (event: AgentControlViewEvent) => void): () => void;
+		/** The agent's review queue changed: every session this window's tab opened, for its work board. */
+		onAgentControlReview(callback: (event: AgentReviewEvent) => void): () => void;
 	};
 	updater: {
 		check(): Promise<UpdateStatus>;

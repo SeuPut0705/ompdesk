@@ -12,6 +12,7 @@ import type {
 	RpcCommand,
 	RpcResponse,
 } from "../../shared/rpc-types";
+import type { BranchFacts, MergeOutcome, WorktreeRef } from "./branches";
 import { AgentLimits } from "./limits";
 import {
 	AgentControl,
@@ -110,6 +111,22 @@ class FakeHost implements AgentControlHost {
 	deleteSession = async (_caller: string, tabId: string) => {
 		this.deleted.push(tabId);
 		this.tabsById.delete(tabId);
+	};
+	facts = new Map<string, BranchFacts>();
+	mergeResult: MergeOutcome = { merged: true, sha: "abc1234", summary: "2 files changed" };
+	merges: string[] = [];
+	discarded: string[] = [];
+	branchFacts = async (worktree: WorktreeRef): Promise<BranchFacts> => {
+		const facts = this.facts.get(worktree.branch);
+		if (!facts) throw new Error("no such branch");
+		return facts;
+	};
+	mergeBranch = async (worktree: WorktreeRef) => {
+		this.merges.push(worktree.branch);
+		return this.mergeResult;
+	};
+	discardWorktree = async (worktree: WorktreeRef) => {
+		this.discarded.push(worktree.branch);
 	};
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -716,5 +733,183 @@ describe("hooks for Autopilot", () => {
 		const types = host.sent.filter(entry => entry.tabId === ids[1]).map(entry => entry.command.type);
 		expect(types).toContain("queue_clear");
 		expect(types).not.toContain("abort");
+	});
+});
+
+const clean: BranchFacts = {
+	branch: "omp/agent/a",
+	baseBranch: "main",
+	commitsAhead: 2,
+	files: [
+		{ path: "src/a.ts", added: 10, removed: 2 },
+		{ path: "src/b.ts", added: 5, removed: 0 },
+	],
+	filesTruncated: false,
+	uncommitted: 0,
+	untracked: 1,
+	baseUncommitted: 0,
+	merged: false,
+};
+
+/** A parent and two worktree children it opened, each on its own branch. */
+async function withWorktreeChildren() {
+	const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+	const service = control(host);
+	const ids = await service.openSessions("main0001", [
+		{ message: "part one", worktree: true },
+		{ message: "part two", worktree: true },
+	]);
+	for (const [index, id] of ids.entries()) {
+		const tab = host.tabsById.get(id) as FakeTab;
+		const branch = `omp/agent/${index === 0 ? "a" : "b"}`;
+		tab.title = index === 0 ? "Alpha" : "Beta";
+		tab.last = `${tab.title} is done: tests pass`;
+		tab.busy = false;
+		tab.worktree = { name: "w", branch, baseCwd: "/repo", path: `/wt/${branch}` };
+		host.facts.set(branch, { ...clean, branch });
+	}
+	return { host, service, ids: ids as [string, string] };
+}
+
+describe("ompdesk_compare", () => {
+	it("gives each worktree child's branch, diff stat, uncommitted work and final answer, and runs no tests", async () => {
+		const { service, ids, host } = await withWorktreeChildren();
+		host.facts.set("omp/agent/b", { ...clean, branch: "omp/agent/b", uncommitted: 3 });
+		const result = await service.run("main0001", T.compare, {});
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain(`- ${ids[0]} "Alpha"`);
+		expect(result.text).toContain("branch omp/agent/a → main: 2 commit(s) ahead, 2 file(s) changed (+15 −2)");
+		expect(result.text).toContain("files: src/a.ts +10 −2, src/b.ts +5 −0");
+		expect(result.text).toContain("final answer: Alpha is done: tests pass");
+		expect(result.text).toContain("ready to merge with ompdesk_merge");
+		expect(result.text).toContain("cannot merge yet: omp/agent/b has 3 uncommitted file(s)");
+		expect(result.text).toContain("Compare runs no tests");
+	});
+
+	it("explains a session without a worktree, a remote one, and an empty default", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "plain002", title: "Plain", last: "done" },
+			{
+				tabId: "remot003",
+				title: "Far",
+				deviceName: "Studio",
+				last: "done",
+				worktree: { name: "w", branch: "b", baseCwd: "/r", path: "/p" },
+			},
+		);
+		const service = control(host);
+		expect((await service.run("main0001", T.compare, {})).text).toMatch(/No worktree sessions/);
+		const both = await service.run("main0001", T.compare, { sessions: ["plain002", "remot003"] });
+		expect(both.text).toContain("no worktree");
+		expect(both.text).toContain("on this computer's sessions only");
+	});
+});
+
+describe("ompdesk_merge", () => {
+	it("asks the user first and merges nothing when they decline", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.cardAnswer = false;
+		const result = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(result.text).toContain("The user declined the merge");
+		expect(host.cards).toEqual([{ title: "mergeTitle:undefined:undefined", message: "mergeMessage:Boss:Alpha" }]);
+		expect(host.merges).toEqual([]);
+	});
+
+	it("merges after the card, or without one when the user turned confirmations off, and never pushes", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const first = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(first.text).toContain("Merged omp/agent/a into /repo (abc1234: 2 files changed). Nothing was pushed.");
+		expect(host.cards).toHaveLength(1);
+		host.manage = true;
+		await service.run("main0001", T.merge, { session: ids[1] });
+		expect(host.cards).toHaveLength(1);
+		expect(host.merges).toEqual(["omp/agent/a", "omp/agent/b"]);
+	});
+
+	it("reports a conflict as the merge's result, aborted, and refuses what would lose work", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.manage = true;
+		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"] };
+		const conflict = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(conflict.isError).toBe(true);
+		expect(conflict.text).toContain("Merge conflict in src/a.ts: the merge was aborted");
+		host.facts.set("omp/agent/b", { ...clean, branch: "omp/agent/b", uncommitted: 2 });
+		expect((await service.run("main0001", T.merge, { session: ids[1] })).text).toMatch(/uncommitted file/);
+		expect(host.merges).toEqual(["omp/agent/a"]);
+		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
+		expect((await service.run("main0001", T.merge, { session: ids[1] })).text).toMatch(/still working/);
+	});
+
+	it("refuses a session without a branch, a hidden one, and itself", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "plain002" }, { tabId: "priv0003", hidden: true });
+		const service = control(host);
+		expect((await service.run("main0001", T.merge, { session: "plain002" })).text).toMatch(/no worktree branch/);
+		expect((await service.run("main0001", T.merge, { session: "priv0003" })).text).toMatch(/hid this session/);
+		expect((await service.run("main0001", T.merge, { session: "main0001" })).text).toMatch(/own session/);
+	});
+});
+
+describe("the review queue", () => {
+	it("lists the sessions the caller opened with their diff stat, running ones as running", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
+		const { items } = await service.review("main0001", "list");
+		expect(items).toHaveLength(2);
+		expect(items[0]).toMatchObject({
+			tabId: ids[0],
+			title: "Alpha",
+			state: "needs-review",
+			branch: "omp/agent/a",
+			baseBranch: "main",
+			commitsAhead: 2,
+			files: 2,
+			added: 15,
+			removed: 2,
+			answer: "Alpha is done: tests pass",
+		});
+		expect(items[1]?.state).toBe("running");
+		host.tabsById.set("other004", { ...(host.tabsById.get(ids[0]) as FakeTab), tabId: "other004" });
+		expect((await service.review("main0001", "list")).items.map(item => item.tabId)).not.toContain("other004");
+	});
+
+	it("Approve merges without asking (the click is the confirmation) and a conflict keeps the item with its files", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"] };
+		const conflicted = await service.review("main0001", "approve", ids[0]);
+		expect(conflicted.message).toContain("Merge conflict");
+		expect(conflicted.items.find(item => item.tabId === ids[0])).toMatchObject({
+			state: "conflict",
+			note: "src/a.ts",
+		});
+		host.mergeResult = { merged: true, sha: "def5678", summary: "" };
+		const merged = await service.review("main0001", "approve", ids[0]);
+		expect(merged.message).toContain("Merged omp/agent/a");
+		expect(merged.items.map(item => item.tabId)).toEqual([ids[1]]);
+		expect(host.cards).toHaveLength(0);
+	});
+
+	it("Discard closes the session and removes its worktree and branch; Dismiss only hides the item", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		(host.tabsById.get(ids[0]) as FakeTab).status = "asleep";
+		const discarded = await service.review("main0001", "discard", ids[0]);
+		expect(host.views).toContainEqual({ tabId: ids[0], how: "close" });
+		expect(host.discarded).toEqual(["omp/agent/a"]);
+		expect(discarded.items.map(item => item.tabId)).toEqual([ids[1]]);
+		const dismissed = await service.review("main0001", "dismiss", ids[1]);
+		expect(dismissed.items).toEqual([]);
+		expect(host.discarded).toEqual(["omp/agent/a"]);
+		expect(host.tabsById.has(ids[1])).toBe(true);
+	});
+
+	it("acts only on sessions the caller opened, and a session without a branch is simply accepted", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "theirs02", title: "Theirs" });
+		const service = control(host);
+		await expect(service.review("main0001", "approve", "theirs02")).rejects.toThrow(/not one this session opened/);
+		const [plain] = await service.openSessions("main0001", [{ message: "x" }]);
+		(host.tabsById.get(plain as string) as FakeTab).busy = false;
+		const accepted = await service.review("main0001", "approve", plain);
+		expect(host.merges).toEqual([]);
+		expect(accepted.items).toEqual([]);
 	});
 });

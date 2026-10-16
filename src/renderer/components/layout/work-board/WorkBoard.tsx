@@ -15,6 +15,7 @@
 
 import { Check, ChevronRight, Pause, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { usePresence } from "../../../hooks/use-presence";
@@ -25,6 +26,7 @@ import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { ensureAgentReviewSubscription, useAgentReviewItems, useAgentReviewStore } from "../../../stores/agent-review";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -39,7 +41,7 @@ import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
-import { IconButton, Kbd } from "../../common";
+import { Button, IconButton, Kbd } from "../../common";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
@@ -144,6 +146,101 @@ function BoardSection({
 	);
 }
 
+/**
+ * A session this one's agent opened, once it has finished (or while it still runs): its branch and diff stat, and the
+ * person's choices: Review (show its changes), Approve (merge the branch into this checkout; accept a session without
+ * one), Discard (close it and remove its worktree, after a second click).
+ */
+function ReviewRow({ parentTabId, item }: { parentTabId: string; item: AgentReviewItem }) {
+	const t = useT();
+	const busy = useAgentReviewStore(state => state.busy[item.tabId] === true);
+	const [armed, setArmed] = useState(false);
+	const running = item.state === "running";
+	const hasBranch = item.branch !== undefined;
+	const act = (action: "approve" | "discard") => {
+		setArmed(false);
+		void useAgentReviewStore.getState().act(parentTabId, action, item.tabId);
+	};
+	return (
+		<li className="omp-work-board-item" data-board-review={item.state} data-review-child={item.tabId}>
+			<div className="omp-work-board-row">
+				<span className="omp-work-board-lead">
+					<Dot ring={running} tone={running ? "info" : item.state === "conflict" ? "warning" : "success"} />
+				</span>
+				<span className="flex min-w-0 flex-1 flex-col">
+					<span className="flex min-w-0 items-baseline gap-2">
+						<span className="min-w-0 flex-1 truncate" title={item.title}>
+							{item.title || t("workBoard.review.untitled")}
+						</span>
+						{hasBranch && !running ? (
+							<span className="omp-work-board-meta">
+								{t("workBoard.review.stat", { files: item.files, added: item.added, removed: item.removed })}
+							</span>
+						) : null}
+					</span>
+					<span className="omp-work-board-sub">
+						<span className="truncate">
+							{running
+								? t("workBoard.review.running")
+								: hasBranch
+									? t("workBoard.review.branch", { branch: item.branch ?? "", base: item.baseBranch ?? "—" })
+									: item.answer}
+						</span>
+					</span>
+					{item.state === "conflict" && item.note ? (
+						<span className="omp-work-board-sub" data-review-conflict>
+							{t("workBoard.review.conflict", { files: item.note })}
+						</span>
+					) : null}
+					{!running && item.uncommitted > 0 ? (
+						<span className="omp-work-board-sub">
+							{t("workBoard.review.uncommitted", { count: item.uncommitted })}
+						</span>
+					) : null}
+				</span>
+			</div>
+			{running ? null : (
+				<div className="omp-work-board-actions">
+					<Button
+						onClick={() => {
+							void useTabsStore
+								.getState()
+								.applyAgentView({ tabId: item.tabId, how: "focus" })
+								.then(() => useUiStore.getState().setPanelTab("diff"));
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						{t("workBoard.review.open")}
+					</Button>
+					<Button
+						disabled={busy}
+						onClick={() => act("approve")}
+						size="sm"
+						title={
+							hasBranch
+								? t("workBoard.review.approveTitle", { branch: item.branch ?? "", base: item.baseBranch ?? "" })
+								: undefined
+						}
+						variant="primary"
+					>
+						{hasBranch ? t("workBoard.review.approve") : t("workBoard.review.accept")}
+					</Button>
+					<Button
+						disabled={busy}
+						onBlur={() => setArmed(false)}
+						onClick={() => (armed ? act("discard") : setArmed(true))}
+						size="sm"
+						title={t("workBoard.review.discardTitle")}
+						variant={armed ? "danger" : "ghost"}
+					>
+						{armed ? t("workBoard.review.discardSure") : t("workBoard.review.discard")}
+					</Button>
+				</div>
+			)}
+		</li>
+	);
+}
 /** One row: a lead mark, a label that truncates, a muted figure and an optional second line. */
 function BoardRow({
 	lead,
@@ -350,6 +447,11 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
+	const review = useAgentReviewItems(tabId);
+	useEffect(() => {
+		ensureAgentReviewSubscription();
+		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
+	}, [tabId]);
 
 	const turnActive = useTodoStore(state => state.turnActive);
 	const turnStartedAt = useTodoStore(state => state.turnStartedAt);
@@ -393,7 +495,8 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 
 	const waiting = blocking.length + (planProposal ? 1 : 0);
 	const showsLast = !turnActive && lastTurn !== null;
-	const present = turnActive || waiting > 0 || running > 0 || plan !== null || goal !== null || showsLast;
+	const present =
+		turnActive || waiting > 0 || running > 0 || plan !== null || goal !== null || showsLast || review.length > 0;
 	const showsRunning = running > 0;
 	const showsTodos = plan !== null;
 	useLayoutEffect(() => {
@@ -485,6 +588,14 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 							/>
 						);
 					})}
+				</BoardSection>
+			)}
+
+			{review.length > 0 && tabId && (
+				<BoardSection count={review.length} id="review" title={t("workBoard.review")}>
+					{review.map(item => (
+						<ReviewRow item={item} key={item.tabId} parentTabId={tabId} />
+					))}
 				</BoardSection>
 			)}
 

@@ -96,6 +96,8 @@ export type RpcCommand =
 	// An OMPdesk control tool's confirmation card (main/agent-control, gui-bridge agent-control.ts); never from a renderer
 	| { id?: string; type: "agent_control_confirm"; title: string; message: string }
 	| { id?: string; type: "agent_control_note"; text: string }
+	// The work board's review queue (main/agent-control/host.ts): answered in main, never reaches omp
+	| { id?: string; type: "agent_control_review"; action: "list" | "approve" | "discard" | "dismiss"; child?: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }

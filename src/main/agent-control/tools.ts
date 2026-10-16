@@ -222,6 +222,35 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		},
 	},
 	{
+		name: T.compare,
+		label: "Compare OMPdesk sessions' work",
+		description:
+			"Compare the work of sessions that run in git worktrees (default: all you opened with worktree): the branch, commits ahead of the parent, changed files with line counts, uncommitted work, and each one's final answer. It does not run tests: ask each session to run them and report, then compare. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: {
+				sessions: {
+					type: "array",
+					items: { type: "string" },
+					description: `Session ids (at most ${RESULT_MAX_SESSIONS}); default every worktree session you opened.`,
+				},
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: T.merge,
+		label: "Merge an OMPdesk session's branch",
+		description:
+			"Merge a worktree session's branch into the parent checkout's current branch (a merge commit, local only, never pushed). The user confirms first unless they turned confirmations off. A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: { session: SESSION },
+			required: ["session"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
@@ -343,6 +372,8 @@ export const ARGS = {
 	[T.focus]: z.object({ session: sessionArg, how: placement.optional() }).strict(),
 	[T.notify]: z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(2000).optional() }).strict(),
 	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
+	[T.compare]: z.object({ sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional() }).strict(),
+	[T.merge]: z.object({ session: sessionArg }).strict(),
 } as const;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;

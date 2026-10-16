@@ -4,7 +4,12 @@
  * only `fs.pathForFile` (a dropped file's local path) stays with the preload, because only Electron knows it.
  */
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import { AGENT_CONTROL_VIEW, type AgentControlViewEvent } from "./agent-control";
+import {
+	AGENT_CONTROL_REVIEW,
+	AGENT_CONTROL_VIEW,
+	type AgentControlViewEvent,
+	type AgentReviewEvent,
+} from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { ExtensionUpdateState } from "./extension-update";
@@ -322,6 +327,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
 			onTabListChanged: callback => subscribe<IpcTabListChangedPayload>(IPC_EVENTS.TAB_LIST_CHANGED, callback),
 			onAgentControlView: callback => subscribe<AgentControlViewEvent>(AGENT_CONTROL_VIEW, callback),
+			onAgentControlReview: callback => subscribe<AgentReviewEvent>(AGENT_CONTROL_REVIEW, callback),
 		},
 
 		updater: {

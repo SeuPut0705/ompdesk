@@ -13,10 +13,15 @@ import {
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
+	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
+	type AgentReviewAction,
+	type AgentReviewEvent,
+	type AgentReviewItem,
+	type AgentReviewResult,
 	agentControlEnabled,
 	agentHiddenPaths,
 } from "../../shared/agent-control";
@@ -32,6 +37,7 @@ import {
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
+import { branchFacts, discardWorktree, mergeBranch } from "./branches";
 import { AgentLimits } from "./limits";
 import {
 	AgentControl,
@@ -46,6 +52,8 @@ import {
 /** A confirmation card waits for the person this long. */
 const CARD_TIMEOUT_MS = 10 * 60_000;
 const WORKTREE_PREFIX = "omp/agent/";
+/** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
+const REVIEW_SETTLE_MS = 400;
 
 export interface AgentControlHostDeps {
 	pool: Pick<
@@ -94,12 +102,16 @@ export class AgentControlRuntime {
 	/** Who opened a tab and for what (Autopilot's tag). */
 	readonly #parents = new Map<string, { callerTabId: string; tag?: string }>();
 	readonly control: AgentControl;
+	/** Debounce timers of the review pushes, per parent tab. */
+	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
 
 	constructor(deps: AgentControlHostDeps, limits: AgentLimits = new AgentLimits()) {
 		this.#deps = deps;
 		this.control = new AgentControl(this.#host(), limits);
 		deps.pool.observeTabs(activity => {
 			if (activity.type === "busy") this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
+			const parent = this.#parents.get(activity.tabId)?.callerTabId;
+			if (parent) this.#pushReview(parent);
 			if (activity.type === "released") {
 				this.#turns.delete(activity.tabId);
 				this.#windows.delete(activity.tabId);
@@ -115,9 +127,46 @@ export class AgentControlRuntime {
 	}
 
 	/** Execute one control host-tool call made by `callerTabId`'s main agent. */
-	run(win: ClientWindow, callerTabId: string, tool: AgentControlToolName, args: unknown): Promise<ToolOutcome> {
+	async run(win: ClientWindow, callerTabId: string, tool: AgentControlToolName, args: unknown): Promise<ToolOutcome> {
 		this.#windows.set(callerTabId, win);
-		return this.control.run(callerTabId, tool, args);
+		const outcome = await this.control.run(callerTabId, tool, args);
+		if (tool === "ompdesk_session_open" || tool === "ompdesk_merge" || tool === "ompdesk_session_stop")
+			this.#pushReview(callerTabId);
+		return outcome;
+	}
+
+	/** The work board's review queue: list, or Approve / Discard / Dismiss one session this one opened. */
+	async review(
+		win: ClientWindow,
+		callerTabId: string,
+		action: AgentReviewAction,
+		child?: string,
+	): Promise<AgentReviewResult> {
+		this.#windows.set(callerTabId, win);
+		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
+		const result = await this.control.review(callerTabId, action, child);
+		if (action !== "list") this.#sendReview(callerTabId, result.items);
+		return result;
+	}
+
+	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
+		const win = this.#win(callerTabId);
+		if (win && !win.isDestroyed())
+			win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
+	}
+
+	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */
+	#pushReview(callerTabId: string): void {
+		clearTimeout(this.#reviewTimers.get(callerTabId));
+		const timer = setTimeout(() => {
+			this.#reviewTimers.delete(callerTabId);
+			void this.control.reviewItems(callerTabId).then(
+				items => this.#sendReview(callerTabId, items),
+				() => undefined,
+			);
+		}, REVIEW_SETTLE_MS);
+		timer.unref();
+		this.#reviewTimers.set(callerTabId, timer);
 	}
 
 	#win(tabId: string): ClientWindow | undefined {
@@ -269,6 +318,9 @@ export class AgentControlRuntime {
 				if (!info?.sessionPath) throw new Error("That session has no saved file yet; closing it is enough.");
 				await deps.deleteSession(info.sessionPath, info.device);
 			},
+			branchFacts: worktree => branchFacts(worktree),
+			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
+			discardWorktree: worktree => discardWorktree(worktree),
 			observe: listener => deps.pool.observeTabs(() => listener()),
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,
 			beforeFirstPrompt: deps.beforeFirstPrompt,

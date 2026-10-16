@@ -62,6 +62,8 @@ export const AGENT_CONTROL_TOOLS = {
 	focus: "ompdesk_tab_focus",
 	notify: "ompdesk_notify",
 	stop: "ompdesk_session_stop",
+	compare: "ompdesk_compare",
+	merge: "ompdesk_merge",
 } as const;
 
 export type AgentControlToolName = (typeof AGENT_CONTROL_TOOLS)[keyof typeof AGENT_CONTROL_TOOLS];
@@ -97,6 +99,51 @@ export const AGENT_CONTROL_VIEW = "agent-control:view";
 export interface AgentControlViewEvent {
 	tabId: string;
 	how: AgentControlPlacement | "close";
+}
+
+/**
+ * The review queue (work board): the sessions an agent opened, once they have finished, wait for the person with their
+ * diff stat and an Approve (merge the worktree branch into the parent checkout; a session without a branch is
+ * accepted) and a Discard (close the session and remove its worktree and branch). Main pushes the whole list for a
+ * parent session on every change (`AGENT_CONTROL_REVIEW`); the renderer asks and acts through the
+ * `agent_control_review` command.
+ */
+export const AGENT_CONTROL_REVIEW = "agent-control:review";
+
+export interface AgentReviewItem {
+	tabId: string;
+	title: string;
+	/** `running`: still working (shown as progress); `needs-review`: finished; `conflict`: Approve found a merge conflict (`note` names the files). */
+	state: "running" | "needs-review" | "conflict";
+	/** The worktree branch and the parent's branch it would merge into; absent for a session without a worktree. */
+	branch?: string;
+	baseBranch?: string | null;
+	commitsAhead: number;
+	files: number;
+	added: number;
+	removed: number;
+	uncommitted: number;
+	/** The start of its last answer. */
+	answer: string;
+	note?: string;
+}
+
+export interface AgentReviewEvent {
+	/** The parent session whose board lists these. */
+	tabId: string;
+	items: AgentReviewItem[];
+}
+
+export type AgentReviewAction = "list" | "approve" | "discard" | "dismiss";
+
+export type AgentReviewOutcome = "merged" | "accepted" | "discarded" | "dismissed" | "conflict";
+
+/** What the `agent_control_review` command answers: the list after the action, what the action did, and any detail. */
+export interface AgentReviewResult {
+	items: AgentReviewItem[];
+	outcome?: AgentReviewOutcome;
+	/** English detail for the person to read (a conflict's files, a refusal). */
+	message?: string;
 }
 
 /**

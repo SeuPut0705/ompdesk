@@ -226,6 +226,18 @@ button.omp-work-board-row:hover {
 	color: var(--sc-text-subtle);
 }
 
+/* The review queue's buttons sit under the row, aligned with its text. */
+.omp-work-board-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--sc-space-1);
+	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5) 26px;
+}
+
+.omp-work-board-sub[data-review-conflict] {
+	color: var(--sc-warning);
+}
+
 .omp-work-board-provider {
 	width: 14px;
 	height: 14px;
