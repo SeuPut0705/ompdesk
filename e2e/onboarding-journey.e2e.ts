@@ -167,14 +167,19 @@ for (const variant of VARIANTS) {
 				.first()
 				.click();
 			await shoot("custom-form");
-			await page.getByLabel(/^(Provider ID|프로바이더 ID)/).fill("audit-local");
-			await page.getByLabel(/^(Base URL|기본 URL)/).fill(`http://127.0.0.1:${port}/v1`);
-			await page.getByRole("textbox", { name: /^(API key|API 키)/ }).fill("sk-audit");
-			await page
-				.getByLabel(/^(Model ID|모델 ID)/)
-				.first()
-				.fill("audit-model");
-			await page.getByRole("button", { name: /^(Add provider|프로바이더 추가)$/ }).click();
+			// The session pane is rebuilt once right after launch, which drops what a form holds: fill until it keeps it.
+			const providerId = page.getByLabel(/^(Provider ID|프로바이더 ID)/);
+			await expect(async () => {
+				await providerId.fill("audit-local");
+				await page.getByLabel(/^(Base URL|기본 URL)/).fill(`http://127.0.0.1:${port}/v1`);
+				await page.getByRole("textbox", { name: /^(API key|API 키)/ }).fill("sk-audit");
+				await page
+					.getByLabel(/^(Model ID|모델 ID)/)
+					.first()
+					.fill("audit-model");
+				await expect(providerId).toHaveValue("audit-local", { timeout: 1000 });
+				await page.getByRole("button", { name: /^(Add provider|프로바이더 추가)$/ }).click();
+			}).toPass({ timeout: 30_000 });
 			await expect(page.getByRole("radiogroup")).toBeVisible({ timeout: 30_000 });
 			await shoot("model");
 			await page.getByRole("button", { name: /^(Start with this model|이 모델로 시작)$/ }).click();
