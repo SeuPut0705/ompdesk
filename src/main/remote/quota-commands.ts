@@ -41,6 +41,9 @@ export const MODEL_COMMAND_TYPES = [
 	// Main-side local handlers that run a model through stock `omp` (PR text, `omp commit --dry-run`).
 	"pr_draft",
 	"git_commit_message",
+	// Stock `MemoryBackend.enqueue` (`/memory enqueue`): consolidation runs a model (mnemopi's fact extraction, the
+	// hindsight server, the local backend's next consolidation pass).
+	"memory_enqueue",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that call a model only for some arguments; `commandUsesModel` decides. */
@@ -187,7 +190,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"mcp_reauth_cancel",
 	"mcp_test",
 	"memory_clear",
-	"memory_enqueue",
 	"memory_queue",
 	"memory_save",
 	"memory_search",
@@ -217,6 +219,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"remove_directory",
 	"remove_queued_message",
 	"resolve_local_url",
+	// Stock `AgentLifecycleManager.ensureLive` rebuilds a parked subagent's session from its file; no prompt is sent.
 	"revive_subagent",
 	"security_cancel",
 	"security_set_disposition",

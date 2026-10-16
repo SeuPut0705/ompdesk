@@ -44,6 +44,14 @@ describe("quota command classification", () => {
 		}
 	});
 
+	it("counts a forced memory consolidation, not reviving a parked subagent", () => {
+		// Stock `backend.enqueue`: mnemopi extracts facts with an LLM, hindsight retains through its server's model,
+		// the local backend marks consolidation due (a model run at the next start).
+		expect(commandUsesModel(command({ type: "memory_enqueue" }))).toBe(true);
+		// `AgentLifecycleManager.ensureLive` rebuilds the session from its file; it sends no prompt.
+		expect(commandUsesModel(command({ type: "revive_subagent", agentId: "a" }))).toBe(false);
+	});
+
 	it("counts a command no list knows, as a client newer than this host may send it", () => {
 		expect(commandUsesModel(command({ type: "invented_by_a_newer_client" }))).toBe(true);
 	});
