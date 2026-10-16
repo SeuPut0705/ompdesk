@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
+	MAX_LESSONS_PER_HOUR,
 	MAX_OPENS_PER_TURN,
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
@@ -12,6 +14,7 @@ import type {
 	RpcCommand,
 	RpcResponse,
 } from "../../shared/rpc-types";
+import type { ScheduleDraft } from "../../shared/schedules";
 import type { BranchFacts, MergeOutcome, WorktreeRef } from "./branches";
 import { AgentLimits } from "./limits";
 import {
@@ -22,6 +25,8 @@ import {
 	currentStep,
 	type OpenedChild,
 	renderMessage,
+	type ScheduleRow,
+	type ScheduleSource,
 	type SpawnRequest,
 } from "./service";
 
@@ -127,6 +132,35 @@ class FakeHost implements AgentControlHost {
 	};
 	discardWorktree = async (worktree: WorktreeRef) => {
 		this.discarded.push(worktree.branch);
+	};
+	scheduleRows: ScheduleRow[] = [];
+	scheduleSource: ScheduleSource | null = {
+		list: () => this.scheduleRows,
+		save: async draft => {
+			const row: ScheduleRow = {
+				id: `sched${this.scheduleRows.length + 1}000`,
+				name: draft.name,
+				frequency: draft.frequency,
+				cwd: draft.cwd,
+				enabled: draft.enabled,
+				nextRun: "2026-10-18T09:00:00.000Z",
+				lastStatus: null,
+			};
+			this.scheduleRows.push(row);
+			this.savedDrafts.push(draft);
+			return row;
+		},
+		remove: async id => {
+			this.scheduleRows = this.scheduleRows.filter(row => row.id !== id);
+		},
+	};
+	savedDrafts: ScheduleDraft[] = [];
+	schedules = () => this.scheduleSource;
+	memoryEnabled = true;
+	lessons: string[] = [];
+	memoryOn = async () => this.memoryEnabled;
+	saveMemory = async (_caller: string, content: string) => {
+		this.lessons.push(content);
 	};
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -911,5 +945,166 @@ describe("the review queue", () => {
 		const accepted = await service.review("main0001", "approve", plain);
 		expect(host.merges).toEqual([]);
 		expect(accepted.items).toEqual([]);
+	});
+});
+
+describe("ompdesk_schedule", () => {
+	it("creates a run on the Schedules service after a card, marked as the agent's, never with auto-approve", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", cwd: "/repo" });
+		const service = control(host);
+		const result = await service.run("main0001", T.schedule, {
+			action: "create",
+			name: "nightly audit",
+			prompt: "Audit the repo and report",
+			every_minutes: 60,
+		});
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("Scheduled “[agent] nightly audit” every 60 min in /repo");
+		expect(host.cards).toEqual([
+			{ title: "scheduleTitle:undefined:undefined", message: "scheduleMessage:Boss:undefined" },
+		]);
+		expect(host.savedDrafts[0]).toMatchObject({
+			name: "[agent] nightly audit",
+			cwd: "/repo",
+			frequency: { kind: "interval", minutes: 60 },
+			autoApprove: false,
+			enabled: true,
+			model: null,
+		});
+	});
+
+	it("supports a daily time with weekdays, skips the card when confirmations are off, and a refusal schedules nothing", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		const service = control(host);
+		host.cardAnswer = false;
+		const declined = await service.run("main0001", T.schedule, {
+			action: "create",
+			name: "a",
+			prompt: "p",
+			daily_at: "09:30",
+			days: [3, 1, 1],
+		});
+		expect(declined.text).toContain("The user declined the schedule");
+		expect(host.savedDrafts).toEqual([]);
+		host.manage = true;
+		const made = await service.run("main0001", T.schedule, {
+			action: "create",
+			name: "a",
+			prompt: "p",
+			daily_at: "09:30",
+			days: [3, 1, 1],
+			folder: "/other",
+			model: "anthropic/claude-x",
+		});
+		expect(made.text).toContain("Mon, Wed at 09:30 in /other");
+		expect(host.savedDrafts[0]).toMatchObject({
+			frequency: { kind: "daily", time: "09:30", days: [1, 3] },
+			model: "anthropic/claude-x",
+		});
+	});
+
+	it("holds the caps: interval, folder, number of agent schedules, remote callers, bad arguments", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "remo0002", deviceName: "Studio" });
+		host.manage = true;
+		const service = control(host);
+		const base = { action: "create", name: "n", prompt: "p" };
+		expect((await service.run("main0001", T.schedule, { ...base, every_minutes: 10 })).text).toMatch(/at least 30/);
+		expect(
+			(await service.run("main0001", T.schedule, { ...base, every_minutes: 60, folder: "relative/dir" })).text,
+		).toMatch(/absolute/);
+		expect((await service.run("remo0002", T.schedule, { ...base, every_minutes: 60 })).text).toMatch(/this computer/);
+		expect((await service.run("main0001", T.schedule, { ...base })).text).toMatch(
+			/exactly one of every_minutes or daily_at/,
+		);
+		expect(
+			(await service.run("main0001", T.schedule, { action: "create", name: "n", every_minutes: 60 })).text,
+		).toMatch(/needs prompt/);
+		for (let i = 0; i < MAX_AGENT_SCHEDULES; i++)
+			expect(
+				(await service.run("main0001", T.schedule, { ...base, name: `n${i}`, every_minutes: 60 })).isError,
+			).toBe(false);
+		const sixth = await service.run("main0001", T.schedule, { ...base, every_minutes: 60 });
+		expect(sixth.isError).toBe(true);
+		expect(sixth.text).toMatch(/limit is 5/);
+	});
+
+	it("lists every schedule but cancels only the agent's own; the user's stay", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.manage = true;
+		host.scheduleRows.push({
+			id: "user0001",
+			name: "Weekly report",
+			frequency: { kind: "daily", time: "08:00", days: [] },
+			cwd: "/work",
+			enabled: true,
+			nextRun: null,
+			lastStatus: "succeeded",
+		});
+		const service = control(host);
+		await service.run("main0001", T.schedule, { action: "create", name: "mine", prompt: "p", every_minutes: 45 });
+		const listed = await service.run("main0001", T.schedule, { action: "list" });
+		expect(listed.text).toContain(
+			"user0001 “Weekly report” daily at 08:00 in /work; next —; last run succeeded [the user's own: leave it]",
+		);
+		expect(listed.text).toContain("[made by an agent: you can cancel it]");
+		expect((await service.run("main0001", T.schedule, { action: "cancel", id: "user0001" })).text).toMatch(
+			/the user's own schedule/,
+		);
+		expect(host.scheduleRows.map(row => row.id)).toContain("user0001");
+		const own = host.scheduleRows.find(row => row.name.startsWith("[agent] ")) as ScheduleRow;
+		expect((await service.run("main0001", T.schedule, { action: "cancel", id: own.id })).text).toContain("Cancelled");
+		expect(host.scheduleRows.map(row => row.id)).toEqual(["user0001"]);
+		expect((await service.run("main0001", T.schedule, { action: "cancel", id: "nope0000" })).text).toMatch(
+			/No scheduled run/,
+		);
+	});
+
+	it("says so when there is no Schedules service", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.scheduleSource = null;
+		expect((await control(host).run("main0001", T.schedule, { action: "list" })).text).toMatch(/not available/);
+	});
+});
+
+describe("ompdesk_remember", () => {
+	const lesson = "Splitting by folder worked; two sessions editing one file collided.";
+
+	it("saves one lesson to memory after an orchestration, only when memory is on", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		const service = control(host);
+		expect((await service.run("main0001", T.remember, { lesson })).text).toMatch(/orchestrated sessions/);
+		await service.run("main0001", T.open, { message: "part" });
+		host.memoryEnabled = false;
+		const off = await service.run("main0001", T.remember, { lesson });
+		expect(off.isError).toBe(false);
+		expect(off.text).toContain("memory is off");
+		expect(host.lessons).toEqual([]);
+		host.memoryEnabled = true;
+		expect((await service.run("main0001", T.remember, { lesson })).text).toContain("Saved to the user's memory");
+		expect(host.lessons).toEqual([`OMPdesk delegation lesson: ${lesson}`]);
+	});
+
+	it("caps lessons per hour and refuses too short or too long ones", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		const service = control(host);
+		await service.run("main0001", T.open, { message: "part" });
+		for (let i = 0; i < MAX_LESSONS_PER_HOUR; i++)
+			expect((await service.run("main0001", T.remember, { lesson })).isError).toBe(false);
+		expect((await service.run("main0001", T.remember, { lesson })).text).toMatch(/at most 3/);
+		expect((await service.run("main0001", T.remember, { lesson: "short" })).text).toMatch(/Invalid arguments/);
+		expect((await service.run("main0001", T.remember, { lesson: "x".repeat(601) })).text).toMatch(
+			/Invalid arguments/,
+		);
+		expect(host.lessons).toHaveLength(MAX_LESSONS_PER_HOUR);
+	});
+
+	it("a table of several finished sessions reminds the agent to save a lesson", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "work0002", last: "a" },
+			{ tabId: "work0003", last: "b" },
+		);
+		const result = await control(host).run("main0001", T.result, { sessions: ["work0002", "work0003"] });
+		expect(result.text).toContain("ompdesk_remember");
 	});
 });

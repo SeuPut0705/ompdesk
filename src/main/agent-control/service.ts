@@ -17,6 +17,8 @@
  */
 import {
 	AGENT_CARD_PREFIX,
+	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
+	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
 	type AgentReviewAction,
@@ -24,6 +26,8 @@ import {
 	type AgentReviewOutcome,
 	type AgentReviewResult,
 	isApprovalSelect,
+	LESSON_MAX_CHARS,
+	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
 	AGENT_CONTROL_TOOLS as T,
@@ -43,6 +47,7 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
+import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { type BranchFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
 import { AgentLimits, LimitError } from "./limits";
 import {
@@ -54,6 +59,7 @@ import {
 	RESULT_MAX_CHARS,
 	RESULT_TABLE_ANSWER_CHARS,
 	RESULT_WAIT_DEFAULT_SECONDS,
+	type ScheduleArgs,
 } from "./tools";
 
 /** A blocking request a session waits on, as the pool holds it. */
@@ -97,6 +103,26 @@ export interface OpenedChild {
 	tag?: string;
 }
 
+/** A scheduled run as the control tools see it. */
+export interface ScheduleRow {
+	id: string;
+	name: string;
+	frequency: ScheduleFrequency;
+	cwd: string;
+	enabled: boolean;
+	/** Next start (ISO), null when it will not run. */
+	nextRun: string | null;
+	/** How the last run ended; null before the first. */
+	lastStatus: string | null;
+}
+
+/** The Schedules service seen by `ompdesk_schedule` (`host.ts` adapts `src/main/schedules.ts`). */
+export interface ScheduleSource {
+	list(): ScheduleRow[];
+	save(draft: ScheduleDraft): Promise<ScheduleRow>;
+	remove(id: string): Promise<void>;
+}
+
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
@@ -130,6 +156,12 @@ export interface AgentControlHost {
 	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
 	/** Remove a closed session's worktree and branch. */
 	discardWorktree(worktree: WorktreeRef): Promise<void>;
+	/** The Schedules service (Settings › Schedules), or null where there is none. */
+	schedules(): ScheduleSource | null;
+	/** Whether the user's memory backend can save (stock `get_memory_report`; off = no backend or no save hook). */
+	memoryOn(callerTabId: string): Promise<boolean>;
+	/** Append a note to stock's memory (`memory_save` through the bridge). */
+	saveMemory(callerTabId: string, content: string): Promise<void>;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -145,7 +177,9 @@ export interface AgentControlHost {
 			| "deleteMessage"
 			| "answeredBy"
 			| "mergeTitle"
-			| "mergeMessage",
+			| "mergeMessage"
+			| "scheduleTitle"
+			| "scheduleMessage",
 		params: Record<string, string>,
 	): string;
 }
@@ -196,6 +230,15 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 function label(tab: ControlTab): string {
 	return tab.hidden ? `${tab.tabId} (hidden from agents)` : tab.title ? `"${oneLine(tab.title, 80)}"` : "(untitled)";
 }
+
+/** "every 30 min", "daily at 09:00", "Mon, Wed at 09:00". */
+function describeFrequency(frequency: ScheduleFrequency): string {
+	if (frequency.kind === "interval") return `every ${frequency.minutes} min`;
+	const days = frequency.days.map(day => WEEKDAYS[day] ?? String(day));
+	return `${days.length > 0 ? days.join(", ") : "daily"} at ${frequency.time}`;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 function contentText(content: AgentMessage["content"]): string {
 	if (typeof content === "string") return content;
@@ -386,6 +429,10 @@ export class AgentControl {
 				const args = ARGS[T.merge].parse(raw);
 				return this.#merge(caller, this.#resolve(tabs, args.session, caller, "merge"));
 			}
+			case T.schedule:
+				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
+			case T.remember:
+				return this.#remember(caller, ARGS[T.remember].parse(raw).lesson);
 		}
 	}
 
@@ -759,7 +806,11 @@ export class AgentControl {
 					args.wait && timedOut && !ready
 						? `Still running after waiting ${seconds} s (${done}/${summaries.length} finished).\n`
 						: "";
-				return `${note}${summaries.map(summary => summary.text).join("\n\n")}`;
+				const remind =
+					table && ready && summaries.length > 1
+						? "\nIf the user has memory on and this split taught you something, save one lesson with ompdesk_remember."
+						: "";
+				return `${note}${summaries.map(summary => summary.text).join("\n\n")}${remind}`;
 			}
 			await this.#nextChange(Math.min(POLL_MS, deadline - Date.now()));
 		}
@@ -1080,6 +1131,83 @@ export class AgentControl {
 		const deadline = Date.now() + 10_000;
 		while (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
 			await this.#nextChange(Math.min(500, deadline - Date.now()));
+	}
+
+	/** `ompdesk_schedule`: create, list or cancel the runs an agent put on the Schedules service. */
+	async #schedule(caller: ControlTab, args: ScheduleArgs): Promise<string> {
+		const source = this.#host.schedules();
+		if (!source) fail("Scheduled runs are not available here.");
+		const rows = source.list();
+		const mine = rows.filter(row => row.name.startsWith(AGENT_SCHEDULE_PREFIX));
+		if (args.action === "list") {
+			if (rows.length === 0) return "No scheduled runs.";
+			return rows
+				.map(
+					row =>
+						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; ${row.enabled ? `next ${row.nextRun ?? "—"}` : "off"}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can cancel it]" : " [the user's own: leave it]"}`,
+				)
+				.join("\n");
+		}
+		if (args.action === "cancel") {
+			const id = args.id ?? "";
+			const row =
+				rows.find(entry => entry.id === id) ??
+				rows.find(entry => id.length >= SESSION_PREFIX_MIN && entry.id.startsWith(id));
+			if (!row) fail(`No scheduled run "${id}". ompdesk_schedule {"action":"list"} shows them.`);
+			if (!row.name.startsWith(AGENT_SCHEDULE_PREFIX))
+				fail(`“${row.name}” is the user's own schedule; only the user changes it (Settings › Schedules).`);
+			await source.remove(row.id);
+			return `Cancelled “${row.name}”.`;
+		}
+		if (caller.deviceName)
+			fail("Scheduled runs start on this computer; a session on a paired host cannot create one.");
+		if (mine.length >= MAX_AGENT_SCHEDULES)
+			fail(
+				`${mine.length} agent-made schedules already exist (the limit is ${MAX_AGENT_SCHEDULES}). Cancel one first, or ask the user.`,
+			);
+		const frequency: ScheduleFrequency =
+			args.every_minutes !== undefined
+				? { kind: "interval", minutes: args.every_minutes }
+				: { kind: "daily", time: args.daily_at ?? "09:00", days: [...new Set(args.days ?? [])].sort() };
+		if (frequency.kind === "interval" && frequency.minutes < AGENT_SCHEDULE_MIN_INTERVAL_MINUTES)
+			fail(`every_minutes must be at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}.`);
+		const cwd = args.folder ?? caller.cwd;
+		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
+		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
+		if (!this.#host.manageEnabled()) {
+			const approved = await this.#host.confirm(
+				caller.tabId,
+				this.#host.text("scheduleTitle", {}),
+				this.#host.text("scheduleMessage", {
+					caller: caller.title || "—",
+					name: args.name ?? "",
+					when: describeFrequency(frequency),
+					folder: cwd,
+				}),
+			);
+			if (!approved) return "The user declined the schedule. Do not ask again unless they tell you to.";
+		}
+		const row = await source.save({
+			name,
+			prompt: args.prompt ?? "",
+			cwd,
+			frequency,
+			model: args.model ?? null,
+			autoApprove: false,
+			enabled: true,
+		});
+		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
+	}
+
+	/** `ompdesk_remember`: one short lesson about an orchestration, appended to stock's memory when the user has it on. */
+	async #remember(caller: ControlTab, lesson: string): Promise<string> {
+		if (this.#limits.opensWithinHour(caller.tabId) === 0)
+			fail("Save a lesson after you orchestrated sessions: you opened none in the last hour.");
+		if (!(await this.#host.memoryOn(caller.tabId)))
+			return "The user's memory is off (Settings › Memory), so nothing was saved. Do not try again.";
+		this.#limits.reserveLesson(caller.tabId);
+		await this.#host.saveMemory(caller.tabId, `OMPdesk delegation lesson: ${oneLine(lesson, LESSON_MAX_CHARS)}`);
+		return "Saved to the user's memory.";
 	}
 }
 

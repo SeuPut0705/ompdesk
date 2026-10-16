@@ -1063,6 +1063,7 @@ app.whenReady().then(() => {
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
 		mediaStreams,
+		schedules: () => scheduleService,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
 		promptOrigins: {
 			of: win => webHost?.promptOrigin(win) ?? null,

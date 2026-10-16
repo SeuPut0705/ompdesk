@@ -22,6 +22,8 @@ Keep replying in the user's language (often Korean), including your summaries. M
 - `ompdesk_session_stop` — `session`, `close`, `delete`. Stops the work; `close` also closes the tab; `delete` also deletes the saved session.
 - `ompdesk_compare` — `sessions` (default: the worktree sessions you opened): branch, commits ahead, changed files with +/−, uncommitted work and the final answer of each. Runs no tests.
 - `ompdesk_merge` — `session`: merge that worktree session's branch into the parent checkout (merge commit, local, never pushed).
+- `ompdesk_schedule` — `action` (`create`, `list`, `cancel`), `name`, `prompt`, `folder`, `every_minutes` or `daily_at` + `days`, `model`, `id`: recurring runs on the Schedules service.
+- `ompdesk_remember` — `lesson`: one short delegation lesson saved to memory (only when the user's memory is on).
 
 `session` is an id from `ompdesk_sessions`; a unique prefix is enough.
 
@@ -74,6 +76,11 @@ When the user wants several attempts at one problem, or parallel parts that touc
 5. The sessions you opened also wait on the user's work board as "검토가 필요해요 / Needs review", with their diff stat and Approve (merge), Discard (close and remove the worktree) buttons. The user may settle them there before you do; read `ompdesk_sessions` before you merge. Close the sessions you opened when done (`ompdesk_session_stop` with `close`).
 
 The user is told when children finish or need them through OMPdesk's normal batched notifications; use `ompdesk_notify` only for something those do not say.
+
+## Scheduled orchestration and lessons
+
+- `ompdesk_schedule` puts a prompt on OMPdesk's Schedules service: a fresh print-mode session started by a timer in a folder, only while the app is open. `create` needs `name`, `prompt` (it has no memory of this conversation, so write it self-contained), and `every_minutes` (at least 30) or `daily_at` (`HH:MM`, optional `days` 0-6). The user confirms a new one (unless they turned confirmations off), it never runs with auto-approve, at most 5 agent-made schedules exist, and Settings › Schedules shows them marked `[agent]`. `list` shows every schedule; `cancel` removes only the ones you made, never the user's own. Use it for recurring orchestration ("every morning, review the open PRs"), not for work that can run now.
+- `ompdesk_remember` saves one short lesson (at most 600 characters: what split worked, what collided, what to do differently) to the user's memory after an orchestration you ran. It does nothing when the user's memory is off, needs a session opened in the last hour, and allows 3 per hour. Never put secrets or the content of another session's answer in a lesson; a lesson is a note to your future self.
 
 ## Coordinating with sessions you did not open
 

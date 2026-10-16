@@ -107,6 +107,14 @@ export const MAIN_TEXT = {
 		en: "The agent in “{caller}” wants to merge branch {branch} (from “{target}”) into {base} in {cwd}. Nothing is pushed. Merge?",
 		ko: "“{caller}”의 에이전트가 “{target}” 세션의 {branch} 브랜치를 {cwd}의 {base} 브랜치에 병합하려고 해요. 푸시는 하지 않아요. 병합할까요?",
 	},
+	"agentControl.scheduleTitle": {
+		en: "An agent wants to schedule a run",
+		ko: "에이전트가 예약 실행을 만들려고 해요",
+	},
+	"agentControl.scheduleMessage": {
+		en: "The agent in “{caller}” wants to run “{name}” {when} in {folder} while OMPdesk is open. It runs without auto-approve. Schedule it?",
+		ko: "“{caller}”의 에이전트가 OMPdesk가 켜져 있는 동안 {folder} 폴더에서 “{name}” 작업을 {when} 실행하도록 예약하려고 해요. 자동 승인 없이 실행돼요. 예약할까요?",
+	},
 	"agentControl.answeredBy": { en: "Answered by an agent ({by})", ko: "에이전트가 답함 ({by})" },
 	"menu.selectAll": { en: "Select All", ko: "전체 선택" },
 	"menu.reload": { en: "Reload", ko: "새로고침" },

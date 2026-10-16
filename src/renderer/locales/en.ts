@@ -5364,7 +5364,7 @@ export const en: Record<string, string> = {
 		"Off: when another session asks you to approve a tool, only you can. Agents may still deny or answer other questions.",
 	"settings.gui.agentControlManage": "Let agents manage other sessions",
 	"settings.gui.agentControlManageDesc":
-		"Off: stopping, closing or deleting a session an agent did not open, and merging a session's branch, ask you first. Sessions it opened itself can be stopped or closed without a question.",
+		"Off: stopping, closing or deleting a session an agent did not open, merging a session's branch and creating a scheduled run ask you first. Sessions it opened itself can be stopped or closed without a question.",
 	"settings.gui.batchNotifications": "Batch notifications",
 	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
 	"settings.gui.nextPromptSuggestions": "Suggest my next message",

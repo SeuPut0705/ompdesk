@@ -1918,7 +1918,12 @@ export function runRpcUi(): void {
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
 		get_agent_definitions: () => ({ agents: [] }),
-		get_memory_report: () => ({ backend: "none", entryCount: 0 }),
+		// `OMP_GUI_TEST_MEMORY=1`: a memory backend that can save (the control tools' delegation lessons).
+		get_memory_report: () =>
+			process.env.OMP_GUI_TEST_MEMORY === "1"
+				? { backend: "local", entryCount: 0, capabilities: { search: true, save: true, queue: false } }
+				: { backend: "none", entryCount: 0 },
+		memory_save: () => ({ saved: true }),
 		model_roles: () => ({
 			roles: ROLE_META.map(meta => ({
 				...meta,

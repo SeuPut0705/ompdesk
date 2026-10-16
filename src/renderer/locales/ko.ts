@@ -5352,7 +5352,7 @@ export const ko: Record<string, string> = {
 		"꺼짐: 다른 세션이 도구 승인을 물으면 직접 승인해야 해요. 에이전트는 거부하거나 다른 질문에 답할 수는 있어요.",
 	"settings.gui.agentControlManage": "에이전트가 다른 세션 관리하기",
 	"settings.gui.agentControlManageDesc":
-		"꺼짐: 에이전트가 열지 않은 세션을 중단하거나 닫거나 삭제할 때, 그리고 세션의 브랜치를 병합할 때 먼저 물어봐요. 에이전트가 직접 연 세션은 묻지 않고 중단하거나 닫을 수 있어요.",
+		"꺼짐: 에이전트가 열지 않은 세션을 중단하거나 닫거나 삭제할 때, 세션의 브랜치를 병합할 때, 예약 실행을 만들 때 먼저 물어봐요. 에이전트가 직접 연 세션은 묻지 않고 중단하거나 닫을 수 있어요.",
 	"settings.gui.batchNotifications": "알림 묶기",
 	"settings.gui.batchNotificationsDesc": "여러 작업이 끝나면 알림을 하나로 묶어요",
 	"settings.gui.nextPromptSuggestions": "다음 메시지 제안",

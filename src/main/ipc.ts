@@ -108,6 +108,7 @@ import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSch
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
+import type { ScheduleService } from "./schedules";
 import { deleteSession, moveSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
@@ -166,6 +167,8 @@ export interface IpcDeps {
 	mediaStreams: MediaStreams;
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
+	/** The Schedules service, created later than the handlers: read per use. */
+	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
 	/**
 	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
 	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`
@@ -742,6 +745,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		pool: sidecarPool,
+		schedules: () => deps.schedules?.() ?? null,
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
 			dispatchRpcCommand(win, sidecar, tabId, {
 				command,

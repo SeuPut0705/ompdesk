@@ -34,6 +34,8 @@ import {
 	type RpcResponse,
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
+import type { Schedule, SchedulesState } from "../../shared/schedules";
+import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
@@ -45,6 +47,7 @@ import {
 	type ControlAsk,
 	type ControlTab,
 	type OpenedChild,
+	type ScheduleRow,
 	type SpawnRequest,
 	type ToolOutcome,
 } from "./service";
@@ -80,6 +83,14 @@ export interface AgentControlHostDeps {
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
+	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
+	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
+}
+
+/** The parts of `get_memory_report` the lesson needs. */
+interface MemoryReportFacts {
+	backend?: string;
+	capabilities?: { save?: boolean };
 }
 
 function askOf(request: ControlAsk["request"]): boolean {
@@ -321,6 +332,48 @@ export class AgentControlRuntime {
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
 			discardWorktree: worktree => discardWorktree(worktree),
+			schedules: () => {
+				const service = deps.schedules?.();
+				if (!service) return null;
+				const rowOf = (state: SchedulesState, schedule: Schedule): ScheduleRow => ({
+					id: schedule.id,
+					name: schedule.name,
+					frequency: schedule.frequency,
+					cwd: schedule.cwd,
+					enabled: schedule.enabled,
+					nextRun: state.nextRuns[schedule.id] ?? null,
+					lastStatus: state.runs.find(run => run.scheduleId === schedule.id)?.status ?? null,
+				});
+				return {
+					list: () => {
+						const state = service.state();
+						return state.schedules.map(schedule => rowOf(state, schedule));
+					},
+					save: async draft => {
+						const before = new Set(service.state().schedules.map(schedule => schedule.id));
+						const state = await service.command({ action: "save", draft });
+						const made = state.schedules.find(schedule => !before.has(schedule.id));
+						if (!made) throw new Error("The schedule was not saved.");
+						return rowOf(state, made);
+					},
+					remove: async id => {
+						await service.command({ action: "delete", id });
+					},
+				};
+			},
+			memoryOn: async callerTabId => {
+				const response = await this.#hostCommand(callerTabId, { type: "get_memory_report" });
+				const report = response.success ? (response.data as MemoryReportFacts | undefined) : undefined;
+				return report?.capabilities?.save === true && report.backend !== "off";
+			},
+			saveMemory: async (callerTabId, content) => {
+				const response = await this.#hostCommand(callerTabId, {
+					type: "memory_save",
+					content,
+					context: "OMPdesk delegation",
+				});
+				if (!response.success) throw new Error(response.error ?? "Memory could not save the lesson.");
+			},
 			observe: listener => deps.pool.observeTabs(() => listener()),
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,
 			beforeFirstPrompt: deps.beforeFirstPrompt,

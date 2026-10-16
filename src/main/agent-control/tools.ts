@@ -5,7 +5,16 @@
  * lists every host tool in the session's xd:// device notice.
  */
 import { z } from "zod";
-import { MAX_AGENT_SESSIONS, MAX_OPENS_PER_TURN, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
+import {
+	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
+	AGENT_SCHEDULE_PREFIX,
+	LESSON_MAX_CHARS,
+	MAX_AGENT_SCHEDULES,
+	MAX_AGENT_SESSIONS,
+	MAX_LESSONS_PER_HOUR,
+	MAX_OPENS_PER_TURN,
+	AGENT_CONTROL_TOOLS as T,
+} from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 
 /** `ompdesk_session_result` waits at most this long by default, and never longer than the maximum. */
@@ -251,6 +260,48 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		},
 	},
 	{
+		name: T.schedule,
+		label: "Schedule an OMPdesk run",
+		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}) or daily_at (HH:MM, optional days 0-6). The user confirms a new one unless they turned confirmations off. It never runs with auto-approve, at most ${MAX_AGENT_SCHEDULES} agent-made schedules exist, and you can cancel only those. See skill://ompdesk.`,
+		parameters: {
+			type: "object",
+			properties: {
+				action: { type: "string", enum: ["create", "list", "cancel"] },
+				name: { type: "string", description: "create: a short name." },
+				prompt: {
+					type: "string",
+					description: "create: what each run is asked; it has no memory of this conversation.",
+				},
+				folder: { type: "string", description: "create: absolute project folder; default your own." },
+				every_minutes: {
+					type: "integer",
+					description: `create: repeat every N minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}).`,
+				},
+				daily_at: { type: "string", description: "create: local time HH:MM, every day or on days." },
+				days: {
+					type: "array",
+					items: { type: "integer" },
+					description: "create with daily_at: weekdays, 0 = Sunday.",
+				},
+				model: { type: "string", description: "create: provider/id; default omp's default model." },
+				id: { type: "string", description: "cancel: the schedule id list shows." },
+			},
+			required: ["action"],
+			additionalProperties: false,
+		},
+	},
+	{
+		name: T.remember,
+		label: "Save a delegation lesson",
+		description: `After you orchestrated sessions (you opened some this hour), save one short lesson (at most ${LESSON_MAX_CHARS} characters) to the user's memory: what split worked, what to avoid next time. Only when the user has memory on; at most ${MAX_LESSONS_PER_HOUR} per hour. See skill://ompdesk.`,
+		parameters: {
+			type: "object",
+			properties: { lesson: { type: "string" } },
+			required: ["lesson"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
@@ -374,6 +425,40 @@ export const ARGS = {
 	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
 	[T.compare]: z.object({ sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional() }).strict(),
 	[T.merge]: z.object({ session: sessionArg }).strict(),
+	[T.schedule]: z
+		.object({
+			action: z.enum(["create", "list", "cancel"]),
+			name: z.string().trim().min(1).max(60).optional(),
+			prompt: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
+			folder: z.string().trim().min(1).max(4096).optional(),
+			every_minutes: z
+				.number()
+				.int()
+				.min(1)
+				.max(7 * 24 * 60)
+				.optional(),
+			daily_at: z
+				.string()
+				.regex(/^([01]\d|2[0-3]):[0-5]\d$/, "daily_at is HH:MM (24 hours)")
+				.optional(),
+			days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+			model: z.string().trim().min(1).max(200).optional(),
+			id: z.string().trim().min(1).max(200).optional(),
+		})
+		.strict()
+		.superRefine((args, ctx) => {
+			const problem = (message: string) => ctx.addIssue({ code: "custom", message });
+			if (args.action === "create") {
+				if (!args.name) problem("create needs name");
+				if (!args.prompt) problem("create needs prompt");
+				if ((args.every_minutes === undefined) === (args.daily_at === undefined))
+					problem("create needs exactly one of every_minutes or daily_at");
+				if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
+			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
+		}),
+	[T.remember]: z.object({ lesson: z.string().trim().min(10).max(LESSON_MAX_CHARS) }).strict(),
 } as const;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;
+
+export type ScheduleArgs = z.infer<(typeof ARGS)[typeof T.schedule]>;
