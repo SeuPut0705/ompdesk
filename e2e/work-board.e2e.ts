@@ -66,11 +66,21 @@ async function fixture(page: Page, line: string): Promise<void> {
 	expect(response.success).toBe(true);
 }
 
+/**
+ * Sends a prompt and waits until the fake omp has run it to its end (main records the run's reply). The composer
+ * delivers a prompt a task and a prefs read after Enter, so a fixture command sent once the optimistic row shows can
+ * reach omp first; the prompt's turn then ends the fixture's turn and its get_state empties the todos.
+ */
 async function send(page: Page, text: string): Promise<void> {
 	const input = page.locator("textarea").first();
 	await input.fill(text);
 	await input.press("Enter");
 	await expect(input).toHaveValue("");
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.lastRun?.reply, {
+			timeout: 30_000,
+		})
+		.toBe("Local fixture reply");
 }
 
 async function left(locator: Locator): Promise<number> {
