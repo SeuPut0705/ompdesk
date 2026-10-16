@@ -45,7 +45,8 @@ it("an empty MCP list shows one Add server action and no zero count", async () =
 		data: { servers: [] },
 	}));
 	const builtinRea = { get: vi.fn(async () => ({ enabled: true, available: true, nodeVersion: "v24.11.0" })) };
-	Object.assign(window as unknown as Record<string, unknown>, { omp: { rpc: { getMcpServers }, builtinRea } });
+	const prefs = { get: vi.fn(async () => undefined), set: vi.fn(async () => undefined) };
+	Object.assign(window as unknown as Record<string, unknown>, { omp: { rpc: { getMcpServers }, builtinRea, prefs } });
 	useSessionStore.setState({ status: "ready", cwd: "/repo" });
 	useTabsStore.setState({
 		activeTabId: "tab-1",

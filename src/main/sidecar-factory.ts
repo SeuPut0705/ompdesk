@@ -3,6 +3,7 @@
  * remote host's tabs for paired devices (src/main/remote/host-services.ts)
  * both come from here, so a session runs the same way whoever opened it.
  */
+import { join } from "node:path";
 import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -10,6 +11,7 @@ import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-p
 import { normalizeUserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
+import { agentControlEnabled } from "../shared/agent-control";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
@@ -27,8 +29,11 @@ import { markStartup } from "./startup-timing";
 export interface LocalSidecarDeps {
 	/** The gui-bridge extension directory. */
 	bridgeDir: string;
+	/** OMPdesk's own extension root (`resources/omp-builtin`): the control tools' skill; REA is its `rea/` sub-root. */
 	builtinDir: string;
 	builtinReaPref: () => unknown;
+	/** Settings › Tools & extensions › OMPdesk control tools (`agentControl`, default on), read per use; absent = off (the caller that answers the tools supplies it). */
+	agentControlPref?: () => unknown;
 	/** A tab's session became ready (every time; the caller keeps what it needs). */
 	onReady?: () => void;
 	/** Proxy env per spawn (GUI pref → inherited env → system proxy). */
@@ -82,9 +87,14 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			},
 			bridgeDir,
 			builtinMcp: async () => {
-				const args = reaExtensionArgs(deps.builtinDir, await builtinReaState(deps.builtinReaPref()));
-				return { args, ...(args.length ? { root: deps.builtinDir } : {}) };
+				const reaRoot = join(deps.builtinDir, "rea");
+				const rea = reaExtensionArgs(reaRoot, await builtinReaState(deps.builtinReaPref()));
+				// The control tools' skill loads with them; the tools themselves follow the switch live (hostTools).
+				const own =
+					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];
+				return { args: [...own, ...rea], ...(rea.length ? { root: reaRoot } : {}) };
 			},
+			hostTools: () => deps.agentControlPref !== undefined && agentControlEnabled(deps.agentControlPref()),
 			cwd,
 			kind,
 			fresh,

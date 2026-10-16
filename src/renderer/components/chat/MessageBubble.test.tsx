@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { wrapAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { preloadMarkdownPipeline } from "../../lib/markdown";
@@ -244,6 +245,56 @@ describe("MessageBubble user content", () => {
 		);
 		expect(html).toContain("data-prompt-from");
 		expect(html).toContain("from Laptop A");
+	});
+
+	it("shows another agent's message as its body with a sent-by label, not the wrapper", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: wrapAgentMessage("Please run the **tests**", "Fix login") }],
+						timestamp: "2026-08-06T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("data-agent-sent");
+		expect(html).toContain("Sent by an agent · Fix login");
+		expect(html).toContain("<strong>tests</strong>");
+		expect(html).not.toContain("ompdesk-agent-message");
+	});
+
+	it("labels an agent message from an untitled session without a name", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: wrapAgentMessage("hello", "") }],
+						timestamp: "2026-08-06T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("data-agent-sent");
+		expect(html).not.toContain("·");
+	});
+
+	it("leaves a person's own prompt unlabelled", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: "Ship it?" }],
+						timestamp: "2026-08-06T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).not.toContain("data-agent-sent");
+		expect(html).toContain("Ship it?");
 	});
 
 	it("renders user text through the same Markdown pipeline as assistant text", () => {

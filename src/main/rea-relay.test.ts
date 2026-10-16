@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import config from "../../resources/omp-builtin/rea-config.json";
+import config from "../../resources/omp-builtin/rea/rea-config.json";
 
 const Message = z.object({
 	jsonrpc: z.literal("2.0"),

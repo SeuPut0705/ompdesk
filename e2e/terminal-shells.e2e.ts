@@ -96,9 +96,13 @@ for (const [language, theme] of [
 					.split("\n")
 					.filter(Boolean)
 					.map(line => JSON.parse(line) as { type?: string; tools?: { name: string }[]; result?: unknown });
-			expect((await frames()).find(frame => frame.type === "set_host_tools")?.tools?.map(tool => tool.name)).toEqual(
-				["gui_terminal_read", "gui_visualize"],
-			);
+			// The control tools (ompdesk_*, default on) follow these two.
+			expect(
+				(await frames())
+					.find(frame => frame.type === "set_host_tools")
+					?.tools?.map(tool => tool.name)
+					.slice(0, 2),
+			).toEqual(["gui_terminal_read", "gui_visualize"]);
 			await composer.fill("!fixture:host-tool:gui_terminal_read");
 			await composer.press("Enter");
 			await expect

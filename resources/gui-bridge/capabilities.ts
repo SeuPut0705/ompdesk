@@ -62,6 +62,7 @@ export const FEATURES = {
 	resetPasses: "Saved rate-limit resets (reset passes)",
 	streamMetadata: "Stock read grouping and live token rate",
 	agentBrowser: "Agent browsing in the Preview panel (stock browser relay)",
+	agentControl: "OMPdesk control tools (confirmation cards)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -298,6 +299,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},
+	/** agent-control.ts: only the public extension context's `ui.confirm`; no internals to probe. */
+	agentControl: {},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
 	/** modes/user-profile.ts: the same public hook as the reply language. */

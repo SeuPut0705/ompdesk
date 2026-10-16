@@ -35,6 +35,7 @@ import {
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
+import { AGENT_CONTROL_PREF } from "../shared/agent-control";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
@@ -539,6 +540,7 @@ app.whenReady().then(() => {
 		bridgeDir,
 		builtinDir,
 		builtinReaPref: () => prefsStore().get(REA_PREF),
+		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
 		onReady: () => firstTabReady.resolve(),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,

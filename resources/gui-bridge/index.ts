@@ -76,6 +76,7 @@ const AREAS: readonly Area[] = [
 	{ name: "worktree-lifecycle", features: ["worktreeLifecycle"], load: () => import("./worktree-lifecycle") },
 	{ name: "stream-metadata", features: ["streamMetadata"], load: () => import("./stream-metadata") },
 	{ name: "browser-relay", features: ["agentBrowser"], load: () => import("./browser-relay") },
+	{ name: "agent-control", features: ["agentControl"], load: () => import("./agent-control") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

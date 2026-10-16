@@ -588,6 +588,9 @@ export const ko: Record<string, string> = {
 	"sidebar.groupMenu": "프로젝트 메뉴",
 	"sidebar.sessionMenu": "세션 메뉴",
 	"sidebar.pinFailed": "고정 목록을 저장할 수 없어요.",
+	"sidebar.menu.hideFromAgents": "다른 에이전트가 이 세션을 보지 못하게",
+	"sidebar.menu.showToAgents": "다른 에이전트가 이 세션을 볼 수 있게",
+	"sidebar.agentHiddenFailed": "에이전트 공개 설정을 저장할 수 없어요.",
 	"sidebar.pin.usage": "사용 한도",
 	"sidebar.pin.usageMore": "+{count}개 더 보기",
 	"sidebar.pinned": "고정됨",
@@ -2860,6 +2863,8 @@ export const ko: Record<string, string> = {
 	"chat.steering": "추가 지시",
 	"chat.promptFrom": "{device}에서 보냄",
 	"chat.promptFromOtherDevice": "다른 기기",
+	"chat.agentSent": "에이전트가 보냄",
+	"chat.agentSentFrom": "에이전트가 보냄 · {session}",
 	"viewers.chipOne": "다른 기기 1대에서도 보는 중",
 	"viewers.chipMany": "다른 기기 {count}대에서도 보는 중",
 	"extDialog.answeredElsewhere": "다른 기기에서 응답했어요",
@@ -3954,6 +3959,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.resetPasses": "초기화권",
 	"bridgeHealth.feature.streamMetadata": "읽기 묶음과 토큰 속도",
 	"bridgeHealth.feature.agentBrowser": "미리보기에서 에이전트 브라우징",
+	"bridgeHealth.feature.agentControl": "OMPdesk 제어 도구(세션, 확인 카드)",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
@@ -5317,6 +5323,15 @@ export const ko: Record<string, string> = {
 	"settings.gui.autoPreviewDevServerDesc": "에이전트가 띄운 서버를 주소마다 한 번만 보여줘요",
 	"settings.gui.autoOpenChanges": "편집 뒤 변경 사항 열기",
 	"settings.gui.autoOpenChangesDesc": "파일을 고친 턴이 끝났을 때 패널이 닫혀 있으면 열어요",
+	"settings.gui.agentControl": "OMPdesk 조작 도구",
+	"settings.gui.agentControlDesc":
+		"에이전트가 다른 세션을 보고, 메시지를 보내고, 결과를 읽고, 질문에 답하고, 화면에 보여 줄 수 있어요",
+	"settings.gui.agentControlApprove": "에이전트가 다른 세션 승인 대신하기",
+	"settings.gui.agentControlApproveDesc":
+		"꺼짐: 다른 세션이 도구 승인을 물으면 직접 승인해야 해요. 에이전트는 거부하거나 다른 질문에 답할 수는 있어요.",
+	"settings.gui.agentControlManage": "에이전트가 다른 세션 관리하기",
+	"settings.gui.agentControlManageDesc":
+		"꺼짐: 에이전트가 열지 않은 세션을 중단하거나 닫거나 삭제할 때 먼저 물어봐요. 에이전트가 직접 연 세션은 묻지 않아요.",
 	"settings.gui.batchNotifications": "알림 묶기",
 	"settings.gui.batchNotificationsDesc": "여러 작업이 끝나면 알림을 하나로 묶어요",
 	"settings.gui.nextPromptSuggestions": "다음 메시지 제안",

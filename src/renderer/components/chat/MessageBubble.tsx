@@ -1,6 +1,7 @@
 import { Archive, ChevronRight, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
+import { parseAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
@@ -9,6 +10,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
 import { extractModelMentions, type ModelMentionChip } from "../../lib/model-mentions";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
+import { promptDisplayText } from "../../lib/prompt-text";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -378,12 +380,17 @@ export const MessageBubble = memo(function MessageBubble({
 	// User delegations (`^provider/model`, persisted as <model …/> tags) render
 	// as atomic chips; the raw tags/selectors are stripped from the body text.
 	// Computed inline (no hook) because this component early-returns above.
+	// A message another session's agent sent arrives wrapped (`parseAgentMessage`): show its body and who sent it.
+	const agentMessages = isUser
+		? content.map(block => (block.type === "text" ? parseAgentMessage(block.text.trim()) : null))
+		: [];
+	const agentSent = agentMessages.find(agent => agent !== null) ?? null;
 	const userMentions = (() => {
 		if (!isUser) return { chips: [] as ModelMentionChip[], blocks: content };
 		const chips: ModelMentionChip[] = [];
-		const blocks = content.map(block => {
+		const blocks = content.map((block, index) => {
 			if (block.type !== "text") return block;
-			const extracted = extractModelMentions(block.text);
+			const extracted = extractModelMentions(agentMessages[index]?.body ?? block.text);
 			chips.push(...extracted.chips);
 			return { ...block, text: extracted.body };
 		});
@@ -398,7 +405,7 @@ export const MessageBubble = memo(function MessageBubble({
 	const messageText = () =>
 		content
 			.filter((block): block is Extract<MessageContent, { type: "text" }> => block.type === "text")
-			.map(block => block.text)
+			.map(block => (isUser ? promptDisplayText(block.text) : block.text))
 			.join("\n\n");
 
 	const handleBranch = async () => {
@@ -427,12 +434,21 @@ export const MessageBubble = memo(function MessageBubble({
 							{reaction}
 						</span>
 					) : null}
-					{(isSteering || message.promptFrom || message.fromOtherViewer || userMentions.chips.length > 0) && (
+					{(isSteering ||
+						message.promptFrom ||
+						message.fromOtherViewer ||
+						agentSent ||
+						userMentions.chips.length > 0) && (
 						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
 							{isSteering && <Badge variant="info">{t("chat.steering")}</Badge>}
 							{(message.promptFrom || message.fromOtherViewer) && (
 								<span data-prompt-from className="text-sc-xs text-(--sc-text-muted)">
 									{t("chat.promptFrom", { device: message.promptFrom ?? t("chat.promptFromOtherDevice") })}
+								</span>
+							)}
+							{agentSent && (
+								<span data-agent-sent className="text-sc-xs text-(--sc-text-muted)">
+									{agentSent.from ? t("chat.agentSentFrom", { session: agentSent.from }) : t("chat.agentSent")}
 								</span>
 							)}
 							{userMentions.chips.map((chip, chipIndex) => {

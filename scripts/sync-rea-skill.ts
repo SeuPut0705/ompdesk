@@ -1,7 +1,7 @@
 /**
  * Vendor REA's bundled `reverse-engineer-anything` skill for the pinned REA
- * version (`resources/omp-builtin/rea-config.json`) into
- * `resources/omp-builtin/skills/`. Stock discovers an extension root's
+ * version (`resources/omp-builtin/rea/rea-config.json`) into
+ * `resources/omp-builtin/rea/skills/`. Stock discovers an extension root's
  * `skills/`, so the skill loads exactly when the built-in REA root does.
  * Run after every REA version bump:
  *
@@ -11,10 +11,10 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import config from "../resources/omp-builtin/rea-config.json" with { type: "json" };
+import config from "../resources/omp-builtin/rea/rea-config.json" with { type: "json" };
 
 const SKILL = "reverse-engineer-anything";
-const DEST = path.resolve(import.meta.dir, "../resources/omp-builtin/skills", SKILL);
+const DEST = path.resolve(import.meta.dir, "../resources/omp-builtin/rea/skills", SKILL);
 /** Upstream heading the OMPdesk section is inserted before, ahead of its setup guidance. */
 const ANCHOR = "\n## Connect only when needed\n";
 

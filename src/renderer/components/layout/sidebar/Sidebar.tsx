@@ -16,6 +16,8 @@ import {
 	Compass,
 	Copy,
 	ExternalLink,
+	Eye,
+	EyeOff,
 	Folder,
 	FolderInput,
 	FolderOpen,
@@ -484,6 +486,7 @@ export function Sidebar() {
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
+	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	const grouping = useSidebarPrefs(s => s.grouping);
@@ -1996,6 +1999,21 @@ export function Sidebar() {
 										]
 									: []),
 								...tabItems,
+								...(sessionMenu.session.device === undefined
+									? [
+											{
+												id: "session-agent-hidden",
+												label: agentHidden.includes(sessionMenu.session.path)
+													? t("sidebar.menu.showToAgents")
+													: t("sidebar.menu.hideFromAgents"),
+												icon: agentHidden.includes(sessionMenu.session.path) ? Eye : EyeOff,
+												onSelect: () => {
+													void useSidebarPrefs.getState().toggleAgentHidden(sessionMenu.session.path);
+													setSessionMenu(null);
+												},
+											},
+										]
+									: []),
 								...(sessionMenu.session.liveTabId === undefined
 									? [
 											{

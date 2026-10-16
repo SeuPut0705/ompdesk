@@ -1125,8 +1125,24 @@ export function runRpcUi(): void {
 	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
 	/** `prompt_origin_set` calls whose prompt has not been sent yet. */
 	const pendingOrigins: Array<{ deviceId: string; name: string; text: string }> = [];
+	/** OMPdesk control tools' confirmation cards (`agent_control.confirm`) waiting for the person's answer. */
+	const agentCards = new Map<string, Reply>();
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		// gui-bridge agent-control.ts: stock's extension-UI confirm, answered by the person (extension_ui_response).
+		"agent_control.confirm": (params, reply) => {
+			const id = `agent-card-${agentCards.size + 1}-${Date.now()}`;
+			agentCards.set(id, reply);
+			write({
+				type: "extension_ui_request",
+				id,
+				method: "confirm",
+				title: String(params.title),
+				message: String(params.message),
+			});
+			return undefined;
+		},
+		"agent_control.note": () => ({}),
 		// gui-bridge prompt-origin.ts: main names the device of the next prompt with this text (a paired web device).
 		prompt_origin_set: params => {
 			const origin = params.origin as { deviceId: string; name: string };
@@ -3876,6 +3892,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				const index = entries.findIndex(entry => entry.id === command.since);
 				if (index === -1) fail(`Unknown entries cursor: ${text("since")}`, "unknown_since");
 				else ok({ entries: entries.slice(index + 1), leafId });
+				break;
+			}
+			// Stock's last assistant text (the OMPdesk control tools read a session's result with it).
+			case "get_last_assistant_text": {
+				const reply = activeBranch()
+					.filter(entry => entry.type === "message" && (entry.message as AgentMessage).role === "assistant")
+					.at(-1)?.message as AgentMessage | undefined;
+				const blocks = Array.isArray(reply?.content) ? reply.content : [];
+				const textOf = blocks.map(block => (block.type === "text" ? block.text : "")).join("");
+				ok({ text: textOf || null });
 				break;
 			}
 			case "get_subagents":

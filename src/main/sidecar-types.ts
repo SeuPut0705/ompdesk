@@ -45,6 +45,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	syncNextPrompt(): void;
 	/** Push this machine's automatic-title switches to the live session (the omp's own machine decides). */
 	syncAutoTitle(): void;
+	/** Re-register the GUI-executed host tools (the OMPdesk control tools follow their Settings switch). */
+	syncHostTools(): void;
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */
 	syncAccountRotation(): void;
 	dispose(): void;

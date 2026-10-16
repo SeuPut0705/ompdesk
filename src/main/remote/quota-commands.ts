@@ -68,6 +68,9 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	// The chip's undo and the end of the request an automatic mode was used for: leave the mode; no model.
 	"auto_mode_undo",
 	"auto_mode_end",
+	// An OMPdesk control tool's confirmation card: a stock extension-UI confirm, no model.
+	"agent_control_confirm",
+	"agent_control_note",
 	"abort",
 	"abort_and_restore_queue",
 	"abort_bash",
@@ -154,6 +157,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_skills",
 	"get_ssh_hosts",
 	"get_state",
+	"get_last_assistant_text",
 	"get_subagent_messages",
 	"get_subagent_transcript",
 	"get_subagents",

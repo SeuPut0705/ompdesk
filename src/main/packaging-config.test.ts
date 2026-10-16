@@ -117,11 +117,12 @@ describe("mac bundle configs", () => {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			expect(config.extraResources, file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
 			for (const name of [
-				".mcp.json",
-				"rea-relay.mjs",
-				"rea-config.json",
-				"skills/reverse-engineer-anything/SKILL.md",
-				"skills/reverse-engineer-anything/LICENSE",
+				"rea/.mcp.json",
+				"rea/rea-relay.mjs",
+				"rea/rea-config.json",
+				"rea/skills/reverse-engineer-anything/SKILL.md",
+				"rea/skills/reverse-engineer-anything/LICENSE",
+				"skills/ompdesk/SKILL.md",
 			]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
 					true,
@@ -129,16 +130,25 @@ describe("mac bundle configs", () => {
 			}
 		}
 		const declaration: unknown = JSON.parse(
-			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/.mcp.json"), "utf8"),
+			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
 		expect(declaration).toEqual({
 			mcpServers: { rea: { type: "stdio", command: "node", args: ["$" + "{OMP_PLUGIN_ROOT}/rea-relay.mjs"] } },
 		});
 	});
 
+	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
+		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
+		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
+		expect(fs.readdirSync(root).sort()).toEqual(["rea", "skills"]);
+		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
+		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
+		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);
+	});
+
 	it("vendors REA's skill from the pinned REA release (bun run sync:rea-skill after a bump)", () => {
 		const skill = fs.readFileSync(
-			path.join(PACKAGE_ROOT, "resources/omp-builtin/skills/reverse-engineer-anything/SKILL.md"),
+			path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/skills/reverse-engineer-anything/SKILL.md"),
 			"utf8",
 		);
 		expect(skill).toMatch(/^---\nname: reverse-engineer-anything\ndescription: \S/);

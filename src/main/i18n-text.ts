@@ -83,6 +83,31 @@ export const MAIN_TEXT = {
 		en: "Click the tray icon to bring the window back. Quit from the tray menu.",
 		ko: "트레이 아이콘을 누르면 창이 돌아와요. 종료는 트레이 메뉴에서 해요.",
 	},
+	"agentControl.stopTitle": {
+		en: "An agent wants to stop a session",
+		ko: "에이전트가 세션을 중단하려고 해요",
+	},
+	"agentControl.stopMessage": {
+		en: "The agent in “{caller}” wants to stop the work of “{target}”. Stop it?",
+		ko: "“{caller}”의 에이전트가 “{target}” 세션의 작업을 중단하려고 해요. 중단할까요?",
+	},
+	"agentControl.closeMessage": {
+		en: "The agent in “{caller}” wants to stop “{target}” and close its tab (the session stays saved). Continue?",
+		ko: "“{caller}”의 에이전트가 “{target}” 세션을 중단하고 탭을 닫으려고 해요(세션은 저장돼 있어요). 계속할까요?",
+	},
+	"agentControl.deleteMessage": {
+		en: "The agent in “{caller}” wants to stop “{target}”, close its tab and DELETE the saved session. This can't be undone. Continue?",
+		ko: "“{caller}”의 에이전트가 “{target}” 세션을 중단하고 탭을 닫은 뒤 저장된 세션을 삭제하려고 해요. 되돌릴 수 없어요. 계속할까요?",
+	},
+	"agentControl.mergeTitle": {
+		en: "An agent wants to merge a branch",
+		ko: "에이전트가 브랜치를 병합하려고 해요",
+	},
+	"agentControl.mergeMessage": {
+		en: "The agent in “{caller}” wants to merge branch {branch} (from “{target}”) into {base} in {cwd}. Nothing is pushed. Merge?",
+		ko: "“{caller}”의 에이전트가 “{target}” 세션의 {branch} 브랜치를 {cwd}의 {base} 브랜치에 병합하려고 해요. 푸시는 하지 않아요. 병합할까요?",
+	},
+	"agentControl.answeredBy": { en: "Answered by an agent ({by})", ko: "에이전트가 답함 ({by})" },
 	"menu.selectAll": { en: "Select All", ko: "전체 선택" },
 	"menu.reload": { en: "Reload", ko: "새로고침" },
 	"menu.forceReload": { en: "Force Reload", ko: "강제 새로고침" },

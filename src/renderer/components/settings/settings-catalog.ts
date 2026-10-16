@@ -493,6 +493,15 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "rea mcp builtin built-in reverse engineering binary npx node 내장 리버스 엔지니어링 바이너리",
 	},
 	{
+		// Row id `setting-gui-agentControl` (AgentControlRow); `tools:mcp` opens its tab.
+		id: "agentControl",
+		section: "tools",
+		sub: "mcp",
+		labelKey: "settings.gui.agentControl",
+		aliases:
+			"ompdesk control tools agent sessions open message result notify tabs orchestrate 조작 도구 세션 에이전트 알림 탭",
+	},
+	{
 		id: "ssh",
 		section: "connections",
 		sub: "ssh",

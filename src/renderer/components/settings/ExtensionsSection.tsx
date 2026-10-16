@@ -56,6 +56,7 @@ import {
 import { type McpTestView, summarizeMcpTestData } from "../panels/mcp/McpFeedback";
 import { type McpCardAction, type McpReauthPhase, McpServerCard } from "../panels/mcp/McpServerCard";
 import { McpServerWizard } from "../panels/mcp/McpServerWizard";
+import { AgentControlRow } from "./AgentControlRow";
 import { BuiltinReaRow } from "./BuiltinReaRow";
 import { SettingInfo, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
@@ -720,6 +721,7 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 
 	return (
 		<>
+			<AgentControlRow query={query} />
 			<BuiltinReaRow device={device} query={query} server={rpc.data?.find(server => server.builtin === "rea")} />
 			<ListFrame
 				actions={addButton}

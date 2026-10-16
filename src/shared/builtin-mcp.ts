@@ -1,4 +1,4 @@
-import reaConfig from "../../resources/omp-builtin/rea-config.json" with { type: "json" };
+import reaConfig from "../../resources/omp-builtin/rea/rea-config.json" with { type: "json" };
 
 /** OMPdesk-only MCP preference; stock omp config is never modified. */
 export const REA_PREF = "builtinMcp.rea";

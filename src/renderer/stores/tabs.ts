@@ -33,6 +33,7 @@ export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-
 
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
+import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
 	IpcOpenExtensionRequest,
 	IpcScheduledRetry,
@@ -420,6 +421,12 @@ export interface TabsStore {
 	 * Otherwise it never touches this window's own tabs' order or the view.
 	 */
 	applyTabList: (list: readonly IpcTabInfo[], closed?: readonly string[]) => Promise<void>;
+	/**
+	 * An agent's view request (`AGENT_CONTROL_VIEW`): focus the tab like a sidebar pick, split it beside the
+	 * focused pane like the row menu, or close it (main already got the person's approval). Waits for the
+	 * tab when main has only just spawned it; a tab that never shows up is ignored.
+	 */
+	applyAgentView: (event: AgentControlViewEvent) => Promise<void>;
 	/** Saved sessions of closed tabs, most recent last (unsaved sessions have nothing to reopen). */
 	closedTabs: ClosedTab[];
 	/** Reopen the most recently closed tab's session where it ran. The entry stays when the
@@ -986,6 +993,24 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 	},
 
+	applyAgentView: async ({ tabId, how }) => {
+		// Main announces a tab it just spawned (TAB_LIST_CHANGED) and then asks to show it; the list may not
+		// have been applied yet, so an unknown tab is reconciled first. Still unknown afterwards: nothing to show.
+		if (!get().tabs.some(tab => tab.id === tabId)) await get().reconcileTabs();
+		const known = get().tabs.some(tab => tab.id === tabId);
+		if (!known || isTabClosed(tabId)) return;
+		if (how === "close") {
+			await get().closeTab(tabId);
+			return;
+		}
+		useUiStore.getState().closeDestination();
+		if (how === "focus" || visibleTabIds(get()).includes(tabId)) {
+			await get().switchTab(tabId);
+			return;
+		}
+		await get().splitTab(tabId, how === "split-right" ? "right" : "bottom");
+	},
+
 	reset: () => {
 		switchVersion += 1;
 		if (ratioFlushTimer) {
@@ -1280,6 +1305,10 @@ export function useSessionTabs(): void {
 						payload => void useTabsStore.getState().applyTabList(payload.tabs, payload.closed),
 					)
 				: undefined;
+		const offView =
+			typeof window.omp.events.onAgentControlView === "function"
+				? window.omp.events.onAgentControlView(event => void useTabsStore.getState().applyAgentView(event))
+				: undefined;
 		const offStatus = subscribe.call(window.omp.events, payload => {
 			const previousStatus = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId)?.status;
 			useTabsStore.getState().applyTabStatus(payload);
@@ -1335,6 +1364,7 @@ export function useSessionTabs(): void {
 		return () => {
 			offStatus();
 			offList?.();
+			offView?.();
 		};
 	}, []);
 }

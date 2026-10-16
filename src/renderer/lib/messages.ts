@@ -16,6 +16,7 @@ import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { endAutoGoal } from "./auto-mode-client";
 import { translate } from "./i18n";
+import { promptDisplayText } from "./prompt-text";
 import type { TabRpc } from "./tab-rpc";
 
 /**
@@ -55,6 +56,12 @@ export function messageText(message: AgentMessage): string {
 		.map(part => (part.type === "text" ? part.text : ""))
 		.join("\n")
 		.trim();
+}
+
+/** `messageText` for a person: a user message's agent-message wrapper is replaced by its body. */
+export function messageDisplayText(message: AgentMessage): string {
+	const text = messageText(message);
+	return message.role === "user" ? promptDisplayText(text) : text;
 }
 
 function messagePreview(message: AgentMessage): string {

@@ -4,6 +4,7 @@
  * forwarding; a hit is answered here and never reaches omp.
  */
 import type { RpcResponse } from "../../shared/rpc-types";
+import { handlers as agentControl } from "./agent-control";
 import { handlers as agentFiles } from "./agent-files";
 import { handlers as autoMode } from "./auto-mode";
 import { handlers as autoTitle } from "./auto-title";
@@ -34,6 +35,7 @@ export function mergeHandlers(areas: Record<string, Record<string, LocalHandler>
 
 const LOCAL_HANDLERS = mergeHandlers({
 	sessions,
+	agentControl,
 	autoTitle,
 	autoMode,
 	queue,

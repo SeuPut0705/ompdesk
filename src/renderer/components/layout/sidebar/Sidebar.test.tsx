@@ -778,7 +778,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
 	});
 
-	it("right-click on a session row opens the 11-item session menu", async () => {
+	it("right-click on a session row opens the 12-item session menu", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -791,6 +791,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Open in new tab",
 			"Open in split view",
 			"Open in new window",
+			"Hide from other agents",
 			"Rename session",
 			"Pin to top",
 			"Move to project…",

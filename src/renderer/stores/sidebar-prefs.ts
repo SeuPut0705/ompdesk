@@ -27,6 +27,8 @@ interface SidebarPrefsBlob {
 	archivedSessions?: string[];
 	grouping?: SidebarGrouping;
 	railPins?: string[];
+	/** Session files the user hid from other agents (the OMPdesk control tools; main reads this field too). */
+	agentHidden?: string[];
 }
 
 /**
@@ -85,10 +87,13 @@ interface SidebarPrefsStore {
 	grouping: SidebarGrouping;
 	/** Footer shortcuts in `RAIL_PINS` order. */
 	railPins: RailPin[];
+	/** Session files hidden from other agents (`ompdesk_*` tools refuse them). */
+	agentHidden: string[];
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
 	toggleSessionPin: (path: string) => Promise<void>;
+	toggleAgentHidden: (path: string) => Promise<void>;
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
 	setSessionsArchived: (ids: readonly string[], archived: boolean) => Promise<void>;
@@ -137,6 +142,7 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		archivedSessions: state.archivedSessions,
 		grouping: state.grouping,
 		railPins: state.railPins,
+		agentHidden: state.agentHidden,
 	};
 }
 
@@ -171,6 +177,9 @@ function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
 			: [],
 		grouping: blob?.grouping === "recent" ? "recent" : "projects",
 		railPins: validRailPins(blob?.railPins),
+		agentHidden: Array.isArray(blob?.agentHidden)
+			? blob.agentHidden.filter((path): path is string => typeof path === "string" && path.length > 0)
+			: [],
 	};
 }
 
@@ -219,6 +228,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		archivedSessions: [],
 		grouping: "projects",
 		railPins: [...DEFAULT_RAIL_PINS],
+		agentHidden: [],
 		hydrated: false,
 
 		hydrate: () => load(PREFS_BOOT_RETRY_MS),
@@ -235,6 +245,13 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				pinnedSessions: state.pinnedSessions.includes(path)
 					? state.pinnedSessions.filter(item => item !== path)
 					: [...state.pinnedSessions, path],
+			})),
+
+		toggleAgentHidden: path =>
+			write("sidebar.agentHiddenFailed", state => ({
+				agentHidden: state.agentHidden.includes(path)
+					? state.agentHidden.filter(item => item !== path)
+					: [...state.agentHidden, path],
 			})),
 
 		setGroupAlias: (cwd, alias) =>
@@ -280,6 +297,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				workspaceLastUsed: {},
 				groupOrder: [],
 				archivedSessions: [],
+				agentHidden: [],
 				grouping: "projects",
 				railPins: [...DEFAULT_RAIL_PINS],
 				hydrated: false,

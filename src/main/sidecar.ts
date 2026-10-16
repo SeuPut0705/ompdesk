@@ -26,6 +26,7 @@ import type {
 	SidecarStatusPayload,
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
+import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { EventBatcher } from "./event-batcher";
@@ -186,6 +187,8 @@ export interface SidecarOptions {
 	bridgeDir?: string;
 	/** Optional app-only MCP root, resolved before a spawn; never touches stock config. */
 	builtinMcp?: () => Promise<{ args: string[]; root?: string }>;
+	/** Whether the OMPdesk control tools are registered with the GUI's host tools (Settings switch); default off. */
+	hostTools?: () => boolean;
 	cwd: string;
 	extraFlags?: string[];
 	/** Fresh GUI tabs must not inherit the CLI's persistent autoResume setting. */
@@ -854,11 +857,9 @@ export class SidecarManager extends EventEmitter {
 					.catch(() => {});
 				// Opt into upstream's `ask` protocol — the GUI renders ask dialogs.
 				void this.#rpcClient.command({ type: "set_ask_dialog", enabled: true }).catch(() => {});
-				// GUI-executed tools: the tab's terminals, read-only (C115), and visuals in the Preview (C135);
-				// ipc.ts executes the calls.
-				void this.#rpcClient
-					.command({ type: "set_host_tools", tools: [TERMINAL_READ_DEFINITION, VISUALIZE_DEFINITION] })
-					.catch(() => {});
+				// GUI-executed tools: the tab's terminals, read-only (C115), visuals in the Preview (C135) and,
+				// while their switch is on, the OMPdesk control tools (src/main/agent-control); ipc.ts executes the calls.
+				this.syncHostTools(true);
 			}
 			announceReady();
 		};
@@ -990,6 +991,22 @@ export class SidecarManager extends EventEmitter {
 		if (!bridge) throw new Error("Bridge is disconnected");
 		if (plan.reload) await bridge.request("extension_update.reload");
 		if (plan.reconnect.length > 0) await bridge.request("extension_update.reconnect", { names: plan.reconnect });
+	}
+
+	/**
+	 * (Re-)register the GUI-executed host tools on this omp (stock `set_host_tools` replaces the set): the
+	 * terminals and visuals always, the OMPdesk control tools while their Settings switch is on. Sent once the
+	 * protocol is negotiated (`initial`), and again when the switch changes on a ready omp; one that is not ready
+	 * yet gets the current set from its own initial send.
+	 */
+	syncHostTools(initial = false): void {
+		if (!this.#rpcClient || (!initial && this.#status !== "ready")) return;
+		const tools = [
+			TERMINAL_READ_DEFINITION,
+			VISUALIZE_DEFINITION,
+			...(this.#options.hostTools?.() ? AGENT_CONTROL_DEFINITIONS : []),
+		];
+		void this.#rpcClient.command({ type: "set_host_tools", tools }).catch(() => {});
 	}
 
 	/**

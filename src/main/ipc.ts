@@ -24,6 +24,7 @@ import {
 	type PromptOriginLabel,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
+import { AGENT_CONTROL_PREF, isAgentControlTool } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -82,13 +83,15 @@ import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from 
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
-import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
+import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
+import { AgentControlRuntime } from "./agent-control/host";
 import { requestQuit } from "./app-quit";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
+import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
@@ -423,6 +426,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			void runVisualizeTool(context, request.arguments).then(result => reply(result.text, result.isError));
 			return;
 		}
+		if (isAgentControlTool(request.toolName)) {
+			void agentControl
+				.run(tab.win, tab.tabId, request.toolName, request.arguments)
+				.then(outcome => reply(outcome.text, outcome.isError));
+			return;
+		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		reply(result ?? `Host tool "${request.toolName}" is not registered`, result === undefined);
 	};
@@ -706,6 +715,41 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (signIn && login) sidecarPool.noteSignIn(signIn, false, { providerId: login, error: signInError });
 		}
 	};
+
+	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
+	const agentControl = new AgentControlRuntime({
+		pool: sidecarPool,
+		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
+			dispatchRpcCommand(win, sidecar, tabId, {
+				command,
+				timeoutMs,
+			} as IpcRpcCommandPayload) as Promise<RpcResponse>,
+		spawnTab: (win, payload) =>
+			spawnTabForWindow(
+				{
+					sidecarPool: deps.sidecarPool,
+					sessionIndex,
+					fallbackCwd: () => null,
+					initialCwd: deps.initialCwd,
+					defaultWorkspace: ensureDefaultWorkspace,
+					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+				},
+				win,
+				payload,
+			),
+		prefs: { get: key => prefsStore.get(key) },
+		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
+		notify: (win, tabId, title, body) => {
+			showNotification(win.webContents.id, { title, body, tabId });
+		},
+		deleteSession: (sessionPath, device) =>
+			deleteSession(sidecarPool, sessionPath, device, () =>
+				device
+					? remoteDevices.request(device, "sessions.delete", { sessionPath })
+					: sessionIndex.deleteSession(sessionPath),
+			),
+		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
+	});
 
 	ipc.handle(IPC_COMMANDS.RPC_COMMAND, async (caller, payload: IpcRpcCommandPayload) => {
 		const win = caller.win;
@@ -1251,6 +1295,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);
 		}
+		if (payload.key === AGENT_CONTROL_PREF)
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

@@ -596,6 +596,9 @@ export const en: Record<string, string> = {
 	"sidebar.groupMenu": "Project actions",
 	"sidebar.sessionMenu": "Session actions",
 	"sidebar.pinFailed": "Couldn't save the pinned list",
+	"sidebar.menu.hideFromAgents": "Hide from other agents",
+	"sidebar.menu.showToAgents": "Show to other agents",
+	"sidebar.agentHiddenFailed": "Couldn't save the agent visibility",
 	"sidebar.pin.usage": "Usage limits",
 	"sidebar.pin.usageMore": "+{count} more",
 	"sidebar.pinned": "Pinned",
@@ -2875,6 +2878,8 @@ export const en: Record<string, string> = {
 	"chat.steering": "Steer",
 	"chat.promptFrom": "from {device}",
 	"chat.promptFromOtherDevice": "another device",
+	"chat.agentSent": "Sent by an agent",
+	"chat.agentSentFrom": "Sent by an agent · {session}",
 	"viewers.chipOne": "Also open on 1 other device",
 	"viewers.chipMany": "Also open on {count} other devices",
 	"extDialog.answeredElsewhere": "Answered on another device.",
@@ -3967,6 +3972,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.resetPasses": "Reset passes",
 	"bridgeHealth.feature.streamMetadata": "Read grouping and token rate",
 	"bridgeHealth.feature.agentBrowser": "Agent browsing in the preview",
+	"bridgeHealth.feature.agentControl": "OMPdesk control tools (sessions, confirmation cards)",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
@@ -5329,6 +5335,15 @@ export const en: Record<string, string> = {
 	"settings.gui.autoPreviewDevServerDesc": "Shows a server the agent starts, once per address",
 	"settings.gui.autoOpenChanges": "Open Changes after edits",
 	"settings.gui.autoOpenChangesDesc": "At the end of a turn that edited files, if the panel is closed",
+	"settings.gui.agentControl": "OMPdesk control tools",
+	"settings.gui.agentControlDesc":
+		"Let an agent see your other sessions, message them, read their results, answer their questions and show them to you",
+	"settings.gui.agentControlApprove": "Let agents approve for other sessions",
+	"settings.gui.agentControlApproveDesc":
+		"Off: when another session asks you to approve a tool, only you can. Agents may still deny or answer other questions.",
+	"settings.gui.agentControlManage": "Let agents manage other sessions",
+	"settings.gui.agentControlManageDesc":
+		"Off: stopping, closing or deleting a session an agent did not open asks you first. Sessions it opened itself need no question.",
 	"settings.gui.batchNotifications": "Batch notifications",
 	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
 	"settings.gui.nextPromptSuggestions": "Suggest my next message",

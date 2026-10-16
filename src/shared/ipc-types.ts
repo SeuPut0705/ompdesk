@@ -4,6 +4,7 @@
  */
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
+import type { AgentControlViewEvent } from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { ExtensionUpdateState } from "./extension-update";
@@ -1607,6 +1608,8 @@ export interface OmpApi {
 		onBridgeHealth(callback: () => void): () => void;
 		/** The window's tab list changed because another window joined or left one of its tabs, or closed it. */
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
+		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
+		onAgentControlView(callback: (event: AgentControlViewEvent) => void): () => void;
 	};
 	updater: {
 		check(): Promise<UpdateStatus>;

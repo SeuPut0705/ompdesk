@@ -1,0 +1,227 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { expect, test } from "@playwright/test";
+import type { ElectronApplication, Page } from "playwright";
+import { exitApp, launchApp, readRecords } from "./harness";
+
+// OMPdesk control tools (src/main/agent-control): the main agent's host tools open a session, message it, wait for
+// it and read it back; refuse what needs the user without the confirmation card; and stop at their caps. The fake
+// omp calls a tool with `fixture:host-tool:<name> <json>` (the way stock's agent would) and records the
+// `host_tool_result` it gets. Subagents never have the tools: stock registers host tools on the RPC session only
+// (checked against a real omp in real-agent-control.e2e.ts).
+
+let app: ElectronApplication;
+let page: Page;
+let profile: string;
+let record: string;
+let errors: string[];
+let main: string;
+
+test.beforeEach(async () => {
+	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-agent-control-"));
+	const project = path.join(profile, "project");
+	const desktop = path.join(profile, "desktop");
+	const agent = path.join(profile, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	record = path.join(profile, "rpc.jsonl");
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false }),
+	);
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record },
+	});
+	page = await app.firstWindow();
+	errors = [];
+	page.on("pageerror", error => errors.push(error.message));
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+	main = (await tabs()).find(tab => tab.active)?.tabId ?? "";
+	expect(main).not.toBe("");
+});
+
+test.afterEach(async () => {
+	if (app) await exitApp(app);
+	if (record) await fs.copyFile(record, test.info().outputPath("rpc.jsonl")).catch(() => {});
+	if (profile) await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	expect(errors).toEqual([]);
+});
+
+function tabs() {
+	return page.evaluate(() => window.omp.tabs.list());
+}
+
+async function fixtureCommand(tabId: string, line: string): Promise<void> {
+	const response = await page.evaluate(
+		([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }),
+		[tabId, line] as const,
+	);
+	expect(response).toMatchObject({ success: true });
+}
+
+async function results(): Promise<{ text: string; isError: boolean }[]> {
+	const frames = await readRecords(record);
+	return frames
+		.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
+		.map(frame => {
+			const result = frame.result as { content?: { text?: string }[] } | undefined;
+			return { text: result?.content?.[0]?.text ?? "", isError: frame.isError === true };
+		});
+}
+
+/** The main agent calls a control tool; resolves with the result text the agent gets back. */
+async function call(name: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> {
+	const before = (await results()).length;
+	await fixtureCommand(main, `fixture:host-tool:${name} ${JSON.stringify(args)}`);
+	await expect.poll(async () => (await results()).length, { timeout: 90_000 }).toBe(before + 1);
+	return (await results())[before] as { text: string; isError: boolean };
+}
+
+test("the control tools are registered with stock, and none of them touches accounts, settings or permissions", async () => {
+	const frame = (await readRecords(record)).find(entry => entry.type === "set_host_tools");
+	const names = ((frame?.tools ?? []) as { name: string }[]).map(tool => tool.name);
+	expect(names).toEqual(
+		expect.arrayContaining([
+			"ompdesk_sessions",
+			"ompdesk_session_open",
+			"ompdesk_session_send",
+			"ompdesk_session_result",
+			"ompdesk_session_read",
+			"ompdesk_session_answer",
+			"ompdesk_tab_focus",
+			"ompdesk_notify",
+			"ompdesk_session_stop",
+		]),
+	);
+	expect(names.filter(name => /account|setting|permission|login|token|pref/.test(name))).toEqual([]);
+	expect(names.filter(name => /delete|remove|kill/.test(name))).toEqual([]);
+});
+
+test("create a session, send it a message, wait for it and read its result", async () => {
+	test.setTimeout(150_000);
+	const listed = await call("ompdesk_sessions");
+	expect(listed.isError).toBe(false);
+	expect(listed.text).toContain("1 session in this window");
+
+	const opened = await call("ompdesk_session_open", { message: "Summarize the repo", show: "background" });
+	expect(opened.isError).toBe(false);
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(child).not.toBe("");
+	expect((await tabs()).map(tab => tab.tabId)).toContain(child);
+	// The user's view stays where it was.
+	expect((await tabs()).find(tab => tab.active)?.tabId).toBe(main);
+
+	const first = await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+	expect(first.isError).toBe(false);
+	expect(first.text).toContain("idle");
+	expect(first.text).toContain("Local fixture reply");
+
+	const sent = await call("ompdesk_session_send", { session: child, message: "Now list the risks" });
+	expect(sent.text).toContain("Sent to");
+	const second = await call("ompdesk_session_result", { sessions: [child], wait: true, timeout_seconds: 60 });
+	expect(second.text).toContain("Local fixture reply");
+
+	const read = await call("ompdesk_session_read", { session: child });
+	expect(read.isError).toBe(false);
+	expect(read.text).toContain("[user, sent by an agent");
+	expect(read.text).toContain("Now list the risks");
+	expect(read.text).toContain("[assistant] Local fixture reply");
+
+	// The receiving session shows who sent it.
+	const shown = await call("ompdesk_tab_focus", { session: child });
+	expect(shown.isError).toBe(false);
+	await expect.poll(async () => (await tabs()).find(tab => tab.active)?.tabId).toBe(child);
+	await expect(page.getByText("Sent by an agent", { exact: false }).first()).toBeVisible();
+	await expect(page.getByText("Now list the risks").first()).toBeVisible();
+	await expect(page.getByText("ompdesk-agent-message")).toHaveCount(0);
+});
+
+test("a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
+	test.setTimeout(150_000);
+	// A second tab the user opened (⌘T): not the agent's.
+	const before = (await tabs()).map(tab => tab.tabId);
+	await page.keyboard.press("ControlOrMeta+t");
+	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
+	const theirs = (await tabs()).find(tab => !before.includes(tab.tabId))?.tabId ?? "";
+	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
+	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs input".
+
+	const pending = call("ompdesk_session_stop", { session: theirs, close: true });
+	await page
+		.getByRole("button", { name: /Needs input/ })
+		.first()
+		.click({ timeout: 30_000 });
+	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
+	await page.getByRole("button", { name: /^Deny/ }).first().click();
+	const declined = await pending;
+	expect(declined.text).toContain("The user declined");
+	expect((await tabs()).map(tab => tab.tabId)).toContain(theirs);
+
+	const approved = call("ompdesk_session_stop", { session: theirs, close: true });
+	await page
+		.getByRole("button", { name: /Needs input/ })
+		.first()
+		.click({ timeout: 30_000 });
+	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
+	await page
+		.getByRole("button", { name: /^Approve/ })
+		.first()
+		.click();
+	expect((await approved).text).toContain("Stopped and closed");
+	await expect.poll(async () => (await tabs()).map(tab => tab.tabId)).not.toContain(theirs);
+});
+
+test("sessions it opened itself are stopped without a card, an unknown or own session is refused, and the caps hold", async () => {
+	test.setTimeout(240_000);
+	const own = await call("ompdesk_session_stop", { session: main });
+	expect(own.isError).toBe(true);
+	expect(own.text).toContain("your own session");
+	expect((await call("ompdesk_session_send", { session: main, message: "hi me" })).isError).toBe(true);
+	expect((await call("ompdesk_session_send", { session: "nope9999", message: "x" })).text).toContain("No session");
+
+	const fan = await call("ompdesk_session_open", {
+		sessions: [{ message: "a" }, { message: "b" }, { message: "c" }, { message: "d" }],
+	});
+	expect(fan.isError).toBe(false);
+	const ids = [...fan.text.matchAll(/Opened session (\w+)/g)].map(match => match[1] as string);
+	expect(ids).toHaveLength(4);
+	// Four per turn: the fifth is refused until the agent's next turn.
+	const fifth = await call("ompdesk_session_open", { message: "e" });
+	expect(fifth.isError).toBe(true);
+	expect(fifth.text).toMatch(/This turn you already opened 4/);
+	expect((await tabs()).length).toBe(5);
+
+	const stopped = await call("ompdesk_session_stop", { session: ids[0], close: true });
+	expect(stopped.isError).toBe(false);
+	expect(stopped.text).toContain("Stopped and closed");
+	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
+	await expect.poll(async () => (await tabs()).length).toBe(4);
+});
+
+test("an agent cannot approve another session's tool approval unless the user allowed it; it can deny", async () => {
+	test.setTimeout(150_000);
+	const opened = await call("ompdesk_session_open", {});
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	// The child's own run raises a tool approval (the fake omp answers this exact text with one).
+	const raised = await page.evaluate(
+		id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }),
+		child,
+	);
+	expect(raised).toMatchObject({ success: true });
+	await expect
+		.poll(async () => (await call("ompdesk_sessions")).text, { timeout: 60_000 })
+		.toContain("waiting for the user's answer");
+	const approve = await call("ompdesk_session_answer", { session: child, approve: true });
+	expect(approve.isError).toBe(true);
+	expect(approve.text).toContain("사용자 승인이 필요해요");
+	// The card is still open for the person.
+	expect((await call("ompdesk_sessions")).text).toContain("waiting for the user's answer");
+	const deny = await call("ompdesk_session_answer", { session: child, approve: false });
+	expect(deny.isError).toBe(false);
+	expect(deny.text).toContain("Answered");
+});

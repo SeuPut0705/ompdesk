@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import config from "../../../resources/omp-builtin/rea-config.json" with { type: "json" };
+import config from "../../../resources/omp-builtin/rea/rea-config.json" with { type: "json" };
 
 let tools = [...config.curatedTools, ...Array.from({ length: 15 }, (_, i) => `extra_${i}`)].map(name => ({
 	name,

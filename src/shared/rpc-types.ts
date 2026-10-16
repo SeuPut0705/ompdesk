@@ -35,6 +35,7 @@ export type RpcCommand =
 	| { id?: string; type: "abort_and_restore_queue" }
 	| { id?: string; type: "new_session"; parentSession?: string }
 	| { id?: string; type: "get_state" }
+	| { id?: string; type: "get_last_assistant_text" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "set_slow_mode"; enabled: boolean }
 	| { id?: string; type: "set_ultrafast_mode"; enabled: boolean }
@@ -92,6 +93,9 @@ export type RpcCommand =
 	| { id?: string; type: "auto_mode_decide"; message: string }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
 	| { id?: string; type: "auto_mode_end"; mode: "plan" | "goal" }
+	// An OMPdesk control tool's confirmation card (main/agent-control, gui-bridge agent-control.ts); never from a renderer
+	| { id?: string; type: "agent_control_confirm"; title: string; message: string }
+	| { id?: string; type: "agent_control_note"; text: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }

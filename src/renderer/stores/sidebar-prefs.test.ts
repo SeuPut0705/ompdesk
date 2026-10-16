@@ -38,6 +38,15 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["/s/one.jsonl", "/s/two.jsonl"]);
 	});
 
+	it("hides a session from other agents and shows it again, persisting the list main reads", () => {
+		useSidebarPrefs.getState().toggleAgentHidden("/s/secret.jsonl");
+		expect(useSidebarPrefs.getState().agentHidden).toEqual(["/s/secret.jsonl"]);
+		expect(set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ agentHidden: ["/s/secret.jsonl"] }));
+		useSidebarPrefs.getState().toggleAgentHidden("/s/secret.jsonl");
+		expect(useSidebarPrefs.getState().agentHidden).toEqual([]);
+		expect(set).toHaveBeenLastCalledWith("sidebar", expect.objectContaining({ agentHidden: [] }));
+	});
+
 	it("sets and clears workspace aliases, dropping empty values", () => {
 		useSidebarPrefs.getState().setGroupAlias("/work/a", "  Frontend  ");
 		expect(useSidebarPrefs.getState().groupAliases).toEqual({ "/work/a": "Frontend" });
@@ -213,6 +222,7 @@ describe("sidebar-prefs store with unreadable prefs", () => {
 
 		await useSidebarPrefs.getState().toggleGroupPin("/work/new");
 		await useSidebarPrefs.getState().toggleSessionPin("/s/new.jsonl");
+		await useSidebarPrefs.getState().toggleAgentHidden("/s/new.jsonl");
 		await useSidebarPrefs.getState().setGroupAlias("/work/a", "Renamed");
 		await useSidebarPrefs.getState().setGroupOrder(["/work/a"]);
 		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
