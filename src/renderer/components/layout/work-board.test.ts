@@ -55,7 +55,7 @@ describe("todoBoard", () => {
 			{ tasks: [task("c", "pending"), task("d", "abandoned")] },
 		]);
 		expect(board).toMatchObject({ done: 1, total: 3, active: "b", hidden: 0 });
-		expect(board?.rows.map(row => row.content)).toEqual(["a", "b", "c"]);
+		expect(board?.rows.map(row => row.content)).toEqual(["b", "c"]);
 	});
 
 	it("has no board for an empty or fully abandoned list", () => {
@@ -67,10 +67,10 @@ describe("todoBoard", () => {
 		const tasks = Array.from({ length: 20 }, (_, index) => task(`t${index}`, index < 9 ? "completed" : "pending"));
 		const board = todoBoard([{ tasks }]);
 		expect(board?.rows).toHaveLength(TODO_BOARD_ROWS);
-		expect(board?.rows[0]?.content).toBe("t8");
-		expect(board?.hidden).toBe(20 - 8 - TODO_BOARD_ROWS);
+		expect(board?.rows[0]?.content).toBe("t9");
+		expect(board?.hidden).toBe(20 - 9 - TODO_BOARD_ROWS);
 		expect(board?.active).toBeNull();
-		expect(board?.doneBefore).toBe(8);
+		expect(board?.doneBefore).toBe(9);
 		expect(board?.segments).toHaveLength(20);
 	});
 

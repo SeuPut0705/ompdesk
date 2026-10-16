@@ -53,7 +53,7 @@ export interface TodoBoard {
 export const TODO_BOARD_ROWS = 7;
 
 /**
- * The plan's progress and the window of tasks around the first open one (the one before it for context).
+ * The plan's progress and the tasks from the first open one on; every finished task before it folds into a count.
  * Abandoned tasks are neither done nor left to do, so they leave the count and the list.
  */
 export function todoBoard(phases: readonly { tasks: readonly TodoTask[] }[]): TodoBoard | null {
@@ -61,8 +61,8 @@ export function todoBoard(phases: readonly { tasks: readonly TodoTask[] }[]): To
 	if (tasks.length === 0) return null;
 	const done = tasks.filter(task => task.status === "completed").length;
 	const firstOpen = tasks.findIndex(task => task.status !== "completed");
-	// A list with work left folds every finished task but the one before the first open task; a finished list shows its tail.
-	const start = Math.max(0, firstOpen < 0 ? tasks.length - TODO_BOARD_ROWS : firstOpen - 1);
+	// A list with work left folds all finished tasks before the first open one; a finished list shows its tail.
+	const start = Math.max(0, firstOpen < 0 ? tasks.length - TODO_BOARD_ROWS : firstOpen);
 	const rows = tasks.slice(start, start + TODO_BOARD_ROWS).map(({ content, status }) => ({ content, status }));
 	return {
 		done,

@@ -584,6 +584,8 @@ if (process.argv[2] === "stats") {
 	let subagentRoster: SubagentSnapshot[] = [];
 	/** The goal `fixture:board` sets, as `goal` reports it. */
 	let boardGoal: Record<string, unknown> | undefined;
+	/** `fixture:board` gives the fixture provider a subscription account with two usage windows. */
+	let boardUsage = false;
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
@@ -1988,7 +1990,20 @@ if (process.argv[2] === "stats") {
 		usage: () => ({
 			reports:
 				usageLimitResetAt === undefined
-					? []
+					? boardUsage
+						? [
+								{
+									provider: "fixture",
+									fetchedAt: Date.now(),
+									account: "work@example.com",
+									active: true,
+									limits: [
+										{ id: "fixture:5h", label: "5 hour", windowId: "5h", usedFraction: 0.62, resetsAt: Date.now() + 2 * 3_600_000 + 60_000 },
+										{ id: "fixture:7d", label: "7 day", windowId: "7d", usedFraction: 0.41, resetsAt: Date.now() + 4 * 86_400_000 },
+									],
+								},
+							]
+						: []
 					: [{ provider: "fixture", fetchedAt: Date.now(), limits: [], resetAt: usageLimitResetAt }],
 			session: {
 				input: 0,
@@ -4477,6 +4492,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}
 				if (line === "fixture:board") {
 					const now = Date.now();
+					boardUsage = true;
 					type Progress = NonNullable<SubagentSnapshot["progress"]>;
 					const progress = (
 						id: string,

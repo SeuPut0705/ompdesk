@@ -17,6 +17,7 @@ import { Check, ChevronRight, Pause, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RpcGoalState, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../hooks/use-background-jobs";
+import { usePresence } from "../../hooks/use-presence";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -24,6 +25,7 @@ import { actionShortcut } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../stores/extension-ui";
+import { useMessagesStore } from "../../stores/messages";
 import { usePlanApprovalStore } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -33,12 +35,14 @@ import { selectTodoCardVisible, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../stores/work-board";
+import { formatTokenRate } from "../chat/TurnOutputMeter";
 import { useRunStores } from "../chat/use-work-run";
 import { workOutcomes } from "../chat/work-view";
 import { IconButton, Kbd } from "../common";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../panels/subagent-graph";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { getToolHeader } from "../tools/index";
+import { AccountLimit } from "./AccountLimit";
 import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
@@ -156,6 +160,7 @@ function BoardRow({
 	title,
 	data,
 	live = false,
+	exiting = false,
 }: {
 	lead: ReactNode;
 	label: ReactNode;
@@ -165,6 +170,7 @@ function BoardRow({
 	title?: string;
 	data?: Record<string, string>;
 	live?: boolean;
+	exiting?: boolean;
 }) {
 	const body = (
 		<>
@@ -179,7 +185,12 @@ function BoardRow({
 		</>
 	);
 	return (
-		<li className="omp-work-board-item" data-live={live || undefined}>
+		<li
+			aria-hidden={exiting || undefined}
+			className="omp-work-board-item"
+			data-exiting={exiting || undefined}
+			data-live={live || undefined}
+		>
 			{onClick ? (
 				<button className="omp-work-board-row" onClick={onClick} title={title} type="button" {...data}>
 					{body}
@@ -295,7 +306,17 @@ function providerOf(model: string | undefined): { id: string; name: string } | n
 	return id ? { id, name: id } : null;
 }
 
-function AgentRow({ agent, now, onOpen }: { agent: SubagentSnapshot; now: number; onOpen: () => void }) {
+function AgentRow({
+	agent,
+	now,
+	onOpen,
+	exiting,
+}: {
+	agent: SubagentSnapshot;
+	now: number;
+	onOpen: () => void;
+	exiting: boolean;
+}) {
 	const t = useT();
 	const label = subagentPrimaryLabel(agent, 48);
 	const status = t(statusMeta(agent.status).labelKey);
@@ -307,6 +328,7 @@ function AgentRow({ agent, now, onOpen }: { agent: SubagentSnapshot; now: number
 	const provider = providerOf(progress?.resolvedModel);
 	return (
 		<BoardRow
+			exiting={exiting}
 			data={{ "data-board-agent": agent.id, "data-status": agent.status }}
 			label={label}
 			lead={waiting ? <Pause aria-hidden className="size-3 text-(--sc-text-subtle)" /> : <Dot live tone="info" />}
@@ -373,6 +395,10 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	const lastTurn = useLastTurn(turnActive, turnStartedAt);
 	const running = agents.length + jobs.length;
 	const now = useNowTick(turnActive || running > 0);
+	const presentedAgents = usePresence(agents, agent => agent.id);
+	const presentedJobs = usePresence(jobs, job => job.id);
+	const rate = useMessagesStore(state => state.turnMeter.rate);
+	const turnLive = useMessagesStore(state => state.turnMeter.startedAt != null && state.turnMeter.endedAt == null);
 
 	const hydrate = useWorkBoardStore(state => state.hydrate);
 	useEffect(() => {
@@ -416,6 +442,8 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 					: null;
 	const startedAt = turnStartedAt;
 	const clock = (from: number | null) => (from === null ? "" : formatElapsed(Math.max(0, now - from)));
+	// The turn's paced token rate, the one the per-message meter shows; not shown between turns.
+	const speed = turnLive && rate != null && rate > 0 ? t("chat.meter.rate", { rate: formatTokenRate(rate) }) : "";
 	const plural = (count: number) => (count === 1 ? "" : "s");
 	const jumpKey = actionShortcut("board.focus");
 
@@ -450,6 +478,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 						<span aria-hidden>{t("workBoard.status.done", { done: plan.done, total: plan.total })}</span>
 					</span>
 				) : null}
+				<AccountLimit />
 			</header>
 
 			{waiting > 0 && (
@@ -485,7 +514,11 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 			)}
 
 			{turnActive && (
-				<BoardSection aside={clock(startedAt)} id="turn" title={t("workBoard.turn")}>
+				<BoardSection
+					aside={[clock(startedAt), speed].filter(Boolean).join(" · ")}
+					id="turn"
+					title={t("workBoard.turn")}
+				>
 					{turnState ? (
 						<BoardRow
 							data={{ "data-board-turn": "" }}
@@ -527,19 +560,21 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 				</BoardSection>
 			)}
 
-			{running > 0 && (
+			{presentedAgents.length + presentedJobs.length > 0 && (
 				<BoardSection count={running} id="running" title={t("workBoard.running")}>
-					{agents.map(agent => (
+					{presentedAgents.map(({ item: agent, exiting }) => (
 						<AgentRow
 							agent={agent}
+							exiting={exiting}
 							key={agent.id}
 							now={now}
 							onOpen={() => tabId && useUiStore.getState().openSubagentPanel({ tabId, agentId: agent.id })}
 						/>
 					))}
-					{jobs.map(job => (
+					{presentedJobs.map(({ item: job, exiting }) => (
 						<BoardRow
 							data={{ "data-board-job": job.id }}
+							exiting={exiting}
 							key={job.id}
 							label={job.label}
 							lead={<Dot live tone="info" />}

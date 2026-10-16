@@ -335,3 +335,92 @@ button.omp-work-board-row:hover {
 		animation: none;
 	}
 }
+
+/* Right-hand figures share one column width, so elapsed times line up row to row. */
+.omp-work-board-meta {
+	min-width: 4.5ch;
+	text-align: end;
+}
+
+/* Rows enter with a short fade and leave by fading and folding away (usePresence keeps them for 180 ms). */
+@media (prefers-reduced-motion: no-preference) {
+	.omp-work-board-item {
+		animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
+	}
+
+	.omp-work-board-item[data-exiting] {
+		pointer-events: none;
+		animation: omp-board-leave var(--sc-duration-fast) var(--sc-ease-standard) both;
+	}
+}
+
+@keyframes omp-board-leave {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(8px);
+	}
+}
+
+/* Account row: the subscription account in use and its tightest window. */
+.omp-work-board-account {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	row-gap: var(--sc-space-1);
+	width: 100%;
+	padding: var(--sc-space-1) var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	font-size: var(--sc-font-xs);
+	text-align: start;
+	color: var(--sc-text-muted);
+	cursor: pointer;
+}
+
+.omp-work-board-account:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+.omp-work-board-account:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -1px;
+}
+
+.omp-work-board-account-foot {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-2);
+}
+
+.omp-work-board-account-foot > .omp-work-board-meter {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.omp-work-board-account-foot > .omp-work-board-meta {
+	min-width: 0;
+	white-space: nowrap;
+}
+
+.omp-work-board-account[data-state="near"] .omp-work-board-meter > span {
+	background: var(--sc-warning);
+}
+
+.omp-work-board-account[data-state="near"] .omp-work-board-meta {
+	color: var(--sc-warning);
+}
+
+.omp-work-board-account[data-state="limit"] .omp-work-board-meter > span {
+	background: var(--sc-danger);
+}
+
+.omp-work-board-account[data-state="limit"] .omp-work-board-meta {
+	color: var(--sc-danger);
+}

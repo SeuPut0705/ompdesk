@@ -4,7 +4,10 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcGoalState, SubagentSnapshot } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { EMPTY_TURN_METER } from "../../lib/turn-meter";
 import { useExtensionUiStore } from "../../stores/extension-ui";
+import { useMessagesStore } from "../../stores/messages";
+import { useModelStore } from "../../stores/model";
 import { usePlanApprovalStore } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
@@ -28,9 +31,16 @@ let jobs: RpcAsyncJobItem[] = [];
 let goal: RpcGoalState = { enabled: false };
 const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }));
 const getGoal = vi.fn(async () => ({ type: "response", command: "get_goal", success: true, data: goal }));
+let usageReports: unknown[] = [];
+const getUsage = vi.fn(async () => ({
+	type: "response",
+	command: "get_usage",
+	success: true,
+	data: { reports: usageReports },
+}));
 const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGoal },
+	rpc: { getJobs, getGoal, getUsage },
 	prefs: { get: vi.fn(async () => undefined), set: prefsSet },
 });
 
@@ -123,6 +133,9 @@ afterEach(async () => {
 	getJobs.mockClear();
 	getGoal.mockClear();
 	prefsSet.mockClear();
+	usageReports = [];
+	useModelStore.getState().reset();
+	useMessagesStore.getState().reset();
 	useWorkBoardStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
@@ -287,13 +300,13 @@ describe("WorkBoard sections", () => {
 		expect(pane.hasAttribute("data-work-board-running")).toBe(false);
 		const plan = section("todos");
 		expect(plan?.textContent).toContain("5/7");
-		expect(plan?.textContent).toContain("4 done");
+		expect(plan?.textContent).toContain("5 done");
 		expect(plan?.querySelector('[data-todo-status="in_progress"]')?.textContent).toContain("Write the board");
-		// One finished task stays above the active one for context; the rest are folded.
+		// Every finished task folds into one "5 done" row; none is left struck through above the active one.
 		expect([...pane.querySelectorAll("[data-todo-status]")].map(row => row.getAttribute("data-todo-status"))).toEqual(
-			["completed", "in_progress", "pending"],
+			["in_progress", "pending"],
 		);
-		expect(pane.querySelector('[data-todo-status="completed"] span.line-through')).not.toBeNull();
+		expect(pane.querySelectorAll("[data-board-done-folded]")).toHaveLength(1);
 
 		const card = document.createElement("div") as unknown as HTMLElement;
 		card.setAttribute("data-todo-snapshot", "s1");
@@ -302,6 +315,41 @@ describe("WorkBoard sections", () => {
 		pane.appendChild(card as never);
 		await click('[data-todo-status="in_progress"]');
 		expect(scroll).toHaveBeenCalled();
+	});
+
+	it("shows the turn's token speed beside its elapsed time only while the turn streams", async () => {
+		await mount();
+		await act(async () => {
+			useTodoStore.getState().setTurnActive(true, Date.now() - 4000);
+			useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 4000, rate: 70.4 } });
+		});
+		expect(section("turn")?.querySelector(".omp-work-board-aside")?.textContent).toMatch(/^\d+s · 70 tok\/s$/);
+		await act(async () =>
+			useMessagesStore.setState({
+				turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 4000, endedAt: Date.now(), rate: 70.4 },
+			}),
+		);
+		expect(section("turn")?.textContent ?? "").not.toContain("tok/s");
+	});
+
+	it("exits a finished agent's row with an animation flag, then removes it", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
+			await mount();
+			await act(async () =>
+				useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "completed", 1)]),
+			);
+			const leaving = pane.querySelector('[data-board-agent="a2"]')?.closest("li");
+			expect(leaving?.getAttribute("data-exiting")).toBe("true");
+			expect(pane.querySelector('[data-board-agent="a1"]')?.closest("li")?.hasAttribute("data-exiting")).toBe(false);
+			await act(async () => {
+				vi.advanceTimersByTime(200);
+			});
+			expect(pane.querySelector('[data-board-agent="a2"]')).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("shows the goal with its status and a budget and a time meter", async () => {
@@ -455,5 +503,81 @@ describe("WorkBoard folds", () => {
 		await act(async () => fold().click());
 		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
 		expect(prefsSet).toHaveBeenLastCalledWith("workBoardCollapsed", {});
+	});
+});
+
+describe("WorkBoard account limit", () => {
+	const report = (patch: Record<string, unknown> = {}) => ({
+		provider: "anthropic",
+		fetchedAt: Date.now(),
+		account: "work@example.com",
+		active: true,
+		limits: [
+			{
+				id: "anthropic:5h",
+				label: "5 hour",
+				windowId: "5h",
+				usedFraction: 0.62,
+				resetsAt: Date.now() + 2 * 3_600_000 + 60_000,
+			},
+			{
+				id: "anthropic:7d",
+				label: "7 day",
+				windowId: "7d",
+				usedFraction: 0.4,
+				resetsAt: Date.now() + 4 * 86_400_000,
+			},
+		],
+		...patch,
+	});
+	const withAgent = () => {
+		useSessionStore.setState({ status: "ready" });
+		useModelStore.setState({ model: { provider: "anthropic", id: "claude" } as never });
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
+	};
+
+	it("shows the account in use with its tightest window, the others in the tooltip, and opens the accounts page", async () => {
+		usageReports = [report({ account: "other@example.com", active: false }), report()];
+		withAgent();
+		await mount();
+		const row = pane.querySelector("[data-board-account]");
+		expect(row?.getAttribute("data-board-account")).toBe("anthropic");
+		expect(row?.textContent).toContain("work@example.com");
+		expect(row?.textContent).toContain("62%");
+		expect(row?.textContent).toContain("resets in 2h");
+		expect(row?.getAttribute("data-state")).toBe("ok");
+		expect(row?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
+		expect(row?.querySelector("[data-provider-mark]")).not.toBeNull();
+		const tip = row?.getAttribute("title") ?? "";
+		expect(tip).toContain("work@example.com");
+		expect(tip).toContain("40%");
+		await click("[data-board-account]");
+		expect(useUiStore.getState().settingsTab).toBe("models:accounts");
+	});
+
+	it("tints near the limit and marks the limit itself", async () => {
+		usageReports = [
+			report({ limits: [{ id: "anthropic:5h", label: "5 hour", windowId: "5h", usedFraction: 0.85 }] }),
+		];
+		withAgent();
+		await mount();
+		expect(pane.querySelector("[data-board-account]")?.getAttribute("data-state")).toBe("near");
+		usageReports = [
+			report({
+				provider: "openai",
+				limits: [{ id: "openai:5h", label: "5 hour", windowId: "5h", usedFraction: 1 }],
+			}),
+		];
+		await act(async () => useModelStore.setState({ model: { provider: "openai", id: "other" } as never }));
+		await act(async () => {});
+		expect(pane.querySelector("[data-board-account]")?.getAttribute("data-state")).toBe("limit");
+	});
+
+	it("hides for a provider with no usage windows", async () => {
+		usageReports = [report({ provider: "openai", limits: [] })];
+		withAgent();
+		await mount();
+		expect(pane.querySelector("[data-board-account]")).toBeNull();
+		expect(board()).not.toBeNull();
 	});
 });

@@ -250,65 +250,97 @@ test("a split's panes are too narrow for the work board", async () => {
 	}
 });
 
-test("the board's sections: waiting first, agents on their models, todos, goal, jump key and folds", async () => {
-	test.setTimeout(180_000);
-	const { app, page, root } = await launch("en", "light");
-	try {
-		await send(page, "hello");
-		await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
-		await fixture(page, "fixture:board");
-		const board = page.getByRole("complementary", { name: TEXT.en.board });
-		await expect(board).toBeVisible();
+for (const language of ["en", "ko"] as const)
+	for (const theme of ["light", "dark"] as const)
+		test(`the board's sections: waiting first, agents on their models, account, speed, todos, goal, jump key and folds (${language} ${theme})`, async () => {
+			test.setTimeout(180_000);
+			const { app, page, root } = await launch(language, theme);
+			try {
+				await send(page, "hello");
+				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
+				await fixture(page, "fixture:board");
+				const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
+				if (captures) await fs.mkdir(captures, { recursive: true });
+				const shot = async (stage: string) => {
+					if (captures)
+						await page.screenshot({
+							path: path.join(captures, `work-board-${stage}-${language}-${theme}.png`),
+							animations: "disabled",
+							scale: "css",
+						});
+				};
+				const board = page.getByRole("complementary", { name: TEXT[language].board });
+				await expect(board).toBeVisible();
 
-		// Waiting on the user comes first, and the status line says what is going on.
-		await expect(board.locator("[data-board-section]").first()).toHaveAttribute("data-board-section", "waiting");
-		await expect(board.locator('[data-board-waiting="board-confirm"]')).toContainText("Overwrite settings.ts?");
-		await expect(board.locator(".omp-work-board-status")).toContainText("waiting on you");
-		await expect(board.getByRole("status")).toHaveText("1 waiting on you");
+				// Waiting on the user comes first, and the status line says what is going on.
+				await expect(board.locator("[data-board-section]").first()).toHaveAttribute(
+					"data-board-section",
+					"waiting",
+				);
+				await expect(board.locator('[data-board-waiting="board-confirm"]')).toContainText("Overwrite settings.ts?");
+				await expect(board.locator(".omp-work-board-status")).toContainText(
+					language === "en" ? "waiting on you" : "답변을 기다려요",
+				);
+				await expect(board.getByRole("status")).toHaveText(
+					language === "en" ? "1 waiting on you" : "1개가 답변을 기다려요",
+				);
 
-		// Agents carry their model's mark, step and tokens; the parked one rests.
-		const explore = board.locator('[data-board-agent="sa-explore"]');
-		await expect(explore).toContainText("Map the settings code");
-		await expect(explore).toContainText("Reading SettingsPage.tsx");
-		await expect(explore).toContainText("48.2k tokens");
-		await expect(explore.locator("[data-provider-mark]")).toBeVisible();
+				// Agents carry their model's mark, step and tokens; the parked one rests.
+				const explore = board.locator('[data-board-agent="sa-explore"]');
+				await expect(explore).toContainText("Map the settings code");
+				await expect(explore).toContainText("Reading SettingsPage.tsx");
+				await expect(explore).toContainText(language === "en" ? "48.2k tokens" : "48.2k개");
+				await expect(explore.locator("[data-provider-mark]")).toBeVisible();
 
-		// Todos: progress, the finished ones folded, the dock twin stepped aside.
-		const todos = board.locator('[data-board-section="todos"]');
-		await expect(todos).toContainText("3/7");
-		await expect(todos).toContainText("2 done");
-		await expect(todos.locator('[data-todo-status="in_progress"]')).toContainText("Wire the pref");
-		await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
-		await expect(page.locator("[data-workspace-island]")).toBeHidden();
+				// Todos: progress, the finished ones folded, the dock twin stepped aside.
+				const todos = board.locator('[data-board-section="todos"]');
+				await expect(todos).toContainText("3/7");
+				await expect(todos).toContainText(language === "en" ? "3 done" : "3개 완료");
+				await expect(todos.locator('[data-todo-status="in_progress"]')).toContainText("Wire the pref");
+				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
+				await expect(page.locator("[data-workspace-island]")).toBeHidden();
 
-		// The goal's budget meter comes from get_goal.
-		await expect(board.locator('[data-board-section="goal"]')).toContainText("74.0k / 200.0k tokens");
-		await expect(board.locator('[data-board-section="goal"] [role="progressbar"]').first()).toHaveAttribute(
-			"aria-valuenow",
-			"37",
-		);
+				// The subscription account in use: its tightest window, the rest in the tooltip, a click opens the accounts page.
+				const account = board.locator("[data-board-account]");
+				await expect(account).toContainText("work@example.com");
+				await expect(account).toContainText("62%");
+				await expect(account).toHaveAttribute("title", /41%/);
 
-		// ⌥B jumps to the waiting row.
-		await page.locator("textarea").first().focus();
-		await page.keyboard.press("Alt+KeyB");
-		await expect(board.locator('[data-board-waiting="board-confirm"]')).toBeFocused();
+				// The turn's token speed (the fake omp reports 64 tok/s) sits beside its elapsed time.
+				await expect(board.locator('[data-board-section="turn"] .omp-work-board-aside')).toContainText("64 tok/s");
 
-		// A fold is kept (the pref), and unfolding brings the rows back.
-		const fold = board.locator('[data-board-section="running"] button[aria-expanded]');
-		await fold.click();
-		await expect(explore).toHaveCount(0);
-		await expect
-			.poll(() => page.evaluate(() => window.omp.prefs.get("workBoardCollapsed")))
-			.toEqual({ running: true });
-		await fold.click();
-		await expect(explore).toBeVisible();
-		expect(await page.evaluate(() => window.omp.prefs.get("workBoardCollapsed"))).toEqual({});
+				// The goal's budget meter comes from get_goal.
+				await expect(board.locator('[data-board-section="goal"]')).toContainText("74.0k / 200.0k");
+				await expect(board.locator('[data-board-section="goal"] [role="progressbar"]').first()).toHaveAttribute(
+					"aria-valuenow",
+					"37",
+				);
 
-		// The turn ends: the board sums it up.
-		await fixture(page, "fixture:board-end");
-		await expect(board.locator('[data-board-section="last"]')).toBeVisible();
-	} finally {
-		await exitApp(app);
-		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
+				await page.waitForTimeout(800);
+				await shot("running");
+
+				// ⌥B jumps to the waiting row.
+				await page.locator("textarea").first().focus();
+				await page.keyboard.press("Alt+KeyB");
+				await expect(board.locator('[data-board-waiting="board-confirm"]')).toBeFocused();
+
+				// A fold is kept (the pref), and unfolding brings the rows back.
+				const fold = board.locator('[data-board-section="running"] button[aria-expanded]');
+				await fold.click();
+				await expect(explore).toHaveCount(0);
+				await expect
+					.poll(() => page.evaluate(() => window.omp.prefs.get("workBoardCollapsed")))
+					.toEqual({ running: true });
+				await fold.click();
+				await expect(explore).toBeVisible();
+				expect(await page.evaluate(() => window.omp.prefs.get("workBoardCollapsed"))).toEqual({});
+
+				// The turn ends: the board sums it up.
+				await fixture(page, "fixture:board-end");
+				await expect(board.locator('[data-board-section="last"]')).toBeVisible();
+				await shot("idle");
+			} finally {
+				await exitApp(app);
+				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			}
+		});
