@@ -4782,6 +4782,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					prompt(text("message"), () => fail("Isolated lost acknowledgement", "rpc_delivery_unknown"));
 					break;
 				}
+				// Stock: a prompt sent while the agent runs joins the run as the `streamingBehavior` asks (a steer, or a
+				// follow-up after it) instead of starting a turn; an extension command (a slash text) still runs at once.
+				if (isStreaming && !text("message").startsWith("/") && typeof command.streamingBehavior === "string") {
+					lanes[command.streamingBehavior === "steer" ? "steering" : "followUp"].push(text("message"));
+					ok();
+					emitQueue();
+					break;
+				}
 				prompt(text("message"), ok);
 				break;
 			case "set_session_name": {
