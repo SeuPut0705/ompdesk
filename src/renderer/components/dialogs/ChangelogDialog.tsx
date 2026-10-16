@@ -11,17 +11,14 @@
 
 import { useEffect, useRef } from "react";
 import changelogMarkdown from "../../../../CHANGELOG.md?raw";
-import { useT } from "../../lib/i18n";
+import { useLang, useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { changelogSection, WHATS_NEW_PREF, whatsNewAction } from "../../lib/whats-new";
+import { changelogReleases, changelogSection, WHATS_NEW_PREF, whatsNewAction } from "../../lib/whats-new";
 import { useSessionStore } from "../../stores/session";
 import { useStarterGuideStore } from "../../stores/starter-guide";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal } from "../common";
 import { useFirstRunActive } from "../onboarding/FirstRunSetup";
-
-/** The file's own "# Changelog" heading: the window title already names it. */
-const releases = changelogMarkdown.replace(/^# [^\n]*\n+/, "");
 
 /** Mounted only inside the open notice: the version counts as seen once it is on screen. */
 function SeenMark({ version }: { version: string }) {
@@ -36,7 +33,8 @@ export function ChangelogDialog() {
 	const open = useUiStore(state => state.changelogOpen);
 	const version = useUiStore(state => state.changelogVersion);
 	const close = useUiStore(state => state.closeChangelog);
-	const notes = version ? changelogSection(changelogMarkdown, version) : null;
+	const { lang } = useLang();
+	const notes = version ? changelogSection(changelogMarkdown, version, lang) : null;
 	return (
 		<Modal
 			footer={
@@ -57,7 +55,7 @@ export function ChangelogDialog() {
 					<MarkdownRenderer content={notes} />
 				</>
 			) : (
-				<MarkdownRenderer content={releases} />
+				<MarkdownRenderer content={changelogReleases(changelogMarkdown, lang)} />
 			)}
 		</Modal>
 	);

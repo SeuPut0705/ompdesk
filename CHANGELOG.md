@@ -33,6 +33,33 @@
 ### 속도
 - 긴 세션 열기와 설정 열기를 v0.28.1 수준으로 되돌렸고, 서브에이전트 표시 애니메이션과 SSH 포트 감시가 쓰던 CPU를 줄였어요.
 
+<!-- en -->
+Fixes for problems found by using the real omp end to end, work that picks itself up after an interruption, and omp that keeps itself current.
+
+### Interrupted work resumes by itself
+- When the internet drops, the turn quietly waits ("waiting for the internet") instead of failing and continues when you are back online, even after closing a laptop and opening it elsewhere.
+- After you quit, the app crashes, or OMPdesk restarts for an update, a running turn continues the next time you open it. A turn you stopped yourself is never resumed. Turn it off in Settings.
+
+### omp updates itself
+- When a new omp is out it updates even while you work: running work finishes as is, idle tabs switch right away, busy tabs after their turn ends. OMPdesk's own update stays manual.
+- The minimum omp is now 18.11.0, which also fixes an empty Memory view on omp 18.11.
+
+### Setup and settings
+- While the first-time install of required tools runs, the setup screen covers the whole window and nothing else can be clicked.
+- Models & accounts was reorganised: connecting accounts is separate from model roles, which are grouped into Conversation / Agent work / Input & output. Each role shows when it is used, the model actually in use (and what stands in while empty), and the account's sign-in and limit state. New roles (explore, review, debug, docs, test, design) let each kind of agent use its own model; you can create and delete roles.
+- Settings and the Help menu were calmed down: common items first, rare ones under "Advanced".
+
+### Split view and sidebar
+- Sessions in a split all look selected in the sidebar. Clicking a session outside the split shows only it; clicking one that was split brings that split back as it was, and it survives a relaunch.
+- Fixed the subagent badge (🤖 count) lingering after work ended, and remote-device folder pickers hiding folders when there were too many (you can filter by name).
+
+### Composer and chat
+- The Korean UI now says "추가 지시" for steering and the composer hint is shorter. Submitting a question without choosing anything no longer halts the whole job. HTML typed in a prompt no longer renders as HTML in the bubble. Session names match across screens. The context inspector shows the prompts the app adds (reply language, profile, reply style…).
+- Dev-server addresses like `http://[::]:port` are picked up by Preview, and fast ⌃⇥ presses switch tabs.
+
+### Speed
+- Opening long sessions and Settings is back to v0.28.1 speed, and the subagent badge animation and SSH port watcher use less CPU.
+
 ## [0.29.0] - 2026-10-15
 
 mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 있는 것을 구현했고, 처음 설치부터 일상 작업까지 크게 넓혔어요.
@@ -74,6 +101,31 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 ### 기타
 - 일부 코드 경로 인식과 한글 마크다운 규칙은 mixdog(Apache-2.0)에서 가져와 NOTICE에 출처를 남겼어요.
 
+<!-- en -->
+Compared mixdog feature by feature (514 items) and built what the app alone can do; setup through daily work grew a lot.
+
+### Setup and first run
+- On first launch OMPdesk installs Bun and omp by itself (plus Git Bash on Windows) with progress, failure reasons and retry; `omp update` runs if omp is old. Git, GitHub CLI and Node.js install in the background. The Windows installer is one double-click, no admin prompt.
+- Sign in to GitHub inside the app; empty git name/email are filled in. First-run steps survive a relaunch; a sidebar checklist, a guided tour of real buttons and a one-time "what's new" after updates were added.
+
+### Accounts and models
+- The code-paste card no longer appears in chat during subscription sign-in. Account limits that showed 0% are fixed and refresh every 30 s while visible, after each turn and on focus, with "updated N s ago" and time to reset.
+- Added: delegation strength chip (Solo / Assisted / Collaborative / Swarm), profile, reply style, model overrides, recent models, Ultrafast, per-model compaction point. Usage-limit stops can resume automatically at the reset time.
+
+### Composer and chat
+- Attach any file (PDF, Office included) by drag or paste, `@file` preview cards, dictation, `$` skill picker, ⌃J/⌃U, double-Esc clears the draft. Video/audio play in chat; PDF first page, HTML preview, image gallery with context menu.
+- File paths in replies are links that open at the line; link context menu; "run in terminal" for shell code. Markdown: footnotes, checklists, GitHub alerts, heading anchors, code wrapping, Mermaid zoom, clean streaming, Korean bold and URLs next to Hangul.
+- More tools have dedicated views matching terminal omp; extension UI (editor, multi-request waits, status line) works; a duplicated or reordered event never leaves a step "running". Context inspector, idle auto-compaction and goal time limit added.
+
+### Workspace
+- The Changes panel stages, commits, pushes, pulls, stashes, branches and shows history, writes commit messages with omp; a GitHub tab covers PR merge/review/edit, issues, Actions, releases and notifications. Files: create, rename, trash, git status, content search (⌥⌘F), edit in place (⌘S), preview tabs.
+- Preview gained an address bar, zoom, device sizes, tabs, save as PDF and a console; the agent can drive the preview page (you can watch or take over) and show visualizations. Terminal: shell choice, wider, remote tab terminals, a tool for the agent to read terminals. SSH: host-key check, password prompt, port forwards, auto-reconnect.
+
+### Tabs, sessions, settings
+- ⌘1–9, recent-tab switching (⌃⇥), tab overview (⇧⌘A), reopen closed tab, back/forward, moving between split panes. ⌘P quick open, ⇧⌘F chat search, session archive and project move, scheduled runs, pinned sidebar shortcuts.
+- Notifications show the reply's first sentence and open that tab; sounds, keep-awake while working, left panel placement, close to tray and Mica on Windows. Toggle instruction files (AGENTS.md…), clean agent worktrees, plugin check, risky-setting confirmations, per-device usage limits.
+- Some path recognition and Korean Markdown rules come from mixdog (Apache-2.0), credited in NOTICE.
+
 ## [0.28.1] - 2026-10-14
 
 앱 동작은 바뀌지 않았어요. 개발과 검사 속도를 높인 버전이에요.
@@ -82,6 +134,12 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 - 여러 작업이 빌드 잠금을 얼마나 기다렸는지 기록하고 `bun run lock-stats`로 볼 수 있어요.
 - 화면 테스트를 다듬어 전체 검사가 약 10초 빨라졌어요. 탭 수명 테스트는 프로세스 누수를 직접 세도록 바꿔 더 확실하게 잡아요.
 - 0.28.0 기록에 빠졌던 내용: 탭으로 돌아오는 순간 이벤트 순서가 뒤바뀌면 작업 단계 하나가 계속 "실행 중"으로 남아 결과 줄이 나오지 않던 문제를 0.28.0에서 고쳤어요.
+
+<!-- en -->
+Nothing changes in the app. This release speeds up development and checks.
+
+- An unchanged source tree reuses the previous build (about 8 s saved per check). `bun run lock-stats` shows how long jobs waited on the build lock. The full check is about 10 s faster.
+- Missing from the 0.28.0 notes: a step left "running" forever when events reordered on returning to a tab was fixed in 0.28.0.
 
 ## [0.28.0] - 2026-10-14
 
@@ -117,6 +175,25 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 - 파일 목록을 file-2, file-10 순서로 정렬해요. diff의 네 자리 줄 번호가 두 줄로 쪼개지지 않아요. 좁은 창에서도 PR 상세가 읽혀요.
 - 백그라운드 작업을 취소해도 목록이 비지 않고, 이름을 "작업"으로 통일했어요.
 - 기기 제거는 확인을 받아요. 페어링 코드 남은 시간이 맞게 보여요. 엔드포인트를 저장하면 저장한 항목으로 이동해요. 터미널 오류는 원문 대신 안내와 다시 시도 버튼으로 보여요.
+
+<!-- en -->
+The whole app was checked again against real multi-step workflows.
+
+### Sessions and tabs
+- The 10-open-session limit is gone: open any number of tabs and all of them are restored on relaunch. Tabs you have not looked at do not start omp until opened.
+- No more flash of the previous step when returning to a running tab. "Branch into new tab" no longer fails with "can't open session". While the agent asks a question, the title bar, sidebar and tray say "input needed" rather than "approval needed".
+
+### Speed
+- Opening a session ~185 → ~130 ms, Settings ~315 → ~20 ms. Opening a diff of 800 files / 20k lines no longer hitches. With 500 sessions the sidebar filter is light, and streaming CPU fell from ~100% to ~40%.
+
+### Work card and chat
+- A turn that stopped to propose a plan no longer reads "interrupted"; waiting on an answer reads "waiting for your answer". A running command's output is no longer hidden while agents run. Advisor, skill and handoff cards became colorless bordered cards. RTL paragraphs align right, table words do not break mid-word, copied math no longer doubles, copied messages no longer include the time. Plan approval fires once.
+
+### App
+- Edit/View/Window menus and the text-field context menu are Korean in the Korean UI. The palette gained the missing commands (open project, close tab, toggle sidebar/panel) and shows rebound shortcuts. Toasts stay while hovered. Focus returns to the composer after Settings/Agents/Stats opened by shortcut, and after renaming/deleting a session.
+
+### Settings and panels
+- After deleting a session, Stats/Settings/panels no longer show "the original session was replaced". File lists sort naturally (file-2 before file-10), four-digit diff line numbers stay on one line, PR detail reads in narrow windows. Cancelling a background job no longer empties the list. Removing a device asks first; pairing code time left is correct; terminal errors show guidance and a Retry button.
 
 ## [0.27.0] - 2026-10-13
 
@@ -156,10 +233,32 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 ### 문서
 - README를 사용자 기준으로 새로 썼어요.
 
+<!-- en -->
+- Two reasons a long chat stuttered while scrolling up are gone: the split frame re-measured height every frame, and finished cards animated in on scroll. On a 36 MB session the longest frame fell from ~120 ms to under 50 ms and CPU from ~58% to ~36%.
+- Typing, tab switches and opening panels no longer hitch while several agents run; tab switches went from ~85 ms to ~50 ms.
+
+### Work card
+- A turn stopped while waiting for the model's next response reads "interrupted", not "completed". The card no longer redraws on the first tool call, so the header no longer flickers.
+- Todo reminders and background-job results now look the same while running and after reopening. Header lines no longer repeat the agent name, thinking-only steps keep a clock, code steps read like "Run JavaScript".
+- Fixed: "no output for N s" on commands that had output, a last file line under read steps, "0 tools" on idle lanes. omp's "Backgrounded as job …" becomes a "background job bg_1" note. Advisor severity shows in Korean; screenshot thumbnails show a short page URL.
+- Screen readers hear how a watched job ended; lane buttons announce their expanded state.
+
+### App
+- The model picker no longer vanishes in narrow panes (2×2 splits); it shows an icon when the name does not fit. The composer no longer sometimes shows "Model: off" after relaunch.
+- Menus and popovers no longer leave the window or cover their button. Search fields across the palette and pickers match; long project paths shorten in the middle.
+
+### Settings, stats, panels
+- At the minimum window size nothing in Settings is cut off or scrolls sideways. Model role names are Korean in the Korean UI. A stopped memory backend is one line, not a red error.
+- A stats server that does not answer is reported within seconds (not after 90 s) and fills in when it starts late. The top tab is "Activity". Empty SSH/MCP/skill/plugin lists no longer show two add buttons or "0 / 0".
+- README rewritten for users.
+
 ## [0.26.3] - 2026-10-13
 
 - 서브에이전트가 읽은 스크린샷이 작업 상자 결과에서 깨진 그림과 파일 경로로 보이던 것을 고쳤어요. omp가 이미지 데이터를 따로 보관해 두는데 앱이 그 참조를 풀지 못하고 있었어요. 이제 실제 그림이 보이고, 데이터가 지워진 이미지는 파일 이름 칩으로 보여요. 원격 탭은 그 컴퓨터에 보관된 이미지를 읽어요.
 - 대화의 첨부 이미지와 도구 카드 이미지도 데이터가 없으면 깨진 그림 대신 칩으로 보여요.
+
+<!-- en -->
+- A subagent's screenshots no longer show as broken images in work card results; the app now resolves omp's separately stored image data. Images whose data is gone show a file-name chip. Remote tabs read images stored on that computer.
 
 ## [0.26.2] - 2026-10-13
 
@@ -169,6 +268,14 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 - 입력창 ↑는 비어 있거나 커서가 맨 앞일 때, ↓는 커서가 맨 끝일 때만 이전·다음 입력을 불러와요. 불러온 뒤에는 같은 방향으로 계속 넘길 수 있어요.
 - 앱을 켤 때 상태 정보가 가끔 빠져서 계획 승인 버튼 등이 다음 턴까지 비활성으로 남던 것을 고쳤어요.
 - 긴 대화를 위로 스크롤할 때 덜 끊겨요(가장 긴 멈춤 약 140ms → 약 100ms, 다시 그리는 행 9~10개 → 2개). 맨 위에서 이전 기록이 더 불러와지지 않고 멈추던 것도 고쳤어요.
+
+<!-- en -->
+- Reopened sessions show omp's todo reminder as a "todo reminder" row instead of raw text; other model-only notices stay hidden.
+- A background command that fails later (e.g. exit code 3) shows as failed, and the card that started it counts "1 failed".
+- Work card headers read "CiSpeed running" instead of "Subagent CiSpeed"; the line under the header shows the current command or last output line.
+- Composer ↑ recalls history only when empty or the caret is at the start, ↓ only at the end; once recalling, keep going the same way.
+- A startup state race that left plan approval buttons disabled until the next turn is fixed.
+- Scrolling long chats up stutters less (longest pause ~140 ms → ~100 ms), and loading earlier history no longer stalls at the top.
 
 ## [0.26.1] - 2026-10-13
 
@@ -190,6 +297,12 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 - 사이드바의 세션 들여쓰기를 줄였어요.
 - 서브에이전트가 일할 때 앱이 덜 무거워요. 서브에이전트 이벤트를 모아서 보내고(초당 123번 → 21번), 계속 도는 애니메이션을 가볍게 바꿔 실행 중 CPU 사용량을 줄였어요.
 - 노트 시간은 "3분 전"처럼, "방금"은 1분이 될 때까지 보여요.
+
+<!-- en -->
+- The sidebar no longer keeps a "(no messages)" row: sessions with no messages (the empty file omp pre-creates) are hidden; image-only chats still show.
+- A steer sent mid-run no longer splits the work card in two; it stays inside as a "steer" row, and only the bottom card ever looks in progress. Reloaded sessions look the same.
+- The work card was reworked after 39 problems found with the real omp: one screen change per step, stable header height, one fold at the end, lanes show agents' real conclusions, one counting rule, failed items first, a pinned command line, badges instead of `[Wall: … | Timeout: …]`, auto-scroll while files are edited, Tab to enter the steps and arrows to move.
+- Token rates read "50 tok/s". Sidebar session indentation is tighter. Subagents are lighter on CPU (events batched 123/s → 21/s). Note times read "3 min ago".
 
 ## [0.26.0] - 2026-10-13
 
@@ -227,6 +340,27 @@ mixdog을 기능 단위로 전부 비교해(514개 항목) 앱만으로 할 수 
 
 ### 정리
 - 쓰이지 않는 코드, 중복 구현, 남은 설정·번역 키를 걷어냈어요. omp에 이미 있는 기능을 다시 구현하던 곳은 omp를 직접 쓰거나 omp와 같은지 확인하는 테스트를 붙였어요. 화면에 보이는 동작은 바뀌지 않아요.
+
+<!-- en -->
+The work card now flows inside a fixed-height stage, the right panel became a full workspace (terminal and preview included), the reverse-engineering toolkit REA ships built in, and a lot of unused code is gone.
+
+### Work card
+- A fixed-height stage opens once the first output arrives and keeps its height until the turn ends; the previous view fades out in place when the step changes. No empty card before there is output.
+- Parallel calls sit as small buttons on one row above the stage; subagent lanes sit above it and a click puts that agent on stage. Unpicked, it follows the most recently active agent, at most every 3 s.
+- Agent messages (IRC), advisor notes and background job results that arrive mid-run become quiet notes inside the card instead of separate rows; the last two show, a click expands.
+- A tool call still streaming no longer shows a bare `$` in the terminal. Running clocks read "1s", "2s" instead of "810ms".
+
+### Right panel
+- Terminal, Changes, Preview and Files icons on top; the ⋮ "View options" menu holds Background tasks, Plan, Logs, Queue and Tree. A real login-shell terminal (tabs, copy/paste, restart) built on omp's own engine, no extra native module. Preview opens dev servers in an isolated in-panel browser. Plan and background tasks (live output, cancel) show in the panel.
+
+### Built-in REA
+- REA, a reverse-engineering toolkit, is attached to OMPdesk sessions by default (turn it off under Settings › Tools & extensions › MCP). The model sees 15 common tools plus "find REA tool" and "run REA tool" instead of all 170 (about 4 KB instead of 45 KB per session). Needs Node.js 22.19+ (or 24.11+).
+
+### Fixes
+- A turn omp continued for leftover todos no longer drops your message and earlier work after it ends.
+- Opening Agents, Stats or Settings while the app is starting no longer bounces you back to the chat.
+- Sessions with a large head show their title in the sidebar; 21 settings and 126 option labels are translated to Korean; Esc in a sheet dropdown closes only the dropdown.
+- Unhandled errors on a failed or closing omp connection and a leak of internal event handlers are fixed. Unused code and duplicate implementations were removed; nothing visible changes.
 
 ## [0.25.1] - 2026-10-12
 

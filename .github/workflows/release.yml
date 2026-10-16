@@ -110,7 +110,8 @@ jobs:
           fi
 
           mkdir -p notes
-          awk -v h="## [$V]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f' CHANGELOG.md > notes/notes.md
+          # Korean first, then the English summary after a rule: the `<!-- en -->` marker line becomes `---`.
+          awk -v h="## [$V]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f && $0 == "<!-- en -->" { print "---"; next } f' CHANGELOG.md > notes/notes.md
           if ! grep -q '[^[:space:]]' notes/notes.md; then
             echo "::error file=CHANGELOG.md::The '## [$V]' section in CHANGELOG.md is empty."
             exit 1
