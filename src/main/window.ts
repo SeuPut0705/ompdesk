@@ -41,7 +41,7 @@ const DEFAULT_WIDTH = 1400;
 const DEFAULT_HEIGHT = 900;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
-/** Windows 11 windows get the Mica backdrop (B79); decided once per launch. */
+/** Windows 11 windows can get the Mica backdrop (B79); decided once per launch, per window in createWindow. */
 const MICA = micaSupported(process.platform, release());
 
 /** Work areas with the primary display first — it is the recentering target. */
@@ -61,6 +61,8 @@ export interface WindowRecord {
 	 * main process switches before/after the renderer's boot hydration.
 	 */
 	pendingSessionPath?: string;
+	/** The window has the Mica backdrop: its renderer loads with `?mica=1` and lets it through. */
+	mica: boolean;
 }
 
 /**
@@ -128,6 +130,10 @@ export class WindowManager {
 						displayWorkAreas(),
 					);
 
+		// Mica only for a window that first shows restored: Electron leaves a Mica window that is shown
+		// maximized blank for good (black with a GPU, white in software rendering), while one maximized
+		// after its first show draws fine. A saved maximized window opens without it.
+		const mica = MICA && !saved.isMaximized;
 		const win = new BrowserWindow({
 			x: geometry.x,
 			y: geometry.y,
@@ -137,7 +143,7 @@ export class WindowManager {
 			minHeight: MIN_HEIGHT,
 			show: false,
 			autoHideMenuBar: process.platform === "win32",
-			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, MICA),
+			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, mica),
 			webPreferences: {
 				contextIsolation: true,
 				nodeIntegration: false,
@@ -160,11 +166,17 @@ export class WindowManager {
 			win.maximize();
 		}
 
-		const record: WindowRecord = { win, id: win.webContents.id, cwd, pendingSessionPath: opts.pendingSessionPath };
+		const record: WindowRecord = {
+			win,
+			id: win.webContents.id,
+			cwd,
+			pendingSessionPath: opts.pendingSessionPath,
+			mica,
+		};
 		this.#records.set(record.id, record);
 		this.#observeRuntimeFailures(record);
 
-		this.#loadRenderer(win);
+		this.#loadRenderer(record);
 
 		win.once("ready-to-show", () => {
 			// OMP_GUI_HEADLESS (e2e): index.ts makes windows transparent; never take focus.
@@ -264,7 +276,7 @@ export class WindowManager {
 			if (this.#restartForChangedResources(record, { kind: "process-gone", reloadable: shouldReload })) return;
 			if (shouldReload) {
 				queueMicrotask(() => {
-					if (!win.isDestroyed() && !win.webContents.isDestroyed()) this.#loadRenderer(win);
+					if (!win.isDestroyed() && !win.webContents.isDestroyed()) this.#loadRenderer(record);
 				});
 			} else if (!resourcesChanged) {
 				// Repeated renderer crash inside the cooldown: the window would
@@ -299,11 +311,11 @@ export class WindowManager {
 		});
 	}
 
-	#loadRenderer(win: BrowserWindow): void {
+	#loadRenderer({ win, mica }: WindowRecord): void {
 		// OMP_GUI_STYLEGUIDE=1 opens the internal design style guide instead of the app.
 		const hash = process.env.OMP_GUI_STYLEGUIDE === "1" ? "/styleguide" : undefined;
 		// `mica=1`: the window has the Mica backdrop, so the renderer lets it through.
-		const query: Record<string, string> = MICA ? { mica: "1" } : {};
+		const query: Record<string, string> = mica ? { mica: "1" } : {};
 		if (process.env.ELECTRON_RENDERER_URL) {
 			const url = new URL(process.env.ELECTRON_RENDERER_URL);
 			for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
