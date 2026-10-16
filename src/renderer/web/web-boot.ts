@@ -13,6 +13,7 @@ import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
 import { saveBlob } from "./download";
+import { mountNotificationSweep } from "./notification-sweep";
 import { listenNotificationClicks, notifyPage, registerServiceWorker, requestNotificationPermission } from "./notify";
 import { createBrowserPwa, setWebPwa } from "./pwa";
 import { setWebRuntime } from "./runtime";
@@ -171,6 +172,17 @@ async function bootApp(): Promise<void> {
 
 	transport.start();
 	await import("../main");
+	// The host never pushes to a visible device, so banners left from when the page was hidden are closed here.
+	const { useTabsStore } = await import("../stores/tabs");
+	mountNotificationSweep({
+		registration,
+		isVisible: () => document.visibilityState === "visible",
+		onVisibilityChange: listener => document.addEventListener("visibilitychange", listener),
+		onActiveTab: listener =>
+			useTabsStore.subscribe((next, previous) => {
+				if (next.activeTabId && next.activeTabId !== previous.activeTabId) listener(next.activeTabId);
+			}),
+	});
 }
 
 async function boot(): Promise<void> {
