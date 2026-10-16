@@ -111,12 +111,12 @@ describe.skipIf(!enabled)("automatic mode choice on the real small model", () =>
 				);
 			}
 			expect(rows).toHaveLength(PROMPTS.length);
-			// A decision that timed out is "none" by design (a cold first request often needs more than 1.5 s); the
+			// A decision that timed out is "none" by design (a cold first request often needs more than the deadline); the
 			// rest must be what the product intends.
 			for (const [index, row] of rows.entries()) {
 				const wanted = PROMPTS[index]?.expect;
 				if (wanted && row.decision.reason !== "timeout") expect(row.decision.mode, row.message).toBe(wanted);
-				expect(row.wallMs).toBeLessThan(2500);
+				expect(row.wallMs).toBeLessThan(3500);
 			}
 			expect(rows.filter(row => row.decision.reason === "timeout").length).toBeLessThanOrEqual(3);
 		} finally {

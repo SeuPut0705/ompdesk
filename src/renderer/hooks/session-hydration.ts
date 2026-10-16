@@ -6,6 +6,7 @@ import type {
 	ModelInfo,
 	RpcGoalState,
 	RpcLoopModeState,
+	RpcRatchetState,
 	RpcResponse,
 	RpcSessionState,
 	RpcVibeModeState,
@@ -250,6 +251,19 @@ export async function syncLoopMode(tabId: string, command: TabCommand, isCurrent
 		});
 	} catch {
 		// Transient — the next loop_mode_update event or hydration retries.
+	}
+}
+
+/** Fetch stock's `ratchet.enabled` and the missing tools (get_ratchet) into the session store; null when unsupported. */
+export async function syncRatchet(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	try {
+		const res = await command({ type: "get_ratchet" });
+		if (!isCurrent() || !res.success) return;
+		withSessionRuntime(tabId, () => {
+			useSessionStore.setState({ ratchet: (res.data as RpcRatchetState | undefined) ?? null });
+		});
+	} catch {
+		// Transient — the next hydration retries.
 	}
 }
 
@@ -584,6 +598,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
 		syncLoopMode("", activeTabCommand, isCurrent),
+		syncRatchet("", activeTabCommand, isCurrent),
 		syncVibeMode("", activeTabCommand, isCurrent),
 		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
@@ -697,6 +712,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// Loop and vibe likewise: loop_mode_update frames keep loop fresh afterwards; vibe emits nothing, so the
 		// Modes window mirrors toggles.
 		syncLoopMode(tabId, runtime.command, isCurrent),
+		syncRatchet(tabId, runtime.command, isCurrent),
 		syncVibeMode(tabId, runtime.command, isCurrent),
 		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;

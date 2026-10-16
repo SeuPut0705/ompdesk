@@ -17,7 +17,7 @@ import { autoModeSkip } from "../../../resources/gui-bridge/auto-mode-core";
 import type { SessionStore } from "../stores/session";
 import type { TabRpc } from "./tab-rpc";
 
-/** The transport may add a little to the host's own 1.5 s deadline before the prompt stops waiting. */
+/** The transport may add a little to the host's own 2 s deadline before the prompt stops waiting. */
 const CLIENT_DEADLINE_MS = AUTO_MODE_TIMEOUT_MS + 1000;
 
 export function goalIsActive(state: Pick<SessionStore, "goal" | "goalState">): boolean {
@@ -40,7 +40,13 @@ export async function runAutoMode(input: {
 			text: message,
 			enabled,
 			streaming: isStreaming,
-			active: { plan: state.planModeEnabled, goal: goalIsActive(state), loop, vibe: state.vibeModeEnabled },
+			active: {
+				plan: state.planModeEnabled,
+				goal: goalIsActive(state),
+				loop,
+				vibe: state.vibeModeEnabled,
+				ratchet: state.ratchet?.enabled === true,
+			},
 			suppressed: false,
 		});
 		if (skip) return null;

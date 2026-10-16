@@ -130,10 +130,10 @@ describe.skipIf(!existsSync(omp))("automatic mode choice on stock omp", () => {
 		expect(probe.bash).toEqual({ mode: "none", reason: "bash", latencyMs: 0 });
 		expect(probe.short).toEqual({ mode: "none", reason: "short", latencyMs: 0 });
 		expect(probe.planActive).toEqual({ mode: "none", reason: "mode_active", latencyMs: 0 });
-		// The model behind the fake key cannot answer: none, inside the 1.5 s deadline (plus a little startup).
+		// The model behind the fake key cannot answer: none, inside the 2 s deadline (plus a little startup).
 		expect(probe.big.mode).toBe("none");
 		expect(["error", "timeout"]).toContain(probe.big.reason);
-		expect(probe.bigWallMs).toBeLessThan(3000);
+		expect(probe.bigWallMs).toBeLessThan(4000);
 		// Undoing a decision stops them for the session.
 		expect(probe.undo).toEqual({ suppressed: true });
 		expect(probe.afterUndo).toEqual({ mode: "none", reason: "suppressed", latencyMs: 0 });

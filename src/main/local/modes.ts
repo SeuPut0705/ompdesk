@@ -133,6 +133,8 @@ export const handlers: Record<string, LocalHandler> = {
 	guided_goal: viaBridge,
 	get_loop_mode: viaBridge,
 	set_loop_mode: viaBridge,
+	get_ratchet: viaBridge,
+	set_ratchet: viaBridge,
 	set_agents_paused: viaBridge,
 	get_delegation: viaBridge,
 	set_delegation: viaBridge,

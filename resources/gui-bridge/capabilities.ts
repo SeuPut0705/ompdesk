@@ -20,6 +20,7 @@ export const FEATURES = {
 	share: "Session sharing",
 	planMode: "Plan mode",
 	loopMode: "Loop mode",
+	ratchet: "Ratchet (eval-driven hillclimb)",
 	vibeMode: "Vibe mode",
 	goalMode: "Goal mode",
 	tan: "/tan background tangents",
@@ -236,6 +237,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[UTILS]: ["prompt.render()"],
 		},
 		prompts: ["system/plan-mode-compact-instructions.md", "system/plan-mode-approved.md"],
+	},
+	ratchet: {
+		session: ["settings", "getEnabledToolNames()", "getEvalPreludes()"],
+		modules: {
+			[`${AGENT}/tools/settings`]: ["cfgRatchetEnabled.get()", "cfgRatchetEnabled.override()"],
+		},
 	},
 	loopMode: {
 		session: [

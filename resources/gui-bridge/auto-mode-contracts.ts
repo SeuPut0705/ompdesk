@@ -12,7 +12,7 @@
 export const AUTO_MODE_PREF = "autoMode";
 
 /** A decision that is not made within this many milliseconds is "none": the prompt never waits longer. */
-export const AUTO_MODE_TIMEOUT_MS = 1500;
+export const AUTO_MODE_TIMEOUT_MS = 2000;
 
 /** The only two modes the app ever enables by itself. Loop, Vibe and the other manual modes stay manual. */
 export type AutoModeKind = "plan" | "goal";
@@ -56,6 +56,7 @@ export interface AutoModeActive {
 	goal: boolean;
 	loop: boolean;
 	vibe: boolean;
+	ratchet: boolean;
 }
 
 /** The stored pref (anything not a boolean reads as the default, on) → whether the choice runs. */

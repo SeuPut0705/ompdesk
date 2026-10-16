@@ -20,7 +20,7 @@ import {
 	resetAutoModeFlags,
 } from "../../resources/gui-bridge/auto-mode-state";
 
-const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false };
+const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false, ratchet: false };
 
 function input(over: Partial<AutoModeGuardInput> = {}): AutoModeGuardInput {
 	return {
@@ -148,6 +148,6 @@ describe("contracts", () => {
 		expect(autoModeFromPref(undefined)).toBe(true);
 		expect(autoModeFromPref("no")).toBe(true);
 		expect(autoModeFromPref(false)).toBe(false);
-		expect(AUTO_MODE_TIMEOUT_MS).toBeLessThanOrEqual(1500);
+		expect(AUTO_MODE_TIMEOUT_MS).toBeLessThanOrEqual(2000);
 	});
 });

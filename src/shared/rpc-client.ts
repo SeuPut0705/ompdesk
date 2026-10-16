@@ -256,6 +256,8 @@ export interface SessionRpcClient {
 	omfg(complaint: string): Promise<RpcResponse>;
 	getLoopMode(): Promise<RpcResponse>;
 	setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
+	getRatchet(): Promise<RpcResponse>;
+	setRatchet(enabled: boolean): Promise<RpcResponse>;
 	setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
 	manageSkill(args: {
 		action: "create" | "update" | "delete";
@@ -603,6 +605,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		omfg: complaint => rpcCommand({ type: "omfg", complaint }),
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
 		setLoopMode: (enabled, args) => rpcCommand({ type: "set_loop_mode", enabled, args }),
+		getRatchet: () => rpcCommand({ type: "get_ratchet" }),
+		setRatchet: enabled => rpcCommand({ type: "set_ratchet", enabled }),
 		setSkillEnabled: (name, enabled) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
 		manageSkill: args => rpcCommand({ type: "manage_skill", ...args }),
 		setHookEnabled: (hookId, enabled) => rpcCommand({ type: "set_hook_enabled", hookId, enabled }),

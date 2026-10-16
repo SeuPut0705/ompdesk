@@ -29,6 +29,7 @@ import { autoModeFlags, markSuppressed } from "../auto-mode-state";
 import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { exitPlanMode } from "./plan";
+import { ratchetEnabled } from "./ratchet";
 import { attach, errorMessage, record } from "./shared";
 
 /** Stock `ChoiceAnswer`, as far as this module reads it. */
@@ -39,7 +40,7 @@ interface Answer {
 
 /**
  * Load the stock modules the first decision needs when the bridge starts (index.ts calls `install`), so the first
- * prompt of a session does not pay their import time inside its 1.5 s deadline. A module that is missing fails
+ * prompt of a session does not pay their import time inside its 2 s deadline. A module that is missing fails
  * later, in `decide`, with the capability guard's coded error.
  */
 export function install(): void {
@@ -105,6 +106,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 	const text = typeof record(params).message === "string" ? (record(params).message as string) : "";
 	const flags = autoModeFlags(session.sessionManager.getSessionId());
 	const goal = session.getGoalModeState();
+	const ratchet = await ratchetEnabled(session).catch(() => false);
 	const skip = autoModeSkip({
 		text,
 		enabled: true,
@@ -114,6 +116,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 			goal: goal?.enabled === true || goal?.goal?.status === "paused",
 			loop: record(params).loop === true,
 			vibe: session.getVibeModeState()?.enabled === true,
+			ratchet,
 		},
 		suppressed: flags.suppressed,
 	});

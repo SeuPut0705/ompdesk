@@ -83,6 +83,7 @@ describe("runAutoMode", () => {
 		attempt(BIG, { state: { planModeEnabled: true } });
 		attempt(BIG, { state: { goalState: { status: "active" } } });
 		attempt(BIG, { state: { vibeModeEnabled: true } });
+		attempt(BIG, { state: { ratchet: { enabled: true, missing: [] } } });
 		attempt(BIG, { state: { loopMode: { enabled: true, state: "running", prompt: "x" } } });
 		await Promise.all(cases.map(run => run()));
 		for (const r of calls) expect(r.autoModeDecide).not.toHaveBeenCalled();
@@ -117,7 +118,7 @@ describe("runAutoMode", () => {
 		try {
 			const { session, rpc } = rig(new Promise<RpcResponse>(() => {}));
 			const pending = runAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => true });
-			await vi.advanceTimersByTimeAsync(2600);
+			await vi.advanceTimersByTimeAsync(3100);
 			await expect(pending).resolves.toBeNull();
 			expect(session.getState().planModeEnabled).toBe(false);
 		} finally {

@@ -4,6 +4,7 @@ import type { NextPromptState, NextPromptUnavailable } from "../../../resources/
 import type {
 	ContextUsage,
 	RpcLoopModeState,
+	RpcRatchetState,
 	RpcSessionState,
 	SidecarRestartProgress,
 	SidecarStatus,
@@ -87,6 +88,8 @@ export interface SessionStore {
 	/** Vibe mode emits no event — hydrated via get_vibe_mode and mirrored when
 	 * the Modes window toggles it. */
 	vibeModeEnabled: boolean;
+	/** Stock's `ratchet.enabled` for the session and the tools Ratchet still needs (get_ratchet); null = not fetched / unsupported. */
+	ratchet: RpcRatchetState | null;
 	/** The built-in prompt suggestions' state of this tab's bridge (next_prompt_config frames,
 	 * hydrated via get_next_prompt). null = not reported / unsupported omp: the legacy widget path stays. */
 	nextPrompt: NextPromptState | null;
@@ -131,6 +134,7 @@ const initialState = {
 	goalState: null,
 	loopMode: null,
 	vibeModeEnabled: false,
+	ratchet: null,
 	nextPrompt: null,
 	nextPromptUnavailable: null,
 };

@@ -22,7 +22,7 @@ interface Launched {
 
 let launches = 0;
 
-async function launch(prefs: Record<string, unknown> = {}): Promise<Launched> {
+async function launch(prefs: Record<string, unknown> = {}, extraEnv: Record<string, string> = {}): Promise<Launched> {
 	const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-auto-mode-")));
 	const project = path.join(profile, "project");
 	const desktop = path.join(profile, "desktop");
@@ -41,6 +41,7 @@ async function launch(prefs: Record<string, unknown> = {}): Promise<Launched> {
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(profile),
 		OMP_GUI_TEST_RECORD: record,
+		...extraEnv,
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
@@ -152,6 +153,53 @@ test("a prompt sent in a mode the user picked is not classified", async () => {
 		await send(page, "refactor the whole settings module across all files", 1);
 		await expect(chip(page)).toHaveCount(0);
 		expect(await frames(record, "modes.auto_mode_decide")).toHaveLength(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+const ratchetTab = (page: Page): Locator => page.getByRole("tab", { name: "Ratchet" });
+const ratchetSwitch = (page: Page): Locator => page.locator("[data-ratchet-mode]");
+
+test("Ratchet is a manual switch in the Mode popover and a prompt sent with it on is never classified", async () => {
+	const launched = await launch({}, { OMP_GUI_TEST_RATCHET: "{}" });
+	const { page, record } = launched;
+	try {
+		await modeButton(page).click();
+		await ratchetTab(page).click();
+		await expect(ratchetSwitch(page)).not.toBeChecked();
+		await ratchetSwitch(page).click();
+		await expect(ratchetSwitch(page)).toBeChecked();
+		expect(await frames(record, "modes.set_ratchet")).toMatchObject([{ enabled: true }]);
+		await page.keyboard.press("Escape");
+		await expect(modeButton(page)).toContainText("Ratchet");
+		await send(page, "refactor the whole settings module across all files", 1);
+		await expect(chip(page)).toHaveCount(0);
+		expect(await frames(record, "modes.auto_mode_decide")).toHaveLength(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+test("Ratchet says which tools are missing and cannot be turned on", async () => {
+	const launched = await launch({}, { OMP_GUI_TEST_RATCHET: JSON.stringify({ missing: ["eval"] }) });
+	const { page, record } = launched;
+	try {
+		await modeButton(page).click();
+		await ratchetTab(page).click();
+		await expect(page.locator("[data-ratchet-missing]")).toHaveText(/needs the eval tool/);
+		await expect(ratchetSwitch(page)).toBeDisabled();
+		expect(await frames(record, "modes.set_ratchet")).toHaveLength(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+test("a Mode popover on an omp without Ratchet has no Ratchet tab", async () => {
+	const launched = await launch();
+	try {
+		await modeButton(launched.page).click();
+		await expect(ratchetTab(launched.page)).toHaveCount(0);
 	} finally {
 		await finish(launched);
 	}

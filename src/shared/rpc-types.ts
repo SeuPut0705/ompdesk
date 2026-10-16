@@ -233,6 +233,9 @@ export type RpcCommand =
 	  }
 	| { id?: string; type: "get_loop_mode" }
 	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
+	// Ratchet (stock `/ratchet`, session override of `ratchet.enabled`): gui-bridge modes/ratchet.ts
+	| { id?: string; type: "get_ratchet" }
+	| { id?: string; type: "set_ratchet"; enabled: boolean }
 	// Built-in prompt suggestions: gui-bridge modes/next-prompt.ts
 	| { id?: string; type: "get_next_prompt" }
 	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
@@ -1371,6 +1374,11 @@ export interface RpcLoopModeState {
 	state: "off" | "waiting" | "running" | "paused";
 	prompt?: string;
 	limit?: RpcLoopLimit;
+}
+/** `get_ratchet` / `set_ratchet` response data: stock's `ratchet.enabled` for the session and the required tools that are not active. */
+export interface RpcRatchetState {
+	enabled: boolean;
+	missing: string[];
 }
 /** `get_next_prompt` response data. */
 export type RpcNextPromptState = NextPromptState;
