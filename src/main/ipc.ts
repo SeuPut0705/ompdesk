@@ -500,17 +500,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		win.setTitleBarOverlay({ ...colors, height: TOP_BAR_HEIGHT });
 	});
 
-	const dispatchRpcCommand = async (
-		win: ClientWindow,
-		sidecar: SidecarLike | null,
-		issuerTabId: string | null,
-		payload: IpcRpcCommandPayload,
-	) => {
-		const client = sidecar?.rpcClient;
-		if (!client || !sidecar) {
-			return {
-				id: payload.command.id,
-				type: "response",
 	/** Composer modes with no stock event: the other windows that show the tab re-read them (`noteModeChanged`). */
 	const MODE_TOGGLE_COMMANDS: Record<string, true> = {
 		set_plan_mode: true,
@@ -544,6 +533,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { ...page, messages: localizePromptOrigins(page.messages, ownId, hostName) };
 	};
 
+	const dispatchRpcCommand = async (
+		win: ClientWindow,
+		sidecar: SidecarLike | null,
+		issuerTabId: string | null,
+		payload: IpcRpcCommandPayload,
+	) => {
+		const client = sidecar?.rpcClient;
+		if (!client || !sidecar) {
+			return {
+				id: payload.command.id,
+				type: "response",
 				success: false,
 				error: "Sidecar not connected",
 				code: "sidecar_not_connected",
@@ -573,6 +573,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// of them are (multi-viewer). One window's report passes as it is.
 		if (issuerTabId && (cmd.type === "set_idle_compaction_draft" || cmd.type === "set_next_prompt_draft")) {
 			cmd.empty = sidecarPool.noteDraft(issuerTabId, win.webContents.id, cmd.type, cmd.empty);
+		}
+		// One omp, one subagent stream level, several windows with their own work maps: it gets the highest.
+		if (issuerTabId && cmd.type === "set_subagent_subscription") {
+			cmd.level = sidecarPool.noteSubagentLevel(issuerTabId, win.webContents.id, cmd.level);
 		}
 		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
 		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches
@@ -630,14 +634,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
 		const login = cmd.type === "login" ? cmd.providerId : null;
-		// One omp, one subagent stream level, several windows with their own work maps: it gets the highest.
-		if (issuerTabId && cmd.type === "set_subagent_subscription") {
-			cmd.level = sidecarPool.noteSubagentLevel(issuerTabId, win.webContents.id, cmd.level);
-		}
 		let signInError: string | null = null;
 		if (signIn && login) sidecarPool.noteSignIn(signIn, true, { providerId: login });
 		try {
+			// A prompt from a paired web device names its device to the omp first: the bridge journals it for the
+			// message with that text, so every window can say who typed it.
+			if ((cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up") && !sidecar.device) {
+				const origin = promptOriginOf(win);
+				if (origin)
+					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
+			}
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			if (cmd.type === "get_transcript_page" && response.success && !sidecar.device) {
+				response = { ...response, data: localizeTranscript(response.data, win) };
+			}
 			// omp has no session kind: a chat tab is plain omp started in the
 			// default workspace, so the tab's own kind is what get_state reports.
 			if (cmd.type === "get_state" && response.success && sidecar.kind === "chat") {
@@ -648,17 +658,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// the renderer's attach/hydrate reports the file (session_info_update
 			// itself carries only the session id, never the path).
 			if (issuerTabId && response.success) {
-			// A prompt from a paired web device names its device to the omp first: the bridge journals it for the
-			// message with that text, so every window can say who typed it.
-			if ((cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up") && !sidecar.device) {
-				const origin = promptOriginOf(win);
-				if (origin)
-					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
-			}
 				if (cmd.type === "switch_session") {
-			if (cmd.type === "get_transcript_page" && response.success && !sidecar.device) {
-				response = { ...response, data: localizeTranscript(response.data, win) };
-			}
 					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
 					if (!cancelled) sidecarPool.noteSessionFile(issuerTabId, cmd.sessionPath);
 				} else if (cmd.type === "get_state") {
@@ -674,6 +674,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 						windowManager.setRecordCwd(win, state.cwd);
 					}
 				}
+			}
+			if (issuerTabId && response.success && MODE_TOGGLE_COMMANDS[cmd.type]) {
+				sidecarPool.noteModeChanged(issuerTabId, win.webContents.id);
 			}
 			// A login or logout writes the shared credential store; every tab's omp
 			// re-reads it so a newly connected account's image model turns on everywhere.
@@ -741,9 +744,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, caller => {
 		const win = caller.win;
 		return win ? sidecarPool.openRequests(win) : [];
-			if (issuerTabId && response.success && MODE_TOGGLE_COMMANDS[cmd.type]) {
-				sidecarPool.noteModeChanged(issuerTabId, win.webContents.id);
-			}
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
@@ -878,6 +878,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				initialCwd: deps.initialCwd,
 				defaultWorkspace: ensureDefaultWorkspace,
 				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",
 			},
 			win,
 			payload,
@@ -944,7 +945,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// sidecar is tab 0 — main minted its tabId at acquire).
 	ipc.handle(IPC_COMMANDS.GET_TABS, caller => {
 		const win = caller.win;
-				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",
 		return win ? deps.sidecarPool.tabsForWindow(win) : [];
 	});
 
