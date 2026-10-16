@@ -5,6 +5,9 @@
  * `retry` (`/retry`) for a failed turn, `restore_interrupted` (the bridge's call
  * of stock `restoreSession`, what `omp --restore` runs) for a turn cut off
  * mid-run, then `retry` when omp had closed that turn itself before it exited.
+ * The restore also revives the subagents that process ran (stock), tells the
+ * agent which background bash jobs it stopped (the bridge), and a goal still
+ * active when it ended is resumed (`resumeGoal`), since stock pauses it at startup.
  *
  * Resume eligibility is written when a run starts or stops, never in a quit
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
@@ -36,6 +39,11 @@ export interface ResumeMarker {
 	kind: "agent" | "chat";
 	startedAt: number;
 	reason: ResumeReason;
+	/**
+	 * The run's prompt while stock had not written the new session's file yet (it does at the first assistant
+	 * message): a turn cut off before that left nothing on disk, so the relaunch sends the prompt again.
+	 */
+	prompt?: string;
 }
 
 /** What the pool knows about one tab, the only input of the marker rules. */
@@ -68,6 +76,8 @@ export interface ResumeFact {
 	 * command path); a scheduled retry that was armed at another count is called off. Absent on a hosted tab.
 	 */
 	touched?: number;
+	/** The run's prompt while the new session has no file yet (see {@link ResumeMarker.prompt}). */
+	unsavedPrompt?: string;
 }
 
 /**
@@ -101,6 +111,7 @@ export function deriveMarkers(
 			reason,
 		};
 		if (fact.peer) marker.peer = fact.peer;
+		if (fact.unsavedPrompt) marker.prompt = fact.unsavedPrompt;
 		markers.push(marker);
 	}
 	return markers;
@@ -225,7 +236,7 @@ export class InterruptedTurnStore {
 function sanitizeMarker(value: unknown): ResumeMarker | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
-	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason } = record;
+	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt } = record;
 	if (
 		typeof window !== "number" ||
 		typeof tab !== "string" ||
@@ -240,6 +251,7 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 		return null;
 	const marker: ResumeMarker = { window, tab, sessionPath, cwd, kind, startedAt, reason };
 	if (typeof peer === "string" && peer) marker.peer = peer;
+	if (typeof prompt === "string" && prompt) marker.prompt = prompt;
 	return marker;
 }
 
@@ -247,6 +259,8 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 export interface ResumePool {
 	resumeFacts(): ResumeFact[];
 	setAwaitingConnection(tabId: string, awaiting: boolean): void;
+	/** Show or clear the tab's calm "continuing where it left off" row: a relaunch continues it and its turn has not started yet. */
+	setResuming(tabId: string, resuming: boolean): void;
 	/** Show (or with `undefined` clear) the tab's scheduled retry. */
 	setScheduledRetry(tabId: string, retry: IpcScheduledRetry | undefined): void;
 	/** Spawn a deferred tab's process; the sidecar, or null when the tab is gone. */
@@ -281,6 +295,11 @@ export interface ResumeDeps {
 	openTab(marker: ResumeMarker): string | null;
 	/** "Continuing N interrupted tasks": a toast with Stop. */
 	notify(count: number): void;
+	/**
+	 * Resume a goal stock paused at startup although it was active when the last process ended (the restore's
+	 * `goalPausedByExit`). Called once, after the restore's commands; default: the tab's `set_goal` resume.
+	 */
+	resumeGoal?: (tabId: string) => Promise<void>;
 }
 
 /**
@@ -347,6 +366,8 @@ export class TurnResume {
 	readonly #attempts = new Map<string, number>();
 	/** Tabs whose next run is our own scheduled retry: its start is not the user's new run. */
 	readonly #ownRetries = new Set<string>();
+	/** Tabs showing the "continuing" row: a launch continues them and their turn has not started yet. */
+	readonly #resumingShown = new Set<string>();
 	#launched = false;
 	#previous: ResumeMarker[] = [];
 
@@ -388,6 +409,24 @@ export class TurnResume {
 		const kept = this.#deps.enabled() ? [...this.#pending.values(), ...live] : [];
 		this.#previous = kept;
 		this.#deps.store.write(kept);
+		this.#showResuming();
+	}
+
+	/** The "continuing" row follows the launch markers still waiting for their turn (a reopened card is not one). */
+	#showResuming(): void {
+		const resuming = new Set(
+			[...this.#pending.values()].filter(marker => marker.reason !== "asking").map(marker => marker.tab),
+		);
+		for (const tabId of resuming) {
+			if (this.#resumingShown.has(tabId)) continue;
+			this.#resumingShown.add(tabId);
+			this.#deps.pool.setResuming(tabId, true);
+		}
+		for (const tabId of this.#resumingShown) {
+			if (resuming.has(tabId)) continue;
+			this.#resumingShown.delete(tabId);
+			this.#deps.pool.setResuming(tabId, false);
+		}
 	}
 
 	#judge(fact: ResumeFact): void {
@@ -604,14 +643,15 @@ export class TurnResume {
 	async #run(tabId: string, action: ResumeAction): Promise<boolean> {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
+		const unsavedPrompt = this.#pending.get(tabId)?.prompt;
 		const sidecar = this.#deps.pool.startTab(tabId);
 		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
 			this.#pending.delete(tabId);
 			this.sync();
 			return false;
 		}
-		const send = async (type: "restore_interrupted" | "retry"): Promise<boolean> => {
-			if (cancelled()) return false;
+		const send = async (type: "restore_interrupted" | "retry"): Promise<Record<string, unknown> | undefined> => {
+			if (cancelled()) return undefined;
 			let response: RpcResponse | undefined;
 			try {
 				response = await sidecar.rpcClient?.command({ type });
@@ -619,24 +659,50 @@ export class TurnResume {
 				response = undefined;
 			}
 			const data: unknown = response?.success ? response.data : undefined;
-			return (
-				typeof data === "object" &&
-				data !== null &&
-				(("turn" in data && data.turn === true) ||
-					("retried" in data && data.retried === true) ||
-					("subagents" in data && Array.isArray(data.subagents) && data.subagents.length > 0))
-			);
+			return typeof data === "object" && data !== null ? { ...data } : undefined;
 		};
+		// Something goes on: the cut-off turn, a revived subagent, the agent told about the background
+		// jobs the restart stopped (the bridge sends that follow-up), or stock's retry.
+		const continues = (data: Record<string, unknown> | undefined): boolean =>
+			data?.turn === true ||
+			data?.retried === true ||
+			(Array.isArray(data?.subagents) && data.subagents.length > 0) ||
+			(Array.isArray(data?.jobs) && data.jobs.length > 0);
 		// omp outlives a killed OMPdesk long enough to close the turn itself: its RPC client is gone (stdin EOF),
 		// so a pending ask or approval fails ("RPC client disconnected…") and the run ends aborted, journaled.
 		// Stock `restoreSession` then finds nothing unfinished; stock `retry` (`/retry`) replays that failed tool
 		// batch (the card reopens) or the aborted reply, and does nothing for a turn that really ended.
-		const started =
-			action === "restore" ? (await send("restore_interrupted")) || (await send("retry")) : await send("retry");
+		const restored = action === "restore" ? await send("restore_interrupted") : undefined;
+		let started = continues(restored) || continues(await send("retry"));
+		// A new session's first turn cut off before stock wrote its file left nothing to restore: the prompt runs again.
+		if (!started && unsavedPrompt && !cancelled()) {
+			const response = await sidecar.rpcClient
+				?.command({ type: "prompt", message: unsavedPrompt })
+				.catch(() => undefined);
+			started = response?.success === true;
+		}
+		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
+		// restored turn (the goal's continuation waits for the session to be idle).
+		if (restored?.goalPausedByExit === true && !cancelled()) {
+			try {
+				await (this.#deps.resumeGoal ?? (id => this.#resumeGoal(id)))(tabId);
+				started = true;
+			} catch (error) {
+				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
+			}
+		}
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
 		this.sync();
 		return started;
+	}
+
+	/** Stock's own resume of the paused goal, through the tab's `set_goal` (it renews an OMPdesk time limit first). */
+	async #resumeGoal(tabId: string): Promise<void> {
+		const response = await this.#deps.pool
+			.startTab(tabId)
+			?.rpcClient?.command({ type: "set_goal", action: "resume" });
+		if (!response?.success) throw new Error(response?.error ?? "the tab is gone");
 	}
 
 	/** The user's Cancel on the waiting row: the failure shows as it would have, nothing resumes. */
@@ -697,6 +763,7 @@ export class TurnResume {
 		}
 		this.#previous = [...this.#pending.values()];
 		this.#deps.store.write(this.#previous);
+		this.#showResuming();
 		const continuing = continuingCount(resumable.map(item => item.marker));
 		for (const { tabId, marker, action } of resumable) {
 			if (marker.reason !== "asking") this.#resumed.add(tabId);

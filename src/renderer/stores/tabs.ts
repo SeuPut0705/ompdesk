@@ -118,6 +118,8 @@ export interface SessionTab {
 	awaitingInput?: AwaitedInput;
 	/** The tab's turn waits for the internet connection and continues by itself once it is back (main's turn-resume). */
 	awaitingConnection?: boolean;
+	/** A relaunch continues the tab's interrupted work and its turn has not started yet (main's turn-resume). */
+	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Another window owns this tab and this one views it (multi-viewer); closing it here only leaves it. */
@@ -217,6 +219,7 @@ function projectSessionTab(
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
+		...(info.resuming === true ? { resuming: true } : {}),
 		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
 		// A status push carries no viewer fields: only a tab list (GET_TABS, TAB_LIST_CHANGED) states them.
 		...(previous?.shared ? { shared: true as const } : {}),
@@ -335,6 +338,14 @@ export function useAwaitingConnection(): string | null {
 		const tab = state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId));
 		return tab?.awaitingConnection === true ? tab.id : null;
 	});
+}
+
+/** Whether the calling pane's tab is being continued after a relaunch and its turn has not started yet. */
+export function useResuming(): boolean {
+	const tabId = useRuntimeTabId();
+	return useTabsStore(
+		state => state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId))?.resuming === true,
+	);
 }
 
 /** The calling pane's tab id and its scheduled retry (main re-sends the failed turn at `at`); null when none is armed. */

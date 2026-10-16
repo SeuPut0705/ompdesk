@@ -663,8 +663,8 @@ export function setupUpdater(ipc: IpcRegistry): void {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
-		// Same prompt as ⌘Q; its text says the running work continues after the restart (turn-resume.ts).
-		if (!(await confirmQuit(true))) return;
+		// ⌘Q's rule: running work continues after the restart (turn-resume.ts), so this asks only with that setting off.
+		if (!(await confirmQuit())) return;
 		restartIntoUpdate();
 	});
 	ipc.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);

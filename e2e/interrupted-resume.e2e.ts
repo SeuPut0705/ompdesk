@@ -198,7 +198,7 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-test("@smoke a normal quit continues the running turn on the next launch, and the quit prompt says so", async () => {
+test("@smoke a normal quit asks nothing and continues the running turn on the next launch", async () => {
 	test.setTimeout(150_000);
 	const profile = await makeProfile("en", "light");
 	let current: ElectronApplication | undefined;
@@ -207,14 +207,10 @@ test("@smoke a normal quit continues the running turn on the next launch, and th
 		current = first.app;
 		await startLongTurn(profile, first.page);
 
-		// Answer the "sessions are still running" prompt with "Quit anyway" and keep what it said.
+		// Continue interrupted work is on: the quit asks nothing. A prompt would be answered "Keep working",
+		// so the app would not exit and the wait below would time out.
 		await first.app.evaluate(({ app, dialog }) => {
-			const record = globalThis as { quitPrompt?: string };
-			dialog.showMessageBox = (async (...args: unknown[]) => {
-				const options = args.at(-1) as { detail?: string };
-				record.quitPrompt = options.detail;
-				return { response: 0, checkboxChecked: false };
-			}) as never;
+			dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as never;
 			setImmediate(() => app.quit());
 		});
 		const child = first.app.process();

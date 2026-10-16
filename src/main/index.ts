@@ -83,7 +83,7 @@ import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
-import { lastWindowCloseAction, quitNeedsConfirmation } from "./quit-guard";
+import { lastWindowCloseAction } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -618,7 +618,7 @@ app.whenReady().then(() => {
 			},
 			appearance: () => ({ themeName: prefsStore().get("themeName"), language: prefsStore().get("language") }),
 			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
-			busy: (): boolean => quitNeedsConfirmation(quitRisk()) || hostServices.runningPeers().length > 0,
+			busy: (): boolean => quitRisk().workingTabs > 0 || hostServices.runningPeers().length > 0,
 		},
 		ompUpdater: () => {
 			if (!ompUpdater) throw new Error("OMPdesk is still starting");
@@ -963,6 +963,8 @@ app.whenReady().then(() => {
 				sidecarPool.setAwaitingConnection(tabId, awaiting);
 				hostServices.setAwaitingConnection(tabId, awaiting);
 			},
+			// Only this computer's own tabs show the row: a paired device's tab mirrors its host's turn.
+			setResuming: (tabId, resuming) => sidecarPool.setResuming(tabId, resuming),
 			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
 			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),

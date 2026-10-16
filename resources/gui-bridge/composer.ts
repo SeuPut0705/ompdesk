@@ -12,6 +12,13 @@ import type { AgentMessage } from "../../src/shared/rpc-types";
 import { requireFn } from "./capabilities";
 import { buildCopyTargets } from "./copy-targets";
 import { guard } from "./health";
+import {
+	goalActiveAtExit,
+	interruptedJobs,
+	type JournalEntry,
+	RESTART_JOBS_MESSAGE,
+	restartJobsNotice,
+} from "./restart-core";
 import type { BridgeMethods } from "./types";
 
 type Session = AgentSession & Record<string, unknown>;
@@ -305,14 +312,40 @@ export const methods: BridgeMethods = {
 		/**
 		 * What `omp --restore` runs (stock's own continue path, TUI-only as a flag): the turn the
 		 * last process was cut off in plus the subagents it ran. `turn` is false with nothing left
-		 * unfinished, while a turn runs, or without a model.
+		 * unfinished, while a turn runs, or without a model. Two things stock leaves behind are
+		 * reported too: `jobs`, the background bash jobs that process started and never finished
+		 * (stock restores no bash job; the agent is told in one hidden follow-up so it runs again
+		 * what is still needed), and `goalPausedByExit`, a goal that was active until that process
+		 * ended and that stock paused at startup (the host resumes it after the restore).
 		 */
 		"composer.restore_interrupted": async (_params, env) => {
 			const session = env.session() as Session;
 			requireFn(session, "restoreInterruptedTurn", "composer");
+			requireFn(session, "sessionManager.getBranch", "composer");
+			requireFn(session, "promptCustomMessage", "composer");
+			requireFn(session, "getGoalModeState", "composer");
 			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
 			requireFn(restore, "restoreSession", "composer", "task/restore");
-			return restore.restoreSession(session);
+			const branch = session.sessionManager.getBranch() as readonly JournalEntry[];
+			const cutOff = interruptedJobs(branch);
+			const goalPausedByExit = goalActiveAtExit(branch) && session.getGoalModeState()?.goal.status === "paused";
+			const outcome = await restore.restoreSession(session);
+			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
+			if (cutOff.length > 0) {
+				void session
+					.promptCustomMessage(
+						{ customType: RESTART_JOBS_MESSAGE, content: restartJobsNotice(cutOff), display: false },
+						{ streamingBehavior: "followUp" },
+					)
+					.catch((error: unknown) =>
+						env.emit({
+							type: "notice",
+							level: "error",
+							message: `Telling the agent about stopped background jobs failed: ${error instanceof Error ? error.message : String(error)}`,
+						}),
+					);
+			}
+			return { ...outcome, jobs: cutOff.map(job => job.id), goalPausedByExit };
 		},
 
 		"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),

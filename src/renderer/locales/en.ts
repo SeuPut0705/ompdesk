@@ -2050,7 +2050,8 @@ export const en: Record<string, string> = {
 		"While any tab on this computer is running a turn, the system does not go to sleep. The display can still turn off.",
 	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
 	"settings.gui.resumeInterruptedDesc":
-		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",
+		"Work that was running when OMPdesk quit, crashed or restarted for an update (turns, subagents, a goal) picks up where it stopped the next time OMPdesk opens, so quitting doesn't ask first. Turns you stopped stay stopped.",
+	"chat.resuming": "Continuing where it left off…",
 	"chat.connectionWait": "Waiting for the internet connection…",
 	"chat.connectionWaitHost": "Waiting for {device}'s internet connection…",
 	"chat.connectionWaitCancelFailed": "Couldn't cancel the wait",

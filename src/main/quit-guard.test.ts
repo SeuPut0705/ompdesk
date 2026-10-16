@@ -1,8 +1,9 @@
 /**
- * What the ⌘Q confirmation is built from: the guard must count live runs, the
+ * What the quit confirmation is built from: the guard must count live runs, the
  * tabs they sit on, and the distinct windows to name in the message, and it
- * must stay silent when nothing is in flight (otherwise ⌘Q becomes a two-step
- * quit for every idle window).
+ * must stay silent when nothing would stop: nothing in flight (otherwise ⌘Q
+ * becomes a two-step quit for every idle window), or running work that the next
+ * launch continues (Continue interrupted work on; ⌘Q and the update restart alike).
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -30,10 +31,15 @@ describe("quit guard risk assessment", () => {
 		expect(assessQuitRisk([fact(7, "a", true), fact(7, "b", true), fact(7, "c", true)]).workingWindows).toBe(1);
 	});
 
-	it("asks only while work is in flight", () => {
-		expect(quitNeedsConfirmation(assessQuitRisk([]))).toBe(false);
-		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", false)]))).toBe(false);
-		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", true)]))).toBe(true);
+	it("asks only while work is in flight and quitting would stop it", () => {
+		const working = assessQuitRisk([fact(1, "a", true)]);
+		// Continue interrupted work off: the quit really stops the run.
+		expect(quitNeedsConfirmation(assessQuitRisk([]), false)).toBe(false);
+		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", false)]), false)).toBe(false);
+		expect(quitNeedsConfirmation(working, false)).toBe(true);
+		// On (the default): the marker stays and the next launch continues the run, so nothing asks.
+		expect(quitNeedsConfirmation(working, true)).toBe(false);
+		expect(quitNeedsConfirmation(assessQuitRisk([]), true)).toBe(false);
 	});
 });
 

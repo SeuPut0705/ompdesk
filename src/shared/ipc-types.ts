@@ -1266,6 +1266,8 @@ export interface IpcTabInfo {
 	device?: string;
 	/** The tab's turn waits for the internet connection and continues once it is back (resume, src/main/turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** A relaunch continues the tab's interrupted work and its turn has not started yet (resume, src/main/turn-resume.ts). */
+	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
 }

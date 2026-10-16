@@ -33,9 +33,13 @@ export function assessQuitRisk(facts: readonly WindowTabFact[]): QuitRisk {
 	return { workingTabs, totalTabs: facts.length, workingWindows: workingWindows.size };
 }
 
-/** Idle tabs die quietly; live agent runs always ask first. */
-export function quitNeedsConfirmation(risk: QuitRisk): boolean {
-	return risk.workingTabs > 0;
+/**
+ * Idle tabs die quietly. Live agent runs ask first only when quitting stops them: with
+ * Settings › General › Continue interrupted work on (`resumes`), a quit, an update restart or a
+ * crash leaves their markers and the next launch continues them (turn-resume.ts), so nothing asks.
+ */
+export function quitNeedsConfirmation(risk: QuitRisk, resumes: boolean): boolean {
+	return risk.workingTabs > 0 && !resumes;
 }
 
 /** What closing the last shown window does. */

@@ -2,7 +2,8 @@
  * The quit latch: everything that ends the process goes through `requestQuit()`
  * (or, for an update, a confirmed `quitAndInstall()`), and `before-quit`
  * refuses unless the run is already approved. Without this, ⌘Q SIGTERMs every
- * in-flight agent run with no word to the user.
+ * in-flight agent run with no word to the user; with Continue interrupted work
+ * on, those runs continue after the next launch and the quit asks nothing.
  */
 import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
 import { getMainLanguage, mainT } from "./i18n";
@@ -29,19 +30,20 @@ export function quitRisk(): QuitRisk {
 
 let resumesInterrupted: () => boolean = () => false;
 
-/** Whether a quit's running turns continue after the next launch (Settings › General); the confirmation says so. */
+/** Whether a quit's running turns continue after the next launch (Settings › General): then nothing asks. */
 export function setQuitResumes(resumes: () => boolean): void {
 	resumesInterrupted = resumes;
 }
 
 /**
- * Ask before a quit that would stop running work. True when nothing is
- * running or the user chose to quit anyway; false when they keep working or a
- * prompt is already open (⌘Q pressed again must not queue a second modal).
+ * Ask before a quit (⌘Q, the tray, an update restart) that would stop running
+ * work. True when nothing would stop (no run, or the runs continue after the
+ * next launch) or the user chose to quit anyway; false when they keep working
+ * or a prompt is already open (⌘Q pressed again must not queue a second modal).
  */
-export async function confirmQuit(restart = false): Promise<boolean> {
+export async function confirmQuit(): Promise<boolean> {
 	const risk = quitRisk();
-	if (!quitNeedsConfirmation(risk)) return true;
+	if (!quitNeedsConfirmation(risk, resumesInterrupted())) return true;
 	if (asking) return false;
 	asking = true;
 	const language = getMainLanguage();
@@ -52,15 +54,11 @@ export async function confirmQuit(restart = false): Promise<boolean> {
 		defaultId: 1,
 		cancelId: 1,
 		message: mainT("quit.workingTitle", language),
-		detail: mainT(
-			resumesInterrupted() ? (restart ? "quit.workingBodyRestart" : "quit.workingBodyResume") : "quit.workingBody",
-			language,
-			{
-				working: risk.workingTabs,
-				total: risk.totalTabs,
-				windows: risk.workingWindows,
-			},
-		),
+		detail: mainT("quit.workingBody", language, {
+			working: risk.workingTabs,
+			total: risk.totalTabs,
+			windows: risk.workingWindows,
+		}),
 	};
 	try {
 		const result = await (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options));

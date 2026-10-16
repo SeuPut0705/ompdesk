@@ -223,6 +223,8 @@ interface Harness {
 	timers: Array<{ run: () => void; ms: number; cancelled: boolean }>;
 	/** Settings › Agent behavior › Smart automation › retry. */
 	prefs: { scheduledRetry: boolean };
+	/** Every `setResuming` call (the calm "continuing" row), in order. */
+	resuming: Array<[string, boolean]>;
 }
 
 function setup(
@@ -235,6 +237,8 @@ function setup(
 		status?: string;
 		/** Settings pref for the scheduled retry (default on). */
 		scheduledRetry?: boolean;
+		/** An injected goal resume (autopilot's); default: the tab's `set_goal` resume. */
+		resumeGoal?: (tabId: string) => Promise<void>;
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -245,6 +249,7 @@ function setup(
 	const retries: Array<IpcScheduledRetry | undefined> = [];
 	const timers: Array<{ run: () => void; ms: number; cancelled: boolean }> = [];
 	const prefs = { scheduledRetry: options.scheduledRetry ?? true };
+	const resuming: Array<[string, boolean]> = [];
 	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
@@ -269,6 +274,9 @@ function setup(
 		},
 		setScheduledRetry: (_tabId, retry) => {
 			retries.push(retry);
+		},
+		setResuming: (tabId, value) => {
+			resuming.push([tabId, value]);
 		},
 	};
 	const resume = new TurnResume({
@@ -300,6 +308,7 @@ function setup(
 			return "opened";
 		},
 		notify: count => state.notices.push(count),
+		...(options.resumeGoal ? { resumeGoal: options.resumeGoal } : {}),
 	});
 	return {
 		dir,
@@ -317,6 +326,7 @@ function setup(
 		retries,
 		timers,
 		prefs,
+		resuming,
 	};
 }
 
@@ -513,6 +523,98 @@ describe("TurnResume launch", () => {
 		h.resume.launch();
 		await settle();
 		expect(h.store.read()).toEqual([]);
+	});
+
+	const restoreAnswer = (data: Record<string, unknown>): RpcResponse => ({
+		type: "response",
+		command: "restore_interrupted",
+		success: true,
+		data: { turn: false, subagents: [], ...data },
+	});
+
+	it("counts background jobs the restart stopped as continuing: the bridge told the agent, nothing is retried", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({ jobs: ["bg_1"] }) } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		expect(h.state.notices).toEqual([1]);
+	});
+
+	it("resumes a goal stock paused at startup after the restore, once", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({ turn: true, goalPausedByExit: true }) } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands).toEqual([{ type: "restore_interrupted" }, { type: "set_goal", action: "resume" }]);
+	});
+
+	it("leaves a goal alone that was already paused before the exit, and uses an injected goal resume", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({ turn: true, goalPausedByExit: false }) } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		rmSync(h.dir, { recursive: true, force: true });
+
+		const resumed: string[] = [];
+		h = setup({
+			answers: { restore_interrupted: restoreAnswer({ goalPausedByExit: true }) },
+			resumeGoal: async tabId => {
+				resumed.push(tabId);
+			},
+		});
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(resumed).toEqual(["restored"]);
+		// The goal's continuation is the work going on: the marker stays until its turn runs.
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+	});
+
+	it("sends a new session's first prompt again when the cut-off turn left no file to restore", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({}) } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, unsavedPrompt: "list the fruits" }));
+		h.resume.sync();
+		expect(h.store.read()[0]?.prompt).toBe("list the fruits");
+		const second = setup({ answers: { restore_interrupted: restoreAnswer({}) } });
+		second.facts.push(fact({ tabId: "restored", running: false }));
+		new InterruptedTurnStore(second.file).write(h.store.read());
+		second.resume.launch();
+		await settle();
+		expect(second.commands).toEqual([
+			{ type: "restore_interrupted" },
+			{ type: "retry" },
+			{ type: "prompt", message: "list the fruits" },
+		]);
+		expect(second.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		rmSync(second.dir, { recursive: true, force: true });
+	});
+
+	it("shows the calm continuing row from launch until the turn runs, never for a reopened card", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([
+			marker(),
+			marker({ tab: "asked", sessionPath: "/s/ask.jsonl", reason: "asking" }),
+		]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.facts.push(fact({ tabId: "asked", sessionFile: "/s/ask.jsonl", running: false }));
+		h.resume.launch();
+		expect(h.resuming).toEqual([["restored", true]]);
+		await settle();
+		h.facts[0] = fact({ tabId: "restored", running: true });
+		h.resume.sync();
+		expect(h.resuming).toEqual([
+			["restored", true],
+			["restored", false],
+		]);
 	});
 
 	it("goes through the connection wait when the launch is offline, then continues once it is back", async () => {

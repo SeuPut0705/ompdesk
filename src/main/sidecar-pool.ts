@@ -62,6 +62,7 @@ import {
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
 import {
+	type AgentMessage,
 	type AgentSessionEvent,
 	BLOCKING_UI_METHODS,
 	type ExtensionUIRequest,
@@ -235,6 +236,10 @@ interface PoolEntry extends RunTracking {
 	sessionFile?: string;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
+	resuming?: boolean;
+	/** The run's prompt while stock has not written the new session's file yet (it does at the first assistant message). */
+	unsavedPrompt?: string;
 	/** main's scheduled retry of this tab's failed turn, shown on its error card (turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Times the user changed the tab's session or branch (`TOUCH_COMMANDS`); a scheduled retry armed at another count is called off. */
@@ -649,6 +654,7 @@ export class SidecarPool {
 			// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
 			let runEnded = false;
 			let retryStarted = false;
+			const unsavedBefore = entry.unsavedPrompt;
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") entry.placeholder = false;
@@ -656,13 +662,21 @@ export class SidecarPool {
 				else if (event.type === "plan_proposal") {
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
+				} else if (event.type === "message_end") {
+					// Stock writes a new session's file with its first assistant message: until then the
+					// prompt lives nowhere else, and a relaunch sends it again (turn-resume.ts).
+					if (event.message.role === "assistant") delete entry.unsavedPrompt;
+					else if (event.message.role === "user" && entry.unsavedPrompt === undefined) {
+						const text = messageText(event.message);
+						if (text) entry.unsavedPrompt = text;
+					}
 				}
 			}
 			const busy = runBusy(entry.run);
 			const busyChanged = busy !== wasBusy;
 			// The resume rules first: a failure they turn into a connection wait reaches the
 			// window already waiting, so it never shows (or notifies) as a failure first.
-			if (busyChanged || runEnded || retryStarted) this.onRunningChange?.();
+			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
@@ -1543,6 +1557,7 @@ export class SidecarPool {
 			if (entry.lastRun) fact.lastRun = entry.lastRun;
 			if (entry.retry) fact.retry = entry.retry;
 			if (entry.touched) fact.touched = entry.touched;
+			if (entry.unsavedPrompt !== undefined) fact.unsavedPrompt = entry.unsavedPrompt;
 			return fact;
 		});
 	}
@@ -1605,6 +1620,14 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || (entry.awaitingConnection === true) === awaiting) return;
 		entry.awaitingConnection = awaiting;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+	}
+
+	/** Show or clear the tab's calm "continuing where it left off" row (a relaunch's resume). */
+	setResuming(tabId: string, resuming: boolean): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || (entry.resuming === true) === resuming) return;
+		entry.resuming = resuming;
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
@@ -1780,6 +1803,14 @@ function windowOf(entry: PoolEntry, winId: number): ClientWindow | undefined {
 	return entry.winId === winId ? entry.win : entry.viewers.get(winId)?.win;
 }
 
+/** The text a user message carries (a string, or its text blocks; attachments are not text). */
+function messageText(message: AgentMessage): string {
+	const { content } = message;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content.map(block => (block.type === "text" ? block.text : "")).join("");
+}
+
 /** TAB_STATUS push / GET_TABS item: full tab snapshot incl. cached session meta. */
 function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	const payload: IpcTabStatusPayload = {
@@ -1798,6 +1829,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	if (entry.awaitingConnection) payload.awaitingConnection = true;
+	if (entry.resuming) payload.resuming = true;
 	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
 	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;

@@ -158,6 +158,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getArtifactsDir()",
 			"sessionManager.getSessionId()",
 			"restoreInterruptedTurn()",
+			"sessionManager.getBranch()",
+			"promptCustomMessage()",
+			"getGoalModeState()",
 		],
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
