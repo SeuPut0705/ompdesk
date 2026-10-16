@@ -135,12 +135,17 @@ for (const language of ["en", "ko"] as const)
 				expect(boardBox.x + boardBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
 				expect(boardBox.y).toBeGreaterThanOrEqual(paneBox.y);
 				expect(await left(page.locator(".omp-transcript-row").first())).toBe(await left(shell));
+				// The dock strips that say what the board says step aside while it shows.
+				await expect(page.locator("[data-workspace-island]")).toBeHidden();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await capture("wide");
 
 				// A narrow window has no room: the board goes and the columns centre again.
 				await resize(app, 1100, 900);
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
+				await expect(page.locator("[data-workspace-island]")).toBeVisible();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeVisible();
 				await capture("narrow");
 				await resize(app, 1600, 900);
 				await expect(board).toBeVisible();
@@ -150,7 +155,11 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.locator("aside[data-docked]")).toBeVisible();
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
+				await expect(page.locator("[data-workspace-island]")).toBeVisible();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeVisible();
 				await page.getByRole("button", { name: text.closePanel }).click();
+				await expect(page.locator("[data-workspace-island]")).toBeHidden();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await expect(board).toBeVisible();
 
 				// The board's own button hides it and keeps it off (the pref).

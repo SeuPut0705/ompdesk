@@ -644,6 +644,12 @@
 	pointer-events: auto;
 }
 
+/* What the board shows, its dock twin does not repeat. */
+.omp-session-pane[data-work-board-running] [data-workspace-island],
+.omp-session-pane[data-work-board-todo] [data-dock-card="todo"] {
+	display: none;
+}
+
 .omp-work-board-section + .omp-work-board-section {
 	padding-top: var(--sc-space-3);
 	border-top: var(--sc-hairline) solid var(--sc-divider);

@@ -136,6 +136,8 @@ describe("WorkBoard visibility", () => {
 		expect(aside?.tagName).toBe("ASIDE");
 		expect(aside?.getAttribute("aria-label")).toBe("Work board");
 		expect(pane.hasAttribute("data-work-board")).toBe(true);
+		expect(pane.hasAttribute("data-work-board-running")).toBe(true);
+		expect(pane.hasAttribute("data-work-board-todo")).toBe(false);
 	});
 
 	it("hides in a pane too narrow for it and returns when the pane widens", async () => {
@@ -231,6 +233,8 @@ describe("WorkBoard sections", () => {
 			},
 		]);
 		await mount();
+		expect(pane.hasAttribute("data-work-board-todo")).toBe(true);
+		expect(pane.hasAttribute("data-work-board-running")).toBe(false);
 		const plan = pane.querySelector("[data-board-plan]");
 		expect(plan?.textContent).toContain("Write the board");
 		expect(plan?.textContent).toContain("1/3");

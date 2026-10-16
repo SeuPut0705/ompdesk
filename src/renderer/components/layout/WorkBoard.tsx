@@ -248,11 +248,20 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 		!turnActive && lastTurn !== null,
 	];
 	const present = sections.some(Boolean);
+	const showsRunning = running > 0;
+	const showsTodos = plan !== null;
 	useLayoutEffect(() => {
 		if (!present) return;
+		// The dock strips that say the same thing step aside while the board shows it (components.css).
 		pane.setAttribute("data-work-board", "");
-		return () => pane.removeAttribute("data-work-board");
-	}, [pane, present]);
+		if (showsRunning) pane.setAttribute("data-work-board-running", "");
+		if (showsTodos) pane.setAttribute("data-work-board-todo", "");
+		return () => {
+			pane.removeAttribute("data-work-board");
+			pane.removeAttribute("data-work-board-running");
+			pane.removeAttribute("data-work-board-todo");
+		};
+	}, [pane, present, showsRunning, showsTodos]);
 	if (!present) return null;
 
 	const step = retryInfo
@@ -405,7 +414,6 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 									<Mark ring tone="muted" />
 								)
 							}
-							onClick={() => useUiStore.getState().focusDockCard("todo")}
 							title={row.content}
 						/>
 					))}

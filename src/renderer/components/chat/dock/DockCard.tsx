@@ -76,6 +76,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 
 	return (
 		<section
+			data-dock-card={id}
 			aria-label={title}
 			className={cx(
 				"omp-fade-up shrink-0 overflow-clip rounded-(--sc-radius-lg) border bg-(--sc-elevated) transition-shadow duration-(--sc-duration-med)",
