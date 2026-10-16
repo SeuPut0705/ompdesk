@@ -2,6 +2,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TERMINAL_OUTPUT_BUDGET, TERMINAL_POLL_MAX_WAIT_MS } from "../../../shared/terminal-types";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
 import { type TerminalMount, TerminalPanel, TerminalViewport } from "./TerminalPanel";
@@ -123,5 +125,203 @@ describe("TerminalPanel", () => {
 		expect(container.textContent).not.toContain("Error invoking remote method");
 		expect(container.textContent).toContain("Retry");
 		expect(container.textContent).not.toContain("Starting your shell");
+	});
+});
+
+const { terminals } = vi.hoisted(() => ({
+	terminals: [] as Array<{
+		options: { fontSize?: number };
+		cols: number;
+		rows: number;
+		resize: (cols: number, rows: number) => void;
+		data: (value: string) => void;
+	}>,
+}));
+vi.mock("@xterm/xterm", () => ({
+	Terminal: class {
+		cols = 80;
+		rows = 24;
+		options: { fontSize?: number };
+		data: (value: string) => void = () => {};
+		resize = vi.fn((cols: number, rows: number) => {
+			this.cols = cols;
+			this.rows = rows;
+		});
+		constructor(options: { fontSize?: number }) {
+			this.options = { ...options };
+			terminals.push(this);
+		}
+		loadAddon() {}
+		open() {}
+		write(_data: string, done?: () => void) {
+			done?.();
+		}
+		onData(callback: (value: string) => void) {
+			this.data = callback;
+			return { dispose() {} };
+		}
+		focus() {}
+		clear() {}
+		getSelection() {
+			return "";
+		}
+		dispose() {}
+		attachCustomKeyEventHandler() {}
+	},
+}));
+vi.mock("@xterm/addon-fit", () => ({
+	FitAddon: class {
+		fit() {}
+	},
+}));
+
+describe("TerminalPanel on a phone", () => {
+	const snapshot = (extra: Record<string, unknown> = {}) => ({
+		id: "term",
+		output: "",
+		offset: 0,
+		exited: false,
+		...extra,
+	});
+
+	function phone(answer: (operation: Record<string, unknown>) => unknown) {
+		vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "" }));
+		vi.useFakeTimers();
+		terminals.length = 0;
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query.includes("max-width: 599px") || query.includes("pointer: coarse"),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+			location: { search: "" },
+		});
+		resetShellModeForTests();
+		for (const name of ["clientWidth", "clientHeight"])
+			Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => 400 });
+		vi.stubGlobal(
+			"ResizeObserver",
+			class {
+				observe() {}
+				disconnect() {}
+			},
+		);
+		vi.stubGlobal(
+			"MutationObserver",
+			class {
+				observe() {}
+				disconnect() {}
+			},
+		);
+		const request = vi.fn(async (_tab: string, operation: Record<string, unknown>) => answer(operation));
+		Reflect.set(window, "omp", {
+			terminal: { request, shells: vi.fn().mockResolvedValue([]) },
+			prefs: { get: vi.fn().mockResolvedValue(undefined) },
+		});
+		useTabsStore.setState({
+			activeTabId: "tab",
+			tabs: [{ id: "tab", cwd: "/p", status: "ready", kind: "agent", unreadDone: false }],
+		});
+		return request;
+	}
+
+	const settle = () =>
+		act(async () => {
+			await vi.dynamicImportSettled();
+			await vi.advanceTimersByTimeAsync(0);
+		});
+	const press = (selector: string, type = "pointerdown") =>
+		act(async () => {
+			container.querySelector(selector)?.dispatchEvent(new window.Event(type, { bubbles: true, cancelable: true }));
+		});
+	const operations = (request: { mock: { calls: Array<[string, Record<string, unknown>]> } }, action: string) =>
+		request.mock.calls.map(([, operation]) => operation).filter(operation => operation.action === action);
+
+	afterEach(() => {
+		delete document.documentElement.dataset.platform;
+		resetShellModeForTests();
+	});
+
+	it("reads with a long poll that carries the offset, one request at a time", async () => {
+		let lists = 0;
+		const request = phone(operation => {
+			if (operation.action === "list" && operation.waitMs) {
+				// The first answer has output; the next request is held, as a host with nothing new holds it.
+				return lists++ === 0 ? [snapshot({ output: "hi", offset: 2 })] : new Promise(() => {});
+			}
+			return [snapshot()];
+		});
+		await mount(<TerminalPanel />);
+		await settle();
+		await settle();
+		const polls = operations(request, "list").filter(operation => operation.waitMs);
+		expect(polls).toEqual([
+			{ action: "list", offsets: { term: 0 }, waitMs: TERMINAL_POLL_MAX_WAIT_MS, budget: TERMINAL_OUTPUT_BUDGET },
+			{ action: "list", offsets: { term: 2 }, waitMs: TERMINAL_POLL_MAX_WAIT_MS, budget: TERMINAL_OUTPUT_BUDGET },
+		]);
+	});
+
+	it("sends the key bar's keys, with sticky Ctrl applied to the next key from the bar or the soft keyboard", async () => {
+		const request = phone(() => [snapshot()]);
+		await mount(<TerminalPanel />);
+		await settle();
+		expect(container.querySelector("[data-terminal-keybar]")).not.toBeNull();
+		const written = () => operations(request, "write").map(operation => operation.data);
+		await press('[data-terminal-key="esc"]');
+		expect(written()).toEqual(["\u001b"]);
+		await press('[data-terminal-key="ctrl"]');
+		expect(container.querySelector('[data-terminal-key="ctrl"]')?.getAttribute("aria-pressed")).toBe("true");
+		await press('[data-terminal-key="up"]');
+		await press('[data-terminal-key="up"]', "pointerup");
+		expect(written().at(-1)).toBe("\u001b[1;5A");
+		expect(container.querySelector('[data-terminal-key="ctrl"]')?.getAttribute("aria-pressed")).toBe("false");
+		// Held again, Ctrl applies to the soft keyboard's next key, once.
+		await press('[data-terminal-key="ctrl"]');
+		await act(async () => terminals[0]?.data("c"));
+		expect(written().at(-1)).toBe("\u0003");
+		await act(async () => terminals[0]?.data("c"));
+		expect(written().at(-1)).toBe("c");
+	});
+
+	it("holds the text size to 50–200 % and applies it to xterm", async () => {
+		phone(() => [snapshot()]);
+		await mount(<TerminalPanel />);
+		await settle();
+		await press('[data-terminal-font="larger"]', "click");
+		expect(terminals[0]?.options.fontSize).toBe(13);
+		await press('[data-terminal-font="reset"]', "click");
+		expect(terminals[0]?.options.fontSize).toBe(12);
+		for (let step = 0; step < 8; step++) await press('[data-terminal-font="smaller"]', "click");
+		expect(container.querySelector('[data-terminal-font="reset"]')?.textContent).toBe("50%");
+		expect(terminals[0]?.options.fontSize).toBe(6);
+		expect(container.querySelector('[data-terminal-font="smaller"]')?.hasAttribute("disabled")).toBe(true);
+		for (let step = 0; step < 20; step++) await press('[data-terminal-font="larger"]', "click");
+		expect(container.querySelector('[data-terminal-font="reset"]')?.textContent).toBe("200%");
+		expect(terminals[0]?.options.fontSize).toBe(24);
+	});
+
+	it("draws another viewer's size without resizing it, and takes the size back on request", async () => {
+		let lists = 0;
+		const request = phone(operation => {
+			if (operation.action === "list" && operation.waitMs) {
+				return lists++ === 0 ? [snapshot({ lease: "other", cols: 60, rows: 20 })] : new Promise(() => {});
+			}
+			return [snapshot()];
+		});
+		await mount(<TerminalPanel />);
+		await settle();
+		await settle();
+		const banner = container.querySelector("[data-terminal-lease]");
+		expect(banner?.textContent).toContain(translate("panel.terminal.lease.other"));
+		expect(terminals[0]?.resize).toHaveBeenCalledWith(60, 20);
+		const resizes = operations(request, "resize").length;
+		await press('[data-terminal-font="larger"]', "click");
+		expect(operations(request, "resize").length).toBe(resizes);
+		await press("[data-terminal-lease-claim]", "click");
+		await settle();
+		expect(operations(request, "claim")).toEqual([{ action: "claim", id: "term" }]);
+		expect(container.querySelector("[data-terminal-lease]")).toBeNull();
+		expect(operations(request, "resize").length).toBe(resizes + 1);
 	});
 });

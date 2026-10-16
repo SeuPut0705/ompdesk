@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	ClipboardPaste,
 	Copy,
+	Keyboard,
 	Maximize2,
 	Minimize2,
 	Plus,
@@ -14,17 +15,42 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
 	TERMINAL_SHELL_PREF,
+	type TerminalLeaseState,
 	type TerminalOperation,
 	type TerminalShell,
 	type TerminalSnapshot,
 } from "../../../shared/terminal-types";
-import { useCompactShell } from "../../hooks/use-shell-mode";
+import { currentShellMode, useCompactShell, useShellInput } from "../../hooks/use-shell-mode";
 import { useT } from "../../lib/i18n";
+import {
+	applyModifiers,
+	clampFontScale,
+	FONT_SCALE_DEFAULT,
+	FONT_SCALE_STEP,
+	fontSizeFor,
+	type HeldModifiers,
+	isSingleKey,
+	type TerminalKey,
+} from "../../lib/terminal-keys";
 import { TerminalLocalEcho } from "../../lib/terminal-local-echo";
+import { pollTerminal } from "../../lib/terminal-poll";
+import { chromePlatform } from "../../lib/window-chrome";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner } from "../common";
+import { TerminalKeyBar } from "./TerminalKeyBar";
 import "@xterm/xterm/css/xterm.css";
+
+const FONT_SCALE_KEY = "omp.terminalFontScale";
+
+function readFontScale(): number {
+	try {
+		const stored = Number(window.localStorage.getItem(FONT_SCALE_KEY));
+		return stored > 0 ? clampFontScale(stored) : FONT_SCALE_DEFAULT;
+	} catch {
+		return FONT_SCALE_DEFAULT;
+	}
+}
 
 export function terminalTheme(element: HTMLElement): ITheme {
 	const style = getComputedStyle(element);
@@ -67,8 +93,8 @@ export interface TerminalMount {
 		| "dispose"
 		| "attachCustomKeyEventHandler"
 	> &
-		/** xterm always has it; a test double without one never paints predictions. */
-		Partial<Pick<Terminal, "buffer">>;
+		/** xterm always has them; a test double without one never paints predictions or draws another viewer's size. */
+		Partial<Pick<Terminal, "buffer" | "resize">>;
 	fit(): void;
 }
 export async function mountTerminal(element: HTMLElement): Promise<TerminalMount> {
@@ -96,6 +122,10 @@ export function TerminalViewport({
 	mount = mountTerminal,
 	handle,
 	predict = false,
+	transform,
+	fontSize,
+	onLease,
+	claimTick = 0,
 }: {
 	tabId: string;
 	id: string;
@@ -105,9 +135,24 @@ export function TerminalViewport({
 	handle: { current: TerminalMount | null };
 	/** Paint typed characters before the host echoes them (a paired host's tab, C109). */
 	predict?: boolean;
+	/** What typed data becomes before it is written (the key bar's sticky Ctrl and Alt). */
+	transform?: (data: string) => string;
+	/** The terminal's font size in px; changing it refits the screen. */
+	fontSize?: number;
+	/** Who sizes the PTY changed (`other`: another viewer does, this one draws the PTY at its size). */
+	onLease?: (lease: TerminalLeaseState | undefined) => void;
+	/** Bumped after this viewer took the PTY's size (`claim`): it fits and resizes again. */
+	claimTick?: number;
 }) {
 	const element = useRef<HTMLDivElement>(null);
 	const t = useT();
+	// The running effect's own pieces, for the effects below that react to a prop without restarting it.
+	const refit = useRef<(() => void) | null>(null);
+	/** This viewer sizes the PTY (the screen fits its box); otherwise it draws another viewer's size and scrolls. */
+	const [sized, setSized] = useState(true);
+	const fontChanged = useRef<(() => void) | null>(null);
+	const latest = useRef({ transform, fontSize, onLease });
+	latest.current = { transform, fontSize, onLease };
 	useEffect(() => {
 		if (!element.current) return;
 		const target = element.current;
@@ -144,7 +189,7 @@ export function TerminalViewport({
 				: null;
 			const input = view.terminal.onData(data => {
 				echo?.input(data);
-				void request({ action: "write", id, data });
+				void request({ action: "write", id, data: latest.current.transform?.(data) ?? data });
 			});
 			view.terminal.attachCustomKeyEventHandler(event => {
 				if (event.type !== "keydown") return true;
@@ -167,33 +212,91 @@ export function TerminalViewport({
 				}
 				return true;
 			});
+			// Who sizes the PTY (lease.ts): while another viewer does, this one draws the PTY at that size and
+			// neither fits to its own box nor asks for a resize.
+			let lease: TerminalLeaseState | undefined;
 			const resize = () => {
+				if (lease === "other") return;
 				if (!element.current || element.current.clientWidth === 0 || element.current.clientHeight === 0) return;
 				view.fit();
 				void request({ action: "resize", id, cols: view.terminal.cols, rows: view.terminal.rows });
 			};
-			const observer = new ResizeObserver(resize);
+			const onSnapshot = (snapshot: TerminalSnapshot) => {
+				if (snapshot.lease !== lease) {
+					lease = snapshot.lease;
+					setSized(lease !== "other");
+					latest.current.onLease?.(lease);
+					if (lease !== "other") resize();
+				}
+				if (
+					lease === "other" &&
+					snapshot.cols &&
+					snapshot.rows &&
+					(snapshot.cols !== view.terminal.cols || snapshot.rows !== view.terminal.rows)
+				)
+					view.terminal.resize?.(snapshot.cols, snapshot.rows);
+				onStatus(snapshot);
+			};
+			const applyFontSize = () => {
+				const size = latest.current.fontSize;
+				if (size === undefined || view.terminal.options.fontSize === size) return;
+				view.terminal.options.fontSize = size;
+				resize();
+			};
+			refit.current = () => {
+				// A claim answers `you` on the next snapshot; fit now so the screen does not wait for it.
+				lease = "you";
+				setSized(true);
+				applyFontSize();
+				resize();
+			};
+			// Fitting resizes xterm's own DOM inside the observed box (and a scrollbar may appear): done in the
+			// observer's callback WebKit reports that as a ResizeObserver loop error, so it runs a tick later.
+			let fitTimer: ReturnType<typeof setTimeout> | undefined;
+			const observer = new ResizeObserver(() => {
+				clearTimeout(fitTimer);
+				fitTimer = setTimeout(resize, 0);
+			});
 			observer.observe(target);
 			const theme = new MutationObserver(() => {
 				if (element.current) view.terminal.options.theme = terminalTheme(element.current);
 			});
 			theme.observe(document.documentElement, { attributes: true });
+			applyFontSize();
 			resize();
 			view.terminal.focus();
-			const poll = async () => {
-				const snapshots = await request({ action: "list", offsets: { [id]: offset } });
-				if (stopped) return;
-				const snapshot = snapshots?.find(item => item.id === id);
-				if (snapshot) {
-					if (snapshot.output) view.terminal.write(echo ? echo.output(snapshot.output) : snapshot.output);
-					offset = snapshot.offset;
-					onStatus(snapshot);
-				}
-				if (snapshots) timer = setTimeout(() => void poll(), 80);
-			};
-			void poll();
+			// A new font size arrives through `latest`; the effect below calls this.
+			fontChanged.current = applyFontSize;
+			if (chromePlatform() === "web") {
+				// A phone asks once and the host holds the answer until the PTY writes; the next request is the
+				// acknowledgement of the last output (terminal-poll.ts).
+				void pollTerminal({
+					id,
+					request,
+					write: output =>
+						new Promise<void>(done => view.terminal.write(echo ? echo.output(output) : output, done)),
+					onSnapshot,
+					stopped: () => stopped,
+				});
+			} else {
+				const poll = async () => {
+					const snapshots = await request({ action: "list", offsets: { [id]: offset } });
+					if (stopped) return;
+					const snapshot = snapshots?.find(item => item.id === id);
+					if (snapshot) {
+						if (snapshot.output) view.terminal.write(echo ? echo.output(snapshot.output) : snapshot.output);
+						offset = snapshot.offset;
+						onSnapshot(snapshot);
+					}
+					if (snapshots) timer = setTimeout(() => void poll(), 80);
+				};
+				void poll();
+			}
 			cleanup = () => {
 				clearTimeout(timer);
+				refit.current = null;
+				fontChanged.current = null;
+				clearTimeout(fitTimer);
 				observer.disconnect();
 				theme.disconnect();
 				input.dispose();
@@ -209,10 +312,16 @@ export function TerminalViewport({
 			cleanup();
 		};
 	}, [tabId, id, mount, onStatus, onError, handle, predict]);
+	useEffect(() => {
+		if (fontSize !== undefined) fontChanged.current?.();
+	}, [fontSize]);
+	useEffect(() => {
+		if (claimTick > 0) refit.current?.();
+	}, [claimTick]);
 	return (
 		<div
 			aria-label={t("panel.terminal.title")}
-			className="min-h-0 min-w-0 flex-1 overflow-hidden p-2"
+			className={`min-h-0 min-w-0 flex-1 p-2 ${sized ? "overflow-hidden" : "overflow-auto"}`}
 			data-terminal-viewport
 			ref={element}
 		/>
@@ -233,6 +342,37 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const compact = useCompactShell();
 	// A paired host's terminal answers over the network: typed characters are predicted (C109).
 	const remote = useTabsStore(state => state.tabs.some(tab => tab.id === tabId && tab.device !== undefined));
+	// A phone's key bar (Esc, Tab, sticky Ctrl/Alt, arrows, symbols) and its text size, 50–200 %.
+	const touch = useShellInput() === "touch";
+	const [keysOpen, setKeysOpen] = useState(() => currentShellMode() === "phone");
+	const [fontScale, setFontScale] = useState(readFontScale);
+	const [held, setHeld] = useState<HeldModifiers>({ ctrl: false, alt: false });
+	const heldRef = useRef(held);
+	heldRef.current = held;
+	/** Another viewer sizes the active PTY (lease.ts): this screen draws it at that size until it claims. */
+	const [lease, setLease] = useState<TerminalLeaseState | undefined>();
+	const [claimTick, setClaimTick] = useState(0);
+	const changeFont = (change: "smaller" | "larger" | "reset") => {
+		const next = clampFontScale(
+			change === "reset" ? FONT_SCALE_DEFAULT : fontScale + (change === "larger" ? 1 : -1) * FONT_SCALE_STEP,
+		);
+		setFontScale(next);
+		try {
+			window.localStorage.setItem(FONT_SCALE_KEY, String(next));
+		} catch {
+			// Storage may be blocked (private mode); the size still applies until the page closes.
+		}
+	};
+	/** Typed data with the held Ctrl/Alt applied; a single key spends them. */
+	const transform = useCallback((data: string) => {
+		const mods = heldRef.current;
+		if (!mods.ctrl && !mods.alt) return data;
+		if (isSingleKey(data)) {
+			heldRef.current = { ctrl: false, alt: false };
+			setHeld(heldRef.current);
+		}
+		return applyModifiers(data, mods);
+	}, []);
 	useEffect(() => {
 		let live = true;
 		void window.omp.terminal.shells(tabId).then(
@@ -321,6 +461,19 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 		});
 		if (result) setSelected(result.at(-1)?.id ?? null);
 	};
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a session just chosen starts with nobody known to hold its size.
+	useEffect(() => setLease(undefined), [selected]);
+	const sendKey = (key: TerminalKey) => {
+		if (key.data === undefined || !selected) return;
+		void request({ action: "write", id: selected, data: transform(key.data) });
+	};
+	const claim = async () => {
+		if (!selected) return;
+		if (await request({ action: "claim", id: selected })) {
+			setLease("you");
+			setClaimTick(tick => tick + 1);
+		}
+	};
 	const close = async (id: string) => {
 		const result = await request({ action: "close", id });
 		if (result && id === selected) setSelected(result[0]?.id ?? null);
@@ -391,6 +544,16 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					/>
 				)}
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
+					{touch && (
+						<IconButton
+							data-terminal-keys-toggle
+							icon={<Keyboard />}
+							label={t(keysOpen ? "panel.terminal.keysHide" : "panel.terminal.keysShow")}
+							onClick={() => setKeysOpen(open => !open)}
+							pressed={keysOpen}
+							size="sm"
+						/>
+					)}
 					<IconButton
 						icon={<Copy />}
 						label={t("panel.terminal.copy")}
@@ -452,17 +615,36 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					<ErrorDetail error={error} />
 				</Banner>
 			)}
+			{lease === "other" && (
+				<div data-terminal-lease>
+					<Banner
+						actions={
+							<Button data-terminal-lease-claim onClick={() => void claim()} size="sm" variant="secondary">
+								{t("panel.terminal.lease.claim")}
+							</Button>
+						}
+						className="mx-3 mt-3"
+						live
+					>
+						{t("panel.terminal.lease.other")}
+					</Banner>
+				</div>
+			)}
 			{loading ? (
 				<Spinner className="p-3" label={t("panel.terminal.starting")} size="sm" />
 			) : selected ? (
 				<TerminalViewport
+					claimTick={claimTick}
+					fontSize={fontSizeFor(fontScale)}
 					handle={handle}
 					id={selected}
 					key={`${selected}:${attempt}`}
 					onError={setError}
+					onLease={setLease}
 					onStatus={onStatus}
 					predict={remote}
 					tabId={tabId}
+					transform={transform}
 				/>
 			) : (
 				<EmptyState
@@ -474,6 +656,16 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 							{t("panel.terminal.new")}
 						</Button>
 					}
+				/>
+			)}
+			{touch && keysOpen && selected && !loading && (
+				<TerminalKeyBar
+					disabled={Boolean(active?.exited)}
+					fontScale={fontScale}
+					held={held}
+					onFontScale={changeFont}
+					onKey={sendKey}
+					onModifier={modifier => setHeld(previous => ({ ...previous, [modifier]: !previous[modifier] }))}
 				/>
 			)}
 			{active?.exited && (
