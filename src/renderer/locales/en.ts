@@ -581,6 +581,7 @@ export const en: Record<string, string> = {
 	"sidebar.stale": "Showing the sessions that last loaded.",
 	"sidebar.noMatch": "No matching sessions",
 	"sidebar.untitled": "Untitled",
+	"session.noTextPrompt": "Image or file message",
 	"sidebar.deleteMessage": "Delete {name}? This permanently removes its transcript and cannot be undone.",
 	"sidebar.openCancelled": "Session switch was cancelled by an extension.",
 	"sidebar.menu.newChat": "New chat session",

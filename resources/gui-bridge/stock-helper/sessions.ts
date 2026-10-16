@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { NO_TEXT_PROMPT } from "../session-list-contracts";
 
 /** The fields of stock's `SessionInfo` this helper reads; the rest pass through untouched. */
 interface StockSessionInfo {
@@ -103,7 +104,7 @@ function paths(params: unknown): { sessionsRoot: string; sessionPath?: string } 
 /** Stock session-listing's placeholder when its bounded prefix scan finds no first prompt. */
 const NO_MESSAGES = "(no messages)";
 /** First message of a session that has conversation but no prompt text (e.g. an image-only prompt). */
-const NO_TEXT_LABEL = "(no text)";
+const NO_TEXT_LABEL = NO_TEXT_PROMPT;
 /** Most bytes streamed to find a first prompt (stock's own header read bound). */
 const FIRST_PROMPT_READ_LIMIT = 1024 * 1024;
 /** Journal entries stock writes around a session that are not conversation (header, settings, hidden notices). */

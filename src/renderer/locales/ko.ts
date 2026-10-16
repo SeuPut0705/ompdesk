@@ -573,6 +573,7 @@ export const ko: Record<string, string> = {
 	"sidebar.stale": "마지막으로 불러온 세션을 표시하고 있어요.",
 	"sidebar.noMatch": "일치하는 세션이 없어요",
 	"sidebar.untitled": "제목 없음",
+	"session.noTextPrompt": "이미지·파일 메시지",
 	"sidebar.deleteMessage": "{name} 세션을 삭제할까요? 세션 기록이 영구 삭제되며 되돌릴 수 없어요.",
 	"sidebar.openCancelled": "확장이 세션 전환을 취소했어요.",
 	"sidebar.menu.newChat": "새 채팅 세션",

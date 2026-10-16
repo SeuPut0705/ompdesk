@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { NO_TEXT_PROMPT } from "../../resources/gui-bridge/session-list-contracts";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
 
@@ -115,6 +116,6 @@ describe.skipIf(!stockRoot)("SessionIndex first prompt", () => {
 		index = new SessionIndex(dir, dir);
 		const [info] = await index.list("global");
 		expect(info?.id).toBe("image");
-		expect(info?.firstMessage).not.toBe("");
+		expect(info?.firstMessage).toBe(NO_TEXT_PROMPT);
 	});
 });

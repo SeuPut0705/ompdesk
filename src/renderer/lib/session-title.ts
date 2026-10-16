@@ -1,4 +1,6 @@
+import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
 import type { SessionInfo } from "../../shared/ipc-types";
+import { translate } from "./i18n";
 import { promptDisplayText } from "./prompt-text";
 
 /**
@@ -12,12 +14,17 @@ function firstPrompt(session: Pick<SessionInfo, "firstMessage">): string {
 	return text === NO_MESSAGES ? "" : text;
 }
 
-/** One display-title contract shared by the sidebar and top tab strip. */
+/**
+ * One display-title contract shared by the sidebar and top tab strip. The bridge's `NO_TEXT_PROMPT` sentinel (a
+ * session whose first message is an image or file) reads as its localized label.
+ */
 export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstMessage">, untitled: string): string {
-	return session.title?.trim() || promptDisplayText(firstPrompt(session)).trim() || untitled;
+	const prompt = firstPrompt(session);
+	if (prompt === NO_TEXT_PROMPT) return session.title?.trim() || translate("session.noTextPrompt");
+	return session.title?.trim() || promptDisplayText(prompt).trim() || untitled;
 }
 
-/** True once a session has user-visible conversation content. */
+/** True once a session has user-visible conversation content (the no-text sentinel counts). */
 export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMessage" | "messageCount">): boolean {
 	return session.messageCount > 0 || Boolean(session.title?.trim() || firstPrompt(session));
 }
