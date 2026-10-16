@@ -26,15 +26,18 @@ const usagePoll = new TabPoll<UsageReport[] | null>(null, (rpc, publish) => {
 	};
 	void load();
 	const unwatch = watchUsage(load);
-	return () => {
-		stopped = true;
-		unwatch();
+	return {
+		read: () => void load(),
+		stop: () => {
+			stopped = true;
+			unwatch();
+		},
 	};
 });
 
 /**
  * This tab's usage reports (`get_usage`: one per provider account, the one its session uses marked `active`),
- * read when the first surface showing them mounts and kept current by `watchUsage` alone, one poll per tab
+ * read when each surface showing them mounts and kept current by `watchUsage` alone, one poll per tab
  * however many surfaces show them (the sidebar's usage lines, the work board's account row); a failed read
  * keeps what is shown. `null` until the first read lands.
  */

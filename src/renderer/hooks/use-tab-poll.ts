@@ -6,19 +6,19 @@ import { useTabsStore } from "../stores/tabs";
 /**
  * Starts polling one tab: read through `rpc()` (the route of a surface still showing it, undefined once none
  * is) and publish each read as an update of the shown value (returning the current one changes nothing).
- * Returns the stop.
+ * Returns `read` (one read now, outside the schedule) and `stop`.
  */
 export type TabPollStart<T> = (
 	rpc: () => TabRpc | undefined,
 	publish: (update: (current: T) => T) => void,
-) => () => void;
+) => { read: () => void; stop: () => void };
 
 interface Feed<T> {
 	value: T;
 	listeners: Set<() => void>;
 	/** The surfaces polling now, each with its own route to the tab; the feed polls while any is. */
 	readers: Set<{ rpc: TabRpc }>;
-	stop: (() => void) | null;
+	poller: { read: () => void; stop: () => void } | null;
 }
 
 /**
@@ -36,7 +36,7 @@ export class TabPoll<T> {
 	feed(key: string): Feed<T> {
 		let feed = this.#feeds.get(key);
 		if (!feed) {
-			feed = { value: this.initial, listeners: new Set(), readers: new Set(), stop: null };
+			feed = { value: this.initial, listeners: new Set(), readers: new Set(), poller: null };
 			this.#feeds.set(key, feed);
 		}
 		return feed;
@@ -69,8 +69,11 @@ export function useTabPoll<T>(poll: TabPoll<T>, active: boolean): T {
 		const feed = poll.feed(key);
 		const reader = { rpc };
 		feed.readers.add(reader);
-		if (feed.readers.size === 1)
-			feed.stop = poll.start(
+		// The first surface starts the poll; each later one reads once more, as a surface did on its own mount
+		// (the work board mounts mid-turn, after the sidebar's read, and must not wait for the next poll).
+		if (feed.poller) feed.poller.read();
+		else
+			feed.poller = poll.start(
 				() => feed.readers.values().next().value?.rpc,
 				update => {
 					const value = update(feed.value);
@@ -82,8 +85,8 @@ export function useTabPoll<T>(poll: TabPoll<T>, active: boolean): T {
 		return () => {
 			feed.readers.delete(reader);
 			if (feed.readers.size === 0) {
-				feed.stop?.();
-				feed.stop = null;
+				feed.poller?.stop();
+				feed.poller = null;
 			}
 			poll.release(key, feed);
 		};

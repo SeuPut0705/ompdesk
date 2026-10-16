@@ -28,10 +28,13 @@ const jobsPoll = new TabPoll<RpcAsyncJobItem[]>(NO_JOBS, (rpc, publish) => {
 	void refresh();
 	const poll = window.setInterval(() => void refresh(), JOBS_POLL_MS);
 	document.addEventListener("visibilitychange", refresh);
-	return () => {
-		cancelled = true;
-		window.clearInterval(poll);
-		document.removeEventListener("visibilitychange", refresh);
+	return {
+		read: () => void refresh(),
+		stop: () => {
+			cancelled = true;
+			window.clearInterval(poll);
+			document.removeEventListener("visibilitychange", refresh);
+		},
 	};
 });
 

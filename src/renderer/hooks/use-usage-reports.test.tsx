@@ -49,31 +49,39 @@ afterEach(async () => {
 });
 
 describe("useUsageReports", () => {
-	it("serves every surface of one tab from a single read and a single poll", async () => {
-		await render(["sidebar", "board"]);
+	it("reads when each surface of a tab mounts, then keeps one poll for all of them", async () => {
+		await render(["sidebar"]);
 		expect(getUsage).toHaveBeenCalledTimes(1);
 		expect(seen.sidebar).toEqual([report]);
-		expect(seen.board).toBe(seen.sidebar);
 
+		// The board mounts after the account's usage changed: it reads now, and both surfaces show the new reports.
+		const later = { ...report, account: "work@example.com" };
+		getUsage.mockResolvedValueOnce({ success: true, data: { reports: [later] } });
+		await render(["sidebar", "board"]);
+		expect(getUsage).toHaveBeenCalledTimes(2);
+		expect(seen.board).toEqual([later]);
+		expect(seen.sidebar).toBe(seen.board);
+
+		// One poll for both.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(2);
+		expect(getUsage).toHaveBeenCalledTimes(3);
 
 		// One surface leaves: the other keeps the poll.
 		await render(["sidebar"]);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(3);
+		expect(getUsage).toHaveBeenCalledTimes(4);
 
 		// The last one leaves: nothing polls, and the next mount reads afresh.
 		await render([]);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS * 3);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(3);
-		await render(["board"]);
 		expect(getUsage).toHaveBeenCalledTimes(4);
+		await render(["board"]);
+		expect(getUsage).toHaveBeenCalledTimes(5);
 	});
 });
