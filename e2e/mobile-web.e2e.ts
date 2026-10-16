@@ -156,7 +156,7 @@ for (const language of ["en", "ko"] as const)
 				// Pair a phone: the code with its countdown and a QR of the pairing page.
 				await section.getByRole("button", { name: t("mobileWeb.pair"), exact: true }).click();
 				const pairing = section.locator("[data-mobile-web-pairing]");
-				await expect(pairing.locator("[data-copyable]").first()).toHaveText(/^[0-9A-Z]{8}$/);
+				await expect(pairing.locator("[data-copyable]").first()).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
 				await expect(pairing.locator("[data-mobile-web-code-expiry]")).toContainText(/\d:\d\d/);
 				await expect(pairing.locator("svg[data-qr-code]")).toHaveAttribute("aria-label", t("mobileWeb.pairQr"));
 				expect(await pairing.locator("svg[data-qr-code] path").getAttribute("d")).toMatch(/^M4 4/);
