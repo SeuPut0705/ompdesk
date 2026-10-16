@@ -377,16 +377,53 @@ async function treeRss(root: number): Promise<Record<string, number>> {
 }
 
 /**
- * A `git` first on PATH that runs the real one and then writes `times` (its own
- * and its waited children's CPU) and its argv to a fresh file in `<dir>/git-log`,
- * so a window can count git processes and their CPU, which exit too fast for
- * `ps`. `read()` returns every call since the shim was made.
+ * Counts the git processes an app starts, which exit too fast for `ps`. With
+ * OMP_GUI_FLOW_GIT_SHIM=0, git's own trace2 log (one file per process, child
+ * gits left out) counts them and the app runs its own git untouched, so
+ * latencies are real; otherwise a `git` first on PATH runs the real one and then
+ * writes `times` (its own and its waited children's CPU) and its argv to a fresh
+ * file, which adds the CPU, plus a shell start per call. The shim runs the git
+ * current main runs: past macOS's `/usr/bin/git` trampoline when a developer
+ * dir holds one (v0.30.0 ran the trampoline, ~3.4 ms of CPU more per call).
+ * `read()` returns every call since the counter was made, by log file name.
  */
-async function gitShim(dir: string): Promise<{ bin: string; read: () => Promise<{ argv: string; cpu: number }[]> }> {
-	const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-	const bin = path.join(dir, "git-shim");
+async function gitCounter(
+	dir: string,
+): Promise<{ env: Record<string, string>; read: () => Promise<Map<string, { argv: string; cpu: number | null }>> }> {
 	const log = path.join(dir, "git-log");
-	await Promise.all([bin, log].map(folder => fs.mkdir(folder, { recursive: true })));
+	await fs.mkdir(log, { recursive: true });
+	const readAll = async (parse: (text: string) => { argv: string; cpu: number | null } | null) => {
+		const calls = new Map<string, { argv: string; cpu: number | null }>();
+		for (const name of await fs.readdir(log)) {
+			const call = parse(await fs.readFile(path.join(log, name), "utf8"));
+			if (call) calls.set(name, call);
+		}
+		return calls;
+	};
+	if (process.env.OMP_GUI_FLOW_GIT_SHIM === "0")
+		return {
+			env: { GIT_TRACE2_EVENT: log },
+			read: () =>
+				readAll(text => {
+					const start = text.split("\n").find(line => line.includes('"event":"start"'));
+					// A git a git started carries its parent's id before a slash.
+					if (!start || /"sid":"[^"]*\//.test(start)) return null;
+					const event: unknown = JSON.parse(start);
+					const argv =
+						event && typeof event === "object" && "argv" in event && Array.isArray(event.argv)
+							? event.argv.map(String)
+							: [];
+					return { argv: argv.slice(1).join(" "), cpu: null };
+				}),
+		};
+	let real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+	if (process.platform === "darwin" && real === "/usr/bin/git") {
+		const developer = execFileSync("/usr/bin/xcode-select", ["-p"], { encoding: "utf8" }).trim();
+		const direct = path.join(developer, "usr", "bin", "git");
+		if (await fs.stat(direct).catch(() => null)) real = direct;
+	}
+	const bin = path.join(dir, "git-shim");
+	await fs.mkdir(bin, { recursive: true });
 	// Builtins only after git ran, so its children's time is git's alone; `times`
 	// runs in the shim's own shell (a `$(…)` subshell would report a fresh child's zeros).
 	await fs.writeFile(
@@ -399,16 +436,14 @@ async function gitShim(dir: string): Promise<{ bin: string; read: () => Promise<
 		return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 	};
 	return {
-		bin,
-		read: async () =>
-			Promise.all(
-				(await fs.readdir(log)).map(async name => {
-					// Line 1: the shim shell's user/system; line 2: its children's (git); line 3: argv.
-					const [, children = "", argv = ""] = (await fs.readFile(path.join(log, name), "utf8")).split("\n");
-					const [user = "", system = ""] = children.split(" ");
-					return { argv, cpu: seconds(user) + seconds(system) };
-				}),
-			),
+		env: { PATH: [bin, process.env.PATH].join(path.delimiter) },
+		read: () =>
+			readAll(text => {
+				// Line 1: the shim shell's user/system; line 2: its children's (git); line 3: argv.
+				const [, children = "", argv = ""] = text.split("\n");
+				const [user = "", system = ""] = children.split(" ");
+				return { argv, cpu: seconds(user) + seconds(system) };
+			}),
 	};
 }
 
@@ -1321,13 +1356,13 @@ test.describe("flow performance", () => {
 				git("add", "-A");
 				git("commit", "-qm", "init");
 				await Promise.all(files.map((file, index) => fs.appendFile(file, `export const w${index} = ${index};\n`)));
-				const shim = await gitShim(where.profile);
+				const counter = await gitCounter(where.profile);
 				const seed = cloneSource(where);
 				const key = await tailKey(seed);
 				const { app, page } = await launch(subject.root, where, {
 					seed,
 					natives: true,
-					env: { PATH: [shim.bin, process.env.PATH].join(path.delimiter), ...(await quietShell(where)) },
+					env: { ...counter.env, ...(await quietShell(where)) },
 				});
 				try {
 					await sidecarReady(page);
@@ -1336,23 +1371,35 @@ test.describe("flow performance", () => {
 					await page.waitForTimeout(3000);
 					const pid = app.process().pid;
 					if (!pid) throw new Error("No main process id");
-					// Git calls and their CPU inside a window, next to the app tree's CPU.
+					// Git calls (and with the shim their CPU) inside a window, next to the app tree's CPU.
 					const span = async (name: string, seconds: number) => {
-						const before = (await shim.read()).length;
+						const before = await counter.read();
 						const window = await measureTree(pid, () =>
 							measure(app, page, `panels-${subject.name}-${run}-${name}`, seconds, undefined, { idle: true }),
 						);
-						const calls = (await shim.read()).slice(before);
+						const calls = [...(await counter.read())]
+							.filter(([file]) => !before.has(file))
+							.map(([, call]) => call);
 						const perMinute = 60 / window.seconds;
+						const cpu = calls.every(call => call.cpu !== null)
+							? calls.reduce((sum, call) => sum + (call.cpu ?? 0), 0)
+							: null;
 						return {
 							...window,
 							gitPerMinute: Math.round(calls.length * perMinute * 10) / 10,
-							gitCpuSecondsPerMinute:
-								Math.round(calls.reduce((sum, call) => sum + call.cpu, 0) * perMinute * 1000) / 1000,
+							gitCpuSecondsPerMinute: cpu === null ? null : Math.round(cpu * perMinute * 1000) / 1000,
+							// By git subcommand (the word after the `-c key=value` options).
 							gitCommands: Object.fromEntries(
-								Object.entries(Object.groupBy(calls, call => call.argv.split(" ").slice(0, 2).join(" "))).map(
-									([command, list]) => [command, list?.length ?? 0],
-								),
+								Object.entries(
+									Object.groupBy(calls, call => {
+										const words = call.argv.split(" ");
+										for (let index = 0; index < words.length; index++) {
+											if (words[index] === "-c") index++;
+											else if (!words[index]?.startsWith("-")) return words[index] ?? "?";
+										}
+										return "?";
+									}),
+								).map(([command, list]) => [command, list?.length ?? 0]),
 							),
 						};
 					};
@@ -1383,6 +1430,8 @@ test.describe("flow performance", () => {
 					await setHidden(page, false);
 					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.showInactive());
 					await page.waitForTimeout(2000);
+					// Resident memory after each view first opened, to attribute growth.
+					const rssAfterChanges = await treeRss(pid);
 
 					// Terminal: first open (the worker and the shell start), idle, typing, reopen.
 					const terminalButton = aside.getByRole("button", { name: "Terminal", exact: true });
@@ -1429,6 +1478,7 @@ test.describe("flow performance", () => {
 					const terminalWarmMs = await inputToFrame(page, terminalShows, "perf-5");
 					await page.waitForTimeout(1000);
 
+					const rssAfterTerminal = await treeRss(pid);
 					// Preview: the window's first page, then a second one.
 					const previewMs: number[] = [];
 					const previewOpen = await measure(
@@ -1471,7 +1521,7 @@ test.describe("flow performance", () => {
 						typing,
 						previewMs,
 						previewOpen,
-						rss: await treeRss(pid),
+						rss: { changes: rssAfterChanges, terminal: rssAfterTerminal, preview: await treeRss(pid) },
 					};
 				} finally {
 					await exitApp(app);
