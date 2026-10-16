@@ -9,6 +9,10 @@
  *   stamped kind (I3: reject, never degrade). When the payload omits `kind`,
  *   the file's kind wins instead of refusing.
  *
+ * When a paired web device's window is involved (the caller or the owner),
+ * an owned session is not refused: the caller's window views the owner's tab
+ * (`attached`). Between Electron windows the owner keeps it and is focused.
+ *
  * A payload `device` opens the tab on a paired host: the session file, its
  * kind and the cwd are the host's, so they are looked up there, and the cwd
  * is left for the host to canonicalize.
@@ -23,7 +27,7 @@ import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
 import { nextSnowflake } from "./snowflake";
-import type { ClientWindow } from "./web/client-window";
+import { type ClientWindow, isWebWindow } from "./web/client-window";
 
 /** Host-side lookups for a tab on a paired device. */
 export interface SpawnTabRemote {
@@ -32,7 +36,7 @@ export interface SpawnTabRemote {
 }
 
 export type SpawnTabDeps = {
-	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire">;
+	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire" | "attachViewer">;
 	sessionIndex: Pick<SessionIndex, "kindFor">;
 	/**
 	 * The caller's cwd when its tab runs on `device` (undefined = this
@@ -58,7 +62,12 @@ export async function spawnTabForWindow(
 	if (sessionPath) {
 		// F-OWN first: a live owner wins over every other consideration.
 		const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
-		if (owner) return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId, refusal: "owned" };
+		if (owner) {
+			const callerId = win.webContents.id;
+			const shared = owner.winId !== callerId && (isWebWindow(callerId) || isWebWindow(owner.winId));
+			if (shared && deps.sidecarPool.attachViewer(win, owner.tabId)) return { tabId: owner.tabId, attached: true };
+			return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId, refusal: "owned" };
+		}
 		// F-KIND: the file's stamped kind is authoritative. Refuse a mismatched
 		// explicit request; defer to the file when the payload omits kind.
 		const fileKind = device

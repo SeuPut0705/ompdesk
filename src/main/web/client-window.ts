@@ -15,3 +15,8 @@ export interface ClientWindow {
 	once(event: "closed", listener: () => void): unknown;
 	removeListener(event: "closed", listener: () => void): unknown;
 }
+
+/** A paired web device's virtual window: its ids are negative, an Electron webContents id never is. */
+export function isWebWindow(windowId: number): boolean {
+	return windowId < 0;
+}

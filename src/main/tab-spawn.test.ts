@@ -1,14 +1,13 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
-import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { type SpawnTabDeps, spawnTabForWindow } from "./tab-spawn";
 import type { ClientWindow } from "./web/client-window";
 
 /** Minimal window (only the identity fields the guard touches). */
-function fakeWindow(): ClientWindow {
+function fakeWindow(id = 1): ClientWindow {
 	return {
-		webContents: { id: 1, send: () => {} },
+		webContents: { id, send: () => {} },
 		isDestroyed: () => false,
 		once: () => {},
 		removeListener: () => {},
@@ -23,6 +22,7 @@ interface Harness {
 	remoteDefaultWorkspace: Mock<(device: string) => Promise<string>>;
 	sessionOwner: Mock<(path: string, device?: string) => { tabId: string; winId: number } | null>;
 	fallbackCwd: Mock<(device: string | undefined) => string | null>;
+	attachViewer: Mock<(win: ClientWindow, tabId: string) => boolean>;
 }
 
 /** acquire's placeholder/deferStart/title arguments for an explicit spawn; the device follows them. */
@@ -35,6 +35,7 @@ function harness(): Harness {
 	const remoteDefaultWorkspace = vi.fn(async (_device: string) => "/host/work");
 	const sessionOwner = vi.fn((_path: string, _device?: string): { tabId: string; winId: number } | null => null);
 	const fallbackCwd = vi.fn((device: string | undefined): string | null => (device ? null : "/fallback"));
+	const attachViewer = vi.fn((_win: ClientWindow, _tabId: string) => true);
 	return {
 		acquire,
 		kindFor,
@@ -42,8 +43,9 @@ function harness(): Harness {
 		remoteDefaultWorkspace,
 		sessionOwner,
 		fallbackCwd,
+		attachViewer,
 		deps: {
-			sidecarPool: { sessionOwner, acquire } as unknown as Pick<SidecarPool, "sessionOwner" | "acquire">,
+			sidecarPool: { sessionOwner, acquire, attachViewer } as unknown as SpawnTabDeps["sidecarPool"],
 			sessionIndex: { kindFor },
 			fallbackCwd,
 			initialCwd: () => "/initial",
@@ -121,6 +123,40 @@ describe("spawnTabForWindow refusal contracts", () => {
 		expect(result).toEqual({ tabId: null, ownerTabId: "t-owner", ownerWinId: 7, refusal: "owned" });
 		expect(kindFor).not.toHaveBeenCalled();
 		expect(acquire).not.toHaveBeenCalled();
+	});
+
+	it("lets a web device's window view a session another window holds, and the other way round", async () => {
+		const { deps, acquire, attachViewer, sessionOwner } = harness();
+		sessionOwner.mockReturnValue({ tabId: "t-owner", winId: 7 });
+		const phone = fakeWindow(-3);
+		expect(await spawnTabForWindow(deps, phone, { sessionPath: "/s/a.jsonl" })).toEqual({
+			tabId: "t-owner",
+			attached: true,
+		});
+		expect(attachViewer).toHaveBeenCalledWith(phone, "t-owner");
+
+		// A desktop window opening a session the phone owns views it too.
+		sessionOwner.mockReturnValue({ tabId: "t-phone", winId: -3 });
+		const desktop = fakeWindow(7);
+		expect(await spawnTabForWindow(deps, desktop, { sessionPath: "/s/b.jsonl" })).toEqual({
+			tabId: "t-phone",
+			attached: true,
+		});
+		expect(attachViewer).toHaveBeenLastCalledWith(desktop, "t-phone");
+		expect(acquire).not.toHaveBeenCalled();
+	});
+
+	it("keeps the refuse-or-focus rule between desktop windows and for the owner window itself", async () => {
+		const { deps, attachViewer, sessionOwner } = harness();
+		sessionOwner.mockReturnValue({ tabId: "t-owner", winId: 7 });
+		expect(await spawnTabForWindow(deps, fakeWindow(8), { sessionPath: "/s/a.jsonl" })).toMatchObject({
+			refusal: "owned",
+		});
+		sessionOwner.mockReturnValue({ tabId: "t-phone", winId: -3 });
+		expect(await spawnTabForWindow(deps, fakeWindow(-3), { sessionPath: "/s/b.jsonl" })).toMatchObject({
+			refusal: "owned",
+		});
+		expect(attachViewer).not.toHaveBeenCalled();
 	});
 
 	it("fresh tabs bypass auto-resume, spawn agent by default, and never consult kindFor", async () => {

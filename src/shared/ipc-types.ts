@@ -58,6 +58,11 @@ export const IPC_EVENTS = {
 	SIDECAR_STATUS: "sidecar:status",
 	/** Per-tab sidecar status push (every tab of the window, foreground or background) */
 	TAB_STATUS: "tab:status",
+	/**
+	 * The tabs a window shows changed because another window joined or left one of them, or its owner closed
+	 * it (multi-viewer, src/main/sidecar-pool.ts); payload is IpcTabListChangedPayload, the window's whole list.
+	 */
+	TAB_LIST_CHANGED: "tab:list-changed",
 	/** Extension UI request from agent */
 	EXTENSION_UI: "extension-ui:request",
 	/** A tab's last in-flight provider sign-in answered */
@@ -124,6 +129,8 @@ export const IPC_EVENTS = {
 	EXTENSION_UPDATE_STATE: "extension-update:state",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
 	GITHUB_AUTH_STATE: "github-auth:state",
+	/** Another window wrote a preference (`PREFS_SET`); payload is IpcPrefsChangedPayload. */
+	PREFS_CHANGED: "prefs:changed",
 } as const;
 
 // ============================================================================
@@ -641,6 +648,18 @@ export interface IpcExtensionUiPayload {
 	signIn?: IpcSignIn;
 	/** A paired host's re-attach sent again an ask this window already showed (its OS notification went out then). */
 	resent?: true;
+	/** A synthetic `cancel`: another window that shows the tab answered the request first. */
+	answeredElsewhere?: true;
+}
+
+/** `TAB_LIST_CHANGED` event payload: the window's tabs, as GET_TABS lists them. */
+export interface IpcTabListChangedPayload {
+	tabs: IpcTabInfo[];
+}
+
+/** `PREFS_CHANGED` event payload: the preference key another window wrote. */
+export interface IpcPrefsChangedPayload {
+	key: string;
 }
 
 /**
@@ -1219,6 +1238,10 @@ export interface IpcTabInfo {
 	split?: SplitLayout;
 	/** GET_TABS: the remembered (off-screen) split this tab belongs to; one tab per split carries the same geometry. */
 	rememberedSplit?: SplitLayout;
+	/** GET_TABS: another window owns the tab and this one views it (multi-viewer); closing it here only leaves it. */
+	shared?: true;
+	/** GET_TABS: how many windows besides the owner view the tab; absent when none does. */
+	viewerCount?: number;
 	/** True while automatic transcript compaction is mutating this session. */
 	compacting?: boolean;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
@@ -1322,6 +1345,8 @@ export interface IpcSpawnTabResult {
 	 * disagrees with the target session file's stamped kind.
 	 */
 	refusal?: "owned" | "kind-mismatch";
+	/** The session was already open in another window's tab, and this window now views that tab (`tabId`). */
+	attached?: true;
 }
 
 /** Look up which tab/window owns a session file (F-OWN renderer belt-guards). */

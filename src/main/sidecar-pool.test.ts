@@ -2217,3 +2217,127 @@ describe("SidecarPool worktree.onStart hooks", () => {
 		expect(released).toContain("tab-b:exited");
 	});
 });
+
+describe("SidecarPool multi-viewer", () => {
+	/** A desktop window owning tab-a, and a web device's window (negative id) viewing it. */
+	function shared() {
+		const { pool, sidecars } = fakePool();
+		const desktop = fakeWindow(1);
+		const phone = fakeWindow(-1);
+		pool.acquire("/a", desktop.win, "tab-a");
+		const [sidecar] = sidecars;
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.emitStatus("ready");
+		expect(pool.attachViewer(phone.win, "tab-a")).toBe(true);
+		desktop.sent.length = 0;
+		phone.sent.length = 0;
+		return { pool, sidecar, desktop, phone };
+	}
+
+	it("fans one set of sidecar listeners out to every window that shows the tab", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		// Light wiring once plus one full wiring for both windows.
+		expect(sidecar.listenerCount("events")).toBe(2);
+		sidecar.emitAgentEvents(["agent_start"]);
+		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		expect(phone.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		expect(phone.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", status: "running" });
+		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", status: "running" });
+
+		// Each window has its own view: hiding the tab in the desktop keeps the phone's stream.
+		pool.acquire("/b", desktop.win, "tab-b");
+		expect(pool.setActiveTab(desktop.win, "tab-b")).toBe(true);
+		desktop.sent.length = 0;
+		phone.sent.length = 0;
+		sidecar.emitAgentEvents(["agent_end"]);
+		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(0);
+		expect(phone.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+		expect(pool.activeTabForWindow(phone.win)).toBe("tab-a");
+	});
+
+	it("lists a viewed tab as shared, counts its viewers, and lets the viewer reach it", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		expect(pool.tabsForWindow(phone.win)).toMatchObject([{ tabId: "tab-a", shared: true, viewerCount: 1 }]);
+		expect(pool.tabsForWindow(desktop.win)[0]).toMatchObject({ tabId: "tab-a", viewerCount: 1 });
+		expect(pool.tabsForWindow(desktop.win)[0]?.shared).toBeUndefined();
+		expect(pool.sidecarForTab(phone.win, "tab-a")).toBe(sidecar);
+		expect(pool.tabTarget(phone.win, "tab-a")).toMatchObject({ tabId: "tab-a", winId: 1 });
+		expect(pool.isShared("tab-a")).toBe(true);
+		// The saved layout stays the owner's.
+		expect(pool.tabLayoutForWindow(phone.win)).toBeNull();
+	});
+
+	it("takes the first answer to an ask; the other window's card closes and its late answer is refused", async () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		sidecar.emitExtensionUi("req-1");
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+		expect(phone.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+		expect(pool.openRequests(phone.win).map(open => open.request.id)).toEqual(["req-1"]);
+
+		const yes = { type: "extension_ui_response", id: "req-1", confirmed: true };
+		expect(await pool.routeSideChannel("req-1", yes, undefined, phone.win)).toBe(true);
+		expect(sidecar.sentFrames).toEqual([yes]);
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toEqual({
+			tabId: "tab-a",
+			request: { type: "extension_ui_request", id: "answered:req-1", method: "cancel", targetId: "req-1" },
+			answeredElsewhere: true,
+		});
+		expect(phone.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
+
+		const no = { type: "extension_ui_response", id: "req-1", confirmed: false };
+		await expect(pool.routeSideChannel("req-1", no, undefined, desktop.win)).rejects.toThrow("[already_answered]");
+		await expect(pool.routeSideChannel("req-1", no, "tab-a", desktop.win)).rejects.toThrow("[already_answered]");
+		expect(sidecar.sentFrames).toEqual([yes]);
+	});
+
+	it("lets every window answer again when the first answer never reached the omp", async () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		sidecar.emitExtensionUi("req-1");
+		const response = { type: "extension_ui_response", id: "req-1", confirmed: true };
+		sidecar.sideChannelError = new Error("link down");
+		await expect(pool.routeSideChannel("req-1", response, undefined, phone.win)).rejects.toThrow("link down");
+		sidecar.sideChannelError = undefined;
+		expect(await pool.routeSideChannel("req-1", response, undefined, desktop.win)).toBe(true);
+		expect(phone.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({ answeredElsewhere: true });
+	});
+
+	it("lets a viewer leave without touching the sidecar or the owner's view", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		expect(pool.detachViewer(desktop.win, "tab-a")).toBe(false);
+		phone.close();
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.tabsForWindow(phone.win)).toEqual([]);
+		expect(pool.activeTabForWindow(phone.win)).toBeNull();
+		expect(pool.tabsForWindow(desktop.win)[0]?.viewerCount).toBeUndefined();
+		expect(desktop.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
+			tabs: pool.tabsForWindow(desktop.win),
+		});
+		expect(sidecar.listenerCount("events")).toBe(2);
+		desktop.sent.length = 0;
+		sidecar.emitAgentEvents(["agent_start"]);
+		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
+	});
+
+	it("releases the tab for every window when its owner window closes", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		desktop.close();
+		expect(sidecar.disposed).toBe(true);
+		expect(pool.size).toBe(0);
+		expect(phone.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({ tabs: [] });
+		expect(pool.activeTabForWindow(phone.win)).toBeNull();
+	});
+
+	it("tells the omp a draft is empty only once every window's is, and again when a busy viewer leaves", async () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		const command = "set_idle_compaction_draft";
+		expect(pool.noteDraft("tab-a", desktop.win.webContents.id, command, true)).toBe(true);
+		expect(pool.noteDraft("tab-a", phone.win.webContents.id, command, false)).toBe(false);
+		expect(pool.noteDraft("tab-a", desktop.win.webContents.id, command, true)).toBe(false);
+		// The other draft command is counted on its own.
+		expect(pool.noteDraft("tab-a", desktop.win.webContents.id, "set_next_prompt_draft", true)).toBe(true);
+		phone.close();
+		await Promise.resolve();
+		expect(sidecar.rpcCommands).toEqual([{ type: command, empty: true }]);
+		expect(pool.noteDraft("tab-a", desktop.win.webContents.id, command, true)).toBe(true);
+	});
+});

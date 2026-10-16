@@ -1516,6 +1516,7 @@ export const en: Record<string, string> = {
 		"Work is running on the host computer, so it can't restart now. Install once its sessions and devices are idle.",
 	"ipcError.update_not_ready":
 		"No update is ready to install on the host computer. Download it there first; a macOS installer has to be opened at the host.",
+	"ipcError.already_answered": "This was already answered on another device.",
 	"common.cancel": "Cancel",
 	"common.save": "Save",
 	"common.yes": "yes",

@@ -48,6 +48,7 @@ import type {
 	IpcModelSetupRunResult,
 	IpcNotifyPayload,
 	IpcOpenPathResult,
+	IpcPrefsChangedPayload,
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
 	IpcRemoteListDirsPayload,
@@ -523,6 +524,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
+		// Every window that shows the tab has its own composer draft; its omp hears "empty" only when all
+		// of them are (multi-viewer). One window's report passes as it is.
+		if (issuerTabId && (cmd.type === "set_idle_compaction_draft" || cmd.type === "set_next_prompt_draft")) {
+			cmd.empty = sidecarPool.noteDraft(issuerTabId, win.webContents.id, cmd.type, cmd.empty);
+		}
 		// F-OWN refuse-or-focus backstop: a switch_session onto a file a
 		// DIFFERENT tab owns would double-attach it (the owner itself re-attaches
 		// freely). Refuse BEFORE dispatch — the sidecar would attach for real
@@ -655,16 +661,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// may have switched tabs while the dialog was open. Unknown ids (raised
 	// before tracking, or after a restart) fall back to the active sidecar.
 	// Resolves once the omp took the answer; a paired host's tab that did not
-	// rejects, and the renderer keeps the card open.
+	// rejects, and the renderer keeps the card open. Another window that shows
+	// the tab may have answered first: that rejects with `already_answered`.
 	ipc.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, async (caller, payload: IpcExtensionUiRespondPayload) => {
 		const { response, tabId } = payload;
+		const win = caller.win ?? undefined;
 		if (typeof tabId === "string") {
-			const win = caller.win;
 			if (!win || !sidecarPool.sidecarForTab(win, tabId)) return;
-			if (typeof response?.id === "string") await sidecarPool.routeSideChannel(response.id, response, tabId);
+			if (typeof response?.id === "string") await sidecarPool.routeSideChannel(response.id, response, tabId, win);
 			return;
 		}
-		if (typeof response?.id === "string" && (await sidecarPool.routeSideChannel(response.id, response))) return;
+		if (
+			typeof response?.id === "string" &&
+			(await sidecarPool.routeSideChannel(response.id, response, undefined, win))
+		)
+			return;
 		await sidecarFor(deps, caller)?.sendSideChannel(response);
 	});
 
@@ -821,6 +832,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!win || typeof payload?.tabId !== "string") return false;
 		const sidecar = deps.sidecarPool.sidecarForTab(win, payload.tabId);
 		if (!sidecar) return false;
+		// A window viewing another window's tab only leaves it; the owner's close releases it for all.
+		if (deps.sidecarPool.detachViewer(win, payload.tabId)) return true;
 		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
 		closeTabTerminals(caller.sender.id, payload.tabId);
 		return deps.sidecarPool.releaseTab(payload.tabId);
@@ -1052,9 +1065,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Dedupe within a window (a turn can emit the same notification from
 			// several renderers), but NOT across windows — two parallel sessions
 			// finishing in different windows are distinct events the user wants.
+			// A tab several windows show is one event, whichever of them reports it.
 			const win = caller.win;
 			const winId = win?.webContents.id ?? 0;
-			const key = `${winId}${payload.title}${payload.body ?? ""}`;
+			const tabId = typeof payload.tabId === "string" ? payload.tabId : undefined;
+			const scope = tabId && sidecarPool.isShared(tabId) ? `tab:${tabId}` : winId;
+			const key = `${scope}${payload.title}${payload.body ?? ""}`;
 			const now = Date.now();
 			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
 			lastNotifyKey = key;
@@ -1072,7 +1088,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				{
 					title: payload.title,
 					body: payload.body,
-					tabId: typeof payload.tabId === "string" ? payload.tabId : undefined,
+					tabId,
 					kind: payload.kind,
 				},
 				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
@@ -1088,7 +1104,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return prefsStore.store;
 	});
 
-	ipc.handle(IPC_COMMANDS.PREFS_SET, (_caller, payload: IpcPrefsSetPayload) => {
+	/** `PREFS_CHANGED` to every window but the one that wrote the key, so the others' settings follow it. */
+	const prefChanged = (writer: ClientWindow | null, key: string): void => {
+		const writerId = writer?.webContents.id;
+		for (const win of windowManager.getAllWindows()) {
+			if (win.webContents.id !== writerId) {
+				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
+			}
+		}
+	};
+	ipc.handle(IPC_COMMANDS.PREFS_SET, (caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");
 		}
@@ -1116,12 +1141,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				throw codedError("invalid_preference_key", "Invalid account rotation");
 			}
 			// Same path as Settings' own control: store, then push to the live sessions.
-			return deps.machine.setAccountRotation(payload.value).then(() => undefined);
+			return deps.machine.setAccountRotation(payload.value).then(() => prefChanged(caller.win, payload.key));
 		}
 		if (payload.key === REA_PREF) {
 			if (typeof payload.value !== "boolean")
 				throw codedError("invalid_preference_key", "Invalid built-in REA preference");
-			return deps.machine.setBuiltinRea(payload.value).then(() => undefined);
+			return deps.machine.setBuiltinRea(payload.value).then(() => prefChanged(caller.win, payload.key));
 		}
 		// `undefined` clears the key: electron-store rejects set(key, undefined) with
 		// "Use `delete()` to clear values", which broke the one-time prompt-history
@@ -1156,6 +1181,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			createMenu(windowManager, deps.spawnWindow);
 		}
 		deps.onPrefChanged?.(payload.key);
+		prefChanged(caller.win, payload.key);
 	});
 
 	// Launch profiles live with the machine that spawns omp: a tab's paired

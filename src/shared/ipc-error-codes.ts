@@ -105,6 +105,8 @@ export const IPC_ERROR_CODES = [
 	// A device asked a host to install its update (machine-services.ts desktopUpdate).
 	"host_busy",
 	"update_not_ready",
+	// Another window that shows the tab answered this ask or approval first (multi-viewer, sidecar-pool.ts).
+	"already_answered",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];

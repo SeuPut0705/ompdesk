@@ -56,10 +56,13 @@ export function registerTerminalIpc(
 				rtab: tabId,
 				operation,
 			});
-		const owner = `${caller.sender.id}:${tabId}`;
+		// The tab's PTYs are one set whichever window shows it (multi-viewer), keyed by its owner window;
+		// the owner's page going away closes them, a viewer's does not.
+		const owner = `${target.winId}:${tabId}`;
 		if (!owners.has(owner)) {
 			owners.add(owner);
-			caller.sender.once("destroyed", () => closeTabTerminals(caller.sender.id, tabId));
+			if (caller.sender.id === target.winId)
+				caller.sender.once("destroyed", () => closeTabTerminals(target.winId, tabId));
 		}
 		const result = await terminalRequest(owner, target.sidecar.cwd, operation);
 		// A tab can close while the lazy Bun worker is starting.

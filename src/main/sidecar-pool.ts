@@ -17,6 +17,17 @@
  * runtime: plan proposals (the row asks for approval) and subagent lifecycle
  * (the row's live subagent count), so the row is current without a visit.
  *
+ * Multi-viewer: besides its owner, a tab can be shown by viewer windows (a
+ * paired web device's; `attachViewer`). Each window keeps its own view (active,
+ * visible, split), the tab's sidecar listeners exist once and fan out to every
+ * window that shows it, and everything the light channel carries goes to the
+ * owner and every viewer. A viewer leaving never touches the sidecar; the owner
+ * closing the tab releases it for all. The first window to answer an ask or
+ * approval wins: the others' cards close through a synthetic `cancel`, and a
+ * late answer from one of them is refused (`already_answered`). Electron
+ * windows never view each other's tabs, so with no viewer everything above is
+ * the single-window routing.
+ *
  * F-OWN (double-attach guard): `#sessionOwners` maps a session file to the
  * tab/window attached to it, registered at acquire (spawn-with-sessionPath),
  * from the RPC passthrough (switch_session success) and from every get_state
@@ -34,6 +45,7 @@
  * sidecar, which never saw the request).
  */
 
+import { codedError } from "../shared/ipc-error-codes";
 import {
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
@@ -44,6 +56,7 @@ import {
 	type IpcSignIn,
 	type IpcSignInEndedPayload,
 	type IpcTabInfo,
+	type IpcTabListChangedPayload,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
@@ -105,6 +118,13 @@ function forwardToWindow(win: ClientWindow, channel: string, data: unknown): voi
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
 }
 
+/** The renderer's composer-draft reports (`noteDraft`): each window says whether its own draft is empty. */
+export const DRAFT_COMMANDS = ["set_idle_compaction_draft", "set_next_prompt_draft"] as const;
+export type DraftCommand = (typeof DRAFT_COMMANDS)[number];
+
+/** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
+const ANSWERED_KEPT = 256;
+
 /** Sidecar events a visible tab forwards to its window unchanged, as `{ tabId, payload }`. */
 const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: string]> = [
 	["liveFrame", IPC_EVENTS.LIVE_FRAME],
@@ -118,15 +138,34 @@ const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: stri
 	["extensionError", IPC_EVENTS.EXTENSION_ERROR],
 ];
 
+/** A window other than the owner that shows a tab, with the "closed" listener that makes it leave. */
+interface TabViewer {
+	win: ClientWindow;
+	onClosed: () => void;
+}
+
+/** A tab's full-channel forwarders: one set of sidecar listeners for every window that shows it. */
+interface FullWiring {
+	/** Window id → that window and its own message-update slimmer (its first update of a message stays whole). */
+	windows: Map<number, { win: ClientWindow; slim: (events: AgentSessionEvent[]) => AgentSessionEvent[] }>;
+	/** Delivers the subagent frames still batched. */
+	flush: () => void;
+	/** Takes the listeners off the sidecar. */
+	remove: () => void;
+}
+
 /** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`). */
 interface PoolEntry extends RunTracking {
 	sidecar: SidecarLike;
 	tabId: string;
+	/** The owner window: it spawned the tab, persists it in its layout, and closing it releases the tab. */
 	win: ClientWindow;
 	/** Paired host deviceId the tab runs on; undefined = this machine. Immutable; set at acquire. */
 	device?: string;
 	/** win.webContents.id, cached at acquire — safe to read after the window is destroyed. */
 	winId: number;
+	/** Windows besides the owner that show the tab, by window id (multi-viewer). Never the owner. */
+	viewers: Map<number, TabViewer>;
 	/** Session kind: "agent" (default) or "chat" (no project, default workspace). Immutable; set at acquire. */
 	kind: "agent" | "chat";
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
@@ -182,11 +221,13 @@ interface PoolEntry extends RunTracking {
 	/** Provider ids a paired host reports it is running a `login` for on this tab (`signIn` event). */
 	hostSignIns?: string[];
 	/**
-	 * Detaches the full-channel forwarders. Null while the tab is background
-	 * (nothing wired); set exactly once per active stint so switches move
-	 * listeners without duplicating them.
+	 * The full-channel forwarders, shared by every window the tab is visible in.
+	 * Null while no window shows it (light wiring only); windows join and leave
+	 * so switches move forwarding without duplicating listeners.
 	 */
-	detachFull: (() => void) | null;
+	full: FullWiring | null;
+	/** Each window's last draft report per draft command (`noteDraft`), by window id. */
+	drafts?: Map<DraftCommand, Map<number, boolean>>;
 }
 
 type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
@@ -222,6 +263,11 @@ export class SidecarPool {
 	#signInRequests = new Set<string>();
 	/** Requests whose answer is on its way to the omp (`routeSideChannel`): a re-sent open list may predate it. */
 	#answering = new Set<string>();
+	/**
+	 * Requests of a shared tab already answered, by id → the tab and the answering window: a second
+	 * window's late answer is refused (`already_answered`) instead of falling back to another sidecar.
+	 */
+	#answered = new Map<string, { entry: PoolEntry; winId: number }>();
 	readonly #factory: SidecarFactory;
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
@@ -304,7 +350,8 @@ export class SidecarPool {
 				onWindowClosed: () => {
 					this.#releaseEntry(entry);
 				},
-				detachFull: null,
+				viewers: new Map(),
+				full: null,
 			};
 			if (title) entry.title = title;
 			// Before anything can start it: the gate must be in place for the first `ready`.
@@ -357,7 +404,7 @@ export class SidecarPool {
 		else entry.sidecar.start();
 	}
 
-	/** Per-tab light wiring, attached for the entry's whole life: TAB_STATUS pushes. */
+	/** Per-tab light wiring, attached for the entry's whole life: TAB_STATUS pushes, to the owner and every viewer. */
 	#wireLight(entry: PoolEntry): void {
 		const { sidecar, win } = entry;
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
@@ -378,7 +425,7 @@ export class SidecarPool {
 					if (hostSignIn !== undefined) this.#signInEnded(entry, hostSignIn);
 				}
 			}
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
@@ -395,7 +442,7 @@ export class SidecarPool {
 			}
 			// Session meta changes ride the light channel too, so a background
 			// tab's title/id updates without waiting for a status flip.
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		});
 		// Every get_state the sidecar answers (hydrate, health check, heartbeat)
 		// reports the live session. An in-tab switch_session emits no
@@ -414,7 +461,7 @@ export class SidecarPool {
 			if (identity.sessionFile) this.#registerSessionFile(entry, identity.sessionFile);
 			else this.#unregisterSessionFile(entry);
 			if (entry.sessionId === previousId && entry.sessionFile === previousFile) return;
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			if (entry.sessionFile !== previousFile) this.#notifyWindowTabsChanged(win);
 		});
 		// Extension UI rides the light channel: a background agent's ask/confirm
@@ -433,7 +480,7 @@ export class SidecarPool {
 				this.#requestOwners.delete(request.targetId);
 				this.onRunningChange?.();
 			}
-			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
+			this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
 		});
 		// A paired host re-attached the tab (RemoteSidecar): the asks its omp holds now are the tab's whole
 		// open set. Its omp may have restarted or withdrawn one while the link was down (that card closes like
@@ -450,7 +497,7 @@ export class SidecarPool {
 					method: "cancel",
 					targetId: id,
 				};
-				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request: cancel });
+				this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request: cancel });
 			}
 			for (const request of requests) {
 				// Answered meanwhile: the list was taken before the answer reached the host.
@@ -458,7 +505,7 @@ export class SidecarPool {
 				// Already this tab's before the link dropped: the window notified for it then.
 				const resent = this.#requestOwners.get(request.id) === entry;
 				this.#holdRequest(entry, request);
-				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, {
+				this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, {
 					...this.#uiFrame(entry, request),
 					...(resent ? { resent: true as const } : {}),
 				});
@@ -477,8 +524,8 @@ export class SidecarPool {
 		// its runtime roster (the sidebar row's count) current. Progress frames
 		// stay on the full channel; the roster is re-read when the tab is shown.
 		sidecar.on("subagentFrame", (frame: SubagentFrame) => {
-			if (entry.detachFull || frame.type !== "subagent_lifecycle") return;
-			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAMES, { tabId: entry.tabId, payload: [frame] });
+			if (frame.type !== "subagent_lifecycle") return;
+			this.#forwardToHidden(entry, IPC_EVENTS.SUBAGENT_FRAMES, { tabId: entry.tabId, payload: [frame] });
 		});
 		// A tool call blocks the turn until answered, so a hidden tab's calls are answered too.
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
@@ -488,7 +535,7 @@ export class SidecarPool {
 			const wasBusy = runBusy(entry.run);
 			settleRun(entry.run, settled);
 			if (runBusy(entry.run) === wasBusy) return;
-			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 			this.#scheduleOmpRestart(entry);
 			this.#scheduleExtensionApply(entry);
@@ -514,7 +561,7 @@ export class SidecarPool {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") entry.placeholder = false;
 				else if (event.type === "auto_retry_start") retryStarted = true;
-				else if (event.type === "plan_proposal" && !entry.detachFull) {
+				else if (event.type === "plan_proposal") {
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
 				}
@@ -525,7 +572,7 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted) this.onRunningChange?.();
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
-				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 			if (busyChanged) {
 				this.#scheduleOmpRestart(entry);
@@ -533,26 +580,36 @@ export class SidecarPool {
 			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
-				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
+				this.#forwardToHidden(entry, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
 			}
 		});
 	}
 
 	/**
-	 * Full-channel wiring, attached only while the tab is visible in its window
-	 * tab. Idempotent: an already-wired entry is left untouched, so a repeated
-	 * setActiveTab cannot stack duplicate listeners.
+	 * Full-channel wiring for `win`, attached only while the tab is visible in
+	 * it. The sidecar listeners exist once per tab and fan out to every window
+	 * the tab is visible in; a window already wired is left untouched, so a
+	 * repeated setActiveTab cannot stack duplicate forwarding.
 	 *
 	 * Being wired IS being shown, so this is where a deferred tab's process
 	 * gets spawned — the one moment the pool knows the user can see it.
 	 */
-	#wireFull(entry: PoolEntry): void {
-		if (entry.detachFull) return;
+	#wireFull(entry: PoolEntry, win: ClientWindow): void {
+		const winId = win.webContents.id;
+		if (entry.full?.windows.has(winId)) return;
 		this.#ensureStarted(entry);
-		const { sidecar, win } = entry;
+		// A fresh slimmer per window: the first update of each message after
+		// the tab becomes visible there keeps its full snapshot (it missed message_start).
+		const shown = { win, slim: createMessageUpdateSlimmer() };
+		if (entry.full) {
+			entry.full.windows.set(winId, shown);
+			return;
+		}
+		const { sidecar } = entry;
+		const windows: FullWiring["windows"] = new Map([[winId, shown]]);
 		const removers: (() => void)[] = [];
 		const forwardActive = <T>(channel: string, payload: T): void => {
-			forwardToWindow(win, channel, { tabId: entry.tabId, payload });
+			for (const target of windows.values()) forwardToWindow(target.win, channel, { tabId: entry.tabId, payload });
 		};
 		const wire = <T>(event: string, listener: (payload: T) => void): void => {
 			sidecar.on(event, listener);
@@ -560,15 +617,14 @@ export class SidecarPool {
 				sidecar.off(event, listener);
 			});
 		};
-		// A fresh slimmer per attachment: the first update of each message after
-		// the tab becomes visible keeps its full snapshot (it missed message_start).
-		const slimMessageUpdates = createMessageUpdateSlimmer();
 		const subagentFrames = createSubagentFrameBatcher(frames => forwardActive(IPC_EVENTS.SUBAGENT_FRAMES, frames));
 		wire("subagentFrame", (frame: SubagentFrame) => subagentFrames.push(frame));
 		wire("events", (events: AgentSessionEvent[]) => {
 			// Subagent frames that arrived first leave first, as when each was sent alone.
 			subagentFrames.flush();
-			forwardActive(IPC_EVENTS.EVENTS_BATCH, slimMessageUpdates(events));
+			for (const target of windows.values()) {
+				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: target.slim(events) });
+			}
 		});
 		// A response (a subagent's messages, a transcript) can hold frames still batched here.
 		wire("beforeResponse", () => subagentFrames.flush());
@@ -587,20 +643,51 @@ export class SidecarPool {
 		for (const [event, channel] of FORWARDED_TAB_EVENTS) {
 			wire(event, (payload: unknown) => forwardActive(channel, payload));
 		}
-		entry.detachFull = () => {
-			entry.detachFull = null;
-			for (const remove of removers) remove();
-			// Already received while shown: deliver them, as when each was sent alone.
-			subagentFrames.flush();
+		entry.full = {
+			windows,
+			flush: () => subagentFrames.flush(),
+			remove: () => {
+				for (const remove of removers) remove();
+			},
 		};
+	}
+
+	/** Stop forwarding the tab's full channel to window `winId`; the last window takes the listeners off. */
+	#unwireFull(entry: PoolEntry, winId: number): void {
+		const full = entry.full;
+		if (!full?.windows.has(winId)) return;
+		if (full.windows.size === 1) {
+			entry.full = null;
+			full.remove();
+			// Already received while shown: deliver them, as when each was sent alone.
+			full.flush();
+			return;
+		}
+		full.flush();
+		full.windows.delete(winId);
 	}
 
 	#syncFullWiring(winId: number): void {
 		const visible = this.#visibleByWindow.get(winId) ?? new Set<string>();
 		for (const entry of this.#entries) {
-			if (entry.winId !== winId) continue;
-			if (visible.has(entry.tabId)) this.#wireFull(entry);
-			else entry.detachFull?.();
+			const win = windowOf(entry, winId);
+			if (!win) continue;
+			if (visible.has(entry.tabId)) this.#wireFull(entry, win);
+			else this.#unwireFull(entry, winId);
+		}
+	}
+
+	/** Light-channel frames go to the owner and every viewer. */
+	#forwardToTab(entry: PoolEntry, channel: string, data: unknown): void {
+		forwardToWindow(entry.win, channel, data);
+		for (const viewer of entry.viewers.values()) forwardToWindow(viewer.win, channel, data);
+	}
+
+	/** Frames a hidden tab's sidebar row needs go to the windows that show the tab without its full channel. */
+	#forwardToHidden(entry: PoolEntry, channel: string, data: unknown): void {
+		if (!entry.full?.windows.has(entry.winId)) forwardToWindow(entry.win, channel, data);
+		for (const [winId, viewer] of entry.viewers) {
+			if (!entry.full?.windows.has(winId)) forwardToWindow(viewer.win, channel, data);
 		}
 	}
 
@@ -610,6 +697,7 @@ export class SidecarPool {
 	 * the active tab goes away, the oldest surviving tab of the window takes
 	 * over (the renderer may override with SET_ACTIVE_TAB); releasing the last
 	 * tab leaves the window tab-less, back to its initial no-sidecar state.
+	 * Viewer windows lose the tab the same way and hear their list changed.
 	 */
 	#releaseEntry(entry: PoolEntry): Promise<void> {
 		if (!this.#entries.delete(entry)) return Promise.resolve();
@@ -621,6 +709,9 @@ export class SidecarPool {
 		for (const [id, owner] of this.#requestOwners) {
 			if (owner === entry) this.#requestOwners.delete(id);
 		}
+		for (const [id, answered] of this.#answered) {
+			if (answered.entry === entry) this.#answered.delete(id);
+		}
 		// A destroyed window already dropped its one-shot "closed" listener.
 		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
 		entry.sidecar.removeAllListeners();
@@ -628,53 +719,162 @@ export class SidecarPool {
 		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
 		entry.sidecar.dispose();
 		this.onTabReleased?.(entry.tabId, exited);
-		const visible = this.#visibleByWindow.get(entry.winId);
-		visible?.delete(entry.tabId);
-		const split = this.#splitByWindow.get(entry.winId);
-		if (split && splitTabIds(split).includes(entry.tabId)) {
-			const remaining = asSplitLayout(mapSplitLeaves(split, tabId => (tabId === entry.tabId ? null : { tabId })));
-			if (remaining) this.#splitByWindow.set(entry.winId, remaining);
-			else this.#splitByWindow.delete(entry.winId);
+		this.#leaveWindowView(entry.tabId, entry.winId, entry.win);
+		const viewers = [...entry.viewers];
+		entry.viewers.clear();
+		for (const [winId, viewer] of viewers) {
+			if (!viewer.win.isDestroyed()) viewer.win.removeListener("closed", viewer.onClosed);
+			this.#leaveWindowView(entry.tabId, winId, viewer.win);
+			this.#sendTabList(viewer.win);
 		}
-		const remembered = this.#rememberedByWindow.get(entry.winId);
+		return exited;
+	}
+
+	/**
+	 * `tabId` is gone from window `winId`'s view (released, or the window left it):
+	 * its visible set, split and remembered splits forget it, and when it was the
+	 * active tab the oldest other tab the window shows takes over.
+	 */
+	#leaveWindowView(tabId: string, winId: number, win: ClientWindow): void {
+		const visible = this.#visibleByWindow.get(winId);
+		visible?.delete(tabId);
+		const split = this.#splitByWindow.get(winId);
+		if (split && splitTabIds(split).includes(tabId)) {
+			const remaining = asSplitLayout(mapSplitLeaves(split, id => (id === tabId ? null : { tabId: id })));
+			if (remaining) this.#splitByWindow.set(winId, remaining);
+			else this.#splitByWindow.delete(winId);
+		}
+		const remembered = this.#rememberedByWindow.get(winId);
 		if (remembered) {
-			const kept = forgetSplitTab(remembered, entry.tabId);
-			if (kept.length > 0) this.#rememberedByWindow.set(entry.winId, kept);
-			else this.#rememberedByWindow.delete(entry.winId);
+			const kept = forgetSplitTab(remembered, tabId);
+			if (kept.length > 0) this.#rememberedByWindow.set(winId, kept);
+			else this.#rememberedByWindow.delete(winId);
 		}
-		if (![...this.#entries].some(candidate => candidate.winId === entry.winId)) {
-			this.#activeByWindow.delete(entry.winId);
-			this.#visibleByWindow.delete(entry.winId);
-			this.#splitByWindow.delete(entry.winId);
-			this.#rememberedByWindow.delete(entry.winId);
-			return exited;
+		if (![...this.#entries].some(candidate => windowOf(candidate, winId))) {
+			this.#activeByWindow.delete(winId);
+			this.#visibleByWindow.delete(winId);
+			this.#splitByWindow.delete(winId);
+			this.#rememberedByWindow.delete(winId);
+			return;
 		}
-		if (this.#activeByWindow.get(entry.winId) !== entry.tabId) {
-			this.#syncFullWiring(entry.winId);
-			return exited;
+		if (this.#activeByWindow.get(winId) !== tabId) {
+			this.#syncFullWiring(winId);
+			return;
 		}
-		this.#activeByWindow.delete(entry.winId);
+		this.#activeByWindow.delete(winId);
 		// During window teardown every entry self-releases; activating a sibling
 		// whose window is already gone would wire forwarders for nothing.
-		if (entry.win.isDestroyed()) return exited;
-		const candidates = [...this.#entries].filter(candidate => candidate.winId === entry.winId);
+		if (win.isDestroyed()) return;
+		const candidates = [...this.#entries].filter(candidate => windowOf(candidate, winId));
 		const candidate = candidates.find(item => visible?.has(item.tabId)) ?? candidates[0];
 		if (!candidate) {
-			this.#visibleByWindow.delete(entry.winId);
-			return exited;
+			this.#visibleByWindow.delete(winId);
+			return;
 		}
-		if (!visible || visible.size === 0) this.#visibleByWindow.set(entry.winId, new Set([candidate.tabId]));
-		this.#activeByWindow.set(entry.winId, candidate.tabId);
-		this.#syncFullWiring(entry.winId);
-		return exited;
+		if (!visible || visible.size === 0) this.#visibleByWindow.set(winId, new Set([candidate.tabId]));
+		this.#activeByWindow.set(winId, candidate.tabId);
+		this.#syncFullWiring(winId);
+	}
+
+	/**
+	 * Show another window's tab in `win` too (multi-viewer: a paired web device
+	 * opening a session that is already open). The window gets the tab's light
+	 * channel at once and its full channel while the tab is visible there; a
+	 * window with no tab yet makes it its active one. True when `win` shows the
+	 * tab now, false when the tab is unknown.
+	 */
+	attachViewer(win: ClientWindow, tabId: string): boolean {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return false;
+		const winId = win.webContents.id;
+		if (windowOf(entry, winId) === win) return true;
+		const viewer: TabViewer = { win, onClosed: () => this.detachViewer(win, tabId) };
+		entry.viewers.set(winId, viewer);
+		win.once("closed", viewer.onClosed);
+		if (!this.#activeByWindow.has(winId)) {
+			this.#activeByWindow.set(winId, tabId);
+			this.#visibleByWindow.set(winId, new Set([tabId]));
+			this.#syncFullWiring(winId);
+		}
+		this.#sendTabLists(entry);
+		return true;
+	}
+
+	/**
+	 * A viewer window leaves a tab (it closed it there, or the window closed). The
+	 * sidecar and every other window are untouched; the draft the window reported
+	 * stops counting. False when `win` is not a viewer of the tab (its owner closes
+	 * it with `releaseTab`).
+	 */
+	detachViewer(win: ClientWindow, tabId: string): boolean {
+		const entry = this.#byTabId.get(tabId);
+		const winId = win.webContents.id;
+		const viewer = entry?.viewers.get(winId);
+		if (!entry || viewer?.win !== win) return false;
+		entry.viewers.delete(winId);
+		if (!win.isDestroyed()) win.removeListener("closed", viewer.onClosed);
+		this.#unwireFull(entry, winId);
+		this.#leaveWindowView(tabId, winId, win);
+		this.#forgetDrafts(entry, winId);
+		this.#sendTabLists(entry);
+		this.#sendTabList(win);
+		return true;
+	}
+
+	/** Whether another window views the tab (multi-viewer). */
+	isShared(tabId: string): boolean {
+		return (this.#byTabId.get(tabId)?.viewers.size ?? 0) > 0;
+	}
+
+	/** `TAB_LIST_CHANGED` to every window showing the tab: its viewer count (or the tab itself) changed. */
+	#sendTabLists(entry: PoolEntry): void {
+		this.#sendTabList(entry.win);
+		for (const viewer of entry.viewers.values()) this.#sendTabList(viewer.win);
+	}
+
+	#sendTabList(win: ClientWindow): void {
+		forwardToWindow(win, IPC_EVENTS.TAB_LIST_CHANGED, {
+			tabs: this.tabsForWindow(win),
+		} satisfies IpcTabListChangedPayload);
+	}
+
+	/**
+	 * A window reports whether its composer draft for the tab is empty (`DRAFT_COMMANDS`). Every window
+	 * showing the tab has its own draft, so the tab's omp hears "empty" only once all of them are; the
+	 * return value is what to send it. With one window that is its own report.
+	 */
+	noteDraft(tabId: string, winId: number, command: DraftCommand, empty: boolean): boolean {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return empty;
+		entry.drafts ??= new Map();
+		const reports = entry.drafts.get(command) ?? new Map<number, boolean>();
+		entry.drafts.set(command, reports);
+		reports.set(winId, empty);
+		for (const report of reports.values()) if (!report) return false;
+		return true;
+	}
+
+	/** A viewer left: its draft no longer holds the tab's timers back, so an all-empty tab says so now. */
+	#forgetDrafts(entry: PoolEntry, winId: number): void {
+		for (const [command, reports] of entry.drafts ?? []) {
+			if (reports.get(winId) !== false) {
+				reports.delete(winId);
+				continue;
+			}
+			reports.delete(winId);
+			if ([...reports.values()].every(Boolean)) {
+				void entry.sidecar.rpcClient?.command({ type: command, empty: true }).catch(() => {});
+			}
+		}
 	}
 
 	/** The window's active entry (first entry as a fallback, e.g. mid-teardown). */
 	entryForWindow(win: ClientWindow): PoolEntry | undefined {
-		const active = this.#byTabId.get(this.#activeByWindow.get(win.webContents.id) ?? "");
-		if (active && active.win === win) return active;
+		const winId = win.webContents.id;
+		const active = this.#byTabId.get(this.#activeByWindow.get(winId) ?? "");
+		if (active && windowOf(active, winId) === win) return active;
 		for (const entry of this.#entries) {
-			if (entry.win === win) return entry;
+			if (windowOf(entry, winId) === win) return entry;
 		}
 		return undefined;
 	}
@@ -779,20 +979,22 @@ export class SidecarPool {
 	/** The sidecar of one specific tab, scoped to the window that owns it. */
 	sidecarForTab(win: ClientWindow, tabId: string): SidecarLike | null {
 		const entry = this.#byTabId.get(tabId);
-		return entry && entry.win === win ? entry.sidecar : null;
+		return entry && windowOf(entry, win.webContents.id) === win ? entry.sidecar : null;
 	}
 
 	/**
 	 * One tab of `win` — `tabId`, or the window's active tab when omitted — with
-	 * the device it runs on, so a handler can route a remote tab to its host.
+	 * the device it runs on, so a handler can route a remote tab to its host,
+	 * and its owner window's id (`winId`), which keys what the tab owns on this
+	 * machine (its terminals) whichever window asks.
 	 */
 	tabTarget(
 		win: ClientWindow,
 		tabId?: string,
-	): { tabId: string; sidecar: SidecarLike; device: string | undefined } | null {
+	): { tabId: string; sidecar: SidecarLike; device: string | undefined; winId: number } | null {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.entryForWindow(win);
-		if (!entry || entry.win !== win) return null;
-		return { tabId: entry.tabId, sidecar: entry.sidecar, device: entry.device };
+		if (!entry || windowOf(entry, win.webContents.id) !== win) return null;
+		return { tabId: entry.tabId, sidecar: entry.sidecar, device: entry.device, winId: entry.winId };
 	}
 
 	/**
@@ -837,11 +1039,11 @@ export class SidecarPool {
 			(!parsed || splitTabIds(parsed).length !== ids.length || !splitTabIds(parsed).every(id => ids.includes(id)))
 		)
 			return false;
+		const winId = win.webContents.id;
 		for (const tabId of ids) {
 			const entry = this.#byTabId.get(tabId);
-			if (!entry || entry.win !== win) return false;
+			if (!entry || windowOf(entry, winId) !== win) return false;
 		}
-		const winId = win.webContents.id;
 		this.#activeByWindow.set(winId, focusedTabId);
 		this.#visibleByWindow.set(winId, new Set(ids));
 		if (parsed) this.#splitByWindow.set(winId, parsed);
@@ -850,7 +1052,10 @@ export class SidecarPool {
 		// focus switch (no list sent) keeps the others as they were.
 		const remembered = readRememberedSplits(
 			rememberedSplits ?? this.#rememberedByWindow.get(winId),
-			tabId => (this.#byTabId.get(tabId)?.win === win ? tabId : null),
+			tabId => {
+				const entry = this.#byTabId.get(tabId);
+				return entry && windowOf(entry, winId) === win ? tabId : null;
+			},
 			new Set(ids),
 		);
 		if (remembered.length > 0) this.#rememberedByWindow.set(winId, remembered);
@@ -887,7 +1092,7 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return false;
 		entry.worktree = worktree;
-		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		this.#notifyWindowTabsChanged(entry.win);
 		return true;
 	}
@@ -953,7 +1158,7 @@ export class SidecarPool {
 		if (sessionFile) this.#registerSessionFile(entry, sessionFile);
 		else this.#unregisterSessionFile(entry);
 		if (entry.sessionFile !== previous) {
-			forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.#notifyWindowTabsChanged(entry.win);
 		}
 	}
@@ -970,7 +1175,7 @@ export class SidecarPool {
 		this.#unregisterSessionFile(entry);
 		entry.sessionId = undefined;
 		entry.title = undefined;
-		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		this.#notifyWindowTabsChanged(entry.win);
 	}
 
@@ -986,7 +1191,7 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || !cwd) return false;
 		if (!entry.sidecar.adoptCwd(cwd)) return false;
-		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		this.#notifyWindowTabsChanged(entry.win);
 		return true;
 	}
@@ -1001,19 +1206,50 @@ export class SidecarPool {
 	 * request stay and the card can be answered again.
 	 * False when the id is unknown — the caller falls back to the active tab's
 	 * sidecar.
+	 *
+	 * A shared tab's ask (multi-viewer) takes the first answer: `responder`'s
+	 * closes the other windows' cards through a synthetic `cancel`, and an
+	 * answer from another window after it is refused (`already_answered`), even
+	 * while the first is still on its way.
 	 */
-	async routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean> {
-		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
+	async routeSideChannel(id: string, frame: object, tabId?: string, responder?: ClientWindow): Promise<boolean> {
+		const entry = tabId ? this.#byTabId.get(tabId) : (this.#requestOwners.get(id) ?? this.#answered.get(id)?.entry);
 		if (!entry) return false;
+		const responderId = responder?.webContents.id;
+		const answered = this.#answered.get(id);
+		if (answered?.entry === entry && answered.winId !== responderId) {
+			throw codedError("already_answered", "Another window already answered this request");
+		}
+		const shared = responderId !== undefined && entry.viewers.size > 0 && this.#requestOwners.get(id) === entry;
+		if (shared) {
+			this.#answered.set(id, { entry, winId: responderId });
+			const oldest = this.#answered.keys().next().value;
+			if (this.#answered.size > ANSWERED_KEPT && oldest !== undefined) this.#answered.delete(oldest);
+		}
 		this.#answering.add(id);
 		try {
 			await entry.sidecar.sendSideChannel(frame);
+		} catch (error) {
+			// Not delivered: the card stays open everywhere and any window may answer again.
+			if (shared) this.#answered.delete(id);
+			throw error;
 		} finally {
 			this.#answering.delete(id);
 		}
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
 			this.onRunningChange?.();
+		}
+		if (shared) {
+			const cancel = {
+				tabId: entry.tabId,
+				request: { type: "extension_ui_request", id: `answered:${id}`, method: "cancel", targetId: id },
+				answeredElsewhere: true,
+			} satisfies IpcExtensionUiPayload;
+			if (entry.winId !== responderId) forwardToWindow(entry.win, IPC_EVENTS.EXTENSION_UI, cancel);
+			for (const [winId, viewer] of entry.viewers) {
+				if (winId !== responderId) forwardToWindow(viewer.win, IPC_EVENTS.EXTENSION_UI, cancel);
+			}
 		}
 		return true;
 	}
@@ -1026,7 +1262,7 @@ export class SidecarPool {
 			if (!owner) {
 				this.#requestBodies.delete(id);
 				this.#signInRequests.delete(id);
-			} else if (owner.win === win) {
+			} else if (windowOf(owner, win.webContents.id) === win) {
 				const signIn = this.#signInMark(owner, request);
 				open.push({ tabId: owner.tabId, request, ...(signIn ? { signIn } : {}) });
 			}
@@ -1101,13 +1337,15 @@ export class SidecarPool {
 		const split = this.#splitByWindow.get(win.webContents.id);
 		const remembered = this.#rememberedByWindow.get(win.webContents.id) ?? [];
 		for (const entry of this.#entries) {
-			if (entry.win !== win) continue;
+			if (windowOf(entry, win.webContents.id) !== win) continue;
 			const tab = tabStatusPayload(entry);
 			if (entry.tabId === activeTabId) tab.active = true;
 			if (visibleTabIds?.has(entry.tabId)) tab.visible = true;
 			if (split && visibleTabIds?.has(entry.tabId)) tab.split = split;
 			const home = rememberedSplitOf(remembered, entry.tabId);
 			if (home && splitTabIds(home)[0] === entry.tabId) tab.rememberedSplit = home;
+			if (entry.win !== win) tab.shared = true;
+			if (entry.viewers.size > 0) tab.viewerCount = entry.viewers.size;
 			tabs.push(tab);
 		}
 		return tabs;
@@ -1200,7 +1438,7 @@ export class SidecarPool {
 	#signInEnded(entry: PoolEntry, providerId: string | null, error?: string | null): void {
 		if (this.#signInActive(entry)) return;
 		entry.signInLink = undefined;
-		forwardToWindow(entry.win, IPC_EVENTS.SIGN_IN_ENDED, {
+		this.#forwardToTab(entry, IPC_EVENTS.SIGN_IN_ENDED, {
 			tabId: entry.tabId,
 			providerId,
 			...(error === undefined ? {} : { error }),
@@ -1212,7 +1450,7 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || (entry.awaitingConnection === true) === awaiting) return;
 		entry.awaitingConnection = awaiting;
-		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
 	/** Show (or with `undefined` clear) the tab's scheduled retry (turn-resume.ts). */
@@ -1223,7 +1461,7 @@ export class SidecarPool {
 			if (entry.scheduledRetry === undefined) return;
 			delete entry.scheduledRetry;
 		} else entry.scheduledRetry = retry;
-		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
 	/** Spawn a deferred tab's process now (a background tab a relaunch must resume); the sidecar, or null for an unknown tab. */
@@ -1377,8 +1615,14 @@ export class SidecarPool {
 		this.#rememberedByWindow.clear();
 		this.#sessionOwners.clear();
 		this.#requestOwners.clear();
+		this.#answered.clear();
 		this.#restoringWindows.clear();
 	}
+}
+
+/** The window `winId` as it shows `entry` (its owner or one of its viewers); undefined when it does not show it. */
+function windowOf(entry: PoolEntry, winId: number): ClientWindow | undefined {
+	return entry.winId === winId ? entry.win : entry.viewers.get(winId)?.win;
 }
 
 /** TAB_STATUS push / GET_TABS item: full tab snapshot incl. cached session meta. */

@@ -1505,6 +1505,7 @@ export const ko: Record<string, string> = {
 		"호스트 컴퓨터에서 작업이 진행 중이라 지금은 다시 시작할 수 없어요. 세션과 기기가 모두 쉬고 있을 때 설치해 주세요.",
 	"ipcError.update_not_ready":
 		"호스트 컴퓨터에 설치할 준비가 된 업데이트가 없어요. 먼저 다운로드해 주세요. macOS 설치 파일은 호스트에서 직접 열어야 해요.",
+	"ipcError.already_answered": "다른 기기에서 이미 응답했어요.",
 	"common.cancel": "취소",
 	"common.save": "저장",
 	"common.yes": "예",
