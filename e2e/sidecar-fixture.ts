@@ -1998,8 +1998,20 @@ if (process.argv[2] === "stats") {
 									account: "work@example.com",
 									active: true,
 									limits: [
-										{ id: "fixture:5h", label: "5 hour", windowId: "5h", usedFraction: 0.62, resetsAt: Date.now() + 2 * 3_600_000 + 60_000 },
-										{ id: "fixture:7d", label: "7 day", windowId: "7d", usedFraction: 0.41, resetsAt: Date.now() + 4 * 86_400_000 },
+										{
+											id: "fixture:5h",
+											label: "5 hour",
+											windowId: "5h",
+											usedFraction: 0.62,
+											resetsAt: Date.now() + 2 * 3_600_000 + 60_000,
+										},
+										{
+											id: "fixture:7d",
+											label: "7 day",
+											windowId: "7d",
+											usedFraction: 0.41,
+											resetsAt: Date.now() + 4 * 86_400_000,
+										},
 									],
 								},
 							]
