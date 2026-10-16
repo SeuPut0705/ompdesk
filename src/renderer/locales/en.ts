@@ -5673,6 +5673,13 @@ export const en: Record<string, string> = {
 	"machineSetup.install.description":
 		"OMPdesk installs what omp needs on its own. There's nothing for you to do; this page follows along.",
 	"machineSetup.requiredList": "Required tools",
+	"machineSetup.update.title": "Updating omp on this computer",
+	"machineSetup.update.description":
+		"The omp on this computer is older than OMPdesk needs, so OMPdesk is updating it on its own. There's nothing for you to do; this page follows along.",
+	"machineSetup.stopped.title": "{name} isn't installed yet",
+	"machineSetup.stopped.outdatedTitle": "{name} needs an update",
+	"machineSetup.stopped.description":
+		"Setup isn't finished, so OMPdesk can't start omp yet. Try again below, or follow the steps to do it yourself.",
 	"machineSetup.checking": "Checking this computer…",
 	"machineSetup.loadFailed": "Couldn't read this computer's setup",
 	"machineSetup.retryFailed": "Couldn't retry the install",
@@ -5719,6 +5726,7 @@ export const en: Record<string, string> = {
 	"machineSetup.reason.notDetected": "The installer finished, but {name} still wasn't found.",
 	"machineSetup.reason.download": "The download failed. Check your internet connection.",
 	"machineSetup.reason.checksum": "The download didn't match its published checksum, so it wasn't used.",
+	"machineSetup.reason.network": "OMPdesk couldn't reach the internet. Connect, then try again.",
 	"machineSetup.reason.prerequisite": "{name} needs a tool that isn't installed yet.",
 	"machineSetup.reason.unknown": "The install ended without it.",
 	"machineSetup.cancelledHint": "You stopped the install. Retry when you're ready.",

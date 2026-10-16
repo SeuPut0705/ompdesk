@@ -5649,6 +5649,13 @@ export const ko: Record<string, string> = {
 		"OMPdesk가 omp에 필요한 것을 알아서 설치해요. 따로 하실 일은 없고, 이 화면에서 진행 상황을 볼 수 있어요.",
 	"machineSetup.requiredList": "필수 도구",
 	"machineSetup.checking": "이 컴퓨터를 확인하고 있어요…",
+	"machineSetup.update.title": "이 컴퓨터의 omp를 업데이트하고 있어요",
+	"machineSetup.update.description":
+		"이 컴퓨터의 omp가 OMPdesk에 필요한 버전보다 오래돼서 OMPdesk가 알아서 업데이트해요. 따로 하실 일은 없고, 이 화면에서 진행 상황을 볼 수 있어요.",
+	"machineSetup.stopped.title": "{name} 설치가 아직 끝나지 않았어요",
+	"machineSetup.stopped.outdatedTitle": "{name} 업데이트가 필요해요",
+	"machineSetup.stopped.description":
+		"설정이 아직 끝나지 않아서 omp를 시작할 수 없어요. 아래에서 다시 시도하거나, 안내된 방법으로 직접 설치해 주세요.",
 	"machineSetup.loadFailed": "이 컴퓨터의 설정 상태를 읽지 못했어요",
 	"machineSetup.retryFailed": "설치를 다시 시도하지 못했어요",
 	"machineSetup.cancelFailed": "설치를 취소하지 못했어요",
@@ -5695,6 +5702,7 @@ export const ko: Record<string, string> = {
 	"machineSetup.reason.download": "다운로드에 실패했어요. 인터넷 연결을 확인해 주세요.",
 	"machineSetup.reason.checksum": "다운로드한 파일이 공개된 체크섬과 달라서 사용하지 않았어요.",
 	"machineSetup.reason.prerequisite": "{name}에 필요한 도구가 아직 설치되지 않았어요.",
+	"machineSetup.reason.network": "OMPdesk가 인터넷에 연결하지 못했어요. 연결한 뒤 다시 시도해 주세요.",
 	"machineSetup.reason.unknown": "설치가 끝났지만 아직 설치되지 않았어요.",
 	"machineSetup.cancelledHint": "설치를 직접 중단했어요. 준비되면 다시 시도해 주세요.",
 	"machineSetup.backoffHint": "최근 자동 시도가 실패해서, 다시 시도하거나 다음 실행 때까지 기다려요.",

@@ -113,7 +113,8 @@ export function SetupProgressLine({ item, className }: { item: SetupItemState; c
 						total: formatBytes(total),
 					});
 	const parts = [
-		t("machineSetup.progress.step", { step: progress.step, steps: progress.steps }),
+		// "Step 1 of 1" says nothing: the place in the run shows only when the run has several steps.
+		progress.steps > 1 ? t("machineSetup.progress.step", { step: progress.step, steps: progress.steps }) : "",
 		bytes,
 		formatElapsed(now - progress.startedAt),
 	];
@@ -369,6 +370,25 @@ function focusItem(required: SetupItemState[]): SetupItemState | null {
 		required.find(item => item.phase === "unavailable" || item.phase === "idle") ??
 		null
 	);
+}
+
+/**
+ * What the full-window screen's heading says. The screen is up while setup runs
+ * ("installing", or "updating" when omp is below the minimum and `omp update`
+ * runs) and also while it has stopped without omp (failed, stopped by the user,
+ * paused, unavailable): then the heading names the item that is missing and the
+ * text asks for a retry instead of promising that nothing is left to do.
+ */
+export type SetupScreen =
+	| { kind: "installing" | "updating" }
+	| { kind: "stopped"; item: SetupItemId; outdated: boolean };
+
+export function setupScreen(state: SetupState | null): SetupScreen {
+	if (!state) return { kind: "installing" };
+	const focus = focusItem(state.items.filter(item => item.required));
+	if (focus?.phase === "running") return { kind: focus.method === "omp-update" ? "updating" : "installing" };
+	if (!focus || state.requiredRunning) return { kind: "installing" };
+	return { kind: "stopped", item: focus.id, outdated: focus.presence?.kind === "outdated" };
 }
 
 /** The install view: required items for this platform, in install order. */

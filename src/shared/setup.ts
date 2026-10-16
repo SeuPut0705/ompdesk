@@ -71,8 +71,16 @@ export type SetupItemPhase =
  * - `download`: a download or release lookup failed (`detail`).
  * - `checksum`: the download did not match its published SHA-256.
  * - `prerequisite`: an item it needs is missing (omp without Bun).
+ * - `network`: the installer exited non-zero and its output shows it could not reach the internet (`exitCode` kept).
  */
-export type SetupFailureReason = "exit" | "spawn" | "not-detected" | "download" | "checksum" | "prerequisite";
+export type SetupFailureReason =
+	| "exit"
+	| "spawn"
+	| "not-detected"
+	| "download"
+	| "checksum"
+	| "prerequisite"
+	| "network";
 
 export interface SetupFailure {
 	reason: SetupFailureReason;

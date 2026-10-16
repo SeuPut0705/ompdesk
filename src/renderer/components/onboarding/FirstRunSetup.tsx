@@ -101,6 +101,11 @@ function StepList({ phase }: { phase: SetupStep }) {
 	);
 }
 
+/** The setup's top edge into view: a step opens there, whatever the last one left scrolled. */
+function revealSetup(): void {
+	document.querySelector("[data-first-run-step]")?.scrollIntoView?.({ block: "start" });
+}
+
 function ConnectStep() {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
@@ -123,6 +128,11 @@ function ConnectStep() {
 		const [first] = servingProviderIds(providers, customConfigs);
 		setPhase("model", first ?? null);
 	}, [customConfigs, customForm, login.state.running, providers, setPhase]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `customForm` is the trigger; the effect reads the DOM.
+	useEffect(() => {
+		revealSetup();
+	}, [customForm]);
 
 	if (customForm && catalog.options) {
 		return (
@@ -194,6 +204,18 @@ type TestState =
 	| { kind: "running" }
 	| { kind: "ok"; ms: number | null }
 	| { kind: "failed"; failure: InlineFailure };
+
+/** The last step is done: say which model the first request goes to. */
+function announceReady(
+	t: (key: string, params?: Record<string, string | number>) => string,
+	model: Pick<ModelInfo, "id" | "name">,
+): void {
+	toast({
+		variant: "success",
+		title: t("setup.ready.title"),
+		message: t("setup.ready.message", { model: modelDisplayName(model) }),
+	});
+}
 
 function ModelStep() {
 	const t = useT();
@@ -291,12 +313,10 @@ function ModelStep() {
 			await useGithubAuthStore.getState().refresh();
 			const github = useGithubAuthStore.getState().state;
 			const githubReady = github.status?.authenticated && github.identity?.name && github.identity.email;
-			setPhase(githubReady ? "idle" : "github", null);
-			toast({
-				variant: "success",
-				title: t("setup.ready.title"),
-				message: t("setup.ready.message", { model: modelDisplayName(model) }),
-			});
+			if (githubReady) {
+				setPhase("idle", null);
+				announceReady(t, model);
+			} else setPhase("github", null);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
@@ -430,7 +450,11 @@ function GithubStep() {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
 	const signedIn = useGithubAuth().status?.authenticated === true;
-	const leave = () => setPhase("idle", null);
+	const model = useModelStore(state => state.model);
+	const leave = () => {
+		setPhase("idle", null);
+		if (model) announceReady(t, model);
+	};
 	usePrimaryAction(leave);
 	return (
 		<div className="mt-8 flex flex-col gap-3" data-testid="first-run-github">
@@ -513,6 +537,12 @@ export function FirstRunSetup() {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [active]);
+
+	// A step is a new page: it opens at its top, not at the scroll position the last step left.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `step` is the trigger; the effect reads the DOM.
+	useEffect(() => {
+		if (active) revealSetup();
+	}, [active, step]);
 
 	if (!active) return null;
 	return (

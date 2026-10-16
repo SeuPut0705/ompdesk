@@ -44,7 +44,7 @@ writeFileSync(counter, String(attempt));
 console.log("\\u001b[32mResolving\\u001b[0m @oh-my-pi/pi-coding-agent (attempt " + attempt + ")");
 while (!existsSync(join(dir, "go-" + attempt))) await Bun.sleep(25);
 if (attempt === 1) {
-	console.error("error: GET https://registry.npmjs.org/@oh-my-pi%2fpi-coding-agent - 503");
+	console.error(process.env.OMPDESK_FAKE_FAIL_OUTPUT || "error: GET https://registry.npmjs.org/@oh-my-pi%2fpi-coding-agent - 503");
 	process.exit(1);
 }
 renameSync(process.env.OMPDESK_FAKE_OMP + ".staged", process.env.OMPDESK_FAKE_OMP);
@@ -83,17 +83,38 @@ async function downloadServer(): Promise<{ server: Server; url: string; finish: 
 	return { server, url: `http://127.0.0.1:${port}/omp.bin`, finish: () => held.resolve() };
 }
 
-async function launch(name: string, prefs: Record<string, unknown>): Promise<Launched> {
-	const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-gui-setup-${name}-`));
+interface LaunchOptions {
+	/** A profile an earlier launch left behind (quit mid-install): same user data, same staged omp. */
+	reuse?: string;
+	/** What the fake installer's failing attempt prints. */
+	failOutput?: string;
+	/** omp is installed but older than the minimum (the install runs `omp update`). */
+	outdated?: boolean;
+}
+
+async function launch(name: string, prefs: Record<string, unknown>, options: LaunchOptions = {}): Promise<Launched> {
+	const root = options.reuse ?? (await fs.mkdtemp(path.join(os.tmpdir(), `omp-gui-setup-${name}-`)));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
 	const agent = path.join(root, "agent");
 	const installerDir = path.join(root, "installer");
-	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(installerDir)]);
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ firstRunComplete: true, ...prefs }));
-	// The fixture omp exists only once the fake installer moves it into place.
-	const omp = await fixtureOmp(root);
-	await fs.rename(omp, `${omp}.staged`);
+	let omp: string;
+	if (options.reuse) omp = await fs.readFile(path.join(root, "omp-path"), "utf8");
+	else {
+		await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(installerDir)]);
+		await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ firstRunComplete: true, ...prefs }));
+		// The fixture omp exists only once the fake installer moves it into place.
+		omp = await fixtureOmp(root);
+		await fs.rename(omp, `${omp}.staged`);
+		await fs.writeFile(path.join(root, "omp-path"), omp);
+		if (options.outdated) {
+			// An omp that is there but below the minimum: the fake installer's second attempt replaces it with the real fixture.
+			await writeFakeOmp(
+				root,
+				'if (process.argv.includes("--version")) console.log("18.0.0");\nelse process.exit(1);\n',
+			);
+		}
+	}
 	const installer = await writeFakeOmp(installerDir, INSTALLER);
 	const download = await downloadServer();
 	const env = {
@@ -108,6 +129,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		OMP_GUI_TEST_DOWNLOAD_SHA256: createHash("sha256").update(DOWNLOAD).digest("hex"),
 		OMPDESK_FAKE_INSTALLER_DIR: installerDir,
 		OMPDESK_FAKE_OMP: omp,
+		...(options.failOutput ? { OMPDESK_FAKE_FAIL_OUTPUT: options.failOutput } : {}),
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
@@ -202,7 +224,11 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	const bar = omp.getByRole("progressbar");
 	await expect(bar).toHaveAttribute("aria-valuenow", "0.5");
 	await expect(omp).toContainText("50%");
-	await expect(omp).toContainText(/Step 1 of \d|\d단계 중 1단계/);
+	// One step in this run: no "Step 1 of 1".
+	await expect(omp).not.toContainText(/Step \d of \d|\d단계 중 \d단계/);
+	await expect(page.getByTestId("setup-takeover").locator("h1")).toHaveText(
+		/Installing omp on this computer|이 컴퓨터에 omp를 설치하고 있어요/,
+	);
 	await expect(omp).toContainText(/2\.0 MB/);
 	await expect(setup.getByTestId("setup-cancel")).toBeVisible();
 	await expectTakeover(page);
@@ -225,6 +251,10 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	await expect(setup).toContainText("bun install -g @oh-my-pi/pi-coding-agent");
 	const retry = setup.getByTestId("setup-retry");
 	await expect(retry).toHaveText(text.retry);
+	// A failed install no longer promises "nothing for you to do": the heading names what is missing.
+	await expect(page.getByTestId("setup-takeover").locator("h1")).toHaveText(
+		/omp isn't installed yet|omp 설치가 아직 끝나지 않았어요/,
+	);
 	await retry.scrollIntoViewIfNeeded();
 	await capture(page, `${name}-2-failed`);
 
@@ -289,6 +319,130 @@ test("setup capture (narrow window)", async () => {
 	try {
 		await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(560, 820));
 		await flow(launched, "narrow-ko", { retry: /.+/ });
+	} finally {
+		await close(launched);
+	}
+});
+
+/** Quit the way a user does (⌘Q runs the quit handlers; `exitApp` would skip them like a kill) and release the fakes. */
+async function quit(launched: Launched): Promise<void> {
+	const exited = Promise.withResolvers<void>();
+	launched.app.process().once("exit", () => exited.resolve());
+	void launched.app
+		.evaluate(({ app }) => {
+			setImmediate(() => app.quit());
+		})
+		.catch(() => undefined);
+	await exited.promise;
+	launched.finishDownload();
+	launched.server.close();
+}
+
+test("Cancel stops the download and says so; Retry installs again", async () => {
+	test.setTimeout(120_000);
+	const launched = await launch("cancel", { language: "en" });
+	const { page } = launched;
+	try {
+		const setup = page.getByTestId("machine-setup");
+		const omp = setup.locator('[data-setup-item="omp"]');
+		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
+		await expect(omp).toContainText("50%");
+		await setup.getByTestId("setup-cancel").click();
+		await expect(omp).toHaveAttribute("data-phase", "cancelled");
+		const takeover = page.getByTestId("setup-takeover");
+		await expect(takeover.locator("h1")).toHaveText("omp isn't installed yet");
+		await expect(setup).toContainText("You stopped the install");
+		await expect(setup.getByTestId("setup-cancel")).toHaveCount(0);
+		expect(await installs(launched)).toEqual([]);
+		await capture(page, "cancelled");
+		await setup.getByTestId("setup-retry").click();
+		await expect(omp).toHaveAttribute("data-phase", "running");
+		await expect(takeover.locator("h1")).toHaveText("Installing omp on this computer");
+		await expect.poll(async () => (await installs(launched)).length).toBe(1);
+		expect(launched.errors).toEqual([]);
+	} finally {
+		await close(launched);
+	}
+});
+
+test("quitting mid-install any number of times never pauses the next launch", async () => {
+	test.setTimeout(180_000);
+	const first = await launch("quit", { language: "en" });
+	let launched = first;
+	try {
+		// Four launches, each quit while the download runs: three would reach the back-off if a quit counted as a miss.
+		for (let round = 0; round < 4; round++) {
+			if (round > 0) launched = await launch("quit", { language: "en" }, { reuse: first.root });
+			const omp = launched.page.getByTestId("machine-setup").locator('[data-setup-item="omp"]');
+			await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
+			await expect(omp).toContainText("50%");
+			if (round < 3) await quit(launched);
+		}
+		await expect(launched.page.getByTestId("setup-takeover").locator("h1")).toHaveText(
+			"Installing omp on this computer",
+		);
+		expect(launched.errors).toEqual([]);
+	} finally {
+		await close(launched);
+	}
+});
+
+test("an offline first launch says it is the connection, and Retry installs once it is back", async () => {
+	test.setTimeout(120_000);
+	const launched = await launch(
+		"offline",
+		{ language: "en" },
+		{ failOutput: "curl: (6) Could not resolve host: registry.npmjs.org" },
+	);
+	const { page } = launched;
+	try {
+		const setup = page.getByTestId("machine-setup");
+		const omp = setup.locator('[data-setup-item="omp"]');
+		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
+		launched.finishDownload();
+		await release(launched, 1);
+		await expect(omp).toHaveAttribute("data-phase", "failed");
+		await expect(setup).toContainText("OMPdesk couldn't reach the internet. Connect, then try again.");
+		await expect(page.getByTestId("setup-takeover").locator("h1")).toHaveText("omp isn't installed yet");
+		await capture(page, "offline");
+		await setup.getByTestId("setup-retry").click();
+		await release(launched, 2);
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 30_000 })
+			.toBe("ready");
+		expect(launched.errors).toEqual([]);
+	} finally {
+		await close(launched);
+	}
+});
+
+test("an omp below the minimum is updated on its own, with its own heading", async () => {
+	test.setTimeout(120_000);
+	const launched = await launch("outdated", { language: "en" }, { outdated: true });
+	const { page } = launched;
+	try {
+		const setup = page.getByTestId("machine-setup");
+		const omp = setup.locator('[data-setup-item="omp"]');
+		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
+		await expect(omp).toContainText("older than the required");
+		const heading = page.getByTestId("setup-takeover").locator("h1");
+		await expect(heading).toHaveText("Updating omp on this computer");
+		await expect(omp).toContainText("2.0 MB of 4.0 MB");
+		await capture(page, "outdated");
+		launched.finishDownload();
+		await release(launched, 1);
+		await expect(omp).toHaveAttribute("data-phase", "failed");
+		await expect(heading).toHaveText("omp needs an update");
+		await setup.getByTestId("setup-retry").click();
+		await release(launched, 2);
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 30_000 })
+			.toBe("ready");
+		expect((await installs(launched)).filter(line => line.startsWith("omp "))).toEqual([
+			"omp omp-update",
+			"omp omp-update",
+		]);
+		expect(launched.errors).toEqual([]);
 	} finally {
 		await close(launched);
 	}

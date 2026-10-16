@@ -187,13 +187,16 @@ describe("FirstRunSetup model step", () => {
 		// GitHub is the optional last step, and the step reached is kept for a relaunch.
 		expect(useFirstRunStore.getState().phase).toBe("github");
 		expect(prefs[FIRST_RUN_STEP_PREF]).toBe("github");
-		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
+		// Not "all set" yet: the optional GitHub step is still ahead, so no toast covers the step list.
+		expect(useToastStore.getState().toasts).toEqual([]);
 		expect(document.querySelector('[data-testid="first-run-github"]')).not.toBeNull();
 		expect(text()).toContain(translate("githubAuth.signIn"));
 
+		await act(async () => useModelStore.setState({ model: opus }));
 		await act(async () => button(translate("setup.github.skip"))?.click());
 		expect(useFirstRunStore.getState().phase).toBe("idle");
 		expect(FIRST_RUN_STEP_PREF in prefs).toBe(false);
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
 	});
 
 	it("skips the GitHub step when an account is signed in with a full Git identity", async () => {
@@ -209,6 +212,7 @@ describe("FirstRunSetup model step", () => {
 		await mount(<FirstRunSetup />);
 		await act(async () => button(translate("setup.model.use"))?.click());
 		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
 	});
 
 	it("waits for the GitHub check still in flight before deciding to skip the step", async () => {

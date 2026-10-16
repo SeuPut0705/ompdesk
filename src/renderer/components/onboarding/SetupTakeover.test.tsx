@@ -29,6 +29,7 @@ if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () =>
 const fake = fakeSetupApi(
 	setupState("darwin", { omp: { phase: "idle", presence: { kind: "missing" } } }, { ompReady: false }),
 );
+const initialState = fake.current.state;
 let reducedMotion = false;
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: { setup: fake.api },
@@ -48,6 +49,7 @@ async function mount(open: boolean): Promise<(open: boolean) => Promise<void>> {
 }
 
 afterEach(async () => {
+	fake.current.state = initialState;
 	vi.useRealTimers();
 	reducedMotion = false;
 	for (const root of roots) await act(async () => root.unmount());
@@ -57,7 +59,14 @@ afterEach(async () => {
 });
 
 describe("SetupTakeover", () => {
+	const missingOmp = { presence: { kind: "missing" } } as const;
+
 	it("is one modal dialog labelled by its title, with the brand, the step list and the drag strip", async () => {
+		fake.current.state = setupState(
+			"darwin",
+			{ omp: { ...missingOmp, phase: "running", method: "bun-global" } },
+			{ ompReady: false, requiredRunning: true },
+		);
 		await mount(true);
 		const dialog = query('[data-testid="setup-takeover"]');
 		expect(dialog?.getAttribute("role")).toBe("dialog");
@@ -74,6 +83,66 @@ describe("SetupTakeover", () => {
 		expect(query('[data-testid="machine-setup"] ol')).not.toBeNull();
 		expect(query(".drag-region")).not.toBeNull();
 		expect(query(".no-drag")).not.toBeNull();
+	});
+
+	it("says an install is running while it runs, and an update when omp is below the minimum", async () => {
+		fake.current.state = setupState(
+			"darwin",
+			{
+				omp: {
+					phase: "running",
+					method: "omp-update",
+					presence: { kind: "outdated", version: "18.0.0", minimum: "18.11.0", path: "/x" },
+				},
+			},
+			{ ompReady: false, requiredRunning: true },
+		);
+		await mount(true);
+		expect(query("h1")?.textContent).toBe(translate("machineSetup.update.title"));
+		const describedBy = query('[data-testid="setup-takeover"]')?.getAttribute("aria-describedby") ?? "";
+		expect(document.getElementById(describedBy)?.textContent).toBe(translate("machineSetup.update.description"));
+	});
+
+	it("stops promising that nothing is left to do once setup failed, was stopped, or is paused", async () => {
+		for (const phase of ["failed", "cancelled", "backoff"] as const) {
+			fake.current.state = setupState(
+				"darwin",
+				{ omp: { ...missingOmp, phase, failure: phase === "failed" ? { reason: "exit", exitCode: 1 } : null } },
+				{ ompReady: false },
+			);
+			useMachineSetupStore.getState().reset();
+			await mount(true);
+			expect(query("h1")?.textContent).toBe(translate("machineSetup.stopped.title", { name: "omp" }));
+			const description = document.getElementById(
+				query('[data-testid="setup-takeover"]')?.getAttribute("aria-describedby") ?? "",
+			);
+			expect(description?.textContent).toBe(translate("machineSetup.stopped.description"));
+			await act(async () => roots.pop()?.unmount());
+			while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+		}
+	});
+
+	it("names an omp below the minimum that nothing is updating, and Bun when Bun is what is missing", async () => {
+		fake.current.state = setupState(
+			"darwin",
+			{
+				omp: { phase: "failed", presence: { kind: "outdated", version: "18.0.0", minimum: "18.11.0", path: "/x" } },
+			},
+			{ ompReady: false },
+		);
+		await mount(true);
+		expect(query("h1")?.textContent).toBe(translate("machineSetup.stopped.outdatedTitle", { name: "omp" }));
+		await act(async () => roots.pop()?.unmount());
+		while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+		useMachineSetupStore.getState().reset();
+
+		fake.current.state = setupState(
+			"darwin",
+			{ bun: { ...missingOmp, phase: "failed" }, omp: { ...missingOmp, phase: "idle" } },
+			{ ompReady: false },
+		);
+		await mount(true);
+		expect(query("h1")?.textContent).toBe(translate("machineSetup.stopped.title", { name: "Bun" }));
 	});
 
 	it("renders nothing while closed", async () => {

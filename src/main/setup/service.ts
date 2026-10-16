@@ -107,6 +107,36 @@ function updateDetail(output: string): string | undefined {
 }
 
 /**
+ * Installer output that says the machine could not reach the internet: curl's
+ * "Could not resolve host" / exit-6/7/28 messages, Bun's `ConnectionRefused`
+ * and `FailedToOpenSocket`, Node's `ENOTFOUND` family, PowerShell's "remote
+ * name could not be resolved". A 5xx from a registry is not in this list: the
+ * network works, the server does not.
+ */
+const OFFLINE_OUTPUT = new RegExp(
+	[
+		"ENOTFOUND",
+		"EAI_AGAIN",
+		"ETIMEDOUT",
+		"ECONNREFUSED",
+		"ECONNRESET",
+		"ENETUNREACH",
+		"ConnectionRefused",
+		"ConnectionClosed",
+		"FailedToOpenSocket",
+		"getaddrinfo",
+		"Could not resolve host",
+		"Couldn't resolve host",
+		"Temporary failure in name resolution",
+		"Network is unreachable",
+		"curl: \\((6|7|28)\\)",
+		"remote name could not be resolved",
+		"Unable to connect to the remote server",
+	].join("|"),
+	"i",
+);
+
+/**
  * How `updateOmp` ended. `skipped`: omp is missing, outdated or broken (the
  * install pipeline owns that), or the app is quitting.
  */
@@ -128,6 +158,8 @@ export class SetupService {
 	#emitTimer: NodeJS.Timeout | null = null;
 	/** The download main runs right now, if any; a cancel aborts it. */
 	#download: AbortController | null = null;
+	/** The item whose install attempt is in the ledger and has not ended yet. */
+	#installing: SetupItemId | null = null;
 
 	constructor(deps: SetupServiceDeps) {
 		this.#deps = deps;
@@ -257,6 +289,7 @@ export class SetupService {
 	/** App quit: stop the running download or installer tree and start nothing new. */
 	dispose(): void {
 		this.#disposed = true;
+		this.#uncountRunning();
 		this.#stopPipeline = true;
 		this.#download?.abort();
 		this.#runner.cancel();
@@ -464,6 +497,7 @@ export class SetupService {
 		};
 		this.#attemptedThisLaunch.add(id);
 		this.#recordAttempt(id);
+		this.#installing = id;
 		this.#emit();
 		try {
 			if (download && !(await this.#fetch(id, download))) return;
@@ -474,6 +508,7 @@ export class SetupService {
 			item.progress = null;
 			await this.#settle(id, outcome);
 		} finally {
+			this.#installing = null;
 			item.progress = null;
 			if (download) await rm(download.file, { force: true });
 		}
@@ -503,6 +538,7 @@ export class SetupService {
 		} catch (error) {
 			item.progress = null;
 			if (controller.signal.aborted) {
+				this.#uncountRunning();
 				item.phase = "cancelled";
 				item.failure = null;
 				this.#emit();
@@ -524,6 +560,7 @@ export class SetupService {
 	async #settle(id: SetupItemId, outcome: RunOutcome): Promise<void> {
 		const item = this.#items[id];
 		if (outcome.kind === "cancelled") {
+			this.#uncountRunning();
 			item.phase = "cancelled";
 			item.failure = null;
 			this.#emit();
@@ -531,8 +568,9 @@ export class SetupService {
 		}
 		if (outcome.kind === "failed") {
 			const checksum = /SHA-256 mismatch|: FAILED/.test(item.output);
+			const offline = outcome.reason === "exit" && OFFLINE_OUTPUT.test(item.output);
 			this.#fail(id, {
-				reason: checksum ? "checksum" : outcome.reason,
+				reason: checksum ? "checksum" : offline ? "network" : outcome.reason,
 				exitCode: outcome.exitCode,
 				...(outcome.detail ? { detail: outcome.detail } : {}),
 			});
@@ -634,10 +672,28 @@ export class SetupService {
 		return (this.#deps.now ?? Date.now)() - record.lastAttempt >= BACKOFF_MS;
 	}
 
-	/** Counted when it starts: an attempt that leaves the item missing (or the app) is a miss until detection says otherwise. */
+	/** Counted when it starts: an attempt that leaves the item missing (or the app, by a crash) is a miss until detection says otherwise. */
 	#recordAttempt(id: SetupItemId): void {
 		const ledger = this.#readLedger();
 		ledger[id] = { failures: (ledger[id]?.failures ?? 0) + 1, lastAttempt: (this.#deps.now ?? Date.now)() };
+		this.#writeLedger(ledger);
+	}
+
+	/**
+	 * Takes the running attempt back out of the ledger. A stop the user asked for (Cancel, or quitting the app
+	 * mid-install) says nothing about the machine, so it must not move the item toward the daily back-off:
+	 * three quits during a slow download would otherwise leave "Paused after failed attempts" on a first launch.
+	 * A crash or kill runs no code, so it still counts.
+	 */
+	#uncountRunning(): void {
+		const id = this.#installing;
+		if (!id) return;
+		this.#installing = null;
+		const ledger = this.#readLedger();
+		const record = ledger[id];
+		if (!record) return;
+		if (record.failures <= 1) delete ledger[id];
+		else ledger[id] = { failures: record.failures - 1, lastAttempt: record.lastAttempt };
 		this.#writeLedger(ledger);
 	}
 

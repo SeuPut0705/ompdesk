@@ -55,6 +55,8 @@ function harness(
 		testInstaller?: string | null;
 		exits?: Partial<Record<SetupItemId, number>>;
 		stillMissing?: SetupItemId[];
+		/** What an item's installer prints (default `installing <item>`). */
+		output?: Partial<Record<SetupItemId, string>>;
 		hold?: SetupItemId;
 		now?: () => number;
 		testDownload?: { url: string; sha256: string };
@@ -80,7 +82,7 @@ function harness(
 		const item = itemOf(spec);
 		if (item !== options.hold) {
 			setImmediate(() => {
-				child.stdout.write(`installing ${item}\n`);
+				child.stdout.write(`${options.output?.[item] ?? `installing ${item}`}\n`);
 				const code = options.exits?.[item] ?? 0;
 				if (code === 0 && !options.stillMissing?.includes(item))
 					machine.presence[item] = present(options.installedVersion);
@@ -259,6 +261,60 @@ describe("SetupService", () => {
 		await run;
 		await h.service.retry("bun");
 		expect(h.items()).toEqual(["bun"]);
+	});
+
+	it("does not count a Cancel or a quit mid-install as a miss, so slow first launches never reach the back-off", async () => {
+		const ledger = async () => JSON.parse(await readFile(join(dir, "setup-state.json"), "utf8"));
+		await writeFile(join(dir, "setup-state.json"), JSON.stringify({ bun: { failures: 2, lastAttempt: 1 } }));
+		const cancelled = harness(machine({ bun: missing, omp: missing }), { hold: "bun" });
+		const first = cancelled.service.start();
+		await vi.waitFor(() => expect(cancelled.phase("bun")).toBe("running"));
+		// The attempt is in the ledger while it runs.
+		expect((await ledger()).bun.failures).toBe(3);
+		cancelled.service.cancel();
+		await first;
+		expect((await ledger()).bun.failures).toBe(2);
+
+		const quit = harness(machine({ bun: missing, omp: missing }), { hold: "bun" });
+		const second = quit.service.start();
+		await vi.waitFor(() => expect(quit.phase("bun")).toBe("running"));
+		quit.service.dispose();
+		await second;
+		expect((await ledger()).bun.failures).toBe(2);
+
+		// A first attempt that was stopped leaves no entry at all.
+		await rm(join(dir, "setup-state.json"));
+		const fresh = harness(machine({ bun: missing, omp: missing }), { hold: "bun" });
+		const third = fresh.service.start();
+		await vi.waitFor(() => expect(fresh.phase("bun")).toBe("running"));
+		fresh.service.cancel();
+		await third;
+		expect(await ledger()).toEqual({});
+	});
+
+	it("says an installer that could not reach the internet failed on the network, and keeps other errors as exits", async () => {
+		const offline = harness(machine({ bun: missing, omp: missing }), {
+			exits: { bun: 6 },
+			output: { bun: "curl: (6) Could not resolve host: bun.sh" },
+		});
+		await offline.service.start();
+		expect(offline.service.state().items.find(item => item.id === "bun")?.failure).toMatchObject({
+			reason: "network",
+			exitCode: 6,
+		});
+		const refused = harness(machine({ omp: missing }), {
+			exits: { omp: 1 },
+			output: { omp: "error: ConnectionRefused downloading package manifest @oh-my-pi/pi-coding-agent" },
+		});
+		await refused.service.start();
+		expect(refused.service.state().items.find(item => item.id === "omp")?.failure?.reason).toBe("network");
+		// A registry that answers with an error is not an offline machine.
+		const unavailable = harness(machine({ omp: missing }), {
+			exits: { omp: 1 },
+			output: { omp: "error: GET https://registry.npmjs.org/@oh-my-pi%2fpi-coding-agent - 503" },
+		});
+		await unavailable.service.start();
+		expect(unavailable.service.state().items.find(item => item.id === "omp")?.failure?.reason).toBe("exit");
 	});
 
 	it("backs off after three automatic misses for a day, but a retry always runs", async () => {

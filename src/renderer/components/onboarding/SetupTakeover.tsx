@@ -16,7 +16,7 @@ import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useUiStore } from "../../stores/ui";
 import { BrandMark } from "../common";
 import { useModalLayer } from "../common/use-modal-layer";
-import { MachineSetupView, useMachineSetupNeeded } from "./MachineSetupView";
+import { MachineSetupView, SETUP_ITEM_NAMES, setupScreen, useMachineSetupNeeded } from "./MachineSetupView";
 
 const NOOP = () => {};
 
@@ -26,6 +26,19 @@ export function SetupTakeover({ open }: { open: boolean }) {
 	const descriptionId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const { mounted, closing } = useOverlayPresence(open);
+	// The store's state, not `useMachineSetupState`: a closed screen must not read this machine's setup.
+	const screen = setupScreen(useMachineSetupStore(store => store.state));
+	const heading =
+		screen.kind === "stopped"
+			? {
+					title: t(screen.outdated ? "machineSetup.stopped.outdatedTitle" : "machineSetup.stopped.title", {
+						name: SETUP_ITEM_NAMES[screen.item],
+					}),
+					description: t("machineSetup.stopped.description"),
+				}
+			: screen.kind === "updating"
+				? { title: t("machineSetup.update.title"), description: t("machineSetup.update.description") }
+				: { title: t("machineSetup.install.title"), description: t("machineSetup.install.description") };
 
 	// The setup screen cannot be dismissed: Escape is swallowed by the layer.
 	useModalLayer(open, panelRef, NOOP);
@@ -78,10 +91,10 @@ export function SetupTakeover({ open }: { open: boolean }) {
 						className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
 						id={titleId}
 					>
-						{t("machineSetup.install.title")}
+						{heading.title}
 					</h1>
 					<p className="mt-2 text-sc-lg text-(--sc-text-muted)" id={descriptionId}>
-						{t("machineSetup.install.description")}
+						{heading.description}
 					</p>
 					<div className="mt-8">
 						<MachineSetupView />
