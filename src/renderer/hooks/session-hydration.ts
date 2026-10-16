@@ -11,7 +11,7 @@ import type {
 	RpcSessionState,
 	RpcVibeModeState,
 } from "../../shared/rpc-types";
-import { workTurnStartedAt } from "../components/chat/work-turn";
+import { workTurnStartedAt } from "../components/chat/work/work-turn";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import {
 	type ModelSelection,

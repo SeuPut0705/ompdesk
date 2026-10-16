@@ -13,7 +13,7 @@ import {
 import { I18nProvider } from "../../lib/i18n";
 import { detectLocalPreviewUrls, latestBashPreviewUrl } from "../../lib/preview-browser";
 import type { ToolEntry } from "../../stores/tools";
-import { BashRenderer } from "../tools/BashRenderer";
+import { BashRenderer } from "../tools/renderers/BashRenderer";
 import { PreviewPanel } from "./PreviewPanel";
 
 const entry = (text: string, time: number, toolName = "bash"): ToolEntry => ({

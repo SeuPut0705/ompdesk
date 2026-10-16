@@ -15,10 +15,10 @@ import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
-import { InputArea } from "./InputArea";
+import { InputArea } from "./composer/InputArea";
 import { SidecarBanner } from "./SidecarBanner";
 import { WhatsNewCard } from "./WhatsNewCard";
-import { WorkBoardHost } from "./WorkBoard";
+import { WorkBoardHost } from "./work-board/WorkBoard";
 
 const DIVIDER_SIZE = 5;
 const RATIO_STEP = 0.05;

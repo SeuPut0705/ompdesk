@@ -43,45 +43,45 @@ import type { ComponentType } from "react";
 import { sanitizeToolText } from "../../lib/format";
 import { translate } from "../../lib/i18n";
 import { decodeXdevPayload, xdevDispatch, xdevInnerResult, xdevWriteTarget } from "../../lib/xdev";
-import { AskRenderer } from "./AskRenderer";
-import { AstEditRenderer } from "./AstEditRenderer";
-import { AstGrepRenderer } from "./AstGrepRenderer";
-import { BashRenderer } from "./BashRenderer";
-import { BrowserRenderer } from "./BrowserRenderer";
-import { ComputerRenderer } from "./ComputerRenderer";
-import { WaitRenderer } from "./CoordinationRenderer";
-import { DebugRenderer } from "./DebugRenderer";
-import { DeviceNoteRenderer } from "./DeviceNoteRenderer";
-import { EditRenderer } from "./EditRenderer";
-import { EvalRenderer } from "./EvalRenderer";
 import { editArgumentPaths, editArgumentSummary } from "./edit-args";
-import { FindRenderer } from "./FindRenderer";
-import { GenericRenderer } from "./GenericRenderer";
-import { GithubRenderer } from "./GithubRenderer";
-import { GlobRenderer } from "./GlobRenderer";
-import { GoalRenderer } from "./GoalRenderer";
-import { GrepRenderer } from "./GrepRenderer";
-import { HubRenderer } from "./HubRenderer";
-import { ImageRenderer } from "./ImageRenderer";
-import { LspRenderer } from "./LspRenderer";
-import { MCP_TOOL_NAME_PREFIX, McpRenderer, parseMcpToolName } from "./McpRenderer";
-import { MemoryRenderer } from "./MemoryRenderer";
-import { ReadRenderer } from "./ReadRenderer";
-import { ResolveRenderer } from "./ResolveRenderer";
-import { TaskRenderer } from "./TaskRenderer";
-import { ThinkRenderer } from "./ThinkRenderer";
-import { TodoRenderer } from "./TodoRenderer";
-import type { ToolRendererProps } from "./ToolCard";
+import { AskRenderer } from "./renderers/AskRenderer";
+import { AstEditRenderer } from "./renderers/AstEditRenderer";
+import { AstGrepRenderer } from "./renderers/AstGrepRenderer";
+import { BashRenderer } from "./renderers/BashRenderer";
+import { BrowserRenderer } from "./renderers/BrowserRenderer";
+import { ComputerRenderer } from "./renderers/ComputerRenderer";
+import { WaitRenderer } from "./renderers/CoordinationRenderer";
+import { DebugRenderer } from "./renderers/DebugRenderer";
+import { DeviceNoteRenderer } from "./renderers/DeviceNoteRenderer";
+import { EditRenderer } from "./renderers/EditRenderer";
+import { EvalRenderer } from "./renderers/EvalRenderer";
+import { FindRenderer } from "./renderers/FindRenderer";
+import { GenericRenderer } from "./renderers/GenericRenderer";
+import { GithubRenderer } from "./renderers/GithubRenderer";
+import { GlobRenderer } from "./renderers/GlobRenderer";
+import { GoalRenderer } from "./renderers/GoalRenderer";
+import { GrepRenderer } from "./renderers/GrepRenderer";
+import { HubRenderer } from "./renderers/HubRenderer";
+import { ImageRenderer } from "./renderers/ImageRenderer";
+import { LspRenderer } from "./renderers/LspRenderer";
+import { MCP_TOOL_NAME_PREFIX, McpRenderer, parseMcpToolName } from "./renderers/McpRenderer";
+import { MemoryRenderer } from "./renderers/MemoryRenderer";
+import { ReadRenderer } from "./renderers/ReadRenderer";
+import { ResolveRenderer } from "./renderers/ResolveRenderer";
+import { TaskRenderer } from "./renderers/TaskRenderer";
+import { ThinkRenderer } from "./renderers/ThinkRenderer";
+import { TodoRenderer } from "./renderers/TodoRenderer";
 import {
 	VibeKillRenderer,
 	VibeListRenderer,
 	VibeSendRenderer,
 	VibeSpawnRenderer,
 	VibeWaitRenderer,
-} from "./VibeRenderer";
-import { WebSearchRenderer } from "./WebSearchRenderer";
-import { WriteRenderer } from "./WriteRenderer";
-import { YieldRenderer } from "./YieldRenderer";
+} from "./renderers/VibeRenderer";
+import { WebSearchRenderer } from "./renderers/WebSearchRenderer";
+import { WriteRenderer } from "./renderers/WriteRenderer";
+import { YieldRenderer } from "./renderers/YieldRenderer";
+import type { ToolRendererProps } from "./ToolCard";
 
 export type { ToolRendererProps };
 

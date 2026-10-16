@@ -8,7 +8,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { buildHistoryRows } from "./chat-stream-utils";
-import { runSpan } from "./work-run";
+import { runSpan } from "./work/work-run";
 
 // What the card says at the turns of a real run, found by e2e/card-flows.e2e.ts:
 // a plan proposal, a question, a command beside new agents, a run cut off by a relaunch.

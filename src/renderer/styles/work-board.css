@@ -1,4 +1,4 @@
-/* Work board (components/layout/WorkBoard.tsx). Layout — the slot, the reserve it takes from the columns and
+/* Work board (components/layout/work-board/WorkBoard.tsx). Layout — the slot, the reserve it takes from the columns and
    the dock strips it replaces — lives in components.css; this file is how the board itself looks. Colourless
    first: text weights and hairlines carry the structure, colour appears only as a state (working = info,
    done = success, needs you = warning). */

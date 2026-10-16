@@ -13,8 +13,8 @@ import { I18nProvider } from "../../lib/i18n";
 import { type SubagentNode, useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { buildHistoryRows, type HistoryRow, liveWorkTail } from "./chat-stream-utils";
-import { resolveWorkGroup } from "./WorkStatus";
-import { workTurnStartedAt } from "./work-turn";
+import { resolveWorkGroup } from "./work/WorkStatus";
+import { workTurnStartedAt } from "./work/work-turn";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -28,9 +28,9 @@ Object.assign(window, {
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
 const { LiveStepPeek } = await import("./LiveStepPeek");
-const { WorkCrossfade } = await import("./WorkCrossfade");
-const { WorkNotes } = await import("./WorkNotes");
-const { EditRenderer } = await import("../tools/EditRenderer");
+const { WorkCrossfade } = await import("./work/WorkCrossfade");
+const { WorkNotes } = await import("./work/WorkNotes");
+const { EditRenderer } = await import("../tools/renderers/EditRenderer");
 
 const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
 const rule = (selector: string) =>

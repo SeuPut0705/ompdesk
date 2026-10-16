@@ -6,7 +6,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
-import { resolveWorkGroup } from "./WorkStatus";
+import { resolveWorkGroup } from "./work/WorkStatus";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {

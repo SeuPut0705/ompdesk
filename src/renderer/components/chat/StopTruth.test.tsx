@@ -8,7 +8,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { buildHistoryRows } from "./chat-stream-utils";
-import { agentGroupState, agentWorkState, isInterruptedError } from "./WorkStatus";
+import { agentGroupState, agentWorkState, isInterruptedError } from "./work/WorkStatus";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {

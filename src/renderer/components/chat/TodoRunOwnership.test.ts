@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { AgentMessage, TodoPhase } from "../../../shared/rpc-types";
 import { createTodoStore } from "../../stores/todo";
 import { buildHistoryRows, mergeTodoSnapshots } from "./chat-stream-utils";
-import { workTurnStartedAt } from "./work-turn";
+import { workTurnStartedAt } from "./work/work-turn";
 
 // Diagnostic timestamps/roles from the real Xw4UOX scenario journal (2026-10-12).
 // The screenshot projection omitted user2 and todo calls; keep that case beside

@@ -51,7 +51,7 @@ import {
 	Spinner,
 } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
-import { PathLink } from "../tools/PathLink";
+import { PathLink } from "../tools/media/PathLink";
 import { FileContentSearch } from "./FileContentSearch";
 import { PanelToolbar } from "./PanelChrome";
 import { EDITABLE_KINDS, FileEditor } from "./viewers/FileEditor";

@@ -14,8 +14,8 @@ import type { ToolsStore } from "../../stores/tools";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { routeCommands } from "../../test-support/route-commands";
-import { WorkOutcome } from "./WorkOutcome";
-import { workNarrative, workOutcomes } from "./work-view";
+import { WorkOutcome } from "./work/WorkOutcome";
+import { workNarrative, workOutcomes } from "./work/work-view";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -23,7 +23,7 @@ Object.assign(globalThis, { document, window, Event, HTMLElement, Node, IS_REACT
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
 const { ExecutionGroup } = await import("./ExecutionGroup");
-const { TaskRenderer } = await import("../tools/TaskRenderer");
+const { TaskRenderer } = await import("../tools/renderers/TaskRenderer");
 let root: Root;
 let container: HTMLElement;
 const commands: RpcCommand[] = [];

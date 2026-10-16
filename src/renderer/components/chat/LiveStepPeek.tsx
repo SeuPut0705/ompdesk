@@ -25,18 +25,18 @@ import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../..
 import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { selectToolEntry, type ToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
-import { isSilentCommand } from "../tools/BashRenderer";
 import { getToolHeader, getToolRenderer, type ToolHeader } from "../tools/index";
+import { isSilentCommand } from "../tools/renderers/BashRenderer";
 import { ToolPathTarget } from "../tools/ToolCard";
-import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./live-step";
-import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./stage-follow";
-import { WorkContext } from "./WorkContext";
-import { useWorkFrameOutgoing, WorkCrossfade, workMotionDuration } from "./WorkCrossfade";
-import { SubagentSurface, WorkMap } from "./WorkMap";
-import { WorkNotes } from "./WorkNotes";
-import { WorkOutcome } from "./WorkOutcome";
-import { isInterruptedError, type WorkGroupState, type WorkState, WorkStatus } from "./WorkStatus";
-import { isSkippedWork, lastReasoningSentence, workNarrative } from "./work-view";
+import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./work/live-step";
+import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./work/stage-follow";
+import { WorkContext } from "./work/WorkContext";
+import { useWorkFrameOutgoing, WorkCrossfade, workMotionDuration } from "./work/WorkCrossfade";
+import { SubagentSurface, WorkMap } from "./work/WorkMap";
+import { WorkNotes } from "./work/WorkNotes";
+import { WorkOutcome } from "./work/WorkOutcome";
+import { isInterruptedError, type WorkGroupState, type WorkState, WorkStatus } from "./work/WorkStatus";
+import { isSkippedWork, lastReasoningSentence, workNarrative } from "./work/work-view";
 
 const seenSteps = new WeakMap<
 	StoreApi<ToolsStore>,

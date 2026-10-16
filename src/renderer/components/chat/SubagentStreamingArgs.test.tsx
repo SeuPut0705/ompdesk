@@ -12,7 +12,7 @@ Object.assign(globalThis, { document, window, Event, HTMLElement, Node, IS_REACT
 // React DOM must load after linkedom globals are installed.
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
-const { BashRenderer } = await import("../tools/BashRenderer");
+const { BashRenderer } = await import("../tools/renderers/BashRenderer");
 
 const progress: AgentProgress = {
 	id: "Sleeper",

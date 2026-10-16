@@ -11,11 +11,11 @@ import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/t
 import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
-import { useRunOutcome, useRunStores } from "./use-work-run";
-import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./WorkStatus";
-import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work-run";
-import { messageSourceTimestamp } from "./work-turn";
-import { isSkippedWork } from "./work-view";
+import { useRunOutcome, useRunStores } from "./work/use-work-run";
+import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
+import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
+import { messageSourceTimestamp } from "./work/work-turn";
+import { isSkippedWork } from "./work/work-view";
 
 interface ExecutionGroupProps {
 	children: ReactNode;

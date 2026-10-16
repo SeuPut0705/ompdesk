@@ -16,9 +16,9 @@ import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { Badge, Button, CopyButton, IconButton } from "../common";
 import type { GalleryImage } from "../common/ZoomableImage";
-import { referencedFiles } from "../tools/chat-media";
+import { referencedFiles } from "../tools/media/chat-media";
+import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
-import { ToolImage } from "../tools/ToolImage";
 import { CustomMessageCard, isCustomMessageCardType, RecapCard } from "./CustomMessageCard";
 import { ReplyFiles } from "./ReplyFiles";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -26,7 +26,7 @@ import { TodoReminderNote } from "./TodoReminderNote";
 import { TurnErrorNotice } from "./TurnErrorNotice";
 import { parseTodoReminder } from "./todo-reminder";
 import { UsageRow } from "./UsageRow";
-import { isSilentAbort } from "./work-turn";
+import { isSilentAbort } from "./work/work-turn";
 
 export interface MessageBubbleProps {
 	message: AgentMessage;

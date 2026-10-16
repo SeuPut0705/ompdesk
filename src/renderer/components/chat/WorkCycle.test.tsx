@@ -10,7 +10,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { getToolSummary } from "../tools/index";
-import { workNarrative, workOutcomes } from "./work-view";
+import { workNarrative, workOutcomes } from "./work/work-view";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -27,7 +27,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
-const { WorkNotes } = await import("./WorkNotes");
+const { WorkNotes } = await import("./work/WorkNotes");
 
 const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
 let container: HTMLElement;

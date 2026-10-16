@@ -13,12 +13,12 @@ import { extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import type { ToolEntry } from "../../stores/tools";
-import type { ChatFileReference } from "../tools/chat-media";
 import { workFilePathKey } from "../tools/edit-args";
-import { FileCard } from "../tools/FileCard";
 import { getToolHeader } from "../tools/index";
-import { ChatMedia, HtmlPreview, ImageThumb, PdfThumb } from "../tools/ToolMedia";
-import { useRunStores } from "./use-work-run";
+import type { ChatFileReference } from "../tools/media/chat-media";
+import { FileCard } from "../tools/media/FileCard";
+import { ChatMedia, HtmlPreview, ImageThumb, PdfThumb } from "../tools/media/ToolMedia";
+import { useRunStores } from "./work/use-work-run";
 
 /** Paths of the pictures finished tool calls showed, per entry map (maps are replaced, never mutated). */
 const shownImages = new WeakMap<ReadonlyMap<string, ToolEntry>, readonly string[]>();

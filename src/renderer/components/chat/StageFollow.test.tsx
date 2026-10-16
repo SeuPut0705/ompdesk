@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newestHunkFocusRow } from "../../lib/diff";
 import { I18nProvider } from "../../lib/i18n";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
-import { revealLiveFocus } from "./stage-follow";
+import { revealLiveFocus } from "./work/stage-follow";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -23,9 +23,9 @@ Object.assign(window, {
 // React DOM must initialize only after the linkedom browser globals exist.
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
-const { EditRenderer } = await import("../tools/EditRenderer");
-const { WriteRenderer } = await import("../tools/WriteRenderer");
-const { ReadRenderer } = await import("../tools/ReadRenderer");
+const { EditRenderer } = await import("../tools/renderers/EditRenderer");
+const { WriteRenderer } = await import("../tools/renderers/WriteRenderer");
+const { ReadRenderer } = await import("../tools/renderers/ReadRenderer");
 
 interface Geometry {
 	top: number;

@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { GenericRenderer } from "./GenericRenderer";
 import { getToolRenderer, getToolSummary } from "./index";
+import { GenericRenderer } from "./renderers/GenericRenderer";
 import { ToolCard } from "./ToolCard";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");

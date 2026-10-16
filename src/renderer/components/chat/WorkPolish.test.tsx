@@ -26,7 +26,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
-const { WorkNotes } = await import("./WorkNotes");
+const { WorkNotes } = await import("./work/WorkNotes");
 const { OutputMeter } = await import("./TurnOutputMeter");
 
 const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");

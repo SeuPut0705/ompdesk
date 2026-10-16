@@ -13,7 +13,7 @@
  * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
  *    spec, or a spec whose file name or text mentions a changed source file's
- *    name (`layout/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`). That is a
+ *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`). That is a
  *    name match, not a dependency graph; the release gate (`bun run gate`)
  *    still runs every spec.
  * 3. A change to e2e shared support (harness, fixtures) matches no single spec:
@@ -46,7 +46,7 @@ const BIOME_DIRS = /^(?:src|e2e|resources|scripts)\//;
 const isTest = (file: string) => /\.(?:test|spec|bench)\.[cm]?[jt]sx?$/.test(file);
 
 /**
- * Words a source file answers to in a spec: `layout/WorkBoard.tsx` → work-board,
+ * Words a source file answers to in a spec: `layout/work-board/WorkBoard.tsx` → work-board,
  * workboard; `auto-title-core.ts` → auto-title-core and auto-title.
  */
 function names(file: string): string[] {

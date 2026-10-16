@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { CustomMessageCard, RecapCard, workNoteSummary } from "./CustomMessageCard";
-import { WorkNotes } from "./WorkNotes";
+import { WorkNotes } from "./work/WorkNotes";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;

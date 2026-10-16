@@ -7,7 +7,7 @@ import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { type SubagentNode, useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
-import { WorkCrossfade } from "./WorkCrossfade";
+import { WorkCrossfade } from "./work/WorkCrossfade";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });

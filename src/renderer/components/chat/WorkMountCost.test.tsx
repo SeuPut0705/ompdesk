@@ -14,8 +14,8 @@ const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
 // React DOM must initialize only after the linkedom browser globals exist.
 const { createRoot } = await import("react-dom/client");
-const { WorkCrossfade } = await import("./WorkCrossfade");
-const { BashRenderer } = await import("../tools/BashRenderer");
+const { WorkCrossfade } = await import("./work/WorkCrossfade");
+const { BashRenderer } = await import("../tools/renderers/BashRenderer");
 
 let root: Root;
 let container: HTMLElement;

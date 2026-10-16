@@ -27,7 +27,7 @@ const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
 const { MessageBubble } = await import("./MessageBubble");
 const { buildHistoryRows } = await import("./chat-stream-utils");
-const { workNarrative } = await import("./work-view");
+const { workNarrative } = await import("./work/work-view");
 
 const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
 let container: HTMLElement;

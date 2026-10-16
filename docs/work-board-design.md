@@ -1,7 +1,7 @@
 # Work board — design record
 
 The work board docks this session's live state in the right margin of a wide session pane
-(`layout/WorkBoard.tsx`, `styles/work-board.css`). This is how its look was chosen.
+(`layout/work-board/WorkBoard.tsx`, `styles/work-board.css`). This is how its look was chosen.
 
 ## References (patterns, not copies)
 

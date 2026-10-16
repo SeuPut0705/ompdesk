@@ -26,8 +26,8 @@ import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../sto
 import { Button, IconButton, Spinner, Tooltip } from "../common";
 import type { SettingsPage as LoadedSettingsPage } from "../settings/SettingsPage";
 import { PanelContainer } from "./PanelContainer";
-import { Sidebar } from "./Sidebar";
 import { SplitWorkspace } from "./SplitWorkspace";
+import { Sidebar } from "./sidebar/Sidebar";
 import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";

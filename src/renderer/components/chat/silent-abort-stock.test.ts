@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isSilentAbort } from "./work-turn";
+import { isSilentAbort } from "./work/work-turn";
 
 const stockModules = path.join(os.homedir(), ".bun/install/global/node_modules");
 

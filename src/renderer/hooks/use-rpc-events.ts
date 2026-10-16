@@ -32,7 +32,7 @@ import {
 	type SubagentFrame,
 	type TodoPhase,
 } from "../../shared/rpc-types";
-import { messageSourceTimestamp } from "../components/chat/work-turn";
+import { messageSourceTimestamp } from "../components/chat/work/work-turn";
 import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";

@@ -34,7 +34,7 @@ Object.assign(window, {
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
 const { ExecutionGroup } = await import("./ExecutionGroup");
-const { WorkContext } = await import("./WorkContext");
+const { WorkContext } = await import("./work/WorkContext");
 const { WorkspaceDock } = await import("./dock/WorkspaceDock");
 await import("./dock/TodoSortableList");
 async function flushFrame() {

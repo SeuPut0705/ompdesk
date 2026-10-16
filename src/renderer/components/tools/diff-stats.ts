@@ -1,7 +1,7 @@
 import { resultDetails, resultText } from "../../lib/format";
 import { xdevWriteTarget } from "../../lib/xdev";
-import { parseChangeGroups } from "./AstEditRenderer";
 import { editTextPair } from "./edit-args";
+import { parseChangeGroups } from "./renderers/AstEditRenderer";
 
 export interface DiffStats {
 	added: number;

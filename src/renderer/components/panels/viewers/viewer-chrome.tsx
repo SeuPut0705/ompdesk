@@ -11,7 +11,7 @@ import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useFocusedTabDevice, useHostView } from "../../../stores/remote";
 import { Button, IconButton, InlineNotice, Spinner } from "../../common";
-import { PathLink } from "../../tools/PathLink";
+import { PathLink } from "../../tools/media/PathLink";
 
 export interface FileInfo {
 	size: number;

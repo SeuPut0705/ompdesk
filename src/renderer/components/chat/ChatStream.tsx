@@ -39,7 +39,7 @@ import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools"
 import { useUiStore } from "../../stores/ui";
 import { BrandMark, Button, Kbd, Spinner } from "../common";
 import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
-import { ReadGroupCard } from "../tools/ReadGroupCard";
+import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
 import {
@@ -74,7 +74,7 @@ import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
-import { messageTimestampMs } from "./work-turn";
+import { messageTimestampMs } from "./work/work-turn";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
 // User intent is enforced separately by switching away from end anchoring.

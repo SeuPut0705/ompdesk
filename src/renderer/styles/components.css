@@ -3697,7 +3697,7 @@ button.omp-file-chip-name:hover {
 	transform: translate(-50%, -50%);
 }
 
-/* Composer "work is going on" cue (layout/ComposerLive.tsx). One accent light travels the box's border:
+/* Composer "work is going on" cue (layout/composer/ComposerLive.tsx). One accent light travels the box's border:
    the 1px ring is a static mask over the box's own edge and only the gradient layer inside it turns, so the
    compositor moves one layer (transform) and nothing repaints per frame. `turn` = the main turn runs;
    `background` = idle with agents or shells still working: fainter and slower. */

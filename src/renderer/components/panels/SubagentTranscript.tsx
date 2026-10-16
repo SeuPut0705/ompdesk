@@ -14,9 +14,9 @@ import { basename, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ReplyFiles } from "../chat/ReplyFiles";
 import { Banner, Button, EmptyState, Spinner } from "../common";
-import { referencedFiles } from "../tools/chat-media";
-import { ToolImage } from "../tools/ToolImage";
-import { ToolResultMedia } from "../tools/ToolMedia";
+import { referencedFiles } from "../tools/media/chat-media";
+import { ToolImage } from "../tools/media/ToolImage";
+import { ToolResultMedia } from "../tools/media/ToolMedia";
 import { registerTranscriptToolCalls } from "./subagent-graph";
 
 function messageText(message: AgentMessage): string {

@@ -27,9 +27,14 @@ import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
-import { asFileDiagnostics, DiagnosticsList, diagnosticsCount, type FileDiagnostics } from "../tools/Diagnostics";
+import {
+	asFileDiagnostics,
+	DiagnosticsList,
+	diagnosticsCount,
+	type FileDiagnostics,
+} from "../tools/renderers/Diagnostics";
 import { type AsyncResultJob, asyncResultJobs, launchCompletionDaemons } from "./completion-events";
-import { agentResultSummary } from "./work-view";
+import { agentResultSummary } from "./work/work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */
 const CARD_TYPES: Record<string, true> = {

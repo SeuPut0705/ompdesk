@@ -29,7 +29,7 @@ import { playChime } from "../../lib/notification-sound";
 import { RAIL_PIN_LABEL_KEYS, RAIL_PINS, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { migrateDefaultPanelTab, PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
 import { Button, Select } from "../common";
-import { RAIL_PIN_ICONS } from "../layout/rail-pin-icons";
+import { RAIL_PIN_ICONS } from "../layout/sidebar/rail-pin-icons";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";

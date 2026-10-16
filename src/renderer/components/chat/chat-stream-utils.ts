@@ -15,7 +15,7 @@ import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
 import { asyncResultJobs, completionFailureCount, isCompletionMessage } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
-import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work-turn";
+import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
 
 interface ProcessMeta {
 	stepCount: number;

@@ -6,11 +6,11 @@ import { useNowTick } from "../../lib/now-tick";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
-import { DiagnosticsChip, type FileDiagnostics, resultDiagnostics } from "./Diagnostics";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
-import { GenericRenderer } from "./GenericRenderer";
 import { getToolHeader, getToolRenderer } from "./index";
-import { ToolResultMedia } from "./ToolMedia";
+import { ToolResultMedia } from "./media/ToolMedia";
+import { DiagnosticsChip, type FileDiagnostics, resultDiagnostics } from "./renderers/Diagnostics";
+import { GenericRenderer } from "./renderers/GenericRenderer";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
