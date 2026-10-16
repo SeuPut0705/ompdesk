@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { closeToTrayEnabled } from "../shared/desktop-prefs";
 import {
 	assessQuitRisk,
 	lastWindowCloseAction,
@@ -80,14 +81,24 @@ describe("closing the last shown window", () => {
 		expect(close("win32", false)).toBe("quit");
 	});
 
-	it("hides to the tray when the user chose close-to-tray", () => {
+	it("hides to the tray unless the user turned close-to-tray off", () => {
 		expect(close("win32", true)).toBe("hide");
 	});
 
-	it("just closes once a quit is approved, and on macOS, which keeps running with no window", () => {
+	it("just closes once a quit is approved", () => {
 		expect(close("win32", false, true)).toBe("close");
 		expect(close("win32", true, true)).toBe("close");
-		expect(close("darwin", false)).toBe("close");
-		expect(close("darwin", true)).toBe("close");
+		expect(close("darwin", false, true)).toBe("close");
+	});
+
+	it("hides on macOS whatever the pref, so tabs and omp keep running and the Dock brings it back", () => {
+		expect(close("darwin", false)).toBe("hide");
+		expect(close("darwin", true)).toBe("hide");
+	});
+
+	it("reads the close-to-tray pref as on unless explicitly false", () => {
+		expect(closeToTrayEnabled(undefined)).toBe(true);
+		expect(closeToTrayEnabled(true)).toBe(true);
+		expect(closeToTrayEnabled(false)).toBe(false);
 	});
 });

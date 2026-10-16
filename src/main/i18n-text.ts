@@ -73,6 +73,11 @@ export const MAIN_TEXT = {
 	"menu.cut": { en: "Cut", ko: "오려두기" },
 	"menu.copy": { en: "Copy", ko: "복사하기" },
 	"menu.paste": { en: "Paste", ko: "붙여넣기" },
+	"tray.keepsRunningTitle": { en: "OMPdesk keeps running in the tray", ko: "OMPdesk는 트레이에서 계속 실행돼요" },
+	"tray.keepsRunningBody": {
+		en: "Click the tray icon to bring the window back. Quit from the tray menu.",
+		ko: "트레이 아이콘을 누르면 창이 돌아와요. 종료는 트레이 메뉴에서 해요.",
+	},
 	"menu.selectAll": { en: "Select All", ko: "전체 선택" },
 	"menu.reload": { en: "Reload", ko: "새로고침" },
 	"menu.forceReload": { en: "Force Reload", ko: "강제 새로고침" },

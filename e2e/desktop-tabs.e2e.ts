@@ -302,6 +302,37 @@ for (const [language, theme] of RUNS) {
 		expect(errors).toEqual([]);
 	});
 
+	test(`macOS: closing the last window hides it, the running turn continues, and the Dock brings the same window back (${language}-${theme})`, async () => {
+		test.skip(process.platform !== "darwin", "Dock activation is a macOS behaviour");
+		test.setTimeout(120_000);
+		const { app, page, errors } = await launch(language, theme);
+		const tab = await activeTab(page);
+		const input = page.locator("textarea").first();
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect.poll(async () => (await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
+		const windowState = () =>
+			app.evaluate(({ BrowserWindow }) => {
+				const windows = BrowserWindow.getAllWindows();
+				return {
+					count: windows.length,
+					id: windows[0]?.id ?? 0,
+					destroyed: windows[0]?.isDestroyed() ?? true,
+					visible: windows[0]?.isVisible() ?? false,
+				};
+			});
+		const before = await windowState();
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: false });
+		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
+		await app.evaluate(({ app: electronApp }) => electronApp.emit("activate"));
+		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: true });
+		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
+		await fixtureCommand(page, tab, "fixture:finish:markdown");
+		await expect.poll(async () => (await tabs(page)).find(item => item.tabId === tab)?.status).not.toBe("running");
+		expect(errors).toEqual([]);
+	});
+
 	test(`⌃⇥ switches to recent tabs, ⌘[ ⌘] go back and forward, ⇧⌘A searches, reorders and closes (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const { page, errors } = await launch(language, theme);

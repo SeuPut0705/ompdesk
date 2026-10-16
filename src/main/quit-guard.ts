@@ -42,9 +42,10 @@ export function quitNeedsConfirmation(risk: QuitRisk): boolean {
 export type LastWindowClose = "close" | "hide" | "quit";
 
 /**
- * Closing a window while no other window is shown. macOS keeps running with no window, and a quit
- * already approved lets every window close. Elsewhere close-to-tray hides it; otherwise the app quits
- * with it, and that quit is asked for before the window goes, like any quit: the confirmation for
+ * Closing a window while no other window is shown. An approved quit lets every window close.
+ * macOS hides it, so the window, its tabs and their omp processes keep running and the Dock icon
+ * shows the same window again. Elsewhere close-to-tray hides it; otherwise the app quits with it,
+ * and that quit is asked for before the window goes, like any quit: the confirmation for
  * running work, then the tabs end with the quit approved, so their resume markers stay
  * (turn-resume.ts). A window closed first ends its tabs as if their turns had finished, and
  * `window-all-closed` quits afterwards with neither.
@@ -52,10 +53,11 @@ export type LastWindowClose = "close" | "hide" | "quit";
 export function lastWindowCloseAction(facts: {
 	platform: NodeJS.Platform;
 	quitApproved: boolean;
-	/** A tray exists and Settings › General › Window has close-to-tray on. */
+	/** A tray exists and Settings › General › Window has close-to-tray on (not asked on macOS). */
 	closeToTray: boolean;
 }): LastWindowClose {
-	if (facts.quitApproved || facts.platform === "darwin") return "close";
+	if (facts.quitApproved) return "close";
+	if (facts.platform === "darwin") return "hide";
 	return facts.closeToTray ? "hide" : "quit";
 }
 

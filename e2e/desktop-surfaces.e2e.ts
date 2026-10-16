@@ -183,7 +183,8 @@ test("@smoke Windows: the Mica backdrop is on where the build has it, and closin
 	test.setTimeout(120_000);
 	// Not headless: the tray exists only in a real run (OMP_GUI_HEADLESS=1 skips it), and the window is really shown.
 	// Sized to fit the runner's 1024×768 screen, so the desktop capture shows the whole window and its caption buttons.
-	const launched = await launch("tray", { closeToTray: true }, undefined, { OMP_GUI_HEADLESS: "0" }, [1000, 680]);
+	// Close-to-tray is on by default: no pref is written.
+	const launched = await launch("tray", {}, undefined, { OMP_GUI_HEADLESS: "0" }, [1000, 680]);
 	try {
 		const { app, page } = launched;
 		const windowState = () =>

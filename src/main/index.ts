@@ -11,6 +11,7 @@ import {
 	BrowserWindow,
 	globalShortcut,
 	ipcMain,
+	Notification,
 	nativeImage,
 	net,
 	powerMonitor,
@@ -25,7 +26,9 @@ import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contr
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
+	CLOSE_TO_TRAY_NOTICE_PREF,
 	CLOSE_TO_TRAY_PREF,
+	closeToTrayEnabled,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
 	WORKTREE_AUTO_CLEAN_PREF,
@@ -752,8 +755,14 @@ app.whenReady().then(() => {
 		lastWindowCloseAction({
 			platform: process.platform,
 			quitApproved: quitApproved(),
-			closeToTray: hasTray() && prefs.get(CLOSE_TO_TRAY_PREF) === true,
+			closeToTray: hasTray() && closeToTrayEnabled(prefs.get(CLOSE_TO_TRAY_PREF)),
 		});
+	windowManager.lastWindowHidden = () => {
+		// macOS: the Dock icon is the way back and needs no explanation.
+		if (process.platform === "darwin" || prefs.get(CLOSE_TO_TRAY_NOTICE_PREF) === true) return;
+		prefs.set(CLOSE_TO_TRAY_NOTICE_PREF, true);
+		new Notification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
+	};
 	const workAwake = new KeepAwakePolicy({
 		blocker: {
 			start: () => powerSaveBlocker.start("prevent-app-suspension"),
@@ -940,9 +949,17 @@ app.whenReady().then(() => {
 
 // macOS: re-create window on dock click
 app.on("activate", () => {
-	if (windowManager && windowManager.getAllWindows().length === 0) {
+	if (!windowManager) return;
+	const windows = windowManager.getAllWindows();
+	if (windows.length === 0) {
 		spawnWindow();
+		return;
 	}
+	if (windows.some(win => win.isVisible())) return;
+	const win = windowManager.getTargetWindow() ?? windows[0];
+	if (win.isMinimized()) win.restore();
+	win.show();
+	win.focus();
 });
 
 // Quit on all windows closed (except macOS)

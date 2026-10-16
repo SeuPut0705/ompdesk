@@ -53,7 +53,7 @@ export function GeneralSection() {
 	const linkPreview = useUiStore(state => state.linkPreview);
 	const panelTab = useUiStore(state => state.panelTab);
 	const panelSide = useUiStore(state => state.panelSide);
-	const [closeToTray, setCloseToTray] = useMainPreference(CLOSE_TO_TRAY_PREF);
+	const [closeToTray, setCloseToTray] = useMainPreference(CLOSE_TO_TRAY_PREF, true);
 	const [keepAwake, setKeepAwake] = useMainPreference(KEEP_AWAKE_WORKING_PREF);
 	const [resumeInterrupted, setResumeInterrupted] = useMainPreference(RESUME_INTERRUPTED_PREF, true);
 	const languageId = useId();
@@ -194,6 +194,13 @@ export function GeneralSection() {
 						id="setting-gui-closeToTray"
 						label={t("settings.gui.closeToTray")}
 						onCheckedChange={setCloseToTray}
+					/>
+				)}
+				{PLATFORM === "mac" && (
+					<SettingsRow
+						description={t("settings.gui.closeToDockDesc")}
+						id="setting-gui-closeToDock"
+						label={t("settings.gui.closeToDock")}
 					/>
 				)}
 				<SettingsSwitchRow

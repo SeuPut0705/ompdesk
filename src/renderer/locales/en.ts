@@ -2082,7 +2082,10 @@ export const en: Record<string, string> = {
 	"settings.gui.panelSide.left": "Left",
 	"settings.gui.closeToTray": "Keep running in the tray when closed",
 	"settings.gui.closeToTrayDesc":
-		"Closing the last window hides it to the tray so its tabs keep working. Quit from the tray menu.",
+		"Closing the last window hides it to the tray so its tabs keep working. Quit from the tray menu. Turn off to quit when the last window closes.",
+	"settings.gui.closeToDock": "Closing the window keeps OMPdesk running",
+	"settings.gui.closeToDockDesc":
+		"Closing the last window hides it; running turns continue and the Dock icon brings it back. Quit with ⌘Q.",
 	"settings.gui.keepAwakeWorking": "Keep this computer awake while working",
 	"settings.gui.keepAwakeWorkingDesc":
 		"While any tab on this computer is running a turn, the system does not go to sleep. The display can still turn off.",

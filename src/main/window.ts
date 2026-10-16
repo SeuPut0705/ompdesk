@@ -98,6 +98,8 @@ export class WindowManager {
 
 	/** Installed at startup: what closing the last shown window does (`lastWindowCloseAction`, quit-guard.ts). */
 	lastWindowClose: (() => LastWindowClose) | null = null;
+	/** Installed at startup: the last shown window was just hidden (the one-time tray notice). */
+	lastWindowHidden: (() => void) | null = null;
 
 	constructor() {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
@@ -189,7 +191,10 @@ export class WindowManager {
 			const action = this.lastWindowClose?.() ?? "close";
 			if (action === "close") return;
 			event.preventDefault();
-			if (action === "hide") win.hide();
+			if (action === "hide") {
+				win.hide();
+				this.lastWindowHidden?.();
+			}
 			// The quit guard asks first; an approved quit then closes every window, this one included.
 			else app.quit();
 		});

@@ -2067,7 +2067,10 @@ export const ko: Record<string, string> = {
 	"settings.gui.panelSide.left": "왼쪽",
 	"settings.gui.closeToTray": "창을 닫아도 트레이에서 계속 실행",
 	"settings.gui.closeToTrayDesc":
-		"마지막 창을 닫으면 트레이로 숨겨서 탭이 계속 작업해요. 종료는 트레이 메뉴에서 해요.",
+		"마지막 창을 닫으면 트레이로 숨겨서 탭이 계속 작업해요. 종료는 트레이 메뉴에서 해요. 끄면 마지막 창을 닫을 때 종료해요.",
+	"settings.gui.closeToDock": "창을 닫아도 OMPdesk 계속 실행",
+	"settings.gui.closeToDockDesc":
+		"마지막 창을 닫으면 숨겨지고 진행 중인 작업은 계속돼요. Dock 아이콘을 누르면 돌아와요. 종료는 ⌘Q예요.",
 	"settings.gui.keepAwakeWorking": "작업 중에는 잠자기 막기",
 	"settings.gui.keepAwakeWorkingDesc":
 		"이 컴퓨터의 탭이 턴을 실행하는 동안 시스템이 잠자기에 들어가지 않아요. 화면은 꺼질 수 있어요.",
