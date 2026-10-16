@@ -267,26 +267,38 @@ button.omp-work-board-row:hover {
 	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
 }
 
-/* A thin sweep under a row that is working right now. */
-.omp-work-board-item[data-live]::after {
-	content: "";
+/* A thin sweep under a row that is working right now. The track clips a 35%-wide highlight that slides
+   across it by transform alone, so the compositor runs it: a moving background repainted the row every
+   frame (~28% of a core in the renderer and as much in the GPU process while agents ran). The keyframes
+   travel exactly the old background-position path, -40% to 140% of the free width (0.65 of the track),
+   in units of the highlight's own width (0.35 of the track). */
+.omp-work-board-sweep {
 	position: absolute;
 	inset-inline: var(--sc-space-1-5);
 	bottom: 0;
 	height: 1px;
-	background: linear-gradient(90deg, transparent, var(--sc-info), transparent) no-repeat;
-	background-size: 35% 100%;
+	overflow: hidden;
 	opacity: 0.45;
 	pointer-events: none;
+}
+
+.omp-work-board-sweep::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 35%;
+	height: 100%;
+	background: linear-gradient(90deg, transparent, var(--sc-info), transparent);
 	animation: omp-board-sweep 2.4s linear infinite; /* motion-ok: working signal */
 }
 
 @keyframes omp-board-sweep {
 	from {
-		background-position: -40% 0;
+		transform: translateX(-74.2857%);
 	}
 	to {
-		background-position: 140% 0;
+		transform: translateX(260%);
 	}
 }
 

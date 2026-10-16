@@ -208,6 +208,7 @@ function BoardRow({
 					{body}
 				</div>
 			)}
+			{live ? <span aria-hidden className="omp-work-board-sweep" /> : null}
 		</li>
 	);
 }
@@ -658,7 +659,8 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 						}
 						lead={
 							<Dot
-								live={goalStatus === "active"}
+								// An active goal between turns waits on nobody's work: a steady dot, no animation to draw.
+								live={goalStatus === "active" && turnActive}
 								tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"}
 							/>
 						}

@@ -70,63 +70,57 @@ export function tightestLimit(report: Pick<UsageReport, "limits">): { limit: Usa
 }
 
 /**
- * Re-reads quotas while `active` (see the module comment). `read` resolves to
- * whether the read succeeded; the surface does its own first read.
+ * Re-reads quotas until the returned stop runs (see the module comment). `read` resolves to whether the
+ * read succeeded; the caller does its own first read.
  */
+export function watchUsage(read: () => Promise<boolean>): () => void {
+	let timer: number | undefined;
+	let failures = 0;
+	let inFlight = false;
+	let disposed = false;
+	const schedule = () => {
+		window.clearTimeout(timer);
+		timer = window.setTimeout(() => void run(), usagePollDelay(failures));
+	};
+	const run = async () => {
+		if (disposed || inFlight) return;
+		// Hidden: nothing to update; the read on return to view catches up.
+		if (document.visibilityState === "hidden") return schedule();
+		inFlight = true;
+		window.clearTimeout(timer);
+		let ok = false;
+		try {
+			ok = await read();
+		} catch {
+			ok = false;
+		}
+		inFlight = false;
+		if (disposed) return;
+		failures = ok ? 0 : failures + 1;
+		schedule();
+	};
+	/** Focus, back in view, a turn's end: read now unless backing off. */
+	const event = () => {
+		if (failures === 0 && document.visibilityState !== "hidden") void run();
+	};
+	window.addEventListener("focus", event);
+	document.addEventListener("visibilitychange", event);
+	const unsubscribe = useUsageSignal.subscribe((state, previous) => {
+		if (state.turnEnds !== previous.turnEnds) event();
+	});
+	schedule();
+	return () => {
+		disposed = true;
+		window.clearTimeout(timer);
+		window.removeEventListener("focus", event);
+		document.removeEventListener("visibilitychange", event);
+		unsubscribe();
+	};
+}
+
+/** {@link watchUsage} while `active`, with the latest `read`. */
 export function useLiveUsage(read: () => Promise<boolean>, active: boolean): void {
 	const readRef = useRef(read);
 	readRef.current = read;
-	const nudge = useRef<(() => void) | null>(null);
-
-	useEffect(() => {
-		if (!active) return;
-		let timer: number | undefined;
-		let failures = 0;
-		let inFlight = false;
-		let disposed = false;
-		const schedule = () => {
-			window.clearTimeout(timer);
-			timer = window.setTimeout(() => void run(), usagePollDelay(failures));
-		};
-		const run = async () => {
-			if (disposed || inFlight) return;
-			// Hidden: nothing to update; the read on return to view catches up.
-			if (document.visibilityState === "hidden") return schedule();
-			inFlight = true;
-			window.clearTimeout(timer);
-			let ok = false;
-			try {
-				ok = await readRef.current();
-			} catch {
-				ok = false;
-			}
-			inFlight = false;
-			if (disposed) return;
-			failures = ok ? 0 : failures + 1;
-			schedule();
-		};
-		/** Focus, back in view, a turn's end: read now unless backing off. */
-		const event = () => {
-			if (failures === 0 && document.visibilityState !== "hidden") void run();
-		};
-		nudge.current = event;
-		window.addEventListener("focus", event);
-		document.addEventListener("visibilitychange", event);
-		schedule();
-		return () => {
-			disposed = true;
-			nudge.current = null;
-			window.clearTimeout(timer);
-			window.removeEventListener("focus", event);
-			document.removeEventListener("visibilitychange", event);
-		};
-	}, [active]);
-
-	const turnEnds = useUsageSignal(state => state.turnEnds);
-	const seen = useRef(turnEnds);
-	useEffect(() => {
-		if (seen.current === turnEnds) return;
-		seen.current = turnEnds;
-		nudge.current?.();
-	}, [turnEnds]);
+	useEffect(() => (active ? watchUsage(() => readRef.current()) : undefined), [active]);
 }

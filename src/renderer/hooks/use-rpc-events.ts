@@ -651,12 +651,14 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// the serial server queue) leaves status "ready" but blocks every
 		// command, including a lightweight get_state. A periodic probe detects
 		// that post-boot brick and surfaces the SidecarBanner (with Restart),
-		// which the one-shot boot health check cannot catch.
+		// which the one-shot boot health check cannot catch. A hidden window has
+		// no banner to show, so it skips the probe until it is back in view.
 		let heartbeat: ReturnType<typeof setInterval> | null = null;
 		const probing = new Set<string>();
 		const startHeartbeat = () => {
 			if (heartbeat) return;
 			heartbeat = setInterval(() => {
+				if (document.visibilityState === "hidden") return;
 				const ids = visibleTabIds(useTabsStore.getState());
 				if (ids.length === 0) ids.push("");
 				for (const probeTabId of ids) {

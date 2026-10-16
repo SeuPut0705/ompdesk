@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { writeFakeSsh } from "../src/main/ssh/test-fake-ssh";
-import { countIpc, measure, measureTree, PROBE } from "./frame-probe";
+import { countIpc, measure, measureTree, PROBE, type Ready } from "./frame-probe";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
 
@@ -24,14 +24,19 @@ import { tinyPdf } from "./tiny-pdf";
 // session file the sessions are cloned from (never written); the fake omp
 // serves the clones.
 //
-// OMP_GUI_FLOWS picks flows (comma list; default every flow but memory),
+// OMP_GUI_FLOWS picks flows (comma list; default every flow but memory and
+// daily, the 1600 px work board / usage gauges / suggestions day: idle shown
+// and hidden, streaming beside the live board, agents running after a turn,
+// typing with inline completion, tab switches, IPC calls per minute),
 // OMP_GUI_FLOW_RUNS runs per subject (default 3), OMP_GUI_FLOW_RUN_FROM the
 // first run's index (so runs split over several lock holds keep alternating),
 // OMP_GUI_FLOW_PARALLEL=1 runs a run's subjects side by side instead (for the
 // memory flow, whose half hour per subject is not frame-sensitive),
 // OMP_GUI_CANDIDATE_DIR and OMP_GUI_BASELINE_DIR the checkouts (each holding a
-// built `out/`) measured in alternating order, OMP_GUI_FLOW_OUT the JSON result
-// file, OMP_GUI_FLOW_MEMORY_MINUTES the memory flow's length (default 30).
+// built `out/`; a comma list of baselines names them before, before-2, …)
+// measured in alternating order, OMP_GUI_FLOW_OUT the JSON result file,
+// OMP_GUI_FLOW_MEMORY_MINUTES the memory flow's length (default 30),
+// OMP_GUI_FLOW_WIDTH the window's width (default 1440).
 
 const source = process.env.OMP_GUI_LIVE_SESSION_SOURCE;
 const flows = new Set(
@@ -41,7 +46,10 @@ const runs = Number(process.env.OMP_GUI_FLOW_RUNS ?? 3);
 const firstRun = Number(process.env.OMP_GUI_FLOW_RUN_FROM ?? 0);
 const subjects = [
 	{ name: "after", root: process.env.OMP_GUI_CANDIDATE_DIR ?? process.cwd() },
-	...(process.env.OMP_GUI_BASELINE_DIR ? [{ name: "before", root: process.env.OMP_GUI_BASELINE_DIR }] : []),
+	...(process.env.OMP_GUI_BASELINE_DIR?.split(",") ?? []).map((root, index) => ({
+		name: index === 0 ? "before" : `before-${index + 1}`,
+		root,
+	})),
 ];
 const results: object[] = [];
 
@@ -214,7 +222,12 @@ async function launch(
 	const launchedMs = Math.round(performance.now() - started);
 	const page = await app.firstWindow();
 	const windowMs = Math.round(performance.now() - started);
-	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+	// OMP_GUI_FLOW_WIDTH: a wider window (e.g. 1600, where the work board docks beside the transcript).
+	const width = Number(process.env.OMP_GUI_FLOW_WIDTH ?? 1440);
+	await app.evaluate(
+		({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]?.setContentSize(width, 900),
+		width,
+	);
 	return { app, page, launchedMs, windowMs };
 }
 
@@ -1533,6 +1546,145 @@ test.describe("flow performance", () => {
 		} finally {
 			server.close();
 		}
+	});
+
+	test("daily: work board, usage gauges and suggestions on a 1600 px window", async () => {
+		test.skip(!flows.has("daily"));
+		test.setTimeout(1_800_000);
+		await eachRun("daily", async (subject, run, where) => {
+			const seed = cloneSource(where);
+			const key = await tailKey(seed);
+			const { app, page } = await launch(subject.root, where, {
+				seed,
+				env: { OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_MODELS: "1" },
+			});
+			try {
+				await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000));
+				await sidecarReady(page);
+				await countIpc(app);
+				await reloadToTail(page, key);
+				await page.waitForTimeout(3000);
+				const pid = app.process().pid;
+				if (!pid) throw new Error("No main process id");
+				const first = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
+				if (!first) throw new Error("No active tab");
+				const control = (command: string) =>
+					page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
+				const span = (
+					name: string,
+					seconds: number,
+					options: { idle?: boolean; during?: () => Promise<void> } = {},
+				) =>
+					measureTree(pid, () =>
+						measure(app, page, `daily-${subject.name}-${run}-${name}`, seconds, options.during, {
+							idle: options.idle ?? true,
+						}),
+					);
+				const perMinute = (result: { ipcPerSecond: Record<string, number> }) =>
+					Math.round(Object.values(result.ipcPerSecond).reduce((sum, rate) => sum + rate, 0) * 60);
+				const board = page.locator("[data-work-board-panel]");
+				await control("fixture:title:Pane A");
+				// Three subscription accounts: the sidebar's and the board's usage gauges draw them.
+				await control("fixture:usage-accounts:3");
+
+				// A short turn, stopped: the board sums it up (last turn) beside the usage gauges.
+				await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture stream" }));
+				await page.waitForTimeout(2000);
+				await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
+				await page.waitForTimeout(3000);
+				const boardIdle = await board.count();
+				const idle = await span("idle", 60);
+				await setHidden(page, true);
+				const idleHidden = await span("idle-hidden", 30);
+				await setHidden(page, false);
+				await page.waitForTimeout(1000);
+
+				// Streaming with the board live: steps, three agents, todos, a goal, a question.
+				await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture stream" }));
+				await control("fixture:board");
+				await page.waitForTimeout(1500);
+				const boardStream = await board.count();
+				const stream = await span("stream", 15, { idle: false });
+				await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
+				await page.waitForTimeout(1500);
+				// The agents keep running after the turn (the question still waits): the board's clocks tick.
+				const agentsIdle = await span("agents-idle", 30);
+				await setHidden(page, true);
+				const agentsHidden = await span("agents-hidden", 30);
+				await setHidden(page, false);
+				for (const id of ["sa-explore", "sa-review", "sa-docs"]) await control(`fixture:subagents:finish:${id}`);
+				await page.waitForTimeout(1500);
+
+				// Typing with prompt suggestions (inline completion) on.
+				const input = page.locator('textarea[aria-label="Message"]').first();
+				await input.click();
+				await input.fill("");
+				const typing = await span("type", 8, {
+					idle: false,
+					during: () =>
+						input.pressSequentially("please make each settings row read as one dense line", { delay: 60 }),
+				});
+				await input.fill("");
+
+				// Switching between this session and a second one, by their sidebar rows.
+				const spawned = await page.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), where.project);
+				const second = spawned?.tabId;
+				if (!second) throw new Error("expected a second tab");
+				await expect
+					.poll(
+						async () =>
+							(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === second)?.status,
+						{
+							timeout: 120_000,
+						},
+					)
+					.toBe("ready");
+				await page.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Pane B" }),
+					second,
+				);
+				const rowOf = (title: string) => page.locator("[data-session-path]").filter({ hasText: title }).first();
+				await expect(rowOf("Pane B")).toBeVisible({ timeout: 30_000 });
+				const paneShows = (id: string) => {
+					const ready: Ready = Reflect.get(window, "__ompReady");
+					return ready.pane(id) ? performance.now() : 0;
+				};
+				const switchMs: number[] = [];
+				const switching = await span("switch", 1, {
+					idle: false,
+					during: async () => {
+						for (let turn = 0; turn < 3; turn++)
+							for (const [title, id] of [
+								["Pane B", second],
+								["Pane A", first],
+							] as const) {
+								await rowOf(title).click();
+								switchMs.push(await inputToFrame(page, paneShows, id));
+								await page.waitForTimeout(800);
+							}
+					},
+				});
+				return {
+					boardIdle,
+					boardStream,
+					ipcPerMinute: {
+						idle: perMinute(idle),
+						idleHidden: perMinute(idleHidden),
+						agentsIdle: perMinute(agentsIdle),
+					},
+					idle,
+					idleHidden,
+					stream,
+					agentsIdle,
+					agentsHidden,
+					typing,
+					switchMs,
+					switching,
+				};
+			} finally {
+				await exitApp(app);
+			}
+		});
 	});
 
 	test("memory: a long simulated stream", async () => {
