@@ -40,6 +40,12 @@ describe("isLauncherPath", () => {
 		"x.fileloc",
 		"run.sh",
 		"x.jar",
+		// python.org's install registers Python Launcher, which runs a script on open; an interpreter install can claim the others.
+		"x.py",
+		"x.pyw",
+		"x.pyz",
+		"x.pl",
+		"x.rb",
 	])("refuses %s on macOS", async name => {
 		expect(await isLauncherPath(file(name), "darwin")).toBe(true);
 	});
@@ -60,6 +66,15 @@ describe("isLauncherPath", () => {
 		"x.jar",
 		"x.exe.",
 		"x.exe ",
+		"x.chm",
+		"x.settingcontent-ms",
+		"x.website",
+		"x.appinstaller",
+		"x.xll",
+		"x.wsc",
+		"x.sct",
+		"x.theme",
+		"x.themepack",
 	])("refuses %s on Windows", async name => {
 		expect(await isLauncherPath(path.join(dir, name), "win32")).toBe(true);
 	});
@@ -93,7 +108,7 @@ describe("isLauncherPath", () => {
 	});
 
 	it("keeps ordinary documents, source and directories openable", async () => {
-		for (const name of ["a.txt", "a.md", "a.ts", "a.png", "a.pdf", "a.json", "a.py", "a.html"]) {
+		for (const name of ["a.txt", "a.md", "a.ts", "a.png", "a.pdf", "a.json", "a.html"]) {
 			expect(await isLauncherPath(file(name), "darwin")).toBe(false);
 		}
 		const folder = path.join(dir, "docs");

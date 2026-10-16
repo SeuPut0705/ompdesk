@@ -8,8 +8,28 @@
 import { promises as fsp } from "node:fs";
 import path from "node:path";
 
-/** Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). */
-const COMMON_LAUNCHER_EXTENSIONS = [".app", ".command", ".sh", ".jar", ".bat", ".cmd", ".exe", ".com", ".lnk", ".url"];
+/**
+ * Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). Scripts an
+ * interpreter's install can claim are here too: python.org's Python Launcher runs a `.py` on open on macOS, and a
+ * file a repo or the agent writes rarely carries the exec bit the POSIX check below needs.
+ */
+const COMMON_LAUNCHER_EXTENSIONS = [
+	".app",
+	".command",
+	".sh",
+	".jar",
+	".bat",
+	".cmd",
+	".exe",
+	".com",
+	".lnk",
+	".url",
+	".py",
+	".pyw",
+	".pyz",
+	".pl",
+	".rb",
+];
 
 const MAC_LAUNCHER_EXTENSIONS = [
 	".tool",
@@ -66,11 +86,17 @@ const WINDOWS_LAUNCHER_EXTENSIONS = [
 	".diagcab",
 	".library-ms",
 	".search-ms",
-	".py",
-	".pyw",
-	".pyz",
-	".rb",
-	".pl",
+	".settingcontent-ms",
+	".website",
+	".appinstaller",
+	// Compiled help runs embedded script; an Excel add-in loads native code; scriptlets run script.
+	".chm",
+	".xll",
+	".wsc",
+	".sct",
+	// A theme fetches its resources from a path it names (a remote share leaks NTLM credentials).
+	".theme",
+	".themepack",
 ];
 
 const LAUNCHER_EXTENSIONS: Record<"win32" | "posix", readonly string[]> = {
