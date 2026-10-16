@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
 
@@ -151,5 +151,30 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 			input.close();
 			child.kill();
 		}
+	});
+});
+
+describe("SessionIndex watcher", () => {
+	it("reports new session files at both depths and none of the other files beside them", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-session-watch-"));
+		tempDirs.push(dir);
+		const artifacts = path.join(dir, "project-x", "session-one");
+		await fs.mkdir(artifacts, { recursive: true });
+		await fs.writeFile(path.join(artifacts, "tool-output.md"), "before\n");
+		const index = new SessionIndex(dir, dir);
+		indexes.push(index);
+		let changes = 0;
+		index.onChange = () => {
+			changes += 1;
+		};
+		index.start();
+		// A real OS watcher, so the order of the writes is the signal: a change for the plan (it should get none)
+		// would land before the subagent file's and make the first count 2.
+		await fs.writeFile(path.join(artifacts, "plan.md"), "a plan\n");
+		await fs.writeFile(path.join(artifacts, "subagent.jsonl"), "{}\n");
+		await vi.waitFor(() => expect(changes).toBe(1), { timeout: 5000 });
+		await fs.writeFile(path.join(artifacts, "plan.md"), "a longer plan\n");
+		await fs.writeFile(path.join(dir, "project-x", "session-two.jsonl"), "{}\n");
+		await vi.waitFor(() => expect(changes).toBe(2), { timeout: 5000 });
 	});
 });

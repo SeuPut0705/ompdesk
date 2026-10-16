@@ -83,10 +83,20 @@ function manualChunks(id: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * electron-vite ships every target unminified. Whitespace and syntax minification
+ * (identifiers kept, so stacks in the runtime log and the feedback form still read
+ * as source names) cut out/ from 23 to 17 MB; startup changed by ~10 ms, since V8
+ * parses lazily — this is about package size.
+ */
+const KEEP_NAMES = { minifyIdentifiers: false };
+
 export default defineConfig({
 	main: {
+		esbuild: KEEP_NAMES,
 		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS })],
 		build: {
+			minify: "esbuild",
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/main/index.ts") },
 				// original-fs: Electron's asar-unaware fs (updater.ts); a runtime builtin, never a package.
@@ -95,8 +105,10 @@ export default defineConfig({
 		},
 	},
 	preload: {
+		esbuild: KEEP_NAMES,
 		plugins: [externalizeDepsPlugin()],
 		build: {
+			minify: "esbuild",
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/preload/index.ts") },
 				external: ["electron"],
@@ -105,6 +117,7 @@ export default defineConfig({
 		},
 	},
 	renderer: {
+		esbuild: KEEP_NAMES,
 		plugins: [tailwindcss()],
 		resolve: {
 			alias: {
@@ -113,6 +126,7 @@ export default defineConfig({
 			},
 		},
 		build: {
+			minify: "esbuild",
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/renderer/index.html") },
 				output: {

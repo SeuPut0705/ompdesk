@@ -30,8 +30,20 @@ class FakeSession extends EventEmitter {
 			this.handled.set(scheme, handler);
 		},
 	};
+	userAgent: [string, string?] = ["Mozilla/5.0 Electron"];
+	readonly availableSpellCheckerLanguages = ["en-US", "de-DE"];
 	setPermissionRequestHandler(): void {}
 	setPermissionCheckHandler(): void {}
+	getUserAgent(): string {
+		return this.userAgent[0];
+	}
+	setUserAgent(userAgent: string, acceptLanguages?: string): void {
+		this.userAgent = [userAgent, acceptLanguages];
+	}
+	getSpellCheckerLanguages(): string[] {
+		return ["en-US"];
+	}
+	setSpellCheckerLanguages(): void {}
 	async setProxy(config: unknown): Promise<void> {
 		this.proxy = config;
 	}
@@ -115,7 +127,7 @@ class FakeWindow extends EventEmitter {
 
 // The factory only builds lookups; the fakes above are used when the host calls them.
 vi.mock("electron", () => ({
-	app: { getPath: () => "/tmp" },
+	app: { getPath: () => "/tmp", getPreferredSystemLanguages: () => ["de-DE"] },
 	dialog: {},
 	ipcMain: { handle: (channel: string, handler: unknown) => electron.handlers.set(channel, handler) },
 	BrowserWindow: { fromWebContents: (sender: FakeContents) => sender.window },
@@ -195,6 +207,8 @@ describe("preview host", () => {
 		register();
 		const first = openWindow();
 		await first.ask({ action: "clearProblems" });
+		// The packaged locales leave Chromium on en-US; pages get the system's languages instead.
+		expect(sessionOf(`preview-${first.win.id}`).userAgent).toEqual(["Mozilla/5.0 Electron", "de-DE,de,en-US,en"]);
 		const web = sessionOf(`preview-${first.win.id}`);
 		const visual = sessionOf(`preview-visual-${first.win.id}`);
 		await first.ask({ action: "dispose" });

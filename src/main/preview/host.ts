@@ -33,6 +33,7 @@ import {
 	previewUrl,
 	VISUAL_SCHEME,
 } from "../../shared/preview";
+import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
@@ -441,6 +442,10 @@ export function registerPreviewHost(
 			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 			partition.setPermissionCheckHandler(() => false);
 		}
+		// Pages see the user's languages, not the en-US the packaged locales leave Chromium (system-languages.ts).
+		const languages = app.getPreferredSystemLanguages();
+		applyAcceptLanguages(web, languages);
+		seedSpellchecker(web, languages, process.platform);
 		// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
 		visual.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
 		// Neither session saves files. A web page's download may go to the system browser instead; a visual's

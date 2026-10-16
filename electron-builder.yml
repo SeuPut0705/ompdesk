@@ -96,6 +96,14 @@ publish:
   owner: SeuPut0705
   repo: ompdesk
 
-# NO `electronLanguages` here on purpose — see the note in
-# electron-builder.win.yml: exact-basename matching deleted every `locales/*.pak`,
-# and the missing `en-US.pak` makes Chromium abort the renderer (issue #12).
+# Electron's locale files: only en-US (Chromium's hard fallback; a build without
+# `en-US.pak` aborts the renderer at startup, issue #12) and ko, the UI's other
+# language. electron-builder keeps a file whose name equals a listed language or
+# prefixes it (`en.lproj` here), so "en" alone would delete them all.
+# scripts/after-pack.cjs fails the package unless exactly these survive. Saves
+# ~42 MB unpacked (~10 MB of the DMG). Chromium's locale is then en-US for other
+# system languages; the spellchecker and the Preview's Accept-Language follow
+# the system's languages instead (src/main/system-languages.ts).
+electronLanguages:
+  - en-US
+  - ko

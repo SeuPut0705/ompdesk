@@ -95,6 +95,7 @@ import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
+import { seedSpellchecker } from "./system-languages";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
@@ -400,9 +401,11 @@ function persistTabLayouts(): void {
 	// No live window means the app is quitting (or idle in the dock), not that
 	// the session was abandoned — writing an empty set would wipe the restore.
 	if (layouts.length === 0) return;
+	// electron-store rewrites and fsyncs the whole file on every set or delete (~4 ms each, on the main thread),
+	// and this runs on every tab change: write only what changed. Compared as stored (JSON drops `undefined`).
 	const store = prefsStore();
-	store.set("tabLayouts", layouts);
-	store.delete("tabLayout");
+	if (JSON.stringify(store.get("tabLayouts")) !== JSON.stringify(layouts)) store.set("tabLayouts", layouts);
+	if (store.has("tabLayout")) store.delete("tabLayout");
 }
 
 /** Reopen one saved window: its tabs in order, at the layout's active cwd. */
@@ -484,6 +487,8 @@ app.whenReady().then(() => {
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
 	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
+	// The windows' spellchecker follows the system language, not the en-US the trimmed locales leave (system-languages.ts).
+	seedSpellchecker(session.defaultSession, app.getPreferredSystemLanguages(), process.platform);
 
 	// Tools setup installed into the managed dir (PortableGit, Node/gh archives)
 	// reach every process spawned from here on, sidecars included.

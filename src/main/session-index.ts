@@ -59,6 +59,10 @@ export class SessionIndex {
 			persistent: true,
 			ignoreInitial: false,
 			depth: 2,
+			// Only `.jsonl` events reach #invalidate. A session's artifact dir holds hundreds of other files (tool
+			// output, plans), and chokidar sets up a watcher per file it keeps: on a 2.8k-file tree that was 140 ms
+			// of main-process CPU during startup. Directories always pass, so new sessions are still seen.
+			ignored: (path, stats) => stats?.isFile() === true && !path.endsWith(".jsonl"),
 			awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
 		});
 

@@ -1,9 +1,12 @@
 /**
- * Guard for the packaged app's launch: every bare specifier the main bundle still
- * imports at runtime has to exist inside the .app. In this nested checkout bun
- * hoists most packages to the monorepo root, so electron-builder's node_modules
- * traversal misses them and the installed app dies with ERR_MODULE_NOT_FOUND
- * before the window appears. Run after `electron-vite build`.
+ * Guards for the packaged app's launch, run after `electron-vite build`:
+ * - every bare specifier the main bundle still imports at runtime has to exist
+ *   inside the .app. In this nested checkout bun hoists most packages to the
+ *   monorepo root, so electron-builder's node_modules traversal misses them and
+ *   the installed app dies with ERR_MODULE_NOT_FOUND before the window appears.
+ *   The bundle is minified, so its imports are read by a parser, not a line regex.
+ * - axe-core (the e2e accessibility audit's engine, a devDependency) never ships
+ *   in the renderer.
  */
 
 import * as fs from "node:fs/promises";
@@ -12,7 +15,9 @@ import { fileURLToPath } from "node:url";
 
 // `URL.pathname` keeps a leading slash on Windows (`/E:/…`), which no API opens.
 const BUNDLE = fileURLToPath(new URL("../out/main/index.js", import.meta.url));
-const IMPORT_SPECIFIER = /^\s*(?:import|export)[^\n]*?\sfrom\s+["']([^"']+)["']/gm;
+const RENDERER_ASSETS = fileURLToPath(new URL("../out/renderer/assets/", import.meta.url));
+/** A property name only axe-core's source carries; it survives minification. */
+const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 
 // `original-fs` is not in `builtinModules` but Electron always resolves it: it is
 // the asar-bypassing alias of `fs`, which is exactly what reads app files.
@@ -26,9 +31,8 @@ const allowed = new Set<string>([
 
 const external = new Set<string>();
 const source = await fs.readFile(BUNDLE, "utf8");
-for (const match of source.matchAll(IMPORT_SPECIFIER)) {
-	const specifier = match[1];
-	if (!specifier || allowed.has(specifier) || specifier.startsWith("./") || specifier.startsWith("../")) continue;
+for (const { path: specifier } of new Bun.Transpiler({ loader: "js" }).scanImports(source)) {
+	if (allowed.has(specifier) || specifier.startsWith("./") || specifier.startsWith("../")) continue;
 	external.add(specifier);
 }
 
@@ -40,4 +44,12 @@ if (external.size > 0) {
 	process.exit(1);
 }
 
-console.log("main bundle is self-contained: no un-bundled runtime imports");
+for (const name of await fs.readdir(RENDERER_ASSETS)) {
+	if (!/\.m?js$/.test(name)) continue;
+	if ((await fs.readFile(RENDERER_ASSETS + name, "utf8")).includes(AXE_MARKER)) {
+		console.error(`out/renderer/assets/${name} bundles axe-core, which is for the e2e audit only.`);
+		process.exit(1);
+	}
+}
+
+console.log("main bundle is self-contained: no un-bundled runtime imports; the renderer ships no axe-core");

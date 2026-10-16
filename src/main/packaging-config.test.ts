@@ -18,6 +18,7 @@ interface BuilderConfig {
 	appId?: string;
 	productName?: string;
 	afterPack?: string;
+	electronLanguages?: string[];
 	extraResources?: { from: string; to: string }[];
 	protocols?: { name: string; schemes?: string[] }[];
 	mac?: {
@@ -43,6 +44,28 @@ type AfterPackHook = (context: {
 	appOutDir: string;
 	packager: { appInfo: { productFilename: string } };
 }) => Promise<void>;
+
+/** The directories a packaged app keeps Electron's locale files in, under `appOutDir`. */
+const LOCALE_DIRS: Record<string, { dirs: string[]; ext: string }> = {
+	darwin: {
+		dirs: [
+			"OMPdesk.app/Contents/Resources",
+			"OMPdesk.app/Contents/Frameworks/Electron Framework.framework/Resources",
+		],
+		ext: ".lproj",
+	},
+	win32: { dirs: ["locales"], ext: ".pak" },
+};
+
+/** A packaged app's locale directories holding `names` (with the platform's extension). */
+async function fakeLocales(appOutDir: string, platform: string, names: string[]): Promise<void> {
+	const { dirs, ext } = LOCALE_DIRS[platform] ?? { dirs: [], ext: "" };
+	for (const dir of dirs) {
+		await fs.promises.rm(path.join(appOutDir, dir), { recursive: true, force: true });
+		await fs.promises.mkdir(path.join(appOutDir, dir), { recursive: true });
+		for (const name of names) await fs.promises.writeFile(path.join(appOutDir, dir, `${name}${ext}`), "");
+	}
+}
 
 const PRIVACY_KEYS = [
 	"NSMicrophoneUsageDescription",
@@ -201,6 +224,7 @@ describe("mac bundle configs", () => {
 		};
 		try {
 			await fs.promises.mkdir(path.dirname(plistPath), { recursive: true });
+			await fakeLocales(directory, "darwin", ["en", "ko"]);
 			for (const { file, config } of configs) {
 				await savePlistFile(plistPath, original);
 				const hookPath = config.afterPack;
@@ -221,6 +245,36 @@ describe("mac bundle configs", () => {
 					},
 				});
 			}
+		} finally {
+			await fs.promises.rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps only Electron's en-US and ko locales on both platforms, and the package fails otherwise", async () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			// electron-builder keeps a file whose name equals a listed language or prefixes it: `en` alone matches
+			// no `en-US.pak` and deleted all of them once (issue #12, a blank window on Windows).
+			expect(config.electronLanguages, file).toEqual(["en-US", "ko"]);
+			expect(config.afterPack, file).toBe("scripts/after-pack.cjs");
+		}
+		const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-locales-"));
+		const run = (platform: string) =>
+			afterPack({
+				electronPlatformName: platform,
+				appOutDir: directory,
+				packager: { appInfo: { productFilename: "OMPdesk" } },
+			});
+		try {
+			await fakeLocales(directory, "win32", ["en-US", "ko"]);
+			await expect(run("win32")).resolves.toBeUndefined();
+			for (const names of [["ko"], [], ["de", "en-US", "ko"]]) {
+				await fakeLocales(directory, "win32", names);
+				await expect(run("win32"), names.join(",")).rejects.toThrow(/expected exactly en-US\.pak, ko\.pak/);
+			}
+			await fakeLocales(directory, "darwin", ["en_GB", "en", "ko"]);
+			await expect(run("darwin")).rejects.toThrow(/expected exactly en\.lproj, ko\.lproj/);
 		} finally {
 			await fs.promises.rm(directory, { recursive: true, force: true });
 		}

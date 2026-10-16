@@ -4,12 +4,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { acceptLanguages } from "../src/main/system-languages";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 test("@smoke isolated Preview loads a local HTTP page without shell privileges", async () => {
 	test.setTimeout(120_000);
 	const screenshotDir = process.env.OMP_GUI_PREVIEW_SCREENSHOTS ?? path.join(os.tmpdir(), "ompdesk-preview-captures");
+	const acceptLanguage: (string | undefined)[] = [];
 	const server = createServer((request, response) => {
+		if (request.url === "/") acceptLanguage.push(request.headers["accept-language"]);
 		if (request.url === "/slow") {
 			response.writeHead(200, { "Content-Type": "text/html" });
 			response.flushHeaders();
@@ -42,7 +45,9 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		// `--lang=de` stands for a system language whose locale file the package trims: Chromium alone would send
+		// German first; the Preview sends the system's own languages (src/main/system-languages.ts).
+		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`, "--lang=de"],
 		env,
 	});
 	try {
@@ -59,6 +64,14 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 		await page.getByRole("textbox", { name: "Preview URL" }).fill(url);
 		await page.getByRole("textbox", { name: "Preview URL" }).press("Enter");
 		await expect(page.locator("[data-preview-status]")).toHaveText("Local preview fixture");
+		const preferred = await app.evaluate(({ app }) => app.getPreferredSystemLanguages());
+		expect(preferred.length).toBeGreaterThan(0);
+		expect(
+			acceptLanguage
+				.at(-1)
+				?.split(",")
+				.map(part => part.split(";")[0]),
+		).toEqual(acceptLanguages(preferred).split(","));
 		const security = await app.evaluate(async ({ webContents }) => {
 			const child = webContents
 				.getAllWebContents()
