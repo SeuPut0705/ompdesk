@@ -37,11 +37,11 @@ import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
-import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
 import { notificationSummary } from "../lib/notification-summary";
+import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
 import {
 	claimsLoginRequest,
