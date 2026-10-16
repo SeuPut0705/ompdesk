@@ -302,6 +302,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases:
 			"cli tools update upgrade automatically auto claude code codex gemini cursor agent copilot gh github cli node 도구 자동 업데이트 업그레이드 클로드 코덱스 제미나이 커서",
 	},
+	{
+		id: "extensionAutoUpdate",
+		section: "updates",
+		labelKey: "extensionUpdate.auto",
+		aliases:
+			"extensions plugins marketplaces skills mcp servers update upgrade automatically auto 확장 플러그인 마켓플레이스 스킬 서버 자동 업데이트 업그레이드",
+	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{
 		id: "followAgentTheme",

@@ -21,6 +21,7 @@ import {
 	MarketplaceManager,
 } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { classifyActivation, type PluginActivation, pluginRequiresRestart } from "./activation-core";
 
 /** The GUI's params object; anything else reads as empty. */
 export function paramsOf(params: unknown): Record<string, unknown> {
@@ -91,49 +92,14 @@ export async function createMarketplaceManager(cwd: string): Promise<Marketplace
 	});
 }
 
-export type PluginActivation = "live" | "restart-required";
-
-/**
- * Whether a manifest ships executable entry points (extensions/tools/hooks) on
- * the base manifest or on a feature that would load. Those bind only at
- * session creation, so touching them needs a sidecar restart; commands and
- * skills hot-reload.
- */
-function pluginRequiresRestart(plugin: ScopedInstalledPlugin): boolean {
-	return (["extensions", "tools", "hooks"] as const).some(key => resolvePluginManifestEntries(plugin, key).length > 0);
-}
-
-function sameFeatures(left: string[] | null, right: string[] | null): boolean {
-	if (left === null || right === null) return left === right;
-	if (left.length !== right.length) return false;
-	const rightSet = new Set(right);
-	return left.every(feature => rightSet.has(feature));
-}
+export type { PluginActivation };
 
 /** Classify a completed plugin mutation by diffing the effective runtime state on each side. */
 export function classifyPluginActivation(
 	before: readonly ScopedInstalledPlugin[],
 	after: readonly ScopedInstalledPlugin[],
 ): PluginActivation {
-	const beforeByName = new Map(before.map(plugin => [plugin.name, plugin]));
-	const afterByName = new Map(after.map(plugin => [plugin.name, plugin]));
-	for (const name of new Set([...beforeByName.keys(), ...afterByName.keys()])) {
-		const previous = beforeByName.get(name);
-		const next = afterByName.get(name);
-		if (
-			previous &&
-			next &&
-			previous.path === next.path &&
-			previous.version === next.version &&
-			sameFeatures(previous.enabledFeatures, next.enabledFeatures)
-		) {
-			continue;
-		}
-		if ((previous && pluginRequiresRestart(previous)) || (next && pluginRequiresRestart(next))) {
-			return "restart-required";
-		}
-	}
-	return "live";
+	return classifyActivation(before, after, plugin => pluginRequiresRestart(plugin, resolvePluginManifestEntries));
 }
 
 export function errorMessage(error: unknown): string {

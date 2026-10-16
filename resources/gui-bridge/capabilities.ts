@@ -527,7 +527,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"PluginManager.prototype.setEnabledFeatures()",
 				"PluginManager.prototype.setPluginSetting()",
 				"PluginManager.prototype.deletePluginSetting()",
+				"PluginManager.prototype.upgrade()",
 			],
+			[`${AGENT}/extensibility/plugins/git-url`]: ["parseGitUrl()"],
+			[`${AGENT}/cli/npm-registry`]: ["loadNpmRegistryResolver()", "npmRegistryPackageUrl()"],
 			[`${AGENT}/extensibility/plugins/marketplace`]: [
 				"classifySource()",
 				"parsePluginId()",
@@ -546,8 +549,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"MarketplaceManager.prototype.uninstallPlugin()",
 				"MarketplaceManager.prototype.upgradePlugin()",
 				"MarketplaceManager.prototype.setPluginEnabled()",
+				// The Updates section's extension updater (stock-helper/extensions.ts) checks and upgrades through these.
+				"MarketplaceManager.prototype.checkForUpdates()",
 			],
-			[UTILS]: ["pathIsWithin()"],
+			[UTILS]: ["pathIsWithin()", "getPluginsPackageJson()"],
 		},
 	},
 	skills: {
@@ -579,6 +584,19 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"Setting.prototype.provenance()",
 			],
 			[UTILS]: ["parseFrontmatter()"],
+			// The Updates section's extension updater reads these in the stock helper's `extensions` worker
+			// (stock-helper/extensions.ts): registry-skill installs, skill discovery for the plugin/local counts.
+			[`${AGENT}/config/settings`]: ["Settings.loadReadOnly()", "Settings.prototype.extensionsSourceLevel()"],
+			[`${AGENT}/discovery`]: ["initializeWithSettings()", "loadCapability()"],
+			[`${AGENT}/extensibility/settings`]: ["cfgSkills.get()", "cfgDisabledExtensions.get()", "cfgExtensions.get()"],
+			[`${AGENT}/extensibility/skills`]: ["loadSkills()"],
+			[`${AGENT}/skillshare/client`]: [
+				"SkillshareClient.create()",
+				"SkillshareClient.prototype.packument()",
+				"SkillshareClient.prototype.close()",
+			],
+			[`${AGENT}/skillshare/installer`]: ["listInstalledSkills()", "resolveSkillVersion()", "updateSkillPackages()"],
+			[`${AGENT}/skillshare/manifest`]: ["getProjectSkillsInstallPaths()"],
 		},
 	},
 	agents: {

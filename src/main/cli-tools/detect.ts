@@ -160,7 +160,8 @@ export function probeOutput(
 	return promise;
 }
 
-function packageVersion(root: string): string | null {
+/** The `version` a package dir's package.json records (npm and Bun global installs). */
+export function packageVersion(root: string): string | null {
 	try {
 		const manifest: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 		const version =

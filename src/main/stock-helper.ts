@@ -16,10 +16,19 @@ const RECYCLE_GRACE_MS = 30_000;
 
 /** Terminals (`terminal.*`, `pty.*`) run in their own worker: it holds every live shell, so it never ends
  * because a session scan or model validation hung; the stock worker can then be replaced without a notice
- * to anyone. Everything else shares the stock worker's serial lane. */
-export type HelperWorker = "stock" | "terminals";
+ * to anyone. The extensions worker (`extensions.*`) is a serial lane of its own: a plugin upgrade runs
+ * `bun install` for minutes and must neither block the stock lane nor be recycled as hung. Everything else
+ * shares the stock worker's serial lane. */
+export type HelperWorker = "stock" | "terminals" | "extensions";
 export function helperWorker(method: string): HelperWorker {
-	return method.startsWith("terminal.") || method.startsWith("pty.") ? "terminals" : "stock";
+	if (method.startsWith("terminal.") || method.startsWith("pty.")) return "terminals";
+	if (method.startsWith("extensions.")) return "extensions";
+	return "stock";
+}
+
+/** Per-request options; `timeoutMs` replaces the 30 s default for calls that legitimately run long. */
+export interface StockHelperRequestOptions {
+	timeoutMs?: number;
 }
 
 export interface StockHelperOptions {
@@ -155,13 +164,14 @@ export class StockHelper {
 		child.kill();
 	}
 
-	request<T>(method: string, params: unknown): Promise<T> {
+	request<T>(method: string, params: unknown, options: StockHelperRequestOptions = {}): Promise<T> {
 		const id = ++this.#sequence;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 		// Armed before the worker starts, so a start that never finishes fails the request too.
 		let child: ChildProcessWithoutNullStreams | null = null;
 		// Only this request fails at first, and the worker is told to skip it if it has not started. The stock
-		// worker is replaced only when its lane then stays silent past the grace; the terminals worker never is.
+		// worker is replaced only when its lane then stays silent past the grace; the terminals and extensions
+		// workers never are (a plugin upgrade may run for minutes, a live shell must not be lost).
 		const timer = setTimeout(() => {
 			this.#pending.delete(id);
 			reject(new Error("omp stock helper request timed out"));
@@ -173,7 +183,7 @@ export class StockHelper {
 				id,
 				setTimeout(() => this.#recycle(worker, method), this.#recycleGraceMs),
 			);
-		}, this.#requestTimeoutMs);
+		}, options.timeoutMs ?? this.#requestTimeoutMs);
 		this.#pending.set(id, { resolve, reject, timer });
 		const failed = (error: Error) => {
 			clearTimeout(timer);
@@ -216,16 +226,23 @@ export function configureStockHelper(bridgeDir: string): void {
 	bridgeDirectory = bridgeDir;
 }
 
-export function stockHelperRequest<T>(method: string, params: unknown = {}): Promise<T> {
+export function stockHelperRequest<T>(
+	method: string,
+	params: unknown = {},
+	options: StockHelperRequestOptions = {},
+): Promise<T> {
 	const worker = helperWorker(method);
 	helpers[worker] ??= new StockHelper(bridgeDirectory, { worker });
-	return helpers[worker].request<T>(method, params);
+	return helpers[worker].request<T>(method, params, options);
 }
 
-/** Ends both workers (an omp update, app quit); the next request starts them again. */
+/** Ends all three workers (an omp update, app quit); the next request starts them again. */
 export function stopStockHelper(): Promise<void> {
-	const stopping = Promise.all([helpers.stock?.stop(), helpers.terminals?.stop()]).then(() => undefined);
+	const stopping = Promise.all([helpers.stock?.stop(), helpers.terminals?.stop(), helpers.extensions?.stop()]).then(
+		() => undefined,
+	);
 	delete helpers.stock;
 	delete helpers.terminals;
+	delete helpers.extensions;
 	return stopping;
 }

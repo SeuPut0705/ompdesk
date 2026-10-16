@@ -53,6 +53,7 @@ const AREAS: readonly Area[] = [
 	{ name: "extensions/mcp", features: ["mcp"], load: () => import("./extensions/mcp") },
 	{ name: "extensions/plugins", features: ["plugins"], load: () => import("./extensions/plugins") },
 	{ name: "extensions/skills", features: ["skills"], load: () => import("./extensions/skills") },
+	{ name: "extensions/update", features: ["plugins", "mcp"], load: () => import("./extensions/update") },
 	{ name: "modes/plan", features: ["planMode"], load: () => import("./modes/plan") },
 	{ name: "modes/vibe", features: ["vibeMode"], load: () => import("./modes/vibe") },
 	{ name: "modes/goal", features: ["goalMode"], load: () => import("./modes/goal") },

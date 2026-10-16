@@ -121,7 +121,7 @@ function inputToServerConfig(raw: unknown): MCPServerConfig {
  * OAuth step stay outside, so a cancel can overtake a login.
  */
 let mcpReloadChain: Promise<void> = Promise.resolve();
-function serializeMcpReload<T>(reload: () => Promise<T>): Promise<T> {
+export function serializeMcpReload<T>(reload: () => Promise<T>): Promise<T> {
 	const result = mcpReloadChain.then(reload, reload);
 	mcpReloadChain = result.then(
 		() => undefined,

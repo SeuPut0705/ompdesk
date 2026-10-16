@@ -26,6 +26,7 @@ import {
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
 import { CliUpdateRows } from "./CliUpdateRows";
+import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
 import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingInfo, SettingsSection } from "./SettingsLayout";
 
@@ -159,6 +160,7 @@ export function MachineSetupSection() {
 				<InlineNotice title={t("machineSetup.checking")} tone="pending" />
 			)}
 			{state && <CliUpdateRows />}
+			{state && <ExtensionUpdateRows />}
 		</SettingsSection>
 	);
 }

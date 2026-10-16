@@ -120,6 +120,22 @@ describe("StockHelper request timeout", () => {
 		expect(children).toHaveLength(1);
 	});
 
+	it("never recycles the extensions worker: a plugin upgrade may run past any request timeout", async () => {
+		const { helper, children } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "extensions" });
+		await expect(helper.request("hang", {})).rejects.toThrow("timed out");
+		await sleep(400);
+		expect(gone(children[0])).toBe(false);
+		expect(children).toHaveLength(1);
+	});
+
+	it("lets one request carry its own timeout, longer or shorter than the helper's default", async () => {
+		const { helper } = await helperOnWorker(100);
+		// slow takes 600 ms: the default 100 ms would cut it, an explicit 5 s does not.
+		await expect(helper.request("slow", {}, { timeoutMs: 5000 })).resolves.toBe("slow");
+		const shortened = await helperOnWorker(5000);
+		await expect(shortened.helper.request("hang", {}, { timeoutMs: 100 })).rejects.toThrow("timed out");
+	});
+
 	it("times a request out even while its worker never finishes starting", async () => {
 		const helper = new StockHelper(dir, {
 			requestTimeoutMs: 100,
@@ -141,12 +157,15 @@ describe("StockHelper request timeout", () => {
 });
 
 describe("helperWorker", () => {
-	it("sends terminals and PTYs to their own worker, everything else to the stock lane", () => {
+	it("sends terminals and PTYs to their own worker, extension calls to the extensions lane, everything else to the stock lane", () => {
 		expect(helperWorker("terminal.request")).toBe("terminals");
 		expect(helperWorker("terminal.dispose")).toBe("terminals");
 		expect(helperWorker("pty.request")).toBe("terminals");
+		expect(helperWorker("extensions.inventory")).toBe("extensions");
+		expect(helperWorker("extensions.plugin.upgrade")).toBe("extensions");
 		expect(helperWorker("sessions.list")).toBe("stock");
 		expect(helperWorker("models.validate")).toBe("stock");
+		expect(helperWorker("accounts.providers")).toBe("stock");
 	});
 });
 

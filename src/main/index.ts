@@ -30,7 +30,7 @@ import {
 } from "../../resources/gui-bridge/next-prompt-contracts";
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
-import { REA_PREF } from "../shared/builtin-mcp";
+import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	CLOSE_TO_TRAY_NOTICE_PREF,
@@ -40,6 +40,7 @@ import {
 	RESUME_INTERRUPTED_PREF,
 	WORKTREE_AUTO_CLEAN_PREF,
 } from "../shared/desktop-prefs";
+import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
@@ -55,6 +56,8 @@ import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/update
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { registerExtensionUpdateIpc } from "./ext-update/ipc";
+import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
@@ -320,6 +323,7 @@ let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
+let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
@@ -479,6 +483,9 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
+	const builtinDir = app.isPackaged
+		? join(process.resourcesPath, "omp-builtin")
+		: join(devResourcesDir, "omp-builtin");
 	const sessionKinds = new SessionKindStore(join(app.getPath("userData"), "session-kinds.json"));
 	// gui-bridge compatibility warnings: once per omp version per launch, taken by whichever window asks first.
 	const bridgeHealth = new BridgeHealth(() => {
@@ -487,7 +494,7 @@ app.whenReady().then(() => {
 	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
-		builtinDir: app.isPackaged ? join(process.resourcesPath, "omp-builtin") : join(devResourcesDir, "omp-builtin"),
+		builtinDir,
 		builtinReaPref: () => prefsStore().get(REA_PREF),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,
@@ -763,12 +770,48 @@ app.whenReady().then(() => {
 	});
 	cliUpdater = cliToolUpdater;
 	registerCliUpdateIpc(ipcMain, cliToolUpdater);
+	// The marketplaces, plugins, skills and MCP servers of this computer's omp keep current too
+	// (src/main/ext-update/, pref `extensionAutoUpdate`): stock's own refresh and upgrade run in the stock
+	// helper's `extensions` worker, an MCP server's global binary is updated by the package manager that owns
+	// it, and the live local tabs (this computer's own and the ones it hosts for paired devices) pick up the
+	// result between turns. A test launch needs the fake installer and OMP_GUI_TEST_EXT_UPDATES=1.
+	const extensionToolUpdater = new ExtensionUpdater({
+		scheduled: testInstaller
+			? process.env.OMP_GUI_TEST_EXT_UPDATES === "1"
+			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+		enabled: () => prefs.get(EXTENSION_AUTO_UPDATE_PREF) !== false,
+		platform: platform === "win32" ? "win32" : "darwin",
+		toolsDir,
+		helper: <T>(method: string, params: unknown, timeoutMs: number) =>
+			stockHelperRequest<T>(method, params, { timeoutMs }),
+		cwds: () => [...new Set([...sidecarPool.workspaceDirs(), ...hostServices.workspaceDirs()])],
+		reaRoot: builtinDir,
+		reaEnabled: () => reaEnabled(prefs.get(REA_PREF)),
+		env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		testInstaller,
+		// While omp is installed the stock helper is stopped; a request would start it again.
+		blocked: () => updater.state().phase !== "idle",
+		runUpdate: request => setup.runToolUpdate(request),
+		processes: psCommands,
+		apply: plan => {
+			sidecarPool.applyExtensionUpdate(plan);
+			hostServices.applyExtensionUpdate(plan);
+		},
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.EXTENSION_UPDATE_STATE, state);
+			}
+		},
+	});
+	extensionUpdater = extensionToolUpdater;
+	registerExtensionUpdateIpc(ipcMain, extensionToolUpdater);
 	void setup
 		.start()
 		.catch(() => undefined)
 		.then(() => {
 			updater.start();
 			cliToolUpdater.start();
+			extensionToolUpdater.start();
 		});
 	githubAuthService = createGithubAuthService(
 		state => {
@@ -951,6 +994,7 @@ app.whenReady().then(() => {
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
+			if (key === EXTENSION_AUTO_UPDATE_PREF) extensionToolUpdater.prefChanged();
 			if (key === "themeName" || key === "theme") {
 				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 			}
@@ -1037,6 +1081,7 @@ installQuitGuard(
 		void statsServer?.kill();
 		ompUpdater?.dispose();
 		cliUpdater?.dispose();
+		extensionUpdater?.dispose();
 		setupService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();

@@ -49,6 +49,7 @@ import {
 import type { TerminalOperation } from "../../shared/terminal-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
+import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import type { MachineServices } from "../machine-services";
 import { ompRestartDecision } from "../omp-restart";
@@ -163,6 +164,8 @@ interface HostTab extends RunTracking {
 	signIns?: string[];
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
 	ompRestartPending?: boolean;
+	/** An extension update landed during a turn: applied one tick after it ends. */
+	extensionPending?: ExtensionApplyPlan;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -785,6 +788,7 @@ export class LocalHostServices implements HostServices {
 			if (busyChanged) {
 				this.#runningChanged();
 				this.#scheduleOmpRestart(tab);
+				this.#scheduleExtensionApply(tab);
 			}
 			if (busyChanged || news) this.#resume?.sync();
 		};
@@ -857,6 +861,48 @@ export class LocalHostServices implements HostServices {
 			if (![...this.#tabs.values()].includes(tab)) return;
 			tab.ompRestartPending = false;
 			tab.sidecar.restart(undefined, tab.sessionFile);
+		});
+	}
+
+	/** Working directories of the tabs hosted for paired devices, distinct, in order. */
+	workspaceDirs(): string[] {
+		return [...new Set([...this.#tabs.values()].map(tab => tab.sidecar.cwd))];
+	}
+
+	/** An extension update landed on this computer: hosted tabs apply it like the computer's own (extension-reload.ts). */
+	applyExtensionUpdate(plan: ExtensionApplyPlan): number {
+		let waiting = 0;
+		for (const tab of this.#tabs.values()) {
+			const decision = extensionApplyDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
+			if (decision === "skip") continue;
+			if (decision === "wait") {
+				tab.extensionPending = tab.extensionPending ? mergeApplyPlans(tab.extensionPending, plan) : plan;
+				waiting++;
+				continue;
+			}
+			this.#applyExtensionPlan(tab, plan);
+		}
+		return waiting;
+	}
+
+	#applyExtensionPlan(tab: HostTab, plan: ExtensionApplyPlan): void {
+		if (plan.restart) {
+			tab.extensionPending = undefined;
+			tab.sidecar.restart(undefined, tab.sessionFile);
+			return;
+		}
+		void tab.sidecar.reloadExtensions?.(plan)?.catch(() => {});
+	}
+
+	#scheduleExtensionApply(tab: HostTab): void {
+		if (!tab.extensionPending || runBusy(tab.run)) return;
+		setImmediate(() => {
+			const plan = tab.extensionPending;
+			if (!plan || runBusy(tab.run) || tab.sidecar.status !== "ready") return;
+			if (![...this.#tabs.values()].includes(tab)) return;
+			tab.extensionPending = undefined;
+			if (tab.ompRestartPending) return;
+			this.#applyExtensionPlan(tab, plan);
 		});
 	}
 

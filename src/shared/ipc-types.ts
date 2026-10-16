@@ -6,6 +6,7 @@
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
@@ -118,6 +119,8 @@ export const IPC_EVENTS = {
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
 	/** The tool CLIs' automatic updates changed (src/main/cli-tools/updater.ts); payload is the whole CliUpdateState. */
 	CLI_UPDATE_STATE: "cli-update:state",
+	/** The extensions' automatic updates changed (src/main/ext-update/); payload is the whole ExtensionUpdateState. */
+	EXTENSION_UPDATE_STATE: "extension-update:state",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
 	GITHUB_AUTH_STATE: "github-auth:state",
 } as const;
@@ -298,6 +301,10 @@ export const IPC_COMMANDS = {
 	CLI_UPDATE_GET_STATE: "cli-update:get-state",
 	/** Check and update one tool (a CliToolId) or all now, whatever the pref says (runs in the background) */
 	CLI_UPDATE_NOW: "cli-update:now",
+	/** The extensions' automatic updates (src/main/ext-update/): whole ExtensionUpdateState snapshot */
+	EXTENSION_UPDATE_GET_STATE: "extension-update:get-state",
+	/** Check and update one row (an ExtensionRow key) or all now, whatever the pref says (runs in the background) */
+	EXTENSION_UPDATE_NOW: "extension-update:now",
 	/** GitHub sign-in on this machine: whole GithubAuthState, re-checked when stale (`force` re-checks now) */
 	GITHUB_AUTH_REFRESH: "github-auth:refresh",
 	/** Start `gh auth login --web` (ends any live sign-in) */
@@ -1592,6 +1599,13 @@ export interface OmpApi {
 		/** Check and update `tool` (or every listed tool) now, whatever the pref says; progress arrives through `onState`. */
 		now(tool?: CliToolId): Promise<void>;
 		onState(callback: (state: CliUpdateState) => void): () => void;
+	};
+	/** This computer's marketplaces, plugins, skills and MCP servers, kept current by its own updater. */
+	extensionUpdate: {
+		getState(): Promise<ExtensionUpdateState>;
+		/** Check and update the row `key` (or every row) now, whatever the pref says; progress arrives through `onState`. */
+		now(key?: string): Promise<void>;
+		onState(callback: (state: ExtensionUpdateState) => void): () => void;
 	};
 	/** This machine's GitHub CLI sign-in; remote tabs never use it (their host signs in on its own). */
 	githubAuth: {

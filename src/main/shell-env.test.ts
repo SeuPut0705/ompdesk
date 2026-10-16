@@ -365,6 +365,40 @@ describe("SidecarManager spawn env", () => {
 		}
 	});
 
+	it("reloadExtensions() sends extension_update.reload, then extension_update.reconnect with the names", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-extreload-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const binaryPath = await writeFakeOmp(tempDir, loggingBridgeOmp(logPath));
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			bridgeDir: tempDir,
+			replyLanguage: () => "Korean",
+		});
+		try {
+			sidecar.start();
+			// The connect-time push proves the bridge is up.
+			await expect
+				.poll(() => bridgeRequests(logPath, "reply_language_set"), { timeout: 5_000, interval: 25 })
+				.toHaveLength(1);
+			await sidecar.reloadExtensions({ reload: true, reconnect: ["alpha", "beta"] });
+			expect(await bridgeRequests(logPath, "extension_update.reload")).toEqual([null]);
+			expect(await bridgeRequests(logPath, "extension_update.reconnect")).toEqual([{ names: ["alpha", "beta"] }]);
+			const log = await fs.readFile(logPath, "utf8");
+			expect(log.indexOf("extension_update.reload")).toBeLessThan(log.indexOf("extension_update.reconnect"));
+
+			await sidecar.reloadExtensions({ reload: false, reconnect: [] });
+			expect(await bridgeRequests(logPath, "extension_update.reload")).toHaveLength(1);
+			expect(await bridgeRequests(logPath, "extension_update.reconnect")).toHaveLength(1);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("passes the account-rotation mode and ledger at spawn and pushes the mode on connect and on syncAccountRotation()", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-rotation-"));
 		const logPath = path.join(tempDir, "bridge.jsonl");

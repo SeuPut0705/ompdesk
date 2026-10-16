@@ -56,7 +56,9 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/config/model-roles": () => import("@oh-my-pi/pi-coding-agent/config/model-roles"),
 	"@oh-my-pi/pi-coding-agent/config/prompt-templates": () =>
 		import("@oh-my-pi/pi-coding-agent/config/prompt-templates"),
+	"@oh-my-pi/pi-coding-agent/cli/npm-registry": () => import("@oh-my-pi/pi-coding-agent/cli/npm-registry"),
 	"@oh-my-pi/pi-coding-agent/config/registry": () => import("@oh-my-pi/pi-coding-agent/config/registry"),
+	"@oh-my-pi/pi-coding-agent/config/settings": () => import("@oh-my-pi/pi-coding-agent/config/settings"),
 	"@oh-my-pi/pi-coding-agent/discovery": () => import("@oh-my-pi/pi-coding-agent/discovery"),
 	"@oh-my-pi/pi-coding-agent/discovery/helpers": () => import("@oh-my-pi/pi-coding-agent/discovery/helpers"),
 	"@oh-my-pi/pi-coding-agent/export/share": () => import("@oh-my-pi/pi-coding-agent/export/share"),
@@ -66,6 +68,10 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/extensibility/plugins/manager"),
 	"@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace": () =>
 		import("@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace"),
+	"@oh-my-pi/pi-coding-agent/extensibility/plugins/git-url": () =>
+		import("@oh-my-pi/pi-coding-agent/extensibility/plugins/git-url"),
+	"@oh-my-pi/pi-coding-agent/extensibility/settings": () => import("@oh-my-pi/pi-coding-agent/extensibility/settings"),
+	"@oh-my-pi/pi-coding-agent/extensibility/skills": () => import("@oh-my-pi/pi-coding-agent/extensibility/skills"),
 	"@oh-my-pi/pi-coding-agent/goals/settings": () => import("@oh-my-pi/pi-coding-agent/goals/settings"),
 	"@oh-my-pi/pi-coding-agent/internal-urls": () => import("@oh-my-pi/pi-coding-agent/internal-urls"),
 	"@oh-my-pi/pi-coding-agent/internal-urls/router": () => import("@oh-my-pi/pi-coding-agent/internal-urls/router"),
@@ -135,6 +141,9 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/session/ttsr-outputs": () => import("@oh-my-pi/pi-coding-agent/session/ttsr-outputs"),
 	"@oh-my-pi/pi-coding-agent/session/turn-persistence": () =>
 		import("@oh-my-pi/pi-coding-agent/session/turn-persistence"),
+	"@oh-my-pi/pi-coding-agent/skillshare/client": () => import("@oh-my-pi/pi-coding-agent/skillshare/client"),
+	"@oh-my-pi/pi-coding-agent/skillshare/installer": () => import("@oh-my-pi/pi-coding-agent/skillshare/installer"),
+	"@oh-my-pi/pi-coding-agent/skillshare/manifest": () => import("@oh-my-pi/pi-coding-agent/skillshare/manifest"),
 	"@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions": () =>
 		import("@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions"),
 	"@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry": () =>

@@ -1209,6 +1209,12 @@ if (process.argv[2] === "stats") {
 					? [{ feature: process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE, missing: ["fixture"] }]
 					: [],
 		}),
+		// gui-bridge extensions/update.ts: the requests land in OMP_GUI_TEST_RECORD like every bridge request.
+		"extension_update.reload": () => ({ ok: true }),
+		"extension_update.reconnect": params => ({
+			reconnected: Array.isArray(params.names) ? params.names : [],
+			skipped: [],
+		}),
 		// gui-bridge browser-relay.ts: stock's own relay server, loaded from the installed omp
 		// only when a spec names it (OMP_E2E_STOCK_RELAY = stock's tools/browser/relay/server.ts).
 		// The endpoint lands in OMP_E2E_RELAY_FILE so the spec can connect puppeteer to it.

@@ -975,6 +975,17 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	/**
+	 * An extension update landed: the live session reloads plugin state, then stock reconnects the MCP
+	 * servers whose package changed. Rejects on a bridge failure (the caller ignores it).
+	 */
+	async reloadExtensions(plan: { reload: boolean; reconnect: string[] }): Promise<void> {
+		const bridge = this.#bridge;
+		if (!bridge) throw new Error("Bridge is disconnected");
+		if (plan.reload) await bridge.request("extension_update.reload");
+		if (plan.reconnect.length > 0) await bridge.request("extension_update.reconnect", { names: plan.reconnect });
+	}
+
+	/**
 	 * Push the current reply language to this omp (gui-bridge
 	 * `reply_language_set`); its next turn's system prompt follows. Fire-and-
 	 * forget like syncImageGeneration: an unconnected bridge syncs on connect.

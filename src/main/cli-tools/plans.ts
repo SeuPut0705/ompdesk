@@ -31,7 +31,7 @@ export interface PlanTools {
 }
 
 /** A Windows `.cmd` shim (npm's) runs through cmd.exe, quoted the way omp's own shim is. */
-function command(file: string, args: string[], env: Record<string, string> = {}): CliCommand {
+export function command(file: string, args: string[], env: Record<string, string> = {}): CliCommand {
 	const platform = /\.(cmd|bat)$/i.test(file) ? "win32" : "darwin";
 	return {
 		spawn: {
@@ -44,7 +44,7 @@ function command(file: string, args: string[], env: Record<string, string> = {})
 }
 
 /** npm's Windows launcher is `npm.cmd`; the bare `npm` beside it is a POSIX shell script Windows cannot start. */
-const NPM_BIN = { win32: "npm.cmd", darwin: "npm" } as const;
+export const NPM_BIN = { win32: "npm.cmd", darwin: "npm" } as const;
 
 /** The npm that owns `prefix` (its own, else the first on PATH, always aimed at that prefix). */
 function npmFor(prefix: string, tools: PlanTools): string | null {
@@ -64,7 +64,7 @@ function winget(tools: PlanTools): string | null {
 }
 
 /** `bun pm view <name> version`, the newest version on the registry Bun is configured with. */
-function bunView(bun: string, name: string, env: Record<string, string> = {}): CliCommand {
+export function bunView(bun: string, name: string, env: Record<string, string> = {}): CliCommand {
 	return { ...command(bun, ["pm", "view", name, "version"], env), packageDir: true };
 }
 
@@ -73,15 +73,28 @@ function bunView(bun: string, name: string, env: Record<string, string> = {}): C
  * (cursor-agent, gh-copilot) or the owner is machine setup's archive (checked through its release feed).
  */
 export function checkCommand(detection: CliDetection, owner: CliOwner, tools: PlanTools): CliCommand | null {
-	const spec = CLI_TOOL_SPECS[detection.id];
 	switch (owner.method) {
 		case "self": {
+			const spec = CLI_TOOL_SPECS[detection.id];
 			if (spec.self?.checks !== "registry" || !spec.npm) return null;
 			const npm = findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
 			if (npm) return command(npm, ["view", spec.npm, "version"]);
 			const bun = findExecutable([tools.platform === "win32" ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
 			return bun ? bunView(bun, spec.npm) : null;
 		}
+		case "managed":
+			return null;
+		default:
+			return ownerCheckCommand(owner, tools);
+	}
+}
+
+/** The owners that are a package manager's own install (shared with the MCP servers' binaries, ext-update/mcp-plans.ts). */
+export type PackageOwner = Extract<CliOwner, { method: "brew" | "brew-cask" | "npm" | "bun" | "winget" }>;
+
+/** The read-only check of a package manager's install; the one implementation both updaters use. */
+export function ownerCheckCommand(owner: PackageOwner, tools: PlanTools): CliCommand | null {
+	switch (owner.method) {
 		case "npm": {
 			const npm = npmFor(owner.prefix, tools);
 			return npm ? command(npm, ["view", owner.name, "version"]) : null;
@@ -108,8 +121,6 @@ export function checkCommand(detection: CliDetection, owner: CliOwner, tools: Pl
 					])
 				: null;
 		}
-		case "managed":
-			return null;
 	}
 }
 
@@ -161,11 +172,17 @@ export function updateCommand(
 	latest: string | null,
 	tools: PlanTools,
 ): CliCommand | null {
-	const spec = CLI_TOOL_SPECS[detection.id];
+	if (owner.method === "self") {
+		const spec = CLI_TOOL_SPECS[detection.id];
+		return spec.self ? command(detection.path, [...spec.self.args]) : null;
+	}
+	return ownerUpdateCommand(owner, latest, tools);
+}
+
+/** A package manager's own update of the install it owns (`latest` pins npm/Bun to it; null means `@latest`). */
+export function ownerUpdateCommand(owner: PackageOwner, latest: string | null, tools: PlanTools): CliCommand | null {
 	const target = (name: string) => (latest ? `${name}@${latest}` : `${name}@latest`);
 	switch (owner.method) {
-		case "self":
-			return spec.self ? command(detection.path, [...spec.self.args]) : null;
 		case "npm": {
 			const npm = npmFor(owner.prefix, tools);
 			return npm ? command(npm, ["install", "-g", "--prefix", owner.prefix, target(owner.name)]) : null;

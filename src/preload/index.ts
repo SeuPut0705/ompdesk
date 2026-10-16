@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
 import type { BuiltinReaState } from "../shared/builtin-mcp";
 import type { CliToolId, CliUpdateState } from "../shared/cli-update";
+import type { ExtensionUpdateState } from "../shared/extension-update";
 import type { GithubAuthState, GithubStarState } from "../shared/github-auth";
 import type {
 	CustomProviderInput,
@@ -287,6 +288,13 @@ const api: OmpApi = {
 		now: (tool?: CliToolId) => ipcRenderer.invoke(IPC_COMMANDS.CLI_UPDATE_NOW, tool) as Promise<void>,
 		onState: (callback: (state: CliUpdateState) => void) =>
 			subscribe<CliUpdateState>(IPC_EVENTS.CLI_UPDATE_STATE, callback),
+	},
+
+	extensionUpdate: {
+		getState: () => ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UPDATE_GET_STATE) as Promise<ExtensionUpdateState>,
+		now: (key?: string) => ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UPDATE_NOW, key) as Promise<void>,
+		onState: (callback: (state: ExtensionUpdateState) => void) =>
+			subscribe<ExtensionUpdateState>(IPC_EVENTS.EXTENSION_UPDATE_STATE, callback),
 	},
 
 	ompUpdate: {

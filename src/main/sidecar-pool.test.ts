@@ -16,6 +16,7 @@ class FakeSidecar extends EventEmitter {
 	started = false;
 	disposed = false;
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
+	reloads: Array<{ reload: boolean; reconnect: string[] }> = [];
 	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
 	sentFrames: object[] = [];
 	/** What the next sendSideChannel throws (a paired host's tab with its link down). */
@@ -54,6 +55,9 @@ class FakeSidecar extends EventEmitter {
 	restart(cwd?: string, sessionPath?: string): void {
 		this.restartArgs.push({ cwd, sessionPath });
 		if (this.currentStatus === "asleep") this.emitStatus("starting");
+	}
+	async reloadExtensions(plan: { reload: boolean; reconnect: string[] }): Promise<void> {
+		this.reloads.push(plan);
 	}
 	kill(): void {}
 	dispose(): void {
@@ -938,6 +942,93 @@ describe("SidecarPool restartOnNewOmp (omp updated on this computer)", () => {
 		b.emitAgentEvents(["agent_end"]);
 		await tick();
 		expect(b.restartArgs).toHaveLength(before);
+	});
+});
+
+describe("SidecarPool applyExtensionUpdate (extensions updated on this computer)", () => {
+	const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+	const reloadPlan = { reload: true, restart: false, reconnect: [] as string[] };
+
+	function tabs() {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		pool.acquire("/a", fw.win, "tab-c", undefined, "agent", undefined, false, false, true);
+		pool.acquire("/d", fw.win, "tab-d", undefined, "agent", undefined, false, false, false, undefined, "host-1");
+		const [a, b, c, d] = sidecars;
+		for (const sidecar of [a, b, d]) sidecar?.emitStatus("ready");
+		pool.noteSessionFile("tab-a", "/sessions/a.jsonl");
+		pool.noteSessionFile("tab-b", "/sessions/b.jsonl");
+		return { pool, a: a!, b: b!, c: c!, d: d! };
+	}
+
+	it("reloads idle ready tabs now; skips asleep tabs and a paired host's tab; counts busy ones", () => {
+		const { pool, a, b, c, d } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		expect(pool.applyExtensionUpdate(reloadPlan)).toBe(1);
+		expect(a.reloads).toEqual([reloadPlan]);
+		expect(b.reloads).toEqual([]);
+		expect(c.reloads).toEqual([]);
+		expect(d.reloads).toEqual([]);
+		expect(a.restartArgs).toEqual([]);
+	});
+
+	it("skips a starting tab", () => {
+		const { pool, c } = tabs();
+		c.emitStatus("starting");
+		expect(pool.applyExtensionUpdate(reloadPlan)).toBe(0);
+		expect(c.reloads).toEqual([]);
+	});
+
+	it("restarts an idle tab on its session file for a restart plan", () => {
+		const { pool, a } = tabs();
+		pool.applyExtensionUpdate({ reload: false, restart: true, reconnect: [] });
+		expect(a.restartArgs).toEqual([{ cwd: undefined, sessionPath: "/sessions/a.jsonl" }]);
+		expect(a.reloads).toEqual([]);
+	});
+
+	it("applies to a busy tab one tick after its turn ends, merged, restart winning over reload, and only once", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		pool.applyExtensionUpdate({ reload: true, restart: false, reconnect: ["x"] });
+		pool.applyExtensionUpdate({ reload: false, restart: true, reconnect: ["y"] });
+		await tick();
+		expect(b.restartArgs).toEqual([]);
+		b.emitAgentEvents(["agent_end"]);
+		expect(b.restartArgs).toEqual([]);
+		await tick();
+		expect(b.restartArgs).toEqual([{ cwd: undefined, sessionPath: "/sessions/b.jsonl" }]);
+		expect(b.reloads).toEqual([]);
+		b.emitAgentEvents(["agent_start"]);
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.restartArgs).toHaveLength(1);
+	});
+
+	it("merges reload and reconnect names of a busy tab into one reload after the turn", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		pool.applyExtensionUpdate({ reload: false, restart: false, reconnect: ["x"] });
+		pool.applyExtensionUpdate({ reload: true, restart: false, reconnect: ["x", "y"] });
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.reloads).toEqual([{ reload: true, restart: false, reconnect: ["x", "y"] }]);
+	});
+
+	it("forgets a waiting tab that was closed", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		pool.applyExtensionUpdate(reloadPlan);
+		pool.releaseTab("tab-b");
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.reloads).toEqual([]);
+	});
+
+	it("lists the distinct working directories of local tabs, asleep ones included, not a paired host's", () => {
+		const { pool } = tabs();
+		expect(pool.workspaceDirs()).toEqual(["/a", "/b"]);
 	});
 });
 

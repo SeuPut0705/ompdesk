@@ -73,6 +73,7 @@ import {
 	splitTabIds,
 } from "../shared/split-layout";
 import { canonicalCwd } from "./canonical-cwd";
+import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "./extension-reload";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
@@ -107,6 +108,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly statusFromLink?: boolean;
 	start(): void;
 	restart(cwd?: string, resumeSessionPath?: string): void;
+	/** Local sidecars only: pick up an extension update in the live session (bridge reload/reconnect). */
+	reloadExtensions?(plan: Pick<ExtensionApplyPlan, "reconnect"> & { reload: boolean }): Promise<void>;
 	adoptCwd(cwd: string): boolean;
 	/** A local omp takes the frame at once. A paired host's tab returns a promise for a user's answer, and
 	 * throws or rejects `remote_offline` (or the host's refusal) when the host did not take it (see RemoteSidecar). */
@@ -212,6 +215,8 @@ interface PoolEntry extends RunTracking {
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
 	ompRestartPending?: boolean;
+	/** An extension update landed while this tab ran a turn: applied one tick after the turn ends. */
+	extensionPending?: ExtensionApplyPlan;
 	/** Provider sign-ins (`login` commands) dispatched to this tab that have not answered yet. */
 	signIns?: number;
 	/** Providers of those sign-ins, oldest first. */
@@ -530,6 +535,7 @@ export class SidecarPool {
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 			this.#scheduleOmpRestart(entry);
+			this.#scheduleExtensionApply(entry);
 		};
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
 			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled);
@@ -565,7 +571,10 @@ export class SidecarPool {
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
-			if (busyChanged) this.#scheduleOmpRestart(entry);
+			if (busyChanged) {
+				this.#scheduleOmpRestart(entry);
+				this.#scheduleExtensionApply(entry);
+			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
 				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
@@ -752,6 +761,57 @@ export class SidecarPool {
 			if (entry.status !== "ready") return;
 			entry.ompRestartPending = false;
 			entry.sidecar.restart(undefined, entry.sessionFile);
+		});
+	}
+
+	/** Every local tab's working directory, distinct, in order (asleep tabs included: they load plugins on wake). */
+	workspaceDirs(): string[] {
+		const dirs = new Set<string>();
+		for (const entry of this.#entries) {
+			if (entry.device === undefined) dirs.add(entry.sidecar.cwd);
+		}
+		return [...dirs];
+	}
+
+	/**
+	 * An extension update landed on this computer (extension-reload.ts). Idle ready tabs apply it now,
+	 * a tab in a turn when it ends. Returns how many tabs still wait. Tabs on paired hosts are the host's.
+	 */
+	applyExtensionUpdate(plan: ExtensionApplyPlan): number {
+		let waiting = 0;
+		for (const entry of this.#entries) {
+			if (entry.device !== undefined) continue;
+			const decision = extensionApplyDecision({ status: entry.sidecar.status, busy: runBusy(entry.run) });
+			if (decision === "skip") continue;
+			if (decision === "wait") {
+				entry.extensionPending = entry.extensionPending ? mergeApplyPlans(entry.extensionPending, plan) : plan;
+				waiting++;
+				continue;
+			}
+			this.#applyExtensionPlan(entry, plan);
+		}
+		return waiting;
+	}
+
+	#applyExtensionPlan(entry: PoolEntry, plan: ExtensionApplyPlan): void {
+		if (plan.restart) {
+			entry.extensionPending = undefined;
+			entry.sidecar.restart(undefined, entry.sessionFile);
+			return;
+		}
+		void entry.sidecar.reloadExtensions?.(plan)?.catch(() => {});
+	}
+
+	#scheduleExtensionApply(entry: PoolEntry): void {
+		if (!entry.extensionPending || runBusy(entry.run)) return;
+		setImmediate(() => {
+			const plan = entry.extensionPending;
+			if (!plan || !this.#entries.has(entry) || runBusy(entry.run)) return;
+			if (entry.status !== "ready") return;
+			entry.extensionPending = undefined;
+			// A pending omp restart already carries the new files.
+			if (entry.ompRestartPending) return;
+			this.#applyExtensionPlan(entry, plan);
 		});
 	}
 

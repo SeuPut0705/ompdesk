@@ -19,7 +19,7 @@ export interface OmpRelease {
 }
 
 /** One file of a ustar archive: header, data, padding to the 512-byte block. */
-function tarEntry(name: string, data: Buffer, mode: number): Buffer[] {
+export function tarEntry(name: string, data: Buffer, mode: number): Buffer[] {
 	const header = Buffer.alloc(512);
 	header.write(name, 0, "utf8");
 	header.write(`${mode.toString(8).padStart(7, "0")}\0`, 100);

@@ -38,6 +38,7 @@ class FakeHostSidecar extends EventEmitter {
 	processAlive = false;
 	disposed = false;
 	started: Array<{ resume: string | undefined }> = [];
+	reloads: Array<{ reload: boolean; reconnect: string[] }> = [];
 	sideFrames: object[] = [];
 	imageSyncs = 0;
 	replyLanguageSyncs = 0;
@@ -67,6 +68,9 @@ class FakeHostSidecar extends EventEmitter {
 	restart(_cwd?: string, resume?: string): void {
 		this.started.push({ resume });
 		this.setStatus("starting");
+	}
+	async reloadExtensions(plan: { reload: boolean; reconnect: string[] }): Promise<void> {
+		this.reloads.push(plan);
 	}
 	adoptCwd(cwd: string): boolean {
 		this.cwd = cwd;
@@ -1103,6 +1107,35 @@ describe("LocalHostServices", () => {
 		expect(yTab.started).toEqual([]);
 		await new Promise<void>(resolve => setImmediate(resolve));
 		expect(yTab.started).toEqual([{ resume: "/sessions/y.jsonl" }]);
+	});
+
+	it("applies an extension update to hosted tabs: idle now, a busy one when its turn ends, restart over reload", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		const [xTab, yTab] = sidecars;
+		if (!xTab || !yTab) throw new Error("expected two sidecars");
+		xTab.setStatus("ready");
+		yTab.setStatus("ready");
+		yTab.emit("session", { sessionId: "sy", sessionFile: "/sessions/y.jsonl" });
+		yTab.emit("events", [{ type: "agent_start" }]);
+		xTab.started.length = 0;
+		yTab.started.length = 0;
+		const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+
+		expect(services.workspaceDirs()).toEqual([workDir]);
+		expect(services.applyExtensionUpdate({ reload: true, restart: false, reconnect: ["a"] })).toBe(1);
+		expect(xTab.reloads).toEqual([{ reload: true, restart: false, reconnect: ["a"] }]);
+		expect(yTab.reloads).toEqual([]);
+		expect(services.applyExtensionUpdate({ reload: false, restart: true, reconnect: ["b"] })).toBe(1);
+		expect(xTab.started).toEqual([{ resume: undefined }]);
+		yTab.emit("events", [{ type: "agent_end" }]);
+		expect(yTab.started).toEqual([]);
+		await tick();
+		expect(yTab.started).toEqual([{ resume: "/sessions/y.jsonl" }]);
+		expect(yTab.reloads).toEqual([]);
 	});
 
 	it("rejects malformed parameters and unknown methods", async () => {
