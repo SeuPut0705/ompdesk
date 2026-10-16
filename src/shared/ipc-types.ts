@@ -1191,6 +1191,13 @@ export type IpcWorktreeNotice =
 	| { kind: "kept-running"; path: string }
 	| { kind: "remove-failed"; path: string; message: string };
 
+/** A retry main scheduled for a tab's failed turn (turn-resume.ts): when it fires (epoch ms) and which attempt of how many. */
+export interface IpcScheduledRetry {
+	at: number;
+	attempt: number;
+	max: number;
+}
+
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
 export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
@@ -1225,6 +1232,8 @@ export interface IpcTabInfo {
 	device?: string;
 	/** The tab's turn waits for the internet connection and continues once it is back (resume, src/main/turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */
+	scheduledRetry?: IpcScheduledRetry;
 }
 
 /** A launch continued interrupted turns: the toast's text (worded by main) and its count. Its Stop calls `resume.stop`. */

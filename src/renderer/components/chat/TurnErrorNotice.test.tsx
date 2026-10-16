@@ -9,6 +9,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { TurnErrorNotice } from "./TurnErrorNotice";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -141,5 +142,121 @@ describe("TurnErrorNotice after the turn went on", () => {
 		await mount(2, "Connection error.");
 		expect(container.querySelector("[data-turn-retried]")).toBeNull();
 		expect(container.querySelector(".omp-message-error")).not.toBeNull();
+	});
+});
+
+describe("TurnErrorNotice scheduled retry", () => {
+	const SERVER = "503 Service unavailable";
+	const cancelWait = vi.fn(async () => {});
+	const prompt = vi.fn(async () => ({ success: true }));
+
+	function arm(patch: { at?: number; attempt?: number; max?: number } = {}): void {
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [
+				{
+					id: "t1",
+					cwd: "/w",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					scheduledRetry: { at: Date.now() + 30_000, attempt: 1, max: 3, ...patch },
+				},
+			],
+		});
+	}
+
+	beforeEach(() => {
+		Reflect.set(window, "omp", {
+			rpc: { getUsage: vi.fn(async () => ({ success: true, data: { reports } })), prompt },
+			resume: { cancelWait },
+			prefs,
+		});
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "go", timestamp: 1 },
+				{ role: "assistant", content: [], stopReason: "error", errorMessage: SERVER, timestamp: 2 },
+			] as never,
+		});
+	});
+
+	afterEach(async () => {
+		await unmount();
+		vi.unstubAllGlobals();
+		useTabsStore.setState({ activeTabId: null, tabs: [] });
+	});
+
+	it.each([
+		["en", "Retrying in 0:30…", "Attempt 1 of 3", "Retry now", "Cancel"],
+		["ko", "0:30 뒤에 다시 시도해요…", "3번 중 1번째", "지금 다시 시도", "취소"],
+	])(
+		"counts down on the latest failed turn in %s, with Cancel and Retry now instead of Try again",
+		async (lang, countdown, attempt, now, cancel) => {
+			vi.stubGlobal("localStorage", { getItem: () => lang, setItem: vi.fn() });
+			arm();
+			await mount(2, SERVER);
+			const line = container.querySelector("[data-scheduled-retry]");
+			expect(line?.textContent).toContain(countdown);
+			expect(line?.textContent).toContain(attempt);
+			expect(line?.classList.contains("tabular-nums")).toBe(true);
+			const labels = [...container.querySelectorAll("button")].map(button => button.textContent);
+			expect(labels).toContain(now);
+			expect(labels).toContain(cancel);
+			// The card's own "Try again" gives way to Retry now.
+			expect(labels).not.toContain(lang === "en" ? "Try again" : "다시 시도");
+			// The failure itself stays on the card.
+			expect(container.querySelector(".omp-message-error")).not.toBeNull();
+		},
+	);
+
+	it("shows minutes and seconds of the longer waits", async () => {
+		arm({ at: Date.now() + 600_000, attempt: 3 });
+		await mount(2, SERVER);
+		expect(container.querySelector("[data-scheduled-retry]")?.textContent).toContain("Retrying in 10:00…");
+		expect(container.querySelector("[data-scheduled-retry]")?.textContent).toContain("Attempt 3 of 3");
+	});
+
+	it("Cancel asks main to call the retry off", async () => {
+		arm();
+		await mount(2, SERVER);
+		const cancel = container.querySelector<HTMLButtonElement>("[data-scheduled-retry-cancel]");
+		await act(async () => cancel?.click());
+		expect(cancelWait).toHaveBeenCalledWith("t1");
+	});
+
+	it("Retry now sends the last prompt again (main sees a new run and drops its schedule)", async () => {
+		arm();
+		await mount(2, SERVER);
+		await act(async () => container.querySelector<HTMLButtonElement>("[data-scheduled-retry-now]")?.click());
+		expect(prompt).toHaveBeenCalledWith("go");
+	});
+
+	it("shows nothing about a retry on an older failure, without a schedule, or for a failure no retry fits", async () => {
+		arm();
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "go", timestamp: 1 },
+				{ role: "assistant", content: [], stopReason: "error", errorMessage: SERVER, timestamp: 2 },
+				{ role: "user", content: "again", timestamp: 3 },
+			] as never,
+		});
+		await mount(2, SERVER);
+		expect(container.querySelector("[data-scheduled-retry]")).toBeNull();
+		expect(container.textContent).toContain("Try again");
+		await unmount();
+
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "go", timestamp: 1 },
+				{ role: "assistant", content: [], stopReason: "error", errorMessage: SERVER, timestamp: 2 },
+			] as never,
+		});
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		});
+		await mount(2, SERVER);
+		expect(container.querySelector("[data-scheduled-retry]")).toBeNull();
+		expect(container.textContent).toContain("Try again");
 	});
 });

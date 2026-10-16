@@ -6,6 +6,7 @@ import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { MemoryReportSection } from "./PluginsSection";
+import { ScheduledRetryRow } from "./ScheduledRetryRow";
 import { SchemaField } from "./SchemaField";
 import { SettingsAdvanced, SettingsSection } from "./SettingsLayout";
 import type { AgentSettingsGroup } from "./settings-catalog";
@@ -62,6 +63,7 @@ export function AgentSection() {
 				<AutoPreviewRow />
 				<AutoChangesRow />
 				<BatchNotificationsRow />
+				<ScheduledRetryRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

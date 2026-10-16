@@ -12,7 +12,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { IpcTabRunOutcome } from "../shared/ipc-types";
+import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
 import type { SidecarLike } from "./sidecar-pool";
 
@@ -63,6 +63,11 @@ export interface ResumeFact {
 	lastRun?: IpcTabRunOutcome;
 	/** Stock's auto-retry saga waiting for its next attempt (one object per `auto_retry_start`), with the failure it retries. */
 	retry?: { errorMessage: string };
+	/**
+	 * How often the user edited the tab's session since it opened (`TOUCH_COMMANDS`, bumped by main's
+	 * command path); a scheduled retry that was armed at another count is called off. Absent on a hosted tab.
+	 */
+	touched?: number;
 }
 
 /**
@@ -115,6 +120,20 @@ export const STOP_COMMANDS: Record<string, true> = {
 	abort_and_restore_queue: true,
 };
 
+/**
+ * Commands that change which session, or which branch of it, a tab shows (RPC command types): a
+ * scheduled retry belongs to the failed turn it was armed for, so after one of these it is called off.
+ */
+export const TOUCH_COMMANDS: Record<string, true> = {
+	new_session: true,
+	drop_session: true,
+	switch_session: true,
+	fork: true,
+	fork_from: true,
+	branch: true,
+	switch_leaf: true,
+};
+
 /** Markers that count as "continuing" in the toast (a reopened card is not a continuing task). */
 export function continuingCount(markers: readonly ResumeMarker[]): number {
 	return markers.filter(marker => marker.reason !== "asking").length;
@@ -130,6 +149,39 @@ const NETWORK_ERROR =
 
 export function isNetworkError(message: string | undefined): boolean {
 	return message !== undefined && NETWORK_ERROR.test(message);
+}
+
+/**
+ * Stock's `RETRYABLE_PROVIDER_ERROR_PATTERN` (`extensibility/legacy-pi-ai-shim.ts`, ported from pi-ai
+ * `utils/retry.ts`; not exported, and a stock function would need a live session) with its rate-limit
+ * wordings removed (those are {@link NOT_TRANSIENT}) and the bare status codes word-bounded, so
+ * "500000 tokens" never reads as an HTTP 500.
+ */
+const RETRYABLE_ERROR =
+	/overloaded|\b(?:500|502|503|504|520|524|529)\b|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|upstream.?connect|reset before headers|socket hang up|socket connection was closed|timed? out|timeout|terminated|websocket.?closed|websocket.?error|ended without|stream ended before message_stop|stream ended before a terminal response event|http2 request did not get a response|retry delay|you can retry your request|try your request again|please retry your request/i;
+
+/**
+ * Failures that waiting never fixes or that other paths own: sign-in and permission, quota and rate
+ * limits (stock's `NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN` plus the renderer's quota-resume, which books
+ * the reset), a request the provider rejected, a context that does not fit, certificates. The
+ * wordings follow the renderer's `describeTurnError` (lib/messages.ts).
+ */
+const NOT_TRANSIENT =
+	/\b(?:401|403|429|400)\b|invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|\bforbidden\b|authenticat|not logged in|log ?in required|no api key|token (?:has )?expired|rate[ _.-]?limit|too many requests|quota|usage limit|GoUsageLimitError|FreeUsageLimitError|available balance|out of budget|billing|insufficient|ResourceExhausted|bad request|invalid[ _-]?request|prompt is too long|context[ _-](?:length|window)|maximum context|too many tokens|context_length_exceeded|input is too long|exceeds? the (?:model'?s? )?(?:context|maximum)|certificate|self[- ]signed|unable to verify the first|unable_to_(?:verify|get)_issuer|\bssl\b|\btls\b|err_tls|cert_has_expired|depth_zero_self_signed|err_cert/i;
+
+/** A failure that stock's own retries gave up on but that a later attempt may well clear: server errors, overload, timeouts, dropped connections. */
+export function isTransientError(message: string | undefined): boolean {
+	if (!message || NOT_TRANSIENT.test(message)) return false;
+	return RETRYABLE_ERROR.test(message) || isNetworkError(message);
+}
+
+/** Waits before each scheduled retry (the attempt count is its length): 30 s, 2 min, 10 min. */
+export const SCHEDULED_RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 600_000];
+
+/** `OMP_GUI_RETRY_DELAYS_MS` (comma-separated milliseconds, e2e runs) as the waits; anything unusable keeps the default. */
+export function retryDelays(raw: string | undefined): readonly number[] {
+	const parsed = (raw ?? "").split(",").map(part => Number(part.trim()));
+	return parsed.length > 0 && parsed.every(ms => Number.isFinite(ms) && ms > 0) ? parsed : SCHEDULED_RETRY_DELAYS_MS;
 }
 
 /** The marker file: one JSON array, replaced atomically so a kill mid-write leaves the old one whole. */
@@ -196,6 +248,8 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 export interface ResumePool {
 	resumeFacts(): ResumeFact[];
 	setAwaitingConnection(tabId: string, awaiting: boolean): void;
+	/** Show (or with `undefined` clear) the tab's scheduled retry. */
+	setScheduledRetry(tabId: string, retry: IpcScheduledRetry | undefined): void;
 	/** Spawn a deferred tab's process; the sidecar, or null when the tab is gone. */
 	startTab(tabId: string): SidecarLike | null;
 	/** The tab attached to `sessionPath`: this computer's own, or with `peer` the one it hosts for that device. */
@@ -212,6 +266,14 @@ export interface ResumeDeps {
 	enabled(): boolean;
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
 	frozen(): boolean;
+	/** Settings › Agent behavior › Retry failed turns later: the backoff retry after transient errors. */
+	scheduledRetry: {
+		enabled(): boolean;
+		/** Waits before each attempt; its length is the attempt count. */
+		delays: readonly number[];
+		/** Run `run` after `ms`; the returned function cancels it. */
+		schedule(run: () => void, ms: number): () => void;
+	};
 	now(): number;
 	/**
 	 * Open a tab for a marked session that has none (the layout was not saved in time), or for a
@@ -252,6 +314,14 @@ function whenReady(sidecar: SidecarLike): Promise<boolean> {
 	return promise;
 }
 
+/** One tab's scheduled retry and what it was armed for: any of these changing calls it off. */
+interface ArmedRetry extends IpcScheduledRetry {
+	outcome: IpcTabRunOutcome;
+	sessionFile: string;
+	touched: number;
+	cancelTimer: () => void;
+}
+
 export class TurnResume {
 	readonly #deps: ResumeDeps;
 	/** Tabs holding a continuation until the connection is back, and what to run then. */
@@ -272,6 +342,12 @@ export class TurnResume {
 	readonly #cancels = new Map<string, number>();
 	/** Held tabs whose taken-over run (stock's retry saga) has not ended yet: its end comes next, not a new run. */
 	readonly #takenOverRuns = new Set<string>();
+	/** A scheduled retry per tab (state lives here, in main, so a renderer reload keeps it). */
+	readonly #scheduled = new Map<string, ArmedRetry>();
+	/** Per tab, the scheduled retries sent for the current failure chain; 3 and the red card stands. */
+	readonly #attempts = new Map<string, number>();
+	/** Tabs whose next run is our own scheduled retry: its start is not the user's new run. */
+	readonly #ownRetries = new Set<string>();
 	#launched = false;
 	#previous: ResumeMarker[] = [];
 
@@ -296,7 +372,16 @@ export class TurnResume {
 		}
 		// A closed tab has nothing left to continue: its launch marker (held offline, or still waiting for
 		// its omp) leaves the file now, not when the network returns, and its bookkeeping goes with it.
-		for (const tabs of [this.#pending, this.#waiting, this.#cancels, this.#takenOverRuns, this.#resumed])
+		for (const tabId of [...this.#scheduled.keys()]) if (!present.has(tabId)) this.#dropScheduled(tabId);
+		for (const tabs of [
+			this.#pending,
+			this.#waiting,
+			this.#cancels,
+			this.#takenOverRuns,
+			this.#resumed,
+			this.#attempts,
+			this.#ownRetries,
+		])
 			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
 		const live = deriveMarkers(current, this.#previous, this.#deps.now()).filter(
 			marker => !this.#pending.has(marker.tab),
@@ -308,6 +393,7 @@ export class TurnResume {
 
 	#judge(fact: ResumeFact): void {
 		if (fact.lastRun) this.#takenOverRuns.delete(fact.tabId);
+		this.#watchScheduledRetry(fact);
 		// A run that is neither the held one (stock's retry saga, or the failed run with its outcome) nor
 		// still ending started during the wait: the user sent a new prompt. It replaces the held
 		// continuation, so the waiting row goes and nothing retries into the live run once online.
@@ -327,11 +413,152 @@ export class TurnResume {
 		const outcome = fact.lastRun;
 		if (!outcome || this.#judged.has(outcome)) return;
 		this.#judged.add(outcome);
+		this.#ownRetries.delete(fact.tabId);
 		// It ended while the wait already held it (stock's retry, taken over): nothing more to decide.
 		if (fact.awaitingConnection) return;
-		if (outcome.stopReason !== "error" || !isNetworkError(outcome.errorMessage)) return;
-		if (!this.#deps.network.shouldWait()) return;
-		this.#hold(fact.tabId, "retry");
+		if (outcome.stopReason !== "error") {
+			this.#attempts.delete(fact.tabId);
+			return;
+		}
+		// Offline (or just after a wake) the connection wait owns a network failure; no second schedule.
+		if (isNetworkError(outcome.errorMessage) && this.#deps.network.shouldWait()) {
+			this.#hold(fact.tabId, "retry");
+			return;
+		}
+		this.#planRetry(fact, outcome);
+	}
+
+	/** Whether a scheduled retry may exist for this failure now: every condition the user's choice puts on it. */
+	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): boolean {
+		return (
+			this.#deps.scheduledRetry.enabled() &&
+			!this.#deps.frozen() &&
+			// A hosted tab is a paired device's invisible spend; a host's tab is its host's.
+			!fact.peer &&
+			!fact.device &&
+			fact.sessionFile !== undefined &&
+			!fact.stopped &&
+			!fact.awaitingConnection &&
+			fact.lastRun === outcome
+		);
+	}
+
+	#factFor(tabId: string): ResumeFact | undefined {
+		return this.#deps.pool.resumeFacts().find(fact => fact.tabId === tabId && !fact.device);
+	}
+
+	/** Stock's own `retry.enabled` (the user's switch for retrying): unreadable or off means we do not retry either. */
+	async #stockRetryOn(tabId: string): Promise<boolean> {
+		try {
+			const response = await this.#deps.pool
+				.startTab(tabId)
+				?.rpcClient?.command({ type: "get_settings", paths: ["retry.enabled"] });
+			const values = response?.success
+				? (response.data as { values?: Record<string, unknown> } | undefined)?.values
+				: undefined;
+			return values?.["retry.enabled"] === true;
+		} catch {
+			return false;
+		}
+	}
+
+	/** The tab's failed turn ended: arm the next backoff attempt when the failure is transient and nothing says no. */
+	#planRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): void {
+		const tabId = fact.tabId;
+		if (!isTransientError(outcome.errorMessage)) {
+			this.#attempts.delete(tabId);
+			return;
+		}
+		const used = this.#attempts.get(tabId) ?? 0;
+		if (used >= this.#deps.scheduledRetry.delays.length || !this.#mayRetry(fact, outcome)) return;
+		const generation = this.#cancels.get(tabId) ?? 0;
+		void this.#stockRetryOn(tabId).then(on => {
+			const current = this.#factFor(tabId);
+			if (!on || !current || (this.#cancels.get(tabId) ?? 0) !== generation) return;
+			if (this.#scheduled.has(tabId) || !this.#mayRetry(current, outcome)) return;
+			this.#arm(current, outcome, used);
+		});
+	}
+
+	#arm(fact: ResumeFact, outcome: IpcTabRunOutcome, used: number): void {
+		const delay = this.#deps.scheduledRetry.delays[used];
+		if (delay === undefined || fact.sessionFile === undefined) return;
+		const max = this.#deps.scheduledRetry.delays.length;
+		const at = this.#deps.now() + delay;
+		const armed: ArmedRetry = {
+			at,
+			attempt: used + 1,
+			max,
+			outcome,
+			sessionFile: fact.sessionFile,
+			touched: fact.touched ?? 0,
+			cancelTimer: () => undefined,
+		};
+		armed.cancelTimer = this.#deps.scheduledRetry.schedule(() => void this.#fire(fact.tabId, armed), delay);
+		this.#scheduled.set(fact.tabId, armed);
+		this.#deps.pool.setScheduledRetry(fact.tabId, { at, attempt: armed.attempt, max });
+	}
+
+	/** Every call-off of an armed retry: a new run of the user's, Stop, a session change, the setting off, a closed tab. */
+	#watchScheduledRetry(fact: ResumeFact): void {
+		const tabId = fact.tabId;
+		// A new run that is neither the failed run still ending (its outcome is set; background work can
+		// keep it running), stock's retry saga, nor our own retry is the user's: it ends the chain.
+		if (fact.running && !fact.lastRun && !fact.retry && !this.#ownRetries.has(tabId)) {
+			this.#dropScheduled(tabId);
+			this.#attempts.delete(tabId);
+		}
+		const armed = this.#scheduled.get(tabId);
+		if (armed && !this.#holds(fact, armed)) this.#dropScheduled(tabId);
+	}
+
+	#holds(fact: ResumeFact, armed: ArmedRetry): boolean {
+		return (
+			this.#mayRetry(fact, armed.outcome) &&
+			fact.sessionFile === armed.sessionFile &&
+			(fact.touched ?? 0) === armed.touched
+		);
+	}
+
+	/** The armed retry's timer: re-check everything, then send stock `retry` (or hand it to the connection wait when offline). */
+	async #fire(tabId: string, armed: ArmedRetry): Promise<void> {
+		const stillHolds = (): boolean => {
+			const fact = this.#factFor(tabId);
+			return this.#scheduled.get(tabId) === armed && fact !== undefined && !fact.running && this.#holds(fact, armed);
+		};
+		if (this.#scheduled.get(tabId) !== armed) return;
+		if (!stillHolds() || !(await this.#stockRetryOn(tabId)) || !stillHolds()) {
+			if (this.#scheduled.get(tabId) === armed) this.#dropScheduled(tabId);
+			return;
+		}
+		this.#releaseScheduled(tabId);
+		this.#attempts.set(tabId, armed.attempt);
+		this.#ownRetries.add(tabId);
+		if (!this.#deps.network.online) {
+			this.#hold(tabId, "retry");
+			return;
+		}
+		// Stock has nothing to retry (or the call failed): the chain is over.
+		if (!(await this.#run(tabId, "retry"))) {
+			this.#ownRetries.delete(tabId);
+			this.#attempts.delete(tabId);
+		}
+	}
+
+	#releaseScheduled(tabId: string): void {
+		const armed = this.#scheduled.get(tabId);
+		if (!armed) return;
+		armed.cancelTimer();
+		this.#scheduled.delete(tabId);
+		this.#deps.pool.setScheduledRetry(tabId, undefined);
+	}
+
+	/** Call the tab's armed retry off: its timer, its row, and any attempt already on its way. */
+	#dropScheduled(tabId: string): void {
+		if (!this.#scheduled.has(tabId)) return;
+		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
+		this.#releaseScheduled(tabId);
+		this.#attempts.delete(tabId);
 	}
 
 	/**
@@ -424,6 +651,8 @@ export class TurnResume {
 		this.#waiting.delete(tabId);
 		this.#takenOverRuns.delete(tabId);
 		this.#pending.delete(tabId);
+		this.#ownRetries.delete(tabId);
+		this.#releaseScheduled(tabId);
 		this.#deps.pool.setAwaitingConnection(tabId, false);
 	}
 

@@ -26,6 +26,9 @@ export const WORKTREE_AUTO_CLEAN_PREF = "worktreeAutoClean";
 /** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */
 export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
+/** Retry a turn that ended in a transient error after 30 s, 2 min, 10 min (default on; only `false` turns it off). */
+export const SCHEDULED_RETRY_PREF = "scheduledRetry";
+
 /** Fold several tabs finishing within seconds into one notification (default on; only `false` turns it off). */
 export const BATCH_NOTIFICATIONS_PREF = "batchNotifications";
 

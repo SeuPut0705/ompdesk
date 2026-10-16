@@ -2091,6 +2091,8 @@ export const ko: Record<string, string> = {
 	"settings.gui.autoOpenChangesDesc": "파일을 고친 턴이 끝났을 때 패널이 닫혀 있으면 열어요",
 	"settings.gui.batchNotifications": "알림 묶기",
 	"settings.gui.batchNotificationsDesc": "여러 작업이 끝나면 알림을 하나로 묶어요",
+	"settings.gui.scheduledRetry": "일시 오류 뒤 자동 재시도",
+	"settings.gui.scheduledRetryDesc": "30초, 2분, 10분 간격으로 최대 3번 다시 시도해요",
 	"settings.gui.resumeInterrupted": "다시 열 때 중단된 작업 이어서 하기",
 	"settings.gui.resumeInterruptedDesc":
 		"OMPdesk를 종료했거나, 비정상 종료됐거나, 업데이트로 다시 시작했을 때 실행 중이던 턴이 다음에 열 때 멈춘 곳에서 이어져요. 직접 멈춘 턴은 그대로 멈춰 있어요.",
@@ -5080,6 +5082,9 @@ export const ko: Record<string, string> = {
 	"turnError.action.compact": "컨텍스트 압축",
 	"turnError.details": "자세한 내용",
 	"turnError.retryFailed": "재시도 실패",
+	"turnError.scheduled.countdown": "{countdown} 뒤에 다시 시도해요…",
+	"turnError.scheduled.attempt": "{max}번 중 {attempt}번째",
+	"turnError.scheduled.now": "지금 다시 시도",
 	"turnError.retried": "{title} — 다시 시도했어요",
 	"tools.task.yieldLabel": "반환{suffix}",
 	"tools.websearch.error": "오류: {error}",

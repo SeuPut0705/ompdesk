@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import type { SidecarLike } from "./sidecar-pool";
 import {
@@ -10,11 +11,15 @@ import {
 	deriveMarkers,
 	InterruptedTurnStore,
 	isNetworkError,
+	isTransientError,
 	launchAction,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
 	type ResumeMarker,
 	type ResumePool,
+	retryDelays,
+	SCHEDULED_RETRY_DELAYS_MS,
+	TOUCH_COMMANDS,
 	TurnResume,
 } from "./turn-resume";
 
@@ -212,6 +217,12 @@ interface Harness {
 	setStatus: (status: string) => void;
 	/** How many `status` listeners the resume left on the sidecar. */
 	statusListeners: () => number;
+	/** Every `setScheduledRetry` call the resume made, in order (`undefined` = cleared). */
+	retries: Array<IpcScheduledRetry | undefined>;
+	/** The retry timers it armed; a test fires one the way a clock would. */
+	timers: Array<{ run: () => void; ms: number; cancelled: boolean }>;
+	/** Settings › Agent behavior › Smart automation › retry. */
+	prefs: { scheduledRetry: boolean };
 }
 
 function setup(
@@ -222,6 +233,8 @@ function setup(
 		answers?: Partial<Record<string, RpcResponse>>;
 		/** The tab's sidecar status when the resume first looks (default ready). */
 		status?: string;
+		/** Settings pref for the scheduled retry (default on). */
+		scheduledRetry?: boolean;
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -229,6 +242,9 @@ function setup(
 	const store = new InterruptedTurnStore(file);
 	const facts: ResumeFact[] = [];
 	const awaiting: Array<[string, boolean]> = [];
+	const retries: Array<IpcScheduledRetry | undefined> = [];
+	const timers: Array<{ run: () => void; ms: number; cancelled: boolean }> = [];
+	const prefs = { scheduledRetry: options.scheduledRetry ?? true };
 	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
@@ -251,6 +267,9 @@ function setup(
 			const entry = facts.find(candidate => candidate.tabId === tabId);
 			if (entry) entry.stopped = true;
 		},
+		setScheduledRetry: (_tabId, retry) => {
+			retries.push(retry);
+		},
 	};
 	const resume = new TurnResume({
 		store,
@@ -262,6 +281,17 @@ function setup(
 			shouldWait: () => !net.online || net.wake,
 		},
 		enabled: () => state.enabled,
+		scheduledRetry: {
+			enabled: () => prefs.scheduledRetry,
+			delays: SCHEDULED_RETRY_DELAYS_MS,
+			schedule: (run, ms) => {
+				const timer = { run, ms, cancelled: false };
+				timers.push(timer);
+				return () => {
+					timer.cancelled = true;
+				};
+			},
+		},
 		frozen: () => state.frozen,
 		now: () => 1_000,
 		openTab: markerToOpen => {
@@ -284,6 +314,9 @@ function setup(
 		pool,
 		setStatus,
 		statusListeners: listeners,
+		retries,
+		timers,
+		prefs,
 	};
 }
 
@@ -646,7 +679,8 @@ describe("TurnResume connection wait", () => {
 	});
 
 	it("an ordinary failure while online is a failure: no waiting, no retry", async () => {
-		h = setup({ online: true });
+		// The scheduled retry (its own describe below) is off here: this is about the connection wait.
+		h = setup({ online: true, scheduledRetry: false });
 		h.resume.launch();
 		h.facts.push(fact({ running: false, lastRun: { stopReason: "error", errorMessage: "fetch failed: ENOTFOUND" } }));
 		h.resume.sync();
@@ -755,5 +789,410 @@ describe("TurnResume connection wait", () => {
 		h.facts.push(fact({ running: true, lastRun: { ...networkFailure } }));
 		h.resume.sync();
 		expect(h.awaiting).toEqual([["t1", true]]);
+	});
+});
+
+describe("isTransientError", () => {
+	it.each([
+		"503 Service unavailable: fixture provider temporarily unavailable",
+		"502 Bad Gateway",
+		"HTTP 500 Internal Server Error",
+		"500 internal server error",
+		"504 Gateway Timeout",
+		"524 A timeout occurred",
+		"529 overloaded_error",
+		"Overloaded",
+		"The server is overloaded, try your request again",
+		"Request timed out.",
+		"Connection error.",
+		"fetch failed: getaddrinfo ENOTFOUND api.anthropic.com",
+		"read ECONNRESET",
+		"stream ended before message_stop",
+		"upstream connect error or disconnect/reset before headers",
+		"Provider returned error",
+		"websocket closed 1006",
+		"terminated",
+	])("%s is transient", message => {
+		expect(isTransientError(message)).toBe(true);
+	});
+
+	it.each([
+		// sign-in and permission
+		"401 invalid x-api-key",
+		"403 Forbidden",
+		"Invalid API key provided",
+		"Unauthorized",
+		"Authentication failed: token has expired",
+		"Not logged in · Please run /login",
+		// quota, billing and rate limits (the quota-resume path owns these)
+		"429 usage limit reached for this account",
+		"Rate limit exceeded, 503 try later",
+		"429 Too Many Requests",
+		"You exceeded your current quota, please check your plan and billing details",
+		"insufficient_quota",
+		"Monthly usage limit reached",
+		"Your credit balance is too low (insufficient funds)",
+		// a request the provider rejected
+		"400 Bad Request",
+		"400 invalid_request_error: messages.0.content: Input should be a valid list",
+		"Invalid request: temperature out of range",
+		// a context that does not fit
+		"prompt is too long: 215000 tokens > 200000 maximum",
+		"context length exceeded",
+		"This model's maximum context length is 128000 tokens, 503 requested",
+		"too many tokens in the request",
+		// certificates and TLS
+		"unable to verify the first certificate",
+		"self-signed certificate in certificate chain",
+		"SSL routines: tlsv1 alert (connection error)",
+		"ERR_TLS_CERT_ALTNAME_INVALID",
+		// not provider failures at all
+		"Something odd happened",
+		undefined,
+		"",
+	])("%s is not", message => {
+		expect(isTransientError(message)).toBe(false);
+	});
+
+	it("never reads a status code inside a bigger number", () => {
+		expect(isTransientError("The request used 500000 tokens")).toBe(false);
+		expect(isTransientError("id 1502 was not found")).toBe(false);
+		expect(isTransientError("error 5030")).toBe(false);
+		expect(isTransientError("error 503")).toBe(true);
+	});
+});
+
+describe("retryDelays and TOUCH_COMMANDS", () => {
+	it("defaults to 30 s, 2 min, 10 min and takes a comma list of milliseconds from the environment", () => {
+		expect(SCHEDULED_RETRY_DELAYS_MS).toEqual([30_000, 120_000, 600_000]);
+		expect(retryDelays(undefined)).toBe(SCHEDULED_RETRY_DELAYS_MS);
+		expect(retryDelays("")).toBe(SCHEDULED_RETRY_DELAYS_MS);
+		expect(retryDelays("abc")).toBe(SCHEDULED_RETRY_DELAYS_MS);
+		expect(retryDelays("0,5")).toBe(SCHEDULED_RETRY_DELAYS_MS);
+		expect(retryDelays("1500, 3000")).toEqual([1500, 3000]);
+	});
+
+	it("names the commands that move a tab to another session or branch", () => {
+		expect(Object.keys(TOUCH_COMMANDS).sort()).toEqual([
+			"branch",
+			"drop_session",
+			"fork",
+			"fork_from",
+			"new_session",
+			"switch_leaf",
+			"switch_session",
+		]);
+	});
+});
+
+const SETTINGS_ON: RpcResponse = {
+	type: "response",
+	command: "get_settings",
+	success: true,
+	data: { values: { "retry.enabled": true } },
+};
+
+const SERVER_DOWN: IpcTabRunOutcome = { stopReason: "error", errorMessage: "503 Service unavailable" };
+
+/** Longer than `settle`: the retry's chain asks the tab's settings, waits for the sidecar, then sends. */
+const settleLong = async () => {
+	for (let i = 0; i < 60; i++) await Promise.resolve();
+};
+
+describe("TurnResume scheduled retry", () => {
+	let h: Harness;
+	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
+
+	/** A launched resume whose tab already ended its turn in `outcome` (transient by default). */
+	async function failed(
+		options: Parameters<typeof setup>[0] = {},
+		outcome: IpcTabRunOutcome = { ...SERVER_DOWN },
+		patch: Partial<ResumeFact> = {},
+	): Promise<IpcTabRunOutcome> {
+		h = setup({ answers: { get_settings: SETTINGS_ON, retry: RETRIED }, ...options });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, ...patch }));
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: outcome, ...patch });
+		h.resume.sync();
+		await settleLong();
+		return outcome;
+	}
+
+	/** The tab's own retry ran and ended (`outcome`): agent_start, then the end. */
+	async function retryEnded(outcome: IpcTabRunOutcome): Promise<void> {
+		h.facts[0] = fact({ running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: outcome });
+		h.resume.sync();
+		await settleLong();
+	}
+
+	const retrySent = () => h.commands.filter(command => command.type === "retry").length;
+
+	it("schedules the first retry 30 s after a transient failure and shows it with attempt and total", async () => {
+		await failed();
+		expect(h.timers.map(timer => timer.ms)).toEqual([30_000]);
+		expect(h.retries).toEqual([{ at: 31_000, attempt: 1, max: 3 }]);
+		expect(h.commands.map(command => command.type)).toEqual(["get_settings"]);
+		expect(h.commands[0]).toMatchObject({ paths: ["retry.enabled"] });
+	});
+
+	it("also retries a dropped connection while online (stock gave up on it)", async () => {
+		await failed(
+			{},
+			{ stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.fixture.invalid" },
+		);
+		expect(h.timers).toHaveLength(1);
+	});
+
+	it.each([
+		"401 invalid x-api-key",
+		"403 Forbidden",
+		"429 usage limit reached for this account",
+		"Rate limit exceeded",
+		"400 Bad Request",
+		"prompt is too long: 215000 tokens > 200000 maximum",
+		"context length exceeded",
+		"unable to verify the first certificate",
+		"Something odd happened",
+	])("does not schedule after %s", async message => {
+		await failed({}, { stopReason: "error", errorMessage: message });
+		expect(h.timers).toEqual([]);
+		expect(h.retries).toEqual([]);
+		expect(h.commands).toEqual([]);
+	});
+
+	it("does not schedule after a turn that was aborted or succeeded", async () => {
+		await failed({}, { stopReason: "aborted", errorMessage: "503 Service unavailable" });
+		expect(h.timers).toEqual([]);
+		rmSync(h.dir, { recursive: true, force: true });
+		await failed({}, { stopReason: "stop", reply: "done" });
+		expect(h.timers).toEqual([]);
+	});
+
+	it("leaves a network failure the connection wait holds to that wait (no second schedule)", async () => {
+		await failed({ online: false }, { stopReason: "error", errorMessage: "fetch failed: ENOTFOUND" });
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.timers).toEqual([]);
+		expect(h.retries).toEqual([]);
+	});
+
+	it.each([
+		["the pref is off", { options: { scheduledRetry: false }, patch: {} }],
+		["the tab is a paired device's hosted tab", { options: {}, patch: { peer: "device-x" } }],
+		["the tab has no session file", { options: {}, patch: { sessionFile: undefined } }],
+		["the user pressed Stop", { options: {}, patch: { stopped: true } }],
+	])("does not schedule when %s", async (_name, { options, patch }) => {
+		await failed(options, { ...SERVER_DOWN }, patch);
+		expect(h.timers).toEqual([]);
+		expect(retrySent()).toBe(0);
+	});
+
+	it.each([
+		[
+			"stock's own retry setting is off",
+			{ type: "response", command: "get_settings", success: true, data: { values: { "retry.enabled": false } } },
+		],
+		["it cannot be read", { type: "response", command: "get_settings", success: false, error: "bridge down" }],
+		[
+			"it is missing from the answer",
+			{ type: "response", command: "get_settings", success: true, data: { values: {} } },
+		],
+	] as const)("does not schedule when %s", async (_name, answer) => {
+		await failed({ answers: { get_settings: answer as RpcResponse, retry: RETRIED } });
+		expect(h.timers).toEqual([]);
+		expect(h.retries).toEqual([]);
+	});
+
+	it("sends stock retry when the timer fires, then waits 2 min and 10 min, and stops after the third attempt", async () => {
+		await failed();
+		h.timers[0]?.run();
+		await settleLong();
+		expect(retrySent()).toBe(1);
+		expect(h.retries.at(-1)).toBeUndefined();
+
+		await retryEnded({ ...SERVER_DOWN });
+		expect(h.timers.map(timer => timer.ms)).toEqual([30_000, 120_000]);
+		expect(h.retries.at(-1)).toEqual({ at: 121_000, attempt: 2, max: 3 });
+
+		h.timers[1]?.run();
+		await settleLong();
+		await retryEnded({ ...SERVER_DOWN });
+		expect(retrySent()).toBe(2);
+		expect(h.timers.map(timer => timer.ms)).toEqual([30_000, 120_000, 600_000]);
+		expect(h.retries.at(-1)).toEqual({ at: 601_000, attempt: 3, max: 3 });
+
+		h.timers[2]?.run();
+		await settleLong();
+		await retryEnded({ ...SERVER_DOWN });
+		expect(retrySent()).toBe(3);
+		// Three attempts failed: the red error card stands.
+		expect(h.timers).toHaveLength(3);
+		expect(h.retries.at(-1)).toBeUndefined();
+	});
+
+	it("starts over when the user runs something new after the attempts are spent, and when a retry ends otherwise", async () => {
+		await failed();
+		for (const index of [0, 1, 2]) {
+			h.timers[index]?.run();
+			await settleLong();
+			await retryEnded({ ...SERVER_DOWN });
+		}
+		expect(h.timers).toHaveLength(3);
+		// A prompt of the user's: a new chain, 30 s again.
+		h.facts[0] = fact({ running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+		h.resume.sync();
+		await settleLong();
+		expect(h.timers.map(timer => timer.ms).at(-1)).toBe(30_000);
+		expect(h.timers).toHaveLength(4);
+
+		// A retry that succeeds resets the count too.
+		h.timers[3]?.run();
+		await settleLong();
+		await retryEnded({ stopReason: "stop", reply: "ok" });
+		h.facts[0] = fact({ running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+		h.resume.sync();
+		await settleLong();
+		expect(h.timers.map(timer => timer.ms).at(-1)).toBe(30_000);
+	});
+
+	it("a retry that ends in a non-transient error ends the chain without a new schedule", async () => {
+		await failed();
+		h.timers[0]?.run();
+		await settleLong();
+		await retryEnded({ stopReason: "error", errorMessage: "401 invalid x-api-key" });
+		expect(h.timers).toHaveLength(1);
+		expect(h.retries.at(-1)).toBeUndefined();
+	});
+
+	it.each([
+		[
+			"the user sends a new prompt (or Retry now)",
+			() => {
+				h.facts[0] = fact({ running: true });
+			},
+		],
+		[
+			"the user presses Stop",
+			() => {
+				h.pool.noteStopped("t1");
+			},
+		],
+		[
+			"the user presses Cancel",
+			() => {
+				h.resume.cancelWait("t1");
+			},
+		],
+		[
+			"the tab switches session",
+			() => {
+				h.facts[0] = { ...(h.facts[0] as ResumeFact), sessionFile: "/s/b.jsonl" };
+			},
+		],
+		[
+			"the user edits the session (touched)",
+			() => {
+				h.facts[0] = { ...(h.facts[0] as ResumeFact), touched: 1 };
+			},
+		],
+		[
+			"the setting is switched off",
+			() => {
+				h.prefs.scheduledRetry = false;
+			},
+		],
+		[
+			"the tab closes",
+			() => {
+				h.facts.length = 0;
+			},
+		],
+	])("calls the retry off when %s", async (_name, act) => {
+		await failed();
+		expect(h.timers).toHaveLength(1);
+		act();
+		h.resume.sync();
+		await settleLong();
+		expect(h.timers[0]?.cancelled).toBe(true);
+		expect(h.retries.at(-1)).toBeUndefined();
+		// Even a timer that fires anyway sends nothing.
+		h.timers[0]?.run();
+		await settleLong();
+		expect(retrySent()).toBe(0);
+	});
+
+	it("sends nothing once a quit is underway", async () => {
+		await failed();
+		h.state.frozen = true;
+		h.timers[0]?.run();
+		await settleLong();
+		expect(retrySent()).toBe(0);
+	});
+
+	it("sends nothing when stock's retry setting was switched off while it waited", async () => {
+		await failed();
+		const off: RpcResponse = {
+			type: "response",
+			command: "get_settings",
+			success: true,
+			data: { values: { "retry.enabled": false } },
+		};
+		// The sidecar's scripted answer changes: the fire re-asks.
+		const commands = h.commands;
+		commands.length = 0;
+		const ask = vi.spyOn(h.pool, "startTab").mockReturnValue({
+			status: "ready",
+			rpcClient: {
+				command: async (cmd: RpcCommand) => {
+					commands.push(cmd);
+					return cmd.type === "get_settings" ? off : RETRIED;
+				},
+			},
+		} as unknown as SidecarLike);
+		h.timers[0]?.run();
+		await settleLong();
+		ask.mockRestore();
+		expect(retrySent()).toBe(0);
+		expect(h.retries.at(-1)).toBeUndefined();
+	});
+
+	it("hands the attempt to the connection wait when the network is gone as the timer fires", async () => {
+		await failed();
+		h.net.online = false;
+		h.timers[0]?.run();
+		await settleLong();
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(retrySent()).toBe(0);
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settleLong();
+		expect(retrySent()).toBe(1);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("sends nothing and forgets the chain when stock has nothing to retry", async () => {
+		await failed({ answers: { get_settings: SETTINGS_ON, retry: { ...RETRIED, data: { retried: false } } } });
+		h.timers[0]?.run();
+		await settleLong();
+		expect(retrySent()).toBe(1);
+		expect(h.retries.at(-1)).toBeUndefined();
+		// The next failure begins a new chain at 30 s, not at the second step.
+		h.facts[0] = fact({ running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+		h.resume.sync();
+		await settleLong();
+		expect(h.timers.map(timer => timer.ms).at(-1)).toBe(30_000);
+	});
+
+	it("does not touch the marker file: a scheduled retry is not an interrupted turn", async () => {
+		await failed();
+		expect(h.store.read()).toEqual([]);
 	});
 });

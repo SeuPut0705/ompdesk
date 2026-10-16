@@ -36,6 +36,7 @@ import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
 	IpcOpenExtensionRequest,
+	IpcScheduledRetry,
 	IpcSignIn,
 	IpcSpawnTabResult,
 	IpcTabStatusPayload,
@@ -106,6 +107,8 @@ export interface SessionTab {
 	awaitingInput?: AwaitedInput;
 	/** The tab's turn waits for the internet connection and continues by itself once it is back (main's turn-resume). */
 	awaitingConnection?: boolean;
+	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
+	scheduledRetry?: IpcScheduledRetry;
 }
 
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
@@ -194,6 +197,7 @@ function projectSessionTab(
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
+		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
 	};
 }
 
@@ -308,6 +312,13 @@ export function useAwaitingConnection(): string | null {
 		const tab = state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId));
 		return tab?.awaitingConnection === true ? tab.id : null;
 	});
+}
+
+/** The calling pane's tab id and its scheduled retry (main re-sends the failed turn at `at`); null when none is armed. */
+export function useScheduledRetry(): (IpcScheduledRetry & { tabId: string }) | null {
+	const tabId = useRuntimeTabId();
+	const tab = useTabsStore(state => state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId)));
+	return tab?.scheduledRetry ? { tabId: tab.id, ...tab.scheduledRetry } : null;
 }
 
 /** A closed tab whose saved session can be opened again (⌥⌘T). */

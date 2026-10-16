@@ -13,7 +13,7 @@ import { useModelStore } from "../../stores/model";
 import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useAwaitingConnection } from "../../stores/tabs";
+import { useAwaitingConnection, useScheduledRetry } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button } from "../common";
@@ -69,7 +69,10 @@ export function TurnErrorNotice({
 	const sessionId = useSessionStore(state => state.sessionId);
 	const booked = useQuotaResumeStore(state => (sessionId ? state.reservations[sessionId] : undefined));
 	const [resetAt, setResetAt] = useState<number>();
-	const now = useNowTick(quota && (resetAt !== undefined || booked !== undefined));
+	// main's backoff retry of this failed turn (turn-resume.ts): counted down on the card of the latest failure only.
+	const scheduled = useScheduledRetry();
+	const retryArmed = scheduled !== null && latest;
+	const now = useNowTick((quota && (resetAt !== undefined || booked !== undefined)) || retryArmed);
 
 	/** Best effort: without a usage report the card keeps its plain guidance. */
 	const readReset = useCallback(async (): Promise<boolean> => {
@@ -150,17 +153,51 @@ export function TurnErrorNotice({
 
 	const resumeAt = booked ?? resetAt;
 	const showReset = quota && resumeAt !== undefined && resumeAt > now;
+	// "Retry now" stands in for "Try again" while main waits to retry on its own.
+	const actions = retryArmed ? description.actions.filter(action => action !== "retry") : description.actions;
+	const retrySeconds = scheduled ? Math.max(0, Math.ceil((scheduled.at - now) / 1000)) : 0;
 	return (
 		<Banner
 			actions={[
-				...description.actions.map((action, index) => (
+				retryArmed ? (
+					<Button
+						data-scheduled-retry-now
+						key="retry-now"
+						loading={pending === "retry"}
+						disabled={pending !== null && pending !== "retry"}
+						onClick={() => void run("retry")}
+						size="sm"
+						variant="secondary"
+					>
+						{t("turnError.scheduled.now")}
+					</Button>
+				) : null,
+				retryArmed && scheduled ? (
+					<Button
+						data-scheduled-retry-cancel
+						disabled={pending !== null}
+						key="retry-cancel"
+						onClick={() =>
+							void window.omp.resume
+								.cancelWait(scheduled.tabId)
+								.catch((cause: unknown) =>
+									toastError({ title: t("chat.connectionWaitCancelFailed"), error: cause }),
+								)
+						}
+						size="sm"
+						variant="ghost"
+					>
+						{t("common.cancel")}
+					</Button>
+				) : null,
+				...actions.map((action, index) => (
 					<Button
 						disabled={pending !== null && pending !== action}
 						key={action}
 						loading={pending === action}
 						onClick={() => void run(action)}
 						size="sm"
-						variant={index === 0 ? "secondary" : "ghost"}
+						variant={index === 0 && !retryArmed ? "secondary" : "ghost"}
 					>
 						{t(ACTION_LABEL_KEYS[action])}
 					</Button>
@@ -188,6 +225,17 @@ export function TurnErrorNotice({
 			variant="danger"
 		>
 			<p>{t(description.guidanceKey)}</p>
+			{retryArmed && scheduled ? (
+				<p className="omp-scheduled-retry tabular-nums" data-scheduled-retry>
+					{t("turnError.scheduled.countdown", {
+						countdown: `${Math.floor(retrySeconds / 60)}:${String(retrySeconds % 60).padStart(2, "0")}`,
+					})}
+					<span className="text-(--sc-text-muted)">
+						{" · "}
+						{t("turnError.scheduled.attempt", { attempt: scheduled.attempt, max: scheduled.max })}
+					</span>
+				</p>
+			) : null}
 			{showReset ? (
 				<p className="omp-quota-reset tabular-nums" data-quota-reset>
 					{t(booked !== undefined ? "turnError.resume.booked" : "turnError.resume.resetsAt", {

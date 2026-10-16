@@ -1860,6 +1860,42 @@ describe("SidecarPool background tabs", () => {
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
 		});
 
+		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			sidecars[0]?.emitStatus("ready");
+			const retry = { at: 31_000, attempt: 1, max: 3 };
+
+			pool.setScheduledRetry("tab-a", retry);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", scheduledRetry: retry });
+			// A renderer that reloads asks for the window's tabs again.
+			expect(pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a")?.scheduledRetry).toEqual(retry);
+
+			pool.setScheduledRetry("tab-a", undefined);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("scheduledRetry");
+			expect(pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a")).not.toHaveProperty("scheduledRetry");
+			// An unknown tab is ignored.
+			expect(() => pool.setScheduledRetry("nope", retry)).not.toThrow();
+		});
+
+		it("counts the user's session edits as `touched` and tells the resume rules", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			sidecars[0]?.emitStatus("ready");
+			const changes = vi.fn();
+			pool.onRunningChange = changes;
+			const factA = () => pool.resumeFacts().find(fact => fact.tabId === "tab-a");
+
+			expect(factA()).not.toHaveProperty("touched");
+			pool.noteTouched("tab-a");
+			expect(factA()?.touched).toBe(1);
+			expect(changes).toHaveBeenCalled();
+			pool.noteTouched("tab-a");
+			expect(factA()?.touched).toBe(2);
+		});
+
 		it("reports stock's pending auto-retry with its failure, and tells the resume rules when one starts", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

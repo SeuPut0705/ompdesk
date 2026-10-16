@@ -39,6 +39,7 @@ import {
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
 	type IpcOpenExtensionRequest,
+	type IpcScheduledRetry,
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
 	type IpcSignIn,
@@ -213,6 +214,10 @@ interface PoolEntry extends RunTracking {
 	awaitingConnection?: boolean;
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
+	/** main's scheduled retry of this tab's failed turn, shown on its error card (turn-resume.ts). */
+	scheduledRetry?: IpcScheduledRetry;
+	/** Times the user changed the tab's session or branch (`TOUCH_COMMANDS`); a scheduled retry armed at another count is called off. */
+	touched?: number;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
 	ompRestartPending?: boolean;
 	/** An extension update landed while this tab ran a turn: applied one tick after the turn ends. */
@@ -1179,6 +1184,7 @@ export class SidecarPool {
 			if (entry.retry) fact.retry = entry.retry;
 			return fact;
 		});
+			if (entry.touched) fact.touched = entry.touched;
 	}
 
 	/** The user pressed Stop on this tab's run. */
@@ -1191,6 +1197,14 @@ export class SidecarPool {
 
 	/**
 	 * A provider sign-in (`login`) started on, or answered from, this tab. When the last one answers,
+	/** The user is changing which session or branch this tab shows (`TOUCH_COMMANDS`): a scheduled retry no longer applies. */
+	noteTouched(tabId: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		entry.touched = (entry.touched ?? 0) + 1;
+		this.onRunningChange?.();
+	}
+
 	 * a page that took the sign-in over after a reload (`IpcSignIn.active`) is told it is over.
 	 */
 	noteSignIn(tabId: string, active: boolean, login?: { providerId: string; error?: string | null }): void {
@@ -1236,6 +1250,17 @@ export class SidecarPool {
 
 	/** Spawn a deferred tab's process now (a background tab a relaunch must resume); the sidecar, or null for an unknown tab. */
 	startTab(tabId: string): SidecarLike | null {
+	/** Show (or with `undefined` clear) the tab's scheduled retry (turn-resume.ts). */
+	setScheduledRetry(tabId: string, retry: IpcScheduledRetry | undefined): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		if (retry === undefined) {
+			if (entry.scheduledRetry === undefined) return;
+			delete entry.scheduledRetry;
+		} else entry.scheduledRetry = retry;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+	}
+
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return null;
 		this.#ensureStarted(entry);
@@ -1409,4 +1434,5 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.awaitingConnection) payload.awaitingConnection = true;
 	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;
+	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
 }

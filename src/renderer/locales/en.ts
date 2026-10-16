@@ -2106,6 +2106,8 @@ export const en: Record<string, string> = {
 	"settings.gui.autoOpenChangesDesc": "At the end of a turn that edited files, if the panel is closed",
 	"settings.gui.batchNotifications": "Batch notifications",
 	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
+	"settings.gui.scheduledRetry": "Retry after temporary errors",
+	"settings.gui.scheduledRetryDesc": "Waits 30 s, then 2 min, then 10 min (3 tries)",
 	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
 	"settings.gui.resumeInterruptedDesc":
 		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",
@@ -5091,6 +5093,9 @@ export const en: Record<string, string> = {
 	"turnError.action.compact": "Compact context",
 	"turnError.details": "Details",
 	"turnError.retryFailed": "Retry failed",
+	"turnError.scheduled.countdown": "Retrying in {countdown}…",
+	"turnError.scheduled.attempt": "Attempt {attempt} of {max}",
+	"turnError.scheduled.now": "Retry now",
 	"turnError.retried": "{title} — tried again",
 	"tools.task.yieldLabel": "yield{suffix}",
 	"tools.websearch.error": "Error: {error}",

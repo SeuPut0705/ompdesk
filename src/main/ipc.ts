@@ -108,7 +108,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
-import { STOP_COMMANDS } from "./turn-resume";
+import { STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
 import { appVersion } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
@@ -558,6 +558,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// process dies before the run's end event arrives (turn-resume.ts).
 		if (issuerTabId && STOP_COMMANDS[cmd.type]) sidecarPool.noteStopped(issuerTabId);
 		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
+		// The user is moving the tab to another session or branch: a scheduled retry of its old failure is off.
+		if (issuerTabId && TOUCH_COMMANDS[cmd.type]) sidecarPool.noteTouched(issuerTabId);
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
 		const login = cmd.type === "login" ? cmd.providerId : null;

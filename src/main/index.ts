@@ -43,6 +43,7 @@ import {
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+	SCHEDULED_RETRY_PREF,
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -91,7 +92,7 @@ import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
-import { InterruptedTurnStore, TurnResume } from "./turn-resume";
+import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
 	appVersion,
 	checkForUpdate,
@@ -909,6 +910,8 @@ app.whenReady().then(() => {
 				sidecarPool.noteStopped(tabId);
 				hostServices.noteStopped(tabId);
 			},
+			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
+			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
 		},
 		network: {
 			get online() {
@@ -924,6 +927,15 @@ app.whenReady().then(() => {
 			if (marker.peer) return devices.reviveHostTab(marker.peer, marker);
 			const win = windowManager.getMainWindow();
 			if (!win) return null;
+		scheduledRetry: {
+			enabled: () => prefs.get(SCHEDULED_RETRY_PREF) !== false,
+			// OMP_GUI_RETRY_DELAYS_MS (comma list of ms) shortens the waits for e2e runs.
+			delays: retryDelays(process.env.OMP_GUI_RETRY_DELAYS_MS),
+			schedule: (run, ms) => {
+				const timer = setTimeout(run, ms);
+				return () => clearTimeout(timer);
+			},
+		},
 			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
 			return sidecar ? sidecarPool.tabForSession(marker.sessionPath) : null;
 		},
@@ -998,6 +1010,7 @@ app.whenReady().then(() => {
 			if (key === "themeName" || key === "theme") {
 				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 			}
+			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
