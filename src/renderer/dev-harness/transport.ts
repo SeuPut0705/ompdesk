@@ -8,6 +8,7 @@
  * `window.__harness.emit(channel, payload)` plays a main→renderer push (a tab status, a streaming batch, an ask).
  */
 
+import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { OmpTransport } from "../../shared/omp-api";
 import {
@@ -25,12 +26,17 @@ import {
 import type { RpcCommand } from "../../shared/rpc-types";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
+	CONTEXT_INSPECT,
 	FILE_CONTENTS,
 	FILE_TREE,
 	GIT_CHANGES,
 	GIT_DIFFS,
 	MODELS,
+	PR_DETAIL,
+	PR_LIST,
+	PR_REPO,
 	PROVIDERS,
+	SESSION_STATS,
 	sessionsFixture,
 	stateFixture,
 	TERMINAL_OUTPUT,
@@ -136,6 +142,28 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				const { path } = command;
 				return respond(command, { path, diff: GIT_DIFFS[path] ?? "", kind: "text", truncated: false });
 			}
+			case "get_session_stats":
+				return respond(command, SESSION_STATS);
+			case "get_context_inspect":
+				return respond(command, CONTEXT_INSPECT);
+			case "pr_comments":
+				return respond(command, { entries: [] });
+			case "github":
+				// The GitHub center: one host, the checkout's repository, and no rows in any list.
+				return respond(
+					command,
+					command.request.op === "hosts"
+						? { hosts: ["github.com"], repo: PR_REPO.repo }
+						: command.request.op.endsWith("_list")
+							? []
+							: {},
+				);
+			case "pr_repo":
+				return respond(command, PR_REPO);
+			case "pr_list":
+				return respond(command, PR_LIST);
+			case "pr_get":
+				return respond(command, PR_DETAIL);
 			default:
 				note(`rpc:${command.type}`);
 				return respond(command);
@@ -185,6 +213,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return { state: "idle" };
 			case IPC_COMMANDS.MODELS_SIGNED_IN:
 				return true;
+			case IPC_COMMANDS.GITHUB_AUTH_REFRESH:
+				return EMPTY_GITHUB_AUTH_STATE;
 			case IPC_COMMANDS.MODELS_PROVIDERS_LIST:
 				return { providers: [] };
 			case IPC_COMMANDS.SETUP_GET_STATE:

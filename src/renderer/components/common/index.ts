@@ -36,6 +36,12 @@ export {
 export { Kbd, type KbdProps } from "./Kbd";
 export { LangSwitcher, type LangSwitcherProps } from "./LangSwitcher";
 export { ListRow, type ListRowProps } from "./ListRow";
+export {
+	MasterDetail,
+	MasterDetailBack,
+	type MasterDetailProps,
+	useMasterDetail,
+} from "./MasterDetail";
 export { Modal, type ModalPlacement, type ModalProps, type ModalSize } from "./Modal";
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";

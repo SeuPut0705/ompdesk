@@ -4,16 +4,18 @@ import type { GithubRunDetail } from "../../../../shared/github";
 import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
-import { AsyncSection, Button, ConfirmDialog, IconButton, Input, Modal, Select, Spinner } from "../../common";
 import {
-	type GithubSectionProps,
-	GithubToolbar,
-	ListButton,
-	ListDetail,
-	NeedsRepo,
-	RunState,
-	useGithubMutation,
-} from "./shared";
+	AsyncSection,
+	Button,
+	ConfirmDialog,
+	IconButton,
+	Input,
+	MasterDetail,
+	Modal,
+	Select,
+	Spinner,
+} from "../../common";
+import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState, useGithubMutation } from "./shared";
 
 type RunAction = { kind: "rerun"; failedOnly: boolean } | { kind: "cancel" };
 
@@ -224,7 +226,7 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 					}}
 				/>
 			</GithubToolbar>
-			<ListDetail
+			<MasterDetail
 				detail={
 					selected === null ? null : (
 						<AsyncSection
@@ -276,6 +278,8 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 						</ul>
 					</AsyncSection>
 				}
+				onBack={() => setSelected(null)}
+				open={selected !== null}
 			/>
 			<Modal
 				footer={

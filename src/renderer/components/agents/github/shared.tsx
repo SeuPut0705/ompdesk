@@ -42,21 +42,6 @@ export function GithubToolbar({ children }: { children: ReactNode }) {
 	);
 }
 
-/** A list beside the selected row's detail, like the Pull requests tab. */
-export function ListDetail({ label, list, detail }: { label: string; list: ReactNode; detail: ReactNode }) {
-	return (
-		<div className="flex min-h-0 flex-1">
-			<nav
-				aria-label={label}
-				className="flex w-[clamp(14rem,40%,24rem)] shrink-0 flex-col overflow-y-auto border-r border-(--sc-divider) p-2"
-			>
-				{list}
-			</nav>
-			<div className="min-w-0 flex-1 overflow-y-auto">{detail}</div>
-		</div>
-	);
-}
-
 export function ListButton({
 	active,
 	onSelect,

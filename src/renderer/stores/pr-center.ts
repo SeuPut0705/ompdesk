@@ -30,6 +30,8 @@ interface PrCenterStore {
 	/** Re-read the selected PR and the list after an action changed it (merge, review, edit). */
 	reloadSelected: () => Promise<void>;
 	select: (number: number) => Promise<void>;
+	/** Close the selected PR's detail (a phone's back from the detail). */
+	deselect: () => void;
 	toggleFile: (path: string) => Promise<void>;
 	checkout: (number: number) => Promise<void>;
 	reset: () => void;
@@ -98,6 +100,8 @@ export const usePrCenterStore = create<PrCenterStore>()((set, get) => ({
 		const number = get().selected;
 		await Promise.all([get().refresh(), number === null ? undefined : get().select(number)]);
 	},
+
+	deselect: () => set({ selected: null, detail: null, detailLoading: false, expandedFiles: {}, error: null }),
 
 	select: async number => {
 		set({ selected: number, detail: null, detailLoading: true, expandedFiles: {}, error: null });

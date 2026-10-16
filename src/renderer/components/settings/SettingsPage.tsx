@@ -32,12 +32,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SettingEntry, SidecarStatus } from "../../../shared/rpc-types";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { useLang, useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { type FocusedHost, useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ListRow, SearchField } from "../common";
+import { Banner, Button, EmptyState, ListRow, MasterDetailBack, SearchField, useMasterDetail } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
@@ -165,6 +166,15 @@ export function SettingsPage() {
 	const agentSection = AGENT_SECTIONS[section] === true && !hostOffline;
 	const [query, setQuery] = useState("");
 	const [focusRowId, setFocusRowId] = useState<string | null>(null);
+	const stacked = useShellMode() === "phone";
+	// A phone shows the section list or one section (use-master-detail); the other shells show both.
+	const [detailOpen, setDetailOpen] = useState(settingsTab !== "general");
+	const seenTab = useRef(settingsTab);
+	useEffect(() => {
+		if (seenTab.current === settingsTab) return;
+		seenTab.current = settingsTab;
+		setDetailOpen(true);
+	}, [settingsTab]);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 
@@ -172,6 +182,7 @@ export function SettingsPage() {
 		useUiStore.getState().setSettingsSection(target);
 		setQuery("");
 		setFocusRowId(rowId ?? null);
+		setDetailOpen(true);
 	}, []);
 
 	// The search waits for ⌘F (Ctrl+F) rather than grabbing focus on open: an
@@ -190,11 +201,11 @@ export function SettingsPage() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
-	// Each section starts at its top.
+	// Each section starts at its top (a phone mounts the page anew each time a section opens).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a section change resets the scroll container.
 	useLayoutEffect(() => {
 		if (contentRef.current) contentRef.current.scrollTop = 0;
-	}, [section]);
+	}, [section, stacked, detailOpen]);
 
 	// Deep links and search results scroll to their row once it has rendered (schema rows arrive after load).
 	// A `sub` that starts with `setting-` names a row id outright (`models:setting-providers.webSearch`).
@@ -245,8 +256,11 @@ export function SettingsPage() {
 
 	const listPlaceholder = LIST_SECTIONS[section];
 	const listSection = listPlaceholder !== undefined;
+	// A page search shows its own results; on a phone the section list is where it is typed, so the shortcut list
+	// filters in place only inside its own section.
+	const filterInPlace = listSection && (!stacked || detailOpen);
 	const results = useMemo(() => {
-		if (!query.trim() || listSection) return null;
+		if (!query.trim() || filterInPlace) return null;
 		const tabs = data.schema?.tabs ?? [];
 		return searchSettings({
 			query,
@@ -260,7 +274,7 @@ export function SettingsPage() {
 			},
 			schemaLabel: (entry: SettingEntry) => schemaSettingText(lang, entry.path)?.label ?? entry.label ?? entry.path,
 		});
-	}, [query, listSection, data.schema, data.sidecarReady, data.values, lang, t]);
+	}, [query, filterInPlace, data.schema, data.sidecarReady, data.values, lang, t]);
 
 	const sectionTitle = t(`settings.section.${section}`);
 	const extensionsTab: ExtensionsTab = (EXTENSIONS_TABS as readonly string[]).includes(sub ?? "")
@@ -365,6 +379,37 @@ export function SettingsPage() {
 		}
 	};
 
+	const open = detailOpen && results === null;
+	const { showList, showDetail } = useMasterDetail(open, () => setDetailOpen(false));
+	const searchField = (
+		<SearchField
+			label={t("settings.searchPlaceholder")}
+			onValueChange={setQuery}
+			placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
+			ref={searchRef}
+			shortcut="⌘F"
+			spellCheck={false}
+			value={query}
+		/>
+	);
+	const resultsList =
+		results &&
+		(results.length === 0 ? (
+			<EmptyState description={t("settings.search.emptyDesc")} title={t("settings.noMatches")} />
+		) : (
+			<div className="flex flex-col gap-px" data-settings-search-results="true">
+				{results.map(result => (
+					<ListRow
+						description={result.path ? `${result.location} · ${result.path}` : result.location}
+						key={result.key}
+						onClick={() => navigate(result.target, result.rowId)}
+						rowProps={{ "data-search-key": result.key, "data-search-path": result.path }}
+						title={result.title}
+					/>
+				))}
+			</div>
+		));
+
 	return (
 		<SettingsDataProvider value={data}>
 			<SettingsNavigationProvider value={navigate}>
@@ -372,154 +417,151 @@ export function SettingsPage() {
 					<div
 						className="settings-page flex h-full min-h-0 w-full bg-(--sc-bg) text-(--sc-text)"
 						data-settings-page="true"
+						data-stacked={stacked ? "" : undefined}
 					>
-						<nav
-							aria-labelledby="settings-page-title"
-							className="settings-nav flex shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--sc-divider) px-2 pt-4 pb-4"
-						>
-							<h1
-								className="px-2 text-sc-lg font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
-								id="settings-page-title"
+						{showList && (
+							<nav
+								aria-labelledby="settings-page-title"
+								className="settings-nav flex shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--sc-divider) px-2 pt-4 pb-4"
 							>
-								{t("settings.title")}
-							</h1>
-							<SearchField
-								label={t("settings.searchPlaceholder")}
-								onValueChange={setQuery}
-								placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
-								ref={searchRef}
-								shortcut="⌘F"
-								spellCheck={false}
-								value={query}
-							/>
-							{SETTINGS_NAV.map(group => (
-								<div key={group.id} role="group" aria-labelledby={`settings-nav-${group.id}`}>
-									<div
-										className="px-2.5 pt-1.5 pb-0.5 text-sc-xs font-medium text-(--sc-text-muted)"
-										id={`settings-nav-${group.id}`}
-									>
-										{t(`settings.navHeading.${group.id}`)}
-									</div>
-									{group.items.map(id => {
-										const Icon = SECTION_ICONS[id];
-										return (
-											<ListRow
-												buttonProps={{ "data-settings-section": id }}
-												key={id}
-												leading={<Icon aria-hidden />}
-												meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
-												onClick={() => navigate(id)}
-												// Search results replace the section: no row claims the page meanwhile.
-												selected={results === null && id === section}
-												title={t(`settings.section.${id}`)}
-												rowProps={{ "data-settings-nav": id, "data-settings-scope": SECTION_SCOPE[id] }}
-											/>
-										);
-									})}
-								</div>
-							))}
-						</nav>
-						<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
-							<section aria-labelledby="settings-section-title" className="settings-column">
-								{host && <SettingsDeviceBanner host={host} />}
-								<header className="mb-3">
-									<h2
-										className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
-										id="settings-section-title"
-									>
-										{results ? t("settings.search.title") : sectionTitle}
-									</h2>
-									<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
-										{results
-											? t("settings.search.count", { count: results.length })
-											: t(`settings.section.${section}.desc`)}
-									</p>
-									{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
-									{!results && host && (
-										<p
-											className="mt-2 text-sc-xs text-(--sc-text-muted)"
-											data-settings-section-scope={SECTION_SCOPE[section]}
-										>
-											{SECTION_SCOPE[section] === "app" ? (
-												<ThisDeviceTag />
-											) : (
-												<>
-													{t(
-														`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : "system"}`,
-													)}
-													{SECTION_SCOPE[section] === "host" && host.name ? `: ${host.name}` : ""}
-												</>
-											)}
+								<h1
+									className="px-2 text-sc-lg font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+									id="settings-page-title"
+								>
+									{t("settings.title")}
+								</h1>
+								{searchField}
+								{/* A phone types its search here, so its results replace the section list. */}
+								{stacked && resultsList ? (
+									<div data-settings-nav-results="true">
+										<p className="px-2 pb-1 text-sc-xs text-(--sc-text-muted)">
+											{t("settings.search.count", { count: results?.length ?? 0 })}
 										</p>
-									)}
-								</header>
-								{agentSection && !data.sidecarReady && (
-									<SettingsConnectionBanner
-										busy={data.sidecarBusy}
-										error={sidecarError}
-										onRetry={data.retry}
-										status={sidecarStatus}
-									/>
-								)}
-								{agentSection && data.sidecarReady && data.loadState === "error" && (
-									<Banner
-										actions={
-											<Button icon={<RefreshCw />} onClick={data.retry} size="sm" variant="secondary">
-												{t("common.retry")}
-											</Button>
-										}
-										live
-										title={t("settings.schemaLoadFailed")}
-										variant="danger"
-									>
-										{data.loadError ?? t("settings.schemaUnavailable")}
-									</Banner>
-								)}
-								{results ? (
-									results.length === 0 ? (
-										<EmptyState
-											description={t("settings.search.emptyDesc")}
-											title={t("settings.noMatches")}
-										/>
-									) : (
-										<div className="flex flex-col gap-px" data-settings-search-results="true">
-											{results.map(result => (
-												<ListRow
-													description={
-														result.path ? `${result.location} · ${result.path}` : result.location
-													}
-													key={result.key}
-													onClick={() => navigate(result.target, result.rowId)}
-													rowProps={{ "data-search-key": result.key, "data-search-path": result.path }}
-													title={result.title}
-												/>
-											))}
-										</div>
-									)
-								) : (
-									<div className="settings-sections">
-										{listSection && query.trim() !== "" && (
-											<div className="mb-4">
-												<Button
-													onClick={() => useUiStore.getState().setSettingsSection("general")}
-													size="sm"
-													variant="ghost"
-												>
-													{t("settings.search.everywhere", { query: query.trim() })}
-												</Button>
-											</div>
-										)}
-										<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-											{SECTION_SCOPE[section] === "host" ? (
-												<HostScoped>{renderSection()}</HostScoped>
-											) : (
-												renderSection()
-											)}
-										</SettingsScopeProvider>
+										{resultsList}
 									</div>
+								) : (
+									SETTINGS_NAV.map(group => (
+										<div key={group.id} role="group" aria-labelledby={`settings-nav-${group.id}`}>
+											<div
+												className="px-2.5 pt-1.5 pb-0.5 text-sc-xs font-medium text-(--sc-text-muted)"
+												id={`settings-nav-${group.id}`}
+											>
+												{t(`settings.navHeading.${group.id}`)}
+											</div>
+											{group.items.map(id => {
+												const Icon = SECTION_ICONS[id];
+												return (
+													<ListRow
+														buttonProps={{ "data-settings-section": id }}
+														key={id}
+														leading={<Icon aria-hidden />}
+														meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
+														onClick={() => navigate(id)}
+														// Search results replace the section: no row claims the page meanwhile.
+														// A phone's list has no current section: the pushed page is it.
+														selected={results === null && !stacked && id === section}
+														title={t(`settings.section.${id}`)}
+														rowProps={{
+															"data-settings-nav": id,
+															"data-settings-scope": SECTION_SCOPE[id],
+														}}
+													/>
+												);
+											})}
+										</div>
+									))
 								)}
-							</section>
-						</div>
+							</nav>
+						)}
+						{showDetail && stacked && (
+							<MasterDetailBack label={t("settings.title")} onBack={() => setDetailOpen(false)} />
+						)}
+						{showDetail && (
+							<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
+								<section aria-labelledby="settings-section-title" className="settings-column">
+									{host && <SettingsDeviceBanner host={host} />}
+									<header className="mb-3">
+										<h2
+											className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+											id="settings-section-title"
+										>
+											{results ? t("settings.search.title") : sectionTitle}
+										</h2>
+										<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
+											{results
+												? t("settings.search.count", { count: results.length })
+												: t(`settings.section.${section}.desc`)}
+										</p>
+										{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
+										{!results && host && (
+											<p
+												className="mt-2 text-sc-xs text-(--sc-text-muted)"
+												data-settings-section-scope={SECTION_SCOPE[section]}
+											>
+												{SECTION_SCOPE[section] === "app" ? (
+													<ThisDeviceTag />
+												) : (
+													<>
+														{t(
+															`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : "system"}`,
+														)}
+														{SECTION_SCOPE[section] === "host" && host.name ? `: ${host.name}` : ""}
+													</>
+												)}
+											</p>
+										)}
+									</header>
+									{/* A phone's section list is behind the back button: the shortcut filter needs its field here. */}
+									{stacked && listSection && <div className="mb-3">{searchField}</div>}
+									{agentSection && !data.sidecarReady && (
+										<SettingsConnectionBanner
+											busy={data.sidecarBusy}
+											error={sidecarError}
+											onRetry={data.retry}
+											status={sidecarStatus}
+										/>
+									)}
+									{agentSection && data.sidecarReady && data.loadState === "error" && (
+										<Banner
+											actions={
+												<Button icon={<RefreshCw />} onClick={data.retry} size="sm" variant="secondary">
+													{t("common.retry")}
+												</Button>
+											}
+											live
+											title={t("settings.schemaLoadFailed")}
+											variant="danger"
+										>
+											{data.loadError ?? t("settings.schemaUnavailable")}
+										</Banner>
+									)}
+									{resultsList ? (
+										resultsList
+									) : (
+										<div className="settings-sections">
+											{listSection && query.trim() !== "" && (
+												<div className="mb-4">
+													<Button
+														onClick={() => useUiStore.getState().setSettingsSection("general")}
+														size="sm"
+														variant="ghost"
+													>
+														{t("settings.search.everywhere", { query: query.trim() })}
+													</Button>
+												</div>
+											)}
+											<SettingsScopeProvider value={SECTION_SCOPE[section]}>
+												{SECTION_SCOPE[section] === "host" ? (
+													<HostScoped>{renderSection()}</HostScoped>
+												) : (
+													renderSection()
+												)}
+											</SettingsScopeProvider>
+										</div>
+									)}
+								</section>
+							</div>
+						)}
 					</div>
 				</div>
 			</SettingsNavigationProvider>

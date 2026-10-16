@@ -6,8 +6,18 @@ import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { focusedTabDevice } from "../../../stores/remote";
-import { AsyncSection, Badge, Button, ConfirmDialog, IconButton, Input, Modal, Select } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, ListDetail, useGithubMutation } from "./shared";
+import {
+	AsyncSection,
+	Badge,
+	Button,
+	ConfirmDialog,
+	IconButton,
+	Input,
+	MasterDetail,
+	Modal,
+	Select,
+} from "../../common";
+import { type GithubSectionProps, GithubToolbar, ListButton, useGithubMutation } from "./shared";
 
 const VISIBILITIES: GithubVisibility[] = ["private", "public", "internal"];
 
@@ -236,7 +246,7 @@ export function GithubRepos({
 					onClick={list.reload}
 				/>
 			</GithubToolbar>
-			<ListDetail
+			<MasterDetail
 				detail={
 					selected === null ? null : (
 						<AsyncSection
@@ -346,6 +356,8 @@ export function GithubRepos({
 						</ul>
 					</AsyncSection>
 				}
+				onBack={() => setSelected(null)}
+				open={selected !== null}
 			/>
 			{creating && <CreateDialog host={host} onClose={() => setCreating(false)} onCreated={list.reload} />}
 			{cloning && repo && <CloneDialog host={host} onClose={() => setCloning(false)} repo={repo.nameWithOwner} />}

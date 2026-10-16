@@ -228,6 +228,7 @@ export function SettingsRow({
 							{inline !== undefined && (
 								<span
 									className="min-w-0 truncate text-sc-xs break-keep text-(--sc-text-muted)"
+									data-setting-desc
 									id={descriptionId}
 									title={inline}
 								>

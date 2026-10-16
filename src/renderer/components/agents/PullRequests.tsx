@@ -15,7 +15,7 @@ import { selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { focusedTabDevice } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner, Tabs } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, MasterDetail, Spinner, Tabs } from "../common";
 import { GithubSignIn } from "../onboarding/GithubSignIn";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
@@ -225,70 +225,69 @@ export function PullRequests() {
 					</Button>
 				</div>
 			</div>
-			<div className="flex min-h-0 flex-1">
-				<nav
-					aria-label={t("prCenter.listLabel")}
-					// A share of the page, not a fixed 20rem: at the smallest window that left the detail a word per line.
-					className="flex w-[clamp(14rem,40%,24rem)] shrink-0 flex-col overflow-y-auto border-r border-(--sc-divider) p-2"
-				>
-					{error && list.length > 0 && (
-						<Banner className="mb-2" live title={t("prCenter.loadFailed")} variant="warning">
-							<ErrorDetail error={error} />
-						</Banner>
-					)}
-					{error && list.length === 0 ? (
-						<EmptyState
-							actions={
-								<Button
-									icon={<RefreshCw />}
-									onClick={() => void usePrCenterStore.getState().refresh()}
-									size="sm"
-									variant="secondary"
-								>
-									{t("common.retry")}
-								</Button>
-							}
-							className="flex-1"
-							description={
-								<span role="alert">
-									<ErrorDetail error={error} />
-								</span>
-							}
-							icon={<GitPullRequest />}
-							size="sm"
-							title={t("prCenter.loadFailed")}
-						/>
-					) : listLoading && list.length === 0 ? (
-						<div className="flex flex-1 items-center justify-center">
-							<Spinner label={t("prCenter.loading")} />
-						</div>
-					) : list.length === 0 ? (
-						<EmptyState
-							actions={
-								<Button icon={<Plus />} onClick={() => setCreateOpen(true)} size="sm" variant="secondary">
-									{t("prCenter.create")}
-								</Button>
-							}
-							size="sm"
-							title={t("prCenter.empty")}
-						/>
-					) : (
-						<ul className="flex flex-col gap-0.5">
-							{list.map(item => (
-								<PrListRow
-									active={item.number === selected}
-									item={item}
-									key={item.number}
-									onSelect={() => void usePrCenterStore.getState().select(item.number)}
-								/>
-							))}
-						</ul>
-					)}
-				</nav>
-				<div className="min-w-0 flex-1 overflow-y-auto">
-					<PrDetail onCreateOpen={() => setCreateOpen(true)} />
-				</div>
-			</div>
+			<MasterDetail
+				detail={<PrDetail onCreateOpen={() => setCreateOpen(true)} />}
+				label={t("prCenter.listLabel")}
+				list={
+					<>
+						{error && list.length > 0 && (
+							<Banner className="mb-2" live title={t("prCenter.loadFailed")} variant="warning">
+								<ErrorDetail error={error} />
+							</Banner>
+						)}
+						{error && list.length === 0 ? (
+							<EmptyState
+								actions={
+									<Button
+										icon={<RefreshCw />}
+										onClick={() => void usePrCenterStore.getState().refresh()}
+										size="sm"
+										variant="secondary"
+									>
+										{t("common.retry")}
+									</Button>
+								}
+								className="flex-1"
+								description={
+									<span role="alert">
+										<ErrorDetail error={error} />
+									</span>
+								}
+								icon={<GitPullRequest />}
+								size="sm"
+								title={t("prCenter.loadFailed")}
+							/>
+						) : listLoading && list.length === 0 ? (
+							<div className="flex flex-1 items-center justify-center">
+								<Spinner label={t("prCenter.loading")} />
+							</div>
+						) : list.length === 0 ? (
+							<EmptyState
+								actions={
+									<Button icon={<Plus />} onClick={() => setCreateOpen(true)} size="sm" variant="secondary">
+										{t("prCenter.create")}
+									</Button>
+								}
+								size="sm"
+								title={t("prCenter.empty")}
+							/>
+						) : (
+							<ul className="flex flex-col gap-0.5">
+								{list.map(item => (
+									<PrListRow
+										active={item.number === selected}
+										item={item}
+										key={item.number}
+										onSelect={() => void usePrCenterStore.getState().select(item.number)}
+									/>
+								))}
+							</ul>
+						)}
+					</>
+				}
+				onBack={() => usePrCenterStore.getState().deselect()}
+				open={selected !== null}
+			/>
 			<PrCreateDialog onClose={() => setCreateOpen(false)} open={createOpen} />
 		</div>
 	);

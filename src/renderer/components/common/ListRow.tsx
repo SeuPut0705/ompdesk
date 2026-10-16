@@ -93,7 +93,7 @@ export function ListRow({
 		<div
 			{...rowProps}
 			className={cx(
-				"group/row relative flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 text-left",
+				"omp-list-row group/row relative flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 text-left",
 				description ? "min-h-10 py-1.5" : "min-h-8 py-1",
 				selected ? "bg-(--sc-selected)" : onClick && !disabled && "hover:bg-(--sc-hover)",
 				disabled && "opacity-50",

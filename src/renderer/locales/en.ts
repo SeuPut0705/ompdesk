@@ -1404,6 +1404,7 @@ export const en: Record<string, string> = {
 	"common.loading": "Loading…",
 	"rpc.failed": "Request failed",
 	"common.close": "Close",
+	"masterDetail.back": "Back",
 	"image.zoom": "Enlarge {name}",
 	"image.fit": "Fit to window",
 	"image.actualSize": "Show actual size",

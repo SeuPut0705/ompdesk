@@ -1392,6 +1392,7 @@ export const ko: Record<string, string> = {
 	"common.loading": "불러오는 중…",
 	"rpc.failed": "요청에 실패했어요",
 	"common.close": "닫기",
+	"masterDetail.back": "뒤로",
 	"image.zoom": "{name} 크게 보기",
 	"image.fit": "창에 맞추기",
 	"image.actualSize": "원래 크기로 보기",

@@ -441,6 +441,7 @@ export function ModelPicker() {
 													"flex min-h-(--sc-control-sm) w-full items-center gap-2 rounded-(--sc-radius-md) px-2 py-0.5 text-left disabled:cursor-not-allowed disabled:opacity-50",
 													isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 												)}
+												data-model-option
 												data-option-index={optionIndex}
 												disabled={switching !== null || !sidecarReady}
 												id={`${listboxId}-option-${optionIndex}`}

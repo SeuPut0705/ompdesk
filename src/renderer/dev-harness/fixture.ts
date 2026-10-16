@@ -5,7 +5,13 @@
  */
 
 import type { IpcTabInfo, SessionInfo } from "../../shared/ipc-types";
-import type { RpcSessionState } from "../../shared/rpc-types";
+import type {
+	RpcContextInspectResult,
+	RpcPrDetail,
+	RpcPrListItem,
+	RpcSessionState,
+	SessionStats,
+} from "../../shared/rpc-types";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -343,3 +349,98 @@ export const FILE_CONTENTS: Record<string, string> = {
 /** The first screen of the harness terminal. */
 export const TERMINAL_OUTPUT =
 	"\u001b[32mseuput@laptop\u001b[0m:\u001b[34m~/ompdesk\u001b[0m$ bun test\r\n 1200 passed\r\n$ ";
+
+/** The repository and pull requests the PR center (Agents › Pull requests) shows. */
+export const PR_REPO = { available: true as const, repo: "seuput/ompdesk", defaultBranch: "main" };
+
+export const PR_LIST: RpcPrListItem[] = [
+	{
+		number: 412,
+		title: "Stack settings rows above a full-width control on a phone",
+		url: "https://github.com/seuput/ompdesk/pull/412",
+		isDraft: false,
+		authorLogin: "seuput",
+		headRefName: "mobile/settings-master-detail",
+		baseRefName: "main",
+		additions: 214,
+		deletions: 38,
+		updatedAt: "2026-10-17T08:50:00Z",
+		reviewDecision: null,
+		checks: { success: 5, failure: 0, pending: 1 },
+	},
+	{
+		number: 409,
+		title: "Keep the model picker's search pinned while the list scrolls",
+		url: "https://github.com/seuput/ompdesk/pull/409",
+		isDraft: true,
+		authorLogin: "mina",
+		headRefName: "picker/pinned-search",
+		baseRefName: "main",
+		additions: 31,
+		deletions: 4,
+		updatedAt: "2026-10-16T21:10:00Z",
+		reviewDecision: null,
+		checks: { success: 2, failure: 1, pending: 0 },
+	},
+];
+
+export const PR_DETAIL: RpcPrDetail = {
+	number: 412,
+	title: "Stack settings rows above a full-width control on a phone",
+	url: "https://github.com/seuput/ompdesk/pull/412",
+	isDraft: false,
+	authorLogin: "seuput",
+	body: "Settings opens as a list on a phone and each section is a pushed page.\n\n- rows stack label and control\n- the back gesture closes the page",
+	baseRefName: "main",
+	headRefName: "mobile/settings-master-detail",
+	mergeStateStatus: "CLEAN",
+	state: "OPEN",
+	additions: 214,
+	deletions: 38,
+	reviewDecision: null,
+	files: [
+		{
+			path: "src/renderer/components/settings/SettingsPage.tsx",
+			changeType: "MODIFIED",
+			additions: 120,
+			deletions: 30,
+		},
+		{ path: "src/renderer/components/common/MasterDetail.tsx", changeType: "ADDED", additions: 94, deletions: 0 },
+	],
+	checks: [
+		{ name: "check", status: "COMPLETED", conclusion: "SUCCESS" },
+		{ name: "e2e (mobile)", status: "IN_PROGRESS", conclusion: null },
+	],
+};
+
+/** What `get_session_stats` answers: the open session's figures (Insights › Activity › This session). */
+export const SESSION_STATS: SessionStats = {
+	sessionId: "sess-1-harness-fixture",
+	userMessages: 7,
+	assistantMessages: 7,
+	toolCalls: 18,
+	toolResults: 18,
+	totalMessages: 14,
+	tokens: { input: 48_200, output: 9_400, reasoning: 2_100, cacheRead: 310_000, cacheWrite: 12_000, total: 381_700 },
+	premiumRequests: 0,
+	cost: 1.84,
+};
+
+/** What `get_context_inspect` answers: category totals only. */
+export const CONTEXT_INSPECT: RpcContextInspectResult = {
+	model: "claude-sonnet-4-5",
+	contextWindow: 200_000,
+	usedTokens: 61_000,
+	anchored: true,
+	categories: {
+		systemPrompt: 4_200,
+		systemContext: 1_100,
+		memoryFiles: 2_400,
+		builtinTools: 9_800,
+		mcpTools: 0,
+		extensionTools: 1_500,
+		skills: 3_000,
+		messages: 39_000,
+	},
+	entries: [],
+};

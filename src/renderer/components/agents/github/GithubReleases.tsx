@@ -5,8 +5,19 @@ import { formatBytes, formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
-import { AsyncSection, Badge, Button, ConfirmDialog, IconButton, Input, Modal, Switch, TextArea } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, ListDetail, NeedsRepo, useGithubMutation } from "./shared";
+import {
+	AsyncSection,
+	Badge,
+	Button,
+	ConfirmDialog,
+	IconButton,
+	Input,
+	MasterDetail,
+	Modal,
+	Switch,
+	TextArea,
+} from "../../common";
+import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, useGithubMutation } from "./shared";
 
 interface ReleaseDraft {
 	tag: string;
@@ -283,7 +294,7 @@ export function GithubReleases({ target, repoName, targetKey }: GithubSectionPro
 					onClick={list.reload}
 				/>
 			</GithubToolbar>
-			<ListDetail
+			<MasterDetail
 				detail={
 					selected === null ? null : (
 						<AsyncSection
@@ -341,6 +352,8 @@ export function GithubReleases({ target, repoName, targetKey }: GithubSectionPro
 						</ul>
 					</AsyncSection>
 				}
+				onBack={() => setSelected(null)}
+				open={selected !== null}
 			/>
 			{creating && (
 				<ReleaseEditor
