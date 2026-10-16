@@ -68,6 +68,7 @@ export function pwaPlugin(options: PwaPluginOptions): Plugin {
 	return {
 		name: "omp-pwa-service-worker",
 		apply: "build",
+		enforce: "post",
 		async generateBundle(_output, bundle) {
 			const html = bundle[page];
 			if (html?.type !== "asset") return;
