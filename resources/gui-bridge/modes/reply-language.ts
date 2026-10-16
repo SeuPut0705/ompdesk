@@ -39,7 +39,7 @@ function isLanguageName(name: string): boolean {
 }
 
 /** The language OMPdesk steers toward; undefined for missing, malformed or English (stock's own language). */
-export function replyLanguageName(language: string | undefined): string | undefined {
+export function steeredReplyLanguage(language: string | undefined): string | undefined {
 	const name = language?.trim() ?? "";
 	if (!isLanguageName(name) || name.toLowerCase() === "english") return undefined;
 	return name;
@@ -47,7 +47,7 @@ export function replyLanguageName(language: string | undefined): string | undefi
 
 /** The system-prompt line for `language`; undefined for missing, malformed or English. */
 export function replyLanguageInstruction(language: string | undefined): string | undefined {
-	const name = replyLanguageName(language);
+	const name = steeredReplyLanguage(language);
 	if (!name) return undefined;
 	return [
 		"<reply-language>",
@@ -56,8 +56,8 @@ export function replyLanguageInstruction(language: string | undefined): string |
 	].join("\n");
 }
 
-/** The current language (see {@link replyLanguageName}); undefined = none. */
-let language = replyLanguageName(process.env.OMP_GUI_REPLY_LANGUAGE);
+/** The current language (see {@link steeredReplyLanguage}); undefined = none. */
+let language = steeredReplyLanguage(process.env.OMP_GUI_REPLY_LANGUAGE);
 /** The instruction every hooked prompt gets; undefined = none. */
 let instruction = replyLanguageInstruction(language);
 
@@ -94,7 +94,7 @@ export function setReplyLanguage(params: unknown): { language: string | null } {
 	if (typeof value !== "string") throw new Error("reply_language_set needs {language: string | null}");
 	const name = value.trim();
 	if (name && !isLanguageName(name)) throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
-	language = replyLanguageName(name);
+	language = steeredReplyLanguage(name);
 	instruction = replyLanguageInstruction(language);
 	return { language: name || null };
 }
