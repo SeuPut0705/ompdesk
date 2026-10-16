@@ -40,14 +40,19 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		env.TERM_PROGRAM = "OMPdesk";
 		const windows = process.platform === "win32";
 		const application = shell?.path ?? (windows ? process.env.ComSpec || "cmd.exe" : process.env.SHELL || "/bin/zsh");
-		return (await terminals()).request(owner, operation, {
+		const options = {
 			application,
 			args: shell?.args ?? (windows ? [] : ["-l"]),
 			cwd,
 			env,
 			cols: 80,
 			rows: 24,
-		});
+		};
+		const service = await terminals();
+		// A web viewer's long poll holds here, in the worker, until the PTY writes (never a timer loop in main).
+		return operation.action === "list" && operation.waitMs
+			? service.list(owner, operation, options)
+			: service.request(owner, operation, options);
 	},
 	/** One command (not the login shell) in a PTY, e.g. `gh auth login`, which needs a TTY. Main supplies the whole env. */
 	"pty.request": async params => {

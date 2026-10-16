@@ -1,13 +1,24 @@
-import type { TerminalOperation, TerminalShell, TerminalSnapshot } from "../../shared/terminal-types";
+import {
+	TERMINAL_OUTPUT_BUDGET,
+	TERMINAL_POLL_MAX_WAIT_MS,
+	type TerminalOperation,
+	type TerminalShell,
+	type TerminalSnapshot,
+} from "../../shared/terminal-types";
 import type { RemoteDevices } from "../remote/devices";
 import type { SidecarPool } from "../sidecar-pool";
+import { isWebWindow } from "../web/client-window";
 import type { IpcRegistry } from "../web/ipc-registry";
+import { TerminalLease } from "./lease";
 import { disposeTerminals, terminalRequest, validTerminalOperation } from "./requests";
 import { detectShells } from "./shells";
 
 const owners = new Set<string>();
+/** Who sizes each PTY when several windows show it (lease.ts); keyed `<owner>|<session id>`. */
+const lease = new TerminalLease();
 export function closeTabTerminals(windowId: number, tabId: string): void {
 	const owner = `${windowId}:${tabId}`;
+	lease.forgetOwner(`${owner}|`);
 	if (owners.delete(owner)) disposeTerminals(owner);
 }
 /**
@@ -34,6 +45,7 @@ export function registerTerminalIpc(
 		for (const owner of owners) {
 			if (!owner.endsWith(`:${tabId}`)) continue;
 			owners.delete(owner);
+			lease.forgetOwner(`${owner}|`);
 			disposeTerminals(owner);
 		}
 		released?.(tabId, exited);
@@ -64,12 +76,34 @@ export function registerTerminalIpc(
 			if (caller.sender.id === target.winId)
 				caller.sender.once("destroyed", () => closeTabTerminals(target.winId, tabId));
 		}
-		const result = await terminalRequest(owner, target.sidecar.cwd, operation);
+		const viewer = caller.sender.id;
+		const session = (id: string) => `${owner}|${id}`;
+		// A web viewer's list is a long poll with an output budget, whatever it asked for (the acknowledgement is
+		// its next request); a desktop window's list keeps the plain read.
+		let forwarded: TerminalOperation = operation;
+		if (operation.action === "list" && isWebWindow(viewer)) {
+			forwarded = {
+				...operation,
+				waitMs: Math.min(operation.waitMs ?? 0, TERMINAL_POLL_MAX_WAIT_MS),
+				budget: Math.min(operation.budget ?? TERMINAL_OUTPUT_BUDGET, TERMINAL_OUTPUT_BUDGET),
+			};
+		} else if (operation.action === "resize" && !lease.mayResize(session(operation.id), viewer)) {
+			// Another viewer sizes this PTY: the resize is dropped and the answer says who has it.
+			forwarded = { action: "list", offsets: {} };
+		} else if (operation.action === "claim") {
+			lease.claim(session(operation.id), viewer);
+			forwarded = { action: "list", offsets: {} };
+		} else if (operation.action === "write") {
+			lease.typed(session(operation.id), viewer);
+		} else if (operation.action === "close") {
+			lease.forget(session(operation.id));
+		}
+		const result = await terminalRequest(owner, target.sidecar.cwd, forwarded);
 		// A tab can close while the lazy Bun worker is starting.
 		if (!owners.has(owner)) {
 			disposeTerminals(owner);
 			return [];
 		}
-		return result;
+		return result.map(snapshot => ({ ...snapshot, lease: lease.seen(session(snapshot.id), viewer) }));
 	});
 }

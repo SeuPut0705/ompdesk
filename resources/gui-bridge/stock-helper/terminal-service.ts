@@ -31,7 +31,16 @@ interface Entry {
 const SCROLLBACK_CHARS = 1_000_000;
 export class TerminalService {
 	readonly #entries = new Map<string, Entry>();
+	/** Long polls (`list` with `waitMs`) waiting for the next output or exit of any session. */
+	readonly #waiters = new Set<() => void>();
+	/** Exits and failures so far: a poll that began earlier answers when this moved. */
+	#ended = 0;
 	constructor(readonly factory: () => Pty) {}
+
+	#wake(ended = false): void {
+		if (ended) this.#ended += 1;
+		for (const wake of [...this.#waiters]) wake();
+	}
 
 	#start(entry: Entry): void {
 		entry.exited = false;
@@ -45,6 +54,7 @@ export class TerminalService {
 				entry.output = entry.output.slice(cut);
 				entry.base += cut;
 			}
+			this.#wake();
 		};
 		try {
 			void pty
@@ -52,17 +62,20 @@ export class TerminalService {
 					if (entry.pty !== pty) return;
 					if (error) entry.error = error.message;
 					else append(chunk);
+					if (error) this.#wake(true);
 				})
 				.then(
 					result => {
 						if (entry.pty !== pty) return;
 						entry.exited = true;
 						entry.exitCode = result.exitCode;
+						this.#wake(true);
 					},
 					error => {
 						if (entry.pty !== pty) return;
 						entry.exited = true;
 						entry.error = error instanceof Error ? error.message : String(error);
+						this.#wake(true);
 					},
 				);
 		} catch (error) {
@@ -112,17 +125,61 @@ export class TerminalService {
 		}
 		return [...this.#entries]
 			.filter(([, entry]) => entry.owner === owner)
-			.map(([id, entry]) => ({
-				id,
-				output:
-					operation.action !== "list" || (operation.offsets && operation.offsets[id] === undefined)
-						? ""
-						: entry.output.slice(Math.max(0, (operation.offsets?.[id] ?? 0) - entry.base)),
-				offset: entry.base + entry.output.length,
-				exited: entry.exited,
-				exitCode: entry.exitCode,
-				error: entry.error,
-			}));
+			.map(([id, entry]) => {
+				const listing = operation.action === "list" && !(operation.offsets && operation.offsets[id] === undefined);
+				const from = listing ? Math.max(0, (operation.offsets?.[id] ?? 0) - entry.base) : entry.output.length;
+				let end = entry.output.length;
+				const budget = operation.action === "list" ? operation.budget : undefined;
+				if (budget !== undefined && end - from > budget) {
+					end = from + budget;
+					// Never split a surrogate pair: the next reply would start with its low half.
+					const last = entry.output.charCodeAt(end - 1);
+					if (end > from && last >= 0xd800 && last <= 0xdbff) end -= 1;
+				}
+				return {
+					id,
+					output: listing ? entry.output.slice(from, end) : "",
+					offset: entry.base + end,
+					exited: entry.exited,
+					exitCode: entry.exitCode,
+					error: entry.error,
+					cols: entry.options.cols,
+					rows: entry.options.rows,
+				};
+			});
+	}
+
+	/**
+	 * A `list` that holds until one of the owner's sessions has output past its offset, has exited or failed since,
+	 * or `waitMs` has passed (a web viewer's long poll: nothing is sent while nothing happens). Output already
+	 * waiting answers at once, so a viewer behind a `budget` keeps reading without pause.
+	 */
+	async list(
+		owner: string,
+		operation: Extract<TerminalOperation, { action: "list" }>,
+		options: PtyOptions,
+	): Promise<TerminalSnapshot[]> {
+		const waitMs = operation.waitMs ?? 0;
+		const pending = () =>
+			[...this.#entries].some(
+				([id, entry]) =>
+					entry.owner === owner &&
+					operation.offsets?.[id] !== undefined &&
+					entry.base + entry.output.length > (operation.offsets[id] ?? 0),
+			);
+		const ended = this.#ended;
+		const deadline = Date.now() + waitMs;
+		// Any session's output wakes every poll; each looks again and sleeps on unless it was its own news.
+		while (waitMs > 0 && !pending() && this.#ended === ended && Date.now() < deadline) {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			const timer = setTimeout(resolve, deadline - Date.now());
+			this.#waiters.add(resolve);
+			await promise.finally(() => {
+				clearTimeout(timer);
+				this.#waiters.delete(resolve);
+			});
+		}
+		return this.request(owner, operation, options);
 	}
 
 	dispose(owner?: string): void {
