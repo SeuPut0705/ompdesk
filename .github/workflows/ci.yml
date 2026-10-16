@@ -35,11 +35,11 @@ on:
   push:
     branches: [main]
     # Nothing a check reads: Markdown, the design docs and screenshots, the
-    # license and notice texts, the issue forms, the scheduled health check's
-    # own workflow.
-    paths-ignore: ["**.md", "docs/**", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
+    # license and third-party notice texts, the issue forms, the scheduled health
+    # check's own workflow.
+    paths-ignore: ["**.md", "docs/**", "LICENSE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
   pull_request:
-    paths-ignore: ["**.md", "docs/**", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
   workflow_dispatch:
     inputs:
       e2e:

@@ -157,23 +157,20 @@ describe("mac bundle configs", () => {
 		expect([...releases]).toEqual([REA_VERSION]);
 	});
 
-	it("ships the third-party NOTICE and the license texts it names on both platforms", () => {
+	it("ships the license texts of vendored code on both platforms", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.extraResources, file).toContainEqual({ from: "NOTICE", to: "NOTICE" });
 			expect(config.extraResources, file).toContainEqual({ from: "LICENSES", to: "LICENSES" });
+			// No NOTICE file: the attribution of vendored code lives in THIRD_PARTY_NOTICES.txt.
+			expect(config.extraResources, file).not.toContainEqual({ from: "NOTICE", to: "NOTICE" });
 		}
-		const notice = fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8");
-		expect(notice).toContain("LICENSES/Apache-2.0.txt");
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "NOTICE"))).toBe(false);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/Apache-2.0.txt"))).toBe(true);
-		// The provider brand marks (MIT, @lobehub/icons) carry their license text and attribution too.
-		expect(notice).toContain("LICENSES/MIT-lobe-icons.txt");
-		expect(notice).toContain("@lobehub/icons");
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/MIT-lobe-icons.txt"))).toBe(true);
 		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
-	it("ships OMPdesk's Apache-2.0 LICENSE and the generated third-party notices on both platforms", () => {
+	it("ships OMPdesk's MIT LICENSE and the generated third-party notices on both platforms", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
@@ -192,16 +189,19 @@ describe("mac bundle configs", () => {
 		const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")) as {
 			license?: string;
 		};
-		expect(manifest.license).toBe("Apache-2.0");
-		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8")).toContain(
-			"Apache License\n                           Version 2.0, January 2004",
-		);
-		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8")).toContain(
-			"licensed under the Apache License, Version 2.0 (see LICENSE)",
+		expect(manifest.license).toBe("MIT");
+		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8")).toMatch(
+			/^MIT License\n\nCopyright \(c\) 2026 SeuPut\n/,
 		);
 		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
 		expect(notices).toContain("electron ");
 		expect(notices).toContain("LICENSES.chromium.html");
+		// The vendored code is credited here now that there is no NOTICE file.
+		expect(notices).toContain("Mixdog (https://github.com/tribgames/mixdog)");
+		expect(notices).toContain("LICENSES/Apache-2.0.txt");
+		expect(notices).toContain("@lobehub/icons");
+		expect(notices).toContain("LICENSES/MIT-lobe-icons.txt");
+		expect(notices).toContain("reverse-engineer-anything skill from REA");
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "node_modules/electron/dist/LICENSES.chromium.html"))).toBe(true);
 	});
 

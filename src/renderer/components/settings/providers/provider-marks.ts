@@ -1,6 +1,6 @@
 /**
  * Brand marks for provider rows: which vendored symbol (src/renderer/assets/provider-marks,
- * monochrome `currentColor` SVGs from @lobehub/icons, MIT; see NOTICE) belongs to which stock
+ * monochrome `currentColor` SVGs from @lobehub/icons, MIT; see THIRD_PARTY_NOTICES.txt) belongs to which stock
  * provider id, and which company a provider sorts under. Pure: no React, no IPC.
  *
  * The ids are the ones stock omp reports (its `/login` provider list plus the model catalog's

@@ -20,13 +20,12 @@ extraResources:
     to: gui-bridge
   - from: resources/omp-builtin
     to: omp-builtin
-  # OMPdesk's own license, its third-party attribution (NOTICE and the license texts
-  # it names), the generated third-party notices (bun run gen:licenses) and Electron's
-  # Chromium notices, which electron-builder does not copy into a macOS bundle.
+  # OMPdesk's own MIT license, the generated third-party notices (bun run gen:licenses;
+  # they carry the attribution of the vendored code), the license texts of vendored code
+  # (LICENSES/) and Electron's Chromium notices, which electron-builder does not copy
+  # into a macOS bundle.
   - from: LICENSE
     to: LICENSE
-  - from: NOTICE
-    to: NOTICE
   - from: THIRD_PARTY_NOTICES.txt
     to: THIRD_PARTY_NOTICES.txt
   - from: LICENSES

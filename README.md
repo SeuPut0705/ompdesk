@@ -19,7 +19,7 @@
 <img src="https://img.shields.io/badge/omp-18.11.0%2B-5B5BD6?style=flat-square" alt="omp 18.11.0 이상">
 <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square" alt="macOS · Windows">
 <img src="https://img.shields.io/badge/UI-한국어%20%C2%B7%20English-5B5BD6?style=flat-square" alt="한국어 · English UI">
-<img src="https://img.shields.io/badge/license-Apache--2.0-5B5BD6?style=flat-square" alt="Apache-2.0 라이선스">
+<img src="https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square" alt="MIT 라이선스">
 
 </div>
 
@@ -253,8 +253,6 @@ bun run dev
 
 ## 라이선스
 
-Apache License 2.0. See LICENSE and NOTICE; third-party notices are in THIRD_PARTY_NOTICES.txt.
-
-**상표**: "OMPdesk"라는 이름과 표장(아이콘 포함)은 라이선스 대상이 아니에요. Apache-2.0 §6도 상표 권리를 주지 않아요. 포크는 이름을 바꿔 주세요. (The name and mark "OMPdesk" and its icon are not licensed. Apache-2.0 §6 grants no trademark rights. Rename your fork.)
+MIT License. See [LICENSE](LICENSE); third-party notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
 만든 사람: [@SeuPut0705](https://github.com/SeuPut0705)

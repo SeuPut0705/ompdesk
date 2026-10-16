@@ -2,7 +2,7 @@
  * Bare file-path mentions in replies ("see src/app.ts:42", `retry.mjs` (line
  * 269), "output/ 폴더에", "269번 줄") become path links, so a reply that never
  * wrote a markdown link still opens the file. The grammar is adapted from
- * Mixdog's `markdown-plugins.ts` (Apache-2.0, see NOTICE): a path with folders
+ * Mixdog's `markdown-plugins.ts` (Apache-2.0, see THIRD_PARTY_NOTICES.txt): a path with folders
  * anywhere in prose, a bare file name with a known extension or name inside
  * inline code only, a folder with a trailing separator, and a trailing line
  * reference. Existing links, code blocks and math stay untouched.

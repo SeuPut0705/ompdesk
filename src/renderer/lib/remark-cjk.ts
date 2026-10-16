@@ -2,7 +2,7 @@
  * Two CommonMark/GFM edges that break Korean (and other CJK) replies, fixed on
  * the mdast before it becomes HTML. Adapted from Mixdog's
  * `repairAdjacentStrongPunctuation` and `trimAutolinkCjkSuffix`
- * (apps/desktop/src/renderer/markdown-plugins.ts, Apache-2.0; see NOTICE).
+ * (apps/desktop/src/renderer/markdown-plugins.ts, Apache-2.0; see THIRD_PARTY_NOTICES.txt).
  */
 import type { InlineCode, Nodes, Root, RootContent, Text } from "mdast";
 
