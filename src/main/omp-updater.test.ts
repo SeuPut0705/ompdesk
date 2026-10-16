@@ -345,6 +345,80 @@ describe("OmpUpdater", () => {
 		expect(h.calls).toEqual(["fetch", "update 18.9.0", "fetch", "update 19.0.0"]);
 		updater.dispose();
 	});
+
+	it("Update now starts its check within the call: the phase is checking before anything is awaited", async () => {
+		const h = harness({ installed: "18.9.0" });
+		const run = h.updater.updateNow();
+		expect(h.updater.state().phase).toBe("checking");
+		await run;
+		expect(h.updater.state().phase).toBe("idle");
+		h.updater.dispose();
+	});
+
+	it("a cancelled install backs off like any other failure", async () => {
+		const h = harness();
+		h.set.outcome = { kind: "failed", failure: { reason: "cancelled" } };
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.update).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.update).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.update).toHaveBeenCalledTimes(2);
+		h.updater.dispose();
+	});
+
+	it("an install that was skipped keeps the back-off of the failures before it", async () => {
+		const h = harness();
+		h.fetchLatest.mockRejectedValueOnce(new Error("offline"));
+		h.update.mockImplementation(async target => {
+			h.calls.push(`update ${target}`);
+			return { kind: "skipped" };
+		});
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(8 * HOUR);
+		// The rejected fetch logs nothing: only its retry and the skipped install show.
+		expect(h.calls).toEqual(["fetch", "update 18.9.0"]);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(2);
+		// Still one failure in a row: 8 h again, not 4 h.
+		await vi.advanceTimersByTimeAsync(8 * HOUR - 1);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(3);
+		h.updater.dispose();
+	});
+
+	it("a pref change checks now and restarts the timer from there; during a check, or before start, it starts none", async () => {
+		const h = harness({ installed: "18.9.0" });
+		h.updater.prefChanged();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.fetchLatest).not.toHaveBeenCalled();
+		expect(h.states).toHaveLength(1);
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(HOUR);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(1);
+		h.updater.prefChanged();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(2);
+		// The launch timer (due at 4 h) is gone: the next check is 4 h after the pref change.
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS - 1);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(3);
+		const gate = Promise.withResolvers<string>();
+		h.fetchLatest.mockImplementationOnce(() => gate.promise);
+		const running = h.updater.updateNow();
+		h.updater.prefChanged();
+		gate.resolve("18.9.0");
+		await running;
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(4);
+		// The timer still counts from the last scheduled check.
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.fetchLatest).toHaveBeenCalledTimes(5);
+		h.updater.dispose();
+	});
 });
 
 describe("omp update IPC", () => {

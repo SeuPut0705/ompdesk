@@ -379,6 +379,119 @@ describe("CliUpdater", () => {
 		await h.updater.updateNow();
 		expect(h.checks).toHaveLength(1);
 	});
+
+	it("keeps the 4 h timer after a failure; the failed tool waits out its own back-off (8 h)", async () => {
+		vi.useFakeTimers();
+		const h = harness({ now: () => Date.now() });
+		h.latest.value = new Error("offline");
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.checks).toHaveLength(1);
+		const scans = h.states.length;
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		// The tick ran (it listed the tools again) but skipped the tool still backing off.
+		expect(h.states.length).toBeGreaterThan(scans);
+		expect(h.checks).toHaveLength(1);
+		h.latest.value = "0.50.1";
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.checks).toHaveLength(2);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.checks).toHaveLength(3);
+		h.updater.dispose();
+	});
+
+	it("a cancelled update does not back off", async () => {
+		vi.useFakeTimers();
+		const h = harness({ now: () => Date.now() });
+		h.outcome.value = { kind: "cancelled" };
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.updates).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.updates).toHaveLength(2);
+		h.updater.dispose();
+	});
+
+	it("runs one pass at a time: a request during a pass waits for it, and a failed one does not stop the queue", async () => {
+		const gate = Promise.withResolvers<void>();
+		const order: string[] = [];
+		const h = harness({
+			runCheck: async () => {
+				const n = order.filter(entry => entry.startsWith("check")).length + 1;
+				order.push(`check ${n}`);
+				if (n === 1) await gate.promise;
+				order.push(`end ${n}`);
+				return "0.50.1\n";
+			},
+		});
+		const one = h.updater.updateNow("codex");
+		const two = h.updater.updateNow("codex");
+		gate.resolve();
+		await Promise.all([one, two]);
+		expect(order).toEqual(["check 1", "end 1", "check 2", "end 2"]);
+
+		let throws = true;
+		const failing = harness({
+			env: async () => {
+				if (throws) throw new Error("no shell env");
+				return { PATH: "/nowhere" };
+			},
+		});
+		failing.latest.value = "0.50.1";
+		await expect(failing.updater.updateNow("codex")).rejects.toThrow("no shell env");
+		throws = false;
+		await failing.updater.updateNow("codex");
+		expect(failing.checks).toHaveLength(1);
+	});
+
+	it("a throw from a dependency does not end the schedule", async () => {
+		vi.useFakeTimers();
+		let throws = true;
+		const h = harness({
+			env: async () => {
+				if (throws) throw new Error("no shell env");
+				return { PATH: "/nowhere" };
+			},
+		});
+		h.latest.value = "0.50.1";
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.checks).toEqual([]);
+		throws = false;
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.checks).toHaveLength(1);
+		h.updater.dispose();
+	});
+
+	it("never runs after dispose, drops work queued before it, and a pref change before start does nothing", async () => {
+		const gate = Promise.withResolvers<void>();
+		const started = Promise.withResolvers<void>();
+		let checks = 0;
+		const h = harness({
+			runCheck: async () => {
+				checks++;
+				started.resolve();
+				await gate.promise;
+				return "0.50.1\n";
+			},
+		});
+		h.updater.prefChanged();
+		await h.updater.rescan();
+		expect(checks).toBe(0);
+		const one = h.updater.updateNow("codex");
+		const two = h.updater.updateNow("codex");
+		await started.promise;
+		h.updater.dispose();
+		const states = h.states.length;
+		gate.resolve();
+		await Promise.all([one, two]);
+		expect(checks).toBe(1);
+		// A disposed updater tells the UI nothing more.
+		expect(h.states).toHaveLength(states);
+		h.updater.start();
+		await h.updater.updateNow();
+		expect(checks).toBe(1);
+	});
 });
 
 describe("registerCliUpdateIpc", () => {

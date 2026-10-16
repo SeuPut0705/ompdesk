@@ -982,6 +982,114 @@ describe("schedule", () => {
 		expect(phases).toContain("updating");
 		expect(phases.at(-1)).toBe("idle");
 	});
+
+	it("keeps the 4 h timer after a row fails; that row waits out its own back-off (8 h)", async () => {
+		vi.useFakeTimers();
+		const h = harness({ now: () => Date.now() });
+		h.inventory.plugins = [plugin()];
+		h.pluginChecks["tools@official"] = new Error("catalog unreachable");
+		const checks = () => h.calls.filter(call => call === "plugin.check tools@official").length;
+		const scans = () => h.calls.filter(call => call === "inventory").length;
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect([scans(), checks()]).toEqual([1, 1]);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect([scans(), checks()]).toEqual([2, 1]);
+		h.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect([scans(), checks()]).toEqual([3, 2]);
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect([scans(), checks()]).toEqual([4, 3]);
+		h.updater.dispose();
+	});
+
+	it("runs one pass at a time: a request during a pass waits for it, and a failed one does not stop the queue", async () => {
+		const gate = Promise.withResolvers<void>();
+		const order: string[] = [];
+		let passes = 0;
+		const h = harness({
+			env: async () => {
+				passes++;
+				order.push(`pass ${passes}`);
+				if (passes === 1) await gate.promise;
+				return { PATH: "/nowhere" };
+			},
+		});
+		h.inventory.plugins = [plugin()];
+		h.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
+		h.onCall = method => order.push(method.replace("extensions.", ""));
+		const one = h.updater.updateNow();
+		const two = h.updater.updateNow();
+		gate.resolve();
+		await Promise.all([one, two]);
+		expect(order).toEqual(["pass 1", "inventory", "plugin.check", "pass 2", "inventory", "plugin.check"]);
+
+		let throws = true;
+		const failing = harness({
+			blocked: () => {
+				if (throws) throw new Error("setup state unreadable");
+				return false;
+			},
+		});
+		failing.inventory.plugins = [plugin()];
+		failing.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
+		await expect(failing.updater.updateNow()).rejects.toThrow("setup state unreadable");
+		throws = false;
+		await failing.updater.updateNow();
+		expect(failing.calls).toContain("plugin.check tools@official");
+	});
+
+	it("a rejected scheduled pass keeps the timer going", async () => {
+		vi.useFakeTimers();
+		let throws = true;
+		const h = harness({
+			blocked: () => {
+				if (throws) throw new Error("setup state unreadable");
+				return false;
+			},
+		});
+		h.inventory.plugins = [plugin()];
+		h.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.calls).toEqual([]);
+		throws = false;
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.calls).toContain("plugin.check tools@official");
+		h.updater.dispose();
+	});
+
+	it("drops work queued before dispose, and a pref change before start does nothing", async () => {
+		const gate = Promise.withResolvers<void>();
+		const started = Promise.withResolvers<void>();
+		let passes = 0;
+		const h = harness({
+			env: async () => {
+				passes++;
+				// The first call is the rescan below; the next is the pass dispose lands in.
+				if (passes === 1) return { PATH: "/nowhere" };
+				started.resolve();
+				await gate.promise;
+				return { PATH: "/nowhere" };
+			},
+		});
+		h.inventory.plugins = [plugin()];
+		h.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
+		h.updater.prefChanged();
+		await h.updater.rescan();
+		expect(passes).toBe(1);
+		expect(h.calls).toEqual(["inventory"]);
+		const one = h.updater.updateNow();
+		const two = h.updater.updateNow();
+		await started.promise;
+		h.updater.dispose();
+		gate.resolve();
+		await Promise.all([one, two]);
+		expect(passes).toBe(2);
+		h.updater.start();
+		await h.updater.updateNow();
+		expect(passes).toBe(2);
+	});
 });
 
 describe("registerExtensionUpdateIpc", () => {
