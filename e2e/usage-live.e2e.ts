@@ -75,6 +75,10 @@ test.afterAll(async () => {
 
 test("keeps the open account list live without reopening it", async () => {
 	await page.clock.install();
+	// The tab's usage poll starts as soon as the sidebar shows (it is on by default), with the real timers; a
+	// reload restarts it under the fake clock this test drives.
+	await page.reload();
+	await page.waitForFunction(() => window.omp?.rpc != null);
 	const settings = page.locator("[data-settings-page]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 	await page.locator('[data-settings-section="models"]').click();
