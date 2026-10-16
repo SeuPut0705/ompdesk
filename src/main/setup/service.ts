@@ -748,7 +748,13 @@ export class SetupService {
 	/** `omp update` and its `--check` for `omp` (the detected one): its own folder first on PATH, its own Bun root. */
 	async #updateEnv(omp: string): Promise<NodeJS.ProcessEnv> {
 		const env = await this.#installEnv();
-		return { ...env, ...ompUpdateEnv(omp, env.PATH ?? "") };
+		// Windows' environment names it `Path` and ignores case: read it under any spelling and leave one key, since
+		// beside a second spelling Node hands the child only the first in sort order.
+		const win = this.#deps.platform === "win32";
+		const keys = Object.keys(env).filter(key => (win ? key.toUpperCase() === "PATH" : key === "PATH"));
+		const base = env.PATH ?? keys.map(key => env[key]).find(Boolean) ?? "";
+		for (const key of keys) Reflect.deleteProperty(env, key);
+		return { ...env, ...ompUpdateEnv(omp, base) };
 	}
 
 	#planContext(detection: Detection): PlanContext {

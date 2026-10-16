@@ -657,6 +657,20 @@ describe("SetupService", () => {
 			expect(entries.slice(0, 3)).toEqual([ownDir, "/usr/local/bin", "/usr/bin"]);
 			expect(entries.filter(entry => entry === ownDir)).toHaveLength(1);
 		});
+
+		it("reads Windows' `Path` for that PATH and leaves the child one PATH key", async () => {
+			const ownDir = join("/home/u", ".bun", "bin");
+			const h = harness(machine({ omp: present("18.8.7") }), {
+				platform: "win32",
+				installedVersion: "18.9.0",
+				ompBin: join(ownDir, "omp"),
+				spawnEnv: { Path: ["/usr/local/bin", "/usr/bin"].join(delimiter) },
+			});
+			await h.service.updateOmp("18.9.0");
+			const env = h.spawned[0]?.env ?? {};
+			expect(Object.keys(env).filter(key => key.toUpperCase() === "PATH")).toEqual(["PATH"]);
+			expect(env.PATH?.split(delimiter).slice(0, 3)).toEqual([ownDir, "/usr/local/bin", "/usr/bin"]);
+		});
 	});
 
 	describe("latestOmp", () => {
@@ -668,7 +682,9 @@ describe("SetupService", () => {
 appendFileSync(process.env.CHECK_LOG, JSON.stringify({ args: process.argv.slice(2), first: (process.env.PATH ?? "").split(${JSON.stringify(delimiter)})[0], noColor: process.env.NO_COLOR }) + "\\n");
 ${script}`,
 			);
+			// The fake omp is an `omp.cmd` shim on Windows: the check spawns it the way that platform's omp is spawned.
 			const h = harness(machine({ omp: present("18.8.7") }), {
+				platform: process.platform === "win32" ? "win32" : "darwin",
 				automatic: false,
 				ompBin: omp,
 				spawnEnv: { ...process.env, CHECK_LOG: log },
