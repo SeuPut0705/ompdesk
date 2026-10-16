@@ -10,6 +10,8 @@ import {
 	applyThinkingDefault,
 	asThinkingDefaultSetting,
 	configuredIn,
+	GUI_THINKING_DEFAULTS,
+	NATIVE_DEFAULTS,
 	releaseThinkingDefault,
 	settleThinkingDefault,
 	type ThinkingDefaultSetting,
@@ -157,5 +159,123 @@ describe("gui-bridge thinking default", () => {
 		expect(setting.get(scope)).toBe("high");
 		expect(ceiling.get(scope)).toBe("max");
 		expect(scope.overrides).toEqual({ "providers.autoThinkingMaxEffort": "max" });
+	});
+});
+
+/**
+ * `advisor.enabled`: stock soft-pins it to false for RPC hosts, a runtime override that makes it read as
+ * configured. `layers` in the fake mirror `getProvenance` (runtime → project → global).
+ */
+function fakeAdvisor(id = "advisor.enabled"): ThinkingDefaultSetting & { get(scope: FakeSettings): unknown } {
+	return {
+		id,
+		segments: [id],
+		default: false,
+		get: (scope: FakeSettings) => scope.overrides[id] ?? scope.project[id] ?? scope.global[id] ?? false,
+		provenance(scope: object): string {
+			const settings = scope as FakeSettings;
+			if (id in settings.overrides) return "runtime";
+			if (id in settings.project) return "project";
+			return id in settings.global ? "global" : "default";
+		},
+		isConfigured(scope: object): boolean {
+			const settings = scope as FakeSettings;
+			return [settings.overrides, settings.project, settings.global].some(layer => configuredIn(layer, [id]));
+		},
+		override(scope: object, value: unknown): void {
+			(scope as FakeSettings).overrides[id] = value;
+		},
+		clearOverride(scope: object): void {
+			delete (scope as FakeSettings).overrides[id];
+		},
+	};
+}
+
+describe("gui-bridge held stock defaults", () => {
+	it("holds the settings OMPdesk turns on, and none of the ones stock reads before extensions load", () => {
+		expect(GUI_THINKING_DEFAULTS).toMatchObject({
+			"display.showTokenUsage": true,
+			"lsp.diagnosticsOnEdit": true,
+			"lsp.formatOnWrite": true,
+			"astGrep.enabled": true,
+			"advisor.enabled": true,
+		});
+		for (const path of [
+			"telemetry.otlpExportEnabled",
+			"display.showTurnTime",
+			"read.toolResultPreview",
+			"astEdit.enabled",
+			"retry.usageAwareFallback",
+			"retry.waitForUsageReset",
+		]) {
+			expect(Object.keys(GUI_THINKING_DEFAULTS), path).not.toContain(path);
+		}
+		expect(NATIVE_DEFAULTS).toEqual({ "astGrep.enabled": "astGrep" });
+	});
+
+	it("takes over stock's protocol pin, which is no layer's value", () => {
+		const advisor = fakeAdvisor();
+		const scope = fakeSettings();
+		scope.overrides["advisor.enabled"] = false; // applyProtocolDefaults("rpc")
+		expect(applyThinkingDefault(advisor, scope, false)).toBe(true);
+		expect(advisor.get(scope)).toBe(true);
+		expect(scope.global).toEqual({});
+	});
+
+	it("does not take over a pin when a persisted layer sets it, whatever its value", () => {
+		const advisor = fakeAdvisor();
+		const scope = fakeSettings({ "advisor.enabled": false });
+		scope.overrides["advisor.enabled"] = false;
+		expect(applyThinkingDefault(advisor, scope, true)).toBe(false);
+		expect(advisor.get(scope)).toBe(false);
+	});
+
+	it("leaves a runtime value other than the pin alone", () => {
+		const advisor = fakeAdvisor();
+		const scope = fakeSettings();
+		scope.overrides["advisor.enabled"] = "custom"; // some other runtime override, not the pin's default
+		expect(applyThinkingDefault(advisor, scope, false)).toBe(false);
+		expect(advisor.get(scope)).toBe("custom");
+	});
+
+	it("takes over only a pinned-class setting: other settings that are configured stay as they are", () => {
+		const lsp = fakeAdvisor("lsp.formatOnWrite");
+		const scope = fakeSettings();
+		scope.overrides["lsp.formatOnWrite"] = false;
+		expect(applyThinkingDefault(lsp, scope, false)).toBe(false);
+	});
+
+	it("refuses a pinned-class handle that cannot report its provenance", () => {
+		const { provenance: _provenance, ...partial } = fakeAdvisor();
+		expect(asThinkingDefaultSetting(partial)).toBeUndefined();
+		expect(asThinkingDefaultSetting(fakeAdvisor())).toBeDefined();
+	});
+
+	it("releases on a Settings write and takes the default up again on a reset", () => {
+		const advisor = fakeAdvisor();
+		const scope = fakeSettings();
+		scope.overrides["advisor.enabled"] = false;
+		applyThinkingDefault(advisor, scope, false);
+		releaseThinkingDefault(advisor, scope);
+		scope.global["advisor.enabled"] = false; // the user's write
+		settleThinkingDefault(advisor, scope, true);
+		expect(advisor.get(scope)).toBe(false);
+		expect(advisor.provenance?.(scope)).toBe("global");
+
+		delete scope.global["advisor.enabled"]; // reset: stock's pin is gone with the write
+		settleThinkingDefault(advisor, scope, false);
+		expect(advisor.get(scope)).toBe(true);
+		expect(advisor.provenance?.(scope)).toBe("runtime");
+	});
+
+	it("holds plain boolean defaults like the thinking level: explicit values win, writes release", () => {
+		const tokens = fakeAdvisor("display.showTokenUsage");
+		const scope = fakeSettings();
+		expect(applyThinkingDefault(tokens, scope, false)).toBe(true);
+		expect(tokens.get(scope)).toBe(true);
+		expect(scope.global).toEqual({});
+		const explicit = fakeSettings({ "display.showTokenUsage": false });
+		expect(applyThinkingDefault(tokens, explicit, true)).toBe(false);
+		expect(tokens.get(explicit)).toBe(false);
 	});
 });

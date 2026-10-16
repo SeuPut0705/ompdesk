@@ -41,7 +41,8 @@ import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
 import { effectiveRole, type RoleStock } from "./role-effective";
 import { shownRoleValue, storedRoleValue } from "./role-values";
-import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
+import { recapSettingChanged } from "./session-recap";
+import { heldDefaultNotes, releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
 
 type Rec = Record<string, unknown>;
@@ -235,6 +236,8 @@ function settingsSchema(session: AgentSession) {
 			ordered: ui?.ordered === true ? true : undefined,
 			tuiOnly: definition.tuiOnly === true ? true : undefined,
 			restartRequired: definition.restartRequired === true ? true : undefined,
+			// OMPdesk would hold a default here but this omp cannot serve it (thinking-default.ts).
+			note: heldDefaultNotes()[setting.id],
 		};
 	});
 	const tabs = SETTING_TABS.map(tab => ({
@@ -290,6 +293,7 @@ async function setSetting(env: BridgeEnv, session: AgentSession, id: string, val
 	// A reset (`undefined`) leaves the thinking level unset again: OMPdesk's default returns.
 	syncThinkingDefault(session.settings);
 	idleSettingChanged(id);
+	recapSettingChanged(id);
 	env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 	const provenance = provenanceReader(settings, globalConfigPath());
 	return {

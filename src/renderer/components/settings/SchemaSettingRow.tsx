@@ -256,6 +256,9 @@ function SchemaSettingRow({
 	const footer = (
 		<>
 			{action && <div className="mt-1.5">{action}</div>}
+			{entry.note === "native" && (
+				<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("settings.note.native")}</p>
+			)}
 			{entry.default === undefined && value !== undefined && (
 				<div className="mt-1">
 					<Button disabled={saving} onClick={() => void commit(undefined)} size="sm" variant="ghost">

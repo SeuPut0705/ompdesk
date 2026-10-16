@@ -14,6 +14,7 @@ import {
 	ArrowRightLeft,
 	CheckCircle2,
 	ChevronRight,
+	History,
 	Lightbulb,
 	MessagesSquare,
 	XCircle,
@@ -706,5 +707,28 @@ function HandoffCard({ message }: { message: AgentMessage }) {
 			</div>
 			<MarkdownRenderer content={doc || t("chat.custom.handoffEmpty")} />
 		</CardFrame>
+	);
+}
+
+/**
+ * The idle recap (bridge `session-recap.ts`): one quiet muted line, not a bordered card, since it
+ * only restates where things stand. Never part of a work run.
+ */
+export function RecapCard({ message }: { message: AgentMessage }) {
+	const t = useT();
+	const text = resultText(message).trim();
+	if (!text) return null;
+	return (
+		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
+			<p
+				className="omp-transcript-content flex min-w-0 items-start gap-1.5 text-sc-sm text-(--sc-text-muted)"
+				data-recap
+			>
+				<History aria-hidden className={`${HEADER_ICON_CLASS} mt-0.5`} />
+				<span className="min-w-0">
+					<span className="font-medium">{t("chat.custom.recap")}</span> {text}
+				</span>
+			</p>
+		</div>
 	);
 }

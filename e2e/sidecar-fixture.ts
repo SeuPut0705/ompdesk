@@ -623,7 +623,15 @@ if (process.argv[2] === "stats") {
 		"theme.mode": "dark",
 		"security.enabled": false,
 		"compaction.reserveTokens": 8192,
+		"lsp.diagnosticsOnEdit": true,
 	};
+	/** Settings OMPdesk holds a default for on the real bridge (thinking-default-core.ts), still on that runtime override. */
+	const HELD_DEFAULTS: Record<string, true> = { "lsp.diagnosticsOnEdit": true };
+	const heldRuntime = new Set(Object.keys(HELD_DEFAULTS));
+	const heldProvenance = (path: string) =>
+		heldRuntime.has(path)
+			? { layers: ["runtime"] }
+			: { layers: ["global"], globalValue: values[path], globalPath: "/fixture/config.yml" };
 	// OMP_GUI_TEST_WORKTREE_LIFECYCLE=<onStart>:<onExit> sets stock's per-session
 	// worktree settings (worktree-lifecycle.e2e.ts); unset leaves them out, so no
 	// tab starts in a worktree.
@@ -657,6 +665,42 @@ if (process.argv[2] === "stats") {
 	};
 	record({ type: "launch", argv: process.argv.slice(2), cwd: process.cwd() });
 
+	/**
+	 * `OMP_GUI_TEST_RECAP={"text": "...", "delayMs": 300}` stands in for the bridge's idle recap (resources/gui-bridge/
+	 * session-recap.ts, rules in session-recap-core.ts): after a turn ends, a `recap` custom message arrives once the
+	 * window has passed, unless the composer holds a draft; `recap_draft` reports the draft like the real bridge.
+	 * Unset: no recap.
+	 */
+	const recapScript = JSON.parse(process.env.OMP_GUI_TEST_RECAP ?? "null") as {
+		text: string;
+		delayMs?: number;
+	} | null;
+	let recapDraftEmpty = true;
+	let recapPending = false;
+	let recapTimer: NodeJS.Timeout | undefined;
+	const cancelRecap = () => {
+		clearTimeout(recapTimer);
+		recapTimer = undefined;
+	};
+	const scheduleRecap = () => {
+		cancelRecap();
+		if (!recapScript || !recapPending || !recapDraftEmpty) return;
+		recapTimer = setTimeout(() => {
+			recapTimer = undefined;
+			recapPending = false;
+			const message: AgentMessage = {
+				role: "custom",
+				customType: "recap",
+				content: recapScript.text,
+				display: true,
+				details: { recap: recapScript.text },
+				timestamp: Date.now(),
+			};
+			write({ type: "message_start", message });
+			appendMessage(message);
+			write({ type: "message_end", message });
+		}, recapScript.delayMs ?? 300);
+	};
 	// Stock framing (rpc-frame.ts): under protocol v2 a frame over 1 MiB is split into base64 `rpc_chunk` lines.
 	const MAX_FRAME_BYTES = 1_048_576;
 	const MAX_REASSEMBLED_BYTES = 67_108_864;
@@ -670,6 +714,7 @@ if (process.argv[2] === "stats") {
 	const replayFrames = process.env.OMP_GUI_TEST_REPLAY_FRAMES === "1";
 	let pendingReplay = "";
 	const write = (frame: object) => {
+		if ("type" in frame && frame.type === "agent_start") cancelRecap();
 		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
@@ -698,6 +743,8 @@ if (process.argv[2] === "stats") {
 	const endTurn = (messages: AgentMessage[]) => {
 		isStreaming = false;
 		write({ type: "agent_end", messages });
+		recapPending = true;
+		scheduleRecap();
 		scheduleNextPrompt("turn");
 	};
 	/** Stock's `subagent_lifecycle` frame for one roster subagent (any subscription level but `off`). */
@@ -1417,6 +1464,17 @@ if (process.argv[2] === "stats") {
 					description: "Isolated numeric audit setting",
 					default: 8192,
 				},
+				// A default OMPdesk holds as a runtime override (thinking-default.ts): Settings reports it as `runtime`.
+				{
+					path: "lsp.diagnosticsOnEdit",
+					type: "boolean",
+					tab: "files",
+					group: "LSP",
+					label: "Diagnostics on Edit",
+					description: "Return LSP diagnostics after editing code files",
+					default: false,
+					provenance: heldProvenance("lsp.diagnosticsOnEdit"),
+				},
 				// A safeguard the user turned on: Settings › Permissions asks before turning it off.
 				{
 					path: "secrets.enabled",
@@ -1486,11 +1544,14 @@ if (process.argv[2] === "stats") {
 		settings_set: params => {
 			const path = String(params.path);
 			values[path] = params.value;
+			// A Settings write releases OMPdesk's runtime default under it (thinking-default.ts).
+			heldRuntime.delete(path);
 			emitConfigUpdate();
 			return {
 				path,
 				value: params.value,
 				savedValue: params.value,
+				...(path in HELD_DEFAULTS ? { provenance: heldProvenance(path) } : {}),
 				...(path === "advisor.enabled" ? advisorState(values) : {}),
 			};
 		},
@@ -1739,6 +1800,13 @@ if (process.argv[2] === "stats") {
 			return nextPromptState();
 		},
 		next_prompt_state: () => nextPromptState(),
+		// gui-bridge session-recap.ts: the draft report that arms (or cancels) the idle recap.
+		recap_draft: params => {
+			recapDraftEmpty = params.empty === true;
+			if (!recapDraftEmpty) cancelRecap();
+			else scheduleRecap();
+			return { armed: recapTimer !== undefined };
+		},
 		next_prompt_draft: params => {
 			nextPromptDraftEmpty = params.empty === true;
 			if (!nextPromptDraftEmpty) {

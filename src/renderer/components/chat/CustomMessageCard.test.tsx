@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { CustomMessageCard, workNoteSummary } from "./CustomMessageCard";
+import { CustomMessageCard, RecapCard, workNoteSummary } from "./CustomMessageCard";
 import { WorkNotes } from "./WorkNotes";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -133,4 +133,36 @@ it("previews parsed bash delivery output and strips launch notification envelope
 			details: { daemons: [{ name: "smoke", state: "failed", exitCode: 1 }] },
 		}).body,
 	).toBe("Supervised process smoke failed with exit code 1.");
+});
+
+describe("recap card", () => {
+	const recap: AgentMessage = {
+		role: "custom",
+		customType: "recap",
+		content: "You are wiring the recap card. Next: run the checks.",
+		display: true,
+		details: { recap: "full reply" },
+		timestamp: 1,
+	};
+
+	it("is one quiet muted line with its label, not a bordered card", () => {
+		const markup = renderToStaticMarkup(
+			<I18nProvider>
+				<RecapCard message={recap} />
+			</I18nProvider>,
+		);
+		expect(markup).toContain("data-recap");
+		expect(markup).toContain("Recap");
+		expect(markup).toContain("You are wiring the recap card. Next: run the checks.");
+		expect(markup).not.toContain("border");
+	});
+
+	it("renders nothing for an empty recap", () => {
+		const markup = renderToStaticMarkup(
+			<I18nProvider>
+				<RecapCard message={{ ...recap, content: "  " }} />
+			</I18nProvider>,
+		);
+		expect(markup).toBe("");
+	});
 });

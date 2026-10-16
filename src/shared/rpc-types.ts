@@ -2241,6 +2241,8 @@ export interface SettingEntry {
 	tuiOnly?: boolean;
 	/** True when the value is cached at session construction — edits need a sidecar restart. */
 	restartRequired?: boolean;
+	/** `native`: OMPdesk's default for this setting needs a native feature this omp lacks, so it keeps stock's value. */
+	note?: "native";
 }
 
 export interface SettingsSchemaResult {

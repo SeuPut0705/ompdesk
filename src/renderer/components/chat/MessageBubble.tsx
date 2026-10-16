@@ -19,7 +19,7 @@ import type { GalleryImage } from "../common/ZoomableImage";
 import { referencedFiles } from "../tools/chat-media";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ToolImage } from "../tools/ToolImage";
-import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
+import { CustomMessageCard, isCustomMessageCardType, RecapCard } from "./CustomMessageCard";
 import { ReplyFiles } from "./ReplyFiles";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
@@ -339,6 +339,7 @@ export const MessageBubble = memo(function MessageBubble({
 	}
 	if (message.role === "custom" || message.role === "hookMessage") {
 		if (message.display === false) return null;
+		if (message.customType === "recap") return <RecapCard message={message} />;
 		// Dedicated cards for the TUI customType set; unknown types fall through
 		// to the generic label + content bubble below.
 		if (isCustomMessageCardType(message.customType)) {

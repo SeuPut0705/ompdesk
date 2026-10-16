@@ -29,6 +29,8 @@ export const ko: Record<string, string> = {
 	"settings.source.default": "기본값 / 구성 안 됨",
 	"settings.source.saveGlobal":
 		"편집 내용은 전역으로 저장돼요. 상위 레이어가 우선하며 객체는 병합될 수 있어요. 저장된 전역 값:",
+	"settings.note.native":
+		"OMPdesk가 기본으로 켜려고 했지만 이 omp의 네이티브 애드온에 기능이 없어서 omp 기본값을 그대로 써요.",
 
 	"btw.ask": "지금 질문",
 	"live.start": "음성 세션 시작",
@@ -2931,6 +2933,7 @@ export const ko: Record<string, string> = {
 	"chat.custom.handoffEmpty": "_핸드오프 내용이 없어요._",
 	"chat.custom.ircAuto": "자동",
 	"chat.custom.ircReply": "답장",
+	"chat.custom.recap": "요약",
 	"chat.thinking.live": "사고 중…",
 	"chat.work.backToCurrent": "지금 단계로",
 	"chat.work.replay": "다시 보기",
@@ -3992,6 +3995,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.idleCompaction": "유휴 압축",
 	"bridgeHealth.feature.contextInspector": "컨텍스트 들여다보기",
 	"bridgeHealth.feature.promptOrigin": "프롬프트를 보낸 기기 표시",
+	"bridgeHealth.feature.sessionRecap": "자리 비운 뒤 요약",
 	"bridgeHealth.feature.recentModels": "모델 선택기의 최근 사용 모델",
 	"bridgeHealth.feature.inputHistory": "공유 프롬프트 기록",
 	"bridgeHealth.feature.accountPools": "에이전트 계정 풀",

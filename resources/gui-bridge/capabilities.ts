@@ -53,6 +53,7 @@ export const FEATURES = {
 	workspace: "Workspace directories",
 	compactionLimits: "Per-model compaction limits",
 	idleCompaction: "Idle compaction (compaction.idleEnabled)",
+	sessionRecap: "Idle recap (recap.enabled)",
 	contextInspector: "Context inspector (per-entry tokens)",
 	promptOrigin: "Prompt origins (from another device)",
 	recentModels: "Recent models in the model picker",
@@ -413,9 +414,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/**
 	 * thinking-default.ts: OMPdesk's runtime-override defaults (`auto` for `defaultThinkingLevel`,
-	 * "rpc" in `goal.continuationModes`; index.ts applies them before the first session,
-	 * settings.ts re-checks them). The handles are reached through `lookup`; the
-	 * `session/settings` and `goals/settings` entries only probe them.
+	 * "rpc" in `goal.continuationModes`, token usage, LSP diagnostics/format, ast_grep, the advisor;
+	 * index.ts applies them before the first session, settings.ts re-checks them). Every handle is
+	 * reached through `lookup` and a missing one is skipped (warned), so only the thinking level, its
+	 * ceiling and goal continuation are probed here: the `session/settings` and `goals/settings` entries.
 	 */
 	thinkingDefault: {
 		pkg: ["Settings.instance.getGlobalSettings()", "Settings.instance.getProjectSettings()"],
@@ -908,6 +910,33 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/session/context-settings`]: ["cfgCompaction.get()"],
 		},
+	},
+	/**
+	 * session-recap.ts: the TUI's idle recap timer on the live session. Stock's own prompt
+	 * (`prompts/system/recap-user.md`) and `runEphemeralTurn()` make the recap, `recordRecap()` journals it
+	 * (history.db `session_recaps`); `recap.*` are read through `lookup`. The goal and the todo list only
+	 * anchor the prompt and are feature-detected inside the module.
+	 */
+	sessionRecap: {
+		session: [
+			"subscribe()",
+			"settings",
+			"model",
+			"messages",
+			"isStreaming",
+			"isCompacting",
+			"runEphemeralTurn()",
+			"sendCustomMessage()",
+			"sessionManager.recordRecap()",
+			"sessionManager.getSessionName()",
+		],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/tools/todo`]: ["nextActionableTask()"],
+			"@oh-my-pi/pi-tui/render/render-utils": ["previewLine()", "TRUNCATE_LENGTHS"],
+			[UTILS]: ["prompt.render()"],
+		},
+		prompts: ["system/recap-user.md"],
 	},
 	/** prompt-origin.ts: a host tab journals its device per user message (public `message_end` hook). */
 	promptOrigin: {

@@ -30,6 +30,8 @@ export const en: Record<string, string> = {
 	"settings.source.default": "Default / not configured",
 	"settings.source.saveGlobal":
 		"Edits save globally. Higher layers take precedence; objects may merge. Stored global value:",
+	"settings.note.native":
+		"OMPdesk would turn this on by default, but this omp's native addon lacks the feature, so it keeps omp's own default.",
 
 	"btw.ask": "Ask now",
 	"live.start": "Start voice session",
@@ -2946,6 +2948,7 @@ export const en: Record<string, string> = {
 	"chat.custom.handoffEmpty": "_No handoff content._",
 	"chat.custom.ircAuto": "Auto",
 	"chat.custom.ircReply": "Reply",
+	"chat.custom.recap": "Recap",
 	"chat.thinking.live": "Thinking…",
 	"chat.work.backToCurrent": "Back to current step",
 	"chat.work.replay": "Replay",
@@ -4006,6 +4009,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.idleCompaction": "Idle compaction",
 	"bridgeHealth.feature.contextInspector": "Context inspector",
 	"bridgeHealth.feature.promptOrigin": "Which device sent each prompt",
+	"bridgeHealth.feature.sessionRecap": "Idle recap",
 	"bridgeHealth.feature.recentModels": "Recent models in the model picker",
 	"bridgeHealth.feature.inputHistory": "Shared prompt history",
 	"bridgeHealth.feature.accountPools": "Agent account pools",

@@ -76,6 +76,9 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			// Idle compaction attaches to the live session; an empty fresh session never arms it.
 			expect(await client.request("idle_compaction_draft", { empty: true })).toEqual({ armed: false });
 			await expect(client.request("idle_compaction_draft", {})).rejects.toThrow("needs {empty: boolean}");
+			// The idle recap attaches the same way and never arms on a fresh session.
+			expect(await client.request("recap_draft", { empty: true })).toEqual({ armed: false });
+			await expect(client.request("recap_draft", {})).rejects.toThrow("needs {empty: boolean}");
 			// No goal yet: no OMPdesk time limit, and setting one is refused.
 			expect(await client.request("modes.goal_time_limit")).toEqual({ timeLimitSeconds: null });
 			await expect(client.request("modes.goal_set_time_limit", { minutes: 5 })).rejects.toThrow("No active goal");
