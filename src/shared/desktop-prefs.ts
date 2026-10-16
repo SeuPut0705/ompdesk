@@ -28,3 +28,6 @@ export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
 /** A dev server's address in a bash result opens the Preview for the focused tab (default on; only `false` turns it off). */
 export const AUTO_PREVIEW_DEV_SERVER_PREF = "autoPreviewDevServer";
+
+/** A turn that edited files opens Changes at its end while the side panel is closed (default on; only `false` turns it off). */
+export const AUTO_OPEN_CHANGES_PREF = "autoOpenChanges";

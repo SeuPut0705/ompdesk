@@ -197,6 +197,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"dev server preview open automatically localhost vite next npm run dev smart automation 개발 서버 미리보기 자동 열기 스마트 자동화",
 	},
 	{
+		id: "autoOpenChanges",
+		section: "agent",
+		labelKey: "settings.gui.autoOpenChanges",
+		aliases:
+			"changes diff open automatically edits turn end side panel smart automation 변경 사항 자동 열기 편집 패널 스마트 자동화",
+	},
+	{
 		id: "nextPromptSuggestions",
 		section: "agent",
 		labelKey: "settings.gui.nextPromptSuggestions",

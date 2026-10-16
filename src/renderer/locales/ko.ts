@@ -2087,6 +2087,8 @@ export const ko: Record<string, string> = {
 	"settings.agent.automation": "스마트 자동화",
 	"settings.gui.autoPreviewDevServer": "개발 서버를 미리보기로 열기",
 	"settings.gui.autoPreviewDevServerDesc": "에이전트가 띄운 서버를 주소마다 한 번만 보여줘요",
+	"settings.gui.autoOpenChanges": "편집 뒤 변경 사항 열기",
+	"settings.gui.autoOpenChangesDesc": "파일을 고친 턴이 끝났을 때 패널이 닫혀 있으면 열어요",
 	"settings.gui.resumeInterrupted": "다시 열 때 중단된 작업 이어서 하기",
 	"settings.gui.resumeInterruptedDesc":
 		"OMPdesk를 종료했거나, 비정상 종료됐거나, 업데이트로 다시 시작했을 때 실행 중이던 턴이 다음에 열 때 멈춘 곳에서 이어져요. 직접 멈춘 턴은 그대로 멈춰 있어요.",

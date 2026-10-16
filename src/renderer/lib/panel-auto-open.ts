@@ -1,15 +1,19 @@
 /**
- * A dev server's URL in a bash result opens the Preview (`autoPreviewDevServer`, default on) for
- * the FOCUSED tab only, yielding to whatever the user is doing.
+ * Two small automations that open the side panel by themselves, both for the FOCUSED tab only,
+ * both behind a pref (default on) and both yielding to whatever the user is doing:
+ *
+ * - a dev server's URL in a bash result opens the Preview (`autoPreviewDevServer`);
+ * - a turn that edited files opens Changes at its end, only when the panel is closed
+ *   (`autoOpenChanges`).
  *
  * The rules (`devServerUrl`, `panelYields`) are pure; the rest is the little state they need
- * (which URLs were offered). Nothing here moves focus, and everything it does is one `ui` store
- * write the user can undo by closing the panel.
+ * (what was opened, what the user closed). Nothing here moves focus, and everything it does is one
+ * `ui` store write the user can undo by closing the panel.
  */
-import { AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
-import type { AgentSessionEvent } from "../../shared/rpc-types";
+import { AUTO_OPEN_CHANGES_PREF, AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
+import type { AgentSessionEvent, RpcGitFingerprint, RpcGitStatus } from "../../shared/rpc-types";
 import type { SessionStore } from "../stores/session";
-import { sessionRuntimeStore } from "../stores/session-runtime-context";
+import { sessionRuntime, sessionRuntimeStore } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { type PanelView, useUiStore } from "../stores/ui";
 import { resultText } from "./format";
@@ -17,6 +21,9 @@ import { detectLocalPreviewUrls } from "./preview-browser";
 
 /** How long an open passive view must have gone untouched before a dev server may take its place. */
 export const PANEL_IDLE_MS = 30_000;
+
+/** The tools that write files (stock names); a bash edit shows up as a moved git fingerprint instead. */
+export const EDIT_TOOLS: Record<string, true> = { edit: true, write: true, apply_patch: true, ast_edit: true };
 
 /** Views a person works in: never replaced, however long they sit. */
 const WORKING_VIEWS: Record<string, true> = { terminal: true, files: true, preview: true, subagent: true };
@@ -68,11 +75,20 @@ export function panelYields(panel: PanelGate): boolean {
 
 /** Preview URLs already offered, by session. */
 const offeredPreviews = new Map<string, Set<string>>();
+/** Sessions whose Changes view the user closed after it opened by itself. */
+const blockedChanges = new Set<string>();
+/** The session whose Changes view this module opened and the user has not left or closed yet. */
+let autoOpenedChanges: string | null = null;
 /** Set while this module writes the store, so its own writes are not read as the user's. */
 let writing = false;
 let panelTouchedAt = Date.now();
 let installed = false;
 
+interface TurnState {
+	edited: boolean;
+	baseline: Promise<string | null> | null;
+}
+const turns = new Map<string, TurnState>();
 /** Per tab: the commands of running bash calls, which the end event does not repeat. */
 const commands = new Map<string, Map<string, string>>();
 
@@ -110,6 +126,19 @@ function install(): void {
 		if (writing) return;
 		if (next.panelVisible === previous.panelVisible && next.panelTab === previous.panelTab) return;
 		panelTouchedAt = Date.now();
+		if (!previous.panelVisible && next.panelVisible) {
+			// The user opened the panel themselves: Changes may open again by itself.
+			blockedChanges.clear();
+			autoOpenedChanges = null;
+			return;
+		}
+		if (autoOpenedChanges === null) return;
+		if (previous.panelVisible && !next.panelVisible) {
+			blockedChanges.add(autoOpenedChanges);
+			autoOpenedChanges = null;
+		} else if (next.panelTab !== "diff") {
+			autoOpenedChanges = null;
+		}
 	});
 	if (typeof document === "undefined" || typeof Element === "undefined") return;
 	const touch = (event: Event) => {
@@ -157,11 +186,72 @@ function offerPreview(tabId: string, url: string): void {
 	});
 }
 
+// ---------------------------------------------------------------------------------------------
+// Edits → Changes
+// ---------------------------------------------------------------------------------------------
+
+function changesGate(tabId: string): boolean {
+	const panel = gate();
+	return (
+		focusedTab(tabId) &&
+		!panel.visible &&
+		!panel.dirty &&
+		!panel.pendingSwitch &&
+		!blockedChanges.has(sessionKey(tabId))
+	);
+}
+
+async function fingerprint(tabId: string): Promise<string | null> {
+	try {
+		const response = await sessionRuntime(tabId)?.command({ type: "get_git_fingerprint" });
+		const data = response?.success ? (response.data as RpcGitFingerprint | undefined) : undefined;
+		return typeof data?.fingerprint === "string" ? data.fingerprint : null;
+	} catch {
+		return null;
+	}
+}
+
+async function hasRepoChanges(tabId: string): Promise<boolean> {
+	try {
+		const response = await sessionRuntime(tabId)?.command({ type: "get_git_status" });
+		const data = response?.success ? (response.data as RpcGitStatus | undefined) : undefined;
+		return Boolean(data?.isRepo && data.staged + data.unstaged + data.untracked > 0);
+	} catch {
+		return false;
+	}
+}
+
+function beginTurn(tabId: string): void {
+	const state: TurnState = { edited: false, baseline: null };
+	turns.set(tabId, state);
+	if (changesGate(tabId)) {
+		state.baseline = prefOn(AUTO_OPEN_CHANGES_PREF).then(on => (on ? fingerprint(tabId) : null));
+	}
+}
+
+function endTurn(tabId: string): void {
+	const state = turns.get(tabId);
+	turns.delete(tabId);
+	if (!state || !changesGate(tabId)) return;
+	void (async () => {
+		if (!(await prefOn(AUTO_OPEN_CHANGES_PREF))) return;
+		const [before, after] = await Promise.all([state.baseline, fingerprint(tabId)]);
+		const moved = before !== null && after !== null && before !== after;
+		if (!moved && !(state.edited && (await hasRepoChanges(tabId)))) return;
+		if (!changesGate(tabId)) return;
+		autoOpenedChanges = sessionKey(tabId);
+		openPanel(() => useUiStore.getState().setPanelTab("diff"));
+	})();
+}
+
 /** Feed one tab's event batch: the focused tab's dev servers and edits may open the side panel. */
 export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessionEvent[]): void {
 	install();
 	for (const event of events) {
 		switch (event.type) {
+			case "agent_start":
+				beginTurn(tabId);
+				break;
 			case "tool_execution_start":
 			case "tool_execution_update": {
 				if (event.toolName !== "bash") break;
@@ -184,10 +274,18 @@ export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessio
 					const url = devServerUrl({ toolName: "bash", command, text: resultText(event.result) });
 					if (url) offerPreview(tabId, url);
 				}
+				if (EDIT_TOOLS[event.toolName] && !event.isError) {
+					const state = turns.get(tabId) ?? { edited: false, baseline: null };
+					state.edited = true;
+					turns.set(tabId, state);
+				}
 				break;
 			}
 			case "agent_end":
-				if (event.isTerminal !== false) commands.delete(tabId);
+				if (event.isTerminal !== false) {
+					commands.delete(tabId);
+					endTurn(tabId);
+				}
 				break;
 			default:
 				break;
@@ -198,7 +296,10 @@ export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessio
 /** Forget everything (tests). */
 export function resetPanelAutoOpen(): void {
 	offeredPreviews.clear();
+	blockedChanges.clear();
+	turns.clear();
 	commands.clear();
+	autoOpenedChanges = null;
 	writing = false;
 	panelTouchedAt = 0;
 }
