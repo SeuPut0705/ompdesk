@@ -3163,11 +3163,14 @@ button.omp-file-chip-name:hover {
 	white-space: nowrap;
 }
 
-/* Prompt suggestions: the runner-up candidates sit in one row above the composer
-   box; each chip truncates, its full text is the title / accessible name. */
+/* Prompt suggestions: the runner-up candidates sit above the composer box, each on
+   one line. Candidates are at most 40 CJK / 60 other characters (next-prompt-core),
+   so a chip is wide enough for a whole one and two that do not share a row wrap
+   to the next instead of squeezing each other; only a pane narrower than a chip
+   truncates it, and the full text is the title / accessible name. */
 .omp-next-chips {
 	display: flex;
-	flex-wrap: nowrap;
+	flex-wrap: wrap;
 	gap: var(--sc-space-2);
 	min-width: 0;
 	margin-bottom: var(--sc-space-2);
@@ -3179,7 +3182,7 @@ button.omp-file-chip-name:hover {
 	align-items: center;
 	gap: var(--sc-space-2);
 	min-width: 0;
-	max-width: min(100%, 22rem);
+	max-width: min(100%, 44em);
 	height: var(--sc-control-sm);
 	padding-inline: var(--sc-space-3);
 	border: 1px solid var(--sc-border-subtle);

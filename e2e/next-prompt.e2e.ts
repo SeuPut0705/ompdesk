@@ -269,6 +269,40 @@ test("a fourth candidate gives a third chip that Alt+3 fills, and nothing more",
 	}
 });
 
+// Reported: chips cut with "…" in the real app. A candidate is at most 40 characters in Korean (next-prompt-core);
+// two chips that long take a row each and show whole, on one line, with the full text as the tooltip.
+test("the longest Korean candidates fit their chips whole, one line each, with the text as the tooltip", async () => {
+	test.setTimeout(120_000);
+	const longest = [
+		"대화 언어를 꺼 둔 상태에서도 한국어 메시지면 한국어 제목이 나오게 해줘",
+		"세션 제목 언어 수정이 끝나면 실제 한국어 세션으로 한 번 더 확인해 줘",
+	];
+	for (const text of longest) expect(text).toHaveLength(40);
+	const launched = await launch({ language: "ko", script: { candidates: ["제목 다시 만들어줘", ...longest] } });
+	try {
+		const { page } = launched;
+		await runTurn(page, 1);
+		const shown = chips(page, "ko");
+		await expect(shown).toHaveCount(2);
+		for (const [index, text] of longest.entries()) {
+			const chip = shown.nth(index);
+			await expect(chip).toHaveAttribute("title", text);
+			const label = chip.locator(".omp-next-chip-text");
+			await expect(label).toHaveText(text);
+			const fit = await label.evaluate(element => ({
+				truncated: element.scrollWidth > element.clientWidth,
+				oneLine:
+					getComputedStyle(element).whiteSpace === "nowrap" && element.scrollHeight <= element.clientHeight + 1,
+			}));
+			expect(fit).toEqual({ truncated: false, oneLine: true });
+		}
+		await capture(page, "chips-longest-ko");
+		expect(launched.errors).toEqual([]);
+	} finally {
+		await finish(launched);
+	}
+});
+
 test("inline completion: ghost text after the debounce, Tab accepts, Esc dismisses, ineligible drafts never ask, cost per minute", async () => {
 	test.setTimeout(180_000);
 	const launched = await launch();

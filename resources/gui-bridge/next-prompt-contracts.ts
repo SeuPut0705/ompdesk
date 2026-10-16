@@ -84,8 +84,13 @@ export type NextPromptRefreshReason = (typeof NEXT_PROMPT_REFRESH_REASONS)[numbe
 
 /** At most this many candidates: the best (placeholder) plus the chips. */
 export const MAX_CANDIDATES = 3;
-/** One candidate line never exceeds this many characters. */
-export const MAX_CANDIDATE_CHARS = 200;
+/**
+ * One candidate never exceeds this many characters: a message the user would type is short, and the chips and the
+ * one-line placeholder show it whole. Korean, Chinese and Japanese pack a word into one or two characters, so their
+ * limit is lower than the one for Latin and other scripts.
+ */
+export const MAX_CANDIDATE_CHARS_CJK = 40;
+export const MAX_CANDIDATE_CHARS = 60;
 
 /** Where the cheap request ran. `provider/id`, and the stock role that resolved it. */
 export interface NextPromptModelUsed {

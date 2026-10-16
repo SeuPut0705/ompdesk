@@ -10,6 +10,7 @@ import {
 	INLINE_MAX_DRAFT_CHARS,
 	inlineEffective,
 	MAX_CANDIDATE_CHARS,
+	MAX_CANDIDATE_CHARS_CJK,
 	MAX_CANDIDATES,
 	nextPromptFromPrefs,
 	normalizeNextPrompt,
@@ -25,12 +26,14 @@ import {
 	cleanCandidates,
 	cleanInlineReply,
 	extractFacts,
+	fitCandidateLength,
 	gateSuggestion,
 	hashText,
 	INLINE_MIN_INTERVAL_MS,
 	InlineScheduler,
 	inlineDraftEligibility,
 	inlineDraftWindow,
+	isAssistantVoice,
 	isOutputCapRefusal,
 	isTestCommand,
 	lastUserText,
@@ -40,6 +43,7 @@ import {
 	SuggestionScheduler,
 	suggestionStateKey,
 	type Timers,
+	userStyleExcerpts,
 } from "../../resources/gui-bridge/next-prompt-core";
 
 /** A virtual clock: timers fire only when the test advances it. */
@@ -112,6 +116,148 @@ describe("candidates", () => {
 	it("keeps the user's language and collapses whitespace and control characters", () => {
 		expect(cleanCandidates("  테스트 돌려줘 \u0007 \n 커밋해줘  ")).toEqual(["테스트 돌려줘", "커밋해줘"]);
 		expect(MAX_CANDIDATES).toBe(3);
+	});
+});
+
+/**
+ * The reported session (a screenshot): the placeholder "세션 제목이 한국어로 나오는지 실제 omp로 확인해 주세요. 나온 제목을
+ * 알려 주시면 그대로 기록해 둘게요." is the assistant talking, the chips "아니면 대화 언어를 꺼 둔 상태에서도 한국어 메시지에 …"
+ * and "한국어 메시지에 한국어 제목이 나와야 한다고 보신다…" were cut by the chip width and addressed the user, all polite
+ * while this user writes short casual requests ("배포해줘", "더 순환해", "1,2,3,6번 먼저 만들어 줘").
+ */
+describe("candidates sound like the user (reported: long, polite, the assistant's voice)", () => {
+	it("holds Korean, Chinese and Japanese to 40 characters and other scripts to 60", () => {
+		expect(MAX_CANDIDATE_CHARS_CJK).toBe(40);
+		expect(MAX_CANDIDATE_CHARS).toBe(60);
+		expect(fitCandidateLength("가".repeat(40))).toHaveLength(40);
+		expect(fitCandidateLength("가".repeat(41))).toBeUndefined();
+		// One Hangul, Han or kana character is enough: a mixed line is measured as CJK.
+		expect(fitCandidateLength(`TitleLang ${"가".repeat(30)}`)).toHaveLength(40);
+		expect(fitCandidateLength(`TitleLang ${"가".repeat(31)}`)).toBeUndefined();
+		expect(fitCandidateLength("確認".repeat(21))).toBeUndefined();
+		expect(fitCandidateLength("x".repeat(60))).toHaveLength(60);
+		expect(fitCandidateLength("x".repeat(41))).toHaveLength(41);
+		expect(fitCandidateLength("x".repeat(61))).toBeUndefined();
+	});
+
+	it("keeps the first sentence of an over-long line when it fits, never a cut at a comma or a word", () => {
+		// Real reply of the small model on the replayed session: two requests in one line.
+		expect(
+			fitCandidateLength("TitleLang 작업 진행해줘. 실제 omp로 한국어 첫 메시지 보내서 제목 확인하고 결과 보여줘."),
+		).toBe("TitleLang 작업 진행해줘.");
+		expect(fitCandidateLength("Run the tests. Then commit everything, push it to main and tag the release.")).toBe(
+			"Run the tests.",
+		);
+		expect(
+			fitCandidateLength("확인해줘。그리고 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 해줘"),
+		).toBe("확인해줘。");
+		expect(
+			fitCandidateLength("테스트 돌리고, 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 해줘"),
+		).toBeUndefined();
+		// A dot inside a version is no sentence end.
+		expect(
+			fitCandidateLength("Bump to v0.32.1 and redeploy the macOS and the Windows builds to the release page"),
+		).toBeUndefined();
+		// A first sentence that is itself too long drops the line.
+		expect(fitCandidateLength(`${"가".repeat(41)}. 해줘`)).toBeUndefined();
+	});
+
+	it("recognises the assistant offering, promising or addressing the user", () => {
+		for (const text of [
+			"세션 제목이 한국어로 나오는지 실제 omp로 확인해 주세요. 나온 제목을 알려 주시면 그대로 기록해 둘게요.",
+			"한국어 메시지에 한국어 제목이 나와야 한다고 보신다면 그렇게 바꿀게요",
+			"아니면 대화 언어를 꺼 둔 상태에서도 한국어 제목이 나오게 해 드릴까요?",
+			"원하시면 바로 배포할게요",
+			"변경 내용을 정리해 드릴게요",
+			"결과를 문서에 남겨 두겠습니다",
+			"I'll run the tests now",
+			"I’ll deploy it",
+			"Let me check the logs",
+			"Would you like me to deploy?",
+			"Do you want me to commit this?",
+			"Shall I open a PR?",
+		])
+			expect(isAssistantVoice(text), text).toBe(true);
+	});
+
+	it("never flags the user's own messages, casual or polite", () => {
+		for (const text of [
+			"배포해줘",
+			"더 순환해",
+			"응 그 방향으로 전부 만들어줘",
+			"1,2,3,6번 먼저 만들어 줘",
+			"세션 제목도 간결하게 가능하면 그렇게 해줄래?",
+			"확인해 주시겠어요?",
+			"기존 영어 제목 세션들도 한국어로 다시 만들어줘",
+			"Let me know when it's done",
+			"let me see the diff",
+			"I've tested it, works",
+			"run the tests and commit",
+		])
+			expect(isAssistantVoice(text), text).toBe(false);
+	});
+
+	it("drops the reported suggestions and keeps the user's kind", () => {
+		const reported = [
+			"세션 제목이 한국어로 나오는지 실제 omp로 확인해 주세요. 나온 제목을 알려 주시면 그대로 기록해 둘게요.",
+			"아니면 대화 언어를 꺼 둔 상태에서도 한국어 메시지에 한국어 제목이 나오게 할지 정해 주세요",
+			"한국어 메시지에 한국어 제목이 나와야 한다고 보신다면 그렇게 바꿀게요",
+			"기존 영어 제목 세션들도 한국어로 다시 만들어줘",
+		].join("\n");
+		expect(cleanCandidates(reported)).toEqual(["기존 영어 제목 세션들도 한국어로 다시 만들어줘"]);
+		// The voice is judged on the whole line: its polite first sentence was the assistant asking the user, too.
+		expect(
+			cleanCandidateLine(
+				"세션 제목이 한국어로 나오는지 실제 omp로 확인해 주세요. 나온 제목을 알려 주시면 그대로 기록해 둘게요.",
+			),
+		).toBeUndefined();
+	});
+
+	it("builds the voice reference from the user's own recent messages: short excerpts, oldest first", () => {
+		const pasted = `## 표\n${"긴 붙여넣기 ".repeat(5)}`;
+		const messages = [
+			{ role: "user", content: "아주 오래된 메시지" },
+			{ role: "user", content: "1,2,3,6번 먼저 만들어 줘", attribution: "user" },
+			{ role: "assistant", content: [{ type: "text", text: "네, 맡겼어요." }] },
+			{ role: "user", content: "Continue working on the goal.", synthetic: true },
+			{ role: "user", content: "subagent result", attribution: "agent" },
+			{ role: "user", content: "/compact" },
+			{ role: "user", content: [{ type: "text", text: "<system-reminder>x</system-reminder>" }] },
+			{ role: "user", content: [{ type: "image", data: "…" }] },
+			{ role: "user", content: "배포해줘" },
+			{ role: "user", content: "배포해줘" },
+			{ role: "user", content: "더 순환해" },
+			{ role: "user", content: pasted },
+			{ role: "user", content: `세션 제목이 지금 영어로 작성되는데 ${"기본언어 인식해서 ".repeat(8)}` },
+			{ role: "user", content: [{ type: "text", text: "응 그 방향으로 전부 만들어줘" }] },
+			{ role: "bashExecution", command: "git status" },
+		];
+		const excerpts = userStyleExcerpts(messages);
+		// Six at most: the oldest ("아주 오래된 메시지") falls out; skipped kinds and the repeated "배포해줘" do not count.
+		expect(excerpts).toEqual([
+			"1,2,3,6번 먼저 만들어 줘",
+			"배포해줘",
+			"더 순환해",
+			"## 표",
+			expect.stringMatching(/^세션 제목이 지금 영어로 작성되는데 .*…$/),
+			"응 그 방향으로 전부 만들어줘",
+		]);
+		expect(Math.max(...excerpts.map(line => line.length))).toBeLessThanOrEqual(80);
+		expect(userStyleExcerpts([{ role: "assistant", content: "hi" }])).toEqual([]);
+	});
+
+	it("puts the voice reference first in the request and the voice rules in the prompt", () => {
+		expect(buildSuggestionRequest("user: 배포해줘", "", ["배포해줘", "더 순환해"])).toBe(
+			"<user-style>\n- 배포해줘\n- 더 순환해\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
+		);
+		expect(SUGGEST_INSTRUCTIONS).toContain("Each candidate is a message the user sends to the assistant");
+		expect(SUGGEST_INSTRUCTIONS).toContain(
+			"never address the user, never offer, promise or announce what you will do",
+		);
+		expect(SUGGEST_INSTRUCTIONS).toMatch(/<user-style> holds their own recent messages: copy their register/);
+		expect(SUGGEST_INSTRUCTIONS).toContain(
+			`never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages`,
+		);
 	});
 });
 

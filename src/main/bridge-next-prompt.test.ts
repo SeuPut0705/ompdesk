@@ -169,6 +169,10 @@ describe("a finished turn", () => {
 		expect(call.options.sessionId).toBe("sess-1");
 		expect(call.context.systemPrompt[0]).toContain("Write exactly 3 candidates");
 		expect(call.context.messages[0]?.content).toContain("user: run the tests");
+		// The user's own messages ride along as the voice reference, ahead of the transcript.
+		expect(call.context.messages[0]?.content).toMatch(
+			/^<user-style>\n- run the tests\n<\/user-style>\n<conversation>/,
+		);
 		const [update] = updates(world);
 		expect(update).toMatchObject({
 			status: "ready",
