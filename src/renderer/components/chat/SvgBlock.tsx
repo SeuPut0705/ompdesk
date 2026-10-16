@@ -4,12 +4,17 @@
  * (lib/svg-preview.ts) on a neutral chip, zoomable on click; a Code/Preview
  * switch shows the source. Source that does not parse as an SVG document —
  * a fence still streaming, a broken file — shows as code until it does.
+ *
+ * A figure that leaves its width open (`viewBox` only, as models write them)
+ * has no natural width as an image: in the shrink-to-fit thumbnail it would
+ * lay out at 0×0. It fills the chip's width instead, as inline SVG would, its
+ * height following the viewBox ratio up to a viewport share like stock's TUI.
  */
 import { memo, useEffect, useMemo, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_HEIGHT_LG } from "../../lib/preview";
-import { SVG_PALETTE_VARIABLES, type SvgPalette, sanitizeSvg, svgDataUrl } from "../../lib/svg-preview";
+import { SVG_PALETTE_VARIABLES, type SvgPalette, sanitizeSvg, svgDataUrl, svgFillsWidth } from "../../lib/svg-preview";
 import { Tabs } from "../common/Tabs";
 import { ZoomableImage } from "../common/ZoomableImage";
 import { CodeBlock } from "./CodeBlock";
@@ -56,6 +61,7 @@ export function useSanitizedSvg(code: string): string | null {
 export function SvgImage({ svg, className }: { svg: string; className?: string }) {
 	const t = useT();
 	const src = useMemo(() => svgDataUrl(svg), [svg]);
+	const fills = useMemo(() => svgFillsWidth(svg), [svg]);
 	return (
 		<div
 			className={cx(
@@ -64,7 +70,12 @@ export function SvgImage({ svg, className }: { svg: string; className?: string }
 			)}
 			data-svg-preview
 		>
-			<ZoomableImage alt={t("svgPreview.image")} className={`${PREVIEW_HEIGHT_LG} h-auto max-w-full`} src={src} />
+			<ZoomableImage
+				alt={t("svgPreview.image")}
+				className={fills ? "h-auto max-h-[80dvh] w-full" : `${PREVIEW_HEIGHT_LG} h-auto max-w-full`}
+				src={src}
+				thumbClassName={fills ? "w-full" : undefined}
+			/>
 		</div>
 	);
 }

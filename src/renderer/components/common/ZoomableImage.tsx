@@ -37,9 +37,20 @@ export interface ZoomableImageProps extends Omit<ImgHTMLAttributes<HTMLImageElem
 	gallery?: readonly GalleryImage[];
 	/** A picture the user can still take back (a composer attachment): the menu offers Remove. */
 	onRemove?: () => void;
+	/** Classes for the thumbnail button (the zoom target around the picture). */
+	thumbClassName?: string;
 }
 
-export function ZoomableImage({ src, alt, path, gallery, onRemove, className, ...imgProps }: ZoomableImageProps) {
+export function ZoomableImage({
+	src,
+	alt,
+	path,
+	gallery,
+	onRemove,
+	className,
+	thumbClassName,
+	...imgProps
+}: ZoomableImageProps) {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const [open, setOpen] = useState(false);
@@ -133,7 +144,10 @@ export function ZoomableImage({ src, alt, path, gallery, onRemove, className, ..
 		<>
 			<button
 				aria-label={t("image.zoom", { name: alt })}
-				className="inline-block max-w-full cursor-zoom-in rounded-(--sc-radius-md) p-0 align-top focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sc-accent)"
+				className={cx(
+					"inline-block max-w-full cursor-zoom-in rounded-(--sc-radius-md) p-0 align-top focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sc-accent)",
+					thumbClassName,
+				)}
 				data-zoomable-image
 				onClick={openViewer}
 				onContextMenu={event => {

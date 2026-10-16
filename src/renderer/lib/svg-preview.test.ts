@@ -4,7 +4,7 @@
  * caller keeps showing code.
  */
 import { describe, expect, it } from "vitest";
-import { sanitizeSvg, svgDataUrl } from "./svg-preview";
+import { sanitizeSvg, svgDataUrl, svgFillsWidth } from "./svg-preview";
 
 const PALETTE = { fg: "#ededf0", accent: "#a5a7fa" };
 
@@ -92,5 +92,14 @@ describe("sanitizeSvg", () => {
 		const url = svgDataUrl(svg);
 		expect(url.startsWith("data:image/svg+xml;charset=utf-8,")).toBe(true);
 		expect(decodeURIComponent(url.slice(url.indexOf(",") + 1))).toBe(svg);
+	});
+
+	it("tells a figure that leaves its width open from one that sets it", () => {
+		const fills = (source: string) => svgFillsWidth(sanitizeSvg(source) ?? "");
+		expect(fills('<svg viewBox="0 0 760 470"><rect stroke-width="2" width="9"/></svg>')).toBe(true);
+		expect(fills('<svg viewBox="0 0 760 470" width="100%"/>')).toBe(true);
+		expect(fills('<svg viewBox="0 0 760 470" width="auto" height="200"/>')).toBe(true);
+		expect(fills('<svg viewBox="0 0 120 60" width="240" height="120"/>')).toBe(false);
+		expect(fills('<svg viewBox="0 0 120 60" width="12em"/>')).toBe(false);
 	});
 });

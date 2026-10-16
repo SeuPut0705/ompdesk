@@ -21,22 +21,29 @@
 /** Theme color per figure token (`var(--fg)` → `palette.fg`). */
 export type SvgPalette = Readonly<Record<string, string>>;
 
-/** Figure token → app CSS variable, mirroring stock's PALETTE (pi-tui chat/svg-figure.ts). */
+/**
+ * Figure token → app `--sc-*` palette primitive, after stock's PALETTE (pi-tui
+ * chat/svg-figure.ts). Named themes mirror their colors onto `--sc-*`
+ * (lib/themes.ts SC_TOKEN_SOURCES), so these follow every theme. `surface`
+ * is a card on the figure's chip (`--sc-surface-1`); `border` must still read
+ * on it. Stock derives `c1`…`c6` from the accent; the app's series are its
+ * accent and status hues plus a neutral.
+ */
 export const SVG_PALETTE_VARIABLES: Readonly<Record<string, string>> = {
-	fg: "--omp-text",
-	muted: "--omp-muted",
-	border: "--omp-border-muted",
-	accent: "--omp-accent",
-	success: "--omp-success",
-	warning: "--omp-warning",
-	error: "--omp-error",
-	surface: "--omp-bg-tertiary",
-	c1: "--omp-syntax-keyword",
-	c2: "--omp-syntax-string",
-	c3: "--omp-syntax-function",
-	c4: "--omp-syntax-type",
-	c5: "--omp-syntax-number",
-	c6: "--omp-syntax-variable",
+	fg: "--sc-text",
+	muted: "--sc-text-muted",
+	border: "--sc-border-subtle",
+	accent: "--sc-accent",
+	success: "--sc-success",
+	warning: "--sc-warning",
+	error: "--sc-danger",
+	surface: "--sc-surface-3",
+	c1: "--sc-accent",
+	c2: "--sc-info",
+	c3: "--sc-success",
+	c4: "--sc-warning",
+	c5: "--sc-danger",
+	c6: "--sc-text-secondary",
 };
 
 /** Sources above this size stay code: rebuilding and data-URL encoding them would stall the transcript. */
@@ -347,4 +354,15 @@ export function sanitizeSvg(source: string, palette?: SvgPalette): string | null
 /** `data:` URL for a sanitized SVG document. */
 export function svgDataUrl(svg: string): string {
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * Whether a sanitized document leaves its width open (no `width`, or `auto`
+ * or a percentage). Inline, such an SVG fills the width it is shown in; as an
+ * `<img>` it has no natural width, so its box must be given one.
+ */
+export function svgFillsWidth(svg: string): boolean {
+	const rootTag = svg.slice(0, svg.indexOf(">") + 1);
+	const width = / width="([^"]*)"/.exec(rootTag)?.[1]?.trim();
+	return width === undefined || width === "" || width === "auto" || width.endsWith("%");
 }

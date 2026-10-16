@@ -421,8 +421,8 @@
 	border-radius: var(--sc-radius-lg);
 	border: 1px solid var(--sc-border-subtle);
 }
-/* A diagram sits on its own chip; no second frame around the picture. */
-.markdown-body [data-mermaid-fence] img {
+/* A diagram or SVG figure sits on its own chip; no second frame around the picture. */
+.markdown-body :is([data-mermaid-fence], [data-svg-preview]) img {
 	border: 0;
 }
 .markdown-body a {
