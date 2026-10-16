@@ -38,7 +38,7 @@ import { toast, toastError } from "../../stores/toast";
 import { Button, ConfirmDialog, EmptyState, IconButton, InlineNotice, Spinner } from "../common";
 import { CustomRoleDialog, type CustomRoleFields } from "./CustomRoleDialog";
 import { ModelRoleRow, type RoleAgents } from "./ModelRoleRow";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingInfo, SettingsSection } from "./SettingsLayout";
 import { modelRoleName } from "./schema-i18n";
 
 const GROUP_ORDER: readonly (RoleGroupId | "custom")[] = ["conversation", "agent", "io", "custom"];
@@ -287,15 +287,12 @@ export function ModelRolesSection() {
 			)}
 			{groups.map(group => (
 				<div aria-labelledby={`model-roles-${group.id}`} key={group.id} role="group">
-					<div className="flex items-end justify-between gap-3 pt-3 pb-1">
-						<div className="min-w-0">
-							<h5
-								className="text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase"
-								id={`model-roles-${group.id}`}
-							>
+					<div className="flex items-center justify-between gap-3 pt-2 pb-0.5">
+						<div className="flex min-w-0 items-center gap-1.5">
+							<h5 className="text-sc-xs font-medium text-(--sc-text-muted)" id={`model-roles-${group.id}`}>
 								{t(`modelRoles.group.${group.id}`)}
 							</h5>
-							<p className="text-sc-sm text-(--sc-text-muted)">{t(`modelRoles.group.${group.id}.desc`)}</p>
+							<SettingInfo text={t(`modelRoles.group.${group.id}.desc`)} />
 						</div>
 						{group.id === "custom" && (
 							<Button

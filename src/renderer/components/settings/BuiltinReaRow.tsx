@@ -1,3 +1,4 @@
+import { ScanSearch } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
 	type BuiltinReaState,
@@ -81,6 +82,7 @@ export function BuiltinReaRow({
 		<div data-builtin-rea="true">
 			<SettingsSwitchRow
 				id="setting-gui-builtinRea"
+				icon={<ScanSearch />}
 				label={t("mcp.rea.title")}
 				badge={<Badge>{REA_VERSION}</Badge>}
 				checked={state?.enabled ?? true}

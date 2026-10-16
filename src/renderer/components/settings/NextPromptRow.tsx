@@ -6,6 +6,7 @@
  * The cost note names the model the active tab's bridge last used, once known.
  */
 
+import { Lightbulb, TextCursorInput } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../../../resources/gui-bridge/next-prompt-contracts";
 import { useT } from "../../lib/i18n";
@@ -38,6 +39,7 @@ export function NextPromptRow() {
 					</div>
 				}
 				id="setting-gui-nextPromptSuggestions"
+				icon={<Lightbulb />}
 				label={t("settings.gui.nextPromptSuggestions")}
 				onCheckedChange={setSuggestions}
 			/>
@@ -47,6 +49,7 @@ export function NextPromptRow() {
 					description={t("settings.gui.nextPromptInlineDesc")}
 					disabled={!suggestions}
 					id="setting-gui-nextPromptInline"
+					icon={<TextCursorInput />}
 					label={t("settings.gui.nextPromptInline")}
 					onCheckedChange={setInline}
 				/>

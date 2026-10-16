@@ -6,7 +6,19 @@
  * `omp plugin doctor`, plus a way to this computer's setup check) and About
  * (the repository and its star).
  */
-import { Download, FolderOpen, RefreshCw, RotateCcw, Stethoscope, Wrench } from "lucide-react";
+import {
+	Cpu,
+	Download,
+	FolderOpen,
+	KeyRound,
+	Package,
+	RefreshCw,
+	RotateCcw,
+	Server,
+	Star,
+	Stethoscope,
+	Wrench,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	HostDesktopState,
@@ -237,6 +249,7 @@ export function UpdatesSection() {
 						)}
 					</>
 				}
+				icon={<Package />}
 				label={t("updates.gui.name")}
 			/>
 
@@ -266,6 +279,7 @@ export function UpdatesSection() {
 			<SettingsRow
 				control={<ProductStar />}
 				description={t("about.repoDesc")}
+				icon={<Star />}
 				id="setting-about-star"
 				label={t("about.repo")}
 			/>
@@ -372,6 +386,7 @@ export function HostOmpUpdateRow({
 					{state && <OmpUpdateFailureNotice state={state} />}
 				</>
 			}
+			icon={<Cpu />}
 			label={t("updates.core.name")}
 		/>
 	);
@@ -501,6 +516,7 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 					) : null}
 				</>
 			}
+			icon={<Server />}
 			id="setting-updates-host"
 			label={t("updates.host.name")}
 		/>
@@ -593,6 +609,7 @@ function PluginDoctorRow() {
 						</div>
 					) : null
 				}
+				icon={<Stethoscope />}
 				id="setting-diagnostics"
 				label={t("diagnostics.name")}
 			/>
@@ -703,6 +720,7 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 					)}
 				</div>
 			}
+			icon={<KeyRound />}
 			label={t("updates.auth.label")}
 		/>
 	);

@@ -57,7 +57,7 @@ import { type McpTestView, summarizeMcpTestData } from "../panels/mcp/McpFeedbac
 import { type McpCardAction, type McpReauthPhase, McpServerCard } from "../panels/mcp/McpServerCard";
 import { McpServerWizard } from "../panels/mcp/McpServerWizard";
 import { BuiltinReaRow } from "./BuiltinReaRow";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingInfo, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
 
 export type ExtensionsTab = "skills" | "mcp" | "hooks" | "contextFiles" | "commands";
@@ -350,13 +350,14 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 	}
 
 	return (
-		<div className="flex flex-col gap-3">
-			<div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-				<p className="min-w-0 max-w-2xl flex-1 text-sc-sm text-(--sc-text-muted)">
-					{t(`settings.extensions.${tabId}.description`)}
-				</p>
-				<div className="flex shrink-0 items-center gap-2">
+		<div className="flex flex-col gap-2">
+			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+				{/* The tab's explanation rides an info glyph; the toolbar keeps count, actions and refresh on one line. */}
+				<div className="flex min-w-0 flex-1 items-center gap-1.5">
+					<SettingInfo text={t(`settings.extensions.${tabId}.description`)} />
 					{countText && <span className="text-sc-xs tabular-nums text-(--sc-text-muted)">{countText}</span>}
+				</div>
+				<div className="flex shrink-0 items-center gap-2">
 					{empty && emptyAction ? null : actions}
 					<IconButton
 						disabled={!rpc.ready}

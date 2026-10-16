@@ -1,3 +1,4 @@
+import { Network, Workflow } from "lucide-react";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
@@ -31,6 +32,7 @@ export function AgentModes() {
 				<AdvisorModelRow active={advisorActive} sidecarReady={sidecarReady} />
 			)}
 			<SettingsRow
+				icon={<Workflow />}
 				label={t("settings.features.runModes")}
 				description={t("settings.features.runModesDesc")}
 				control={
@@ -53,6 +55,7 @@ export function AgentModes() {
 				}
 			/>
 			<SettingsRow
+				icon={<Network />}
 				label={t("settings.features.subagents")}
 				description={t("settings.features.subagentsDesc")}
 				control={

@@ -1,3 +1,4 @@
+import { Blocks } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { RpcContextFilesResult, RpcHooksResult, RpcSkillsResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
@@ -62,6 +63,7 @@ export function OtherExtensionIds() {
 	return (
 		<SettingsRow
 			id="settings-tools-other-extensions"
+			icon={<Blocks />}
 			label={t("settings.extensions.otherIds")}
 			description={t("settings.extensions.otherIdsDesc")}
 		>

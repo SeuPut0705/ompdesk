@@ -3,6 +3,7 @@
  * tabs start with. Lists the shells main detected (main/terminal/shells.ts);
  * "Default" leaves it to this computer's login shell (Command Prompt on Windows).
  */
+import { Terminal } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { TERMINAL_SHELL_PREF, type TerminalShell } from "../../../shared/terminal-types";
 import { saveGuiPreference } from "../../lib/display-preferences";
@@ -54,6 +55,7 @@ export function TerminalShellRow() {
 			description={t("settings.gui.terminalShellDesc")}
 			htmlFor={id}
 			id="setting-gui-terminalShell"
+			icon={<Terminal />}
 			label={t("settings.gui.terminalShell")}
 		/>
 	);

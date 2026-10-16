@@ -5155,6 +5155,7 @@ export const en: Record<string, string> = {
 	"schedules.stop": "Stop",
 	"schedules.edit": "Edit",
 	"schedules.delete": "Delete",
+	"schedules.menu": "Actions for {name}",
 	"schedules.deleteTitle": "Delete this schedule?",
 	"schedules.deleteMessage": "{name} and its run logs are removed. Sessions it already ran stay in the sidebar.",
 	"schedules.runs": "Recent runs",
@@ -5318,6 +5319,7 @@ export const en: Record<string, string> = {
 	"settings.navHeading.agent": "Agent",
 	"settings.navHeading.system": "System",
 	"settings.advancedGroup": "Advanced",
+	"settings.rowInfo": "More about this setting",
 	"settings.condition.inactive": "This setting is inactive until its parent option is enabled.",
 	"settings.condition.configure": "Configure parent option",
 	"settings.extensions.otherIds": "Other disabled extension ids",
@@ -5808,7 +5810,6 @@ export const en: Record<string, string> = {
 	"cliUpdate.autoDesc":
 		"Keeps the command-line tools of your connected accounts (Claude Code, Codex, Gemini CLI, Cursor Agent, GitHub CLI) current, each the way it was installed. Only tools already on this computer are updated; OMPdesk never installs one.",
 	"cliUpdate.none": "None of your connected accounts' CLIs are installed on this computer.",
-	"cliUpdate.now": "Update now",
 	"cliUpdate.nowFor": "Update {name} now",
 	"cliUpdate.nowFailed": "Couldn't start the CLI update",
 	"cliUpdate.retryNote": "OMPdesk tries again at the next check.",

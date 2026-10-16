@@ -5,19 +5,37 @@
  * why OMPdesk leaves it alone, and "Update now". OMPdesk only updates what is already installed; the renderer
  * names tools by id and never a command.
  */
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Terminal } from "lucide-react";
 import { useEffect } from "react";
 import {
 	CLI_AUTO_UPDATE_PREF,
 	CLI_TOOL_NAMES,
+	type CliToolId,
 	type CliToolState,
 	type CliUpdateState,
 } from "../../../shared/cli-update";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { useCliUpdateStore } from "../../stores/cli-update";
-import { Badge, Button, InlineNotice } from "../common";
+import { Badge, IconButton, InlineNotice } from "../common";
+import { ProviderMark } from "./providers/ProviderMark";
 import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+
+/** The provider whose brand mark identifies a tool (Copilot and gh are GitHub's); Node.js gets a neutral glyph. */
+const CLI_PROVIDER: Partial<Record<CliToolId, string>> = {
+	claude: "anthropic",
+	codex: "openai",
+	gemini: "google",
+	"cursor-agent": "cursor",
+	copilot: "github-copilot",
+	gh: "github-copilot",
+	"gh-copilot": "github-copilot",
+};
+
+export function CliToolMark({ id }: { id: CliToolId }) {
+	const provider = CLI_PROVIDER[id];
+	return provider ? <ProviderMark provider={{ id: provider, name: CLI_TOOL_NAMES[id] }} /> : <Terminal />;
+}
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -59,19 +77,19 @@ function CliToolRow({ tool, state }: { tool: CliToolState; state: CliUpdateState
 	return (
 		<SettingsRow
 			className="min-w-0"
+			compactControl
 			control={
-				<Button
-					aria-label={t("cliUpdate.nowFor", { name })}
+				<IconButton
 					data-testid={`cli-update-now-${tool.id}`}
 					disabled={busy || tool.skip !== null}
 					icon={<RefreshCw />}
+					label={t("cliUpdate.nowFor", { name })}
 					onClick={() => void updateNow(tool.id)}
 					size="sm"
 					variant="secondary"
-				>
-					{t("cliUpdate.now")}
-				</Button>
+				/>
 			}
+			icon={<CliToolMark id={tool.id} />}
 			id={`setting-cli-tool-${tool.id}`}
 			label={name}
 			badge={
@@ -83,15 +101,19 @@ function CliToolRow({ tool, state }: { tool: CliToolState; state: CliUpdateState
 			}
 		>
 			<div data-cli-tool={tool.id} data-phase={tool.phase}>
-				<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid={`cli-version-${tool.id}`}>
-					{versionText(t, tool)}
+				{/* One line: version, then the status; the path rides on hover. */}
+				<p className="flex min-w-0 gap-x-2 text-sc-xs text-(--sc-text-muted)" title={tool.path ?? undefined}>
+					<span className="shrink-0 text-(--sc-text-secondary)" data-testid={`cli-version-${tool.id}`}>
+						{versionText(t, tool)}
+					</span>
+					<span
+						className="min-w-0 truncate"
+						data-testid={`cli-status-${tool.id}`}
+						title={cliStatusText(t, tool, state)}
+					>
+						{cliStatusText(t, tool, state)}
+					</span>
 				</p>
-				<p className="mt-0.5 text-sc-sm break-words text-(--sc-text-muted)" data-testid={`cli-status-${tool.id}`}>
-					{cliStatusText(t, tool, state)}
-				</p>
-				{tool.path && (
-					<p className="mt-0.5 font-mono text-sc-xs break-all text-(--sc-text-muted) select-text">{tool.path}</p>
-				)}
 				{failure && <InlineNotice detail={failure.detail} title={t("cliUpdate.retryNote")} tone="warning" />}
 			</div>
 		</SettingsRow>

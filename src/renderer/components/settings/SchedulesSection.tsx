@@ -5,7 +5,18 @@
  * them all, each has its own switch, Run now / Stop, Edit and Delete; recent
  * runs show their status, length and captured log.
  */
-import { CalendarClock, ChevronDown, ChevronRight, Pencil, Play, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
+import {
+	CalendarClock,
+	ChevronDown,
+	ChevronRight,
+	MoreHorizontal,
+	Pencil,
+	Play,
+	Plus,
+	RefreshCw,
+	Square,
+	Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	Schedule,
@@ -30,6 +41,7 @@ import {
 	ErrorDetail,
 	IconButton,
 	InlineNotice,
+	MenuButton,
 	SkeletonRows,
 	Spinner,
 	Switch,
@@ -168,20 +180,16 @@ export function SchedulesSection() {
 							const last = lastRun(schedule.id);
 							const next = state.nextRuns[schedule.id];
 							return (
-								<li className="flex items-start gap-3 py-3" data-schedule={schedule.id} key={schedule.id}>
+								<li className="flex items-center gap-2 py-1.5" data-schedule={schedule.id} key={schedule.id}>
 									<Switch
 										checked={schedule.enabled}
-										className="mt-0.5"
 										label={t("schedules.enabled", { name: schedule.name })}
 										onCheckedChange={enabled => void send({ action: "setEnabled", id: schedule.id, enabled })}
 									/>
-									<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-										<span className="truncate text-sc-sm font-medium text-(--sc-text)">{schedule.name}</span>
-										<span className="truncate text-sc-xs text-(--sc-text-muted)" title={schedule.cwd}>
-											{frequencySummary(schedule.frequency)} · {basename(schedule.cwd) || schedule.cwd}
-											{schedule.model ? ` · ${schedule.model}` : ""}
-										</span>
-										<span className="flex flex-wrap items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
+									<CalendarClock aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
+									<div className="flex min-w-0 flex-1 flex-col">
+										<span className="truncate text-sc-md font-medium text-(--sc-text)">{schedule.name}</span>
+										<span className="flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
 											{active ? (
 												<Badge variant="info">
 													<Spinner size="sm" /> {t("schedules.status.running")}
@@ -193,7 +201,11 @@ export function SchedulesSection() {
 													</Badge>
 												)
 											)}
-											<span data-schedule-next>
+											<span className="min-w-0 truncate" title={schedule.cwd}>
+												{frequencySummary(schedule.frequency)} · {basename(schedule.cwd) || schedule.cwd}
+												{schedule.model ? ` · ${schedule.model}` : ""}
+											</span>
+											<span className="shrink-0" data-schedule-next>
 												{!schedule.enabled
 													? t("schedules.nextOff")
 													: state.paused
@@ -204,7 +216,7 @@ export function SchedulesSection() {
 											</span>
 										</span>
 									</div>
-									<div className="flex shrink-0 items-center gap-1">
+									<div className="flex shrink-0 items-center gap-0.5">
 										{active ? (
 											<IconButton
 												icon={<Square />}
@@ -221,16 +233,25 @@ export function SchedulesSection() {
 												size="sm"
 											/>
 										)}
-										<IconButton
-											icon={<Pencil />}
-											label={t("schedules.edit")}
-											onClick={() => setEditing({ schedule })}
-											size="sm"
-										/>
-										<IconButton
-											icon={<Trash2 />}
-											label={t("schedules.delete")}
-											onClick={() => setDeleting(schedule)}
+										<MenuButton
+											align="end"
+											icon={<MoreHorizontal />}
+											items={[
+												{
+													id: "edit",
+													label: t("schedules.edit"),
+													icon: Pencil,
+													onSelect: () => setEditing({ schedule }),
+												},
+												{
+													id: "delete",
+													label: t("schedules.delete"),
+													icon: Trash2,
+													danger: true,
+													onSelect: () => setDeleting(schedule),
+												},
+											]}
+											label={t("schedules.menu", { name: schedule.name })}
 											size="sm"
 										/>
 									</div>

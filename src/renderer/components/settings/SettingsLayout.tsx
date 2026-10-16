@@ -4,10 +4,14 @@
  *
  * - `SettingsSection`: an `h3` heading (+ optional one-line description and
  *   trailing actions) over a hairline-divided list of rows or free content.
- * - `SettingsRow`: label + description on the left, the control in one fixed
- *   right column (`.settings-field-row`; stacks under the label in narrow
- *   containers). Pass `htmlFor` = the control's id so clicking the label
- *   focuses/toggles it. Free-form content (lists, editors) goes in
+ * - `SettingsRow`: one dense line — optional `icon`, label, a short muted
+ *   description (≤ `INLINE_DESCRIPTION_MAX` characters, inline) and the
+ *   control in one fixed right column (`.settings-field-row`; stacks under
+ *   the label in narrow containers). A longer string description moves into
+ *   an info tooltip (and stays in the DOM as screen-reader text); a
+ *   non-string description stays visible as a small muted note, so warnings
+ *   and costs are never hidden. Pass `htmlFor` = the control's id so clicking
+ *   the label focuses/toggles it. Free-form content (lists, editors) goes in
  *   `children` below the label instead of `control`.
  * - `SettingsSwitchRow`: a boolean row — `SettingsRow` + `Switch`, the whole
  *   label clickable. With `risk`, flipping to the risky value only asks: an
@@ -19,12 +23,45 @@
  * Rows use `id` (e.g. `setting-<path>`) as the search-navigation target.
  */
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import { createContext, type ReactNode, useContext, useId, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedHost } from "../../stores/remote";
-import { Banner, Button, Switch } from "../common";
+import { Banner, Button, Switch, Tooltip } from "../common";
+
+/** A string description up to this long reads inline next to the label; longer ones sit behind an info tooltip. */
+export const INLINE_DESCRIPTION_MAX = 56;
+
+/**
+ * A description split by length: `inline` text is a short muted line, `tip` text lives behind
+ * `SettingInfo` (and stays in the DOM as screen-reader text), `note` is any other node, kept visible.
+ */
+function splitDescription(description: ReactNode): { inline?: string; tip?: string; note?: ReactNode } {
+	if (description === undefined || description === null || description === false) return {};
+	if (typeof description !== "string") return { note: description };
+	return description.length <= INLINE_DESCRIPTION_MAX ? { inline: description } : { tip: description };
+}
+
+/** The info glyph that shows a long description on hover and keyboard focus; the text stays in the DOM for screen readers. */
+export function SettingInfo({ text }: { text: string }) {
+	const t = useT();
+	return (
+		<>
+			<Tooltip content={text} describe={false}>
+				<button
+					aria-label={t("settings.rowInfo")}
+					className="inline-flex size-(--sc-icon-md) shrink-0 items-center justify-center rounded-(--sc-radius-sm) text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+					data-setting-info
+					type="button"
+				>
+					<Info aria-hidden className="size-(--sc-icon-sm)" />
+				</button>
+			</Tooltip>
+			<span className="sr-only">{text}</span>
+		</>
+	);
+}
 
 type SettingsScope = "app" | "host" | "mixed";
 const SettingsScopeContext = createContext<SettingsScope | null>(null);
@@ -62,6 +99,10 @@ export function SettingsSection({
 	// A nested group's title stays implicit over bare rows, but names the
 	// description and actions it carries: they never float unlabeled.
 	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
+	const { inline, tip, note } = splitDescription(description);
+	// A long description of a titled group moves behind an info glyph; an untitled one stays a line.
+	const tipped = showTitle && tip !== undefined;
+	const line = tipped ? undefined : (inline ?? tip);
 	return (
 		<section
 			aria-labelledby={showTitle ? headingId : undefined}
@@ -69,27 +110,31 @@ export function SettingsSection({
 			id={id}
 		>
 			{(showTitle || description || actions) && (
-				<div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-2">
+				<div className="mb-1 flex flex-wrap items-end gap-x-3 gap-y-1">
 					{/* Wide actions wrap under the text instead of squeezing it into a column. */}
 					<div className="min-w-[min(100%,12rem)] flex-1">
-						{showTitle &&
-							(nested ? (
-								<h4 className="text-sc-md font-medium text-(--sc-text)" id={headingId}>
-									{title}
-								</h4>
-							) : (
-								<h3 className="text-sc-lg font-semibold text-(--sc-text)" id={headingId}>
-									{title}
-								</h3>
-							))}
+						{showTitle && (
+							<div className="flex items-center gap-1.5">
+								{nested ? (
+									<h4 className="text-sc-sm font-medium text-(--sc-text-secondary)" id={headingId}>
+										{title}
+									</h4>
+								) : (
+									<h3 className="text-sc-md font-semibold text-(--sc-text)" id={headingId}>
+										{title}
+									</h3>
+								)}
+								{tipped && tip !== undefined && <SettingInfo text={tip} />}
+							</div>
+						)}
 						{host && ownScope && ownScope !== inheritedScope && !nested && (
 							<p className="mt-0.5 text-sc-xs text-(--sc-text-muted)" data-settings-group-scope={scope}>
 								{t(`settings.navGroup.${scope === "host" ? "agent" : scope === "mixed" ? "system" : "app"}`)}
 							</p>
 						)}
 						{/* keep-all keeps Korean words whole; break-words still wraps a long path inside the column. */}
-						{description && (
-							<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)">{description}</p>
+						{(line !== undefined || note) && (
+							<p className="mt-0.5 text-sc-xs break-words break-keep text-(--sc-text-muted)">{line ?? note}</p>
 						)}
 					</div>
 					{/* Two buttons wider than a narrow column wrap onto their own lines. */}
@@ -110,7 +155,7 @@ export function SettingsAdvanced({ children }: { children: ReactNode }) {
 	const t = useT();
 	return (
 		<details className="settings-advanced group/advanced" data-settings-advanced="true">
-			<summary className="flex min-h-(--sc-control-md) w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-(--sc-radius-sm) text-sc-md font-medium text-(--sc-text-secondary) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
+			<summary className="flex min-h-(--sc-control-sm) w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-(--sc-radius-sm) text-sc-sm font-medium text-(--sc-text-secondary) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
 				<ChevronRight
 					aria-hidden
 					className="size-(--sc-icon-sm) shrink-0 transition-transform duration-(--sc-duration-fast) group-open/advanced:rotate-90 motion-reduce:transition-none"
@@ -125,7 +170,10 @@ export function SettingsAdvanced({ children }: { children: ReactNode }) {
 export interface SettingsRowProps {
 	id?: string;
 	label: ReactNode;
+	/** One short line (inline), a longer string (info tooltip) or a node (a visible muted note). */
 	description?: ReactNode;
+	/** A lucide glyph (or a `ProviderMark`) that identifies the row at the left. Decorative. */
+	icon?: ReactNode;
 	/** Badge next to the label (restart required, changed). */
 	badge?: ReactNode;
 	/** id of the control the label names. */
@@ -145,6 +193,7 @@ export function SettingsRow({
 	id,
 	label,
 	description,
+	icon,
 	badge,
 	htmlFor,
 	control,
@@ -155,25 +204,47 @@ export function SettingsRow({
 }: SettingsRowProps) {
 	const descriptionId = useId();
 	const LabelTag = htmlFor ? "label" : "span";
+	const { inline, tip, note } = splitDescription(description);
 	return (
-		<div className={cx("settings-row scroll-mt-4 py-3", className)} data-setting-row="true" id={id}>
+		<div className={cx("settings-row scroll-mt-4 py-1", className)} data-setting-row="true" id={id}>
 			<div className={cx("settings-field-row", compactControl && "settings-field-row-compact")}>
-				<div className="min-w-0">
-					<div className="flex flex-wrap items-center gap-2">
-						<LabelTag className="text-sc-md font-medium text-(--sc-text)" htmlFor={htmlFor}>
-							{label}
-						</LabelTag>
-						{badge}
-					</div>
-					{description && (
-						<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)" id={descriptionId}>
-							{description}
-						</p>
+				<div className="flex min-h-(--sc-control-md) min-w-0 items-center gap-2">
+					{icon && (
+						<span
+							aria-hidden
+							className="flex size-(--sc-icon-lg) shrink-0 items-center justify-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)"
+							data-setting-icon
+						>
+							{icon}
+						</span>
 					)}
+					<div className="min-w-0 flex-1">
+						<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+							<LabelTag className="text-sc-md font-medium text-(--sc-text)" htmlFor={htmlFor}>
+								{label}
+							</LabelTag>
+							{badge}
+							{tip !== undefined && <SettingInfo text={tip} />}
+							{inline !== undefined && (
+								<span
+									className="min-w-0 truncate text-sc-xs break-keep text-(--sc-text-muted)"
+									id={descriptionId}
+									title={inline}
+								>
+									{inline}
+								</span>
+							)}
+						</div>
+						{note && (
+							<p className="text-sc-xs break-words break-keep text-(--sc-text-muted)" id={descriptionId}>
+								{note}
+							</p>
+						)}
+					</div>
 				</div>
 				{control !== undefined && <div className="settings-field-control">{control}</div>}
 			</div>
-			{children !== undefined && <div className="mt-2 min-w-0">{children}</div>}
+			{children !== undefined && <div className="mt-1 min-w-0">{children}</div>}
 			{footer}
 		</div>
 	);
@@ -183,6 +254,7 @@ export interface SettingsSwitchRowProps {
 	id?: string;
 	label: ReactNode;
 	description?: ReactNode;
+	icon?: ReactNode;
 	badge?: ReactNode;
 	checked: boolean;
 	onCheckedChange: (checked: boolean) => void;
@@ -198,6 +270,7 @@ export function SettingsSwitchRow({
 	id,
 	label,
 	description,
+	icon,
 	badge,
 	checked,
 	onCheckedChange,
@@ -259,6 +332,7 @@ export function SettingsSwitchRow({
 			}
 			htmlFor={switchId}
 			id={id}
+			icon={icon}
 			label={label}
 		/>
 	);

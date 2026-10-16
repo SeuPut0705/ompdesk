@@ -6,6 +6,7 @@
  * host follows the host's own setting, and the section says so.
  */
 
+import { GraduationCap, UserRound } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
 	EXPERIENCE_LEVELS,
@@ -104,6 +105,7 @@ export function ProfileSection() {
 				description={t("settings.gui.profileNameDesc")}
 				htmlFor={nameId}
 				id="setting-gui-profileName"
+				icon={<UserRound />}
 				label={t("settings.gui.profileName")}
 			/>
 			<SettingsRow
@@ -138,6 +140,7 @@ export function ProfileSection() {
 				}
 				htmlFor={experienceId}
 				id="setting-gui-profileExperience"
+				icon={<GraduationCap />}
 				label={t("settings.gui.profileExperience")}
 			/>
 		</SettingsSection>

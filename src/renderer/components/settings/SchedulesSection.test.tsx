@@ -196,7 +196,11 @@ describe("SchedulesSection", () => {
 		expect(command).toHaveBeenCalledWith({ action: "setPaused", paused: true });
 		expect(document.body.querySelector("[data-schedule-next]")?.textContent).toBe("Paused");
 
-		await click(button("Delete"));
+		await act(async () => (button("Actions for Nightly tidy") as HTMLButtonElement).click());
+		const deleteItem = [...document.body.querySelectorAll('[role="menuitem"]')].find(item =>
+			(item.textContent ?? "").includes("Delete"),
+		) as HTMLElement | undefined;
+		await act(async () => deleteItem?.click());
 		expect(document.body.textContent).toContain("Delete this schedule?");
 		const confirm = [...document.body.querySelectorAll('[role="dialog"] button')].find(
 			item => (item.textContent ?? "").trim() === "Delete",

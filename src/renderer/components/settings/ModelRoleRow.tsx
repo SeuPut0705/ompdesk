@@ -7,7 +7,7 @@
  * use it with edit and remove.
  */
 
-import { Pencil, Trash2 } from "lucide-react";
+import { CircleDashed, Pencil, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { BUILTIN_ROLE_IDS, presetRole } from "../../../../resources/gui-bridge/model-role-contracts";
 import type { CompactionPoint, ModelRoleEntry, ProviderInfo, UsageReport } from "../../../shared/rpc-types";
@@ -18,6 +18,7 @@ import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { Badge, IconButton, ProgressBar } from "../common";
 import { CompactsAt } from "./CompactsAt";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
+import { ProviderMark } from "./providers/ProviderMark";
 import { SettingsRow } from "./SettingsLayout";
 
 const KIND_ORDER: readonly ModelRoleEntry["candidates"][number]["kind"][] = [
@@ -99,14 +100,14 @@ function EffectiveLine({
 	const effective = entry.effective;
 	if (!effective) {
 		return compaction ? (
-			<p className="text-sc-sm text-(--sc-text-muted)">
+			<p className="text-sc-xs text-(--sc-text-muted)">
 				<CompactsAt compact point={compaction} />
 			</p>
 		) : null;
 	}
 	if (!effective.model) {
 		return (
-			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-muted)">
+			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-xs text-(--sc-text-muted)">
 				{effective.unavailable ? (
 					<>
 						<Badge dot variant="warning">
@@ -147,6 +148,13 @@ function EffectiveLine({
 			{compaction && <CompactsAt className="text-(--sc-text-muted)" compact point={compaction} />}
 		</p>
 	);
+}
+
+/** The provider id of the model a role resolves to (its own pick, else what it falls back to); "" when none. */
+function roleProviderId(entry: ModelRoleEntry): string {
+	const model = entry.effective?.model ?? entry.model ?? "";
+	const slash = model.indexOf("/");
+	return slash < 0 ? "" : model.slice(0, slash);
 }
 
 export function ModelRoleRow({
@@ -254,10 +262,17 @@ export function ModelRoleRow({
 				</div>
 			}
 			description={use}
+			icon={
+				roleProviderId(entry) ? (
+					<ProviderMark provider={{ id: roleProviderId(entry), name: roleProviderId(entry) }} />
+				) : (
+					<CircleDashed />
+				)
+			}
 			id={`model-role-${entry.id}`}
 			label={name}
 		>
-			<div className="space-y-1">
+			<div className="space-y-0.5 ps-7">
 				<EffectiveLine
 					compaction={compaction}
 					entry={entry}
@@ -266,9 +281,9 @@ export function ModelRoleRow({
 					t={t}
 					usage={usage}
 				/>
-				{fallback && <p className="text-sc-sm text-(--sc-text-muted)">{fallback}</p>}
+				{fallback && <p className="text-sc-xs text-(--sc-text-muted)">{fallback}</p>}
 				{agents && (
-					<p className="text-sc-sm text-(--sc-text-muted)">
+					<p className="text-sc-xs text-(--sc-text-muted)">
 						{agents.installed.length > 0 && (
 							<span className="block">{t("modelRoles.usedBy", { agents: agents.installed.join(", ") })}</span>
 						)}
@@ -279,10 +294,10 @@ export function ModelRoleRow({
 					</p>
 				)}
 				{entry.source === "project" && (
-					<p className="text-sc-sm text-(--sc-text-muted)">{t("modelRoles.sourceProject")}</p>
+					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.sourceProject")}</p>
 				)}
 				{candidates.length === 0 && (
-					<p className="text-sc-sm text-(--sc-text-muted)">{t("modelRoles.noCandidates")}</p>
+					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.noCandidates")}</p>
 				)}
 			</div>
 		</SettingsRow>

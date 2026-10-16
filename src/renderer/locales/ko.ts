@@ -5143,6 +5143,7 @@ export const ko: Record<string, string> = {
 	"schedules.stop": "중단",
 	"schedules.edit": "편집",
 	"schedules.delete": "삭제",
+	"schedules.menu": "{name} 작업 메뉴",
 	"schedules.deleteTitle": "이 예약을 삭제할까요?",
 	"schedules.deleteMessage": "{name} 예약과 실행 기록이 지워져요. 이미 실행한 세션은 사이드바에 남아요.",
 	"schedules.runs": "최근 실행",
@@ -5305,6 +5306,7 @@ export const ko: Record<string, string> = {
 	"settings.navHeading.agent": "에이전트",
 	"settings.navHeading.system": "시스템",
 	"settings.advancedGroup": "고급",
+	"settings.rowInfo": "이 설정 자세히 보기",
 	"settings.condition.inactive": "상위 옵션을 켜야 이 설정이 활성화돼요.",
 	"settings.condition.configure": "상위 옵션 설정",
 	"settings.extensions.otherIds": "그 밖의 비활성 확장 ID",
@@ -5785,7 +5787,6 @@ export const ko: Record<string, string> = {
 	"cliUpdate.autoDesc":
 		"연결한 계정의 명령줄 도구(Claude Code, Codex, Gemini CLI, Cursor Agent, GitHub CLI)를 설치한 방식 그대로 최신으로 유지해요. 이 컴퓨터에 이미 있는 도구만 업데이트하고, 새로 설치하지는 않아요.",
 	"cliUpdate.none": "연결한 계정에 쓰는 CLI가 이 컴퓨터에 설치돼 있지 않아요.",
-	"cliUpdate.now": "지금 업데이트",
 	"cliUpdate.nowFor": "{name} 지금 업데이트",
 	"cliUpdate.nowFailed": "CLI 업데이트를 시작하지 못했어요",
 	"cliUpdate.retryNote": "다음 확인 때 다시 시도해요.",

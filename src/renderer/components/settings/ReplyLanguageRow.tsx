@@ -5,6 +5,7 @@
  * on a paired host follows the host's own setting, and the row says so.
  */
 
+import { MessagesSquare } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import {
 	isReplyLanguagePref,
@@ -115,6 +116,7 @@ export function ReplyLanguageRow() {
 			}
 			htmlFor={id}
 			id="setting-gui-replyLanguage"
+			icon={<MessagesSquare />}
 			label={t("settings.gui.replyLanguage")}
 		/>
 	);

@@ -4,6 +4,7 @@
  * (`worktree.onStart`). Empty keeps the defaults (omp/gui/ and stock's wt/).
  * Saved when the field loses focus or on Enter, only when git would accept it.
  */
+import { GitBranch } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import {
 	GUI_WORKTREE_BRANCH_PREFIX,
@@ -79,6 +80,7 @@ export function WorktreeBranchPrefixRow() {
 			}
 			htmlFor={id}
 			id="setting-gui-worktreeBranchPrefix"
+			icon={<GitBranch />}
 			label={t("settings.worktreeBranchPrefix")}
 		/>
 	);

@@ -27,7 +27,7 @@ import {
 } from "../onboarding/MachineSetupView";
 import { CliUpdateRows } from "./CliUpdateRows";
 import { OmpUpdateRows } from "./OmpUpdateRows";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingInfo, SettingsSection } from "./SettingsLayout";
 
 function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {
 	const t = useT();
@@ -38,27 +38,30 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 	const path = setupPresencePath(item);
 	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
 	return (
-		<div className="settings-row min-w-0 py-3" data-phase={item.phase} data-setup-item={item.id}>
+		<div className="settings-row min-w-0 py-1.5" data-phase={item.phase} data-setup-item={item.id}>
 			<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
 				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-center gap-2">
+					<div className="flex min-h-(--sc-control-sm) flex-wrap items-center gap-x-2 gap-y-0.5">
 						<SetupMark phase={item.phase} />
 						<span className="text-sc-md font-medium text-(--sc-text)">{name}</span>
 						<Badge variant="muted">
 							{item.required ? t("machineSetup.required") : t("machineSetup.optional")}
 						</Badge>
+						<SettingInfo text={t(`machineSetup.purpose.${purpose}`)} />
 					</div>
-					<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)">
-						{t(`machineSetup.purpose.${purpose}`)}
+					{/* The purpose rides the info glyph: one line per tool for its status and where it lives. */}
+					<p className="flex min-w-0 items-baseline gap-x-2 ps-6 text-sc-xs text-(--sc-text-secondary)">
+						<span className="shrink-0">
+							{setupPhaseText(t, item)}
+							{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
+						</span>
+						{path && (
+							<span className="min-w-0 truncate font-mono text-(--sc-text-muted) select-text" title={path}>
+								{path}
+							</span>
+						)}
 					</p>
-					<p className="mt-0.5 text-sc-sm break-words text-(--sc-text-secondary)">
-						{setupPhaseText(t, item)}
-						{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
-					</p>
-					<SetupProgressLine className="mt-1.5" item={item} />
-					{path && (
-						<p className="mt-0.5 font-mono text-sc-xs break-all text-(--sc-text-muted) select-text">{path}</p>
-					)}
+					<SetupProgressLine className="mt-1" item={item} />
 				</div>
 				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase)) && (
 					<div className="flex max-w-full flex-wrap items-center gap-2">

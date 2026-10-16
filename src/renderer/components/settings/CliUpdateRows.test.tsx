@@ -134,6 +134,10 @@ describe("CliUpdateRows", () => {
 			]),
 		);
 		expect(document.body.querySelectorAll("[data-cli-tool]").length).toBe(3);
+		// Each CLI wears its company's mark: Claude Code Anthropic, Codex OpenAI, the GitHub CLI GitHub's.
+		expect(row("claude").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("anthropic");
+		expect(row("codex").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("openai");
+		expect(row("gh").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("githubcopilot");
 		expect(row("codex").textContent).toContain("Codex CLI");
 		expect(row("codex").textContent).toContain(translate("cliUpdate.method", { method: "npm" }));
 		expect(text("cli-version-codex")).toBe(

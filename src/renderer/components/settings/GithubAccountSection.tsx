@@ -16,7 +16,7 @@ export function GithubAccountSection() {
 			id="setting-github-account"
 			title={t("githubAuth.settings.title")}
 		>
-			<div className="settings-row min-w-0 py-3">
+			<div className="settings-row min-w-0 py-2">
 				<GithubSignIn framed={false} />
 			</div>
 		</SettingsSection>

@@ -1,3 +1,4 @@
+import { Scale } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
@@ -36,6 +37,7 @@ export function AdvisorModelRow({ active, sidecarReady }: { active: boolean | un
 			}
 			description={active === false ? t("settings.features.advisorIdle") : undefined}
 			id="setting-advisor-model"
+			icon={<Scale />}
 			label={t("settings.features.advisorModel")}
 		>
 			<span className="font-mono text-sc-sm text-(--sc-text-muted)">

@@ -6,7 +6,7 @@
  * switch keeps that clear running on this computer at launch and every 6 h
  * (main `agent-worktrees.ts`).
  */
-import { RefreshCw, Trash2 } from "lucide-react";
+import { GitBranch, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { WORKTREE_AUTO_CLEAN_PREF } from "../../../shared/desktop-prefs";
 import type { RpcAgentWorktree, RpcAgentWorktreeClear, RpcAgentWorktreeList } from "../../../shared/rpc-types";
@@ -73,6 +73,7 @@ export function AgentWorktreesRows() {
 				checked={autoClean}
 				description={t("settings.agentWorktrees.autoDesc")}
 				id="setting-gui-worktreeAutoClean"
+				icon={<GitBranch />}
 				label={t("settings.agentWorktrees.auto")}
 				onCheckedChange={setAutoClean}
 			/>

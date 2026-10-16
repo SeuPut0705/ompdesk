@@ -3,6 +3,7 @@
  * replies are (prefs `outputStyle`). Every open tab follows from its next
  * turn (`useOutputStyle`); `/output-style` changes the same setting.
  */
+import { PenLine } from "lucide-react";
 import { useId } from "react";
 import { isOutputStyleId, OUTPUT_STYLE_IDS } from "../../../../resources/gui-bridge/output-style-contracts";
 import { useT } from "../../lib/i18n";
@@ -32,6 +33,7 @@ export function OutputStyleRow() {
 			description={t(`settings.gui.outputStyleDesc.${style}`)}
 			htmlFor={id}
 			id="setting-gui-outputStyle"
+			icon={<PenLine />}
 			label={t("settings.gui.outputStyle")}
 		/>
 	);

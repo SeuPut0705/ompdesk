@@ -367,10 +367,10 @@ export function SettingsPage() {
 					>
 						<nav
 							aria-labelledby="settings-page-title"
-							className="settings-nav flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-(--sc-divider) px-3 pt-6 pb-5"
+							className="settings-nav flex shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--sc-divider) px-2 pt-4 pb-4"
 						>
 							<h1
-								className="px-2 text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+								className="px-2 text-sc-lg font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
 								id="settings-page-title"
 							>
 								{t("settings.title")}
@@ -387,7 +387,7 @@ export function SettingsPage() {
 							{SETTINGS_NAV.map(group => (
 								<div key={group.id} role="group" aria-labelledby={`settings-nav-${group.id}`}>
 									<div
-										className="px-2.5 pt-2 pb-1 text-sc-xs font-medium text-(--sc-text-muted)"
+										className="px-2.5 pt-1.5 pb-0.5 text-sc-xs font-medium text-(--sc-text-muted)"
 										id={`settings-nav-${group.id}`}
 									>
 										{t(`settings.navHeading.${group.id}`)}
@@ -414,14 +414,14 @@ export function SettingsPage() {
 						<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
 							<section aria-labelledby="settings-section-title" className="settings-column">
 								{host && <SettingsDeviceBanner host={host} />}
-								<header className="mb-6">
+								<header className="mb-3">
 									<h2
-										className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+										className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
 										id="settings-section-title"
 									>
 										{results ? t("settings.search.title") : sectionTitle}
 									</h2>
-									<p className="mt-1 text-sc-sm break-keep text-(--sc-text-muted)">
+									<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
 										{results
 											? t("settings.search.count", { count: results.length })
 											: t(`settings.section.${section}.desc`)}
@@ -474,7 +474,7 @@ export function SettingsPage() {
 											title={t("settings.noMatches")}
 										/>
 									) : (
-										<div className="flex flex-col gap-0.5" data-settings-search-results="true">
+										<div className="flex flex-col gap-px" data-settings-search-results="true">
 											{results.map(result => (
 												<ListRow
 													description={

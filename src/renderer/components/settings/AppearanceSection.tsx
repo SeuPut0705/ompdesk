@@ -3,8 +3,26 @@
  * and how conversations render. Every control applies immediately.
  */
 
-import { Check, Monitor } from "lucide-react";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+	Brain,
+	Check,
+	ClipboardPaste,
+	Eye,
+	EyeOff,
+	Gauge,
+	ListOrdered,
+	Monitor,
+	Palette,
+	PanelTop,
+	Rows3,
+	ScrollText,
+	Shrink,
+	Smile,
+	Target,
+	TextQuote,
+	Type,
+} from "lucide-react";
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
 	GUI_DISPLAY_BOOL_FIELDS,
 	saveGuiPreference,
@@ -146,6 +164,18 @@ function ThemeSwatches() {
 	);
 }
 
+/** Each display preference's glyph. */
+const DISPLAY_ICONS: Record<(typeof GUI_DISPLAY_BOOL_FIELDS)[number], ReactNode> = {
+	hideThinkingBlock: <EyeOff />,
+	proseOnlyThinking: <TextQuote />,
+	showTokenUsage: <Gauge />,
+	collapseCompacted: <Shrink />,
+	titleState: <PanelTop />,
+	goalStatusInFooter: <Target />,
+	showProgress: <Gauge />,
+	emojiAutocomplete: <Smile />,
+};
+
 /**
  * A display preference that, until changed here, follows the omp setting of
  * the same name; once set in ompdesk a reset returns it to following omp.
@@ -172,6 +202,7 @@ export function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOO
 					</Button>
 				) : undefined
 			}
+			icon={DISPLAY_ICONS[field]}
 			id={`setting-gui-${field}`}
 			label={t(`settings.display.${field}`)}
 			onCheckedChange={next => void save(next)}
@@ -226,12 +257,13 @@ export function AppearanceSection() {
 	return (
 		<>
 			<SettingsSection title={t("settings.appearance.theme")}>
-				<div className="scroll-mt-4 py-3" data-setting-row="true" id="setting-gui-theme">
+				<div className="scroll-mt-4 py-2" data-setting-row="true" id="setting-gui-theme">
 					<ThemeSwatches />
 				</div>
 				<SettingsSwitchRow
 					checked={followAgentTheme}
 					description={t("settings.gui.followAgentThemeDesc")}
+					icon={<Palette />}
 					id="setting-gui-followAgentTheme"
 					label={t("settings.gui.followAgentTheme")}
 					onCheckedChange={value => applyStorePreference("followAgentTheme", value)}
@@ -263,12 +295,14 @@ export function AppearanceSection() {
 					}
 					description={t("settings.gui.fontSizeDesc")}
 					htmlFor={fontSizeId}
+					icon={<Type />}
 					id="setting-gui-fontSize"
 					label={t("settings.gui.fontSize")}
 				/>
 				<SettingsSwitchRow
 					checked={compactDensity}
 					description={t("settings.gui.compactDensityDesc")}
+					icon={<Rows3 />}
 					id="setting-gui-compactDensity"
 					label={t("settings.gui.compactDensity")}
 					onCheckedChange={value => applyStorePreference("compactDensity", value)}
@@ -276,6 +310,7 @@ export function AppearanceSection() {
 				<SettingsSwitchRow
 					checked={colorBlindMode}
 					description={t("settings.gui.colorBlindModeDesc")}
+					icon={<Eye />}
 					id="setting-gui-colorBlindMode"
 					label={t("settings.gui.colorBlindMode")}
 					onCheckedChange={value => applyStorePreference("colorBlindMode", value)}
@@ -306,12 +341,14 @@ export function AppearanceSection() {
 							: "settings.gui.transcript.fullDesc",
 					)}
 					htmlFor={transcriptId}
+					icon={<ScrollText />}
 					id="setting-gui-transcriptDetail"
 					label={t("settings.gui.transcriptDetail")}
 				/>
 				<SettingsSwitchRow
 					checked={thinkingExpanded}
 					description={t("settings.gui.thinkingExpandedDesc")}
+					icon={<Brain />}
 					id="setting-gui-thinkingExpanded"
 					label={t("settings.gui.thinkingExpanded")}
 					onCheckedChange={next =>
@@ -323,6 +360,7 @@ export function AppearanceSection() {
 				<SettingsSwitchRow
 					checked={codeLineNumbers}
 					description={t("codeblock.lineNumbersDesc")}
+					icon={<ListOrdered />}
 					id="setting-gui-lineNumbers"
 					label={t("codeblock.lineNumbers")}
 					onCheckedChange={next =>
@@ -357,6 +395,7 @@ export function AppearanceSection() {
 					}
 					description={t("settings.display.pasteMenuThresholdDesc")}
 					htmlFor={pasteId}
+					icon={<ClipboardPaste />}
 					id="setting-gui-pasteMenuThreshold"
 					label={t("settings.display.pasteMenuThreshold")}
 				/>

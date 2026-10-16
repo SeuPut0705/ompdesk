@@ -695,7 +695,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 }
 
 .settings-nav {
-	width: 15rem;
+	width: 13.5rem;
 }
 
 /* A narrow page (the sidebar plus the page under ~820px) gives the sections the full width:
@@ -744,34 +744,34 @@ html[data-platform="darwin"] .omp-sidebar-search {
 .settings-column {
 	max-width: 56rem;
 	margin-inline: auto;
-	padding: var(--sc-space-6) var(--sc-space-10) var(--sc-space-16);
+	padding: var(--sc-space-4) var(--sc-space-8) var(--sc-space-12);
 }
 
 .settings-section + .settings-section,
 .settings-sections > * + .settings-section {
-	margin-top: var(--sc-space-10);
+	margin-top: var(--sc-space-6);
 }
 
 .settings-section-nested + .settings-section-nested {
-	margin-top: var(--sc-space-4);
+	margin-top: var(--sc-space-3);
 }
 
 /* "Advanced" folds a section's rarely changed groups behind a hairline at its end. */
 .settings-sections > * + .settings-advanced {
-	margin-top: var(--sc-space-10);
+	margin-top: var(--sc-space-6);
 }
 
 .settings-advanced {
 	border-top: var(--sc-hairline) solid var(--sc-divider);
-	padding-top: var(--sc-space-3);
+	padding-top: var(--sc-space-2);
 }
 
 .settings-advanced-body > :first-child {
-	margin-top: var(--sc-space-4);
+	margin-top: var(--sc-space-3);
 }
 
 .settings-advanced-body > * + :not(:empty) {
-	margin-top: var(--sc-space-10);
+	margin-top: var(--sc-space-6);
 }
 
 /* Rows inside a section are separated by hairlines, never boxes. */
@@ -781,9 +781,9 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 .settings-field-row {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+	grid-template-columns: minmax(0, 1fr) minmax(10rem, 15rem);
 	align-items: center;
-	gap: var(--sc-space-4);
+	gap: var(--sc-space-3);
 }
 
 .settings-field-row-compact {
@@ -808,7 +808,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	}
 }
 
-@container settings-content (max-width: 560px) {
+@container settings-content (max-width: 440px) {
 	.settings-field-row:not(.settings-field-row-compact) {
 		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sc-space-2);
@@ -861,7 +861,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 .security-master-detail {
 	display: grid;
 	grid-template-columns: minmax(0, 2fr) minmax(14.375rem, 1fr);
-	min-height: 24.375rem;
+	min-height: 14rem;
 }
 
 .security-finding-detail {

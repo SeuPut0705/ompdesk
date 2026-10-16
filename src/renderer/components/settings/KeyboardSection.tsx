@@ -222,7 +222,7 @@ export function KeyboardSection({ query }: { query: string }) {
 	const hasOverrides = Object.keys(overrides).length > 0;
 
 	return (
-		<div className="flex flex-col gap-10">
+		<div className="flex flex-col gap-6">
 			{groups.length === 0 && <EmptyState icon={<Keyboard />} size="sm" title={t("hotkeys.empty")} />}
 			{groups.map((group, index) => (
 				<SettingsSection

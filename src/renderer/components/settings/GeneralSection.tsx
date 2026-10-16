@@ -7,7 +7,18 @@
  * Advanced, this device's network proxy. All of it is this device's.
  */
 
-import { Play } from "lucide-react";
+import {
+	Bell,
+	Coffee,
+	ExternalLink,
+	Languages,
+	LayoutPanelLeft,
+	PanelRight,
+	Play,
+	Power,
+	RotateCcw,
+	Volume2,
+} from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, RESUME_INTERRUPTED_PREF } from "../../../shared/desktop-prefs";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
@@ -76,6 +87,7 @@ export function GeneralSection() {
 					}
 					description={t("settings.gui.languageDesc")}
 					htmlFor={languageId}
+					icon={<Languages />}
 					id="setting-gui-language"
 					label={t("settings.gui.language")}
 				/>
@@ -86,6 +98,7 @@ export function GeneralSection() {
 				<SettingsSwitchRow
 					checked={notifications}
 					description={t("settings.gui.notificationsDesc")}
+					icon={<Bell />}
 					id="setting-gui-notifications"
 					label={t("settings.gui.notifications")}
 					onCheckedChange={next =>
@@ -100,6 +113,7 @@ export function GeneralSection() {
 							{t("settings.gui.notificationSoundTest")}
 						</Button>
 					}
+					icon={<Volume2 />}
 					id="setting-gui-notificationSound"
 					label={t("settings.gui.notificationSound")}
 					onCheckedChange={next =>
@@ -136,6 +150,7 @@ export function GeneralSection() {
 						}
 						description={t("settings.gui.notificationVolumeDesc")}
 						htmlFor={volumeId}
+						icon={<Volume2 />}
 						id="setting-gui-notificationVolume"
 						label={t("settings.gui.notificationVolume")}
 					/>
@@ -157,6 +172,7 @@ export function GeneralSection() {
 					}
 					description={t("settings.gui.panelDefaultDesc")}
 					htmlFor={panelId}
+					icon={<LayoutPanelLeft />}
 					id="setting-gui-panelDefault"
 					label={t("settings.gui.panelDefault")}
 				/>
@@ -174,6 +190,7 @@ export function GeneralSection() {
 					}
 					description={t("settings.gui.panelSideDesc")}
 					htmlFor={panelSideId}
+					icon={<PanelRight />}
 					id="setting-gui-panelSide"
 					label={t("settings.gui.panelSide")}
 				/>
@@ -181,6 +198,7 @@ export function GeneralSection() {
 				<SettingsSwitchRow
 					checked={linkPreview}
 					description={t("settings.gui.linkPreviewDesc")}
+					icon={<ExternalLink />}
 					id="setting-gui-linkPreview"
 					label={t("settings.gui.linkPreview")}
 					onCheckedChange={next =>
@@ -191,6 +209,7 @@ export function GeneralSection() {
 					<SettingsSwitchRow
 						checked={closeToTray}
 						description={t("settings.gui.closeToTrayDesc")}
+						icon={<Power />}
 						id="setting-gui-closeToTray"
 						label={t("settings.gui.closeToTray")}
 						onCheckedChange={setCloseToTray}
@@ -199,6 +218,7 @@ export function GeneralSection() {
 				{PLATFORM === "mac" && (
 					<SettingsRow
 						description={t("settings.gui.closeToDockDesc")}
+						icon={<Power />}
 						id="setting-gui-closeToDock"
 						label={t("settings.gui.closeToDock")}
 					/>
@@ -206,6 +226,7 @@ export function GeneralSection() {
 				<SettingsSwitchRow
 					checked={keepAwake}
 					description={t("settings.gui.keepAwakeWorkingDesc")}
+					icon={<Coffee />}
 					id="setting-gui-keepAwakeWorking"
 					label={t("settings.gui.keepAwakeWorking")}
 					onCheckedChange={setKeepAwake}
@@ -213,6 +234,7 @@ export function GeneralSection() {
 				<SettingsSwitchRow
 					checked={resumeInterrupted}
 					description={t("settings.gui.resumeInterruptedDesc")}
+					icon={<RotateCcw />}
 					id="setting-gui-resumeInterrupted"
 					label={t("settings.gui.resumeInterrupted")}
 					onCheckedChange={setResumeInterrupted}

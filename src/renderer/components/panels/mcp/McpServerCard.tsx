@@ -13,7 +13,7 @@
  * tests can SSR-render it. Rows are hairline-divided by the parent list.
  */
 
-import { FlaskConical, KeyRound, Lock, MoreHorizontal, Power, RefreshCw, Trash2 } from "lucide-react";
+import { FlaskConical, KeyRound, Lock, MoreHorizontal, Plug, Power, RefreshCw, Trash2 } from "lucide-react";
 import type { RpcMcpServerInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { Badge, type BadgeVariant, Button, type ContextMenuItem, MenuButton, Spinner } from "../../common";
@@ -136,9 +136,10 @@ export function McpServerCard({
 	];
 
 	return (
-		<div className="flex flex-col gap-2 py-3">
-			<div className="flex items-center gap-3">
-				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+		<div className="flex flex-col gap-1 py-1.5">
+			<div className="flex items-center gap-2">
+				<Plug aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
+				<div className="flex min-w-0 flex-1 flex-col">
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 						<span className="font-mono text-sc-md font-medium text-(--sc-text)">{server.name}</span>
 						<Badge variant="default">{server.transport}</Badge>
