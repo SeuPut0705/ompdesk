@@ -1,15 +1,18 @@
 # Typecheck, lint, unit/component tests, build on every push and PR, on Linux
-# only: the cheapest runner (macOS minutes bill at 10x Linux, Windows at 2x).
-# Windows-specific paths (PATH lookup, cmd.exe shim, named pipes) are covered
-# where they ship: release.yml runs the tests outside src/renderer
-# (`bun run test:platform`), packaging and the @smoke e2e on Windows, and
-# packaging plus @smoke and the real-omp e2e on macOS.
+# only. The repo is public, so hosted runners are free; Linux stays the one
+# per-push job because it is the fastest to start and the checks are
+# OS-independent. Windows-specific paths (PATH lookup, cmd.exe shim, named
+# pipes) are covered where they ship: release.yml runs the tests outside
+# src/renderer (`bun run test:platform`), packaging and the @smoke e2e on
+# Windows, and packaging plus @smoke and the real-omp e2e on macOS.
 #
-# The full Playwright suite is manual (`gh workflow run ci.yml -f e2e=true`);
-# every release runs it locally first. On main it runs on the maintainer's
-# own Mac (self-hosted `ompdesk-mac`, see release.yml for the rules that
-# runner imposes); other refs use GitHub's macOS runner (about 60 billed
-# minutes).
+# Pull requests (including from forks) run only `check` with a read-only token
+# and no secrets; no job here uses `pull_request_target`. Every other job is
+# a manual dispatch.
+#
+# The full Playwright suite is manual here (`gh workflow run ci.yml -f e2e=true`):
+# it builds out/ on Linux and runs the same four macOS shards as the release
+# gate (e2e-shards.yml). Every release runs it in release.yml.
 #
 # The real Windows install of the app's automatic setup is manual too
 # (`gh workflow run ci.yml -f install_check=true`): Bun's installer, the
@@ -32,10 +35,11 @@ on:
   push:
     branches: [main]
     # Nothing a check reads: Markdown, the design docs and screenshots, the
-    # license text, the scheduled health check's own workflow.
-    paths-ignore: ["**.md", "docs/**", "LICENSE", ".github/workflows/setup-assets-health.yml"]
+    # license and notice texts, the issue forms, the scheduled health check's
+    # own workflow.
+    paths-ignore: ["**.md", "docs/**", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
   pull_request:
-    paths-ignore: ["**.md", "docs/**", "LICENSE", ".github/workflows/setup-assets-health.yml"]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml"]
   workflow_dispatch:
     inputs:
       e2e:
@@ -67,6 +71,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # A `release: vX.Y.Z` push also starts release.yml, which runs these checks
   # before packaging, so the push run would only repeat them.
@@ -86,40 +93,36 @@ jobs:
       - run: bunx vitest run
       - run: bun run build
 
-  # Launches the built app: the full suite, against omp (the latest published
-  # one on GitHub's runner, the maintainer's installed one on their Mac; no
-  # provider credentials, each suite uses an isolated agent dir).
-  e2e:
+  # The manual full suite: the same sharded layout as release.yml's gate
+  # (e2e-shards.yml). The shards need the app bundle, so it is built and
+  # uploaded first, on Linux (the bundle is byte-identical on every OS).
+  build-out:
     if: inputs.e2e
-    runs-on: ${{ github.ref == 'refs/heads/main' && fromJSON('["self-hosted", "macOS", "ARM64", "ompdesk-mac"]') || 'macos-latest' }}
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - if: runner.environment == 'github-hosted'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # See release.yml's mac job: electron's unzip fails silently on Node 26.
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
-      - name: Install omp
-        if: runner.environment == 'github-hosted'
-        run: |
-          bun install -g @oh-my-pi/pi-coding-agent
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-          "$HOME/.bun/bin/omp" --version
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - run: bun run build
-      - run: bunx playwright test
-      - if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-macos
-          path: |
-            test-results/
-            playwright-report/
-          if-no-files-found: ignore
-          retention-days: 3
+          name: out
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Launches the built app: the full suite, against the latest published omp
+  # (no provider credentials, each suite uses an isolated agent dir).
+  e2e:
+    needs: build-out
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-shards.yml
 
   # The app's automatic setup (src/main/setup/) for real on a fresh Windows
   # profile: scripts/setup-install-check.ts runs Bun's installer, PortableGit

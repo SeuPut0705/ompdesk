@@ -11,24 +11,25 @@
 # `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
 # release (the packages stay as run artifacts) and works on any branch.
 #
-# Cost: a private repo bills macOS minutes at 10x Linux and Windows at 2x, and
-# every job rounds up to a whole minute. So the app bundle (`out/`) is built
-# once, early, and Windows packages that and runs the OS-independent checks
-# beside it; each package's e2e runs on the out/ it packaged; Windows is one
-# job (platform tests while it waits for out/, then package, then @smoke); and
-# macOS runs only @smoke plus the real-omp suite (the full suite runs locally
-# before every release; manual on CI: `gh workflow run ci.yml -f e2e=true`).
-# After a flaky failure, rerun only the failed job: `gh run rerun <id> --failed`.
+# Layout: the repo is public, so hosted runners are free and every job runs on
+# one (Linux, macOS arm64, Windows). This is the whole release gate (what
+# `bun run gate` runs locally): `build` builds the app bundle (`out/`) once and
+# runs types, biome and the surface policy; `check` runs the full vitest
+# suite; `e2e` runs the FULL Playwright suite on macOS, split into shards
+# (e2e-shards.yml) against that out/; `mac` and `win` package and launch their
+# own build (@smoke, plus the real-omp suite on macOS); `publish` runs only
+# when every one of them, every shard included, passed. Windows packages the
+# shared out/ and runs the OS-independent tests beside it, in one job
+# (platform tests while it waits for out/, then package, then @smoke).
+# Four shards plus `mac` are the five macOS jobs a public repo may run at
+# once, so they all start together. After a flaky failure, rerun only the
+# failed jobs, shards included: `gh run rerun <id> --failed`.
 #
-# `build`, `check` and `mac` run on the maintainer's own Mac (self-hosted
-# runner, label `ompdesk-mac`, free of Actions minutes) for runs on main only,
-# when `prepare` finds that runner online (runners API, secret
-# RUNNER_STATUS_TOKEN). Otherwise (other refs, Mac offline, API unavailable,
-# or `hosted_mac`) `build` and `check` use Linux and `mac` uses GitHub's macOS
-# runner. That runner acts as the maintainer's login account, so the jobs must
-# not change its environment: they keep the installed bun (no setup-bun, which
-# writes ~/.bun/bin) and omp (real-core runs against it), and every action is
-# pinned to a commit.
+# Trust: this workflow starts only from a push to main that touches
+# package.json or from a manual dispatch (write access), never from a pull
+# request. Every job has a read-only token except `publish` (contents: write),
+# and the signing secrets are read by the `mac` Package step alone. Every
+# action is pinned to a commit.
 name: release
 
 on:
@@ -39,10 +40,6 @@ on:
     inputs:
       dry_run:
         description: "Build and test only; do not create the tag or release"
-        type: boolean
-        default: false
-      hosted_mac:
-        description: "Force GitHub's runners for build, check and mac (when the maintainer's Mac is off or unwanted; mac bills about 20 minutes)"
         type: boolean
         default: false
 
@@ -75,8 +72,6 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
       release: ${{ steps.meta.outputs.release }}
-      ci_runner: ${{ steps.runners.outputs.ci_runner }}
-      mac_runner: ${{ steps.runners.outputs.mac_runner }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - id: meta
@@ -127,41 +122,6 @@ jobs:
           # shellcheck disable=SC2016 # literal backticks are Markdown
           printf '\n---\n\nRequires omp **%s** or newer (`omp update`).\n' "$MIN_OMP" >> notes/notes.md
           echo "release=true" >> "$GITHUB_OUTPUT"
-      # Where the macOS-side jobs run. The maintainer's Mac only on main and
-      # only when the runners API reports a runner labelled `ompdesk-mac`
-      # online; otherwise GitHub's runners (`build` and `check` on Linux,
-      # `mac` on macOS), so an offline Mac never leaves a job queued. The API
-      # needs the RUNNER_STATUS_TOKEN secret (a fine-grained PAT, repository
-      # permission Administration: read); without it, or on any API error, the
-      # answer is "hosted". `hosted_mac` forces hosted.
-      - id: runners
-        env:
-          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
-          HOSTED_MAC: ${{ inputs.hosted_mac == true }}
-        run: |
-          set -uo pipefail
-          ci='"ubuntu-latest"'
-          mac='"macos-latest"'
-          self='["self-hosted","macOS","ARM64","ompdesk-mac"]'
-          if [ "$HOSTED_MAC" = "true" ]; then
-            echo "::notice::hosted_mac: build, check and mac run on GitHub's runners."
-          elif [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::notice::$GITHUB_REF is not main: GitHub's runners (the maintainer's Mac serves main only)."
-          elif [ -z "$GH_TOKEN" ]; then
-            echo "::warning::Secret RUNNER_STATUS_TOKEN is not set; cannot ask whether the Mac runner is online, using GitHub's runners."
-          elif online=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" --jq '[.runners[] | select(.status == "online" and any(.labels[]; .name == "ompdesk-mac"))] | length') && [ -n "$online" ]; then
-            if [ "$online" -gt 0 ]; then
-              echo "The ompdesk-mac runner is online."
-              ci=$self
-              mac=$self
-            else
-              echo "::warning::The ompdesk-mac runner is offline; using GitHub's runners (mac bills about 20 minutes)."
-            fi
-          else
-            echo "::warning::The runners API call failed (token expired or without Administration: read?); using GitHub's runners."
-          fi
-          echo "ci_runner=$ci" >> "$GITHUB_OUTPUT"
-          echo "mac_runner=$mac" >> "$GITHUB_OUTPUT"
       - if: steps.meta.outputs.release == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -173,22 +133,16 @@ jobs:
   # The app bundle (`out/`) is the same bytes whichever OS builds it (out/
   # built on Linux, macOS and Windows diffed identical), so it is built once,
   # early, and `win` packages that instead of building its own (about 40 s of
-  # its critical path). It runs on the maintainer's Mac (free) when
-  # `prepare` found that runner online, else on Linux. The OS-independent
-  # checks follow the upload, off every critical path. The Mac is one runner
-  # and runs one job at a time, so `check` and `mac` wait for this job: `win`
-  # needs its upload, and a longer job taking the runner first would delay it.
+  # its critical path). The OS-independent checks follow the upload, off every
+  # critical path.
   build:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
-    runs-on: ${{ fromJSON(needs.prepare.outputs.ci_runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      # Not on the maintainer's Mac: setup-bun writes ~/.bun/bin there, and
-      # its own bun is the one the `mac` job already uses.
-      - if: runner.environment == 'github-hosted'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       # Nothing here launches Electron, and `win` waits on this job's upload.
@@ -208,19 +162,16 @@ jobs:
       - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
 
-  # vitest on its own runner (the Mac when it is online, else Linux): the
-  # longest OS-independent check, in one run (two shards, one in each Linux
-  # job, billed more: each paid setup and install, and the halves took 48-78 s,
-  # so `build` crossed 2 minutes).
+  # vitest on its own runner: the longest OS-independent check, in one run
+  # (two shards in two jobs each paid setup and install and gained nothing).
   check:
     needs: [prepare, build]
     if: needs.prepare.outputs.release == 'true'
-    runs-on: ${{ fromJSON(needs.prepare.outputs.ci_runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - if: runner.environment == 'github-hosted'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
@@ -231,36 +182,48 @@ jobs:
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - run: bunx vitest run
 
+  # The full Playwright suite (the e2e half of `bun run gate`), four macOS
+  # shards at once (e2e-shards.yml) against build's out/. The permissions here
+  # cap the called workflow's, and `publish` waits for every shard.
+  e2e:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.release == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-shards.yml
+
   # Package, verify the bundle, then launch the build packaging just made:
-  # @smoke on the fake omp, and real-core against omp (the latest published
-  # one on GitHub's runner, the maintainer's installed one on their Mac).
+  # @smoke on the fake omp, and real-core against the latest published omp.
   mac:
     needs: [prepare, build]
     if: needs.prepare.outputs.release == 'true'
-    runs-on: ${{ fromJSON(needs.prepare.outputs.mac_runner) }}
+    runs-on: macos-latest
     timeout-minutes: 20
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - if: runner.environment == 'github-hosted'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # bun runs lifecycle scripts with the `node` on PATH; on Node 26 (the
-      # maintainer's Mac) electron's extract-zip exits mid-unzip without an
-      # error, leaving no binary. Under bun it unzips; a no-op once installed.
+      # bun runs lifecycle scripts with the `node` on PATH; where electron's
+      # extract-zip exits mid-unzip without an error no binary is left. Under
+      # bun it unzips; a no-op once installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       # The legacy feed also needs the ZIP (and the latest-mac.yml listing it).
-      # Signing must use the pinned certificate: an ad-hoc fallback would make
-      # macOS ask every user for its privacy permissions again.
+      # A release must be signed with the pinned certificate: an ad-hoc
+      # fallback would make macOS ask every user for its privacy permissions
+      # again. Only a run on main gets the secrets and requires them; a dry run
+      # from another branch (anyone with write access can start one and pick
+      # the branch's code) packages ad-hoc, with no secret in reach, and only
+      # proves the package builds and launches.
       - name: Package
         env:
-          OMPDESK_MAC_SIGNING_P12_BASE64: ${{ secrets.MAC_SIGNING_P12_BASE64 }}
-          OMPDESK_MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
-          OMPDESK_MAC_SIGNING_REQUIRED: "1"
+          OMPDESK_MAC_SIGNING_P12_BASE64: ${{ github.ref == 'refs/heads/main' && secrets.MAC_SIGNING_P12_BASE64 || '' }}
+          OMPDESK_MAC_SIGNING_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.MAC_SIGNING_PASSWORD || '' }}
+          OMPDESK_MAC_SIGNING_REQUIRED: ${{ github.ref == 'refs/heads/main' && '1' || '' }}
         run: |
           set -euo pipefail
           if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
@@ -277,16 +240,19 @@ jobs:
           trap 'hdiutil detach "$MNT" -quiet || true' EXIT
           APP="$MNT/OMPdesk.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          SHA1=$(jq -r .certificateSha1 scripts/mac-signing.json)
-          REQ=$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p')
-          if [ "$REQ" != "identifier \"com.seuput.ompdesk\" and certificate root = H\"$SHA1\"" ]; then
-            echo "::error::OMPdesk.app is not signed with the pinned certificate: $REQ"
-            exit 1
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            SHA1=$(jq -r .certificateSha1 scripts/mac-signing.json)
+            REQ=$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p')
+            if [ "$REQ" != "identifier \"com.seuput.ompdesk\" and certificate root = H\"$SHA1\"" ]; then
+              echo "::error::OMPdesk.app is not signed with the pinned certificate: $REQ"
+              exit 1
+            fi
+          else
+            echo "::notice::$GITHUB_REF is not main: ad-hoc signed, pinned certificate not checked."
           fi
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
-        if: runner.environment == 'github-hosted'
         run: |
           bun install -g @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
@@ -323,22 +289,19 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  # One Windows job, one checkout and install (a second job paid both again
-  # and rounded up to its own minute at 2x). `bun run test:platform` is vitest
-  # on every test outside src/renderer (paths, PATH lookup, cmd.exe shims,
-  # spawn, named pipes, file modes); the renderer never sees the host OS and
-  # its tests run in `check` (src/main/platform-test-scope.test.ts keeps
-  # host-platform checks out of them). It runs in the background of the step
-  # that waits for `build`'s out/, where this runner would otherwise idle
-  # (earlier it competed with electron-builder, took 132 s beside it with one
-  # test worker, and with two, tests that wait on git missed their 1 s poll
-  # window; alone it took 62-66 s with the default workers). Then package,
-  # then the @smoke e2e on the fake omp against that package: setup takeover,
-  # split select, auto-resume after a kill and a quit, Model roles, the
-  # Changes commit, the Files edit, Preview, Mica and close-to-tray, a new
-  # window's theme, steering a running turn from the composer. About 100 s on
-  # this runner; two halves on two jobs (`--shard`) would save 30 s of wall time
-  # for another billed minute.
+  # One Windows job, one checkout and install. `bun run test:platform` is
+  # vitest on every test outside src/renderer (paths, PATH lookup, cmd.exe
+  # shims, spawn, named pipes, file modes); the renderer never sees the host
+  # OS and its tests run in `check` (src/main/platform-test-scope.test.ts
+  # keeps host-platform checks out of them). It runs in the background of the
+  # step that waits for `build`'s out/, where this runner would otherwise idle
+  # (competing with electron-builder it took 132 s with one test worker, and
+  # with two, tests that wait on git missed their 1 s poll window; alone it
+  # took 62-66 s with the default workers). Then package, then the @smoke e2e
+  # on the fake omp against that package: setup takeover, split select,
+  # auto-resume after a kill and a quit, Model roles, the Changes commit, the
+  # Files edit, Preview, Mica and close-to-tray, a new window's theme,
+  # steering a running turn from the composer.
   win:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
@@ -397,8 +360,7 @@ jobs:
       # `compression:` says (`normal` and `maximum` are both 9); that single
       # LZMA2 pass took 61 s of this job on 2 cores. Level 4 takes about 27 s
       # for a setup about a quarter larger (the 7z of v0.32.1's app: 80 MB at
-      # 9, 100 MB at 4; level 5-7 cost as much time as 9). It keeps `win`
-      # under 4 billed minutes: a minute is 2 weighted ones.
+      # 9, 100 MB at 4; level 5-7 cost as much time as 9).
       - name: Package
         env:
           ELECTRON_BUILDER_COMPRESSION_LEVEL: "4"
@@ -436,9 +398,10 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  # Runs only when the checks and both platform jobs succeeded.
+  # Runs only when every job above succeeded, each e2e shard included (the job
+  # `if` keeps GitHub's implicit success(), so a failed or skipped need stops it).
   publish:
-    needs: [prepare, build, check, mac, win]
+    needs: [prepare, build, check, e2e, mac, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

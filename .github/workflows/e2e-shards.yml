@@ -1,0 +1,79 @@
+# The full Playwright suite on GitHub's macOS runners, split over a matrix of
+# shards and run against the `out/` bundle another job of the same run uploaded
+# (release.yml's `build`, ci.yml's `build-out`). Called by both; it never runs
+# on its own.
+#
+# Sharding is scripts/e2e-shard.ts (whole spec files, dealt by estimated cost),
+# not `playwright test --shard`, which counts tests that skip inside their body
+# and so leaves one shard nearly empty. Every shard runs against the real latest
+# omp (real-core and deep-audit) and the fake omp (everything else); playwright
+# runs one worker per shard (3-core runner; playwright.config.ts).
+#
+# At most 5 macOS jobs run at once on a public repo's free tier, and the caller's
+# `mac` job needs one, so four shards plus `mac` fit in a single wave. Raise the
+# matrix only together with that cap. `fail-fast: false`: one run reports every
+# failing shard, and `gh run rerun <id> --failed` reruns only those.
+name: e2e-shards
+
+on:
+  workflow_call:
+    inputs:
+      out-artifact:
+        description: "Name of this run's artifact that holds the built out/ bundle"
+        type: string
+        default: out
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARDS: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # bun runs lifecycle scripts with the `node` on PATH; where electron's
+      # extract-zip exits mid-unzip without an error no binary is left. Under
+      # bun it unzips; a no-op once installed.
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # The runner is ephemeral: real-core and deep-audit run the real omp.
+      - name: Install omp
+        run: |
+          bun install -g @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      # The bundle is the same bytes whichever OS built it.
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: ${{ inputs.out-artifact }}
+          path: out
+      - name: Playwright, this shard's spec files
+        run: |
+          set -euo pipefail
+          # A failed listing must stop here: an empty list would run every spec.
+          FILES=$(bun scripts/e2e-shard.ts "$SHARD/$SHARDS")
+          read -r -a SPECS <<< "$FILES"
+          test "${#SPECS[@]}" -gt 0
+          bunx playwright test "${SPECS[@]}"
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-macos-shard-${{ matrix.shard }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 3

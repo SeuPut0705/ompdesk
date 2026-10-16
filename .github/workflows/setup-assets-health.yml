@@ -5,7 +5,7 @@
 # downloads each in full through the app's own downloader. While it fails, one
 # issue ("Setup downloads health check failed") stays open with the report; a
 # passing run closes it. Linux, no `bun install` (the script imports only
-# Node built-ins), about one billed minute.
+# Node built-ins).
 #
 # Run it now: gh workflow run setup-assets-health.yml
 name: setup-assets-health
