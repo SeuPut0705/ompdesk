@@ -24,7 +24,7 @@ import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import { canonicalCwd } from "../canonical-cwd";
 import type { MachineServices } from "../machine-services";
-import type { SidecarLike } from "../sidecar-pool";
+import type { SidecarLike } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { decodeBinaryRead, OMP_UPDATE_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";

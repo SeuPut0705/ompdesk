@@ -8,7 +8,8 @@ import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
-import { type SidecarLike, SidecarPool } from "./sidecar-pool";
+import { SidecarPool } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
 
 /** Minimal SidecarManager stand-in: an EventEmitter with lifecycle recording. */

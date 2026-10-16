@@ -2,7 +2,8 @@ import { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
-import type { SidecarLike, SidecarPool } from "./sidecar-pool";
+import type { SidecarPool } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 import { type SpawnTabDeps, spawnTabForWindow } from "./tab-spawn";
 
 /** Minimal BrowserWindow stand-in (only the identity fields the guard touches). */

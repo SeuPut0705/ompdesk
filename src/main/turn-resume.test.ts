@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
-import type { SidecarLike } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 import {
 	continuingCount,
 	deriveMarkers,

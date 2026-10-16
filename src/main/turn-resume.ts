@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
-import type { SidecarLike } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 
 export type ResumeReason =
 	/** A turn was running. */

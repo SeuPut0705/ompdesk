@@ -6,7 +6,7 @@
  */
 import { ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import type { AccountRotationDeps } from "./machine-services";
-import type { SidecarLike } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 
 export interface AccountRotationWiring {
 	prefs: { get(key: string): unknown; set(key: string, value: unknown): void };

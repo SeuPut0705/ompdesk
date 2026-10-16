@@ -27,7 +27,7 @@ import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
-import type { SidecarLike } from "../sidecar-pool";
+import type { SidecarLike } from "../sidecar-types";
 import {
 	HOST_COMMAND_TIMEOUT_MS,
 	LINK_SLACK_MS,
