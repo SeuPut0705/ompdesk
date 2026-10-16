@@ -479,12 +479,15 @@ for (const language of ["en", "ko"] as const)
 					const peer = (await b.evaluate(() => window.omp.remote.getState())).host.peers[0];
 					if (!peer) throw new Error("expected A among B's devices");
 					const used = peer.usage.requests;
+					// A typed prompt costs two of A's requests on B: the automatic mode choice's judge
+					// (`auto_mode_decide`, a model command in remote/quota-commands.ts) and the turn.
+					const limit = used + 2;
 					await b.keyboard.press("ControlOrMeta+Comma");
 					await b.locator('[data-settings-page] [data-settings-section="connections"]').click();
 					const row = b.locator(`[data-remote-peer="${peer.deviceId}"]`);
 					await row.getByRole("button", { name: tb("remote.limits.label", { name: "Laptop A" }) }).click();
 					const dialog = b.getByRole("dialog", { name: tb("remote.limits.title", { name: "Laptop A" }) });
-					await dialog.getByLabel(tb("remote.limits.requests")).fill(String(used + 1));
+					await dialog.getByLabel(tb("remote.limits.requests")).fill(String(limit));
 					await dialog.getByRole("button", { name: tb("common.save"), exact: true }).click();
 					await expect(dialog).toHaveCount(0);
 
@@ -501,7 +504,7 @@ for (const language of ["en", "ko"] as const)
 					// The refused prompt stays in the composer, not in the transcript.
 					await expect(a.locator("textarea").first()).toHaveValue("Over the limit");
 					await capture(a, `${language}-${theme}-limit-reached`);
-					await expect(row.locator("[data-peer-usage]")).toContainText(`${used + 1}/${used + 1}`);
+					await expect(row.locator("[data-peer-usage]")).toContainText(`${limit}/${limit}`);
 					await row.scrollIntoViewIfNeeded();
 					await capture(b, `${language}-${theme}-host-limits`);
 					await b.keyboard.press("Escape");
