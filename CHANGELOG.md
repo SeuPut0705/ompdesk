@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.32.0] - 2026-10-16
+
+넓은 창에 작업 현황판이 생기고, 세션 제목과 플러그인·MCP 업데이트, 미리보기·변경 사항 열기, 오류 재시도까지 앱이 알아서 해요. 설정과 모델 선택 창도 촘촘하게 다시 그렸어요.
+
+### 작업 현황판
+- 채팅 칸이 넓으면 오른쪽에 작업 현황판이 붙어요. 답변을 기다리는 질문(⌥B), 이번 턴의 최근 단계, 실행 중인 서브에이전트(모델·단계·토큰·시간), 할 일 진행, 목표 예산을 한눈에 보여 줘요.
+- 현황판이 보일 때는 입력창 위의 같은 줄을 숨겨요. 사이드 패널을 열거나 창이 좁으면 저절로 숨고, 설정에서 끌 수 있어요.
+
+### 알아서 하는 일
+- 세션 제목이 첫 메시지로 자동으로 붙고, 작업 주제가 바뀌면 새로 정리돼요. 직접 고친 제목은 그대로 두고, 제목 칸의 ✨ 버튼으로 다시 자동 제목으로 돌릴 수 있어요.
+- 플러그인·마켓플레이스·스킬·MCP 서버가 알아서 업데이트돼요. 버전을 고정한 것은 "새 버전 있음"만 알려 주고, MCP 설정 파일은 고치지 않아요.
+- 에이전트가 개발 서버를 띄우면 미리보기를, 파일을 고치면 턴이 끝난 뒤 변경 사항을 자동으로 열어요. 사이드 패널이 닫혀 있을 때만이고, 직접 닫으면 다시 열지 않아요.
+- 일시적인 오류로 턴이 실패하면 30초·2분·10분 뒤 다시 시도해요. 취소하거나 바로 다시 시도할 수 있어요.
+- 여러 탭이 거의 동시에 끝나면 알림을 하나로 묶어요.
+- 입력창에서 목록(`- `, `1. `, `- [ ] `) 줄을 바꾸면 기호가 자동으로 이어져요.
+
+### 화면
+- 설정 화면을 한 줄 행과 아이콘·회사 심볼 중심으로 촘촘하게 바꿨어요. 긴 설명은 ⓘ에 넣었어요.
+- 모델 선택 창을 작은 검색창과 한 줄 행(회사 심볼·이름·컨텍스트 크기)으로 줄였어요.
+- 다음 메시지 제안이 이미 맡긴 일을 다시 제안하지 않고, 후보를 3개씩 보여 줘요.
+- Windows에서 새 창을 열 때 테마 색이 시스템 테마로 잘못 보이던 것을 고쳤어요.
+
+<!-- en -->
+A work board for wide windows, and more that runs by itself: session titles, plugin and MCP updates, opening Preview and Changes, and retrying failed turns. Settings and the model picker are denser.
+
+### Work board
+- When the chat pane is wide, a board docks on the right: questions waiting on you (⌥B), the turn's latest steps, running subagents (model, step, tokens, time), to-do progress and the goal budget.
+- While it shows, the matching strips above the composer step aside. It hides with the side panel or a narrow window, and can be turned off.
+
+### Done for you
+- Sessions get a title from the first message, and the title follows the work as its topic changes. A title you typed stays; the ✨ button in the title field makes it automatic again.
+- Plugins, marketplaces, skills and MCP servers update themselves. Pinned ones only show "update available", and your MCP config is never rewritten.
+- Preview opens when the agent starts a dev server, and Changes opens after a turn that edited files — only while the side panel is closed, and not again once you close it.
+- A turn that fails on a transient error retries after 30 s, 2 min and 10 min, with Cancel and Retry now.
+- Several tabs finishing at once produce one notification.
+- Pressing Shift+Enter on a list line (`- `, `1. `, `- [ ] `) continues the list.
+
+### UI
+- Settings is compact: one-line rows with icons and company marks, long descriptions behind ⓘ.
+- The model picker is smaller: a compact search and one-line rows (mark, name, context size).
+- Next-message suggestions no longer repeat work already handed off, and offer three candidates.
+- A new window on Windows no longer starts in the system theme instead of the app's.
+
 ## [0.31.0] - 2026-10-16
 
 계정 화면을 새로 그리고, 다음에 보낼 말을 앱이 직접 제안해요. 창을 닫아도 작업은 계속되고, 필요한 CLI는 알아서 설치·업데이트돼요.
