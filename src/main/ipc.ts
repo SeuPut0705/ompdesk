@@ -11,7 +11,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, clipboard, dialog, Notification, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, Notification, screen, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -122,6 +122,7 @@ import { STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
 import { appVersion } from "./updater";
 import type { ClientWindow } from "./web/client-window";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
+import { writeDialogPreload } from "./web/preview-dialog";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
@@ -314,6 +315,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
 	registerSshToolsIpc(ipc);
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
+	let dialogPreload: string | null = null;
 	const visualPages = registerPreviewHost(
 		ipc,
 		(senderId, tabId) => {
@@ -323,6 +325,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
 		},
 		visuals,
+		{
+			// A paired phone's preview (main/web/preview-stream.ts): its tab may be a paired host's, like a window's.
+			isRemote: (win, tabId) => {
+				const target = deps.sidecarPool.tabTarget(win, tabId);
+				return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
+			},
+			hostScale: () => screen.getPrimaryDisplay().scaleFactor,
+			preloadPath: () => (dialogPreload ??= writeDialogPreload(app.getPath("userData"))),
+		},
 	);
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
