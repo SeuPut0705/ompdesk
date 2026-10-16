@@ -41,8 +41,10 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
-// Reduced motion: the takeover unmounts at once instead of fading out.
-Object.assign(window as unknown as Record<string, unknown>, { matchMedia: () => ({ matches: true }) });
+// Reduced motion: the takeover unmounts at once instead of fading out. The shell-mode hook listens to the same API.
+Object.assign(window as unknown as Record<string, unknown>, {
+	matchMedia: () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }),
+});
 
 const ompMissing = (platform: "darwin" | "win32" = "darwin"): SetupState =>
 	setupState(platform, { omp: { phase: "idle", presence: { kind: "missing" } } }, { ompReady: false });

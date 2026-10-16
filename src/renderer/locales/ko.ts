@@ -595,6 +595,7 @@ export const ko: Record<string, string> = {
 	"sidebar.menu.taskRunning": "이 세션은 실행 중이에요.",
 	"sidebar.menu.closeSession": "세션 닫기",
 	"sidebar.groupMenu": "프로젝트 메뉴",
+	"sidebar.sessionMenu": "세션 메뉴",
 	"sidebar.pinFailed": "고정 목록을 저장할 수 없어요.",
 	"sidebar.pin.usage": "사용 한도",
 	"sidebar.pin.usageMore": "+{count}개 더 보기",
@@ -2894,11 +2895,11 @@ export const ko: Record<string, string> = {
 	"chat.extensionMessage": "확장 메시지",
 	"chat.steering": "추가 지시",
 	"chat.promptFrom": "{device}에서 보냄",
-	"chat.delegatedTo": "{name}에게 위임함",
 	"chat.promptFromOtherDevice": "다른 기기",
 	"viewers.chipOne": "다른 기기 1대에서도 보는 중",
 	"viewers.chipMany": "다른 기기 {count}대에서도 보는 중",
 	"extDialog.answeredElsewhere": "다른 기기에서 응답했어요",
+	"chat.delegatedTo": "{name}에게 위임함",
 	"chat.steeringResponse": "추가 지시 응답",
 	"chat.attachedImage": "첨부 이미지",
 	"chat.custom.advisor": "어드바이저",
@@ -6060,7 +6061,6 @@ export const ko: Record<string, string> = {
 		"업데이트를 설치하려면 컴퓨터의 OMPdesk를 재시작해야 해요. 진행 중인 턴은 중단됐다가 이어서 실행돼요. 재시작할까요?",
 	"web.quit.confirm": "컴퓨터의 OMPdesk를 종료할까요? 이 기기에서는 다시 시작할 수 없어요.",
 	"web.notify.open": "열기",
-};
 	"hostUi.link.opened": "이 기기에서 열었어요.",
 	"hostUi.computerOff": "이 기기는 컴퓨터 제어가 꺼져 있어요. 컴퓨터의 OMPdesk 설정 › Mobile web에서 켜 주세요.",
 	"hostUi.failed": "처리하지 못했어요: {error}",
@@ -6128,3 +6128,4 @@ export const ko: Record<string, string> = {
 	"hostUi.update.running":
 		"세션 {count}개가 실행 중이에요. 다시 시작하면 멈추고, OMPdesk가 돌아오면 각각 저절로 이어서 해요.",
 	"hostUi.update.confirm": "다시 시작하고 업데이트",
+};

@@ -65,6 +65,7 @@ import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../../hooks/use-session-switch";
+import { useShellInput } from "../../../hooks/use-shell-mode";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, copyText, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -447,6 +448,9 @@ export function Sidebar() {
 	const [renameDraft, setRenameDraft] = useState("");
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
+	// Under touch there is no hover to reveal a row's actions, so the open row would always show its rename,
+	// archive and delete buttons and the title would lose their width: one ⋯ opens the row's action sheet instead.
+	const touchInput = useShellInput() === "touch";
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
@@ -1158,9 +1162,20 @@ export function Sidebar() {
 		return (
 			<Fragment key={session.path}>
 				<ListRow
-					actionCount={[true, archivable, variant === "archived", deletable].filter(Boolean).length}
+					actionCount={
+						touchInput ? 1 : [true, archivable, variant === "archived", deletable].filter(Boolean).length
+					}
 					actions={
-						indexed ? (
+						indexed && touchInput ? (
+							<IconButton
+								data-sidebar-row-menu
+								icon={<MoreHorizontal />}
+								label={t("sidebar.sessionMenu")}
+								onClick={event => setSessionMenu({ anchor: anchorBelow(event.currentTarget), session })}
+								size="sm"
+								tabIndex={-1}
+							/>
+						) : indexed ? (
 							<>
 								<IconButton
 									icon={<Pencil />}

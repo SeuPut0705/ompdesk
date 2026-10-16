@@ -287,6 +287,27 @@ for (const engine of ENGINES) {
 				await page.context().close();
 			});
 
+			test("a session row's rename and delete collapse into one ⋯ button that opens the action sheet", async () => {
+				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+				if (drawerMode) await menuButton(page).click();
+				const sidebar = page.locator(".omp-session-sidebar");
+				const current = sidebar.locator('[data-session-path][data-active="true"]').first();
+				await expect(current).toBeVisible();
+				// The open row would otherwise show rename and delete for good (touch has no hover to hide them).
+				await expect(current.locator("[data-sidebar-row-menu]")).toHaveCount(1);
+				await expect(
+					sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
+				).toHaveCount(0);
+				await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
+				await current.locator("[data-sidebar-row-menu]").click();
+				const menu = page.locator("[data-action-sheet] [role='menu']");
+				await expect(menu).toBeVisible({ timeout: 3000 });
+				await expect(menu.getByRole("menuitem", { name: "Rename session" })).toBeVisible();
+				await page.keyboard.press("Escape");
+				await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+				await page.context().close();
+			});
+
 			test("a long press opens an action sheet, and a long press on a button shows its tooltip without a click", async () => {
 				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
 				if (drawerMode) await menuButton(page).click();

@@ -604,6 +604,7 @@ export const en: Record<string, string> = {
 	"sidebar.menu.taskRunning": "This session is running",
 	"sidebar.menu.closeSession": "Close session",
 	"sidebar.groupMenu": "Project actions",
+	"sidebar.sessionMenu": "Session actions",
 	"sidebar.pinFailed": "Couldn't save the pinned list",
 	"sidebar.pin.usage": "Usage limits",
 	"sidebar.pin.usageMore": "+{count} more",
@@ -2910,11 +2911,11 @@ export const en: Record<string, string> = {
 	"chat.extensionMessage": "Extension message",
 	"chat.steering": "Steer",
 	"chat.promptFrom": "from {device}",
-	"chat.delegatedTo": "Delegated to {name}",
 	"chat.promptFromOtherDevice": "another device",
 	"viewers.chipOne": "Also open on 1 other device",
 	"viewers.chipMany": "Also open on {count} other devices",
 	"extDialog.answeredElsewhere": "Answered on another device.",
+	"chat.delegatedTo": "Delegated to {name}",
 	"chat.steeringResponse": "Response to steer",
 	"chat.attachedImage": "attached image",
 	"chat.custom.advisor": "Advisor",
@@ -6085,7 +6086,6 @@ export const en: Record<string, string> = {
 		"Restart OMPdesk on your computer to install the update? Running turns are interrupted and resume afterwards.",
 	"web.quit.confirm": "Quit OMPdesk on your computer? It can't be started again from this device.",
 	"web.notify.open": "Open",
-};
 	"hostUi.link.opened": "Opened on this device.",
 	"hostUi.computerOff":
 		"Computer control is off for this device. Turn it on in OMPdesk on your computer, under Settings › Mobile web.",
@@ -6154,3 +6154,4 @@ export const en: Record<string, string> = {
 	"hostUi.update.running":
 		"{count} sessions are running. Restarting stops them; each continues by itself when OMPdesk is back.",
 	"hostUi.update.confirm": "Restart and update",
+};
