@@ -6,7 +6,7 @@
  * serve (`ensureServingDefault`). Renders nothing.
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ProviderInfo } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -26,8 +26,19 @@ export function FirstRunGate() {
 	const status = useSessionStore(state => state.status);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const checkedThisLaunch = useRef(false);
+	/**
+	 * The connect step was opened ahead of the check below (a fresh install, a true first run). The user may act
+	 * on it before the check settles — "Set up later", a sign-in that moves on — and the check must not undo that.
+	 */
+	const openedEarly = useRef(false);
 	const ompInstalled = useMachineSetupStore(state => state.ompInstalled);
 	const takeover = useMachineSetupStore(state => state.takeover);
+	const openEarly = useCallback(() => {
+		const store = useFirstRunStore.getState();
+		if (store.phase !== "idle") return;
+		store.openProvisional();
+		openedEarly.current = true;
+	}, []);
 
 	// The first window's React tree is up (this gate mounts with App): a launch timing mark.
 	useEffect(() => window.omp.runtime.startupMark("renderer-mounted"), []);
@@ -39,8 +50,8 @@ export function FirstRunGate() {
 	// reinstalled over an agent dir with credentials) closes it again.
 	useEffect(() => {
 		if (!ompInstalled || takeover || checkedThisLaunch.current) return;
-		useFirstRunStore.getState().openProvisional();
-	}, [ompInstalled, takeover]);
+		openEarly();
+	}, [ompInstalled, openEarly, takeover]);
 
 	// omp is installed but holds no credential at all (stock's store and env keys, read in main without a
 	// session) and models.yml has no keyless endpoint: a true first run. The provider step opens now instead
@@ -59,12 +70,12 @@ export function FirstRunGate() {
 			if (isResumableFirstRunStep(savedStep) || useMachineSetupStore.getState().takeover) return;
 			if (config.providers.some(entry => entry.auth === "none" && entry.models.length > 0)) return;
 			if (useSessionStore.getState().status === "ready") return;
-			useFirstRunStore.getState().openProvisional();
+			openEarly();
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [openEarly]);
 
 	useEffect(() => {
 		if (status !== "ready" || checkedThisLaunch.current) return;
@@ -84,11 +95,14 @@ export function FirstRunGate() {
 				.map(toProviderInfo)
 				.filter((row): row is ProviderInfo => row !== null);
 			const configs = configResult.status === "fulfilled" ? configResult.value.providers : [];
+			const early = useFirstRunStore.getState();
+			// Opened early and since left (dismissed, or moved on by the user): their choice stands.
+			const userMoved = openedEarly.current && !early.provisional;
 			if (!hasUsableModelProvider(providers, configs)) {
-				useFirstRunStore.getState().setPhase("connect", null);
+				if (!userMoved) useFirstRunStore.getState().setPhase("connect", null);
 				return;
 			}
-			if (useFirstRunStore.getState().provisional) useFirstRunStore.getState().setPhase("idle", null);
+			if (early.provisional) useFirstRunStore.getState().setPhase("idle", null);
 			const resume = savedStep.status === "fulfilled" ? savedStep.value : undefined;
 			if (isResumableFirstRunStep(resume)) {
 				useFirstRunStore.getState().setPhase(resume, null);

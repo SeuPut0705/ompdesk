@@ -234,6 +234,27 @@ describe("FirstRunGate", () => {
 		expect(document.querySelector('[data-provider-connect="openai-codex"]')).not.toBeNull();
 	});
 
+	it("keeps an early step the user dismissed closed once omp's check finds no provider", async () => {
+		catalog = { ...catalog, providers: [apple, anthropic], models: [onDevice] };
+		signedIn = false;
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		await mount(
+			<>
+				<FirstRunGate />
+				<FirstRunSetup />
+			</>,
+		);
+		expect(useFirstRunStore.getState().phase).toBe("connect");
+		await act(async () => button(translate("setup.later"))?.click());
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+
+		await act(async () => useSessionStore.getState().setStatus("ready", "/tmp/project"));
+		await act(async () => delay(0));
+		expect(rpc.getProviders).toHaveBeenCalled();
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(text()).not.toContain(translate("setup.title"));
+	});
+
 	it("waits for omp when a credential exists, or a keyless models.yml endpoint can serve", async () => {
 		useSessionStore.getState().setStatus("starting", "/tmp/project");
 		await mount(<FirstRunGate />);
