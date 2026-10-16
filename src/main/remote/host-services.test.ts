@@ -274,7 +274,10 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.setStatus("ready");
 		expect(x.tabEvents().map(event => event.arg)).toContainEqual(expect.objectContaining({ status: "ready" }));
 		// Y hears only of its own tab.
-		expect(y.tabEvents()).toEqual([{ rtab: "t1", name: "awaitingConnection", arg: false }]);
+		expect(y.tabEvents()).toEqual([
+			{ rtab: "t1", name: "signIn", arg: { active: [] } },
+			{ rtab: "t1", name: "awaitingConnection", arg: false },
+		]);
 	});
 
 	it("forwards allowlisted sidecar events as tab.event and leaves host tool calls to the device", async () => {
@@ -294,7 +297,9 @@ describe("LocalHostServices", () => {
 		await Promise.resolve();
 
 		expect(x.tabEvents()).toEqual([
-			// Every open tells the device whether this computer holds the tab's turn for its connection.
+			// Every open tells the device which sign-ins run (none on a new tab) and whether this computer
+			// holds the tab's turn for its connection.
+			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 			{
 				rtab: "t1",
@@ -811,7 +816,8 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", command: { type: "login", providerId: "anthropic" } },
 			first,
 		);
-		await vi.waitFor(() => expect(signIns(first)).toEqual([{ active: ["anthropic"] }]));
+		// A new tab tells the device no sign-in runs on it: the device's state may date from a tab that is gone.
+		await vi.waitFor(() => expect(signIns(first)).toEqual([{ active: [] }, { active: ["anthropic"] }]));
 
 		// The link drops mid-login; the sign-in runs on, and the device is told so when it is back.
 		services.disconnected(first.peer, first);

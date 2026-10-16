@@ -1627,6 +1627,31 @@ describe("SidecarPool background tabs", () => {
 		expect(ended()).toEqual([{ tabId: "tab-a", providerId: "anthropic", error: "denied" }]);
 	});
 
+	it("drops a paired host's sign-ins when the host reports its omp gone, so the next omp's asks are chat cards again", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		if (!a) throw new Error("expected a sidecar");
+		a.emitStatus("ready");
+		a.emit("signIn", { active: ["anthropic"] });
+
+		// A link blip is not the host's omp leaving: its login may still run.
+		a.emitLinkStatus("error");
+		a.emitLinkStatus("starting");
+		expect(fw.sentTo(IPC_EVENTS.SIGN_IN_ENDED)).toEqual([]);
+
+		// The host reports a new omp (the old tab closed after its grace, or the host restarted): that
+		// omp's logins died with it, and the outcome went unseen.
+		a.emitStatus("starting");
+		expect(fw.sentTo(IPC_EVENTS.SIGN_IN_ENDED).map(item => item.data)).toEqual([
+			{ tabId: "tab-a", providerId: "anthropic" },
+		]);
+		a.emitStatus("ready");
+		a.emitUiRequest({ id: "ask", method: "input", title: "Which branch?" });
+		expect(pool.openRequests(fw.win)).toEqual([{ tabId: "tab-a", request: expect.objectContaining({ id: "ask" }) }]);
+	});
+
 	it("reports how a background run ended so the renderer can tell failure from success", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

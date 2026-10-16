@@ -673,6 +673,9 @@ export class LocalHostServices implements HostServices {
 		const raced = this.#tabs.get(key);
 		if (raced) return this.#open(peer, params, conn);
 		const tab = this.#createTab(peer, params.rtab, cwd, kind, params.fresh === true, params.sessionPath, conn);
+		// The device's sign-in state may come from a tab of this rtab that is gone (closed after its grace, or
+		// this computer restarted mid-login): a new omp runs none.
+		this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
 		this.#emit(tab, "awaitingConnection", false);
 		return { cwd: tab.sidecar.cwd, kind, attached: false };
 	}

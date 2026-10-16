@@ -405,10 +405,15 @@ export class SidecarPool {
 			// reloaded window's card) stays until the host itself reports that omp gone.
 			if (payload.status !== "ready") {
 				entry.run = idleRun();
-				if (!sidecar.statusFromLink)
+				if (!sidecar.statusFromLink) {
 					for (const [id, owner] of this.#requestOwners) {
 						if (owner === entry) this.#requestOwners.delete(id);
 					}
+					// The host's `login`s ran on that omp and died with it; their outcome went unseen.
+					const hostSignIn = entry.hostSignIns?.at(-1);
+					entry.hostSignIns = undefined;
+					if (hostSignIn !== undefined) this.#signInEnded(entry, hostSignIn);
+				}
 			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
