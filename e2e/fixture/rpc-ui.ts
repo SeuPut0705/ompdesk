@@ -1064,8 +1064,16 @@ export function runRpcUi(): void {
 	let delegationMode = process.env.OMP_GUI_DELEGATION ?? "default";
 	/** Stock's relay server while a spec lets the agent into the preview (browser.relay_start). */
 	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
+	/** `prompt_origin_set` calls whose prompt has not been sent yet. */
+	const pendingOrigins: Array<{ deviceId: string; name: string; text: string }> = [];
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		// gui-bridge prompt-origin.ts: main names the device of the next prompt with this text (a paired web device).
+		prompt_origin_set: params => {
+			const origin = params.origin as { deviceId: string; name: string };
+			pendingOrigins.push({ deviceId: origin.deviceId, name: origin.name, text: String(params.text) });
+			return { pending: pendingOrigins.length };
+		},
 		capabilities: () => ({
 			ompVersion: FIXTURE_OMP_VERSION,
 			unavailable:
@@ -1535,7 +1543,15 @@ export function runRpcUi(): void {
 						entries,
 						promptOrigin,
 					)
-						.map(item => ("promptFrom" in item ? { ...item.message, promptFrom: item.promptFrom } : item.message))
+						.map(item =>
+							"promptFrom" in item || "promptFromId" in item
+								? {
+										...item.message,
+										...("promptFrom" in item ? { promptFrom: item.promptFrom } : {}),
+										...("promptFromId" in item ? { promptFromId: item.promptFromId } : {}),
+									}
+								: item.message,
+						)
 						.slice(start, end),
 				),
 			};
@@ -3060,8 +3076,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		appendMessage(user);
 		noteTitlePrompt(message);
 		// A85 (resources/gui-bridge/prompt-origin.ts): an omp a host runs for a paired device journals that device per prompt.
-		if (promptOrigin) {
-			const data = { deviceId: promptOrigin.deviceId, name: promptOrigin.name, timestamp: sentAt };
+		const named = pendingOrigins.findIndex(entry => entry.text === message);
+		const from = named >= 0 ? pendingOrigins.splice(named, 1)[0] : promptOrigin;
+		if (from) {
+			const data = { deviceId: from.deviceId, name: from.name, timestamp: sentAt };
 			append({ type: "custom", customType: PROMPT_ORIGIN_ENTRY, data }, sentAt);
 		}
 		write({ type: "agent_start" });

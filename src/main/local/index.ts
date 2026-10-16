@@ -13,6 +13,7 @@ import { handlers as git } from "./git";
 import { handlers as misc } from "./misc";
 import { handlers as modes } from "./modes";
 import { handlers as nextPrompt } from "./next-prompt";
+import { handlers as promptOrigin } from "./prompt-origin";
 import { handlers as queue } from "./queue";
 import { handlers as sessions } from "./sessions";
 import { handlers as settings } from "./settings";
@@ -39,6 +40,7 @@ const LOCAL_HANDLERS = mergeHandlers({
 	composer,
 	modes,
 	nextPrompt,
+	promptOrigin,
 	git,
 	workspace,
 	extensions,

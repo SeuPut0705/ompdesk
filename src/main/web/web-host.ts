@@ -33,7 +33,7 @@ import type { IpcRegistry } from "./ipc-registry";
 import { PairingConfirmations, WebPairing } from "./pairing";
 import { WebServer } from "./server";
 import { UploadStore } from "./uploads";
-import { WebWindows } from "./web-client-window";
+import { WebClientWindow, WebWindows } from "./web-client-window";
 import { CLOSE_REVOKED, WsRouter } from "./ws-router";
 
 /** How often old uploads are looked for. */
@@ -163,6 +163,13 @@ export class WebHost {
 		clearInterval(this.#sweeper);
 		this.#sweeper = undefined;
 		await this.server.stop();
+	}
+
+	/** The device a web window's prompts come from, as its name stands now; null for any other window. */
+	promptOrigin(win: ClientWindow): { deviceId: string; name: string } | null {
+		if (!(win instanceof WebClientWindow)) return null;
+		const device = this.devices.get(win.deviceId);
+		return device ? { deviceId: device.deviceId, name: device.name } : null;
 	}
 
 	/** The paired devices as Settings lists them. */

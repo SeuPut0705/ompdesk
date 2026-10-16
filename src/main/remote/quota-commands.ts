@@ -220,6 +220,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"pr_review",
 	"preview_share_session",
 	"promote_queued_message",
+	"prompt_origin_set",
 	"queue_clear",
 	"queue_edit",
 	"queue_move",

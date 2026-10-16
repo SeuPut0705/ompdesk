@@ -242,6 +242,8 @@ export type RpcCommand =
 	| { id?: string; type: "refresh_next_prompt"; reason: NextPromptRefreshReason }
 	| { id?: string; type: "cancel_next_prompt"; scope: "suggest" | "inline" | "all" }
 	| { id?: string; type: "complete_inline"; draft: string; requestId: string }
+	// Which device typed the next prompt of a tab several windows show: gui-bridge prompt-origin.ts (main only)
+	| { id?: string; type: "prompt_origin_set"; origin: { deviceId: string; name: string }; text: string }
 
 	// Domain actions (mutating)
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }
@@ -1983,13 +1985,13 @@ export interface AgentMessage {
 	steering?: boolean;
 	/** A user prompt typed on another device than the viewing one (bridge prompt-origin, A85): that device's name. */
 	promptFrom?: string;
-	stopReason?: string;
-	errorMessage?: string;
 	/**
 	 * GUI-only: a user prompt another viewer of this shared tab sent (delivered live here, never echoed by
 	 * this window). The host names no sender on a live delivery, so the label is generic until a reload.
 	 */
 	fromOtherViewer?: true;
+	stopReason?: string;
+	errorMessage?: string;
 	errorId?: number;
 	timestamp?: string | number;
 	command?: string;

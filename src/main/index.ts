@@ -1058,6 +1058,11 @@ app.whenReady().then(() => {
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
 		mediaStreams,
+		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
+		promptOrigins: {
+			of: win => webHost?.promptOrigin(win) ?? null,
+			hostName: () => devices.deviceName(),
+		},
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();

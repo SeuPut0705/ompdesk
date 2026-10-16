@@ -17,6 +17,12 @@ import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bri
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
+import {
+	localizePromptOrigins,
+	PROMPT_ORIGIN_HOST_ID,
+	type PromptOrigin,
+	type PromptOriginLabel,
+} from "../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
@@ -157,6 +163,12 @@ export interface IpcDeps {
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
 }
+	/**
+	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
+	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`
+	 * what a window that is not the host's calls it.
+	 */
+	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
 
 /**
  * Resolve the sidecar that owns the calling window. Routing derives from
@@ -499,6 +511,39 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return {
 				id: payload.command.id,
 				type: "response",
+	/** Composer modes with no stock event: the other windows that show the tab re-read them (`noteModeChanged`). */
+	const MODE_TOGGLE_COMMANDS: Record<string, true> = {
+		set_plan_mode: true,
+		set_prewalk: true,
+		set_agents_paused: true,
+		set_vibe_mode: true,
+		set_loop_mode: true,
+		set_ratchet: true,
+		set_goal: true,
+		set_fast_mode: true,
+		set_slow_mode: true,
+		set_ultrafast_mode: true,
+	};
+
+	/**
+	 * The device a window's prompts are typed on: a paired web device; in the viewer test hook
+	 * (`OMP_GUI_TEST_VIEWER_WINDOWS=1`, two Electron windows) every window is its own device. null = the host's own.
+	 */
+	const promptOriginOf = (win: ClientWindow): PromptOrigin | null =>
+		deps.promptOrigins?.of(win) ??
+		(process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1"
+			? { deviceId: `window-${win.webContents.id}`, name: `Window ${win.webContents.id}` }
+			: null);
+
+	/** A transcript page labelled for a tab no device owns, as `win` sees it (`localizePromptOrigins`). */
+	const localizeTranscript = (data: unknown, win: ClientWindow): unknown => {
+		const page = data as { messages?: PromptOriginLabel[] } | undefined;
+		if (!page?.messages?.some(message => message.promptFromId !== undefined)) return data;
+		const ownId = promptOriginOf(win)?.deviceId ?? PROMPT_ORIGIN_HOST_ID;
+		const hostName = deps.promptOrigins?.hostName() ?? os.hostname();
+		return { ...page, messages: localizePromptOrigins(page.messages, ownId, hostName) };
+	};
+
 				success: false,
 				error: "Sidecar not connected",
 				code: "sidecar_not_connected",
@@ -603,7 +648,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// the renderer's attach/hydrate reports the file (session_info_update
 			// itself carries only the session id, never the path).
 			if (issuerTabId && response.success) {
+			// A prompt from a paired web device names its device to the omp first: the bridge journals it for the
+			// message with that text, so every window can say who typed it.
+			if ((cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up") && !sidecar.device) {
+				const origin = promptOriginOf(win);
+				if (origin)
+					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
+			}
 				if (cmd.type === "switch_session") {
+			if (cmd.type === "get_transcript_page" && response.success && !sidecar.device) {
+				response = { ...response, data: localizeTranscript(response.data, win) };
+			}
 					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
 					if (!cancelled) sidecarPool.noteSessionFile(issuerTabId, cmd.sessionPath);
 				} else if (cmd.type === "get_state") {
