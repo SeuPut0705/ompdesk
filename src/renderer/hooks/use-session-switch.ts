@@ -68,6 +68,7 @@ export function resetSessionSurface(closeOverlays = true): void {
 		messageCount: 0,
 		queuedMessageCount: 0,
 		planModeEnabled: false,
+		autoMode: null,
 		prewalkArmed: false,
 		agentsPaused: false,
 		agentsPausedAt: null,

@@ -540,6 +540,8 @@ if (process.argv[2] === "stats") {
 	}
 	/** Stock `/btw` history, newest first. */
 	const btwRecords: object[] = [];
+	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
+	let autoModeSuppressed = false;
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
 	const state = () => ({
 		model,
@@ -1992,6 +1994,27 @@ if (process.argv[2] === "stats") {
 		usage: () => ({
 			reports:
 				usageAccounts ??
+		// gui-bridge modes/auto-mode.ts: the fake "classifier" reads keywords. A big change is plan, a completion
+		// condition is goal, anything else none; an undone decision stops further ones in the session.
+		"modes.auto_mode_decide": params => {
+			const message = typeof params.message === "string" ? params.message : "";
+			if (autoModeSuppressed) return { mode: "none", reason: "suppressed", latencyMs: 0 };
+			if (/\buntil\b.*\b(pass|green|done)\b/i.test(message)) {
+				return {
+					mode: "goal",
+					objective: message.replace(/\s+/g, " ").trim(),
+					latencyMs: 12,
+					model: "fixture/smol",
+				};
+			}
+			if (/\b(refactor|migrate)\b/i.test(message)) return { mode: "plan", latencyMs: 12, model: "fixture/smol" };
+			return { mode: "none", reason: "classified_none", latencyMs: 12, model: "fixture/smol" };
+		},
+		"modes.auto_mode_undo": params => {
+			autoModeSuppressed = true;
+			if (params.mode === "plan") planModeEnabled = false;
+			return { suppressed: true };
+		},
 				(usageLimitResetAt === undefined
 					? boardUsage
 						? [
@@ -4170,6 +4193,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"debug",
 						"tools",
 						"models",
+				if (command.op === "create" && typeof command.objective === "string") {
+					boardGoal = { objective: command.objective, status: "active" };
+					write({ type: "goal_updated", goal: boardGoal, state: { enabled: true, goal: boardGoal } });
+				} else if (command.op === "drop") {
+					boardGoal = undefined;
+					write({ type: "goal_updated", goal: null, state: { enabled: false } });
+				}
 						"providers",
 						"modes",
 						"hotkeys",

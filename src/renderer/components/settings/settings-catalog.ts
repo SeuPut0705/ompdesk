@@ -218,6 +218,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"retry again later temporary transient error server overloaded 503 timeout connection backoff automatic smart automation 재시도 다시 시도 일시 오류 서버 과부하 시간 초과 연결 자동 스마트 자동화",
 	},
 	{
+		id: "autoMode",
+		section: "agent",
+		labelKey: "settings.gui.autoMode",
+		aliases:
+			"auto mode automatic plan goal choose mode small model smart automation 자동 모드 계획 목표 자동 선택 작은 모델 스마트 자동화",
+	},
+	{
 		id: "nextPromptSuggestions",
 		section: "agent",
 		labelKey: "settings.gui.nextPromptSuggestions",

@@ -99,6 +99,8 @@ export function planComposerSubmit(input: {
 	mode: ComposerSendMode;
 	commands: AvailableCommand[];
 	rpc?: Pick<TabRpc, "compact" | "followUp" | "prompt" | "steer">;
+	/** Runs just before a plain (non-slash, non-streaming) prompt is sent. */
+	beforePrompt?: () => Promise<unknown>;
 }): ComposerSubmit {
 	const { message, images, isStreaming, mode, commands, rpc = window.omp.rpc } = input;
 	const isSlashCommand = message.startsWith("/");
@@ -142,7 +144,14 @@ export function planComposerSubmit(input: {
 			request: () => (mode === "followUp" ? rpc.followUp(message, images) : rpc.steer(message, images)),
 		};
 	}
-	return { kind: "send", request: () => rpc.prompt(message, images) };
+	return {
+		kind: "send",
+		request: async () => {
+			// The automatic mode choice (lib/auto-mode-client.ts) never throws and is bounded; it runs only for a plain prompt.
+			if (!isSlashCommand) await input.beforePrompt?.();
+			return rpc.prompt(message, images);
+		},
+	};
 }
 
 /** Post-success settle: rehydrate after local-only slash commands. */

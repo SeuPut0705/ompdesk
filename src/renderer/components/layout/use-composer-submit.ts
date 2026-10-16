@@ -8,6 +8,7 @@ import { useCallback } from "react";
 import type { AgentMessage, AvailableCommand } from "../../../shared/rpc-types";
 import { refreshNextPromptAfterBash } from "../../hooks/use-next-prompt";
 import { hydrateTabSession } from "../../hooks/use-rpc-events";
+import { runAutoMode } from "../../lib/auto-mode-client";
 import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { expandEmoticons } from "../../lib/emoji";
 import { errorDetail } from "../../lib/error-detail";
@@ -313,6 +314,13 @@ export function useComposerSubmit({
 				mode: forceMode ?? mode,
 				commands,
 				rpc,
+				beforePrompt: () =>
+					runAutoMode({
+						message: expandedMessage,
+						isStreaming,
+						session: originSession ?? useSessionStore,
+						rpc,
+					}),
 			});
 			if (submit.kind === "blocked") return;
 			if (submit.kind === "handled") {

@@ -74,6 +74,8 @@ export interface SessionStore {
 	messageCount: number;
 	queuedMessageCount: number;
 	planModeEnabled: boolean;
+	/** The mode the app entered by itself for the last prompt (the composer's "Auto: Plan" chip); cleared when that mode ends or is undone. */
+	autoMode: "plan" | "goal" | null;
 	/** Whether a prewalk model switch is armed and waiting for the first edit/write. */
 	prewalkArmed: boolean;
 	agentsPaused: boolean;
@@ -125,6 +127,7 @@ const initialState = {
 	messageCount: 0,
 	queuedMessageCount: 0,
 	planModeEnabled: false,
+	autoMode: null as "plan" | "goal" | null,
 	prewalkArmed: false,
 	agentsPaused: false,
 	agentsPausedAt: null,

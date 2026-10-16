@@ -54,6 +54,7 @@ function installMockOmp(): void {
 			getSettings: vi.fn(async () => success({ values: {} })),
 			setPlanMode,
 		},
+		prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 		events,
 	};
 }

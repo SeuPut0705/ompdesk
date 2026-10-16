@@ -1,5 +1,6 @@
 import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
+import { AutoModeRow } from "./AutoModeRow";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { BatchNotificationsRow } from "./BatchNotificationsRow";
@@ -68,6 +69,7 @@ export function AgentSection() {
 				<AutoChangesRow />
 				<BatchNotificationsRow />
 				<ScheduledRetryRow />
+				<AutoModeRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

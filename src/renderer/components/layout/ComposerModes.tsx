@@ -11,8 +11,10 @@
  * closing it clears the request.
  */
 
-import { Boxes, ChevronDown, Layers, ListChecks, Repeat, Rocket, Target } from "lucide-react";
+import { Boxes, ChevronDown, Layers, ListChecks, Repeat, Rocket, Sparkles, Target, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useAutoModePref } from "../../hooks/use-auto-mode-pref";
+import { goalIsActive } from "../../lib/auto-mode-client";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -114,6 +116,7 @@ export function ComposerModes() {
 					<span className="omp-composer-control-label omp-composer-label-early max-w-48 truncate">{label}</span>
 				</Button>
 			</Tooltip>
+			<AutoModeChip />
 			<Popover
 				anchorRef={triggerRef}
 				ariaLabel={t("input.modes.label")}
@@ -151,6 +154,7 @@ export function ComposerModes() {
 							/>
 						)}
 					</div>
+					<AutoModeSwitch />
 					<p className="-mx-3 -mb-1 border-t border-(--sc-divider) px-3 pt-2.5 text-sc-xs text-(--sc-text-muted)">
 						{t("modesPanel.footerNote")}
 					</p>
@@ -197,5 +201,80 @@ function PlanModeConfig() {
 			label={t("input.modes.planToggle")}
 			onCheckedChange={next => void toggle(next)}
 		/>
+	);
+}
+
+/** The Mode popover's one switch for the automatic Plan/Goal choice (prefs `autoMode`, default on). */
+function AutoModeSwitch() {
+	const t = useT();
+	const [enabled, setEnabled] = useAutoModePref();
+	return (
+		<div className="flex flex-col gap-0.5">
+			<SwitchField
+				checked={enabled}
+				className="-mx-2"
+				data-auto-mode-switch
+				label={t("input.autoMode.label")}
+				onCheckedChange={setEnabled}
+			/>
+			<p className="text-sc-xs text-(--sc-text-muted)">{t("input.autoMode.desc")}</p>
+		</div>
+	);
+}
+
+/**
+ * "Auto: Plan" / "Auto: Goal": the mode the app entered for the last prompt, with a one-click undo (leaves the mode
+ * and stops automatic decisions for this session). Gone as soon as that mode ends by any route.
+ */
+function AutoModeChip() {
+	const t = useT();
+	const rpc = useTabRpc();
+	const tabId = useRuntimeTabId();
+	const auto = useSessionStore(s => s.autoMode);
+	const live = useSessionStore(s =>
+		s.autoMode === "plan" ? s.planModeEnabled : s.autoMode === "goal" && goalIsActive(s),
+	);
+	const session = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
+	const [pending, setPending] = useState(false);
+
+	useEffect(() => {
+		if (auto && !live) session.setState({ autoMode: null });
+	}, [auto, live, session]);
+
+	if (!auto || !live) return null;
+	const undo = async () => {
+		if (pending) return;
+		setPending(true);
+		try {
+			const response = await rpc.autoModeUndo(auto);
+			if (!response.success) throw new Error(response.error);
+			session.setState(
+				auto === "plan"
+					? { planModeEnabled: false, autoMode: null }
+					: { goal: null, goalState: null, autoMode: null },
+			);
+		} catch (cause) {
+			toastError({ title: t("modesPanel.actionFailed"), error: cause });
+		} finally {
+			setPending(false);
+		}
+	};
+	return (
+		<Tooltip content={t("input.autoMode.undoTitle")}>
+			<Button
+				className="omp-composer-chip"
+				data-auto-mode-chip
+				disabled={pending}
+				icon={<Sparkles aria-hidden />}
+				onClick={() => void undo()}
+				size="sm"
+				trailingIcon={<X aria-hidden className="text-(--sc-text-subtle)" />}
+				variant="ghost"
+			>
+				<span className="omp-composer-control-label omp-composer-label-early">
+					{t(`input.autoMode.chip.${auto}`)}
+				</span>
+			</Button>
+		</Tooltip>
 	);
 }

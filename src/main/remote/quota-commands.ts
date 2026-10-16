@@ -46,6 +46,8 @@ export const MODEL_COMMAND_TYPES = [
 	"refresh_next_prompt",
 	// The automatic title (bridge modes/auto-title.ts): `/rename` without a title runs the cheap title model.
 	"regenerate_session_title",
+	// The automatic mode choice (bridge modes/auto-mode.ts): one cheap judge request on the host per typed prompt.
+	"auto_mode_decide",
 	// Stock `MemoryBackend.enqueue` (`/memory enqueue`): consolidation runs a model (mnemopi's fact extraction, the
 	// hindsight server, the local backend's next consolidation pass).
 	"memory_enqueue",
@@ -65,6 +67,8 @@ export const CONDITIONAL_MODEL_COMMAND_TYPES = [
 
 /** Commands that never call a model: reads, settings, git, files, queue edits, session moves. */
 export const QUOTA_FREE_COMMAND_TYPES = [
+	// The chip's undo: leaves the mode and marks the session; no model.
+	"auto_mode_undo",
 	"abort",
 	"abort_and_restore_queue",
 	"abort_bash",

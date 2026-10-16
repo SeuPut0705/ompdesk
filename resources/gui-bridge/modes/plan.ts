@@ -15,6 +15,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { PlanProposalHandler } from "@oh-my-pi/pi-coding-agent/tools/resolve";
+import { markPlanRejected } from "../auto-mode-state";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import {
@@ -108,7 +109,7 @@ function disarm(session: AgentSession): void {
 }
 
 /** Leave plan mode (session-level subset of the TUI's `#tearDownPlanMode`). */
-async function exitPlanMode(session: AgentSession): Promise<void> {
+export async function exitPlanMode(session: AgentSession): Promise<void> {
 	session.setPlanModeState(undefined);
 	disarm(session);
 	const restore = previousTools;
@@ -187,6 +188,8 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 
 	if (params.approved !== true) {
 		pending = undefined;
+		// Automatic mode choice never enters plan mode again in this session.
+		markPlanRejected(session.sessionManager.getSessionId());
 		const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
 		if (feedback) {
 			void submitTurn(session, feedback, false).catch(reportTurnError);
