@@ -11,10 +11,10 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron, type Locator, type Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { AGENT_TEMPLATES } from "../src/shared/agent-templates";
 import type { RpcAgentDefinitionInfo } from "../src/shared/rpc-types";
-import { exitApp, openDestination } from "./harness";
+import { exitApp, launchApp, openDestination } from "./harness";
 
 const SHOTS = process.env.OMPDESK_SHOTS_DIR;
 
@@ -74,19 +74,7 @@ test("agent editor and template gallery write definitions omp discovers", async 
 			JSON.stringify({ language, launchProfiles: { [project]: { noExtensions: true, noRules: true } } }),
 		);
 	await writePrefs("en");
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	Reflect.deleteProperty(env, "OMP_GUI_OMP");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_OMP: undefined } });
 	const page = await app.firstWindow();
 	const errors: string[] = [];
 	page.on("pageerror", error => errors.push(error.message));

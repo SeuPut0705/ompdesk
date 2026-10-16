@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import type { ElectronApplication, Page } from "playwright";
+import { exitApp, launchApp, recordsOfType } from "./harness";
 
 // What a tab does while another one is in front (v0.8.0): its blocking dialogs,
 // plan proposals, run-end notifications, next-prompt suggestion and subagent
@@ -35,21 +35,16 @@ test.beforeEach(async () => {
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language: "en", firstRunComplete: true, nextPromptSuggestions: builtinNextPrompt }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		// Tests tagged @session-files run on stock-shaped session files, so their rows come from the session index.
-		OMP_GUI_TEST_SESSION_FILES: test.info().tags.includes("@session-files") ? "1" : "",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: record,
+			// Tests tagged @session-files run on stock-shaped session files, so their rows come from the session index.
+			OMP_GUI_TEST_SESSION_FILES: test.info().tags.includes("@session-files") ? "1" : "",
+		},
 	});
 	page = await app.firstWindow();
 	errors = [];
@@ -128,15 +123,6 @@ async function switchTo(tabId: string): Promise<void> {
 	await expect.poll(activeTab).toBe(tabId);
 }
 
-async function recorded(type: string): Promise<Record<string, unknown>[]> {
-	const text = await fs.readFile(record, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(entry => entry.type === type);
-}
-
 function notifications(): Promise<Notification[]> {
 	return app.evaluate(
 		() => (globalThis as typeof globalThis & { __notifications?: Notification[] }).__notifications ?? [],
@@ -171,7 +157,9 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 
 	const owner = await sessionIdOf(background);
 	await expect
-		.poll(async () => (await recorded("extension_ui_response")).filter(entry => entry.id === "fixture-confirm"))
+		.poll(async () =>
+			(await recordsOfType(record, "extension_ui_response")).filter(entry => entry.id === "fixture-confirm"),
+		)
 		.toEqual([{ type: "extension_ui_response", id: "fixture-confirm", confirmed: true, recordedBy: owner }]);
 	await expect(row).not.toContainText("Needs input");
 	// The answer let the turn finish.
@@ -195,7 +183,9 @@ test("a plan proposed in the background shows its approval card after switching 
 	await expect(card.getByRole("button", { name: "Approve and execute" })).toBeEnabled();
 	// Hydrate still re-syncs it from the background tab's own omp (get_plan_mode).
 	const owner = await sessionIdOf(background);
-	expect(await recorded("modes.get_plan_mode")).toContainEqual(expect.objectContaining({ recordedBy: owner }));
+	expect(await recordsOfType(record, "modes.get_plan_mode")).toContainEqual(
+		expect.objectContaining({ recordedBy: owner }),
+	);
 	expect(errors).toEqual([]);
 });
 

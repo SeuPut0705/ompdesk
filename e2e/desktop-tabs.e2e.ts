@@ -18,8 +18,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -81,19 +80,7 @@ async function launch(language: Language, theme: Theme, prefs: Record<string, un
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true, ...prefs }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile });
 	const page = await app.firstWindow();
 	const errors: string[] = [];
 	page.on("pageerror", error => errors.push(error.message));
@@ -104,10 +91,6 @@ async function launch(language: Language, theme: Theme, prefs: Record<string, un
 		.toBe("ready");
 	launched = { app, page, desktop, errors };
 	return launched;
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 function tabs(page: Page) {

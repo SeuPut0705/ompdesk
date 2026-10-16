@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import type { ElectronApplication } from "playwright";
+import { exitApp, launchApp } from "./harness";
 
 /** Distance from the bottom that still counts as "riding the live edge". Row
  * re-measurement during streaming overshoots a few pixels, so this is deliberately
@@ -23,21 +23,14 @@ async function withFollowApp(body: (app: ElectronApplication, page: Page) => Pro
 	// The work board would show the todos beside the transcript and their dock strip would step
 	// aside; these tests need the dock between transcript and composer.
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", workBoard: false }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
 		// Enough history that an abort leaves something to scroll up through, which is
 		// the state a reader is actually in when they send the next message.
-		OMP_GUI_TEST_HISTORY: "300",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+		env: { OMP_GUI_TEST_HISTORY: "300" },
 	});
 	try {
 		await body(app, await app.firstWindow());

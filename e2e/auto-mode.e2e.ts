@@ -10,8 +10,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp, recordsOfType } from "./harness";
 
 interface Launched {
 	app: ElectronApplication;
@@ -33,20 +32,12 @@ async function launch(prefs: Record<string, unknown> = {}, extraEnv: Record<stri
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language: "en", themeName: "light", firstRunComplete: true, ...prefs }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		...extraEnv,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: { OMP_GUI_TEST_RECORD: record, ...extraEnv },
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
@@ -60,15 +51,6 @@ async function launch(prefs: Record<string, unknown> = {}, extraEnv: Record<stri
 async function finish(launched: Launched): Promise<void> {
 	await exitApp(launched.app);
 	await fs.rm(launched.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-}
-
-async function frames(file: string, type: string): Promise<Record<string, unknown>[]> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(frame => frame.type === type);
 }
 
 const composer = (page: Page): Locator => page.locator(".omp-composer-input").first();
@@ -93,12 +75,12 @@ test("a big change enters plan mode with a chip, one click undoes it; a question
 		await send(page, "refactor the whole settings module across all files", 2);
 		await expect(chip(page)).toHaveText("Auto: Plan");
 		await expect(modeButton(page)).toContainText("Plan");
-		expect((await frames(record, "modes.auto_mode_decide")).length).toBe(2);
+		expect((await recordsOfType(record, "modes.auto_mode_decide")).length).toBe(2);
 
 		await chip(page).click();
 		await expect(chip(page)).toHaveCount(0);
 		await expect(modeButton(page)).not.toContainText("Plan");
-		expect(await frames(record, "modes.auto_mode_undo")).toMatchObject([{ mode: "plan" }]);
+		expect(await recordsOfType(record, "modes.auto_mode_undo")).toMatchObject([{ mode: "plan" }]);
 
 		// The undo stops automatic decisions in this session.
 		await send(page, "refactor the whole routing layer across all packages", 3);
@@ -114,7 +96,7 @@ test("a prompt with a completion condition starts a goal", async () => {
 	try {
 		await send(page, "keep going until all the tests pass", 1);
 		await expect(chip(page)).toHaveText("Auto: Goal");
-		const writes = async () => (await frames(record, "goal")).filter(frame => frame.op !== "get");
+		const writes = async () => (await recordsOfType(record, "goal")).filter(frame => frame.op !== "get");
 		expect(await writes()).toMatchObject([{ op: "create", objective: "keep going until all the tests pass" }]);
 		await chip(page).click();
 		await expect(chip(page)).toHaveCount(0);
@@ -152,7 +134,7 @@ test("a prompt sent in a mode the user picked is not classified", async () => {
 		await page.keyboard.press("Escape");
 		await send(page, "refactor the whole settings module across all files", 1);
 		await expect(chip(page)).toHaveCount(0);
-		expect(await frames(record, "modes.auto_mode_decide")).toHaveLength(0);
+		expect(await recordsOfType(record, "modes.auto_mode_decide")).toHaveLength(0);
 	} finally {
 		await finish(launched);
 	}
@@ -170,12 +152,12 @@ test("Ratchet is a manual switch in the Mode popover and a prompt sent with it o
 		await expect(ratchetSwitch(page)).not.toBeChecked();
 		await ratchetSwitch(page).click();
 		await expect(ratchetSwitch(page)).toBeChecked();
-		expect(await frames(record, "modes.set_ratchet")).toMatchObject([{ enabled: true }]);
+		expect(await recordsOfType(record, "modes.set_ratchet")).toMatchObject([{ enabled: true }]);
 		await page.keyboard.press("Escape");
 		await expect(modeButton(page)).toContainText("Ratchet");
 		await send(page, "refactor the whole settings module across all files", 1);
 		await expect(chip(page)).toHaveCount(0);
-		expect(await frames(record, "modes.auto_mode_decide")).toHaveLength(0);
+		expect(await recordsOfType(record, "modes.auto_mode_decide")).toHaveLength(0);
 	} finally {
 		await finish(launched);
 	}
@@ -189,7 +171,7 @@ test("Ratchet says which tools are missing and cannot be turned on", async () =>
 		await ratchetTab(page).click();
 		await expect(page.locator("[data-ratchet-missing]")).toHaveText(/needs the eval tool/);
 		await expect(ratchetSwitch(page)).toBeDisabled();
-		expect(await frames(record, "modes.set_ratchet")).toHaveLength(0);
+		expect(await recordsOfType(record, "modes.set_ratchet")).toHaveLength(0);
 	} finally {
 		await finish(launched);
 	}

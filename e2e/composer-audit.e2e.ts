@@ -11,8 +11,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { capture, exitApp, launchApp, recordsOfType } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -42,20 +41,7 @@ async function launch(
 			keymapOverrides: { "panel.toggle": ["⇧⌃Y"] },
 		}),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_TEST_RECORD: record } });
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
 	await page.waitForFunction(() => window.omp?.rpc != null);
@@ -63,20 +49,6 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	return { app, page, profile, record };
-}
-
-async function frames(file: string, type: string): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map((line): unknown => JSON.parse(line))
-		.filter((frame): frame is Record<string, unknown> => typeof frame === "object" && frame !== null)
-		.filter(frame => frame.type === type);
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 for (const language of ["en", "ko"] as const)
@@ -121,8 +93,8 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.locator("[data-draft-file-cards]")).toHaveCount(0);
 				await expect(page.getByRole("region", { name: text.queued })).toBeVisible();
 				await capture(page, `${language}-${theme}-steer-queued`);
-				await expect.poll(async () => (await frames(record, "steer")).length).toBe(1);
-				const [steer] = await frames(record, "steer");
+				await expect.poll(async () => (await recordsOfType(record, "steer")).length).toBe(1);
+				const [steer] = await recordsOfType(record, "steer");
 				expect(String(steer?.message)).toContain("pasted line 14");
 				expect(String(steer?.message)).toContain("@notes.txt please");
 				expect(String(steer?.message)).not.toContain("[Paste #");

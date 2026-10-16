@@ -14,8 +14,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, openDestination } from "./harness";
+import { capture, exitApp, launchApp, openDestination } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -33,19 +32,7 @@ async function launch(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile });
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
 	await page.waitForFunction(() => window.omp?.rpc != null);
@@ -95,10 +82,6 @@ async function expectLoadedAndIdle(player: Locator, kind: "video" | "audio"): Pr
 	expect(state).toMatchObject({ paused: true, autoplay: false, loop: false, currentTime: 0 });
 	if (kind === "video") expect(state.muted).toBe(true);
 	return state;
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 /** Drag a tab onto a pane edge, the user's split gesture (as live-work.e2e.ts does). */

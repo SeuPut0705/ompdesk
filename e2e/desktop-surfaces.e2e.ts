@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { micaSupported } from "../src/main/window-chrome";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { captureTo, exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 // Surfaces the release workflow's @smoke run covers on every platform beside smoke.e2e.ts, on the
 // fake omp: the Model roles page, a file edited in the Files panel, and (Windows only) the Mica
@@ -75,12 +75,6 @@ async function close(launched: Launched): Promise<void> {
 	await fs.rm(launched.profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
-async function capture(page: Page, name: string): Promise<void> {
-	if (!CAPTURES) return;
-	await fs.mkdir(CAPTURES, { recursive: true });
-	await page.screenshot({ path: path.join(CAPTURES, `${name}.png`), scale: "css", animations: "disabled" });
-}
-
 /** The whole primary screen: the only capture that shows what the compositor draws behind the window (Mica). */
 function captureDesktop(name: string): void {
 	if (!CAPTURES || process.platform !== "win32") return;
@@ -120,7 +114,7 @@ test("@smoke Model roles lists every purpose with its use, and a role is set thr
 		await expect(roles.locator("#model-role-default")).toContainText("Answers every message in a session");
 		await expect(roles.locator("#model-role-default")).toContainText("Claude Sonnet 4.5");
 		await expect(roles.locator("#model-role-smol")).toContainText("Quick, cheap work");
-		await capture(page, "model-roles");
+		await captureTo(CAPTURES, page, "model-roles");
 
 		await roles.getByRole("button", { name: "Model for Fast", exact: true }).click();
 		await page
@@ -129,7 +123,7 @@ test("@smoke Model roles lists every purpose with its use, and a role is set thr
 			.click();
 		await expect(page.getByText(/Role "Fast" set to /)).toBeVisible();
 		await expect(roles.locator("#model-role-smol")).toContainText("Local fixture");
-		await capture(page, "model-roles-set");
+		await captureTo(CAPTURES, page, "model-roles-set");
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await close(launched);
@@ -162,7 +156,7 @@ test("@smoke Files panel edits a file in place with Ctrl+S and keeps the edit wh
 		// Windows writes through a temp file and a rename: the bytes must be exactly what was typed, no CR added.
 		expect(await fs.readFile(path.join(project, "notes.md"), "utf8")).toBe("# Notes\nEdited in OMPdesk\n");
 		await expect(aside.locator("[data-file-meta]")).toContainText("26 B");
-		await capture(page, "files-edit");
+		await captureTo(CAPTURES, page, "files-edit");
 
 		await page.keyboard.type("draft");
 		await fs.writeFile(path.join(project, "notes.md"), "# Someone else\n");
@@ -212,7 +206,7 @@ test("@smoke Windows: the Mica backdrop is on where the build has it, and closin
 		if (mica) expect(chrome.background).toBe("rgba(0, 0, 0, 0)");
 		expect(await windowState()).toMatchObject({ count: 1, destroyed: false, visible: true, minimized: false });
 		expect((await windowState()).width).toBeGreaterThan(900);
-		await capture(page, "mica");
+		await captureTo(CAPTURES, page, "mica");
 		captureDesktop("mica-desktop");
 
 		// Close to tray: the window hides, nothing is destroyed, the session keeps answering.
@@ -231,7 +225,7 @@ test("@smoke Windows: the Mica backdrop is on where the build has it, and closin
 		const secondExit = new Promise<number | null>(resolve => second.once("exit", code => resolve(code)));
 		await expect.poll(windowState, { timeout: 30_000 }).toMatchObject({ count: 1, visible: true });
 		await secondExit;
-		await capture(page, "tray-restored");
+		await captureTo(CAPTURES, page, "tray-restored");
 		captureDesktop("tray-restored-desktop");
 		expect(launched.errors).toEqual([]);
 	} finally {

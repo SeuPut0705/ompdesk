@@ -11,8 +11,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
 
 interface Launched {
 	app: ElectronApplication;
@@ -36,22 +35,17 @@ async function launch(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language: "en", themeName: "light", firstRunComplete: true, ...options.prefs }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_TEST_AUTO_TITLE: JSON.stringify(options.script ?? {}),
-	};
-	// An omp session running the suite exports it; the app under test reads the user's own environment.
-	Reflect.deleteProperty(env, "PI_NO_TITLE");
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_AUTO_TITLE: JSON.stringify(options.script ?? {}),
+			// An omp session running the suite exports it; the app under test reads the user's own environment.
+			PI_NO_TITLE: undefined,
+		},
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
@@ -65,15 +59,6 @@ async function launch(
 async function finish(launched: Launched): Promise<void> {
 	await exitApp(launched.app);
 	await fs.rm(launched.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-}
-
-async function frames(file: string, type: string): Promise<Record<string, unknown>[]> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(frame => frame.type === type);
 }
 
 function composer(page: Page): Locator {
@@ -108,11 +93,11 @@ test("names the session from the first prompt, keeps a typed name, and the auto 
 		// First prompt: the title appears by itself, in the title bar and the sidebar.
 		await expect(titleButton(page)).toHaveText("Auto 1: hello there");
 		await expect(page.locator(".omp-session-sidebar")).toContainText("Auto 1: hello there");
-		expect((await frames(record, "auto_title_set")).at(0)).toMatchObject({ enabled: true, evolve: true });
+		expect((await recordsOfType(record, "auto_title_set")).at(0)).toMatchObject({ enabled: true, evolve: true });
 
 		// A typed name is the person's own: the work that follows never replaces it.
 		await typeTitle(page, "My own name");
-		expect(await frames(record, "set_session_name")).toMatchObject([{ name: "My own name" }]);
+		expect(await recordsOfType(record, "set_session_name")).toMatchObject([{ name: "My own name" }]);
 		await runTurn(page, 2);
 		await runTurn(page, 3);
 		await runTurn(page, 4);
@@ -125,9 +110,9 @@ test("names the session from the first prompt, keeps a typed name, and the auto 
 		await autoButton(page).click();
 		await expect(titleButton(page)).toHaveText("Auto 2: hello there");
 		await expect(renameField(page)).toHaveCount(0);
-		expect(await frames(record, "regenerate_title")).toHaveLength(1);
+		expect(await recordsOfType(record, "regenerate_title")).toHaveLength(1);
 		// The omp saved it: the editor sent no typed name over it.
-		expect(await frames(record, "set_session_name")).toHaveLength(1);
+		expect(await recordsOfType(record, "set_session_name")).toHaveLength(1);
 
 		// Automatic again, so it follows the work: two finished turns later it moves on.
 		await runTurn(page, 5);
@@ -140,7 +125,7 @@ test("names the session from the first prompt, keeps a typed name, and the auto 
 		await runTurn(page, 8);
 		await runTurn(page, 9);
 		await expect(titleButton(page)).toHaveText("Final name");
-		expect(await frames(record, "regenerate_title")).toHaveLength(1);
+		expect(await recordsOfType(record, "regenerate_title")).toHaveLength(1);
 	} finally {
 		await finish(launched);
 	}
@@ -174,7 +159,7 @@ test("the Settings switch is live: off keeps the session untitled, on names it f
 	try {
 		await runTurn(page, 1);
 		await expect(titleButton(page)).not.toHaveText(/^Auto /);
-		expect((await frames(record, "auto_title_set")).at(0)).toMatchObject({ enabled: false });
+		expect((await recordsOfType(record, "auto_title_set")).at(0)).toMatchObject({ enabled: false });
 
 		const settings = page.locator("[data-settings-page]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
@@ -187,7 +172,7 @@ test("the Settings switch is live: off keeps the session untitled, on names it f
 		await expect(autoTitleSwitch).toBeChecked();
 		await expect(evolveSwitch).toBeEnabled();
 		await expect
-			.poll(async () => (await frames(record, "auto_title_set")).at(-1))
+			.poll(async () => (await recordsOfType(record, "auto_title_set")).at(-1))
 			.toMatchObject({ enabled: true, evolve: true });
 		await page.keyboard.press("Escape");
 		await expect(page.locator("[data-settings-page]")).toHaveCount(0);

@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import type { ElectronApplication, Page } from "playwright";
+import { exitApp, launchApp, pressShortcutUntilVisible, readRecords } from "./harness";
 
 // A chat tab is a full agent session whose only difference is the missing
 // project: stock omp with its default tool set, started in OMPdesk's default
@@ -31,20 +31,7 @@ test.beforeEach(async () => {
 			transcriptDetail: "full",
 		}),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_TEST_RECORD: record } });
 	page = await app.firstWindow();
 	errors = [];
 	page.on("pageerror", error => errors.push(error.message));
@@ -83,12 +70,7 @@ async function sessionIdOf(tabId: string): Promise<string> {
 
 /** The fake omp's launch line for one session: its argv and working directory. */
 async function launchOf(sessionId: string): Promise<{ argv: string[]; cwd: string }> {
-	const text = await fs.readFile(record, "utf8");
-	const launch = text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as { type?: unknown; recordedBy?: unknown; argv?: unknown; cwd?: unknown })
-		.find(entry => entry.type === "launch" && entry.recordedBy === sessionId);
+	const launch = (await readRecords(record)).find(entry => entry.type === "launch" && entry.recordedBy === sessionId);
 	if (!Array.isArray(launch?.argv) || typeof launch.cwd !== "string") throw new Error(`No launch for ${sessionId}`);
 	return { argv: launch.argv.map(String), cwd: await fs.realpath(launch.cwd) };
 }

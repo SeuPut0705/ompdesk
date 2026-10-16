@@ -4,8 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import type { ElectronApplication, Page } from "playwright";
+import { exitApp, launchApp, recordsOfType } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -17,14 +17,6 @@ async function command(text: string) {
 	const composer = page.locator("textarea").first();
 	await composer.fill(text);
 	await page.getByRole("button", { name: "Send", exact: true }).click();
-}
-async function recorded(type: string) {
-	const text = await fs.readFile(record, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line))
-		.filter(command => command.type === type);
 }
 
 /**
@@ -62,21 +54,12 @@ test.beforeAll(async () => {
 	await Promise.all([fs.mkdir(project), fs.mkdir(userData), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(path.join(userData, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const fixture = await fixtureOmp(profile);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: fixture,
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_TEST_STATS_BINARY: "omp",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${userData}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop: userData,
+		agent,
+		profile,
+		env: { OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_STATS_BINARY: "omp" },
 	});
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));
@@ -153,17 +136,17 @@ test("stock session identity, cycling in both directions, and /copy stay usable"
 	await modal.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("Fixture copy target");
 	await expect(modal).toHaveCount(0);
-	expect(await recorded("composer.copy_targets")).toHaveLength(1);
+	expect(await recordsOfType(record, "composer.copy_targets")).toHaveLength(1);
 });
 
 test("opening sharing performs local preview only, upload needs a button click", async () => {
 	await command("/share");
 	const modal = page.getByRole("dialog");
 	await expect(modal.getByRole("button", { name: "Upload and create link" })).toBeVisible();
-	expect(await recorded("composer.share")).toHaveLength(0);
+	expect(await recordsOfType(record, "composer.share")).toHaveLength(0);
 	await modal.getByRole("button", { name: "Upload and create link" }).click();
 	await expect(modal).toContainText("http://127.0.0.1/shared#local");
-	expect(await recorded("composer.share")).toHaveLength(1);
+	expect(await recordsOfType(record, "composer.share")).toHaveLength(1);
 	await page.keyboard.press("Escape");
 });
 
@@ -173,11 +156,15 @@ test("a running task keeps both send and stop reachable", async () => {
 	const composer = page.locator("textarea").first();
 	await composer.fill("queued instruction");
 	await page.getByRole("button", { name: "Send", exact: true }).click();
-	await expect.poll(async () => (await recorded("steer")).length + (await recorded("follow_up")).length).toBe(1);
+	await expect
+		.poll(
+			async () => (await recordsOfType(record, "steer")).length + (await recordsOfType(record, "follow_up")).length,
+		)
+		.toBe(1);
 	await page.getByRole("button", { name: "Stop", exact: true }).click();
 	// Stop is the TUI's Esc: the queued input comes back into the composer instead of running later.
 	await expect(composer).toHaveValue("queued instruction");
-	expect(await recorded("abort_and_restore_queue")).toHaveLength(1);
+	expect(await recordsOfType(record, "abort_and_restore_queue")).toHaveLength(1);
 	await composer.fill("");
 	// The run ends only once agent_end lands (after main stamps its entry ids); until
 	// then a send is a steer, so the next test must start from an idle session.
@@ -218,7 +205,9 @@ test("ask walks one question at a time with numbered keys and submits every answ
 	await card.getByRole("button", { name: "Submit", exact: true }).click();
 	await expect(card).toHaveCount(0);
 	await expect
-		.poll(async () => (await recorded("extension_ui_response")).filter(entry => entry.id === "fixture-ask"))
+		.poll(async () =>
+			(await recordsOfType(record, "extension_ui_response")).filter(entry => entry.id === "fixture-ask"),
+		)
 		.toEqual([
 			expect.objectContaining({
 				type: "extension_ui_response",
@@ -269,18 +258,18 @@ test("settings page lists its sections, searches across languages, and Escape re
 });
 
 test("voice and side question require an explicit start", async () => {
-	const voiceBefore = (await recorded("live_start")).length;
+	const voiceBefore = (await recordsOfType(record, "live_start")).length;
 	await command("/live");
 	let modal = page.getByRole("dialog");
 	await expect(modal).toBeVisible();
-	expect(await recorded("live_start")).toHaveLength(voiceBefore);
+	expect(await recordsOfType(record, "live_start")).toHaveLength(voiceBefore);
 	await page.screenshot({ path: "test-results/02-voice.png", scale: "css", animations: "disabled" });
 	await page.keyboard.press("Escape");
-	const before = (await recorded("btw")).length;
+	const before = (await recordsOfType(record, "btw")).length;
 	await command("/btw explain the current approach");
 	modal = page.getByRole("dialog");
 	await expect(modal).toBeVisible();
-	expect(await recorded("btw")).toHaveLength(before);
+	expect(await recordsOfType(record, "btw")).toHaveLength(before);
 	await page.keyboard.press("Escape");
 });
 
@@ -291,7 +280,7 @@ test("Escape cancels a settings edit without saving its abandoned value", async 
 	await settings.getByRole("button", { name: "Reserve tokens", exact: true }).click();
 	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
 	await expect(input).toHaveValue("8192");
-	const before = (await recorded("settings_set")).length;
+	const before = (await recordsOfType(record, "settings_set")).length;
 	await input.fill("12345");
 	await input.press("Escape");
 	// The first Escape discards the edit; the page stays open.
@@ -299,7 +288,7 @@ test("Escape cancels a settings edit without saving its abandoned value", async 
 	await expect(settings).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
-	expect((await recorded("settings_set")).length).toBe(before);
+	expect((await recordsOfType(record, "settings_set")).length).toBe(before);
 	const response = await page.evaluate(() => window.omp.rpc.getSettings(["compaction.reserveTokens"]));
 	expect(response.data).toMatchObject({ values: { "compaction.reserveTokens": 8192 } });
 });
@@ -428,13 +417,13 @@ test("all named themes apply with readable primary text and no stale scheme toke
 });
 
 test("uncertain delivery preserves the draft and blocks duplicate sending until reviewed", async () => {
-	const before = (await recorded("prompt")).length;
+	const before = (await recordsOfType(record, "prompt")).length;
 	await command("fixture uncertain");
 	const input = page.locator("textarea").first();
 	await expect(input).toHaveValue("fixture uncertain");
 	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 	await input.press("Enter");
-	expect(await recorded("prompt")).toHaveLength(before + 1);
+	expect(await recordsOfType(record, "prompt")).toHaveLength(before + 1);
 	await page.getByRole("button", { name: "I checked; allow sending", exact: true }).click();
 	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 	await input.fill("");
@@ -632,7 +621,7 @@ test("settings search opens advanced controls and old refreshes cannot undo a sa
 	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
 	await expect(input).toHaveValue("8192");
 	await page.evaluate(() => window.omp.rpc.prompt("fixture hold settings"));
-	const before = (await recorded("settings_get")).length;
+	const before = (await recordsOfType(record, "settings_get")).length;
 	// Main forwards every tab-scoped event wrapped in the tab's envelope, so the
 	// simulated config_update has to wear the same wire shape.
 	const activeTabId = await page.evaluate(() =>
@@ -644,7 +633,7 @@ test("settings search opens advanced controls and old refreshes cannot undo a sa
 			BrowserWindow.getAllWindows()[0].webContents.send("config:update", { tabId, payload: {} }),
 		activeTabId,
 	);
-	await expect.poll(async () => (await recorded("settings_get")).length).toBeGreaterThan(before);
+	await expect.poll(async () => (await recordsOfType(record, "settings_get")).length).toBeGreaterThan(before);
 	await input.fill("12345");
 	await input.press("Enter");
 	await expect

@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
+import type { ElectronApplication } from "playwright";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
-import { exitApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -627,19 +627,7 @@ async function launchAuditApp(
 			launchProfiles: { [project]: { noRules: true, noLsp: true } },
 		}),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	Reflect.deleteProperty(env, "OMP_GUI_OMP");
-	return electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	return launchApp({ project, desktop, agent, profile, env: { OMP_GUI_OMP: undefined } });
 }
 
 /**

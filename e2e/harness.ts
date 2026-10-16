@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect, type Locator, type Page } from "@playwright/test";
-import type { ElectronApplication } from "playwright";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, _electron as electron } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 
 /**
@@ -55,6 +56,82 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	);
 	await writeFile(path.join(tui, "transcript-entry.ts"), `export * from ${JSON.stringify(store)};\n`);
 	return bin;
+}
+
+/** Where one launch of the built app lives: every path is the test's own (a `mkdtemp` profile). */
+export interface LaunchOptions {
+	/** The folder the app opens. */
+	project: string;
+	/** userData (`--user-data-dir`). */
+	desktop: string;
+	/** omp's agent dir (`PI_CODING_AGENT_DIR`). */
+	agent: string;
+	/** The test's private root: `PI_CONFIG_DIR` (relative to the home dir) and where the fake omp is installed. */
+	profile: string;
+	/**
+	 * Added to the app's environment over the defaults; `undefined` removes a variable (`OMP_GUI_OMP: undefined`
+	 * runs the system omp instead of the fake one).
+	 */
+	env?: Record<string, string | undefined>;
+	/** Arguments after the userData flag. */
+	args?: string[];
+}
+
+/**
+ * Launch the built app (`out/main/index.js`) on `project` with its own userData, omp agent and config dirs, no
+ * omp profile, and the fake omp (`fixtureOmp`) unless `env` names `OMP_GUI_OMP`. `ELECTRON_RUN_AS_NODE`, which an
+ * Electron-hosted runner exports, never reaches the app.
+ */
+export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
+	const extra = options.env ?? {};
+	const env: Record<string, string | undefined> = {
+		...process.env,
+		PI_CODING_AGENT_DIR: options.agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), options.profile),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		...("OMP_GUI_OMP" in extra ? {} : { OMP_GUI_OMP: await fixtureOmp(options.profile) }),
+		...extra,
+	};
+	const launchEnv: Record<string, string> = {};
+	for (const [key, value] of Object.entries(env)) {
+		if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") launchEnv[key] = value;
+	}
+	return electron.launch({
+		args: [
+			path.resolve("out/main/index.js"),
+			options.project,
+			`--user-data-dir=${options.desktop}`,
+			...(options.args ?? []),
+		],
+		env: launchEnv,
+	});
+}
+
+/** A screenshot of `page` in the test's output dir (`<name>.png`), CSS pixels, animations stopped. */
+export async function capture(page: Page, name: string): Promise<void> {
+	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
+}
+
+/** {@link capture} into `directory` instead, only when one is set (an opt-in capture env var). */
+export async function captureTo(directory: string | undefined, page: Page, name: string): Promise<void> {
+	if (!directory) return;
+	await mkdir(directory, { recursive: true });
+	await page.screenshot({ path: path.join(directory, `${name}.png`), scale: "css", animations: "disabled" });
+}
+
+/** Every record of a JSONL file the fake omp writes (`OMP_GUI_TEST_RECORD`), in order; none before it exists. */
+export async function readRecords(file: string): Promise<Record<string, unknown>[]> {
+	const text = await readFile(file, "utf8").catch(() => "");
+	return text
+		.split("\n")
+		.filter(Boolean)
+		.map(line => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** The records of `file` whose `type` is `type`. */
+export async function recordsOfType(file: string, type: string): Promise<Record<string, unknown>[]> {
+	return (await readRecords(file)).filter(record => record.type === type);
 }
 
 /**

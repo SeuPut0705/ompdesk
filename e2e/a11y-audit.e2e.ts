@@ -13,8 +13,7 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, openDestination } from "./harness";
+import { exitApp, launchApp, openDestination } from "./harness";
 
 const REPORT = process.env.OMP_GUI_A11Y_REPORT ?? "";
 const AXE_SOURCE = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
@@ -36,19 +35,7 @@ async function launch(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile });
 	const page = await app.firstWindow();
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect

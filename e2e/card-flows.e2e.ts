@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import type { ElectronApplication } from "playwright";
+import { exitApp, launchApp } from "./harness";
 
 // Opt-in audit of the work card through whole flows on the fake omp's `fixture flow` run:
 // steers and queue changes, stop and resume, plan approval, a question, a mid-run compaction,
@@ -35,20 +35,7 @@ async function launch(root: string, extraEnv: Record<string, string> = {}): Prom
 			flag: "wx",
 		})
 		.catch(() => undefined);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
-		...extraEnv,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
+	const app = await launchApp({ project, desktop, agent, profile: root, env: extraEnv });
 	const page = await app.firstWindow();
 	const errors: string[] = [];
 	page.on("pageerror", error => errors.push(error.message));

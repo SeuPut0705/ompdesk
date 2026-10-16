@@ -12,12 +12,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
 import { serializeAgentMarkdown } from "../src/shared/agent-definition";
 import { LEGACY_TEMPLATE_MODELS, replaceModelLine } from "../src/shared/agent-template-migration";
 import { AGENT_TEMPLATES, templateDraft } from "../src/shared/agent-templates";
 import type { RpcAgentDefinitionInfo } from "../src/shared/rpc-types";
-import { exitApp, openDestination } from "./harness";
+import { exitApp, launchApp, openDestination } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_AGENT_UPDATE_CAPTURES ?? "";
 
@@ -79,19 +78,7 @@ for (const language of ["en", "ko"] as const)
 					launchProfiles: { [project]: { noExtensions: true, noRules: true } },
 				}),
 			);
-			const env = {
-				...process.env,
-				PI_CODING_AGENT_DIR: agent,
-				PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-				OMP_PROFILE: "",
-				PI_PROFILE: "",
-			};
-			Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-			Reflect.deleteProperty(env, "OMP_GUI_OMP");
-			const app = await electron.launch({
-				args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-				env,
-			});
+			const app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_OMP: undefined } });
 			const page = await app.firstWindow();
 			const errors: string[] = [];
 			page.on("pageerror", error => errors.push(error.message));
