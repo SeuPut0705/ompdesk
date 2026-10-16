@@ -68,7 +68,7 @@ export function useComposerSubmit({
 	const send = useCallback(
 		// `overrideText` sends a freshly computed value (voice dictation submit
 		// trigger) instead of the rendered `text` state, which lags a setText.
-		// `forceMode` overrides the steer/followUp toggle for one send (⌃Enter).
+		// `forceMode` overrides the steer/followUp toggle for one send (the follow-up chord).
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;

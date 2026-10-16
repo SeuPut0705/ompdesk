@@ -33,7 +33,7 @@ import { historyImages } from "../../lib/history-images";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
-import { formatShortcut, PLATFORM } from "../../lib/keymap";
+import { formatShortcut, isComposerFollowUpKey, PLATFORM } from "../../lib/keymap";
 import { continueList } from "../../lib/list-continue";
 import { abortActiveTurn } from "../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
@@ -957,15 +957,18 @@ export function InputArea() {
 			return;
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
+			// The follow-up chord (⌃↵ on macOS, ⌥↵ on Windows) sends as a follow-up, queueing
+			// behind the current yield (TUI app.message.followUp); idle sessions start
+			// immediately either way. Every other Enter sends in the chip's mode, so the
+			// platform's send chord (⌘↵, Ctrl+Enter on Windows) steers a running turn.
+			const followUp = isComposerFollowUpKey(e);
 			// Expanded: plain Enter is a newline; ⌘↵ sends and collapses.
-			if (expanded && !e.metaKey && !e.ctrlKey) return;
+			if (expanded && !e.metaKey && !e.ctrlKey && !followUp) return;
 			e.preventDefault();
 			// A held Enter sends once, never again on auto-repeat.
 			if (e.repeat) return;
 			if (expanded) setExpanded(false);
-			// ⌃Enter — send as follow-up, queueing behind the current yield (TUI
-			// app.message.followUp). Idle sessions start immediately either way.
-			send(undefined, e.ctrlKey && !e.metaKey && !e.altKey ? "followUp" : undefined);
+			send(undefined, followUp ? "followUp" : undefined);
 		}
 	};
 

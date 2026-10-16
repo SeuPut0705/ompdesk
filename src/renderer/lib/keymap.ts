@@ -354,6 +354,21 @@ export function chordFromEvent(event: KeyEventLike): string | null {
 }
 
 /**
+ * The composer's follow-up chord (TUI `app.message.followUp`): send the draft after the
+ * running turn instead of steering it. ⌃↵ on macOS. On Windows ⌃↵ is ⌘↵ — the send chord
+ * the expanded composer advertises and every other Ctrl+Enter in the app submits with —
+ * so it sends like Enter (a steer while a turn runs) and follow-ups take ⌥↵ there.
+ */
+export function composerFollowUpChord(platform: KeymapPlatform = PLATFORM): string {
+	return platform === "mac" ? "⌃↵" : "⌥↵";
+}
+
+/** True when a composer keydown is the follow-up chord on `platform`. */
+export function isComposerFollowUpKey(event: KeyEventLike, platform: KeymapPlatform = PLATFORM): boolean {
+	return chordFromEvent(event) === composerFollowUpChord(platform);
+}
+
+/**
  * GUI-remappable actions (TUI app.* naming, plan/17 §6.2). Single source for
  * App.tsx's dispatch and KeyboardSection's rows; the native menu keeps its own
  * chords in shared/hotkeys.ts because Electron resolves those before the

@@ -23,7 +23,8 @@
 # The Windows e2e is manual too (`gh workflow run ci.yml -f win_e2e=true`): the
 # same @smoke specs release.yml's `win` job runs (setup takeover, split select,
 # auto-resume after a kill and a quit, Model roles, the Changes commit, the
-# Files edit, Preview, Mica and close-to-tray, a new window's theme) with their captures uploaded,
+# Files edit, Preview, Mica and close-to-tray, a new window's theme, steering a running
+# turn from the composer) with their captures uploaded,
 # plus the omp update while an omp runs.
 name: ci
 

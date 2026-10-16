@@ -18,6 +18,7 @@ import { useT } from "../../lib/i18n";
 import {
 	chordFromEvent,
 	chordOwner,
+	composerFollowUpChord,
 	detectConflicts,
 	formatChord,
 	formatShortcut,
@@ -72,7 +73,7 @@ const HOTKEY_GROUPS: HotkeyGroup[] = [
 		rows: [
 			{ keys: "Enter", labelKey: "hotkeys.row.send" },
 			{ keys: "⇧Enter", labelKey: "hotkeys.row.newline" },
-			{ keys: "⌃Enter", labelKey: "hotkeys.row.followUpSend" },
+			{ keys: composerFollowUpChord(), labelKey: "hotkeys.row.followUpSend" },
 			{ keys: "-> / =>", labelKey: "hotkeys.row.queueShorthand" },
 			{ keys: "!", labelKey: "hotkeys.row.bashMode" },
 			{ keys: "$", labelKey: "hotkeys.row.pythonMode" },

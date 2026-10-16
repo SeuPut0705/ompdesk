@@ -17,12 +17,15 @@ import {
 	actionShortcut,
 	chordFromEvent,
 	compileKeymap,
+	composerFollowUpChord,
 	detectConflicts,
 	formatChord,
 	formatShortcut,
+	isComposerFollowUpKey,
 	KEYMAP_ACTIONS,
 	keymapActionsForGroup,
 	parseChord,
+	platformChord,
 	platformDefaults,
 	RESERVED_CHORDS,
 	reservedChords,
@@ -319,6 +322,36 @@ describe("shortcut labels", () => {
 		expect(formatShortcut(actionKbd("quickOpen", undefined, "windows"), "windows")).toBe("Ctrl+Alt+P");
 		expect(formatShortcut(actionKbd("palette", undefined, "windows"), "windows")).toBe("Ctrl+K");
 		expect(actionKbd("quickOpen", { quickOpen: ["⌥⌘F9"] }, "windows")).toBe("⌥⌘F9");
+	});
+});
+
+describe("composer follow-up chord", () => {
+	const enter = (modifiers: Partial<{ ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean }>) => ({
+		key: "Enter",
+		code: "Enter",
+		ctrlKey: false,
+		altKey: false,
+		metaKey: false,
+		shiftKey: false,
+		...modifiers,
+	});
+
+	it("is ⌃↵ on macOS, where ⌘↵ sends", () => {
+		expect(composerFollowUpChord("mac")).toBe("⌃↵");
+		expect(isComposerFollowUpKey(enter({ ctrlKey: true }), "mac")).toBe(true);
+		expect(isComposerFollowUpKey(enter({ metaKey: true }), "mac")).toBe(false);
+		expect(isComposerFollowUpKey(enter({}), "mac")).toBe(false);
+	});
+
+	it("never takes Windows' send chord: Ctrl+Enter (⌘↵) steers there and Alt+Enter queues", () => {
+		// The expanded composer advertises ⌘↵ as Send; on Windows that is Ctrl+Enter.
+		expect(formatShortcut("⌘↵", "windows")).toBe("Ctrl+Enter");
+		expect(composerFollowUpChord("windows")).not.toBe(platformChord("⌘↵", "windows"));
+		expect(isComposerFollowUpKey(enter({ ctrlKey: true }), "windows")).toBe(false);
+		expect(isComposerFollowUpKey(enter({ altKey: true }), "windows")).toBe(true);
+		expect(isComposerFollowUpKey(enter({}), "windows")).toBe(false);
+		expect(isComposerFollowUpKey(enter({ altKey: true, ctrlKey: true }), "windows")).toBe(false);
+		expect(formatShortcut(composerFollowUpChord("windows"), "windows")).toBe("Alt+Enter");
 	});
 });
 
