@@ -36,14 +36,17 @@ import {
 	isAssistantVoice,
 	isOutputCapRefusal,
 	isTestCommand,
+	koreanRegister,
+	koreanRegisterOf,
 	lastUserText,
+	matchRegister,
 	renderTranscript,
 	SUGGEST_INSTRUCTIONS,
 	SUGGEST_TRANSCRIPT_CHARS,
 	SuggestionScheduler,
 	suggestionStateKey,
 	type Timers,
-	userStyleExcerpts,
+	userStyle,
 } from "../../resources/gui-bridge/next-prompt-core";
 
 /** A virtual clock: timers fire only when the test advances it. */
@@ -232,7 +235,7 @@ describe("candidates sound like the user (reported: long, polite, the assistant'
 			{ role: "user", content: [{ type: "text", text: "응 그 방향으로 전부 만들어줘" }] },
 			{ role: "bashExecution", command: "git status" },
 		];
-		const excerpts = userStyleExcerpts(messages);
+		const { excerpts, register } = userStyle(messages);
 		// Six at most: the oldest ("아주 오래된 메시지") falls out; skipped kinds and the repeated "배포해줘" do not count.
 		expect(excerpts).toEqual([
 			"1,2,3,6번 먼저 만들어 줘",
@@ -243,21 +246,158 @@ describe("candidates sound like the user (reported: long, polite, the assistant'
 			"응 그 방향으로 전부 만들어줘",
 		]);
 		expect(Math.max(...excerpts.map(line => line.length))).toBeLessThanOrEqual(80);
-		expect(userStyleExcerpts([{ role: "assistant", content: "hi" }])).toEqual([]);
+		expect(register).toBe("casual");
+		expect(userStyle([{ role: "assistant", content: "hi" }])).toEqual({ excerpts: [] });
 	});
 
-	it("puts the voice reference first in the request and the voice rules in the prompt", () => {
-		expect(buildSuggestionRequest("user: 배포해줘", "", ["배포해줘", "더 순환해"])).toBe(
+	it("puts the voice reference first in the request, its register named, and the voice rules in the prompt", () => {
+		expect(buildSuggestionRequest("user: 배포해줘", "", { excerpts: ["배포해줘", "더 순환해"] })).toBe(
 			"<user-style>\n- 배포해줘\n- 더 순환해\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
+		);
+		expect(buildSuggestionRequest("user: 배포해줘", "", { excerpts: ["배포해줘"], register: "casual" })).toBe(
+			"<user-style>\n- 배포해줘\nregister: 반말 (casual). End every Korean candidate the way they do (해줘, 해, 할래?, 돼?); never 요, 니다, 세요 or 까요.\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
+		);
+		expect(
+			buildSuggestionRequest("user: 배포해 주세요", "", { excerpts: ["배포해 주세요"], register: "polite" }),
+		).toContain(
+			"register: 존댓말 (polite). End every Korean candidate politely (해 주세요, 할까요?, 돼요?); never 반말 like 해줘.",
 		);
 		expect(SUGGEST_INSTRUCTIONS).toContain("Each candidate is a message the user sends to the assistant");
 		expect(SUGGEST_INSTRUCTIONS).toContain(
 			"never address the user, never offer, promise or announce what you will do",
 		);
 		expect(SUGGEST_INSTRUCTIONS).toMatch(/<user-style> holds their own recent messages: copy their register/);
+		expect(SUGGEST_INSTRUCTIONS).toContain("When it names a register, every candidate uses it.");
 		expect(SUGGEST_INSTRUCTIONS).toContain(
 			`never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages`,
 		);
+	});
+});
+
+/**
+ * Reported after v0.32.1 (the voice rules live): a user who writes "배포해줘", "지워줄래", "더 순환해", "또 존대말 나오네"
+ * still got "Windows에서 빈 화면이면 v0.31.0으로 롤백해도 되나요?", "WinBlank 결과 나오면 바로 알려주세요" and
+ * "작업 현황판 캡처 다시 확인해줄래요?". The register is now judged in code and the candidates held to it.
+ */
+describe("the user's Korean register (reported: 존댓말 suggestions to a 반말 user)", () => {
+	it("reads the register a message ends in, past punctuation, emoji and ㅋㅋ", () => {
+		for (const text of [
+			"배포해줘",
+			"더 순환해",
+			"지워줄래",
+			"또 존대말 나오네",
+			"제대로 만들고있는거지?",
+			"어때 잘 구현한거같아?",
+			"채팅탭에 노메세지 이거 안지워지는 버그 있음",
+			"중복된 표현임",
+			"없어도될꺼같음",
+			"그렇게 해놔",
+			"응",
+			"좋을듯 ㅋㅋ",
+			"이거 맞아?!",
+			"했다",
+			"롤백하면 어떤 점이 달라져?",
+			"v0.31.0 설치 링크 어디야",
+		])
+			expect(koreanRegisterOf(text), text).toBe("casual");
+		for (const text of [
+			"배포해 주세요",
+			"이거 확인해줄래요?",
+			"롤백해도 되나요?",
+			"좋네요 😊",
+			"테스트를 실행했습니다.",
+			"이게 맞습니까?",
+			"그렇게 하면 되죠?",
+		])
+			expect(koreanRegisterOf(text), text).toBe("polite");
+		// No Korean ending: a link, English, a bare noun, a noun ending in 요.
+		for (const text of ["https://github.com/morluto/rea", "ok", "작업현황 디자인 개선", "확인 필요", "", "ㅋㅋ"])
+			expect(koreanRegisterOf(text), text).toBeUndefined();
+	});
+
+	it("takes the majority over the recent messages; a tie or no Korean ending names none", () => {
+		// The reported user's own last six messages.
+		expect(
+			koreanRegister([
+				"제목을 더 짧게 만들어야해 그냥 텍스트로만 제대로 요약해서",
+				"그리고 ompdesk 윈도우에서 열면 지금 아무화면이 안뜸",
+				"창 자체는 뜨는데 속이 비어있음 검은색으로",
+				"작업현황에 2개 작업중 이런 표시는 지워줄래 어차피 밑에 나오잖아 중복된 표현임",
+				"또 존대말 나오네",
+				"배포해줘",
+			]),
+		).toBe("casual");
+		expect(koreanRegister(["배포해 주세요", "고마워요", "이거 왜 이런가요?", "이미지"])).toBe("polite");
+		expect(koreanRegister(["배포해줘", "배포해 주세요"])).toBeUndefined();
+		expect(koreanRegister(["deploy it", "작업현황 디자인 개선"])).toBeUndefined();
+		expect(koreanRegister([])).toBeUndefined();
+	});
+
+	it("turns a casual user's polite candidates into 반말 by listed endings only", () => {
+		const cases: Array<[string, string]> = [
+			["Windows에서 빈 화면이면 v0.31.0으로 롤백해도 되나요?", "Windows에서 빈 화면이면 v0.31.0으로 롤백해도 돼?"],
+			["WinBlank 결과 나오면 바로 알려주세요", "WinBlank 결과 나오면 바로 알려줘"],
+			["작업 현황판 캡처 다시 확인해줄래요?", "작업 현황판 캡처 다시 확인해줄래?"],
+			["테스트 다시 돌려 주세요.", "테스트 다시 돌려 줘."],
+			["이거 먼저 할까요?", "이거 먼저 할까?"],
+			["로그 있나요?", "로그 있나?"],
+			["이 방향 좋네요", "이 방향 좋네"],
+			["그럼 커밋해요", "그럼 커밋해"],
+			["다 끝났죠?", "다 끝났지?"],
+			["알겠어요. 배포해 주세요", "알겠어. 배포해 줘"],
+		];
+		for (const [polite, casual] of cases) expect(matchRegister(polite, "casual"), polite).toBe(casual);
+	});
+
+	it("drops a casual user's polite candidate it cannot convert safely", () => {
+		for (const text of [
+			"테스트 결과를 확인했습니다",
+			"이게 원인인가요? 아니면 설정 문제예요?",
+			"로그 확인해 보세요",
+			"알려주실래요?",
+			"확인해 주실 수 있나요?",
+			"제가 직접 확인할게요",
+			"원인이 뭐예요?",
+		])
+			expect(matchRegister(text, "casual"), text).toBeUndefined();
+	});
+
+	it("leaves 반말, nouns, other languages and an unknown register alone", () => {
+		for (const text of ["배포해줘", "다시 시도해봐", "확인 필요", "작업현황 개선", "run the tests", "다시 해줘"])
+			expect(matchRegister(text, "casual"), text).toBe(text);
+		expect(matchRegister("롤백해도 되나요?", undefined)).toBe("롤백해도 되나요?");
+	});
+
+	it("gives a polite user polite endings only where a noun never ends that way, and never pushes 반말", () => {
+		const cases: Array<[string, string]> = [
+			["로그 보여줘", "로그 보여주세요"],
+			["다시 확인해 줘", "다시 확인해 주세요"],
+			["이거 배포해도 돼?", "이거 배포해도 돼요?"],
+			["캡처 다시 볼래?", "캡처 다시 볼래요?"],
+			["먼저 할까?", "먼저 할까요?"],
+			["다 끝난 거지?", "다 끝난 거죠?"],
+		];
+		for (const [casual, polite] of cases) expect(matchRegister(casual, "polite"), casual).toBe(polite);
+		// Unchanged: already polite, nouns (미래, 이미지), plain endings without a safe polite form.
+		for (const text of ["배포해 주세요", "롤백해도 되나요?", "미래", "깨진 이미지", "더 순환해", "버그 있음"])
+			expect(matchRegister(text, "polite"), text).toBe(text);
+	});
+
+	it("holds the cleaned candidates to the register: the reported three become 반말", () => {
+		const reply = [
+			"Windows에서 빈 화면이면 v0.31.0으로 롤백해도 되나요?",
+			"WinBlank 결과 나오면 바로 알려주세요",
+			"작업 현황판 캡처 다시 확인해줄래요?",
+		].join("\n");
+		expect(cleanCandidates(reply, { register: "casual" })).toEqual([
+			"Windows에서 빈 화면이면 v0.31.0으로 롤백해도 돼?",
+			"WinBlank 결과 나오면 바로 알려줘",
+			"작업 현황판 캡처 다시 확인해줄래?",
+		]);
+		// Unconvertible ones are dropped, and a converted duplicate of another counts once.
+		expect(cleanCandidates("확인했습니다\n배포해 주세요\n배포해 줘", { register: "casual" })).toEqual(["배포해 줘"]);
+		// Without a register nothing changes.
+		expect(cleanCandidates(reply)).toHaveLength(3);
 	});
 });
 

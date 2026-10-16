@@ -288,6 +288,20 @@ describe("a finished turn", () => {
 		expect(updates(world)[0]).toMatchObject({ status: "ready", candidates: [] });
 	});
 
+	it("names a 반말 user's register to the model and turns its 존댓말 answers into 반말", async () => {
+		world.session.messages.push(
+			{ role: "user", content: "배포해줘", timestamp: 3 },
+			{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "배포했어요." }], timestamp: 4 },
+			{ role: "user", content: "또 존대말 나오네", timestamp: 5 },
+			{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "고칠게요." }], timestamp: 6 },
+		);
+		world.reply.current = async () =>
+			text("롤백해도 되나요?\nWinBlank 결과 나오면 바로 알려주세요\n테스트 결과를 확인했습니다");
+		await turnEnds();
+		expect((world.calls[0] as Call).context.messages[0]?.content).toContain("register: 반말 (casual).");
+		expect(updates(world)[0]?.candidates).toEqual(["롤백해도 돼?", "WinBlank 결과 나오면 바로 알려줘"]);
+	});
+
 	it("ignores a subagent's turn, a disabled feature and a session with no reply yet", async () => {
 		await handlers.next_prompt_set({ suggestions: true, inline: true }, world.env);
 		world.hooks.get("agent_end")?.({}, sub);

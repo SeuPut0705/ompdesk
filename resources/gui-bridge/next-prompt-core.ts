@@ -75,8 +75,97 @@ export function isAssistantVoice(text: string): boolean {
 	return ASSISTANT_VOICE.some(pattern => pattern.test(text));
 }
 
-/** One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, too long). */
-export function cleanCandidateLine(line: string): string | undefined {
+export type KoreanRegister = "casual" | "polite";
+
+/** What follows the last word: spaces, punctuation, symbols, emoji and compatibility jamo (ㅋㅋ, ㅠㅠ). */
+const TRAILING = /(?:[\u3131-\u318e]|[^\p{L}\p{N}])+$/u;
+/** A polite (존댓말) sentence end: 해요체 `…요` (세요, 까요, 나요), 하십시오체 `…니다`/`…니까`, contracted `…죠`. */
+const POLITE_END = /(?:요|니다|니까|죠)$/u;
+/** Nouns that end in 요 and say nothing about the register ("확인 필요"). */
+const NOUN_YO = /(?:필요|중요|주요)$/u;
+/**
+ * Last syllables of a plain (반말) sentence end: 해체 (해줘, 해, 봐, 할래, 맞지, 할까, 돼), 해라체 (했다, 하자, 하냐) and
+ * 음슴체 (있음, 함, 중복임, 될듯). A noun can end in some of them too ("이미지"); one message decides nothing, the
+ * majority of the recent ones does.
+ */
+const CASUAL_END = /[해줘봐놔와가써돼래자어아야지네게께데걸까나냐니고다라때져워려음함임됨듯셈응]$/u;
+
+/** The Korean register one message ends in, or undefined (no Korean ending, a noun, a link). */
+export function koreanRegisterOf(text: string): KoreanRegister | undefined {
+	const end = text.replace(TRAILING, "");
+	const last = end.at(-1);
+	if (last === undefined || !/\p{Script=Hangul}/u.test(last)) return undefined;
+	if (POLITE_END.test(end) && !NOUN_YO.test(end)) return "polite";
+	return CASUAL_END.test(end) ? "casual" : undefined;
+}
+
+/** The register most of these messages end in; undefined on a tie or when none ends in Korean. */
+export function koreanRegister(lines: readonly string[]): KoreanRegister | undefined {
+	let casual = 0;
+	let polite = 0;
+	for (const line of lines) {
+		const register = koreanRegisterOf(line);
+		if (register === "casual") casual++;
+		else if (register === "polite") polite++;
+	}
+	return casual > polite ? "casual" : polite > casual ? "polite" : undefined;
+}
+
+/**
+ * Polite endings a casual user's candidate may lose, as a 해요체 sentence is its 해체 form plus 요: 주세요 → 줘,
+ * 되나요 → 돼, 죠 → 지, and 요 after a 해체 syllable (해요, 줄래요, 할까요, 있나요, 좋네요, 맞아요 …). Any other polite end
+ * (니다, 세요 other than 주세요, 이에요/예요) has no safe 반말 form here.
+ */
+const TO_CASUAL: ReadonlyArray<readonly [RegExp, string]> = [
+	[/주세요$/u, "줘"],
+	[/되나요$/u, "돼"],
+	[/죠$/u, "지"],
+	[/([해줘봐놔와가써돼래어아지네게께데까나고워져려서걸대내])요$/u, "$1"],
+];
+/** Honorific verbs (주시, 하세, 계시, 보실 …), humble ones (드리, 드려) and humble pronouns: no plain form follows. */
+const DEFERENCE =
+	/(?:주|하|되|보|가|오|있으|계|알|드)(?:시|실|셔|세|십)|드리|드려|드릴|(?:^|\s)(?:저는|제가|저희|저도|저를|저한테|저에게)(?=\s|$)/u;
+
+/** A sentence's end in the polite register, for a polite user; only the endings a noun never has. */
+function politeEnd(body: string, question: boolean): string {
+	if (body.endsWith("줘")) return `${body.slice(0, -1)}주세요`;
+	if (body.endsWith("돼")) return `${body}요`;
+	const last = body.at(-1);
+	// ㄹ as the final consonant of the syllable before (할까, 줄래, 볼래): a verb ending, never a noun (미래).
+	const before = (body.at(-2)?.charCodeAt(0) ?? 0) - 0xac00;
+	if ((last === "래" || last === "까") && before >= 0 && before < 11172 && before % 28 === 8) return `${body}요`;
+	if (question && last === "지") return `${body.slice(0, -1)}죠`;
+	return body;
+}
+
+/**
+ * A Korean candidate in the user's register, or undefined when it cannot be. The model is told the register, yet the
+ * small model often answers 존댓말 to a user who writes 반말 (reported: "롤백해도 되나요?", "알려주세요", "확인해줄래요?").
+ * For a casual user each sentence's polite end becomes its 반말 form by {@link TO_CASUAL}; a polite end with no listed
+ * form, or any honorific or humble word left, drops the candidate. For a polite user only 반말 ends a noun never has
+ * (줘, 돼, ㄹ래, ㄹ까, 지?) gain their polite form; nothing is dropped, so a polite user is never pushed to 반말.
+ * Text without a Korean sentence end passes unchanged.
+ */
+export function matchRegister(text: string, register: KoreanRegister | undefined): string | undefined {
+	if (register === undefined || !/\p{Script=Hangul}/u.test(text)) return text;
+	const sentences = text.split(/(?<=[.!?。！？])\s+/u).map(sentence => {
+		const body = sentence.replace(TRAILING, "");
+		const tail = sentence.slice(body.length);
+		if (register === "polite") return politeEnd(body, tail.includes("?")) + tail;
+		if (!POLITE_END.test(body) || NOUN_YO.test(body)) return sentence;
+		const rule = TO_CASUAL.find(([pattern]) => pattern.test(body));
+		return rule ? body.replace(rule[0], rule[1]) + tail : undefined;
+	});
+	if (sentences.some(sentence => sentence === undefined)) return undefined;
+	const out = sentences.join(" ");
+	return register === "casual" && DEFERENCE.test(out) ? undefined : out;
+}
+
+/**
+ * One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, a register it
+ * cannot take, too long).
+ */
+export function cleanCandidateLine(line: string, register?: KoreanRegister): string | undefined {
 	let text = oneLine(line).replace(LIST_MARKER, "");
 	const quoted = WRAPPING_QUOTES.exec(text);
 	if (quoted) text = (quoted[1] ?? quoted[2] ?? quoted[3] ?? quoted[4] ?? "").trim();
@@ -85,7 +174,9 @@ export function cleanCandidateLine(line: string): string | undefined {
 	if (text.endsWith(":")) return undefined;
 	// Checked on the whole line: one sentence in the assistant's voice means the model was answering, not predicting.
 	if (isAssistantVoice(text)) return undefined;
-	return fitCandidateLength(text);
+	// Before the length limit: 반말 is shorter, so a converted line may fit where the polite one did not.
+	const voiced = matchRegister(text, register);
+	return voiced === undefined ? undefined : fitCandidateLength(voiced);
 }
 
 /** Comparison key: case, spacing and trailing punctuation do not make a different candidate. */
@@ -98,12 +189,15 @@ export function candidateKey(text: string): string {
 export interface CleanOptions {
 	/** The user's last message: a candidate that repeats it is a request already done. */
 	lastUserMessage?: string;
+	/** The user's Korean register ({@link userStyle}): candidates are held to it ({@link matchRegister}). */
+	register?: KoreanRegister;
 	max?: number;
 }
 
 /**
- * The model's reply → ranked candidates: best first, one line each, deduplicated, none repeating the user's
- * last message, at most {@link MAX_CANDIDATES}. A reply that starts with NONE, or has nothing usable, is [].
+ * The model's reply → ranked candidates: best first, one line each, in the user's register, deduplicated, none
+ * repeating the user's last message, at most {@link MAX_CANDIDATES}. A reply that starts with NONE, or has nothing
+ * usable, is [].
  */
 export function cleanCandidates(reply: string, options: CleanOptions = {}): string[] {
 	const max = options.max ?? MAX_CANDIDATES;
@@ -114,7 +208,7 @@ export function cleanCandidates(reply: string, options: CleanOptions = {}): stri
 	const seen = new Set<string>();
 	const out: string[] = [];
 	for (const line of lines) {
-		const text = cleanCandidateLine(line);
+		const text = cleanCandidateLine(line, options.register);
 		if (text === undefined) continue;
 		const key = candidateKey(text);
 		if (key === "" || key === repeated || seen.has(key)) continue;
@@ -431,7 +525,7 @@ export const SUGGEST_INSTRUCTIONS = [
 	"You predict the message the user will type next in the conversation below.",
 	`Write exactly ${MAX_CANDIDATES} candidates, the most likely first, one per line (${MAX_CANDIDATES} lines): no numbering, no quotes, no preamble, no markdown. Make them different next steps, not rewordings of one.`,
 	"Each candidate is a message the user sends to the assistant. Write as the user, never as the assistant: never address the user, never offer, promise or announce what you will do, never explain or comment.",
-	"Write each one as this user would: their voice, language, tone and typical length; mirror how they phrase requests. <user-style> holds their own recent messages: copy their register (casual or polite; in Korean 반말 or 존댓말), length, punctuation and spacing, not their content.",
+	"Write each one as this user would: their voice, language, tone and typical length; mirror how they phrase requests. <user-style> holds their own recent messages: copy their register (casual or polite; in Korean 반말 or 존댓말), length, punctuation and spacing, not their content. When it names a register, every candidate uses it.",
 	`Keep every candidate short, usually 3 to 8 words: never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages.`,
 	"Follow up on the latest assistant reply: approve it, redirect it, answer what it asked, ask for the next step, or report a result.",
 	"Never suggest what is already done, already started, already planned or already handed to someone: no request the user already made, no choice they already gave, nothing the latest reply says it did, will do or is doing (asking for part of its plan again is a repeat too).",
@@ -498,13 +592,21 @@ export function renderTranscript(messages: readonly unknown[], budget: number): 
 const STYLE_MESSAGES = 6;
 const STYLE_EXCERPT_CHARS = 80;
 
+/** How this user writes: excerpts of their recent messages and the Korean register most of them end in. */
+export interface UserStyle {
+	excerpts: string[];
+	register?: KoreanRegister;
+}
+
 /**
  * The user's own recent messages, oldest first, as short excerpts (the first line, clipped): the reference for how
- * this user writes (register, length, punctuation) that the suggestions copy. Messages the user did not type are left
- * out: stock's synthetic continuations, agent-attributed ones, slash commands and injected `<…>` blocks.
+ * this user writes (register, length, punctuation) that the suggestions copy, plus their Korean register, judged on
+ * the unclipped first lines (a clip cuts off the ending). Messages the user did not type are left out: stock's
+ * synthetic continuations, agent-attributed ones, slash commands and injected `<…>` blocks.
  */
-export function userStyleExcerpts(messages: readonly unknown[]): string[] {
+export function userStyle(messages: readonly unknown[]): UserStyle {
 	const excerpts: string[] = [];
+	const lines: string[] = [];
 	for (let index = messages.length - 1; index >= 0 && excerpts.length < STYLE_MESSAGES; index--) {
 		const message = messages[index];
 		if (!isRec(message) || message.role !== "user" || message.synthetic === true || message.attribution === "agent")
@@ -512,14 +614,27 @@ export function userStyleExcerpts(messages: readonly unknown[]): string[] {
 		const line = oneLine(messageText(message).trim().split("\n", 1)[0] ?? "");
 		if (!line || line.startsWith("/") || line.startsWith("<")) continue;
 		const excerpt = clip(line, STYLE_EXCERPT_CHARS);
-		if (!excerpts.includes(excerpt)) excerpts.unshift(excerpt);
+		if (excerpts.includes(excerpt)) continue;
+		excerpts.unshift(excerpt);
+		lines.push(line);
 	}
-	return excerpts;
+	const register = koreanRegister(lines);
+	return register === undefined ? { excerpts } : { excerpts, register };
 }
 
-/** The user message of a suggestion request; `style` is {@link userStyleExcerpts}. */
-export function buildSuggestionRequest(transcript: string, appState: string, style: readonly string[] = []): string {
-	const voice = style.length > 0 ? `<user-style>\n${style.map(line => `- ${line}`).join("\n")}\n</user-style>` : "";
+/** The explicit register line of `<user-style>`: the small model follows a named register far better than examples. */
+const REGISTER_LINE: Record<KoreanRegister, string> = {
+	casual:
+		"register: 반말 (casual). End every Korean candidate the way they do (해줘, 해, 할래?, 돼?); never 요, 니다, 세요 or 까요.",
+	polite:
+		"register: 존댓말 (polite). End every Korean candidate politely (해 주세요, 할까요?, 돼요?); never 반말 like 해줘.",
+};
+
+/** The user message of a suggestion request; `style` is {@link userStyle}. */
+export function buildSuggestionRequest(transcript: string, appState: string, style?: UserStyle): string {
+	const lines = (style?.excerpts ?? []).map(line => `- ${line}`);
+	if (lines.length > 0 && style?.register) lines.push(REGISTER_LINE[style.register]);
+	const voice = lines.length > 0 ? `<user-style>\n${lines.join("\n")}\n</user-style>` : "";
 	return [voice, `<conversation>\n${transcript}\n</conversation>`, appState].filter(Boolean).join("\n");
 }
 

@@ -56,7 +56,7 @@ import {
 	SUGGEST_TRANSCRIPT_CHARS,
 	SuggestionScheduler,
 	suggestionStateKey,
-	userStyleExcerpts,
+	userStyle,
 } from "./next-prompt-core";
 
 /** What the engine needs of the bridge's env (modes/next-prompt.ts hands it the real one). */
@@ -457,11 +457,8 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		const resolved = await resolveSmol(session, stock);
 		if (signal.aborted) return;
 		requests.suggest++;
-		const prompt = buildSuggestionRequest(
-			renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS),
-			appState,
-			userStyleExcerpts(messages),
-		);
+		const style = userStyle(messages);
+		const prompt = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState, style);
 		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, prompt, {
 			maxTokens: SUGGEST_MAX_TOKENS,
 			temperature: 0.3,
@@ -478,13 +475,14 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		compactedSinceSuggestion = false;
 		remember(key, stateKey);
 		lastModel = resolved.used;
-		const candidates = cleanCandidates(text, { lastUserMessage: lastUserText(messages) });
+		const candidates = cleanCandidates(text, { lastUserMessage: lastUserText(messages), register: style.register });
 		const ms = Math.round(performance.now() - started);
 		host?.logger.debug("next-prompt suggestion", {
 			trigger,
 			model: resolved.used.model,
 			ms,
 			candidates: candidates.length,
+			register: style.register,
 		});
 		const wasUnavailable = unavailable !== undefined;
 		unavailable = undefined;
