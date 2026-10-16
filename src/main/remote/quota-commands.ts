@@ -61,8 +61,6 @@ export const CONDITIONAL_MODEL_COMMAND_TYPES = [
 	"plan_approval",
 	// An objective or a resume starts a goal turn; budgets, limits, pause and drop do not.
 	"set_goal",
-	// Turning the loop on sends its first prompt.
-	"set_loop_mode",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that never call a model: reads, settings, git, files, queue edits, session moves. */
@@ -130,8 +128,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_jobs",
 	"get_last_link",
 	"get_login_providers",
-	"get_loop_mode",
-	"get_ratchet",
 	"get_marketplaces",
 	"get_mcp_servers",
 	"get_memory_report",
@@ -165,7 +161,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_transcript",
 	"get_transcript_page",
 	"get_usage",
-	"get_vibe_mode",
 	"git_branch",
 	"git_branches",
 	"git_commit",
@@ -259,7 +254,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"set_plugin_features",
 	"set_plugin_setting",
 	"set_prewalk",
-	"set_ratchet",
 	"set_session_name",
 	"set_session_pinned",
 	"set_setting",
@@ -270,7 +264,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"set_thinking_level",
 	"set_todos",
 	"set_ultrafast_mode",
-	"set_vibe_mode",
 	"shake_context",
 	"share_session",
 	"ssh_manage",
@@ -309,8 +302,6 @@ export function commandUsesModel(command: RpcCommand): boolean {
 			return (
 				(typeof command.objective === "string" && command.objective.trim() !== "") || command.action === "resume"
 			);
-		case "set_loop_mode":
-			return command.enabled === true;
 		default:
 			return (
 				(MODEL_COMMAND_TYPES as readonly string[]).includes(command.type) ||

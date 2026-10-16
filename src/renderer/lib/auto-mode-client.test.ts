@@ -77,7 +77,7 @@ describe("runAutoMode", () => {
 	it("enters plan in the store and remembers it was automatic", async () => {
 		const { session, rpc, autoModeDecide } = rig(planned);
 		await runAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => undefined });
-		expect(autoModeDecide).toHaveBeenCalledWith(BIG, { loop: false });
+		expect(autoModeDecide).toHaveBeenCalledWith(BIG);
 		expect(session.getState()).toMatchObject({ planModeEnabled: true, autoMode: "plan" });
 	});
 
@@ -132,9 +132,6 @@ describe("runAutoMode", () => {
 		attempt("!git status --short");
 		attempt(BIG, { state: { planModeEnabled: true } });
 		attempt(BIG, { state: { goalState: { status: "active" } } });
-		attempt(BIG, { state: { vibeModeEnabled: true } });
-		attempt(BIG, { state: { ratchet: { enabled: true, missing: [] } } });
-		attempt(BIG, { state: { loopMode: { enabled: true, state: "running", prompt: "x" } } });
 		await Promise.all(cases.map(run => run()));
 		for (const r of calls) expect(r.autoModeDecide).not.toHaveBeenCalled();
 	});

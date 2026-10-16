@@ -1,14 +1,7 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
 import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
-import type {
-	ContextUsage,
-	RpcLoopModeState,
-	RpcRatchetState,
-	RpcSessionState,
-	SidecarRestartProgress,
-	SidecarStatus,
-} from "../../shared/rpc-types";
+import type { ContextUsage, RpcSessionState, SidecarRestartProgress, SidecarStatus } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface TranscriptView {
@@ -82,14 +75,6 @@ export interface SessionStore {
 	agentsPausedAt: number | null;
 	goal: { objective?: string } | null;
 	goalState: { status?: string } | null;
-	/** Live loop-mode state: loop_mode_update frames, hydrated via get_loop_mode
-	 * (not on the get_state wire). null = not yet fetched; chips treat as off. */
-	loopMode: RpcLoopModeState | null;
-	/** Vibe mode emits no event — hydrated via get_vibe_mode and mirrored when
-	 * the Modes window toggles it. */
-	vibeModeEnabled: boolean;
-	/** Stock's `ratchet.enabled` for the session and the tools Ratchet still needs (get_ratchet); null = not fetched / unsupported. */
-	ratchet: RpcRatchetState | null;
 	/** The built-in prompt suggestions' state of this tab's bridge (next_prompt_config frames,
 	 * hydrated via get_next_prompt). null = not reported / unsupported omp: the legacy widget path stays. */
 	nextPrompt: NextPromptState | null;
@@ -132,9 +117,6 @@ const initialState = {
 	agentsPausedAt: null,
 	goal: null,
 	goalState: null,
-	loopMode: null,
-	vibeModeEnabled: false,
-	ratchet: null,
 	nextPrompt: null,
 	nextPromptUnavailable: null,
 };

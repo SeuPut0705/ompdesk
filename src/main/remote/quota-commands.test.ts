@@ -80,11 +80,6 @@ describe("quota command classification", () => {
 		expect(commandUsesModel(command({ type: "set_goal", objective: "  " }))).toBe(false);
 	});
 
-	it("counts turning the loop on, not off", () => {
-		expect(commandUsesModel(command({ type: "set_loop_mode", enabled: true }))).toBe(true);
-		expect(commandUsesModel(command({ type: "set_loop_mode", enabled: false }))).toBe(false);
-	});
-
 	it("counts the prompt-suggestion requests that run the cheap model, not the state, draft and cancel commands", () => {
 		for (const type of ["complete_inline", "refresh_next_prompt"]) {
 			expect(commandUsesModel(command({ type })), type).toBe(true);

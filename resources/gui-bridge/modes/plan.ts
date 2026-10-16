@@ -122,7 +122,6 @@ export async function exitPlanMode(session: AgentSession): Promise<void> {
 async function enterPlanMode(session: AgentSession): Promise<void> {
 	const goal = session.getGoalModeState();
 	if (goal?.enabled || goal?.goal?.status === "paused") throw new Error("Exit goal mode first.");
-	if (session.getVibeModeState()?.enabled) throw new Error("Exit vibe mode first.");
 	const planFilePath = session.getPlanReferencePath() || "local://PLAN.md";
 	const before = session.getEnabledToolNames();
 	const previousState = session.getPlanModeState();

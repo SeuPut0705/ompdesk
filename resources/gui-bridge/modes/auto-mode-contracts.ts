@@ -24,7 +24,7 @@ export const AUTO_MODE_TIMEOUT_MS = 2000;
  */
 export const AUTO_MODE_IDLE_MS = 10 * 60_000;
 
-/** The only two modes the app ever uses by itself. Loop, Vibe and the other manual modes stay manual. */
+/** The only two modes the app ever uses by itself. */
 export type AutoModeKind = "plan" | "goal";
 
 /** Why a prompt got no automatic mode (debug log and tests; the UI shows nothing for these). */
@@ -61,13 +61,10 @@ export interface AutoModeDecision {
 	costUsd?: number;
 }
 
-/** The session modes the composer shows as active; any of them is a mode the user picked. */
+/** The session modes the composer shows as active; either is a mode the user picked. */
 export interface AutoModeActive {
 	plan: boolean;
 	goal: boolean;
-	loop: boolean;
-	vibe: boolean;
-	ratchet: boolean;
 }
 
 /** The stored pref (anything not a boolean reads as the default, on) → whether the choice runs. */

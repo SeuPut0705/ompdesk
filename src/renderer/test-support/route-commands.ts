@@ -27,10 +27,6 @@ function methodCall(command: RpcCommand): [method: string, args: unknown[]] | nu
 			return ["getQueue", []];
 		case "get_goal":
 			return ["getGoal", []];
-		case "get_loop_mode":
-			return ["getLoopMode", []];
-		case "get_vibe_mode":
-			return ["getVibeMode", []];
 		case "get_settings":
 			return ["getSettings", [command.paths]];
 		case "set_setting":

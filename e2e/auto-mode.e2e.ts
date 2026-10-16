@@ -350,48 +350,11 @@ test("Stop ends a goal the choice started; it never stays as the session's goal"
 	}
 });
 
-const ratchetTab = (page: Page): Locator => page.getByRole("tab", { name: "Ratchet" });
-const ratchetSwitch = (page: Page): Locator => page.locator("[data-ratchet-mode]");
-
-test("Ratchet is a manual switch in the Mode popover and a prompt sent with it on is never classified", async () => {
-	const launched = await launch({}, { OMP_GUI_TEST_RATCHET: "{}" });
-	const { page, record } = launched;
-	try {
-		await modeButton(page).click();
-		await ratchetTab(page).click();
-		await expect(ratchetSwitch(page)).not.toBeChecked();
-		await ratchetSwitch(page).click();
-		await expect(ratchetSwitch(page)).toBeChecked();
-		expect(await recordsOfType(record, "modes.set_ratchet")).toMatchObject([{ enabled: true }]);
-		await page.keyboard.press("Escape");
-		await expect(modeButton(page)).toContainText("Ratchet");
-		await send(page, "refactor the whole settings module across all files", 1);
-		await expect(chip(page)).toHaveCount(0);
-		expect(await recordsOfType(record, "modes.auto_mode_decide")).toHaveLength(0);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("Ratchet says which tools are missing and cannot be turned on", async () => {
-	const launched = await launch({}, { OMP_GUI_TEST_RATCHET: JSON.stringify({ missing: ["eval"] }) });
-	const { page, record } = launched;
-	try {
-		await modeButton(page).click();
-		await ratchetTab(page).click();
-		await expect(page.locator("[data-ratchet-missing]")).toHaveText(/needs the eval tool/);
-		await expect(ratchetSwitch(page)).toBeDisabled();
-		expect(await recordsOfType(record, "modes.set_ratchet")).toHaveLength(0);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("a Mode popover on an omp without Ratchet has no Ratchet tab", async () => {
+test("the Mode popover holds only the Plan and Goal tabs", async () => {
 	const launched = await launch();
 	try {
 		await modeButton(launched.page).click();
-		await expect(ratchetTab(launched.page)).toHaveCount(0);
+		await expect(launched.page.getByRole("dialog", { name: "Mode" }).getByRole("tab")).toHaveText([/^Plan/, /^Goal/]);
 	} finally {
 		await finish(launched);
 	}

@@ -74,9 +74,6 @@ export function resetSessionSurface(closeOverlays = true): void {
 		agentsPausedAt: null,
 		goal: null,
 		goalState: null,
-		loopMode: null,
-		vibeModeEnabled: false,
-		ratchet: null,
 	});
 }
 

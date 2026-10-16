@@ -130,7 +130,7 @@ export interface SessionRpcClient {
 	getLastLink(): Promise<RpcResponse>;
 	setSessionName(name: string): Promise<RpcResponse>;
 	regenerateSessionTitle(): Promise<RpcResponse>;
-	autoModeDecide(message: string, active?: { loop?: boolean }): Promise<RpcResponse>;
+	autoModeDecide(message: string): Promise<RpcResponse>;
 	autoModeUndo(mode: "plan" | "goal"): Promise<RpcResponse>;
 	autoModeEnd(mode: "plan" | "goal"): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
@@ -239,8 +239,6 @@ export interface SessionRpcClient {
 		feedback?: string,
 		savePath?: string,
 	): Promise<RpcResponse>;
-	getVibeMode(): Promise<RpcResponse>;
-	setVibeMode(enabled: boolean): Promise<RpcResponse>;
 	getGoal(): Promise<RpcResponse>;
 	guidedGoal(initial?: string): Promise<RpcResponse>;
 	setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
@@ -254,10 +252,6 @@ export interface SessionRpcClient {
 	}): Promise<RpcResponse>;
 	tan(work: string): Promise<RpcResponse>;
 	omfg(complaint: string): Promise<RpcResponse>;
-	getLoopMode(): Promise<RpcResponse>;
-	setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
-	getRatchet(): Promise<RpcResponse>;
-	setRatchet(enabled: boolean): Promise<RpcResponse>;
 	setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
 	manageSkill(args: {
 		action: "create" | "update" | "delete";
@@ -508,7 +502,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getLastLink: () => rpcCommand({ type: "get_last_link" }),
 		setSessionName: name => rpcCommand({ type: "set_session_name", name }),
 		regenerateSessionTitle: () => rpcCommand({ type: "regenerate_session_title" }),
-		autoModeDecide: (message, active) => rpcCommand({ type: "auto_mode_decide", message, loop: active?.loop }),
+		autoModeDecide: message => rpcCommand({ type: "auto_mode_decide", message }),
 		autoModeUndo: mode => rpcCommand({ type: "auto_mode_undo", mode }),
 		autoModeEnd: mode => rpcCommand({ type: "auto_mode_end", mode }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
@@ -593,8 +587,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "get_transcript_page", cursor, limit, fromEnd }),
 		planApproval: (approved, option, feedback, savePath) =>
 			rpcCommand({ type: "plan_approval", approved, option, feedback, savePath }),
-		getVibeMode: () => rpcCommand({ type: "get_vibe_mode" }),
-		setVibeMode: enabled => rpcCommand({ type: "set_vibe_mode", enabled }),
 		getDelegation: () => rpcCommand({ type: "get_delegation" }),
 		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),
@@ -603,10 +595,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setGoal: args => rpcCommand({ type: "set_goal", ...args }),
 		tan: work => rpcCommand({ type: "tan", work }),
 		omfg: complaint => rpcCommand({ type: "omfg", complaint }),
-		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
-		setLoopMode: (enabled, args) => rpcCommand({ type: "set_loop_mode", enabled, args }),
-		getRatchet: () => rpcCommand({ type: "get_ratchet" }),
-		setRatchet: enabled => rpcCommand({ type: "set_ratchet", enabled }),
 		setSkillEnabled: (name, enabled) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
 		manageSkill: args => rpcCommand({ type: "manage_skill", ...args }),
 		setHookEnabled: (hookId, enabled) => rpcCommand({ type: "set_hook_enabled", hookId, enabled }),

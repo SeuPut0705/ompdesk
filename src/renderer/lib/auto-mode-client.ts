@@ -30,7 +30,7 @@ export function goalIsActive(state: Pick<SessionStore, "goal" | "goalState">): b
 }
 
 /** End the automatic plan the previous request used; false when it could not be ended (it then stays the mode). */
-async function endAutoPlan(session: StoreApi<SessionStore>, rpc: Pick<TabRpc, "autoModeEnd">): Promise<boolean> {
+export async function endAutoPlan(session: StoreApi<SessionStore>, rpc: Pick<TabRpc, "autoModeEnd">): Promise<boolean> {
 	const origin = session.getState().sessionId;
 	const response = await rpc.autoModeEnd("plan");
 	if (!response.success) return false;
@@ -69,7 +69,6 @@ export async function runAutoMode(input: {
 		}
 		const enabled = autoModeFromPref(await (input.readPref ?? (() => window.omp.prefs.get(AUTO_MODE_PREF)))());
 		const state = session.getState();
-		const loop = state.loopMode?.enabled === true;
 		const skip = autoModeSkip({
 			text: message,
 			enabled,
@@ -77,16 +76,13 @@ export async function runAutoMode(input: {
 			active: {
 				plan: state.planModeEnabled,
 				goal: goalIsActive(state),
-				loop,
-				vibe: state.vibeModeEnabled,
-				ratchet: state.ratchet?.enabled === true,
 			},
 			suppressed: false,
 		});
 		if (skip) return null;
 		const origin = state.sessionId;
 		const response = await Promise.race([
-			rpc.autoModeDecide(message, { loop }),
+			rpc.autoModeDecide(message),
 			new Promise<null>(resolve => setTimeout(() => resolve(null), CLIENT_DEADLINE_MS)),
 		]);
 		if (!response?.success) return null;

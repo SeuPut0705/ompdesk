@@ -107,10 +107,10 @@ describe("deriveUnavailable", () => {
 	it("groups missing internals by feature, in the order asked, omitting satisfied features", () => {
 		const requirements = {
 			planMode: { session: ["setPlanModeState()", "getPlanModeState()"] },
-			loopMode: { modules: { "mod/btw": ["BtwHistoryStore.open()"] } },
+			goalMode: { modules: { "mod/btw": ["BtwHistoryStore.open()"] } },
 			workspace: { session: ["sessionManager.addWorkspaceDirectory()"] },
 		};
-		expect(deriveUnavailable(["workspace", "loopMode", "planMode"], sources(), requirements)).toEqual([
+		expect(deriveUnavailable(["workspace", "goalMode", "planMode"], sources(), requirements)).toEqual([
 			{ feature: "workspace", missing: ["AgentSession.sessionManager.addWorkspaceDirectory"] },
 			{ feature: "planMode", missing: ["AgentSession.getPlanModeState"] },
 		]);

@@ -323,11 +323,6 @@ export function runRpcUi(): void {
 	let autoPlan = false;
 	/** When the last turn ended: a session that ran one within the idle window is busy for the automatic choice. */
 	let lastActivityAt: number | undefined;
-	let ratchetEnabled = false;
-	const ratchetMissing = (): string[] => {
-		const parsed: { missing?: string[] } = JSON.parse(process.env.OMP_GUI_TEST_RATCHET ?? "{}");
-		return parsed.missing ?? [];
-	};
 	// Stock `--session <file>`: the process boots on that stored session (a tab
 	// opened on a fork, a restored tab), so get_state already names it.
 	if (flags["--session"] && fs.existsSync(flags["--session"])) {
@@ -1899,23 +1894,6 @@ export function runRpcUi(): void {
 			}
 			return { suppressed: true };
 		},
-		// gui-bridge modes/ratchet.ts: only with `OMP_GUI_TEST_RATCHET` (JSON `{missing?: string[]}`); otherwise the omp
-		// "has no Ratchet" and the Mode popover shows no tab.
-		...(process.env.OMP_GUI_TEST_RATCHET
-			? {
-					"modes.get_ratchet": () => ({ enabled: ratchetEnabled, missing: ratchetMissing() }),
-					"modes.set_ratchet": (params: Record<string, unknown>) => {
-						const missing = ratchetMissing();
-						if (params.enabled === true && missing.length > 0) {
-							throw new Error(`Ratchet needs the ${missing.join(" and ")} tool active.`);
-						}
-						ratchetEnabled = params.enabled === true;
-						return { enabled: ratchetEnabled, missing };
-					},
-				}
-			: {}),
-		"modes.get_loop_mode": () => ({ enabled: false, state: "off" }),
-		"modes.get_vibe_mode": () => ({ enabled: false }),
 		get_gui_themes: () => ({ themes: [] }),
 		get_plugins: () => ({ plugins: [] }),
 		get_marketplaces: () => ({ marketplaces: [] }),

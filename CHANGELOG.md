@@ -29,8 +29,8 @@
 Sending a message can now switch Plan or Goal mode on by itself, and subscription usage shows as gauges in the sidebar and the account list. Session deletion and Windows steering are fixed, and the app is lighter.
 
 ### New
-- Auto mode: a large change enters Plan mode and "keep going until tests pass" starts a Goal, chosen per message; the "Auto: Plan" chip undoes it. Loop and Vibe are never switched on automatically.
-- Ratchet joins the Mode menu; the model pool is gone.
+- Auto mode: a large change enters Plan mode and "keep going until tests pass" starts a Goal, chosen per message; the "Auto: Plan" chip undoes it. No other mode is switched on automatically.
+- The Ratchet, Vibe and Loop modes are removed; the Mode menu keeps Plan and Goal, and the model pool is gone.
 - The sidebar footer shows one "5H · 7D" usage line per subscription account, on by default; Agents and Stats entries are hidden by default (re-enable them in Settings).
 - The account list in Settings uses the same gauges, and usage reads as share used everywhere.
 - While work runs, a faint light travels around the composer; it is fainter while only background agents run, and Send explains that sending starts right away.

@@ -3,7 +3,7 @@
  * one Popover for everything that tunes HOW the next turns run — thinking
  * level, fast mode, tool approval, and the lower-frequency behavior toggles
  * (auto-compaction, auto-retry, prewalk, steering and interrupt policy).
- * Session MODES (plan / goal / loop / vibe) are a separate control
+ * Session MODES (plan / goal) are a separate control
  * (`ComposerModes`); model roles live in Settings › Models.
  *
  * The trigger always shows the thinking level and adds an icon for any

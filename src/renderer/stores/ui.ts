@@ -102,7 +102,7 @@ export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolea
 
 export type TranscriptDetail = "compact" | "full";
 /** Composer Modes popover tabs a request can open (`openModes`). */
-export type ModesTab = "vibe" | "goal" | "loop";
+export type ModesTab = "plan" | "goal";
 
 export interface GuiDisplayPreferences {
 	hideThinkingBlock?: boolean | null;
@@ -591,9 +591,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	openThemePicker: () => set({ themePickerOpen: true }),
 	closeThemePicker: () => set({ themePickerOpen: false }),
 	modesOpen: false,
-	modesTab: "vibe" as const,
+	modesTab: "plan" as const,
 	// The mode popover lives on the composer: a request from a page returns to the session.
-	openModes: tab => set({ modesOpen: true, modesTab: tab ?? "vibe", destination: "session" }),
+	openModes: tab => set({ modesOpen: true, modesTab: tab ?? "plan", destination: "session" }),
 	closeModes: () => set({ modesOpen: false }),
 	importDialogOpen: false,
 	openImportDialog: () => set({ importDialogOpen: true }),

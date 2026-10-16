@@ -136,7 +136,6 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	goal_updated: true,
 	// The bridge's goal time limit (modes/goal.ts): the renderer toasts it, main pauses (sidecar-factory.ts).
 	goal_time_limit_reached: true,
-	loop_mode_update: true,
 	// The built-in prompt suggestions (bridge modes/next-prompt.ts): candidates, and the feature's state/availability.
 	next_prompt_update: true,
 	next_prompt_config: true,

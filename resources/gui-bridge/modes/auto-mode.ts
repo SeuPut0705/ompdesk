@@ -1,5 +1,5 @@
 /**
- * Automatic mode choice (Plan or Goal, never Loop, Vibe or the other manual modes): before a prompt the user typed runs,
+ * Automatic mode choice (Plan or Goal, never the other manual modes): before a prompt the user typed runs,
  * the composer asks `auto_mode_decide`, which classifies the prompt with stock's own judge machinery and answers
  * `plan`, `goal` or `none`. It changes nothing itself: main uses a decision for that one request through stock's own
  * commands (`set_plan_mode` with `auto`, stock `goal create`), and it is never the session's mode: an automatic plan
@@ -36,7 +36,6 @@ import {
 } from "./auto-mode-core";
 import { autoModeFlags, markSuppressed } from "./auto-mode-state";
 import { exitPlanMode } from "./plan";
-import { ratchetEnabled } from "./ratchet";
 import { attach, errorMessage, record } from "./shared";
 
 /** A transcript message's plain text (string content or its text parts). */
@@ -150,7 +149,6 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 	const text = typeof record(params).message === "string" ? (record(params).message as string) : "";
 	const flags = autoModeFlags(session.sessionManager.getSessionId());
 	const goal = session.getGoalModeState();
-	const ratchet = await ratchetEnabled(session).catch(() => false);
 	const { work, previous } = sessionWork(session);
 	const skip = autoModeSkip({
 		text,
@@ -159,9 +157,6 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 		active: {
 			plan: session.getPlanModeState()?.enabled === true,
 			goal: goal?.enabled === true || goal?.goal?.status === "paused",
-			loop: record(params).loop === true,
-			vibe: session.getVibeModeState()?.enabled === true,
-			ratchet,
 		},
 		suppressed: flags.suppressed,
 		work,

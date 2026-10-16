@@ -89,7 +89,7 @@ export type RpcCommand =
 	| { id?: string; type: "regenerate_session_title" }
 	// The automatic Plan/Goal choice before a typed prompt, the chip's undo, and the end of the request it was used
 	// for; gui-bridge modes/auto-mode.ts
-	| { id?: string; type: "auto_mode_decide"; message: string; loop?: boolean }
+	| { id?: string; type: "auto_mode_decide"; message: string }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
 	| { id?: string; type: "auto_mode_end"; mode: "plan" | "goal" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
@@ -206,8 +206,6 @@ export type RpcCommand =
 	  }
 
 	// Modes
-	| { id?: string; type: "get_vibe_mode" }
-	| { id?: string; type: "set_vibe_mode"; enabled: boolean }
 	| { id?: string; type: "get_goal" }
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
@@ -232,11 +230,6 @@ export type RpcCommand =
 			timeLimitMinutes?: number | null;
 			action?: "pause" | "resume" | "drop";
 	  }
-	| { id?: string; type: "get_loop_mode" }
-	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
-	// Ratchet (stock `/ratchet`, session override of `ratchet.enabled`): gui-bridge modes/ratchet.ts
-	| { id?: string; type: "get_ratchet" }
-	| { id?: string; type: "set_ratchet"; enabled: boolean }
 	// Built-in prompt suggestions: gui-bridge modes/next-prompt.ts
 	| { id?: string; type: "get_next_prompt" }
 	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
@@ -1354,10 +1347,6 @@ export interface RpcThemeColorsResult {
 	colors: Record<string, string>;
 }
 
-export interface RpcVibeModeState {
-	enabled: boolean;
-	killedWorkers?: number;
-}
 export interface RpcGoalState {
 	enabled: boolean;
 	status?: string;
@@ -1368,20 +1357,6 @@ export interface RpcGoalState {
 	/** OMPdesk's time limit for this goal (bridge modes/goal.ts); the goal pauses once its used time reaches it. */
 	timeLimitSeconds?: number | null;
 	mode?: string;
-}
-export type RpcLoopLimit =
-	| { kind: "iterations"; initial: number; remaining: number }
-	| { kind: "duration"; durationMs: number; deadlineMs: number };
-export interface RpcLoopModeState {
-	enabled: boolean;
-	state: "off" | "waiting" | "running" | "paused";
-	prompt?: string;
-	limit?: RpcLoopLimit;
-}
-/** `get_ratchet` / `set_ratchet` response data: stock's `ratchet.enabled` for the session and the required tools that are not active. */
-export interface RpcRatchetState {
-	enabled: boolean;
-	missing: string[];
 }
 /** `get_next_prompt` response data. */
 export type RpcNextPromptState = NextPromptState;
@@ -2627,7 +2602,6 @@ export type AgentSessionEvent =
 			planContent: string;
 			options: string[];
 	  }
-	| { type: "loop_mode_update"; state: RpcLoopModeState }
 	| NextPromptUpdate
 	| NextPromptConfigFrame
 	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.

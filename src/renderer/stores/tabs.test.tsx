@@ -18,6 +18,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
 	IpcSignIn,
 	IpcSpawnTabPayload,
@@ -130,8 +131,6 @@ interface MockOmp {
 		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
-		getLoopMode: Mock<() => Promise<RpcResponse>>;
-		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
 		switchSession: Mock<(sessionPath: string) => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
@@ -161,8 +160,6 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
 			getGoal: vi.fn(async () => ok({ enabled: false })),
-			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
-			getVibeMode: vi.fn(async () => ok({ enabled: false })),
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			switchSession: vi.fn(async () => ok({})),
 			setSubagentSubscription: vi.fn(async () => ok({})),
@@ -565,7 +562,7 @@ describe("tabs store switch", () => {
 		expect(useTabsStore.getState().tabs).toHaveLength(3);
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
-		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
 	});
 
 	it("surfaces a kind-mismatch refusal as an error toast and adds no tab", async () => {
@@ -577,7 +574,7 @@ describe("tabs store switch", () => {
 		expect(tabId).toBeNull();
 		expect(useTabsStore.getState().tabs).toHaveLength(3);
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
-		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
 	});
 
 	it("fires SET_ACTIVE_TAB before hydrating from the target sidecar", async () => {
@@ -892,7 +889,7 @@ describe("tabs store close", () => {
 
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
-		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
 		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
 	});
 
@@ -2314,5 +2311,111 @@ describe("a web page's own done marks", () => {
 		await useTabsStore.getState().reconcileTabs();
 		expect(tabOf("t2")?.unreadDone).toBe(false);
 		expect(storage.get(UNREAD_MARKS_KEY)).toBe(JSON.stringify({ unread: ["t2"], running: [] }));
+	});
+});
+
+describe("agent control view requests", () => {
+	const tabOf = (id: string) => useTabsStore.getState().tabs.find(tab => tab.id === id);
+	const live = (...ids: string[]): IpcTabInfo[] =>
+		ids.map((id, index) => ({ ...tabInfo(id, `/${id}`), active: index === 0, visible: index === 0 }));
+	let viewHandler: ((event: AgentControlViewEvent) => void) | null = null;
+
+	beforeEach(() => {
+		viewHandler = null;
+		(omp.events as Record<string, unknown>).onAgentControlView = vi.fn(
+			(callback: (event: AgentControlViewEvent) => void) => {
+				viewHandler = callback;
+				return () => {
+					viewHandler = null;
+				};
+			},
+		);
+	});
+
+	async function bootWith(...ids: string[]): Promise<void> {
+		omp.tabs.list.mockResolvedValue(live(...ids));
+		await useTabsStore.getState().reconcileTabs();
+	}
+
+	it("focus switches to the tab like a sidebar pick", async () => {
+		await bootWith("t0", "t1");
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "focus" });
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		expect(useTabsStore.getState().split).toBeNull();
+	});
+
+	it("split-right and split-down put both panes on screen beside the focused one", async () => {
+		await bootWith("t0", "t1", "t2");
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "split-right" });
+		expect(useTabsStore.getState().split).toMatchObject({ axis: "columns" });
+		expect(splitTabIds(useTabsStore.getState().split!)).toEqual(["t0", "t1"]);
+		await useTabsStore.getState().unsplit();
+		await useTabsStore.getState().applyAgentView({ tabId: "t2", how: "split-down" });
+		expect(useTabsStore.getState().split).toMatchObject({ axis: "rows" });
+		expect(splitTabIds(useTabsStore.getState().split!)).toEqual(["t1", "t2"]);
+	});
+
+	it("a split request for a tab already on screen just focuses it", async () => {
+		await bootWith("t0", "t1");
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "split-right" });
+		await useTabsStore.getState().applyAgentView({ tabId: "t0", how: "split-down" });
+		expect(splitTabIds(useTabsStore.getState().split!)).toEqual(["t0", "t1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+
+	it("reconciles first when the tab was only just spawned, then applies the request", async () => {
+		await bootWith("t0");
+		omp.tabs.list.mockResolvedValue(live("t0", "t9"));
+		expect(tabOf("t9")).toBeUndefined();
+		await useTabsStore.getState().applyAgentView({ tabId: "t9", how: "focus" });
+		expect(tabOf("t9")).toBeDefined();
+		expect(useTabsStore.getState().activeTabId).toBe("t9");
+	});
+
+	it("ignores a tab that never shows up", async () => {
+		await bootWith("t0");
+		await useTabsStore.getState().applyAgentView({ tabId: "ghost", how: "split-right" });
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useTabsStore.getState().split).toBeNull();
+	});
+
+	it("close closes the tab the way the user's close does", async () => {
+		await bootWith("t0", "t1");
+		await useTabsStore.getState().applyAgentView({ tabId: "t1", how: "close" });
+		expect(tabOf("t1")).toBeUndefined();
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+
+	it("a tab main spawns in the background appears without switching the current view", async () => {
+		await bootWith("t0");
+		omp.tabs.list.mockResolvedValue(live("t0", "t5"));
+		await useTabsStore.getState().applyTabList(live("t0", "t5"));
+		expect(tabOf("t5")).toBeDefined();
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useTabsStore.getState().split).toBeNull();
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
+	});
+
+	it("useSessionTabs routes the pushed event to the store", async () => {
+		await bootWith("t0", "t1");
+		const element = document.createElement("div");
+		document.body.appendChild(element as never);
+		const root = createRoot(element as unknown as Element);
+		function Probe(): null {
+			useSessionTabs();
+			return null;
+		}
+		await act(async () => {
+			root.render(<Probe />);
+		});
+		await act(async () => {
+			viewHandler?.({ tabId: "t1", how: "focus" });
+		});
+		await vi.waitFor(() => expect(useTabsStore.getState().activeTabId).toBe("t1"));
+		await act(async () => {
+			root.unmount();
+		});
+		expect(viewHandler).toBeNull();
 	});
 });

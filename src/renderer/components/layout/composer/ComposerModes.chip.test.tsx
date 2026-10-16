@@ -1,6 +1,6 @@
 /**
  * Contract tests for the composer mode chip: the chip names the active
- * session mode(s) in the accent, its popover holds Plan · Goal · Loop · Vibe
+ * session mode(s) in the accent, its popover holds Plan · Goal
  * as segmented tabs (active ones marked), Plan toggles inline, and the
  * app-wide `openModes(tab)` request opens the popover on that tab.
  * State comes from the session store.
@@ -89,7 +89,7 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	useSessionStore.getState().reset();
-	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
+	useUiStore.setState({ modesOpen: false, modesTab: "plan" });
 });
 
 function trigger(): TestElement {
@@ -110,19 +110,10 @@ describe("Composer mode chip", () => {
 			planModeEnabled: true,
 			goal: { objective: "Ship the activity dock" },
 			goalState: { status: "active" },
-			loopMode: {
-				enabled: true,
-				state: "running",
-				prompt: "keep going",
-				limit: { kind: "iterations", initial: 10, remaining: 7 },
-			},
-			vibeModeEnabled: true,
 		});
 		await mount(<ComposerModes />);
 
-		const modes = (["plan", "goal", "loop", "vibe"] as const)
-			.map(mode => translate(`input.modes.name.${mode}`))
-			.join(" · ");
+		const modes = (["plan", "goal"] as const).map(mode => translate(`input.modes.name.${mode}`)).join(" · ");
 		expect(trigger().textContent).toBe(modes);
 		expect(trigger().getAttribute("aria-label")).toBe(translate("input.modes.activeTitle", { modes }));
 		expect(trigger().className).toContain("bg-(--sc-accent-soft)");
@@ -130,7 +121,7 @@ describe("Composer mode chip", () => {
 		await act(async () => trigger().click());
 		await flush();
 
-		for (const name of ["Plan", "Goal", "Loop", "Vibe"]) {
+		for (const name of ["Plan", "Goal"]) {
 			expect(tab(name)?.textContent).toBe(`${name}on`);
 		}
 		// Opens on the first active mode: Plan, whose switch is on.
@@ -147,7 +138,10 @@ describe("Composer mode chip", () => {
 
 		await act(async () => trigger().click());
 		await flush();
-		for (const name of ["Plan", "Goal", "Loop", "Vibe"]) expect(tab(name)?.textContent).toBe(name);
+		for (const name of ["Plan", "Goal"]) expect(tab(name)?.textContent).toBe(name);
+		expect(tab("Loop")).toBeUndefined();
+		expect(tab("Vibe")).toBeUndefined();
+		expect(tab("Ratchet")).toBeUndefined();
 
 		const planSwitch = document.querySelector('[role="switch"]') as unknown as TestElement | null;
 		expect(planSwitch?.getAttribute("aria-checked")).toBe("false");
@@ -162,11 +156,11 @@ describe("Composer mode chip", () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
 
-		await act(async () => useUiStore.getState().openModes("loop"));
+		await act(async () => useUiStore.getState().openModes("goal"));
 		await flush();
 
 		expect(trigger().getAttribute("aria-expanded")).toBe("true");
-		expect(tab("Loop")?.getAttribute("aria-selected")).toBe("true");
+		expect(tab("Goal")?.getAttribute("aria-selected")).toBe("true");
 
 		await act(async () => trigger().click());
 		expect(trigger().getAttribute("aria-expanded")).toBe("false");

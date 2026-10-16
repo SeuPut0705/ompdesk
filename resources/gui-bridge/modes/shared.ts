@@ -75,11 +75,9 @@ export function ompPrompt(relative: string): string {
 
 type SessionListener = (event: AgentSessionEvent, session: AgentSession) => void;
 type SwitchListener = (reason: string) => void;
-type InputListener = (text: string) => void;
 
 const sessionListeners = new Set<SessionListener>();
 const switchListeners = new Set<SwitchListener>();
-const inputListeners = new Set<InputListener>();
 const subscribed = new WeakSet<AgentSession>();
 let extensionHooked = false;
 let attachedEnv: BridgeEnv | undefined;
@@ -94,11 +92,6 @@ export function onSessionSwitch(listener: SwitchListener): void {
 	switchListeners.add(listener);
 }
 
-/** A host (RPC) prompt, steer or follow-up, before omp dispatches it. */
-export function onHostInput(listener: InputListener): void {
-	inputListeners.add(listener);
-}
-
 /** The live session, with the modes subscriptions attached. */
 export function attach(env: BridgeEnv): AgentSession {
 	attachedEnv = env;
@@ -106,10 +99,6 @@ export function attach(env: BridgeEnv): AgentSession {
 		extensionHooked = true;
 		env.pi.on("session_switch", event => {
 			for (const listener of switchListeners) listener(event.reason);
-		});
-		env.pi.on("input", event => {
-			if (event.source !== "rpc") return;
-			for (const listener of inputListeners) listener(event.text);
 		});
 	}
 	const session = env.session();

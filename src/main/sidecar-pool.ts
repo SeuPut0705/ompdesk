@@ -978,7 +978,7 @@ export class SidecarPool {
 	}
 
 	/**
-	 * A window toggled a composer mode (plan, prewalk, agents pause, vibe, loop, ratchet, fast/slow): most have
+	 * A window toggled a composer mode (plan, prewalk, agents pause, fast/slow): most have
 	 * no stock event, so the other windows that show the tab are told with a `config_update {modes: true}`
 	 * frame and re-read them (renderer `refreshSessionModes`).
 	 */

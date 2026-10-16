@@ -44,13 +44,6 @@ export function AgentModes() {
 						>
 							{t("settings.features.goal")}
 						</Button>
-						<Button
-							onClick={() => leaveTo(() => useUiStore.getState().openModes("loop"))}
-							size="sm"
-							variant="secondary"
-						>
-							{t("settings.features.loop")}
-						</Button>
 					</div>
 				}
 			/>

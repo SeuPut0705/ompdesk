@@ -85,8 +85,6 @@ interface MockOmp {
 		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
-		getLoopMode: Mock<() => Promise<RpcResponse>>;
-		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 		commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<RpcResponse>>;
@@ -126,8 +124,6 @@ function installMockOmp(): MockOmp {
 			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
 			getGoal: vi.fn(async () => ok({ enabled: false })),
-			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
-			getVibeMode: vi.fn(async () => ok({ enabled: false })),
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			setSubagentSubscription: vi.fn(async () => ok({})),
 			commandForTab: vi.fn(async (tabId, command) => {

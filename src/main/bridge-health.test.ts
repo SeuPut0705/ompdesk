@@ -38,7 +38,7 @@ describe("BridgeHealth", () => {
 			ompVersion: "19.0.0",
 			unavailable: [
 				{ feature: "planMode", missing: ["AgentSession.setPlanModeState"] },
-				{ feature: "loopMode", missing: ["@oh-my-pi/pi-coding-agent/modes/loop-limit"] },
+				{ feature: "goalMode", missing: ["@oh-my-pi/pi-coding-agent/goals/settings"] },
 			],
 		}));
 
@@ -49,7 +49,7 @@ describe("BridgeHealth", () => {
 		expect(broken.request).toHaveBeenCalledWith("capabilities");
 		expect(notify).toHaveBeenCalledTimes(1);
 		expect(health.take()).toEqual([
-			{ kind: "unsupported", ompVersion: "19.0.0", features: ["planMode", "loopMode"] },
+			{ kind: "unsupported", ompVersion: "19.0.0", features: ["planMode", "goalMode"] },
 		]);
 		expect(health.take()).toEqual([]);
 

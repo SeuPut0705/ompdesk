@@ -149,7 +149,7 @@ export interface CommandRegistryContext {
 	openBenchmark: () => void;
 	openHandoffDialog: () => void;
 	openThemePicker: () => void;
-	openModes: (tab?: "vibe" | "goal" | "loop") => void;
+	openModes: (tab?: "plan" | "goal") => void;
 	/** Agents page (Live · Definitions · Pull requests). */
 	openAgents: (tab?: AgentsTab) => void;
 	/** Insights page (Stats with a This session / All sessions scope · Usage). */
@@ -1297,25 +1297,11 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		},
 	});
 	add({
-		name: "vibe",
-		label: t("cmd.vibe"),
-		description: t("cmd.vibe.desc"),
-		category: "modes",
-		affordance: { kind: "window", open: () => ctx.openModes("vibe") },
-	});
-	add({
 		name: "goal",
 		label: t("cmd.goal"),
 		description: t("cmd.goal.desc"),
 		category: "modes",
 		affordance: { kind: "window", open: () => ctx.openModes("goal") },
-	});
-	add({
-		name: "loop",
-		label: t("cmd.loop"),
-		description: t("cmd.loop.desc"),
-		category: "modes",
-		affordance: { kind: "window", open: () => ctx.openModes("loop") },
 	});
 	// The Modes window is the native form of TUI /modes; without this row the
 	// sidecar-advertised command merges in as a dead "TUI-only" entry.
@@ -2122,7 +2108,7 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 
 /**
  * Stock omp's `get_available_commands` lists only its own builtins, not the
- * modes and windows the GUI serves itself (/plan, /loop, /goal, /btw, /tan,
+ * modes and windows the GUI serves itself (/plan, /goal, /btw, /tan,
  * /settings, …) nor its terminal-only commands (/collab, /record, …). Append
  * those as GUI-only builtins so slash completion offers them and composer
  * submit runs their affordance (or says where they run) instead of sending

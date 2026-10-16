@@ -5,11 +5,8 @@ import type {
 	MessagesPage,
 	ModelInfo,
 	RpcGoalState,
-	RpcLoopModeState,
-	RpcRatchetState,
 	RpcResponse,
 	RpcSessionState,
-	RpcVibeModeState,
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
@@ -163,22 +160,15 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 }
 
 /**
- * Another window that shows the tab toggled a composer mode (plan, prewalk, the agents pause, vibe, loop,
- * ratchet, goal, fast/slow). Most have no event of their own, so the host says so with a
+ * Another window that shows the tab toggled a composer mode (plan, prewalk, the agents pause,
+ * goal, fast/slow). Most have no event of their own, so the host says so with a
  * `config_update {modes: true}` frame (main/sidecar-pool.ts `noteModeChanged`) and this window re-reads them.
  */
 export async function refreshSessionModes(tabId: string): Promise<void> {
 	const runtime = sessionRuntime(tabId);
 	if (!runtime) return;
 	const current: HydrationGuard = () => sessionRuntime(tabId) === runtime;
-	await Promise.all([
-		refreshSessionState(tabId),
-		refreshModelState(tabId),
-		syncGoal(tabId, runtime.command, current),
-		syncLoopMode(tabId, runtime.command, current),
-		syncRatchet(tabId, runtime.command, current),
-		syncVibeMode(tabId, runtime.command, current),
-	]);
+	await Promise.all([refreshSessionState(tabId), refreshModelState(tabId), syncGoal(tabId, runtime.command, current)]);
 }
 
 /** Re-sync the model-derived stores after a model switch, ignoring event churn. */
@@ -259,35 +249,6 @@ export async function syncGoal(tabId: string, command: TabCommand, isCurrent: Hy
 	}
 }
 
-/** Fetch the live loop-mode state (get_loop_mode) into the session store; null on failure. */
-export async function syncLoopMode(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
-	const before = withSessionRuntime(tabId, () => useSessionStore.getState().loopMode);
-	try {
-		const res = await command({ type: "get_loop_mode" });
-		if (!isCurrent() || !res.success) return;
-		if (withSessionRuntime(tabId, () => useSessionStore.getState().loopMode) !== before) return;
-		// get_loop_mode wire payload is RpcLoopModeState; `data` crosses the bridge as unknown.
-		withSessionRuntime(tabId, () => {
-			useSessionStore.setState({ loopMode: (res.data as RpcLoopModeState | undefined) ?? null });
-		});
-	} catch {
-		// Transient — the next loop_mode_update event or hydration retries.
-	}
-}
-
-/** Fetch stock's `ratchet.enabled` and the missing tools (get_ratchet) into the session store; null when unsupported. */
-export async function syncRatchet(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
-	try {
-		const res = await command({ type: "get_ratchet" });
-		if (!isCurrent() || !res.success) return;
-		withSessionRuntime(tabId, () => {
-			useSessionStore.setState({ ratchet: (res.data as RpcRatchetState | undefined) ?? null });
-		});
-	} catch {
-		// Transient — the next hydration retries.
-	}
-}
-
 /** The session-store fields a next-prompt state (get_next_prompt / next_prompt_config) sets. */
 export function nextPromptPatch(state: NextPromptState): Pick<SessionStore, "nextPrompt" | "nextPromptUnavailable"> {
 	return {
@@ -311,20 +272,6 @@ export async function syncNextPrompt(tabId: string, command: TabCommand, isCurre
 		});
 	} catch {
 		// unsupported_omp or transient — next_prompt_config or the next hydration retries.
-	}
-}
-
-/** Fetch the live vibe-mode state (get_vibe_mode) into the session store; no event exists. */
-export async function syncVibeMode(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
-	try {
-		const res = await command({ type: "get_vibe_mode" });
-		if (!isCurrent() || !res.success) return;
-		const data = res.data as RpcVibeModeState | undefined;
-		withSessionRuntime(tabId, () => {
-			useSessionStore.setState({ vibeModeEnabled: data?.enabled === true });
-		});
-	} catch {
-		// Transient — the next hydration retries.
 	}
 }
 
@@ -620,9 +567,6 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
-		syncLoopMode("", activeTabCommand, isCurrent),
-		syncRatchet("", activeTabCommand, isCurrent),
-		syncVibeMode("", activeTabCommand, isCurrent),
 		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
 		useSettingsStore.getState().syncDisplaySettings(),
@@ -750,11 +694,6 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// composer chip reflects an active goal after boot/session switches,
 		// not only on goal_updated events.
 		syncGoal(tabId, runtime.command, isCurrent),
-		// Loop and vibe likewise: loop_mode_update frames keep loop fresh afterwards; vibe emits nothing, so the
-		// Modes window mirrors toggles.
-		syncLoopMode(tabId, runtime.command, isCurrent),
-		syncRatchet(tabId, runtime.command, isCurrent),
-		syncVibeMode(tabId, runtime.command, isCurrent),
 		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session

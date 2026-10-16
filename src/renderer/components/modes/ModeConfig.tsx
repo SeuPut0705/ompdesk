@@ -1,10 +1,10 @@
 /**
- * Inline config for the Vibe / Goal / Loop session modes, embedded in the
- * composer's mode Popover (design-spec §2.2: no Modes modal). Each config is
+ * Inline config for the Goal session mode, embedded in the
+ * composer's mode Popover (design-spec §2.2: no Modes modal). The config is
  * self-contained: it loads its mode on mount through the mode RPCs
- * (get/set_vibe_mode, get/set_goal, get/set_loop_mode), follows live sidecar
- * events (`goal_updated` → silent re-fetch, `loop_mode_update` → applied in
- * place) and renders compactly for a ~360px popover. The caller renders the
+ * (get/set_goal), follows live sidecar
+ * events (`goal_updated` → silent re-fetch) and renders compactly for a ~360px
+ * popover. The caller renders the
  * heading; changes apply to the current session immediately.
  *
  * Mutations keep the confirmed value while pending. A successful response
@@ -14,32 +14,14 @@
 
 import { RefreshCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type {
-	AgentSessionEvent,
-	RpcGoalState,
-	RpcLoopModeState,
-	RpcResponse,
-	RpcVibeModeState,
-} from "../../../shared/rpc-types";
+import type { AgentSessionEvent, RpcGoalState, RpcResponse } from "../../../shared/rpc-types";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { loopLimitText, normalizeLoopUpdate, parseLoopLimit } from "../../lib/loop-mode";
 import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
-import { type SessionStore, useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
-import {
-	Badge,
-	type BadgeVariant,
-	Button,
-	InlineNotice,
-	Input,
-	ProgressBar,
-	Spinner,
-	SwitchField,
-	TextArea,
-} from "../common";
+import { Badge, type BadgeVariant, Button, InlineNotice, Input, ProgressBar, Spinner, TextArea } from "../common";
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -63,14 +45,9 @@ interface ModeRpc<T> {
 	mutate: (action: (client: TabRpc) => Promise<RpcResponse>) => Promise<void>;
 }
 
-const fetchVibeMode = (client: TabRpc): Promise<RpcResponse> => client.getVibeMode();
-const pickVibeMode = (data: unknown): RpcVibeModeState => (data as RpcVibeModeState | undefined) ?? { enabled: false };
 const fetchGoal = (client: TabRpc): Promise<RpcResponse> => client.getGoal();
 const pickGoal = (data: unknown): RpcGoalState =>
 	(data as RpcGoalState | undefined) ?? { enabled: false, status: "none" };
-const fetchLoopMode = (client: TabRpc): Promise<RpcResponse> => client.getLoopMode();
-const pickLoopMode = (data: unknown): RpcLoopModeState =>
-	(data as RpcLoopModeState | undefined) ?? { enabled: false, state: "off" };
 
 /** Loads one mode on mount (and again when the session or runtime changes). */
 function useModeRpc<T>(
@@ -196,14 +173,6 @@ function useModeEvents(handle: (event: AgentSessionEvent) => void): void {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** Loop run-state → badge color (running pulses, off dims). */
-export const LOOP_STATE_VARIANT: Record<RpcLoopModeState["state"], BadgeVariant> = {
-	off: "muted",
-	waiting: "info",
-	running: "success",
-	paused: "warning",
-};
-
 const GOAL_STATUS_KEY: Record<string, string> = {
 	active: "modesPanel.goal.statusValue.active",
 	paused: "modesPanel.goal.statusValue.paused",
@@ -280,47 +249,6 @@ function MutationError({ error }: { error: string | null }) {
 	const t = useT();
 	if (!error) return null;
 	return <InlineNotice detail={error} live title={t("modesPanel.actionFailed")} tone="danger" />;
-}
-
-// ---------------------------------------------------------------------------
-// Vibe
-// ---------------------------------------------------------------------------
-
-export function VibeModeConfig() {
-	const t = useT();
-	const tabId = useRuntimeTabId();
-	const confirmVibe = useCallback(
-		(state: RpcVibeModeState) => {
-			const session = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
-			session.setState({ vibeModeEnabled: state.enabled });
-		},
-		[tabId],
-	);
-	const rpc = useModeRpc(fetchVibeMode, pickVibeMode, confirmVibe);
-	return (
-		<ModeFrame rpc={rpc}>
-			{state => (
-				<>
-					<Description>{t("modesPanel.vibe.desc")}</Description>
-					<SwitchField
-						checked={state.enabled}
-						className="-mx-2"
-						description={t("modesPanel.vibe.toggleDesc")}
-						disabled={rpc.busy || !rpc.ready}
-						label={t("modesPanel.vibe.toggleLabel")}
-						onCheckedChange={next => void rpc.mutate(client => client.setVibeMode(next))}
-						title={!rpc.ready ? t("modesPanel.notConnected") : undefined}
-					/>
-					{!state.enabled && typeof state.killedWorkers === "number" && state.killedWorkers > 0 && (
-						<p className="text-sc-sm text-(--sc-warning)">
-							{t("modesPanel.vibe.killedWorkers", { count: state.killedWorkers })}
-						</p>
-					)}
-					<MutationError error={rpc.error} />
-				</>
-			)}
-		</ModeFrame>
-	);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,89 +500,6 @@ export function GoalModeConfig() {
 					<MutationError error={rpc.error} />
 				</>
 			)}
-		</ModeFrame>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Loop
-// ---------------------------------------------------------------------------
-
-export function LoopModeConfig() {
-	const t = useT();
-	const rpc = useModeRpc(fetchLoopMode, pickLoopMode);
-	const [argsDraft, setArgsDraft] = useState("");
-	const applyLoop = rpc.apply;
-	useModeEvents(
-		useCallback(
-			(event: AgentSessionEvent) => {
-				if (event.type !== "loop_mode_update") return;
-				const next = normalizeLoopUpdate(event);
-				if (next) applyLoop(next);
-			},
-			[applyLoop],
-		),
-	);
-
-	return (
-		<ModeFrame rpc={rpc}>
-			{state => {
-				const limit = parseLoopLimit(state.limit);
-				const args = argsDraft.trim();
-				return (
-					<>
-						<Description>{t("modesPanel.loop.desc")}</Description>
-						{!state.enabled && (
-							<Input
-								hint={t("modesPanel.loop.argsHint")}
-								label={t("modesPanel.loop.argsLabel")}
-								onChange={event => setArgsDraft(event.target.value)}
-								placeholder={t("modesPanel.loop.argsPlaceholder")}
-								value={argsDraft}
-							/>
-						)}
-						<SwitchField
-							badge={
-								<Badge dot pulse={state.state === "running"} variant={LOOP_STATE_VARIANT[state.state]}>
-									{t(`modesPanel.loop.state.${state.state}`)}
-								</Badge>
-							}
-							checked={state.enabled}
-							className="-mx-2"
-							description={t("modesPanel.loop.toggleDesc")}
-							disabled={rpc.busy || !rpc.ready}
-							label={t("modesPanel.loop.toggleLabel")}
-							onCheckedChange={next =>
-								void rpc.mutate(client => client.setLoopMode(next, args === "" ? undefined : args))
-							}
-							title={!rpc.ready ? t("modesPanel.notConnected") : undefined}
-						/>
-						{state.enabled && (
-							<dl className="flex flex-col gap-2 text-sc-sm">
-								<div className="flex flex-col gap-1">
-									<dt className="text-sc-xs font-medium text-(--sc-text-muted)">
-										{t("modesPanel.loop.promptLabel")}
-									</dt>
-									<dd className="break-words whitespace-pre-wrap text-(--sc-text)">
-										{state.prompt || (
-											<span className="text-(--sc-text-subtle)">{t("modesPanel.loop.noPrompt")}</span>
-										)}
-									</dd>
-								</div>
-								<div className="flex items-baseline gap-2">
-									<dt className="text-sc-xs font-medium text-(--sc-text-muted)">
-										{t("modesPanel.loop.limitLabel")}
-									</dt>
-									<dd className="tabular-nums text-(--sc-text)">
-										{limit ? loopLimitText(t, limit) : t("modesPanel.loop.noLimit")}
-									</dd>
-								</div>
-							</dl>
-						)}
-						<MutationError error={rpc.error} />
-					</>
-				);
-			}}
 		</ModeFrame>
 	);
 }

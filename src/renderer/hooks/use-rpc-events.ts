@@ -12,8 +12,6 @@ import {
 	refreshSessionState,
 	retryPendingTabs,
 	syncGoal,
-	syncLoopMode,
-	syncVibeMode,
 } from "./session-hydration";
 
 export * from "./session-hydration";
@@ -39,7 +37,6 @@ import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
-import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
 import { handleAutoOpenEvents } from "../lib/panel-auto-open";
@@ -603,14 +600,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							});
 							break;
 						}
-						case "loop_mode_update": {
-							// Loop state is passive display too — the composer chip and
-							// footer badge read it from the session store. Reuse the Modes
-							// window's normalizer: frames may arrive flat or nested.
-							const next = normalizeLoopUpdate(event);
-							if (next) useSessionStore.setState({ loopMode: next });
-							break;
-						}
 						case "next_prompt_config": {
 							// The built-in suggestions' switches, model and availability for this tab's bridge.
 							useSessionStore.setState(nextPromptPatch(event));
@@ -751,8 +740,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
 								await Promise.allSettled([
 									syncGoal("", activeTabCommand, () => true),
-									syncLoopMode("", activeTabCommand, () => true),
-									syncVibeMode("", activeTabCommand, () => true),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),
 									useSettingsStore.getState().syncApproval(),

@@ -98,8 +98,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/modes/controllers/omfg-rule"),
 	"@oh-my-pi/pi-coding-agent/modes/controllers/tan-command-controller": () =>
 		import("@oh-my-pi/pi-coding-agent/modes/controllers/tan-command-controller"),
-	"@oh-my-pi/pi-coding-agent/modes/loop-condition": () => import("@oh-my-pi/pi-coding-agent/modes/loop-condition"),
-	"@oh-my-pi/pi-coding-agent/modes/loop-limit": () => import("@oh-my-pi/pi-coding-agent/modes/loop-limit"),
 	"@oh-my-pi/pi-coding-agent/modes/model-browser-source": () =>
 		import("@oh-my-pi/pi-coding-agent/modes/model-browser-source"),
 	"@oh-my-pi/pi-coding-agent/session/agent-storage": () => import("@oh-my-pi/pi-coding-agent/session/agent-storage"),
@@ -179,7 +177,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tts/wav": () => import("@oh-my-pi/pi-coding-agent/tts/wav"),
 	"@oh-my-pi/pi-coding-agent/utils/atomic-file": () => import("@oh-my-pi/pi-coding-agent/utils/atomic-file"),
 	"@oh-my-pi/pi-coding-agent/utils/tool-choice": () => import("@oh-my-pi/pi-coding-agent/utils/tool-choice"),
-	"@oh-my-pi/pi-coding-agent/vibe/runtime": () => import("@oh-my-pi/pi-coding-agent/vibe/runtime"),
 	"@oh-my-pi/pi-natives/vcs": () => import("@oh-my-pi/pi-natives/vcs"),
 	"@oh-my-pi/pi-tui/overlays/copy-targets": () => import("@oh-my-pi/pi-tui/overlays/copy-targets"),
 	"@oh-my-pi/pi-tui/overlays/model-browser": () => import("@oh-my-pi/pi-tui/overlays/model-browser"),
@@ -197,7 +194,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tiny/message-preproc": () => import("@oh-my-pi/pi-coding-agent/tiny/message-preproc"),
 	"@oh-my-pi/pi-coding-agent/judgment": () => import("@oh-my-pi/pi-coding-agent/judgment"),
 	"@oh-my-pi/pi-coding-agent/plan-mode/settings": () => import("@oh-my-pi/pi-coding-agent/plan-mode/settings"),
-	"@oh-my-pi/pi-coding-agent/tools/settings": () => import("@oh-my-pi/pi-coding-agent/tools/settings"),
 	"@oh-my-pi/pi-ai/utils/schema": () => import("@oh-my-pi/pi-ai/utils/schema"),
 };
 

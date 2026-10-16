@@ -87,7 +87,7 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	useSessionStore.getState().reset();
-	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
+	useUiStore.setState({ modesOpen: false, modesTab: "plan" });
 });
 
 const chip = () => document.querySelector("[data-auto-mode-chip]") as unknown as TestElement | null;

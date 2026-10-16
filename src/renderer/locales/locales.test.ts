@@ -73,7 +73,6 @@ const TRANSLATED_NAMESPACES = [
 const ALLOW_IDENTICAL: Record<string, true> = {
 	"providers.badge.oauth": true, // OAuth — brand name
 	"modelCompare.noRole": true, // "—" — punctuation, no letters
-	"input.modes.tab.vibe": true, // Vibe — feature name
 	"input.mode.python.badge": true, // $ Python — prefix symbol + language name
 	"stats.col.ttft": true, // TTFT — latency acronym
 	"stats.overview.ttftSub": true, // TTFT {time} — acronym + placeholder
@@ -182,7 +181,6 @@ describe("ko stop wording", () => {
 			"sidebar.subagents.stop",
 			"btw.cancel",
 			"btw.cancelled",
-			"modesPanel.vibe.killedWorkers",
 			"events.notificationError",
 			"events.notificationErrorDetail",
 			"tools.hub.state.stopping",

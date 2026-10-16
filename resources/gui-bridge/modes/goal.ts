@@ -99,7 +99,6 @@ function activeGoal(session: AgentSession) {
 
 async function guidedGoal(session: AgentSession, initial: string | undefined): Promise<{ started: true }> {
 	if (session.getPlanModeState()?.enabled) throw new Error("Exit plan mode first.");
-	if (session.getVibeModeState()?.enabled) throw new Error("Exit vibe mode first.");
 	const { cfgGoalEnabled } = await import("@oh-my-pi/pi-coding-agent/goals/settings");
 	if (!cfgGoalEnabled.get(session.settings)) {
 		throw new Error("Goal mode is disabled. Enable it in settings (goal.enabled).");

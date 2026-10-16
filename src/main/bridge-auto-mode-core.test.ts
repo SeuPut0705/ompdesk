@@ -26,7 +26,7 @@ import {
 	setAutoPlan,
 } from "../../resources/gui-bridge/modes/auto-mode-state";
 
-const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false, ratchet: false };
+const idle: AutoModeActive = { plan: false, goal: false };
 
 function input(over: Partial<AutoModeGuardInput> = {}): AutoModeGuardInput {
 	return {
@@ -80,7 +80,7 @@ describe("autoModeSkip (guards)", () => {
 		expect(autoModeSkip(input({ work: quiet }))).toBeNull();
 		expect(autoModeSkip(input({ work: { ...quiet, lastActivityAt: now - AUTO_MODE_IDLE_MS } }))).toBeNull();
 		// A mode the user picked still wins first.
-		expect(autoModeSkip(input({ work: quiet, active: { ...idle, loop: true } }))).toBe("mode_active");
+		expect(autoModeSkip(input({ work: quiet, active: { ...idle, goal: true } }))).toBe("mode_active");
 	});
 
 	it("hands the judge the previous exchange, clipped, so it can tell a follow-up from new work", () => {
