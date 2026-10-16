@@ -2147,6 +2147,28 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"```",
 	].join("\n");
 
+	// One reply holding every kind of figure box: a mermaid fence, an svg fence and a code block.
+	const FIGURES_REPLY = [
+		"Three boxes, one header each:",
+		"",
+		"```mermaid",
+		"graph LR",
+		"  Plan --> Build --> Ship",
+		"```",
+		"",
+		"```svg",
+		'<svg viewBox="0 0 120 60" width="240" height="120">',
+		'  <rect x="4" y="4" width="112" height="52" rx="10" fill="none" stroke="var(--accent)" stroke-width="4"/>',
+		'  <circle cx="30" cy="30" r="12" fill="var(--success)"/>',
+		'  <text x="50" y="36" font-size="14" fill="var(--fg)">OMP</text>',
+		"</svg>",
+		"```",
+		"",
+		"```ts",
+		"export const answer: number = 42;",
+		"```",
+	].join("\n");
+
 	// Deterministic, held stages: the test advances only after observing the
 	// current surface. This avoids racing screenshots against fixture timers.
 	let advanceWork: (() => void) | undefined;
@@ -3222,6 +3244,35 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				});
 			};
 			replayRecordedWork();
+		} else if (message === "fixture write figure") {
+			// A finished write of a mermaid file: the tool card's figure box.
+			const args = { path: "docs/flow.mmd", content: "graph LR\n  Plan --> Build --> Ship\n" };
+			const call: AgentMessage = {
+				role: "assistant",
+				timestamp: Date.now(),
+				content: [{ type: "toolCall", id: "fixture-write-figure", name: "write", arguments: args }],
+			};
+			write({ type: "message_start", message: call });
+			appendMessage(call);
+			write({ type: "message_end", message: call });
+			write({ type: "tool_execution_start", toolCallId: "fixture-write-figure", toolName: "write", args });
+			const content = [{ type: "text" as const, text: "Wrote docs/flow.mmd" }];
+			write({
+				type: "tool_execution_end",
+				toolCallId: "fixture-write-figure",
+				toolName: "write",
+				result: { content },
+				isError: false,
+			});
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: "fixture-write-figure",
+				toolName: "write",
+				content,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			endTurn([call, result]);
 		} else if (message === "fixture reads") {
 			const targets = ["https://example.com/leaderboard", "xd://lsp", "src/a.ts"];
 			const answer: AgentMessage = {
@@ -3818,17 +3869,19 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									? "Here is the chart:\n\n![chart](pixel.png)"
 									: message === "fixture svg"
 										? SVG_REPLY
-										: message === "fixture svg viewbox"
-											? SVG_VIEWBOX_REPLY
-											: message === "fixture markdown"
-												? MARKDOWN_REPLY
-												: message === "fixture paths"
-													? PATHS_REPLY
-													: message === "fixture reply actions"
-														? ACTIONS_REPLY
-														: message === "fixture documents"
-															? DOCUMENTS_REPLY
-															: "Local fixture reply",
+										: message === "fixture figures"
+											? FIGURES_REPLY
+											: message === "fixture svg viewbox"
+												? SVG_VIEWBOX_REPLY
+												: message === "fixture markdown"
+													? MARKDOWN_REPLY
+													: message === "fixture paths"
+														? PATHS_REPLY
+														: message === "fixture reply actions"
+															? ACTIONS_REPLY
+															: message === "fixture documents"
+																? DOCUMENTS_REPLY
+																: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),

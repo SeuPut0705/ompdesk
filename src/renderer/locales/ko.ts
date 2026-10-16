@@ -2767,6 +2767,8 @@ export const ko: Record<string, string> = {
 	"svgPreview.mode": "미리보기 또는 코드",
 	"svgPreview.preview": "미리보기",
 	"svgPreview.code": "코드",
+	"figure.download": "파일로 저장",
+	"figure.expand": "크게 보기",
 	"markdown.imageFailed": "이미지를 불러올 수 없어요",
 	"markdown.remoteImage": "원격 이미지를 불러오지 않았어요",
 	"markdown.remoteImageOpen": "열기",

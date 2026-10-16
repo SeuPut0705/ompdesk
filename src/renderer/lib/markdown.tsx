@@ -27,7 +27,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
-import { type PreviewMode, PreviewModeTabs, SvgBlock } from "../components/chat/SvgBlock";
+import { SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/media/chat-media";
 import { FileCard } from "../components/tools/media/FileCard";
@@ -614,24 +614,13 @@ function Li({ children, className, node: _node, ...props }: ComponentPropsWithou
 
 /** A ```mermaid fence: the diagram (zoomable), with its source one switch away. */
 function MermaidFence({ code, showLineNumbers }: { code: string; showLineNumbers: boolean }) {
-	const [mode, setMode] = useState<PreviewMode>("preview");
 	return (
-		<div className="my-2 flex flex-col items-start gap-1.5" data-mermaid-fence>
-			<PreviewModeTabs mode={mode} onChange={setMode} />
-			<div className="self-stretch">
-				{mode === "preview" ? (
-					<MermaidBlock code={code} />
-				) : (
-					<SharedCodeBlock
-						code={code}
-						language="mermaid"
-						showLineNumbers={showLineNumbers}
-						maxHeightClass={PREVIEW_SCROLL_CODE}
-						showWrap
-					/>
-				)}
-			</div>
-		</div>
+		<MermaidBlock
+			className="my-2"
+			code={code}
+			maxHeightClass={PREVIEW_SCROLL_CODE}
+			showLineNumbers={showLineNumbers}
+		/>
 	);
 }
 

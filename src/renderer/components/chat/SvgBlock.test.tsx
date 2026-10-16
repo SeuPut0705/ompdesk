@@ -168,6 +168,7 @@ describe("SvgBlock", () => {
 		const svg = shownSvg();
 		expect(svg).not.toMatch(/script|onload|alert|foreignObject|evil|href/i);
 		// No inline SVG from the reply reaches the DOM.
-		expect(container.querySelector("svg")).toBeNull();
+		// (the header's lucide icons are the app's own, not the reply's)
+		expect(container.querySelector("svg:not(.lucide)")).toBeNull();
 	});
 });

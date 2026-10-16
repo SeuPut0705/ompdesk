@@ -44,14 +44,15 @@ test("mermaid files and svg replies render as figures", async () => {
 		await expect(diagram).toBeVisible({ timeout: 30_000 });
 		await expect.poll(() => diagram.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
 		await expect(aside.locator("[data-file-meta]")).toContainText("Mermaid diagram");
-		await aside.getByRole("tab", { name: "Source" }).click();
+		const fileFigure = aside.locator('[data-figure="mermaid"]');
+		await fileFigure.getByRole("button", { name: "Code", exact: true }).click();
 		await expect(aside.locator("[data-code-view]")).toContainText("Start --> Finish");
-		await aside.getByRole("tab", { name: "Rendered" }).click();
+		await fileFigure.getByRole("button", { name: "Preview", exact: true }).click();
 		await expect(diagram).toBeVisible();
 
 		await page.locator("textarea").first().fill("fixture svg");
 		await page.getByRole("button", { name: "Send", exact: true }).click();
-		const figure = page.locator("[data-svg-block]").first();
+		const figure = page.locator('[data-figure="svg"]').first();
 		const image = figure.locator("[data-svg-preview] img");
 		await expect(image).toBeVisible();
 		await expect.poll(() => image.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
@@ -61,11 +62,11 @@ test("mermaid files and svg replies render as figures", async () => {
 		expect(svg).not.toMatch(/script|onload|__svgPwned|var\(/);
 		expect(await page.evaluate(() => Reflect.get(window, "__svgPwned"))).toBeUndefined();
 		// No inline SVG from the reply reaches the DOM.
-		expect(await figure.locator("svg").count()).toBe(0);
+		expect(await figure.locator("svg:not(.lucide)").count()).toBe(0);
 
-		await figure.getByRole("tab", { name: "Code" }).click();
+		await figure.getByRole("button", { name: "Code", exact: true }).click();
 		await expect(figure).toContainText("<script>window.__svgPwned = 2</script>");
-		await figure.getByRole("tab", { name: "Preview" }).click();
+		await figure.getByRole("button", { name: "Preview", exact: true }).click();
 		await figure.locator("[data-zoomable-image]").click();
 		const viewer = page.getByRole("dialog", { name: "SVG image" });
 		await expect(viewer).toBeVisible();
@@ -107,7 +108,7 @@ for (const theme of ["light", "dark"] as const) {
 
 			await page.locator("textarea").first().fill("fixture svg viewbox");
 			await page.keyboard.press("Enter");
-			const chip = page.locator("[data-svg-block] [data-svg-preview]").first();
+			const chip = page.locator('[data-figure="svg"] [data-svg-preview]').first();
 			const image = chip.locator("img");
 			await expect(image).toBeVisible();
 			await expect.poll(() => image.evaluate(img => (img as HTMLImageElement).complete)).toBe(true);

@@ -7,7 +7,7 @@ import { PREVIEW_SCROLL_LG, PREVIEW_TEXT_CHARS } from "../../../lib/preview";
 import { asRecord, asString } from "../../../lib/wire-value";
 import { CodeBlock } from "../../chat/CodeBlock";
 import { MermaidBlock } from "../../chat/MermaidBlock";
-import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../../chat/SvgBlock";
+import { SvgBlock } from "../../chat/SvgBlock";
 import { unifiedDiffStats } from "../diff-stats";
 import { PathLink } from "../media/PathLink";
 import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "../ToolCard";
@@ -25,35 +25,29 @@ function writeFigure(path: string): WriteFigure | null {
 }
 
 /**
- * Preview/Code switch over a figure write. The code side is the card's usual
- * diff or content view. An svg that does not parse yet (still streaming, or
- * broken) and a mermaid write still streaming show only the code, as stock
- * waits for a mermaid fence to close.
+ * A written .svg / .mmd / .mermaid file as a figure: the picture or diagram
+ * with the code view (the card's usual diff or content) one icon away, all in
+ * one box headed by the file name. An svg that does not parse yet (still
+ * streaming, or broken) and a mermaid write still streaming show only the
+ * code, as stock waits for a mermaid fence to close.
  */
-function WriteFigurePreview({
+function WriteFigureView({
 	figure,
 	content,
+	fileName,
 	streaming,
 	codeView,
 }: {
 	figure: WriteFigure;
 	content: string;
+	fileName: string;
 	streaming: boolean;
-	codeView: ReactNode;
+	codeView: (bare: boolean) => ReactNode;
 }) {
-	const [mode, setMode] = useState<PreviewMode>("preview");
-	const svg = useSanitizedSvg(figure === "svg" ? content : "");
-	const preview =
-		figure === "svg"
-			? svg !== null && <SvgImage svg={svg} />
-			: !streaming && content.trim() !== "" && <MermaidBlock code={content} />;
-	if (!preview) return codeView;
-	return (
-		<div className="flex flex-col items-start gap-1.5" data-write-figure={figure}>
-			<PreviewModeTabs mode={mode} onChange={setMode} />
-			<div className="flex w-full flex-col gap-1.5">{mode === "preview" ? preview : codeView}</div>
-		</div>
-	);
+	if (figure === "svg")
+		return <SvgBlock code={content} codeView={codeView(true)} fallback={codeView(false)} title={fileName} />;
+	if (streaming || content.trim() === "") return codeView(false);
+	return <MermaidBlock code={content} codeView={codeView(true)} title={fileName} />;
 }
 
 /**
@@ -179,35 +173,41 @@ export function WriteRenderer({
 	const errorText = isError ? headLines(resultText(result), WRITE_PREVIEW_LINES) : null;
 
 	const figure = writeFigure(path);
-	const codeView = diff ? (
-		<DiffView
-			{...(livePreview ? liveDiffProps(diff) : { diff })}
-			filePath={path}
-			className={cx("rounded", PREVIEW_SCROLL_LG)}
-		/>
-	) : content ? (
-		<>
-			<CodeBlock
-				code={liveContent}
-				language={languageFromPath(path)}
-				showLanguage={false}
-				showCopy={false}
-				startLine={livePreview ? Math.max(1, lineCount - liveContent.split("\n").length + 1) : undefined}
-				maxHeightClass="max-h-72"
-			/>
-			{!livePreview && previewOmitted > 0 && (
-				<div className="text-omp-xs text-[var(--omp-dim)]">
-					{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
-				</div>
-			)}
-		</>
-	) : null;
+	// `bare`: inside a figure's box the code needs no border of its own.
+	const codeView = diff
+		? (_bare: boolean) => (
+				<DiffView
+					{...(livePreview ? liveDiffProps(diff) : { diff })}
+					filePath={path}
+					className={cx("rounded", PREVIEW_SCROLL_LG)}
+				/>
+			)
+		: content
+			? (bare: boolean) => (
+					<>
+						<CodeBlock
+							bare={bare}
+							code={liveContent}
+							language={languageFromPath(path)}
+							showLanguage={false}
+							showCopy={false}
+							startLine={livePreview ? Math.max(1, lineCount - liveContent.split("\n").length + 1) : undefined}
+							maxHeightClass="max-h-72"
+						/>
+						{!livePreview && previewOmitted > 0 && (
+							<div className="text-omp-xs text-[var(--omp-dim)]">
+								{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
+							</div>
+						)}
+					</>
+				)
+			: null;
 	if (livePreview) {
 		if (isError) return <div className="whitespace-pre-wrap text-sc-sm text-(--sc-danger)">{errorText?.head}</div>;
 		return (
 			// Streaming content follows its tail; a landed diff marks its newest hunk instead.
 			<div className="omp-tool-editor omp-tool-write" data-live-focus={diff || !content ? undefined : "end"}>
-				{codeView || (
+				{codeView?.(false) || (
 					<div className="text-sc-sm text-(--sc-text-muted)">
 						{isPartial ? t("tools.edit.applying") : t("tools.read.empty")}
 					</div>
@@ -255,14 +255,15 @@ export function WriteRenderer({
 				open &&
 				codeView &&
 				(figure ? (
-					<WriteFigurePreview
+					<WriteFigureView
 						codeView={codeView}
 						content={content}
 						figure={figure}
+						fileName={path.split(/[\\/]/).pop() || path}
 						streaming={isPartial === true}
 					/>
 				) : (
-					codeView
+					codeView(false)
 				))}
 			<DiagnosticsSection files={diagnostics} />
 		</div>

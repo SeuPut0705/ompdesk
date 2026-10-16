@@ -1,6 +1,6 @@
 import type { HLJSApi } from "highlight.js";
 import { SquareTerminal, WrapText } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
@@ -9,6 +9,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { CopyButton, IconButton } from "../common";
+import { FigureHeader } from "./FigureHeader";
 import { LineNumberGutter } from "./LineNumberGutter";
 
 export interface CodeBlockProps {
@@ -39,6 +40,14 @@ export interface CodeBlockProps {
 	showWrap?: boolean;
 	/** Offer "Run in terminal" for a shell block (a finished reply fence on this machine's tab). */
 	showRun?: boolean;
+	/** Header label in place of the language's name ("Mermaid", "SVG", a file name). */
+	title?: string;
+	/** Icon actions at the start of the header's right side (a figure's Preview/Code switch). */
+	headerActions?: ReactNode;
+	/** Icon actions after Copy (a figure's download). */
+	endActions?: ReactNode;
+	/** No border, radius or fill: the block sits inside a box that already has them. */
+	bare?: boolean;
 	className?: string;
 }
 
@@ -109,6 +118,10 @@ export function CodeBlock({
 	highlight = true,
 	showWrap = false,
 	showRun = false,
+	title,
+	headerActions,
+	endActions,
+	bare = false,
 	className,
 }: CodeBlockProps) {
 	const t = useT();
@@ -174,20 +187,22 @@ export function CodeBlock({
 	return (
 		<div
 			className={cx(
-				"omp-code-block group/code relative overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1) text-(--sc-text)",
+				"omp-code-block group/code relative overflow-hidden text-(--sc-text)",
+				!bare && "rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)",
 				className,
 			)}
 		>
-			{(showLanguage || showCopy || showWrap || runnable) && (
-				<div className="flex h-8 items-center gap-1 border-b border-(--sc-divider) ps-3 pe-1">
-					{showLanguage && (
-						<span className="me-auto min-w-0 truncate text-sc-xs text-(--sc-text-muted)">
-							{lang === "plaintext" ? t("codeblock.plainText") : languageLabel(lang)}
-						</span>
-					)}
+			{(showLanguage || showCopy || showWrap || runnable || headerActions || endActions) && (
+				<FigureHeader
+					title={
+						showLanguage
+							? (title ?? (lang === "plaintext" ? t("codeblock.plainText") : languageLabel(lang)))
+							: undefined
+					}
+				>
+					{headerActions}
 					{showWrap && (
 						<IconButton
-							className={showLanguage ? undefined : "ms-auto"}
 							data-code-wrap
 							icon={<WrapText />}
 							label={t("codeblock.wrap")}
@@ -198,7 +213,6 @@ export function CodeBlock({
 					)}
 					{runnable && tabId && (
 						<IconButton
-							className={showLanguage || showWrap ? undefined : "ms-auto"}
 							data-code-run
 							icon={<SquareTerminal />}
 							label={t("codeblock.runInTerminal")}
@@ -210,14 +224,9 @@ export function CodeBlock({
 							size="sm"
 						/>
 					)}
-					{showCopy && (
-						<CopyButton
-							className={showLanguage || showWrap || runnable ? undefined : "ms-auto"}
-							label={t("chat.copyCode")}
-							text={code ?? ""}
-						/>
-					)}
-				</div>
+					{showCopy && <CopyButton label={t("chat.copyCode")} text={code ?? ""} />}
+					{endActions}
+				</FigureHeader>
 			)}
 			<div className={cx("overflow-auto", maxHeightClass)}>
 				{gutter ? (

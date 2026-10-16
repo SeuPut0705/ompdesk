@@ -11,7 +11,7 @@
  * open, copy, save as (and default app / remove when they apply).
  */
 import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Maximize2, Trash2, X } from "lucide-react";
-import { type ImgHTMLAttributes, type KeyboardEvent, useRef, useState } from "react";
+import { type ImgHTMLAttributes, type KeyboardEvent, type Ref, useImperativeHandle, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { copyImage, saveImage } from "../../lib/image-actions";
@@ -28,6 +28,12 @@ export interface GalleryImage {
 	path?: string;
 }
 
+/** What a toolbar can ask of a picture it sits beside. */
+export interface ZoomableImageHandle {
+	/** Open the full-size viewer. */
+	open: () => void;
+}
+
 export interface ZoomableImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onClick"> {
 	src: string;
 	alt: string;
@@ -39,6 +45,8 @@ export interface ZoomableImageProps extends Omit<ImgHTMLAttributes<HTMLImageElem
 	onRemove?: () => void;
 	/** Classes for the thumbnail button (the zoom target around the picture). */
 	thumbClassName?: string;
+	/** Lets a toolbar elsewhere (a figure's header) open the viewer. */
+	handleRef?: Ref<ZoomableImageHandle>;
 }
 
 export function ZoomableImage({
@@ -49,6 +57,7 @@ export function ZoomableImage({
 	onRemove,
 	className,
 	thumbClassName,
+	handleRef,
 	...imgProps
 }: ZoomableImageProps) {
 	const t = useT();
@@ -75,6 +84,7 @@ export function ZoomableImage({
 		);
 		setOpen(true);
 	};
+	useImperativeHandle(handleRef, () => ({ open: openViewer }));
 	const menuItems = (): ContextMenuItem[] => [
 		{ id: "open", label: t("image.menu.open"), icon: Maximize2, onSelect: openViewer },
 		...(path

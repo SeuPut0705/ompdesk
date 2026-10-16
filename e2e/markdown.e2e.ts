@@ -130,7 +130,7 @@ for (const language of ["en", "ko"] as const)
 				expect(await scrolls()).toBe(false);
 
 				// Mermaid: the diagram zooms, and its source is one switch away.
-				const fence = reply.locator("[data-mermaid-fence]");
+				const fence = reply.locator('[data-figure="mermaid"]');
 				const diagram = fence.locator("[data-zoomable-image] img");
 				await diagram.scrollIntoViewIfNeeded();
 				await expect(diagram).toBeVisible({ timeout: 30_000 });
@@ -144,9 +144,9 @@ for (const language of ["en", "ko"] as const)
 				await expect(viewer).toHaveCount(0);
 				// The diagram keeps its natural size inside the zoom button instead of collapsing.
 				expect((await diagram.boundingBox())?.width ?? 0).toBeGreaterThan(120);
-				await fence.getByRole("tab", { name: language === "en" ? "Code" : "코드" }).click();
+				await fence.getByRole("button", { name: language === "en" ? "Code" : "코드", exact: true }).click();
 				await expect(fence.locator(".omp-code-block")).toContainText("Plan --> Build --> Ship");
-				await fence.getByRole("tab", { name: language === "en" ? "Preview" : "미리보기" }).click();
+				await fence.getByRole("button", { name: language === "en" ? "Preview" : "미리보기", exact: true }).click();
 				await expect(diagram).toBeVisible();
 
 				// Footnotes: ref → note → back; the heading link lands on its heading.

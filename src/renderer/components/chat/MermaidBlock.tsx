@@ -6,13 +6,13 @@
  */
 
 import type { Mermaid, MermaidConfig } from "mermaid";
-import { memo, useEffect, useState } from "react";
-import { cx } from "../../lib/format";
+import { memo, type ReactNode, type RefObject, useEffect, useState } from "react";
 import { useT } from "../../lib/i18n";
+import { svgDataUrl } from "../../lib/svg-preview";
 import type { ResolvedTheme } from "../../lib/theme";
 import { Spinner } from "../common/Spinner";
-import { ZoomableImage } from "../common/ZoomableImage";
-import { CodeBlock } from "./CodeBlock";
+import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
+import { Figure, type FigureMode } from "./Figure";
 
 let mermaidPromise: Promise<Mermaid> | null = null;
 /** Theme the shared mermaid singleton was last initialized with. */
@@ -144,15 +144,16 @@ function useResolvedTheme(): ResolvedTheme {
 interface MermaidImageProps {
 	svg: string;
 	alt: string;
+	zoom: RefObject<ZoomableImageHandle | null>;
 }
 
 /** The diagram as an image that opens full size on click (fit, then actual size). */
-function MermaidImage({ svg, alt }: MermaidImageProps) {
+function MermaidImage({ svg, alt, zoom }: MermaidImageProps) {
 	const [url] = useState(() => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })));
 	useEffect(() => () => URL.revokeObjectURL(url), [url]);
 	return (
-		<div className="flex justify-center">
-			<ZoomableImage src={url} alt={alt} className="block h-auto max-w-full" />
+		<div className="flex justify-center p-3">
+			<ZoomableImage alt={alt} className="block h-auto max-w-full" handleRef={zoom} src={url} />
 		</div>
 	);
 }
@@ -160,7 +161,17 @@ function MermaidImage({ svg, alt }: MermaidImageProps) {
 export interface MermaidBlockProps {
 	/** Mermaid diagram source. */
 	code: string;
+	/** The code view's gutter, as the surrounding transcript has it. */
+	showLineNumbers?: boolean;
+	maxHeightClass?: string;
+	/** Replaces the code view's CodeBlock (a write's diff), inside the same box. */
+	codeView?: ReactNode;
+	/** Header title when the figure is a file ("flow.mmd"); the kind otherwise. */
+	title?: string;
 	className?: string;
+	/** Controlled Preview/Code view (a file viewer that remembers it). */
+	mode?: FigureMode;
+	onModeChange?: (mode: FigureMode) => void;
 }
 
 interface RenderState {
@@ -169,7 +180,16 @@ interface RenderState {
 	failed: boolean;
 }
 
-export const MermaidBlock = memo(function MermaidBlock({ code, className }: MermaidBlockProps) {
+export const MermaidBlock = memo(function MermaidBlock({
+	code,
+	showLineNumbers,
+	maxHeightClass,
+	codeView,
+	title = "Mermaid",
+	className,
+	mode,
+	onModeChange,
+}: MermaidBlockProps) {
 	const t = useT();
 	const theme = useResolvedTheme();
 	const cacheKey = `${theme}:${hashSource(code)}`;
@@ -204,31 +224,43 @@ export const MermaidBlock = memo(function MermaidBlock({ code, className }: Merm
 	// (code, theme) pair has not run yet.
 	const current: RenderState =
 		state.key === cacheKey ? state : { key: cacheKey, svg: svgCache.get(cacheKey) ?? null, failed: false };
+	const svg = current.svg;
+	const common = {
+		kind: "mermaid",
+		title,
+		code,
+		language: "mermaid",
+		codeView,
+		showLineNumbers,
+		maxHeightClass,
+		className,
+		mode,
+		onModeChange,
+	};
 
-	// SSR / non-DOM path: never touch mermaid, show the source instead.
-	if (typeof window === "undefined" || current.failed) {
-		return <CodeBlock code={code} language="mermaid" className={className} />;
-	}
-	if (current.svg === null) {
+	// SSR / non-DOM path or a diagram mermaid rejects: the source, still in the box.
+	if (typeof window === "undefined" || current.failed) return <Figure {...common} preview={null} />;
+	if (svg === null) {
 		return (
-			<div
-				className={cx(
-					"my-1 flex items-center justify-center rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) px-3 py-6",
-					className,
+			<Figure
+				{...common}
+				preview={() => (
+					<div className="flex items-center justify-center px-3 py-6">
+						<Spinner size="md" label={t("chat.renderingDiagram")} />
+					</div>
 				)}
-			>
-				<Spinner size="md" label={t("chat.renderingDiagram")} />
-			</div>
+			/>
 		);
 	}
 	return (
-		<div
-			className={cx(
-				"my-1 overflow-x-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3",
-				className,
-			)}
-		>
-			<MermaidImage key={cacheKey} svg={current.svg} alt={t("chat.diagram")} />
-		</div>
+		<Figure
+			{...common}
+			download={{
+				src: svgDataUrl(svg),
+				name: `${title === "Mermaid" ? "diagram" : title.replace(/\.[^.]*$/, "")}.svg`,
+			}}
+			preview={zoom => <MermaidImage key={cacheKey} alt={t("chat.diagram")} svg={svg} zoom={zoom} />}
+			zoomable
+		/>
 	);
 });

@@ -13,8 +13,9 @@ import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { useUiStore } from "../../../stores/ui";
 import { CodeBlock } from "../../chat/CodeBlock";
+import { FigureModeToggle } from "../../chat/Figure";
 import { MermaidBlock } from "../../chat/MermaidBlock";
-import { IconButton, Tabs, ZoomableImage } from "../../common";
+import { IconButton, ZoomableImage } from "../../common";
 import { CodeView, useWrapToggle } from "./CodeView";
 import { fileExtension } from "./file-kind";
 import { HexView } from "./HexView";
@@ -170,16 +171,12 @@ function MarkdownBody({ content, outline }: { content: string; outline: boolean 
 function ModeTabs({ mode, onChange }: { mode: DocumentMode; onChange: (mode: DocumentMode) => void }) {
 	const t = useT();
 	return (
-		<Tabs
-			activeId={mode}
-			ariaLabel={t("fileViewer.mode")}
-			compact
-			onChange={id => onChange(id === "source" ? "source" : "rendered")}
-			tabs={[
-				{ id: "rendered", label: t("fileViewer.rendered") },
-				{ id: "source", label: t("fileViewer.source") },
-			]}
-			variant="segmented"
+		<FigureModeToggle
+			codeLabel={t("fileViewer.source")}
+			groupLabel={t("fileViewer.mode")}
+			mode={mode === "source" ? "code" : "preview"}
+			onChange={next => onChange(next === "code" ? "source" : "rendered")}
+			previewLabel={t("fileViewer.rendered")}
 		/>
 	);
 }
@@ -254,30 +251,26 @@ export function HtmlFileView({ path, tabId, line }: TextViewProps) {
 	);
 }
 
-/** .mmd/.mermaid: the diagram (MermaidBlock falls back to the source when it does not parse), or the source. */
+/**
+ * .mmd/.mermaid: the figure's own header holds the Rendered/Source switch (a
+ * diagram that does not parse shows only the source); the choice is remembered per path.
+ */
 export function MermaidFileView({ path, tabId, line }: TextViewProps) {
-	const t = useT();
 	const [mode, setMode] = useDocumentMode(path, line);
-	const { wrap, toggle } = useWrapToggle();
 	return (
 		<TextFileFrame
 			path={path}
-			render={content =>
-				mode === "rendered" ? (
-					<div className="p-3" data-mermaid-rendered>
-						<MermaidBlock code={content} />
-					</div>
-				) : (
-					<CodeView code={content} language="plaintext" targetLine={line} wrap={wrap} />
-				)
-			}
+			render={content => (
+				<div className="p-3" data-mermaid-rendered>
+					<MermaidBlock
+						code={content}
+						codeView={<CodeView code={content} language="plaintext" targetLine={line} wrap={false} />}
+						mode={mode === "source" ? "code" : "preview"}
+						onModeChange={next => setMode(next === "code" ? "source" : "rendered")}
+					/>
+				</div>
+			)}
 			tabId={tabId}
-			toolbar={
-				<ViewerToolbar label={t("fileViewer.toolbar")}>
-					<ModeTabs mode={mode} onChange={setMode} />
-					{mode === "source" && toggle}
-				</ViewerToolbar>
-			}
 		/>
 	);
 }

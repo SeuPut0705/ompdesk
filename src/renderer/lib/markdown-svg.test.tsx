@@ -42,12 +42,15 @@ describe("svg fences", () => {
 		expect(svg).not.toMatch(/script|onload|javascript|<a\b|alert/i);
 		expect(html).toContain("data-svg-preview");
 		expect(html).toContain("data-zoomable-image");
-		// Preview/Code switch; the source is not on screen in preview mode.
-		expect(html).toContain(">Preview<");
-		expect(html).toContain(">Code<");
+		// Preview/Code icon switch in the figure's one header; the source is not on screen in preview mode.
+		expect(html).toContain('aria-label="Preview"');
+		expect(html).toContain('aria-label="Code"');
+		expect(html).toContain("data-figure-header");
+		expect(html).not.toContain('role="tab"');
 		expect(html).not.toContain("&lt;script&gt;");
 		// No inline SVG ever reaches the DOM.
-		expect(html).not.toMatch(/<svg[\s>]/);
+		// (the header's lucide icons are the app's own, not the reply's)
+		expect(html).not.toMatch(/<svg(?![^>]*lucide)[\s>]/);
 	});
 
 	it("match the fence language case-insensitively, as stock does", () => {

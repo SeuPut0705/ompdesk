@@ -10,14 +10,13 @@
  * lay out at 0×0. It fills the chip's width instead, as inline SVG would, its
  * height following the viewBox ratio up to a viewport share like stock's TUI.
  */
-import { memo, useEffect, useMemo, useState } from "react";
-import { cx } from "../../lib/format";
+import { memo, type ReactNode, type RefObject, useEffect, useMemo, useState } from "react";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_HEIGHT_LG } from "../../lib/preview";
 import { SVG_PALETTE_VARIABLES, type SvgPalette, sanitizeSvg, svgDataUrl, svgFillsWidth } from "../../lib/svg-preview";
-import { Tabs } from "../common/Tabs";
-import { ZoomableImage } from "../common/ZoomableImage";
+import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
 import { CodeBlock } from "./CodeBlock";
+import { Figure } from "./Figure";
 
 function readPalette(): SvgPalette | undefined {
 	if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") return undefined;
@@ -57,22 +56,17 @@ export function useSanitizedSvg(code: string): string | null {
 	return useMemo(() => sanitizeSvg(code, palette), [code, palette]);
 }
 
-/** A sanitized SVG document on a neutral chip, bounded in height and zoomable. */
-export function SvgImage({ svg, className }: { svg: string; className?: string }) {
+/** A sanitized SVG document, bounded in height and zoomable; the figure's box around it comes from `Figure`. */
+export function SvgImage({ svg, zoom }: { svg: string; zoom?: RefObject<ZoomableImageHandle | null> }) {
 	const t = useT();
 	const src = useMemo(() => svgDataUrl(svg), [svg]);
 	const fills = useMemo(() => svgFillsWidth(svg), [svg]);
 	return (
-		<div
-			className={cx(
-				"flex justify-center overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3",
-				className,
-			)}
-			data-svg-preview
-		>
+		<div className="flex justify-center p-3" data-svg-preview>
 			<ZoomableImage
 				alt={t("svgPreview.image")}
 				className={fills ? "h-auto max-h-[80dvh] w-full" : `${PREVIEW_HEIGHT_LG} h-auto max-w-full`}
+				handleRef={zoom}
 				src={src}
 				thumbClassName={fills ? "w-full" : undefined}
 			/>
@@ -80,50 +74,59 @@ export function SvgImage({ svg, className }: { svg: string; className?: string }
 	);
 }
 
-export type PreviewMode = "preview" | "code";
-
-/** The Preview/Code switch shared by the svg fence, the Write card and their kin. */
-export function PreviewModeTabs({ mode, onChange }: { mode: PreviewMode; onChange: (mode: PreviewMode) => void }) {
-	const t = useT();
-	return (
-		<Tabs
-			activeId={mode}
-			ariaLabel={t("svgPreview.mode")}
-			compact
-			onChange={id => onChange(id === "code" ? "code" : "preview")}
-			tabs={[
-				{ id: "preview", label: t("svgPreview.preview") },
-				{ id: "code", label: t("svgPreview.code") },
-			]}
-			variant="segmented"
-		/>
-	);
-}
-
 export interface SvgBlockProps {
-	/** SVG source from the fence. */
+	/** SVG source from the fence or the written file. */
 	code: string;
 	showLineNumbers?: boolean;
 	maxHeightClass?: string;
+	/** Header title when the figure is a file ("logo.svg"); "SVG" otherwise. */
+	title?: string;
+	/** Replaces the code view's CodeBlock (a write's diff), inside the same box. */
+	codeView?: ReactNode;
+	/** Shown instead of the figure while the source does not parse (default: the code block). */
+	fallback?: ReactNode;
 	className?: string;
 }
 
-/** An assistant ```svg fence: the picture with a Code switch, or code until the source parses. */
-export const SvgBlock = memo(function SvgBlock({ code, showLineNumbers, maxHeightClass, className }: SvgBlockProps) {
+/** An svg fence or written .svg: the picture with the code one icon away, or code until the source parses. */
+export const SvgBlock = memo(function SvgBlock({
+	code,
+	showLineNumbers,
+	maxHeightClass,
+	title = "SVG",
+	codeView,
+	fallback,
+	className,
+}: SvgBlockProps) {
 	const svg = useSanitizedSvg(code);
-	const [mode, setMode] = useState<PreviewMode>("preview");
-	const source = (
-		<CodeBlock code={code} language="svg" showLineNumbers={showLineNumbers} maxHeightClass={maxHeightClass} />
-	);
-	if (svg === null) return <div className={className}>{source}</div>;
+	if (svg === null) {
+		return (
+			<div className={className}>
+				{fallback ?? (
+					<CodeBlock
+						code={code}
+						language="svg"
+						maxHeightClass={maxHeightClass}
+						showLineNumbers={showLineNumbers}
+						title={title}
+					/>
+				)}
+			</div>
+		);
+	}
 	return (
-		<div className={cx("flex flex-col items-start gap-1.5", className)} data-svg-block>
-			<PreviewModeTabs mode={mode} onChange={setMode} />
-			{mode === "preview" ? (
-				<SvgImage svg={svg} className="self-stretch" />
-			) : (
-				<div className="self-stretch">{source}</div>
-			)}
-		</div>
+		<Figure
+			className={className}
+			code={code}
+			codeView={codeView}
+			download={{ src: svgDataUrl(svg), name: title === "SVG" ? "figure.svg" : title }}
+			kind="svg"
+			language="svg"
+			maxHeightClass={maxHeightClass}
+			preview={zoom => <SvgImage svg={svg} zoom={zoom} />}
+			showLineNumbers={showLineNumbers}
+			title={title}
+			zoomable
+		/>
 	);
 });

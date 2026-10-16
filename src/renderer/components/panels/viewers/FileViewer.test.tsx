@@ -461,7 +461,7 @@ describe("html view", () => {
 		expect(frame?.getAttribute("srcDoc")).toContain("<h1>Hi</h1>");
 		expect(container.querySelector("[data-code-view]")).toBeNull();
 
-		const source = container.querySelectorAll('[role="tab"]').find(tab => tab.textContent === "Source");
+		const source = container.querySelector('[data-figure-mode-button="code"]');
 		await act(async () => {
 			source?.dispatchEvent(new Event("click", { bubbles: true }));
 		});
@@ -475,14 +475,16 @@ describe("mermaid view", () => {
 		installFs({ read: async () => textResult("graph TD\n  A --> B\n") });
 		await mount(view("docs/flow.mmd"));
 		expect(container.querySelector('[data-viewer-kind="mermaid"]')).not.toBeNull();
-		// MermaidBlock: rendering, or (mermaid needs a real browser) its source fallback with the Mermaid badge.
+		// MermaidBlock: rendering, or (mermaid needs a real browser) its source fallback; the figure's own header names it.
 		expect(container.querySelector("[data-mermaid-rendered]")?.textContent).toMatch(/Rendering diagram|^Mermaid/);
+		// One header: no separate viewer toolbar above the figure.
+		expect(container.querySelector('[role="toolbar"]')).toBeNull();
 
-		const source = container.querySelectorAll('[role="tab"]').find(tab => tab.textContent === "Source");
+		// A figure whose picture has not drawn has no switch (it already shows the source).
+		const source = container.querySelector('[data-figure-mode-button="code"]');
 		await act(async () => {
 			source?.dispatchEvent(new Event("click", { bubbles: true }));
 		});
-		expect(container.querySelector("[data-mermaid-rendered]")).toBeNull();
 		expect(container.querySelector("[data-code-view]")?.textContent).toContain("A --> B");
 	});
 });

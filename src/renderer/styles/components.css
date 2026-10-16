@@ -421,8 +421,8 @@
 	border-radius: var(--sc-radius-lg);
 	border: 1px solid var(--sc-border-subtle);
 }
-/* A diagram or SVG figure sits on its own chip; no second frame around the picture. */
-.markdown-body :is([data-mermaid-fence], [data-svg-preview]) img {
+/* A diagram or SVG figure sits in its own box; no second frame around the picture. */
+.markdown-body :is([data-figure], [data-svg-preview]) img {
 	border: 0;
 }
 .markdown-body a {
@@ -2724,7 +2724,7 @@ button.omp-file-chip-name:hover {
 }
 
 /* Separate content blocks share one gap; nested prose keeps its own rhythm. */
-.omp-transcript-editorial .omp-transcript-content > :is(.markdown-body, .omp-code-block, [data-svg-block]) + :is(.markdown-body, .omp-code-block, [data-svg-block]) {
+.omp-transcript-editorial .omp-transcript-content > :is(.markdown-body, .omp-code-block, [data-figure]) + :is(.markdown-body, .omp-code-block, [data-figure]) {
 	margin-top: var(--sc-space-3);
 }
 

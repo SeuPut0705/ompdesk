@@ -116,7 +116,7 @@ export function ViewerToolbar({ children, label }: { children: ReactNode; label:
 	return (
 		<div
 			aria-label={label}
-			className="flex min-h-(--sc-space-10) shrink-0 flex-wrap items-center gap-1.5 border-b border-(--sc-divider) px-3 py-2"
+			className="flex min-h-(--sc-control-md) shrink-0 flex-wrap items-center gap-1 border-b border-(--sc-divider) px-2 py-1"
 			role="toolbar"
 		>
 			{children}

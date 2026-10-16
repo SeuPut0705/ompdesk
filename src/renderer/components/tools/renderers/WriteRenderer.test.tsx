@@ -112,7 +112,7 @@ describe("WriteRenderer", () => {
 		expect(decoded).not.toMatch(/script|onload|alert/);
 		expect(container.textContent).not.toContain("alert(2)");
 
-		await clickTab("code");
+		await showCode();
 		expect(container.querySelector("[data-svg-preview]")).toBeNull();
 		expect(container.textContent).toContain("alert(2)");
 	});
@@ -127,7 +127,7 @@ describe("WriteRenderer", () => {
 		);
 		await expand();
 		expect(container.querySelector("[data-svg-preview]")).toBeNull();
-		expect(container.querySelector('[role="tab"]')).toBeNull();
+		expect(container.querySelector("[data-figure-mode]")).toBeNull();
 		expect(container.textContent).toContain("<rect wid");
 	});
 
@@ -140,7 +140,7 @@ describe("WriteRenderer", () => {
 		);
 		await expand();
 		expect(container.querySelector("[data-svg-preview] img")).not.toBeNull();
-		await clickTab("code");
+		await showCode();
 		expect(container.textContent).toContain("const oldValue = true;");
 	});
 
@@ -149,11 +149,11 @@ describe("WriteRenderer", () => {
 		const diagram = "graph TD\n  A --> B\n";
 		await mount(<WriteRenderer args={{ path: "docs/flow.mmd", content: diagram }} result={{}} />);
 		await expand();
-		const figure = container.querySelector('[data-write-figure="mermaid"]');
-		expect(figure?.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Preview");
-		// MermaidBlock: rendering, or (mermaid needs a real browser) its source fallback with the Mermaid badge.
-		expect(figure?.textContent).toMatch(/Rendering diagram|PreviewCodeMermaid/);
-		await clickTab("code");
+		const figure = container.querySelector('[data-figure="mermaid"]');
+		// MermaidBlock: rendering (Preview showing), or (mermaid needs a real browser) its source in the same box.
+		expect(figure?.textContent).toMatch(/Rendering diagram|Mermaid/);
+		expect(figure?.querySelector("[data-figure-title]")?.textContent).toBe("flow.mmd");
+		await showCode();
 		expect(container.textContent).toContain("A --> B");
 
 		await act(async () => root.unmount());
@@ -161,15 +161,15 @@ describe("WriteRenderer", () => {
 			<WriteRenderer args={{ path: "docs/flow.mermaid", content: "graph TD\n  A -" }} isPartial result={{}} />,
 		);
 		await expand();
-		expect(container.querySelector("[data-write-figure]")).toBeNull();
+		expect(container.querySelector("[data-figure]")).toBeNull();
 		expect(container.textContent).toContain("A -");
 	});
 });
 
-async function clickTab(id: string): Promise<void> {
-	const tab = container.querySelector(`[role="tab"][data-tab-id="${id}"]`) as HTMLElement | null;
-	expect(tab).not.toBeNull();
+/** Switch the open figure to its code view (a figure whose picture has not drawn has no switch: it already shows code). */
+async function showCode(): Promise<void> {
+	const button = container.querySelector('[data-figure-mode-button="code"]') as HTMLElement | null;
 	await act(async () => {
-		tab?.click();
+		button?.click();
 	});
 }

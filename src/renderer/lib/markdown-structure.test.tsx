@@ -133,7 +133,7 @@ describe("code fences", () => {
 	it("keeps a streaming fence plain: no highlight, no diagram", () => {
 		const page = doc("```ts\nconst x = 1;\n```\n\n```mermaid\ngraph TD\nA-->B\n```", true);
 		expect(page.querySelector("pre code")?.querySelector("[class^='hljs-']")).toBeNull();
-		expect(page.querySelector('[role="tab"]')).toBeNull();
+		expect(page.querySelector("[data-figure-mode]")).toBeNull();
 		expect(page.body.textContent).toContain("graph TD");
 	});
 });
@@ -231,7 +231,7 @@ describe("link schemes", () => {
 describe("mermaid and wrap controls", () => {
 	it("shows a mermaid fence's source on request", async () => {
 		const view = await mount(<MarkdownRenderer content={"```mermaid\ngraph TD\n  A --> B\n```"} />);
-		const code = Array.from(view.querySelectorAll('[role="tab"]')).find(tab => tab.textContent === "Code");
+		const code = view.querySelector('[data-figure-mode-button="code"]');
 		await click(code);
 		expect(view.querySelector(".omp-code-block")?.textContent).toContain("A --> B");
 	});

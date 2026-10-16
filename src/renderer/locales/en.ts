@@ -2782,6 +2782,8 @@ export const en: Record<string, string> = {
 	"svgPreview.mode": "Preview or code",
 	"svgPreview.preview": "Preview",
 	"svgPreview.code": "Code",
+	"figure.download": "Download as file",
+	"figure.expand": "Enlarge",
 	"markdown.imageFailed": "Image couldn't load",
 	"markdown.remoteImage": "Remote image not loaded",
 	"markdown.remoteImageOpen": "Open",

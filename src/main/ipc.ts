@@ -1166,6 +1166,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const extension =
 			mimeType
 				.split("/")[1]
+				?.split(/[+;]/)[0]
 				?.replace("jpeg", "jpg")
 				.replace(/[^a-z0-9]/gi, "") || "png";
 		const result = await dialog.showSaveDialog(win, {
