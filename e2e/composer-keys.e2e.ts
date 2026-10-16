@@ -109,6 +109,25 @@ for (const language of ["en", "ko"] as const)
 				}
 				await expect.poll(() => scroller.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(400);
 
+				// Shift+Enter continues a markdown list, an empty item ends it, undo restores the plain newline.
+				await input.click();
+				await page.keyboard.type("- one");
+				await page.keyboard.press("Shift+Enter");
+				await expect(input).toHaveValue("- one\n- ");
+				await page.keyboard.type("two");
+				await page.keyboard.press("Shift+Enter");
+				await page.keyboard.press("Shift+Enter");
+				await expect(input).toHaveValue("- one\n- two\n");
+				await page.keyboard.press("ControlOrMeta+a");
+				await page.keyboard.press("Backspace");
+				await page.keyboard.type("1. a");
+				await page.keyboard.press("Shift+Enter");
+				await expect(input).toHaveValue("1. a\n2. ");
+				await page.keyboard.press("ControlOrMeta+z");
+				await expect(input).toHaveValue("1. a\n");
+				await page.keyboard.press("ControlOrMeta+a");
+				await page.keyboard.press("Backspace");
+
 				// ⌃J inserts a newline at the caret; ⌃U deletes back to the line start.
 				await input.click();
 				await page.keyboard.type("first");

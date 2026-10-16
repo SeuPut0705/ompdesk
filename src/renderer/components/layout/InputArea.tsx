@@ -34,6 +34,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
 import { formatShortcut, PLATFORM } from "../../lib/keymap";
+import { continueList } from "../../lib/list-continue";
 import { abortActiveTurn } from "../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import {
@@ -210,6 +211,27 @@ export function InputArea() {
 		},
 		[setText],
 	);
+	/**
+	 * Continue (or end) a markdown list at the caret for a newline key. The edit goes through the
+	 * browser's own insertion so Cmd/Ctrl+Z restores the plain newline; a field that refuses it
+	 * (no `execCommand`) takes the draft directly. False when the plain newline should stand.
+	 */
+	const continueListAtCaret = (): boolean => {
+		const el = textareaRef.current;
+		if (!el) return false;
+		const value = el.value;
+		const start = el.selectionStart ?? value.length;
+		const edit = continueList(value, start, el.selectionEnd ?? start);
+		if (!edit) return false;
+		const next = value.slice(0, edit.from) + edit.insert + value.slice(edit.to);
+		el.setSelectionRange(edit.from, edit.to);
+		const done =
+			typeof document.execCommand === "function" &&
+			(edit.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, edit.insert));
+		if (!done || el.value !== next) placeDraft(next, edit.caret);
+		else el.setSelectionRange(edit.caret, edit.caret);
+		return true;
+	};
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
 	const chipsShown =
@@ -807,8 +829,20 @@ export function InputArea() {
 			toggleExpanded(false);
 			return;
 		}
-		// ⌃J inserts a newline at the caret (macOS: on Windows Ctrl+J toggles the panel);
+		// ⌃J inserts a newline at the caret (macOS: on Windows Ctrl+J toggles the panel), continuing a list;
 		// ⌃U deletes the selection, or back to the start of the line.
+		if (
+			e.key === "j" &&
+			PLATFORM === "mac" &&
+			e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			!e.shiftKey &&
+			continueListAtCaret()
+		) {
+			e.preventDefault();
+			return;
+		}
 		if (
 			((e.key === "j" && PLATFORM === "mac") || e.key === "u") &&
 			e.ctrlKey &&
@@ -900,6 +934,18 @@ export function InputArea() {
 					return;
 				}
 			}
+		}
+		// Line-adding keys (Shift+Enter, plain Enter while expanded) continue a markdown list.
+		if (
+			e.key === "Enter" &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			(e.shiftKey || expanded) &&
+			continueListAtCaret()
+		) {
+			e.preventDefault();
+			return;
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
 			// Expanded: plain Enter is a newline; ⌘↵ sends and collapses.

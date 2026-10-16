@@ -1752,3 +1752,109 @@ describe("InputArea caret placement", () => {
 		});
 	});
 });
+
+describe("InputArea markdown list continuation", () => {
+	function setCaret(start: number, end = start): void {
+		const textarea = findTextarea() as unknown as { selectionStart: number; selectionEnd: number };
+		textarea.selectionStart = start;
+		textarea.selectionEnd = end;
+	}
+
+	function caret(): number {
+		return (findTextarea() as unknown as { selectionStart: number }).selectionStart;
+	}
+
+	async function mountDraft(draft: string, at = draft.length): Promise<void> {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await typeInto(findTextarea(), draft);
+		setCaret(at);
+	}
+
+	const shiftEnter = { key: "Enter", shiftKey: true };
+
+	it("continues a bullet on Shift+Enter, caret after the new bullet", async () => {
+		await mountDraft("- one");
+		const result = await pressKey(shiftEnter);
+		expect(result.defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("- one\n- ");
+		expect(caret()).toBe("- one\n- ".length);
+	});
+
+	it("numbers ordered items and resets task boxes", async () => {
+		await mountDraft("  1. a");
+		await pressKey(shiftEnter);
+		expect(useComposerStore.getState().draft).toBe("  1. a\n  2. ");
+		await typeInto(findTextarea(), "- [x] done");
+		setCaret("- [x] done".length);
+		await pressKey(shiftEnter);
+		expect(useComposerStore.getState().draft).toBe("- [x] done\n- [ ] ");
+	});
+
+	it("ends the list on an empty item", async () => {
+		await mountDraft("- a\n- ");
+		const result = await pressKey(shiftEnter);
+		expect(result.defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("- a\n");
+		expect(caret()).toBe(4);
+	});
+
+	it("splits a line at the caret and gives the remainder the bullet", async () => {
+		await mountDraft("- abcd", 4);
+		await pressKey(shiftEnter);
+		expect(useComposerStore.getState().draft).toBe("- ab\n- cd");
+		expect(caret()).toBe("- ab\n- ".length);
+	});
+
+	it("leaves plain lines, fenced code and a caret in the bullet to the native newline", async () => {
+		await mountDraft("plain");
+		expect((await pressKey(shiftEnter)).defaultPrevented).toBe(false);
+		await typeInto(findTextarea(), "```\n- a");
+		setCaret("```\n- a".length);
+		expect((await pressKey(shiftEnter)).defaultPrevented).toBe(false);
+		await typeInto(findTextarea(), "- a");
+		setCaret(1);
+		expect((await pressKey(shiftEnter)).defaultPrevented).toBe(false);
+		expect(useComposerStore.getState().draft).toBe("- a");
+	});
+
+	it("does nothing during IME composition", async () => {
+		await mountDraft("- 한");
+		const result = await pressKey({ ...shiftEnter, nativeEvent: { isComposing: true } });
+		expect(result.defaultPrevented).toBe(false);
+		expect(useComposerStore.getState().draft).toBe("- 한");
+	});
+
+	it("does not touch a plain Enter (it sends) or ⌘/⌃ chords", async () => {
+		await mountDraft("- one");
+		expect(useComposerStore.getState().draft).toBe("- one");
+		await pressKey({ key: "Enter", shiftKey: true, metaKey: true });
+		expect(useComposerStore.getState().draft).toBe("- one");
+	});
+
+	it("inserts through execCommand so native undo restores the plain newline", async () => {
+		await mountDraft("- one");
+		const doc = document as unknown as { execCommand?: unknown };
+		const calls: unknown[][] = [];
+		doc.execCommand = (...args: unknown[]) => {
+			calls.push(args);
+			const el = findTextarea() as unknown as { value: string; selectionStart: number; selectionEnd: number };
+			el.value = el.value.slice(0, el.selectionStart) + String(args[2]) + el.value.slice(el.selectionEnd);
+			return true;
+		};
+		try {
+			await pressKey(shiftEnter);
+		} finally {
+			delete doc.execCommand;
+		}
+		expect(calls).toEqual([["insertText", false, "\n- "]]);
+	});
+
+	it("continues the list for plain Enter while the composer is expanded", async () => {
+		await mountDraft("1) a");
+		await pressKey({ key: "g", ctrlKey: true });
+		setCaret("1) a".length);
+		await pressKey({ key: "Enter" });
+		expect(useComposerStore.getState().draft).toBe("1) a\n2) ");
+	});
+});
