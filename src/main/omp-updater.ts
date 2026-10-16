@@ -24,6 +24,7 @@ import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateFailure, OmpUpdateState } from "../shared/omp-update";
 import { isNewer } from "../shared/version";
 import type { OmpUpdateOutcome } from "./setup/service";
+import type { IpcRegistry } from "./web/ipc-registry";
 
 /** Between checks while all is well. */
 export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -190,11 +191,7 @@ export class OmpUpdater {
 }
 
 /** IPC for the renderer: a snapshot and "Update now". Nothing else crosses; no handler takes a version, command or path. */
-export interface OmpUpdateIpcTarget {
-	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
-}
-
-export function registerOmpUpdateIpc(ipc: OmpUpdateIpcTarget, updater: Pick<OmpUpdater, "state" | "updateNow">): void {
+export function registerOmpUpdateIpc(ipc: IpcRegistry, updater: Pick<OmpUpdater, "state" | "updateNow">): void {
 	ipc.handle(IPC_COMMANDS.OMP_UPDATE_GET_STATE, () => updater.state());
 	// Runs in the background; progress arrives as OMP_UPDATE_STATE pushes.
 	ipc.handle(IPC_COMMANDS.OMP_UPDATE_NOW, () => {

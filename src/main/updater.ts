@@ -31,7 +31,7 @@
 import { execFile, spawn } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, ipcMain, net, shell } from "electron";
+import { app, BrowserWindow, net, shell } from "electron";
 import type { UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
 // Not node:fs: Electron's fs treats `app.asar` as a directory, so a recursive rm
@@ -74,6 +74,7 @@ import {
 	type ToolResult,
 	withinIdle,
 } from "./updater-state";
+import type { IpcRegistry } from "./web/ipc-registry";
 
 const { autoUpdater } = pkg;
 
@@ -564,7 +565,7 @@ export function restartIntoUpdate(): void {
 	if (current.mode === "automatic") autoUpdater.quitAndInstall();
 }
 
-export function setupUpdater(): void {
+export function setupUpdater(ipc: IpcRegistry): void {
 	installMode = detectInstallMode();
 	// Installs interrupted by older builds keyed the partial by process id, which
 	// nothing could ever continue — those orphans are the only debris a startup
@@ -642,9 +643,9 @@ export function setupUpdater(): void {
 		broadcast(failureStatus(error, "updates.failed", false));
 	});
 
-	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
-	ipcMain.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
-	ipcMain.handle(IPC_COMMANDS.UPDATER_APPLY, async () => {
+	ipc.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
+	ipc.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
+	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, async () => {
 		if (current.state !== "downloaded") return;
 		if (current.mode === "manual") {
 			if (!downloadedInstallerPath) {
@@ -666,18 +667,18 @@ export function setupUpdater(): void {
 		if (!(await confirmQuit(true))) return;
 		restartIntoUpdate();
 	});
-	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
-	ipcMain.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());
-	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_INFO, () => updateAuthInfo());
-	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_TEST, (_event, token?: string) => testAuth(token));
-	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_SAVE, async (_event, token: string): Promise<UpdateAuthTestResult> => {
+	ipc.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
+	ipc.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());
+	ipc.handle(IPC_COMMANDS.UPDATER_AUTH_INFO, () => updateAuthInfo());
+	ipc.handle(IPC_COMMANDS.UPDATER_AUTH_TEST, (_caller, token?: string) => testAuth(token));
+	ipc.handle(IPC_COMMANDS.UPDATER_AUTH_SAVE, async (_caller, token: string): Promise<UpdateAuthTestResult> => {
 		const trimmed = token.trim();
 		if (!trimmed) return { access: "missing", source: null };
 		const access = await checkRepoAccess(trimmed);
 		if (access === "ok") await storeUpdateToken(trimmed);
 		return { access, source: access === "ok" ? "stored" : null };
 	});
-	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_CLEAR, async () => {
+	ipc.handle(IPC_COMMANDS.UPDATER_AUTH_CLEAR, async () => {
 		await clearUpdateToken();
 		return updateAuthInfo();
 	});

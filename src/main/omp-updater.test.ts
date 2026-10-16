@@ -10,6 +10,7 @@ import {
 	registerOmpUpdateIpc,
 } from "./omp-updater";
 import type { OmpUpdateOutcome } from "./setup/service";
+import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -347,16 +348,16 @@ describe("OmpUpdater", () => {
 });
 
 describe("omp update IPC", () => {
-	it("serves exactly the state snapshot and Update now; nothing crosses that names a version, command or path", () => {
-		const handlers: Record<string, (event: unknown, ...args: unknown[]) => unknown> = {};
+	it("serves exactly the state snapshot and Update now; nothing crosses that names a version, command or path", async () => {
+		const channels: string[] = [];
+		const ipc = new IpcRegistry({ handle: channel => channels.push(channel), on: () => {} });
+		const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, once: () => {} } };
 		const updater = { state: vi.fn(() => ({ phase: "idle" }) as OmpUpdateState), updateNow: vi.fn(async () => {}) };
-		registerOmpUpdateIpc({ handle: (channel, listener) => (handlers[channel] = listener) }, updater);
-		expect(Object.keys(handlers).sort()).toEqual(
-			[IPC_COMMANDS.OMP_UPDATE_GET_STATE, IPC_COMMANDS.OMP_UPDATE_NOW].sort(),
-		);
-		expect(handlers[IPC_COMMANDS.OMP_UPDATE_GET_STATE]?.({})).toEqual({ phase: "idle" });
+		registerOmpUpdateIpc(ipc, updater);
+		expect(channels.sort()).toEqual([IPC_COMMANDS.OMP_UPDATE_GET_STATE, IPC_COMMANDS.OMP_UPDATE_NOW].sort());
+		expect(await ipc.invoke(IPC_COMMANDS.OMP_UPDATE_GET_STATE, caller, [])).toEqual({ phase: "idle" });
 		// The arguments a renderer might add are ignored.
-		handlers[IPC_COMMANDS.OMP_UPDATE_NOW]?.({}, "19.0.0; rm -rf /");
+		await ipc.invoke(IPC_COMMANDS.OMP_UPDATE_NOW, caller, ["19.0.0; rm -rf /"]);
 		expect(updater.updateNow).toHaveBeenCalledWith();
 	});
 });

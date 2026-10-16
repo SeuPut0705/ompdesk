@@ -1,40 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { SetupState } from "../../shared/setup";
+import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { registerSetupIpc } from "./ipc";
 
 const STATE: SetupState = { platform: "darwin", automatic: true, ompReady: true, requiredRunning: false, items: [] };
+const CALLER: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, once: () => {} } };
 
 function registered() {
-	const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+	const channels: string[] = [];
+	const ipc = new IpcRegistry({ handle: channel => channels.push(channel), on: () => {} });
 	const service = { state: vi.fn(() => STATE), retry: vi.fn(async (_item: unknown) => {}), cancel: vi.fn(() => true) };
-	registerSetupIpc({ handle: (channel, listener) => handlers.set(channel, listener) }, service);
-	const call = (channel: string, ...args: unknown[]) => {
-		const handler = handlers.get(channel);
-		if (!handler) throw new Error(`no handler for ${channel}`);
-		return handler({}, ...args);
-	};
-	return { service, call, handlers };
+	registerSetupIpc(ipc, service);
+	const call = (channel: string, ...args: unknown[]) => ipc.invoke(channel, CALLER, args);
+	return { service, call, channels };
 }
 
 describe("setup IPC", () => {
-	it("serves exactly the state, retry and cancel channels", () => {
-		const { handlers, call, service } = registered();
-		expect([...handlers.keys()].sort()).toEqual(
+	it("serves exactly the state, retry and cancel channels", async () => {
+		const { channels, call, service } = registered();
+		expect(channels.sort()).toEqual(
 			[IPC_COMMANDS.SETUP_CANCEL, IPC_COMMANDS.SETUP_GET_STATE, IPC_COMMANDS.SETUP_RETRY].sort(),
 		);
-		expect(call(IPC_COMMANDS.SETUP_GET_STATE)).toBe(STATE);
-		expect(call(IPC_COMMANDS.SETUP_CANCEL)).toBe(true);
+		expect(await call(IPC_COMMANDS.SETUP_GET_STATE)).toBe(STATE);
+		expect(await call(IPC_COMMANDS.SETUP_CANCEL)).toBe(true);
 		expect(service.cancel).toHaveBeenCalledTimes(1);
 	});
 
-	it("retries a known item id", () => {
+	it("retries a known item id", async () => {
 		const { call, service } = registered();
-		call(IPC_COMMANDS.SETUP_RETRY, "omp");
+		await call(IPC_COMMANDS.SETUP_RETRY, "omp");
 		expect(service.retry).toHaveBeenCalledWith("omp");
 	});
 
-	it("refuses anything that is not a known item id, before the service sees it", () => {
+	it("refuses anything that is not a known item id, before the service sees it", async () => {
 		const { call, service } = registered();
 		for (const value of [
 			"bun-install",
@@ -45,7 +44,7 @@ describe("setup IPC", () => {
 			null,
 			42,
 		]) {
-			expect(() => call(IPC_COMMANDS.SETUP_RETRY, value)).toThrow(/Unknown setup item/);
+			await expect(call(IPC_COMMANDS.SETUP_RETRY, value)).rejects.toThrow(/Unknown setup item/);
 		}
 		expect(service.retry).not.toHaveBeenCalled();
 	});

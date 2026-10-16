@@ -1,13 +1,10 @@
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import type { IpcRegistry } from "../web/ipc-registry";
 import type { ExtensionUpdater } from "./updater";
 
 /** IPC: a snapshot and "Update now" by row key (or all). No handler takes a command, a path or a version. */
-export interface ExtensionUpdateIpcTarget {
-	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
-}
-
 export function registerExtensionUpdateIpc(
-	ipc: ExtensionUpdateIpcTarget,
+	ipc: IpcRegistry,
 	updater: Pick<ExtensionUpdater, "state" | "updateNow" | "rescan">,
 ): void {
 	ipc.handle(IPC_COMMANDS.EXTENSION_UPDATE_GET_STATE, () => {
@@ -15,7 +12,7 @@ export function registerExtensionUpdateIpc(
 		void updater.rescan().catch(() => undefined);
 		return updater.state();
 	});
-	ipc.handle(IPC_COMMANDS.EXTENSION_UPDATE_NOW, (_event, key) => {
+	ipc.handle(IPC_COMMANDS.EXTENSION_UPDATE_NOW, (_caller, key: unknown) => {
 		if (key === undefined || key === null) {
 			void updater.updateNow().catch(() => undefined);
 			return;

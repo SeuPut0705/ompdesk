@@ -10,12 +10,9 @@ import type { GithubAuthState } from "../../shared/github-auth";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { ghText, resolveBin } from "../local/git/exec";
 import { spawnPath } from "../shell-env";
+import type { IpcRegistry } from "../web/ipc-registry";
 import { stockPtyLauncher } from "./pty";
 import { type GithubAuthDeps, GithubAuthService } from "./service";
-
-export interface GithubAuthIpcTarget {
-	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
-}
 
 /** gh's browser launcher during sign-in: exits 0 and ignores the URL; the renderer opens the page itself. */
 const NO_OP_BROWSER = process.platform === "win32" ? "cmd /c exit 0" : "true";
@@ -64,13 +61,13 @@ export function createGithubAuthService(
 	});
 }
 
-export function registerGithubAuthIpc(ipc: GithubAuthIpcTarget, service: GithubAuthService): void {
-	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_REFRESH, (_event, force) => service.refresh(force === true));
+export function registerGithubAuthIpc(ipc: IpcRegistry, service: GithubAuthService): void {
+	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_REFRESH, (_caller, force: unknown) => service.refresh(force === true));
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_LOGIN_START, () => service.startLogin());
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_LOGIN_OPEN, () => service.openLogin());
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_LOGIN_CANCEL, () => service.cancelLogin());
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_LOGOUT, () => service.logout());
-	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_SWITCH, (_event, login) => service.switchAccount(login));
+	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_SWITCH, (_caller, login: unknown) => service.switchAccount(login));
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_FILL_IDENTITY, () => service.fillIdentity());
-	ipc.handle(IPC_COMMANDS.GITHUB_PRODUCT_STAR, (_event, star) => service.productStar(star === true));
+	ipc.handle(IPC_COMMANDS.GITHUB_PRODUCT_STAR, (_caller, star: unknown) => service.productStar(star === true));
 }

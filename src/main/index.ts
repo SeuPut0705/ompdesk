@@ -110,6 +110,7 @@ import {
 	setupUpdater,
 	updateStatus,
 } from "./updater";
+import { IpcRegistry } from "./web/ipc-registry";
 import { WindowManager } from "./window";
 import { nativeThemeSource } from "./window-chrome";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
@@ -512,7 +513,10 @@ app.whenReady().then(() => {
 	const bridgeHealth = new BridgeHealth(() => {
 		for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
 	});
-	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
+	// Every IPC handler registers once, here and in what this hands it to: on ipcMain for the app's windows,
+	// and in the table a paired web device's calls are dispatched from (web/ipc-registry.ts).
+	const ipc = new IpcRegistry(ipcMain);
+	ipc.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
 	// The first local tab boots alone: the stats server and machine setup's optional installs (gh, Node;
 	// winget on Windows) wait until a tab's session is ready, or FIRST_TAB_GRACE_MS when none comes (only
 	// paired-host tabs, an omp that cannot start). Measured by e2e/first-run-no-omp.e2e.ts.
@@ -741,7 +745,7 @@ app.whenReady().then(() => {
 		},
 	});
 	setupService = setup;
-	registerSetupIpc(ipcMain, setup);
+	registerSetupIpc(ipc, setup);
 	// omp keeps itself current (src/main/omp-updater.ts): a packaged app checks on its own; a test
 	// launch only with a fake installer and OMP_GUI_TEST_OMP_UPDATES=1 (the fake omp's `update --check`
 	// answers). OMPdesk's own update stays manual. It starts once machine setup's first pass has detected omp.
@@ -788,7 +792,7 @@ app.whenReady().then(() => {
 		},
 	});
 	ompUpdater = updater;
-	registerOmpUpdateIpc(ipcMain, updater);
+	registerOmpUpdateIpc(ipc, updater);
 	// The vendor CLIs of connected accounts (Claude Code, Codex, Gemini, Cursor Agent, gh, …) keep current
 	// the same way (src/main/cli-tools/, pref `cliAutoUpdate`): already-installed tools only, through the
 	// method that owns each. A test launch needs the fake installer and OMP_GUI_TEST_CLI_UPDATES=1. A
@@ -814,7 +818,7 @@ app.whenReady().then(() => {
 		},
 	});
 	cliUpdater = cliToolUpdater;
-	registerCliUpdateIpc(ipcMain, cliToolUpdater);
+	registerCliUpdateIpc(ipc, cliToolUpdater);
 	// The marketplaces, plugins, skills and MCP servers of this computer's omp keep current too
 	// (src/main/ext-update/, pref `extensionAutoUpdate`): stock's own refresh and upgrade run in the stock
 	// helper's `extensions` worker, an MCP server's global binary is updated by the package manager that owns
@@ -849,7 +853,7 @@ app.whenReady().then(() => {
 		},
 	});
 	extensionUpdater = extensionToolUpdater;
-	registerExtensionUpdateIpc(ipcMain, extensionToolUpdater);
+	registerExtensionUpdateIpc(ipc, extensionToolUpdater);
 	void setup
 		.start()
 		.catch(() => undefined)
@@ -872,7 +876,7 @@ app.whenReady().then(() => {
 			},
 		},
 	);
-	registerGithubAuthIpc(ipcMain, githubAuthService);
+	registerGithubAuthIpc(ipc, githubAuthService);
 	scheduleService = new ScheduleService({
 		file: join(app.getPath("userData"), "schedules.json"),
 		logDir: join(app.getPath("userData"), "schedule-runs"),
@@ -886,7 +890,7 @@ app.whenReady().then(() => {
 			}
 		},
 	});
-	registerSchedulesIpc(ipcMain, scheduleService);
+	registerSchedulesIpc(ipc, scheduleService);
 	void scheduleService.start();
 	logWatcher = new LogWatcher();
 
@@ -987,7 +991,7 @@ app.whenReady().then(() => {
 			resumeNotice = count;
 		},
 	});
-	ipcMain.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
+	ipc.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
 		const count = resumeNotice;
 		resumeNotice = null;
 		if (count === null) return null;
@@ -998,15 +1002,15 @@ app.whenReady().then(() => {
 			stop: mainT("resume.stop"),
 		};
 	});
-	ipcMain.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_event, tabId: unknown) => {
+	ipc.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_caller, tabId: unknown) => {
 		if (typeof tabId !== "string") return;
 		// A paired host's tab: the host holds the wait, judged by its own connection.
 		const sidecar = sidecarPool.sidecarOf(tabId);
 		if (sidecar?.cancelHostWait) await sidecar.cancelHostWait();
 		else turnResume.cancelWait(tabId);
 	});
-	ipcMain.handle(IPC_COMMANDS.RESUME_STOP, () => turnResume.stopResumed());
-	ipcMain.on(IPC_COMMANDS.CONNECTIVITY_REPORT, (_event, online: unknown) => {
+	ipc.handle(IPC_COMMANDS.RESUME_STOP, () => turnResume.stopResumed());
+	ipc.on(IPC_COMMANDS.CONNECTIVITY_REPORT, (_caller, online: unknown) => {
 		if (typeof online === "boolean") connectivity.report(online);
 	});
 	setQuitResumes(() => prefs.get(RESUME_INTERRUPTED_PREF) !== false);
@@ -1104,7 +1108,7 @@ app.whenReady().then(() => {
 	if (process.env.OMP_GUI_HEADLESS !== "1") createTray(windowManager, spawnWindow);
 	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
-	setupUpdater();
+	setupUpdater(ipc);
 });
 
 // macOS: re-create window on dock click

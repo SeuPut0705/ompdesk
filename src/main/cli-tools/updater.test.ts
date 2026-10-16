@@ -12,6 +12,7 @@ import type { CliToolId, CliUpdateState } from "../../shared/cli-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { CHECK_INTERVAL_MS } from "../omp-updater";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
+import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import type { CliDetection, CliOwner, DetectDeps } from "./detect";
 import { CliUpdater, type CliUpdaterDeps, registerCliUpdateIpc, runCheckProcess } from "./updater";
 
@@ -382,31 +383,32 @@ describe("CliUpdater", () => {
 
 describe("registerCliUpdateIpc", () => {
 	function register() {
-		const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+		const ipc = new IpcRegistry({ handle: () => {}, on: () => {} });
+		const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, once: () => {} } };
 		const updater = {
 			state: vi.fn(() => ({ enabled: true, scheduled: true, tools: [] }) as CliUpdateState),
 			updateNow: vi.fn(async (_id?: CliToolId) => {}),
 			rescan: vi.fn(async () => {}),
 		};
-		registerCliUpdateIpc({ handle: (channel, listener) => handlers.set(channel, listener) }, updater);
-		return { handlers, updater };
+		registerCliUpdateIpc(ipc, updater);
+		const call = (channel: string, ...args: unknown[]) => ipc.invoke(channel, caller, args);
+		return { call, updater };
 	}
 
-	it("serves the snapshot (and looks for newly installed tools) without taking an argument", () => {
-		const { handlers, updater } = register();
-		const state = handlers.get(IPC_COMMANDS.CLI_UPDATE_GET_STATE)?.({});
+	it("serves the snapshot (and looks for newly installed tools) without taking an argument", async () => {
+		const { call, updater } = register();
+		const state = await call(IPC_COMMANDS.CLI_UPDATE_GET_STATE);
 		expect(state).toEqual({ enabled: true, scheduled: true, tools: [] });
 		expect(updater.rescan).toHaveBeenCalledTimes(1);
 	});
 
-	it("takes a tool id or nothing for 'Update now', and refuses anything else", () => {
-		const { handlers, updater } = register();
-		const now = handlers.get(IPC_COMMANDS.CLI_UPDATE_NOW);
-		now?.({}, "codex");
-		now?.({});
+	it("takes a tool id or nothing for 'Update now', and refuses anything else", async () => {
+		const { call, updater } = register();
+		await call(IPC_COMMANDS.CLI_UPDATE_NOW, "codex");
+		await call(IPC_COMMANDS.CLI_UPDATE_NOW);
 		expect(updater.updateNow.mock.calls).toEqual([["codex"], [undefined]]);
 		for (const bad of ["rm -rf /", "/usr/bin/codex", "codex --version", 5, { id: "codex" }]) {
-			expect(() => now?.({}, bad)).toThrow(/Unknown tool/);
+			await expect(call(IPC_COMMANDS.CLI_UPDATE_NOW, bad)).rejects.toThrow(/Unknown tool/);
 		}
 		expect(updater.updateNow).toHaveBeenCalledTimes(2);
 	});

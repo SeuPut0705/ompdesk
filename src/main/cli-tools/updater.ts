@@ -30,6 +30,7 @@ import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
+import type { IpcRegistry } from "../web/ipc-registry";
 import { relevantTools } from "./catalog";
 import {
 	type CliDetection,
@@ -377,12 +378,8 @@ export function psCommands(): Promise<string> {
 }
 
 /** IPC: a snapshot and "Update now" by tool id (or all). No handler takes a version, a command or a path. */
-export interface CliUpdateIpcTarget {
-	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
-}
-
 export function registerCliUpdateIpc(
-	ipc: CliUpdateIpcTarget,
+	ipc: IpcRegistry,
 	updater: Pick<CliUpdater, "state" | "updateNow" | "rescan">,
 ): void {
 	ipc.handle(IPC_COMMANDS.CLI_UPDATE_GET_STATE, () => {
@@ -390,7 +387,7 @@ export function registerCliUpdateIpc(
 		void updater.rescan().catch(() => undefined);
 		return updater.state();
 	});
-	ipc.handle(IPC_COMMANDS.CLI_UPDATE_NOW, (_event, id) => {
+	ipc.handle(IPC_COMMANDS.CLI_UPDATE_NOW, (_caller, id: unknown) => {
 		if (id !== undefined && id !== null && !isCliToolId(id)) throw new Error(`Unknown tool: ${String(id)}`);
 		// Runs in the background; progress arrives as CLI_UPDATE_STATE pushes.
 		void updater.updateNow(id ?? undefined).catch(() => undefined);

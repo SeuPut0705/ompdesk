@@ -24,6 +24,7 @@ import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { ExtensionApplyPlan } from "../extension-reload";
 import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
+import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { registerExtensionUpdateIpc } from "./ipc";
 import type { McpBinary, McpOwner } from "./mcp-owner";
 import { ExtensionUpdater, type ExtensionUpdaterDeps } from "./updater";
@@ -985,7 +986,8 @@ describe("schedule", () => {
 
 describe("registerExtensionUpdateIpc", () => {
 	function register(rows: string[] = ["plugin:a@m:user"]) {
-		const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+		const ipc = new IpcRegistry({ handle: () => {}, on: () => {} });
+		const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, once: () => {} } };
 		const state = {
 			enabled: true,
 			scheduled: true,
@@ -996,22 +998,22 @@ describe("registerExtensionUpdateIpc", () => {
 			updateNow: vi.fn(async (_key?: string) => {}),
 			rescan: vi.fn(async () => {}),
 		};
-		registerExtensionUpdateIpc({ handle: (channel, listener) => handlers.set(channel, listener) }, updater);
-		return { handlers, updater, state };
+		registerExtensionUpdateIpc(ipc, updater);
+		const call = (channel: string, ...args: unknown[]) => ipc.invoke(channel, caller, args);
+		return { call, updater, state };
 	}
 
-	it("serves the snapshot and looks for what was installed since, taking no argument", () => {
-		const { handlers, updater, state } = register();
-		expect(handlers.get(IPC_COMMANDS.EXTENSION_UPDATE_GET_STATE)?.({})).toBe(state);
+	it("serves the snapshot and looks for what was installed since, taking no argument", async () => {
+		const { call, updater, state } = register();
+		expect(await call(IPC_COMMANDS.EXTENSION_UPDATE_GET_STATE)).toBe(state);
 		expect(updater.rescan).toHaveBeenCalledTimes(1);
 	});
 
-	it("takes a row key of the current state or nothing for 'Update now', and refuses anything else", () => {
-		const { handlers, updater } = register();
-		const now = handlers.get(IPC_COMMANDS.EXTENSION_UPDATE_NOW);
-		now?.({}, "plugin:a@m:user");
-		now?.({});
-		now?.({}, null);
+	it("takes a row key of the current state or nothing for 'Update now', and refuses anything else", async () => {
+		const { call, updater } = register();
+		await call(IPC_COMMANDS.EXTENSION_UPDATE_NOW, "plugin:a@m:user");
+		await call(IPC_COMMANDS.EXTENSION_UPDATE_NOW);
+		await call(IPC_COMMANDS.EXTENSION_UPDATE_NOW, null);
 		expect(updater.updateNow.mock.calls).toEqual([["plugin:a@m:user"], [], []]);
 		for (const bad of [
 			"rm -rf /",
@@ -1022,7 +1024,7 @@ describe("registerExtensionUpdateIpc", () => {
 			{ key: "plugin:a@m:user" },
 			"",
 		]) {
-			expect(() => now?.({}, bad)).toThrow(/Unknown extension/);
+			await expect(call(IPC_COMMANDS.EXTENSION_UPDATE_NOW, bad)).rejects.toThrow(/Unknown extension/);
 		}
 		expect(updater.updateNow).toHaveBeenCalledTimes(3);
 	});

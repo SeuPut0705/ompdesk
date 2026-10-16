@@ -5,10 +5,7 @@
  */
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { isSetupItemId, type SetupState } from "../../shared/setup";
-
-export interface SetupIpcTarget {
-	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
-}
+import type { IpcRegistry } from "../web/ipc-registry";
 
 export interface SetupIpcService {
 	state(): SetupState;
@@ -16,9 +13,9 @@ export interface SetupIpcService {
 	cancel(): boolean;
 }
 
-export function registerSetupIpc(ipc: SetupIpcTarget, service: SetupIpcService): void {
+export function registerSetupIpc(ipc: IpcRegistry, service: SetupIpcService): void {
 	ipc.handle(IPC_COMMANDS.SETUP_GET_STATE, () => service.state());
-	ipc.handle(IPC_COMMANDS.SETUP_RETRY, (_event, item) => {
+	ipc.handle(IPC_COMMANDS.SETUP_RETRY, (_caller, item: unknown) => {
 		if (!isSetupItemId(item)) throw new Error(`Unknown setup item: ${String(item)}`);
 		// The retry runs in the background; its progress arrives as SETUP_STATE pushes.
 		void service.retry(item).catch(() => undefined);
