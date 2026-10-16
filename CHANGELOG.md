@@ -1,5 +1,74 @@
 # Changelog
 
+## [0.31.0] - 2026-10-16
+
+계정 화면을 새로 그리고, 다음에 보낼 말을 앱이 직접 제안해요. 창을 닫아도 작업은 계속되고, 필요한 CLI는 알아서 설치·업데이트돼요.
+
+### 계정과 프로바이더
+- 계정 목록 앞에 Anthropic, OpenAI, Google, xAI, DeepSeek 같은 실제 회사 심볼이 보여요. 모든 계정이 회사 순으로 한 목록에 펼쳐지고, 한 줄에 로그인 상태와 가장 빡빡한 한도가 함께 보여요.
+- 프로바이더 추가는 심볼과 이름으로 된 촘촘한 목록이고, 검색과 Enter로 바로 연결해요. 첫 실행 화면도 같은 모양이에요.
+
+### 다음 메시지 제안
+- 작업이 끝나면 다음에 보낼 만한 말을 2~3개 제안해요. 첫 번째는 입력창에 회색으로, 나머지는 칩으로 보여요. Tab·→·⌥1~3으로 골라요.
+- 입력하다 멈추면 이어질 말을 회색으로 채워 줘요. 한글 조합 중이나 비밀번호처럼 보이는 글에는 띄우지 않아요.
+- 실패한 명령, 바뀐 파일, 계획, 목표 같은 앱 상태도 보고 제안하며, 싼 "빠름(smol)" 모델을 써요. 설정 › 에이전트 동작에서 끌 수 있어요.
+
+### 창과 설치
+- X를 눌러도 앱이 꺼지지 않아요. Windows는 트레이로, Mac은 Dock으로 들어가고 진행 중인 작업은 계속돼요.
+- GitHub 연결에 GitHub CLI가 필요하면 그 자리에서 설치하고 바로 로그인으로 이어가요.
+- 계정이 연결된 회사의 CLI(Claude Code, Codex, Gemini CLI, Cursor Agent, Copilot, gh)가 이미 설치돼 있으면 알아서 최신으로 업데이트해요. 다른 앱에 들어 있거나 시스템에 깔린 사본은 건드리지 않아요.
+- 설치 화면이 상황(설치 중·업데이트 중·중단됨·오프라인)을 정확히 알려 주고, 설치 중 앱을 꺼도 실패로 세지 않아요.
+
+### omp 기본 설정
+- 앱이 띄운 세션에서 어드바이저, 편집 후 LSP 진단, 저장 시 자동 포맷, 구조 검색 도구, 토큰 사용량 표시를 기본으로 켜요. 직접 설정한 값이 있으면 그 값을 따라요.
+- 자리를 비웠다 돌아오면 세션 요약 카드가 붙어요.
+- omp의 OpenTelemetry 외부 전송을 항상 꺼요.
+
+### 대화와 화면
+- 답장 아래 시간·복사 버튼이 마지막 줄을 가리던 것을 고쳤어요.
+- 사이드바 서브에이전트 목록에는 실행 중인 것만 남아요.
+- 업데이트 안내(What's new)가 영어 화면에서는 영어로 보여요.
+- 한국어 문구의 조사 병기와 용어를 정리하고, 키보드·화면 읽기 프로그램 접근성을 점검했어요.
+
+### 안정성과 보안
+- 원격 기기에서 로그인 중 연결이 끊기거나 화면을 새로 그려도 로그인 요청이 채팅 카드로 새지 않아요. 재연결 때 알림이 두 번 뜨던 것도 고쳤어요.
+- 터미널을 별도 작업 공간으로 분리하고, 변경 사항 패널이 git을 덜 부르게 했어요.
+- 시각화 페이지의 외부 유출 경로(DNS 포함)를 막고, 에이전트 브라우저와 실행 파일 열기 규칙을 강화했어요.
+
+<!-- en -->
+A redesigned accounts page and built-in next-message suggestions. Closing the window keeps work running, and the CLIs you need install and update themselves.
+
+### Accounts and providers
+- Accounts show the real company marks (Anthropic, OpenAI, Google, xAI, DeepSeek, …) in one open list sorted by company, each row with its sign-in state and tightest limit.
+- Adding a provider is a compact, searchable list of marks and names; first run uses the same list.
+
+### Next-message suggestions
+- After a turn, 2–3 suggested next messages: the first as the composer placeholder, the rest as chips (Tab, →, ⌥1–3).
+- Pause while typing and the rest of the line appears as ghost text (never during IME composition or for secret-looking drafts).
+- Suggestions use app state (failed commands, changed files, plans, goals) and the cheap smol model; turn them off in Settings › Agent behavior.
+
+### Window and setup
+- The close button no longer quits: Windows hides to the tray, macOS to the Dock, and running work continues.
+- Connecting GitHub installs the GitHub CLI on the spot when it is missing and continues to sign-in.
+- Installed CLIs of connected providers (Claude Code, Codex, Gemini CLI, Cursor Agent, Copilot, gh) update themselves; bundled or system copies are left alone.
+- The setup screen states what is happening (installing, updating, stopped, offline), and quitting mid-install no longer counts as a failure.
+
+### omp defaults
+- Sessions OMPdesk starts turn on the advisor, LSP diagnostics after edits, format on write, structural search, and token usage display; your own settings win.
+- An idle recap card appears when you come back to a session.
+- omp's OpenTelemetry export is always off.
+
+### Chat and UI
+- Message actions no longer cover the last line of a reply.
+- The sidebar lists only running subagents.
+- What's new shows English in the English UI.
+- Korean wording and accessibility passes.
+
+### Reliability and security
+- Sign-in prompts never leak into chat cards after a reload or a lost remote link; duplicate reconnect notifications are gone.
+- Terminals run in their own worker, and the Changes panel runs fewer git processes.
+- Visual pages are sealed against exfiltration (DNS included); agent browser and launcher rules were tightened.
+
 ## [0.30.0] - 2026-10-16
 
 실제 omp로 처음부터 끝까지 써 보며 찾은 문제를 고치고, 작업이 끊겨도 저절로 이어지게 했어요. omp는 이제 알아서 최신으로 유지돼요.
