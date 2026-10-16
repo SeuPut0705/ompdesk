@@ -3805,6 +3805,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
 				ok({ model, thinkingLevel: "medium", isScoped: false });
 				break;
+			case "set_model":
+				model.id = text("modelId");
+				ok(model);
+				break;
 			case "get_entries": {
 				const leafId = activeLeafId;
 				if (command.since === undefined) {

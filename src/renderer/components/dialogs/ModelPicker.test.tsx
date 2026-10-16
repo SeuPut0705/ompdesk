@@ -113,3 +113,41 @@ describe("ModelPicker Recent group", () => {
 		expect(groupNames()).not.toContain("Recent");
 	});
 });
+
+describe("ModelPicker compact layout", () => {
+	it("renders one-line rows: provider mark and name, secondary info only in the tooltip", async () => {
+		await mount();
+		const option = document.querySelector('[data-model-group="openai"] [role="option"]') as unknown as HTMLElement;
+		expect(option.querySelector("[data-provider-mark]")).not.toBeNull();
+		expect(option.textContent).toBe("GPT-5");
+		// No second line: the option holds the mark and one label span only.
+		expect(option.querySelectorAll("span").length).toBeLessThanOrEqual(3);
+	});
+
+	it("uses the compact picker size and small-caps group headers", async () => {
+		await mount();
+		expect(document.querySelector(".omp-dialog-size-picker-compact")).not.toBeNull();
+		const header = document.querySelector('[data-model-group="recent"] span') as unknown as HTMLElement;
+		expect(header.className).toContain("uppercase");
+	});
+
+	it("filters while typing and Enter picks the highlighted row", async () => {
+		await mount();
+		const input = document.querySelector("input") as unknown as HTMLInputElement;
+		const record = input as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = record[propsKey ?? ""] as {
+			onChange(event: object): void;
+			onKeyDown(event: object): void;
+		};
+		input.value = "mini";
+		await act(async () => props.onChange({ target: input, currentTarget: input }));
+		expect(groupNames()).toEqual(["openai"]);
+		expect(rows("openai")).toEqual(["GPT mini"]);
+		const fresh = record[propsKey ?? ""] as typeof props;
+		await act(async () =>
+			fresh.onKeyDown({ key: "Enter", preventDefault() {}, nativeEvent: { isComposing: false, keyCode: 13 } }),
+		);
+		expect(setModel).toHaveBeenCalledWith("openai", "gpt-mini");
+	});
+});

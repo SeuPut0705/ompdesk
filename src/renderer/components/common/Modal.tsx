@@ -21,7 +21,7 @@ import { useT } from "../../lib/i18n";
 import { IconButton } from "./IconButton";
 import { useModalLayer } from "./use-modal-layer";
 
-export type ModalSize = "sm" | "md" | "lg" | "full" | "picker";
+export type ModalSize = "sm" | "md" | "lg" | "full" | "picker" | "picker-compact";
 
 /** Overlay alignment: centered (default) or top-anchored (command-palette style). */
 export type ModalPlacement = "center" | "top";
@@ -32,6 +32,7 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
 	lg: "omp-dialog-size-lg",
 	full: "omp-dialog-size-full",
 	picker: "omp-dialog-size-picker",
+	"picker-compact": "omp-dialog-size-picker-compact",
 };
 
 export interface DialogSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {

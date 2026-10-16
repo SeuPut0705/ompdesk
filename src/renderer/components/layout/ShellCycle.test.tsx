@@ -159,11 +159,10 @@ describe("picker search fields", () => {
 		expect(source).not.toContain('t("input.history.hint")');
 	});
 
-	it("the model picker's default hint wraps instead of cutting the sentence", () => {
+	it("the model picker keeps its default hint as the footer tooltip, not as a line of its own", () => {
 		const picker = readFileSync(new URL("../dialogs/ModelPicker.tsx", import.meta.url), "utf8");
-		const hint = /<span className="([^"]*)">\s*\{forPool \? t\("modelPool\.pickerHint"\)/.exec(picker);
-		expect(hint?.[1]).toBeDefined();
-		expect(hint?.[1]).not.toContain("truncate");
+		expect(picker).toMatch(/title=\{forPool \? t\("modelPool\.pickerHint"\) : t\("modelPicker\.defaultHint"\)\}/);
+		expect(picker).not.toMatch(/<span[^>]*>\s*\{forPool \? t\("modelPool\.pickerHint"\)/);
 	});
 });
 

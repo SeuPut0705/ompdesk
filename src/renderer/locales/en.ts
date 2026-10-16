@@ -5670,7 +5670,6 @@ export const en: Record<string, string> = {
 		"The GitHub CLI login on this computer, shared with your terminal. Pull requests and pushes use it.",
 	"modelPicker.defaultFailed": "Couldn't save as default",
 	"modelPicker.connectProvider": "Connect a provider",
-	"modelPicker.context": "{tokens} ctx",
 	"modelPicker.smallContextHint": "Too small for a coding session: the first prompt may not fit.",
 	"modelPicker.current": "Current model",
 	"modelPicker.defaultHint": "Your pick also becomes the default for new sessions.",

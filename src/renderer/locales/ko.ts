@@ -5647,7 +5647,6 @@ export const ko: Record<string, string> = {
 		"이 컴퓨터의 GitHub CLI 로그인이에요. 터미널과 함께 쓰며, 풀 리퀘스트와 푸시에 쓰여요.",
 	"modelPicker.defaultFailed": "기본값으로 저장하지 못했어요",
 	"modelPicker.connectProvider": "프로바이더 연결",
-	"modelPicker.context": "{tokens} 컨텍스트",
 	"modelPicker.smallContextHint": "코딩 세션에는 너무 작아 첫 요청이 들어가지 않을 수 있어요.",
 	"modelPicker.current": "현재 모델",
 	"modelPicker.defaultHint": "선택한 모델은 새 세션의 기본값도 돼요.",

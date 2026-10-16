@@ -504,6 +504,12 @@
 	max-height: min(76dvh, 56rem);
 }
 
+/* Dense list picker (model picker): one-line rows, so a narrow column fits. */
+.omp-dialog-size-picker-compact {
+	width: min(clamp(22rem, 28vw, 30rem), calc(100vw - 2rem));
+	max-height: min(72dvh, 36rem);
+}
+
 .omp-dialog-size-full {
 	width: calc(100vw - 2rem);
 	height: calc(100dvh - 2rem);
@@ -3244,6 +3250,7 @@ button.omp-file-chip-name:hover {
 	.omp-dialog-size-md,
 	.omp-dialog-size-lg,
 	.omp-dialog-size-picker,
+	.omp-dialog-size-picker-compact,
 	.omp-dialog-size-full {
 		width: calc(100vw - 1rem);
 		max-width: calc(100vw - 1rem);
