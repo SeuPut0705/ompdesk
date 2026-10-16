@@ -27,6 +27,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "gate": "bun scripts/gate.ts",
+    "check:changed": "bun scripts/check-changed.ts",
     "locked": "bun scripts/build-lock.ts",
     "lock-stats": "bun scripts/lock-stats.ts",
     "bench": "vitest bench",

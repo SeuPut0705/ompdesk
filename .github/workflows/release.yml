@@ -295,6 +295,8 @@ jobs:
       - name: Put bun's cache on the workspace volume
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      # (`ELECTRON_SKIP_BINARY_DOWNLOAD` fails here: gpu-fallback and sidecar
+      # tests import electron, whose index.js throws without the binary.)
       - run: bun install --frozen-lockfile
       - run: bun run test:platform
 
@@ -347,7 +349,15 @@ jobs:
         with:
           name: out
           path: out
+      # The NSIS payload is a 7z that electron-builder packs at -mx=9 whatever
+      # `compression:` says (`normal` and `maximum` are both 9); that single
+      # LZMA2 pass took 61 s of this job on 2 cores. Level 4 takes about 27 s
+      # for a setup about a quarter larger (the 7z of v0.32.1's app: 80 MB at
+      # 9, 100 MB at 4; level 5-7 cost as much time as 9). It keeps `win`
+      # under 4 billed minutes: a minute is 2 weighted ones.
       - name: Package
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: "4"
         run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Verify package
         shell: bash

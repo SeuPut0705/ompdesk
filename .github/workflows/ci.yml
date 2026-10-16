@@ -30,9 +30,11 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
+    # Nothing a check reads: Markdown, the design docs and screenshots, the
+    # license text, the scheduled health check's own workflow.
+    paths-ignore: ["**.md", "docs/**", "LICENSE", ".github/workflows/setup-assets-health.yml"]
   pull_request:
-    paths-ignore: ["**.md"]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", ".github/workflows/setup-assets-health.yml"]
   workflow_dispatch:
     inputs:
       e2e:
