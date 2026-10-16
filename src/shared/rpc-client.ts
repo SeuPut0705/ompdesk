@@ -83,7 +83,8 @@ export interface SessionRpcClient {
 	moveSession(path: string): Promise<RpcResponse>;
 	getGitStatus(): Promise<RpcResponse>;
 	getGitChanges(): Promise<RpcResponse>;
-	getGitFingerprint(): Promise<RpcResponse>;
+	/** `root`: the worktree root the last `getGitChanges` reported, which spares main a `rev-parse` per poll. */
+	getGitFingerprint(root?: string): Promise<RpcResponse>;
 	getGitDiff(path: string): Promise<RpcResponse>;
 	worktreeCreate(
 		name: string,
@@ -463,7 +464,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		moveSession: path => rpcCommand({ type: "move_session", path }, 30_000),
 		getGitStatus: () => rpcCommand({ type: "get_git_status" }),
 		getGitChanges: () => rpcCommand({ type: "get_git_changes" }),
-		getGitFingerprint: () => rpcCommand({ type: "get_git_fingerprint" }),
+		getGitFingerprint: root => rpcCommand({ type: "get_git_fingerprint", ...(root ? { root } : {}) }),
 		getGitDiff: path => rpcCommand({ type: "get_git_diff", path }),
 		// Worktree and PR commands run in main; RPC_COMMAND_TIMEOUTS holds their budgets.
 		worktreeCreate: (name, options) =>

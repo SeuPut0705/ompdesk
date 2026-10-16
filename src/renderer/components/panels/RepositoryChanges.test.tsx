@@ -43,7 +43,7 @@ function changes(...paths: string[]): RpcGitChanges {
 }
 
 let getGitChanges: Mock<() => Promise<unknown>>;
-let getGitFingerprint: Mock<() => Promise<unknown>>;
+let getGitFingerprint: Mock<(root?: string) => Promise<unknown>>;
 /** What the next fingerprint poll answers; a test moves it to say "the checkout changed". */
 let fingerprint = "fp-1";
 
@@ -285,6 +285,22 @@ describe("RepositoryChanges", () => {
 			// The new fingerprint is the baseline now: the next ticks do not read everything again.
 			await advance(10_000);
 			expect(getGitChanges).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("passes the root of the last full read to every later fingerprint, so main skips asking git for it", async () => {
+		vi.useFakeTimers();
+		try {
+			installMockOmp(async () => answer("src/a.ts"));
+			await mountWithTimers();
+			// The first read knows no root yet.
+			expect(getGitFingerprint.mock.calls[0]).toEqual([undefined]);
+			await advance(10_000);
+			const polls = getGitFingerprint.mock.calls.slice(1);
+			expect(polls.length).toBeGreaterThan(0);
+			for (const call of polls) expect(call).toEqual(["/work"]);
 		} finally {
 			vi.useRealTimers();
 		}

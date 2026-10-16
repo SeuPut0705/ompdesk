@@ -25,7 +25,7 @@ const pathsOrAll = (value: unknown) => (value === "all" ? "all" : Array.isArray(
 export const handlers: Record<string, LocalHandler> = {
 	get_git_status: (_command, ctx) => getGitStatus(ctx.cwd),
 	get_git_changes: (_command, ctx) => getGitChanges(ctx.cwd),
-	get_git_fingerprint: (_command, ctx) => getGitFingerprint(ctx.cwd),
+	get_git_fingerprint: (command, ctx) => getGitFingerprint(ctx.cwd, str(command.root)),
 	get_git_diff: (command, ctx) => getGitDiff(ctx.cwd, str(command.path) ?? ""),
 	worktree_create: (command, ctx) =>
 		createWorktree(

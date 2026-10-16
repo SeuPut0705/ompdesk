@@ -67,10 +67,13 @@ export function parseRepositoryDiff(diff: string) {
 	);
 }
 
-/** The checkout's fingerprint, or null when git could not answer (a failed poll never forces a reload). */
-async function readFingerprint(rpc: TabRpc): Promise<string | null> {
+/**
+ * The checkout's fingerprint, or null when git could not answer (a failed poll never forces a reload). `root`
+ * is the worktree root this tab's last full read reported, so main skips asking git for it on every poll.
+ */
+async function readFingerprint(rpc: TabRpc, root: string | null): Promise<string | null> {
 	try {
-		const response = await rpc.getGitFingerprint();
+		const response = await rpc.getGitFingerprint(root ?? undefined);
 		const data = response.success ? (response.data as RpcGitFingerprint | undefined) : undefined;
 		return typeof data?.fingerprint === "string" ? data.fingerprint : null;
 	} catch {
@@ -96,6 +99,8 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	const loadedFor = useRef<TabRpc | null>(null);
 	// The fingerprint read just before the last full load; a poll that reads another one reloads.
 	const loadedFingerprint = useRef("");
+	// The worktree root of the last full load, for this tab only.
+	const loadedRoot = useRef<{ rpc: TabRpc; root: string | null } | null>(null);
 	const previewFor = useRef<{ rpc: TabRpc; path: string } | null>(null);
 	const reload = useCallback(() => setRefresh(value => value + 1), []);
 	const runner = useScmAction(rpc, reload);
@@ -109,7 +114,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		}
 		setError(null);
 		void Promise.resolve()
-			.then(() => readFingerprint(rpc))
+			.then(() => readFingerprint(rpc, loadedRoot.current?.rpc === rpc ? loadedRoot.current.root : null))
 			.then(fingerprint => {
 				// Read before the changes: an edit in between only makes the next poll reload once more.
 				if (active) loadedFingerprint.current = fingerprint ?? "";
@@ -120,6 +125,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
 				loadedFor.current = rpc;
 				const data = response.data as RpcGitChanges;
+				loadedRoot.current = { rpc, root: data.root };
 				setChanges(data);
 				setSelected(previous => (data.files.some(file => file.path === previous) ? previous : ""));
 			})
@@ -144,7 +150,10 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			if (document.hidden || reading) return;
 			reading = true;
 			try {
-				const fingerprint = await readFingerprint(rpc);
+				const fingerprint = await readFingerprint(
+					rpc,
+					loadedRoot.current?.rpc === rpc ? loadedRoot.current.root : null,
+				);
 				if (active && fingerprint !== null && fingerprint !== loadedFingerprint.current) reload();
 			} finally {
 				reading = false;

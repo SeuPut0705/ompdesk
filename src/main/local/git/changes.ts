@@ -78,20 +78,25 @@ export async function getGitHead(root: string): Promise<RpcGitHead> {
 }
 
 /**
- * A cheap stand-in for `getGitChanges` that the Changes panel polls: two git processes (`rev-parse
- * --show-toplevel` and one `status --porcelain=v2 --branch -z --untracked-files=all`, whose `branch.oid`
- * header is the HEAD oid) plus an in-process `lstat` of every listed path. The stats matter because a
- * file edited again keeps its ` M` status while its line counts and diff move. The fingerprint changes
- * whenever the full answer may have; it never reads a diff.
+ * A cheap stand-in for `getGitChanges` that the Changes panel polls: one `status --porcelain=v2 --branch -z
+ * --untracked-files=all` (whose `branch.oid` header is the HEAD oid) plus an in-process `lstat` of every
+ * listed path, and a `rev-parse --show-toplevel` only when the caller does not pass the root its last full
+ * read reported (or passes one that does not hold `cwd`). The stats matter because a file edited again keeps
+ * its ` M` status while its line counts and diff move. The fingerprint changes whenever the full answer may
+ * have; it never reads a diff. A passed root that is no longer `cwd`'s worktree (a repository made inside
+ * it) is harmless: that repository's status differs, so the panel reloads and passes the new root.
  */
-export async function getGitFingerprint(cwd: string): Promise<RpcGitFingerprint> {
-	const [top, status] = await Promise.all([
-		gitRaw(cwd, ["rev-parse", "--show-toplevel"]),
+export async function getGitFingerprint(cwd: string, knownRoot?: string): Promise<RpcGitFingerprint> {
+	// Git reports the root as a real path; the tab's cwd may reach it through a symlink (macOS /var, /tmp).
+	const known = knownRoot && path.isAbsolute(knownRoot) ? path.resolve(knownRoot) : null;
+	const real = known ? await fs.realpath(cwd).catch(() => null) : null;
+	const trusted = known && real && (known === real || isInside(known, real)) ? known : null;
+	const [root, status] = await Promise.all([
+		trusted ?? repoRoot(cwd),
 		gitRaw(cwd, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]),
 	]);
 	const hash = createHash("sha1");
-	if (top.code !== 0 || status.code !== 0) return { fingerprint: hash.update("not-a-repository").digest("hex") };
-	const root = top.stdout.toString("utf8").trim();
+	if (!root || status.code !== 0) return { fingerprint: hash.update("not-a-repository").digest("hex") };
 	const text = status.stdout.toString("utf8");
 	hash.update(text);
 	const records = text.split("\0");
@@ -117,9 +122,9 @@ export async function getGitFingerprint(cwd: string): Promise<RpcGitFingerprint>
 }
 
 export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
-	const root = await repoRoot(cwd);
+	// HEAD resolves the same from anywhere in the worktree, so it does not wait for the root.
+	const [root, base] = await Promise.all([repoRoot(cwd), headSha(cwd)]);
 	if (!root) return { isRepo: false, root: null, base: null, files: [], truncated: false };
-	const base = await headSha(root);
 	const [status, changed, numstat, head] = await Promise.all([
 		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
 		base ? git(root, ["diff", "--name-only", "-z", "--no-renames", base]) : Promise.resolve(null),

@@ -107,4 +107,29 @@ describe("checkout fingerprint", () => {
 		expect(full).toBeGreaterThanOrEqual(9);
 		expect(poll).toBe(2);
 	});
+
+	it("costs one git process per poll once the root of the last full read is passed, with the same fingerprint", async () => {
+		await fs.writeFile(path.join(root, "README.md"), "hello\nmore\n");
+		const { root: known } = await getGitChanges(root);
+		if (!known) throw new Error("expected a repository");
+		const asked = await getGitFingerprint(root);
+		let passed = asked;
+		expect(await gitProcesses(async () => (passed = await getGitFingerprint(root, known)))).toBe(1);
+		expect(passed.fingerprint).toBe(asked.fingerprint);
+		await fs.writeFile(path.join(root, "README.md"), "hello\nmore\nagain\n");
+		expect((await getGitFingerprint(root, known)).fingerprint).not.toBe(asked.fingerprint);
+	});
+
+	it("asks git for the root again when the passed one does not hold the folder", async () => {
+		const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-other-root-")));
+		try {
+			const asked = await getGitFingerprint(root);
+			let passed = asked;
+			expect(await gitProcesses(async () => (passed = await getGitFingerprint(root, elsewhere)))).toBe(2);
+			expect(passed.fingerprint).toBe(asked.fingerprint);
+			expect((await getGitFingerprint(root, "relative/root")).fingerprint).toBe(asked.fingerprint);
+		} finally {
+			await fs.rm(elsewhere, { recursive: true, force: true });
+		}
+	});
 });
