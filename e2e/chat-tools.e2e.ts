@@ -134,7 +134,9 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 		chat.tabId,
 	);
 	expect(todo).toMatchObject({ success: true });
-	await expect(page.getByTestId("workspace-dock")).toBeVisible();
+	// The window is wide enough for the work board, which shows the todos (their dock strip steps aside).
+	const board = page.getByRole("complementary", { name: "Work board", exact: true });
+	await expect(board.locator('[data-board-section="todos"]')).toContainText("0/6");
 
 	const aside = page.locator("aside[data-docked]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);

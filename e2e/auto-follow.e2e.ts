@@ -20,7 +20,9 @@ async function withFollowApp(body: (app: ElectronApplication, page: Page) => Pro
 		agent = path.join(profile, "agent"),
 		project = path.join(profile, "project");
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(project)]);
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en" }));
+	// The work board would show the todos beside the transcript and their dock strip would step
+	// aside; these tests need the dock between transcript and composer.
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", workBoard: false }));
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
