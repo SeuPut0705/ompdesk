@@ -13,6 +13,7 @@ import {
 	formatElapsed,
 	formatShortClock,
 	formatSpan,
+	formatSpanCompact,
 	formatTimeAgo,
 	formatTokens,
 	resultDetails,
@@ -45,6 +46,25 @@ describe("formatSpan", () => {
 				6 * 24 * hour + 23 * hour + 59 * minute,
 			].map(formatSpan),
 		).toEqual(["0s", "0s", "42s", "1m", "59m", "1h 0m", "4h 31m", "1d 0h", "6d 23h"]);
+	});
+});
+
+describe("formatSpanCompact", () => {
+	it("keeps at most two English units and drops a zero second one", () => {
+		const minute = 60_000;
+		const hour = 60 * minute;
+		expect(
+			[
+				-5,
+				42_900,
+				4 * minute,
+				59 * minute + 59_000,
+				hour,
+				hour + 54 * minute,
+				24 * hour,
+				4 * 24 * hour + hour + 3 * minute,
+			].map(formatSpanCompact),
+		).toEqual(["0s", "42s", "4m", "59m", "1h", "1h 54m", "1d", "4d 1h"]);
 	});
 });
 

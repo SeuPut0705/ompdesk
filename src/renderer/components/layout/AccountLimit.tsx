@@ -28,6 +28,11 @@ export function shortAccountLabel(label: string): string {
 	return inner === "" || email.startsWith(inner) ? (match[1] ?? label) : label;
 }
 
+/** The address alone: "me@example.com (Work account)" shows as "me@example.com", the suffix left to the tooltip. */
+export function bareEmail(label: string): string {
+	return /^(\S+@[^\s(]+)\s*\(/.exec(label.trim())?.[1] ?? label;
+}
+
 export function AccountLimit() {
 	const t = useT();
 	const provider = useModelStore(s => s.model?.provider ?? null);

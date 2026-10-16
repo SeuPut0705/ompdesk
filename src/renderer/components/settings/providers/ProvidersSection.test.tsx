@@ -1082,9 +1082,11 @@ describe("ProviderAccounts", () => {
 		// The age sits in the quota's tooltip, next to every window's reset; the row shows the tightest reset.
 		const cell = document.querySelector("[data-quota-updated]");
 		expect(cell?.getAttribute("title")).toMatch(/Updated [5-7]s ago/);
-		expect(document.querySelector(".omp-usage-gauge-reset")?.textContent).toBe(
-			translate("usage.resetsIn", { time: "3h 0m" }),
-		);
+		const reset = document.querySelector(".omp-usage-gauge-reset");
+		expect(reset?.textContent).toBe("↻ 3h");
+		// The full localized text stays as the tooltip and the accessible name.
+		expect(reset?.getAttribute("title")).toBe(translate("usage.resetsIn", { time: "3h 0m" }));
+		expect(reset?.getAttribute("aria-label")).toBe(translate("usage.resetsIn", { time: "3h 0m" }));
 	});
 
 	it("refreshes through the bridge's stock invalidate, while the live poll reads stock's cache", async () => {

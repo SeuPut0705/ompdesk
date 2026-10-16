@@ -17,7 +17,7 @@ import { useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
-import { shortAccountLabel } from "../AccountLimit";
+import { bareEmail, shortAccountLabel } from "../AccountLimit";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -557,7 +557,8 @@ describe("WorkBoard account limit", () => {
 			"5H62%",
 			"7D40%",
 		]);
-		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.textContent).toContain("resets in 2h");
+		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^↻ 2h( 1m)?$/);
+		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.getAttribute("title")).toContain("resets in 2h");
 		expect(gauges[0]?.getAttribute("data-state")).toBe("ok");
 		expect(gauges[0]?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
 		expect(row?.querySelector("[data-provider-mark]")).not.toBeNull();
@@ -647,5 +648,14 @@ describe("shortAccountLabel", () => {
 		expect(shortAccountLabel("work@example.com (Work account)")).toBe("work@example.com (Work account)");
 		expect(shortAccountLabel("user7616@example.com (user76...")).toBe("user7616@example.com");
 		expect(shortAccountLabel("plain label")).toBe("plain label");
+	});
+});
+
+describe("bareEmail", () => {
+	it("keeps the address only, whatever follows it in parentheses", () => {
+		expect(bareEmail("user@example.net (user@ex…")).toBe("user@example.net");
+		expect(bareEmail("work@example.com (te…")).toBe("work@example.com");
+		expect(bareEmail("work@example.com (Work account)")).toBe("work@example.com");
+		expect(bareEmail("plain label")).toBe("plain label");
 	});
 });

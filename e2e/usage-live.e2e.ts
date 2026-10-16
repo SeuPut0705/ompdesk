@@ -74,7 +74,7 @@ test("keeps the open account list live without reopening it", async () => {
 	await expect(work.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText(/^7D\d+%$/);
 	const quota = work.locator("[data-quota-updated]");
 	await expect(quota).toHaveAttribute("title", /Updated \d+s ago/);
-	await expect(work).toContainText(/resets in [23]h \d+m/);
+	await expect(work.locator(".omp-usage-gauge-reset").first()).toHaveText(/^↻ [23]h( \d+m)?$/);
 	const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
 	if (captures) {
 		await fs.mkdir(captures, { recursive: true });
@@ -105,4 +105,21 @@ test("keeps the open account list live without reopening it", async () => {
 		.poll(async () => (await recordsOfType(record, "provider_accounts")).some(entry => entry.refresh === true))
 		.toBe(true);
 	expect(errors).toEqual([]);
+
+	// The reset lines stay compact whatever the UI language, the full text in the tooltip; capture the Korean page.
+	if (captures) {
+		await page.evaluate(() => window.omp.prefs.set("language", "ko"));
+		await page.reload();
+		await page.waitForFunction(() => window.omp?.rpc != null);
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+		await page.locator('[data-settings-section="models"]').click();
+		const korean = settings.locator('[data-provider-account="1"]');
+		await expect(korean.locator(".omp-usage-gauge-reset").first()).toHaveText(/^↻ [23]h( \d+m)?$/);
+		await expect(korean.locator(".omp-usage-gauge-reset").first()).toHaveAttribute("title", /후 초기화/);
+		await page.screenshot({
+			path: path.join(captures, "settings-accounts-ko-light.png"),
+			animations: "disabled",
+			scale: "css",
+		});
+	}
 });

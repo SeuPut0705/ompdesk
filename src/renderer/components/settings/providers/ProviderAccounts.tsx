@@ -25,6 +25,7 @@ import { accountWindows } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from "../../common";
 import { UsageGauges, usageTooltip } from "../../common/UsageGauges";
+import { bareEmail } from "../../layout/AccountLimit";
 import { useSettingsNavigate } from "../settings-navigation";
 import { ConnectedRow } from "./ConnectedRow";
 import { ResetPassControl } from "./ResetPasses";
@@ -226,8 +227,8 @@ export function ProviderAccountRows({
 		<>
 			{accounts.map(account => (
 				<ConnectedRow
-					account={account.label}
-					accountTitle={account.detail}
+					account={bareEmail(account.label)}
+					accountTitle={[account.label, account.detail].filter(Boolean).join("\n")}
 					badges={
 						<>
 							{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}

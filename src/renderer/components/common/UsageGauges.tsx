@@ -5,7 +5,7 @@
  * its bar. Shared by the work board's account row and the sidebar's usage lines.
  */
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
-import { formatSpan } from "../../lib/format";
+import { formatSpan, formatSpanCompact } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { accountWindows, shortWindowLabel } from "../../lib/usage-windows";
@@ -77,7 +77,18 @@ export function UsageGauges({
 								<span>{percent}%</span>
 							</span>
 						</span>
-						{resets ? <span className="omp-usage-gauge-reset">{resetText(limit.resetsAt, t, now)}</span> : null}
+						{resets && limit.resetsAt !== undefined ? (
+							<span
+								aria-label={resetText(limit.resetsAt, t, now) ?? undefined}
+								className="omp-usage-gauge-reset"
+								role="img"
+								title={resetText(limit.resetsAt, t, now) ?? undefined}
+							>
+								{limit.resetsAt > now ? `↻ ${formatSpanCompact(limit.resetsAt - now)}` : "↻"}
+							</span>
+						) : resets ? (
+							<span className="omp-usage-gauge-reset" />
+						) : null}
 					</span>
 				);
 			})}

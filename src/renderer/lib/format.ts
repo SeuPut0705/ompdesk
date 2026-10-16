@@ -139,6 +139,23 @@ export function formatSpan(ms: number): string {
 }
 
 /**
+ * {@link formatSpan} for a narrow line: the same English units in every UI language ("4d 1h", "1h 54m", "4m",
+ * "42s"), at most two, a zero second unit left out ("2h", not "2h 0m"). Reset countdowns under gauges use it, with
+ * the full localized text beside it as the tooltip.
+ */
+export function formatSpanCompact(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	const pair = (big: number, bigUnit: string, small: number, smallUnit: string) =>
+		small === 0 ? `${big}${bigUnit}` : `${big}${bigUnit} ${small}${smallUnit}`;
+	if (hours < 24) return pair(hours, "h", minutes % 60, "m");
+	return pair(Math.floor(hours / 24), "d", hours % 24, "h");
+}
+
+/**
  * A ticking clock for running work: whole seconds from the first second on, nothing before it.
  * The shared tick advances once a second, so sub-second values were stale ("0ms", "810ms")
  * and decimals jittered between ticks.
