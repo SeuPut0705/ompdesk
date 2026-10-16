@@ -147,10 +147,16 @@ async function measureTurns(page: Page): Promise<Measure[]> {
 		await page.mouse.move(0, 0);
 		await page.waitForTimeout(250);
 		const heightIdle = await turn.evaluate(element => element.getBoundingClientRect().height);
-		// Over the turn's top padding, mid-width: the turn navigator hugs the right edge.
-		await turn.hover({ position: { x: (await turn.evaluate(element => element.clientWidth)) / 2, y: 3 } });
+		// Over the turn's top padding, mid-width: the turn navigator hugs the right edge. Hovered again on every
+		// poll, so a pointer the turn moved out from under (a row above measured late on a loaded machine) or a
+		// dropped move re-enters it; the height check below still catches actions that move the transcript.
 		const actions = turn.locator(".omp-message-actions");
-		await expect.poll(() => actions.evaluate(element => getComputedStyle(element).opacity)).toBe("1");
+		await expect
+			.poll(async () => {
+				await turn.hover({ position: { x: (await turn.evaluate(element => element.clientWidth)) / 2, y: 3 } });
+				return actions.evaluate(element => getComputedStyle(element).opacity);
+			})
+			.toBe("1");
 		const measured = await turn.evaluate(element => {
 			const rect = (box: DOMRect) => ({ left: box.left, top: box.top, right: box.right, bottom: box.bottom });
 			const isUser = element.classList.contains("omp-user-turn");

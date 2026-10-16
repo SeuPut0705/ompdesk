@@ -68,8 +68,7 @@ test("shows each account's reset passes and spends one after confirming", async 
 	const settings = page.locator("[data-settings-page]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 	await page.locator('[data-settings-section="models"]').click();
-	await settings.locator("button[aria-expanded]", { hasText: "Anthropic" }).first().click();
-
+	// No toggle: every account is its own open row, its reset passes under it.
 	const work = settings.locator('[data-reset-passes="1"]');
 	const home = settings.locator('[data-reset-passes="2"]');
 	await expect(work).toContainText("1 reset pass");
@@ -96,7 +95,11 @@ test("shows each account's reset passes and spends one after confirming", async 
 	// The account's quota and passes come back refreshed: 5h free again, one pass left, nothing to spend it on.
 	await expect(home).toContainText("1 reset pass · expires");
 	await expect(home.getByRole("button", { name: "Use a reset pass for home@example.com" })).toBeDisabled();
-	await expect(settings.getByText("5-hour limit 100% left")).toBeVisible();
+	// The row shows the window that gates the account first (now the weekly one); the 5-hour window, free again,
+	// is in the quota's tooltip with every other window.
+	const homeRow = settings.locator('[data-provider-account="2"]');
+	await expect(homeRow).toContainText("Weekly limit 36% left");
+	await expect(homeRow.locator("[data-quota-updated]")).toHaveAttribute("title", /5-hour limit 100% left/);
 	const redeems = await recorded("reset_pass_redeem");
 	expect(redeems).toHaveLength(1);
 	expect(redeems[0]).toMatchObject({ providerId: "anthropic", credentialId: 2, creditId: "grant-home-1" });

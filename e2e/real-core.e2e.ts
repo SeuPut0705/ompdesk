@@ -427,8 +427,10 @@ test("system omp's browser sign-in: loopback callback, default browser, cancel t
 		// First run is one of the two sign-in surfaces (Settings › Models the other).
 		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
 		await setup.getByRole("searchbox", { name: "Search providers" }).fill("Anthropic");
-		const anthropic = setup.locator("li").filter({ hasText: "Anthropic" }).first();
-		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		// The picker is a grid of mark + name buttons (stock names it "Anthropic (Claude Pro/Max)"); the sign-in
+		// panel is one block under it.
+		await setup.locator('[data-provider-connect="anthropic"]').click();
+		const anthropic = setup.locator("[data-login-panel]");
 		await expect(anthropic.locator("[data-login-progress]")).toHaveText("Waiting for you to finish in the browser…");
 		await expect(
 			anthropic.getByRole("button", { name: "Browser can't get back to OMPdesk? Paste the code" }),

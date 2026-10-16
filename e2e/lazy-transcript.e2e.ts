@@ -178,7 +178,7 @@ test("snaps tool boundaries, retries a failed page and loads an old tree leaf", 
 	await fixture("fixture:fail-history");
 	await page.locator(".omp-transcript-scroll").focus();
 	await page.keyboard.press("Home");
-	await expect(page.getByRole("alert").filter({ hasText: "Could not load earlier messages" })).toBeVisible();
+	await expect(page.getByRole("alert").filter({ hasText: "Couldn't load earlier messages" })).toBeVisible();
 	await page.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(page.getByTestId("transcript-history-status")).toHaveCount(0);
 	const switched = await page.evaluate(() => window.omp.rpc.switchLeaf("entry-120"));

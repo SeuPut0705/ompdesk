@@ -234,8 +234,11 @@ for (const language of ["en", "ko"] as const)
 					}
 					await expect(page.locator(".omp-session-pane")).toHaveCount(4);
 					const pane = page.locator(`[data-tab-id="${first}"]`);
-					const paneVideo = pane.locator(".omp-chat-media-list [data-chat-media='video'] video").last();
-					await paneVideo.scrollIntoViewIfNeeded();
+					// Players load only near the viewport, and a quarter pane under the composer's suggestion chips
+					// shows a few lines: bring the reply's last clip in first, then its player mounts.
+					const paneMedia = pane.locator(".omp-chat-media-list [data-chat-media='video']").last();
+					await paneMedia.scrollIntoViewIfNeeded();
+					const paneVideo = paneMedia.locator("video");
 					await expectLoadedAndIdle(paneVideo, "video");
 					const paneBox = await pane.boundingBox();
 					const videoBox = await paneVideo.boundingBox();
