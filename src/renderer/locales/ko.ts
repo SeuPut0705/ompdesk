@@ -82,6 +82,7 @@ export const ko: Record<string, string> = {
 	"titlebar.status.error": "오류",
 	"titlebar.status.exited": "종료됨",
 	"titlebar.status.restarting": "다시 시작 중",
+	"titlebar.status.waiting": "omp 설치 중",
 	"titlebar.toggleSidebar": "사이드바 전환",
 	"titlebar.openProjectFailed": "프로젝트를 열 수 없어요",
 	"titlebar.renameFailed": "세션 이름을 바꾸지 못했어요",

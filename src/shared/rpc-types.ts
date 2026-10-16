@@ -2643,9 +2643,12 @@ export type AssistantMessageEvent =
  * `asleep` is the state of a sidecar that was created but never spawned — a
  * restored background tab, whose process is started the first time the tab
  * becomes visible. It is distinct from `exited` (a spawn that ran and ended)
- * and from `starting` (a spawn already under way).
+ * and from `starting` (a spawn already under way). `waiting`: omp is not
+ * usable on this computer yet (missing, too old or broken), so nothing was
+ * spawned; machine setup installs it and main starts the tab when it is
+ * (`message` keeps the reason). Not a failure: no surface shows it as one.
  */
-export type SidecarStatus = "asleep" | "starting" | "ready" | "exited" | "error" | "restarting";
+export type SidecarStatus = "asleep" | "starting" | "ready" | "exited" | "error" | "restarting" | "waiting";
 
 /** Crash-loop progress carried by a `restarting` status, and by the terminal
  * `error` when the attempts ran out. Structured so the banner can render

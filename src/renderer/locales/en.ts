@@ -85,6 +85,7 @@ export const en: Record<string, string> = {
 	"titlebar.status.error": "Error",
 	"titlebar.status.exited": "Exited",
 	"titlebar.status.restarting": "Restarting",
+	"titlebar.status.waiting": "Installing omp",
 	"titlebar.toggleSidebar": "Toggle sidebar",
 	"titlebar.openProjectFailed": "Couldn't open project",
 	"titlebar.renameFailed": "Couldn't rename session",

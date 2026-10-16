@@ -2,6 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { ompAvailability, refuseWithoutOmp } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { spawnPath } from "./shell-env";
 
@@ -71,7 +72,7 @@ export class StockHelper {
 
 	async #spawnStockWorker(): Promise<ChildProcessWithoutNullStreams> {
 		const [omp, basePath] = await Promise.all([systemOmp(), spawnPath()]);
-		if (!omp.ok) throw new Error(omp.error);
+		if (!omp.ok) throw refuseWithoutOmp(omp.error);
 		const root = ompPackageRoot(omp.runtime.bin);
 		if (!root) throw new Error("Cannot locate omp package");
 		if (this.#stopped) throw new Error("Stock helper stopped");
@@ -231,6 +232,8 @@ export function stockHelperRequest<T>(
 	params: unknown = {},
 	options: StockHelperRequestOptions = {},
 ): Promise<T> {
+	// Machine setup has omp missing or installing: no worker starts on a half-installed or absent omp.
+	if (ompAvailability() === "missing") return Promise.reject(refuseWithoutOmp("omp is not installed yet"));
 	const worker = helperWorker(method);
 	helpers[worker] ??= new StockHelper(bridgeDirectory, { worker });
 	return helpers[worker].request<T>(method, params, options);

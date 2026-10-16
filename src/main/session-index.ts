@@ -8,6 +8,7 @@ import { type FSWatcher, watch } from "chokidar";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
+import { OmpUnavailableError } from "./omp-availability";
 import { StampedLru } from "./session-cache";
 import { contentSnippet } from "./session-snippet";
 import { StockSessionStore } from "./session-store";
@@ -87,7 +88,15 @@ export class SessionIndex {
 	 *   own so each window sees only its project's sessions.
 	 */
 	async list(scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
-		const parsed = await this.#store.list();
+		let parsed: SessionInfo[];
+		try {
+			parsed = await this.#store.list();
+		} catch (error) {
+			// No usable omp yet (machine setup is on it): nothing to list, and nothing failed. Main
+			// signals a change once omp is usable, and the readers list again.
+			if (error instanceof OmpUnavailableError) return [];
+			throw error;
+		}
 		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
 		const infos = parsed.filter(info => {
 			return scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd);

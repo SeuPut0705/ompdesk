@@ -26,9 +26,13 @@ export function FirstRunGate() {
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const checkedThisLaunch = useRef(false);
 
+	// The first window's React tree is up (this gate mounts with App): a launch timing mark.
+	useEffect(() => window.omp.runtime.startupMark("renderer-mounted"), []);
+
 	useEffect(() => {
 		if (status !== "ready" || checkedThisLaunch.current) return;
 		let cancelled = false;
+		window.omp.runtime.startupMark("first-run-check");
 		void (async () => {
 			const [catalogResult, configResult, savedStep] = await Promise.allSettled([
 				refreshProviders(false),

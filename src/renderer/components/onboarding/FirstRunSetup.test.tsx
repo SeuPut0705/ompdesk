@@ -76,6 +76,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
 		githubAuth: github.api,
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn() },
+		runtime: { startupMark: vi.fn() },
 	},
 });
 

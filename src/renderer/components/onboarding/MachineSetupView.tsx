@@ -59,10 +59,10 @@ export function useMachineSetupState(): SetupState | null {
 }
 
 /**
- * True while this tab is local, its omp is not usable (the session is in
- * `error`/`exited`) and machine setup says omp is missing, being installed, or
- * was until main's restart brings the session back. Remote tabs never show
- * this machine's setup: their host sets itself up.
+ * True while this tab is local, its omp is not usable (the session is
+ * `waiting` for omp, or in `error`/`exited`) and machine setup says omp is
+ * missing, being installed, or was until main's restart brings the session
+ * back. Remote tabs never show this machine's setup: their host sets itself up.
  */
 export function useMachineSetupNeeded(): boolean {
 	const tabId = useRuntimeTabId();
@@ -70,7 +70,7 @@ export function useMachineSetupNeeded(): boolean {
 	const status = useSessionStore(state => state.status);
 	const state = useMachineSetupStore(store => store.state);
 	const installSeen = useMachineSetupStore(store => store.installSeen);
-	const down = local && (status === "error" || status === "exited");
+	const down = local && (status === "waiting" || status === "error" || status === "exited");
 	useEffect(() => {
 		if (down) useMachineSetupStore.getState().ensureLoaded();
 	}, [down]);

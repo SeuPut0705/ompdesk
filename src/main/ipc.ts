@@ -104,6 +104,7 @@ import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
+import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
 import { spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
@@ -417,6 +418,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			cwd: win ? windowManager.recordFor(win)?.cwd : undefined,
 		});
 	});
+	ipcMain.on(IPC_COMMANDS.RUNTIME_STARTUP_MARK, (_event, mark: unknown) => markStartupFromRenderer(mark));
 
 	ipcMain.handle(IPC_COMMANDS.RUNTIME_LOG_PATH, () => runtimeLogPath());
 	// Feedback dialog: last few runtime-error lines for the opt-in diagnostics

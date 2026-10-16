@@ -636,7 +636,7 @@ describe("SidecarManager", () => {
 		}
 	}, 15_000);
 
-	it("surfaces the omp resolution error (missing or too old) instead of spawning", async () => {
+	it("waits for omp (missing or too old) instead of spawning, keeping the reason", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-noomp-"));
 		const statuses: SidecarStatusPayload[] = [];
 		const error = "omp 18.0.0 is too old; this GUI needs omp 18.6.0 or newer. Run `omp update`, then relaunch.";
@@ -644,8 +644,8 @@ describe("SidecarManager", () => {
 		sidecar.on("status", payload => statuses.push(payload));
 		try {
 			sidecar.start();
-			await expect.poll(() => statuses.at(-1)?.status).toBe("error");
-			expect(statuses.map(payload => payload.status)).toEqual(["starting", "error"]);
+			await expect.poll(() => statuses.at(-1)?.status).toBe("waiting");
+			expect(statuses.map(payload => payload.status)).toEqual(["starting", "waiting"]);
 			expect(statuses.at(-1)?.message).toBe(error);
 		} finally {
 			sidecar.dispose();

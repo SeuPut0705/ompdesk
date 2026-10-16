@@ -1121,6 +1121,12 @@ export function useSessionTabs(): void {
 						const tab = state.tabs.find(entry => entry.id === tabId);
 						const session = sessionRuntimeStore<SessionStore>(tabId, "session");
 						if (!tab || !session) continue;
+						// A tab waiting for omp (machine setup installs it) can report that before any subscription
+						// exists too; the setup screen keys on it, and nothing reads it as a failure.
+						if (tab.status === "waiting") {
+							session.getState().setStatus("waiting", tab.cwd);
+							continue;
+						}
 						if (tab.status === "error" || tab.status === "exited") {
 							// A launch failure (e.g. omp missing or too old) can fire before any
 							// subscription exists; the status snapshot still carries its reason.

@@ -26,6 +26,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"main-unhandled-rejection",
 	"error-toast",
 	"background-task",
+	"startup-timing",
 	"unknown",
 ]);
 

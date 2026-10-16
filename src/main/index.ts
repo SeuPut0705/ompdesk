@@ -76,6 +76,7 @@ import { LogWatcher } from "./log-watcher";
 import { LocalMachine } from "./machine-services";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
+import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { lastWindowCloseAction, quitNeedsConfirmation } from "./quit-guard";
@@ -92,6 +93,7 @@ import { SetupService } from "./setup/service";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
+import { markStartup } from "./startup-timing";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
@@ -484,6 +486,7 @@ function spawnWindow(
 
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
+	markStartup("app-ready");
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
 	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
@@ -702,8 +705,18 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.SETUP_STATE, state);
 			}
+			if (state.items.some(item => item.presence !== null)) markStartup("setup-detected");
+			// omp just became usable: local tabs that waited for it start now (tabs on paired hosts are theirs),
+			// and a session list refused meanwhile is read again.
+			const usable = followSetupState(state);
+			if (!usable) return;
+			for (const sidecar of sidecarPool.allSidecars()) {
+				if (sidecar.device === undefined && sidecar.status === "waiting") sidecar.restart();
+			}
+			if (usable.refused) sessionIndex.onChange?.();
 		},
 		onOmpReady: () => {
+			markStartup("omp-ready");
 			void launchStats();
 			// Local tabs that failed for lack of omp start now; tabs on paired hosts are theirs.
 			for (const sidecar of sidecarPool.allSidecars()) {
@@ -1060,6 +1073,7 @@ app.whenReady().then(() => {
 	// so a later read would only see the just-restored primary window.
 	const savedLayouts = readSavedTabLayouts();
 	spawnWindow(explicitStartupCwd);
+	markStartup("window-created");
 	// A bare launch restores the saved session in full. The window above carries
 	// layout[0]; these are the secondary windows whose tabs used to be dropped at
 	// relaunch. An argv cwd is an explicit "open this", not a restore.

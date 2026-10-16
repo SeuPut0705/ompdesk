@@ -156,7 +156,8 @@ function ProviderReportCard({
 
 export function UsageQuotas() {
 	const t = useT();
-	const ready = useSessionStore(s => s.status) === "ready";
+	const status = useSessionStore(s => s.status);
+	const ready = status === "ready";
 	const openInsights = useUiStore(s => s.openInsights);
 	const feed = useUsage(usage => usage);
 	const readUsage = useUsageRead();
@@ -167,7 +168,8 @@ export function UsageQuotas() {
 	providerCount.current = useModelStore(s => s.providers.length);
 	const now = useNowTick(true);
 	const reports = ready ? feed.reports : null;
-	const error = ready ? feed.error : t("usage.notConnected");
+	// omp still installing (`waiting`) or just starting after it: nothing to read yet, and nothing failed.
+	const error = ready ? feed.error : status === "waiting" || status === "starting" ? null : t("usage.notConnected");
 	const loading = reading || (ready && feed.reports === null && feed.error === null);
 
 	// The cards name providers from the catalog; read it once when nothing has yet.

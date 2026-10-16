@@ -587,6 +587,11 @@ export function FirstRunSetup() {
 		return () => document.removeEventListener("keydown", onKey);
 	}, [active]);
 
+	// The provider step on screen: the launch timing mark the slow-first-run measurements end on.
+	useEffect(() => {
+		if (active && step === "connect") window.omp.runtime.startupMark("first-run-visible");
+	}, [active, step]);
+
 	// A step is a new page: it opens at its top, not at the scroll position the last step left.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `step` is the trigger; the effect reads the DOM.
 	useEffect(() => {

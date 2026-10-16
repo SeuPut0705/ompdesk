@@ -455,7 +455,8 @@ export class SidecarManager extends EventEmitter {
 		]).then(([resolution, proxyVars, shellVars, builtinMcp]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (!resolution.ok) {
-				this.#setStatus("error", resolution.error);
+				// No usable omp: nothing ran, nothing failed. Machine setup installs it and main starts this tab then.
+				this.#setStatus("waiting", resolution.error);
 				return;
 			}
 			this.#runtime = resolution.runtime;

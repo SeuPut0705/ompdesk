@@ -915,7 +915,8 @@ export class LocalHostServices implements HostServices {
 	#statusArg(sidecar: SidecarLike, payload: SidecarStatusPayload): TabStatusArg {
 		const { status, cwd: _cwd, ...detail } = payload;
 		return {
-			status,
+			// A paired device has no setup screen for this computer: a tab waiting for omp here is its failure to show.
+			status: status === "waiting" ? "error" : status,
 			statusPayload: detail,
 			processAlive: sidecar.processAlive,
 			cwd: sidecar.cwd,

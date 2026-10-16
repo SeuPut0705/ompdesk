@@ -1651,7 +1651,10 @@ if (process.argv[2] === "stats") {
 		models_catalog: () => ({ models: catalogModels(), discoveryStates: [], refreshPending: false, generation: 1 }),
 		providers: () => ({
 			providers: [
-				{ id: "fixture", name: "Local fixture", hasAuth: true, authenticated: true, modelCount: 1 },
+				// `OMP_GUI_TEST_SIGNED_OUT=1`: a first-time user, nothing can serve yet (the first-run provider step shows).
+				process.env.OMP_GUI_TEST_SIGNED_OUT === "1"
+					? { id: "fixture", name: "Local fixture", hasAuth: false, authenticated: false, modelCount: 1 }
+					: { id: "fixture", name: "Local fixture", hasAuth: true, authenticated: true, modelCount: 1 },
 				...(loginProvider
 					? [
 							{

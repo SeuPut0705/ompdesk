@@ -293,11 +293,13 @@ export function TitleBar() {
 						? ["ready", t("titlebar.status.ready")]
 						: status === "starting"
 							? ["busy", t("titlebar.status.connecting")]
-							: status === "restarting"
-								? ["busy", t("titlebar.status.restarting")]
-								: status === "error" || status === "exited"
-									? ["error", t(`titlebar.status.${status}`)]
-									: ["ready", t(`titlebar.status.${status}`)];
+							: status === "waiting"
+								? ["busy", t("titlebar.status.waiting")]
+								: status === "restarting"
+									? ["busy", t("titlebar.status.restarting")]
+									: status === "error" || status === "exited"
+										? ["error", t(`titlebar.status.${status}`)]
+										: ["ready", t(`titlebar.status.${status}`)];
 
 	const ui = useUiStore.getState;
 	const sessionMenuItems: ContextMenuItem[] = [

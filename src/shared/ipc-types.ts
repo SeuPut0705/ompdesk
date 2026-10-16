@@ -37,6 +37,7 @@ import type { SchedulesApi } from "./schedules";
 import type { SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
+import type { StartupMark } from "./startup-timing";
 import type { TerminalApi } from "./terminal-types";
 import type { UiLanguage } from "./ui-language";
 
@@ -135,6 +136,8 @@ export const IPC_COMMANDS = {
 	/** Absolute path to the main-process crash log */
 	RUNTIME_LOG_PATH: "runtime:log-path",
 	RUNTIME_LOG_TAIL: "runtime:log-tail",
+	/** A renderer launch timing mark (`RENDERER_STARTUP_MARKS`), stamped on main's clock. */
+	RUNTIME_STARTUP_MARK: "runtime:startup-mark",
 	LOG_SNAPSHOT: "log:snapshot",
 	/** Quit the app through the main-process guard, which confirms while sessions work. */
 	APP_QUIT: "app:quit",
@@ -365,6 +368,8 @@ export type RuntimeErrorSource =
 	| "error-toast"
 	/** A background task failed without interrupting the user (e.g. saving prompt history). */
 	| "background-task"
+	/** A launch timing mark (src/main/startup-timing.ts): `message` names it, `details.sinceLaunchMs` is when. */
+	| "startup-timing"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -1511,6 +1516,8 @@ export interface OmpApi {
 		logSnapshot(): Promise<LogBatch>;
 		/** Last `maxLines` runtime-error lines for the feedback dialog's opt-in diagnostics. */
 		logTail(maxLines: number): Promise<string[]>;
+		/** Records a launch timing mark once (src/shared/startup-timing.ts). */
+		startupMark(mark: StartupMark): void;
 	};
 	app: {
 		/**

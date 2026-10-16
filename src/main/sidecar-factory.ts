@@ -16,11 +16,13 @@ import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState } from "./builtin-mcp";
 import { ompFailureText } from "./i18n";
+import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
 import { writeRuntimeLog } from "./runtime-log";
 import type { SessionKindStore } from "./session-kinds";
 import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
+import { markStartup } from "./startup-timing";
 
 export interface LocalSidecarDeps {
 	/** The gui-bridge extension directory. */
@@ -66,9 +68,12 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 	const { bridgeDir, bridgeHealth, sessionKinds } = deps;
 	return (cwd, kind, fresh, origin) => {
 		const sc = new SidecarManager({
-			// The status banner shows this text; localize it in the UI language.
+			// The status keeps this reason (Settings, the status snapshot); localize it in the UI language.
+			// While machine setup has omp missing or installing, a half-installed omp is not even resolved.
 			omp: async () => {
+				if (ompAvailability() === "missing") return { ok: false, error: ompFailureText({ kind: "not-found" }) };
 				const resolution = await systemOmp();
+				markStartup("omp-resolved", { ok: resolution.ok });
 				return resolution.ok || !resolution.reason
 					? resolution
 					: { ...resolution, error: ompFailureText(resolution.reason) };
@@ -115,6 +120,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 		// re-probes and returns it to `ready` once a command succeeds again.
 		sc.on("status", ({ status }) => {
 			if (status !== "ready") return;
+			markStartup("sidecar-ready");
 			const client = sc.rpcClient;
 			if (!client) return;
 			client
@@ -126,7 +132,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
 				});
 		});
-		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
+		sc.on("bridge", (result: BridgeConnectResult) => {
+			markStartup("bridge-connected");
+			void bridgeHealth.observe(result);
+		});
 		// The bridge's goal time limit ran out (resources/gui-bridge/modes/goal.ts): pause through stock RPC `goal`
 		// `pause`, the path that also gives back the pre-goal tool set and resets continuation (RpcGoalController
 		// `#exit`); the bridge has no handle on that controller. A failed pause leaves the goal running and the

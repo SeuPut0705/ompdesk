@@ -182,6 +182,7 @@ const api: OmpApi = {
 		logPath: () => ipcRenderer.invoke(IPC_COMMANDS.RUNTIME_LOG_PATH) as Promise<string>,
 		logSnapshot: () => ipcRenderer.invoke(IPC_COMMANDS.LOG_SNAPSHOT) as Promise<LogBatch>,
 		logTail: (maxLines: number) => ipcRenderer.invoke(IPC_COMMANDS.RUNTIME_LOG_TAIL, maxLines) as Promise<string[]>,
+		startupMark: mark => ipcRenderer.send(IPC_COMMANDS.RUNTIME_STARTUP_MARK, mark),
 	},
 	// Fire-and-forget: the guard may show a modal, and the renderer has nothing
 	// to learn from the outcome.
