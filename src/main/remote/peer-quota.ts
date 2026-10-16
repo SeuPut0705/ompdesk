@@ -14,7 +14,18 @@
  * refused.
  */
 import type { PeerLimits, PeerUsageView } from "../../shared/ipc-types";
-import type { PeerInfo, PeerStore } from "./peers-store";
+
+/** What the quota reads and writes of a device: a paired desktop peer's record or a web device's. */
+export interface QuotaRecord {
+	deviceId: string;
+	limits?: PeerLimits | undefined;
+	usage?: { day: string; requests: number; tokens: number } | undefined;
+}
+
+export interface QuotaStore {
+	get(deviceId: string): QuotaRecord | undefined;
+	update(deviceId: string, patch: Pick<QuotaRecord, "limits" | "usage">): unknown;
+}
 
 /** `YYYY-MM-DD` of `date` in this computer's time zone. */
 export function localDay(date: Date): string {
@@ -29,18 +40,18 @@ export type QuotaRefusal = "requests" | "tokens";
 export type QuotaReservation = { ok: true; refund(): void } | { ok: false; refusal: QuotaRefusal };
 
 export class PeerQuota {
-	readonly #peers: Pick<PeerStore, "get" | "update">;
+	readonly #peers: QuotaStore;
 	readonly #now: () => Date;
 	readonly #changed: (deviceId: string) => void;
 
-	constructor(peers: Pick<PeerStore, "get" | "update">, changed: (deviceId: string) => void, now = () => new Date()) {
+	constructor(peers: QuotaStore, changed: (deviceId: string) => void, now = () => new Date()) {
 		this.#peers = peers;
 		this.#changed = changed;
 		this.#now = now;
 	}
 
 	/** Today's usage of a peer (zero once the stored day is over). */
-	usage(peer: PeerInfo): PeerUsageView {
+	usage(peer: Pick<QuotaRecord, "usage">): PeerUsageView {
 		const today = localDay(this.#now());
 		return peer.usage?.day === today
 			? { requests: peer.usage.requests, tokens: peer.usage.tokens }

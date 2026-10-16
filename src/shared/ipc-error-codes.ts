@@ -107,6 +107,8 @@ export const IPC_ERROR_CODES = [
 	"update_not_ready",
 	// Another window that shows the tab answered this ask or approval first (multi-viewer, sidecar-pool.ts).
 	"already_answered",
+	// A paired web device asked for something its grants or the web policy do not allow (main/web/ws-router.ts).
+	"web_forbidden",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];
