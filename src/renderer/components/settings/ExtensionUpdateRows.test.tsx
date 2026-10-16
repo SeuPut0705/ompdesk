@@ -237,6 +237,20 @@ describe("ExtensionUpdateRows", () => {
 		expect(nowButton("plugin:pinned:user").disabled).toBe(true);
 	});
 
+	it("orders a pinned row's versions like main: a release is newer than its own prerelease", () => {
+		const pinned = (installed: string, latest: string) =>
+			extensionStatusText(
+				translate,
+				extRow({ key: "plugin:pinned:user", kind: "plugin", name: "pinned", installed, latest, skip: "pinned" }),
+				{ scheduled: true },
+			);
+		expect(pinned("1.0.0-beta.2", "1.0.0")).toBe(
+			translate("extensionUpdate.status.available", { installed: "1.0.0-beta.2", latest: "1.0.0" }),
+		);
+		expect(pinned("1.0.0", "1.0.0-beta.2")).toBe(translate("extensionUpdate.status.pinned", { installed: "1.0.0" }));
+		expect(pinned("v1.2", "1.2.0")).toBe(translate("extensionUpdate.status.pinned", { installed: "v1.2" }));
+	});
+
 	it("names a skipped row's reason, including the built-in REA server", async () => {
 		await mount(
 			extState([

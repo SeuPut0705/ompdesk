@@ -13,6 +13,7 @@ import {
 	type ExtensionRow,
 	type ExtensionUpdateState,
 } from "../../../shared/extension-update";
+import { isNewer } from "../../../shared/version";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { useExtensionUpdateStore } from "../../stores/extension-update";
@@ -31,23 +32,6 @@ const KIND_ICON: Record<ExtensionKind, ReactNode> = {
 /** A row key (`plugin:name@market:user`) as a DOM id / test id fragment. */
 export function extensionDomId(key: string): string {
 	return key.replace(/[^A-Za-z0-9_-]/g, "-");
-}
-
-/** Whether version `a` is newer than `b` (numeric parts first; a plain string compare as the last word). */
-function isNewer(a: string, b: string): boolean {
-	const parts = (value: string) => value.replace(/^v/, "").split(/[.+-]/);
-	const left = parts(a);
-	const right = parts(b);
-	for (let i = 0; i < Math.max(left.length, right.length); i++) {
-		const x = left[i] ?? "0";
-		const y = right[i] ?? "0";
-		if (x === y) continue;
-		const nx = /^\d+$/.test(x) ? Number(x) : null;
-		const ny = /^\d+$/.test(y) ? Number(y) : null;
-		if (nx !== null && ny !== null) return nx > ny;
-		return x > y;
-	}
-	return false;
 }
 
 /** The row's own name; the two grouped skill rows carry placeholder names. */
