@@ -849,6 +849,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"lsp.formatOnWrite": { label: "쓰기 후 포맷", description: "코드 파일을 쓴 뒤 LSP로 자동 포맷" },
 	"lsp.diagnosticsOnWrite": { label: "쓰기 후 진단", description: "코드 파일을 쓴 뒤 LSP 진단 반환" },
 	"lsp.diagnosticsOnEdit": { label: "편집 후 진단", description: "코드 파일을 편집한 뒤 LSP 진단 반환" },
+	"lsp.requestTimeout": {
+		label: "요청 제한 시간",
+		description:
+			"에이전트가 제한 시간을 정하지 않았을 때 언어 서버의 진단·호버 같은 응답을 기다리는 시간(초)이에요. 늦게 오는 편집 후 진단도 최소 이만큼 기다려요. 처음 켤 때 느린 서버라면 늘려 주세요. lsp 도구의 timeout 인자로 호출마다 늘리거나 줄일 수 있어요",
+	},
 	"lsp.diagnosticsDeduplicate": {
 		label: "진단 중복 제거",
 		description: "파일에서 이미 표시된 편집 후 LSP 진단은 숨기고 새로 생기거나 바뀐 것만 표시",

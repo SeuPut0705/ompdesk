@@ -597,6 +597,7 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"3 minutes": "3분",
 	"No limit": "제한 없음",
 	"10 seconds": "10초",
+	"20 seconds": "20초",
 	Smart: "스마트",
 	"All Devices": "모든 장치",
 	"Inline docs and schemas for every mounted device.": "마운트된 모든 장치의 문서와 스키마를 인라인으로 포함해요.",
