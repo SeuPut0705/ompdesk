@@ -2099,6 +2099,9 @@ export const en: Record<string, string> = {
 	"settings.gui.keepAwakeWorking": "Keep this computer awake while working",
 	"settings.gui.keepAwakeWorkingDesc":
 		"While any tab on this computer is running a turn, the system does not go to sleep. The display can still turn off.",
+	"settings.agent.automation": "Smart automation",
+	"settings.gui.autoPreviewDevServer": "Open dev servers in Preview",
+	"settings.gui.autoPreviewDevServerDesc": "Shows a server the agent starts, once per address",
 	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
 	"settings.gui.resumeInterruptedDesc":
 		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",

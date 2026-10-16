@@ -37,6 +37,7 @@ import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
+import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
@@ -327,6 +328,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			withSessionRuntime(tabId, () => {
 				useMessagesStore.getState().applyEvents(events);
 				useToolsStore.getState().applyEvents(events);
+				handleAutoOpenEvents(tabId, events);
 
 				// eventVersion lets an async snapshot (get_state, hydrate) tell whether
 				// events landed after it was taken. One bump per batch covers every

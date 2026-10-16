@@ -2084,6 +2084,9 @@ export const ko: Record<string, string> = {
 	"settings.gui.keepAwakeWorking": "작업 중에는 잠자기 막기",
 	"settings.gui.keepAwakeWorkingDesc":
 		"이 컴퓨터의 탭이 턴을 실행하는 동안 시스템이 잠자기에 들어가지 않아요. 화면은 꺼질 수 있어요.",
+	"settings.agent.automation": "스마트 자동화",
+	"settings.gui.autoPreviewDevServer": "개발 서버를 미리보기로 열기",
+	"settings.gui.autoPreviewDevServerDesc": "에이전트가 띄운 서버를 주소마다 한 번만 보여줘요",
 	"settings.gui.resumeInterrupted": "다시 열 때 중단된 작업 이어서 하기",
 	"settings.gui.resumeInterruptedDesc":
 		"OMPdesk를 종료했거나, 비정상 종료됐거나, 업데이트로 다시 시작했을 때 실행 중이던 턴이 다음에 열 때 멈춘 곳에서 이어져요. 직접 멈춘 턴은 그대로 멈춰 있어요.",

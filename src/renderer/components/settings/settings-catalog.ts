@@ -190,6 +190,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "reply language conversation answer agent 대화 언어 답변",
 	},
 	{
+		id: "autoPreviewDevServer",
+		section: "agent",
+		labelKey: "settings.gui.autoPreviewDevServer",
+		aliases:
+			"dev server preview open automatically localhost vite next npm run dev smart automation 개발 서버 미리보기 자동 열기 스마트 자동화",
+	},
+	{
 		id: "nextPromptSuggestions",
 		section: "agent",
 		labelKey: "settings.gui.nextPromptSuggestions",
