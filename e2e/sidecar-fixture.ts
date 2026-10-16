@@ -4213,6 +4213,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ records: btwRecords });
 				break;
 			case "goal":
+				if (command.op === "create" && typeof command.objective === "string") {
+					boardGoal = { objective: command.objective, status: "active" };
+					write({ type: "goal_updated", goal: boardGoal, state: { enabled: true, goal: boardGoal } });
+				} else if (command.op === "drop") {
+					boardGoal = undefined;
+					write({ type: "goal_updated", goal: null, state: { enabled: false } });
+				}
 				ok(
 					boardGoal
 						? { goal: boardGoal, state: { enabled: true, mode: "goal", goal: boardGoal } }
@@ -4235,13 +4242,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"debug",
 						"tools",
 						"models",
-				if (command.op === "create" && typeof command.objective === "string") {
-					boardGoal = { objective: command.objective, status: "active" };
-					write({ type: "goal_updated", goal: boardGoal, state: { enabled: true, goal: boardGoal } });
-				} else if (command.op === "drop") {
-					boardGoal = undefined;
-					write({ type: "goal_updated", goal: null, state: { enabled: false } });
-				}
 						"providers",
 						"modes",
 						"hotkeys",
@@ -4259,9 +4259,18 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									"cavecrew",
 									"Delegate to subagents for code location, editing, or review to compress context.\n\nWhen to use: any task that spans several files.\n\nWhen not to use: a one-line fix you can make yourself.",
 								],
-								["caveman", "Use for deliberately ultra-compressed or caveman-style requests; not for ordinary brevity needs."],
-								["caveman-commit", "When writing commit messages, generating commits, invoking /commit, or staging changes."],
-								["tdd", "Use for test-first implementation, red-green-refactor workflows, explicit TDD requirements."],
+								[
+									"caveman",
+									"Use for deliberately ultra-compressed or caveman-style requests; not for ordinary brevity needs.",
+								],
+								[
+									"caveman-commit",
+									"When writing commit messages, generating commits, invoking /commit, or staging changes.",
+								],
+								[
+									"tdd",
+									"Use for test-first implementation, red-green-refactor workflows, explicit TDD requirements.",
+								],
 							].map(([skill, description]) => ({
 								name: `skill:${skill}`,
 								source: "skill",
