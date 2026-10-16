@@ -14,3 +14,9 @@ declare module "*?url" {
 	const url: string;
 	export default url;
 }
+
+/** Vendored provider brand marks (src/renderer/assets/provider-marks), read as SVG source. */
+declare module "*.svg?raw" {
+	const content: string;
+	export default content;
+}

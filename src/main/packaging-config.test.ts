@@ -133,6 +133,11 @@ describe("mac bundle configs", () => {
 		const notice = fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8");
 		expect(notice).toContain("LICENSES/Apache-2.0.txt");
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/Apache-2.0.txt"))).toBe(true);
+		// The provider brand marks (MIT, @lobehub/icons) carry their license text and attribution too.
+		expect(notice).toContain("LICENSES/MIT-lobe-icons.txt");
+		expect(notice).toContain("@lobehub/icons");
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/MIT-lobe-icons.txt"))).toBe(true);
+		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
 	it("ships the shared pool contract inside the bridge on macOS and Windows", () => {

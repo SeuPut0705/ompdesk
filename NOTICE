@@ -25,3 +25,12 @@ morluto, licensed under the MIT License. It is copied unmodified from the
 pinned rea-agents release into resources/omp-builtin/skills/
 reverse-engineer-anything/ (license text in its LICENSE file), except for one
 added "OMPdesk built-in" section in SKILL.md.
+
+This product includes the AI provider brand symbols of @lobehub/icons
+(https://github.com/lobehub/lobe-icons, npm package @lobehub/icons-static-svg
+1.95.1), Copyright (c) 2023 LobeHub, licensed under the MIT License (see
+LICENSES/MIT-lobe-icons.txt). The monochrome SVG files are copied unmodified
+into src/renderer/assets/provider-marks/ and shown beside the provider they
+identify. The symbols are trademarks or logos of their owners (Anthropic,
+OpenAI, Google, xAI, DeepSeek, Meta, GitHub and the others) and identify
+those providers only; their use here implies no endorsement.

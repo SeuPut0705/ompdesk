@@ -145,7 +145,7 @@ function SectionLabel({ children, level }: { children: ReactNode; level: "h3" | 
 	);
 }
 
-function authLabel(provider: ProviderInfo, t: TFn): string {
+export function authLabel(provider: ProviderInfo, t: TFn): string {
 	if (provider.authKind === "oauth") return t("providers.badge.oauth");
 	if (provider.authKind === "env") return t("providers.badge.env");
 	return t("providers.badge.apikey");

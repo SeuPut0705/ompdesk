@@ -1,40 +1,39 @@
 /**
- * Every stored sign-in of one connected subscription provider, expanded under
- * its row in Settings › Models & providers: each account's remaining quota
- * per window as a bar, the one this tab's session is using, and the ones omp
- * is skipping after they hit a limit. omp itself picks between the accounts;
- * this list only shows that and adds or removes accounts. "Add another
- * account" is the same sign-in flow (a different identity adds a row);
- * remove logs out that one credential, and the last one disconnects the
- * provider. The read lives in `useProviderAccounts`, owned by the provider
- * row, so the collapsed row can name the account count; while the list is
- * open it stays live (lib/usage-reports.ts), each account says how old its
- * quota is and when each window resets, and the refresh button has stock
- * probe the provider now. On omp 18.8.1+ each
- * account with an identity key offers to copy it (the name
- * `task.agentAccountPools` matches; see AccountPoolsEditor). An account with
- * saved rate-limit resets shows them and can spend one (ResetPasses.tsx).
+ * The stored sign-ins of one connected subscription provider, as rows of the flat list in
+ * Settings › Models & providers (ProvidersSection): each account is one ConnectedRow with its
+ * tightest live quota and its reset, the one this tab's session is using, and the ones omp is
+ * skipping after they hit a limit. omp itself picks between the accounts; the rows only show
+ * that and add or remove accounts. "Add another account" is the same sign-in flow (a different
+ * identity adds a row); removing logs out that one credential, and the last one disconnects the
+ * provider. The read lives in `useProviderAccounts`, owned by the provider's rows; it is always
+ * live (lib/usage-reports.ts): each account says how old its quota is in the quota's tooltip,
+ * and "Refresh quotas" has stock probe the provider now. On omp 18.8.1+ each account with an
+ * identity key offers to copy it (the name `task.agentAccountPools` matches) and a shortcut to
+ * the Account pools editor. An account with saved rate-limit resets shows them and can spend one
+ * (ResetPasses.tsx).
  */
 
-import { RefreshCw, Trash2, UserPlus } from "lucide-react";
+import { Copy, RefreshCw, Trash2, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderAccount, ProviderAccountsResult, ProviderInfo, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { formatClock, formatSpan } from "../../../lib/format";
+import { copyText, formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
-import { useLiveUsage } from "../../../lib/usage-reports";
+import { tightestLimit, useLiveUsage } from "../../../lib/usage-reports";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ConfirmDialog, CopyButton, IconButton, InlineNotice, ProgressBar, Spinner } from "../../common";
+import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice, ProgressBar } from "../../common";
+import { useSettingsNavigate } from "../settings-navigation";
+import { ConnectedRow } from "./ConnectedRow";
 import { ResetPassControl } from "./ResetPasses";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
 const percent = (fraction: number) => Math.round(Math.max(0, Math.min(1, fraction)) * 100);
 
-/** One quota bar: a window's used share, labelled by what is left, and when it resets. */
+/** One quota window: its used share, what is left of it, and when it resets. */
 interface QuotaWindow {
 	key: string;
 	label: string;
@@ -69,6 +68,23 @@ function quotaWindows(account: ProviderAccount, t: TFn): QuotaWindow[] {
 	];
 }
 
+/** The window that gates the account first (lib/usage-reports `tightestLimit`), else the lone remainder. */
+export function tightestWindow(account: ProviderAccount, t: TFn): QuotaWindow | null {
+	const tight = tightestLimit(account);
+	if (tight) {
+		return {
+			key: tight.limit.id,
+			label: t("providers.accounts.windowLeft", {
+				window: usageLimitLabel(tight.limit, t),
+				percent: percent(1 - tight.fraction),
+			}),
+			used: tight.fraction,
+			resetsAt: tight.limit.resetsAt,
+		};
+	}
+	return quotaWindows(account, t)[0] ?? null;
+}
+
 export interface ProviderAccountsState {
 	result: ProviderAccountsResult | null;
 	error: InlineFailure | null;
@@ -84,8 +100,8 @@ export interface ProviderAccountsState {
 /**
  * The stored accounts of one provider. Reads while `enabled` (connected, lists
  * accounts, omp ready) and again whenever `revision` changes: a sign-in or
- * sign-out elsewhere on the page. While `live` too (the list is open) it keeps
- * the quotas current (lib/usage-reports.ts).
+ * sign-out elsewhere on the page. While `live` too it keeps the quotas current
+ * (lib/usage-reports.ts).
  */
 export function useProviderAccounts(
 	providerId: string,
@@ -138,122 +154,60 @@ export function useProviderAccounts(
 	return { result, error, loading, load };
 }
 
-function AccountRow({
-	provider,
-	account,
-	busy,
-	disabled,
-	sidecarReady,
-	now,
-	onRemove,
-	onRedeemed,
-}: {
-	provider: ProviderInfo;
-	account: ProviderAccount;
-	busy: boolean;
-	disabled: boolean;
-	sidecarReady: boolean;
-	/** The shared one-second clock the ages and countdowns read. */
-	now: number;
-	onRemove: () => void;
-	/** After a reset pass is spent: re-reads the accounts, resolving to this account's limits. */
-	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
-}) {
+/** The tightest window as text, a thin bar and its reset; the tooltip lists every window and the read's age. */
+function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) {
 	const t = useT();
-	const windows = quotaWindows(account, t);
+	const tight = tightestWindow(account, t);
+	if (!tight) return null;
+	const title = [
+		...quotaWindows(account, t).map(window =>
+			window.resetsAt === undefined
+				? window.label
+				: `${window.label} · ${window.resetsAt > now ? t("usage.resetsIn", { time: formatSpan(window.resetsAt - now) }) : t("usage.resetting")}`,
+		),
+		account.fetchedAt === undefined ? null : t("usage.updatedAgo", { time: formatSpan(now - account.fetchedAt) }),
+	]
+		.filter(Boolean)
+		.join("\n");
 	return (
-		<li className="flex items-start gap-2 py-2" data-provider-account={account.credentialId}>
-			<div className="flex min-w-0 flex-1 flex-col gap-1.5">
-				<div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
-					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" title={account.detail}>
-						{account.label}
+		<div
+			className="order-4 flex w-full shrink-0 flex-col gap-1 pl-[1.875rem] @xl:order-3 @xl:w-56 @xl:pl-0"
+			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
+			title={title}
+		>
+			<span className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)">{tight.label}</span>
+			<span className="flex items-center gap-2">
+				<ProgressBar
+					ariaLabel={tight.label}
+					className="min-w-0 flex-1"
+					height={4}
+					value={tight.used}
+					valueText=""
+				/>
+				{tight.resetsAt !== undefined && (
+					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
+						{tight.resetsAt > now
+							? t("usage.resetsIn", { time: formatSpan(tight.resetsAt - now) })
+							: t("usage.resetting")}
 					</span>
-					{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
-					{account.state === "depleted" && (
-						<Badge variant="warning">
-							{account.limitedUntil !== undefined
-								? t("providers.accounts.limitedUntil", { time: formatClock(account.limitedUntil) })
-								: t("providers.accounts.limited")}
-						</Badge>
-					)}
-					{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
-					{account.fetchedAt !== undefined && (
-						<span
-							className="ml-auto text-sc-xs tabular-nums text-(--sc-text-muted)"
-							data-quota-updated
-							title={formatClock(account.fetchedAt)}
-						>
-							{t("usage.updatedAgo", { time: formatSpan(now - account.fetchedAt) })}
-						</span>
-					)}
-				</div>
-				{account.resetPasses && (
-					<ResetPassControl
-						account={account.label}
-						credentialId={account.credentialId}
-						disabled={!sidecarReady}
-						limits={account.limits}
-						onRedeemed={onRedeemed}
-						passes={account.resetPasses}
-						providerId={provider.id}
-						providerName={provider.name}
-					/>
 				)}
-				{windows.length > 0 && (
-					<ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-4 gap-y-1.5">
-						{windows.map(window => (
-							<li className="flex min-w-0 flex-col gap-1" key={window.key}>
-								<span className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)">{window.label}</span>
-								<ProgressBar ariaLabel={window.label} height={4} value={window.used} valueText="" />
-								{window.resetsAt !== undefined && (
-									<span
-										className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)"
-										title={formatClock(window.resetsAt)}
-									>
-										{window.resetsAt > now
-											? t("usage.resetsIn", { time: formatSpan(window.resetsAt - now) })
-											: t("usage.resetting")}
-									</span>
-								)}
-							</li>
-						))}
-					</ul>
-				)}
-			</div>
-			{busy ? (
-				<span className="flex size-(--sc-control-sm) items-center justify-center">
-					<Spinner size="sm" />
-				</span>
-			) : (
-				<>
-					{typeof account.identityKey === "string" && (
-						// Token-free: the key is the pool name `omp usage accounts` prints.
-						<CopyButton
-							label={t("providers.accounts.copyKey", { account: account.label })}
-							text={account.identityKey}
-						/>
-					)}
-					<IconButton
-						disabled={disabled}
-						icon={<Trash2 />}
-						label={t("providers.accounts.remove", { account: account.label })}
-						onClick={onRemove}
-						size="sm"
-					/>
-				</>
-			)}
-		</li>
+			</span>
+		</div>
 	);
 }
 
-export function ProviderAccounts({
+/**
+ * The rows of one subscription provider: an account each, or one row naming the provider while
+ * its accounts are being read, could not be read, or none are stored.
+ */
+export function ProviderAccountRows({
 	provider,
 	state,
 	sidecarReady,
 	adding,
 	onAdd,
 	onChanged,
-	id,
+	onSignOutAll,
 }: {
 	provider: ProviderInfo;
 	state: ProviderAccountsState;
@@ -261,13 +215,14 @@ export function ProviderAccounts({
 	/** A sign-in for this provider is in flight. */
 	adding: boolean;
 	onAdd: () => void;
-	/** After an account is removed: the provider row may no longer be connected. */
+	/** After an account is removed: the provider may no longer be connected. */
 	onChanged: () => Promise<unknown>;
-	/** The disclosure's `aria-controls` target. */
-	id?: string;
+	/** Provider-wide sign-out (the section confirms it). */
+	onSignOutAll: () => void;
 }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
+	const navigate = useSettingsNavigate();
 	const { result, error, loading, load } = state;
 	const [pendingRemove, setPendingRemove] = useState<ProviderAccount | null>(null);
 	const [removing, setRemoving] = useState<number | null>(null);
@@ -295,79 +250,143 @@ export function ProviderAccounts({
 		}
 	};
 
+	const refresh: ContextMenuItem = {
+		id: "refresh",
+		label: t("providers.accounts.refresh", { provider: provider.name }),
+		icon: RefreshCw,
+		disabled: !sidecarReady,
+		onSelect: () => void load({ refresh: true }),
+	};
+	const addAccount: ContextMenuItem = {
+		id: "add",
+		label: t("providers.accounts.add"),
+		icon: UserPlus,
+		disabled: !sidecarReady || adding,
+		onSelect: onAdd,
+	};
+	const signOutAll: ContextMenuItem = {
+		id: "sign-out-all",
+		label: t("providers.logoutAll"),
+		icon: Trash2,
+		danger: true,
+		disabled: !sidecarReady,
+		onSelect: onSignOutAll,
+	};
+
+	if (accounts.length === 0) {
+		return (
+			<ConnectedRow
+				account={error ? error.message : undefined}
+				busy={loading && result === null}
+				menu={[refresh, addAccount]}
+				provider={provider}
+			/>
+		);
+	}
 	return (
-		<section
-			aria-label={t("providers.accounts.label", { provider: provider.name })}
-			className="pr-2.5 pb-2 pl-9"
-			id={id}
-		>
-			{error && (
-				<InlineNotice
-					action={
-						<Button
-							disabled={!sidecarReady || loading}
-							icon={<RefreshCw />}
-							onClick={() => void load()}
-							size="sm"
-							variant="ghost"
-						>
-							{t("common.retry")}
-						</Button>
+		<>
+			{accounts.map(account => (
+				<ConnectedRow
+					account={account.label}
+					accountTitle={account.detail}
+					badges={
+						<>
+							{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
+							{account.state === "depleted" && (
+								<Badge variant="warning">
+									{account.limitedUntil !== undefined
+										? t("providers.accounts.limitedUntil", { time: formatClock(account.limitedUntil) })
+										: t("providers.accounts.limited")}
+								</Badge>
+							)}
+							{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
+						</>
 					}
-					detail={error.cause}
-					title={error.message}
-					tone="danger"
-				/>
-			)}
-			{loading && result === null && !error ? (
-				<div className="py-2">
-					<Spinner label={t("common.loading")} size="sm" />
-				</div>
-			) : (
-				accounts.length > 0 && (
-					<ul className="flex flex-col divide-y divide-(--sc-divider)">
-						{accounts.map(account => (
-							<AccountRow
-								account={account}
-								busy={removing === account.credentialId}
-								disabled={!sidecarReady || removing !== null}
-								key={account.credentialId}
-								now={now}
-								onRedeemed={async () =>
+					below={
+						account.resetPasses && (
+							<ResetPassControl
+								account={account.label}
+								credentialId={account.credentialId}
+								disabled={!sidecarReady}
+								limits={account.limits}
+								onRedeemed={async (): Promise<readonly UsageLimit[] | undefined> =>
 									(await load())?.accounts.find(entry => entry.credentialId === account.credentialId)?.limits
 								}
-								onRemove={() => setPendingRemove(account)}
-								provider={provider}
-								sidecarReady={sidecarReady}
+								passes={account.resetPasses}
+								providerId={provider.id}
+								providerName={provider.name}
 							/>
-						))}
-					</ul>
-				)
+						)
+					}
+					busy={removing === account.credentialId}
+					key={account.credentialId}
+					menu={[
+						refresh,
+						addAccount,
+						...(typeof account.identityKey === "string"
+							? [
+									{
+										id: "copy-key",
+										label: t("providers.accounts.copyKey", { account: account.label }),
+										icon: Copy,
+										onSelect: () => {
+											// Token-free: the key is the pool name `omp usage accounts` prints.
+											void copyText(account.identityKey ?? "").then(ok =>
+												ok
+													? toast({ variant: "success", message: t("common.copied") })
+													: toast({ variant: "error", message: t("common.copyFailed") }),
+											);
+										},
+									},
+									{
+										id: "account-pools",
+										label: t("providers.accounts.pools"),
+										icon: Users,
+										onSelect: () => navigate("models", "settings-models-account-pools"),
+									},
+								]
+							: []),
+						{
+							id: "remove",
+							label: t("providers.accounts.remove", { account: account.label }),
+							icon: Trash2,
+							danger: true,
+							separatorBefore: true,
+							disabled: !sidecarReady || removing !== null,
+							onSelect: () => setPendingRemove(account),
+						},
+						...(accounts.length > 1 ? [signOutAll] : []),
+					]}
+					provider={provider}
+					quota={<QuotaCell account={account} now={now} />}
+					rowProps={{ "data-provider-account": account.credentialId }}
+				/>
+			))}
+			{result?.usageError && (
+				<li>
+					<InlineNotice title={t("providers.accounts.quotaUnavailable")} tone="info" />
+				</li>
 			)}
-			{result?.usageError && <InlineNotice title={t("providers.accounts.quotaUnavailable")} tone="info" />}
-			<div className="-ml-2 flex items-center gap-1">
-				<Button
-					disabled={!sidecarReady || adding}
-					icon={<UserPlus />}
-					onClick={onAdd}
-					size="sm"
-					title={sidecarReady ? undefined : t("providers.notConnected")}
-					variant="ghost"
-				>
-					{t("providers.accounts.add")}
-				</Button>
-				{accounts.length > 0 && (
-					<IconButton
-						data-quota-refresh
-						disabled={!sidecarReady}
-						icon={<RefreshCw />}
-						label={t("providers.accounts.refresh", { provider: provider.name })}
-						loading={loading}
-						onClick={() => void load({ refresh: true })}
-						size="sm"
+			{error && (
+				<li>
+					<InlineNotice
+						action={
+							<Button
+								disabled={!sidecarReady || loading}
+								icon={<RefreshCw />}
+								onClick={() => void load()}
+								size="sm"
+								variant="ghost"
+							>
+								{t("common.retry")}
+							</Button>
+						}
+						detail={error.cause}
+						title={error.message}
+						tone="danger"
 					/>
-				)}
-			</div>
+				</li>
+			)}
 			<ConfirmDialog
 				busy={pendingRemove !== null && removing === pendingRemove.credentialId}
 				confirmLabel={t("providers.accounts.removeConfirm")}
@@ -386,6 +405,6 @@ export function ProviderAccounts({
 				open={pendingRemove !== null}
 				title={t("providers.accounts.removeTitle")}
 			/>
-		</section>
+		</>
 	);
 }

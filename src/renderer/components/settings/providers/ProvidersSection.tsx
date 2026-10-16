@@ -1,20 +1,23 @@
 /**
  * Settings › Models & accounts › Providers & accounts — connection only, in
- * three parts: "Providers & accounts" lists the connected providers (a
- * subscription expands to its accounts with their live quota,
- * ProviderAccounts), the account-switching mode, and "Add a provider", a
- * collapsed picker with search, the recommended set and the long tail;
- * "Custom endpoints" lists this machine's models.yml entries and opens the
- * inline form (`ui.providerForm`, opened by `openProviderConfig`) in place of
- * all of them. The model roles come after, in `modelSettings`; "Account pools"
- * (AccountPoolsEditor, omp 18.8.1+ only) limits which of those accounts each
- * agent may use, from the same account reads, folded under Advanced. A failed
- * read is a quiet InlineNotice in the part it concerns. A tab on a paired host
- * edits the host's models.yml in-app; "Edit config" opens this device's file
- * only, so it is not offered there.
+ * three parts: "Providers & accounts" is ONE open list of every signed-in
+ * account, a row each (brand mark, provider, account, state, tightest live
+ * quota, an overflow menu for the actions), sorted by company with a
+ * provider's accounts adjacent and nothing grouped or collapsed
+ * (ProviderAccounts, ConnectedRow); then the account-switching mode, and
+ * "Add a provider", a compact searchable grid of marks and names
+ * (ProviderPicker). "Custom endpoints" lists this machine's models.yml entries
+ * (neutral first-letter mark) and opens the inline form (`ui.providerForm`,
+ * opened by `openProviderConfig`) in place of all of them. The model roles
+ * come after, in `modelSettings`; "Account pools" (AccountPoolsEditor, omp
+ * 18.8.1+ only) limits which of those accounts each agent may use, from the
+ * same account reads, folded under Advanced. A failed read is a quiet
+ * InlineNotice in the part it concerns. A tab on a paired host edits the
+ * host's models.yml in-app; "Edit config" opens this device's file only, so it
+ * is not offered there.
  */
 
-import { CircleDashed, FileCode2, Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { CircleDashed, FileCode2, KeyRound, LogOut, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
@@ -25,25 +28,38 @@ import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, ConfirmDialog, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
+import {
+	Badge,
+	Button,
+	ConfirmDialog,
+	type ContextMenuItem,
+	IconButton,
+	InlineNotice,
+	ListRow,
+	Spinner,
+} from "../../common";
 import { SettingsAdvanced, SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
+import { ConnectedRow } from "./ConnectedRow";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { ModelOverrides } from "./ModelOverrides";
-import { ProviderAccounts, useProviderAccounts } from "./ProviderAccounts";
+import { ProviderAccountRows, useProviderAccounts } from "./ProviderAccounts";
 import {
+	authLabel,
 	type ProviderCatalog,
-	ProviderItem,
-	ProviderList,
 	type RowHandlers,
 	unlistedCustomReason,
 	useProviderCatalog,
 } from "./ProviderList";
-import { type ProviderLogin, useProviderLogin } from "./ProviderLogin";
+import { type ProviderLogin, ProviderLoginPanel, useProviderLogin } from "./ProviderLogin";
+import { ProviderMark } from "./ProviderMark";
+import { ProviderPicker } from "./ProviderPicker";
 import { groupProviders, providerDiscoveryErrors } from "./provider-catalog";
+import { sortProvidersByCompany } from "./provider-marks";
 import { RotationModeControl } from "./RotationModeControl";
 
-function ConnectedProvider({
+/** The row(s) of one connected provider: an account each for a subscription, else one row. */
+function ConnectedProviderRows({
 	provider,
 	config,
 	login,
@@ -62,53 +78,75 @@ function ConnectedProvider({
 	handlers: RowHandlers;
 	revision: number;
 	onChanged: () => Promise<unknown>;
-	/** Each account read of this row, for the account pool editor (one read serves both). */
+	/** Each account read of this provider, for the account pool editor (one read serves both). */
 	onAccounts: (providerId: string, result: ProviderAccountsResult | null) => void;
 }) {
 	const t = useT();
-	const regionId = useId();
-	const [expanded, setExpanded] = useState(false);
 	// A subscription sign-in can hold several accounts (stock lists them for OAuth providers).
 	const accounts = provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
-	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, expanded);
+	// The list is always open, so the quotas are always live.
+	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, true);
 	useEffect(() => onAccounts(provider.id, state.result), [onAccounts, provider.id, state.result]);
-	const count = state.result?.accounts.length;
-	const summary = !accounts
-		? undefined
-		: state.error && !expanded
-			? state.error.message
-			: count === undefined
-				? undefined
-				: count === 1
-					? t("providers.accounts.countOne")
-					: t("providers.accounts.count", { count });
+	if (accounts) {
+		return (
+			<ProviderAccountRows
+				adding={login.state.running}
+				onAdd={() => void login.start(provider.id)}
+				onChanged={onChanged}
+				onSignOutAll={() => handlers.onLogout?.(provider)}
+				provider={provider}
+				sidecarReady={sidecarReady}
+				state={state}
+			/>
+		);
+	}
+	// A key written in models.yml is reinstalled by every catalog reload, so
+	// signing out would clear a credential the provider never used; editing
+	// the entry is what actually removes it.
+	const canLogout = handlers.onLogout && !config?.hasApiKey;
+	const menu: ContextMenuItem[] = [
+		...(provider.loginAvailable
+			? [
+					{
+						id: "credentials",
+						label: t("providers.updateCredentials", { provider: provider.name }),
+						icon: KeyRound,
+						disabled: !sidecarReady,
+						onSelect: () => handlers.onConnect(provider),
+					},
+				]
+			: []),
+		...(canLogout
+			? [
+					{
+						id: "sign-out",
+						label: t("providers.logout"),
+						icon: LogOut,
+						danger: true,
+						disabled: !sidecarReady,
+						onSelect: () => handlers.onLogout?.(provider),
+					},
+				]
+			: []),
+	];
 	return (
-		<ProviderItem
-			busyProvider={busyProvider}
-			config={config}
-			disclosure={
-				accounts ? { expanded, onToggle: () => setExpanded(open => !open), controls: regionId } : undefined
-			}
-			handlers={handlers}
-			login={login}
+		<ConnectedRow
+			account={[
+				provider.account ?? authLabel(provider, t),
+				provider.modelCount === 1
+					? t("providers.modelOne")
+					: provider.modelCount > 0
+						? t("providers.models", { count: provider.modelCount })
+						: null,
+			]
+				.filter(Boolean)
+				.join(" · ")}
+			accountTitle={provider.baseUrl}
+			badges={provider.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
+			busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
+			menu={menu}
 			provider={provider}
-			sidecarReady={sidecarReady}
-			summary={summary}
-		>
-			{accounts
-				? expanded && (
-						<ProviderAccounts
-							adding={login.state.running}
-							id={regionId}
-							onAdd={() => void login.start(provider.id)}
-							onChanged={onChanged}
-							provider={provider}
-							sidecarReady={sidecarReady}
-							state={state}
-						/>
-					)
-				: undefined}
-		</ProviderItem>
+		/>
 	);
 }
 
@@ -203,14 +241,14 @@ function CustomEndpoints({
 										)
 									}
 									description={description}
-									leading={
-										provider === undefined ? (
-											<CircleDashed aria-hidden className="text-(--sc-warning)" />
-										) : (
-											<Server aria-hidden />
-										)
+									leading={<ProviderMark neutral provider={{ id: config.id, name: config.id }} />}
+									meta={
+										busyProvider === config.id ? (
+											<Spinner size="sm" />
+										) : provider === undefined ? (
+											<CircleDashed aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />
+										) : undefined
 									}
-									meta={busyProvider === config.id ? <Spinner size="sm" /> : undefined}
 									onClick={() => onEdit(config)}
 									rowProps={{ "data-custom-provider": config.id }}
 									title={config.id}
@@ -366,7 +404,7 @@ export function ProvidersSection({
 	}
 
 	const discoveryErrors = providerDiscoveryErrors(discoveryStates, t("providers.discoveryUnavailable"));
-	const connected = groupProviders(providers).connected;
+	const connected = sortProvidersByCompany(groupProviders(providers).connected);
 	const configById = new Map(catalog.customConfigs.map(config => [config.id, config]));
 	const handlers: RowHandlers = {
 		onConnect: provider => void login.start(provider.id),
@@ -419,9 +457,13 @@ export function ProvidersSection({
 				{catalog.refreshPending && <InlineNotice title={t("providers.refreshPending")} tone="pending" />}
 
 				{connected.length > 0 && (
-					<ul aria-label={t("providerList.section.connected")}>
+					<ul
+						aria-label={t("providerList.section.connected")}
+						className="flex flex-col divide-y divide-(--sc-divider)"
+						data-provider-list
+					>
 						{connected.map(provider => (
-							<ConnectedProvider
+							<ConnectedProviderRows
 								busyProvider={busyProvider}
 								config={configById.get(provider.id)}
 								handlers={handlers}
@@ -435,6 +477,17 @@ export function ProvidersSection({
 							/>
 						))}
 					</ul>
+				)}
+				{login.state.providerId !== null && (
+					<div className="px-2.5 pt-1 pb-2" data-login-panel>
+						<ProviderLoginPanel
+							login={login}
+							onRetry={() => void login.start(login.state.providerId ?? "")}
+							providerName={
+								providers.find(row => row.id === login.state.providerId)?.name ?? login.state.providerId
+							}
+						/>
+					</div>
 				)}
 
 				{connected.some(
@@ -464,9 +517,8 @@ export function ProvidersSection({
 				)}
 				{showPicker && (
 					<div className="mt-2" id={pickerId}>
-						<ProviderList
+						<ProviderPicker
 							autoFocusSearch={pickerOpen === true}
-							available
 							busyProvider={busyProvider}
 							catalog={catalog}
 							login={login}

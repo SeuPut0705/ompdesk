@@ -317,19 +317,15 @@ test("provider and account flows", async () => {
 		await expect(settings.getByText("Anthropic", { exact: true }).first()).toBeVisible();
 		await rec.shoot("models");
 
-		// Anthropic expands to its two accounts; "Add another account" signs in a third.
-		const anthropic = settings
-			.locator("li")
-			.filter({ has: page.locator("button[aria-controls]") })
-			.filter({
-				hasText: "Anthropic",
-			});
-		await anthropic.locator("button[aria-controls]").click();
-		const accounts = settings.getByRole("region", { name: "Anthropic accounts" });
+		// Anthropic's two accounts are open rows of the flat list; "Add another account" signs in a third.
+		const accounts = settings.locator("[data-provider-list]");
+		const anthropic = settings.locator("[data-login-panel]");
+		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(2);
 		await expect(accounts).toContainText("work@example.com");
 		await expect(accounts).toContainText("home@example.com");
 		await rec.shoot("accounts");
-		await accounts.getByRole("button", { name: "Add another account" }).click();
+		await accounts.getByRole("button", { name: "Actions for Anthropic work@example.com" }).click();
+		await page.getByRole("menuitem", { name: "Add another account" }).click();
 		await expect(anthropic.getByRole("button", { name: "Sign in with browser" })).toBeVisible();
 		await rec.shoot("add-account-sign-in");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
@@ -341,18 +337,19 @@ test("provider and account flows", async () => {
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(page.getByText("Signed in to Anthropic")).toBeVisible();
 		await expect(accounts).toContainText("added-3@example.com");
-		await expect(anthropic).toContainText("3 accounts");
+		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(3);
 		await rec.shoot("account-added");
 
 		// Remove the added account through its confirmation.
-		await accounts.getByRole("button", { name: "Remove added-3@example.com" }).click();
+		await accounts.getByRole("button", { name: "Actions for Anthropic added-3@example.com" }).click();
+		await page.getByRole("menuitem", { name: "Remove added-3@example.com" }).click();
 		const confirm = page.getByRole("alertdialog").or(page.getByRole("dialog", { name: "Remove this account?" }));
 		await expect(confirm).toBeVisible();
 		await rec.shoot("remove-confirm");
 		await confirm.getByRole("button", { name: "Remove account" }).click();
 		await expect(page.getByText("Removed added-3@example.com from Anthropic")).toBeVisible();
 		await expect(accounts).not.toContainText("added-3@example.com");
-		await expect(anthropic).toContainText("2 accounts");
+		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(2);
 		await rec.shoot("account-removed");
 
 		// Rotation mode: Even, written to prefs and kept over a relaunch below.
@@ -366,25 +363,23 @@ test("provider and account flows", async () => {
 		// An API-key provider from the long tail: the key page, the masked key, connected.
 		await settings.getByRole("button", { name: "Add a provider" }).click();
 		await settings.getByRole("searchbox", { name: "Search providers" }).fill("DeepSeek");
-		const deepseek = settings.locator("li").filter({ has: page.getByText("DeepSeek", { exact: true }) });
+		const deepseekLogin = settings.locator("[data-login-panel]");
 		await rec.shoot("picker-search");
-		await deepseek.getByRole("button", { name: "Connect", exact: true }).click();
-		const key = deepseek.locator('input[type="password"]');
+		await settings.getByRole("button", { name: "Connect DeepSeek", exact: true }).click();
+		const key = deepseekLogin.locator('input[type="password"]');
 		await expect(key).toBeVisible();
-		await expect(deepseek.getByRole("button", { name: "Open key page" })).toBeVisible();
+		await expect(deepseekLogin.getByRole("button", { name: "Open key page" })).toBeVisible();
 		await rec.shoot("api-key-prompt");
 		await key.fill("sk-audit-key");
-		await deepseek.getByRole("button", { name: "Connect", exact: true }).click();
+		await deepseekLogin.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(page.getByText("Signed in to DeepSeek")).toBeVisible();
-		const connectedDeepseek = settings
-			.locator("li")
-			.filter({ has: page.getByRole("button", { name: "Sign out", exact: true }) })
-			.filter({ hasText: "DeepSeek" });
+		const connectedDeepseek = settings.locator('[data-provider-row="deepseek"]');
 		await expect(connectedDeepseek).toContainText("API key");
 		await rec.shoot("api-key-connected");
 
-		// Sign out of it.
-		await connectedDeepseek.getByRole("button", { name: "Sign out", exact: true }).click();
+		// Sign out of it, from the row's overflow menu.
+		await connectedDeepseek.getByRole("button", { name: /^Actions for DeepSeek/ }).click();
+		await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
 		const logout = page.getByRole("alertdialog").or(page.getByRole("dialog", { name: "Sign out of DeepSeek?" }));
 		await expect(logout).toBeVisible();
 		await rec.shoot("sign-out-confirm");

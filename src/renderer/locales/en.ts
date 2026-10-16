@@ -998,7 +998,6 @@ export const en: Record<string, string> = {
 	"providers.edit": "Edit provider",
 	"providers.updateCredentials": "Update credentials for {provider}",
 	"providers.logoutAll": "Sign out of every account",
-	"providers.accounts.label": "{provider} accounts",
 	"providers.accounts.add": "Add another account",
 	"providers.accounts.inUse": "In use",
 	"providers.accounts.limitedUntil": "Limited until {time}",
@@ -1008,8 +1007,6 @@ export const en: Record<string, string> = {
 	"providers.accounts.remaining": "{percent}% left",
 	"providers.accounts.quotaUnavailable": "Couldn't read the quotas right now.",
 	"providers.accounts.loadFailed": "Couldn't list the accounts",
-	"providers.accounts.count": "{count} accounts",
-	"providers.accounts.countOne": "1 account",
 	"providers.accounts.remove": "Remove {account}",
 	"providers.accounts.removeTitle": "Remove this account?",
 	"providers.accounts.removeBody":
@@ -1020,6 +1017,11 @@ export const en: Record<string, string> = {
 	"providers.accounts.removeFailed": "Couldn't remove the account",
 	"providers.accounts.copyKey": "Copy identity key of {account}",
 	"providers.accounts.refresh": "Refresh {provider} quotas",
+	"providers.accounts.pools": "Agent account pools…",
+	"providers.state.signedIn": "Signed in",
+	"providers.row.actions": "Actions for {name}",
+	"providers.picker.connect": "Connect {provider}",
+	"providers.picker.none": "Every provider you can sign in to is connected.",
 	// Saved rate-limit resets ("reset passes"; stock omp's saved resets, `/usage reset`)
 	"resetPasses.count": "{count} reset passes",
 	"resetPasses.countOne": "1 reset pass",

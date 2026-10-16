@@ -115,11 +115,14 @@ function button(name: string): HTMLButtonElement | undefined {
 	) as HTMLButtonElement | undefined;
 }
 
-/** A provider row that expands what is under it, by the provider's name. */
-function disclosure(name: string): HTMLButtonElement | undefined {
-	return Array.from(document.body.querySelectorAll("button[aria-expanded]")).find(
-		candidate => (candidate.textContent ?? "").trim() === name,
-	) as HTMLButtonElement | undefined;
+/** Opens one row's overflow menu (the row is named "{provider} {account}") and picks an action. */
+async function chooseAction(row: string, action: string): Promise<void> {
+	await act(async () => button(translate("providers.row.actions", { name: row }))?.click());
+	const item = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(candidate =>
+		(candidate.textContent ?? "").includes(action),
+	) as HTMLElement | undefined;
+	if (!item) throw new Error(`no "${action}" in the menu of ${row}`);
+	await act(async () => item.click());
 }
 
 const roots: Root[] = [];
@@ -339,7 +342,7 @@ describe("ProvidersSection", () => {
 		await mount(<ProvidersSection />);
 		getProviders.mockClear();
 
-		await act(async () => button(translate("providers.logout"))?.click());
+		await chooseAction("My Proxy API key", translate("providers.logout"));
 		expect(logout).not.toHaveBeenCalled();
 		expect(text()).toContain(translate("providers.logoutTitle", { provider: "My Proxy" }));
 		await act(async () => button(translate("providers.logoutConfirm"))?.click());
@@ -358,7 +361,7 @@ describe("ProvidersSection", () => {
 	it("keeps the credential when the sign-out prompt is cancelled", async () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => button(translate("providers.logout"))?.click());
+		await chooseAction("anthropic API key", translate("providers.logout"));
 		await act(async () => button(translate("common.cancel"))?.click());
 		expect(disconnectProvider).not.toHaveBeenCalled();
 	});
@@ -401,7 +404,7 @@ describe("ProvidersSection", () => {
 		expect(rowText("open-server")).toContain(translate("providerList.notLoaded"));
 	});
 
-	it("collapses the long tail behind one button and searches across all of it", async () => {
+	it("lists every provider to add as one compact grid, sorted by company, and searches across it", async () => {
 		const tail = Array.from({ length: 30 }, (_, index) =>
 			row(`tail-${index}`, { authenticated: false, loginAvailable: true }),
 		);
@@ -412,13 +415,33 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
+		// No collapsed tail: all 31 are in the grid at once.
+		expect(document.querySelectorAll("[data-provider-picker] li").length).toBe(31);
 		expect(text()).toContain("DeepSeek");
-		expect(text()).not.toContain("tail-7");
-		expect(button(translate("providerList.showMore", { count: 30 }))).toBeDefined();
+		expect(text()).toContain("tail-7");
 
 		await typeInto(document.querySelector('input[type="search"]'), "tail-7");
 		expect(text()).toContain("tail-7");
 		expect(text()).not.toContain("DeepSeek");
+	});
+
+	it("signs in to the only provider a search leaves when Enter is pressed", async () => {
+		getProviders.mockResolvedValue(
+			providersResponse(
+				snapshot([
+					row("deepseek", { name: "DeepSeek", authenticated: false, loginAvailable: true }),
+					row("groq", { name: "Groq", authenticated: false, loginAvailable: true }),
+				]),
+			),
+		);
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		const search = document.querySelector('input[type="search"]');
+		await typeInto(search, "gro");
+		const propsKey = Object.getOwnPropertyNames(search as object).find(key => key.startsWith("__reactProps$"));
+		const props = (search as unknown as Record<string, { onKeyDown?: (event: object) => void }>)[propsKey ?? ""];
+		await act(async () => props?.onKeyDown?.({ key: "Enter" }));
+		expect(login).toHaveBeenCalledWith("groq");
 	});
 
 	it("keeps the providers to add behind 'Add a provider' once one is connected", async () => {
@@ -493,7 +516,7 @@ describe("ProvidersSection", () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
 
-		await act(async () => button(translate("providerList.connect"))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "DeepSeek" }))?.click());
 		expect(login).toHaveBeenCalledWith("deepseek");
 		expect(useExtensionUiStore.getState().inlineLogins).toBe(1);
 
@@ -551,7 +574,7 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => button(translate("providerList.connect"))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
 		const status = () => document.querySelector("[data-login-progress]")?.textContent ?? "";
 		expect(status()).toBe(translate("providerList.login.starting"));
 
@@ -581,7 +604,7 @@ describe("ProvidersSection", () => {
 		const add = button(translate("providers.add"));
 		await act(async () => add?.click());
 		expect(add?.getAttribute("aria-expanded")).toBe("true");
-		await act(async () => button(translate("providerList.connect"))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "DeepSeek" }))?.click());
 		await act(async () => {
 			useExtensionUiStore.getState().pushRequest({
 				type: "extension_ui_request",
@@ -618,7 +641,7 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => button(translate("providerList.connect"))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "DeepSeek" }))?.click());
 		expect(text()).toContain(translate("providerList.login.failed", { provider: "DeepSeek" }));
 		expect(text()).toContain("Invalid API key");
 		expect(button(translate("providerList.login.retry"))).toBeDefined();
@@ -679,7 +702,7 @@ describe("ProvidersSection", () => {
 					{extra}
 				</>,
 			);
-			await act(async () => button(translate("providerList.connect"))?.click());
+			await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
 			await act(async () => {
 				useExtensionUiStore.getState().pushRequest(openUrl);
 				useExtensionUiStore.getState().pushRequest({
@@ -921,32 +944,48 @@ describe("ProviderAccounts", () => {
 		});
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => disclosure("Anthropic")?.click());
 	}
 
-	it("names the account count on the collapsed row and expands to the accounts in place", async () => {
-		getProviders.mockResolvedValue(providersResponse(snapshot([claude])));
-		getProviderAccounts.mockResolvedValue({
-			type: "response",
-			command: "get_provider_accounts",
-			success: true,
-			data: { providerId: "anthropic", accounts },
-		});
-		useSessionStore.setState({ status: "ready" });
-		await mount(<ProvidersSection />);
-		const toggle = disclosure("Anthropic");
-		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-		expect(text()).toContain(translate("providers.accounts.count", { count: 2 }));
-		expect(text()).not.toContain("work@example.com");
-
-		await act(async () => toggle?.click());
-		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-		const region = document.getElementById(toggle?.getAttribute("aria-controls") ?? "");
-		expect(region?.textContent).toContain("work@example.com");
+	it("shows every account of a provider open, in one flat list, without a toggle", async () => {
+		await mountWithAccounts();
+		expect(document.querySelector("[data-provider-list] [aria-controls]")).toBeNull();
+		const items = Array.from(document.querySelectorAll("[data-provider-list] > li"));
+		expect(items.map(item => item.getAttribute("data-provider-account"))).toEqual(["7", "9"]);
 		expect(getProviderAccounts).toHaveBeenCalledTimes(1);
 	});
 
-	it("lists every connected account with its quota, the one in use and the one skipped until reset", async () => {
+	it("sorts the open list by company, one row per provider, each with its real mark or the neutral glyph", async () => {
+		getProviders.mockResolvedValue(
+			providersResponse(
+				snapshot([
+					row("openrouter", { name: "OpenRouter" }),
+					row("acme", { name: "Acme Gateway" }),
+					row("openai-codex", { name: "OpenAI Codex" }),
+					row("anthropic", { name: "Anthropic" }),
+					row("openai", { name: "OpenAI" }),
+				]),
+			),
+		);
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		const rows = Array.from(document.querySelectorAll("[data-provider-list] > li"));
+		expect(rows.map(item => item.getAttribute("data-provider-row"))).toEqual([
+			"acme",
+			"anthropic",
+			"openai",
+			"openai-codex",
+			"openrouter",
+		]);
+		expect(rows.map(item => item.querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark"))).toEqual([
+			"fallback",
+			"anthropic",
+			"openai",
+			"openai",
+			"openrouter",
+		]);
+	});
+
+	it("lists every account in one row with its tightest quota, the one in use and the one skipped until reset", async () => {
 		await mountWithAccounts();
 		expect(getProviderAccounts).toHaveBeenCalledWith("anthropic", false);
 		const body = text();
@@ -954,26 +993,35 @@ describe("ProviderAccounts", () => {
 		expect(body).toContain("home@example.com");
 		expect(body).toContain(translate("providers.accounts.inUse"));
 		expect(body.split(translate("providers.accounts.inUse")).length).toBe(2);
-		expect(body).toContain(
-			translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 94 }),
-		);
+		expect(body.split(translate("providers.state.signedIn")).length).toBe(3);
+		// Only the window that gates the account first: the week, not the 5-hour window.
 		expect(body).toContain(
 			translate("providers.accounts.windowLeft", { window: translate("usage.limit.weekly"), percent: 39 }),
 		);
-		// One bar per reported window, filled by the used share.
+		expect(body).not.toContain(
+			translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 94 }),
+		);
 		const bars = Array.from(document.querySelectorAll('[role="progressbar"]'));
-		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["0.06", "0.61"]);
+		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["0.61"]);
 		expect(body).toContain(translate("providers.accounts.limitedUntil", { time: formatClock(limitedUntil) }));
-		expect(button(translate("providers.logoutAll"))).toBeDefined();
 		// The account-switching mode sits with the accounts, for this device's omp.
 		expect(document.querySelector('[data-models-rotation] [role="radiogroup"]')).toBeTruthy();
 		expect(accountRotationGet).toHaveBeenLastCalledWith(undefined);
 	});
 
+	it("signs out of every account from any account's menu", async () => {
+		await mountWithAccounts();
+		await chooseAction("Anthropic work@example.com", translate("providers.logoutAll"));
+		expect(text()).toContain(translate("providers.logoutTitle", { provider: "Anthropic" }));
+	});
+
 	it("removes only the chosen account, by its credentialId, after confirming", async () => {
 		await mountWithAccounts();
 		getProviders.mockClear();
-		await act(async () => button(translate("providers.accounts.remove", { account: "home@example.com" }))?.click());
+		await chooseAction(
+			"Anthropic home@example.com",
+			translate("providers.accounts.remove", { account: "home@example.com" }),
+		);
 		expect(logout).not.toHaveBeenCalled();
 		expect(text()).toContain(
 			translate("providers.accounts.removeBody", { account: "home@example.com", provider: "Anthropic" }),
@@ -987,7 +1035,10 @@ describe("ProviderAccounts", () => {
 
 	it("warns that removing the last account disconnects the provider", async () => {
 		await mountWithAccounts([accounts[0]]);
-		await act(async () => button(translate("providers.accounts.remove", { account: "work@example.com" }))?.click());
+		await chooseAction(
+			"Anthropic work@example.com",
+			translate("providers.accounts.remove", { account: "work@example.com" }),
+		);
 		expect(text()).toContain(
 			translate("providers.accounts.removeLastBody", { account: "work@example.com", provider: "Anthropic" }),
 		);
@@ -997,7 +1048,7 @@ describe("ProviderAccounts", () => {
 
 	it("adds another account through the same sign-in flow", async () => {
 		await mountWithAccounts();
-		await act(async () => button(translate("providers.accounts.add"))?.click());
+		await chooseAction("Anthropic work@example.com", translate("providers.accounts.add"));
 		expect(login).toHaveBeenCalledWith("anthropic");
 	});
 
@@ -1017,15 +1068,19 @@ describe("ProviderAccounts", () => {
 				],
 			},
 		]);
-		const updated = document.querySelector("[data-quota-updated]")?.textContent ?? "";
-		expect(updated).toMatch(/^Updated [5-7]s ago$/);
+		// The age sits in the quota's tooltip, next to every window's reset; the row shows the tightest reset.
+		const cell = document.querySelector("[data-quota-updated]");
+		expect(cell?.getAttribute("title")).toMatch(/Updated [5-7]s ago/);
 		expect(text()).toContain(translate("usage.resetsIn", { time: "3h 0m" }));
 	});
 
 	it("refreshes through the bridge's stock invalidate, while the live poll reads stock's cache", async () => {
 		await mountWithAccounts();
 		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", false);
-		await act(async () => button(translate("providers.accounts.refresh", { provider: "Anthropic" }))?.click());
+		await chooseAction(
+			"Anthropic work@example.com",
+			translate("providers.accounts.refresh", { provider: "Anthropic" }),
+		);
 		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", true);
 	});
 

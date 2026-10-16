@@ -78,13 +78,14 @@ test("keeps the open account list live without reopening it", async () => {
 	const settings = page.locator("[data-settings-page]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 	await page.locator('[data-settings-section="models"]').click();
-	await settings.locator("button[aria-expanded]", { hasText: "Anthropic" }).first().click();
-
+	// No toggle: the account rows are open, each with its tightest window (the 5-hour one here).
 	const work = settings.locator('[data-provider-account="1"]');
 	await expect(work).toContainText(/5-hour limit \d+% left/);
-	await expect(work.locator("[data-quota-updated]")).toHaveText(/^Updated \d+s ago$/);
+	const quota = work.locator("[data-quota-updated]");
+	await expect(quota).toHaveAttribute("title", /Updated \d+s ago/);
 	await expect(work).toContainText(/resets in [23]h \d+m/);
-	await expect(work).toContainText(/resets in [34]d \d+h/);
+	// The other windows, with their resets, are in the quota's tooltip.
+	await expect(quota).toHaveAttribute("title", /resets in [34]d \d+h/);
 
 	// The 30-second poll: the fixture's next read spent more, and the open list shows it.
 	const before = await workLeft(work);
@@ -98,7 +99,8 @@ test("keeps the open account list live without reopening it", async () => {
 
 	// The refresh button asks stock to probe the provider now (its `omp usage invalidate`).
 	expect((await recorded("provider_accounts")).some(entry => entry.refresh === true)).toBe(false);
-	await settings.getByRole("button", { name: "Refresh Anthropic quotas" }).click();
+	await work.getByRole("button", { name: "Actions for Anthropic work@example.com" }).click();
+	await page.getByRole("menuitem", { name: "Refresh Anthropic quotas" }).click();
 	await expect
 		.poll(async () => (await recorded("provider_accounts")).some(entry => entry.refresh === true))
 		.toBe(true);

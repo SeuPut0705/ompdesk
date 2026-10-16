@@ -59,7 +59,7 @@ export function inUseReport(reports: readonly UsageReport[], provider: string | 
  * The most-consumed limit in a provider report — the one that gates usage
  * first. The bridge normalizes `usedFraction` with stock `resolveUsedFraction`.
  */
-export function tightestLimit(report: UsageReport): { limit: UsageLimit; fraction: number } | null {
+export function tightestLimit(report: Pick<UsageReport, "limits">): { limit: UsageLimit; fraction: number } | null {
 	let best: { limit: UsageLimit; fraction: number } | null = null;
 	for (const limit of report.limits) {
 		const fraction = limit.usedFraction;

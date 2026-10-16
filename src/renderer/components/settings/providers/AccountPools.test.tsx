@@ -9,6 +9,7 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useToastStore } from "../../../stores/toast";
 import { routeCommands } from "../../../test-support/route-commands";
+import { SettingsNavigationProvider } from "../settings-navigation";
 import { AGENT_ACCOUNT_POOLS_PATH } from "./account-pools";
 import { ProvidersSection } from "./ProvidersSection";
 
@@ -140,13 +141,22 @@ async function flush(): Promise<void> {
 	});
 }
 
+/** An item of the open overflow menu. */
+function menuItem(label: string): HTMLElement | undefined {
+	return Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(candidate =>
+		(candidate.textContent ?? "").includes(label),
+	);
+}
+
 async function mount(): Promise<void> {
 	useSessionStore.setState({ status: "ready" });
 	const root = createRoot(document.body as unknown as Element);
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ProvidersSection />
+				<SettingsNavigationProvider value={() => {}}>
+					<ProvidersSection />
+				</SettingsNavigationProvider>
 			</I18nProvider>,
 		);
 	});
@@ -178,14 +188,16 @@ describe("Copy identity key", () => {
 		getProviderAccounts.mockResolvedValue(accountsWithKeys([account(7, "work@example.com", WORK)]));
 		getSettings.mockResolvedValue(settingsWith(undefined));
 		await mount();
-		await act(async () => document.body.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click());
+		await act(async () =>
+			button(translate("providers.row.actions", { name: "Anthropic work@example.com" }))?.click(),
+		);
 
-		await act(async () => button(translate("providers.accounts.copyKey", { account: "work@example.com" }))?.click());
+		await act(async () =>
+			menuItem(translate("providers.accounts.copyKey", { account: "work@example.com" }))?.click(),
+		);
 		await flush();
 		expect(writeText).toHaveBeenCalledWith(WORK);
-		expect(button(translate("providers.accounts.copyKey", { account: "work@example.com" }))?.dataset.copied).toBe(
-			"true",
-		);
+		expect(useToastStore.getState().toasts.map(entry => entry.message)).toContain(translate("common.copied"));
 	});
 
 	it("keeps the pool editor reachable even before an account reports an identity key", async () => {
@@ -194,10 +206,13 @@ describe("Copy identity key", () => {
 		);
 		getSettings.mockResolvedValue(settingsWith(undefined));
 		await mount();
-		await act(async () => document.body.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click());
+		await act(async () =>
+			button(translate("providers.row.actions", { name: "Anthropic work@example.com" }))?.click(),
+		);
 
 		expect(text()).toContain("work@example.com");
-		expect(button(translate("providers.accounts.copyKey", { account: "work@example.com" }))).toBeUndefined();
+		expect(menuItem(translate("providers.accounts.copyKey", { account: "work@example.com" }))).toBeUndefined();
+		expect(menuItem(translate("providers.accounts.pools"))).toBeUndefined();
 		expect(text()).toContain(translate("accountPools.title"));
 		expect(getSettings).toHaveBeenCalledWith([AGENT_ACCOUNT_POOLS_PATH]);
 	});

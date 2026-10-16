@@ -399,8 +399,8 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 		await a.keyboard.press("ControlOrMeta+Comma");
 		await settings.locator('[data-settings-section="models"]').click();
 		await settings.getByRole("button", { name: "Add a provider" }).click();
-		const anthropic = settings.locator("li").filter({ has: a.getByText("Anthropic", { exact: true }) });
-		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		const anthropic = settings.locator("[data-login-panel]");
+		await settings.getByRole("button", { name: "Connect Anthropic", exact: true }).click();
 		await expect(anthropic.locator("[data-login-progress]")).toBeVisible({ timeout: 30_000 });
 		await expect
 			.poll(async () => (await recorded(hostProfile)).some(frame => frame.type === "login"), { timeout: 30_000 })

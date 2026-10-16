@@ -593,8 +593,12 @@ if (process.argv[2] === "stats") {
 				{ credentialId: 2, label: "home@example.com", detail: "Claude Pro", type: "oauth", active: false },
 			]
 		: [];
+	// `OMP_GUI_TEST_MANY_PROVIDERS=1` (with OMP_GUI_TEST_MODELS) starts with several long-tail providers
+	// connected and one the brand marks do not know, for the provider list's captures and tests.
 	/** Long-tail providers connected through the API-key sign-in below (`login` with an `input` for the key). */
-	const apiKeyProviders = new Set<string>();
+	const apiKeyProviders = new Set<string>(
+		process.env.OMP_GUI_TEST_MANY_PROVIDERS === "1" ? ["deepseek", "groq", "openrouter", "acme-gateway"] : [],
+	);
 	/** Ids a later "Add another account" sign-in hands out, after the two seeded accounts. */
 	let nextCredentialId = 3;
 	/** Background jobs `composer.cancel_job` stopped; they then list as cancelled, the way stock reports them. */
@@ -785,6 +789,7 @@ if (process.argv[2] === "stats") {
 		["fireworks", "Fireworks"],
 		["together", "Together AI"],
 		["perplexity", "Perplexity"],
+		...(process.env.OMP_GUI_TEST_MANY_PROVIDERS === "1" ? [["acme-gateway", "Acme Gateway"]] : []),
 	].map(([id, name]) => ({ id, name, authenticated: false, loginAvailable: true, disabled: false, modelCount: 0 }));
 	const claudeModels = [
 		{ ...model, id: "claude-opus-4-1", name: "Claude Opus 4.1", provider: "anthropic", contextWindow: 200000 },

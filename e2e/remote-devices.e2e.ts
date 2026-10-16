@@ -208,8 +208,8 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 		});
 		// Providers to connect sit behind "Add a provider" once one (the fixture) is connected.
 		await settings.getByRole("button", { name: "Add a provider" }).click();
-		const anthropic = settings.locator("li").filter({ has: a.getByText("Anthropic", { exact: true }) });
-		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		const anthropic = settings.locator("[data-login-panel]");
+		await settings.getByRole("button", { name: "Connect Anthropic", exact: true }).click();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText("the sign-in finishes on Host B");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
 		await expect

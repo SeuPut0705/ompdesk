@@ -98,13 +98,17 @@ async function openAnthropicRow(page: Page, language: Language) {
 	await settings.locator('[data-settings-section="models"]').click();
 	// Providers to connect sit behind "Add a provider" once one (the fixture) is connected.
 	await settings.getByRole("button", { name: tr(language, "providers.add") }).click();
-	return settings.locator("li").filter({ has: page.getByText("Anthropic", { exact: true }) });
+	// The sign-in panel is one block under the list, whichever provider started it.
+	return settings.locator("[data-login-panel]");
 }
 
 /** Settings › Models with the Anthropic row's sign-in started; returns the row. */
 async function startSignIn(page: Page, language: Language) {
 	const anthropic = await openAnthropicRow(page, language);
-	await anthropic.getByRole("button", { name: tr(language, "providerList.connect"), exact: true }).click();
+	await page
+		.locator("[data-settings-page]")
+		.getByRole("button", { name: tr(language, "providers.picker.connect", { provider: "Anthropic" }), exact: true })
+		.click();
 	await expect(anthropic.locator("[data-login-progress]")).toHaveText(tr(language, "providerList.login.waiting"));
 	return anthropic;
 }
@@ -208,7 +212,10 @@ test("cancel ends the browser sign-in through its callback, never through the pa
 		await expect(page.getByText("Couldn't connect Anthropic")).toHaveCount(0);
 		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 		// A new sign-in starts cleanly afterwards.
-		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await page
+			.locator("[data-settings-page]")
+			.getByRole("button", { name: "Connect Anthropic", exact: true })
+			.click();
 		await expect(anthropic.locator("[data-login-progress]")).toHaveText("Waiting for you to finish in the browser…");
 		expect(errors).toEqual([]);
 	} finally {

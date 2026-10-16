@@ -989,7 +989,6 @@ export const ko: Record<string, string> = {
 	"providers.edit": "프로바이더 편집",
 	"providers.updateCredentials": "{provider} 자격 증명 업데이트",
 	"providers.logoutAll": "모든 계정에서 로그아웃",
-	"providers.accounts.label": "{provider} 계정",
 	"providers.accounts.add": "다른 계정 추가",
 	"providers.accounts.inUse": "사용 중",
 	"providers.accounts.limitedUntil": "{time}까지 한도 도달",
@@ -999,8 +998,6 @@ export const ko: Record<string, string> = {
 	"providers.accounts.remaining": "{percent}% 남음",
 	"providers.accounts.quotaUnavailable": "지금은 한도를 읽지 못했어요.",
 	"providers.accounts.loadFailed": "계정 목록을 불러오지 못했어요",
-	"providers.accounts.count": "계정 {count}개",
-	"providers.accounts.countOne": "계정 1개",
 	"providers.accounts.remove": "{account} 제거",
 	"providers.accounts.removeTitle": "이 계정을 제거할까요?",
 	"providers.accounts.removeBody":
@@ -1012,6 +1009,11 @@ export const ko: Record<string, string> = {
 	"providers.accounts.removeFailed": "계정을 제거하지 못했어요",
 	"providers.accounts.copyKey": "{account} 식별 키 복사",
 	"providers.accounts.refresh": "{provider} 한도 새로고침",
+	"providers.accounts.pools": "에이전트별 계정 풀…",
+	"providers.state.signedIn": "로그인됨",
+	"providers.row.actions": "{name} 작업",
+	"providers.picker.connect": "{provider} 연결",
+	"providers.picker.none": "로그인할 수 있는 프로바이더가 모두 연결되어 있어요.",
 	// Saved rate-limit resets ("reset passes"; stock omp's saved resets, `/usage reset`)
 	"resetPasses.count": "초기화권 {count}개",
 	"resetPasses.countOne": "초기화권 1개",

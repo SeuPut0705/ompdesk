@@ -17,6 +17,7 @@ import { useSessionStore } from "../../../stores/session";
 import { useToastStore } from "../../../stores/toast";
 import { routeCommands } from "../../../test-support/route-commands";
 import { UsageQuotas } from "../../insights/UsageQuotas";
+import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProvidersSection } from "./ProvidersSection";
 import { resetPassSummary } from "./ResetPasses";
 
@@ -128,11 +129,11 @@ async function mountAccounts(...lists: ProviderAccount[][]): Promise<void> {
 		);
 	}
 	useSessionStore.setState({ status: "ready" });
-	await mount(<ProvidersSection />);
-	const toggle = Array.from(document.body.querySelectorAll("button[aria-expanded]")).find(
-		candidate => (candidate.textContent ?? "").trim() === "Anthropic",
-	) as HTMLButtonElement | undefined;
-	await act(async () => toggle?.click());
+	await mount(
+		<SettingsNavigationProvider value={() => {}}>
+			<ProvidersSection />
+		</SettingsNavigationProvider>,
+	);
 }
 
 afterEach(async () => {
