@@ -70,6 +70,8 @@ describe("todoBoard", () => {
 		expect(board?.rows[0]?.content).toBe("t8");
 		expect(board?.hidden).toBe(20 - 8 - TODO_BOARD_ROWS);
 		expect(board?.active).toBeNull();
+		expect(board?.doneBefore).toBe(8);
+		expect(board?.segments).toHaveLength(20);
 	});
 
 	it("shows the tail of a finished list", () => {

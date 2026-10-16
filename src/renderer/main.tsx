@@ -9,6 +9,7 @@ import "./styles/tokens.css";
 import "./styles/theme-dark.css";
 import "./styles/theme-light.css";
 import "./styles/components.css";
+import "./styles/work-board.css";
 
 /** Internal design review page: OMP_GUI_STYLEGUIDE=1 opens the window at this hash. */
 const StyleGuide = lazy(() => import("./components/styleguide/StyleGuide"));

@@ -575,6 +575,8 @@ if (process.argv[2] === "stats") {
 	let streamTick: (() => void) | undefined;
 	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
 	let subagentRoster: SubagentSnapshot[] = [];
+	/** The goal `fixture:board` sets, as `goal` reports it. */
+	let boardGoal: Record<string, unknown> | undefined;
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
@@ -4051,7 +4053,11 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ records: btwRecords });
 				break;
 			case "goal":
-				ok({ goal: null, state: null });
+				ok(
+					boardGoal
+						? { goal: boardGoal, state: { enabled: true, mode: "goal", goal: boardGoal } }
+						: { goal: null, state: null },
+				);
 				break;
 			case "get_available_commands":
 				ok({
@@ -4390,6 +4396,159 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						id: "ext-confirm-2",
 						method: "confirm",
 						title: "Notify the team?",
+						message: "",
+						timeout: 600_000,
+					});
+					ok();
+					break;
+				}
+				// The work board's showcase: a running turn with a few steps, agents on named models, a todo list
+				// part done, a goal with a budget and a question waiting on the user. `fixture:board-end` ends the
+				// turn (the board then sums it up).
+				if (line === "fixture:board-end") {
+					write({ type: "agent_end", messages: [] });
+					ok();
+					break;
+				}
+				if (line === "fixture:board") {
+					const now = Date.now();
+					type Progress = NonNullable<SubagentSnapshot["progress"]>;
+					const progress = (
+						id: string,
+						index: number,
+						agent: string,
+						patch: Pick<Progress, "tokens" | "durationMs"> & Partial<Progress>,
+					): Progress => ({
+						id,
+						index,
+						agent,
+						agentSource: "bundled",
+						status: "running",
+						task: "",
+						recentTools: [],
+						recentOutput: [],
+						toolCount: 14,
+						requests: 6,
+						cost: 0.12,
+						...patch,
+					});
+					subagentRoster = [
+						{
+							id: "sa-explore",
+							index: 0,
+							agent: "explore",
+							description: "Map the settings code",
+							status: "running",
+							live: true,
+							lastUpdate: now,
+							progress: progress("sa-explore", 0, "explore", {
+								tokens: 48_200,
+								durationMs: 95_000,
+								currentTool: "read",
+								currentToolIntent: "Reading SettingsPage.tsx",
+								resolvedModel: "anthropic/claude-sonnet-4-5",
+							}),
+						},
+						{
+							id: "sa-review",
+							index: 1,
+							agent: "reviewer",
+							description: "Review the sidebar diff",
+							status: "running",
+							live: true,
+							lastUpdate: now,
+							progress: progress("sa-review", 1, "reviewer", {
+								tokens: 12_700,
+								durationMs: 31_000,
+								currentTool: "grep",
+								currentToolIntent: "Searching for unused exports",
+								resolvedModel: "openai/gpt-5",
+							}),
+						},
+						{
+							id: "sa-docs",
+							index: 2,
+							agent: "task",
+							description: "Draft the release notes",
+							status: "parked",
+							live: true,
+							lastUpdate: now,
+						},
+					];
+					for (const agent of subagentRoster) writeLifecycle(agent, "started");
+					for (const agent of subagentRoster) {
+						if (!agent.progress) continue;
+						write({
+							type: "subagent_progress",
+							payload: {
+								index: agent.index,
+								agent: agent.agent,
+								agentSource: "bundled",
+								task: agent.description ?? "",
+								progress: agent.progress,
+							},
+						});
+					}
+					boardGoal = {
+						objective: "Ship the 1.4 release notes",
+						status: "active",
+						tokenBudget: 200_000,
+						tokensUsed: 74_000,
+						timeUsedSeconds: 540,
+					};
+					write({ type: "goal_updated", goal: boardGoal, state: { enabled: true, goal: boardGoal } });
+					write({ type: "agent_start" });
+					const steps = [
+						{ name: "read", args: { path: "src/settings.ts" }, ms: 700 },
+						{ name: "grep", args: { pattern: "workBoard", path: "src" }, ms: 1400 },
+						{ name: "edit", args: { path: "src/settings.ts" }, ms: 2300 },
+					];
+					for (const [index, step] of steps.entries()) {
+						const tool = { toolCallId: `board-${index}-${now}`, toolName: step.name };
+						write({ type: "tool_execution_start", ...tool, args: step.args });
+						setTimeout(() => {
+							write({
+								type: "tool_execution_end",
+								...tool,
+								result: { content: [{ type: "text", text: "ok" }], details: { path: step.args.path } },
+								isError: false,
+							});
+						}, step.ms);
+					}
+					write({
+						type: "tool_execution_start",
+						toolCallId: `board-run-${now}`,
+						toolName: "bash",
+						args: { command: "bun run check:types" },
+					});
+					const tasks = [
+						"Read the settings code",
+						"Map the sidebar rows",
+						"Draft the board layout",
+						"Wire the pref",
+						"Write the component tests",
+						"Capture light and dark",
+						"Update the docs",
+					].map((content, index) => ({
+						content,
+						status: index < 3 ? "completed" : index === 3 ? "in_progress" : "pending",
+					}));
+					write({ type: "tool_execution_start", toolCallId: `board-todo-${now}`, toolName: "todo", args: {} });
+					write({
+						type: "tool_execution_end",
+						toolCallId: `board-todo-${now}`,
+						toolName: "todo",
+						result: {
+							content: [{ type: "text", text: "todo updated" }],
+							details: { phases: [{ name: "Board", tasks }] },
+						},
+						isError: false,
+					});
+					write({
+						type: "extension_ui_request",
+						id: "board-confirm",
+						method: "confirm",
+						title: "Overwrite settings.ts?",
 						message: "",
 						timeout: 600_000,
 					});

@@ -41,8 +41,12 @@ export interface TodoBoard {
 	/** The first in-progress task, else null. */
 	active: string | null;
 	rows: TodoBoardRow[];
+	/** Completed tasks folded away before the first shown row. */
+	doneBefore: number;
 	/** Tasks after the last shown row. */
 	hidden: number;
+	/** Every counted task's status in order, for the progress bar. */
+	segments: TodoTask["status"][];
 }
 
 /** Rows the plan section lists before it folds the rest into a count. */
@@ -57,14 +61,17 @@ export function todoBoard(phases: readonly { tasks: readonly TodoTask[] }[]): To
 	if (tasks.length === 0) return null;
 	const done = tasks.filter(task => task.status === "completed").length;
 	const firstOpen = tasks.findIndex(task => task.status !== "completed");
-	const start = Math.max(0, Math.min((firstOpen < 0 ? tasks.length : firstOpen) - 1, tasks.length - TODO_BOARD_ROWS));
+	// A list with work left folds every finished task but the one before the first open task; a finished list shows its tail.
+	const start = Math.max(0, firstOpen < 0 ? tasks.length - TODO_BOARD_ROWS : firstOpen - 1);
 	const rows = tasks.slice(start, start + TODO_BOARD_ROWS).map(({ content, status }) => ({ content, status }));
 	return {
 		done,
 		total: tasks.length,
 		active: tasks.find(task => task.status === "in_progress")?.content ?? null,
 		rows,
+		doneBefore: start,
 		hidden: Math.max(0, tasks.length - (start + rows.length)),
+		segments: tasks.map(task => task.status),
 	};
 }
 

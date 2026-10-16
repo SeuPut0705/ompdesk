@@ -1,0 +1,337 @@
+/* Work board (components/layout/WorkBoard.tsx). Layout — the slot, the reserve it takes from the columns and
+   the dock strips it replaces — lives in components.css; this file is how the board itself looks. Colourless
+   first: text weights and hairlines carry the structure, colour appears only as a state (working = info,
+   done = success, needs you = warning). */
+
+.omp-work-board {
+	display: flex;
+	flex-direction: column;
+	gap: var(--sc-space-4);
+	max-height: 100%;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding-block: var(--sc-space-6) var(--sc-space-3);
+	pointer-events: auto;
+	scrollbar-width: thin;
+}
+
+/* Head: the one-line status of the whole session. */
+.omp-work-board-head {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	row-gap: var(--sc-space-1-5);
+	padding-inline: var(--sc-space-1-5);
+}
+
+.omp-work-board-pulse {
+	width: 6px;
+	height: 6px;
+	border-radius: 99px;
+	background: var(--sc-text-subtle);
+}
+
+.omp-work-board-pulse[data-state="working"] {
+	background: var(--sc-info);
+	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
+}
+
+.omp-work-board-pulse[data-state="waiting"] {
+	background: var(--sc-warning);
+}
+
+.omp-work-board-name {
+	margin: 0;
+	font-size: var(--sc-font-xs);
+	font-weight: 600;
+	color: var(--sc-text-muted);
+}
+
+.omp-work-board-status {
+	grid-column: 1 / -1;
+	margin: 0;
+	font-size: var(--sc-font-md);
+	font-weight: 500;
+	color: var(--sc-text);
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-work-board-segments {
+	grid-column: 1 / -1;
+	display: flex;
+	gap: 2px;
+	height: 4px;
+}
+
+.omp-work-board-segments > span {
+	flex: 1 1 0;
+	min-width: 2px;
+	border-radius: 99px;
+	background: var(--sc-divider);
+	transition: background-color var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-work-board-segments > [data-status="completed"] {
+	background: var(--sc-success);
+}
+
+.omp-work-board-segments > [data-status="in_progress"] {
+	background: var(--sc-info);
+}
+
+.omp-work-board-segments > [data-status="blocked"] {
+	background: var(--sc-warning);
+}
+
+/* Sections. */
+.omp-work-board-progress {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-2);
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-subtle);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.omp-work-board-progress > .omp-work-board-segments {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.omp-work-board-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--sc-space-2);
+	margin: 0 0 var(--sc-space-1);
+	font-size: var(--sc-font-xs);
+	font-weight: 500;
+	color: var(--sc-text-muted);
+}
+
+.omp-work-board-fold {
+	display: inline-flex;
+	min-width: 0;
+	min-height: 24px;
+	align-items: center;
+	gap: var(--sc-space-1);
+	padding-inline: var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	color: inherit;
+	cursor: pointer;
+}
+
+.omp-work-board-fold:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+.omp-work-board-fold:focus-visible,
+button.omp-work-board-row:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -1px;
+}
+
+.omp-work-board-chevron {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	color: var(--sc-text-subtle);
+	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-work-board-chevron[data-open] {
+	transform: rotate(90deg);
+}
+
+.omp-work-board-count,
+.omp-work-board-aside {
+	font-variant-numeric: tabular-nums;
+	color: var(--sc-text-subtle);
+	white-space: nowrap;
+}
+
+.omp-work-board-aside {
+	padding-inline-end: var(--sc-space-1-5);
+}
+
+.omp-work-board-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Rows. */
+.omp-work-board-item {
+	position: relative;
+}
+
+.omp-work-board-row {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: flex-start;
+	gap: var(--sc-space-2);
+	padding: 5px var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	font-size: var(--sc-font-sm);
+	line-height: 20px;
+	text-align: start;
+	color: var(--sc-text-secondary);
+}
+
+button.omp-work-board-row {
+	cursor: pointer;
+	transition: background-color var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+button.omp-work-board-row:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+.omp-work-board-lead {
+	display: flex;
+	width: 12px;
+	height: 20px;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+}
+
+.omp-work-board-meta {
+	flex: none;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-subtle);
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-work-board-sub {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: var(--sc-space-1-5);
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
+	color: var(--sc-text-subtle);
+}
+
+.omp-work-board-provider {
+	width: 14px;
+	height: 14px;
+}
+
+.omp-work-board-provider svg {
+	width: 12px;
+	height: 12px;
+}
+
+.omp-work-board-more {
+	padding: 2px var(--sc-space-1-5) 2px 26px;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-subtle);
+}
+
+/* State dots. */
+.omp-work-board-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 99px;
+	background: var(--sc-text-subtle);
+}
+
+.omp-work-board-dot[data-tone="info"] {
+	background: var(--sc-info);
+}
+
+.omp-work-board-dot[data-tone="success"] {
+	background: var(--sc-success);
+}
+
+.omp-work-board-dot[data-tone="warning"] {
+	background: var(--sc-warning);
+}
+
+.omp-work-board-dot[data-ring] {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--sc-text-subtle);
+}
+
+.omp-work-board-dot[data-live] {
+	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
+}
+
+/* A thin sweep under a row that is working right now. */
+.omp-work-board-item[data-live]::after {
+	content: "";
+	position: absolute;
+	inset-inline: var(--sc-space-1-5);
+	bottom: 0;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, var(--sc-info), transparent) no-repeat;
+	background-size: 35% 100%;
+	opacity: 0.45;
+	pointer-events: none;
+	animation: omp-board-sweep 2.4s linear infinite; /* motion-ok: working signal */
+}
+
+@keyframes omp-board-sweep {
+	from {
+		background-position: -40% 0;
+	}
+	to {
+		background-position: 140% 0;
+	}
+}
+
+/* Goal meters. */
+.omp-work-board-meter {
+	display: block;
+	height: 3px;
+	overflow: hidden;
+	border-radius: 99px;
+	background: var(--sc-divider);
+}
+
+.omp-work-board-meter > span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--sc-text-muted);
+	transition: width var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-work-board-meter[data-hot] > span {
+	background: var(--sc-warning);
+}
+
+/* What waits on the user comes first and wears the warning wash. */
+.omp-work-board-section[data-tone="warning"] .omp-work-board-title {
+	color: var(--sc-warning);
+}
+
+.omp-work-board-section[data-tone="warning"] button.omp-work-board-row {
+	background: var(--sc-warning-soft);
+	color: var(--sc-text);
+}
+
+.omp-work-board-section[data-tone="warning"] button.omp-work-board-row:hover {
+	background: color-mix(in srgb, var(--sc-warning) 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-work-board-item[data-live]::after {
+		display: none;
+	}
+
+	.omp-work-board-pulse,
+	.omp-work-board-dot[data-live] {
+		animation: none;
+	}
+}

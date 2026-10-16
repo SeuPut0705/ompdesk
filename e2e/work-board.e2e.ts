@@ -122,8 +122,8 @@ for (const language of ["en", "ko"] as const)
 				const explore = board.locator('[data-board-agent="sa-explore"]');
 				await expect(explore).toContainText("Map the settings code");
 				await expect(board.locator('[data-board-agent="sa-review"]')).toHaveCount(0);
-				await expect(board.locator("[data-board-plan]")).toContainText("0/6");
-				await expect(board.locator("[data-board-plan]")).toContainText("Fixture task 1");
+				await expect(board.locator('[data-board-section="todos"]')).toContainText("0/6");
+				await expect(board.locator('[data-board-section="todos"]')).toContainText("Fixture task 1");
 
 				// The board sits in the right margin, clear of the columns, which line up with each other.
 				const boardBox = await board.boundingBox();
@@ -241,6 +241,69 @@ test("a split's panes are too narrow for the work board", async () => {
 			animations: "disabled",
 			scale: "css",
 		});
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("the board's sections: waiting first, agents on their models, todos, goal, jump key and folds", async () => {
+	test.setTimeout(180_000);
+	const { app, page, root } = await launch("en", "light");
+	try {
+		await send(page, "hello");
+		await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
+		await fixture(page, "fixture:board");
+		const board = page.getByRole("complementary", { name: TEXT.en.board });
+		await expect(board).toBeVisible();
+
+		// Waiting on the user comes first, and the status line says what is going on.
+		await expect(board.locator("[data-board-section]").first()).toHaveAttribute("data-board-section", "waiting");
+		await expect(board.locator('[data-board-waiting="board-confirm"]')).toContainText("Overwrite settings.ts?");
+		await expect(board.locator(".omp-work-board-status")).toContainText("waiting on you");
+		await expect(board.getByRole("status")).toHaveText("1 waiting on you");
+
+		// Agents carry their model's mark, step and tokens; the parked one rests.
+		const explore = board.locator('[data-board-agent="sa-explore"]');
+		await expect(explore).toContainText("Map the settings code");
+		await expect(explore).toContainText("Reading SettingsPage.tsx");
+		await expect(explore).toContainText("48.2k tokens");
+		await expect(explore.locator("[data-provider-mark]")).toBeVisible();
+
+		// Todos: progress, the finished ones folded, the dock twin stepped aside.
+		const todos = board.locator('[data-board-section="todos"]');
+		await expect(todos).toContainText("3/7");
+		await expect(todos).toContainText("2 done");
+		await expect(todos.locator('[data-todo-status="in_progress"]')).toContainText("Wire the pref");
+		await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
+		await expect(page.locator("[data-workspace-island]")).toBeHidden();
+
+		// The goal's budget meter comes from get_goal.
+		await expect(board.locator('[data-board-section="goal"]')).toContainText("74.0k / 200.0k tokens");
+		await expect(board.locator('[data-board-section="goal"] [role="progressbar"]').first()).toHaveAttribute(
+			"aria-valuenow",
+			"37",
+		);
+
+		// ⌥B jumps to the waiting row.
+		await page.locator("textarea").first().focus();
+		await page.keyboard.press("Alt+KeyB");
+		await expect(board.locator('[data-board-waiting="board-confirm"]')).toBeFocused();
+
+		// A fold is kept (the pref), and unfolding brings the rows back.
+		const fold = board.locator('[data-board-section="running"] button[aria-expanded]');
+		await fold.click();
+		await expect(explore).toHaveCount(0);
+		await expect
+			.poll(() => page.evaluate(() => window.omp.prefs.get("workBoardCollapsed")))
+			.toEqual({ running: true });
+		await fold.click();
+		await expect(explore).toBeVisible();
+		expect(await page.evaluate(() => window.omp.prefs.get("workBoardCollapsed"))).toEqual({});
+
+		// The turn ends: the board sums it up.
+		await fixture(page, "fixture:board-end");
+		await expect(board.locator('[data-board-section="last"]')).toBeVisible();
 	} finally {
 		await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

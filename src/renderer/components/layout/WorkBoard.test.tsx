@@ -12,6 +12,7 @@ import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { useWorkBoardStore } from "../../stores/work-board";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -27,15 +28,17 @@ let jobs: RpcAsyncJobItem[] = [];
 let goal: RpcGoalState = { enabled: false };
 const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }));
 const getGoal = vi.fn(async () => ({ type: "response", command: "get_goal", success: true, data: goal }));
+const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
 	rpc: { getJobs, getGoal },
-	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
+	prefs: { get: vi.fn(async () => undefined), set: prefsSet },
 });
 
 /** The pane's size, as a ResizeObserver reports it; the test drives it. */
-const observers: Array<{ element: Element; callback: (entries: { contentRect: { width: number } }[]) => void }> = [];
+type Entries = { target: Element; contentRect: { width: number } }[];
+const observers: Array<{ element: Element; callback: (entries: Entries) => void }> = [];
 class FakeResizeObserver {
-	constructor(private readonly callback: (entries: { contentRect: { width: number } }[]) => void) {}
+	constructor(private readonly callback: (entries: Entries) => void) {}
 	observe(element: Element) {
 		observers.push({ element, callback: this.callback });
 	}
@@ -82,17 +85,18 @@ async function mount(width = 1600): Promise<void> {
 async function resize(width: number): Promise<void> {
 	await act(async () => {
 		for (const observer of observers) {
-			if (observer.element === (pane as unknown as Element)) observer.callback([{ contentRect: { width } }]);
+			if (observer.element === (pane as unknown as Element))
+				observer.callback([{ target: pane as unknown as Element, contentRect: { width } }]);
 		}
 	});
 }
 
 const board = () => pane.querySelector("[data-work-board-panel]");
-const text = () => board()?.textContent ?? "";
+const section = (id: string) => pane.querySelector(`[data-board-section="${id}"]`);
 const click = (selector: string) =>
 	act(async () => (pane.querySelector(selector) as unknown as HTMLButtonElement).click());
 
-function liveTool(patch: Partial<ToolEntry>): ToolEntry {
+function tool(patch: Partial<ToolEntry>): ToolEntry {
 	return {
 		toolName: "bash",
 		args: {},
@@ -118,6 +122,8 @@ afterEach(async () => {
 	goal = { enabled: false };
 	getJobs.mockClear();
 	getGoal.mockClear();
+	prefsSet.mockClear();
+	useWorkBoardStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
 	usePlanApprovalStore.getState().clearProposal();
@@ -183,24 +189,72 @@ describe("WorkBoard visibility", () => {
 	});
 });
 
+describe("WorkBoard header", () => {
+	it("sums the session up in one line and shows the todo progress as a bar", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Go?", message: "" });
+		useTodoStore.getState().setPhases([
+			{
+				name: "Work",
+				tasks: [
+					{ content: "a", status: "completed" },
+					{ content: "b", status: "in_progress" },
+					{ content: "c", status: "pending" },
+				],
+			},
+		]);
+		await mount();
+		expect(pane.querySelector(".omp-work-board-status")?.textContent).toBe("2 working · 1 waiting on you");
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
+		const bar = pane.querySelector(".omp-work-board-segments");
+		expect(bar?.getAttribute("aria-label")).toBe("1 of 3 done");
+		expect([...(bar?.children ?? [])].map(segment => segment.getAttribute("data-status"))).toEqual([
+			"completed",
+			"in_progress",
+			"pending",
+		]);
+		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toContain("1/3 done");
+	});
+
+	it("says it is idle when only the last turn is left", async () => {
+		await mount();
+		await act(async () => useTodoStore.getState().setTurnActive(true, Date.now() - 3000));
+		await act(async () => useTodoStore.getState().setTurnActive(false));
+		expect(pane.querySelector(".omp-work-board-status")?.textContent).toBe("Idle");
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("idle");
+	});
+});
+
 describe("WorkBoard sections", () => {
 	it("lists running and waiting subagents and background jobs, and opens a subagent in the side panel", async () => {
-		useSubagentsStore
-			.getState()
-			.setSnapshots([
-				agent("a1", "running", 0, { description: "Review the diff", progress: { tokens: 12_300 } as never }),
-				agent("a2", "parked", 1, { description: "Wait for CI" }),
-				agent("a3", "completed", 2, { description: "Old" }),
-			]);
+		useSubagentsStore.getState().setSnapshots([
+			agent("a1", "running", 0, {
+				description: "Review the diff",
+				progress: {
+					tokens: 12_300,
+					durationMs: 65_000,
+					currentToolIntent: "Reading the diff",
+					resolvedModel: "anthropic/claude-sonnet-4-5",
+				} as never,
+			}),
+			agent("a2", "parked", 1, { description: "Wait for CI" }),
+			agent("a3", "completed", 2, { description: "Old" }),
+		]);
 		jobs = [
 			{ id: "j1", type: "bash", status: "running", label: "bun run dev", startTime: Date.now() - 65_000 },
 			{ id: "j2", type: "task", status: "running", label: "a task job", startTime: 0 },
 			{ id: "j3", type: "bash", status: "completed", label: "done", startTime: 0 },
 		];
 		await mount();
-		expect(text()).toContain("Running3");
-		expect(pane.querySelector('[data-board-agent="a1"]')?.textContent).toContain("Review the diff");
-		expect(pane.querySelector('[data-board-agent="a1"]')?.textContent).toContain("12.3k tokens");
+		expect(section("running")?.textContent).toContain("Running3");
+		const first = pane.querySelector('[data-board-agent="a1"]');
+		expect(first?.textContent).toContain("Review the diff");
+		expect(first?.textContent).toContain("Reading the diff");
+		expect(first?.textContent).toContain("12.3k tokens");
+		expect(first?.textContent).toMatch(/1m/);
+		expect(first?.querySelector('[data-provider-mark="anthropic"]')).not.toBeNull();
 		expect(pane.querySelector('[data-board-agent="a2"]')?.getAttribute("data-status")).toBe("parked");
 		expect(pane.querySelector('[data-board-agent="a3"]')).toBeNull();
 		expect(pane.querySelector('[data-board-job="j1"]')?.textContent).toContain("bun run dev");
@@ -221,29 +275,36 @@ describe("WorkBoard sections", () => {
 		expect(useUiStore.getState().panelTab).toBe("jobs");
 	});
 
-	it("shows the todo list with progress and the active item", async () => {
-		useTodoStore.getState().setPhases([
-			{
-				name: "Work",
-				tasks: [
-					{ content: "Read the code", status: "completed" },
-					{ content: "Write the board", status: "in_progress" },
-					{ content: "Test it", status: "pending" },
-				],
-			},
-		]);
+	it("shows the todo list with its active item, folds the done ones and scrolls to the card on a click", async () => {
+		const tasks = [
+			...Array.from({ length: 5 }, (_, index) => ({ content: `Done ${index}`, status: "completed" as const })),
+			{ content: "Write the board", status: "in_progress" as const },
+			{ content: "Test it", status: "pending" as const },
+		];
+		useTodoStore.getState().setPhases([{ name: "Work", tasks }]);
 		await mount();
 		expect(pane.hasAttribute("data-work-board-todo")).toBe(true);
 		expect(pane.hasAttribute("data-work-board-running")).toBe(false);
-		const plan = pane.querySelector("[data-board-plan]");
-		expect(plan?.textContent).toContain("Write the board");
-		expect(plan?.textContent).toContain("1/3");
+		const plan = section("todos");
+		expect(plan?.textContent).toContain("5/7");
+		expect(plan?.textContent).toContain("4 done");
+		expect(plan?.querySelector('[data-todo-status="in_progress"]')?.textContent).toContain("Write the board");
+		// One finished task stays above the active one for context; the rest are folded.
 		expect([...pane.querySelectorAll("[data-todo-status]")].map(row => row.getAttribute("data-todo-status"))).toEqual(
 			["completed", "in_progress", "pending"],
 		);
+		expect(pane.querySelector('[data-todo-status="completed"] span.line-through')).not.toBeNull();
+
+		const card = document.createElement("div") as unknown as HTMLElement;
+		card.setAttribute("data-todo-snapshot", "s1");
+		const scroll = vi.fn();
+		Object.assign(card, { scrollIntoView: scroll });
+		pane.appendChild(card as never);
+		await click('[data-todo-status="in_progress"]');
+		expect(scroll).toHaveBeenCalled();
 	});
 
-	it("shows the goal with its status, budget and time", async () => {
+	it("shows the goal with its status and a budget and a time meter", async () => {
 		useSessionStore.setState({ goal: { objective: "Ship the release" }, goalState: { status: "active" } });
 		goal = {
 			enabled: true,
@@ -259,10 +320,13 @@ describe("WorkBoard sections", () => {
 		expect(row?.getAttribute("data-board-goal")).toBe("active");
 		expect(row?.textContent).toContain("Ship the release");
 		expect(row?.textContent).toContain("50.0k / 200.0k tokens");
+		const meters = [...(row?.querySelectorAll('[role="progressbar"]') ?? [])];
+		expect(meters.map(meter => meter.getAttribute("aria-valuenow"))).toEqual(["25", "5"]);
 		expect(getGoal).toHaveBeenCalled();
 	});
 
-	it("lists questions and a plan review waiting on the user", async () => {
+	it("puts the questions waiting on the user first and announces them politely", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		useExtensionUiStore.getState().pushRequest({
 			type: "extension_ui_request",
 			id: "ap1",
@@ -275,10 +339,20 @@ describe("WorkBoard sections", () => {
 			.pushRequest({ type: "extension_ui_request", id: "n1", method: "notify", message: "fyi" });
 		usePlanApprovalStore.getState().showProposal({ planFilePath: "/w/PLAN.md", planContent: "# Plan", options: [] });
 		await mount();
-		expect(text()).toContain("Waiting on you2");
+		const sections = [...pane.querySelectorAll("[data-board-section]")].map(el =>
+			el.getAttribute("data-board-section"),
+		);
+		expect(sections[0]).toBe("waiting");
+		expect(section("waiting")?.textContent).toContain("Waiting on you2");
+		expect(section("waiting")?.querySelector("kbd")?.textContent).toBe("⌥B");
 		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toContain("Allow bash?");
 		expect(pane.querySelector('[data-board-waiting="plan"]')?.textContent).toContain("Plan ready for review");
 		expect(pane.querySelector('[data-board-waiting="n1"]')).toBeNull();
+		const live = pane.querySelector('[aria-live="polite"]');
+		expect(live?.getAttribute("role")).toBe("status");
+		expect(live?.textContent).toBe("2 waiting on you");
+		// Nothing else on the board is a live region.
+		expect(pane.querySelectorAll("[aria-live]")).toHaveLength(1);
 	});
 
 	it("focuses the docked card when a waiting row is clicked", async () => {
@@ -301,18 +375,38 @@ describe("WorkBoard sections", () => {
 		expect(focus).toHaveBeenCalled();
 	});
 
-	it("shows the current turn's step and elapsed time", async () => {
+	it("shows the turn's current step, its recent steps with durations and the elapsed time", async () => {
 		await mount();
+		const startedAt = Date.now() - 12_000;
 		await act(async () => {
-			useTodoStore.getState().setTurnActive(true, Date.now() - 12_000);
-			useToolsStore.setState({ liveTools: new Map([["c1", liveTool({ intent: "Run the unit tests" })]]) });
+			useTodoStore.getState().setTurnActive(true, startedAt);
+			useToolsStore.setState({
+				finishedTools: new Map([
+					[
+						"r1",
+						tool({
+							toolName: "read",
+							args: { path: "src/a.ts" },
+							status: "done",
+							startTime: startedAt + 1000,
+							endTime: startedAt + 1700,
+						}),
+					],
+				]),
+				liveTools: new Map([["c1", tool({ intent: "Run the unit tests", startTime: startedAt + 3000 })]]),
+			});
 		});
-		const turn = pane.querySelector("[data-board-turn]");
-		expect(turn?.textContent).toContain("Run the unit tests");
-		expect(turn?.textContent).toMatch(/12s|13s/);
+		expect(section("turn")?.textContent).toMatch(/12s|13s/);
+		expect(pane.querySelectorAll("[data-board-step]")).toHaveLength(2);
+		const done = pane.querySelector('[data-board-step="done"]');
+		expect(done?.textContent).toContain("src/a.ts");
+		expect(done?.textContent).toContain("700ms");
+		const current = pane.querySelector("[data-board-turn]");
+		expect(current?.getAttribute("data-board-step")).toBe("running");
+		expect(current?.textContent).toContain("Run the unit tests");
 	});
 
-	it("sums the last turn up once it is over: duration and files changed", async () => {
+	it("sums the last turn up once it is over: duration, files and lines, and opens Changes", async () => {
 		await mount();
 		const startedAt = Date.now() - 5000;
 		await act(async () => useTodoStore.getState().setTurnActive(true, startedAt));
@@ -322,9 +416,9 @@ describe("WorkBoard sections", () => {
 				finishedTools: new Map([
 					[
 						"e1",
-						liveTool({
-							toolName: "edit",
-							args: { path: "src/a.ts" },
+						tool({
+							toolName: "write",
+							args: { path: "src/a.ts", content: "one\ntwo\nthree\n" },
 							status: "done",
 							result: { details: { path: "src/a.ts" } },
 							startTime: startedAt + 1000,
@@ -336,8 +430,30 @@ describe("WorkBoard sections", () => {
 			useTodoStore.getState().setTurnActive(false);
 		});
 		const last = pane.querySelector("[data-board-last-turn]");
-		expect(last?.textContent).toMatch(/5\.\ds/);
+		expect(section("last")?.textContent).toMatch(/5\.\ds/);
 		expect(last?.textContent).toContain("1 file changed");
+		expect(last?.textContent).toContain("+3");
 		expect(pane.querySelector("[data-board-turn]")).toBeNull();
+		await click("[data-board-last-turn]");
+		expect(useUiStore.getState().panelTab).toBe("diff");
+	});
+});
+
+describe("WorkBoard folds", () => {
+	it("folds a section to its header and remembers it", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
+		await mount();
+		const fold = () =>
+			section("running")?.querySelector("button.omp-work-board-fold") as unknown as HTMLButtonElement;
+		expect(fold().getAttribute("aria-expanded")).toBe("true");
+		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
+		await act(async () => fold().click());
+		expect(fold().getAttribute("aria-expanded")).toBe("false");
+		expect(fold().getAttribute("title")).toBe("Expand Running");
+		expect(pane.querySelector('[data-board-agent="a1"]')).toBeNull();
+		expect(prefsSet).toHaveBeenCalledWith("workBoardCollapsed", { running: true });
+		await act(async () => fold().click());
+		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
+		expect(prefsSet).toHaveBeenLastCalledWith("workBoardCollapsed", {});
 	});
 });
