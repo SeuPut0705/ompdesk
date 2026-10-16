@@ -4,7 +4,7 @@
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  */
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { spawnPath } from "../../shell-env";
@@ -66,6 +66,33 @@ export function resolveBin(name: "git" | "gh"): Promise<string | null> {
 		});
 	}
 	return pending;
+}
+
+/** The git `/usr/bin/git` forwards to from developer dir `dir` (`DEVELOPER_DIR` or `xcode-select -p`), when it is there. */
+export function developerGit(dir: string | null): string | null {
+	const git = dir?.trim() ? join(dir.trim(), "usr", "bin", "git") : null;
+	return git && existsSync(git) ? git : null;
+}
+
+let trampolineTarget: Promise<string> | null = null;
+
+/**
+ * The git GUI git calls run. macOS's `/usr/bin/git` is xcrun's trampoline: every run looks the active developer
+ * dir up before it starts that dir's `usr/bin/git` (measured on an M-series Mac: about 3.4 ms of CPU and 4.5 ms
+ * of wall time per call, more than a `git rev-parse` itself and half again a `git status` of 500 changed files).
+ * Calling the git it forwards to runs the same binary without the lookup. With no developer dir (where the
+ * trampoline offers the Command Line Tools install), `/usr/bin/git` stays.
+ */
+async function gitBin(): Promise<string | null> {
+	const found = await resolveBin("git");
+	if (process.platform !== "darwin" || found !== "/usr/bin/git") return found;
+	trampolineTarget ??= (async () => {
+		if (process.env.DEVELOPER_DIR) return developerGit(process.env.DEVELOPER_DIR) ?? found;
+		const { promise, resolve } = Promise.withResolvers<string | null>();
+		execFile("/usr/bin/xcode-select", ["-p"], { timeout: 5_000 }, (error, stdout) => resolve(error ? null : stdout));
+		return developerGit(await promise) ?? found;
+	})();
+	return trampolineTarget;
 }
 
 /** Spawn `bin args`; never rejects on non-zero exit, rejects on spawn failure / timeout. */
@@ -135,7 +162,7 @@ export async function git(cwd: string, args: string[], opts: Omit<ExecOptions, "
 
 /** Run git without throwing on exit code (still throws when git is missing). */
 export async function gitRaw(cwd: string, args: string[], opts: Omit<ExecOptions, "cwd"> = {}): Promise<ExecResult> {
-	const bin = await resolveBin("git");
+	const bin = await gitBin();
 	if (!bin) throw new Error("git is not installed or not on PATH");
 	// Never page, never prompt for credentials from a headless GUI call.
 	return execBin(bin, ["-c", "core.quotepath=false", "-c", "color.ui=false", ...args], {
