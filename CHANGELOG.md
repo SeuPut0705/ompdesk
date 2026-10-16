@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.33.0] - 2026-10-16
+
+메시지를 보내면 계획·목표 모드를 알아서 고르고, 사이드바와 계정 목록에 구독 사용량이 막대로 보여요. 세션 삭제와 Windows 추가 지시 문제를 고쳤고, 앱이 가벼워졌어요.
+
+### 새 기능
+- 자동 모드: 메시지를 보면 큰 작업은 계획 모드, "테스트 통과할 때까지" 같은 일은 목표 모드를 알아서 켜요. 입력창의 "자동: 계획" 칩을 누르면 바로 꺼요. 루프·바이브는 자동으로 켜지 않아요.
+- 모드 메뉴에 래칫이 생기고, 모델 풀은 없어졌어요.
+- 사이드바 아래에 구독 계정마다 한 줄씩 "5H · 7D" 사용량 막대가 기본으로 보여요. 에이전트·통계 항목은 기본으로 숨겼어요(설정에서 다시 켤 수 있어요).
+- 설정의 계정 목록도 같은 막대로 바꾸고, 숫자는 어디서나 "쓴 양"으로 맞췄어요.
+- 작업 중이면 입력창 테두리에 은은한 빛이 돌아요. 백그라운드에서 에이전트만 일할 때는 더 옅게 돌고, 보내기 버튼에 안내가 떠요.
+- + 메뉴를 다섯 가지로 줄이고, 스킬은 검색되는 한 줄 목록에서 골라요.
+- 업데이트 안내가 화면을 가리지 않고 오른쪽 아래 카드로 떠요. 누르면 자세한 내용이 열려요.
+
+### 고친 것
+- 잠든 탭에서 세션을 지우면 사이드바에 남거나 새 세션이 생기던 것을 고쳤어요.
+- Windows에서 Ctrl+Enter로 보낸 추가 지시가 대기열로 가던 것을 고쳤어요. 대기열로 보내기는 Alt+Enter예요.
+- omp가 다시 켜질 때 입력 중이던 글이 사라질 수 있던 것을 고쳤어요.
+- 처음 로그인 화면이 중간에 다시 그려져 진행이 끊기던 것, 명령 팔레트에 입력한 글자가 지워지던 것을 고쳤어요.
+- 다음 메시지 제안이 이미 보낸 말을 다시 내놓던 것을 고치고, 입력 중 이어 쓰기가 내 말투로 자연스럽게 이어지게 했어요.
+
+### 가벼워진 것
+- 설치 파일이 작아졌어요(Mac 101 → 약 92 MB). 한국어·영어 외 Electron 언어 파일을 빼고, 다른 언어 사용자의 맞춤법 검사와 미리보기 언어는 시스템 언어를 따라요.
+- 작업 현황판의 행 애니메이션을 정리해 답변 중 그래픽 사용량을 v0.31 수준으로 되돌렸고, 같은 정보를 두 번 묻던 요청을 합쳤어요. 창을 숨기면 주기 작업이 멈춰요.
+- 세션 폴더는 세션 파일만 감시해요.
+
+<!-- en -->
+Sending a message can now switch Plan or Goal mode on by itself, and subscription usage shows as gauges in the sidebar and the account list. Session deletion and Windows steering are fixed, and the app is lighter.
+
+### New
+- Auto mode: a large change enters Plan mode and "keep going until tests pass" starts a Goal, chosen per message; the "Auto: Plan" chip undoes it. Loop and Vibe are never switched on automatically.
+- Ratchet joins the Mode menu; the model pool is gone.
+- The sidebar footer shows one "5H · 7D" usage line per subscription account, on by default; Agents and Stats entries are hidden by default (re-enable them in Settings).
+- The account list in Settings uses the same gauges, and usage reads as share used everywhere.
+- While work runs, a faint light travels around the composer; it is fainter while only background agents run, and Send explains that sending starts right away.
+- The + menu has five entries, and skills are picked from a searchable one-line list.
+- What's new appears as a card in the bottom-right corner instead of covering the window; open it for the full notes.
+
+### Fixed
+- Deleting a session held by a sleeping tab no longer leaves its row behind or spawns a new session.
+- On Windows, Ctrl+Enter sends steering instead of queueing a follow-up; queue with Alt+Enter.
+- A draft survives omp restarting.
+- The first sign-in panel no longer resets mid-flow, and the command palette keeps what you typed when omp connects.
+- Next-message suggestions no longer echo messages you already sent, and inline completion continues your own sentence in your register.
+
+### Lighter
+- Smaller installers (macOS 101 → about 92 MB) by shipping only English and Korean Electron locales; spellcheck and Preview language follow the system languages for everyone else.
+- The work board's rows no longer animate, bringing GPU use while streaming back to v0.31 levels; duplicate polls are merged and periodic work stops while the window is hidden.
+- The session watcher only watches session files.
+
 ## [0.32.2] - 2026-10-16
 
 Windows에서 최대화한 채로 껐다 켜면 창이 검게 비어 보이던 문제를 고쳤어요.
