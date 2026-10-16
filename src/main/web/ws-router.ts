@@ -327,6 +327,12 @@ export class WsRouter {
 		return this.connectionCount(deviceId) > 0;
 	}
 
+	/** Some socket of the device is open with its page in the foreground (`presence.visible`): it sees events live. */
+	isDeviceVisible(deviceId: string): boolean {
+		for (const connection of this.#connections.get(deviceId) ?? []) if (connection.visible) return true;
+		return false;
+	}
+
 	/** Start serving a socket the server accepted for `deviceId`; null when the device already has its four. */
 	attach(deviceId: string, socket: RouterSocket): WsConnection | null {
 		if (this.connectionCount(deviceId) >= MAX_CONNECTIONS_PER_DEVICE) return null;
@@ -511,6 +517,11 @@ export class WsConnection {
 			resumed,
 			features: this.#router.deps.features(),
 		});
+	}
+
+	/** The page's last `presence` (visible until it says otherwise). */
+	get visible(): boolean {
+		return this.#visible;
 	}
 
 	#setVisible(visible: boolean): void {

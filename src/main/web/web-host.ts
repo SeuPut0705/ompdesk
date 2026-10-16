@@ -21,9 +21,11 @@ import {
 	type WebPairingCode,
 	webDeviceTier,
 } from "../../shared/mobile-web";
+import type { UiLanguage } from "../../shared/ui-language";
 import { WEB_PERMISSIONS, type WebFeatures } from "../../shared/web-protocol";
 import { readModelsText, writeModelsText } from "../models-config";
 import { PeerQuota } from "../remote/peer-quota";
+import type { TabActivity, TabFacts } from "../sidecar-pool";
 import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
 import type { ClientWindow } from "./client-window";
@@ -31,9 +33,12 @@ import { type WebDevice, WebDevices } from "./devices-store";
 import { createHostActions } from "./host-actions";
 import type { IpcRegistry } from "./ipc-registry";
 import { PairingConfirmations, WebPairing } from "./pairing";
+import { PushSender, type PushTransport } from "./push";
 import { WebServer } from "./server";
 import { UploadStore } from "./uploads";
+import { VapidStore } from "./vapid-store";
 import { WebClientWindow, WebWindows } from "./web-client-window";
+import { WebPushNotifier } from "./web-push-notifier";
 import { CLOSE_REVOKED, WsRouter } from "./ws-router";
 
 /** How often old uploads are looked for. */
@@ -50,6 +55,8 @@ export interface WebHostDeps {
 	tabs: {
 		activeTab(win: ClientWindow): string | null;
 		cwd(win: ClientWindow, tabId: string | undefined): string | null;
+		/** A live tab's facts (`SidecarPool.tabFacts`), for what a push says; null once the tab is gone. */
+		facts(tabId: string): TabFacts | null;
 	};
 	/** `MediaStreams.handle`: answers a range request for an `omp-media://` stream. */
 	openMedia: (url: string, range: string | undefined) => Promise<Response>;
@@ -66,6 +73,18 @@ export interface WebHostDeps {
 	onUnpairedAuth: (info: { address: string }) => void;
 	features?: Partial<WebFeatures>;
 	now?: () => number;
+	/** The wire for Web Push; the real `web-push` HTTPS transport when absent (tests pass a fake push service). */
+	pushTransport?: PushTransport | undefined;
+	/** The notifier's debounce and batch timers; real unref'd timers when absent. */
+	pushTimers?:
+		| { setTimer: (fn: () => void, ms: number) => unknown; clearTimer: (handle: unknown) => void }
+		| undefined;
+	/** Where a refused or failed push is noted. */
+	log?: ((message: string) => void) | undefined;
+	/** The host's UI language: pushes read in it. */
+	language: () => UiLanguage;
+	/** The user's `batchNotifications` pref: bursts of pushes fold into one summary unless it is off. */
+	batchNotifications: () => boolean;
 }
 
 const DeviceId = z.string().min(1).max(128);
@@ -86,12 +105,23 @@ export class WebHost {
 	readonly uploads: UploadStore;
 	readonly confirmations: PairingConfirmations;
 	readonly #deps: WebHostDeps;
+	readonly vapid: VapidStore;
+	readonly sender: PushSender;
+	readonly notifier: WebPushNotifier;
 	#sweeper: ReturnType<typeof setInterval> | undefined;
 
 	constructor(deps: WebHostDeps) {
 		this.#deps = deps;
 		const now = deps.now ?? Date.now;
 		this.devices = new WebDevices(deps.userData, now);
+		// A keypair made now (first run, or its file was lost) breaks every subscription made against the old one.
+		this.vapid = new VapidStore(deps.userData);
+		if (this.vapid.takeCreated()) this.devices.dropAllPushSubscriptions();
+		this.sender = new PushSender({
+			vapid: () => this.vapid.keys(),
+			transport: deps.pushTransport,
+			log: deps.log,
+		});
 		this.quota = new PeerQuota(this.devices, () => this.devices.notifyChanged());
 		this.blobs = new BlobStore({ now });
 		this.uploads = new UploadStore({ root: join(deps.userData, "web-uploads"), now });
@@ -117,12 +147,22 @@ export class WebHost {
 				models: { read: readModelsText, write: writeModelsText },
 			}),
 			// The phone's streamed Preview (preview-stream.ts) is built in; a host build without it passes `preview: false`.
-			features: () => ({ push: false, preview: true, upload: true, passkey: false, ...deps.features }),
+			features: () => ({ push: true, preview: true, upload: true, passkey: false, ...deps.features }),
 			activeTab: win => deps.tabs.activeTab(win),
 			blobs: this.blobs,
 			mediaOpen: deps.openMedia,
 			onConnectionsChanged: () => this.devices.notifyChanged(),
 			now,
+		});
+		this.notifier = new WebPushNotifier({
+			devices: this.devices,
+			sender: this.sender,
+			visible: deviceId => this.router.isDeviceVisible(deviceId),
+			tabFacts: deps.tabs.facts,
+			language: deps.language,
+			batching: deps.batchNotifications,
+			setTimer: deps.pushTimers?.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
+			clearTimer: deps.pushTimers?.clearTimer ?? (handle => clearTimeout(handle as NodeJS.Timeout)),
 		});
 		const policy: RequestPolicy = {
 			host: "127.0.0.1",
@@ -142,9 +182,13 @@ export class WebHost {
 			blobs: this.blobs,
 			staticRoot: deps.staticRoot,
 			onUnpairedAuth: deps.onUnpairedAuth,
+			push: { publicKey: () => this.vapid.keys().publicKey },
 			now,
 		});
-		this.devices.onRevoked(deviceId => this.#release(deviceId));
+		this.devices.onRevoked(deviceId => {
+			this.notifier.dropDevice(deviceId);
+			this.#release(deviceId);
+		});
 		this.devices.onChanged(() => this.#toDesktop(WEB_DEVICES_CHANGED, this.list()));
 		this.#register();
 	}
@@ -163,7 +207,16 @@ export class WebHost {
 	async stop(): Promise<void> {
 		clearInterval(this.#sweeper);
 		this.#sweeper = undefined;
+		this.notifier.dispose();
 		await this.server.stop();
+	}
+
+	/**
+	 * What a tab did (`SidecarPool.observeTabs`): a paired phone with a push subscription hears of it while the
+	 * server runs. With Mobile web off nothing is pushed: the phones cannot open the page anyway.
+	 */
+	tabActivity(activity: TabActivity): void {
+		if (this.server.port !== null) this.notifier.handle(activity);
 	}
 
 	/** The device a web window's prompts come from, as its name stands now; null for any other window. */

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
 import { PeerQuota } from "../remote/peer-quota";
-import { ABSOLUTE_EXPIRY_MS, SLIDING_EXPIRY_MS, sanitizeGrants, WebDevices } from "./devices-store";
+import { ABSOLUTE_EXPIRY_MS, pushSettingsOf, SLIDING_EXPIRY_MS, sanitizeGrants, WebDevices } from "./devices-store";
 
 const DAY = 24 * 60 * 60 * 1000;
 let dir: string;
@@ -122,6 +122,89 @@ describe("WebDevices", () => {
 				.sort(),
 		).toEqual(["Pad", "iPhone"]);
 		expect(reloaded.get(second.device.deviceId)).toBeDefined();
+	});
+});
+
+describe("push settings on a web device", () => {
+	const subscription = (name: string) => ({
+		endpoint: `https://push.example.com/${name}`,
+		keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
+	});
+
+	it("starts without any and reads as the defaults", () => {
+		const { device } = store().create(phone);
+		expect(device.push).toBeUndefined();
+		expect(pushSettingsOf(device)).toEqual({
+			subscription: null,
+			hideContent: false,
+			categories: ["completion", "error", "ask"],
+		});
+		// A copy: changing it touches nothing stored.
+		pushSettingsOf(device).categories = [];
+		expect(pushSettingsOf(device).categories).toHaveLength(3);
+	});
+
+	it("persists a subscription with its preferences, and the file keeps it across a reload", () => {
+		const devices = store();
+		const { device } = devices.create(phone);
+		const push = { subscription: subscription("a"), hideContent: true, categories: ["ask"] as const };
+		expect(devices.setPush(device.deviceId, push)).toBe(true);
+		expect(new WebDevices(dir, () => now).get(device.deviceId)?.push).toEqual(push);
+		expect(devices.setPush("ghost", push)).toBe(false);
+	});
+
+	it("keeps the device when only its push block is damaged", () => {
+		const devices = store();
+		const { device } = devices.create(phone);
+		devices.setPush(device.deviceId, { subscription: subscription("a"), hideContent: false, categories: ["ask"] });
+		const file = join(dir, "web-devices.json");
+		const parsed = JSON.parse(readFileSync(file, "utf8")) as { devices: Array<{ push: unknown }> };
+		for (const entry of parsed.devices) entry.push = { subscription: { endpoint: 1 }, hideContent: "x" };
+		writeFileSync(file, JSON.stringify({ v: 1, ...parsed }));
+		const reloaded = new WebDevices(dir, () => now).get(device.deviceId);
+		expect(reloaded).toMatchObject({ deviceId: device.deviceId, name: "iPhone" });
+		expect(reloaded?.push).toBeUndefined();
+	});
+
+	it("forgets a subscription only while it is still the one the push service refused", () => {
+		const devices = store();
+		const { device } = devices.create(phone);
+		const old = subscription("old");
+		devices.setPush(device.deviceId, { subscription: old, hideContent: true, categories: ["error"] });
+		const fresh = subscription("fresh");
+		devices.setPush(device.deviceId, { subscription: fresh, hideContent: true, categories: ["error"] });
+		expect(devices.forgetPushSubscription(device.deviceId, old.endpoint)).toBe(false);
+		expect(devices.get(device.deviceId)?.push?.subscription).toEqual(fresh);
+		expect(devices.forgetPushSubscription(device.deviceId, fresh.endpoint)).toBe(true);
+		expect(devices.get(device.deviceId)?.push).toEqual({
+			subscription: null,
+			hideContent: true,
+			categories: ["error"],
+		});
+		expect(devices.forgetPushSubscription(device.deviceId, fresh.endpoint)).toBe(false);
+		expect(devices.forgetPushSubscription("ghost", fresh.endpoint)).toBe(false);
+	});
+
+	it("drops every subscription when the VAPID keypair was made anew, keeping the preferences", () => {
+		const devices = store();
+		const a = devices.create(phone).device;
+		const b = devices.create({ ...phone, name: "Pad" }).device;
+		const never = devices.create({ ...phone, name: "Mac" }).device;
+		devices.setPush(a.deviceId, { subscription: subscription("a"), hideContent: true, categories: ["ask"] });
+		devices.setPush(b.deviceId, { subscription: subscription("b"), hideContent: false, categories: ["error"] });
+		expect(devices.dropAllPushSubscriptions()).toBe(2);
+		expect(devices.get(a.deviceId)?.push).toEqual({ subscription: null, hideContent: true, categories: ["ask"] });
+		expect(devices.get(b.deviceId)?.push?.subscription).toBeNull();
+		expect(devices.get(never.deviceId)?.push).toBeUndefined();
+		expect(devices.dropAllPushSubscriptions()).toBe(0);
+	});
+
+	it("goes with the device on revoke", () => {
+		const devices = store();
+		const { device } = devices.create(phone);
+		devices.setPush(device.deviceId, { subscription: subscription("a"), hideContent: false, categories: ["ask"] });
+		devices.revoke(device.deviceId);
+		expect(readFileSync(join(dir, "web-devices.json"), "utf8")).not.toContain("push.example.com");
 	});
 });
 

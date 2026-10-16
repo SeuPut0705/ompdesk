@@ -57,6 +57,7 @@ import {
 	type IpcSignInEndedPayload,
 	type IpcTabInfo,
 	type IpcTabListChangedPayload,
+	type IpcTabRunOutcome,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
@@ -130,6 +131,28 @@ function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): Suba
 	let top: SubagentSubscriptionLevel = "off";
 	for (const level of levels) if (SUBAGENT_LEVEL_RANK[level] > SUBAGENT_LEVEL_RANK[top]) top = level;
 	return top;
+}
+
+/**
+ * What a tab did, for observers that are not windows (Web Push, web/web-push-notifier.ts): its turn started
+ * or settled (`idle` carries how the last run ended, after the resume rules ran), a blocking ask or approval
+ * was raised or went away (answered by any window, withdrawn by omp, or its tab ended), the tab was released.
+ * A provider sign-in's own requests are never asks.
+ */
+export type TabActivity =
+	| { type: "busy"; tabId: string }
+	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
+	| { type: "ask"; tabId: string; requestId: string; text: string }
+	| { type: "askClosed"; tabId: string; requestId: string }
+	| { type: "released"; tabId: string };
+
+/** A tab's facts an observer reads when its debounce ends. */
+export interface TabFacts {
+	title: string;
+	busy: boolean;
+	awaitingConnection: boolean;
+	/** Stock's auto-retry is waiting for its next attempt: the failure is not final. */
+	retrying: boolean;
 }
 
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
@@ -302,6 +325,7 @@ export class SidecarPool {
 	worktreeStartGate: ((tabId: string, winId: number, facts: TabSpawnFacts) => SidecarStartGate | null) | null = null;
 	/** A tab was released (closed, or its window closed); `exited` settles once its omp is gone. */
 	onTabReleased: ((tabId: string, exited: Promise<void>) => void) | null = null;
+	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
 
 	constructor(factory: SidecarFactory) {
 		this.#factory = factory;
@@ -309,6 +333,50 @@ export class SidecarPool {
 
 	get size(): number {
 		return this.#entries.size;
+	}
+
+	/** Be told what tabs do (`TabActivity`); an observer that throws never breaks the pool. Returns the unsubscribe. */
+	observeTabs(observer: (activity: TabActivity) => void): () => void {
+		this.#activityObservers.add(observer);
+		return () => this.#activityObservers.delete(observer);
+	}
+
+	/** The facts of a live tab; null for an unknown (released) one. */
+	tabFacts(tabId: string): TabFacts | null {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return null;
+		return {
+			title: entry.title ?? "",
+			busy: runBusy(entry.run),
+			awaitingConnection: entry.awaitingConnection === true,
+			retrying: entry.retry !== undefined,
+		};
+	}
+
+	#announce(activity: TabActivity): void {
+		for (const observer of this.#activityObservers) {
+			try {
+				observer(activity);
+			} catch {
+				// An observer's failure is its own.
+			}
+		}
+	}
+
+	/** The tab's turn started or settled: told after the resume rules have judged it (`onRunningChange`). */
+	#announceRun(entry: PoolEntry): void {
+		this.#announce(
+			runBusy(entry.run)
+				? { type: "busy", tabId: entry.tabId }
+				: { type: "idle", tabId: entry.tabId, outcome: entry.lastRun },
+		);
+	}
+
+	/** A blocking request a person has to answer (not a provider sign-in's own traffic) came to the tab. */
+	#announceAsk(entry: PoolEntry, request: ExtensionUIRequest): void {
+		if (!BLOCKING_UI_METHODS[request.method] || this.#signInRequests.has(request.id)) return;
+		const text = "title" in request && typeof request.title === "string" ? request.title : "";
+		this.#announce({ type: "ask", tabId: entry.tabId, requestId: request.id, text });
 	}
 
 	/**
@@ -429,7 +497,9 @@ export class SidecarPool {
 				entry.run = idleRun();
 				if (!sidecar.statusFromLink) {
 					for (const [id, owner] of this.#requestOwners) {
-						if (owner === entry) this.#requestOwners.delete(id);
+						if (owner !== entry) continue;
+						this.#requestOwners.delete(id);
+						this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
 					}
 					// The host's `login`s ran on that omp and died with it; their outcome went unseen.
 					const hostSignIn = entry.hostSignIns?.at(-1);
@@ -486,10 +556,12 @@ export class SidecarPool {
 			if (BLOCKING_UI_METHODS[request.method]) {
 				this.#holdRequest(entry, request);
 				this.onRunningChange?.();
+				this.#announceAsk(entry, request);
 			}
 			// omp withdrew the request (timeout, abort): no response will follow.
 			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry) {
 				this.#requestOwners.delete(request.targetId);
+				this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: request.targetId });
 				this.onRunningChange?.();
 			}
 			this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
@@ -503,6 +575,7 @@ export class SidecarPool {
 			for (const [id, owner] of this.#requestOwners) {
 				if (owner !== entry || open.has(id) || this.#answering.has(id)) continue;
 				this.#requestOwners.delete(id);
+				this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
 				const cancel: ExtensionUIRequest = {
 					type: "extension_ui_request",
 					id: `withdrawn:${id}`,
@@ -517,6 +590,7 @@ export class SidecarPool {
 				// Already this tab's before the link dropped: the window notified for it then.
 				const resent = this.#requestOwners.get(request.id) === entry;
 				this.#holdRequest(entry, request);
+				if (!resent) this.#announceAsk(entry, request);
 				this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, {
 					...this.#uiFrame(entry, request),
 					...(resent ? { resent: true as const } : {}),
@@ -549,6 +623,7 @@ export class SidecarPool {
 			if (runBusy(entry.run) === wasBusy) return;
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
+			this.#announceRun(entry);
 			this.#scheduleOmpRestart(entry);
 			this.#scheduleExtensionApply(entry);
 		};
@@ -583,6 +658,7 @@ export class SidecarPool {
 			// The resume rules first: a failure they turn into a connection wait reaches the
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted) this.onRunningChange?.();
+			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
@@ -723,6 +799,7 @@ export class SidecarPool {
 		for (const [id, answered] of this.#answered) {
 			if (answered.entry === entry) this.#answered.delete(id);
 		}
+		this.#announce({ type: "released", tabId: entry.tabId });
 		// A destroyed window already dropped its one-shot "closed" listener.
 		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
 		entry.sidecar.removeAllListeners();
@@ -1299,6 +1376,7 @@ export class SidecarPool {
 		}
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
+			this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
 			this.onRunningChange?.();
 		}
 		if (shared) {

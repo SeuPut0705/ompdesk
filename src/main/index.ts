@@ -38,6 +38,7 @@ import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/a
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
+	BATCH_NOTIFICATIONS_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
 	CLOSE_TO_TRAY_PREF,
 	closeToTrayEnabled,
@@ -68,7 +69,7 @@ import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
-import { mainT } from "./i18n";
+import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { migrateLegacyUserData } from "./legacy-user-data";
@@ -1089,6 +1090,7 @@ app.whenReady().then(() => {
 				const target = sidecarPool.tabTarget(win, tabId);
 				return target && !target.device ? target.sidecar.cwd : null;
 			},
+			facts: tabId => sidecarPool.tabFacts(tabId),
 		},
 		openMedia: (url, range) => mediaStreams.handle(new Request(url, range ? { headers: { range } } : undefined)),
 		shell: {
@@ -1101,7 +1103,12 @@ app.whenReady().then(() => {
 		confirmPairing: () => prefs.get("mobileWeb.confirmPairing") !== false,
 		onUnpairedAuth: () =>
 			new Notification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
+		language: () => getMainLanguage(),
+		batchNotifications: () => prefs.get(BATCH_NOTIFICATIONS_PREF) !== false,
+		log: message => console.warn(`[web-push] ${message}`),
 	});
+	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
+	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
 	// address. The server it starts is the WebHost above. `OMP_GUI_TEST_TAILSCALE_OPEN` is a test's stand-in

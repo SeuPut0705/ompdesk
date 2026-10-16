@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { PeerLimits } from "../../shared/ipc-types";
 import { DEFAULT_WEB_GRANTS, WEB_PERMISSIONS, type WebPermission } from "../../shared/web-protocol";
+import { DEFAULT_WEB_PUSH_SETTINGS, WEB_PUSH_CATEGORIES, type WebPushSettings } from "../../shared/web-push";
 import { randomDeviceId } from "../remote/crypto";
 import type { QuotaStore } from "../remote/peer-quota";
 import { TrustStore } from "../remote/trust-store";
@@ -38,6 +39,8 @@ export interface WebDevice {
 	lastSeenAt?: number;
 	limits?: PeerLimits | undefined;
 	usage?: { day: string; requests: number; tokens: number } | undefined;
+	/** Web Push: this device's subscription and what it wants pushed (absent = never subscribed). */
+	push?: WebPushSettings | undefined;
 }
 
 const Count = z.number().int().nonnegative();
@@ -55,12 +58,41 @@ const StoredDevice = z.object({
 	lastSeenAt: z.number().optional(),
 	limits: z.object({ requestsPerDay: Count.optional(), tokensPerDay: Count.optional() }).optional(),
 	usage: z.object({ day: z.string(), requests: Count, tokens: Count }).optional(),
+	push: z
+		.object({
+			subscription: z
+				.object({
+					endpoint: z.string().min(1),
+					keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+				})
+				.nullable(),
+			hideContent: z.boolean(),
+			categories: z.array(z.enum(WEB_PUSH_CATEGORIES)),
+		})
+		// A damaged push block costs the device its notification settings, never its pairing.
+		.optional()
+		.catch(undefined),
 }) as unknown as z.ZodType<WebDevice>;
 
 /** A web device never holds `pairing-admin`, whatever a caller asks for. */
 export function sanitizeGrants(grants: readonly WebPermission[]): WebPermission[] {
 	const wanted = new Set(grants);
 	return WEB_PERMISSIONS.filter(permission => permission !== "pairing-admin" && wanted.has(permission));
+}
+
+function copyPush(push: WebPushSettings): WebPushSettings {
+	return {
+		subscription: push.subscription
+			? { endpoint: push.subscription.endpoint, keys: { ...push.subscription.keys } }
+			: null,
+		hideContent: push.hideContent,
+		categories: [...push.categories],
+	};
+}
+
+/** A device's push settings, the defaults for one that never subscribed. */
+export function pushSettingsOf(device: Pick<WebDevice, "push">): WebPushSettings {
+	return copyPush(device.push ?? DEFAULT_WEB_PUSH_SETTINGS);
 }
 
 function hashSecret(secret: string): string {
@@ -95,6 +127,7 @@ export class WebDevices implements QuotaStore {
 			publicKeyJwk: device.publicKeyJwk ? { ...device.publicKeyJwk } : null,
 			...(device.limits ? { limits: { ...device.limits } } : {}),
 			...(device.usage ? { usage: { ...device.usage } } : {}),
+			...(device.push ? { push: copyPush(device.push) } : {}),
 		}));
 		this.#now = now;
 	}
@@ -186,6 +219,29 @@ export class WebDevices implements QuotaStore {
 
 	setUiPrefs(deviceId: string, uiPrefs: Record<string, unknown>): boolean {
 		return this.#store.update(deviceId, { uiPrefs }) !== undefined;
+	}
+
+	/** Replace a device's push settings (its subscription, what it hides, what it wants). */
+	setPush(deviceId: string, push: WebPushSettings): boolean {
+		return this.#store.update(deviceId, { push }) !== undefined;
+	}
+
+	/** The push service said the subscription is gone (404/410): forget it, unless the device has since sent a new one. */
+	forgetPushSubscription(deviceId: string, endpoint: string): boolean {
+		const device = this.#store.get(deviceId);
+		if (device?.push?.subscription?.endpoint !== endpoint) return false;
+		return this.#store.update(deviceId, { push: { ...device.push, subscription: null } }) !== undefined;
+	}
+
+	/** The VAPID keypair was made anew: every subscription was made against the old key and is dead. */
+	dropAllPushSubscriptions(): number {
+		let dropped = 0;
+		for (const device of this.#store.list()) {
+			if (!device.push?.subscription) continue;
+			this.#store.update(device.deviceId, { push: { ...device.push, subscription: null } });
+			dropped++;
+		}
+		return dropped;
 	}
 
 	/** Quota's write path (peer-quota.ts): usage and limits ride the device record. */

@@ -143,6 +143,15 @@ export const MAIN_TEXT = {
 	"batch.needsYou.one": { en: "{count} needs you", ko: "{count}개 확인 필요" },
 	"batch.needsYou.other": { en: "{count} need you", ko: "{count}개 확인 필요" },
 	"batch.more": { en: "{list} +{count} more", ko: "{list} 외 {count}개" },
+	// Web Push to a paired phone (web/web-push-notifier.ts). The body reads like the desktop banner's; a device that
+	// hides content gets only the title, and the batch summary above.
+	"push.complete": { en: "Complete", ko: "완료" },
+	"push.error": { en: "Stopped with error", ko: "오류로 중단됨" },
+	"push.errorDetail": { en: "Stopped with error: {error}", ko: "오류로 중단됨: {error}" },
+	"push.ask": { en: "Waiting for your input", ko: "입력을 기다리고 있어요" },
+	"push.hidden.completion": { en: "A task finished", ko: "작업이 끝났어요" },
+	"push.hidden.error": { en: "A task stopped with an error", ko: "작업이 오류로 중단됐어요" },
+	"push.hidden.ask": { en: "A task needs you", ko: "작업에 확인이 필요해요" },
 	"resume.stop": { en: "Stop", ko: "중단" },
 	// Status of a tab whose omp runs on a paired device that is unreachable.
 	"remote.offline": {

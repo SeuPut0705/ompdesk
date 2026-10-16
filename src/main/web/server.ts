@@ -14,6 +14,7 @@ import { brotliCompress, constants as zlibConstants } from "node:zlib";
 import { type RawData, WebSocketServer } from "ws";
 import { z } from "zod";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
+import { WEB_PUSH_CATEGORIES, type WebPushSettings, type WebPushStateResponse } from "../../shared/web-push";
 import {
 	checkRequest,
 	clearedDeviceCookie,
@@ -30,8 +31,9 @@ import {
 	verifyDeviceProof,
 } from "./auth";
 import { BLOB_URL_PREFIX, type BlobStore } from "./blobs";
-import type { WebDevice, WebDevices } from "./devices-store";
+import { pushSettingsOf, type WebDevice, type WebDevices } from "./devices-store";
 import type { PairingConfirmations, WebPairing } from "./pairing";
+import { isPushEndpoint } from "./push";
 import { PairingGuard, SlidingWindowLimiter, UnpairedThrottle } from "./rate-limit";
 import { UploadError, type UploadStore } from "./uploads";
 import { MAX_FRAME_BYTES, type RouterSocket, type WsRouter } from "./ws-router";
@@ -39,6 +41,7 @@ import { MAX_FRAME_BYTES, type RouterSocket, type WsRouter } from "./ws-router";
 export const WEB_SERVER_HOST = "127.0.0.1";
 const JSON_BODY_MAX_BYTES = 32 * 1024;
 const SESSION_REQUESTS_PER_MINUTE = 20;
+const PUSH_REQUESTS_PER_MINUTE = 20;
 /** Compressed copies of static files kept in memory, in bytes. */
 const COMPRESSED_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const WS_PROTOCOL = "ompdesk.v1";
@@ -52,6 +55,7 @@ const STATIC_DIRS = ["/assets/", "/cmaps/", "/standard_fonts/", "/wasm/", "/icon
 const STATIC_FILES: ReadonlySet<string> = new Set([
 	"/manifest.webmanifest",
 	"/sw.js",
+	"/pre-paint.js",
 	"/favicon.ico",
 	"/apple-touch-icon.png",
 ]);
@@ -99,6 +103,21 @@ const PairBody = z.object({
 	publicKeyJwk: z.unknown().optional(),
 });
 const SessionBody = z.object({ nonce: z.string().max(128).optional(), sig: z.string().max(256).optional() });
+/** A browser's `PushSubscription.toJSON()`: the P-256 point (65 bytes) and the auth secret (16 bytes), base64url. */
+const PushBody = z.object({
+	subscription: z
+		.object({
+			endpoint: z.string().max(2048),
+			keys: z.object({
+				p256dh: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
+				auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+			}),
+		})
+		.nullable()
+		.optional(),
+	hideContent: z.boolean().optional(),
+	categories: z.array(z.enum(WEB_PUSH_CATEGORIES)).max(WEB_PUSH_CATEGORIES.length).optional(),
+});
 
 export interface WebServerDeps {
 	/** Mutable: `configure` changes the published address as Tailscale reports it. */
@@ -115,6 +134,8 @@ export interface WebServerDeps {
 	staticRoot: () => string | null;
 	/** A device authentication failed three times within a minute; told once. */
 	onUnpairedAuth?: (info: { address: string }) => void;
+	/** Web Push: the VAPID public key a page subscribes against. */
+	push: { publicKey: () => string };
 	now?: () => number;
 }
 
@@ -190,6 +211,7 @@ export class WebServer {
 	readonly #sessionLimiter: SlidingWindowLimiter;
 	readonly #pairGuard: PairingGuard;
 	readonly #unpaired: UnpairedThrottle;
+	readonly #pushLimiter: SlidingWindowLimiter;
 	readonly #wss = new WebSocketServer({
 		noServer: true,
 		maxPayload: MAX_FRAME_BYTES,
@@ -205,6 +227,7 @@ export class WebServer {
 		this.#deps = deps;
 		this.#now = deps.now ?? Date.now;
 		this.#sessionLimiter = new SlidingWindowLimiter(SESSION_REQUESTS_PER_MINUTE, 60_000, this.#now);
+		this.#pushLimiter = new SlidingWindowLimiter(PUSH_REQUESTS_PER_MINUTE, 60_000, this.#now);
 		this.#pairGuard = new PairingGuard(this.#now);
 		this.#unpaired = new UnpairedThrottle(this.#now);
 	}
@@ -298,6 +321,7 @@ export class WebServer {
 		const isApi =
 			pathname === "/api/pair" ||
 			pathname === "/api/session" ||
+			pathname === "/api/push" ||
 			pathname === "/upload" ||
 			pathname === "/healthz" ||
 			pathname.startsWith(BLOB_URL_PREFIX);
@@ -314,6 +338,7 @@ export class WebServer {
 		}
 		if (pathname === "/api/pair") return this.#pair(req, res, method);
 		if (pathname === "/api/session") return this.#session(req, res, method);
+		if (pathname === "/api/push") return this.#push(req, res, method);
 		if (pathname === "/upload") return this.#upload(req, res, method);
 		if (pathname.startsWith(BLOB_URL_PREFIX)) return this.#blob(req, res, method, target);
 		if (pathname.startsWith("/api/")) throw new HttpError(404, "not found");
@@ -383,6 +408,44 @@ export class WebServer {
 			{ deviceId: device.deviceId, name: device.name, grants: device.grants },
 			{ "set-cookie": serializeDeviceCookie(cookie, policy.secure) },
 		);
+	}
+
+	/** `GET|POST /api/push`: this device's push state; a POST changes its subscription and what it wants pushed. */
+	async #push(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
+		if (method !== "GET" && method !== "POST") {
+			throw new HttpError(405, "method not allowed", { allow: "GET, POST" });
+		}
+		const device = this.#device(req);
+		if (!device.grants.includes("device-self")) throw new HttpError(403, "forbidden");
+		if (!this.#pushLimiter.hit(device.deviceId)) {
+			throw new HttpError(429, "rate_limited", { "retry-after": "60" });
+		}
+		let settings = pushSettingsOf(device);
+		if (method === "POST") {
+			const parsed = PushBody.safeParse(await readJsonBody(req));
+			if (!parsed.success) throw new HttpError(400, "invalid_request");
+			const { subscription, hideContent, categories } = parsed.data;
+			if (subscription && !isPushEndpoint(subscription.endpoint)) throw new HttpError(400, "invalid_endpoint");
+			const next: WebPushSettings = {
+				subscription:
+					subscription === undefined
+						? settings.subscription
+						: subscription && { endpoint: subscription.endpoint, keys: { ...subscription.keys } },
+				hideContent: hideContent ?? settings.hideContent,
+				categories: categories
+					? WEB_PUSH_CATEGORIES.filter(name => categories.includes(name))
+					: settings.categories,
+			};
+			this.#deps.devices.setPush(device.deviceId, next);
+			settings = next;
+		}
+		const state: WebPushStateResponse = {
+			publicKey: this.#deps.push.publicKey(),
+			subscribed: settings.subscription !== null,
+			hideContent: settings.hideContent,
+			categories: settings.categories,
+		};
+		sendJson(res, 200, state);
 	}
 
 	async #session(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {

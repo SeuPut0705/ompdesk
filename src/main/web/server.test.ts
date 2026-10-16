@@ -4,7 +4,7 @@
  * a fake handler, uploads and blobs, and revocation closing the socket. Only Electron is faked (the IPC
  * registry and the desktop window); the server, router, stores and `ws` are the real ones.
  */
-import { generateKeyPairSync, type KeyObject, sign } from "node:crypto";
+import { createECDH, generateKeyPairSync, type KeyObject, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import {
 } from "../../shared/mobile-web";
 import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host";
 import type { WebServerFrame } from "../../shared/web-protocol";
+import type { WebPushStateResponse } from "../../shared/web-push";
 import type { ClientWindow } from "./client-window";
 import type { IpcCaller } from "./ipc-registry";
 import { WebHost, type WebHostDeps } from "./web-host";
@@ -87,12 +88,14 @@ beforeEach(async () => {
 		userData,
 		staticRoot: () => staticRoot,
 		desktopWindows: () => [desktop()],
-		tabs: { activeTab: () => null, cwd: () => null },
+		tabs: { activeTab: () => null, cwd: () => null, facts: () => null },
 		openMedia: async () => new Response(null, { status: 404 }),
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
 		allowedUsers: () => [],
 		confirmPairing: () => confirm,
 		onUnpairedAuth: unpaired,
+		language: () => "en",
+		batchNotifications: () => true,
 	};
 	host = new WebHost(deps);
 	({ port } = await host.start({ port: 0 }));
@@ -244,6 +247,13 @@ describe("static files", () => {
 		expect((await raw("/web.html")).status).toBe(404);
 		expect((await raw("/package.json")).status).toBe(404);
 		expect((await raw("/assets/missing.js")).status).toBe(404);
+	});
+
+	it("serves pre-paint.js, which web.html loads before anything else", async () => {
+		writeFileSync(join(staticRoot, "pre-paint.js"), "document.documentElement.dataset.ready = '1';");
+		const script = await raw("/pre-paint.js");
+		expect(script.status).toBe(200);
+		expect(script.headers["content-type"]).toContain("text/javascript");
 	});
 
 	it("serves hashed assets as immutable, compresses with brotli on request, and answers HEAD", async () => {
@@ -559,5 +569,187 @@ describe("unknown devices", () => {
 		for (let i = 0; i < 6; i++) await post("/api/session", {}, { cookie: "ompdesk=ghost.secret" });
 		expect(unpaired).toHaveBeenCalledOnce();
 		expect(unpaired.mock.calls[0]?.[0]).toMatchObject({ address: expect.any(String) });
+	});
+});
+
+describe("/api/push", () => {
+	const subscription = () => ({
+		endpoint: "https://push.example.com/send/abc123",
+		keys: {
+			p256dh: (() => {
+				const ecdh = createECDH("prime256v1");
+				ecdh.generateKeys();
+				return ecdh.getPublicKey().toString("base64url");
+			})(),
+			auth: randomBytes(16).toString("base64url"),
+		},
+	});
+	const get = (paired: Paired) => fetch(`${base}/api/push`, { headers: { cookie: paired.cookie } });
+	const change = (paired: Paired, body: unknown, headers: Record<string, string> = {}) =>
+		post("/api/push", body, { cookie: paired.cookie, ...headers });
+
+	it("needs the device's cookie", async () => {
+		expect((await fetch(`${base}/api/push`)).status).toBe(401);
+		expect((await post("/api/push", {})).status).toBe(401);
+	});
+
+	it("tells a device that never subscribed the host's VAPID key and the defaults", async () => {
+		const paired = await pair();
+		const response = await get(paired);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		const state = (await response.json()) as WebPushStateResponse;
+		expect(state).toEqual({
+			publicKey: host.vapid.keys().publicKey,
+			subscribed: false,
+			hideContent: false,
+			categories: ["completion", "error", "ask"],
+		});
+		expect(state.publicKey).toMatch(/^[A-Za-z0-9_-]{87}$/);
+	});
+
+	it("stores the subscription, hideContent and categories on the device record", async () => {
+		const paired = await pair();
+		const sub = subscription();
+		const response = await change(paired, { subscription: sub, hideContent: true, categories: ["ask", "error"] });
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			subscribed: true,
+			hideContent: true,
+			categories: ["error", "ask"],
+		});
+		expect(host.devices.get(paired.deviceId)?.push).toEqual({
+			subscription: sub,
+			hideContent: true,
+			categories: ["error", "ask"],
+		});
+		// A partial change keeps the rest.
+		await change(paired, { hideContent: false });
+		expect(host.devices.get(paired.deviceId)?.push).toEqual({
+			subscription: sub,
+			hideContent: false,
+			categories: ["error", "ask"],
+		});
+		expect(await (await get(paired)).json()).toMatchObject({ subscribed: true, hideContent: false });
+	});
+
+	it("unsubscribes with a null subscription and keeps the preferences", async () => {
+		const paired = await pair();
+		await change(paired, { subscription: subscription(), hideContent: true });
+		const response = await change(paired, { subscription: null });
+		expect(await response.json()).toMatchObject({ subscribed: false, hideContent: true });
+		expect(host.devices.get(paired.deviceId)?.push?.subscription).toBeNull();
+	});
+
+	it("refuses an endpoint that is not a push service's https address", async () => {
+		const paired = await pair();
+		const sub = subscription();
+		for (const endpoint of [
+			"http://push.example.com/x",
+			"https://127.0.0.1/x",
+			"https://10.0.0.5/x",
+			"https://[::1]/x",
+			"https://localhost/x",
+			"https://printer.local/x",
+			"https://host.tail1234.ts.net/x",
+			"https://singlelabel/x",
+			"https://user:pass@push.example.com/x",
+			"https://push.example.com:8443/x",
+			"ftp://push.example.com/x",
+			"not a url",
+			`https://push.example.com/${"a".repeat(2100)}`,
+		]) {
+			const response = await change(paired, { subscription: { ...sub, endpoint } });
+			expect(response.status, endpoint.slice(0, 60)).toBe(400);
+		}
+		expect(host.devices.get(paired.deviceId)?.push).toBeUndefined();
+	});
+
+	it("refuses malformed keys, categories and bodies", async () => {
+		const paired = await pair();
+		const sub = subscription();
+		const bad: unknown[] = [
+			{ subscription: { ...sub, keys: { ...sub.keys, p256dh: "short" } } },
+			{ subscription: { ...sub, keys: { ...sub.keys, auth: "not base64url!!!!!!!!!!" } } },
+			{ subscription: { ...sub, keys: { p256dh: sub.keys.p256dh } } },
+			{ subscription: { endpoint: sub.endpoint } },
+			{ subscription: "https://push.example.com/x" },
+			{ categories: ["completion", "everything"] },
+			{ categories: "ask" },
+			{ hideContent: "yes" },
+		];
+		for (const body of bad) expect((await change(paired, body)).status, JSON.stringify(body)).toBe(400);
+		expect(
+			(
+				await fetch(`${base}/api/push`, {
+					method: "POST",
+					headers: { "content-type": "text/plain", origin: origin(), cookie: paired.cookie },
+					body: "{}",
+				})
+			).status,
+		).toBe(415);
+		expect(
+			(
+				await fetch(`${base}/api/push`, {
+					method: "POST",
+					headers: { "content-type": "application/json", origin: origin(), cookie: paired.cookie },
+					body: JSON.stringify({ hideContent: true, pad: "x".repeat(40_000) }),
+				})
+			).status,
+		).toBe(413);
+		expect(host.devices.get(paired.deviceId)?.push).toBeUndefined();
+	});
+
+	it("checks Origin on a POST like the other device calls, and allows only GET and POST", async () => {
+		const paired = await pair();
+		const noOrigin = await fetch(`${base}/api/push`, {
+			method: "POST",
+			headers: { "content-type": "application/json", cookie: paired.cookie },
+			body: "{}",
+		});
+		expect(noOrigin.status).toBe(403);
+		expect((await change(paired, {}, { origin: "http://evil.example" })).status).toBe(403);
+		for (const method of ["PUT", "DELETE"]) {
+			const refused = await fetch(`${base}/api/push`, {
+				method,
+				headers: { "content-type": "application/json", origin: origin(), cookie: paired.cookie },
+				body: method === "PUT" ? "{}" : null,
+			});
+			expect(refused.status, method).toBe(405);
+			expect(refused.headers.get("allow")).toBe("GET, POST");
+		}
+	});
+
+	it("needs the device-self grant", async () => {
+		const paired = await pair();
+		host.devices.setGrants(paired.deviceId, ["workspace"]);
+		expect((await get(paired)).status).toBe(403);
+		expect((await change(paired, { hideContent: true })).status).toBe(403);
+	});
+
+	it("limits a device to 20 requests a minute", async () => {
+		const paired = await pair();
+		for (let i = 0; i < 20; i++) expect((await get(paired)).status).toBe(200);
+		const limited = await get(paired);
+		expect(limited.status).toBe(429);
+		expect(limited.headers.get("retry-after")).toBe("60");
+		// Another device has its own allowance.
+		expect((await get(await pair({ name: "Other" }))).status).toBe(200);
+	});
+
+	it("goes with the device when it is revoked", async () => {
+		const paired = await pair();
+		await change(paired, { subscription: subscription() });
+		host.devices.revoke(paired.deviceId);
+		expect(host.devices.get(paired.deviceId)).toBeUndefined();
+		expect(JSON.stringify(host.devices.list())).not.toContain("push.example.com");
+		expect((await get(paired)).status).toBe(401);
+	});
+
+	it("announces push in hello", async () => {
+		const paired = await pair();
+		const { frames } = await open(paired, await ticketFor(paired));
+		await until(() => frames.length > 0);
+		expect(frames[0]).toMatchObject({ t: "hello", features: { push: true } });
 	});
 });

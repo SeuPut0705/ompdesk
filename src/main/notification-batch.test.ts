@@ -175,6 +175,83 @@ describe("NotificationBatcher", () => {
 		expect(shown).toHaveLength(2);
 		expect(shown.every(entry => !entry.closed)).toBe(true);
 	});
+
+	describe("for a second sink (Web Push)", () => {
+		function sink() {
+			const infos: Array<{ title: string; info: unknown }> = [];
+			const timers = new Map<number, () => void>();
+			let next = 1;
+			const batcher = new NotificationBatcher({
+				language: () => "en",
+				show: (_windowId, notice, info) => {
+					infos.push({ title: notice.title, info });
+					return { close: () => undefined };
+				},
+				setTimer: fn => {
+					timers.set(next, fn);
+					return next++;
+				},
+				clearTimer: handle => {
+					timers.delete(handle as number);
+				},
+			});
+			const end = () => {
+				for (const [id, fn] of [...timers]) {
+					timers.delete(id);
+					fn();
+				}
+			};
+			return { batcher, infos, end };
+		}
+
+		it("hands the sink each notice's kind: a lone event's own, a summary's strongest with its tally", () => {
+			const { batcher, infos, end } = sink();
+			batcher.notify(1, event("a", "completion"), true);
+			batcher.notify(1, event("b", "error"), true);
+			batcher.notify(1, event("c", "completion"), true);
+			end();
+			expect(infos.map(item => item.info)).toEqual([
+				{ kind: "completion", summary: null },
+				{ kind: "error", summary: { finished: 2, failed: 1, asks: 0 } },
+			]);
+		});
+
+		it("hands over the kind when batching is off, and null for a notice without one", () => {
+			const { batcher, infos } = sink();
+			batcher.notify(1, event("a", "ask"), false);
+			batcher.notify(1, event("b", undefined), true);
+			expect(infos.map(item => item.info)).toEqual([{ kind: "ask", summary: null }, null]);
+		});
+
+		it("drops a retracted ask from the summary, and sends no summary when nothing is left", () => {
+			const a = sink();
+			a.batcher.notify(1, event("a", "completion"), true);
+			a.batcher.notify(1, event("b", "ask"), true);
+			a.batcher.retract(1, "b");
+			a.end();
+			expect(a.infos.at(-1)?.title).toBe("1 task finished");
+
+			const b = sink();
+			b.batcher.notify(1, event("a", "ask"), true);
+			b.batcher.notify(1, event("b", "ask"), true);
+			b.batcher.retract(1, "a");
+			b.batcher.retract(1, "b");
+			b.end();
+			expect(b.infos).toHaveLength(1);
+		});
+
+		it("leaves a finished or failed entry alone, and an unknown window", () => {
+			const { batcher, infos, end } = sink();
+			batcher.retract(9, "x");
+			batcher.notify(1, event("a", "completion"), true);
+			batcher.notify(1, event("b", "error"), true);
+			batcher.retract(1, "a");
+			batcher.retract(1, "b");
+			end();
+			expect(infos.at(-1)?.title).toBe("1 task finished · 1 failed");
+			expect(infos.at(-1)?.info).toEqual({ kind: "error", summary: { finished: 1, failed: 1, asks: 0 } });
+		});
+	});
 });
 
 describe("formatBatchSummary", () => {

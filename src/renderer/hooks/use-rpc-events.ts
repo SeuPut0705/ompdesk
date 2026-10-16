@@ -20,6 +20,7 @@ export * from "./session-hydration";
 
 import { useEffect } from "react";
 import type { IpcSidecarStatusPayload } from "../../shared/ipc-types";
+import { notificationSummary } from "../../shared/notification-summary";
 import {
 	type AgentSessionEvent,
 	type CommandOutputFrame,
@@ -41,7 +42,6 @@ import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
-import { notificationSummary } from "../lib/notification-summary";
 import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
 import {

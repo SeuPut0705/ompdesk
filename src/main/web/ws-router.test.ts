@@ -526,6 +526,24 @@ describe("presence", () => {
 		r.timers.flush();
 		expect(r.socket.frames("evt")).toEqual([]);
 	});
+
+	it("tells whether any socket of a device has its page in the foreground (what keeps Web Push quiet)", () => {
+		const r = rig();
+		expect(r.router.isDeviceVisible("dev1")).toBe(true);
+		expect(r.router.isDeviceVisible("nobody")).toBe(false);
+		r.frame({ t: "presence", visible: false });
+		expect(r.router.isDeviceVisible("dev1")).toBe(false);
+		// A second socket of the same device that is in the foreground makes the device visible.
+		const second = r.router.attach("dev1", new FakeSocket());
+		expect(r.router.isDeviceVisible("dev1")).toBe(true);
+		second?.receive(JSON.stringify({ t: "presence", visible: false }));
+		expect(r.router.isDeviceVisible("dev1")).toBe(false);
+		r.frame({ t: "presence", visible: true });
+		expect(r.router.isDeviceVisible("dev1")).toBe(true);
+		r.connection.dispose();
+		second?.dispose();
+		expect(r.router.isDeviceVisible("dev1")).toBe(false);
+	});
 });
 
 describe("limits", () => {

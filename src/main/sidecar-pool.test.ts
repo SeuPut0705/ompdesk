@@ -7,7 +7,7 @@ import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
-import { SidecarPool } from "./sidecar-pool";
+import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
 import type { ClientWindow } from "./web/client-window";
@@ -2364,5 +2364,150 @@ describe("SidecarPool multi-viewer", () => {
 		await Promise.resolve();
 		expect(sidecar.rpcCommands).toEqual([{ type: command, empty: true }]);
 		expect(pool.noteDraft("tab-a", desktop.win.webContents.id, command, true)).toBe(true);
+	});
+});
+
+describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
+	function observed() {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		if (!a) throw new Error("expected a sidecar");
+		a.emitStatus("ready");
+		a.emitSessionInfo({ title: "Refactor" });
+		const seen: TabActivity[] = [];
+		pool.observeTabs(activity => seen.push(activity));
+		return { pool, a, fw, seen };
+	}
+	const reply = (stopReason: string, extra: Record<string, unknown> = {}) => ({
+		type: "agent_end",
+		messages: [{ role: "assistant", content: [{ type: "text", text: "All done." }], stopReason, ...extra }],
+	});
+
+	it("announces a turn starting and settling idle, with how it ended", () => {
+		const { a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emitEvents([reply("stop")]);
+		expect(seen).toEqual([
+			{ type: "busy", tabId: "tab-a" },
+			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "stop", reply: "All done." } },
+		]);
+	});
+
+	it("announces a fast turn that starts and ends inside one batch as idle", () => {
+		const { a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }, reply("error", { errorMessage: "boom", content: [] })]);
+		expect(seen).toEqual([{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } }]);
+	});
+
+	it("waits for background work: idle comes at session_settled, not at agent_end", () => {
+		const { a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		a.emitEvents([reply("stop")]);
+		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
+		a.emit("sessionSettled", { type: "session_settled" });
+		expect(seen.map(activity => activity.type)).toEqual(["busy", "idle"]);
+		expect(seen[1]).toMatchObject({ outcome: { stopReason: "stop" } });
+	});
+
+	it("does not announce the middle of an auto-retry saga as settled", () => {
+		const { a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emitEvents([{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "529" }]);
+		a.emitEvents([reply("error", { errorMessage: "529", content: [] })]);
+		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
+		a.emitEvents([{ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded" }]);
+		expect(seen.at(-1)).toEqual({
+			type: "idle",
+			tabId: "tab-a",
+			outcome: { stopReason: "error", errorMessage: "overloaded" },
+		});
+	});
+
+	it("announces an ask when it is raised and when it is answered", async () => {
+		const { pool, a, seen } = observed();
+		a.emitUiRequest({ id: "ask-1", method: "confirm", title: "Deploy?", message: "" });
+		expect(seen).toEqual([{ type: "ask", tabId: "tab-a", requestId: "ask-1", text: "Deploy?" }]);
+		await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1", confirmed: true });
+		expect(seen.at(-1)).toEqual({ type: "askClosed", tabId: "tab-a", requestId: "ask-1" });
+		expect(seen).toHaveLength(2);
+	});
+
+	it("announces an ask omp withdrew, and every ask a restart of its omp took with it", () => {
+		const { a, seen } = observed();
+		a.emitUiRequest({ id: "ask-1", method: "select", title: "Which?", options: [] });
+		a.emitUiRequest({ id: "cancel-1", method: "cancel", targetId: "ask-1" });
+		expect(seen.map(activity => activity.type)).toEqual(["ask", "askClosed"]);
+		a.emitUiRequest({ id: "ask-2", method: "input", title: "Name?" });
+		a.emitStatus("restarting");
+		expect(seen.slice(2)).toEqual([
+			{ type: "ask", tabId: "tab-a", requestId: "ask-2", text: "Name?" },
+			{ type: "askClosed", tabId: "tab-a", requestId: "ask-2" },
+		]);
+	});
+
+	it("keeps a paired host's ask through a link blip, announces the ones a re-attach raised or withdrew, not the ones it re-sent", () => {
+		const { a, seen } = observed();
+		a.emitUiRequest({ id: "stale", method: "confirm", title: "Deploy?", message: "" });
+		a.emitUiRequest({ id: "kept", method: "input", title: "Name?" });
+		a.emitLinkStatus("error");
+		a.emitLinkStatus("starting");
+		a.emitStatus("ready");
+		expect(seen.map(activity => activity.type)).toEqual(["ask", "ask"]);
+		const keptRequest = { type: "extension_ui_request", id: "kept", method: "input", title: "Name?" };
+		const raised = { type: "extension_ui_request", id: "raised", method: "input", title: "Other?" };
+		a.emit("openAsks", [keptRequest, raised]);
+		expect(seen.slice(2)).toEqual([
+			{ type: "askClosed", tabId: "tab-a", requestId: "stale" },
+			{ type: "ask", tabId: "tab-a", requestId: "raised", text: "Other?" },
+		]);
+	});
+
+	it("never announces a provider sign-in's own requests as asks", () => {
+		const { pool, a, seen } = observed();
+		pool.noteSignIn("tab-a", true, { providerId: "anthropic" });
+		a.emitUiRequest({ id: "url-1", method: "open_url", url: "https://example.com/login" });
+		a.emitUiRequest({ id: "paste-1", method: "input", title: "Paste the code" });
+		expect(seen).toEqual([]);
+	});
+
+	it("announces a released tab, and an observer that throws never breaks the pool or the others", () => {
+		const { pool, a, seen } = observed();
+		const later: TabActivity[] = [];
+		pool.observeTabs(() => {
+			throw new Error("observer failed");
+		});
+		const stop = pool.observeTabs(activity => later.push(activity));
+		a.emitEvents([{ type: "agent_start" }]);
+		expect(seen).toEqual([{ type: "busy", tabId: "tab-a" }]);
+		expect(later).toEqual(seen);
+		stop();
+		pool.releaseTab("tab-a");
+		expect(seen.at(-1)).toEqual({ type: "released", tabId: "tab-a" });
+		expect(later).toHaveLength(1);
+	});
+
+	it("reports a live tab's facts for the debounce's second look, null once it is gone", () => {
+		const { pool, a } = observed();
+		expect(pool.tabFacts("tab-a")).toEqual({
+			title: "Refactor",
+			busy: false,
+			awaitingConnection: false,
+			retrying: false,
+		});
+		a.emitEvents([{ type: "agent_start" }]);
+		pool.setAwaitingConnection("tab-a", true);
+		a.emitEvents([{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "529" }]);
+		expect(pool.tabFacts("tab-a")).toEqual({
+			title: "Refactor",
+			busy: true,
+			awaitingConnection: true,
+			retrying: true,
+		});
+		pool.releaseTab("tab-a");
+		expect(pool.tabFacts("tab-a")).toBeNull();
+		expect(pool.tabFacts("nope")).toBeNull();
 	});
 });

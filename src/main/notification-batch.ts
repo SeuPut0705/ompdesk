@@ -41,9 +41,17 @@ export interface BatchCounts {
 	asks: number;
 }
 
+/** What a shown notice is, for a sink that needs more than its text (Web Push filters and ranks by kind). */
+export interface ShownInfo {
+	/** A lone event's kind; a summary's is its strongest member's. */
+	kind: NoticeKind;
+	/** The tally a summary banner reports; null for a lone event. */
+	summary: BatchCounts | null;
+}
+
 export interface BatcherDeps {
-	/** Show one OS notification for a window; `close` withdraws it. */
-	show: (windowId: number, notice: ShownNotice) => { close: () => void };
+	/** Show one notification for a window; `close` withdraws it. `info` is null for a notice with no `kind`. */
+	show: (windowId: number, notice: ShownNotice, info: ShownInfo | null) => { close: () => void };
 	language: () => UiLanguage;
 	setTimer: (fn: () => void, ms: number) => unknown;
 	clearTimer: (handle: unknown) => void;
@@ -107,12 +115,12 @@ export class NotificationBatcher {
 		const shown: ShownNotice = { title: notice.title, body: notice.body ?? "", tabId: notice.tabId ?? null };
 		const { kind, tabId } = notice;
 		if (!enabled || !kind || !tabId) {
-			this.#deps.show(windowId, shown);
+			this.#deps.show(windowId, shown, kind ? { kind, summary: null } : null);
 			return;
 		}
 		const batch = this.#batches.get(windowId);
 		if (!batch) {
-			const first = this.#deps.show(windowId, shown);
+			const first = this.#deps.show(windowId, shown, { kind, summary: null });
 			const opened: Batch = {
 				first,
 				entries: new Map(),
@@ -125,6 +133,15 @@ export class NotificationBatcher {
 		}
 		batch.followers++;
 		this.#record(batch, tabId, notice.title, kind);
+	}
+
+	/**
+	 * A tab's ask was answered (or withdrawn) before its window ended: the summary must not count it. Only an ask
+	 * entry goes; what the window already showed was closed by whoever retracted the ask.
+	 */
+	retract(windowId: number, tabId: string): void {
+		const batch = this.#batches.get(windowId);
+		if (batch?.entries.get(tabId)?.kind === "ask") batch.entries.delete(tabId);
 	}
 
 	/** A window closed: its pending summary has nobody to go to. */
@@ -149,7 +166,7 @@ export class NotificationBatcher {
 		const batch = this.#batches.get(windowId);
 		if (!batch) return;
 		this.#batches.delete(windowId);
-		if (batch.followers === 0) return;
+		if (batch.followers === 0 || batch.entries.size === 0) return;
 		const ranked = [...batch.entries].sort(([, a], [, b]) => PRIORITY[b.kind] - PRIORITY[a.kind] || b.seq - a.seq);
 		const counts: BatchCounts = { finished: 0, failed: 0, asks: 0 };
 		for (const [, entry] of ranked) {
@@ -163,6 +180,7 @@ export class NotificationBatcher {
 			this.#deps.language(),
 		);
 		batch.first.close();
-		this.#deps.show(windowId, { ...summary, tabId: ranked[0]?.[0] ?? null });
+		const strongest = ranked[0]?.[1].kind ?? "completion";
+		this.#deps.show(windowId, { ...summary, tabId: ranked[0]?.[0] ?? null }, { kind: strongest, summary: counts });
 	}
 }
