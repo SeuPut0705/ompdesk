@@ -1,40 +1,24 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants } from "node:fs";
-import { delimiter, join } from "node:path";
 import { type BuiltinReaState, reaEnabled, reaNodeSupported } from "../shared/builtin-mcp";
-import { ompNeedsShell, ompSpawnCommand } from "./omp-runtime";
 import { spawnPath } from "./shell-env";
+import { executableName, findOnPath, needsShell, spawnCommand } from "./spawn";
 
 type ReaRuntime = Omit<BuiltinReaState, "enabled">;
 
 /** Use the same login-shell PATH as omp, including Finder-launched apps. */
 async function probeReaRuntime(): Promise<ReaRuntime> {
 	const path = await spawnPath();
-	const windows = process.platform === "win32";
-	const find = (names: string[]) => {
-		for (const dir of path.split(delimiter).filter(Boolean)) {
-			for (const name of names) {
-				const file = join(dir, name);
-				try {
-					accessSync(file, windows ? constants.F_OK : constants.X_OK);
-					return file;
-				} catch {
-					// Continue PATH lookup, as omp-runtime does.
-				}
-			}
-		}
-		return undefined;
-	};
-	const node = find(windows ? ["node.exe"] : ["node"]);
+	const platform = process.platform;
+	const node = findOnPath([executableName("node", platform)], path, platform);
 	if (!node) return { available: false, reason: "node-missing" };
 	const version = (bin: string) => {
 		const { promise, resolve, reject } = Promise.withResolvers<string>();
 		execFile(
-			ompSpawnCommand(bin),
+			spawnCommand(bin),
 			["--version"],
 			{
 				env: { ...process.env, PATH: path },
-				shell: ompNeedsShell(bin),
+				shell: needsShell(bin),
 				timeout: 10_000,
 				windowsHide: true,
 			},
@@ -49,7 +33,7 @@ async function probeReaRuntime(): Promise<ReaRuntime> {
 		return { available: false, reason: "node-failed" };
 	}
 	if (!reaNodeSupported(nodeVersion)) return { available: false, nodeVersion, reason: "node-version" };
-	const npx = find(windows ? ["npx.cmd", "npx.exe"] : ["npx"]);
+	const npx = findOnPath(platform === "win32" ? ["npx.cmd", "npx.exe"] : ["npx"], path, platform);
 	if (!npx) return { available: false, nodeVersion, reason: "npx-missing" };
 	try {
 		await version(npx);

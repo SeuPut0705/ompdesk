@@ -34,10 +34,11 @@ import { type CliPlatform, findBrew, type InstallContext, probeOutput } from "..
 import type { CliCommand, PlanTools } from "../cli-tools/plans";
 import { runCheckProcess } from "../cli-tools/updater";
 import { EMPTY_APPLY_PLAN, type ExtensionApplyPlan, mergeApplyPlans, planIsEmpty } from "../extension-reload";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
+import { parseOmpVersion } from "../omp-runtime";
 import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { classifyInventory, type ExtensionSeed, type SeedRow, type SeedTarget } from "./classify";
 import { classifyMcpServer } from "./mcp";
 import { detectMcpBinary, type McpBinary, type OwnerDeps } from "./mcp-owner";
@@ -487,9 +488,9 @@ export class ExtensionUpdater {
 	#installerCheck(installer: string, record: RowRecord): CliCommand {
 		const platform = this.#deps.platform;
 		const spawn: SpawnSpec = {
-			file: ompSpawnCommand(installer, platform),
-			args: ompSpawnArgs(installer, [`cli-mcp-${record.row.name}`, record.row.method ?? "self", "check"], platform),
-			shell: ompNeedsShell(installer, platform),
+			file: spawnCommand(installer, platform),
+			args: spawnArgs(installer, [`cli-mcp-${record.row.name}`, record.row.method ?? "self", "check"], platform),
+			shell: needsShell(installer, platform),
 		};
 		return { spawn, env: {} };
 	}

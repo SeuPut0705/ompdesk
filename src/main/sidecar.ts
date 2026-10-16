@@ -32,19 +32,13 @@ import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
-import {
-	OMP_TELEMETRY_OFF,
-	type OmpResolution,
-	ompNeedsShell,
-	ompPathEnv,
-	ompSpawnArgs,
-	ompSpawnCommand,
-} from "./omp-runtime";
+import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
+import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
 
 /** stderr lines kept per spawn for the crash report. */
@@ -517,7 +511,7 @@ export class SidecarManager extends EventEmitter {
 
 		let child: ChildProcess;
 		try {
-			child = spawn(ompSpawnCommand(bin), ompSpawnArgs(bin, args), {
+			child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
@@ -548,7 +542,7 @@ export class SidecarManager extends EventEmitter {
 					...OMP_TELEMETRY_OFF,
 				},
 				cwd,
-				shell: ompNeedsShell(bin),
+				shell: needsShell(bin),
 				windowsHide: true,
 			});
 		} catch (err) {

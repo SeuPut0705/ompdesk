@@ -8,9 +8,9 @@ import { execFile } from "node:child_process";
 import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, win32 } from "node:path";
 import type { CliSkipReason, CliToolId } from "../../shared/cli-update";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
-import { findExecutable } from "../setup/detect";
+import { parseOmpVersion } from "../omp-runtime";
 import { brewBinDirs } from "../shell-env";
+import { findOnPath, launcherNames, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { CLI_TOOL_SPECS, type CliToolSpec } from "./catalog";
 
 export type CliPlatform = "darwin" | "win32";
@@ -19,7 +19,7 @@ export type CliPlatform = "darwin" | "win32";
 export function findBrew(pathEnv: string, platform: CliPlatform): string | null {
 	return platform === "win32"
 		? null
-		: findExecutable(
+		: findOnPath(
 				["brew"],
 				pathEnv,
 				platform,
@@ -152,9 +152,9 @@ export function probeOutput(
 ): Promise<string> {
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
 	execFile(
-		ompSpawnCommand(bin, platform),
-		ompSpawnArgs(bin, args, platform),
-		{ env, shell: ompNeedsShell(bin, platform), timeout: 15_000, windowsHide: true },
+		spawnCommand(bin, platform),
+		spawnArgs(bin, args, platform),
+		{ env, shell: needsShell(bin, platform), timeout: 15_000, windowsHide: true },
 		(error, stdout, stderr) => (error ? reject(new Error((stderr || error.message).trim())) : resolve(stdout)),
 	);
 	return promise;
@@ -196,9 +196,9 @@ export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<Cl
 	const { ctx } = deps;
 	const win = ctx.platform === "win32";
 	// Never the bare name on Windows: npm writes one beside its `.cmd` for POSIX shells, which Windows cannot start.
-	const names = win ? [`${spec.bin}.exe`, `${spec.bin}.cmd`] : [spec.bin];
+	const names = launcherNames(spec.bin, ctx.platform);
 	// Homebrew's prefixes count even when the login shell's PATH omits them (the same lookup `resolveBin` makes).
-	const path = findExecutable(
+	const path = findOnPath(
 		names,
 		deps.pathEnv,
 		ctx.platform,

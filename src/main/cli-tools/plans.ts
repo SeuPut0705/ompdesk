@@ -7,9 +7,9 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
-import { findExecutable } from "../setup/detect";
+import { parseOmpVersion } from "../omp-runtime";
 import type { SpawnSpec } from "../setup/plans";
+import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { CLI_TOOL_SPECS } from "./catalog";
 import type { CliDetection, CliOwner, CliPlatform } from "./detect";
 
@@ -32,12 +32,12 @@ export interface PlanTools {
 
 /** A Windows `.cmd` shim (npm's) runs through cmd.exe, quoted the way omp's own shim is. */
 export function command(file: string, args: string[], env: Record<string, string> = {}): CliCommand {
-	const platform = /\.(cmd|bat)$/i.test(file) ? "win32" : "darwin";
+	const platform = needsShell(file, "win32") ? "win32" : "darwin";
 	return {
 		spawn: {
-			file: ompSpawnCommand(file, platform),
-			args: ompSpawnArgs(file, args, platform),
-			shell: ompNeedsShell(file, platform),
+			file: spawnCommand(file, platform),
+			args: spawnArgs(file, args, platform),
+			shell: needsShell(file, platform),
 		},
 		env,
 	};
@@ -49,18 +49,16 @@ export const NPM_BIN = { win32: "npm.cmd", darwin: "npm" } as const;
 /** The npm that owns `prefix` (its own, else the first on PATH, always aimed at that prefix). */
 function npmFor(prefix: string, tools: PlanTools): string | null {
 	const own = tools.platform === "win32" ? join(prefix, "npm.cmd") : join(prefix, "bin", "npm");
-	return existsSync(own) ? own : findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
+	return existsSync(own) ? own : findOnPath([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
 }
 
 function bunFor(bunRoot: string, tools: PlanTools): string | null {
-	const own = join(bunRoot, "bin", tools.platform === "win32" ? "bun.exe" : "bun");
-	return existsSync(own)
-		? own
-		: findExecutable([tools.platform === "win32" ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
+	const own = join(bunRoot, "bin", executableName("bun", tools.platform));
+	return existsSync(own) ? own : findOnPath([executableName("bun", tools.platform)], tools.pathEnv, tools.platform);
 }
 
 function winget(tools: PlanTools): string | null {
-	return findExecutable(["winget.exe"], tools.pathEnv, tools.platform);
+	return findOnPath(["winget.exe"], tools.pathEnv, tools.platform);
 }
 
 /** `bun pm view <name> version`, the newest version on the registry Bun is configured with. */
@@ -77,9 +75,9 @@ export function checkCommand(detection: CliDetection, owner: CliOwner, tools: Pl
 		case "self": {
 			const spec = CLI_TOOL_SPECS[detection.id];
 			if (spec.self?.checks !== "registry" || !spec.npm) return null;
-			const npm = findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
+			const npm = findOnPath([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
 			if (npm) return command(npm, ["view", spec.npm, "version"]);
-			const bun = findExecutable([tools.platform === "win32" ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
+			const bun = findOnPath([executableName("bun", tools.platform)], tools.pathEnv, tools.platform);
 			return bun ? bunView(bun, spec.npm) : null;
 		}
 		case "managed":

@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetLoginShellEnvCache } from "../../shell-env";
-import { developerGit, findOnPath, gitRaw, resolveBin } from "./exec";
+import { findOnPath } from "../../spawn";
+import { developerGit, gitRaw, resolveBin } from "./exec";
 
 const made: string[] = [];
 const savedEnv = { PATH: process.env.PATH, SHELL: process.env.SHELL };
@@ -65,7 +66,7 @@ describe("the git GUI git calls run", () => {
 		expect(developerGit(null)).toBeNull();
 	});
 
-	it.skipIf(process.platform !== "darwin" || findOnPath("git", process.env.PATH ?? "") !== "/usr/bin/git")(
+	it.skipIf(process.platform !== "darwin" || findOnPath(["git"], process.env.PATH ?? "", "darwin") !== "/usr/bin/git")(
 		"skips macOS's /usr/bin/git trampoline and runs the git it forwards to",
 		async () => {
 			process.env.DEVELOPER_DIR = await fakeDeveloperDir();

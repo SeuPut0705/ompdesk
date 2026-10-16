@@ -22,7 +22,8 @@ import {
 	type ModelSetupStatus,
 	parseModelSetupPlan,
 } from "../shared/model-setup";
-import { OMP_TELEMETRY_OFF, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
+import { OMP_TELEMETRY_OFF, ompPathEnv } from "./omp-runtime";
+import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 
 const PROMPT_ID = "model-setup";
 const EVENTS_ID = "events";
@@ -222,10 +223,10 @@ export class ModelSetupRunner {
 		const request = parsed.data;
 		this.#terminationReason = null;
 		const stream = new ResearchStream();
-		const child = spawn(ompSpawnCommand(ompBin), ompSpawnArgs(ompBin, modelSetupArgs(request.researchModel)), {
+		const child = spawn(spawnCommand(ompBin), spawnArgs(ompBin, modelSetupArgs(request.researchModel)), {
 			cwd: tmpdir(),
 			env: { ...env, PATH: ompPathEnv(ompBin, env.PATH ?? ""), PI_NOTIFICATIONS: "off", ...OMP_TELEMETRY_OFF },
-			shell: ompNeedsShell(ompBin),
+			shell: needsShell(ompBin),
 			// stdin stays an open pipe: RPC mode exits when it closes, so a crashed
 			// or force-killed app never leaves the research running.
 			stdio: ["pipe", "pipe", "pipe"],

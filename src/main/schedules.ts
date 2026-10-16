@@ -31,15 +31,9 @@ import {
 	type SchedulesState,
 	scheduleDraftProblem,
 } from "../shared/schedules";
-import {
-	OMP_TELEMETRY_OFF,
-	type OmpResolution,
-	ompNeedsShell,
-	ompPathEnv,
-	ompSpawnArgs,
-	ompSpawnCommand,
-} from "./omp-runtime";
+import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
+import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 
 /** How often due schedules are checked; a wall-clock check survives system sleep, a long timer would not. */
 export const SCHEDULE_TICK_MS = 30_000;
@@ -446,9 +440,9 @@ export function ompRunLauncher(options: {
 		try {
 			child = spawnSupervised(
 				{
-					file: ompSpawnCommand(bin),
-					args: ompSpawnArgs(bin, args),
-					shell: ompNeedsShell(bin),
+					file: spawnCommand(bin),
+					args: spawnArgs(bin, args),
+					shell: needsShell(bin),
 					inputFile: files.prompt,
 				},
 				{

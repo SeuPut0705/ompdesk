@@ -18,7 +18,7 @@ import {
 	type PlanTools,
 	parseLatest,
 } from "../cli-tools/plans";
-import { findExecutable } from "../setup/detect";
+import { executableName, findOnPath } from "../spawn";
 import type { McpClass } from "./mcp";
 import type { McpOwner } from "./mcp-owner";
 
@@ -37,7 +37,7 @@ export function mcpOwnerCheck(owner: McpOwner, tools: PlanTools): CliCommand | n
 	switch (owner.method) {
 		case "pipx": {
 			// A pipx venv carries its own pip; `pip index versions` reads the user's index configuration.
-			const python = join(owner.venv, win(tools) ? "Scripts" : "bin", win(tools) ? "python.exe" : "python");
+			const python = join(owner.venv, win(tools) ? "Scripts" : "bin", executableName("python", tools.platform));
 			return existsSync(python) ? pipIndex(python, owner.name) : null;
 		}
 		case "uv":
@@ -53,11 +53,11 @@ export function mcpOwnerCheck(owner: McpOwner, tools: PlanTools): CliCommand | n
 export function mcpOwnerUpdate(owner: McpOwner, latest: string | null, tools: PlanTools): CliCommand | null {
 	switch (owner.method) {
 		case "pipx": {
-			const pipx = findExecutable([win(tools) ? "pipx.exe" : "pipx"], tools.pathEnv, tools.platform);
+			const pipx = findOnPath([executableName("pipx", tools.platform)], tools.pathEnv, tools.platform);
 			return pipx ? command(pipx, ["upgrade", owner.name]) : null;
 		}
 		case "uv": {
-			const uv = findExecutable([win(tools) ? "uv.exe" : "uv"], tools.pathEnv, tools.platform);
+			const uv = findOnPath([executableName("uv", tools.platform)], tools.pathEnv, tools.platform);
 			return uv ? command(uv, ["tool", "upgrade", owner.name]) : null;
 		}
 		case "pip":
@@ -75,11 +75,11 @@ export function mcpOwnerUpdate(owner: McpOwner, latest: string | null, tools: Pl
 export function runnerCheck(runner: RunnerPackage, tools: PlanTools): CliCommand | null {
 	if (!runner.checkable) return null;
 	if (runner.ecosystem === "pypi") {
-		const python = findExecutable(win(tools) ? ["python.exe"] : ["python3", "python"], tools.pathEnv, tools.platform);
+		const python = findOnPath(win(tools) ? ["python.exe"] : ["python3", "python"], tools.pathEnv, tools.platform);
 		return python ? pipIndex(python, runner.pkg) : null;
 	}
-	const npm = findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
-	const bun = findExecutable([win(tools) ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
+	const npm = findOnPath([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
+	const bun = findOnPath([executableName("bun", tools.platform)], tools.pathEnv, tools.platform);
 	const viaNpm = npm ? command(npm, ["view", runner.pkg, "version"]) : null;
 	const viaBun = bun ? bunView(bun, runner.pkg) : null;
 	return runner.runner === "bunx" || runner.runner === "bun-x" ? (viaBun ?? viaNpm) : (viaNpm ?? viaBun);

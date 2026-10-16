@@ -20,6 +20,7 @@ import { app, net, safeStorage } from "electron";
 import { codedError } from "../shared/ipc-error-codes";
 import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/ipc-types";
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
+import { executableName } from "./spawn";
 import { classifyRepoAccess, firstUpdateToken, type ResolvedUpdateToken } from "./updater-state";
 
 const RELEASE_REPO = { owner: "SeuPut0705", repo: "ompdesk" } as const;
@@ -40,10 +41,9 @@ async function envToken(): Promise<string | undefined> {
 
 async function ghToken(): Promise<string | undefined> {
 	const pathEnv = await spawnPath();
-	const command = process.platform === "win32" ? "gh.exe" : "gh";
 	const { promise, resolve } = Promise.withResolvers<string | undefined>();
 	execFile(
-		command,
+		executableName("gh", process.platform),
 		["auth", "token", "--hostname", "github.com"],
 		{ env: { ...process.env, PATH: pathEnv }, timeout: GH_TIMEOUT_MS, windowsHide: true },
 		(error, stdout) => resolve(error ? undefined : stdout),

@@ -5,11 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	MIN_OMP_VERSION,
 	ompCandidates,
-	ompNeedsShell,
 	ompPackageRoot,
 	ompPathEnv,
-	ompSpawnArgs,
-	ompSpawnCommand,
 	ompUpdateEnv,
 	parseOmpVersion,
 	parseUpdateCheck,
@@ -98,23 +95,6 @@ describe("omp lookup", () => {
 		} finally {
 			await fs.rm(root, RM_TEMP);
 		}
-	});
-
-	it("runs Windows .cmd shims through cmd.exe with the shim path and every argument quoted", () => {
-		const shim = "C:\\Users\\First Last\\AppData\\Roaming\\npm\\omp.cmd";
-		expect(ompNeedsShell(shim, "win32")).toBe(true);
-		expect(ompSpawnCommand(shim, "win32")).toBe(`"${shim}"`);
-		expect(ompSpawnArgs(shim, ["--append-system-prompt", 'say "hi"'], "win32")).toEqual([
-			'"--append-system-prompt"',
-			'"say ""hi"""',
-		]);
-		// A real executable (bun's omp.exe shim) and every macOS bin spawn directly, argv verbatim.
-		const exe = "C:\\Users\\First Last\\.bun\\bin\\omp.exe";
-		expect(ompNeedsShell(exe, "win32")).toBe(false);
-		expect(ompSpawnCommand(exe, "win32")).toBe(exe);
-		expect(ompSpawnArgs(exe, ['say "hi"'], "win32")).toEqual(['say "hi"']);
-		expect(ompNeedsShell("/opt/tools/omp.cmd", "darwin")).toBe(false);
-		expect(ompSpawnCommand("/opt/tools/omp.cmd", "darwin")).toBe("/opt/tools/omp.cmd");
 	});
 
 	// Creating the symlink needs Developer Mode or admin rights on Windows.

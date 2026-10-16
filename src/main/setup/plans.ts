@@ -5,7 +5,7 @@
  */
 import { join } from "node:path";
 import type { SetupItemId, SetupMethod, SetupPlatform, SetupPresence } from "../../shared/setup";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand } from "../omp-runtime";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { managedGitRoot } from "./paths";
 
 export const OMP_PACKAGE = "@oh-my-pi/pi-coding-agent";
@@ -240,9 +240,9 @@ export function buildPlan(
 				item,
 				method,
 				spawn: {
-					file: ompSpawnCommand(ctx.omp, win ? "win32" : "darwin"),
-					args: ompSpawnArgs(ctx.omp, ["update"], win ? "win32" : "darwin"),
-					shell: ompNeedsShell(ctx.omp, win ? "win32" : "darwin"),
+					file: spawnCommand(ctx.omp, win ? "win32" : "darwin"),
+					args: spawnArgs(ctx.omp, ["update"], win ? "win32" : "darwin"),
+					shell: needsShell(ctx.omp, win ? "win32" : "darwin"),
 				},
 				command: `"${ctx.omp}" update`,
 				location: ctx.omp,

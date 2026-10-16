@@ -5,9 +5,10 @@
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  */
 import { execFile, spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { brewBinDirs, spawnPath } from "../../shell-env";
+import { findOnPath } from "../../spawn";
 
 /** Timeout for a `git`/`gh` call that names none; commands' answer budgets count in it. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -35,23 +36,6 @@ const binCache = new Map<string, Promise<string | null>>();
 // appends the managed tools dirs and drops the login-shell probe after an install), and a copy taken at the
 // first git call hid a freshly installed gh until relaunch. spawnPath shares the probe it caches.
 
-/** First `name` (or `name.exe` on Windows) found on `pathEnv`. */
-export function findOnPath(name: string, pathEnv: string, platform: NodeJS.Platform = process.platform): string | null {
-	const names = platform === "win32" ? [`${name}.exe`, name] : [name];
-	for (const dir of pathEnv.split(delimiter)) {
-		if (!dir) continue;
-		for (const file of names) {
-			const candidate = join(dir, file);
-			try {
-				if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
-			} catch {
-				// Unreadable entry — keep looking.
-			}
-		}
-	}
-	return null;
-}
-
 // Homebrew's prefixes are looked in too when its bin dir is not on the login-shell PATH (a shell that never
 // runs `brew shellenv`, a PATH an rc file rebuilds): a gh or git installed by brew is still the user's.
 
@@ -59,10 +43,11 @@ export function findOnPath(name: string, pathEnv: string, platform: NodeJS.Platf
 export function resolveBin(name: "git" | "gh"): Promise<string | null> {
 	let pending = binCache.get(name);
 	if (!pending) {
-		pending = spawnPath().then(
-			pathEnv =>
-				findOnPath(name, pathEnv) ??
-				(process.platform === "darwin" ? findOnPath(name, brewBinDirs().join(delimiter)) : null),
+		const platform = process.platform;
+		// `<name>.exe`, then the bare name, on Windows.
+		const names = platform === "win32" ? [`${name}.exe`, name] : [name];
+		pending = spawnPath().then(pathEnv =>
+			findOnPath(names, pathEnv, platform, platform === "darwin" ? brewBinDirs().map(dir => join(dir, name)) : []),
 		);
 		binCache.set(name, pending);
 		// A missing binary is re-probed next call (the user may install it).

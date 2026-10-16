@@ -1,6 +1,6 @@
 /**
  * Test-only fake omp: a bun script launched exactly the way the app launches
- * the real CLI (`OmpRuntime.bin` + ompSpawnArgs). POSIX runs the script through
+ * the real CLI (`OmpRuntime.bin` + spawnArgs). POSIX runs the script through
  * its `env bun` shebang. Windows has no shebangs, so the fake is an `omp.cmd`
  * shim calling bun — the cmd.exe path npm's Windows install takes. The shim
  * sits in a directory with a space so the quoting of both the shim path and

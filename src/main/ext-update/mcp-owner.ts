@@ -31,8 +31,8 @@ import {
 } from "../cli-tools/detect";
 import type { PackageOwner } from "../cli-tools/plans";
 import { parseOmpVersion } from "../omp-runtime";
-import { findExecutable } from "../setup/detect";
 import { brewBinDirs } from "../shell-env";
+import { findOnPath, launcherNames } from "../spawn";
 import { commandName } from "./mcp";
 
 export type McpOwner =
@@ -70,8 +70,8 @@ const slash = (value: string) => value.replaceAll("\\", "/");
 export function resolveMcpCommand(command: string, pathEnv: string, ctx: InstallContext): string | null {
 	if (/[\\/]/.test(command)) return existsSync(command) ? command : null;
 	const win = ctx.platform === "win32";
-	const names = win ? (/\.(exe|cmd)$/i.test(command) ? [command] : [`${command}.exe`, `${command}.cmd`]) : [command];
-	return findExecutable(
+	const names = win && /\.(exe|cmd)$/i.test(command) ? [command] : launcherNames(command, ctx.platform);
+	return findOnPath(
 		names,
 		pathEnv,
 		ctx.platform,
@@ -170,7 +170,7 @@ export function shebangPython(line: string, pathEnv: string, ctx: InstallContext
 	if (/(^|\/)env$/.test(program))
 		program = tokens.slice(1).find(token => !token.startsWith("-") && !token.includes("=")) ?? "";
 	if (!/^python[\d.]*$/.test(commandName(program))) return null;
-	return /[\\/]/.test(program) ? program : findExecutable([program], pathEnv, ctx.platform);
+	return /[\\/]/.test(program) ? program : findOnPath([program], pathEnv, ctx.platform);
 }
 
 const DIST_SNIPPET = [

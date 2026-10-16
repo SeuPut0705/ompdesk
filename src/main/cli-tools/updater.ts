@@ -25,10 +25,11 @@ import {
 } from "../../shared/cli-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { isNewer } from "../../shared/version";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
+import { parseOmpVersion } from "../omp-runtime";
 import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { relevantTools } from "./catalog";
 import {
 	type CliDetection,
@@ -358,9 +359,9 @@ export class CliUpdater {
 		const platform = this.#deps.platform;
 		const method = record.detection.owner?.method ?? "self";
 		const spawn: SpawnSpec = {
-			file: ompSpawnCommand(installer, platform),
-			args: ompSpawnArgs(installer, [`cli-${record.state.id}`, method, "check"], platform),
-			shell: ompNeedsShell(installer, platform),
+			file: spawnCommand(installer, platform),
+			args: spawnArgs(installer, [`cli-${record.state.id}`, method, "check"], platform),
+			shell: needsShell(installer, platform),
 		};
 		return { spawn, env: {} };
 	}

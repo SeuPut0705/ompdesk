@@ -26,7 +26,8 @@ import {
 	setupItemRequired,
 } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
+import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
@@ -293,9 +294,9 @@ export class SetupService {
 		const env = { ...(await this.#updateEnv(omp)), NO_COLOR: "1", FORCE_COLOR: "0" };
 		const { promise, resolve } = Promise.withResolvers<{ code: number; output: string }>();
 		execFile(
-			ompSpawnCommand(omp, platform),
-			ompSpawnArgs(omp, ["update", "--check"], platform),
-			{ env, shell: ompNeedsShell(omp, platform), timeout: UPDATE_CHECK_TIMEOUT_MS, windowsHide: true },
+			spawnCommand(omp, platform),
+			spawnArgs(omp, ["update", "--check"], platform),
+			{ env, shell: needsShell(omp, platform), timeout: UPDATE_CHECK_TIMEOUT_MS, windowsHide: true },
 			(error, stdout, stderr) => {
 				const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
 				resolve({ code, output: code === 0 ? stdout : stderr || stdout || (error?.message ?? "") });
@@ -339,9 +340,9 @@ export class SetupService {
 		if (installer) {
 			const platform = this.#deps.platform === "win32" ? "win32" : "darwin";
 			spawn = {
-				file: ompSpawnCommand(installer, platform),
-				args: ompSpawnArgs(installer, [`cli-${request.tool}`, request.method, "update"], platform),
-				shell: ompNeedsShell(installer, platform),
+				file: spawnCommand(installer, platform),
+				args: spawnArgs(installer, [`cli-${request.tool}`, request.method, "update"], platform),
+				shell: needsShell(installer, platform),
 			};
 			download = this.#testDownload();
 		} else if (request.spawn) {
@@ -722,9 +723,9 @@ export class SetupService {
 		if (!installer) return spawn;
 		const platform = this.#deps.platform === "win32" ? "win32" : "darwin";
 		return {
-			file: ompSpawnCommand(installer, platform),
-			args: ompSpawnArgs(installer, [id, method], platform),
-			shell: ompNeedsShell(installer, platform),
+			file: spawnCommand(installer, platform),
+			args: spawnArgs(installer, [id, method], platform),
+			shell: needsShell(installer, platform),
 		};
 	}
 

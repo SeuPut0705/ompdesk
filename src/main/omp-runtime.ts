@@ -9,12 +9,13 @@
  * also gets the omp directory and `~/.bun/bin` on its PATH.
  */
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { isNewer } from "../shared/version";
 import type { OmpRuntime } from "./local/types";
 import { spawnPath } from "./shell-env";
+import { isExecutableFile, launcherNames, needsShell, spawnArgs, spawnCommand } from "./spawn";
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
@@ -66,28 +67,6 @@ export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
 	return latest ? { currentVersion: current, latestVersion: latest } : null;
 }
 
-/** Windows `.cmd`/`.bat` shims only run through cmd.exe. */
-export function ompNeedsShell(bin: string, platform: NodeJS.Platform = process.platform): boolean {
-	return platform === "win32" && /\.(cmd|bat)$/i.test(bin);
-}
-
-/**
- * The spawn command for `bin`. A shell spawn joins command and argv into one
- * cmd.exe line unquoted, so a shim under `C:\Users\First Last\...` would split
- * at the space; quote it there.
- */
-export function ompSpawnCommand(bin: string, platform: NodeJS.Platform = process.platform): string {
-	return ompNeedsShell(bin, platform) ? `"${bin}"` : bin;
-}
-
-/**
- * cmd.exe re-parses a shell spawn's command line, so each argument is quoted
- * there. Node passes argv verbatim everywhere else.
- */
-export function ompSpawnArgs(bin: string, args: string[], platform: NodeJS.Platform = process.platform): string[] {
-	return ompNeedsShell(bin, platform) ? args.map(arg => `"${arg.replace(/"/g, '""')}"`) : args;
-}
-
 /** `basePath` plus the omp directory and `~/.bun/bin`, so the CLI's `env bun` shebang resolves. */
 export function ompPathEnv(bin: string, basePath: string): string {
 	const entries = basePath.split(delimiter).filter(Boolean);
@@ -127,18 +106,9 @@ export function ompUpdateEnv(bin: string, basePath: string): { PATH: string; BUN
 	};
 }
 
-function isExecutable(file: string): boolean {
-	try {
-		accessSync(file, process.platform === "win32" ? constants.F_OK : constants.X_OK);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 /** Every location omp may be installed at, in lookup order. */
 export function ompCandidates(pathEnv: string, home: string, platform: NodeJS.Platform): string[] {
-	const names = platform === "win32" ? ["omp.exe", "omp.cmd"] : ["omp"];
+	const names = launcherNames("omp", platform);
 	const dirs = pathEnv.split(delimiter).filter(Boolean);
 	const candidates = dirs.flatMap(dir => names.map(name => join(dir, name)));
 	if (platform === "win32") {
@@ -189,10 +159,10 @@ function runOmp(
 	basePath: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
 	const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
-	const child = spawn(ompSpawnCommand(bin), ompSpawnArgs(bin, args), {
+	const child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
 		cwd: opts.cwd,
 		env: { ...process.env, ...opts.env, PATH: ompPathEnv(bin, opts.env?.PATH ?? basePath), ...OMP_TELEMETRY_OFF },
-		shell: ompNeedsShell(bin),
+		shell: needsShell(bin),
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
 	});
@@ -229,7 +199,7 @@ export async function resolveOmp(): Promise<OmpResolution> {
 		? existsSync(override)
 			? override
 			: undefined
-		: ompCandidates(basePath, homedir(), process.platform).find(file => existsSync(file) && isExecutable(file));
+		: ompCandidates(basePath, homedir(), process.platform).find(file => isExecutableFile(file, process.platform));
 	if (!bin) {
 		return override
 			? {
