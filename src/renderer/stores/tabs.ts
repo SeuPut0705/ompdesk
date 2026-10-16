@@ -46,7 +46,13 @@ import type {
 	TabStatus,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { attachTabSession, hydrateTabSession, notifyRunEnd, resetRetryPending } from "../hooks/use-rpc-events";
+import {
+	attachTabSession,
+	hydrateTabSession,
+	notifyRunEnd,
+	resetRetryPending,
+	supersedeTabHydration,
+} from "../hooks/use-rpc-events";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
@@ -842,6 +848,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const previous = state.tabs.find(tab => tab.id === payload.tabId);
 		if (payload.status === "starting" || payload.status === "restarting") {
 			ensureTabRuntime(payload.tabId).recovering = true;
+			supersedeTabHydration(payload.tabId);
 		}
 		const sessionChanged = tabSessionChanged(previous, payload);
 		// Rebuild the runtime OUTSIDE the set() updater (deleteSessionRuntime

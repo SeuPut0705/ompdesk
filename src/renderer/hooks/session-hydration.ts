@@ -683,6 +683,19 @@ export function hydrateTabSession(tabId: string, fallbackName?: string): Promise
 	return entry.promise;
 }
 
+/**
+ * The tab's omp process is going away (restart, crash, respawn on a session): a hydration already in
+ * flight reads that process, so it may neither land nor be joined. Landing, its `get_state` would end
+ * the restart's recovery (`applySessionState`) before the new process reports the fresh id of an
+ * unsaved session, and the runtime replaced for that id would drop the composer's unsent draft.
+ */
+export function supersedeTabHydration(tabId: string): void {
+	const runtime = sessionRuntime(tabId);
+	if (!runtime) return;
+	hydrationVersions.set(runtime, (hydrationVersions.get(runtime) ?? 0) + 1);
+	inFlightHydrations.delete(runtime);
+}
+
 async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackName?: string): Promise<void> {
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);

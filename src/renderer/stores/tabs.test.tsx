@@ -35,6 +35,7 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } from "../../shared/split-layout";
+import { attachTabSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { routeCommands } from "../test-support/route-commands";
@@ -395,6 +396,42 @@ describe("tabs store boot reconciliation", () => {
 			sending: false,
 			submissionUncertain: true,
 		});
+	});
+
+	it("keeps the draft when a snapshot of the process being restarted lands during the restart", async () => {
+		seedTabs();
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "before-restart" });
+		useComposerStore.getState().setDraft("unsent recovery draft");
+		// A hydration of the old process (a large transcript after a turn ends) is still in flight.
+		const oldState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(oldState.promise);
+		const stale = hydrateTabSession("t0");
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "t0",
+			cwd: "/alpha",
+			status: "starting",
+			sessionId: "before-restart",
+		});
+		// The new process's ready must fetch afresh, never join the old process's read.
+		const newState = Promise.withResolvers<RpcResponse>();
+		omp.rpc.getState.mockReturnValueOnce(newState.promise);
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "before-restart" });
+		const fresh = attachTabSession("t0");
+		oldState.resolve(ok(serverState({ sessionId: "before-restart" })));
+		await stale;
+		expect(omp.rpc.getState).toHaveBeenCalledTimes(2);
+		// Main pushes the id the new process reports before it hands that get_state back.
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "after-restart" });
+		newState.resolve(ok(serverState({ sessionId: "after-restart" })));
+		await fresh;
+		expect(useComposerStore.getState().draft).toBe("unsent recovery draft");
 	});
 });
 
