@@ -141,17 +141,21 @@ interface FakeWindow {
 	sentTo(channel: string): Array<{ channel: string; data: unknown }>;
 }
 
-/** Minimal window: captured sends + a triggerable "closed". */
+/** Minimal window: captured sends + a triggerable "closed". Like Electron's, a destroyed one's webContents throws. */
 function fakeWindow(id: number): FakeWindow {
 	const emitter = new EventEmitter();
 	const sent: Array<{ channel: string; data: unknown }> = [];
 	let destroyed = false;
+	const contents = {
+		id,
+		send: (channel: string, data: unknown) => {
+			sent.push({ channel, data });
+		},
+	};
 	const win = {
-		webContents: {
-			id,
-			send: (channel: string, data: unknown) => {
-				sent.push({ channel, data });
-			},
+		get webContents() {
+			if (destroyed) throw new TypeError("Object has been destroyed");
+			return contents;
 		},
 		isDestroyed: () => destroyed,
 		once: (event: "closed", listener: () => void) => emitter.once(event, listener),
@@ -865,6 +869,18 @@ describe("SidecarPool tabs", () => {
 		// Late events from the surviving window still forward normally.
 		sidecars[2]?.emitStatus("ready");
 		expect(fw2.sentTo(IPC_EVENTS.SIDECAR_STATUS)).toHaveLength(1);
+	});
+
+	it("releases a closed window's tabs when a background tab goes first, never reading the destroyed window", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
+		// tab-a (registered first) is released first, while tab-b is still the window's active tab.
+		fw.close();
+		expect(sidecars.map(sidecar => sidecar.disposed)).toEqual([true, true]);
+		expect(pool.size).toBe(0);
 	});
 });
 
@@ -2306,8 +2322,17 @@ describe("SidecarPool multi-viewer", () => {
 		expect(pool.detachViewer(desktop.win, "tab-a")).toBe(false);
 		phone.close();
 		expect(sidecar.disposed).toBe(false);
+		expect(pool.isShared("tab-a")).toBe(false);
+		expect(pool.size).toBe(1);
+	});
+
+	it("lets a viewer close the tab in its own window and keep its other view", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		expect(pool.detachViewer(phone.win, "tab-a")).toBe(true);
+		expect(sidecar.disposed).toBe(false);
 		expect(pool.tabsForWindow(phone.win)).toEqual([]);
 		expect(pool.activeTabForWindow(phone.win)).toBeNull();
+		expect(phone.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({ tabs: [] });
 		expect(pool.tabsForWindow(desktop.win)[0]?.viewerCount).toBeUndefined();
 		expect(desktop.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
 			tabs: pool.tabsForWindow(desktop.win),

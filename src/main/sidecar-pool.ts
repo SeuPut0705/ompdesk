@@ -594,8 +594,7 @@ export class SidecarPool {
 	 * Being wired IS being shown, so this is where a deferred tab's process
 	 * gets spawned — the one moment the pool knows the user can see it.
 	 */
-	#wireFull(entry: PoolEntry, win: ClientWindow): void {
-		const winId = win.webContents.id;
+	#wireFull(entry: PoolEntry, win: ClientWindow, winId: number): void {
 		if (entry.full?.windows.has(winId)) return;
 		this.#ensureStarted(entry);
 		// A fresh slimmer per window: the first update of each message after
@@ -672,7 +671,7 @@ export class SidecarPool {
 		for (const entry of this.#entries) {
 			const win = windowOf(entry, winId);
 			if (!win) continue;
-			if (visible.has(entry.tabId)) this.#wireFull(entry, win);
+			if (visible.has(entry.tabId)) this.#wireFull(entry, win, winId);
 			else this.#unwireFull(entry, winId);
 		}
 	}
@@ -788,7 +787,8 @@ export class SidecarPool {
 		if (!entry) return false;
 		const winId = win.webContents.id;
 		if (windowOf(entry, winId) === win) return true;
-		const viewer: TabViewer = { win, onClosed: () => this.detachViewer(win, tabId) };
+		// Its id now: a destroyed window's webContents can no longer be read when it closes.
+		const viewer: TabViewer = { win, onClosed: () => this.#leaveAsViewer(tabId, winId) };
 		entry.viewers.set(winId, viewer);
 		win.once("closed", viewer.onClosed);
 		if (!this.#activeByWindow.has(winId)) {
@@ -801,24 +801,31 @@ export class SidecarPool {
 	}
 
 	/**
-	 * A viewer window leaves a tab (it closed it there, or the window closed). The
-	 * sidecar and every other window are untouched; the draft the window reported
-	 * stops counting. False when `win` is not a viewer of the tab (its owner closes
-	 * it with `releaseTab`).
+	 * A viewer window leaves a tab (it closed it there). The sidecar and every
+	 * other window are untouched; the draft the window reported stops counting.
+	 * False when `win` is not a viewer of the tab (its owner closes it with
+	 * `releaseTab`).
 	 */
 	detachViewer(win: ClientWindow, tabId: string): boolean {
-		const entry = this.#byTabId.get(tabId);
 		const winId = win.webContents.id;
+		if (this.#byTabId.get(tabId)?.viewers.get(winId)?.win !== win) return false;
+		this.#leaveAsViewer(tabId, winId);
+		return true;
+	}
+
+	/** Window `winId` stops viewing the tab: it closed it there, or the window itself closed. */
+	#leaveAsViewer(tabId: string, winId: number): void {
+		const entry = this.#byTabId.get(tabId);
 		const viewer = entry?.viewers.get(winId);
-		if (!entry || viewer?.win !== win) return false;
+		if (!entry || !viewer) return;
 		entry.viewers.delete(winId);
+		const { win } = viewer;
 		if (!win.isDestroyed()) win.removeListener("closed", viewer.onClosed);
 		this.#unwireFull(entry, winId);
 		this.#leaveWindowView(tabId, winId, win);
 		this.#forgetDrafts(entry, winId);
 		this.#sendTabLists(entry);
 		this.#sendTabList(win);
-		return true;
 	}
 
 	/** Whether another window views the tab (multi-viewer). */
@@ -832,7 +839,9 @@ export class SidecarPool {
 		for (const viewer of entry.viewers.values()) this.#sendTabList(viewer.win);
 	}
 
+	/** A destroyed window is skipped before its tabs are listed: its webContents can no longer be read. */
 	#sendTabList(win: ClientWindow): void {
+		if (win.isDestroyed()) return;
 		forwardToWindow(win, IPC_EVENTS.TAB_LIST_CHANGED, {
 			tabs: this.tabsForWindow(win),
 		} satisfies IpcTabListChangedPayload);
