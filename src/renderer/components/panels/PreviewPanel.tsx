@@ -41,6 +41,7 @@ import {
 } from "../../../shared/preview";
 import { useT } from "../../lib/i18n";
 import { latestBashPreviewUrl } from "../../lib/preview-browser";
+import { chromePlatform } from "../../lib/window-chrome";
 import { usePreviewVisualsStore } from "../../stores/preview-visuals";
 import { sessionRuntime, useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
@@ -60,6 +61,7 @@ import {
 	Spinner,
 } from "../common";
 import { AllVisualsDialog, PreviewFeedbackBar, usePreviewFeedback } from "./PreviewFeedback";
+import { PreviewStreamView } from "./PreviewStreamView";
 
 const VIEWPORT_ICONS = { fill: Maximize, phone: Smartphone, tablet: Tablet, laptop: Laptop } as const;
 
@@ -81,6 +83,8 @@ export function PreviewPanel() {
 	const [input, setInput] = useState(requested ?? latest ?? "");
 	const [invalid, setInvalid] = useState(false);
 	const surface = useRef<HTMLDivElement>(null);
+	// A web page (phone, tablet) shows the host's offscreen page as streamed frames instead of a native view.
+	const web = chromePlatform() === "web";
 	const urlInput = useRef<HTMLInputElement>(null);
 	const address = previewAddress(input);
 	const remoteBlocked = remote && isLoopbackUrl(address ?? "");
@@ -182,31 +186,48 @@ export function PreviewPanel() {
 		const element = surface.current;
 		if (!element) return;
 		let frame = 0;
+		let lastLayout = "";
 		const update = () => {
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(() => {
 				const bounds = element.getBoundingClientRect();
-				const covered = [
-					...document.querySelectorAll(
-						'.omp-dialog-overlay, [role="dialog"], [role="alertdialog"], [role="menu"], [data-state="open"][data-popover]',
-					),
-				].some(node => node.getClientRects().length > 0);
-				command({
+				// A native view floats over the window, so a dialog or menu above it must hide it. A web viewer's
+				// frame is an ordinary image in the page (and the panel itself is a sheet there): nothing covers it.
+				const covered =
+					!web &&
+					[
+						...document.querySelectorAll(
+							'.omp-dialog-overlay, [role="dialog"], [role="alertdialog"], [role="menu"], [data-state="open"][data-popover]',
+						),
+					].some(node => node.getClientRects().length > 0);
+				const request: PreviewRequest = {
 					action: "layout",
-					bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+					// The streamed page sizes to the surface alone: where it sits in the window means nothing to the host.
+					bounds: web
+						? { x: 0, y: 0, width: Math.round(bounds.width), height: Math.round(bounds.height) }
+						: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
 					visible: visible && !covered && !remoteBlocked && Boolean(state.url) && !state.error && !state.crashed,
-				});
+					// A web viewer's page is rendered for its own screen density; an Electron window sends none.
+					...(web ? { dpr: window.devicePixelRatio } : {}),
+				};
+				const key = JSON.stringify(request);
+				if (web && key === lastLayout) return;
+				lastLayout = key;
+				command(request);
 			});
 		};
 		const resize = new ResizeObserver(update);
 		resize.observe(element);
 		const mutations = new MutationObserver(update);
-		mutations.observe(document.body, {
-			childList: true,
-			subtree: true,
-			attributes: true,
-			attributeFilter: ["aria-hidden", "data-state", "style"],
-		});
+		// Only a native view needs to follow dialogs opening over it.
+		if (!web) {
+			mutations.observe(document.body, {
+				childList: true,
+				subtree: true,
+				attributes: true,
+				attributeFilter: ["aria-hidden", "data-state", "style"],
+			});
+		}
 		window.addEventListener("resize", update);
 		window.addEventListener("scroll", update, true);
 		update();
@@ -218,7 +239,7 @@ export function PreviewPanel() {
 			window.removeEventListener("scroll", update, true);
 			command({ action: "layout", bounds: { x: 0, y: 0, width: 0, height: 0 }, visible: false });
 		};
-	}, [visible, remoteBlocked, state.url, state.error, state.crashed, command]);
+	}, [visible, remoteBlocked, state.url, state.error, state.crashed, command, web]);
 	useEffect(
 		() => () => {
 			if (agentTab.current) releaseAgentRelay(agentTab.current);
@@ -685,6 +706,8 @@ export function PreviewPanel() {
 							</Button>
 						}
 					/>
+				) : web ? (
+					<PreviewStreamView active={visible} tab={state.activeTab} />
 				) : null}
 			</div>
 			{tabId && (

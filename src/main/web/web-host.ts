@@ -116,7 +116,8 @@ export class WebHost {
 				openExternal: deps.shell.openExternal,
 				models: { read: readModelsText, write: writeModelsText },
 			}),
-			features: () => ({ push: false, preview: false, upload: true, passkey: false, ...deps.features }),
+			// The phone's streamed Preview (preview-stream.ts) is built in; a host build without it passes `preview: false`.
+			features: () => ({ push: false, preview: true, upload: true, passkey: false, ...deps.features }),
 			activeTab: win => deps.tabs.activeTab(win),
 			blobs: this.blobs,
 			mediaOpen: deps.openMedia,

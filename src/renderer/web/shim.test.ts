@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import type { OmpTransport } from "../../shared/omp-api";
+import { PREVIEW_STREAM_PDF } from "../../shared/preview";
 import type { WebChrome } from "./chrome";
 import { LocalChannels } from "./deep-link";
 import type { SaveOutcome } from "./download";
@@ -211,6 +212,25 @@ describe("the web shim", () => {
 			expect(Array.from(big.data)).toEqual([1, 2, 3, 4]);
 			expect(blob.fetches[0]).toMatchObject({ url: "/blob/tok?dl=0" });
 			expect(blob.fetches[0]?.init?.credentials).toBe("same-origin");
+		});
+	});
+
+	describe("the preview's PDF", () => {
+		it("prints on the computer and keeps the PDF on this device, answering the name it was kept as", async () => {
+			const { web, invoked, log } = setup({
+				[PREVIEW_STREAM_PDF]: { name: "page.pdf", base64: bytes("%PDF-1.7") },
+			});
+			await expect(web.api.preview.savePdf()).resolves.toBe("page.pdf");
+			expect(invoked).toEqual([{ channel: PREVIEW_STREAM_PDF, args: [] }]);
+			expect(log.saved).toEqual([{ name: "page.pdf", size: 8, type: "application/pdf" }]);
+		});
+
+		it("answers null when the person cancelled the save", async () => {
+			const { web } = setup(
+				{ [PREVIEW_STREAM_PDF]: { name: "page.pdf", base64: bytes("%PDF") } },
+				{ save: async () => "cancelled" },
+			);
+			await expect(web.api.preview.savePdf()).resolves.toBeNull();
 		});
 	});
 

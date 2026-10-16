@@ -10,8 +10,10 @@
  * other call goes to the host unchanged. A call never falls back to "local to the phone": a `device` argument
  * absent always means the host, as on the desktop (design §1.5).
  */
+
 import { IPC_COMMANDS, IPC_EVENTS, type IpcFsReadBinaryResult, type OmpApi } from "../../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
+import { PREVIEW_SAVE_PDF, PREVIEW_STREAM_PDF } from "../../shared/preview";
 import {
 	WEB_HOST_CHANNELS,
 	type WebHostListing,
@@ -256,6 +258,12 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			return confirmed ? transport.invoke(C.UPDATER_APPLY) : undefined;
 		},
 		[C.FS_READ_BINARY]: (...args: unknown[]) => readBinary(args),
+		// The phone's page prints on the computer; the PDF comes back as bytes and is kept on this device.
+		[PREVIEW_SAVE_PDF]: async () => {
+			const { name, base64 } = await transport.invoke<{ name: string; base64: string }>(PREVIEW_STREAM_PDF);
+			const outcome = await env.save(name, new Blob([base64ToBytes(base64)], { type: "application/pdf" }));
+			return outcome === "cancelled" ? null : name;
+		},
 	};
 
 	const sendOverrides: Record<string, (...args: unknown[]) => void> = {
