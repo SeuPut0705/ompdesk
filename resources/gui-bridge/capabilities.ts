@@ -33,7 +33,7 @@ export const FEATURES = {
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
-	accountRotation: "Even account rotation",
+	accountRotation: "Account rotation (even, quota re-rank at turn start)",
 	thinkingDefault: "Auto thinking by default",
 	delegation: "Delegation strength (Solo to Swarm)",
 	mcp: "MCP servers",
@@ -381,14 +381,27 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 		prompts: ["system/system-prompt.md"],
 	},
-	/** account-rotation.ts: the even-rotation hook pins a session's account through public AuthStorage namespaces. */
+	/**
+	 * account-rotation.ts: even rotation and quota re-ranking pin a session's account through public AuthStorage
+	 * namespaces. Quota re-ranking asks stock's selector (`keys.getWithCredential`, `recordAffinity: false`) for its
+	 * pick, reads a pin's explicitness through `sessions.inherit`'s `include` callback, skips pooled sessions
+	 * (`sessions.permits`) and accounts with a policy (`oauth.policy`), and orders two accounts' own reports
+	 * (`credentials.list`, `usage.report`) with stock's comparator (`orderUsageRankedCandidates`).
+	 */
 	accountRotation: {
 		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
 		session: [
 			"sessionId",
 			"modelRegistry.authStorage.oauth.accounts()",
+			"modelRegistry.authStorage.oauth.policy()",
 			"modelRegistry.authStorage.sessions.pin()",
+			"modelRegistry.authStorage.sessions.inherit()",
+			"modelRegistry.authStorage.sessions.permits()",
+			"modelRegistry.authStorage.sessions.release()",
 			"modelRegistry.authStorage.blocks.list()",
+			"modelRegistry.authStorage.keys.getWithCredential()",
+			"modelRegistry.authStorage.credentials.list()",
+			"modelRegistry.authStorage.usage.report()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai/auth/blocks": [
@@ -396,6 +409,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"AUTH_BLOCK_SCOPE",
 				"credentialBlockScopesForRequest()",
 				"providerTypeKey()",
+			],
+			"@oh-my-pi/pi-ai/auth/rank": ["orderUsageRankedCandidates()", "planPriority()"],
+			"@oh-my-pi/pi-ai/auth/usage-report": [
+				"normalizeUsageFraction()",
+				"remainingUsageFraction()",
+				"windowRequiredDrain()",
 			],
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],

@@ -3941,11 +3941,10 @@ export const en: Record<string, string> = {
 	"providers.rotation.quota": "Quota-based",
 	"providers.rotation.even": "Even",
 	"providers.rotation.quotaDesc":
-		"Uses the accounts with the most quota left first, draining the ones whose limits reset soonest.",
+		"Spends first the quota that resets soonest. A session moves to another account at its next turn when that one ranks clearly better.",
 	"providers.rotation.evenDesc":
-		"Alternates accounts for each new session to spread usage evenly. Accounts that hit their limit are skipped.",
-	"providers.rotation.hint":
-		"Applies to providers with two or more signed-in accounts. A session keeps its account until that account hits its limit.",
+		"Alternates accounts for each new session to spread usage evenly. A session keeps its account until it hits its limit; accounts at their limit are skipped.",
+	"providers.rotation.hint": "Applies to providers with two or more signed-in accounts.",
 	"providers.rotation.host": "Sessions on {name} follow this setting.",
 	"providers.rotation.evenUnavailable": "Even rotation isn't available with this omp version. Run `omp update`.",
 	"providers.rotation.loadFailed": "Couldn't read the account rotation setting",

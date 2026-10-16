@@ -3926,11 +3926,11 @@ export const ko: Record<string, string> = {
 	"providers.rotation.label": "계정 순환",
 	"providers.rotation.quota": "한도 순환",
 	"providers.rotation.even": "균등 순환",
-	"providers.rotation.quotaDesc": "남은 한도가 많은 계정을 먼저 쓰고, 초기화가 가까운 계정부터 소진해요.",
+	"providers.rotation.quotaDesc":
+		"곧 초기화되는 한도부터 먼저 써요. 다른 계정이 확실히 더 낫다면 다음 턴에 그 계정으로 옮겨요.",
 	"providers.rotation.evenDesc":
-		"새 세션마다 계정을 번갈아 써서 사용량을 고르게 나눠요. 한도에 닿은 계정은 건너뛰어요.",
-	"providers.rotation.hint":
-		"로그인한 계정이 두 개 이상인 프로바이더에 적용돼요. 세션은 쓰던 계정이 한도에 닿을 때까지 그 계정을 계속 써요.",
+		"새 세션마다 계정을 번갈아 써서 사용량을 고르게 나눠요. 세션은 한도에 닿을 때까지 쓰던 계정을 계속 쓰고, 한도에 닿은 계정은 건너뛰어요.",
+	"providers.rotation.hint": "로그인한 계정이 두 개 이상인 프로바이더에 적용돼요.",
 	"providers.rotation.host": "{name}에서 실행되는 세션이 이 설정을 따라요.",
 	"providers.rotation.evenUnavailable": "이 omp 버전에서는 균등 순환을 쓸 수 없어요. `omp update`를 실행해 보세요.",
 	"providers.rotation.loadFailed": "계정 순환 설정을 읽지 못했어요",

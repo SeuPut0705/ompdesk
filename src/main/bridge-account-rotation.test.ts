@@ -10,14 +10,19 @@ import {
 	LEDGER_MAX_AGE_MS,
 	parseLedger,
 	planEvenRotation,
+	type QuotaRerankAuth,
+	type QuotaRerankStock,
+	RERANK_DRAIN_MARGIN,
 	type RotationAccount,
 	type RotationAuth,
 	type RotationBlock,
 	type RotationLedger,
 	type RotationStock,
 	recordAssignment,
+	rerankBeforePrompt,
 	rotateBeforePrompt,
 	setAccountRotation,
+	withDrainMargin,
 } from "../../resources/gui-bridge/account-rotation-core";
 
 const NOW = 1_800_000_000_000;
@@ -252,5 +257,203 @@ describe("gui-bridge account rotation", () => {
 			kept: NOW - 1,
 			new: NOW,
 		});
+	});
+});
+
+interface QuotaWorld {
+	stored?: number[];
+	/** The session's pin; `explicit` is a `/session pin`, absent is an automatic one. */
+	pin?: { credentialId: number; explicit?: boolean; lastUsedAtMs?: number };
+	/** Accounts a `sessions.restrict` pool leaves out. */
+	outsidePool?: number[];
+	/** Accounts (by id) with an `auth.accountPolicies` entry. */
+	policies?: number[];
+	blocks?: RotationBlock[];
+	/** `sessions.inherit` never names the provider's pin (stock reports none). */
+	provenanceHidden?: boolean;
+	pinRefused?: boolean;
+}
+
+/** A fake AuthStorage for quota re-ranking: stock's `inherit` reports each pin's explicitness to `include` first. */
+function quotaAuth(world: QuotaWorld = {}) {
+	const stored = world.stored ?? [7, 9];
+	const pins: Pin[] = [];
+	const includeAnswers: boolean[] = [];
+	const auth: QuotaRerankAuth = {
+		oauth: {
+			accounts: () =>
+				stored.map(
+					(credentialId): RotationAccount => ({
+						credentialId,
+						email: `a${credentialId}@example.com`,
+						active: world.pin?.credentialId === credentialId,
+						...(world.pin?.credentialId === credentialId
+							? { lastUsedAtMs: world.pin.lastUsedAtMs ?? NOW - 5 * 60_000 }
+							: {}),
+					}),
+				),
+			policy: (_provider, identity) =>
+				world.policies?.some(id => identity.email === `a${id}@example.com`) ? { reservePct: 10 } : undefined,
+		},
+		sessions: {
+			pin: (_provider, sessionId, credentialId, options) => {
+				if (world.pinRefused) return false;
+				pins.push({ sessionId, credentialId, restoredAtMs: options?.restoredAtMs });
+				return true;
+			},
+			permits: (_provider, _sessionId, credentialId) => !world.outsidePool?.includes(credentialId),
+			inherit: (_source, _target, include) => {
+				if (world.pin && !world.provenanceHidden) {
+					includeAnswers.push(include?.("anthropic", world.pin.explicit === true) ?? true);
+				}
+				return 0;
+			},
+		},
+		blocks: { list: ids => (world.blocks ?? []).filter(block => ids.includes(block.credentialId)) },
+	};
+	return { auth, pins, includeAnswers };
+}
+
+/** Stock's ranking, scripted: its pick, and whether it still ranks that pick first with the pin's drain handicapped. */
+function quotaStock(top: number | undefined, clearly: boolean) {
+	const asked = { top: 0, clearly: 0, margin: [] as Array<[number, number]> };
+	const stock: QuotaRerankStock = {
+		...STOCK,
+		topChoice: async () => {
+			asked.top += 1;
+			return top;
+		},
+		clearlyBetter: async (_prompt, topId, pinId) => {
+			asked.clearly += 1;
+			asked.margin.push([topId, pinId]);
+			return clearly;
+		},
+	};
+	return { stock, asked };
+}
+
+const WARM_PIN = { credentialId: 7 };
+
+describe("gui-bridge quota re-rank at turn start", () => {
+	const rerank = (world: QuotaWorld, top: number | undefined, clearly: boolean) => {
+		const { auth, pins, includeAnswers } = quotaAuth(world);
+		const { stock, asked } = quotaStock(top, clearly);
+		const step = rerankBeforePrompt(
+			() => ({ auth, provider: "anthropic", modelId: "m", sessionId: "s1" }),
+			stock,
+			NOW,
+		);
+		return { step, pins, asked, includeAnswers };
+	};
+
+	it("moves a warm automatic pin to the account stock ranks first when it clearly beats the pin, as an automatic warm pin", async () => {
+		const { step, pins, asked } = rerank({ pin: WARM_PIN }, 9, true);
+		expect(await step).toEqual({ move: true, from: 7, to: 9 });
+		// restoredAtMs: stock keeps treating it as an automatic pin (its eviction and failover rules still apply).
+		expect(pins).toEqual([{ sessionId: "s1", credentialId: 9, restoredAtMs: NOW }]);
+		expect(asked.margin).toEqual([[9, 7]]);
+	});
+
+	it("never touches an explicit pin, and never asks stock's ranking about it", async () => {
+		const { step, pins, asked } = rerank({ pin: { credentialId: 7, explicit: true } }, 9, true);
+		expect(await step).toEqual({ move: false, why: "explicit" });
+		expect(pins).toEqual([]);
+		expect(asked).toMatchObject({ top: 0, clearly: 0 });
+	});
+
+	it("reads the pin's explicitness without copying it anywhere", async () => {
+		const { step, includeAnswers } = rerank({ pin: WARM_PIN }, 9, true);
+		await step;
+		// `include` answering false is what makes stock's `inherit` copy nothing.
+		expect(includeAnswers).toEqual([false]);
+	});
+
+	it("stays when stock ranks the pin first, or ranks another first without beating the pin by the margin", async () => {
+		const same = rerank({ pin: WARM_PIN }, 7, true);
+		expect(await same.step).toEqual({ move: false, why: "same" });
+		expect(same.asked.clearly).toBe(0);
+		const within = rerank({ pin: WARM_PIN }, 9, false);
+		expect(await within.step).toEqual({ move: false, why: "within-margin" });
+		expect(within.pins).toEqual([]);
+		const nothing = rerank({ pin: WARM_PIN }, undefined, true);
+		expect(await nothing.step).toEqual({ move: false, why: "no-choice" });
+	});
+
+	it.each<[string, QuotaWorld, string]>([
+		["no pin yet: stock ranks a new session itself", {}, "no-pin"],
+		["a single stored account", { stored: [7], pin: WARM_PIN }, "single-account"],
+		[
+			"a cold pin: stock re-ranks it on the next key lookup",
+			{ pin: { credentialId: 7, lastUsedAtMs: NOW - HOUR } },
+			"cold",
+		],
+		[
+			"a blocked pin: stock's selector already skips it",
+			{
+				pin: WARM_PIN,
+				blocks: [{ credentialId: 7, providerKey: "anthropic:oauth", blockScope: "", blockedUntilMs: NOW + HOUR }],
+			},
+			"blocked",
+		],
+		["a session restricted to an account pool", { pin: WARM_PIN, outsidePool: [9] }, "restricted"],
+		["accounts with a stock account policy", { pin: WARM_PIN, policies: [9] }, "policy"],
+		["a pin stock reports no provenance for", { pin: WARM_PIN, provenanceHidden: true }, "unknown-provenance"],
+	])("leaves %s to stock", async (_name, world, why) => {
+		const { step, pins, asked } = rerank(world, 9, true);
+		expect(await step).toEqual({ move: false, why });
+		expect(pins).toEqual([]);
+		// Every check that can be answered locally is answered before stock's usage fetch is paid for.
+		expect(asked).toMatchObject({ top: 0, clearly: 0 });
+	});
+
+	it("ignores a block that applies to another model's scope, and an expired one", async () => {
+		const blocks: RotationBlock[] = [
+			{ credentialId: 7, providerKey: "anthropic:oauth", blockScope: "tier:other", blockedUntilMs: NOW + HOUR },
+			{ credentialId: 7, providerKey: "anthropic:oauth", blockScope: "", blockedUntilMs: NOW - 1 },
+		];
+		expect((await rerank({ pin: WARM_PIN, blocks }, 9, true).step).move).toBe(true);
+	});
+
+	it("reports a refused pin as a stay", async () => {
+		const { step } = rerank({ pin: WARM_PIN, pinRefused: true }, 9, true);
+		expect(await step).toEqual({ move: false, why: "pin-refused" });
+	});
+
+	it("does nothing in even mode and never asks for the prompt", async () => {
+		setAccountRotation({ mode: "even" });
+		let asked = false;
+		const { stock } = quotaStock(9, true);
+		const step = await rerankBeforePrompt(
+			() => {
+				asked = true;
+				return undefined;
+			},
+			stock,
+			NOW,
+		);
+		expect(step).toEqual({ move: false, why: "mode" });
+		expect(asked).toBe(false);
+	});
+
+	it("stays without a model", async () => {
+		const { stock } = quotaStock(9, true);
+		expect(await rerankBeforePrompt(() => undefined, stock, NOW)).toEqual({ move: false, why: "no-model" });
+	});
+
+	it("multiplies only the measured windows' drain by the margin, leaving every other metric as stock scored it", () => {
+		const row = { primaryRequiredDrain: 0.5, secondaryRequiredDrain: 0.01, primaryUsed: 0.9, hasPriorityBoost: true };
+		expect(RERANK_DRAIN_MARGIN).toBe(2);
+		expect(withDrainMargin(row, { primary: true, secondary: true })).toEqual({
+			...row,
+			primaryRequiredDrain: 1,
+			secondaryRequiredDrain: 0.02,
+		});
+		expect(withDrainMargin(row, { primary: false, secondary: true }, 3)).toEqual({
+			...row,
+			secondaryRequiredDrain: 0.03,
+		});
+		expect(withDrainMargin(row, { primary: false, secondary: false })).toEqual(row);
+		// A copy: the candidate stock's ranking returns for the other account is never rewritten.
+		expect(row.secondaryRequiredDrain).toBe(0.01);
 	});
 });
