@@ -18,7 +18,7 @@
  * the menu key) offers Stop.
  */
 
-import { Bot, ChevronRight, CircleCheck, CircleX, Pause } from "lucide-react";
+import { Bot, ChevronRight, Pause } from "lucide-react";
 import {
 	memo,
 	type DragEvent as ReactDragEvent,
@@ -64,19 +64,17 @@ interface SubagentRowModel {
 }
 
 /**
- * Live subagents (plus finished ones still unread) as a pre-order spawn tree in
- * spawn order. Parent: the explicit wire link, else the subagent whose
- * transcript owns the spawning `task` call; a parent that is not listed,
- * unresolved or cyclic makes the agent a top-level spawn of the session.
+ * Live subagents (working or waiting; never a finished, failed or aborted one)
+ * as a pre-order spawn tree in spawn order. Parent: the explicit wire link, else
+ * the subagent whose transcript owns the spawning `task` call; a parent that is
+ * not listed, unresolved or cyclic makes the agent a top-level spawn of the session.
  */
 function buildSidebarSubagentRows(
 	subagents: ReadonlyMap<string, SubagentSnapshot>,
 	toolCallOwners: ReadonlyMap<string, string>,
-	unread: ReadonlySet<string>,
 ): SubagentRowModel[] {
 	const live = new Map<string, SubagentSnapshot>();
-	for (const agent of subagents.values())
-		if (isLiveSubagentStatus(agent.status) || unread.has(agent.id)) live.set(agent.id, agent);
+	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) live.set(agent.id, agent);
 	const agents = [...live.values()].sort((a, b) => a.index - b.index);
 	const children = new Map<string, SubagentSnapshot[]>();
 	const roots: SubagentSnapshot[] = [];
@@ -114,29 +112,14 @@ function buildSidebarSubagentRows(
 
 /** Live but waiting rather than working: paused glyph instead of a spinner. */
 const WAITING_STATUSES: Record<string, true> = { parked: true, idle: true };
-/** Finished states that leave a marked row behind until the user opens or dismisses it. */
-const UNREAD_ON_FINISH: Record<string, true> = { completed: true, failed: true };
 
 function StatusGlyph({ status }: { status: string }) {
 	if (WAITING_STATUSES[status]) return <Pause aria-hidden className="text-(--sc-text-subtle)" />;
-	if (!isLiveSubagentStatus(status)) {
-		// A finished, unread agent: the state mark carries the colour, the row stays calm.
-		const failed = status === "failed";
-		const Icon = failed ? CircleX : CircleCheck;
-		return <Icon aria-hidden className={failed ? "text-(--sc-danger)" : "text-(--sc-success)"} />;
-	}
 	return (
 		<span aria-hidden className="inline-flex size-(--sc-icon-md) items-center justify-center">
 			<Spinner size="sm" />
 		</span>
 	);
-}
-
-/** Rows a roster shows: live subagents and finished ones still unread (the disclosure's count). */
-function countListedSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>, unread: ReadonlySet<string>): number {
-	let count = 0;
-	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status) || unread.has(agent.id)) count++;
-	return count;
 }
 
 /** Live subagents in a roster. */
@@ -210,14 +193,13 @@ const SubagentRow = memo(function SubagentRow({
 	onMenu: (id: string, anchor: ContextMenuAnchor) => void;
 }) {
 	const t = useT();
-	const live = isLiveSubagentStatus(agent.status);
-	const now = useNowTick(live);
+	const now = useNowTick(true);
 	const elapsed = subagentElapsedMs(agent, now);
 	const statusLabel = t(statusMeta(agent.status).labelKey);
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
 	const progress = agent.progress;
-	const note = live ? (progress?.lastIntent ?? progress?.currentTool) : undefined;
+	const note = progress?.lastIntent ?? progress?.currentTool;
 	// Stock's progress tally: "128.4k tokens · 48 tool calls".
 	const usage =
 		progress && (progress.tokens > 0 || progress.toolCount > 0)
@@ -252,8 +234,8 @@ const SubagentRow = memo(function SubagentRow({
 				className={cx("omp-sidebar-session-row", INDENT[nested ? "nested" : "top"][depth])}
 				description={note ?? usage ?? undefined}
 				leading={<StatusGlyph status={agent.status} />}
-				// Elapsed while it works; a finished, unread agent says how it ended.
-				meta={live ? (elapsed !== null ? formatCompactElapsed(elapsed) : undefined) : statusLabel}
+				// A listed subagent is always working or waiting: its meta is the elapsed time.
+				meta={elapsed !== null ? formatCompactElapsed(elapsed) : undefined}
 				onClick={() => onOpen(agent.id)}
 				rowProps={{
 					// Onto a session pane: opens in the side panel (SplitWorkspace takes the drop).
@@ -296,8 +278,7 @@ const SubagentRow = memo(function SubagentRow({
  */
 function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 	const t = useT();
-	const unread = useSidebarSubagentsStore(s => s.unread);
-	const count = useSubagentsStore(s => countListedSubagents(s.subagents, unread));
+	const count = useSubagentsStore(s => countLiveSubagents(s.subagents));
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
@@ -390,28 +371,19 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 	const t = useT();
 	const rpc = useTabRpc();
 	const ready = useSessionStore(s => s.status) === "ready";
-	const running = useSessionStore(s => s.isStreaming);
 	const subagents = useSubagentsStore(s => s.subagents);
 	const toolCallOwners = useSubagentGraphStore(s => s.toolCallOwners);
-	const unread = useSidebarSubagentsStore(s => s.unread);
-	const rows = useMemo(
-		() => buildSidebarSubagentRows(subagents, toolCallOwners, unread),
-		[subagents, toolCallOwners, unread],
-	);
+	const rows = useMemo(() => buildSidebarSubagentRows(subagents, toolCallOwners), [subagents, toolCallOwners]);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
-	// The side panel's Subagent view showing one of this tab's agents counts as viewing it.
+	// The side panel's Subagent view showing one of this tab's agents marks its row selected.
 	const panelId = useUiStore(s =>
 		s.panelVisible && s.panelTab === "subagent" && s.panelSubagent?.tabId === tabId ? s.panelSubagent.agentId : null,
 	);
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
 	const groupRef = useRef<HTMLDivElement>(null);
-	/** Agents this group has seen working: one that then finishes stays as an unread row. */
-	const seenLive = useRef(new Set<string>());
-	/** This commit's last live agents just finished: their marked rows arrive with the next render. */
-	const finishing = useRef(false);
 
 	// The transcript stays open when its agent finishes;
 	// sheet and menu close only when the agent leaves the roster.
@@ -421,38 +393,9 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		if (viewingId !== null && !subagents.has(viewingId)) setViewingId(null);
 	}, [viewingId, subagents]);
 
-	useEffect(() => {
-		const finished: string[] = [];
-		for (const agent of subagents.values()) {
-			if (isLiveSubagentStatus(agent.status)) {
-				seenLive.current.add(agent.id);
-				continue;
-			}
-			// A stop the user asked for is no news; a result or a failure is, until read.
-			if (!seenLive.current.delete(agent.id) || !UNREAD_ON_FINISH[agent.status]) continue;
-			if (agent.id !== viewingId && agent.id !== panelId && agent.kind !== "advisor") finished.push(agent.id);
-		}
-		finishing.current = finished.length > 0;
-		if (finished.length > 0) useSidebarSubagentsStore.getState().markUnread(finished);
-	}, [subagents, viewingId, panelId]);
-
-	// The session's run is over and no agent works anymore: its finished agents are no longer news,
-	// so their marks (and the session row's count) go with the run.
-	useEffect(() => {
-		if (running) return;
-		const ids: string[] = [];
-		for (const agent of subagents.values()) {
-			if (isLiveSubagentStatus(agent.status)) return;
-			ids.push(agent.id);
-		}
-		finishing.current = false;
-		useSidebarSubagentsStore.getState().markAllRead(ids);
-	}, [running, subagents]);
-
 	// No rows left: forget the expanded state so the next fan-out starts collapsed.
 	useEffect(() => {
-		if (rows.length === 0 && expanded && !finishing.current)
-			useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
+		if (rows.length === 0 && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
 	}, [rows.length, expanded, sessionKey]);
 
 	// Reveal (dock chip): un-hide and expand first, then focus the first row once it renders.
@@ -472,15 +415,9 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		first?.focus();
 	}, [reveal, tabId, rows.length, expanded, hidden, sessionKey]);
 
-	const openAgent = useCallback((id: string) => {
-		useSidebarSubagentsStore.getState().markRead(id);
-		setViewingId(id);
-	}, []);
+	const openAgent = useCallback((id: string) => setViewingId(id), []);
 	const openMenu = useCallback((id: string, anchor: ContextMenuAnchor) => setMenu({ id, anchor }), []);
-	const openInPanel = (id: string) => {
-		useSidebarSubagentsStore.getState().markRead(id);
-		useUiStore.getState().openSubagentPanel({ tabId, agentId: id });
-	};
+	const openInPanel = (id: string) => useUiStore.getState().openSubagentPanel({ tabId, agentId: id });
 
 	const stoppable = menuAgent !== null && isLiveSubagentStatus(menuAgent.status) && menuAgent.kind !== "advisor";
 
@@ -521,15 +458,6 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 							label: t("sidebar.subagents.openInPanel"),
 							onSelect: () => openInPanel(menu.id),
 						},
-						...(unread.has(menu.id)
-							? [
-									{
-										id: "subagent-dismiss",
-										label: t("sidebar.subagents.dismiss"),
-										onSelect: () => useSidebarSubagentsStore.getState().markRead(menu.id),
-									},
-								]
-							: []),
 						...(stoppable
 							? [
 									{

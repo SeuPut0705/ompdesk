@@ -590,7 +590,6 @@ export const ko: Record<string, string> = {
 	"sidebar.subagents.collapseAll": "모두 접기",
 	"sidebar.subagents.hideGroup": "이 세션의 서브에이전트 숨기기",
 	"sidebar.subagents.showHidden": "숨긴 서브에이전트 보기",
-	"sidebar.subagents.dismiss": "읽음으로 표시",
 	"sidebar.subagents.openInPanel": "사이드 패널에서 열기",
 	"errorBoundary.title": "이 패널에서 오류가 발생했어요",
 	"appError.title": "OMPdesk 화면 렌더링이 중단됐어요",

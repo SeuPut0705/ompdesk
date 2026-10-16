@@ -162,7 +162,6 @@ afterEach(async () => {
 		expanded: new Set(),
 		hidden: new Set(),
 		present: new Set(),
-		unread: new Set(),
 		reveal: null,
 	});
 	useUiStore.setState({ sidebarVisible: true, panelVisible: false, panelTab: "diff", panelSubagent: null });
@@ -249,41 +248,35 @@ describe("SidebarSubagents", () => {
 		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
 	});
 
-	it("keeps a finished row marked until it is read, drops a stopped one, and the expanded state with the last", async () => {
-		// The main turn is still running: finished agents stay marked until read or until the run ends.
+	it("drops a subagent the moment it completes, fails or is aborted; waiting ones stay; the expanded state goes with the last", async () => {
+		// The main turn is still running: that must not keep finished agents listed.
 		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "r2", index: 2, status: "running" }),
-			snap({ id: "old", index: 3, status: "completed" }),
+			snap({ id: "r3", index: 3, status: "parked" }),
+			snap({ id: "old", index: 4, status: "completed" }),
 		]);
 		expand();
 		await mount(<Session />);
-		expect(rowIds()).toEqual(["r1", "r2"]);
+		expect(rowIds()).toEqual(["r1", "r2", "r3"]);
 
-		// r1 fails while watched: its row stays, saying so; an agent that was never seen working does not appear.
 		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
 			snap({ id: "r2", index: 2, status: "running" }),
-			snap({ id: "old", index: 3, status: "completed" }),
+			snap({ id: "r3", index: 3, status: "parked" }),
+			snap({ id: "old", index: 4, status: "completed" }),
 		]);
 		await flush();
-		expect(rowIds()).toEqual(["r1", "r2"]);
-		expect(row("r1").getAttribute("data-status")).toBe("failed");
-		expect(row("r1").textContent).toContain("failed");
+		expect(rowIds()).toEqual(["r2", "r3"]);
 		expect(toggle()?.textContent).toBe("2");
 
-		// A user stop leaves no mark.
 		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
 			snap({ id: "r2", index: 2, status: "aborted" }),
-			snap({ id: "old", index: 3, status: "completed" }),
+			snap({ id: "r3", index: 3, status: "completed" }),
+			snap({ id: "old", index: 4, status: "completed" }),
 		]);
-		await flush();
-		expect(rowIds()).toEqual(["r1"]);
-
-		// Reading the last marked row empties the group.
-		act(() => useSidebarSubagentsStore.getState().markRead("r1"));
 		await flush();
 		expect(rowIds()).toEqual([]);
 		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
@@ -291,13 +284,14 @@ describe("SidebarSubagents", () => {
 		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
 
 		// The next fan-out starts collapsed.
-		seed([snap({ id: "r3", index: 4, status: "running" })]);
+		seed([snap({ id: "r4", index: 5, status: "running" })]);
 		await flush();
 		expect(rowIds()).toEqual([]);
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle()?.textContent).toBe("1");
 	});
 
-	it("opening a finished row reads it; the disclosure menu expands, collapses, hides and shows groups", async () => {
+	it("the disclosure menu expands, collapses, hides and shows groups", async () => {
 		seed([snap({ id: "r1", index: 1, status: "running", progress: { tokens: 128_400, toolCount: 48 } as never })]);
 		await mount(<Session />);
 		expect(toggle()?.querySelector("[data-working]")).not.toBeNull();
@@ -327,28 +321,33 @@ describe("SidebarSubagents", () => {
 		act(() => useSidebarSubagentsStore.getState().showAll());
 		await flush();
 		expect(toggle()).not.toBeNull();
-
-		expand();
-		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
-		seed([snap({ id: "r1", index: 1, status: "completed" })]);
-		await flush();
-		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(true);
-		await click(row("r1").querySelector("button"));
-		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(false);
 	});
 
-	it("drops the finished-agent marks and the count once the session's run ends", async () => {
+	it("lists no finished subagent even while the main turn runs, and the badge counts only live ones", async () => {
 		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
 		await mount(<Session />);
-		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "completed" })]);
+		expect(toggle()?.textContent).toBe("2");
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "running" })]);
 		await flush();
-		// Still the main turn's: finished agents stay marked while the run goes on.
-		expect(toggle()?.textContent).toContain("2");
-		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: false }));
+		expect(toggle()?.textContent).toBe("1");
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "failed" })]);
 		await flush();
 		expect(toggle()).toBeNull();
-		expect(useSidebarSubagentsStore.getState().unread.size).toBe(0);
+	});
+
+	it("keeps the transcript sheet of an opened subagent when it finishes, though its row leaves", async () => {
+		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
+		expand();
+		await mount(<Session />);
+		await click(row("r1").querySelector("button"));
+		expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+
+		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl", status: "completed" })]);
+		await flush();
+		expect(rowIds()).toEqual([]);
+		expect(toggle()).toBeNull();
+		expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
 	});
 
 	it("promotes a live child to the top level once its parent finishes", async () => {
@@ -440,6 +439,21 @@ describe("SidebarSubagents", () => {
 		await flush();
 		expect(document.querySelector("[data-panel-subagent]")).toBeNull();
 		expect(document.body.textContent).toContain(translate("panel.subagent.gone"));
+	});
+
+	it("the side panel's Subagent view of an already finished subagent keeps working while its row is gone", async () => {
+		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl", status: "completed" })]);
+		act(() => useUiStore.getState().openSubagentPanel({ tabId: TAB, agentId: "r1" }));
+		await mount(
+			<>
+				<Session />
+				<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />
+			</>,
+		);
+		expect(rowIds()).toEqual([]);
+		expect(toggle()).toBeNull();
+		expect(document.querySelector('[data-panel-subagent="r1"]')?.textContent).toContain("map the repo");
+		expect(document.body.textContent).not.toContain(translate("panel.subagent.gone"));
 	});
 
 	it("reveal shows the sidebar, expands the collapsed rows and focuses the first one", async () => {

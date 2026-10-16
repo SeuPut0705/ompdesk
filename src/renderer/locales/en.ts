@@ -598,7 +598,6 @@ export const en: Record<string, string> = {
 	"sidebar.subagents.collapseAll": "Collapse all",
 	"sidebar.subagents.hideGroup": "Hide this session's subagents",
 	"sidebar.subagents.showHidden": "Show hidden subagents",
-	"sidebar.subagents.dismiss": "Mark as read",
 	"sidebar.subagents.openInPanel": "Open in side panel",
 	"errorBoundary.title": "This panel crashed",
 	"appError.title": "OMPdesk stopped rendering",
