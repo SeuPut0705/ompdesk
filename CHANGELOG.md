@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.32.1] - 2026-10-16
+
+세션 제목이 내 언어로 짧게 붙고, 다음 메시지 제안이 내 말투로 짧게 나와요. 작업 현황판에 지금 쓰는 계정의 한도와 토큰 속도가 보여요.
+
+- 세션 제목을 쓰는 언어(한국어 등)로, 2~5단어·20자 안으로 만들어요. 이미 영어로 붙은 제목은 ✨로 다시 만들 수 있어요.
+- 다음 메시지 제안이 최근에 보낸 메시지의 말투(반말·존댓말)와 길이를 따라 해요. 에이전트 말투("~해 둘게요")는 걸러 내고, 한국어 40자 안으로 줄여서 칩이 잘리지 않아요.
+- 작업 현황판 맨 위에 지금 쓰는 구독 계정의 가장 빡빡한 한도(막대·초기화 시간)를, 이번 턴 줄에 토큰 속도(tok/s)를 보여 줘요. 끝난 할 일은 한 줄로 접히고, 끝난 작업은 부드럽게 사라져요.
+
+<!-- en -->
+Session titles come in your language and stay short, and next-message suggestions sound like you. The work board shows the current account's limit and the token speed.
+
+- Session titles are written in the language you write in, 2–5 words (≤ 20 characters in Korean). Titles already named in English can be redone with ✨.
+- Next-message suggestions follow the register and length of your recent messages, drop anything in the assistant's voice, and stay within 40 Korean / 60 Latin characters so chips no longer cut off.
+- The work board's header shows the account in use with its tightest limit (meter and reset time), and the turn line shows tokens per second. Finished to-dos fold into one line and finished work fades out.
+
 ## [0.32.0] - 2026-10-16
 
 넓은 창에 작업 현황판이 생기고, 세션 제목과 플러그인·MCP 업데이트, 미리보기·변경 사항 열기, 오류 재시도까지 앱이 알아서 해요. 설정과 모델 선택 창도 촘촘하게 다시 그렸어요.
