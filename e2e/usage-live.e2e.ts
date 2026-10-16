@@ -29,11 +29,11 @@ async function recorded(type: string): Promise<Array<Record<string, unknown>>> {
 		.filter(entry => entry.type === type);
 }
 
-/** work@'s 5-hour "N% left" as the account list shows it. */
-async function workLeft(work: Locator): Promise<number> {
-	const text = (await work.textContent()) ?? "";
-	const match = /5-hour limit (\d+)% left/.exec(text);
-	if (!match) throw new Error(`no 5-hour quota in: ${text}`);
+/** work@'s 5-hour share used as the account list's gauge shows it ("5H 15%"). */
+async function workUsed(work: Locator): Promise<number> {
+	const text = (await work.locator('[data-window="5h"] .omp-usage-gauge-text').textContent()) ?? "";
+	const match = /^5H(\d+)%$/.exec(text);
+	if (!match) throw new Error(`no 5-hour gauge in: ${text}`);
 	return Number(match[1]);
 }
 
@@ -78,24 +78,34 @@ test("keeps the open account list live without reopening it", async () => {
 	const settings = page.locator("[data-settings-page]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 	await page.locator('[data-settings-section="models"]').click();
-	// No toggle: the account rows are open, each with its tightest window (the 5-hour one here).
+	// No toggle: the account rows are open, each with a gauge per window (5H and 7D here).
 	const work = settings.locator('[data-provider-account="1"]');
-	await expect(work).toContainText(/5-hour limit \d+% left/);
+	await expect(work.locator('[data-window="5h"] .omp-usage-gauge-text')).toHaveText(/^5H\d+%$/);
+	await expect(work.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText(/^7D\d+%$/);
 	const quota = work.locator("[data-quota-updated]");
 	await expect(quota).toHaveAttribute("title", /Updated \d+s ago/);
 	await expect(work).toContainText(/resets in [23]h \d+m/);
-	// The other windows, with their resets, are in the quota's tooltip.
+	const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
+	if (captures) {
+		await fs.mkdir(captures, { recursive: true });
+		await page.screenshot({
+			path: path.join(captures, "settings-accounts-en-light.png"),
+			animations: "disabled",
+			scale: "css",
+		});
+	}
+	// The full window names, with their resets, are in the quota's tooltip.
 	await expect(quota).toHaveAttribute("title", /resets in [34]d \d+h/);
 
 	// The 30-second poll: the fixture's next read spent more, and the open list shows it.
-	const before = await workLeft(work);
+	const before = await workUsed(work);
 	await page.clock.fastForward(31_000);
-	await expect.poll(() => workLeft(work)).toBeLessThan(before);
+	await expect.poll(() => workUsed(work)).toBeGreaterThan(before);
 
 	// Coming back to the window reads at once.
-	const beforeFocus = await workLeft(work);
+	const beforeFocus = await workUsed(work);
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-	await expect.poll(() => workLeft(work)).toBeLessThan(beforeFocus);
+	await expect.poll(() => workUsed(work)).toBeGreaterThan(beforeFocus);
 
 	// The refresh button asks stock to probe the provider now (its `omp usage invalidate`).
 	expect((await recorded("provider_accounts")).some(entry => entry.refresh === true)).toBe(false);

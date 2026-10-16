@@ -994,15 +994,14 @@ describe("ProviderAccounts", () => {
 		expect(body).toContain(translate("providers.accounts.inUse"));
 		expect(body.split(translate("providers.accounts.inUse")).length).toBe(2);
 		expect(body.split(translate("providers.state.signedIn")).length).toBe(3);
-		// Only the window that gates the account first: the week, not the 5-hour window.
-		expect(body).toContain(
-			translate("providers.accounts.windowLeft", { window: translate("usage.limit.weekly"), percent: 39 }),
-		);
-		expect(body).not.toContain(
-			translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 94 }),
-		);
-		const bars = Array.from(document.querySelectorAll('[role="progressbar"]'));
-		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["0.61"]);
+		// Both windows as gauges with the share used inside, the short window first.
+		const gaugeText = (account: string) =>
+			Array.from(document.querySelectorAll(`[data-provider-account="${account}"] .omp-usage-gauge-text`)).map(
+				gauge => gauge.textContent,
+			);
+		expect(gaugeText("7")).toEqual(["5H6%", "7D61%"]);
+		const bars = Array.from(document.querySelectorAll('[data-provider-account="7"] [role="progressbar"]'));
+		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["6", "61"]);
 		expect(body).toContain(translate("providers.accounts.limitedUntil", { time: formatClock(limitedUntil) }));
 		// The account-switching mode sits with the accounts, for this device's omp.
 		expect(document.querySelector('[data-models-rotation] [role="radiogroup"]')).toBeTruthy();
@@ -1071,7 +1070,9 @@ describe("ProviderAccounts", () => {
 		// The age sits in the quota's tooltip, next to every window's reset; the row shows the tightest reset.
 		const cell = document.querySelector("[data-quota-updated]");
 		expect(cell?.getAttribute("title")).toMatch(/Updated [5-7]s ago/);
-		expect(text()).toContain(translate("usage.resetsIn", { time: "3h 0m" }));
+		expect(document.querySelector(".omp-usage-gauge-reset")?.textContent).toBe(
+			translate("usage.resetsIn", { time: "3h 0m" }),
+		);
 	});
 
 	it("refreshes through the bridge's stock invalidate, while the live poll reads stock's cache", async () => {
@@ -1104,9 +1105,7 @@ describe("ProviderAccounts", () => {
 				await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 			});
 			expect(getProviderAccounts.mock.calls.length).toBe(calls + 1);
-			expect(text()).toContain(
-				translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 50 }),
-			);
+			expect(document.querySelector(".omp-usage-gauge-text")?.textContent).toBe("5H50%");
 		} finally {
 			vi.useRealTimers();
 		}

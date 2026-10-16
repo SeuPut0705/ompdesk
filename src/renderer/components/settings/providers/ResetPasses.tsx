@@ -124,7 +124,7 @@ export function ResetPassControl({
 				.map(limit =>
 					t("providers.accounts.windowLeft", {
 						window: usageLimitLabel(limit, t),
-						percent: Math.round(Math.max(0, Math.min(1, 1 - (limit.usedFraction ?? 0))) * 100),
+						percent: Math.round(Math.max(0, Math.min(1, limit.usedFraction ?? 0)) * 100),
 					}),
 				)
 				.join(" · ");

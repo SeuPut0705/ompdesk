@@ -1,8 +1,13 @@
 import type { UsageLimit } from "../../shared/rpc-types";
 
+/** The canonical window id, else the middle part of a stock limit id (`anthropic:5h` → `5h`). */
+function windowKey(limit: UsageLimit): string {
+	return limit.windowId ?? limit.id.split(":")[1] ?? "";
+}
+
 /** A window's length in hours from its canonical id, or Infinity for one stock made up. */
 function windowHours(limit: UsageLimit): number {
-	const id = limit.windowId ?? "";
+	const id = windowKey(limit);
 	const span = /^(\d+)([hd])$/.exec(id);
 	if (span) return Number(span[1]) * (span[2] === "h" ? 1 : 24);
 	if (id === "daily") return 24;
@@ -13,7 +18,7 @@ function windowHours(limit: UsageLimit): number {
 
 /** "5H", "7D": the window's own short name — from its id, else the first word of its label. */
 export function shortWindowLabel(limit: UsageLimit): string {
-	const id = limit.windowId ?? "";
+	const id = windowKey(limit);
 	const span = /^(\d+)([hd])$/.exec(id);
 	if (span) return `${span[1]}${span[2]?.toUpperCase()}`;
 	if (id === "daily") return "1D";

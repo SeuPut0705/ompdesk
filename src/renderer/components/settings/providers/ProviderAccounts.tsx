@@ -21,68 +21,23 @@ import { copyText, formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { usageLimitLabel } from "../../../lib/usage-labels";
-import { tightestLimit, useLiveUsage } from "../../../lib/usage-reports";
+import { useLiveUsage } from "../../../lib/usage-reports";
+import { accountWindows } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice, ProgressBar } from "../../common";
+import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from "../../common";
+import { UsageGauges, usageTooltip } from "../../common/UsageGauges";
 import { useSettingsNavigate } from "../settings-navigation";
 import { ConnectedRow } from "./ConnectedRow";
 import { ResetPassControl } from "./ResetPasses";
 
-type TFn = (key: string, params?: Record<string, string | number>) => string;
-
-const percent = (fraction: number) => Math.round(Math.max(0, Math.min(1, fraction)) * 100);
-
-/** One quota window: its used share, what is left of it, and when it resets. */
-interface QuotaWindow {
-	key: string;
-	label: string;
-	used: number;
-	resetsAt?: number;
-}
-
-/** Per-window used share when the report has windows, else the tightest window's remainder. */
-function quotaWindows(account: ProviderAccount, t: TFn): QuotaWindow[] {
-	const windows = account.limits.filter(limit => limit.usedFraction !== undefined);
-	if (windows.length > 0) {
-		return windows.map(limit => {
-			const used = limit.usedFraction ?? 0;
-			return {
-				key: limit.id,
-				label: t("providers.accounts.windowLeft", {
-					window: usageLimitLabel(limit, t),
-					percent: percent(1 - used),
-				}),
-				used,
-				resetsAt: limit.resetsAt,
-			};
-		});
-	}
+/**
+ * The windows the row gauges: the report's limits, else (an account that only reports what is left of its quota)
+ * one window holding the share used.
+ */
+function quotaLimits(account: ProviderAccount): UsageLimit[] {
+	if (account.limits.some(limit => limit.usedFraction !== undefined)) return account.limits;
 	if (account.remainingFraction === undefined) return [];
-	return [
-		{
-			key: "remaining",
-			label: t("providers.accounts.remaining", { percent: percent(account.remainingFraction) }),
-			used: 1 - account.remainingFraction,
-		},
-	];
-}
-
-/** The window that gates the account first (lib/usage-reports `tightestLimit`), else the lone remainder. */
-export function tightestWindow(account: ProviderAccount, t: TFn): QuotaWindow | null {
-	const tight = tightestLimit(account);
-	if (tight) {
-		return {
-			key: tight.limit.id,
-			label: t("providers.accounts.windowLeft", {
-				window: usageLimitLabel(tight.limit, t),
-				percent: percent(1 - tight.fraction),
-			}),
-			used: tight.fraction,
-			resetsAt: tight.limit.resetsAt,
-		};
-	}
-	return quotaWindows(account, t)[0] ?? null;
+	return [{ id: "quota", label: "Quota", windowId: "quota", usedFraction: 1 - account.remainingFraction }];
 }
 
 export interface ProviderAccountsState {
@@ -154,44 +109,27 @@ export function useProviderAccounts(
 	return { result, error, loading, load };
 }
 
-/** The tightest window as text, a thin bar and its reset; the tooltip lists every window and the read's age. */
+/** The account's windows as shared gauges (share used, reset beneath each); the tooltip lists every window and the read's age. */
 function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) {
 	const t = useT();
-	const tight = tightestWindow(account, t);
-	if (!tight) return null;
+	const limits = quotaLimits(account);
+	if (accountWindows(limits).length === 0) return null;
 	const title = [
-		...quotaWindows(account, t).map(window =>
-			window.resetsAt === undefined
-				? window.label
-				: `${window.label} · ${window.resetsAt > now ? t("usage.resetsIn", { time: formatSpan(window.resetsAt - now) }) : t("usage.resetting")}`,
-		),
+		usageTooltip({ provider: "", fetchedAt: account.fetchedAt ?? 0, limits }, "", t)
+			.split("\n")
+			.slice(1)
+			.join("\n"),
 		account.fetchedAt === undefined ? null : t("usage.updatedAgo", { time: formatSpan(now - account.fetchedAt) }),
 	]
 		.filter(Boolean)
 		.join("\n");
 	return (
 		<div
-			className="order-4 flex w-full shrink-0 flex-col gap-1 pl-[1.875rem] @xl:order-3 @xl:w-56 @xl:pl-0"
+			className="order-4 flex w-full shrink-0 flex-col gap-1 pl-[1.875rem] @xl:order-3 @xl:w-64 @xl:pl-0"
 			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
 			title={title}
 		>
-			<span className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)">{tight.label}</span>
-			<span className="flex items-center gap-2">
-				<ProgressBar
-					ariaLabel={tight.label}
-					className="min-w-0 flex-1"
-					height={4}
-					value={tight.used}
-					valueText=""
-				/>
-				{tight.resetsAt !== undefined && (
-					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
-						{tight.resetsAt > now
-							? t("usage.resetsIn", { time: formatSpan(tight.resetsAt - now) })
-							: t("usage.resetting")}
-					</span>
-				)}
-			</span>
+			<UsageGauges limits={limits} resets />
 		</div>
 	);
 }
