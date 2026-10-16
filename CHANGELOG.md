@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.32.2] - 2026-10-16
+
+Windows에서 최대화한 채로 껐다 켜면 창이 검게 비어 보이던 문제를 고쳤어요.
+
+- Windows: 최대화 상태로 열리는 창이 검은 빈 화면으로 뜨던 것을 고쳤어요. 최대화로 열리는 창에는 Mica 배경을 쓰지 않아요.
+- 세션 제목이 더 짧아졌어요. 장식 없이 글자만, 한국어 12자 안팎으로 만들고, 길면 대화 모델로 한 번 더 줄여요.
+- 다음 메시지 제안이 평소 말투(반말·존댓말)를 앱이 직접 판단해서 맞춰요.
+- 작업 현황판: 맨 위 상태 줄을 없애고, 계정 행을 이메일과 한도 막대 두 개("5H 62%", "7D 41%"), 막대별 초기화 시간으로 바꿨어요.
+- Windows 설치 파일을 만드는 시간을 줄였어요(설치 파일은 조금 커져요).
+
+<!-- en -->
+Fixes a black, empty window on Windows when the app was last closed maximized.
+
+- Windows: a window that opens maximized no longer shows a blank black window; maximized windows open without the Mica backdrop.
+- Session titles are shorter: plain text, about 12 Korean characters, with one retry on the conversation model when too long.
+- Next-message suggestions keep your register (반말 or 존댓말), decided in code.
+- Work board: the header status line is gone; the account row shows the email, two usage gauges ("5H 62%", "7D 41%") and each window's reset.
+- Faster Windows installer packaging (the installer is somewhat larger).
+
 ## [0.32.1] - 2026-10-16
 
 세션 제목이 내 언어로 짧게 붙고, 다음 메시지 제안이 내 말투로 짧게 나와요. 작업 현황판에 지금 쓰는 계정의 한도와 토큰 속도가 보여요.
