@@ -111,7 +111,8 @@ function ConnectStep() {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
 	const catalog = useProviderCatalog();
-	const [customForm, setCustomForm] = useState(false);
+	const customForm = useFirstRunStore(state => state.customForm);
+	const setCustomForm = useFirstRunStore(state => state.setCustomForm);
 	const { providers, customConfigs, load } = catalog;
 	// The catalog drops its options whenever the tab's runtime is replaced and reads them again. Keep the last
 	// ones, so a form that is open (and what is typed in it) stays put through that read.

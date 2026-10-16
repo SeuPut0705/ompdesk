@@ -22,17 +22,29 @@ interface FirstRunState {
 	connectedProvider: string | null;
 	setPhase: (phase: FirstRunPhase, connectedProvider?: string | null) => void;
 	reset: () => void;
+	/**
+	 * The "Add custom endpoint" form is open on the connect step. Kept here, not in the step: the session pane
+	 * is rebuilt once right after launch (its tab is keyed), and a step's own state would be lost with it.
+	 */
+	customForm: boolean;
+	setCustomForm: (open: boolean) => void;
 }
 
 export const useFirstRunStore = create<FirstRunState>()((set, get) => ({
 	phase: "idle",
 	connectedProvider: null,
+	customForm: false,
+	setCustomForm: customForm => set({ customForm }),
 	setPhase: (phase, connectedProvider) => {
 		if (phase !== get().phase) {
 			// Resume is a convenience: a failed write only means the next launch starts over.
 			void window.omp.prefs.set(FIRST_RUN_STEP_PREF, phase === "idle" ? undefined : phase).catch(() => {});
 		}
-		set({ phase, connectedProvider: connectedProvider === undefined ? get().connectedProvider : connectedProvider });
+		set({
+			phase,
+			connectedProvider: connectedProvider === undefined ? get().connectedProvider : connectedProvider,
+			customForm: phase === "connect" ? get().customForm : false,
+		});
 	},
-	reset: () => set({ phase: "idle", connectedProvider: null }),
+	reset: () => set({ phase: "idle", connectedProvider: null, customForm: false }),
 }));
