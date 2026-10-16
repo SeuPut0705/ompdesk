@@ -1,7 +1,7 @@
 /**
  * Settings › General › Profile: how the agent addresses the user and how much
  * development background it assumes (prefs `userProfile`, contracts in
- * resources/gui-bridge/user-profile-contracts.ts). Main pushes a change to
+ * resources/gui-bridge/modes/user-profile-contracts.ts). Main pushes a change to
  * every open local session, effective from its next turn; a tab on a paired
  * host follows the host's own setting, and the section says so.
  */
@@ -15,7 +15,7 @@ import {
 	USER_PROFILE_NAME_MAX,
 	USER_PROFILE_PREF,
 	type UserProfile,
-} from "../../../../resources/gui-bridge/user-profile-contracts";
+} from "../../../../resources/gui-bridge/modes/user-profile-contracts";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";

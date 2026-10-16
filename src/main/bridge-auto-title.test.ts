@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TITLE_TRIGGER } from "../../resources/gui-bridge/auto-title-contracts";
-import { DEFAULT_GATE_RULES, titleIsAuto } from "../../resources/gui-bridge/auto-title-core";
+import { TITLE_TRIGGER } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { DEFAULT_GATE_RULES, titleIsAuto } from "../../resources/gui-bridge/modes/auto-title-core";
 import {
 	type AutoTitleEnv,
 	type AutoTitleFrame,
@@ -13,7 +13,7 @@ import {
 	type TitleEvent,
 	type TitleModel,
 	type TitleSession,
-} from "../../resources/gui-bridge/auto-title-engine";
+} from "../../resources/gui-bridge/modes/auto-title-engine";
 import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
 
 interface Entry {

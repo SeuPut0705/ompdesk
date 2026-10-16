@@ -1,6 +1,6 @@
 /**
  * Automatic session titles for GUI tabs (contracts in ./auto-title-contracts.ts, rules in
- * ./auto-title-core.ts, guarded wiring in ./modes/auto-title.ts). Stock names a session only in its TUI
+ * ./auto-title-core.ts, guarded wiring in ./auto-title.ts). Stock names a session only in its TUI
  * (`autoTitle` is a session option; `main.ts` sets it for the TUI, and `PI_NO_TITLE` for `rpc-ui`), so
  * this runs stock's own title machinery from the live session's events:
  *
@@ -52,7 +52,7 @@ import {
 	titleIsAuto,
 	titleShorterLine,
 } from "./auto-title-core";
-import { currentReplyLanguage, onReplyLanguageChange } from "./modes/reply-language";
+import { currentReplyLanguage, onReplyLanguageChange } from "./reply-language";
 
 /** A frame the engine pushes to the GUI (it reaches the renderer as if omp had written it). */
 export interface AutoTitleFrame {

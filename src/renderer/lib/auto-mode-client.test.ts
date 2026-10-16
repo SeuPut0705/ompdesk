@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AutoModeDecision } from "../../../resources/gui-bridge/auto-mode-contracts";
+import type { AutoModeDecision } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { createSessionStore } from "../stores/session";
 import { runAutoMode } from "./auto-mode-client";

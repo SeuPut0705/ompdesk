@@ -1,5 +1,5 @@
 /**
- * gui-bridge prompt suggestions (resources/gui-bridge/next-prompt-engine.ts) on a fake session, host and stock:
+ * gui-bridge prompt suggestions (resources/gui-bridge/modes/next-prompt-engine.ts) on a fake session, host and stock:
  * what triggers a request, what the request carries and runs on, what gets pushed, and every way it stops
  * (typing, a new run, a newer trigger, the feature off). Against the real stock: bridge-next-prompt-stock.test.ts.
  */
@@ -8,8 +8,8 @@ import type {
 	NextPromptConfigFrame,
 	NextPromptState,
 	NextPromptUpdate,
-} from "../../resources/gui-bridge/next-prompt-contracts";
-import { SUGGEST_DEBOUNCE_MS } from "../../resources/gui-bridge/next-prompt-core";
+} from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import { SUGGEST_DEBOUNCE_MS } from "../../resources/gui-bridge/modes/next-prompt-core";
 import {
 	type EngineEnv,
 	handlers,
@@ -19,7 +19,7 @@ import {
 	type NextPromptStock,
 	resetNextPromptState,
 	setNextPromptStock,
-} from "../../resources/gui-bridge/next-prompt-engine";
+} from "../../resources/gui-bridge/modes/next-prompt-engine";
 
 type BridgeEvent = NextPromptUpdate | NextPromptConfigFrame;
 type BridgeEnv = EngineEnv;

@@ -1,12 +1,12 @@
 /**
  * Built-in prompt suggestions: the guarded bridge methods and the extension hooks. The engine
- * (../next-prompt-engine.ts) holds the behaviour; this file puts it behind the compatibility guard, so a
+ * (./next-prompt-engine.ts) holds the behaviour; this file puts it behind the compatibility guard, so a
  * missing stock internal refuses the methods with `unsupported_omp` (capabilities.ts `nextPrompt`), and
  * names the stock modules the engine calls.
  */
 import { guard } from "../health";
-import { handlers, install, type NextPromptStock, setNextPromptStockLoader } from "../next-prompt-engine";
 import type { BridgeMethods } from "../types";
+import { handlers, install, type NextPromptStock, setNextPromptStockLoader } from "./next-prompt-engine";
 
 export { install };
 

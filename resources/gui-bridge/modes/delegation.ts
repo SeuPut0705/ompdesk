@@ -1,6 +1,6 @@
 /**
  * Delegation strength (the composer's delegation chip) wired to stock omp:
- * rules in ../delegation-core.ts, values in ../delegation-contracts.ts.
+ * rules in ./delegation-core.ts, values in ./delegation-contracts.ts.
  *
  * - Spawn: main passes the strength new tabs start with in
  *   `OMP_GUI_DELEGATION`; index.ts awaits `applyGuiDelegation` inside the
@@ -14,16 +14,16 @@
  */
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
-import { isDelegationMode } from "../delegation-contracts";
+import { guard } from "../health";
+import type { BridgeMethods } from "../types";
+import { isDelegationMode } from "./delegation-contracts";
 import {
 	applyDelegation,
 	asDelegationSetting,
 	type DelegationHandles,
 	heldDelegation,
 	releaseDelegationFor,
-} from "../delegation-core";
-import { guard } from "../health";
-import type { BridgeMethods } from "../types";
+} from "./delegation-core";
 import { attach, record } from "./shared";
 
 const handles: DelegationHandles = id => asDelegationSetting(lookup(id));

@@ -15,9 +15,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { PlanProposalHandler } from "@oh-my-pi/pi-coding-agent/tools/resolve";
-import { markPlanRejected } from "../auto-mode-state";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
+import { markPlanRejected } from "./auto-mode-state";
 import {
 	attach,
 	emit,

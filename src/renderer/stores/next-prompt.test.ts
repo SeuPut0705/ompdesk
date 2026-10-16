@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { NextPromptUpdate } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptUpdate } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { useNextPromptStore } from "./next-prompt";
 import { useTabsStore } from "./tabs";
 

@@ -1,13 +1,13 @@
 /**
- * Automatic mode choice (gui-bridge modes/auto-mode.ts, rules in resources/gui-bridge/auto-mode-core.ts). The
+ * Automatic mode choice (gui-bridge modes/auto-mode.ts, rules in resources/gui-bridge/modes/auto-mode-core.ts). The
  * decision is made by the tab's own omp (a paired host's tab: on the host, so the model call and its quota are
  * the host's; `auto_mode_decide` is a model command in remote/quota-commands.ts) and applied here through the
  * commands the Mode popover already uses: `modes.set_plan_mode` for Plan, stock's `goal create` for Goal (the
  * objective is the prompt's own text; the prompt itself then runs as the first turn). Any failure means "none":
  * the prompt must never be held up by this.
  */
-import type { AutoModeDecision } from "../../../resources/gui-bridge/auto-mode-contracts";
-import { noDecision } from "../../../resources/gui-bridge/auto-mode-core";
+import type { AutoModeDecision } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
+import { noDecision } from "../../../resources/gui-bridge/modes/auto-mode-core";
 import type { LocalHandler } from "./types";
 
 function text(value: unknown): string {

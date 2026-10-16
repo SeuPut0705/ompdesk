@@ -14,8 +14,9 @@
  * Contracts live in output-style-contracts.ts (no omp imports) so the renderer
  * lists the same styles.
  */
-import { OUTPUT_STYLE_IDS, type OutputStyleId, outputStyleInstruction } from "../output-style-contracts";
+
 import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
+import { OUTPUT_STYLE_IDS, type OutputStyleId, outputStyleInstruction } from "./output-style-contracts";
 
 /** The slice of omp's ExtensionAPI this module needs. */
 export type OutputStyleHost = PromptSectionHost;

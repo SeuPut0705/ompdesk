@@ -10,7 +10,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import { DELEGATION_MODES } from "../../../../../resources/gui-bridge/delegation-contracts";
+import { DELEGATION_MODES } from "../../../../../resources/gui-bridge/modes/delegation-contracts";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";

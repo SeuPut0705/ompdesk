@@ -2,7 +2,7 @@
  * Composer delegation chip: how readily this tab's agent hands work to
  * subagents, from Solo (no task tool) to Swarm. Each strength is a set of
  * stock `task.*` settings the gui-bridge holds as runtime overrides on the
- * tab's omp (resources/gui-bridge/delegation-contracts.ts), so it applies from
+ * tab's omp (resources/gui-bridge/modes/delegation-contracts.ts), so it applies from
  * the next turn and never touches config.yml; "your settings" holds nothing.
  * The last choice is remembered (prefs `delegationMode`) for new and restarted
  * tabs. An omp that cannot report a strength gets no chip.
@@ -15,7 +15,7 @@ import {
 	DELEGATION_PREF,
 	type DelegationMode,
 	isDelegationMode,
-} from "../../../../../resources/gui-bridge/delegation-contracts";
+} from "../../../../../resources/gui-bridge/modes/delegation-contracts";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";

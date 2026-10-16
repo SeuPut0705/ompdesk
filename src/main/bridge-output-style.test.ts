@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { install, methods, type OutputStyleHost, setOutputStyle } from "../../resources/gui-bridge/modes/output-style";
-import { OUTPUT_STYLE_IDS, outputStyleInstruction } from "../../resources/gui-bridge/output-style-contracts";
+import { OUTPUT_STYLE_IDS, outputStyleInstruction } from "../../resources/gui-bridge/modes/output-style-contracts";
 
 type Handler = Parameters<OutputStyleHost["on"]>[1];
 

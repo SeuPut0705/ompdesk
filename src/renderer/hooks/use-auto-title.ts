@@ -21,7 +21,7 @@ export interface AutoTitle {
 	run(): Promise<string | null>;
 }
 
-/** `regenerate_session_title` response data (resources/gui-bridge/auto-title-contracts.ts `TitleRegenerateResult`). */
+/** `regenerate_session_title` response data (resources/gui-bridge/modes/auto-title-contracts.ts `TitleRegenerateResult`). */
 const regeneration = z.object({ title: z.string().nullable(), reason: z.enum(["none", "superseded"]).optional() });
 
 /** What a response holds: the saved title, or the localized sentence for why there is none. */

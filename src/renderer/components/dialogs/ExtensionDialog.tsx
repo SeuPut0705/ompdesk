@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { Fragment, type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { OAUTH_PASTE_PROMPT } from "../../../../resources/gui-bridge/oauth-contracts";
+import { OAUTH_PASTE_PROMPT } from "../../../../resources/gui-bridge/extensions/oauth-contracts";
 import type {
 	ExtensionAskDialogResult,
 	ExtensionAskDialogResultItem,

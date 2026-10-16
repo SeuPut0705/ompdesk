@@ -1,6 +1,6 @@
 /**
  * The composer's side of the automatic mode choice (Plan or Goal only; rules in
- * resources/gui-bridge/auto-mode-core.ts). Called just before a typed prompt is sent: when the pref is on and no
+ * resources/gui-bridge/modes/auto-mode-core.ts). Called just before a typed prompt is sent: when the pref is on and no
  * mode is active, asks the tab's omp (`auto_mode_decide`; the host's for a paired host's tab) and mirrors the
  * result in the session store, which shows the "Auto: Plan" chip. It never throws and never waits longer than the
  * decision's own deadline plus a margin: a failure is "none" and the prompt goes out unchanged.
@@ -12,8 +12,8 @@ import {
 	AUTO_MODE_TIMEOUT_MS,
 	type AutoModeDecision,
 	autoModeFromPref,
-} from "../../../resources/gui-bridge/auto-mode-contracts";
-import { autoModeSkip } from "../../../resources/gui-bridge/auto-mode-core";
+} from "../../../resources/gui-bridge/modes/auto-mode-contracts";
+import { autoModeSkip } from "../../../resources/gui-bridge/modes/auto-mode-core";
 import type { SessionStore } from "../stores/session";
 import type { TabRpc } from "./tab-rpc";
 

@@ -22,7 +22,7 @@ import { createTabRpc, type TabRpc } from "./tab-rpc";
  * - `unavailable` — non-text command lacking a native GUI affordance
  */
 
-import { OUTPUT_STYLE_IDS } from "../../../resources/gui-bridge/output-style-contracts";
+import { OUTPUT_STYLE_IDS } from "../../../resources/gui-bridge/modes/output-style-contracts";
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { newSessionNow } from "../hooks/use-session-switch";

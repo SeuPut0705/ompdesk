@@ -1,13 +1,14 @@
 /**
- * Automatic session titles: the guarded bridge methods. The engine (../auto-title-engine.ts) holds the
+ * Automatic session titles: the guarded bridge methods. The engine (./auto-title-engine.ts) holds the
  * behaviour; this file puts it behind the compatibility guard, so a missing stock internal refuses the
  * methods with `unsupported_omp` (capabilities.ts `autoTitle`), and names the stock module the engine
  * calls. Stock's title functions themselves are methods of the live session (`generateTitle`,
  * `renameTitle`, `setTitleSystemPrompt`), checked by the guard through `REQUIREMENTS.autoTitle.session`.
  */
-import { type AutoTitleStock, handlers, setAutoTitleStockLoader } from "../auto-title-engine";
+
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
+import { type AutoTitleStock, handlers, setAutoTitleStockLoader } from "./auto-title-engine";
 import { ompPrompt } from "./shared";
 
 // Dynamic, after `guard` checked the feature: a stock export that vanished must fail this feature, not link time.

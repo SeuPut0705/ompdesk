@@ -7,7 +7,7 @@ import type {
 	InlineCompletion,
 	NextPromptState,
 	NextPromptUpdate,
-} from "../resources/gui-bridge/next-prompt-contracts";
+} from "../resources/gui-bridge/modes/next-prompt-contracts";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 

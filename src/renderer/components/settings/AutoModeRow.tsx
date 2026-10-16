@@ -5,7 +5,7 @@
  */
 
 import { Wand2 } from "lucide-react";
-import { AUTO_MODE_PREF } from "../../../../resources/gui-bridge/auto-mode-contracts";
+import { AUTO_MODE_PREF } from "../../../../resources/gui-bridge/modes/auto-mode-contracts";
 import { useT } from "../../lib/i18n";
 import { useMainPreference } from "./GeneralSection";
 import { SettingsSwitchRow } from "./SettingsLayout";

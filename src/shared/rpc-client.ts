@@ -1,4 +1,4 @@
-import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type { SessionModelOverride } from "./model-restore";
 import type {
 	AgentFileScope,

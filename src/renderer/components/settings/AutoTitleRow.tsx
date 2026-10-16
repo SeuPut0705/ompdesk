@@ -6,7 +6,7 @@
  * follows the host's pref. A title the user typed never changes whatever these say.
  */
 import { RefreshCw, Sparkles } from "lucide-react";
-import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../../../resources/gui-bridge/auto-title-contracts";
+import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../../../resources/gui-bridge/modes/auto-title-contracts";
 import { useT } from "../../lib/i18n";
 import { useMainPreference } from "./GeneralSection";
 import { SettingsSwitchRow } from "./SettingsLayout";

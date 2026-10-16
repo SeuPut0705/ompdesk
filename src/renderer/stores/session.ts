@@ -1,6 +1,6 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
-import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type {
 	ContextUsage,
 	RpcLoopModeState,

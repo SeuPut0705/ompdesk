@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { TITLE_HARD_CHARS, TITLE_HARD_CJK_CHARS } from "../resources/gui-bridge/auto-title-core";
+import { TITLE_HARD_CHARS, TITLE_HARD_CJK_CHARS } from "../resources/gui-bridge/modes/auto-title-core";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 

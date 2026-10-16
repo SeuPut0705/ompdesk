@@ -1,19 +1,19 @@
 /**
- * gui-bridge delegation strength (resources/gui-bridge/delegation-core.ts):
+ * gui-bridge delegation strength (resources/gui-bridge/modes/delegation-core.ts):
  * each strength holds its stock `task.*` values as runtime overrides on the
  * tab's Settings, a switch drops the previous strength's overrides first,
  * `default` holds nothing, and the user's own Settings write of one of those
  * settings releases the strength so the write is what takes effect.
  */
 import { describe, expect, it } from "vitest";
-import { DELEGATION_PRESETS, DELEGATION_SETTING_IDS } from "../../resources/gui-bridge/delegation-contracts";
+import { DELEGATION_PRESETS, DELEGATION_SETTING_IDS } from "../../resources/gui-bridge/modes/delegation-contracts";
 import {
 	applyDelegation,
 	asDelegationSetting,
 	type DelegationSetting,
 	heldDelegation,
 	releaseDelegationFor,
-} from "../../resources/gui-bridge/delegation-core";
+} from "../../resources/gui-bridge/modes/delegation-core";
 
 /** A Settings scope with only the runtime-override layer stock's handles write to. */
 function fakeSettings() {

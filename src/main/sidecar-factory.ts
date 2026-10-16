@@ -4,11 +4,11 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
-import type { AutoTitleSettings } from "../../resources/gui-bridge/auto-title-contracts";
-import { isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
-import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
+import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import { normalizeUserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
-import { normalizeUserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";

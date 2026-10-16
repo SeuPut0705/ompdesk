@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NextPromptState, NextPromptUpdate } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptState, NextPromptUpdate } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { useNextPromptStore } from "../stores/next-prompt";
 import { useSessionStore } from "../stores/session";
 import { type NextPromptView, useNextPrompt } from "./use-next-prompt";

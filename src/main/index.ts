@@ -26,14 +26,14 @@ import {
 	AUTO_TITLE_EVOLVE_PREF,
 	AUTO_TITLE_PREF,
 	autoTitleFromPrefs,
-} from "../../resources/gui-bridge/auto-title-contracts";
-import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts";
+} from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { DELEGATION_PREF } from "../../resources/gui-bridge/modes/delegation-contracts";
 import {
 	NEXT_PROMPT_INLINE_PREF,
 	NEXT_PROMPT_PREF,
 	nextPromptFromPrefs,
-} from "../../resources/gui-bridge/next-prompt-contracts";
-import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
+} from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";

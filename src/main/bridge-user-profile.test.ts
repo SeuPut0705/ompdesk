@@ -11,7 +11,7 @@ import {
 	isUserProfile,
 	normalizeUserProfile,
 	userProfileInstruction,
-} from "../../resources/gui-bridge/user-profile-contracts";
+} from "../../resources/gui-bridge/modes/user-profile-contracts";
 
 type Handler = Parameters<UserProfileHost["on"]>[1];
 

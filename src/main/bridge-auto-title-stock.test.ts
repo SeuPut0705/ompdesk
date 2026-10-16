@@ -13,7 +13,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { titleLanguageLine } from "../../resources/gui-bridge/auto-title-core";
+import { titleLanguageLine } from "../../resources/gui-bridge/modes/auto-title-core";
 
 /**
  * Pins the automatic session titles to the installed omp, in an empty private agent dir (no model is called):
@@ -33,8 +33,8 @@ const PROBE = `
 import { methods } from "./modes/auto-title";
 import { methods as replyLanguage } from "./modes/reply-language";
 import { capabilitiesFor } from "./probe-helper";
-import { TITLE_TRIGGER } from "./auto-title-contracts";
-import { titleIsAuto } from "./auto-title-core";
+import { TITLE_TRIGGER } from "./modes/auto-title-contracts";
+import { titleIsAuto } from "./modes/auto-title-core";
 export default function (pi) {
  pi.on("session_start", async () => {
   try {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { NextPromptModelUsed, NextPromptUpdate } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptModelUsed, NextPromptUpdate } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { parseNextPrompt } from "../lib/next-prompt";
 
 /**

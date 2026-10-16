@@ -16,7 +16,9 @@
  * plan again) or undid an automatic decision (nothing again).
  */
 
-import { AUTO_MODE_TIMEOUT_MS, type AutoModeDecision } from "../auto-mode-contracts";
+import { guard } from "../health";
+import type { BridgeEnv, BridgeMethods } from "../types";
+import { AUTO_MODE_TIMEOUT_MS, type AutoModeDecision } from "./auto-mode-contracts";
 import {
 	AUTO_MODE_INSTRUCTIONS,
 	autoModeCriteria,
@@ -24,10 +26,8 @@ import {
 	goalObjective,
 	modeFromAnswer,
 	noDecision,
-} from "../auto-mode-core";
-import { autoModeFlags, markSuppressed } from "../auto-mode-state";
-import { guard } from "../health";
-import type { BridgeEnv, BridgeMethods } from "../types";
+} from "./auto-mode-core";
+import { autoModeFlags, markSuppressed } from "./auto-mode-state";
 import { exitPlanMode } from "./plan";
 import { ratchetEnabled } from "./ratchet";
 import { attach, errorMessage, record } from "./shared";

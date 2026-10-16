@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { InlineScheduler, inlineDraftEligibility } from "../../../resources/gui-bridge/next-prompt-core";
+import { InlineScheduler, inlineDraftEligibility } from "../../../resources/gui-bridge/modes/next-prompt-core";
 
 export interface InlineCompletionOptions {
 	/** Inline completion is effective for this tab AND the composer can take it (ready, idle). */

@@ -5,7 +5,7 @@
  */
 import { PenLine } from "lucide-react";
 import { useId } from "react";
-import { isOutputStyleId, OUTPUT_STYLE_IDS } from "../../../../resources/gui-bridge/output-style-contracts";
+import { isOutputStyleId, OUTPUT_STYLE_IDS } from "../../../../resources/gui-bridge/modes/output-style-contracts";
 import { useT } from "../../lib/i18n";
 import { useOutputStyleStore } from "../../stores/output-style";
 import { Select } from "../common";

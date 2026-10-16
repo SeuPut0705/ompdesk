@@ -1,5 +1,5 @@
 import type { StoreApi } from "zustand";
-import type { NextPromptState } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptState } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type {
 	AgentMessage,
 	MessagesPage,

@@ -25,7 +25,7 @@ export default function (pi) {
 const PROBE = `
 import { methods } from "./modes/next-prompt";
 import { capabilitiesFor } from "./probe-helper";
-import { cleanCandidates } from "./next-prompt-core";
+import { cleanCandidates } from "./modes/next-prompt-core";
 export default function (pi) {
  pi.on("session_start", async () => {
   try {

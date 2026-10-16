@@ -1,5 +1,8 @@
 import { useMemo } from "react";
-import type { InlineCompletion, NextPromptUnavailable } from "../../../resources/gui-bridge/next-prompt-contracts";
+import type {
+	InlineCompletion,
+	NextPromptUnavailable,
+} from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { type TabRpc, useTabRpc } from "../lib/tab-rpc";
 import { useNextPromptStore } from "../stores/next-prompt";
 import { useSessionStore } from "../stores/session";

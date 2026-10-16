@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AUTO_MODE_PREF, autoModeFromPref } from "../../../resources/gui-bridge/auto-mode-contracts";
+import { AUTO_MODE_PREF, autoModeFromPref } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import { saveGuiPreference } from "../lib/display-preferences";
 
 /** The automatic mode choice's pref (default on): read when the component mounts, written through main. */

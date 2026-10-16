@@ -20,7 +20,7 @@ type Theme = "light" | "dark";
 
 const CANDIDATES = ["Run the tests", "Commit these changes", "Explain what you changed"] as const;
 const GHOST = " and explain why";
-/** INLINE_DEBOUNCE_MS (resources/gui-bridge/next-prompt-contracts.ts) plus a margin: a request that would be made has been made. */
+/** INLINE_DEBOUNCE_MS (resources/gui-bridge/modes/next-prompt-contracts.ts) plus a margin: a request that would be made has been made. */
 const DEBOUNCE_WINDOW_MS = 1_200;
 
 const TEXT = {

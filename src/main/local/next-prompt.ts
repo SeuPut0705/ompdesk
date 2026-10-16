@@ -1,6 +1,6 @@
 /**
  * Built-in prompt suggestions (gui-bridge modes/next-prompt.ts, contracts in
- * resources/gui-bridge/next-prompt-contracts.ts). Stock RPC has no composer
+ * resources/gui-bridge/modes/next-prompt-contracts.ts). Stock RPC has no composer
  * prediction, so each command is a thin, validated call to the bridge in the
  * tab's own omp; the bridge pushes the `next_prompt_update` and
  * `next_prompt_config` frames.
@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
 	INLINE_MAX_DRAFT_CHARS,
 	NEXT_PROMPT_REFRESH_REASONS,
-} from "../../../resources/gui-bridge/next-prompt-contracts";
+} from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { LocalHandler } from "./types";
 
 const draftCommand = z.object({ empty: z.boolean() });

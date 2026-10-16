@@ -13,7 +13,7 @@ import {
 	normalizeAutoTitle,
 	parseAutoTitleEnv,
 	titleEffective,
-} from "../resources/gui-bridge/auto-title-contracts";
+} from "../resources/gui-bridge/modes/auto-title-contracts";
 import {
 	type NextPromptModelUsed,
 	type NextPromptSettings,
@@ -22,7 +22,7 @@ import {
 	type NextPromptUnavailable,
 	normalizeNextPrompt,
 	parseNextPromptEnv,
-} from "../resources/gui-bridge/next-prompt-contracts";
+} from "../resources/gui-bridge/modes/next-prompt-contracts";
 import {
 	labelPromptOrigins,
 	PROMPT_ORIGIN_ENTRY,
@@ -1885,7 +1885,7 @@ if (process.argv[2] === "stats") {
 		"workspace.resolve_path": params => ({ path: nodePath.resolve(process.cwd(), String(params.path)) }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
-		// gui-bridge modes/next-prompt.ts (contracts in resources/gui-bridge/next-prompt-contracts.ts).
+		// gui-bridge modes/next-prompt.ts (contracts in resources/gui-bridge/modes/next-prompt-contracts.ts).
 		next_prompt_set: params => {
 			nextPromptSettings = normalizeNextPrompt(params);
 			if (!nextPromptSettings.suggestions) {
@@ -1897,7 +1897,7 @@ if (process.argv[2] === "stats") {
 			return nextPromptState();
 		},
 		next_prompt_state: () => nextPromptState(),
-		// gui-bridge modes/auto-title.ts (contracts in resources/gui-bridge/auto-title-contracts.ts).
+		// gui-bridge modes/auto-title.ts (contracts in resources/gui-bridge/modes/auto-title-contracts.ts).
 		auto_title_set: params => {
 			autoTitleSettings = normalizeAutoTitle(params);
 			return { ...autoTitleSettings, requests: { ...autoTitleRequests } };

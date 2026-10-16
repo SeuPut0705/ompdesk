@@ -8,7 +8,10 @@
 
 import { Lightbulb, TextCursorInput } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../../../resources/gui-bridge/next-prompt-contracts";
+import {
+	NEXT_PROMPT_INLINE_PREF,
+	NEXT_PROMPT_PREF,
+} from "../../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useMainPreference } from "./GeneralSection";

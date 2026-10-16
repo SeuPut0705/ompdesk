@@ -49,8 +49,8 @@ import type { Component } from "@oh-my-pi/pi-tui";
 import { inferMcpTransport } from "@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime";
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
-import { OAUTH_PASTE_PROMPT } from "../oauth-contracts";
 import type { BridgeEnv, BridgeMethods } from "../types";
+import { OAUTH_PASTE_PROMPT } from "./oauth-contracts";
 import { errorMessage, optScope, optString, paramsOf, requireString } from "./shared";
 
 const MCP_TEST_TIMEOUT_MS = 30_000;

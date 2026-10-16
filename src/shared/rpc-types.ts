@@ -4,15 +4,15 @@
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
 
-import type { TitleRegenerateResult } from "../../resources/gui-bridge/auto-title-contracts";
-import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type {
 	InlineCompletion,
 	NextPromptConfigFrame,
 	NextPromptRefreshReason,
 	NextPromptState,
 	NextPromptUpdate,
-} from "../../resources/gui-bridge/next-prompt-contracts";
+} from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { GithubRequest } from "./github";
 
 // ============================================================================

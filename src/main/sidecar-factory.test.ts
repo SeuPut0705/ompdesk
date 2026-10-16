@@ -1,8 +1,8 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { AutoTitleSettings } from "../../resources/gui-bridge/auto-title-contracts";
-import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
+import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { BridgeHealth } from "./bridge-health";
 import { SessionKindStore } from "./session-kinds";
 import type { SidecarOptions } from "./sidecar";

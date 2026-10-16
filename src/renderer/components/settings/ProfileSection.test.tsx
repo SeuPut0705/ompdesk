@@ -8,7 +8,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EXPERIENCE_LEVELS } from "../../../../resources/gui-bridge/user-profile-contracts";
+import { EXPERIENCE_LEVELS } from "../../../../resources/gui-bridge/modes/user-profile-contracts";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useToastStore } from "../../stores/toast";
 import { ProfileSection } from "./ProfileSection";

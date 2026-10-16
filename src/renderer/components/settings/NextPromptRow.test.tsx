@@ -9,7 +9,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NextPromptState } from "../../../../resources/gui-bridge/next-prompt-contracts";
+import type { NextPromptState } from "../../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { NextPromptRow } from "./NextPromptRow";

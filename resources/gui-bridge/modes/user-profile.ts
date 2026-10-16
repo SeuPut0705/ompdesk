@@ -1,6 +1,6 @@
 /**
  * User profile: Settings › General › Profile (how the agent addresses the
- * user, their development experience; contracts in ../user-profile-contracts.ts).
+ * user, their development experience; contracts in ./user-profile-contracts.ts).
  * Main passes the stored profile as JSON in `OMP_GUI_USER_PROFILE` at spawn,
  * then `user_profile_set` whenever it changes, so open sessions follow from
  * their next turn. Stock omp has no such setting, so the public
@@ -18,7 +18,7 @@ import {
 	normalizeUserProfile,
 	type UserProfile,
 	userProfileInstruction,
-} from "../user-profile-contracts";
+} from "./user-profile-contracts";
 
 /** The slice of omp's ExtensionAPI this module needs. */
 export type UserProfileHost = PromptSectionHost;

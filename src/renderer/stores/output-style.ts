@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isOutputStyleId, type OutputStyleId } from "../../../resources/gui-bridge/output-style-contracts";
+import { isOutputStyleId, type OutputStyleId } from "../../../resources/gui-bridge/modes/output-style-contracts";
 
 /**
  * How long and how structured the agent's replies are (Settings › General,

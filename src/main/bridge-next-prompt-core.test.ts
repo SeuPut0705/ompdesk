@@ -1,5 +1,5 @@
 /**
- * Rules of the built-in prompt suggestions (resources/gui-bridge/next-prompt-core.ts):
+ * Rules of the built-in prompt suggestions (resources/gui-bridge/modes/next-prompt-core.ts):
  * candidate cleaning, the `<app-state>` section and the facts behind it, the inline-completion draft rules,
  * the debounce/abort schedulers and the cost they bound, the failure classes.
  */
@@ -15,7 +15,7 @@ import {
 	nextPromptFromPrefs,
 	normalizeNextPrompt,
 	parseNextPromptEnv,
-} from "../../resources/gui-bridge/next-prompt-contracts";
+} from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import {
 	buildAppState,
 	buildInlineRequest,
@@ -53,7 +53,7 @@ import {
 	suggestionStateKey,
 	type Timers,
 	userRegister,
-} from "../../resources/gui-bridge/next-prompt-core";
+} from "../../resources/gui-bridge/modes/next-prompt-core";
 
 /** A virtual clock: timers fire only when the test advances it. */
 class FakeClock implements Timers {

@@ -168,9 +168,9 @@ describe("mac bundle configs", () => {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			const bridge = config.extraResources?.find(resource => resource.to === "gui-bridge");
 			expect(bridge?.from, file).toBe("resources/gui-bridge");
-			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "auto-mode-contracts.ts");
-			expect(fs.existsSync(source), `${file} omits auto-mode-contracts.ts`).toBe(true);
-			const core = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/gui-bridge/auto-mode-core.ts"), "utf8");
+			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "modes/auto-mode-contracts.ts");
+			expect(fs.existsSync(source), `${file} omits modes/auto-mode-contracts.ts`).toBe(true);
+			const core = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/gui-bridge/modes/auto-mode-core.ts"), "utf8");
 			expect(core).toContain('from "./auto-mode-contracts"');
 			expect(fs.readFileSync(source, "utf8")).not.toMatch(/^\s*import\s/m);
 		}

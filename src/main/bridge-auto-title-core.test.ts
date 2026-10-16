@@ -9,7 +9,7 @@ import {
 	TITLE_TRIGGER,
 	titleEffective,
 	titleSuppressedByEnv,
-} from "../../resources/gui-bridge/auto-title-contracts";
+} from "../../resources/gui-bridge/modes/auto-title-contracts";
 import {
 	conciseTitle,
 	DEFAULT_GATE_RULES,
@@ -27,7 +27,7 @@ import {
 	titleLanguageLine,
 	titleShorterLine,
 	WEIGHT,
-} from "../../resources/gui-bridge/auto-title-core";
+} from "../../resources/gui-bridge/modes/auto-title-core";
 
 describe("auto title contracts", () => {
 	it("defaults on, reads a malformed value as on, and lets the sub-switch count only under the main one", () => {

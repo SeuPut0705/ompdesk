@@ -3,7 +3,7 @@ import {
 	AUTO_MODE_TIMEOUT_MS,
 	type AutoModeActive,
 	autoModeFromPref,
-} from "../../resources/gui-bridge/auto-mode-contracts";
+} from "../../resources/gui-bridge/modes/auto-mode-contracts";
 import {
 	type AutoModeGuardInput,
 	autoModeCriteria,
@@ -12,13 +12,13 @@ import {
 	MIN_CLASSIFIED_CHARS,
 	modeFromAnswer,
 	OBJECTIVE_MAX_CHARS,
-} from "../../resources/gui-bridge/auto-mode-core";
+} from "../../resources/gui-bridge/modes/auto-mode-core";
 import {
 	autoModeFlags,
 	markPlanRejected,
 	markSuppressed,
 	resetAutoModeFlags,
-} from "../../resources/gui-bridge/auto-mode-state";
+} from "../../resources/gui-bridge/modes/auto-mode-state";
 
 const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false, ratchet: false };
 

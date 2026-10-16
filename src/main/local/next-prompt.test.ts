@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { INLINE_MAX_DRAFT_CHARS } from "../../../resources/gui-bridge/next-prompt-contracts";
+import { INLINE_MAX_DRAFT_CHARS } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { localHandlerFor } from "./index";
 import { handlers } from "./next-prompt";
 import type { LocalCommandContext } from "./types";

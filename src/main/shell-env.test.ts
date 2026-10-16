@@ -3,10 +3,10 @@ import * as os from "node:os";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AutoTitleSettings } from "../../resources/gui-bridge/auto-title-contracts";
-import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
-import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
-import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
+import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import {
 	resetLoginShellEnvCache,
