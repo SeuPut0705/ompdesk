@@ -20,11 +20,19 @@ extraResources:
     to: gui-bridge
   - from: resources/omp-builtin
     to: omp-builtin
-  # Third-party attribution (Apache-2.0 section 4) and the license texts it names.
+  # OMPdesk's own license, its third-party attribution (NOTICE and the license texts
+  # it names), the generated third-party notices (bun run gen:licenses) and Electron's
+  # Chromium notices, which electron-builder does not copy into a macOS bundle.
+  - from: LICENSE
+    to: LICENSE
   - from: NOTICE
     to: NOTICE
+  - from: THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
   - from: LICENSES
     to: LICENSES
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: LICENSES.chromium.html
 # `omp://` deep links only work if LaunchServices sees CFBundleURLTypes, which
 # this block is the only thing that writes. Without it `open-url` never fires in
 # an installed build and the handler in src/main/deep-link.ts is dead code.

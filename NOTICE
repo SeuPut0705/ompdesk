@@ -1,7 +1,8 @@
 OMPdesk
-Copyright (c) 2026 SeuPut
+Copyright (C) 2026 SeuPut
 
-OMPdesk is licensed under the MIT License (see LICENSE).
+OMPdesk is licensed under the GNU Affero General Public License v3.0 only
+(see LICENSE).
 
 This product includes software adapted from Mixdog
 (https://github.com/tribgames/mixdog), Copyright (c) 2026 tribgames,
@@ -22,7 +23,7 @@ Ported files (OMPdesk file <- Mixdog file, both relative to their repo root):
 This product includes the reverse-engineer-anything skill from REA
 (https://github.com/morluto/rea, npm package rea-agents), Copyright (c) 2026
 morluto, licensed under the MIT License. It is copied unmodified from the
-pinned rea-agents release into resources/omp-builtin/skills/
+pinned rea-agents release into resources/omp-builtin/rea/skills/
 reverse-engineer-anything/ (license text in its LICENSE file), except for one
 added "OMPdesk built-in" section in SKILL.md.
 

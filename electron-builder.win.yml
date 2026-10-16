@@ -15,11 +15,19 @@ extraResources:
     to: gui-bridge
   - from: resources/omp-builtin
     to: omp-builtin
-  # Third-party attribution (Apache-2.0 section 4) and the license texts it names.
+  # OMPdesk's own license, its third-party attribution (NOTICE and the license texts
+  # it names), the generated third-party notices (bun run gen:licenses) and Electron's
+  # Chromium notices.
+  - from: LICENSE
+    to: LICENSE
   - from: NOTICE
     to: NOTICE
+  - from: THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
   - from: LICENSES
     to: LICENSES
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: LICENSES.chromium.html
 protocols:
   - name: omp
     schemes:

@@ -173,6 +173,38 @@ describe("mac bundle configs", () => {
 		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
+	it("ships OMPdesk's AGPL-3.0 LICENSE and the generated third-party notices on both platforms", () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
+				expect(config.extraResources, file).toContainEqual({ from: name, to: name });
+				expect(fs.existsSync(path.join(PACKAGE_ROOT, name)), `${file}: ${name} is missing`).toBe(true);
+			}
+			// electron-builder leaves Chromium's notices out of a macOS bundle; Electron's MIT text and
+			// Chromium's third-party licenses must travel with the app.
+			expect(config.extraResources, file).toContainEqual({
+				from: "node_modules/electron/dist/LICENSES.chromium.html",
+				to: "LICENSES.chromium.html",
+			});
+			// No installer license page: the license ships as a file, not a click-through.
+			expect(config.nsis, file).not.toHaveProperty("license");
+		}
+		const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")) as {
+			license?: string;
+		};
+		expect(manifest.license).toBe("AGPL-3.0-only");
+		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8")).toContain(
+			"GNU AFFERO GENERAL PUBLIC LICENSE",
+		);
+		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8")).toContain(
+			"GNU Affero General Public License v3.0 only",
+		);
+		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
+		expect(notices).toContain("electron ");
+		expect(notices).toContain("LICENSES.chromium.html");
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "node_modules/electron/dist/LICENSES.chromium.html"))).toBe(true);
+	});
+
 	it("ships the shared auto-mode contract inside the bridge on macOS and Windows", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
