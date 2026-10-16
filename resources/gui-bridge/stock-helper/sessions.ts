@@ -102,6 +102,8 @@ function paths(params: unknown): { sessionsRoot: string; sessionPath?: string } 
 
 /** Stock session-listing's placeholder when its bounded prefix scan finds no first prompt. */
 const NO_MESSAGES = "(no messages)";
+/** First message of a session that has conversation but no prompt text (e.g. an image-only prompt). */
+const NO_TEXT_LABEL = "(no text)";
 /** Most bytes streamed to find a first prompt (stock's own header read bound). */
 const FIRST_PROMPT_READ_LIMIT = 1024 * 1024;
 /** Journal entries stock writes around a session that are not conversation (header, settings, hidden notices). */
@@ -180,7 +182,9 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 				// Unreadable now (stock's own scan skips such files too): keep stock's row.
 				return;
 			}
-			const firstMessage = text || (!conversation && row.size <= FIRST_PROMPT_READ_LIMIT ? "" : null);
+			// No text but conversation (an image-only prompt) or too large to tell: label it so it stays listed;
+			// only a header-only file read to its end is empty.
+			const firstMessage = text || (!conversation && row.size <= FIRST_PROMPT_READ_LIMIT ? "" : NO_TEXT_LABEL);
 			firstPrompts.set(row.path, { stamp, firstMessage });
 			if (firstMessage !== null) row.firstMessage = firstMessage;
 		}),
