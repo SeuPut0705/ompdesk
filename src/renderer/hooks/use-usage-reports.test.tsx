@@ -2,10 +2,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { USAGE_POLL_MS } from "../lib/usage-reports";
+import { USAGE_POLL_MS, type UsageRead } from "../lib/usage-reports";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
-import { useUsageReports } from "./use-usage-reports";
+import { type UsageFeed, useUsage, useUsageRead, useUsageReports } from "./use-usage-reports";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -83,5 +83,31 @@ describe("useUsageReports", () => {
 		expect(getUsage).toHaveBeenCalledTimes(4);
 		await render(["board"]);
 		expect(getUsage).toHaveBeenCalledTimes(5);
+	});
+
+	it("counts only the schedule's reads, keeps the reports through a failed one, and shows a read made outside the poll", async () => {
+		let feed: UsageFeed | undefined;
+		let readOutside: ((refresh?: boolean) => Promise<UsageRead>) | undefined;
+		function FeedSurface() {
+			feed = useUsage(usage => usage);
+			readOutside = useUsageRead();
+			return null;
+		}
+		await act(async () => root.render(<FeedSurface />));
+		expect(feed).toEqual({ reports: [report], error: null, polls: 0 });
+
+		getUsage.mockResolvedValueOnce({ success: false, error: "bridge gone" } as never);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
+		});
+		expect(feed).toEqual({ reports: [report], error: "bridge gone", polls: 1 });
+
+		const later = { ...report, account: "work@example.com" };
+		getUsage.mockResolvedValueOnce({ success: true, data: { reports: [later] } });
+		await act(async () => {
+			await readOutside?.(true);
+		});
+		expect(getUsage).toHaveBeenLastCalledWith(true);
+		expect(feed).toEqual({ reports: [later], error: null, polls: 1 });
 	});
 });

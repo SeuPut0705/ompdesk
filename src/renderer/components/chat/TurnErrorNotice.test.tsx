@@ -64,7 +64,7 @@ beforeEach(() => {
 		prefs,
 	});
 	useModelStore.setState({ model: { provider: "anthropic", id: "claude" } as never });
-	useSessionStore.setState({ sessionId: "session-1" });
+	useSessionStore.setState({ sessionId: "session-1", status: "ready" });
 	useMessagesStore.setState({ messages: [{ role: "assistant", content: [], timestamp: 7 }] as never });
 });
 
@@ -72,7 +72,7 @@ afterEach(async () => {
 	await unmount();
 	useQuotaResumeStore.getState().reset();
 	useMessagesStore.setState({ messages: [] });
-	useSessionStore.setState({ sessionId: null } as never);
+	useSessionStore.setState({ sessionId: null, status: "starting" } as never);
 	useModelStore.setState({ model: null });
 	vi.clearAllMocks();
 });

@@ -45,7 +45,7 @@ const jobsPoll = new TabPoll<RpcAsyncJobItem[]>(NO_JOBS, (rpc, publish) => {
  * beats a wrong one, and the Background tasks view reports the error.
  */
 export function useBackgroundJobs(): RpcAsyncJobItem[] {
-	return useTabPoll(jobsPoll, true);
+	return useTabPoll(jobsPoll, true, jobs => jobs);
 }
 
 function sameJobs(a: readonly RpcAsyncJobItem[], b: readonly RpcAsyncJobItem[]): boolean {

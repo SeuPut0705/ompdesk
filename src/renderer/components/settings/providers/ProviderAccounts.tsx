@@ -21,7 +21,6 @@ import { copyText, formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useLiveUsage } from "../../../lib/usage-reports";
 import { accountWindows } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from "../../common";
@@ -55,14 +54,15 @@ export interface ProviderAccountsState {
 /**
  * The stored accounts of one provider. Reads while `enabled` (connected, lists
  * accounts, omp ready) and again whenever `revision` changes: a sign-in or
- * sign-out elsewhere on the page. While `live` too it keeps the quotas current
- * (lib/usage-reports.ts).
+ * sign-out elsewhere on the page. The quotas stay current with the tab's usage
+ * poll: each move of `usagePolls` (`UsageFeed.polls`, hooks/use-usage-reports.ts)
+ * re-reads them quietly.
  */
 export function useProviderAccounts(
 	providerId: string,
 	enabled: boolean,
 	revision: number,
-	live = false,
+	usagePolls: number,
 ): ProviderAccountsState {
 	const t = useT();
 	const tabRpc = useTabRpc();
@@ -100,11 +100,12 @@ export function useProviderAccounts(
 	useEffect(() => {
 		if (enabled) void load();
 	}, [enabled, load, revision]);
-	// A quota whose read failed counts against the poll, so it backs off.
-	useLiveUsage(async () => {
-		const next = await load({ quiet: true });
-		return next !== null && next.usageError === undefined;
-	}, enabled && live);
+	const seenPolls = useRef(usagePolls);
+	useEffect(() => {
+		if (seenPolls.current === usagePolls) return;
+		seenPolls.current = usagePolls;
+		if (enabled) void load({ quiet: true });
+	}, [usagePolls, enabled, load]);
 
 	return { result, error, loading, load };
 }

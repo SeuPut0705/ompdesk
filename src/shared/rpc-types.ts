@@ -2162,22 +2162,6 @@ export interface ResetPassRedeemResult {
 	cleared?: string[];
 }
 
-export interface UsageSessionStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	totalTokens: number;
-	orchestrationTokens: number;
-	premiumRequests: number;
-	cost: number;
-}
-
-export interface UsageResult {
-	reports: UsageReport[];
-	session: UsageSessionStats;
-}
-
 // ============================================================================
 // Provider accounts (several sign-ins per login provider)
 // ============================================================================

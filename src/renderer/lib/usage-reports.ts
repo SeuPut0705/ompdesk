@@ -1,8 +1,9 @@
 /**
  * Live provider quotas for every surface that shows stock's usage reports
  * (Settings › Models & providers accounts and the model table, Stats › Usage,
- * the sidebar usage pin, the usage-limit notice). Each one re-reads while it
- * is on screen:
+ * the sidebar usage pin, the work board, the usage-limit notice). They share
+ * one poll per tab (`hooks/use-usage-reports.ts`), which re-reads while any of
+ * them is on screen:
  *
  * - every {@link USAGE_POLL_MS} through stock's cached read. Stock decides when
  *   to probe the provider (its per-account cache, 5 minutes ±25%, pi-ai
@@ -21,9 +22,8 @@
  * its own age, if the new probe fails (resources/gui-bridge/settings.ts).
  */
 
-import { useEffect, useRef } from "react";
 import { create } from "zustand";
-import type { UsageLimit, UsageReport } from "../../shared/rpc-types";
+import type { RpcResponse, UsageLimit, UsageReport } from "../../shared/rpc-types";
 
 export const USAGE_POLL_MS = 30_000;
 export const USAGE_BACKOFF_MAX_MS = 5 * 60_000;
@@ -45,6 +45,22 @@ export const useUsageSignal = create<UsageSignalState>()(set => ({
 	turnEnded: () => set(state => ({ turnEnds: state.turnEnds + 1 })),
 	reset: () => set({ turnEnds: 0 }),
 }));
+
+/** One `get_usage` answer: the reports, or why the read failed. */
+export type UsageRead = { ok: true; reports: UsageReport[] } | { ok: false; error: string };
+
+/** The one reader of a `get_usage` response; a success without a `reports` array reads as none. */
+export function readUsageReports(response: RpcResponse): UsageRead {
+	if (!response.success) return { ok: false, error: response.error };
+	const data = response.data;
+	return {
+		ok: true,
+		reports:
+			typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+				? data.reports
+				: [],
+	};
+}
 
 /**
  * The report of the account a provider's quota is shown for: the one this
@@ -116,11 +132,4 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 		document.removeEventListener("visibilitychange", event);
 		unsubscribe();
 	};
-}
-
-/** {@link watchUsage} while `active`, with the latest `read`. */
-export function useLiveUsage(read: () => Promise<boolean>, active: boolean): void {
-	const readRef = useRef(read);
-	readRef.current = read;
-	useEffect(() => (active ? watchUsage(() => readRef.current()) : undefined), [active]);
 }

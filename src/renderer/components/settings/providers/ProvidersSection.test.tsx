@@ -89,6 +89,10 @@ const getProviderAccounts = vi.fn(
 		data: { providerId: "anthropic", accounts: [] },
 	}),
 );
+/** The tab's usage poll, whose schedule re-reads the account quotas. */
+const getUsage = vi.fn(
+	async (): Promise<RpcResponse> => ({ type: "response", command: "get_usage", success: true, data: { reports: [] } }),
+);
 const listProviders = vi.fn(
 	async (): Promise<CustomProvidersConfig> => ({ providers: [], options: fixtureProviderOptions }),
 );
@@ -99,7 +103,15 @@ const accountRotationGet = vi.fn(async () => ({ mode: "quota" as const, evenSupp
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: routeCommands({ getProviders, logout, disconnectProvider, login, cancelLogin, getProviderAccounts }),
+		rpc: routeCommands({
+			getProviders,
+			logout,
+			disconnectProvider,
+			login,
+			cancelLogin,
+			getProviderAccounts,
+			getUsage,
+		}),
 		models: { listProviders },
 		ui: { respondExtensionUi },
 		system: { openExternal },

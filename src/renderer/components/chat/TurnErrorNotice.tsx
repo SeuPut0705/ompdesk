@@ -1,13 +1,12 @@
 import { Ban, RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import type { UsageReport } from "../../../shared/rpc-types";
+import { useMemo, useState } from "react";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
+import { useUsageReports } from "../../hooks/use-usage-reports";
 import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useLiveUsage } from "../../lib/usage-reports";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
@@ -68,29 +67,17 @@ export function TurnErrorNotice({
 	const provider = useModelStore(state => state.model?.provider);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const booked = useQuotaResumeStore(state => (sessionId ? state.reservations[sessionId] : undefined));
-	const [resetAt, setResetAt] = useState<number>();
+	// Best effort: without a usage report the card keeps its plain guidance. The reset moves when another
+	// account frees up or a reset pass is spent, so it follows the tab's live usage.
+	const reports = useUsageReports(quota);
+	const resetAt = useMemo(
+		() => (reports ? quotaResetAt(reports, provider, Date.now()) : undefined),
+		[reports, provider],
+	);
 	// main's backoff retry of this failed turn (turn-resume.ts): counted down on the card of the latest failure only.
 	const scheduled = useScheduledRetry();
 	const retryArmed = scheduled !== null && latest;
 	const now = useNowTick((quota && (resetAt !== undefined || booked !== undefined)) || retryArmed);
-
-	/** Best effort: without a usage report the card keeps its plain guidance. */
-	const readReset = useCallback(async (): Promise<boolean> => {
-		const response = await rpc.getUsage();
-		if (!response.success) return false;
-		const data: unknown = response.data;
-		const reports: UsageReport[] =
-			typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
-				? data.reports
-				: [];
-		setResetAt(quotaResetAt(reports, provider, Date.now()));
-		return true;
-	}, [rpc, provider]);
-	useEffect(() => {
-		if (quota) void readReset().catch(() => undefined);
-	}, [quota, readReset]);
-	// The reset moves when another account frees up or a reset pass is spent.
-	useLiveUsage(readReset, quota);
 
 	if (description.kind === "aborted") {
 		return (

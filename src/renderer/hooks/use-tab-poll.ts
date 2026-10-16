@@ -47,6 +47,12 @@ export class TabPoll<T> {
 		return feed ? feed.value : this.initial;
 	}
 
+	/** Show `update` of a tab's value on every surface showing it: a read made outside the poll. Nothing shows it: dropped. */
+	publish(key: string, update: (current: T) => T): void {
+		const feed = this.#feeds.get(key);
+		if (feed) show(feed, update);
+	}
+
 	/** Forget a feed nothing shows or polls any more: the next surface starts from its own first read. */
 	release(key: string, feed: Feed<T>): void {
 		if (feed.listeners.size === 0 && feed.readers.size === 0 && this.#feeds.get(key) === feed)
@@ -54,15 +60,28 @@ export class TabPoll<T> {
 	}
 }
 
-/**
- * This tab's value of `poll`: the pane's tab, or outside a pane the focused one (whose rpc the window's
- * route reaches), so the sidebar and the focused pane share one feed. Polls while `active`.
- */
-export function useTabPoll<T>(poll: TabPoll<T>, active: boolean): T {
-	const rpc = useTabRpc();
+function show<T>(feed: Feed<T>, update: (current: T) => T): void {
+	const value = update(feed.value);
+	if (Object.is(value, feed.value)) return;
+	feed.value = value;
+	for (const listener of feed.listeners) listener();
+}
+
+/** The tab a surface's polls follow: the pane's tab, or outside a pane the focused one. */
+export function useTabPollKey(): string {
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
-	const key = runtimeTabId ?? activeTabId ?? "";
+	return runtimeTabId ?? activeTabId ?? "";
+}
+
+/**
+ * `select` of this tab's value of `poll`: the pane's tab, or outside a pane the focused one (whose rpc the
+ * window's route reaches), so the sidebar and the focused pane share one feed. Polls while `active`. A surface
+ * re-renders only when what it selects changes.
+ */
+export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (value: T) => S): S {
+	const rpc = useTabRpc();
+	const key = useTabPollKey();
 
 	useEffect(() => {
 		if (!active) return;
@@ -75,12 +94,7 @@ export function useTabPoll<T>(poll: TabPoll<T>, active: boolean): T {
 		else
 			feed.poller = poll.start(
 				() => feed.readers.values().next().value?.rpc,
-				update => {
-					const value = update(feed.value);
-					if (Object.is(value, feed.value)) return;
-					feed.value = value;
-					for (const listener of feed.listeners) listener();
-				},
+				update => show(feed, update),
 			);
 		return () => {
 			feed.readers.delete(reader);
@@ -103,5 +117,7 @@ export function useTabPoll<T>(poll: TabPoll<T>, active: boolean): T {
 		},
 		[poll, key],
 	);
-	return useSyncExternalStore(subscribe, () => poll.value(key));
+	// A static render (renderToString in tests) reads the same value.
+	const snapshot = () => select(poll.value(key));
+	return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

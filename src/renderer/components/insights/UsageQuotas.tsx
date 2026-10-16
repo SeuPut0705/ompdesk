@@ -2,25 +2,24 @@
  * Insights › Usage: provider quota reports — one card per stored account
  * (several sign-ins of one provider each get their own) with limit bars,
  * reset countdowns, how old each report is and provider notes. Reports come
- * from stock's usage cache, read when the tab mounts, when the active session
- * tab changes, and live while the page is open (lib/usage-reports.ts); the
- * explicit refresh has stock probe every provider now. The session's own
+ * from stock's usage cache through the tab's one usage poll
+ * (hooks/use-usage-reports.ts): read when the page mounts, when it shows
+ * another session tab, and live while it is open; the explicit refresh has
+ * stock probe every provider now. The session's own
  * token/cost figures live in Insights › Stats › This session. An account with
  * saved rate-limit resets shows them and can spend one (ResetPassControl).
  */
 
 import { Gauge, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
+import { useUsage, useUsageRead } from "../../hooks/use-usage-reports";
 import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
-import { type SessionStore, useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, Spinner } from "../common";
 import { ResetPassControl, resetPassSummary } from "../settings/providers/ResetPasses";
@@ -156,80 +155,40 @@ function ProviderReportCard({
 }
 
 export function UsageQuotas() {
-	const tabRpc = useTabRpc();
-	const tabId = useRuntimeTabId();
 	const t = useT();
 	const ready = useSessionStore(s => s.status) === "ready";
-	const sessionId = useSessionStore(s => s.sessionId);
 	const openInsights = useUiStore(s => s.openInsights);
-	const [reports, setReports] = useState<UsageReport[] | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [loading, setLoading] = useState(false);
+	const feed = useUsage(usage => usage);
+	const readUsage = useUsageRead();
+	const [reading, setReading] = useState(false);
 	const refreshProviders = useModelStore(s => s.refreshProviders);
-	// Read through a ref: the catalog arriving must not change `load` and re-read the quotas.
+	// Read through a ref: the catalog arriving must not re-run the catalog read below.
 	const providerCount = useRef(0);
 	providerCount.current = useModelStore(s => s.providers.length);
 	const now = useNowTick(true);
+	const reports = ready ? feed.reports : null;
+	const error = ready ? feed.error : t("usage.notConnected");
+	const loading = reading || (ready && feed.reports === null && feed.error === null);
 
-	/** The tab/session a quota read was issued for. A late response from a tab
-	 * that is no longer frontmost must not overwrite the new tab's numbers. */
-	const ownerRef = useRef<string | null>(null);
+	// The cards name providers from the catalog; read it once when nothing has yet.
+	useEffect(() => {
+		if (reports && reports.length > 0 && providerCount.current === 0)
+			void refreshProviders(false).catch(() => undefined);
+	}, [reports, refreshProviders]);
 
 	/**
-	 * Reads the quotas; resolves to the reports, `null` when the read failed or a
-	 * newer read took over. `refresh` has stock probe every provider first; a
-	 * `quiet` read (the live poll) leaves the button and the error as they are
-	 * until it has an answer.
+	 * A read outside the poll; resolves to the reports, `null` when it failed. `refresh` has stock probe every
+	 * provider first.
 	 */
-	const load = useCallback(
-		async ({ refresh = false, quiet = false } = {}): Promise<UsageReport[] | null> => {
-			if (!quiet) {
-				setLoading(true);
-				setError(null);
-			}
-			if (!ready) {
-				setError(t("usage.notConnected"));
-				setLoading(false);
-				return null;
-			}
-			const owner = `${tabId}/${sessionId}`;
-			ownerRef.current = owner;
-			const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
-			try {
-				const res = await tabRpc.getUsage(refresh);
-				if (ownerRef.current !== owner || originSession.getState().sessionId !== sessionId) return null;
-				if (!res.success) {
-					setError(res.error);
-					return null;
-				}
-				const data: unknown = res.data;
-				const next: UsageReport[] =
-					typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
-						? data.reports
-						: [];
-				setReports(next);
-				setError(null);
-				// The cards name providers from the catalog; read it once when nothing has yet.
-				if (next.length > 0 && providerCount.current === 0) void refreshProviders(false).catch(() => undefined);
-				return next;
-			} catch (cause) {
-				if (ownerRef.current === owner) setError(String(cause));
-				return null;
-			} finally {
-				if (ownerRef.current === owner && !quiet) setLoading(false);
-			}
-		},
-		[ready, t, tabId, sessionId, tabRpc.getUsage, refreshProviders],
-	);
-
-	// Mounting and moving to another tab behind the page are the two moments
-	// that need a fresh read; `load` identity tracks the tab, its session and
-	// the sidecar being ready. The previous tab's reports leave first.
-	useEffect(() => {
-		setReports(null);
-		void load();
-	}, [load]);
-	useLiveUsage(async () => (await load({ quiet: true })) !== null, ready);
+	const read = async (refresh: boolean): Promise<UsageReport[] | null> => {
+		setReading(true);
+		try {
+			const result = await readUsage(refresh);
+			return result.ok ? result.reports : null;
+		} finally {
+			setReading(false);
+		}
+	};
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -239,7 +198,7 @@ export function UsageQuotas() {
 					disabled={!ready}
 					icon={<RefreshCw />}
 					loading={loading}
-					onClick={() => void load({ refresh: true })}
+					onClick={() => void read(true)}
 					size="sm"
 					title={!ready ? t("usage.notConnected") : undefined}
 					variant="secondary"
@@ -277,7 +236,7 @@ export function UsageQuotas() {
 							key={`${report.provider}-${report.credentialId ?? report.account ?? index}`}
 							now={now}
 							onRedeemed={async () =>
-								(await load())?.find(
+								(await read(false))?.find(
 									entry => entry.provider === report.provider && entry.credentialId === report.credentialId,
 								)?.limits
 							}

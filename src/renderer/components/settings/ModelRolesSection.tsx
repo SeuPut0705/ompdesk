@@ -21,17 +21,11 @@ import {
 	roleGroup,
 } from "../../../../resources/gui-bridge/model-role-contracts";
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates";
-import type {
-	ModelRoleEntry,
-	ModelRolesResult,
-	RpcAgentDefinitionInfo,
-	UsageReport,
-	UsageResult,
-} from "../../../shared/rpc-types";
+import type { ModelRoleEntry, ModelRolesResult, RpcAgentDefinitionInfo } from "../../../shared/rpc-types";
+import { useUsageRead, useUsageReports } from "../../hooks/use-usage-reports";
 import { useCompactionPoints } from "../../lib/compaction-limits";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -65,7 +59,6 @@ export function ModelRolesSection() {
 	const refreshProviders = useModelStore(s => s.refreshProviders);
 
 	const [roles, setRoles] = useState<ModelRoleEntry[]>([]);
-	const [usage, setUsage] = useState<UsageReport[]>([]);
 	const [agents, setAgents] = useState<RpcAgentDefinitionInfo[]>([]);
 	const [loaded, setLoaded] = useState(false);
 	const [loading, setLoading] = useState(false);
@@ -74,18 +67,10 @@ export function ModelRolesSection() {
 	const [dialog, setDialog] = useState<{ edit?: ModelRoleEntry } | null>(null);
 	const [removing, setRemoving] = useState<ModelRoleEntry | null>(null);
 
-	/** The account state and quota beside a row are context: a failed read leaves the rows, never blocks them. */
-	const loadUsage = useCallback(async (): Promise<boolean> => {
-		try {
-			const res = await tabRpc.getUsage();
-			if (!res.success) return false;
-			setUsage((res.data as UsageResult).reports);
-			return true;
-		} catch {
-			return false;
-		}
-	}, [tabRpc.getUsage]);
-	useLiveUsage(loadUsage, sidecarReady);
+	// The account state and quota beside a row are context, read through the tab's one usage poll
+	// (hooks/use-usage-reports.ts): a failed read leaves the rows, never blocks them.
+	const usage = useUsageReports() ?? [];
+	const readUsage = useUsageRead();
 
 	const loadAgents = useCallback(async () => {
 		try {
@@ -130,11 +115,10 @@ export function ModelRolesSection() {
 	}, [load]);
 	useEffect(() => {
 		if (!sidecarReady) return;
-		void loadUsage();
 		void loadAgents();
 		// The account state beside each row; the catalog the app already holds shows until this answers.
 		refreshProviders().catch(() => undefined);
-	}, [sidecarReady, loadUsage, loadAgents, refreshProviders]);
+	}, [sidecarReady, loadAgents, refreshProviders]);
 
 	const visible = useMemo(() => roles.filter(role => !role.hidden), [roles]);
 	const nameOf = useCallback(
@@ -252,7 +236,7 @@ export function ModelRolesSection() {
 					loading={loading}
 					onClick={() => {
 						void load();
-						void loadUsage();
+						void readUsage();
 						void loadAgents();
 					}}
 					size="sm"

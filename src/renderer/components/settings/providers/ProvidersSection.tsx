@@ -21,6 +21,7 @@ import { CircleDashed, FileCode2, KeyRound, LogOut, Pencil, Plus, RefreshCw, Tra
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
+import { useUsage } from "../../../hooks/use-usage-reports";
 import { errorDetail } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -58,6 +59,11 @@ import { groupProviders, providerDiscoveryErrors } from "./provider-catalog";
 import { sortProvidersByCompany } from "./provider-marks";
 import { RotationModeControl } from "./RotationModeControl";
 
+/** A subscription sign-in can hold several accounts (stock lists them for OAuth providers). */
+function listsAccounts(provider: ProviderInfo): boolean {
+	return provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
+}
+
 /** The row(s) of one connected provider: an account each for a subscription, else one row. */
 function ConnectedProviderRows({
 	provider,
@@ -67,6 +73,7 @@ function ConnectedProviderRows({
 	sidecarReady,
 	handlers,
 	revision,
+	usagePolls,
 	onChanged,
 	onAccounts,
 }: {
@@ -77,15 +84,15 @@ function ConnectedProviderRows({
 	sidecarReady: boolean;
 	handlers: RowHandlers;
 	revision: number;
+	/** The tab's usage poll count (`UsageFeed.polls`): each move re-reads the account quotas. */
+	usagePolls: number;
 	onChanged: () => Promise<unknown>;
 	/** Each account read of this provider, for the account pool editor (one read serves both). */
 	onAccounts: (providerId: string, result: ProviderAccountsResult | null) => void;
 }) {
 	const t = useT();
-	// A subscription sign-in can hold several accounts (stock lists them for OAuth providers).
-	const accounts = provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
-	// The list is always open, so the quotas are always live.
-	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, true);
+	const accounts = listsAccounts(provider);
+	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, usagePolls);
 	useEffect(() => onAccounts(provider.id, state.result), [onAccounts, provider.id, state.result]);
 	if (accounts) {
 		return (
@@ -297,6 +304,8 @@ export function ProvidersSection({
 		);
 	}, []);
 	const { providers, load } = catalog;
+	// The account rows' quotas follow the tab's one usage poll, joined here once while any row lists accounts.
+	const usagePolls = useUsage(feed => feed.polls, !(providerForm && catalog.options) && providers.some(listsAccounts));
 
 	const onConnected = useCallback(
 		async (providerId: string) => {
@@ -474,6 +483,7 @@ export function ProvidersSection({
 								provider={provider}
 								revision={accountsRevision}
 								sidecarReady={catalog.sidecarReady}
+								usagePolls={usagePolls}
 							/>
 						))}
 					</ul>

@@ -10,8 +10,8 @@
  *
  * Catalog note: the model and provider columns come from the per-tab model
  * store, not a private copy. A `model_catalog_update` push and an opening read
- * race, and only the store's generation guard can tell which won; roles and
- * usage are separate feeds and stay local.
+ * race, and only the store's generation guard can tell which won; roles stay
+ * local, usage is the tab's shared poll (hooks/use-usage-reports.ts).
  *
  * Wire note: `get_available_models` serializes full catalog `Model` objects —
  * `cost {input,output,cacheRead,cacheWrite}` ($/1M tokens),
@@ -30,13 +30,13 @@ import type {
 	ProviderInfo,
 	UsageLimit,
 	UsageReport,
-	UsageResult,
 } from "../../../shared/rpc-types";
+import { useUsage, useUsageRead } from "../../hooks/use-usage-reports";
 import { cx, formatTokens } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { inUseReport, tightestLimit, useLiveUsage } from "../../lib/usage-reports";
+import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -244,7 +244,9 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 
 	const [roles, setRoles] = useState<ModelRoleEntry[] | null>(null);
 	const [roleMeta, setRoleMeta] = useState<ModelRoleMetadata[] | null>(null);
-	const [usage, setUsage] = useState<UsageReport[] | null>(null);
+	// The quota column reads through the tab's one usage poll (hooks/use-usage-reports.ts).
+	const { reports: usage, error: usageError } = useUsage(feed => feed);
+	const readUsage = useUsageRead();
 	const [loading, setLoading] = useState(false);
 	const [fatalError, setFatalError] = useState<string | null>(null);
 	const [failedSections, setFailedSections] = useState<string[]>([]);
@@ -264,11 +266,10 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 		// One forced read for both catalog columns: models and providers must come
 		// from the same generation, and a non-forced one is satisfied by a
 		// still-fresh cache row after a credential or models.yml change.
-		const [catalogR, rolesR, metaR, usageR] = await Promise.allSettled([
+		const [catalogR, rolesR, metaR] = await Promise.allSettled([
 			refreshProviders(true),
 			tabRpc.getModelRoles(),
 			tabRpc.getModelRoleMetadata(),
-			tabRpc.getUsage(),
 		]);
 		const failed: string[] = [];
 
@@ -293,16 +294,9 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 			setRoleMeta(null);
 		}
 
-		if (usageR.status === "fulfilled" && usageR.value.success) {
-			setUsage((usageR.value.data as UsageResult | undefined)?.reports ?? []);
-		} else {
-			setUsage(null);
-			failed.push(t("modelCompare.col.quota"));
-		}
-
 		setFailedSections(failed);
 		setLoading(false);
-	}, [sidecarReady, t, refreshProviders, tabRpc.getModelRoles, tabRpc.getUsage, tabRpc.getModelRoleMetadata]);
+	}, [sidecarReady, t, refreshProviders, tabRpc.getModelRoles, tabRpc.getModelRoleMetadata]);
 
 	// Mount and every sidecar (re)connect re-read.
 	useEffect(() => {
@@ -319,19 +313,12 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 		}
 	}, [sidecarReady, tabRpc.getModelRoles]);
 
-	/** Live quota column (lib/usage-reports.ts); resolves to whether the read succeeded. */
-	const reloadUsage = useCallback(async (): Promise<boolean> => {
-		const res = await tabRpc.getUsage();
-		if (!res.success) return false;
-		const data: unknown = res.data;
-		setUsage(
-			typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
-				? data.reports
-				: [],
-		);
-		return true;
-	}, [tabRpc.getUsage]);
-	useLiveUsage(reloadUsage, sidecarReady);
+	/** The buttons' full re-read: the catalog, the roles and, outside its poll, the tab's usage. */
+	const reload = () => {
+		void load();
+		if (sidecarReady) void readUsage();
+	};
+	const failed = usageError === null ? failedSections : [...failedSections, t("modelCompare.col.quota")];
 
 	const metaById = useMemo(() => new Map((roleMeta ?? []).map(m => [m.id, m])), [roleMeta]);
 
@@ -683,7 +670,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 			{fatalError !== null && (
 				<InlineNotice
 					action={
-						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
+						<Button icon={<RefreshCw />} onClick={reload} size="sm" variant="ghost">
 							{t("common.retry")}
 						</Button>
 					}
@@ -693,14 +680,14 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 					tone="danger"
 				/>
 			)}
-			{failedSections.length > 0 && (
+			{failed.length > 0 && (
 				<InlineNotice
 					action={
-						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
+						<Button icon={<RefreshCw />} onClick={reload} size="sm" variant="ghost">
 							{t("common.retry")}
 						</Button>
 					}
-					title={t("modelCompare.partialWarning", { what: failedSections.join(", ") })}
+					title={t("modelCompare.partialWarning", { what: failed.join(", ") })}
 					tone="warning"
 				/>
 			)}
@@ -744,7 +731,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 						icon={<RefreshCw />}
 						label={t("common.refresh")}
 						loading={loading}
-						onClick={() => void load()}
+						onClick={reload}
 						size="sm"
 					/>
 					<Button icon={<Gauge />} onClick={onOpenBenchmark} size="sm" variant="secondary">
