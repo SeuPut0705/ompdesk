@@ -9,6 +9,8 @@
  * - `goal.continuationModes` lists `rpc` (stock: interactive only).
  * - Stock features OMPdesk turns on: token usage rows, LSP diagnostics after edits,
  *   LSP formatting on write, the ast_grep tool and the advisor.
+ * - `title.icons` = `boring` (stock: `nf+emoji`): session titles are plain text,
+ *   with no icon and code card and no extra title-model request for one.
  *
  * All are runtime overrides on the omp process's Settings: never written to
  * config.yml, so the omp CLI outside OMPdesk keeps stock behavior.
@@ -41,6 +43,8 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"astGrep.enabled": true,
 	// Stock pins it off for RPC/ACP hosts (`protocolDefault`); a pinned default is not the user's choice.
 	"advisor.enabled": true,
+	// Plain session titles: no icon/code card, and no card request to the title model.
+	"title.icons": "boring",
 };
 
 /** Settings stock soft-pins to their default for RPC hosts (`protocolDefault: ["rpc", "acp"]`). */

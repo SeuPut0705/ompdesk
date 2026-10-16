@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
  * agent dir over `--mode rpc` (so stock's `applyProtocolDefaults("rpc")` has run; no model call,
  * nothing prompted). Each is a runtime override from `thinking-default.ts` (`GUI_THINKING_DEFAULTS`):
  *
- * - with no layer setting it, the effective value is on and reported as `runtime`, config.yml is
- *   never written, and the tool set / advisor stock builds from it follows;
+ * - with no layer setting it, the effective value is OMPdesk's (on; `title.icons` = `boring`) and
+ *   reported as `runtime`, config.yml is never written, and the tool set / advisor stock builds from it follows;
  * - `advisor.enabled` is soft-pinned off by stock for RPC hosts; the override replaces that pin;
  * - a Settings write releases the default and wins; resetting it brings the default back;
  * - a value already in config.yml is the user's and wins, `advisor.enabled: false` included.
@@ -21,13 +21,15 @@ import { describe, expect, it } from "vitest";
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
-const HELD = [
-	"display.showTokenUsage",
-	"lsp.diagnosticsOnEdit",
-	"lsp.formatOnWrite",
-	"astGrep.enabled",
-	"advisor.enabled",
-] as const;
+/** Each held setting: OMPdesk's value, and a different one a user writes. */
+const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>> = {
+	"display.showTokenUsage": [true, false],
+	"lsp.diagnosticsOnEdit": [true, false],
+	"lsp.formatOnWrite": [true, false],
+	"astGrep.enabled": [true, false],
+	"advisor.enabled": [true, false],
+	"title.icons": ["boring", "emoji"],
+};
 const UNHELD = [
 	"telemetry.otlpExportEnabled",
 	"display.showTurnTime",
@@ -36,11 +38,16 @@ const UNHELD = [
 	"retry.usageAwareFallback",
 	"retry.waitForUsageReset",
 ] as const;
-const PATHS = [...HELD, ...UNHELD];
+const PATHS = [...Object.keys(HELD), ...UNHELD];
+const WRITES = Object.fromEntries([
+	...Object.entries(HELD).map(([path, [, written]]) => [path, written]),
+	...UNHELD.map(path => [path, false]),
+]);
 
 const PROBE = `
 import { methods } from "./settings";
 const PATHS = ${JSON.stringify(PATHS)};
+const WRITES = ${JSON.stringify(WRITES)};
 export default function (pi) {
  const ready = import("./thinking-default").then(module => module.applyGuiThinkingDefault(pi));
  pi.on("session_start", async () => {
@@ -59,7 +66,7 @@ export default function (pi) {
    const advisor = resolveAdvisorRoleSelection(session.settings, session.modelRegistry.getAvailable());
    out.advisorRole = advisor ? { model: advisor.model.id, thinkingLevel: advisor.thinkingLevel } : null;
    if (process.env.DEFAULTS_PROBE_WRITE === "1") {
-    for (const path of PATHS) await methods.settings_set({ path, value: false }, env);
+    for (const path of PATHS) await methods.settings_set({ path, value: WRITES[path] }, env);
     out.written = await read();
     for (const path of PATHS) await methods.settings_set({ path, value: undefined }, env);
     out.reset = await read();
@@ -125,8 +132,8 @@ function runProbe(configYml: string | undefined, write: boolean) {
 describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", () => {
 	it("holds each as a runtime override over RPC, replacing stock's advisor pin, and releases it on a Settings write", () => {
 		const { probe, config } = runProbe(undefined, true);
-		for (const path of HELD) {
-			expect(probe.initial[path], path).toEqual({ value: true, layers: ["runtime"] });
+		for (const [path, [held]] of Object.entries(HELD)) {
+			expect(probe.initial[path], path).toEqual({ value: held, layers: ["runtime"] });
 		}
 		// Stock pins the advisor off for RPC hosts; the override replaced the pin before the session was built.
 		expect(probe.advisorEnabled).toBe(true);
@@ -143,12 +150,12 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 			expect(probe.initial[path].value, path).toBe(false);
 		}
 		// The user's write wins and persists; resetting brings OMPdesk's default back.
-		for (const path of HELD) {
-			expect(probe.written?.[path], path).toEqual({ value: false, layers: ["global"] });
-			expect(probe.reset?.[path], path).toEqual({ value: true, layers: ["runtime"] });
+		for (const [path, [held, written]] of Object.entries(HELD)) {
+			expect(probe.written?.[path], path).toEqual({ value: written, layers: ["global"] });
+			expect(probe.reset?.[path], path).toEqual({ value: held, layers: ["runtime"] });
 		}
 		// Never written by the defaults themselves.
-		for (const path of HELD) expect(config, path).not.toContain(path.split(".")[1]);
+		for (const path of Object.keys(HELD)) expect(config, path).not.toContain(path.split(".")[1]);
 	}, 130_000);
 
 	it("yields to values already in config.yml, advisor.enabled: false included", () => {
@@ -160,6 +167,8 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 				"  formatOnWrite: false",
 				"advisor:",
 				"  enabled: false",
+				"title:",
+				"  icons: emoji",
 				"",
 			].join("\n"),
 			false,
@@ -167,6 +176,7 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 		for (const path of ["display.showTokenUsage", "lsp.formatOnWrite", "advisor.enabled"]) {
 			expect(probe.initial[path], path).toEqual({ value: false, layers: ["global"] });
 		}
+		expect(probe.initial["title.icons"]).toEqual({ value: "emoji", layers: ["global"] });
 		expect(probe.advisorEnabled).toBe(false);
 		// The rest of the list is still held.
 		expect(probe.initial["lsp.diagnosticsOnEdit"]).toEqual({ value: true, layers: ["runtime"] });

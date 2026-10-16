@@ -2,77 +2,115 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { TITLE_MAX_CJK_CHARS, TITLE_MAX_WORDS } from "../resources/gui-bridge/auto-title-core";
+import { TITLE_MAX_CHARS, TITLE_MAX_CJK_CHARS, TITLE_MAX_WORDS } from "../resources/gui-bridge/auto-title-core";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
-// Explicit opt-in: this audit spends model tokens (one turn on the `smol` model the isolated profile
-// makes the main one, plus the title and its card on stock's title roles) and copies credentials only
-// into a private disposable directory. Ordinary test runs never make calls.
+// Explicit opt-in: this audit spends model tokens (one turn per case on the `smol` model the isolated profile
+// makes the main one, plus the title on stock's title roles) and copies credentials only into a private
+// disposable directory. Ordinary test runs never make calls.
 //
-// A Korean first message under the Korean reply language gets a Korean title: the bridge gives stock's
-// title paths stock's own `title-system.md` plus the language and length line (auto-title-core.ts).
+// A first message gets a short plain title in its own language: the bridge gives stock's title paths stock's own
+// `title-system.md` plus the language, length and form line (auto-title-core.ts), with the reply language as the
+// fallback when it is not English and the same line without it when it is off, and OMPdesk holds
+// `title.icons: boring`, so no icon/code card heads it.
 const RESULT_FILE = "/tmp/real-auto-title.json";
-const PROMPT = "로그인 화면에서 비밀번호를 틀려도 에러 메시지가 안 보이는 버그를 고치는 방법을 한 문장으로 알려 줘.";
+const CASES = [
+	{
+		replyLanguage: "Korean",
+		prompt: "로그인 화면에서 비밀번호를 틀려도 에러 메시지가 안 보이는 버그를 고치는 방법을 한 문장으로 알려 줘.",
+	},
+	{
+		replyLanguage: "Korean",
+		prompt: "작업 현황판 화면 디자인을 더 깔끔하게 바꾸고 싶은데 먼저 무엇부터 보면 좋을지 한 문장으로 알려 줘.",
+	},
+	{
+		replyLanguage: "Korean",
+		prompt: "결제 API 호출이 가끔 타임아웃 나는데 재시도 로직을 어디에 넣으면 좋을지 한 문장으로 알려 줘.",
+	},
+	{
+		replyLanguage: null,
+		prompt:
+			"The CSV export button downloads an empty file whenever the table has filters applied; tell me in one sentence where to look first.",
+	},
+] as const;
 const HANGUL = /\p{Script=Hangul}/u;
 /** Stock's card form, `<icon> <CODE>: <title>` (utils/title-card.ts). */
 const CARD_LINE = /^(\S+) ([A-Z0-9]{1,6}): (\S.*)$/u;
+const EMOJI = /\p{Extended_Pictographic}/u;
 
-test("real omp names a Korean first message with a short Korean title", async () => {
-	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
-	test.setTimeout(420_000);
-	const { profile, project, desktop, env } = await realOmpProfile({ replyLanguage: "Korean", autoTitle: true });
-	// A shell started from an omp session inherits its PI_NO_TITLE (stock sets it for its own RPC modes), which
-	// OMPdesk respects as the person's choice to turn titles off.
-	Reflect.deleteProperty(env, "PI_NO_TITLE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
-	});
-	try {
-		const page = await app.firstWindow();
-		await expect
-			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
-			.toMatchObject({ status: "ready" });
-		// The session's own name (stock `get_state`), not the title bar, which shows the first prompt until then.
-		const sessionName = async () => {
-			const state = await page.evaluate(() => window.omp.rpc.getState());
-			const data = state.data;
-			return data && typeof data === "object" && "sessionName" in data && typeof data.sessionName === "string"
-				? data.sessionName
-				: "";
-		};
-		expect(await sessionName()).toBe("");
-		await page.evaluate(() => {
-			const ends: string[] = [];
-			Object.assign(window, { __turnEnds: ends });
-			window.omp.events.onTabBatch(events => {
-				for (const event of events) if (event.type === "agent_end") ends.push(event.type);
-			});
-		});
+const results: Array<Record<string, unknown>> = [];
 
-		const input = page.locator("textarea").first();
-		await input.fill(PROMPT);
-		await input.press("Enter");
-		await expect
-			.poll(() => page.evaluate(() => (Reflect.get(window, "__turnEnds") as string[]).length), { timeout: 180_000 })
-			.toBeGreaterThan(0);
-		await expect.poll(sessionName, { timeout: 60_000 }).not.toBe("");
-		const title = await sessionName();
-		await expect(page.locator("[data-titlebar-session-name]")).toHaveText(title);
-
-		const plain = CARD_LINE.exec(title)?.[3] ?? title;
-		const words = plain.split(/\s+/).filter(Boolean);
-		const report = { prompt: PROMPT, title, plain, characters: plain.length, words: words.length };
-		await fs.writeFile(RESULT_FILE, JSON.stringify(report, null, 2));
-		console.log(`real-auto-title ${JSON.stringify(report)}`);
-
-		expect(plain).toMatch(HANGUL);
-		expect(words.length).toBeLessThanOrEqual(TITLE_MAX_WORDS);
-		expect(plain.length).toBeLessThanOrEqual(Math.max(TITLE_MAX_CJK_CHARS, words[0]?.length ?? 0));
-		expect(plain).not.toMatch(/…|\.\.\./);
-	} finally {
-		await exitApp(app);
-		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
+test.afterAll(async () => {
+	if (results.length > 0) await fs.writeFile(RESULT_FILE, JSON.stringify(results, null, 2));
 });
+
+for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
+	test(`real omp names first message ${index + 1} with a short plain title in its language`, async () => {
+		test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
+		test.setTimeout(420_000);
+		const { profile, project, desktop, env } = await realOmpProfile({
+			...(replyLanguage ? { replyLanguage } : {}),
+			autoTitle: true,
+		});
+		// A shell started from an omp session inherits its PI_NO_TITLE (stock sets it for its own RPC modes), which
+		// OMPdesk respects as the person's choice to turn titles off.
+		Reflect.deleteProperty(env, "PI_NO_TITLE");
+		const app = await electron.launch({
+			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+			env,
+		});
+		try {
+			const page = await app.firstWindow();
+			await expect
+				.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
+				.toMatchObject({ status: "ready" });
+			// The session's own name (stock `get_state`), not the title bar, which shows the first prompt until then.
+			const sessionName = async () => {
+				const state = await page.evaluate(() => window.omp.rpc.getState());
+				const data = state.data;
+				return data && typeof data === "object" && "sessionName" in data && typeof data.sessionName === "string"
+					? data.sessionName
+					: "";
+			};
+			expect(await sessionName()).toBe("");
+			await page.evaluate(() => {
+				const ends: string[] = [];
+				Object.assign(window, { __turnEnds: ends });
+				window.omp.events.onTabBatch(events => {
+					for (const event of events) if (event.type === "agent_end") ends.push(event.type);
+				});
+			});
+
+			const input = page.locator("textarea").first();
+			await input.fill(prompt);
+			await input.press("Enter");
+			await expect
+				.poll(() => page.evaluate(() => (Reflect.get(window, "__turnEnds") as string[]).length), {
+					timeout: 180_000,
+				})
+				.toBeGreaterThan(0);
+			await expect.poll(sessionName, { timeout: 60_000 }).not.toBe("");
+			const title = await sessionName();
+			await expect(page.locator("[data-titlebar-session-name]")).toHaveText(title);
+
+			const words = title.split(/\s+/).filter(Boolean);
+			const korean = HANGUL.test(prompt);
+			const report = { replyLanguage, prompt, title, characters: title.length, words: words.length };
+			results.push(report);
+			console.log(`real-auto-title ${JSON.stringify(report)}`);
+
+			expect(title).not.toMatch(CARD_LINE);
+			expect(title).not.toMatch(EMOJI);
+			expect(title).not.toMatch(/…|\.\.\./);
+			expect(words.length).toBeLessThanOrEqual(TITLE_MAX_WORDS);
+			const limit = korean ? TITLE_MAX_CJK_CHARS : TITLE_MAX_CHARS;
+			expect(title.length).toBeLessThanOrEqual(Math.max(limit, words[0]?.length ?? 0));
+			if (korean) expect(title).toMatch(HANGUL);
+			else expect(title).not.toMatch(HANGUL);
+		} finally {
+			await exitApp(app);
+			await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+	});
+}

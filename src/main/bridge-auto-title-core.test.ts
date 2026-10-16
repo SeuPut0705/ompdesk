@@ -16,6 +16,7 @@ import {
 	EvolveGate,
 	isRewordedTitle,
 	planTitlePrompt,
+	TITLE_MAX_CHARS,
 	TITLE_MAX_CJK_CHARS,
 	TITLE_MAX_WORDS,
 	type TitleChangeLike,
@@ -177,26 +178,40 @@ describe("EvolveGate", () => {
 });
 
 describe("title language and length", () => {
-	it("asks for the person's language first, the reply language as the fallback, and a short title", () => {
+	it("asks for the person's language first, the reply language as the fallback, and a short plain title", () => {
 		const line = titleLanguageLine("Korean");
 		expect(line).toContain("the language the user writes in");
 		expect(line).toContain("write it in Korean");
+		expect([TITLE_MAX_WORDS, TITLE_MAX_CJK_CHARS, TITLE_MAX_CHARS]).toEqual([4, 12, 30]);
 		expect(line).toContain(`2-${TITLE_MAX_WORDS} words`);
-		expect(line).toContain(`at most ${TITLE_MAX_CJK_CHARS} characters in Korean`);
-		expect(line).toContain("overrides the 3-6 words above");
+		expect(line).toContain(`at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese`);
+		expect(line).toContain(`${TITLE_MAX_CHARS} characters otherwise, spaces included`);
+		expect(line).toContain("2-4 words, never more");
+		expect(line).toContain("plain noun phrase that summarizes the task");
+		expect(line).toContain("no punctuation, quotes or emoji");
+		expect(line).toContain("overrides the 3-6 words and the imperative phrase above");
 		expect(line).toContain("identifiers, file names and proper nouns");
 	});
 
-	it("appends the line to stock's prompt, leaves stock alone without a language, and keeps a person's own prompt", () => {
+	it("without a reply language sets only the length and form: the title stays in the person's language", () => {
+		const line = titleLanguageLine(undefined);
+		expect(line).toContain("the language the user writes in");
+		expect(line).not.toContain("write it in");
+		expect(line).toContain(`2-${TITLE_MAX_WORDS} words`);
+		expect(line).toContain("no punctuation, quotes or emoji");
+	});
+
+	it("appends the line to stock's prompt with or without a language, and keeps a person's own prompt", () => {
 		const ours = `STOCK\n\n${titleLanguageLine("Korean")}`;
+		const plain = `STOCK\n\n${titleLanguageLine(undefined)}`;
 		expect(planTitlePrompt(undefined, undefined, "STOCK\n", "Korean")).toEqual({ keep: false, prompt: ours });
-		expect(planTitlePrompt(undefined, undefined, "STOCK", undefined)).toEqual({ keep: false, prompt: undefined });
+		expect(planTitlePrompt(undefined, undefined, "STOCK", undefined)).toEqual({ keep: false, prompt: plain });
 		// Ours, then the language changed or went off.
 		expect(planTitlePrompt(ours, ours, "STOCK", "Japanese")).toEqual({
 			keep: false,
 			prompt: `STOCK\n\n${titleLanguageLine("Japanese")}`,
 		});
-		expect(planTitlePrompt(ours, ours, "STOCK", undefined)).toEqual({ keep: false, prompt: undefined });
+		expect(planTitlePrompt(ours, ours, "STOCK", undefined)).toEqual({ keep: false, prompt: plain });
 		// A TITLE_SYSTEM.md stock resolved (at spawn, or after a move) is the person's whole title prompt.
 		expect(planTitlePrompt("MINE", undefined, "STOCK", "Korean")).toEqual({ keep: true });
 		expect(planTitlePrompt("MINE", ours, "STOCK", "Korean")).toEqual({ keep: true });
@@ -204,19 +219,31 @@ describe("title language and length", () => {
 
 	it("cuts a long title to whole words, never an ellipsis", () => {
 		expect(conciseTitle("Fix login bug")).toBe("Fix login bug");
-		expect(conciseTitle("Add support for dark mode toggle")).toBe("Add support for dark mode");
-		expect(conciseTitle("Speed up the build step, and tests")).toBe("Speed up the build step");
+		// At most four words, then at most 30 characters.
+		expect(conciseTitle("Dark mode toggle support added")).toBe("Dark mode toggle support");
+		expect(conciseTitle("Speed up the build, and tests")).toBe("Speed up the build");
 		expect(conciseTitle("Speed up the build - and cache")).toBe("Speed up the build");
-		expect(conciseTitle("로그인 버그 수정")).toBe("로그인 버그 수정");
-		// Korean: at most five words, then at most 20 characters.
-		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("세션 제목을 사용자 언어로 짧게");
-		expect(conciseTitle("데스크톱앱 자동세션제목 언어설정 반영하기")).toBe("데스크톱앱 자동세션제목 언어설정");
-		expect(conciseTitle("auth.ts 로그인 리다이렉트 수정")).toBe("auth.ts 로그인 리다이렉트 수정");
+		expect(conciseTitle("Internationalization configuration refactoring")).toBe("Internationalization");
+		expect(conciseTitle("Session title shortening rules")).toBe("Session title shortening rules");
+		expect(conciseTitle("Session title internationalization rules")).toBe("Session title");
+		// A cut never ends on an English function word (a real title was cut to "CSV export empty with").
+		expect(conciseTitle("CSV export empty with filters")).toBe("CSV export empty");
+		expect(conciseTitle("Fix the bug in the parser")).toBe("Fix the bug");
+		// Only a cut drops them: a title that fits stays as written.
+		expect(conciseTitle("Sign in with Google")).toBe("Sign in with Google");
+		expect(conciseTitle("로그인 오류 수정")).toBe("로그인 오류 수정");
+		expect(conciseTitle("작업 현황판 디자인")).toBe("작업 현황판 디자인");
+		// Korean: at most four words, then at most 12 characters (today's real 5-word, 18-character title).
+		expect(conciseTitle("로그인 비밀번호 오류 메시지 버그")).toBe("로그인 비밀번호 오류");
+		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("세션 제목을 사용자");
+		expect(conciseTitle("데스크톱앱 자동세션제목 언어설정 반영하기")).toBe("데스크톱앱 자동세션제목");
+		expect(conciseTitle("auth.ts 수정")).toBe("auth.ts 수정");
+		expect(conciseTitle("auth.ts 로그인 리다이렉트 수정")).toBe("auth.ts 로그인");
 		// One word longer than the limit stays whole: never part of a word.
-		const unspaced = "修复会话标题语言设置问题并且保持简短不要太长";
+		const unspaced = "修复会话标题语言设置问题并且保持简短";
 		expect(unspaced.length).toBeGreaterThan(TITLE_MAX_CJK_CHARS);
 		expect(conciseTitle(unspaced)).toBe(unspaced);
-		for (const title of ["Add support for dark mode toggle", "세션 제목을 사용자 언어로 짧게 생성하도록 수정"])
+		for (const title of ["Dark mode toggle support added", "세션 제목을 사용자 언어로 짧게 생성하도록 수정"])
 			expect(conciseTitle(title)).not.toMatch(/…|\.\.\./);
 	});
 });

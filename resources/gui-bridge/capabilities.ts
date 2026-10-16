@@ -919,10 +919,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * `SessionManager.setSessionName(name, source, trigger)` and the journal's `title_change` entries (the title's
 	 * origin). `operatorTitleText` names what an operator message is about. The title language: the session's
 	 * TITLE_SYSTEM.md slot (`titleSystemPrompt`, `setTitleSystemPrompt`) holds stock's own `title-system.md`
-	 * (rendered with `prompt.render`) plus one language line; `title-card` splits a card off a title cut to length.
+	 * (rendered with `prompt.render`) plus one language line; `title-card` splits a card off a title cut to length,
+	 * and `title.icons` (`cfgTitleIcons`) says whether a fresh title drops the card stock's retitle kept.
 	 */
 	autoTitle: {
 		session: [
+			"settings",
 			"subscribe()",
 			"sessionName",
 			"generateTitle()",
@@ -939,6 +941,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/session/messages`]: ["operatorTitleText()"],
 			[`${AGENT}/utils/title-card`]: ["splitCardTitle()", "formatCardTitle()"],
+			[`${AGENT}/utils/title-settings`]: ["cfgTitleIcons.get()"],
 			[UTILS]: ["prompt.render()"],
 		},
 		prompts: ["system/title-system.md"],

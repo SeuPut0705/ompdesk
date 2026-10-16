@@ -13,9 +13,10 @@ import { ompPrompt } from "./shared";
 // Dynamic, after `guard` checked the feature: a stock export that vanished must fail this feature, not link time.
 
 setAutoTitleStockLoader(async () => {
-	const [messages, cards, { prompt }] = await Promise.all([
+	const [messages, cards, titleSettings, { prompt }] = await Promise.all([
 		import("@oh-my-pi/pi-coding-agent/session/messages"),
 		import("@oh-my-pi/pi-coding-agent/utils/title-card"),
+		import("@oh-my-pi/pi-coding-agent/utils/title-settings"),
 		import("@oh-my-pi/pi-utils"),
 	]);
 	return {
@@ -24,6 +25,8 @@ setAutoTitleStockLoader(async () => {
 		titleSystemPrompt: prompt.render(ompPrompt("system/title-system.md")),
 		splitCardTitle: cards.splitCardTitle,
 		formatCardTitle: cards.formatCardTitle,
+		titleIcons: settings =>
+			titleSettings.cfgTitleIcons.get(settings as Parameters<typeof titleSettings.cfgTitleIcons.get>[0]),
 	};
 });
 

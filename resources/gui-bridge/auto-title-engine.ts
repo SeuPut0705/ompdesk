@@ -6,7 +6,8 @@
  *
  * - First title: the operator's first message goes to `AgentSession.generateTitle` (the title model:
  *   stock's `tiny` role, then `commit`, `smol`; never the session model unless no cheap model resolves)
- *   and `renameTitle(title)` heads it with a card per `title.icons`, exactly as `/rename` does. A message
+ *   and `renameTitle(title)` heads it with a card per `title.icons`, exactly as `/rename` does (OMPdesk holds
+ *   `boring`, so no card and no card request unless the person chose icons). A message
  *   the title model declines (a greeting) is retried from the conversation after the turn, with
  *   `renameTitle()` (stock's `/rename` without a title).
  * - Evolving: while the title is automatic ({@link titleIsAuto}), a terminal `agent_end` asks
@@ -17,11 +18,14 @@
  * - `regenerate_title` (the editor's auto button) is `/rename` without a title on the live session; the
  *   result is automatic from then on, even over a typed name.
  * - Language and length: every title path above reads the session's title prompt override
- *   (`AgentSession.titleSystemPrompt`, stock's TITLE_SYSTEM.md slot). For a non-English reply language it is
- *   stock's own `title-system.md` plus one line ({@link planTitlePrompt}: the person's language, 2-5 words), set
- *   when the engine attaches, when `reply_language_set` changes the language, and again before each request
- *   (stock's headless `/move` re-resolves the slot). While that line is in effect, a title that comes back longer
- *   is cut to whole words ({@link conciseTitle}, its card kept). A person's own TITLE_SYSTEM.md is left as written.
+ *   (`AgentSession.titleSystemPrompt`, stock's TITLE_SYSTEM.md slot). It is stock's own `title-system.md` plus
+ *   one line ({@link planTitlePrompt}: the person's language, the reply language as the fallback when it is not
+ *   English, a plain 2-4 word noun phrase), set when the engine attaches, when `reply_language_set` changes the
+ *   language, and again before each request (stock's headless `/move` re-resolves the slot). While that line is in
+ *   effect, a title that comes back longer is cut to whole words ({@link conciseTitle}). A person's own
+ *   TITLE_SYSTEM.md is left as written, and its titles uncut.
+ * - Cards: under `title.icons: boring` a fresh title for a session whose title has a card comes back plain
+ *   (stock adds none, but its retitle keeps the current title's card).
  *
  * No omp imports: the GUI's vitest drives it with fake sessions (src/main/bridge-auto-title.test.ts).
  */
@@ -82,6 +86,8 @@ export interface TitleEvent {
 export interface TitleSession {
 	readonly sessionManager: TitleManager;
 	readonly sessionName: string | undefined;
+	/** The session's settings (read for `title.icons`). */
+	readonly settings: unknown;
 	generateTitle(firstMessage: string, customSystemPrompt?: string, signal?: AbortSignal): Promise<string | null>;
 	renameTitle(title?: string, signal?: AbortSignal): Promise<string | null | undefined>;
 	subscribe(listener: (event: TitleEvent) => void): () => void;
@@ -100,6 +106,8 @@ export interface AutoTitleStock {
 	splitCardTitle(title: string): { icon: string; code: string; title: string } | undefined;
 	/** `utils/title-card` `formatCardTitle`: `title` headed by `card`. */
 	formatCardTitle(card: { icon: string; code: string }, title: string): string;
+	/** `utils/title-settings` `cfgTitleIcons.get`: the session's `title.icons` (`boring` = no card). */
+	titleIcons(settings: unknown): string;
 }
 
 let stock: AutoTitleStock | undefined;
@@ -170,17 +178,21 @@ async function applyTitleLanguage(session: TitleSession): Promise<void> {
 		ownPrompts.delete(session);
 		return;
 	}
-	if (plan.prompt === undefined) ownPrompts.delete(session);
-	else ownPrompts.set(session, plan.prompt);
+	ownPrompts.set(session, plan.prompt);
 	if (session.titleSystemPrompt !== plan.prompt) session.setTitleSystemPrompt(plan.prompt);
 }
 
-/** `title` cut to the length the language line asks for, card kept; as it came while that line is not in effect. */
+/**
+ * `title` as the session should show it: cut to the length the line asks for while that line is in effect, and
+ * without its card under `title.icons: boring` (stock's retitle keeps the current title's card even then).
+ */
 async function concise(session: TitleSession, title: string | null | undefined): Promise<string | null | undefined> {
-	if (!title || !ownPrompts.has(session)) return title;
-	const { splitCardTitle, formatCardTitle } = await stockFunctions();
+	if (!title) return title;
+	const { splitCardTitle, formatCardTitle, titleIcons } = await stockFunctions();
+	const cut = ownPrompts.has(session) ? conciseTitle : (text: string) => text;
 	const card = splitCardTitle(title);
-	return card ? formatCardTitle(card, conciseTitle(card.title)) : conciseTitle(title);
+	if (!card) return cut(title);
+	return titleIcons(session.settings) === "boring" ? cut(card.title) : formatCardTitle(card, cut(card.title));
 }
 
 /**

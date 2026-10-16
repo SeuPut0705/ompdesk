@@ -199,6 +199,7 @@ describe("gui-bridge held stock defaults", () => {
 			"lsp.formatOnWrite": true,
 			"astGrep.enabled": true,
 			"advisor.enabled": true,
+			"title.icons": "boring",
 		});
 		for (const path of [
 			"telemetry.otlpExportEnabled",

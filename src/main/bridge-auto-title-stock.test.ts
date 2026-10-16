@@ -24,8 +24,8 @@ import { titleLanguageLine } from "../../resources/gui-bridge/auto-title-core";
  * - the title model is stock's cheap role chain (`tiny`, `commit`, `smol`), not the session's default model;
  * - `regenerate_title` on the real session with nothing to name answers "none" without writing a name;
  * - the title prompt override every title path reads is stock's own `title-system.md` plus the language line for a
- *   non-English reply language (at attach and after `reply_language_set`), none for English or off, and a person's
- *   own TITLE_SYSTEM.md stays as stock resolved it.
+ *   non-English reply language (at attach and after `reply_language_set`), the same line without the language
+ *   fallback for English or off, and a person's own TITLE_SYSTEM.md stays as stock resolved it.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
@@ -187,7 +187,7 @@ describe.skipIf(!existsSync(omp))("automatic session titles on stock omp", () =>
 		expect(probe.titleModels.map(candidate => candidate.model)).not.toContain("openai/gpt-5");
 	}, 130_000);
 
-	it("gives the title paths stock's own prompt plus the language line, and leaves English, off and a person's TITLE_SYSTEM.md alone", () => {
+	it("gives the title paths stock's own prompt plus the line, with no language fallback for English and off, and leaves a person's TITLE_SYSTEM.md alone", () => {
 		const config = "modelRoles:\n  smol: openai/gpt-5-mini\n  default: openai/gpt-5\n";
 		const probe = run(config, { replyLanguage: "Korean" });
 		expect(probe.unavailable).toEqual([]);
@@ -199,12 +199,12 @@ describe.skipIf(!existsSync(omp))("automatic session titles on stock omp", () =>
 		for (const [prompt, language] of [
 			[probe.promptAtAttach, "Korean"],
 			[probe.promptJapanese, "Japanese"],
+			[probe.promptEnglish, undefined],
+			[probe.promptOff, undefined],
 		] as const) {
 			for (const line of stockLines) expect(prompt).toContain(line);
 			expect(prompt?.endsWith(`\n\n${titleLanguageLine(language)}`)).toBe(true);
 		}
-		expect(probe.promptEnglish).toBeNull();
-		expect(probe.promptOff).toBeNull();
 
 		const own = "Name the session in exactly two words.";
 		const custom = run(config, { replyLanguage: "Korean", titleSystem: own });

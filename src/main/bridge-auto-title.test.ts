@@ -65,6 +65,8 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 		get sessionName() {
 			return name;
 		},
+		// What the fake stock `titleIcons` reads: OMPdesk holds `boring`, `cards` stands for icons the person chose.
+		settings: { icons: options.cards === false ? "boring" : "emoji" },
 		generateTitle: vi.fn(async (text: string) => {
 			script.prompts.push(titlePrompt);
 			const title = await script.generate(text);
@@ -109,6 +111,8 @@ const stock: AutoTitleStock = {
 		return line ? { icon: line[1] ?? "", code: line[2] ?? "", title: line[3] ?? "" } : undefined;
 	},
 	formatCardTitle: (card, title) => `${card.icon} ${card.code}: ${title}`,
+	titleIcons: settings =>
+		settings && typeof settings === "object" && "icons" in settings ? String(settings.icons) : "nf+emoji",
 };
 
 /** Every fake settles at once, so the engine's background work finishes within a few microtask turns. */
@@ -442,9 +446,9 @@ describe("auto_title_set", () => {
 });
 
 describe("title language and length", () => {
-	const korean = `STOCK TITLE PROMPT\n\nLanguage and length`;
+	const korean = `STOCK TITLE PROMPT\n\nLanguage, length and form`;
 
-	it("gives every title path stock's prompt plus the language line, follows reply_language_set, and stays stock when off or English", async () => {
+	it("gives every title path stock's prompt plus the line, follows reply_language_set, and keeps the length rule when off or English", async () => {
 		await replyLanguage.reply_language_set({ language: "Korean" });
 		const world = build();
 		await attach(world.session);
@@ -459,10 +463,12 @@ describe("title language and length", () => {
 		for (const language of [null, "English", ""]) {
 			await replyLanguage.reply_language_set({ language: "Korean" });
 			await replyLanguage.reply_language_set({ language });
-			expect(world.session.titleSystemPrompt).toBeUndefined();
+			expect(world.session.titleSystemPrompt).toMatch(new RegExp(`^${korean}`));
+			expect(world.session.titleSystemPrompt).toContain("the language the user writes in");
+			expect(world.session.titleSystemPrompt).not.toContain("write it in");
 		}
 		expect(await regenerate(world.session)).toEqual({ title: "Migrate build to Vite" });
-		expect(world.script.prompts.at(-1)).toBeUndefined();
+		expect(world.script.prompts.at(-1)).toMatch(new RegExp(`^${korean}`));
 	});
 
 	it("puts the line back before a request when stock re-resolved the slot (a headless move)", async () => {
@@ -488,26 +494,45 @@ describe("title language and length", () => {
 		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
 	});
 
-	it("cuts a long title to whole words while the line is in effect, card kept", async () => {
+	it("cuts a long title to whole words, a card the person chose kept", async () => {
 		await replyLanguage.reply_language_set({ language: "Korean" });
 		const world = build({ cards: false });
-		world.script.generate.mockResolvedValue("세션 제목을 사용자 언어로 짧게 생성하도록 수정");
+		world.script.generate.mockResolvedValue("로그인 비밀번호 오류 메시지 버그");
 		await attach(world.session);
-		await send(world.session, { type: "message_end", message: operator("세션 제목을 짧게 만들어 줘") });
+		await send(world.session, { type: "message_end", message: operator("비밀번호 틀려도 에러가 안 보여") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("세션 제목을 사용자 언어로 짧게");
+		expect(world.manager.getSessionName()).toBe("로그인 비밀번호 오류");
 
-		world.script.retitle.mockResolvedValue("🌐 LANG: Add support for dark mode toggle");
-		expect(await regenerate(world.session)).toEqual({ title: "🌐 LANG: Add support for dark mode" });
-		expect(world.manager.getSessionName()).toBe("🌐 LANG: Add support for dark mode");
+		const carded = build({ name: "🔑 PWERR: 로그인 오류 수정", source: "auto" });
+		carded.script.retitle.mockResolvedValue("🔑 PWERR: Dark mode toggle support added");
+		await attach(carded.session);
+		expect(await regenerate(carded.session)).toEqual({ title: "🔑 PWERR: Dark mode toggle support" });
 	});
 
-	it("writes a long title as it came when the language is off (stock's prompt asks for 3-6 words)", async () => {
+	it("cuts a long title when the language is off too", async () => {
 		const world = build({ cards: false });
-		world.script.generate.mockResolvedValue("Add support for the dark mode toggle");
+		world.script.generate.mockResolvedValue("Settings page dark mode toggle added");
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("add dark mode") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
+		expect(world.manager.getSessionName()).toBe("Settings page dark mode");
+	});
+});
+
+describe("plain titles (title.icons: boring)", () => {
+	it("drops the card stock's retitle kept from the current title: the auto button and evolving come back plain", async () => {
+		const world = build({ name: "🔑 PWERR: 로그인 비밀번호 오류 메시지 버그", source: "auto", cards: false });
+		// Stock's `keepTitleCard` heads the fresh title with the current one's card.
+		world.script.retitle.mockResolvedValue("🔑 PWERR: 작업 현황판 디자인");
+		await attach(world.session);
+		expect(await regenerate(world.session)).toEqual({ title: "작업 현황판 디자인" });
+		expect(world.manager.getSessionName()).toBe("작업 현황판 디자인");
+	});
+
+	it("leaves a stored carded title as it is until a fresh title is made", async () => {
+		const world = build({ name: "🔑 PWERR: 로그인 오류", source: "auto", cards: false });
+		await attach(world.session);
+		expect(world.manager.setSessionName).not.toHaveBeenCalled();
+		expect(world.manager.getSessionName()).toBe("🔑 PWERR: 로그인 오류");
 	});
 });

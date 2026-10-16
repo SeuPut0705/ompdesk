@@ -151,49 +151,60 @@ export class EvolveGate {
 	}
 }
 
-/** The most words a title keeps ({@link titleLanguageLine} asks for 2-5). */
-export const TITLE_MAX_WORDS = 5;
+/** The most words a title keeps ({@link titleLanguageLine} asks for 2-4). */
+export const TITLE_MAX_WORDS = 4;
 /** The most characters a title in Korean, Chinese or Japanese keeps, where word counts say little. */
-export const TITLE_MAX_CJK_CHARS = 20;
+export const TITLE_MAX_CJK_CHARS = 12;
+/** The most characters a title in any other script keeps. */
+export const TITLE_MAX_CHARS = 30;
 
 /**
- * The line that puts a title in the person's language and keeps it short, appended to stock's own
+ * The line that puts a title in the person's language and keeps it short and plain, appended to stock's own
  * `title-system.md` (whose rules and examples are English only, so a cheap title model answers in English, and
- * whose 3-6 words read long). The language the person writes in comes first, so a Korean request gets a Korean
- * title whatever the reply language is; `language` (the reply language) decides only when the request shows none
- * (code, names, a mix). {@link conciseTitle} enforces the length on what comes back.
+ * whose 3-6 word imperative phrases read long). The language the person writes in comes first, so a Korean request
+ * gets a Korean title whatever the reply language is; `language` (the reply language, undefined when off, unset or
+ * English) decides only when the request shows none (code, names, a mix). Without it the line sets only the length
+ * and form, and the title stays in the person's language. {@link conciseTitle} enforces the length on what comes back.
  */
-export function titleLanguageLine(language: string): string {
-	return `Language and length (this overrides the 3-6 words above): write the title in the language the user writes in, even though the examples above are in English; when that is unclear (only code, names or a mix), write it in ${language}. Keep it short: 2-${TITLE_MAX_WORDS} words, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese; no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
+export function titleLanguageLine(language: string | undefined): string {
+	const fallback = language ? `; when that is unclear (only code, names or a mix), write it in ${language}` : "";
+	return `Language, length and form (this overrides the 3-6 words and the imperative phrase above): write the title in the language the user writes in, even though the examples above are in English${fallback}. Make it a plain noun phrase that summarizes the task, like "Login error fix" or "로그인 오류 수정": 2-${TITLE_MAX_WORDS} words, never more, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included. When the task needs more, choose fewer and broader words: a longer title is cut. The title is plain text: no punctuation, quotes or emoji, no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
 }
 
 const CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const HAS_WORD = /[\p{L}\p{N}]/u;
+/** English words a cut title must not end on (`CSV export empty with` → `CSV export empty`). */
+const DANGLING = /^(?:a|an|the|and|or|but|of|for|with|without|to|in|on|at|by|from|into|via|vs)$/i;
 
 /**
- * `title` (without its card) cut to whole words: at most {@link TITLE_MAX_WORDS}, and for a title in Korean,
- * Chinese or Japanese at most {@link TITLE_MAX_CJK_CHARS} characters. Never an ellipsis and never part of a word,
- * so the first word stays even when it alone is longer; a cut drops trailing punctuation-only words and the
- * separator left on the last word (`,` `:` `;` `-`).
+ * `title` (without its card) cut to whole words: at most {@link TITLE_MAX_WORDS}, then at most
+ * {@link TITLE_MAX_CJK_CHARS} characters for a title in Korean, Chinese or Japanese and {@link TITLE_MAX_CHARS}
+ * for any other. Never an ellipsis and never part of a word, so the first word stays even when it alone is longer;
+ * a cut drops trailing punctuation-only words and English function words (`with`, `the`, …), and the separator
+ * left on the last word (`,` `:` `;` `-`).
  */
 export function conciseTitle(title: string): string {
 	const words = title.trim().split(/\s+/);
+	const limit = CJK.test(title) ? TITLE_MAX_CJK_CHARS : TITLE_MAX_CHARS;
 	const kept = words.slice(0, TITLE_MAX_WORDS);
-	if (CJK.test(title)) while (kept.length > 1 && kept.join(" ").length > TITLE_MAX_CJK_CHARS) kept.pop();
+	while (kept.length > 1 && kept.join(" ").length > limit) kept.pop();
 	if (kept.length === words.length) return words.join(" ");
-	while (kept.length > 1 && !HAS_WORD.test(kept[kept.length - 1] ?? "")) kept.pop();
+	while (
+		kept.length > 1 &&
+		(!HAS_WORD.test(kept[kept.length - 1] ?? "") || DANGLING.test(kept[kept.length - 1] ?? ""))
+	)
+		kept.pop();
 	return kept.join(" ").replace(/[\s,:;\-–—/&]+$/u, "") || kept.join(" ");
 }
 
 /** What a session's title prompt override should be: `keep` leaves it as it is. */
-export type TitlePromptPlan = { keep: true } | { keep: false; prompt: string | undefined };
+export type TitlePromptPlan = { keep: true } | { keep: false; prompt: string };
 
 /**
  * The title prompt override (`AgentSession.titleSystemPrompt`) a session should carry for `language` (the reply
  * language: undefined when off, unset or English). `current` is what the session holds, `own` what OMPdesk last set
  * there. Any other value is the person's own TITLE_SYSTEM.md: stock treats it as the whole title prompt, so it is
- * kept as written. Otherwise: stock's prompt plus {@link titleLanguageLine}, or no override (stock's bundled prompt,
- * byte for byte) without a language.
+ * kept as written. Otherwise: stock's prompt plus {@link titleLanguageLine}, with or without a language.
  */
 export function planTitlePrompt(
 	current: string | undefined,
@@ -202,5 +213,5 @@ export function planTitlePrompt(
 	language: string | undefined,
 ): TitlePromptPlan {
 	if (current !== undefined && current !== own) return { keep: true };
-	return { keep: false, prompt: language ? `${stockPrompt.trimEnd()}\n\n${titleLanguageLine(language)}` : undefined };
+	return { keep: false, prompt: `${stockPrompt.trimEnd()}\n\n${titleLanguageLine(language)}` };
 }
