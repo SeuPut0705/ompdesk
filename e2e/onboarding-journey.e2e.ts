@@ -134,13 +134,18 @@ for (const variant of VARIANTS) {
 				const mark = (what: string, nodes: NodeList) => {
 					for (const node of nodes) {
 						if (!(node instanceof Element)) continue;
-						const hit = node.matches("[data-first-run-step]")
-							? node
-							: node.querySelector("[data-first-run-step]");
-						if (hit)
-							log.push(
-								`${Math.round(performance.now() - start)}ms ${what} ${hit.getAttribute("data-first-run-step")}`,
-							);
+						for (const selector of [
+							"[data-first-run-step]",
+							".omp-transcript-scroll",
+							".omp-empty-canvas",
+							"[data-testid=machine-setup]",
+						]) {
+							const hit = node.matches(selector) ? node : node.querySelector(selector);
+							if (hit)
+								log.push(
+									`${Math.round(performance.now() - start)}ms ${what} ${selector} ${hit.getAttribute("data-first-run-step") ?? ""}`,
+								);
+						}
 					}
 				};
 				new MutationObserver(records => {
