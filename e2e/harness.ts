@@ -148,7 +148,8 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 
 /**
  * Open a sidebar destination page. The footer's Agents and Stats entries are off by default, so without them the
- * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats.
+ * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats. Both shortcuts
+ * repeat until their target shows, since one pressed while the renderer still mounts is lost.
  */
 export async function openDestination(
 	page: Page,
@@ -159,9 +160,10 @@ export async function openDestination(
 	if (await button.isVisible()) return button.click();
 	const target = page.locator(`section[data-destination="${destination}"]`);
 	if (destination === "agents") return pressShortcutUntilVisible(page, "Alt+KeyA", target);
-	await page.keyboard.press("ControlOrMeta+k");
-	await page.keyboard.type(paletteQuery);
-	await page.keyboard.press("Enter");
+	const search = page.getByRole("dialog").getByRole("searchbox");
+	await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+	await search.fill(paletteQuery);
+	await search.press("Enter");
 }
 
 /**
