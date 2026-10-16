@@ -1,7 +1,16 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SetupPresence } from "../../shared/setup";
-import { type ArchiveRelease, buildPlan, manualSteps, type PlanContext, PORTABLE_GIT, selectMethod } from "./plans";
+import {
+	type ArchiveRelease,
+	buildPlan,
+	manualSteps,
+	type PlanContext,
+	PORTABLE_GIT,
+	selectMethod,
+	type TailscaleRelease,
+	tailscaleMsiArch,
+} from "./plans";
 
 const missing: SetupPresence = { kind: "missing" };
 const present: SetupPresence = { kind: "present", version: "1.0.0", path: "/x" };
@@ -233,5 +242,125 @@ describe("manualSteps", () => {
 			commands: ["winget install --id OpenJS.NodeJS.LTS -e"],
 			url: "https://nodejs.org/en/download",
 		});
+	});
+});
+
+describe("Tailscale plans", () => {
+	const zip: TailscaleRelease = {
+		version: "1.104.1",
+		file: "Tailscale-1.104.1-macos.zip",
+		url: "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+		sha256: "c9acf3b55335f1fd7cbc52b515b1bbf33076018ae74b91a2476d96b0b7511e72",
+	};
+	const msi: TailscaleRelease = {
+		version: "1.104.1",
+		file: "tailscale-setup-1.104.1-amd64.msi",
+		url: "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi",
+		sha256: "f".repeat(64),
+	};
+
+	it("picks the signed zip on macOS, winget on Windows, and the MSI only for an architecture it has one for", () => {
+		expect(selectMethod("tailscale", missing, mac)).toBe("tailscale-zip");
+		expect(selectMethod("tailscale", missing, { ...mac, brew: null })).toBe("tailscale-zip");
+		expect(selectMethod("tailscale", missing, win)).toBe("winget");
+		expect(selectMethod("tailscale", missing, { ...win, winget: null })).toBe("tailscale-msi");
+		expect(selectMethod("tailscale", missing, { ...win, winget: null, arch: "ia32" })).toBe("tailscale-msi");
+		expect(selectMethod("tailscale", missing, { ...win, winget: null, arch: "riscv64" })).toBeNull();
+		expect(selectMethod("tailscale", present, mac)).toBeNull();
+		expect(selectMethod("tailscale", missing, { ...mac, platform: "other" })).toBeNull();
+	});
+
+	it("maps the machine's architecture to the index's MSI names", () => {
+		expect([
+			tailscaleMsiArch("x64"),
+			tailscaleMsiArch("arm64"),
+			tailscaleMsiArch("ia32"),
+			tailscaleMsiArch("ppc"),
+		]).toEqual(["amd64", "arm64", "x86", null]);
+	});
+
+	it("downloads the zip in main with its published hash, then checks it again, its signature, bundle id and team before copying", () => {
+		const plan = buildPlan("tailscale", "tailscale-zip", mac, undefined, zip);
+		expect(plan).toMatchObject({
+			item: "tailscale",
+			method: "tailscale-zip",
+			prompt: null,
+			location: "/Applications/Tailscale.app",
+			download: { url: zip.url, sha256: zip.sha256, file: join("/data/tools", ".downloads", zip.file) },
+			spawn: { file: "/bin/bash", shell: false },
+		});
+		const script = plan?.spawn.args[1] ?? "";
+		const order = [
+			"shasum -a 256 -c -",
+			"ditto -x -k",
+			'codesign --verify --deep --strict "$app"',
+			"PlistBuddy",
+			"io.tailscale.ipn.macsys|io.tailscale.ipn.macos",
+			"TeamIdentifier=",
+			"W5364U7YZB",
+			"ditto \"$app\" '/Applications/Tailscale.app'",
+		].map(part => script.indexOf(part));
+		expect(order.every(index => index >= 0)).toBe(true);
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+		expect(script).toContain("set -euo pipefail");
+		expect(script).toContain(zip.sha256);
+		expect(plan?.command).toBe(script);
+		expect(buildPlan("tailscale", "tailscale-zip", mac)).toBeNull();
+		expect(buildPlan("tailscale", "tailscale-zip", mac, undefined, msi)).toBeNull();
+	});
+
+	it("verifies the MSI's hash and a Valid Tailscale Inc. signature before an elevated msiexec, without TS_NOLAUNCH", () => {
+		const plan = buildPlan("tailscale", "tailscale-msi", win, undefined, msi);
+		expect(plan).toMatchObject({
+			method: "tailscale-msi",
+			prompt: "uac",
+			location: "C:\\Program Files\\Tailscale",
+			download: { url: msi.url, sha256: msi.sha256 },
+		});
+		expect(plan?.spawn.file).toContain("powershell.exe");
+		const script = decodePowerShell(plan?.spawn.args ?? []);
+		const order = [
+			"Get-FileHash -Algorithm SHA256",
+			`SHA-256 mismatch: expected ${msi.sha256}`,
+			"Get-AuthenticodeSignature",
+			"-ne 'Valid'",
+			"*CN=Tailscale Inc.*",
+			"msiexec.exe",
+		].map(part => script.indexOf(part));
+		expect(order.every(index => index >= 0)).toBe(true);
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+		expect(script).toContain("-Verb RunAs");
+		expect(script).toContain("'/qn'");
+		expect(script).toContain("-ne 3010");
+		expect(script).not.toContain("TS_NOLAUNCH");
+		expect(buildPlan("tailscale", "tailscale-msi", win)).toBeNull();
+		expect(buildPlan("tailscale", "tailscale-msi", win, undefined, zip)).toBeNull();
+	});
+
+	it("runs winget silently with its own agreements, elevated", () => {
+		const plan = buildPlan("tailscale", "winget", win);
+		expect(plan?.spawn.args).toEqual([
+			"install",
+			"--id",
+			"Tailscale.Tailscale",
+			"-e",
+			"--silent",
+			"--accept-package-agreements",
+			"--accept-source-agreements",
+		]);
+		expect(plan).toMatchObject({ prompt: "uac", location: "C:\\Program Files\\Tailscale", download: null });
+		expect(buildPlan("tailscale", "winget", { ...win, winget: null })).toBeNull();
+		// The other winget items keep their own arguments.
+		expect(buildPlan("gh", "winget", win)?.spawn.args).not.toContain("--silent");
+	});
+
+	it("points at tailscale.com/download when it has to be done by hand", () => {
+		expect(manualSteps("tailscale", missing, "darwin")).toEqual({
+			commands: ["brew install --cask tailscale-app"],
+			url: "https://tailscale.com/download",
+		});
+		expect(manualSteps("tailscale", missing, "win32").commands).toEqual([
+			"winget install --id Tailscale.Tailscale -e",
+		]);
 	});
 });

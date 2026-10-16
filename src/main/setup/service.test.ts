@@ -80,7 +80,7 @@ function harness(
 	const onOmpReady = vi.fn();
 	const itemOf = (spec: SpawnSpec): SetupItemId | "tool" => {
 		const id = spec.args[0];
-		if (id === "bun" || id === "omp" || id === "git" || id === "gh" || id === "node") return id;
+		if (id === "bun" || id === "omp" || id === "git" || id === "gh" || id === "node" || id === "tailscale") return id;
 		// A vendor CLI's update (`SetupService.runToolUpdate`): the fake installer's `cli-<tool> …` or a test's own spec.
 		if (id?.startsWith("cli-")) return "tool";
 		throw new Error(`unexpected spec ${JSON.stringify(spec)}`);
@@ -161,6 +161,7 @@ function machine(partial: Partial<Record<SetupItemId, SetupPresence>>, managers:
 			omp: present("18.9.0"),
 			gh: present(),
 			node: present("v24.11.0"),
+			tailscale: present("1.104.1"),
 			...partial,
 		},
 		brew: "/opt/homebrew/bin/brew",
@@ -489,7 +490,7 @@ describe("SetupService", () => {
 		expect(progressWhileRunning("omp")).toEqual({ step: 1, steps: 1, startedAt: 5000, download: null });
 		expect(progressWhileRunning("gh")).toEqual({ step: 1, steps: 2, startedAt: 5000, download: null });
 		expect(progressWhileRunning("node")).toEqual({ step: 2, steps: 2, startedAt: 5000, download: null });
-		expect(h.service.state().items.map(item => item.progress)).toEqual([null, null, null, null, null]);
+		expect(h.service.state().items.map(item => item.progress)).toEqual([null, null, null, null, null, null]);
 	});
 
 	it("downloads a plan's file itself with byte progress before its installer runs, then removes it", async () => {
@@ -847,5 +848,109 @@ process.exit(1);`,
 			const h = harness(machine({}));
 			await expect(h.service.latestManaged("node")).rejects.toThrow("no network in tests");
 		});
+	});
+});
+
+describe("SetupService Tailscale item", () => {
+	const ledger = async () => JSON.parse(await readFile(join(dir, "setup-state.json"), "utf8").catch(() => "{}"));
+
+	it("is optional, never installed at launch or in the background pass, and has no back-off", async () => {
+		const h = harness(machine({ tailscale: missing }));
+		await h.service.start();
+		expect(h.spawned).toEqual([]);
+		expect(h.phase("tailscale")).toBe("idle");
+		expect(h.service.state().items.find(item => item.id === "tailscale")?.required).toBe(false);
+		expect(await ledger()).toEqual({});
+		// A required retry (which also runs the optional pass after it) leaves it alone too.
+		await h.service.retry("omp");
+		expect(h.spawned).toEqual([]);
+	});
+
+	it("installs on `installForConnection` and on an explicit Retry, through the test installer", async () => {
+		const h = harness(machine({ tailscale: missing }));
+		await h.service.start();
+		const item = await h.service.installForConnection("tailscale");
+		expect(h.spawned.map(entry => entry.spec)).toEqual([
+			{ file: "/fake/installer", args: ["tailscale", "tailscale-zip"], shell: false },
+		]);
+		expect(item.phase).toBe("present");
+		expect(item.method).toBe("tailscale-zip");
+
+		const again = harness(machine({ tailscale: missing }), { exits: { tailscale: 1 } });
+		await again.service.start();
+		await again.service.installForConnection("tailscale");
+		expect(again.phase("tailscale")).toBe("failed");
+		await again.service.retry("tailscale");
+		expect(again.items()).toEqual(["tailscale", "tailscale"]);
+	});
+
+	it("keeps no attempt record: three failures later it still installs on request and never reads as paused", async () => {
+		const h = harness(machine({ tailscale: missing }), { exits: { tailscale: 1 } });
+		await h.service.start();
+		for (let attempt = 0; attempt < 4; attempt++) await h.service.installForConnection("tailscale");
+		expect(h.items()).toHaveLength(4);
+		expect(await ledger()).toEqual({});
+		await h.service.start();
+		expect(h.phase("tailscale")).toBe("failed");
+		const fresh = harness(machine({ tailscale: missing }), { automatic: true });
+		await fresh.service.start();
+		expect(fresh.phase("tailscale")).toBe("idle");
+	});
+
+	it("plans winget on Windows when it exists and the MSI when it does not; only detects when setup is not automatic", async () => {
+		const winget = harness(machine({ tailscale: missing }, { winget: "C:\\winget.exe" }), { platform: "win32" });
+		await winget.service.start();
+		await winget.service.installForConnection("tailscale");
+		expect(winget.spawned[0]?.spec.args).toEqual(["tailscale", "winget"]);
+		const msi = harness(machine({ tailscale: missing }), { platform: "win32" });
+		await msi.service.start();
+		await msi.service.installForConnection("tailscale");
+		expect(msi.spawned[0]?.spec.args).toEqual(["tailscale", "tailscale-msi"]);
+		const manual = harness(machine({ tailscale: missing }), { automatic: false });
+		await manual.service.start();
+		await manual.service.installForConnection("tailscale");
+		expect(manual.spawned).toEqual([]);
+	});
+
+	it("refuses a download whose SHA-256 does not match the published one, and runs nothing", async () => {
+		const index = JSON.stringify({
+			MacZips: { universal: "Tailscale-1.104.1-macos.zip" },
+			MacZipsVersion: "1.104.1",
+			Version: "1.104.1",
+		});
+		const h = harness(machine({ tailscale: missing }), {
+			testInstaller: null,
+			fetchText: async url => (url.endsWith(".sha256") ? `${"ab".repeat(32)}\n` : index),
+			fetch: async () => new Response(new Uint8Array([1, 2, 3])),
+		});
+		await h.service.start();
+		const item = await h.service.installForConnection("tailscale");
+		expect(item).toMatchObject({ phase: "failed", failure: { reason: "checksum" }, method: "tailscale-zip" });
+		expect(h.spawned).toEqual([]);
+		expect(existsSync(join(dir, "tools", ".downloads", "Tailscale-1.104.1-macos.zip"))).toBe(false);
+	});
+
+	it("fails as a download problem when Tailscale's index cannot be read", async () => {
+		const h = harness(machine({ tailscale: missing }), { testInstaller: null });
+		await h.service.start();
+		const item = await h.service.installForConnection("tailscale");
+		expect(item).toMatchObject({ phase: "failed", failure: { reason: "download" } });
+		expect(h.spawned).toEqual([]);
+	});
+
+	it("runs the real macOS plan after a verified download", async () => {
+		const bytes = new Uint8Array([9, 8, 7]);
+		const sha = createHash("sha256").update(bytes).digest("hex");
+		const index = JSON.stringify({ MacZips: { universal: "Tailscale-1.104.1-macos.zip" }, Version: "1.104.1" });
+		const h = harness(machine({ tailscale: missing }), {
+			testInstaller: null,
+			fetchText: async url => (url.endsWith(".sha256") ? sha : index),
+			fetch: async () => new Response(bytes),
+		});
+		await h.service.start();
+		await h.service.installForConnection("tailscale").catch(() => undefined);
+		const spec = h.spawned[0]?.spec;
+		expect(spec?.file).toBe("/bin/bash");
+		expect(spec?.args[1]).toContain("codesign --verify --deep --strict");
 	});
 });

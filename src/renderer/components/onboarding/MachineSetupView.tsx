@@ -42,6 +42,7 @@ export const SETUP_ITEM_NAMES: Record<SetupItemId, string> = {
 	omp: "omp",
 	gh: "GitHub CLI",
 	node: "Node.js",
+	tailscale: "Tailscale",
 };
 
 /** Phases that ended without the item: the user can ask for another attempt. */

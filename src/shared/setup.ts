@@ -6,11 +6,13 @@
  *
  * Required: Bun and omp everywhere, plus Git for Windows on Windows (stock
  * omp's shell tools resolve Git Bash there). Optional: Git (macOS), GitHub CLI
- * and Node.js (the built-in REA MCP server).
+ * and Node.js (the built-in REA MCP server) install on their own in the
+ * background; Tailscale (Mobile web) never does: only `installForConnection`
+ * and an explicit Retry install it, because the user's click is its consent.
  */
 
 /** Display and install order: Bun before omp (omp installs through it), Git before omp on Windows. */
-export const SETUP_ITEMS = ["bun", "git", "omp", "gh", "node"] as const;
+export const SETUP_ITEMS = ["bun", "git", "omp", "gh", "node", "tailscale"] as const;
 export type SetupItemId = (typeof SETUP_ITEMS)[number];
 
 export function isSetupItemId(value: unknown): value is SetupItemId {
@@ -20,6 +22,11 @@ export function isSetupItemId(value: unknown): value is SetupItemId {
 /** Whether `item` is required on `platform`: Bun and omp everywhere, Git only on Windows. */
 export function setupItemRequired(item: SetupItemId, platform: SetupPlatform): boolean {
 	return item === "bun" || item === "omp" || (item === "git" && platform === "win32");
+}
+
+/** Whether setup may install `item` without being asked (at launch, in the background). Tailscale is only ever asked for. */
+export function setupItemAutomatic(item: SetupItemId): boolean {
+	return item !== "tailscale";
 }
 
 export type SetupPlatform = "darwin" | "win32" | "other";
@@ -40,7 +47,11 @@ export type SetupMethod =
 	| "xcode-select"
 	| "brew"
 	| "winget"
-	| "archive";
+	| "archive"
+	/** macOS: Tailscale's own signed zip, verified and copied to /Applications. */
+	| "tailscale-zip"
+	/** Windows without winget: Tailscale's MSI, signature checked, installed elevated. */
+	| "tailscale-msi";
 
 /**
  * - `checking`: detection has not finished yet.

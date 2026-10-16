@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ghArchiveFile, nodeArchiveFile, parseShasums, pickNodeLts, resolveArchiveRelease } from "./archives";
+import {
+	ghArchiveFile,
+	nodeArchiveFile,
+	parseShasums,
+	pickNodeLts,
+	resolveArchiveRelease,
+	resolveTailscaleRelease,
+} from "./archives";
 
 const SHA = "b".repeat(64);
 
@@ -55,5 +62,74 @@ describe("archive releases", () => {
 		});
 		await expect(resolveArchiveRelease("gh", "x64", fetchText)).rejects.toThrow(/No published SHA-256/);
 		await expect(resolveArchiveRelease("node", "arm64", async () => "[]")).rejects.toThrow(/no supported LTS/);
+	});
+});
+
+describe("Tailscale release lookup", () => {
+	const index = {
+		MSIs: {
+			amd64: "tailscale-setup-1.104.1-amd64.msi",
+			arm64: "tailscale-setup-1.104.1-arm64.msi",
+			x86: "tailscale-setup-1.104.1-x86.msi",
+		},
+		MSIsVersion: "1.104.1",
+		MacZips: { universal: "Tailscale-1.104.1-macos.zip", "universal-package": "Tailscale-1.104.1-macos.pkg" },
+		MacZipsVersion: "1.104.1",
+		Version: "1.104.1",
+	};
+	const serve = (overrides: Record<string, unknown> = {}, sha = `${SHA}  file\n`) => {
+		const asked: string[] = [];
+		const fetchText = async (url: string) => {
+			asked.push(url);
+			return url.endsWith(".sha256") ? sha : JSON.stringify({ ...index, ...overrides });
+		};
+		return { asked, fetchText };
+	};
+
+	it("takes the macOS zip with the hash published beside it, from pkgs.tailscale.com only", async () => {
+		const { asked, fetchText } = serve();
+		await expect(resolveTailscaleRelease("darwin", null, fetchText)).resolves.toEqual({
+			version: "1.104.1",
+			file: "Tailscale-1.104.1-macos.zip",
+			url: "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+			sha256: SHA,
+		});
+		expect(asked).toEqual([
+			"https://pkgs.tailscale.com/stable/?mode=json",
+			"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256",
+		]);
+	});
+
+	it("takes the MSI of the machine's architecture", async () => {
+		for (const arch of ["amd64", "arm64", "x86"] as const) {
+			const release = await resolveTailscaleRelease("win32", arch, serve().fetchText);
+			expect(release.file).toBe(`tailscale-setup-1.104.1-${arch}.msi`);
+			expect(release.url).toBe(`https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-${arch}.msi`);
+		}
+		await expect(resolveTailscaleRelease("win32", null, serve().fetchText)).rejects.toThrow(
+			/no installer for this processor/,
+		);
+	});
+
+	it("refuses an index or hash it cannot trust", async () => {
+		await expect(resolveTailscaleRelease("darwin", null, serve({ MacZips: {} }).fetchText)).rejects.toThrow(
+			/lists no installer/,
+		);
+		await expect(
+			resolveTailscaleRelease("darwin", null, serve({ MacZips: { universal: "../../evil.zip" } }).fetchText),
+		).rejects.toThrow(/lists no installer/);
+		await expect(
+			resolveTailscaleRelease(
+				"darwin",
+				null,
+				serve({ MacZips: { universal: "https://evil.example/x.zip" } }).fetchText,
+			),
+		).rejects.toThrow(/lists no installer/);
+		await expect(
+			resolveTailscaleRelease("darwin", null, serve({ MacZipsVersion: "latest", Version: "x" }).fetchText),
+		).rejects.toThrow(/lists no installer/);
+		await expect(resolveTailscaleRelease("darwin", null, serve({}, "not a hash").fetchText)).rejects.toThrow(
+			/No published SHA-256/,
+		);
 	});
 });

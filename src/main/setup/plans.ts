@@ -26,7 +26,12 @@ export const PORTABLE_GIT = {
 	},
 } as const;
 
-export const WINGET_IDS = { git: "Git.Git", gh: "GitHub.cli", node: "OpenJS.NodeJS.LTS" } as const;
+export const WINGET_IDS = {
+	git: "Git.Git",
+	gh: "GitHub.cli",
+	node: "OpenJS.NodeJS.LTS",
+	tailscale: "Tailscale.Tailscale",
+} as const;
 
 /** A downloaded release for an `archive` install (macOS without Homebrew): URL and its published SHA-256. */
 export interface ArchiveRelease {
@@ -35,6 +40,38 @@ export interface ArchiveRelease {
 	file: string;
 	url: string;
 	sha256: string;
+}
+
+/** A Tailscale package from the official index, with the SHA-256 published beside it. */
+export interface TailscaleRelease {
+	version: string;
+	/** The file name in the index (`Tailscale-1.104.1-macos.zip`, `tailscale-setup-1.104.1-amd64.msi`). */
+	file: string;
+	url: string;
+	sha256: string;
+}
+
+export const TAILSCALE_MAC_APP = "/Applications/Tailscale.app";
+export const TAILSCALE_WINDOWS_DIR = "C:\\Program Files\\Tailscale";
+/** Tailscale Inc.'s Apple team: both the App Store and the Standalone build are signed by it. */
+export const TAILSCALE_TEAM_ID = "W5364U7YZB";
+/** Standalone and App Store bundle ids. */
+const TAILSCALE_MAC_BUNDLE_IDS = ["io.tailscale.ipn.macsys", "io.tailscale.ipn.macos"] as const;
+/** The Authenticode signer's common name. */
+const TAILSCALE_SIGNER = "Tailscale Inc.";
+
+/** The index's name for the MSI of this machine (`process.arch`), or null for an architecture it has none for. */
+export function tailscaleMsiArch(arch: string): "amd64" | "arm64" | "x86" | null {
+	switch (arch) {
+		case "x64":
+			return "amd64";
+		case "arm64":
+			return "arm64";
+		case "ia32":
+			return "x86";
+		default:
+			return null;
+	}
 }
 
 export interface PlanContext {
@@ -95,6 +132,9 @@ export function selectMethod(item: SetupItemId, presence: SetupPresence, ctx: Pl
 		case "node":
 			if (mac) return ctx.brew ? "brew" : "archive";
 			return ctx.winget ? "winget" : null;
+		case "tailscale":
+			if (mac) return "tailscale-zip";
+			return ctx.winget ? "winget" : tailscaleMsiArch(ctx.arch) ? "tailscale-msi" : null;
 	}
 }
 
@@ -155,7 +195,7 @@ export function portableGitScript(dest: string, download: PlanDownload): string 
 		"if (-not (Test-Path -LiteralPath (Join-Path $part 'bin\\bash.exe'))) { throw 'bash.exe is missing after extraction' }",
 		"if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }",
 		"Move-Item -LiteralPath $part -Destination $dest",
-		"Write-Output ('Git for Windows ' + " + psQuote(PORTABLE_GIT.version) + " + ' is in ' + $dest)",
+		`Write-Output ('Git for Windows ' + ${psQuote(PORTABLE_GIT.version)} + ' is in ' + $dest)`,
 	].join("\n");
 }
 
@@ -183,6 +223,61 @@ export function archiveScript(release: ArchiveRelease, toolsDir: string, downloa
 	].join("\n");
 }
 
+function tailscaleDownload(release: TailscaleRelease, toolsDir: string): PlanDownload {
+	return { url: release.url, sha256: release.sha256, file: join(toolsDir, ".downloads", release.file) };
+}
+
+/**
+ * Verify Tailscale's macOS zip (the SHA-256 the download was checked against, again), unpack it, and only copy the
+ * app to /Applications when its code signature is intact (`codesign --verify --deep --strict`), its bundle id is
+ * one of Tailscale's and it is signed by Tailscale's team. A copy that cannot be written (not an administrator)
+ * fails the install; nothing is half-installed.
+ */
+export function tailscaleZipScript(release: TailscaleRelease, download: PlanDownload): string {
+	return [
+		downloadedLine(download),
+		"set -euo pipefail",
+		`echo ${shQuote(`${download.sha256}  ${download.file}`)} | shasum -a 256 -c -`,
+		'tmp="$(mktemp -d)"',
+		`trap 'rm -rf "$tmp"' EXIT`,
+		`ditto -x -k ${shQuote(download.file)} "$tmp"`,
+		`app="$tmp/Tailscale.app"`,
+		'test -d "$app" || { echo "Tailscale.app is missing from the download"; exit 1; }',
+		'codesign --verify --deep --strict "$app"',
+		'id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Contents/Info.plist")"',
+		`case "$id" in ${TAILSCALE_MAC_BUNDLE_IDS.join("|")}) ;; *) echo "Unexpected bundle id $id"; exit 1;; esac`,
+		`team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"`,
+		`[ "$team" = ${TAILSCALE_TEAM_ID} ] || { echo "Unexpected signing team $team"; exit 1; }`,
+		`rm -rf ${shQuote(TAILSCALE_MAC_APP)}`,
+		`ditto "$app" ${shQuote(TAILSCALE_MAC_APP)}`,
+		`echo ${shQuote(`Tailscale ${release.version} is in ${TAILSCALE_MAC_APP}`)}`,
+	].join("\n");
+}
+
+/**
+ * Verify Tailscale's MSI (SHA-256 again, then an Authenticode signature that is Valid and Tailscale Inc.'s) and
+ * install it with msiexec, elevated: one UAC prompt. `TS_NOLAUNCH` stays unset so the tray app starts and the
+ * user can sign in.
+ */
+export function tailscaleMsiScript(download: PlanDownload): string {
+	return [
+		downloadedLine(download),
+		"$ErrorActionPreference = 'Stop'",
+		`$file = ${psQuote(download.file)}`,
+		"$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()",
+		`if ($hash -ne ${psQuote(download.sha256)}) { throw ('SHA-256 mismatch: expected ${download.sha256}, got ' + $hash) }`,
+		"Write-Output 'SHA-256 verified'",
+		"$sig = Get-AuthenticodeSignature -LiteralPath $file",
+		"if ($sig.Status -ne 'Valid') { throw ('Signature is ' + $sig.Status) }",
+		`if ($sig.SignerCertificate.Subject -notlike ${psQuote(`*CN=${TAILSCALE_SIGNER}*`)}) { throw ('Signed by ' + $sig.SignerCertificate.Subject) }`,
+		"Write-Output 'Signature verified'",
+		"$proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('\"' + $file + '\"'), '/qn') -Verb RunAs -Wait -PassThru",
+		// 3010: installed, a restart is pending.
+		"if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { throw ('msiexec exited with ' + $proc.ExitCode) }",
+		"Write-Output 'Tailscale is installed'",
+	].join("\n");
+}
+
 /**
  * The plan for `method`. `release` is required for `archive`. Null when the
  * plan cannot run: omp without Bun, a method this context lacks the tool for.
@@ -192,6 +287,7 @@ export function buildPlan(
 	method: SetupMethod,
 	ctx: PlanContext,
 	release?: ArchiveRelease,
+	tailscale?: TailscaleRelease,
 ): InstallPlan | null {
 	const win = ctx.platform === "win32";
 	switch (method) {
@@ -287,21 +383,37 @@ export function buildPlan(
 			};
 		}
 		case "winget": {
-			if (!ctx.winget || (item !== "git" && item !== "gh" && item !== "node")) return null;
-			const args = [
-				"install",
-				"--id",
-				WINGET_IDS[item],
-				"-e",
-				"--accept-source-agreements",
-				"--accept-package-agreements",
-			];
+			if (!ctx.winget || (item !== "git" && item !== "gh" && item !== "node" && item !== "tailscale")) return null;
+			const args =
+				item === "tailscale"
+					? [
+							"install",
+							"--id",
+							WINGET_IDS.tailscale,
+							"-e",
+							"--silent",
+							"--accept-package-agreements",
+							"--accept-source-agreements",
+						]
+					: [
+							"install",
+							"--id",
+							WINGET_IDS[item],
+							"-e",
+							"--accept-source-agreements",
+							"--accept-package-agreements",
+						];
 			return {
 				item,
 				method,
 				spawn: { file: ctx.winget, args, shell: false },
 				command: `winget ${args.join(" ")}`,
-				location: item === "node" ? "C:\\Program Files\\nodejs" : "C:\\Program Files",
+				location:
+					item === "node"
+						? "C:\\Program Files\\nodejs"
+						: item === "tailscale"
+							? TAILSCALE_WINDOWS_DIR
+							: "C:\\Program Files",
 				prompt: "uac",
 				download: null,
 			};
@@ -324,6 +436,34 @@ export function buildPlan(
 				download,
 			};
 		}
+		case "tailscale-zip": {
+			if (!tailscale?.file.endsWith(".zip")) return null;
+			const download = tailscaleDownload(tailscale, ctx.toolsDir);
+			const script = tailscaleZipScript(tailscale, download);
+			return {
+				item,
+				method,
+				spawn: { file: "/bin/bash", args: ["-c", script], shell: false },
+				command: script,
+				location: TAILSCALE_MAC_APP,
+				prompt: null,
+				download,
+			};
+		}
+		case "tailscale-msi": {
+			if (!tailscale?.file.endsWith(".msi")) return null;
+			const download = tailscaleDownload(tailscale, ctx.toolsDir);
+			const script = tailscaleMsiScript(download);
+			return {
+				item,
+				method,
+				spawn: powershellScript(ctx, script),
+				command: script,
+				location: TAILSCALE_WINDOWS_DIR,
+				prompt: "uac",
+				download,
+			};
+		}
 	}
 }
 
@@ -333,6 +473,7 @@ const MANUAL_URLS: Record<SetupItemId, string> = {
 	git: "https://git-scm.com/downloads",
 	gh: "https://cli.github.com/",
 	node: "https://nodejs.org/en/download",
+	tailscale: "https://tailscale.com/download",
 };
 
 /** What to run by hand, and the official page, when the automatic install keeps failing. */
@@ -361,6 +502,11 @@ export function manualSteps(
 				commands: [
 					win ? `winget install --id ${WINGET_IDS[item]} -e` : `brew install ${item === "gh" ? "gh" : "node"}`,
 				],
+				url,
+			};
+		case "tailscale":
+			return {
+				commands: [win ? `winget install --id ${WINGET_IDS.tailscale} -e` : "brew install --cask tailscale-app"],
 				url,
 			};
 	}

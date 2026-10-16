@@ -49,6 +49,7 @@ import {
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -79,6 +80,7 @@ import { createMenu } from "./menu";
 import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
+import { openLocalPath } from "./open-path";
 import { lastWindowCloseAction, quitNeedsConfirmation } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
@@ -99,6 +101,9 @@ import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { seedSpellchecker } from "./system-languages";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
+import { execFileExecutor, startTailscaleApp } from "./tailscale/cli";
+import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/locate";
+import { MobileWebService } from "./tailscale/service";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
@@ -111,6 +116,7 @@ import {
 	updateStatus,
 } from "./updater";
 import { IpcRegistry } from "./web/ipc-registry";
+import { WebHost } from "./web/web-host";
 import { WindowManager } from "./window";
 import { nativeThemeSource } from "./window-chrome";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
@@ -338,6 +344,8 @@ let remoteDevices: RemoteDevices | null = null;
 let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
+let webHost: WebHost | null = null;
+let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
 let extensionUpdater: ExtensionUpdater | null = null;
@@ -722,6 +730,7 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.SETUP_STATE, state);
 			}
+			mobileWebService?.onSetupState(state);
 			if (state.items.some(item => item.presence !== null)) markStartup("setup-detected");
 			// omp just became usable: local tabs that waited for it start now (tabs on paired hosts are theirs),
 			// and a session list refused meanwhile is read again.
@@ -1063,6 +1072,93 @@ app.whenReady().then(() => {
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
+	webHost = new WebHost({
+		ipc,
+		userData: app.getPath("userData"),
+		// The built renderer: `web.html` and its assets sit beside `index.html` (a dev run has none).
+		staticRoot: () => join(__dirname, "../renderer"),
+		desktopWindows: () => windowManager.getAllWindows(),
+		tabs: {
+			activeTab: win => sidecarPool.activeTabForWindow(win),
+			cwd: (win, tabId) => {
+				const target = sidecarPool.tabTarget(win, tabId);
+				return target && !target.device ? target.sidecar.cwd : null;
+			},
+		},
+		openMedia: (url, range) => mediaStreams.handle(new Request(url, range ? { headers: { range } } : undefined)),
+		shell: {
+			openPath: abs => openLocalPath(abs, shell),
+			reveal: abs => shell.showItemInFolder(abs),
+			openExternal: url => shell.openExternal(url),
+		},
+		allowedUsers: () => mobileWebService?.allowedUsers() ?? [],
+		// On unless the user turned it off: a phone is only paired after the desktop says yes.
+		confirmPairing: () => prefs.get("mobileWeb.confirmPairing") !== false,
+		onUnpairedAuth: () =>
+			new Notification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
+	});
+	const host = webHost;
+	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
+	// address. The server it starts is the WebHost above. `OMP_GUI_TEST_TAILSCALE_OPEN` is a test's stand-in
+	// for "start the Tailscale app" (the fake CLI of e2e/fixture/fake-tailscale.ts), never set by users.
+	const tailscaleOs = platform === "other" ? null : platform;
+	const stringPref = (key: string): string | null => {
+		const value = prefs.get(key);
+		return typeof value === "string" && value.trim() ? value : null;
+	};
+	const mobileWeb = new MobileWebService({
+		platform,
+		prefs: {
+			get: key => prefs.get(key),
+			set: (key, value) => prefs.set(key, value),
+			delete: key => prefs.delete(key),
+		},
+		server: {
+			// The loopback port is 47831 when it is free; the published port is chosen separately (serve.ts).
+			start: async () => {
+				try {
+					return await host.start({ port: MOBILE_WEB_PORT });
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+					return host.start({ port: 0 });
+				}
+			},
+			stop: () => host.stop(),
+			configure: address => host.server.configure(address),
+		},
+		setup,
+		locate: async () =>
+			tailscaleOs
+				? locateTailscale(
+						systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
+							readBundleId(mac, execFileExecutor),
+						),
+					)
+				: null,
+		exec: execFileExecutor,
+		startApp: located =>
+			tailscaleOs
+				? startTailscaleApp(located, tailscaleOs, execFileExecutor, process.env.OMP_GUI_TEST_TAILSCALE_OPEN || null)
+				: Promise.reject(new Error("Mobile web needs macOS or Windows")),
+		openExternal: url => shell.openExternal(url),
+		openSystemSettings: () =>
+			shell.openExternal(
+				tailscaleOs === "darwin"
+					? "x-apple.systempreferences:com.apple.preference.security"
+					: "ms-settings:network-vpn",
+			),
+		// Desktop windows only: a paired phone reads the state through its own call.
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(MOBILE_WEB_STATE, state);
+			}
+		},
+	});
+	mobileWebService = mobileWeb;
+	ipc.handle(MOBILE_WEB_GET_STATE, () => mobileWeb.state());
+	ipc.handle(MOBILE_WEB_COMMAND, (_caller, request: unknown) => mobileWeb.request(request));
+	// Switched on when the app last ran: published again (or found already in place) without a click.
+	void mobileWeb.start();
 	// Before the first window: a restored remote tab needs its host's link to exist.
 	devices.start();
 
@@ -1152,6 +1248,8 @@ installQuitGuard(
 		worktreeAutoClean?.stop();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
+		mobileWebService?.dispose();
+		void webHost?.stop();
 		sessionIndex?.stop();
 		logWatcher?.stop();
 		destroyTray();

@@ -149,7 +149,14 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 		};
 		const present: SetupPresence = { kind: "present", version: "1.0.0", path: bun ?? "" };
 		const detect = async (): Promise<Detection> => ({
-			presence: { bun: present, git: present, gh: present, node: present, omp: await ompPresence() },
+			presence: {
+				bun: present,
+				git: present,
+				gh: present,
+				node: present,
+				tailscale: present,
+				omp: await ompPresence(),
+			},
 			bun,
 			omp: ownOmp,
 			brew: null,

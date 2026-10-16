@@ -12,6 +12,8 @@ import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
 import { parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
 import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { execFileExecutor } from "../tailscale/cli";
+import { locateTailscale, systemLocateDeps } from "../tailscale/locate";
 import { findGitBash } from "./paths";
 
 export interface Detection {
@@ -112,6 +114,26 @@ async function detectNode(): Promise<SetupPresence> {
 			return { kind: "broken", detail: rea.reason ?? "node-failed", path: null };
 	}
 }
+/**
+ * Tailscale (Mobile web): installed when its CLI is found where Mobile web looks for it (tailscale/locate.ts). Whether
+ * the daemon runs or is signed in is Mobile web's own state machine, never an install question, so a CLI that
+ * does not answer `version` still counts as installed.
+ */
+export async function detectTailscale(platform: SetupPlatform, pathEnv: string): Promise<SetupPresence> {
+	if (platform === "other") return { kind: "missing" };
+	const located = await locateTailscale(
+		systemLocateDeps(
+			platform,
+			null,
+			async () => pathEnv,
+			async () => null,
+		),
+	);
+	if (!located) return { kind: "missing" };
+	const result = await execFileExecutor(located.path, ["version"], { env: located.env, timeoutMs: 15_000 });
+	const first = result.code === 0 ? (result.stdout.split(/\r?\n/)[0] ?? "") : "";
+	return { kind: "present", version: /\d+\.\d+\.\d+/.exec(first)?.[0] ?? null, path: located.path };
+}
 
 /** Detect every setup item. `bunInstall` is where Bun's own installer puts it. */
 export async function detectMachine(platform: SetupPlatform, bunInstall: string): Promise<Detection> {
@@ -137,15 +159,16 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 		platform,
 		win ? [] : brewBinDirs().map(dir => join(dir, "gh")),
 	);
-	const [bunPresence, omp, git, ghPresence, node] = await Promise.all([
+	const [bunPresence, omp, git, ghPresence, node, tailscale] = await Promise.all([
 		bun ? versionOf(bun, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectOmp(),
 		detectGit(platform, pathEnv, env),
 		gh ? versionOf(gh, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectNode(),
+		detectTailscale(platform, pathEnv),
 	]);
 	return {
-		presence: { bun: bunPresence, omp: omp.presence, git, gh: ghPresence, node },
+		presence: { bun: bunPresence, omp: omp.presence, git, gh: ghPresence, node, tailscale },
 		bun: bunPresence.kind === "present" ? bun : null,
 		omp: omp.bin,
 		brew,

@@ -4,7 +4,7 @@
  * lists next to the download (Node's SHASUMS256.txt, gh's checksums.txt).
  */
 import { reaNodeSupported } from "../../shared/builtin-mcp";
-import type { ArchiveRelease } from "./plans";
+import type { ArchiveRelease, TailscaleRelease } from "./plans";
 
 export type FetchText = (url: string) => Promise<string>;
 
@@ -78,6 +78,46 @@ export async function resolveArchiveRelease(
 		`${base}/${file}`,
 		parseShasums(await fetchText(`${base}/gh_${version}_checksums.txt`), file),
 	);
+}
+const TAILSCALE_BASE = "https://pkgs.tailscale.com/stable";
+const SHA256_TOKEN = /\b[0-9a-fA-F]{64}\b/;
+/** A plain file name of the index: no path, no query. */
+const PACKAGE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(zip|msi)$/;
+
+function indexString(table: unknown, key: string): string | null {
+	if (typeof table !== "object" || table === null || !(key in table)) return null;
+	const value = (table as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : null;
+}
+
+/**
+ * Tailscale's current stable package for `platform` from the official index (`?mode=json`): the macOS zip, or
+ * the MSI named for `msiArch` (`amd64`, `arm64`, `x86`), with the SHA-256 Tailscale publishes as `<file>.sha256`.
+ * The index only names files; the host is always pkgs.tailscale.com. Throws with a readable reason.
+ */
+export async function resolveTailscaleRelease(
+	platform: "darwin" | "win32",
+	msiArch: "amd64" | "arm64" | "x86" | null,
+	fetchText: FetchText,
+): Promise<TailscaleRelease> {
+	const index: unknown = JSON.parse(await fetchText(`${TAILSCALE_BASE}/?mode=json`));
+	const mac = platform === "darwin";
+	if (!mac && !msiArch) throw new Error("Tailscale publishes no installer for this processor");
+	const file = mac
+		? indexString(indexObject(index, "MacZips"), "universal")
+		: indexString(indexObject(index, "MSIs"), msiArch as string);
+	const version = indexString(index, mac ? "MacZipsVersion" : "MSIsVersion") ?? indexString(index, "Version");
+	if (!file || !PACKAGE_FILE.test(file) || !version || !VERSION.test(version)) {
+		throw new Error("pkgs.tailscale.com lists no installer for this machine");
+	}
+	const url = `${TAILSCALE_BASE}/${file}`;
+	const sha = SHA256_TOKEN.exec(await fetchText(`${url}.sha256`))?.[0]?.toLowerCase() ?? null;
+	if (!sha) throw new Error(`No published SHA-256 for ${file}`);
+	return { version, file, url, sha256: sha };
+}
+
+function indexObject(index: unknown, key: string): unknown {
+	return typeof index === "object" && index !== null && key in index ? (index as Record<string, unknown>)[key] : null;
 }
 
 /** fetch() as text; a non-2xx response throws with its status. */

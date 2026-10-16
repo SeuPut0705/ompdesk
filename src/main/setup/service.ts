@@ -23,12 +23,13 @@ import {
 	type SetupItemState,
 	type SetupPlatform,
 	type SetupState,
+	setupItemAutomatic,
 	setupItemRequired,
 } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
 import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
-import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
+import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
 import { refreshPath } from "./paths";
@@ -40,6 +41,8 @@ import {
 	type PlanDownload,
 	type SpawnSpec,
 	selectMethod,
+	type TailscaleRelease,
+	tailscaleMsiArch,
 } from "./plans";
 import { type RunOutcome, SetupRunner } from "./runner";
 
@@ -439,8 +442,9 @@ export class SetupService {
 		return SETUP_ITEMS.filter(id => this.#items[id].required);
 	}
 
+	/** The optional items setup installs on its own at launch; Tailscale waits for a click. */
 	#optionalItems(): SetupItemId[] {
-		return SETUP_ITEMS.filter(id => !this.#items[id].required);
+		return SETUP_ITEMS.filter(id => !this.#items[id].required && setupItemAutomatic(id));
 	}
 
 	#markQueued(items: SetupItemId[], manual: boolean): void {
@@ -472,7 +476,7 @@ export class SetupService {
 				}
 				this.#clearAttempts(id);
 			} else if (item.phase === "checking") {
-				item.phase = this.#deps.automatic && !this.#mayAttempt(id) ? "backoff" : "idle";
+				item.phase = setupItemAutomatic(id) && this.#deps.automatic && !this.#mayAttempt(id) ? "backoff" : "idle";
 			}
 		}
 		this.#emit();
@@ -606,7 +610,25 @@ export class SetupService {
 				}
 			}
 		}
-		const plan = buildPlan(id, method, ctx, release);
+		let tailscale: TailscaleRelease | undefined;
+		if (method === "tailscale-zip" || method === "tailscale-msi") {
+			if (this.#deps.testInstaller) {
+				tailscale = { ...TEST_RELEASE, file: method === "tailscale-zip" ? "test.zip" : "test.msi" };
+			} else {
+				try {
+					const platform = method === "tailscale-zip" ? "darwin" : "win32";
+					tailscale = await resolveTailscaleRelease(
+						platform,
+						tailscaleMsiArch(this.#deps.arch),
+						this.#deps.fetchText ?? fetchText,
+					);
+				} catch (error) {
+					this.#fail(id, { reason: "download", detail: error instanceof Error ? error.message : String(error) });
+					return;
+				}
+			}
+		}
+		const plan = buildPlan(id, method, ctx, release, tailscale);
 		if (!plan) {
 			// Only omp has a prerequisite (Bun).
 			this.#fail(id, { reason: "prerequisite", detail: "bun" });
@@ -624,8 +646,11 @@ export class SetupService {
 			startedAt: (this.#deps.now ?? Date.now)(),
 			download: download ? { received: 0, total: null } : null,
 		};
-		this.#attemptedThisLaunch.add(id);
-		this.#recordAttempt(id);
+		// Tailscale is only ever installed on the user's click: no once-per-launch rule, no back-off ledger.
+		if (setupItemAutomatic(id)) {
+			this.#attemptedThisLaunch.add(id);
+			this.#recordAttempt(id);
+		}
 		this.#installing = id;
 		this.#emit();
 		try {
