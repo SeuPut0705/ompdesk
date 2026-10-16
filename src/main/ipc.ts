@@ -11,7 +11,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, Notification, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
@@ -113,6 +113,8 @@ import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
 import { STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
 import { appVersion } from "./updater";
+import type { ClientWindow } from "./web/client-window";
+import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
@@ -130,6 +132,8 @@ import { searchWorkspace } from "./workspace-search";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
 export interface IpcDeps {
+	/** Where every handler here registers (index.ts's one table). */
+	ipc: IpcRegistry;
 	sidecarPool: SidecarPool;
 	sessionIndex: SessionIndex;
 	/** This computer's models.yml, stats server and `omp bench`; a paired host serves its own. */
@@ -155,18 +159,19 @@ export interface IpcDeps {
 
 /**
  * Resolve the sidecar that owns the calling window. Routing derives from
- * `event.sender` (Electron guarantees it is the caller's webContents), never
- * from a client-supplied id. Null when the window has no sidecar bound yet.
+ * the caller (Electron's `event.sender`, which Electron guarantees is the
+ * caller's webContents), never from a client-supplied id. Null when the
+ * window has no sidecar bound yet.
  */
-function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarLike | null {
-	const win = BrowserWindow.fromWebContents(event.sender);
+function sidecarFor(deps: IpcDeps, caller: IpcCaller): SidecarLike | null {
+	const win = caller.win;
 	if (!win) return null;
 	return deps.sidecarPool.sidecarForWindow(win);
 }
 
 /** The tab a handler acts on — `tabId`, else the calling window's active tab — with its device. */
-function targetFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: string) {
-	const win = BrowserWindow.fromWebContents(event.sender);
+function targetFor(deps: IpcDeps, caller: IpcCaller, tabId?: string) {
+	const win = caller.win;
 	return win ? deps.sidecarPool.tabTarget(win, typeof tabId === "string" ? tabId : undefined) : null;
 }
 
@@ -175,8 +180,8 @@ function targetFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: st
  * tab's cwd when one exists, else the cwd the window was created with (before
  * its sidecar binds, or while its active tab runs on a paired host).
  */
-function cwdFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: string): string | null {
-	const win = BrowserWindow.fromWebContents(event.sender);
+function cwdFor(deps: IpcDeps, caller: IpcCaller, tabId?: string): string | null {
+	const win = caller.win;
 	if (!win) return null;
 	const target = deps.sidecarPool.tabTarget(win, tabId);
 	if (tabId) return target && !target.device ? target.sidecar.cwd : null;
@@ -185,9 +190,9 @@ function cwdFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: strin
 }
 
 /** The caller's cwd when its active tab runs on `device` (undefined = this machine), else null. */
-function cwdOnDevice(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, device: string | undefined): string | null {
-	if (!device) return cwdFor(deps, event);
-	const target = targetFor(deps, event);
+function cwdOnDevice(deps: IpcDeps, caller: IpcCaller, device: string | undefined): string | null {
+	if (!device) return cwdFor(deps, caller);
+	const target = targetFor(deps, caller);
 	return target?.device === device ? target.sidecar.cwd : null;
 }
 
@@ -201,17 +206,17 @@ function cwdOnDevice(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, device: 
  */
 async function existingLocalPath(
 	deps: IpcDeps,
-	event: Electron.IpcMainInvokeEvent,
+	caller: IpcCaller,
 	target: unknown,
 	tabId?: string,
 ): Promise<{ ok: true; path: string } | IpcOpenPathResult> {
-	if (targetFor(deps, event, tabId)?.device) {
+	if (targetFor(deps, caller, tabId)?.device) {
 		return { ok: false, error: "The file is on another device", code: "remote_path_native" };
 	}
 	if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path", code: "empty_path" };
 	let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
 	if (!path.isAbsolute(resolved)) {
-		const rootAbs = cwdFor(deps, event, tabId);
+		const rootAbs = cwdFor(deps, caller, tabId);
 		if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
 		const within = resolveWithin(rootAbs, resolved);
 		if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
@@ -292,15 +297,20 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
-	registerTerminalIpc(deps.sidecarPool, deps.remoteDevices);
-	registerSshToolsIpc();
+	const { ipc } = deps;
+	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
+	registerSshToolsIpc(ipc);
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
-	const visualPages = registerPreviewHost((senderId, tabId) => {
-		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
-		const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
-		// A named tab this window does not own counts as remote: agent browsing refuses it.
-		return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
-	}, visuals);
+	const visualPages = registerPreviewHost(
+		ipc,
+		(senderId, tabId) => {
+			const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
+			const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
+			// A named tab this window does not own counts as remote: agent browsing refuses it.
+			return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
+		},
+		visuals,
+	);
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
 	/** The same for a window's model setup research. */
@@ -314,9 +324,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	 * host the caller's focused tab runs on (absent = this computer). A
 	 * benchmark there roots at that tab's folder when it is the window's tab.
 	 */
-	const machineFor = (event: Electron.IpcMainInvokeEvent, device: unknown): MachineServices => {
+	const machineFor = (caller: IpcCaller, device: unknown): MachineServices => {
 		const id = deviceOf(device);
-		const target = id ? targetFor(deps, event) : null;
+		const target = id ? targetFor(deps, caller) : null;
 		return pickMachine(id, deps.machine, {
 			...remoteMachine,
 			...(target && target.device === id ? { tab: { rtab: target.tabId, cwd: target.sidecar.cwd } } : {}),
@@ -413,19 +423,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// ========================================================================
 	// IPC Command Handlers
 	// ========================================================================
-	ipcMain.on(IPC_COMMANDS.RUNTIME_ERROR_REPORT, (event, report: unknown) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.on(IPC_COMMANDS.RUNTIME_ERROR_REPORT, (caller, report: unknown) => {
+		const win = caller.win;
 		writeRuntimeLog(report, {
 			windowId: win?.webContents.id,
 			cwd: win ? windowManager.recordFor(win)?.cwd : undefined,
 		});
 	});
-	ipcMain.on(IPC_COMMANDS.RUNTIME_STARTUP_MARK, (_event, mark: unknown) => markStartupFromRenderer(mark));
+	ipc.on(IPC_COMMANDS.RUNTIME_STARTUP_MARK, (_caller, mark: unknown) => markStartupFromRenderer(mark));
 
-	ipcMain.handle(IPC_COMMANDS.RUNTIME_LOG_PATH, () => runtimeLogPath());
+	ipc.handle(IPC_COMMANDS.RUNTIME_LOG_PATH, () => runtimeLogPath());
 	// Feedback dialog: last few runtime-error lines for the opt-in diagnostics
 	// block. Tail-read so a large log doesn't have to be parsed end to end.
-	ipcMain.handle(IPC_COMMANDS.RUNTIME_LOG_TAIL, async (_event, maxLines: unknown) => {
+	ipc.handle(IPC_COMMANDS.RUNTIME_LOG_TAIL, async (_caller, maxLines: unknown) => {
 		const limit = typeof maxLines === "number" && maxLines > 0 ? Math.min(Math.floor(maxLines), 50) : 20;
 		try {
 			const stat = await fsp.stat(runtimeLogPath());
@@ -441,7 +451,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return [];
 		}
 	});
-	ipcMain.handle(IPC_COMMANDS.LOG_SNAPSHOT, () => logWatcher.getSnapshot());
+	ipc.handle(IPC_COMMANDS.LOG_SNAPSHOT, () => logWatcher.getSnapshot());
 
 	// RPC command passthrough — always returns a response, never throws.
 	// Throwing here causes "Error occurred in handler" console spam AND
@@ -451,8 +461,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// stale). Status aggregates across windows: any error > streaming > waiting
 	// > idle; the displayed blob is the most recently pushed one, with its
 	// status replaced by the aggregate.
-	ipcMain.on(IPC_EVENTS.TRAY_STATE_PUSH, (event, state: TrayState) => {
-		const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id;
+	ipc.on(IPC_EVENTS.TRAY_STATE_PUSH, (caller, state: TrayState) => {
+		const winId = caller.win?.webContents.id;
 		if (winId === undefined) return;
 		trayStates.set(winId, state);
 		const aggregate = aggregateTrayStatus([...trayStates.values()]);
@@ -461,24 +471,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Run-progress (terminal.showProgress): aggregate per-window the same way —
 	// any window working → working, else any waiting → waiting, else idle.
-	ipcMain.on(IPC_EVENTS.PROGRESS_SET, (event, state: RunProgressState) => {
-		const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id;
+	ipc.on(IPC_EVENTS.PROGRESS_SET, (caller, state: RunProgressState) => {
+		const winId = caller.win?.webContents.id;
 		if (winId === undefined) return;
 		progressStates.set(winId, state);
 		windowManager.setRunProgress(aggregateProgress([...progressStates.values()]));
 	});
 
 	// Windows title-bar overlay: the caption buttons repaint in the theme's top-bar colors.
-	ipcMain.on(IPC_EVENTS.WINDOW_CHROME_SET, (event, value: unknown) => {
+	ipc.on(IPC_EVENTS.WINDOW_CHROME_SET, (caller, value: unknown) => {
 		if (process.platform !== "win32") return;
 		const colors = sanitizeChromeColors(value);
-		const win = BrowserWindow.fromWebContents(event.sender);
+		const win = caller.browserWindow;
 		if (!colors || !win || win.isDestroyed()) return;
 		win.setTitleBarOverlay({ ...colors, height: TOP_BAR_HEIGHT });
 	});
 
 	const dispatchRpcCommand = async (
-		win: BrowserWindow,
+		win: ClientWindow,
 		sidecar: SidecarLike | null,
 		issuerTabId: string | null,
 		payload: IpcRpcCommandPayload,
@@ -621,8 +631,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	};
 
-	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (event, payload: IpcRpcCommandPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.RPC_COMMAND, async (caller, payload: IpcRpcCommandPayload) => {
+		const win = caller.win;
 		if (!win)
 			return { id: payload.command.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const issuerTabId = sidecarPool.activeTabForWindow(win);
@@ -632,8 +642,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// RPC addressed at a specific tab. Split panes use this for every command;
 	// the shared dispatcher preserves the same ownership/cwd bookkeeping as the
 	// focused-tab path.
-	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, async (event, payload: IpcRpcCommandForTabPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, async (caller, payload: IpcRpcCommandForTabPayload) => {
+		const win = caller.win;
 		if (!win)
 			return { id: payload?.command?.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const sidecar = sidecarPool.sidecarForTab(win, payload.tabId);
@@ -646,35 +656,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// before tracking, or after a restart) fall back to the active sidecar.
 	// Resolves once the omp took the answer; a paired host's tab that did not
 	// rejects, and the renderer keeps the card open.
-	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, async (event, payload: IpcExtensionUiRespondPayload) => {
+	ipc.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, async (caller, payload: IpcExtensionUiRespondPayload) => {
 		const { response, tabId } = payload;
 		if (typeof tabId === "string") {
-			const win = BrowserWindow.fromWebContents(event.sender);
+			const win = caller.win;
 			if (!win || !sidecarPool.sidecarForTab(win, tabId)) return;
 			if (typeof response?.id === "string") await sidecarPool.routeSideChannel(response.id, response, tabId);
 			return;
 		}
 		if (typeof response?.id === "string" && (await sidecarPool.routeSideChannel(response.id, response))) return;
-		await sidecarFor(deps, event)?.sendSideChannel(response);
+		await sidecarFor(deps, caller)?.sendSideChannel(response);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, caller => {
+		const win = caller.win;
 		return win ? sidecarPool.openRequests(win) : [];
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
 	// its sessions come back tagged with it.
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_LIST, async (event, payload: IpcSessionsListPayload) => {
+	ipc.handle(IPC_COMMANDS.SESSIONS_LIST, async (caller, payload: IpcSessionsListPayload) => {
 		const scope = payload.scope === "local" ? "local" : "global";
 		const device = deviceOf(payload.device);
-		const cwd = cwdOnDevice(deps, event, device) ?? undefined;
+		const cwd = cwdOnDevice(deps, caller, device) ?? undefined;
 		if (!device) return sessionIndex.list(scope, cwd);
 		const sessions = await remoteDevices.request<SessionInfo[]>(device, "sessions.list", { scope, cwd });
 		return sessions.map(info => ({ ...info, device }));
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_event, payload: IpcSessionsDeletePayload) => {
+	ipc.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_caller, payload: IpcSessionsDeletePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
@@ -686,7 +696,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_event, payload: IpcSessionsRenamePayload) => {
+	ipc.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_caller, payload: IpcSessionsRenamePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
@@ -703,7 +713,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		});
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_MOVE, async (_event, payload: IpcSessionsMovePayload): Promise<string> => {
+	ipc.handle(IPC_COMMANDS.SESSIONS_MOVE, async (_caller, payload: IpcSessionsMovePayload): Promise<string> => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
@@ -732,7 +742,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// The session switch is done by the NEW window's renderer on boot (it pulls
 	// pendingSessionPath and runs switch_session + hydrate itself), which avoids
 	// racing the renderer's boot hydration and surfaces failures in that window.
-	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: IpcSessionOpenNewWindowPayload) => {
+	ipc.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (caller, payload: IpcSessionOpenNewWindowPayload) => {
 		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
 		const device = deviceOf(payload?.device);
 		if (sessionPath) {
@@ -755,7 +765,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					? await remoteDefaultWorkspace(device)
 					: ensureDefaultWorkspace()
 				: (requested ??
-					cwdOnDevice(deps, event, device) ??
+					cwdOnDevice(deps, caller, device) ??
 					(device ? await remoteDefaultWorkspace(device) : deps.initialCwd()));
 		return deps.spawnWindow(cwd, sessionPath, kind, device) !== null;
 	});
@@ -763,8 +773,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Fresh window pulls the session it was opened to display (one-shot). The
 	// renderer performs the actual switch_session + hydrate on boot, which
 	// avoids racing the boot hydration and surfaces failures in that window.
-	ipcMain.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, caller => {
+		const win = caller.win;
 		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
 	});
 
@@ -772,7 +782,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Session tabs — in-window parallel sessions. Each tab owns a pooled
 	// sidecar bound to the CALLING window (no new BrowserWindow); the pool
 	// moves full event forwarding to the window's active tab. Routing derives
-	// from event.sender, so a renderer can only touch its own window's tabs.
+	// from the caller, so a renderer can only touch its own window's tabs.
 	// ========================================================================
 
 	// Spawn a background tab. Null when its sidecar cannot be created; the renderer decides
@@ -784,14 +794,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// kind returns { tabId: null, refusal: "kind-mismatch" } (I3); an omitted
 	// payload kind defers to the file. Decision logic lives in tab-spawn.ts so
 	// both refusal contracts are unit-testable without an Electron runtime.
-	ipcMain.handle(IPC_COMMANDS.SPAWN_TAB, (event, payload: IpcSpawnTabPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SPAWN_TAB, (caller, payload: IpcSpawnTabPayload) => {
+		const win = caller.win;
 		if (!win) return null;
 		return spawnTabForWindow(
 			{
 				sidecarPool: deps.sidecarPool,
 				sessionIndex,
-				fallbackCwd: device => cwdOnDevice(deps, event, device),
+				fallbackCwd: device => cwdOnDevice(deps, caller, device),
 				initialCwd: deps.initialCwd,
 				defaultWorkspace: ensureDefaultWorkspace,
 				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
@@ -806,38 +816,38 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// A tab owning a `worktree.onStart` worktree first re-reads `worktree.onExit`
 	// from its live session (stock reads it at shutdown); the pool's release
 	// then hands the exit to worktree-lifecycle.ts.
-	ipcMain.handle(IPC_COMMANDS.CLOSE_TAB, async (event, payload: IpcCloseTabPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.CLOSE_TAB, async (caller, payload: IpcCloseTabPayload) => {
+		const win = caller.win;
 		if (!win || typeof payload?.tabId !== "string") return false;
 		const sidecar = deps.sidecarPool.sidecarForTab(win, payload.tabId);
 		if (!sidecar) return false;
 		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
-		closeTabTerminals(event.sender.id, payload.tabId);
+		closeTabTerminals(caller.sender.id, payload.tabId);
 		return deps.sidecarPool.releaseTab(payload.tabId);
 	});
 
 	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.
-	ipcMain.handle(IPC_COMMANDS.WORKTREE_PROMPTS_GET, event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.WORKTREE_PROMPTS_GET, caller => {
+		const win = caller.win;
 		return win ? deps.worktreePrompts.forWindow(win.webContents.id) : [];
 	});
 
-	ipcMain.handle(IPC_COMMANDS.WORKTREE_PROMPT_ANSWER, (event, payload: IpcWorktreePromptAnswer) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.WORKTREE_PROMPT_ANSWER, (caller, payload: IpcWorktreePromptAnswer) => {
+		const win = caller.win;
 		if (!win || typeof payload?.id !== "string") return false;
 		return deps.worktreePrompts.answer(win.webContents.id, payload.id, payload.accept === true);
 	});
 
 	// Move full event forwarding to the window's active tab (listeners move,
 	// never duplicate). The renderer calls this before hydrateSession().
-	ipcMain.handle(IPC_COMMANDS.SET_ACTIVE_TAB, (event, payload: IpcSetActiveTabPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SET_ACTIVE_TAB, (caller, payload: IpcSetActiveTabPayload) => {
+		const win = caller.win;
 		if (!win || typeof payload?.tabId !== "string") return false;
 		return deps.sidecarPool.setActiveTab(win, payload.tabId);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SET_TAB_VIEW, (event, payload: IpcSetTabViewPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SET_TAB_VIEW, (caller, payload: IpcSetTabViewPayload) => {
+		const win = caller.win;
 		if (!win || typeof payload?.focusedTabId !== "string" || !Array.isArray(payload.visibleTabIds)) return false;
 		return deps.sidecarPool.setTabView(
 			win,
@@ -848,8 +858,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.REORDER_TABS, (event, payload: { tabIds?: unknown }) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.REORDER_TABS, (caller, payload: { tabIds?: unknown }) => {
+		const win = caller.win;
 		const tabIds = payload?.tabIds;
 		if (!win || !Array.isArray(tabIds) || !tabIds.every(id => typeof id === "string")) return false;
 		return deps.sidecarPool.reorderWindowTabs(win, tabIds);
@@ -857,15 +867,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Boot reconciliation: the window's tabs in acquisition order (the initial
 	// sidecar is tab 0 — main minted its tabId at acquire).
-	ipcMain.handle(IPC_COMMANDS.GET_TABS, event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.GET_TABS, caller => {
+		const win = caller.win;
 		return win ? deps.sidecarPool.tabsForWindow(win) : [];
 	});
 
 	// F-OWN: which tab/window owns a session file, if any. The renderer
 	// belt-guards (open tab / open-in-new-window rows) consult this before
 	// attempting an attach.
-	ipcMain.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_event, payload: IpcGetSessionOwnerPayload) => {
+	ipc.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_caller, payload: IpcGetSessionOwnerPayload) => {
 		return typeof payload?.sessionPath === "string"
 			? deps.sidecarPool.sessionOwner(payload.sessionPath, deviceOf(payload.device))
 			: null;
@@ -873,13 +883,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Full-content search over session files (raw JSONL grep on the machine
 	// holding them, scoped to the same candidate set the list view would show).
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.SESSIONS_SEARCH,
-		async (event, payload: IpcSessionsSearchPayload): Promise<SessionContentMatch[]> => {
+		async (caller, payload: IpcSessionsSearchPayload): Promise<SessionContentMatch[]> => {
 			const scope = payload.scope === "local" ? "local" : "global";
 			const query = typeof payload.query === "string" ? payload.query : "";
 			const device = deviceOf(payload.device);
-			const cwd = cwdOnDevice(deps, event, device) ?? undefined;
+			const cwd = cwdOnDevice(deps, caller, device) ?? undefined;
 			if (device) {
 				// A host on an older OMPdesk answers bare paths (no excerpt).
 				const hits = await remoteDevices.request<(string | SessionContentMatch)[]>(device, "sessions.search", {
@@ -898,54 +908,54 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 
 	// Stats: the stats server of the machine the caller's focused tab runs on.
-	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, (event, payload: IpcStatsFetchPayload) =>
-		machineFor(event, payload?.device).fetchStats(payload.path, payload.params),
+	ipc.handle(IPC_COMMANDS.STATS_FETCH, (caller, payload: IpcStatsFetchPayload) =>
+		machineFor(caller, payload?.device).fetchStats(payload.path, payload.params),
 	);
 
 	// `omp bench` on the machine the caller's focused tab runs on, one per window.
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.BENCH_RUN,
-		async (event, options: IpcBenchmarkRunOptions, device?: unknown): Promise<IpcBenchmarkRunResult> => {
+		async (caller, options: IpcBenchmarkRunOptions, device?: unknown): Promise<IpcBenchmarkRunResult> => {
 			const id = deviceOf(device);
-			const senderId = event.sender.id;
-			if (!id) return deps.machine.runBenchmark(benchCaller(senderId), options, cwdFor(deps, event));
+			const senderId = caller.sender.id;
+			if (!id) return deps.machine.runBenchmark(benchCaller(senderId), options, cwdFor(deps, caller));
 			return runTracked(remoteBenchmarks, senderId, id, () =>
-				machineFor(event, id).runBenchmark(benchCaller(senderId), options, null),
+				machineFor(caller, id).runBenchmark(benchCaller(senderId), options, null),
 			);
 		},
 	);
-	ipcMain.handle(IPC_COMMANDS.BENCH_ABORT, (event, device?: unknown) =>
-		machineFor(event, device).abortBenchmark(benchCaller(event.sender.id)),
+	ipc.handle(IPC_COMMANDS.BENCH_ABORT, (caller, device?: unknown) =>
+		machineFor(caller, device).abortBenchmark(benchCaller(caller.sender.id)),
 	);
 
 	// The model setup assistant's research on the machine the caller's focused tab runs on, one per window.
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.MODEL_SETUP_RUN,
-		async (event, request: ModelSetupRequest, device?: unknown): Promise<IpcModelSetupRunResult> => {
+		async (caller, request: ModelSetupRequest, device?: unknown): Promise<IpcModelSetupRunResult> => {
 			const id = deviceOf(device);
-			const senderId = event.sender.id;
+			const senderId = caller.sender.id;
 			if (!id) return deps.machine.runModelSetup(benchCaller(senderId), request);
 			return runTracked(remoteModelSetups, senderId, id, () =>
-				machineFor(event, id).runModelSetup(benchCaller(senderId), request),
+				machineFor(caller, id).runModelSetup(benchCaller(senderId), request),
 			);
 		},
 	);
-	ipcMain.handle(IPC_COMMANDS.MODEL_SETUP_STATUS, (event, device?: unknown) =>
-		machineFor(event, device).modelSetupStatus(benchCaller(event.sender.id)),
+	ipc.handle(IPC_COMMANDS.MODEL_SETUP_STATUS, (caller, device?: unknown) =>
+		machineFor(caller, device).modelSetupStatus(benchCaller(caller.sender.id)),
 	);
-	ipcMain.handle(IPC_COMMANDS.MODEL_SETUP_ABORT, (event, device?: unknown) =>
-		machineFor(event, device).abortModelSetup(benchCaller(event.sender.id)),
+	ipc.handle(IPC_COMMANDS.MODEL_SETUP_ABORT, (caller, device?: unknown) =>
+		machineFor(caller, device).abortModelSetup(benchCaller(caller.sender.id)),
 	);
 
 	// Renderer-initiated quit (the `quit` command). Straight to the guard, never
 	// `window.close()`: closing the focused window only hides the rest of the
 	// session behind it.
-	ipcMain.on(IPC_COMMANDS.APP_QUIT, () => {
+	ipc.on(IPC_COMMANDS.APP_QUIT, () => {
 		requestQuit();
 	});
 
 	// System
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_INFO, () => ({
+	ipc.handle(IPC_COMMANDS.SYSTEM_INFO, () => ({
 		appVersion: appVersion(),
 		platform: process.platform,
 		arch: process.arch,
@@ -955,16 +965,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		chrome: process.versions.chrome ?? "?",
 		node: process.versions.node ?? "?",
 	}));
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, async (_event, url: unknown) => {
+	ipc.handle(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, async (_caller, url: unknown) => {
 		if (isOpenableExternalUrl(url)) await shell.openExternal(url);
 	});
 
 	// Tool-card and reply path links: open in the system editor, or reveal the
 	// file in the file manager when no editor association exists.
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_PATH,
-		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
-			const local = await existingLocalPath(deps, event, target, tabId);
+		async (caller, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
+			const local = await existingLocalPath(deps, caller, target, tabId);
 			if (!("path" in local)) return local;
 			await openLocalPath(local.path, shell);
 			return { ok: true };
@@ -972,20 +982,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 
 	// "Show in Finder" for a path the renderer knows (agent definition files, reply links).
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.SYSTEM_REVEAL_PATH,
-		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
-			const local = await existingLocalPath(deps, event, target, tabId);
+		async (caller, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
+			const local = await existingLocalPath(deps, caller, target, tabId);
 			if (!("path" in local)) return local;
 			shell.showItemInFolder(local.path);
 			return { ok: true };
 		},
 	);
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.SYSTEM_SAVE_DIALOG,
-		async (event, defaultPath?: string, filters?: { name: string; extensions: string[] }[]) => {
-			const win = BrowserWindow.fromWebContents(event.sender);
+		async (caller, defaultPath?: string, filters?: { name: string; extensions: string[] }[]) => {
+			const win = caller.browserWindow;
 			if (!win) return null;
 			const result = await dialog.showSaveDialog(win, {
 				defaultPath: defaultPath ?? "session.html",
@@ -995,38 +1005,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
-	ipcMain.handle(
-		IPC_COMMANDS.SYSTEM_SAVE_IMAGE,
-		async (event, defaultName: string, mimeType: string, data: string) => {
-			const win = BrowserWindow.fromWebContents(event.sender);
-			if (!win) return { saved: false };
-			const extension =
-				mimeType
-					.split("/")[1]
-					?.replace("jpeg", "jpg")
-					.replace(/[^a-z0-9]/gi, "") || "png";
-			const result = await dialog.showSaveDialog(win, {
-				defaultPath: path.basename(defaultName) || `image.${extension}`,
-				filters: [{ name: "Image", extensions: [extension] }],
-			});
-			if (result.canceled || !result.filePath) return { saved: false };
-			try {
-				await fsp.writeFile(result.filePath, Buffer.from(data, "base64"));
-				return { saved: true };
-			} catch (error) {
-				return { saved: false, error: error instanceof Error ? error.message : String(error) };
-			}
-		},
-	);
+	ipc.handle(IPC_COMMANDS.SYSTEM_SAVE_IMAGE, async (caller, defaultName: string, mimeType: string, data: string) => {
+		const win = caller.browserWindow;
+		if (!win) return { saved: false };
+		const extension =
+			mimeType
+				.split("/")[1]
+				?.replace("jpeg", "jpg")
+				.replace(/[^a-z0-9]/gi, "") || "png";
+		const result = await dialog.showSaveDialog(win, {
+			defaultPath: path.basename(defaultName) || `image.${extension}`,
+			filters: [{ name: "Image", extensions: [extension] }],
+		});
+		if (result.canceled || !result.filePath) return { saved: false };
+		try {
+			await fsp.writeFile(result.filePath, Buffer.from(data, "base64"));
+			return { saved: true };
+		} catch (error) {
+			return { saved: false, error: error instanceof Error ? error.message : String(error) };
+		}
+	});
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_DIALOG,
 		async (
-			event,
+			caller,
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		) => {
-			const win = BrowserWindow.fromWebContents(event.sender);
+			const win = caller.browserWindow;
 			if (!win) return null;
 			const result = await dialog.showOpenDialog(win, {
 				properties: options?.directory ? ["openDirectory", "createDirectory"] : ["openFile", "multiSelections"],
@@ -1040,12 +1047,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (event, payload: IpcNotifyPayload) => {
+	ipc.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (caller, payload: IpcNotifyPayload) => {
 		if (typeof payload.title === "string") {
 			// Dedupe within a window (a turn can emit the same notification from
 			// several renderers), but NOT across windows — two parallel sessions
 			// finishing in different windows are distinct events the user wants.
-			const win = BrowserWindow.fromWebContents(event.sender);
+			const win = caller.win;
 			const winId = win?.webContents.id ?? 0;
 			const key = `${winId}${payload.title}${payload.body ?? ""}`;
 			const now = Date.now();
@@ -1074,14 +1081,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Preferences
-	ipcMain.handle(IPC_COMMANDS.PREFS_GET, (_event, payload: IpcPrefsGetPayload) => {
+	ipc.handle(IPC_COMMANDS.PREFS_GET, (_caller, payload: IpcPrefsGetPayload) => {
 		if (payload.key) {
 			return prefsStore.get(payload.key);
 		}
 		return prefsStore.store;
 	});
 
-	ipcMain.handle(IPC_COMMANDS.PREFS_SET, (_event, payload: IpcPrefsSetPayload) => {
+	ipc.handle(IPC_COMMANDS.PREFS_SET, (_caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");
 		}
@@ -1157,14 +1164,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		get: key => prefsStore.get(key),
 		set: (key, value) => prefsStore.set(key, value),
 	};
-	ipcMain.handle(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, (_event, payload: IpcGetLaunchProfilePayload) => {
+	ipc.handle(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, (_caller, payload: IpcGetLaunchProfilePayload) => {
 		const device = deviceOf(payload?.device);
 		return device
 			? remoteDevices.request(device, "launchProfile.get", { cwd: payload.cwd })
 			: readLaunchProfile(launchProfilePrefs, payload?.cwd);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_event, payload: IpcUpdateLaunchProfilePayload) => {
+	ipc.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_caller, payload: IpcUpdateLaunchProfilePayload) => {
 		const device = deviceOf(payload?.device);
 		return device
 			? remoteDevices.request(device, "launchProfile.update", { cwd: payload.cwd, patch: payload.patch })
@@ -1172,8 +1179,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Sidecar control
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, (event, payload?: IpcSidecarRestartPayload) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SIDECAR_RESTART, (caller, payload?: IpcSidecarRestartPayload) => {
+		const win = caller.win;
 		if (!win) throw codedError("no_window", "No window");
 		const sidecar =
 			typeof payload?.tabId === "string"
@@ -1187,10 +1194,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Native folder picker: this machine's disk only. A tab on a paired host
 	// picks through the remote folder picker (remote.listDirs) and setProject.
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async caller => {
+		const win = caller.browserWindow;
 		if (!win) return null;
-		const target = targetFor(deps, event);
+		const target = targetFor(deps, caller);
 		if (!target) return null;
 		if (target.device) throw codedError("remote_path_native", "The project is on another device");
 		const { sidecar } = target;
@@ -1215,10 +1222,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// exists, then restarts the sidecar there (same tail as select-project).
 	// On a paired host the directory is checked there, and this machine's
 	// last-project pref and window record keep local paths only.
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (event, payload: { cwd?: string }) => {
+	ipc.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (caller, payload: { cwd?: string }) => {
 		const cwd = payload?.cwd;
 		if (typeof cwd !== "string" || cwd.length === 0) return false;
-		const target = targetFor(deps, event);
+		const target = targetFor(deps, caller);
 		if (!target) return false;
 		if (target.device) {
 			try {
@@ -1235,22 +1242,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return false;
 		}
 		prefsStore.set("lastProject", cwd);
-		const win = BrowserWindow.fromWebContents(event.sender);
+		const win = caller.win;
 		if (win) windowManager.setRecordCwd(win, cwd);
 		target.sidecar.restart(cwd);
 		return true;
 	});
 
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, () => ensureDefaultWorkspace());
+	ipc.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, () => ensureDefaultWorkspace());
 
 	// models.yml custom providers of the machine the caller's focused tab runs on.
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, (event, device?: unknown) =>
-		machineFor(event, device).listProviders(),
+	ipc.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, (caller, device?: unknown) =>
+		machineFor(caller, device).listProviders(),
 	);
 	// A true first run, known before omp boots (the first-run provider step opens at once): stock's own
 	// credential store and env-key map in the stock helper, under the environment omp itself gets. Anything
 	// that cannot answer (no omp yet, an old omp, a broker that is down) is "cannot tell".
-	ipcMain.handle(IPC_COMMANDS.MODELS_SIGNED_IN, async () => {
+	ipc.handle(IPC_COMMANDS.MODELS_SIGNED_IN, async () => {
 		try {
 			const env = await shellSpawnEnv();
 			const result = await stockHelperRequest<{ signedIn: boolean }>(
@@ -1264,21 +1271,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	});
 
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, (event, input: CustomProviderInput, device?: unknown) =>
-		machineFor(event, device).upsertProvider(input),
+	ipc.handle(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, (caller, input: CustomProviderInput, device?: unknown) =>
+		machineFor(caller, device).upsertProvider(input),
 	);
 
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (event, id: string, device?: unknown) =>
-		machineFor(event, device).deleteProvider(id),
+	ipc.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (caller, id: string, device?: unknown) =>
+		machineFor(caller, device).deleteProvider(id),
 	);
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.MODELS_OVERRIDE_SET,
-		(event, provider: unknown, modelId: unknown, override: unknown, device?: unknown) => {
+		(caller, provider: unknown, modelId: unknown, override: unknown, device?: unknown) => {
 			if (typeof provider !== "string" || !provider || typeof modelId !== "string" || !modelId) {
 				throw codedError("invalid_preference_key", "Invalid model override target");
 			}
-			return machineFor(event, device).setModelOverride(
+			return machineFor(caller, device).setModelOverride(
 				provider,
 				modelId,
 				ModelOverrideInputSchema.nullable().parse(override),
@@ -1287,31 +1294,31 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 
 	// Account rotation is per machine: a paired host's tabs follow the host's own pref.
-	ipcMain.handle(IPC_COMMANDS.ACCOUNT_ROTATION_GET, (event, device?: unknown) =>
-		machineFor(event, device).accountRotation(),
+	ipc.handle(IPC_COMMANDS.ACCOUNT_ROTATION_GET, (caller, device?: unknown) =>
+		machineFor(caller, device).accountRotation(),
 	);
 
-	ipcMain.handle(IPC_COMMANDS.ACCOUNT_ROTATION_SET, (event, mode: unknown, device?: unknown) => {
+	ipc.handle(IPC_COMMANDS.ACCOUNT_ROTATION_SET, (caller, mode: unknown, device?: unknown) => {
 		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
-		return machineFor(event, device).setAccountRotation(mode);
+		return machineFor(caller, device).setAccountRotation(mode);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.BUILTIN_REA_GET, (event, device?: unknown) => machineFor(event, device).builtinRea());
-	ipcMain.handle(IPC_COMMANDS.BUILTIN_REA_SET, (event, enabled: unknown, device?: unknown) => {
+	ipc.handle(IPC_COMMANDS.BUILTIN_REA_GET, (caller, device?: unknown) => machineFor(caller, device).builtinRea());
+	ipc.handle(IPC_COMMANDS.BUILTIN_REA_SET, (caller, enabled: unknown, device?: unknown) => {
 		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
-		return machineFor(event, device).setBuiltinRea(enabled);
+		return machineFor(caller, device).setBuiltinRea(enabled);
 	});
-	ipcMain.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (event, device?: unknown) => machineFor(event, device).desktop());
-	ipcMain.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (event, action: unknown, device?: unknown) => {
+	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (caller, device?: unknown) => machineFor(caller, device).desktop());
+	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (caller, action: unknown, device?: unknown) => {
 		if (action !== "check" && action !== "download" && action !== "install") {
 			throw codedError("invalid_preference_key", "Invalid update action");
 		}
-		return machineFor(event, device).desktopUpdate(action);
+		return machineFor(caller, device).desktopUpdate(action);
 	});
 	// omp's own update on a paired host: that host's OmpUpdater runs it; its state changes come back as pushed events.
-	ipcMain.handle(IPC_COMMANDS.HOST_OMP_UPDATE_GET, (event, device?: unknown) => machineFor(event, device).ompUpdate());
-	ipcMain.handle(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, (event, device?: unknown) =>
-		machineFor(event, device).startOmpUpdate(),
+	ipc.handle(IPC_COMMANDS.HOST_OMP_UPDATE_GET, (caller, device?: unknown) => machineFor(caller, device).ompUpdate());
+	ipc.handle(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, (caller, device?: unknown) =>
+		machineFor(caller, device).startOmpUpdate(),
 	);
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
@@ -1319,7 +1326,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// something to edit; when no editor association exists, reveal it in the
 	// file manager instead. A paired host's file is out of this editor's reach:
 	// its providers are edited in-app.
-	ipcMain.handle(IPC_COMMANDS.MODELS_CONFIG_OPEN, async (_event, device?: unknown) => {
+	ipc.handle(IPC_COMMANDS.MODELS_CONFIG_OPEN, async (_caller, device?: unknown) => {
 		if (deviceOf(device)) throw codedError("remote_path_native", "The models file is on another device");
 		const file = modelsPath();
 		if (!existsSync(file)) {
@@ -1355,8 +1362,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	};
 
-	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload): Promise<IpcFsListResult> => {
-		const target = targetFor(deps, event, payload?.tabId);
+	ipc.handle(IPC_COMMANDS.FS_LIST, async (caller, payload: IpcFsListPayload): Promise<IpcFsListResult> => {
+		const target = targetFor(deps, caller, payload?.tabId);
 		const request = { path: payload?.path, maxDepth: payload?.maxDepth, maxEntries: payload?.maxEntries };
 		if (target?.device) {
 			return remoteFs({ ...target, device: target.device }, "fs.list", request, (error, code) => ({
@@ -1367,11 +1374,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				...(code ? { code } : {}),
 			}));
 		}
-		return listWorkspace(cwdFor(deps, event, payload?.tabId), request);
+		return listWorkspace(cwdFor(deps, caller, payload?.tabId), request);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload): Promise<IpcFsReadResult> => {
-		const target = targetFor(deps, event, payload?.tabId);
+	ipc.handle(IPC_COMMANDS.FS_READ, async (caller, payload: IpcFsReadPayload): Promise<IpcFsReadResult> => {
+		const target = targetFor(deps, caller, payload?.tabId);
 		const request = { path: payload?.path, maxBytes: payload?.maxBytes };
 		if (target?.device) {
 			return remoteFs({ ...target, device: target.device }, "fs.read", request, (error, code) => ({
@@ -1384,13 +1391,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				...(code ? { code } : {}),
 			}));
 		}
-		return readWorkspaceFile(cwdFor(deps, event, payload?.tabId), request);
+		return readWorkspaceFile(cwdFor(deps, caller, payload?.tabId), request);
 	});
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_STAT,
-		async (event, payload: { path?: unknown; tabId?: string }): Promise<IpcFsStatResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: { path?: unknown; tabId?: string }): Promise<IpcFsStatResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			if (target?.device) {
 				return remoteFs(
 					{ ...target, device: target.device },
@@ -1399,15 +1406,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					(error, code) => ({ ok: false, mtimeMs: 0, size: 0, error, ...(code ? { code } : {}) }),
 				);
 			}
-			return statWorkspacePath(cwdFor(deps, event, payload?.tabId), payload?.path);
+			return statWorkspacePath(cwdFor(deps, caller, payload?.tabId), payload?.path);
 		},
 	);
 
 	// Files panel writes; a paired host's tab writes on that host (which trashes through its own shell).
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_MUTATE,
-		async (event, payload: { mutation: IpcFsMutation; tabId?: string }): Promise<IpcFsMutateResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: { mutation: IpcFsMutation; tabId?: string }): Promise<IpcFsMutateResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			if (target?.device) {
 				return remoteFs(
 					{ ...target, device: target.device },
@@ -1416,14 +1423,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					(error, code) => ({ ok: false, error, ...(code ? { code } : {}) }),
 				);
 			}
-			return mutateWorkspace(cwdFor(deps, event, payload?.tabId), payload?.mutation, abs => shell.trashItem(abs));
+			return mutateWorkspace(cwdFor(deps, caller, payload?.tabId), payload?.mutation, abs => shell.trashItem(abs));
 		},
 	);
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_SEARCH,
-		async (event, payload: { request: unknown; tabId?: string }): Promise<IpcFsSearchResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: { request: unknown; tabId?: string }): Promise<IpcFsSearchResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			if (target?.device) {
 				return remoteFs(
 					{ ...target, device: target.device },
@@ -1439,14 +1446,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					}),
 				);
 			}
-			return searchWorkspace(cwdFor(deps, event, payload?.tabId), payload?.request, stockHelperRequest);
+			return searchWorkspace(cwdFor(deps, caller, payload?.tabId), payload?.request, stockHelperRequest);
 		},
 	);
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_READ_IMAGE,
-		async (event, payload: IpcFsReadImagePayload): Promise<IpcFsReadImageResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: IpcFsReadImagePayload): Promise<IpcFsReadImageResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			const request = { path: payload?.path };
 			if (target?.device) {
 				return remoteFs({ ...target, device: target.device }, "fs.readImage", request, (error, code) => ({
@@ -1458,14 +1465,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					...(code ? { code } : {}),
 				}));
 			}
-			return readWorkspaceImage(cwdFor(deps, event, payload?.tabId), request);
+			return readWorkspaceImage(cwdFor(deps, caller, payload?.tabId), request);
 		},
 	);
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_READ_BINARY,
-		async (event, payload: IpcFsReadBinaryPayload): Promise<IpcFsReadBinaryResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: IpcFsReadBinaryPayload): Promise<IpcFsReadBinaryResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			const request = { path: payload?.path, maxBytes: payload?.maxBytes };
 			if (target?.device) {
 				return remoteFs(
@@ -1484,7 +1491,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					{ timeoutMs: HOST_FS_READ_BINARY_TIMEOUT_MS, decode: decodeBinaryRead },
 				);
 			}
-			return readWorkspaceBinary(cwdFor(deps, event, payload?.tabId), request);
+			return readWorkspaceBinary(cwdFor(deps, caller, payload?.tabId), request);
 		},
 	);
 
@@ -1492,19 +1499,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// A paired host's tab has none (`remote_path_native`): the renderer reads it through
 	// `host.fs.readBinary` under the host's cap instead.
 	const streamOwners = new Set<number>();
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_MEDIA_STREAM,
-		async (event, payload: IpcFsMediaStreamPayload): Promise<IpcFsMediaStreamResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: IpcFsMediaStreamPayload): Promise<IpcFsMediaStreamResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			if (target?.device) {
 				return { ok: false, error: "This file is on a paired device", code: "remote_path_native" };
 			}
-			const media = await resolveWorkspaceMedia(cwdFor(deps, event, payload?.tabId), payload?.path);
+			const media = await resolveWorkspaceMedia(cwdFor(deps, caller, payload?.tabId), payload?.path);
 			if (!media.ok) return media;
-			const owner = event.sender.id;
+			const owner = caller.sender.id;
 			if (!streamOwners.has(owner)) {
 				streamOwners.add(owner);
-				event.sender.once("destroyed", () => {
+				caller.sender.once("destroyed", () => {
 					streamOwners.delete(owner);
 					deps.mediaStreams.releaseOwner(owner);
 				});
@@ -1517,12 +1524,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		},
 	);
-	ipcMain.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (event, url: unknown) => deps.mediaStreams.release(url, event.sender.id));
+	ipc.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (caller, url: unknown) => deps.mediaStreams.release(url, caller.sender.id));
 
-	ipcMain.handle(
+	ipc.handle(
 		IPC_COMMANDS.FS_READ_PLAN,
-		async (event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
-			const target = targetFor(deps, event, payload?.tabId);
+		async (caller, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
 			const request = { fsPath: payload?.fsPath, localRoot: payload?.localRoot ?? null };
 			if (target?.device) {
 				return remoteFs({ ...target, device: target.device }, "fs.readPlan", request, (error, code) => ({
@@ -1533,44 +1540,42 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					...(code ? { code } : {}),
 				}));
 			}
-			return readPlanFile(cwdFor(deps, event, payload?.tabId), sessionIndex.sessionsDir, request);
+			return readPlanFile(cwdFor(deps, caller, payload?.tabId), sessionIndex.sessionsDir, request);
 		},
 	);
 
-	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, event => {
-		const sidecar = sidecarFor(deps, event);
+	ipc.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, caller => {
+		const sidecar = sidecarFor(deps, caller);
 		return sidecar
 			? { ...sidecar.statusPayload, cwd: sidecar.cwd }
-			: { status: "starting", cwd: cwdFor(deps, event) ?? "" };
+			: { status: "starting", cwd: cwdFor(deps, caller) ?? "" };
 	});
 
 	// ========================================================================
 	// Remote devices — this computer as a host, and the hosts it is paired with.
 	// ========================================================================
-	ipcMain.handle(IPC_COMMANDS.REMOTE_GET_STATE, () => remoteDevices.state());
-	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, (_event, enabled: unknown) =>
+	ipc.handle(IPC_COMMANDS.REMOTE_GET_STATE, () => remoteDevices.state());
+	ipc.handle(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, (_caller, enabled: unknown) =>
 		remoteDevices.setHostEnabled(enabled === true),
 	);
-	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_event, name: unknown) => remoteDevices.setDeviceName(name));
-	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, (_event, enabled: unknown) =>
+	ipc.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_caller, name: unknown) => remoteDevices.setDeviceName(name));
+	ipc.handle(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, (_caller, enabled: unknown) =>
 		remoteDevices.setKeepAwake(enabled === true),
 	);
-	ipcMain.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
-	ipcMain.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_event, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
-	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_event, payload: unknown) =>
-		remoteDevices.setPeerLimits(payload),
-	);
-	ipcMain.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_event, action: unknown) => remoteDevices.discover(action));
-	ipcMain.handle(IPC_COMMANDS.REMOTE_PAIR, (_event, payload: unknown) => remoteDevices.pair(payload));
-	ipcMain.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_event, deviceId: unknown) => remoteDevices.removeHost(deviceId));
-	ipcMain.handle(IPC_COMMANDS.REMOTE_LIST_DIRS, (_event, payload: IpcRemoteListDirsPayload) =>
+	ipc.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
+	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
+	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_caller, action: unknown) => remoteDevices.discover(action));
+	ipc.handle(IPC_COMMANDS.REMOTE_PAIR, (_caller, payload: unknown) => remoteDevices.pair(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_caller, deviceId: unknown) => remoteDevices.removeHost(deviceId));
+	ipc.handle(IPC_COMMANDS.REMOTE_LIST_DIRS, (_caller, payload: IpcRemoteListDirsPayload) =>
 		remoteDevices.listDirs(payload?.deviceId, payload?.path, payload?.query),
 	);
 
 	// External-editor round trip ($VISUAL/$EDITOR, temp file, exit-0 read-back)
 	// for the composer editor dialog. Result shape carries availability +
 	// cancellation so the renderer never has to catch.
-	ipcMain.handle(IPC_COMMANDS.EDITOR_OPEN_EXTERNAL, async (_event, payload: { content?: string }) => {
+	ipc.handle(IPC_COMMANDS.EDITOR_OPEN_EXTERNAL, async (_caller, payload: { content?: string }) => {
 		if (!(await resolveEditorCommand())) {
 			return {
 				ok: false,

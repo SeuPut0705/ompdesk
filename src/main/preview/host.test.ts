@@ -6,6 +6,7 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_COMMAND, type PreviewState, VISUAL_SCHEME } from "../../shared/preview";
+import { IpcRegistry } from "../web/ipc-registry";
 import { registerPreviewHost } from "./host";
 import { parseVisualUrl } from "./visual-navigation";
 
@@ -129,7 +130,6 @@ class FakeWindow extends EventEmitter {
 vi.mock("electron", () => ({
 	app: { getPath: () => "/tmp", getPreferredSystemLanguages: () => ["de-DE"] },
 	dialog: {},
-	ipcMain: { handle: (channel: string, handler: unknown) => electron.handlers.set(channel, handler) },
 	BrowserWindow: { fromWebContents: (sender: FakeContents) => sender.window },
 	session: {
 		fromPartition: (name: string) => {
@@ -172,7 +172,8 @@ function register(serve = vi.fn(async () => new Response("served"))) {
 		forTab: () => [VISUAL],
 		addToTab: async () => true,
 	};
-	registerPreviewHost(() => false, visuals as never);
+	const ipc = new IpcRegistry({ handle: (channel, handler) => electron.handlers.set(channel, handler), on: () => {} });
+	registerPreviewHost(ipc, () => false, visuals as never);
 	return serve;
 }
 

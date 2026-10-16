@@ -1,7 +1,7 @@
-import { BrowserWindow, ipcMain } from "electron";
 import type { TerminalOperation, TerminalShell, TerminalSnapshot } from "../../shared/terminal-types";
 import type { RemoteDevices } from "../remote/devices";
 import type { SidecarPool } from "../sidecar-pool";
+import type { IpcRegistry } from "../web/ipc-registry";
 import { disposeTerminals, terminalRequest, validTerminalOperation } from "./requests";
 import { detectShells } from "./shells";
 
@@ -24,7 +24,11 @@ export async function readTabTerminals(
 	const owner = `${tab.webContentsId}:${tab.tabId}`;
 	return owners.has(owner) ? terminalRequest(owner, tab.cwd, operation) : [];
 }
-export function registerTerminalIpc(pool: SidecarPool, remoteDevices: Pick<RemoteDevices, "request">): void {
+export function registerTerminalIpc(
+	ipc: IpcRegistry,
+	pool: SidecarPool,
+	remoteDevices: Pick<RemoteDevices, "request">,
+): void {
 	const released = pool.onTabReleased;
 	pool.onTabReleased = (tabId, exited) => {
 		for (const owner of owners) {
@@ -35,14 +39,14 @@ export function registerTerminalIpc(pool: SidecarPool, remoteDevices: Pick<Remot
 		released?.(tabId, exited);
 	};
 	// A paired host's tab lists and runs the host's shells (C114).
-	ipcMain.handle("terminal:shells", async (event, tabId?: string): Promise<TerminalShell[]> => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle("terminal:shells", async (caller, tabId?: string): Promise<TerminalShell[]> => {
+		const win = caller.win;
 		const target = win && typeof tabId === "string" ? pool.tabTarget(win, tabId) : null;
 		if (target?.device) return remoteDevices.request<TerminalShell[]>(target.device, "terminal.shells", {});
 		return detectShells();
 	});
-	ipcMain.handle("terminal:request", async (event, tabId: string, operation: TerminalOperation) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
+	ipc.handle("terminal:request", async (caller, tabId: string, operation: TerminalOperation) => {
+		const win = caller.win;
 		const target = win && typeof tabId === "string" ? pool.tabTarget(win, tabId) : null;
 		if (!target) throw new Error("Terminal tab not found");
 		if (!validTerminalOperation(operation)) throw new Error("Invalid terminal operation");
@@ -52,10 +56,10 @@ export function registerTerminalIpc(pool: SidecarPool, remoteDevices: Pick<Remot
 				rtab: tabId,
 				operation,
 			});
-		const owner = `${event.sender.id}:${tabId}`;
+		const owner = `${caller.sender.id}:${tabId}`;
 		if (!owners.has(owner)) {
 			owners.add(owner);
-			event.sender.once("destroyed", () => closeTabTerminals(event.sender.id, tabId));
+			caller.sender.once("destroyed", () => closeTabTerminals(caller.sender.id, tabId));
 		}
 		const result = await terminalRequest(owner, target.sidecar.cwd, operation);
 		// A tab can close while the lazy Bun worker is starting.

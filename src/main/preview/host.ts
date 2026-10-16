@@ -1,16 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import {
-	app,
-	BrowserWindow,
-	dialog,
-	ipcMain,
-	type Session,
-	session,
-	type WebContents,
-	WebContentsView,
-} from "electron";
+import { app, type BrowserWindow, dialog, type Session, session, type WebContents, WebContentsView } from "electron";
 import { z } from "zod";
 import {
 	clampPreviewZoom,
@@ -34,6 +25,7 @@ import {
 	VISUAL_SCHEME,
 } from "../../shared/preview";
 import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
+import type { IpcRegistry } from "../web/ipc-registry";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
@@ -143,6 +135,7 @@ function windowState(host: PreviewHost): PreviewState {
  * Returns what the agent's `gui_visualize` reads and waits on.
  */
 export function registerPreviewHost(
+	ipc: IpcRegistry,
 	isRemote: (senderId: number, tabId?: string) => boolean,
 	visuals: VisualStore,
 ): VisualPages {
@@ -465,10 +458,11 @@ export function registerPreviewHost(
 		windowSessions.set(win, sessions);
 		return sessions;
 	};
-	ipcMain.handle(PREVIEW_COMMAND, async (event, request: PreviewRequest) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
-		let host = hosts.get(event.sender.id);
+	ipc.handle(PREVIEW_COMMAND, async (caller, request: PreviewRequest) => {
+		const win = caller.browserWindow;
+		if (!win || win.webContents !== caller.sender) throw new Error("Invalid preview owner");
+		const sender = win.webContents;
+		let host = hosts.get(sender.id);
 		if (request.action === "dispose") {
 			if (host) disposeHost(host);
 			return EMPTY_PREVIEW;
@@ -478,7 +472,7 @@ export function registerPreviewHost(
 			const first = createPage(win, sessions, "web", () => created);
 			const created: PreviewHost = {
 				win,
-				sender: event.sender,
+				sender,
 				sessions,
 				pages: [first],
 				active: first,
@@ -491,14 +485,14 @@ export function registerPreviewHost(
 				},
 			};
 			host = created;
-			hosts.set(event.sender.id, created);
+			hosts.set(sender.id, created);
 			win.on("closed", created.onClosed);
-			event.sender.on("did-start-navigation", created.onNavigated);
+			sender.on("did-start-navigation", created.onNavigated);
 		}
 		const current = host;
 		const page = current.active;
 		if (request.action === "agentStart") {
-			if (isRemote(event.sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
+			if (isRemote(sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
 			// The agent's browser drives web pages only; a visual's page has no network and its own rules.
 			if (page.state.session === "visual") throw new Error("Agent browsing is for web pages, not visuals");
 			const target = relayExtensionUrl(request.url, request.token);
@@ -569,7 +563,7 @@ export function registerPreviewHost(
 			request.action === "openVisual" ||
 			request.action === "restoreVisuals"
 		) {
-			if (isRemote(event.sender.id, request.tabId)) throw new Error("Visuals are for tabs on this computer");
+			if (isRemote(sender.id, request.tabId)) throw new Error("Visuals are for tabs on this computer");
 			if (request.action === "openVisual" && !(await visuals.addToTab(request.tabId, request.visualId)))
 				throw new Error("Unknown visual");
 			await current.sessions.ready;
@@ -614,10 +608,10 @@ export function registerPreviewHost(
 		else if (request.action === "stop") page.contents.stop();
 		return windowState(current);
 	});
-	ipcMain.handle(PREVIEW_SAVE_PDF, async event => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		const host = hosts.get(event.sender.id);
-		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
+	ipc.handle(PREVIEW_SAVE_PDF, async caller => {
+		const win = caller.browserWindow;
+		const host = hosts.get(caller.sender.id);
+		if (!win || win.webContents !== caller.sender) throw new Error("Invalid preview owner");
 		const page = host?.active;
 		if (!page?.state.url || page.state.crashed) throw new Error("No page to save");
 		const { contents } = page;
@@ -636,10 +630,10 @@ export function registerPreviewHost(
 		await writeFile(choice.filePath, await contents.printToPDF({ printBackground: true }));
 		return choice.filePath;
 	});
-	ipcMain.handle(PREVIEW_VISUALS, () => visuals.list());
-	ipcMain.handle(PREVIEW_PAGE, async (event, raw: unknown) => {
+	ipc.handle(PREVIEW_VISUALS, () => visuals.list());
+	ipc.handle(PREVIEW_PAGE, async (caller, raw: unknown) => {
 		const request = pageRequestSchema.parse(raw);
-		const page = hosts.get(event.sender.id)?.active;
+		const page = hosts.get(caller.sender.id)?.active;
 		if (!page?.state.url || page.state.crashed) throw new Error("No page to work on");
 		const args =
 			request.action === "parent" || request.action === "highlight"

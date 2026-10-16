@@ -1037,6 +1037,7 @@ app.whenReady().then(() => {
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
+		ipc,
 		sidecarPool,
 		sessionIndex,
 		machine,
