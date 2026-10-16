@@ -7,17 +7,19 @@
 
 **설치된 omp로 대화하고, 코드를 고치고, 여러 작업을 한 화면에서 관리하는 데스크톱 앱이에요.**
 
+<sub>An unofficial desktop app for [omp](https://github.com/can1357/oh-my-pi) (by can1357/oh-my-pi). Not affiliated with or endorsed by its authors. Docs are in Korean; the app UI is in English and Korean.</sub>
+
 <a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-mac-arm64.dmg"><img src="resources/brand/download-macos.svg" alt="macOS (Apple Silicon) 다운로드" width="280" height="64"></a>
 <a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-windows-setup.exe"><img src="resources/brand/download-windows.svg" alt="Windows 다운로드" width="280" height="64"></a>
 
-<sub>비공개 저장소예요. 초대를 수락하고, 접근 권한이 있는 GitHub 계정으로 로그인해야 다운로드할 수 있어요.</sub>
+<sub>macOS(Apple Silicon)와 Windows(x64)용이에요. 계정 없이 받을 수 있어요.</sub>
 
 <br><br>
 
 <img src="https://img.shields.io/badge/omp-18.11.0%2B-5B5BD6?style=flat-square" alt="omp 18.11.0 이상">
 <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square" alt="macOS · Windows">
 <img src="https://img.shields.io/badge/UI-한국어%20%C2%B7%20English-5B5BD6?style=flat-square" alt="한국어 · English UI">
-<img src="https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square" alt="MIT 라이선스">
+<img src="https://img.shields.io/badge/license-AGPL--3.0-5B5BD6?style=flat-square" alt="AGPL-3.0 라이선스">
 
 </div>
 
@@ -43,7 +45,7 @@
 
 ## OMPdesk는 무엇인가요
 
-OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위한 데스크톱 앱이에요. 컴퓨터에 설치된 omp를 그대로 실행하고, 그 위에 대화·작업·파일·Git 화면을 얹어요.
+OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위한 **비공식** 데스크톱 앱이에요. omp 제작자와 관계가 없어요. 컴퓨터에 설치된 omp를 그대로 실행하고, 그 위에 대화·작업·파일·Git 화면을 얹어요.
 
 - **omp를 포함하지 않아요.** 앱 안에 omp를 넣거나 고치지 않아요. 터미널에서 쓰던 omp의 설정, 로그인, 세션 기록을 그대로 함께 써요.
 - **업데이트는 따로 받아요.** omp는 새 버전이 나오면 스스로 업데이트하고, OMPdesk는 직접 요청할 때만 업데이트해요.
@@ -57,7 +59,6 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 | omp | 18.11.0 이상. 없으면 OMPdesk가 첫 실행 때 [Bun](https://bun.sh)과 함께 알아서 설치해요. |
 | 모델 | 사용할 프로바이더의 로그인 또는 API 키 |
 | 선택 | Git 작업에는 Git, GitHub PR 기능에는 [GitHub CLI](https://cli.github.com)(`gh`) 로그인, 내장 REA 도구에는 Node.js. 없으면 OMPdesk가 백그라운드에서 설치해요. |
-| 다운로드·업데이트 | 이 저장소에 접근할 수 있는 GitHub 계정 |
 
 ## 시작하기
 
@@ -67,10 +68,10 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 
 | 운영체제 | 설치 방법 |
 |---|---|
-| macOS | DMG를 열고 **OMPdesk**를 **응용 프로그램** 폴더로 옮긴 뒤 실행하세요. DMG 안에서 바로 실행하면 자동 업데이트가 동작하지 않아요. |
-| Windows | `ompdesk-windows-setup.exe`를 더블클릭하세요. 질문이나 관리자 권한 요청 없이 진행 막대만 보이며 내 계정(`%LOCALAPPDATA%\Programs\ompdesk`)에 설치되고, 끝나면 OMPdesk가 열려요. 예전에 "모든 사용자"용으로 설치했다면 그 사본을 먼저 지울지 한 번 묻고, 이때만 Windows 권한 확인이 떠요. |
+| macOS | DMG를 열고 **OMPdesk**를 **응용 프로그램** 폴더로 옮긴 뒤 실행하세요. DMG 안에서 바로 실행하면 자동 업데이트가 동작하지 않아요. 빌드는 자체 서명 인증서로 서명했고 Apple 공증은 받지 않아서, 처음 한 번은 Finder에서 앱을 **우클릭 → 열기**로 실행해야 해요. |
+| Windows | `ompdesk-windows-setup.exe`를 더블클릭하세요. 질문이나 관리자 권한 요청 없이 진행 막대만 보이며 내 계정(`%LOCALAPPDATA%\Programs\ompdesk`)에 설치되고, 끝나면 OMPdesk가 열려요. 예전에 "모든 사용자"용으로 설치했다면 그 사본을 먼저 지울지 한 번 묻고, 이때만 Windows 권한 확인이 떠요. SmartScreen 경고가 나오면 **추가 정보 → 실행**을 누르세요. |
 
-첫 실행 때 보안 경고가 나오면 [문제 해결](#문제-해결)을 참고하세요.
+다른 보안 경고가 나오면 [문제 해결](#문제-해결)을 참고하세요.
 
 ### 2. 첫 실행: 필요한 도구는 앱이 설치해요
 
@@ -162,13 +163,13 @@ omp --version
 
 재시작하기 전에 실행 중인 작업이 있으면 확인 창이 떠요. **재시작 후에 하던 작업을 이어서 한다**고 안내하고(위 설정이 켜져 있을 때), 그대로 진행하면 업데이트 뒤 첫 실행에서 이어져요.
 
-비공개 릴리스를 받으려면 아래 중 하나가 필요해요. 위에서부터 차례로 찾아 써요.
+GitHub 계정이나 토큰 없이 받을 수 있어요. 저장소가 공개라서 앱이 GitHub 릴리스를 바로 읽고, 내려받은 파일은 릴리스 메타데이터의 SHA-512와 맞는지 확인해요.
+
+GitHub 요청 한도에 자주 걸리면 **선택 사항**으로 토큰을 줄 수 있어요. 토큰은 한도만 늘려 주고, 없어도 업데이트는 동작해요. 위에서부터 차례로 찾아 써요.
 
 1. 환경 변수 `GH_TOKEN` 또는 `GITHUB_TOKEN`
 2. GitHub CLI 로그인 (`gh auth login`)
-3. **설정 › 업데이트 및 정보 › GitHub 접근**에 저장한 [토큰](https://github.com/settings/tokens). classic은 `repo`, fine-grained는 이 저장소의 **Contents 읽기** 권한이 필요해요. 토큰은 OS의 안전한 저장소로 암호화해 보관해요.
-
-브라우저 로그인만으로는 앱 업데이트가 인증되지 않아요. **접근 확인**으로 점검할 수 있어요.
+3. **설정 › 업데이트 및 정보 › GitHub 접근**에 저장한 [토큰](https://github.com/settings/tokens). 토큰은 OS의 안전한 저장소로 암호화해 보관해요.
 
 ### omp
 
@@ -213,13 +214,12 @@ omp가 불러오는 확장도 스스로 최신으로 유지해요. OMPdesk를 �
 
 | 증상 | 확인할 것 |
 |---|---|
-| 다운로드 링크가 404예요 | 저장소 초대를 수락했는지, 권한 있는 GitHub 계정으로 로그인했는지 확인하세요. |
-| macOS에서 개발자 확인 경고가 나와요 | Apple 공증을 받지 않은 빌드예요. Finder에서 앱을 **우클릭 → 열기**로 한 번 실행하세요. 계속 막히면 **시스템 설정 › 개인정보 보호 및 보안**에서 허용하세요. |
+| macOS가 "확인되지 않은 개발자" 경고를 띄워요 | 정상이에요. 빌드는 자체 서명 인증서로 서명했고 Apple 공증은 받지 않았어요. Finder에서 앱을 **우클릭 → 열기**로 한 번 실행하세요. 계속 막히면 **시스템 설정 › 개인정보 보호 및 보안**에서 허용하세요. |
 | Windows SmartScreen이 막아요 | **추가 정보 → 실행**을 누르세요. 회사 정책으로 막히면 관리자에게 문의하세요. |
 | 창을 닫았는데 앱이 꺼지지 않아요 | 의도한 동작이에요. 마지막 창을 닫으면 창만 숨겨지고 진행 중인 작업은 계속돼요. macOS는 Dock 아이콘, Windows는 트레이 아이콘이나 앱을 다시 실행해 창을 되살려요. 종료는 ⌘Q, 메뉴 종료, 트레이 종료로 하고, 진행 중인 작업이 있으면 먼저 물어봐요. Windows에서 창을 닫을 때 종료하려면 **설정 › 일반 › 창**의 트레이 스위치를 끄세요. 여러 창 중 마지막이 아닌 창은 그대로 닫혀요. |
 | omp를 찾을 수 없어요 | 설치 화면이나 **설정 › 일반 › 이 컴퓨터**에서 실패 이유를 확인하고 **다시 시도**를 누르세요. 직접 설치했다면 터미널에서 `omp --version`을 확인하세요. 다른 경로에 설치했다면 `OMP_GUI_OMP` 환경 변수에 실행 파일 경로를 지정하세요. |
 | omp 버전이 낮다고 나와요 | OMPdesk가 `omp update`를 알아서 실행해요. 실패했다면 터미널에서 `omp update` 후 **다시 시작**을 누르세요. 18.11.0 이상이 필요해요. |
-| 앱 업데이트에 로그인이 필요해요 | `gh auth status` 또는 설정의 **GitHub 접근 › 접근 확인**으로 확인하세요. |
+| 앱 업데이트가 "요청 한도 초과"로 실패해요 | 잠시 뒤 다시 시도하세요. 선택 사항인 GitHub 토큰(`GH_TOKEN`, `gh auth login`, 설정의 **GitHub 접근**)을 쓰면 한도가 늘어나요. |
 | PR 기능이 동작하지 않아요 | Git 저장소를 열었는지, `gh auth status`가 로그인 상태인지 확인하세요. |
 
 ## 데이터와 개인정보
@@ -229,11 +229,11 @@ omp가 불러오는 확장도 스스로 최신으로 유지해요. OMPdesk를 �
 - 다음 메시지 제안을 켜 두면(기본값) 최근 대화 일부와 입력 중인 글이 현재 모델이 아니라 `smol` 역할 모델의 프로바이더로 가요. **설정 › 에이전트 동작**에서 끌 수 있어요.
 - 어드바이저(기본 켜짐)는 대화를 `advisor` 역할 모델의 프로바이더에도 보내요. 자리 비운 뒤 요약은 현재 모델에 요청을 한 번 더 보내요. 둘 다 omp 설정(`advisor.enabled`, `recap.enabled`)에서 끌 수 있어요.
 - 오프라인 앱은 아니에요. 모델 요청은 연결한 프로바이더로 가고, 웹 검색·로그인·GitHub·업데이트·원격 연결·세션 공유 업로드에도 네트워크를 써요.
-- 앱에는 배포용 토큰이 들어 있지 않아요. 업데이트용 토큰은 사용자가 직접 설정해요.
+- 앱에는 배포용 토큰이 들어 있지 않아요. 업데이트용 GitHub 토큰은 선택 사항이고 사용자가 직접 설정해요.
 
 ## 소스에서 실행하기
 
-저장소 접근 권한, Bun, Git, omp 18.11.0 이상이 필요해요.
+Bun, Git, omp 18.11.0 이상이 필요해요.
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git
@@ -244,6 +244,15 @@ bun run dev
 
 개발·검사·배포 규칙은 [AGENTS.md](AGENTS.md), 버전별 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있어요.
 
+## 기여와 보안
+
+- 버그 제보와 기능 제안은 [Issues](https://github.com/SeuPut0705/ompdesk/issues)에, 코드 기여는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있어요.
+- 보안 취약점은 공개 이슈로 올리지 말고 [SECURITY.md](SECURITY.md)의 방법으로 비공개 제보해 주세요.
+
 ## 라이선스
 
-[MIT 라이선스](LICENSE)로 배포해요.
+GNU Affero General Public License v3.0 only. See LICENSE; NOTICE and THIRD_PARTY_NOTICES.txt list third-party code.
+
+AGPL §13: 수정한 OMPdesk(모바일 웹 서버 포함)를 네트워크로 다른 사용자에게 제공한다면, 그 사용자에게 해당 소스 코드를 제공해야 해요. (If you run a modified OMPdesk, including its mobile web server, for other users over a network, you must offer them the corresponding source.)
+
+**상표**: 코드는 AGPL-3.0이지만 "OMPdesk"라는 이름과 표장(아이콘 포함)은 포크나 파생 제품이 제품 이름으로 쓰도록 허가하지 않았어요. 포크는 이름을 바꿔 주세요. (The code is AGPL-3.0, but the name and mark "OMPdesk" and its icon are not licensed for forks or derived products to use as their product name. Rename your fork.)

@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in OMPdesk does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: For security problems, do not file an issue. Use the private advisory link on the issue chooser page.
+  - type: input
+    id: version
+    attributes:
+      label: OMPdesk version
+      description: Settings > Updates & about
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 15 (Apple Silicon) / Windows 11 x64
+    validations:
+      required: true
+  - type: input
+    id: omp
+    attributes:
+      label: omp version
+      description: Output of `omp --version`
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove tokens and personal data first.
+    validations:
+      required: false
