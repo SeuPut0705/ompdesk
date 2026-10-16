@@ -60,7 +60,10 @@ async function launch(language: Language, theme: Theme, size: { width: number; h
 		env,
 	});
 	const page = await app.firstWindow();
-	await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), size);
+	await app.evaluate(
+		({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height),
+		size,
+	);
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
