@@ -22,6 +22,9 @@ import { createServer, type ViteDevServer } from "vite";
 
 const captures = process.env.OMP_GUI_MOBILE_SHELL;
 
+// A cold Vite dev server can reload once while it optimizes dependencies; a second try is that, not a flake of the shell.
+test.describe.configure({ retries: 1 });
+
 type Shell = "phone" | "tablet-portrait" | "tablet-landscape";
 
 const DEVICES: ReadonlyArray<{ name: string; shell: Shell }> = [
@@ -302,6 +305,12 @@ for (const engine of ENGINES) {
 					timeout: 3000,
 				});
 				await touchUp(button);
+				// The click that ends the long press is swallowed: the panel stays shut.
+				await button.dispatchEvent("click");
+				await page.waitForTimeout(400);
+				await expect(
+					page.locator('[data-sheet-placement="full"], [data-sheet-placement="right"], aside[data-docked]'),
+				).toHaveCount(0);
 				await page.context().close();
 			});
 
