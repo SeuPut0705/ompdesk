@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcResponse } from "../../../shared/rpc-types";
+import { useBackgroundJobs } from "../../hooks/use-background-jobs";
 import { I18nProvider } from "../../lib/i18n";
 import { JobsPanel } from "./JobsPanel";
 
@@ -44,7 +45,15 @@ function installJobs(jobs: RpcAsyncJobItem[]) {
 	return getJobs;
 }
 
-async function mount(): Promise<void> {
+let dockJobs: RpcAsyncJobItem[] | undefined;
+
+/** The dock island's view of the same tab's jobs. */
+function DockProbe() {
+	dockJobs = useBackgroundJobs();
+	return null;
+}
+
+async function mount(withDock = false): Promise<void> {
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -52,6 +61,7 @@ async function mount(): Promise<void> {
 		root.render(
 			<I18nProvider>
 				<JobsPanel />
+				{withDock && <DockProbe />}
 			</I18nProvider>,
 		);
 	});
@@ -159,5 +169,29 @@ describe("JobsPanel", () => {
 		expect(container.textContent).toContain("No background tasks running.");
 		expect(container.querySelectorAll('button[aria-label="Refresh"]')).toHaveLength(0);
 		expect(container.querySelectorAll("section")).toHaveLength(0);
+	});
+
+	it("shares one poll with the dock: every job here, the running shells there", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			const startTime = Date.now();
+			const shell = { id: "shell", type: "bash", status: "running", label: "dev server", startTime } as const;
+			const getJobs = installJobs([
+				shell,
+				{ id: "agent", type: "task", status: "running", label: "explore", startTime },
+				{ id: "done", type: "bash", status: "completed", label: "test", startTime, endedAt: startTime },
+			]);
+			await mount(true);
+			// Joining together, the dock's join read folds into the panel's one in flight; then one poll serves both.
+			expect(getJobs).toHaveBeenCalledTimes(1);
+			expect(container.querySelectorAll("[data-job-id]")).toHaveLength(3);
+			expect(dockJobs?.map(job => job.id)).toEqual(["shell"]);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+			expect(getJobs).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

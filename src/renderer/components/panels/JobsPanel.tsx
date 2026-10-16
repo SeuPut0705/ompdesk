@@ -1,16 +1,19 @@
 /**
  * Side panel › Jobs: async background jobs owned by the session (native
  * /jobs) — running first, then recent, exactly the snapshot ordering the
- * agent sends. Polls every 2s while mounted (and on becoming visible again);
- * a 1s clock keeps running durations live.
+ * agent sends. Reads through the tab's one jobs poll
+ * (hooks/use-background-jobs.ts, shared with the dock and the work board);
+ * the shared one-second clock keeps running durations live.
  */
 
 import { ChevronRight, Hourglass, RotateCw } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
-import type { RpcAsyncJobItem, RpcJobsResult } from "../../../shared/rpc-types";
+import { useId, useState } from "react";
+import type { RpcAsyncJobItem } from "../../../shared/rpc-types";
+import { useJobs, useJobsRead } from "../../hooks/use-background-jobs";
 import { AnsiText } from "../../lib/ansi";
 import { formatClock, formatDuration, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useNowTick } from "../../lib/now-tick";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
@@ -27,58 +30,27 @@ const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
 export function JobsPanel() {
 	const t = useT();
 	const rpc = useTabRpc();
-	const [updatedAt, setUpdatedAt] = useState<number | null>(null);
-	const [now, setNow] = useState(Date.now);
-	const [jobs, setJobs] = useState<RpcAsyncJobItem[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-	const [attempt, setAttempt] = useState(0);
+	const feed = useJobs(jobsFeed => jobsFeed);
+	const readJobs = useJobsRead();
+	const [retrying, setRetrying] = useState(false);
 	const [cancelling, setCancelling] = useState<string | null>(null);
-	// The open poll's own refresh: a cancel re-reads in place instead of reloading the list from empty.
-	const refreshRef = useRef<() => Promise<void>>(async () => {});
 	const sectionId = useId();
-
-	/* The retry button's bump is the only reason this effect re-runs on `attempt`. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: retry re-polls by bump
-	useEffect(() => {
-		let cancelled = false;
-		let pending = false;
-		setJobs([]);
-		setUpdatedAt(null);
-		setError(null);
-		setLoading(true);
-		const refresh = async () => {
-			if (pending || document.visibilityState === "hidden") return;
-			pending = true;
-			try {
-				const response = await rpc.getJobs();
-				if (cancelled) return;
-				if (!response.success) throw new Error(response.error);
-				setJobs((response.data as RpcJobsResult).jobs);
-				setUpdatedAt(Date.now());
-				setError(null);
-			} catch (cause) {
-				if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-			} finally {
-				pending = false;
-				if (!cancelled) setLoading(false);
-			}
-		};
-		refreshRef.current = refresh;
-		void refresh();
-		const poll = window.setInterval(() => void refresh(), 2000);
-		const clock = window.setInterval(() => setNow(Date.now()), 1000);
-		document.addEventListener("visibilitychange", refresh);
-		return () => {
-			cancelled = true;
-			window.clearInterval(poll);
-			window.clearInterval(clock);
-			document.removeEventListener("visibilitychange", refresh);
-		};
-	}, [attempt, rpc]);
+	const { updatedAt, error } = feed;
+	const loading = feed.jobs === null && error === null;
+	const jobs = feed.jobs ?? [];
 
 	const running = jobs.filter(job => job.status === "running" || job.cancellationPending);
 	const recent = jobs.filter(job => job.status !== "running" && !job.cancellationPending);
+	const now = useNowTick(running.length > 0);
+
+	const retry = async () => {
+		setRetrying(true);
+		try {
+			await readJobs();
+		} finally {
+			setRetrying(false);
+		}
+	};
 
 	const renderJob = (job: RpcAsyncJobItem) => {
 		const live = job.status === "running" || job.cancellationPending === true;
@@ -118,7 +90,7 @@ export function JobsPanel() {
 								try {
 									const response = await rpc.command({ type: "cancel_job", jobId: job.id });
 									if (!response.success) throw new Error(response.error);
-									await refreshRef.current();
+									await readJobs();
 								} catch (cause) {
 									// A refused cancel is not a failed list: the rows stay, a toast names the action.
 									toastError({ title: t("jobs.cancelFailed"), error: cause });
@@ -172,7 +144,8 @@ export function JobsPanel() {
 					actions={
 						<Button
 							icon={<RotateCw />}
-							onClick={() => setAttempt(count => count + 1)}
+							loading={retrying}
+							onClick={() => void retry()}
 							size="sm"
 							variant="secondary"
 						>
