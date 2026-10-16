@@ -189,6 +189,11 @@ for (const language of ["en", "ko"] as const)
 					document.querySelector(".omp-composer-live")?.setAttribute("data-composer-live", "turn"),
 				);
 				const strong = await cpu(app, 4000);
+				let bare = strong;
+				if (software) {
+					await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
+					bare = await cpu(app, 4000);
+				}
 				for (const id of ["sa-explore", "sa-nested"]) await fixture(page, `fixture:subagents:finish:${id}`);
 				await expect(live).toHaveCount(0);
 				await page.waitForTimeout(1000);
@@ -204,9 +209,12 @@ for (const language of ["en", "ko"] as const)
 					expect(strong.gpu - off.gpu).toBeLessThan(4);
 					expect(strong.renderer - off.renderer).toBeLessThan(2);
 				} else {
-					// Software compositing (a GPU-less runner): the cue is the still form, never an animation.
+					// Software compositing (a GPU-less runner): the cue is the still form, never an animation. The agents
+					// and the turn cost what they cost there (`off` has none running), so compare with the cue removed.
 					await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
-					expect(strong.gpu - off.gpu).toBeLessThan(2);
+					// A runner without a GPU is busy and noisy (a few % either way).
+					expect(strong.gpu - bare.gpu).toBeLessThan(5);
+					expect(strong.renderer - bare.renderer).toBeLessThan(5);
 				}
 
 				// A question waiting on the user wins over a running turn.
@@ -253,9 +261,11 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
 		await expect(live).toHaveAttribute("data-paused", "");
-		await expect
-			.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationPlayState))
-			.toBe("paused");
+		// Software compositing keeps `animation: none`, whose shorthand also resets the play state: nothing runs to pause.
+		if (!software)
+			await expect
+				.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationPlayState))
+				.toBe("paused");
 	} finally {
 		await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
