@@ -194,6 +194,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/session/messages": () => import("@oh-my-pi/pi-coding-agent/session/messages"),
 	"@oh-my-pi/pi-coding-agent/utils/title-card": () => import("@oh-my-pi/pi-coding-agent/utils/title-card"),
 	"@oh-my-pi/pi-coding-agent/utils/title-settings": () => import("@oh-my-pi/pi-coding-agent/utils/title-settings"),
+	"@oh-my-pi/pi-coding-agent/tiny/text": () => import("@oh-my-pi/pi-coding-agent/tiny/text"),
 	"@oh-my-pi/pi-ai/utils/schema": () => import("@oh-my-pi/pi-ai/utils/schema"),
 };
 

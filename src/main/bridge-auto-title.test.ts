@@ -11,6 +11,7 @@ import {
 	resetAutoTitleState,
 	setAutoTitleStock,
 	type TitleEvent,
+	type TitleModel,
 	type TitleSession,
 } from "../../resources/gui-bridge/auto-title-engine";
 import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
@@ -23,7 +24,15 @@ interface Entry {
 }
 
 /** A session that behaves like stock's for what the engine reads: the title source rules, the revision counter, the journal. */
-function build(options: { cards?: boolean; name?: string; source?: "auto" | "user"; titlePrompt?: string } = {}) {
+function build(
+	options: {
+		cards?: boolean;
+		name?: string;
+		source?: "auto" | "user";
+		titlePrompt?: string;
+		noDefaultKey?: boolean;
+	} = {},
+) {
 	const entries: Entry[] = [];
 	let name = options.name;
 	let source: "auto" | "user" | undefined = options.name ? (options.source ?? "auto") : undefined;
@@ -34,8 +43,10 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 	const script = {
 		/** What `generateTitle` answers (the title model). */
 		generate: vi.fn(async (_text: string): Promise<string | null> => "Fix login bug"),
-		/** What `generateTitle` answers when asked with its own prompt (the engine's shorter retry). */
-		shorter: vi.fn(async (_text: string, _prompt: string): Promise<string | null> => null),
+		/** What the retry model answers (the engine's one shorter retry, through `completeSimple`). */
+		shorter: vi.fn(async (_input: string, _system: string): Promise<string | null> => null),
+		/** The model each retry ran on. */
+		retryModels: [] as string[],
 		/** What `renameTitle()` without a title answers (a retitle from the conversation). */
 		retitle: vi.fn(async (): Promise<string | null | undefined> => "Migrate build to Vite"),
 		/** Runs while a title request is in flight. */
@@ -67,11 +78,28 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 		get sessionName() {
 			return name;
 		},
+		sessionId: "s1",
 		// What the fake stock `titleIcons` reads: OMPdesk holds `boring`, `cards` stands for icons the person chose.
-		settings: { icons: options.cards === false ? "boring" : "emoji" },
-		generateTitle: vi.fn(async (text: string, custom?: string) => {
-			script.prompts.push(custom ?? titlePrompt);
-			const title = custom === undefined ? await script.generate(text) : await script.shorter(text, custom);
+		// `defaultRole` is what the fake `roleCandidatePool("default")` resolves to.
+		settings: {
+			icons: options.cards === false ? "boring" : "emoji",
+			defaultRole: [{ provider: "anthropic", id: "default-model" }],
+		},
+		model: { provider: "anthropic", id: "session-model" },
+		modelRegistry: {
+			getApiKey: vi.fn(async (model: TitleModel) =>
+				options.noDefaultKey && model.id === "default-model" ? undefined : "key",
+			),
+			// The fake `completeSimple` calls what the resolver hands it, so each world answers its own retries.
+			resolver: (model: TitleModel) => async (context: FakeContext) => {
+				script.retryModels.push(`${model.provider}/${model.id}`);
+				const answer = await script.shorter(context.messages[0]?.content ?? "", context.systemPrompt[0] ?? "");
+				return { content: [{ type: "text", text: answer === null ? "<title/>" : `<title>${answer}</title>` }] };
+			},
+		},
+		generateTitle: vi.fn(async (text: string) => {
+			script.prompts.push(titlePrompt);
+			const title = await script.generate(text);
 			script.during?.();
 			return title;
 		}),
@@ -101,6 +129,15 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 }
 
 const operator = (text: string) => ({ role: "user", attribution: "user", content: text });
+
+interface FakeContext {
+	systemPrompt: string[];
+	messages: Array<{ content: string }>;
+}
+
+const isFakeContext = (value: unknown): value is FakeContext =>
+	typeof value === "object" && value !== null && "systemPrompt" in value && "messages" in value;
+
 const stock: AutoTitleStock = {
 	operatorTitleText: (message: never) => {
 		const m = message as { role?: string; attribution?: string; content?: string };
@@ -116,6 +153,27 @@ const stock: AutoTitleStock = {
 	titleIcons: settings =>
 		settings && typeof settings === "object" && "icons" in settings ? String(settings.icons) : "nf+emoji",
 	log: () => {},
+	roleCandidatePool: (role: string, settings: unknown) =>
+		role === "default" &&
+		typeof settings === "object" &&
+		settings !== null &&
+		"defaultRole" in settings &&
+		Array.isArray(settings.defaultRole)
+			? settings.defaultRole
+			: [],
+	resolveRoleChain: (_role: string, _settings: unknown, pool: unknown) =>
+		Array.isArray(pool) ? pool.map(model => ({ model })) : [],
+	completeSimple: async (_model: unknown, context: unknown, options: unknown) => {
+		if (!isFakeContext(context) || typeof options !== "object" || options === null || !("apiKey" in options))
+			throw new Error("unexpected completeSimple call");
+		const answer = options.apiKey;
+		if (typeof answer !== "function") throw new Error("no fake resolver");
+		return answer(context);
+	},
+	normalizeGeneratedTitle: value => {
+		const title = value.trim();
+		return title && !/^<title\s*\/>$/i.test(title) ? title : null;
+	},
 };
 
 /** Every fake settles at once, so the engine's background work finishes within a few microtask turns. */
@@ -497,11 +555,11 @@ describe("title language and length", () => {
 		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
 	});
 
-	it("asks once more for a title past the limits, with the shorter line, and keeps the shorter answer", async () => {
+	it("retries a title past the limits once on the default role's model, never the title chain, and keeps the shorter answer", async () => {
 		await replyLanguage.reply_language_set({ language: "Korean" });
 		const world = build({ cards: false });
 		world.script.generate.mockResolvedValue("작업 현황판 화면 디자인");
-		world.script.shorter.mockResolvedValue("작업 현황판 디자인");
+		world.script.shorter.mockResolvedValue("현황판 디자인");
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("작업 현황판 디자인을 바꾸고 싶어") });
 		await flush();
@@ -509,13 +567,37 @@ describe("title language and length", () => {
 			"작업 현황판 디자인을 바꾸고 싶어",
 			expect.any(String),
 		);
-		const retryPrompt = world.script.prompts[1] ?? "";
+		const retryPrompt = world.script.shorter.mock.calls[0]?.[1] ?? "";
 		expect(retryPrompt.startsWith(world.session.titleSystemPrompt ?? "-")).toBe(true);
 		expect(retryPrompt).toContain('Shorter: the title "작업 현황판 화면 디자인" is too long');
 		expect(retryPrompt).toContain("Keep the subject and the head noun");
-		expect(world.manager.getSessionName()).toBe("작업 현황판 디자인");
+		expect(world.script.retryModels).toEqual(["anthropic/default-model"]);
+		// The first pass stays on the cheap title chain.
+		expect(world.script.generate).toHaveBeenCalledTimes(1);
+		expect(world.manager.getSessionName()).toBe("현황판 디자인");
 		// The title, its retry, and the (cardless) rename.
 		expect(await attach(world.session)).toMatchObject({ requests: 3 });
+	});
+
+	it("runs the retry on the session's model when the default role has no credentials", async () => {
+		const world = build({ cards: false, noDefaultKey: true });
+		world.script.generate.mockResolvedValue("Dark mode toggle support added");
+		world.script.shorter.mockResolvedValue("Dark mode toggle");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("add dark mode") });
+		await flush();
+		expect(world.script.retryModels).toEqual(["anthropic/session-model"]);
+		expect(world.manager.getSessionName()).toBe("Dark mode toggle");
+	});
+
+	it("prefers the retry when it is as long as the first answer", async () => {
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("CSV export empty with filters");
+		world.script.shorter.mockResolvedValue("Empty CSV export with filters");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("csv export is empty when filtered") });
+		await flush();
+		expect(world.manager.getSessionName()).toBe("Empty CSV export with filters");
 	});
 
 	it("keeps the answer whole up to the hard cap when the retry is still long, and asks only once", async () => {

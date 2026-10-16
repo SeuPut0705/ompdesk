@@ -6,16 +6,17 @@ import { TITLE_HARD_CHARS, TITLE_HARD_CJK_CHARS } from "../resources/gui-bridge/
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
-// Explicit opt-in: this audit spends model tokens (one turn per case on the `smol` model the isolated profile
-// makes the main one, plus the title on stock's title roles) and copies credentials only into a private
-// disposable directory. Ordinary test runs never make calls.
+// Explicit opt-in: this audit spends model tokens (one turn per case on the user's `smol` model, plus the title on
+// stock's title roles and, for a title past the limits, one retry on the user's `default` role) and copies
+// credentials only into a private disposable directory. Ordinary test runs never make calls.
 //
 // A first message gets a short plain title in its own language: the bridge gives stock's title paths stock's own
 // `title-system.md` plus the language, length and form line (auto-title-core.ts), with the reply language as the
 // fallback when it is not English and the same line without it when it is off, and OMPdesk holds
-// `title.icons: boring`, so no icon/code card heads it. A title past the limits gets one shorter retry and is then
-// kept whole up to the hard cap; the model's own answers come from the bridge's `auto-title: title` line in the
-// private profile's omp log (`<profile>/logs`).
+// `title.icons: boring`, so no icon/code card heads it. A title past the limits gets one shorter retry on the
+// `default` role's model (kept as the user configured it here; the session itself runs on `smol`) and is then kept
+// whole up to the hard cap; the model's own answers, the retry's model and its usage come from the bridge's
+// `auto-title: title` line in the private profile's omp log (`<profile>/logs`).
 const RESULT_FILE = "/tmp/real-auto-title.json";
 // The first four are also the compression examples the title prompt shows (auto-title-core.ts); the last two are
 // held out, so the audit also sees messages the examples do not answer.
@@ -72,14 +73,22 @@ async function titleRecords(profile: string): Promise<Array<Record<string, unkno
 	return records;
 }
 
+/** `usage.cost.total` of a stock reply's usage, when it is there. */
+function costOf(usage: unknown): number | null {
+	if (typeof usage !== "object" || usage === null || !("cost" in usage)) return null;
+	const cost = usage.cost;
+	if (typeof cost !== "object" || cost === null || !("total" in cost)) return null;
+	return typeof cost.total === "number" ? cost.total : null;
+}
+
 for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 	test(`real omp names first message ${index + 1} with a short plain title in its language`, async () => {
 		test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 		test.setTimeout(420_000);
-		const { profile, project, desktop, env } = await realOmpProfile({
-			...(replyLanguage ? { replyLanguage } : {}),
-			autoTitle: true,
-		});
+		const { profile, project, desktop, env, smol } = await realOmpProfile(
+			{ ...(replyLanguage ? { replyLanguage } : {}), autoTitle: true },
+			{ keepDefaultRole: true },
+		);
 		// A shell started from an omp session inherits its PI_NO_TITLE (stock sets it for its own RPC modes), which
 		// OMPdesk respects as the person's choice to turn titles off.
 		Reflect.deleteProperty(env, "PI_NO_TITLE");
@@ -101,6 +110,13 @@ for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 					: "";
 			};
 			expect(await sessionName()).toBe("");
+			// The turn itself on the small model; the `default` role (the retry's model) stays the user's.
+			const [provider, ...modelId] = smol.split("/");
+			const switched = await page.evaluate(([p, m]) => window.omp.rpc.setModel(p, m), [
+				provider ?? "",
+				modelId.join("/"),
+			] as const);
+			expect(switched.success, JSON.stringify(switched)).toBe(true);
 			await page.evaluate(() => {
 				const ends: string[] = [];
 				Object.assign(window, { __turnEnds: ends });
@@ -130,7 +146,10 @@ for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 				replyLanguage,
 				prompt,
 				answer: record?.answer,
+				retryModel: record?.retryModel,
 				retry: record?.retry,
+				retryCost: costOf(record?.retryUsage),
+				retryUsage: record?.retryUsage,
 				title,
 				characters: title.length,
 				words: words.length,

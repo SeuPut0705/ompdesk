@@ -9,6 +9,8 @@ export interface RealOmpProfile {
 	desktop: string;
 	agent: string;
 	env: Record<string, string>;
+	/** The user's `smol` role (`provider/id`), the model audits run on. */
+	smol: string;
 }
 
 /**
@@ -16,8 +18,14 @@ export interface RealOmpProfile {
  * config.yml and credentials database are copied (never touched) into a 0700
  * directory. The main model is the user's `smol` role, so audits spend the
  * small model's tokens; subagents follow the prompt's own model hint.
+ * `keepDefaultRole` leaves the user's `default` role as configured (for an audit
+ * of a feature that reads it); the audit then switches its session to `smol`
+ * itself (stock `set_model`, which does not persist), so the turns stay cheap.
  */
-export async function realOmpProfile(prefs: Record<string, unknown> = {}): Promise<RealOmpProfile> {
+export async function realOmpProfile(
+	prefs: Record<string, unknown> = {},
+	options: { keepDefaultRole?: boolean } = {},
+): Promise<RealOmpProfile> {
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-real-"));
 	await fs.chmod(profile, 0o700);
 	const project = path.join(profile, "project");
@@ -27,7 +35,10 @@ export async function realOmpProfile(prefs: Record<string, unknown> = {}): Promi
 	const config = await fs.readFile(path.join(os.homedir(), ".omp/agent/config.yml"), "utf8");
 	const smol = /^ {2}smol:\s*(\S+)\s*$/m.exec(config)?.[1];
 	if (!smol) throw new Error("config.yml has no modelRoles.smol to run the audit on");
-	await fs.writeFile(path.join(agent, "config.yml"), config.replace(/^ {2}default:\s*\S+\s*$/m, `  default: ${smol}`));
+	await fs.writeFile(
+		path.join(agent, "config.yml"),
+		options.keepDefaultRole ? config : config.replace(/^ {2}default:\s*\S+\s*$/m, `  default: ${smol}`),
+	);
 	execFileSync("sqlite3", [
 		path.join(os.homedir(), ".omp/agent/agent.db"),
 		`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`,
@@ -52,5 +63,5 @@ export async function realOmpProfile(prefs: Record<string, unknown> = {}): Promi
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	Reflect.deleteProperty(env, "OMP_GUI_OMP");
-	return { profile, project, desktop, agent, env };
+	return { profile, project, desktop, agent, env, smol };
 }

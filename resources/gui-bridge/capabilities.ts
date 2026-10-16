@@ -920,11 +920,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * origin). `operatorTitleText` names what an operator message is about. The title language: the session's
 	 * TITLE_SYSTEM.md slot (`titleSystemPrompt`, `setTitleSystemPrompt`) holds stock's own `title-system.md`
 	 * (rendered with `prompt.render`) plus one language line; `title-card` splits a card off a title cut to length,
-	 * and `title.icons` (`cfgTitleIcons`) says whether a fresh title drops the card stock's retitle kept.
+	 * and `title.icons` (`cfgTitleIcons`) says whether a fresh title drops the card stock's retitle kept. A title over
+	 * the limits gets one retry on the `default` role's model (`roleCandidatePool`, `resolveRoleChain`, the session's
+	 * credentials, `completeSimple`), its answer checked by stock's `normalizeGeneratedTitle`.
 	 */
 	autoTitle: {
 		session: [
 			"settings",
+			"sessionId",
+			"modelRegistry.getApiKey()",
+			"modelRegistry.resolver()",
 			"subscribe()",
 			"sessionName",
 			"generateTitle()",
@@ -939,6 +944,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.titleRevision",
 		],
 		modules: {
+			"@oh-my-pi/pi-ai": ["completeSimple()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
+			[`${AGENT}/tiny/text`]: ["normalizeGeneratedTitle()"],
 			[`${AGENT}/session/messages`]: ["operatorTitleText()"],
 			[`${AGENT}/utils/title-card`]: ["splitCardTitle()", "formatCardTitle()"],
 			[`${AGENT}/utils/title-settings`]: ["cfgTitleIcons.get()"],

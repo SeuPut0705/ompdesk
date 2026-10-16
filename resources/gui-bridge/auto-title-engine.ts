@@ -22,10 +22,11 @@
  *   one line ({@link planTitlePrompt}: the person's language, the reply language as the fallback when it is not
  *   English, a plain 2-4 word noun phrase), set when the engine attaches, when `reply_language_set` changes the
  *   language, and again before each request (stock's headless `/move` re-resolves the slot). While that line is in
- *   effect, a title past the limits ({@link titleFits}) is asked for once more on the same title model with
- *   {@link titleShorterLine}; the shorter answer is kept, cut only past the hard cap ({@link conciseTitle}). Each
- *   generated title is logged with the model's answers (`auto-title: title` in omp's log). A person's own
- *   TITLE_SYSTEM.md is left as written, and its titles uncut.
+ *   effect, a title past the limits ({@link titleFits}) gets one retry with {@link titleShorterLine} on a stronger
+ *   model than the cheap title chain (stock's `default` role, else the session's model; reasoning off, a small output
+ *   cap); the retry wins unless it is longer, cut only past the hard cap ({@link conciseTitle}). Each generated
+ *   title is logged with the model's answers, the retry's model and usage (`auto-title: title` in omp's log). A
+ *   person's own TITLE_SYSTEM.md is left as written, and its titles uncut.
  * - Cards: under `title.icons: boring` a fresh title for a session whose title has a card comes back plain
  *   (stock adds none, but its retitle keeps the current title's card).
  *
@@ -86,12 +87,33 @@ export interface TitleEvent {
 	isError?: boolean;
 }
 
+/** A catalog model, as stock's role resolution returns it (only these fields are read). */
+export interface TitleModel {
+	provider: string;
+	id: string;
+}
+
+/** A stock `completeSimple` reply (only these fields are read). */
+export interface TitleReply {
+	content: ReadonlyArray<{ type: string; text?: string }>;
+	stopReason?: string;
+	errorMessage?: string;
+	usage?: unknown;
+}
+
 /** The slice of stock's `AgentSession` the engine uses. */
 export interface TitleSession {
 	readonly sessionManager: TitleManager;
 	readonly sessionName: string | undefined;
-	/** The session's settings (read for `title.icons`). */
+	readonly sessionId: string;
+	/** The session's settings (read for `title.icons` and the `default` role). */
 	readonly settings: unknown;
+	/** The session's model: the retry's model when the `default` role resolves to nothing usable. */
+	readonly model: TitleModel | undefined;
+	readonly modelRegistry: {
+		getApiKey(model: never, sessionId?: string): Promise<unknown>;
+		resolver(model: never, sessionId?: string): unknown;
+	};
 	generateTitle(firstMessage: string, customSystemPrompt?: string, signal?: AbortSignal): Promise<string | null>;
 	renameTitle(title?: string, signal?: AbortSignal): Promise<string | null | undefined>;
 	subscribe(listener: (event: TitleEvent) => void): () => void;
@@ -114,7 +136,18 @@ export interface AutoTitleStock {
 	titleIcons(settings: unknown): string;
 	/** `pi-utils` `logger.info`: one line in omp's own log (`~/.omp/logs`). */
 	log(message: string, context: Record<string, unknown>): void;
+	/** `config/model-roles` `roleCandidatePool` and `config/model-resolver` `resolveRoleChain`: a role's models. */
+	roleCandidatePool(role: string, settings: never, registry: never): TitleModel[];
+	resolveRoleChain(role: string, settings: never, pool: never): Array<{ model: TitleModel }>;
+	/** `pi-ai` `completeSimple`: one request on a chosen model. */
+	completeSimple(model: never, context: unknown, options: unknown): Promise<TitleReply>;
+	/** `tiny/text` `normalizeGeneratedTitle`: stock's check of a title answer (`<title/>`, junk, a whole reply). */
+	normalizeGeneratedTitle(value: string, sourceText?: string): string | null;
 }
+
+/** The retry's output ceiling (reasoning is off; a title is a handful of tokens) and how long it may take. */
+const RETRY_MAX_TOKENS = 256;
+const RETRY_DEADLINE_MS = 20_000;
 
 let stock: AutoTitleStock | undefined;
 let loadStock: (() => Promise<AutoTitleStock>) | undefined;
@@ -189,11 +222,68 @@ async function applyTitleLanguage(session: TitleSession): Promise<void> {
 }
 
 /**
+ * The retry's model: stock's `default` role (its configured value, then its fallbacks, `resolveRoleChain`), else the
+ * session's model; the first with credentials. Never the cheap title chain, which wrote the answer being retried.
+ */
+async function retryModel(
+	session: TitleSession,
+	functions: AutoTitleStock,
+): Promise<{ model: TitleModel; resolver: unknown } | undefined> {
+	const registry = session.modelRegistry;
+	const pool = functions.roleCandidatePool("default", session.settings as never, registry as never);
+	const chain = functions.resolveRoleChain("default", session.settings as never, pool as never);
+	for (const model of [...chain.map(candidate => candidate.model), ...(session.model ? [session.model] : [])]) {
+		if (await registry.getApiKey(model as never, session.sessionId))
+			return { model, resolver: registry.resolver(model as never, session.sessionId) };
+	}
+	return undefined;
+}
+
+interface Retry {
+	title: string | null;
+	model: string;
+	usage: unknown;
+}
+
+/** The one shorter retry: the slot's prompt plus {@link titleShorterLine}, on {@link retryModel}. */
+async function shorterTitle(session: TitleSession, prompt: string, answer: string, input: string): Promise<Retry> {
+	const functions = await stockFunctions();
+	const target = await retryModel(session, functions);
+	if (!target) throw new Error("No model with credentials for the default role or the session");
+	const reply = await functions.completeSimple(
+		target.model as never,
+		{
+			systemPrompt: [`${prompt}\n\n${titleShorterLine(answer)}`],
+			messages: [{ role: "user", content: input, timestamp: Date.now() }],
+		},
+		{
+			apiKey: target.resolver,
+			sessionId: session.sessionId,
+			maxTokens: RETRY_MAX_TOKENS,
+			disableReasoning: true,
+			temperature: 0,
+			// A one-off request: a cache write (Anthropic's 1 h write costs twice the input) would be its whole cost.
+			cacheRetention: "none",
+			signal: AbortSignal.timeout(RETRY_DEADLINE_MS),
+		},
+	);
+	if (reply.stopReason === "error") throw new Error(reply.errorMessage ?? "The title retry failed");
+	const text = reply.content.map(block => (block.type === "text" ? (block.text ?? "") : "")).join("");
+	const marked = /<title>([\s\S]*?)<\/title>/i.exec(text)?.[1] ?? text;
+	return {
+		title: functions.normalizeGeneratedTitle(marked, input),
+		model: `${target.model.provider}/${target.model.id}`,
+		usage: reply.usage,
+	};
+}
+
+/**
  * `title` as the session should show it: without its card under `title.icons: boring` (stock's retitle keeps the
- * current title's card even then), and while the line is in effect fitted to its length. With `retryInput` (what
- * the title model names on the retry: the operator's message, or the answer itself when stock built the context)
- * a title past the limits gets one retry on the title model (counted in `requests`); without it (a title that was
- * fitted already) it is only fitted.
+ * current title's card even then), and while the line is in effect fitted to its length. With `retryInput` (the
+ * message the retry names: the operator's, or the answer itself when stock built the context) a title past the
+ * limits gets one retry on a stronger model ({@link shorterTitle}, counted in `requests`); the retry wins unless it
+ * is longer, and {@link conciseTitle} is the last safety net. Without `retryInput` (a title fitted already) it is
+ * only fitted.
  */
 async function concise(
 	session: TitleSession,
@@ -207,21 +297,29 @@ async function concise(
 	const own = ownPrompts.get(session);
 	if (own === undefined) return card && titleIcons(session.settings) !== "boring" ? title : answer;
 	let text = answer;
-	let retry: string | null = null;
-	if (!titleFits(answer)) {
-		if (retryInput) {
-			requests++;
-			try {
-				retry = await session.generateTitle(retryInput(answer), `${own}\n\n${titleShorterLine(answer)}`);
-			} catch (error) {
-				// The first answer is still a title: keep it rather than lose the name.
-				log("auto-title: shorter retry failed", { answer, error: String(error) });
-			}
+	let retry: Retry | undefined;
+	if (!titleFits(answer) && retryInput) {
+		requests++;
+		try {
+			retry = await shorterTitle(session, own, answer, retryInput(answer));
+		} catch (error) {
+			// The first answer is still a title: keep it rather than lose the name.
+			log("auto-title: shorter retry failed", { answer, error: String(error) });
 		}
-		text = conciseTitle(retry && retry.trim().length < answer.trim().length ? retry : answer);
+	}
+	if (!titleFits(answer)) {
+		const shorter = retry?.title;
+		text = conciseTitle(shorter && shorter.trim().length <= answer.trim().length ? shorter : answer);
 	}
 	// Every generated title, with the model's own answers, so a title that reads wrong can be traced.
-	if (retryInput) log("auto-title: title", { answer, retry, title: text });
+	if (retryInput)
+		log("auto-title: title", {
+			answer,
+			retry: retry?.title ?? null,
+			retryModel: retry?.model ?? null,
+			retryUsage: retry?.usage ?? null,
+			title: text,
+		});
 	return card && titleIcons(session.settings) !== "boring" ? formatCardTitle(card, text) : text;
 }
 
