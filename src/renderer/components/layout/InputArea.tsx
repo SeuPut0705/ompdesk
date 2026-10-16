@@ -225,9 +225,18 @@ export function InputArea() {
 		if (!edit) return false;
 		const next = value.slice(0, edit.from) + edit.insert + value.slice(edit.to);
 		el.setSelectionRange(edit.from, edit.to);
-		const done =
-			typeof document.execCommand === "function" &&
-			(edit.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, edit.insert));
+		// The newline and the bullet are separate insertions: one undo then leaves the plain newline.
+		const exec = typeof document.execCommand === "function" ? document.execCommand.bind(document) : undefined;
+		let done = false;
+		if (exec !== undefined) {
+			if (edit.insert === "") done = exec("delete");
+			else if (edit.insert.length === 1) done = exec("insertText", false, edit.insert);
+			else if (exec("insertText", false, "\n")) {
+				// Moving the caret closes the open typing command, so the bullet is its own undo step.
+				el.setSelectionRange(edit.from + 1, edit.from + 1);
+				done = exec("insertText", false, edit.insert.slice(1));
+			}
+		}
 		if (!done || el.value !== next) placeDraft(next, edit.caret);
 		else el.setSelectionRange(edit.caret, edit.caret);
 		return true;

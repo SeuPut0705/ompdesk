@@ -1847,7 +1847,10 @@ describe("InputArea markdown list continuation", () => {
 		} finally {
 			delete doc.execCommand;
 		}
-		expect(calls).toEqual([["insertText", false, "\n- "]]);
+		expect(calls).toEqual([
+			["insertText", false, "\n"],
+			["insertText", false, "- "],
+		]);
 	});
 
 	it("continues the list for plain Enter while the composer is expanded", async () => {
