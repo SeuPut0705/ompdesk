@@ -376,3 +376,20 @@ describe("sidecar command fetch failure", () => {
 		expect(palette().querySelector('[role="alert"]')).toBeNull();
 	});
 });
+
+describe("omp connecting while the palette is open", () => {
+	it("keeps the typed query and fetches the commands again", async () => {
+		sidecarCommands = [HELLO];
+		useSessionStore.setState({ status: "starting" });
+		seedTab("agent");
+		await mount();
+		await typeQuery("stats");
+		expect(rows()[selectedIndex()]?.getAttribute("data-command-name")).toBe("stats");
+
+		await act(async () => useSessionStore.setState({ status: "ready" }));
+		await flush();
+		expect(rpc.getAvailableCommands).toHaveBeenCalledTimes(1);
+		// Enter still runs what was typed, never the unfiltered top row (New session).
+		expect(rows()[selectedIndex()]?.getAttribute("data-command-name")).toBe("stats");
+	});
+});

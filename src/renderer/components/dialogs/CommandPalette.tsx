@@ -236,6 +236,8 @@ export function CommandPalette() {
 			});
 	}, [sidecarReady, t, tabRpc.getAvailableCommands]);
 
+	// Each open starts clean. Only `open` drives this: `refreshCommands` changes when omp connects, and
+	// re-running the reset then wiped what the user had typed, leaving Enter on the top row ("New session").
 	useEffect(() => {
 		if (!open) return;
 		setQuery("");
@@ -246,7 +248,11 @@ export function CommandPalette() {
 		// The modal layer focuses the first control, which on the opening render
 		// may still be the previous session's submenu chip: the search owns focus.
 		requestAnimationFrame(() => inputRef.current?.focus());
-		refreshCommands();
+	}, [open]);
+
+	// The command list follows the connection: fetched on open and again once omp is ready.
+	useEffect(() => {
+		if (open) refreshCommands();
 	}, [open, refreshCommands]);
 
 	// Rows backed by a shortcut show the user's remapped chord.
