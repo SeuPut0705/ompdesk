@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { capture, exitApp } from "./harness";
+import { capture, exitApp, readRecords } from "./harness";
 import {
 	freePort,
 	type Language,
@@ -33,7 +33,6 @@ import {
 	pair,
 	type RemoteInstance,
 	type RemoteProfile,
-	recorded,
 } from "./remote-harness";
 
 /** The relaunch toast (main's i18n-text.ts `resume.continuing`). */
@@ -313,7 +312,7 @@ for (const [language, theme] of [
 				await expect(prompt).toHaveCount(0);
 				await expect
 					.poll(async () =>
-						(await recorded(hostProfile)).filter(
+						(await readRecords(hostProfile.record)).filter(
 							frame => frame.type === "extension_ui_response" && frame.id === "fixture-ask",
 						),
 					)
@@ -399,7 +398,9 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 		await settings.getByRole("button", { name: "Connect Anthropic", exact: true }).click();
 		await expect(anthropic.locator("[data-login-progress]")).toBeVisible({ timeout: 30_000 });
 		await expect
-			.poll(async () => (await recorded(hostProfile)).some(frame => frame.type === "login"), { timeout: 30_000 })
+			.poll(async () => (await readRecords(hostProfile.record)).some(frame => frame.type === "login"), {
+				timeout: 30_000,
+			})
 			.toBe(true);
 		const paste = a.getByLabel("Authorization code or redirect address");
 		await expect(paste).toBeVisible();

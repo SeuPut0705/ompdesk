@@ -12,22 +12,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Locator, Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
 let profile: string;
 let record: string;
 const errors: string[] = [];
-
-async function recorded(type: string): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(record, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(entry => entry.type === type);
-}
 
 /** work@'s 5-hour share used as the account list's gauge shows it ("5H 15%"). */
 async function workUsed(work: Locator): Promise<number> {
@@ -107,11 +98,11 @@ test("keeps the open account list live without reopening it", async () => {
 	await expect.poll(() => workUsed(work)).toBeGreaterThan(beforeFocus);
 
 	// The refresh button asks stock to probe the provider now (its `omp usage invalidate`).
-	expect((await recorded("provider_accounts")).some(entry => entry.refresh === true)).toBe(false);
+	expect((await recordsOfType(record, "provider_accounts")).some(entry => entry.refresh === true)).toBe(false);
 	await work.getByRole("button", { name: "Actions for Anthropic work@example.com" }).click();
 	await page.getByRole("menuitem", { name: "Refresh Anthropic quotas" }).click();
 	await expect
-		.poll(async () => (await recorded("provider_accounts")).some(entry => entry.refresh === true))
+		.poll(async () => (await recordsOfType(record, "provider_accounts")).some(entry => entry.refresh === true))
 		.toBe(true);
 	expect(errors).toEqual([]);
 });

@@ -15,7 +15,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp } from "./harness";
+import { capture, exitApp, launchApp, readRecords } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -94,15 +94,6 @@ async function fixture(page: Page, line: string): Promise<void> {
 	expect(response.success).toBe(true);
 }
 
-/** Every command frame the fake omp received, in order. */
-async function recorded(file: string): Promise<Array<{ type?: string; [key: string]: unknown }>> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as { type?: string; [key: string]: unknown });
-}
-
 async function submit(page: Page, text: string): Promise<void> {
 	const composer = page.locator(".omp-composer-input");
 	await composer.fill(text);
@@ -155,7 +146,7 @@ for (const language of ["en", "ko"] as const)
 				// The error notice waits for its dismissal.
 				await expect(page.getByText("Fixture index failed to refresh")).toBeVisible();
 
-				const responses = (await recorded(record)).filter(frame => frame.type === "extension_ui_response");
+				const responses = (await readRecords(record)).filter(frame => frame.type === "extension_ui_response");
 				expect(responses).toEqual([
 					expect.objectContaining({ id: "ext-editor", value: "ship it" }),
 					expect.objectContaining({ id: "ext-confirm-1", cancelled: true }),
@@ -171,7 +162,7 @@ for (const language of ["en", "ko"] as const)
 				// With an argument the completion menu is closed, so Enter submits (stock accepts `link`).
 				await submit(page, "/open link");
 				await expect(page.getByText(text.noLink)).toBeVisible();
-				const prompts = (await recorded(record)).filter(frame => frame.type === "prompt");
+				const prompts = (await readRecords(record)).filter(frame => frame.type === "prompt");
 				expect(prompts).toEqual([]);
 
 				// ── Slow mode through set_slow_mode ──────────────────────────────
@@ -183,7 +174,7 @@ for (const language of ["en", "ko"] as const)
 				await expect(slow).toBeChecked();
 				await capture(page, `slow-mode-${language}-${theme}`);
 				await page.keyboard.press("Escape");
-				expect((await recorded(record)).filter(frame => frame.type === "set_slow_mode")).toEqual([
+				expect((await readRecords(record)).filter(frame => frame.type === "set_slow_mode")).toEqual([
 					expect.objectContaining({ enabled: true }),
 				]);
 
@@ -194,7 +185,7 @@ for (const language of ["en", "ko"] as const)
 				await capture(page, `bash-running-${language}-${theme}`);
 				await exec.getByRole("button", { name: text.cancelExec, exact: true }).click();
 				await expect
-					.poll(async () => (await recorded(record)).some(frame => frame.type === "abort_bash"))
+					.poll(async () => (await readRecords(record)).some(frame => frame.type === "abort_bash"))
 					.toBe(true);
 				await expect(page.locator(".omp-execution-turn")).toHaveCount(0);
 
@@ -209,7 +200,7 @@ for (const language of ["en", "ko"] as const)
 				await capture(page, `subagent-steer-${language}-${theme}`);
 				await steer.locator("textarea").press("Enter");
 				await expect(page.getByText(text.steerSent).first()).toBeVisible();
-				expect((await recorded(record)).filter(frame => frame.type === "steer_subagent")).toEqual([
+				expect((await readRecords(record)).filter(frame => frame.type === "steer_subagent")).toEqual([
 					expect.objectContaining({ subagentId: "sa-explore", message: "Check the keyboard settings too" }),
 				]);
 				expect(errors).toEqual([]);

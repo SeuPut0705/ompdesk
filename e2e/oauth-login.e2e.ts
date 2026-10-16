@@ -18,7 +18,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, readRecords } from "./harness";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -83,14 +83,6 @@ async function launch(language: Language, theme: "light" | "dark"): Promise<Laun
 	return { app, page, record, errors, root };
 }
 
-async function recorded(file: string): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(line => line.trim() !== "")
-		.map(line => JSON.parse(line) as Record<string, unknown>);
-}
-
 /** Settings › Models with the Anthropic row in view; returns the row. */
 async function openAnthropicRow(page: Page, language: Language) {
 	const settings = page.locator("[data-settings-page]");
@@ -142,7 +134,7 @@ for (const [language, theme] of [
 		try {
 			const anthropic = await startSignIn(page, language);
 			// Stock's paste request reached the app, yet neither the panel nor the chat asks for it.
-			await expect.poll(async () => (await recorded(record)).some(frame => frame.type === "login")).toBe(true);
+			await expect.poll(async () => (await readRecords(record)).some(frame => frame.type === "login")).toBe(true);
 			const toggle = anthropic.getByRole("button", { name: tr(language, "providerList.login.pasteToggle") });
 			await expect(toggle).toHaveAttribute("aria-expanded", "false");
 			await expect(anthropic.getByLabel(tr(language, "providerList.login.pasteLabel"))).toHaveCount(0);
@@ -168,7 +160,7 @@ for (const [language, theme] of [
 			await expect(page.getByText(tr(language, "providers.loginSuccess", { provider: "Anthropic" }))).toBeVisible();
 			await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 			// The paste request stock left open was answered for it, and never became a chat card.
-			const frames = await recorded(record);
+			const frames = await readRecords(record);
 			const pasteId = frames.findLast(
 				frame => frame.type === "extension_ui_response" && frame.cancelled === true,
 			)?.id;
@@ -196,7 +188,7 @@ test("cancel ends the browser sign-in through its callback, never through the pa
 		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 		// omp's callback saw the denial with the flow's state, as a provider's Deny button sends it.
 		await expect
-			.poll(async () => (await recorded(record)).find(frame => frame.type === "login_callback"))
+			.poll(async () => (await readRecords(record)).find(frame => frame.type === "login_callback"))
 			.toMatchObject({
 				path: "/callback",
 				query: { error: "access_denied", error_description: "Sign-in cancelled in OMPdesk", state: "xyz" },
@@ -204,7 +196,7 @@ test("cancel ends the browser sign-in through its callback, never through the pa
 		// The login failed quietly and its paste request went with it: answered once, after the login.
 		await expect
 			.poll(async () =>
-				(await recorded(record)).filter(
+				(await readRecords(record)).filter(
 					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
 				),
 			)
@@ -263,7 +255,7 @@ test("a reload mid-sign-in leaves no chat card and the panel shows the sign-in a
 		// The leftover paste was answered once for stock, by the page that took the sign-in over.
 		await expect
 			.poll(async () =>
-				(await recorded(record)).filter(
+				(await readRecords(record)).filter(
 					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
 				),
 			)
@@ -288,12 +280,12 @@ test("a reload mid-sign-in, then Cancel in the panel: the login ends through its
 		await anthropic.getByRole("button", { name: "Cancel", exact: true }).click();
 		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 		await expect
-			.poll(async () => (await recorded(record)).find(frame => frame.type === "login_callback"))
+			.poll(async () => (await readRecords(record)).find(frame => frame.type === "login_callback"))
 			.toMatchObject({ path: "/callback", query: { error: "access_denied", state: "xyz" } });
 		// `login` answered: the page that took it over answers the leftover paste, and nothing reaches the chat.
 		await expect
 			.poll(async () =>
-				(await recorded(record)).filter(
+				(await readRecords(record)).filter(
 					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
 				),
 			)
@@ -322,7 +314,7 @@ test("a sign-in that ends while the reloaded page has Settings closed is answere
 		expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
 		await expect
 			.poll(async () =>
-				(await recorded(record)).filter(
+				(await readRecords(record)).filter(
 					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
 				),
 			)

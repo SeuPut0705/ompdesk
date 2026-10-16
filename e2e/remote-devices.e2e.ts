@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, fixtureOmp, launchApp, walkRemotePicker } from "./harness";
+import { exitApp, fixtureOmp, launchApp, readRecords, walkRemotePicker } from "./harness";
 
 // Two OMPdesk instances on the fake omp: B shares itself, A pairs with it
 // through Settings › Remote devices, opens a session on B from its sidebar,
@@ -67,14 +67,6 @@ async function openRemoteSettings(page: Page): Promise<void> {
 	await page.keyboard.press("ControlOrMeta+Comma");
 	await page.locator('[data-settings-page] [data-settings-section="connections"]').click();
 	await expect(page.locator("[data-remote-section]")).toBeVisible();
-}
-
-async function recorded(file: string): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>);
 }
 
 test("pairs two devices, runs a prompt on the host, and shows the link drop", async () => {
@@ -159,8 +151,8 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 
 		// The prompt reached B's omp, never A's.
 		const isPrompt = (frame: Record<string, unknown>) => frame.type === "prompt" && frame.message === "remote hello";
-		await expect.poll(async () => (await recorded(host?.record ?? "")).some(isPrompt)).toBe(true);
-		expect((await recorded(client.record)).some(isPrompt)).toBe(false);
+		await expect.poll(async () => (await readRecords(host?.record ?? "")).some(isPrompt)).toBe(true);
+		expect((await readRecords(client.record)).some(isPrompt)).toBe(false);
 
 		// ── Settings follow the focused tab: B's machine settings, A's app settings ──
 		const tabs = await a.evaluate(() => window.omp.tabs.list());
@@ -217,10 +209,10 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(a.getByText("Signed in to Anthropic")).toBeVisible();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toHaveCount(0);
-		const hostFrames = await recorded(host.record);
+		const hostFrames = await readRecords(host.record);
 		expect(hostFrames).toContainEqual(expect.objectContaining({ type: "login", providerId: "anthropic" }));
 		expect(hostFrames).toContainEqual(expect.objectContaining({ type: "extension_ui_response", value: redirect }));
-		const clientFrames = await recorded(client.record);
+		const clientFrames = await readRecords(client.record);
 		expect(clientFrames).not.toContainEqual(expect.objectContaining({ type: "login" }));
 		expect(clientFrames).not.toContainEqual(expect.objectContaining({ value: redirect }));
 

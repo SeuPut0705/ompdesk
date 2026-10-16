@@ -216,12 +216,3 @@ export async function openHostFolder(client: Page, deviceId: string, folder: str
 		.toBe("ready");
 	return tabId;
 }
-
-/** Frames the fixture omp received (OMP_GUI_TEST_RECORD). */
-export async function recorded(profile: RemoteProfile): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(profile.record, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>);
-}

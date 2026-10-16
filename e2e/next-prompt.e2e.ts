@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -102,17 +102,8 @@ async function finish(launched: Launched, removeProfile = true): Promise<void> {
 	if (removeProfile) await fs.rm(launched.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
-async function frames(file: string, type: string): Promise<Record<string, unknown>[]> {
-	const text = await fs.readFile(file, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(frame => frame.type === type);
-}
-
 async function count(file: string, type: string): Promise<number> {
-	return (await frames(file, type)).length;
+	return (await recordsOfType(file, type)).length;
 }
 
 /** The debounce window has passed on the page's own clock: any request the draft would make is already recorded. */
@@ -395,7 +386,10 @@ test("the Settings switches hide suggestions live, reach the tab, and persist ac
 		await expect(inlineSwitch(settings)).toHaveAttribute("aria-checked", "false");
 		await expect
 			.poll(async () =>
-				(await frames(record, "next_prompt_set")).map(({ suggestions, inline }) => ({ suggestions, inline })),
+				(await recordsOfType(record, "next_prompt_set")).map(({ suggestions, inline }) => ({
+					suggestions,
+					inline,
+				})),
 			)
 			.toContainEqual({ suggestions: true, inline: false });
 		await closeSettings(page);
@@ -414,7 +408,7 @@ test("the Settings switches hide suggestions live, reach the tab, and persist ac
 		await expect(suggestionsSwitch(settings)).toHaveAttribute("aria-checked", "false");
 		await expect(inlineSwitch(settings)).toBeDisabled();
 		await expect
-			.poll(async () => (await frames(record, "next_prompt_set")).map(({ suggestions }) => suggestions))
+			.poll(async () => (await recordsOfType(record, "next_prompt_set")).map(({ suggestions }) => suggestions))
 			.toContain(false);
 		await closeSettings(page);
 		await expect(input).not.toHaveAttribute("placeholder", CANDIDATES[0]);

@@ -11,22 +11,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
 let profile: string;
 let record: string;
 const errors: string[] = [];
-
-async function recorded(type: string): Promise<Array<Record<string, unknown>>> {
-	const text = await fs.readFile(record, "utf8").catch(() => "");
-	return text
-		.split("\n")
-		.filter(Boolean)
-		.map(line => JSON.parse(line) as Record<string, unknown>)
-		.filter(entry => entry.type === type);
-}
 
 test.beforeAll(async () => {
 	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-reset-passes-"));
@@ -80,7 +71,7 @@ test("shows each account's reset passes and spends one after confirming", async 
 	await expect(dialog).toContainText("Pass: One free rate limit reset");
 	await expect(dialog).toContainText("claudeResets.autoRedeem");
 	await expect(dialog).toContainText("A used pass can't be returned.");
-	expect(await recorded("reset_pass_redeem")).toHaveLength(0);
+	expect(await recordsOfType(record, "reset_pass_redeem")).toHaveLength(0);
 
 	await dialog.getByRole("button", { name: "Use reset", exact: true }).click();
 	await expect(dialog).toHaveCount(0);
@@ -96,7 +87,7 @@ test("shows each account's reset passes and spends one after confirming", async 
 	await expect(homeRow.locator('[data-window="5h"] .omp-usage-gauge-text')).toHaveText("5H0%");
 	await expect(homeRow.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText("7D64%");
 	await expect(homeRow.locator("[data-quota-updated]")).toHaveAttribute("title", /5-hour limit · 0%/);
-	const redeems = await recorded("reset_pass_redeem");
+	const redeems = await recordsOfType(record, "reset_pass_redeem");
 	expect(redeems).toHaveLength(1);
 	expect(redeems[0]).toMatchObject({ providerId: "anthropic", credentialId: 2, creditId: "grant-home-1" });
 	expect(errors).toEqual([]);
