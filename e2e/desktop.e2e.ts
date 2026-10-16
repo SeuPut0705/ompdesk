@@ -28,25 +28,30 @@ async function recorded(type: string) {
 }
 
 /**
- * Live processes under the app's main process: renderers, helpers and every
- * tab's sidecar (an exited child is reaped, so zombies are not counted).
+ * Live processes under the app's main process: renderers, helpers and every tab's sidecar (an exited child is
+ * reaped, so zombies are not counted).
  */
-function descendants(root: number): number {
-	const children = new Map<number, number[]>();
-	for (const line of execFileSync("ps", ["-A", "-o", "pid=,ppid=,stat="], { encoding: "utf8" }).split("\n")) {
-		const [pid, ppid, stat] = line.trim().split(/\s+/);
+function descendants(root: number): { pid: number; command: string }[] {
+	const children = new Map<number, { pid: number; command: string }[]>();
+	for (const line of execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,stat=,command="], { encoding: "utf8" }).split(
+		"\n",
+	)) {
+		const [pid, ppid, stat, ...command] = line.trim().split(/\s+/);
 		if (!pid || stat?.startsWith("Z")) continue;
-		children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
+		children.set(Number(ppid), [
+			...(children.get(Number(ppid)) ?? []),
+			{ pid: Number(pid), command: command.join(" ") },
+		]);
 	}
-	let count = 0;
+	const found: { pid: number; command: string }[] = [];
 	const queue = [root];
 	for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
 		for (const child of children.get(next) ?? []) {
-			count++;
-			queue.push(child);
+			found.push(child);
+			queue.push(child.pid);
 		}
 	}
-	return count;
+	return found;
 }
 
 test.beforeAll(async () => {
@@ -308,14 +313,22 @@ test("math survives history reload and scrolls inside its column in both themes"
 	await expect(markdown.locator(".katex-display")).toHaveCount(4);
 	await expect(markdown.locator(".katex-html").filter({ hasText: "显存有效带宽" })).toHaveCount(1);
 	await expect(markdown.locator("h1, h2, .katex-error")).toHaveCount(0);
-	const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+	// The math column is measured at 900×1050 whatever the window is. The override goes through this test's own
+	// CDP session, never page.setViewportSize: that pins the page for good (Playwright cannot unset it), and the
+	// narrow-window test below would then resize a window the page no longer follows.
+	const cdp = await page.context().newCDPSession(page);
 	for (const theme of ["Graphite", "Porcelain"]) {
 		await command("/theme");
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(theme);
 		await picker.locator("button[aria-pressed]").filter({ hasText: theme }).click();
 		await expect(picker).toHaveCount(0);
-		await page.setViewportSize({ width: 900, height: 1050 });
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 900,
+			height: 1050,
+			deviceScaleFactor: 0,
+			mobile: false,
+		});
 		await markdown.scrollIntoViewIfNeeded();
 		await page.evaluate(() => document.fonts.ready);
 		expect(await page.evaluate(() => document.fonts.check("16px KaTeX_Main"))).toBe(true);
@@ -345,7 +358,8 @@ test("math survives history reload and scrolls inside its column in both themes"
 		).toBe(true);
 		await page.screenshot({ path: `test-results/math-${theme}.png`, scale: "css", animations: "disabled" });
 	}
-	await page.setViewportSize(viewport);
+	await cdp.send("Emulation.clearDeviceMetricsOverride");
+	await cdp.detach();
 	expect(errors).toEqual([]);
 });
 
@@ -461,7 +475,7 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 	};
 	const pid = app.process().pid;
 	const checkProcesses = pid !== undefined && process.platform !== "win32";
-	const processes = () => (checkProcesses ? descendants(pid) : 0);
+	const processes = () => (checkProcesses ? descendants(pid) : []);
 	const cycle = async (whileOpen?: () => Promise<void>) => {
 		await command("/tools");
 		await expect(page.getByRole("dialog")).toBeVisible();
@@ -476,19 +490,27 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 	};
 	// Both checks are exact, so one leaked listener or sidecar per cycle fails at any
 	// count; 20 cycles still pass Node's 10-listener warning twice. The open tab's
-	// sidecar must show up in the process count, or the count would guard nothing.
+	// sidecar must show up as a new process, or the count would guard nothing; it is
+	// found by pid, because a total count also moves with short-lived children (git,
+	// helpers, an earlier test's sidecar still exiting) and can stay level.
 	const cycles = 20;
 	const before = await listeners();
 	const processesBefore = processes();
+	const pidsBefore = new Set(processesBefore.map(child => child.pid));
 	await cycle(async () => {
-		if (checkProcesses) expect(processes()).toBeGreaterThan(processesBefore);
+		if (!checkProcesses) return;
+		const started = processes().filter(child => !pidsBefore.has(child.pid));
+		expect(
+			started.filter(child => child.command.includes("--mode rpc-ui")),
+			JSON.stringify(started),
+		).not.toEqual([]);
 	});
 	for (let index = 1; index < cycles; index++) await cycle();
 	const after = await listeners();
 	expect(after).toBeLessThanOrEqual(before);
 	expect(await page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
 	// A closed tab's sidecar exits once its stdin closes; wait for that, never for a fixed time.
-	await expect.poll(processes).toBeLessThanOrEqual(processesBefore);
+	await expect.poll(() => processes().length).toBeLessThanOrEqual(processesBefore.length);
 	await fs.writeFile(
 		"test-results/lifecycle.json",
 		JSON.stringify(
@@ -498,7 +520,7 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 				documentListenersBefore: before,
 				documentListenersAfter: after,
 				tabsAfter: 1,
-				processesBefore,
+				processesBefore: processesBefore.length,
 			},
 			null,
 			2,
@@ -517,7 +539,7 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		// Minimum window size at 200% zoom: 400×300 CSS px.
 		[800, 600, 2],
 	]) {
-		await app.evaluate(
+		const content = await app.evaluate(
 			({ BrowserWindow, screen }, dimensions) => {
 				const win = BrowserWindow.getAllWindows()[0];
 				// CI displays are ~1024×720: a window larger than the work area renders
@@ -530,9 +552,19 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 					height: Math.min(dimensions.height, workArea.height),
 				});
 				win.webContents.setZoomFactor(dimensions.zoom);
+				return win.getContentBounds();
 			},
 			{ width, height, zoom },
 		);
+		// The page lays out the new size a moment later; checking before it does would test the previous size.
+		await expect
+			.poll(() =>
+				page.evaluate(
+					expected => Math.abs(innerWidth - expected.width) <= 1 && Math.abs(innerHeight - expected.height) <= 1,
+					{ width: content.width / zoom, height: content.height / zoom },
+				),
+			)
+			.toBe(true);
 		await page.keyboard.press("ControlOrMeta+Comma");
 		const settings = page.locator("[data-settings-page]");
 		await settings.locator('[data-settings-section="appearance"]').click();

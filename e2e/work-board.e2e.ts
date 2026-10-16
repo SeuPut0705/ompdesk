@@ -383,6 +383,13 @@ for (const language of ["en", "ko"] as const)
 							"data-rail-account",
 							/^fixture:/,
 						);
+						// A straight 2px edge, not an inset shadow that bends round the line's corners into a "(".
+						expect(
+							await page.locator("[data-rail-pin='usage'] [data-in-use]").evaluate(line => {
+								const edge = getComputedStyle(line, "::before");
+								return { shadow: getComputedStyle(line).boxShadow, width: edge.width, content: edge.content };
+							}),
+						).toEqual({ shadow: "none", width: "2px", content: '""' });
 					}
 					await expect(lines.first()).toHaveAttribute("title", /limit|한도/);
 					await shot(`${count}`);

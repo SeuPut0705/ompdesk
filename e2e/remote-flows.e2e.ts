@@ -254,7 +254,8 @@ for (const language of ["en", "ko"] as const)
 				});
 
 				await test.step("the context inspector reads the host's omp", async () => {
-					await openDestination(a, "insights");
+					// The palette's "context" row opens Stats on This session, where the inspector lives.
+					await openDestination(a, "insights", "context");
 					const stats = a.locator('section[data-destination="insights"]');
 					await expect(stats.getByText(t("contextInspector.cat.memoryFiles"), { exact: true })).toBeVisible({
 						timeout: 15_000,

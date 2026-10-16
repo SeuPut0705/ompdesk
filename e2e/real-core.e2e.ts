@@ -217,7 +217,8 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const afterDrop = await page.evaluate(() => window.omp.rpc.getState());
 		expect(afterDrop.success).toBe(true);
 		if (afterDrop.success) expect((afterDrop.data as RpcSessionState).sessionFile).not.toBe(seededSession);
-		await openDestination(page, "insights");
+		// The palette's "context" row opens Stats on This session (its "stats" row opens All sessions).
+		await openDestination(page, "insights", "context");
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
 		// Stats open on This session. The drop replaced the tab's runtime without a

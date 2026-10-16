@@ -72,6 +72,7 @@
 }
 
 .omp-sidebar-usage-line {
+	position: relative;
 	display: flex;
 	width: 100%;
 	min-width: 0;
@@ -95,9 +96,17 @@
 	outline-offset: -1px;
 }
 
-/* The account this tab uses: a quiet edge, nothing coloured. */
-.omp-sidebar-usage-line[data-in-use] {
-	box-shadow: inset 2px 0 0 var(--sc-text-subtle);
+/* The account this tab uses: a quiet straight edge, nothing coloured (an inset shadow on the rounded line
+   would follow its corners and read as a parenthesis). */
+.omp-sidebar-usage-line[data-in-use]::before {
+	content: "";
+	position: absolute;
+	inset-block: 5px;
+	inset-inline-start: 0;
+	width: 2px;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-text-subtle);
+	pointer-events: none;
 }
 
 .omp-sidebar-usage-more {

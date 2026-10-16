@@ -700,18 +700,21 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* A narrow page (the sidebar plus the page under ~820px) gives the sections the full width:
    the nav becomes a wrapping bar on top — title and search on one row, every section a chip —
-   instead of a 240px column beside a 300px body. */
+   instead of a 240px column beside a 300px body. On a short page (the minimum window at 200%
+   zoom is 400×300 CSS px) the wrapped chips would fill the whole height and leave the section
+   none, so the bar takes at most half and scrolls its own chips. */
 @container settings-root (max-width: 700px) {
 	.settings-page {
 		flex-direction: column;
 	}
 	.settings-nav {
 		width: auto;
+		max-height: 50%;
 		flex-direction: row;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--sc-space-1) var(--sc-space-2);
-		overflow: visible;
+		overflow-y: auto;
 		border-right-width: 0;
 		border-bottom: 1px solid var(--sc-divider);
 		padding-top: var(--sc-space-4);
