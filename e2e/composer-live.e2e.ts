@@ -72,6 +72,18 @@ async function cpu(app: ElectronApplication, ms: number): Promise<{ renderer: nu
 		metrics.filter(metric => metric.type === type).reduce((n, metric) => n + metric.cpu, 0);
 	return { renderer: sum("Tab"), gpu: sum("GPU") };
 }
+/**
+ * Whether the app drew this window in its software-compositing form: the same `html[data-gpu]` signal the CSS reads.
+ * Main sets it once the GPU process has reported (`getGPUInfo("complete")`), so wait for that, then give the
+ * attribute a moment; a hardware window never gets it.
+ */
+async function softwareMarked(app: ElectronApplication, page: Page): Promise<boolean> {
+	await app.evaluate(({ app: electronApp }) => electronApp.getGPUInfo("complete").catch(() => undefined));
+	return page
+		.waitForFunction(() => document.documentElement.dataset.gpu === "software", undefined, { timeout: 3000 })
+		.then(() => true)
+		.catch(() => false);
+}
 
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
@@ -116,6 +128,7 @@ for (const language of ["en", "ko"] as const)
 				await capture("turn");
 
 				// The animation is one transform on one layer: nothing repaints per frame.
+				const software = await softwareMarked(app, page);
 				const animated = await page.evaluate(() =>
 					document
 						.getAnimations()
@@ -134,7 +147,9 @@ for (const language of ["en", "ko"] as const)
 							state: animation.playState,
 						})),
 				);
-				expect(animated).toEqual([{ pseudo: "::before", props: ["transform"], state: "running" }]);
+				// Software compositing (the app's own `html[data-gpu]` signal) draws the cue still: no animation at all.
+				if (software) expect(animated).toEqual([]);
+				else expect(animated).toEqual([{ pseudo: "::before", props: ["transform"], state: "running" }]);
 
 				// Typing steps the light out of the way; clearing the draft brings it back.
 				const input = page.locator("textarea").first();
@@ -184,10 +199,8 @@ for (const language of ["en", "ko"] as const)
 				// Measured here: +0.4 % renderer, +1.4 % GPU of one core; a repainting animation costs several times that.
 				// Only meaningful with GPU compositing: a GPU-less runner (Windows CI) composites in software, where
 				// any animation costs the "GPU" process real CPU.
-				const gpuCompositing = await app.evaluate(({ app: electronApp }) =>
-					String(electronApp.getGPUFeatureStatus().gpu_compositing).startsWith("enabled"),
-				);
-				if (gpuCompositing) {
+				// `software` was read above, from the app's own signal.
+				if (!software) {
 					expect(strong.gpu - off.gpu).toBeLessThan(4);
 					expect(strong.renderer - off.renderer).toBeLessThan(2);
 				} else {
@@ -230,9 +243,11 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		expect(running).toBe(0);
 		await expect(live).toHaveCSS("opacity", "0.9");
 		await page.emulateMedia({ reducedMotion: "no-preference" });
+		// Software compositing keeps the still form whatever the media says; hardware gets the turning light.
+		const software = await softwareMarked(app, page);
 		await expect
 			.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationName))
-			.toBe("omp-composer-live-turn");
+			.toBe(software ? "none" : "omp-composer-live-turn");
 		await page.evaluate(() => {
 			Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
 			document.dispatchEvent(new Event("visibilitychange"));
