@@ -335,6 +335,62 @@ describe("SetupService", () => {
 		expect(later.items()).toEqual(["gh", "gh"]);
 	});
 
+	describe("installForConnection (a connect click needs gh or Node)", () => {
+		it("installs right then past the daily back-off and the once-per-launch rule, and resolves once it ended", async () => {
+			const now = 1_000_000;
+			await writeFile(
+				join(dir, "setup-state.json"),
+				JSON.stringify({ gh: { failures: 3, lastAttempt: now - 1000 } }),
+			);
+			const h = harness(machine({ gh: missing }), { now: () => now, exits: { gh: 1 } });
+			await h.service.start();
+			expect(h.phase("gh")).toBe("backoff");
+			expect(h.spawned).toEqual([]);
+			// Backed off, yet the connect click installs; its failure comes back with setup's reason.
+			const failed = await h.service.installForConnection("gh");
+			expect(h.items()).toEqual(["gh"]);
+			expect(failed).toMatchObject({ id: "gh", phase: "failed", failure: { reason: "exit", exitCode: 1 } });
+			// Already attempted in this launch, and its Retry runs again; this time it lands.
+			const later = harness(machine({ gh: missing }), { now: () => now });
+			await later.service.start();
+			expect(later.phase("gh")).toBe("backoff");
+			const installed = await later.service.installForConnection("gh");
+			expect(installed).toMatchObject({ phase: "present", presence: { kind: "present" } });
+			expect(later.items()).toEqual(["gh"]);
+		});
+
+		it("shows the click's install as queued at once, numbered as its own run", async () => {
+			const h = harness(machine({ node: missing }), { automatic: true });
+			const pending = h.service.installForConnection("node");
+			expect(h.phase("node")).toBe("queued");
+			await pending;
+			const running = h.states.find(state => state.items.find(item => item.id === "node")?.phase === "running");
+			expect(running?.items.find(item => item.id === "node")?.progress).toMatchObject({ step: 1, steps: 1 });
+		});
+
+		it("waits behind an install already queued or running, and installs nothing more when that one found the tool", async () => {
+			const h = harness(machine({ gh: missing }));
+			const launch = h.service.start();
+			const connect = h.service.installForConnection("gh");
+			await launch;
+			const after = await connect;
+			expect(h.items()).toEqual(["gh"]);
+			expect(after.phase).toBe("present");
+		});
+
+		it("only detects when this launch never installs (dev, tests without the fake installer)", async () => {
+			const h = harness(machine({ gh: missing }), { automatic: false });
+			expect(await h.service.installForConnection("gh")).toMatchObject({ phase: "idle" });
+			expect(h.spawned).toEqual([]);
+		});
+
+		it("refuses required and unknown items", async () => {
+			const h = harness(machine({}));
+			await expect(h.service.installForConnection("omp")).rejects.toThrow(/Not an optional setup item/);
+			await expect(h.service.installForConnection("claude")).rejects.toThrow(/Not an optional setup item/);
+		});
+	});
+
 	it("forgets the misses once the item is found", async () => {
 		await writeFile(join(dir, "setup-state.json"), JSON.stringify({ node: { failures: 2, lastAttempt: 1 } }));
 		const h = harness(machine({}));

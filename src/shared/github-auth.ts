@@ -19,10 +19,23 @@ export interface GithubAuthStatus {
 	otherAccounts: string[];
 }
 
-/** Why a sign-in ended without an account; the renderer words each one. */
-export type GithubLoginFailure = "gh_missing" | "timeout" | "not_signed_in" | "exited" | "spawn_failed";
+/**
+ * Why a sign-in ended without an account; the renderer words each one.
+ * `gh_missing`: gh is not installed and nothing here can install it (no automatic setup in this launch, or
+ * no install method on this machine). `gh_install_failed`: machine setup tried to install gh for this
+ * sign-in and it ended without one; setup's gh item says why.
+ */
+export type GithubLoginFailure =
+	| "gh_missing"
+	| "gh_install_failed"
+	| "timeout"
+	| "not_signed_in"
+	| "exited"
+	| "spawn_failed";
 
 export type GithubLoginFlow =
+	/** gh was missing: machine setup installs it now (its `gh` item carries the progress), then gh starts. */
+	| { state: "installing" }
 	/** gh is starting; no code yet. */
 	| { state: "starting" }
 	/** The device code is on screen; `opened` once the user asked for the GitHub page (gh then polls for approval). */
@@ -63,9 +76,9 @@ export const EMPTY_GITHUB_AUTH_STATE: GithubAuthState = {
 	error: null,
 };
 
-/** A sign-in is waiting on gh or on the user. */
+/** A sign-in is waiting on gh (or its install) or on the user. */
 export function githubLoginLive(flow: GithubLoginFlow | null): boolean {
-	return flow?.state === "starting" || flow?.state === "code";
+	return flow?.state === "installing" || flow?.state === "starting" || flow?.state === "code";
 }
 
 /**

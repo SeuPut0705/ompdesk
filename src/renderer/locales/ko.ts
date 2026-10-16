@@ -5595,7 +5595,9 @@ export const ko: Record<string, string> = {
 	"githubAuth.badge.missing": "GitHub CLI 미설치",
 	"githubAuth.version": "gh {version}",
 	"githubAuth.missing.title":
-		"GitHub CLI가 아직 설치되지 않았어요. OMPdesk가 백그라운드에서 설치하거나(설정 › 업데이트 및 정보 › 이 컴퓨터), 직접 설치할 수도 있어요.",
+		"GitHub CLI가 설치되어 있지 않고, 이번 OMPdesk 실행은 도구를 스스로 설치하지 않아요. 직접 설치한 뒤 다시 확인하세요.",
+	"githubAuth.missing.autoInstall":
+		"로그인하면 GitHub CLI를 먼저 설치하고 이어서 진행해요. 직접 내려받을 필요 없어요.",
 	"githubAuth.missing.download": "gh 내려받기",
 	"githubAuth.recheck": "다시 확인",
 	"githubAuth.signedOut.description":
@@ -5612,6 +5614,13 @@ export const ko: Record<string, string> = {
 	"githubAuth.failed.timeout": "10분이 지나 코드가 만료됐어요. 로그인을 다시 시작하세요.",
 	"githubAuth.failed.not_signed_in": "gh는 끝났지만 로그인된 계정이 없어요.",
 	"githubAuth.failed.exited": "GitHub 승인 전에 로그인이 멈췄어요.",
+	"githubAuth.failed.gh_install_failed": "GitHub CLI를 설치하지 못해 로그인을 시작하지 못했어요.",
+	"connectInstall.installing": "{name} 설치 중…",
+	"connectInstall.queued": "{name} 설치를 기다리는 중…",
+	"connectInstall.failed": "{name} 설치에 실패했어요.",
+	"connectInstall.cancelled": "설치를 중단했어요.",
+	"connectInstall.unavailable":
+		"이 컴퓨터에서는 OMPdesk가 {name} 설치를 직접 할 수 없어요. 다운로드 페이지에서 설치하세요.",
 	"githubAuth.failed.spawn_failed": "로그인을 시작하지 못했어요.",
 	"githubAuth.identity.commitsAs": "커밋 작성자: {name} <{email}>",
 	"githubAuth.identity.filled": "GitHub 계정에서 설정함",

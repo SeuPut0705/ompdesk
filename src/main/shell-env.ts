@@ -63,9 +63,10 @@ export interface LoginShellEnv {
 
 const PROBE_FAILED: LoginShellEnv = { env: {}, path: null, editor: null };
 
-let cached: LoginShellEnv | undefined;
+/** The probe, shared from its start: callers that ask while it runs wait for the same shell. */
+let cached: Promise<LoginShellEnv> | undefined;
 
-/** Test seam: drop the cached probe so a stubbed SHELL/HOME takes effect. */
+/** Drop the cached probe: a stubbed SHELL/HOME in tests, a PATH an installer just changed (refreshPath). */
 export function resetLoginShellEnvCache(): void {
 	cached = undefined;
 }
@@ -77,20 +78,17 @@ export function resetLoginShellEnvCache(): void {
  */
 export function resolveLoginShellEnv(platform: NodeJS.Platform = process.platform): Promise<LoginShellEnv> {
 	if (platform === "win32") return Promise.resolve(PROBE_FAILED);
-	if (cached) return Promise.resolve(cached);
+	if (cached) return cached;
 	const { promise, resolve } = Promise.withResolvers<LoginShellEnv>();
-	const finish = (env: LoginShellEnv) => {
-		cached = env;
-		resolve(env);
-	};
+	cached = promise;
 	const shell = process.env.SHELL || "/bin/zsh";
 	// `command` bypasses rc aliases; markers isolate rc chatter.
 	const script = `command printf '%s\\n' '${BEGIN}'; command env; command printf '%s\\n' '${END}'`;
 	execFile(shell, ["-ilc", script], { timeout: PROBE_TIMEOUT_MS }, (error, stdout) => {
-		if (error) return finish(PROBE_FAILED);
+		if (error) return resolve(PROBE_FAILED);
 		const begin = stdout.indexOf(BEGIN);
 		const end = stdout.lastIndexOf(END);
-		if (begin === -1 || end < begin) return finish(PROBE_FAILED);
+		if (begin === -1 || end < begin) return resolve(PROBE_FAILED);
 		const env: Record<string, string> = {};
 		for (const line of stdout.slice(begin + BEGIN.length, end).split("\n")) {
 			const eq = line.indexOf("=");
@@ -99,7 +97,7 @@ export function resolveLoginShellEnv(platform: NodeJS.Platform = process.platfor
 		}
 		const path = env.PATH?.trim() ?? "";
 		const editor = env.VISUAL?.trim() || env.EDITOR?.trim() || "";
-		finish({
+		resolve({
 			env,
 			path: path.length > 0 ? path : null,
 			editor: editor.length > 0 ? editor : null,

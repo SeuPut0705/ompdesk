@@ -1,9 +1,13 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { CustomProviderInput, IpcBenchmarkRunOptions } from "../shared/ipc-types";
 import type { OmpUpdateState } from "../shared/omp-update";
 import { BENCHMARK_TIMEOUT_MS } from "./benchmark-runner";
+import { resetReaRuntimeCache } from "./builtin-mcp";
 import {
 	type AccountRotationDeps,
 	type HostRequest,
@@ -14,6 +18,7 @@ import {
 } from "./machine-services";
 import type { OmpUpdater } from "./omp-updater";
 import { HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
+import { resetLoginShellEnvCache } from "./shell-env";
 import type { Revive } from "./stats-restart-policy";
 
 const statsText = (key: "stats.notRunning" | "stats.notReady") => `local:${key}`;
@@ -71,6 +76,7 @@ function localMachine(
 	fetch: StatsFetch = async () => ({ ok: 1 }),
 	accountRotation: AccountRotationDeps = rotationPrefs().deps,
 	updater: Pick<OmpUpdater, "state" | "updateNow"> = fakeUpdater(),
+	builtinRea: ConstructorParameters<typeof LocalMachine>[0]["builtinRea"] = { read: () => undefined, write: () => {} },
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -79,7 +85,7 @@ function localMachine(
 		benchmarkOmp: async () => ({ ok: false, error: "omp missing" }),
 		benchmarkEnv: async () => ({}),
 		accountRotation,
-		builtinRea: { read: () => undefined, write: () => {} },
+		builtinRea,
 		desktop: {
 			version: () => "1.2.3",
 			update: {
@@ -313,4 +319,54 @@ describe("LocalMachine", () => {
 		const machine = localMachine(0, "scheduled", undefined, rotationPrefs().deps, updater);
 		await expect(machine.startOmpUpdate()).resolves.toMatchObject({ phase: "idle" });
 	});
+
+	it.skipIf(process.platform === "win32")(
+		"turning built-in REA on without Node.js asks setup to install Node right then; off, or with Node, it does not",
+		async () => {
+			const dir = await mkdtemp(join(tmpdir(), "ompdesk-rea-enable-"));
+			const saved = { PATH: process.env.PATH, SHELL: process.env.SHELL };
+			try {
+				// A login shell and PATH without node or npx.
+				const shell = join(dir, "fake-shell");
+				await writeFile(shell, `#!/bin/sh\nexec /usr/bin/env -i PATH=${dir}:/usr/bin:/bin /bin/sh -c "$2"\n`, {
+					mode: 0o755,
+				});
+				process.env.SHELL = shell;
+				process.env.PATH = `${dir}:/usr/bin:/bin`;
+				resetLoginShellEnvCache();
+				resetReaRuntimeCache();
+				let stored: unknown;
+				const installNode = vi.fn();
+				const machine = localMachine(0, "scheduled", undefined, rotationPrefs().deps, fakeUpdater(), {
+					read: () => stored,
+					write: enabled => {
+						stored = enabled;
+					},
+					installNode,
+				});
+				await expect(machine.setBuiltinRea(false)).resolves.toMatchObject({
+					enabled: false,
+					reason: "node-missing",
+				});
+				expect(installNode).not.toHaveBeenCalled();
+				await expect(machine.setBuiltinRea(true)).resolves.toMatchObject({ enabled: true, reason: "node-missing" });
+				expect(installNode).toHaveBeenCalledTimes(1);
+
+				for (const [name, output] of [
+					["node", "v26.0.0"],
+					["npx", "11.0.0"],
+				]) {
+					await writeFile(join(dir, name), `#!/bin/sh\necho ${output}\n`, { mode: 0o755 });
+				}
+				await expect(machine.setBuiltinRea(true)).resolves.toMatchObject({ enabled: true, available: true });
+				expect(installNode).toHaveBeenCalledTimes(1);
+			} finally {
+				process.env.PATH = saved.PATH;
+				process.env.SHELL = saved.SHELL;
+				resetLoginShellEnvCache();
+				resetReaRuntimeCache();
+				await rm(dir, { recursive: true, force: true });
+			}
+		},
+	);
 });

@@ -5618,7 +5618,9 @@ export const en: Record<string, string> = {
 	"githubAuth.badge.missing": "GitHub CLI not installed",
 	"githubAuth.version": "gh {version}",
 	"githubAuth.missing.title":
-		"The GitHub CLI isn't installed yet. OMPdesk installs it in the background (Settings › Updates & about › This computer), or you can install it yourself.",
+		"The GitHub CLI isn't installed, and this launch of OMPdesk doesn't install tools by itself. Install it, then check again.",
+	"githubAuth.missing.autoInstall":
+		"Signing in installs the GitHub CLI first, then carries on — nothing to download yourself.",
 	"githubAuth.missing.download": "Download gh",
 	"githubAuth.recheck": "Check again",
 	"githubAuth.signedOut.description":
@@ -5635,6 +5637,13 @@ export const en: Record<string, string> = {
 	"githubAuth.failed.timeout": "The code expired after 10 minutes. Start the sign-in again.",
 	"githubAuth.failed.not_signed_in": "gh finished, but no account is signed in.",
 	"githubAuth.failed.exited": "The sign-in stopped before GitHub approved it.",
+	"githubAuth.failed.gh_install_failed": "The GitHub CLI couldn't be installed, so the sign-in couldn't start.",
+	"connectInstall.installing": "Installing {name}…",
+	"connectInstall.queued": "Waiting to install {name}…",
+	"connectInstall.failed": "Couldn't install {name}.",
+	"connectInstall.cancelled": "The install was stopped.",
+	"connectInstall.unavailable":
+		"OMPdesk can't install {name} on this computer by itself. Install it from its download page.",
 	"githubAuth.failed.spawn_failed": "The sign-in couldn't start.",
 	"githubAuth.identity.commitsAs": "Commits as {name} <{email}>",
 	"githubAuth.identity.filled": "set from your GitHub account",

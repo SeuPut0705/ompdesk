@@ -2,16 +2,21 @@
  * GitHub sign-in card: signed out offers "Sign in with GitHub"; the device code
  * shows with a copy control, and "Copy code & open GitHub" copies, opens the
  * device page and only then releases gh; signed in shows the commit identity,
- * sign-out and account switching; a missing CLI never offers a sign-in.
+ * sign-out and account switching. A missing CLI: where setup installs on its
+ * own, signing in installs gh first (its progress inline, then the reason and
+ * Retry after a failure); a launch that never installs only links the download.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GithubAuthState } from "../../../shared/github-auth";
+import type { SetupItemState } from "../../../shared/setup";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useGithubAuthStore } from "../../stores/github-auth";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { fakeGithubAuth, githubState } from "../../test-support/github-auth";
+import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 import { GithubSignIn } from "./GithubSignIn";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -26,12 +31,21 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 const fake = fakeGithubAuth();
+const setup = fakeSetupApi(setupState("darwin"));
 const openExternal = vi.fn(async () => {});
 const writeText = vi.fn(async (_text: string) => {});
 Object.assign(window as unknown as Record<string, unknown>, {
-	omp: { githubAuth: fake.api, system: { openExternal } },
+	omp: { githubAuth: fake.api, setup: setup.api, system: { openExternal } },
 });
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText } }, configurable: true });
+
+const MISSING = { installed: false, version: null, authenticated: false, login: null, otherAccounts: [] };
+const ghMissing = (partial: Partial<SetupItemState> = {}, automatic = true) =>
+	setupState(
+		"darwin",
+		{ gh: { phase: "idle", presence: { kind: "missing" }, method: "brew", ...partial } },
+		{ automatic },
+	);
 
 let root: Root | null = null;
 async function mount(state: GithubAuthState, onSignedIn?: () => void): Promise<void> {
@@ -56,6 +70,8 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	root = null;
 	useGithubAuthStore.getState().reset();
+	useMachineSetupStore.getState().reset();
+	setup.current.state = setupState("darwin");
 	for (const fn of Object.values(fake.api)) fn.mockClear();
 	openExternal.mockClear();
 	writeText.mockClear();
@@ -140,16 +156,59 @@ describe("GithubSignIn", () => {
 		expect(fake.api.fillIdentity).toHaveBeenCalledOnce();
 	});
 
-	it("never offers a sign-in without the GitHub CLI, and words a failed sign-in", async () => {
-		await mount(
-			githubState({
-				status: { installed: false, version: null, authenticated: false, login: null, otherAccounts: [] },
-			}),
-		);
+	it("links the download without a sign-in when this launch never installs tools, and words a failed sign-in", async () => {
+		setup.current.state = ghMissing({}, false);
+		await mount(githubState({ status: MISSING }));
 		expect(text()).toContain(translate("githubAuth.missing.title"));
 		expect(button(translate("githubAuth.signIn"))).toBeUndefined();
+		expect(button(translate("githubAuth.missing.download"))).toBeDefined();
 		await act(async () => fake.push(githubState({ flow: { state: "failed", reason: "timeout" } })));
 		expect(text()).toContain(translate("githubAuth.failed.timeout"));
 		expect(button(translate("common.retry"))).toBeDefined();
+	});
+
+	it("signs in with gh missing: the click installs it first, with its progress inline and Cancel", async () => {
+		setup.current.state = ghMissing({ phase: "backoff" });
+		await mount(githubState({ status: MISSING }));
+		expect(text()).toContain(translate("githubAuth.missing.autoInstall"));
+		expect(text()).not.toContain(translate("githubAuth.missing.title"));
+		fake.set(githubState({ status: MISSING, flow: { state: "installing" } }));
+		await act(async () => button(translate("githubAuth.signIn"))?.click());
+		expect(fake.api.startLogin).toHaveBeenCalledOnce();
+		const card = () => document.querySelector('[data-testid="github-sign-in"]');
+		expect(card()?.getAttribute("data-github-phase")).toBe("installing");
+		expect(text()).toContain(translate("connectInstall.installing", { name: "GitHub CLI" }));
+
+		const progress = {
+			step: 1,
+			steps: 1,
+			startedAt: Date.now(),
+			download: { received: 1_048_576, total: 4_194_304 },
+		};
+		await act(async () => setup.push(ghMissing({ phase: "running", progress })));
+		expect(text()).toContain(translate("connectInstall.installing", { name: "GitHub CLI" }));
+		expect(document.querySelector("[data-setup-progress]")?.textContent).toContain("1.0 MB");
+		await act(async () => button(translate("common.cancel"))?.click());
+		expect(fake.api.cancelLogin).toHaveBeenCalledOnce();
+	});
+
+	it("after an install that failed shows setup's reason and Retry, which signs in (and installs) again", async () => {
+		setup.current.state = ghMissing({ phase: "failed", failure: { reason: "network", exitCode: 6 } });
+		await mount(githubState({ status: MISSING, flow: { state: "failed", reason: "gh_install_failed" } }));
+		expect(text()).toContain(translate("connectInstall.failed", { name: "GitHub CLI" }));
+		expect(text()).toContain(translate("machineSetup.reason.network"));
+		await act(async () => button(translate("common.retry"))?.click());
+		expect(fake.api.startLogin).toHaveBeenCalledOnce();
+	});
+
+	it("shows setup's own background install of gh, then reads the sign-in again once gh is found", async () => {
+		setup.current.state = ghMissing({ phase: "running" });
+		await mount(githubState({ status: MISSING }));
+		expect(document.querySelector('[data-testid="github-sign-in"]')?.getAttribute("data-github-phase")).toBe(
+			"installing",
+		);
+		fake.api.refresh.mockClear();
+		await act(async () => setup.push(setupState("darwin")));
+		expect(fake.api.refresh).toHaveBeenCalledWith(true);
 	});
 });

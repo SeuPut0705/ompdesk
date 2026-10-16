@@ -16,6 +16,7 @@ import {
 	type GithubStarState,
 	githubLoginLive,
 } from "../../shared/github-auth";
+import type { SetupItemState } from "../../shared/setup";
 import {
 	fillGitIdentity,
 	type GhRunner,
@@ -35,6 +36,13 @@ export interface GithubAuthDeps {
 	resolveGh(): Promise<string | null>;
 	/** Absolute git path, or null when no usable git exists. */
 	resolveGit(): Promise<string | null>;
+	/**
+	 * gh is missing at a sign-in: machine setup's gh item installs it now (no back-off: the user asked) and
+	 * resolves with that item's state once the attempt ended. Absent: a missing gh simply fails the sign-in.
+	 */
+	installGh?(): Promise<SetupItemState>;
+	/** The user cancelled the sign-in while gh installed for it: stop that install. */
+	cancelGhInstall?(): void;
 	run: GhRunner;
 	pty: PtyLauncher;
 	/** The whole environment `gh auth login` runs with. */
@@ -129,6 +137,8 @@ export class GithubAuthService {
 	}
 
 	async startLogin(): Promise<GithubAuthState> {
+		// A second click while gh installs for the first one keeps that install: it continues on its own.
+		if (this.#login && this.#state.flow?.state === "installing") return this.#state;
 		this.cancelLogin();
 		const login: ActiveLogin = {
 			pty: null,
@@ -142,10 +152,42 @@ export class GithubAuthService {
 		this.#set({ flow: { state: "starting" }, identityFilled: [], error: null });
 		const gh = await this.#deps.resolveGh();
 		if (this.#login !== login) return this.#state;
-		if (!gh) {
+		if (gh) return this.#launch(login, gh);
+		if (!this.#deps.installGh) {
 			this.#fail(login, "gh_missing");
 			return this.#state;
 		}
+		// The connect click installs gh right now and then carries on; the install's progress is setup's gh item.
+		this.#set({ flow: { state: "installing" } });
+		void this.#installThenLaunch(login, this.#deps.installGh);
+		return this.#state;
+	}
+
+	async #installThenLaunch(login: ActiveLogin, installGh: () => Promise<SetupItemState>): Promise<void> {
+		let item: SetupItemState | null = null;
+		let detail: string | undefined;
+		try {
+			item = await installGh();
+		} catch (error) {
+			detail = message(error);
+		}
+		if (this.#login !== login) return;
+		const gh = await this.#deps.resolveGh();
+		if (this.#login !== login) return;
+		if (!gh) {
+			// An install that ran and failed (or was cancelled) has a reason in setup's gh item; otherwise
+			// nothing could install gh here (no automatic setup in this launch, no install method).
+			const attempted = item?.phase === "failed" || item?.phase === "cancelled" || detail !== undefined;
+			this.#fail(login, attempted ? "gh_install_failed" : "gh_missing", detail);
+			return;
+		}
+		// The card shows the new gh's version while the sign-in goes on.
+		void this.refresh(true);
+		this.#set({ flow: { state: "starting" } });
+		await this.#launch(login, gh);
+	}
+
+	async #launch(login: ActiveLogin, gh: string): Promise<GithubAuthState> {
 		let pty: PtyHandle;
 		try {
 			pty = await this.#deps.pty({
@@ -248,10 +290,11 @@ export class GithubAuthService {
 		this.#set({ flow: { state: "failed", reason, ...(detail ? { detail } : {}) } });
 	}
 
-	/** End the live sign-in (if any) and forget it. */
+	/** End the live sign-in (if any) and forget it; one that waits on gh's install stops that install too. */
 	cancelLogin(): GithubAuthState {
 		const login = this.#login;
 		if (!login) return this.#state;
+		if (this.#state.flow?.state === "installing") this.#deps.cancelGhInstall?.();
 		clearTimeout(login.timer);
 		login.pty?.kill();
 		this.#login = null;

@@ -225,6 +225,25 @@ export class SetupService {
 	}
 
 	/**
+	 * A connection the user started needs optional `item` (gh for the GitHub sign-in, Node for the built-in
+	 * REA server): detect it again and, when it is missing, install it right now — the user's own action, so
+	 * like a Retry it skips the back-off and the once-per-launch rule — queued behind any install that runs
+	 * now. Resolves with the item's state once that attempt ended. Without automatic setup (dev builds, test
+	 * launches without the fake installer) it only detects.
+	 */
+	installForConnection(item: unknown): Promise<SetupItemState> {
+		if (!isSetupItemId(item) || setupItemRequired(item, this.#deps.platform)) {
+			return Promise.reject(new Error(`Not an optional setup item: ${String(item)}`));
+		}
+		const install = this.#deps.automatic && this.#deps.platform !== "other";
+		if (install) this.#markQueued([item], true);
+		return this.#enqueue(async () => {
+			await this.#detect();
+			if (install) await this.#runOptional([item], true);
+		}).then(() => ({ ...this.#items[item] }));
+	}
+
+	/**
 	 * Stock `omp update` (the omp item's `omp-update` plan) under the supervisor,
 	 * in the background, queued behind any install that runs now. It never asks
 	 * and never looks at what omp is doing: running omp processes keep the code

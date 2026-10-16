@@ -126,7 +126,12 @@ export interface LocalMachineDeps {
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
-	builtinRea: { read(): unknown; write(enabled: boolean): void };
+	builtinRea: {
+		read(): unknown;
+		write(enabled: boolean): void;
+		/** REA was turned on while Node.js is missing or too old: machine setup installs it now, in the background. */
+		installNode?(): void;
+	};
 	desktop: DesktopDeps;
 	/** This computer's omp updater (`omp-updater.ts`); it exists once startup has built it. */
 	ompUpdater: () => Pick<OmpUpdater, "state" | "updateNow">;
@@ -272,7 +277,12 @@ export class LocalMachine implements MachineServices {
 	async setBuiltinRea(enabled: boolean): Promise<BuiltinReaState> {
 		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
 		this.#deps.builtinRea.write(enabled);
-		return this.builtinRea();
+		const state = await this.builtinRea();
+		// Turning REA on is the connection that needs Node: install it right then (setup's node item shows it).
+		if (enabled && (state.reason === "node-missing" || state.reason === "node-version")) {
+			this.#deps.builtinRea.installNode?.();
+		}
+		return state;
 	}
 
 	async desktop(): Promise<HostDesktopState> {

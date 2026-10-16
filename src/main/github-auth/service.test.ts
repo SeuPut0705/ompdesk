@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GithubAuthState } from "../../shared/github-auth";
+import type { SetupItemState } from "../../shared/setup";
 import { RM_TEMP } from "../test-fake-omp";
 import { accountsFromAuthOutput, loginFromAuthOutput, type RunResult } from "./cli";
 import type { PtyChunk, PtyLauncher } from "./pty";
@@ -173,6 +174,97 @@ describe("GithubAuthService", () => {
 		});
 		expect((await created.refresh(true)).status).toMatchObject({ installed: false, authenticated: false });
 		expect((await created.startLogin()).flow).toEqual({ state: "failed", reason: "gh_missing" });
+	});
+
+	describe("with gh missing at the sign-in", () => {
+		const item = (phase: SetupItemState["phase"]): SetupItemState => ({
+			id: "gh",
+			required: false,
+			phase,
+			presence: phase === "present" ? { kind: "present", version: "2.62.0", path: gh } : { kind: "missing" },
+			method: "brew",
+			command: null,
+			location: null,
+			prompt: null,
+			progress: null,
+			output: "",
+			failure: phase === "failed" ? { reason: "exit", exitCode: 1 } : null,
+			manualCommands: [],
+			manualUrl: "https://cli.github.com",
+		});
+		function missingGh(installGh: () => Promise<SetupItemState>, cancelGhInstall = vi.fn()) {
+			let installed = false;
+			const installs: Promise<SetupItemState>[] = [];
+			const created = new GithubAuthService({
+				resolveGh: async () => (installed ? gh : null),
+				resolveGit: async () => "git",
+				installGh: () => {
+					const install = installGh().then(result => {
+						installed = result.phase === "present";
+						return result;
+					});
+					installs.push(install);
+					return install;
+				},
+				cancelGhInstall,
+				run,
+				pty: pipePty,
+				loginEnv: async () => env,
+				home: root,
+				onState: state => states.push(state),
+			});
+			services.push(created);
+			return Object.assign(created, { installs });
+		}
+
+		it("installs gh through setup right then, shows that it installs, and carries on to the device code", async () => {
+			const install = Promise.withResolvers<SetupItemState>();
+			const installGh = vi.fn(() => install.promise);
+			const auth = missingGh(installGh);
+			// The click answers at once; the install runs on.
+			expect((await auth.startLogin()).flow).toEqual({ state: "installing" });
+			expect(installGh).toHaveBeenCalledTimes(1);
+			// A second click while it installs keeps that install.
+			expect((await auth.startLogin()).flow).toEqual({ state: "installing" });
+			expect(installGh).toHaveBeenCalledTimes(1);
+			install.resolve(item("present"));
+			await vi.waitFor(() => expect(auth.state().flow?.state).toBe("code"), { timeout: 10_000 });
+			await vi.waitFor(() => expect(auth.state().status).toMatchObject({ installed: true, version: "2.62.0" }));
+			const flows = states.map(state => state.flow?.state);
+			expect(flows.indexOf("installing")).toBeLessThan(flows.lastIndexOf("starting"));
+		});
+
+		it("fails with the install's own failure (setup's gh item says why), and Retry installs again", async () => {
+			const installGh = vi.fn(async () => item("failed"));
+			const auth = missingGh(installGh);
+			await auth.startLogin();
+			await vi.waitFor(() => expect(auth.state().flow).toEqual({ state: "failed", reason: "gh_install_failed" }));
+			installGh.mockResolvedValueOnce(item("present"));
+			await auth.startLogin();
+			await vi.waitFor(() => expect(auth.state().flow?.state).toBe("code"), { timeout: 10_000 });
+			expect(installGh).toHaveBeenCalledTimes(2);
+		});
+
+		it("says gh is missing when nothing here can install it", async () => {
+			for (const phase of ["unavailable", "idle"] as const) {
+				const auth = missingGh(async () => item(phase));
+				await auth.startLogin();
+				await vi.waitFor(() => expect(auth.state().flow).toEqual({ state: "failed", reason: "gh_missing" }));
+			}
+		});
+
+		it("stops the install when the user cancels the sign-in while it runs", async () => {
+			const install = Promise.withResolvers<SetupItemState>();
+			const cancelGhInstall = vi.fn();
+			const auth = missingGh(() => install.promise, cancelGhInstall);
+			await auth.startLogin();
+			expect(auth.cancelLogin().flow).toBeNull();
+			expect(cancelGhInstall).toHaveBeenCalledTimes(1);
+			install.resolve(item("cancelled"));
+			// The service awaited this install before the test did, so its continuation has run by now.
+			await auth.installs[0];
+			expect(auth.state().flow).toBeNull();
+		});
 	});
 
 	it("signs in by device code, holds gh's Enter until GitHub is opened, then fills only an empty identity", async () => {

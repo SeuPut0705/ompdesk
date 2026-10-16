@@ -542,6 +542,8 @@ app.whenReady().then(() => {
 		builtinRea: {
 			read: () => prefsStore().get(REA_PREF),
 			write: enabled => prefsStore().set(REA_PREF, enabled),
+			// Machine setup exists once startup built it; its node item carries the progress.
+			installNode: () => void setupService?.installForConnection("node").catch(() => undefined),
 		},
 		desktop: {
 			version: appVersion,
@@ -732,11 +734,20 @@ app.whenReady().then(() => {
 		.start()
 		.catch(() => undefined)
 		.then(() => updater.start());
-	githubAuthService = createGithubAuthService(state => {
-		for (const win of BrowserWindow.getAllWindows()) {
-			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.GITHUB_AUTH_STATE, state);
-		}
-	});
+	githubAuthService = createGithubAuthService(
+		state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.GITHUB_AUTH_STATE, state);
+			}
+		},
+		{
+			// A sign-in that finds gh missing installs it right then through setup's gh item (no back-off).
+			installGh: () => setup.installForConnection("gh"),
+			cancelGhInstall: () => {
+				if (setup.state().items.find(item => item.id === "gh")?.phase === "running") setup.cancel();
+			},
+		},
+	);
 	registerGithubAuthIpc(ipcMain, githubAuthService);
 	scheduleService = new ScheduleService({
 		file: join(app.getPath("userData"), "schedules.json"),

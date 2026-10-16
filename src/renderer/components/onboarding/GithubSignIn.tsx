@@ -8,11 +8,14 @@
 
 import { ExternalLink, Github, LogOut, RefreshCw, Users } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { GithubAuthState, GithubLoginFlow } from "../../../shared/github-auth";
+import { type GithubAuthState, type GithubLoginFlow, githubLoginLive } from "../../../shared/github-auth";
 import { copyText, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useGithubAuthStore } from "../../stores/github-auth";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { Badge, Button, CopyButton, InlineNotice, MenuButton, Spinner } from "../common";
+import { SETUP_ITEM_NAMES, useMachineSetupState } from "./MachineSetupView";
+import { SetupInstallInline, setupInstallShown } from "./SetupInstallInline";
 
 const GH_DOWNLOAD_URL = "https://cli.github.com";
 
@@ -98,9 +101,19 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 
 	const failed = t("githubAuth.actionFailed");
 	const startLogin = () => void run(api => api.startLogin(), failed);
-	const live = flow?.state === "starting" || flow?.state === "code";
+	const cancelLogin = () => void run(api => api.cancelLogin(), failed);
+	const live = githubLoginLive(flow);
 	const phase =
 		status === null ? "checking" : !status.installed ? "missing" : authenticated ? "signed-in" : "signed-out";
+	// This computer's gh item: the install a sign-in started, or the one setup runs in the background at launch.
+	const setup = useMachineSetupState();
+	const ghItem = setup?.items.find(item => item.id === "gh");
+	const ghFound = ghItem?.presence?.kind === "present";
+	const backgroundInstall = phase === "missing" && (ghItem?.phase === "running" || ghItem?.phase === "queued");
+	useEffect(() => {
+		// Setup found gh (an install finished): read gh's sign-in again instead of showing it missing.
+		if (ghFound && status?.installed === false) void useGithubAuthStore.getState().refresh(true);
+	}, [ghFound, status?.installed]);
 
 	let badge: { variant: "success" | "muted" | "warning"; label: string } | null = null;
 	if (phase === "signed-in") badge = { variant: "success", label: t("githubAuth.badge.signedIn") };
@@ -128,7 +141,7 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 				framed && "rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3",
 				className,
 			)}
-			data-github-phase={live ? "login" : phase}
+			data-github-phase={flow?.state === "installing" || backgroundInstall ? "installing" : live ? "login" : phase}
 			data-testid="github-sign-in"
 		>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
@@ -171,38 +184,88 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 
 			{phase === "checking" && <InlineNotice title={t("githubAuth.checking")} tone="pending" />}
 
-			{phase === "missing" && (
-				<InlineNotice
-					action={
-						<>
+			{phase === "missing" &&
+				!live &&
+				(backgroundInstall && ghItem ? (
+					<SetupInstallInline
+						item={ghItem}
+						onCancel={() => void useMachineSetupStore.getState().cancel()}
+						onRetry={startLogin}
+					/>
+				) : flow?.state === "failed" && flow.reason !== "gh_missing" && setupInstallShown(ghItem) ? (
+					// The install this sign-in started ended without gh: setup's reason, and Retry signs in again.
+					<SetupInstallInline item={ghItem} onRetry={startLogin} />
+				) : setup?.automatic ? (
+					<div className="mt-2 flex min-w-0 flex-col gap-3">
+						<p className="text-sc-sm break-keep text-(--sc-text-secondary)">
+							{t("githubAuth.missing.autoInstall")}
+						</p>
+						{flow?.state === "failed" &&
+							(ghItem?.phase === "unavailable" ? (
+								<SetupInstallInline item={ghItem} onRetry={startLogin} />
+							) : (
+								<InlineNotice
+									detail={flow.detail}
+									live
+									title={t(`githubAuth.failed.${flow.reason}`)}
+									tone="danger"
+								/>
+							))}
+						<div>
 							<Button
-								icon={<ExternalLink />}
-								onClick={() => void window.omp.system.openExternal(GH_DOWNLOAD_URL)}
+								data-testid="github-sign-in-start"
+								icon={<Github />}
+								onClick={startLogin}
 								size="sm"
-								variant="ghost"
+								variant="primary"
 							>
-								{t("githubAuth.missing.download")}
+								{flow?.state === "failed" ? t("common.retry") : t("githubAuth.signIn")}
 							</Button>
-							<Button
-								icon={<RefreshCw />}
-								loading={state.checking}
-								onClick={() => void useGithubAuthStore.getState().refresh(true)}
-								size="sm"
-								variant="ghost"
-							>
-								{t("githubAuth.recheck")}
-							</Button>
-						</>
-					}
-					title={t("githubAuth.missing.title")}
-					tone="info"
-				/>
-			)}
+						</div>
+					</div>
+				) : (
+					<InlineNotice
+						action={
+							<>
+								<Button
+									icon={<ExternalLink />}
+									onClick={() => void window.omp.system.openExternal(GH_DOWNLOAD_URL)}
+									size="sm"
+									variant="ghost"
+								>
+									{t("githubAuth.missing.download")}
+								</Button>
+								<Button
+									icon={<RefreshCw />}
+									loading={state.checking}
+									onClick={() => void useGithubAuthStore.getState().refresh(true)}
+									size="sm"
+									variant="ghost"
+								>
+									{t("githubAuth.recheck")}
+								</Button>
+							</>
+						}
+						title={t("githubAuth.missing.title")}
+						tone="info"
+					/>
+				))}
 
+			{flow?.state === "installing" &&
+				(ghItem && (ghItem.phase === "queued" || ghItem.phase === "running") ? (
+					<SetupInstallInline item={ghItem} onCancel={cancelLogin} onRetry={startLogin} />
+				) : (
+					<div className="mt-3 flex flex-wrap items-center gap-3" data-setup-install="gh">
+						<Spinner label={t("connectInstall.installing", { name: SETUP_ITEM_NAMES.gh })} size="sm" />
+						<Button onClick={cancelLogin} size="sm" variant="ghost">
+							{t("common.cancel")}
+						</Button>
+					</div>
+				))}
 			{flow?.state === "starting" && (
 				<div className="mt-3 flex flex-wrap items-center gap-3">
 					<Spinner label={t("githubAuth.starting")} size="sm" />
-					<Button onClick={() => void run(api => api.cancelLogin(), failed)} size="sm" variant="ghost">
+					<Button onClick={cancelLogin} size="sm" variant="ghost">
 						{t("common.cancel")}
 					</Button>
 				</div>

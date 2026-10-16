@@ -11,7 +11,7 @@ import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { ghText, resolveBin } from "../local/git/exec";
 import { spawnPath } from "../shell-env";
 import { stockPtyLauncher } from "./pty";
-import { GithubAuthService } from "./service";
+import { type GithubAuthDeps, GithubAuthService } from "./service";
 
 export interface GithubAuthIpcTarget {
 	handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
@@ -45,10 +45,17 @@ async function loginEnv(): Promise<Record<string, string>> {
 	return env;
 }
 
-export function createGithubAuthService(onState: (state: GithubAuthState) => void): GithubAuthService {
+/** Machine setup's gh item, for a sign-in that finds gh missing (src/main/setup/service.ts). */
+export type GithubInstallHooks = Pick<GithubAuthDeps, "installGh" | "cancelGhInstall">;
+
+export function createGithubAuthService(
+	onState: (state: GithubAuthState) => void,
+	install: GithubInstallHooks,
+): GithubAuthService {
 	return new GithubAuthService({
 		resolveGh: () => resolveBin("gh"),
 		resolveGit: usableGit,
+		...install,
 		run: (bin, args) => ghText(homedir(), bin, args),
 		pty: stockPtyLauncher,
 		loginEnv,

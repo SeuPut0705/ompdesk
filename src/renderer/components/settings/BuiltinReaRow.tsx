@@ -7,8 +7,11 @@ import {
 } from "../../../shared/builtin-mcp";
 import type { RpcMcpServerInfo } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { toastError } from "../../stores/toast";
 import { Badge } from "../common";
+import { useMachineSetupState } from "../onboarding/MachineSetupView";
+import { SetupInstallInline, setupInstallShown } from "../onboarding/SetupInstallInline";
 import { SettingsSwitchRow } from "./SettingsLayout";
 
 /** Machine-owned preference: only new OMPdesk sessions receive the MCP root. */
@@ -25,6 +28,11 @@ export function BuiltinReaRow({
 	const [state, setState] = useState<BuiltinReaState | null>(null);
 	const [saving, setSaving] = useState(false);
 	const request = useRef(0);
+	// This computer's Node.js install (turning REA on starts it when Node is missing); a paired host installs its own.
+	const setup = useMachineSetupState();
+	const nodeItem = device === undefined ? setup?.items.find(item => item.id === "node") : undefined;
+	const nodeFound = nodeItem?.presence?.kind === "present";
+	// biome-ignore lint/correctness/useExhaustiveDependencies: nodeFound re-reads REA once a Node.js install landed.
 	useEffect(() => {
 		const version = ++request.current;
 		setState(null);
@@ -40,7 +48,7 @@ export function BuiltinReaRow({
 		return () => {
 			request.current++;
 		};
-	}, [device, t]);
+	}, [device, t, nodeFound]);
 	const choose = (enabled: boolean) => {
 		if (!state || saving) return;
 		const version = ++request.current;
@@ -86,6 +94,16 @@ export function BuiltinReaRow({
 							{server && ` · ${t(`extPanel.status.${server.status}`)} · ${server.toolCount}`}
 						</p>
 						{state?.reason && <p>{t(`mcp.rea.${state.reason}`, { version: state.nodeVersion ?? "" })}</p>}
+						{state?.enabled &&
+							(state.reason === "node-missing" || state.reason === "node-version") &&
+							setupInstallShown(nodeItem) && (
+								<SetupInstallInline
+									item={nodeItem}
+									onCancel={() => void useMachineSetupStore.getState().cancel()}
+									// Turning REA on again is the connection: it installs Node right then, past setup's back-off.
+									onRetry={() => choose(true)}
+								/>
+							)}
 						<p>{t("mcp.rea.requirement", { range: REA_NODE_REQUIREMENT })}</p>
 					</div>
 				}

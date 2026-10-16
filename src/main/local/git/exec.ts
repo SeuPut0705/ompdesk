@@ -29,13 +29,11 @@ export interface ExecOptions {
 	env?: Record<string, string>;
 }
 
-let pathPromise: Promise<string> | null = null;
 const binCache = new Map<string, Promise<string | null>>();
 
-function lookupPath(): Promise<string> {
-	pathPromise ??= spawnPath();
-	return pathPromise;
-}
+// The spawn PATH is read on every lookup, never kept here: setup changes it while the app runs (refreshPath
+// appends the managed tools dirs and drops the login-shell probe after an install), and a copy taken at the
+// first git call hid a freshly installed gh until relaunch. spawnPath shares the probe it caches.
 
 /** First `name` (or `name.exe` on Windows) found on `pathEnv`. */
 export function findOnPath(name: string, pathEnv: string, platform: NodeJS.Platform = process.platform): string | null {
@@ -58,7 +56,7 @@ export function findOnPath(name: string, pathEnv: string, platform: NodeJS.Platf
 export function resolveBin(name: "git" | "gh"): Promise<string | null> {
 	let pending = binCache.get(name);
 	if (!pending) {
-		pending = lookupPath().then(pathEnv => findOnPath(name, pathEnv));
+		pending = spawnPath().then(pathEnv => findOnPath(name, pathEnv));
 		binCache.set(name, pending);
 		// A missing binary is re-probed next call (the user may install it).
 		void pending.then(bin => {
@@ -97,7 +95,7 @@ async function gitBin(): Promise<string | null> {
 
 /** Spawn `bin args`; never rejects on non-zero exit, rejects on spawn failure / timeout. */
 export async function execBin(bin: string, args: string[], opts: ExecOptions): Promise<ExecResult> {
-	const pathEnv = await lookupPath();
+	const pathEnv = await spawnPath();
 	const { promise, resolve, reject } = Promise.withResolvers<ExecResult>();
 	const child = spawn(bin, args, {
 		cwd: opts.cwd,
