@@ -167,7 +167,7 @@ describe("a finished turn", () => {
 		expect(call.options.maxTokens).toBe(512);
 		expect(call.options.apiKey).toEqual({ resolverFor: "smol-1" });
 		expect(call.options.sessionId).toBe("sess-1");
-		expect(call.context.systemPrompt[0]).toContain("up to 3 different candidate messages");
+		expect(call.context.systemPrompt[0]).toContain("Write exactly 3 candidates");
 		expect(call.context.messages[0]?.content).toContain("user: run the tests");
 		const [update] = updates(world);
 		expect(update).toMatchObject({
@@ -238,6 +238,44 @@ describe("a finished turn", () => {
 		expect(prompt).toContain("plan: open");
 		expect(prompt).toContain("todos: 0 of 2 done; in progress: wire api; next: docs");
 		expect(prompt).toContain("goal: active — Ship login");
+	});
+
+	it("carries the session's running subagents and background jobs (stock getAsyncJobSnapshot)", async () => {
+		world.session.messages.push(
+			{
+				role: "assistant",
+				stopReason: "toolUse",
+				content: [
+					{
+						type: "toolCall",
+						id: "w",
+						name: "task",
+						arguments: { i: "Wide-window work board", tasks: [{ name: "WorkBoard", task: "build it" }] },
+					},
+				],
+				timestamp: 3,
+			},
+			{ role: "toolResult", toolCallId: "w", toolName: "task", isError: false, content: [], timestamp: 4 },
+			{
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "Handed to WorkBoard." }],
+				timestamp: 5,
+			},
+		);
+		Object.assign(world.session, {
+			getAsyncJobSnapshot: () => ({
+				running: [
+					{ id: "WorkBoard", type: "task", status: "running", label: "WorkBoard" },
+					{ id: "b1", type: "bash", status: "running", label: "gh run watch 7", command: "gh run watch 7" },
+				],
+				recent: [{ id: "old", type: "task", status: "completed", label: "Finished" }],
+			}),
+		});
+		await turnEnds();
+		const prompt = world.calls[0]?.context.messages[0]?.content ?? "";
+		expect(prompt).toContain("running-now: subagent WorkBoard (Wide-window work board); command `gh run watch 7`");
+		expect(prompt).not.toContain("Finished");
 	});
 
 	it("pushes an empty candidate list when nothing natural fits", async () => {
@@ -375,6 +413,26 @@ describe("cancelling", () => {
 		pending.release("1. too late");
 		await flush();
 		expect(updates(world)).toEqual([]);
+	});
+
+	it("drops an answer made for running work that ended meanwhile, and asks again for the new moment", async () => {
+		let running = [{ id: "WorkBoard", type: "task", status: "running", label: "WorkBoard" }];
+		Object.assign(world.session, { getAsyncJobSnapshot: () => ({ running, recent: [] }) });
+		const pending = hang(world);
+		await turnEnds();
+		expect(world.calls[0]?.context.messages[0]?.content).toContain("running-now: subagent WorkBoard");
+		running = [];
+		pending.release("wait for WorkBoard");
+		await flush();
+		expect(updates(world)).toEqual([]);
+		world.reply.current = async () => text("show me the work board");
+		await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS);
+		await flush();
+		expect(world.calls).toHaveLength(2);
+		expect(world.calls[1]?.context.messages[0]?.content).not.toContain("running-now");
+		expect(updates(world)).toEqual([
+			expect.objectContaining({ status: "ready", candidates: ["show me the work board"] }),
+		]);
 	});
 
 	it("cancel scopes abort what they name", async () => {

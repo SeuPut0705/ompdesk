@@ -35,6 +35,8 @@ import {
 	isTestCommand,
 	lastUserText,
 	renderTranscript,
+	SUGGEST_INSTRUCTIONS,
+	SUGGEST_TRANSCRIPT_CHARS,
 	SuggestionScheduler,
 	suggestionStateKey,
 	type Timers,
@@ -127,6 +129,10 @@ describe("app state", () => {
 			plan: { title: "Ship the login page" },
 			todos: { done: 2, total: 5, inProgress: "write form", next: "wire api" },
 			answered: { question: "Which database?", answer: "Postgres" },
+			running: [
+				{ type: "task", label: "WorkBoard", about: "Wide-window work board" },
+				{ type: "bash", label: "bun run gate" },
+			],
 			goal: { objective: "Migrate to Postgres", status: "active" },
 			tests: { command: "bun test", failed: true },
 			userBash: { command: "ls -la", exitCode: 0 },
@@ -139,7 +145,8 @@ describe("app state", () => {
 			"files-changed: 7 (a.ts, b.ts, c.ts, d.ts, e.ts, +2 more)",
 			"plan: open — Ship the login page",
 			"todos: 2 of 5 done; in progress: write form; next: wire api",
-			"question-answered: Which database? → Postgres",
+			"question-answered this turn: Which database? → Postgres",
+			"running-now: subagent WorkBoard (Wide-window work board); command `bun run gate`",
 			"goal: active — Migrate to Postgres",
 			"tests: ran, failed (`bun test`)",
 			"user-ran: `ls -la` exit 0",
@@ -316,7 +323,17 @@ describe("transcript and prompts", () => {
 	it("stays within its budget, keeping the newest rows", () => {
 		const text = renderTranscript(messages, 30);
 		expect(text).toBe("user: run tests");
-		expect(renderTranscript([{ role: "assistant", content: "x".repeat(5000) }], 4000).length).toBeLessThan(800);
+		// The newest reply gets the most room (1800), every other one 700.
+		expect(renderTranscript([{ role: "assistant", content: "x".repeat(5000) }], 4000).length).toBeLessThan(1900);
+		expect(
+			renderTranscript(
+				[
+					{ role: "assistant", content: "x".repeat(5000) },
+					{ role: "assistant", content: "ok" },
+				],
+				4000,
+			).length,
+		).toBeLessThan(800);
 	});
 
 	it("builds the requests, omitting an empty app state", () => {
@@ -328,6 +345,87 @@ describe("transcript and prompts", () => {
 		expect(buildInlineRequest("user: hi", "fix the")).toBe(
 			"<conversation>\nuser: hi\n</conversation>\n<draft>fix the</draft>",
 		);
+	});
+});
+
+/**
+ * The reported case: the assistant had just delegated the work board to a subagent ("WorkBoard에 맡겼어요 … 지금 진행 중:
+ * ExtUpdate, WorkBoard") and the one suggestion asked to implement the work board. The model saw no running work, a
+ * `question-answered` line that read like an open choice, the reply's middle (the "지금 진행 중" list) clipped away,
+ * and a prompt that asked for "up to 3" candidates (it wrote one, so no chips).
+ */
+describe("work already underway (reported: a suggestion asking for work just delegated)", () => {
+	const progress = Array.from(
+		{ length: 14 },
+		(_, index) => `- **항목 ${index + 1}:** 현황판에 보일 내용과 숨는 조건을 자세히 설명하는 줄이에요.`,
+	).join("\n");
+	const reply = [
+		'"작업 현황판"으로 진행할게요. WorkBoard에 맡겼어요.',
+		progress,
+		"**지금 진행 중**",
+		"- **ExtUpdate:** 플러그인·MCP 자동 업데이트",
+		"- **WorkBoard:** 작업 현황판",
+		"",
+		"**SettingsCompact 마무리 (로컬 커밋 `31ce2b3`)**",
+		"- 사이드바 바로가기 행에 사이드바와 같은 아이콘을 붙여 다른 행과 줄을 맞췄어요.",
+		"- 모델 역할의 비어 있음 안내는 한 줄로 줄였어요.",
+		"- 빠졌던 화면 테스트도 모두 통과했어요.",
+	].join("\n");
+	const messages = [
+		{ role: "user", content: "플러그인 자동 업데이트 해 줘" },
+		call("x", "task", { i: "플러그인·MCP 자동 업데이트", tasks: [{ name: "ExtUpdate", task: "…" }] }),
+		result("x", "task", { content: [{ type: "text", text: "Spawned agent `ExtUpdate` (job `ExtUpdate`)." }] }),
+		{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "ExtUpdate에 맡겼어요." }] },
+		{ role: "user", content: "채팅창이 넓으면 오른쪽에 뭘 상시 띄우면 어때?" },
+		call("q", "ask", { questions: [{ question: "오른쪽 빈 공간에 무엇을 띄울까요?" }] }),
+		result("q", "ask", { content: [{ type: "text", text: "User selected: 작업 현황판" }] }),
+		call("t", "task", { i: "넓은 창 작업 현황판", tasks: [{ name: "WorkBoard", task: "…" }] }),
+		result("t", "task", { content: [{ type: "text", text: "Spawned agent `WorkBoard` (job `WorkBoard`)." }] }),
+		{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: reply }] },
+	];
+	const runningJobs = [
+		{ type: "task", label: "ExtUpdate" },
+		{ type: "task", label: "WorkBoard" },
+		{ type: "bash", label: "gh run watch 42", command: "gh run watch 42" },
+	];
+
+	it("names the running subagents and jobs, with what each was handed (from its spawning call, any turn)", () => {
+		const facts = extractFacts(messages, { runningJobs });
+		expect(facts.running).toEqual([
+			{ type: "task", label: "ExtUpdate", about: "플러그인·MCP 자동 업데이트" },
+			{ type: "task", label: "WorkBoard", about: "넓은 창 작업 현황판" },
+			{ type: "bash", label: "gh run watch 42" },
+		]);
+		expect(buildAppState(facts)).toContain(
+			"running-now: subagent ExtUpdate (플러그인·MCP 자동 업데이트); subagent WorkBoard (넓은 창 작업 현황판); command `gh run watch 42`",
+		);
+		expect(extractFacts(messages, { runningJobs: [] }).running).toBeUndefined();
+	});
+
+	it("shows the answered question as settled in this turn, not as an open choice", () => {
+		expect(buildAppState(extractFacts(messages))).toContain(
+			"question-answered this turn: 오른쪽 빈 공간에 무엇을 띄울까요? → User selected: 작업 현황판",
+		);
+	});
+
+	it("keeps the whole latest reply, including its in-progress list, while older replies stay clipped", () => {
+		expect(reply.length).toBeGreaterThan(700);
+		const transcript = renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS);
+		expect(transcript).toContain(`assistant: ${reply}`);
+		const older = renderTranscript(
+			[...messages, { role: "user", content: "다음" }, { role: "assistant", content: "네" }],
+			SUGGEST_TRANSCRIPT_CHARS,
+		);
+		expect(older).not.toContain(`assistant: ${reply}`);
+		expect(older).toContain("[…]");
+	});
+
+	it("asks for three distinct candidates and forbids asking for work already done, started or handed off", () => {
+		expect(SUGGEST_INSTRUCTIONS).toContain(`Write exactly ${MAX_CANDIDATES} candidates`);
+		expect(SUGGEST_INSTRUCTIONS).toMatch(/already done, already started, already planned or already handed/);
+		expect(SUGGEST_INSTRUCTIONS).toContain("nothing the latest reply says it did, will do or is doing");
+		expect(SUGGEST_INSTRUCTIONS).toMatch(/running-now .* Never ask for it again/);
+		expect(SUGGEST_INSTRUCTIONS).toContain("Follow up on the latest assistant reply");
 	});
 });
 

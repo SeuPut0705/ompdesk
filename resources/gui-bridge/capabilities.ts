@@ -870,8 +870,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/**
 	 * modes/next-prompt.ts: a cheap request on stock's `smol` role (`resolveRoleChain` over `roleCandidatePool`, the
 	 * session's credentials through `modelRegistry.resolver`, `completeSimple`); `runEphemeralTurn` cannot take another
-	 * model. Reads of the todo, plan and goal state, the usage ledger (`appendModelUsage`) and the loaded-extension list
-	 * are feature-detected inside the module (they only enrich the request).
+	 * model. Reads of the todo, plan and goal state, the running async jobs (`getAsyncJobSnapshot`), the usage ledger
+	 * (`appendModelUsage`) and the loaded-extension list are feature-detected inside the module (they only enrich the
+	 * request).
 	 */
 	nextPrompt: {
 		session: [

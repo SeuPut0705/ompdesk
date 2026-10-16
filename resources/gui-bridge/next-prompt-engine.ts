@@ -116,6 +116,7 @@ export interface NextPromptSession {
 	getTodoPhases?(): ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>;
 	getPlanModeState?(): { enabled: boolean; planFilePath?: string } | undefined;
 	getGoalModeState?(): { enabled: boolean; goal?: { objective?: string; status?: string } } | undefined;
+	getAsyncJobSnapshot?(): { running: ReadonlyArray<{ type: string; label: string; command?: string }> } | null;
 	extensionRunner?: {
 		getLoadedExtensions?(): ReadonlyArray<{ path: string }>;
 		isExtensionActive?(path: string): boolean;
@@ -399,6 +400,7 @@ function fail(session: NextPromptSession, trigger: NextPromptTrigger, error: unk
 function sessionExtras(session: NextPromptSession): SessionExtras {
 	const plan = session.getPlanModeState?.();
 	const goal = session.getGoalModeState?.();
+	const jobs = session.getAsyncJobSnapshot?.();
 	return {
 		...(plan ? { plan: { enabled: plan.enabled === true } } : {}),
 		...(session.getTodoPhases ? { todoPhases: session.getTodoPhases() } : {}),
@@ -411,23 +413,29 @@ function sessionExtras(session: NextPromptSession): SessionExtras {
 					},
 				}
 			: {}),
+		...(jobs ? { runningJobs: jobs.running } : {}),
 	};
 }
 
 /** Set by a compaction until the next suggestion consumes it. */
 let compactedSinceSuggestion = false;
 
+/** The moment a suggestion is made for: the `<app-state>` section and the state key it is remembered by. */
+function moment(session: NextPromptSession): { appState: string; key: string } {
+	const facts = extractFacts(session.messages, {
+		...sessionExtras(session),
+		...(compactedSinceSuggestion ? { compacted: true } : {}),
+	});
+	const appState = buildAppState(facts);
+	return { appState, key: suggestionStateKey(session.messages, appState) };
+}
+
 async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promise<void> {
 	const session = mainSession();
 	if (!session) return;
 	const key = sessionKey(session);
 	const messages = session.messages;
-	const facts = extractFacts(messages, {
-		...sessionExtras(session),
-		...(compactedSinceSuggestion ? { compacted: true } : {}),
-	});
-	const appState = buildAppState(facts);
-	const stateKey = suggestionStateKey(messages, appState);
+	const { appState, key: stateKey } = moment(session);
 	const gate = gateSuggestion({
 		enabled: settings.suggestions,
 		idle: idle(session),
@@ -448,16 +456,20 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		const resolved = await resolveSmol(session, stock);
 		if (signal.aborted) return;
 		requests.suggest++;
-		const request = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState);
-		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, request, {
+		const prompt = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState);
+		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, prompt, {
 			maxTokens: SUGGEST_MAX_TOKENS,
 			temperature: 0.3,
 			signal,
 		});
 		recordUsage(session, resolved, message);
-		// The answer is worth showing only while the moment it was made for is still the moment.
-		const nowKey = suggestionStateKey(session.messages, appState);
-		if (signal.aborted || sessionKey(session) !== key || nowKey !== stateKey || !idle(session) || !draftEmpty) return;
+		if (signal.aborted || sessionKey(session) !== key || !idle(session) || !draftEmpty) return;
+		// The answer is worth showing only while the moment it was made for is still the moment. Running work that
+		// ended or started meanwhile moves it without a run or a keystroke, so nothing else would ask again.
+		if (moment(session).key !== stateKey) {
+			request(trigger);
+			return;
+		}
 		compactedSinceSuggestion = false;
 		remember(key, stateKey);
 		lastModel = resolved.used;
