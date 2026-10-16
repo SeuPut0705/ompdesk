@@ -10,8 +10,33 @@
 
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { OmpTransport } from "../../shared/omp-api";
+import {
+	EMPTY_PREVIEW,
+	PREVIEW_COMMAND,
+	PREVIEW_STATE,
+	PREVIEW_STREAM_COPY,
+	PREVIEW_STREAM_DIALOG,
+	PREVIEW_STREAM_POLL,
+	type PreviewRequest,
+	type PreviewStreamDialog,
+	type PreviewStreamPoll,
+	type PreviewStreamPollRequest,
+} from "../../shared/preview";
 import type { RpcCommand } from "../../shared/rpc-types";
-import { GIT_CHANGES, MODELS, PROVIDERS, sessionsFixture, stateFixture, tabsFixture, transcriptFor } from "./fixture";
+import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
+import {
+	FILE_CONTENTS,
+	FILE_TREE,
+	GIT_CHANGES,
+	GIT_DIFFS,
+	MODELS,
+	PROVIDERS,
+	sessionsFixture,
+	stateFixture,
+	TERMINAL_OUTPUT,
+	tabsFixture,
+	transcriptFor,
+} from "./fixture";
 
 type Listener = (data: unknown) => void;
 
@@ -21,6 +46,10 @@ export interface Harness {
 	unhandled: string[];
 	/** Every `invoke` and `send`, for tests that assert what the shell asked main to do. */
 	calls: { channel: string; args: unknown[] }[];
+	/** The streamed preview page: dialogs the page "opens" (queue one, the next poll carries it) and the answers it got. */
+	stream: { dialogs: PreviewStreamDialog[]; answers: unknown[] };
+	/** The terminal's PTY size lease as the host reports it: set `other` to show the lease banner. */
+	terminal: { lease: TerminalLeaseState };
 }
 
 declare global {
@@ -103,6 +132,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":
 				return respond(command, GIT_CHANGES);
+			case "get_git_diff": {
+				const { path } = command;
+				return respond(command, { path, diff: GIT_DIFFS[path] ?? "", kind: "text", truncated: false });
+			}
 			default:
 				note(`rpc:${command.type}`);
 				return respond(command);
@@ -157,11 +190,109 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.SETUP_GET_STATE:
 			case IPC_COMMANDS.REMOTE_GET_STATE:
 				return null;
+			case IPC_COMMANDS.FS_LIST:
+				return { ok: true, entries: FILE_TREE, truncated: false };
+			case IPC_COMMANDS.FS_READ: {
+				const path = (payload as { path: string }).path;
+				const content = FILE_CONTENTS[path];
+				if (content === undefined) return { ok: false, content: "", truncated: false, binary: false, size: 0 };
+				return { ok: true, content, truncated: false, binary: false, size: content.length };
+			}
+			case IPC_COMMANDS.FS_STAT:
+				return { ok: true, mtimeMs: 1, size: 1 };
+			case PREVIEW_COMMAND: {
+				const request = payload as PreviewRequest;
+				if (request.action === "load") {
+					harness.emit(PREVIEW_STATE, {
+						...EMPTY_PREVIEW,
+						url: request.url,
+						title: "Harness page",
+						tabs: [{ id: "page-1", title: "Harness page", url: request.url, loading: false }],
+						activeTab: "page-1",
+					});
+				}
+				return undefined;
+			}
+			case PREVIEW_STREAM_POLL:
+				return streamPoll(payload as PreviewStreamPollRequest);
+			case PREVIEW_STREAM_DIALOG:
+				harness.stream.answers.push(payload);
+				return undefined;
+			case PREVIEW_STREAM_COPY:
+				return "selected on the page";
+			case "terminal:shells":
+				return [];
+			case "terminal:request":
+				return terminalRequest(args[1] as TerminalOperation);
 			default:
 				if (EMPTY_LISTS.includes(channel)) return [];
 				note(channel);
 				return undefined;
 		}
+	};
+
+	/** One JPEG of the harness page, drawn once (a canvas is the one encoder a browser has). */
+	let frameJpeg: string | undefined;
+	const jpeg = () => {
+		if (frameJpeg) return frameJpeg;
+		const canvas = document.createElement("canvas");
+		canvas.width = 390;
+		canvas.height = 600;
+		const context = canvas.getContext("2d");
+		if (context) {
+			context.fillStyle = "#0b3d91";
+			context.fillRect(0, 0, 390, 600);
+			context.fillStyle = "#ffffff";
+			context.font = "28px sans-serif";
+			context.fillText("Page on the computer", 24, 80);
+		}
+		frameJpeg = canvas.toDataURL("image/jpeg", 0.8).split(",")[1] ?? "";
+		return frameJpeg;
+	};
+	let frameSeq = 0;
+	const streamPoll = async (request: PreviewStreamPollRequest): Promise<PreviewStreamPoll> => {
+		const deadline = Date.now() + 700;
+		// The first poll (or one after a reconnect) is answered with a frame; the rest wait for a dialog.
+		for (;;) {
+			const dialogs = harness.stream.dialogs.splice(0);
+			if (request.ack === null || dialogs.length > 0 || Date.now() > deadline) {
+				const frame =
+					request.ack === null
+						? {
+								seq: ++frameSeq,
+								tab: "page-1",
+								width: 390,
+								height: 600,
+								rect: { x: 0, y: 0, width: 390, height: 600 },
+								jpeg: jpeg(),
+							}
+						: null;
+				return { frame, dialogs };
+			}
+			await new Promise(resolve => setTimeout(resolve, 50));
+		}
+	};
+	let terminalSent = false;
+	const terminalRequest = async (operation: TerminalOperation): Promise<TerminalSnapshot[]> => {
+		const snapshot = (output: string, offset: number): TerminalSnapshot => ({
+			id: "term-1",
+			output,
+			offset,
+			exited: false,
+			cols: 60,
+			rows: 20,
+			lease: harness.terminal.lease,
+		});
+		if (operation.action === "claim") harness.terminal.lease = "you";
+		if (operation.action === "list" && operation.waitMs) {
+			if (!terminalSent) {
+				terminalSent = true;
+				return [snapshot(TERMINAL_OUTPUT, TERMINAL_OUTPUT.length)];
+			}
+			await new Promise(resolve => setTimeout(resolve, 400));
+			return [snapshot("", TERMINAL_OUTPUT.length)];
+		}
+		return [snapshot("", operation.action === "list" && operation.offsets?.["term-1"] ? TERMINAL_OUTPUT.length : 0)];
 	};
 
 	const harness: Harness = {
@@ -170,6 +301,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		},
 		unhandled,
 		calls,
+		stream: { dialogs: [], answers: [] },
+		terminal: { lease: "you" },
 	};
 
 	const transport: OmpTransport = {

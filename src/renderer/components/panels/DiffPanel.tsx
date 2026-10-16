@@ -13,6 +13,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Columns2, FileCode2, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { type DiffLine, DiffView, parseDiff } from "../../lib/diff";
 import { formatClock, formatTimeAgo, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -543,7 +544,10 @@ export function DiffPanel() {
 	const t = useT();
 	const allCandidates = useEditCandidates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [split, setSplit] = useState(false);
+	// A phone is too narrow for two columns: it reads the unified diff only.
+	const phone = useShellMode() === "phone";
+	const [splitChosen, setSplit] = useState(false);
+	const split = splitChosen && !phone;
 	const mode = useUiStore(state => state.changesMode);
 	const setMode = useUiStore(state => state.setChangesMode);
 	const sessionId = useSessionStore(state => state.sessionId);
@@ -572,7 +576,7 @@ export function DiffPanel() {
 			{mode !== "repository" && mode !== "commits" && (
 				<PanelToolbar>
 					{sourceSelector}
-					{mode === "current" && (
+					{mode === "current" && !phone && (
 						<div className="ml-auto flex shrink-0 items-center gap-1">
 							<IconButton
 								icon={<Rows3 />}

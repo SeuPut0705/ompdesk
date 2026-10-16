@@ -281,3 +281,65 @@ export const GIT_CHANGES = {
 		hasRemote: true,
 	},
 };
+
+const SIDEBAR_TEST = "src/renderer/components/layout/sidebar/Sidebar.test.tsx";
+
+/** What `get_git_diff` answers per changed file (unified diffs, as git prints them). */
+export const GIT_DIFFS: Record<string, string> = {
+	[SIDEBAR_TEST]: [
+		`diff --git a/${SIDEBAR_TEST} b/${SIDEBAR_TEST}`,
+		`--- a/${SIDEBAR_TEST}`,
+		`+++ b/${SIDEBAR_TEST}`,
+		"@@ -12,7 +12,10 @@ describe('Sidebar', () => {",
+		"   it('lists the sessions', async () => {",
+		"     await mount(<Sidebar />);",
+		"-    expect(rowFor('Session /work/alpha/mine')).toBeTruthy();",
+		"+    await waitFor(() => expect(rowFor('Session /work/alpha/mine')).toBeTruthy());",
+		"   });",
+		"+",
+		"+  it('keeps the open session highlighted', async () => {",
+		"+    await mount(<Sidebar active='mine' />);",
+		"+    await waitFor(() => expect(rowFor('mine').dataset.active).toBe('true'));",
+		"+  });",
+		" });",
+		"",
+	].join("\n"),
+};
+
+/** The workspace tree `fs:list` answers: the three changed files and a folder around them. */
+export const FILE_TREE = [
+	{
+		name: "src",
+		path: "src",
+		kind: "dir",
+		children: [
+			{
+				name: "renderer",
+				path: "src/renderer",
+				kind: "dir",
+				children: [
+					{
+						name: "lib",
+						path: "src/renderer/lib",
+						kind: "dir",
+						children: [{ name: "wait-for.ts", path: "src/renderer/lib/wait-for.ts", kind: "file" }],
+					},
+				],
+			},
+		],
+	},
+	{ name: "package.json", path: "package.json", kind: "file" },
+	{ name: "README.md", path: "README.md", kind: "file" },
+];
+
+/** What `fs:read` answers per path. */
+export const FILE_CONTENTS: Record<string, string> = {
+	"src/renderer/lib/wait-for.ts":
+		"/** Poll `check` until it stops throwing, or fail with its last error after `timeoutMs`. */\nexport async function waitFor(check: () => void, timeoutMs = 1000): Promise<void> {\n\tconst end = Date.now() + timeoutMs;\n\tfor (;;) {\n\t\ttry {\n\t\t\treturn check();\n\t\t} catch (error) {\n\t\t\tif (Date.now() > end) throw error;\n\t\t\tawait new Promise(resolve => setTimeout(resolve, 20));\n\t\t}\n\t}\n}\n",
+	"package.json": '{\n\t"name": "ompdesk",\n\t"private": true\n}\n',
+	"README.md": "# OMPdesk\n\nA desktop for the omp agent.\n",
+};
+
+/** The first screen of the harness terminal. */
+export const TERMINAL_OUTPUT =
+	"\u001b[32mseuput@laptop\u001b[0m:\u001b[34m~/ompdesk\u001b[0m$ bun test\r\n 1200 passed\r\n$ ";
