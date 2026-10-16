@@ -14,12 +14,18 @@ export interface BannerSource {
 	onState(listener: (state: WsConnectionState) => void): () => void;
 }
 
+export interface BannerActions {
+	/** "Reload": the host needs a newer page; drop the cached one and load again. */
+	reload(): void;
+}
+
 export function mountConnectionBanner(
 	source: BannerSource,
 	doc: Document,
 	t: (key: string) => string,
 	setTimer: (callback: () => void, ms: number) => unknown = (callback, ms) => setTimeout(callback, ms),
 	clearTimer: (handle: unknown) => void = handle => clearTimeout(handle as number),
+	actions?: BannerActions,
 ): () => void {
 	let connectingTimer: unknown = null;
 
@@ -38,8 +44,23 @@ export function mountConnectionBanner(
 		}
 		return bar;
 	};
-	const show = (key: string) => {
-		element().textContent = t(key);
+	const show = (key: string, action?: { label: string; run: () => void }) => {
+		const bar = element();
+		if (!action) {
+			bar.textContent = t(key);
+			return;
+		}
+		const button = doc.createElement("button");
+		button.type = "button";
+		button.textContent = action.label;
+		button.style.cssText =
+			"margin-inline-start:10px;min-height:28px;padding:0 12px;border-radius:6px;border:1px solid currentColor;" +
+			"font:inherit;font-weight:600;background:transparent;color:inherit;cursor:pointer";
+		button.addEventListener("click", () => {
+			button.disabled = true;
+			action.run();
+		});
+		bar.replaceChildren(doc.createTextNode(t(key)), button);
 	};
 	const hide = () => doc.getElementById(BANNER_ID)?.remove();
 
@@ -60,7 +81,10 @@ export function mountConnectionBanner(
 				connectingTimer = setTimer(() => show("web.connection.connecting"), CONNECTING_GRACE_MS);
 				return;
 			case "outdated":
-				show("web.connection.outdated");
+				show(
+					"web.connection.outdated",
+					actions ? { label: t("web.update.reload"), run: () => actions.reload() } : undefined,
+				);
 				return;
 			case "unpaired":
 				show("web.connection.unpaired");

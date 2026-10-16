@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { pwaPlugin } from "./scripts/pwa-plugin";
 
 /**
  * Main-process packages bundled into out/main/index.js so packaged apps need no node_modules.
@@ -118,7 +119,8 @@ export default defineConfig({
 	},
 	renderer: {
 		esbuild: KEEP_NAMES,
-		plugins: [tailwindcss()],
+		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts).
+		plugins: [tailwindcss(), pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") })],
 		resolve: {
 			alias: {
 				"@renderer": resolve(__dirname, "src/renderer"),

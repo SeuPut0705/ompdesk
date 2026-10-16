@@ -14,9 +14,12 @@ import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
 import { saveBlob } from "./download";
 import { listenNotificationClicks, notifyPage, registerServiceWorker, requestNotificationPermission } from "./notify";
+import { createBrowserPwa, setWebPwa } from "./pwa";
 import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
+import { purgeAndReload, UpdateWatcher } from "./sw-update";
+import { mountUpdateBanner } from "./update-banner";
 import { pickFiles } from "./upload";
 import { type WsLike, WsTransport } from "./ws-transport";
 
@@ -29,10 +32,9 @@ async function pageStale(): Promise<void> {
 	const last = Number(sessionStorage.getItem(RELOAD_FLAG) ?? 0);
 	if (Date.now() - last < RELOAD_LOOP_MS) return;
 	sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-	const registrations = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
-	await Promise.all(registrations.map(registration => registration.unregister()));
-	if (typeof caches !== "undefined") await Promise.all((await caches.keys()).map(key => caches.delete(key)));
-	location.reload();
+	await purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
+		location.reload(),
+	);
 }
 
 async function bootApp(): Promise<void> {
@@ -131,12 +133,29 @@ async function bootApp(): Promise<void> {
 	});
 
 	listenNotificationClicks(payload => channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, payload));
-	mountConnectionBanner(transport, document, translate);
+	mountConnectionBanner(transport, document, translate, undefined, undefined, {
+		reload: () =>
+			void purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
+				location.reload(),
+			),
+	});
+
+	// Push, install guidance and the update watcher, for the notification controls in Settings.
+	const pwa = createBrowserPwa({ registration, features: () => transport.features, update: null });
+	setWebPwa(pwa);
+	void registration.then(registered => {
+		if (!registered) return;
+		pwa.update = new UpdateWatcher(registered, navigator.serviceWorker, () => location.reload());
+		mountUpdateBanner(pwa.update, document, translate);
+	});
 
 	document.addEventListener("visibilitychange", () => {
 		const visible = document.visibilityState === "visible";
 		transport.setPresence(visible);
-		if (visible) transport.wake();
+		if (visible) {
+			transport.wake();
+			void pwa.update?.check();
+		}
 	});
 	window.addEventListener("online", () => transport.wake());
 	window.addEventListener("pageshow", () => transport.wake());

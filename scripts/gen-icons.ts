@@ -11,6 +11,8 @@
  *   (Windows tray).
  * - brand/mark-mono.svg → brand/trayTemplate.png + trayTemplate@2x.png
  *   (macOS menu-bar template: monochrome, alpha only; the system tints it).
+ * - PWA_ICON_SVGS → src/renderer/public/icons/*.png and apple-touch-icon.png (the installed web app's
+ *   icons, scripts/pwa-icons.ts).
  * Run: `bun run gen:icons`.
  */
 
@@ -20,6 +22,7 @@ import * as path from "node:path";
 import sharp from "sharp";
 import { BRAND_MARK } from "../src/shared/brand-mark";
 import { BRAND_SVGS, FAVICON_HREF } from "./brand-svgs";
+import { writePwaIcons } from "./pwa-icons";
 
 const resources = path.join(import.meta.dir, "..", "resources");
 const rendererHtml = path.join(import.meta.dir, "..", "src", "renderer", "index.html");
@@ -116,6 +119,7 @@ async function main(): Promise<void> {
 	await Bun.write(path.join(brand, "trayTemplate@2x.png"), await render(mono, TRAY_POINTS * 2));
 	await Bun.write(path.join(brand, "tray.png"), await render(tileSmall, WIN_TRAY_PX));
 	await Bun.write(path.join(brand, "tray@2x.png"), await render(tileSmall, WIN_TRAY_PX * 2));
+	await writePwaIcons();
 
 	console.log("Generated brand SVGs, icon.png, icon.icns (macOS), icon.ico, and brand/tray*.png");
 }

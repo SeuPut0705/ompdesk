@@ -13,6 +13,7 @@ import { toastError } from "../../stores/toast";
 import { Button, CopyButton, Spinner } from "../common";
 import { QrCode } from "../common/QrCode";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
+import { IosInstallSteps } from "./WebNotificationsSection";
 
 const IOS_APP_URL = "https://apps.apple.com/app/tailscale/id1470499037";
 const ANDROID_APP_URL = "https://play.google.com/store/apps/details?id=com.tailscale.ipn";
@@ -198,6 +199,13 @@ export function MobileWebConnect({ state, url }: { state: MobileWebState; url: s
 						<div className="flex min-w-0 flex-1 flex-col gap-2">
 							<p className="text-sc-md">{t("mobileWeb.step3")}</p>
 							<PairPhone key={url} url={url} />
+						</div>
+					</li>
+					<li className="flex min-w-0 gap-2.5" data-mobile-web-ios-install>
+						<StepNumber n={4} />
+						<div className="flex min-w-0 flex-1 flex-col gap-2">
+							<p className="text-sc-md">{t("mobileWeb.step4")}</p>
+							<IosInstallSteps />
 						</div>
 					</li>
 				</ol>

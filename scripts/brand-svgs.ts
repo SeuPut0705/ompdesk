@@ -118,3 +118,30 @@ export const BRAND_SVGS: Record<string, string> = {
 	"brand/wordmark-light.svg": wordmark(LIGHT, "light"),
 	"brand/wordmark-dark.svg": wordmark(DARK, "dark"),
 };
+
+/** Square full-bleed tile: a launcher or iOS applies its own mask. `scale` sizes the π inside it. */
+const squareTile = (scale: number, comment: string) =>
+	svg(
+		BRAND_MARK.viewBox,
+		comment,
+		`${TILE_DEFS}  <rect x="-256" y="-256" width="512" height="512" fill="${tile.background}"/>\n  <g transform="scale(${scale})">\n${pi(BRAND_MARK.full, TILE)}  </g>\n`,
+	);
+
+/**
+ * The installed web app's icons (`src/renderer/public/`, written by scripts/pwa-icons.ts): a rounded tile for
+ * `any`, an opaque square for iOS's `apple-touch-icon` (iOS fills transparency with black), and a maskable
+ * square whose π stays inside the 80% safe circle (0.6 × the full π's 298-unit half-diagonal < 0.4 × 512).
+ */
+export const PWA_ICON_SVGS = {
+	any: tileSvg(BRAND_MARK.full, "ompdesk web app icon (any purpose)."),
+	opaque: squareTile(tile.glyphScale, "ompdesk web app icon, opaque square (apple-touch-icon)."),
+	maskable: squareTile(0.6, "ompdesk web app icon, maskable (π inside the safe zone)."),
+} as const;
+
+/** The rasterized files (relative to src/renderer/public/): the manifest, web.html and their test read this list. */
+export const PWA_ICON_FILES = [
+	{ file: "icons/icon-192.png", source: "any", size: 192 },
+	{ file: "icons/icon-512.png", source: "any", size: 512 },
+	{ file: "icons/icon-maskable-512.png", source: "maskable", size: 512 },
+	{ file: "apple-touch-icon.png", source: "opaque", size: 180 },
+] as const;

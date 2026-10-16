@@ -12,13 +12,24 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../../lib/i18n";
 import { loadMobileWeb, mobileWebCommand, useMobileWebStore, useMobileWebSync } from "../../stores/mobile-web";
+import { webPwa } from "../../web/pwa";
 import { Banner, Button, ErrorDetail, Spinner } from "../common";
 import { MobileWebConnect } from "./MobileWebConnect";
 import { MobileWebAllowedUsers, MobileWebDevices } from "./MobileWebDevices";
 import { MobileWebPhasePanel } from "./MobileWebPhase";
 import { SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { WebNotificationsSection } from "./WebNotificationsSection";
 
+/**
+ * On the computer: the whole section. On the web page (a paired device): only this device's own notification
+ * and install controls — pairing, Tailscale and the device list are the computer's (`pairing-admin`).
+ */
 export function MobileWebSection() {
+	const pwa = webPwa();
+	return pwa ? <WebNotificationsSection pwa={pwa} /> : <MobileWebHostSection />;
+}
+
+function MobileWebHostSection() {
 	const t = useT();
 	useMobileWebSync();
 	const state = useMobileWebStore(store => store.state);
