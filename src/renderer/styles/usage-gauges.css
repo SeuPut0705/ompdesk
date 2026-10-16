@@ -1,0 +1,87 @@
+/* Usage gauges (components/common/UsageGauges.tsx): shared by the work board and the sidebar usage lines. */
+
+.omp-usage-gauges {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--sc-space-2);
+}
+
+.omp-usage-gauges[data-count="1"] {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.omp-usage-gauge {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 3px;
+}
+
+/* The label and value sit inside the bar. The fill is a low wash of the text colour, so the one text colour
+   reads over both the fill and the track in light and dark. */
+.omp-usage-gauge-bar {
+	position: relative;
+	display: block;
+	height: 22px;
+	overflow: hidden;
+	border-radius: var(--sc-radius-sm);
+	background: transparent;
+	box-shadow: inset 0 0 0 var(--sc-hairline) var(--sc-border-subtle);
+}
+
+.omp-usage-gauge-fill {
+	position: absolute;
+	inset-block: 0;
+	inset-inline-start: 0;
+	background: color-mix(in srgb, var(--sc-text) 14%, transparent);
+	transition: width var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-usage-gauge[data-state="near"] .omp-usage-gauge-fill {
+	background: color-mix(in srgb, var(--sc-warning) 34%, transparent);
+}
+
+.omp-usage-gauge[data-state="limit"] .omp-usage-gauge-fill {
+	background: color-mix(in srgb, var(--sc-danger) 34%, transparent);
+}
+
+.omp-usage-gauge-text {
+	position: relative;
+	display: flex;
+	height: 100%;
+	align-items: center;
+	justify-content: space-between;
+	padding-inline: var(--sc-space-2);
+	color: var(--sc-text);
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-usage-gauge-text > :first-child {
+	color: var(--sc-text-secondary);
+}
+
+.omp-usage-gauge-reset {
+	overflow: hidden;
+	padding-inline: 2px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--sc-text-subtle);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Compact: one 18px line, no reset row (the tooltip has it). */
+.omp-usage-gauges[data-compact] {
+	flex: 1 1 auto;
+	min-width: 0;
+	gap: var(--sc-space-1-5);
+}
+
+.omp-usage-gauges[data-compact] .omp-usage-gauge-bar {
+	height: 18px;
+}
+
+.omp-usage-gauges[data-compact] .omp-usage-gauge-text {
+	padding-inline: var(--sc-space-1-5);
+	font-size: var(--sc-font-2xs);
+}

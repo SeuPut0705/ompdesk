@@ -17,7 +17,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { exitApp } from "./harness";
+import { exitApp, openDestination } from "./harness";
 import {
 	type Language,
 	launchRemote,
@@ -254,7 +254,7 @@ for (const language of ["en", "ko"] as const)
 				});
 
 				await test.step("the context inspector reads the host's omp", async () => {
-					await a.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+					await openDestination(a, "insights");
 					const stats = a.locator('section[data-destination="insights"]');
 					await expect(stats.getByText(t("contextInspector.cat.memoryFiles"), { exact: true })).toBeVisible({
 						timeout: 15_000,

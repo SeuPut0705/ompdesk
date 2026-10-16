@@ -63,3 +63,48 @@
 		transition: none;
 	}
 }
+
+/* Usage block in the footer: one compact line per subscription account (SidebarUsage.tsx). */
+.omp-sidebar-usage {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.omp-sidebar-usage-line {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: center;
+	gap: var(--sc-space-2);
+	padding: 3px var(--sc-space-2-5, 10px);
+	border-radius: var(--sc-radius-md);
+	color: var(--sc-text-secondary);
+	text-align: start;
+	cursor: pointer;
+}
+
+.omp-sidebar-usage-line:hover,
+.omp-sidebar-usage-more:hover {
+	background: var(--sc-hover);
+}
+
+.omp-sidebar-usage-line:focus-visible,
+.omp-sidebar-usage-more:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -1px;
+}
+
+/* The account this tab uses: a quiet edge, nothing coloured. */
+.omp-sidebar-usage-line[data-in-use] {
+	box-shadow: inset 2px 0 0 var(--sc-text-subtle);
+}
+
+.omp-sidebar-usage-more {
+	padding: 2px var(--sc-space-2-5, 10px);
+	border-radius: var(--sc-radius-md);
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-muted);
+	text-align: start;
+	cursor: pointer;
+}

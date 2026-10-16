@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, walkRemotePicker } from "./harness";
+import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible, walkRemotePicker } from "./harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in flow audit of the right panel, Settings, Stats and Agents
@@ -632,7 +632,7 @@ for (const [language, theme] of [
 			await resize(app, 1440, 900);
 
 			// Stats: both scopes and every section tab.
-			await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+			await openDestination(page, "insights");
 			const stats = page.locator('section[data-destination="insights"]');
 			await expect(stats).toBeVisible();
 			await page.waitForTimeout(600);
@@ -654,7 +654,7 @@ for (const [language, theme] of [
 			await rec.shoot("stats-usage");
 
 			// Agents: every tab, then the pull requests at the smallest window.
-			await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+			await openDestination(page, "agents");
 			const agents = page.locator('section[data-destination="agents"]');
 			await expect(agents).toBeVisible();
 			const agentTabs = agents.getByRole("tab");

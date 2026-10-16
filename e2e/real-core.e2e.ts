@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import type { RpcSessionState } from "../src/shared/rpc-types";
-import { exitApp } from "./harness";
+import { exitApp, openDestination } from "./harness";
 
 test("system omp persists settings and sessions and serves every stats route", async () => {
 	test.setTimeout(180_000);
@@ -217,7 +217,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const afterDrop = await page.evaluate(() => window.omp.rpc.getState());
 		expect(afterDrop.success).toBe(true);
 		if (afterDrop.success) expect((afterDrop.data as RpcSessionState).sessionFile).not.toBe(seededSession);
-		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+		await openDestination(page, "insights");
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
 		// Stats open on This session. The drop replaced the tab's runtime without a

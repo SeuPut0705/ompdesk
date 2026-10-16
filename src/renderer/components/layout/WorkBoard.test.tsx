@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcGoalState, SubagentSnapshot } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../lib/turn-meter";
+import { accountWindows, shortWindowLabel } from "../../lib/usage-windows";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -16,7 +17,7 @@ import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { useWorkBoardStore } from "../../stores/work-board";
-import { accountWindows, shortAccountLabel, shortWindowLabel } from "./AccountLimit";
+import { shortAccountLabel } from "./AccountLimit";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -547,12 +548,12 @@ describe("WorkBoard account limit", () => {
 		expect(row?.getAttribute("data-board-account")).toBe("anthropic");
 		expect(row?.querySelector(".omp-work-board-account-name")?.textContent).toBe("work@example.com");
 		// Two gauges, shortest window first, each with its label and used share inside and its reset beneath.
-		const gauges = [...(row?.querySelectorAll(".omp-work-board-gauge") ?? [])];
-		expect(gauges.map(gauge => gauge.querySelector(".omp-work-board-gauge-text")?.textContent)).toEqual([
+		const gauges = [...(row?.querySelectorAll(".omp-usage-gauge") ?? [])];
+		expect(gauges.map(gauge => gauge.querySelector(".omp-usage-gauge-text")?.textContent)).toEqual([
 			"5H62%",
 			"7D40%",
 		]);
-		expect(gauges[0]?.querySelector(".omp-work-board-gauge-reset")?.textContent).toContain("resets in 2h");
+		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.textContent).toContain("resets in 2h");
 		expect(gauges[0]?.getAttribute("data-state")).toBe("ok");
 		expect(gauges[0]?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
 		expect(row?.querySelector("[data-provider-mark]")).not.toBeNull();
@@ -583,7 +584,7 @@ describe("WorkBoard account limit", () => {
 		usageReports = [report({ limits: [{ id: "anthropic:5h", label: "5 hour", windowId: "5h", usedFraction: 0.3 }] })];
 		withAgent();
 		await mount();
-		expect(pane.querySelector(".omp-work-board-gauges")?.getAttribute("data-count")).toBe("1");
+		expect(pane.querySelector(".omp-usage-gauges")?.getAttribute("data-count")).toBe("1");
 		expect(accountWindows([]).length).toBe(0);
 		const many = [
 			{ id: "p:monthly", label: "Monthly", windowId: "monthly", usedFraction: 0.5 },

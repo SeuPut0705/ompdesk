@@ -301,10 +301,18 @@ function groupToggle(cwd: string): Element {
 }
 
 describe("Sidebar menus and pinned ordering", () => {
-	it("ends with the three destinations and a help menu instead of a utility list", async () => {
+	it("ends with Settings and a help menu; Agents and Stats join only once pinned", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
+		const bare = container.querySelector("[data-sidebar-destinations]");
+		expect(
+			[...(bare?.querySelectorAll("button[data-destination]") ?? [])].map(button =>
+				button.getAttribute("data-destination"),
+			),
+		).toEqual(["settings"]);
+		await act(async () => useSidebarPrefs.getState().toggleRailPin("agents"));
+		await act(async () => useSidebarPrefs.getState().toggleRailPin("stats"));
 
 		expect(container.querySelector("[data-sidebar-navigation]")).toBeNull();
 		const footer = container.querySelector("[data-sidebar-destinations]");
@@ -351,7 +359,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 	});
 
-	it("shows no shortcuts by default; pinned ones sit above the destinations in a fixed order and open their view", async () => {
+	it("pins only the usage block by default (it draws nothing without a subscription account); other pinned ones sit above the destinations in a fixed order and open their view", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		useSidebarPrefs.setState({ hydrated: true });
@@ -361,10 +369,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		const pin = (railPin: RailPin) => act(async () => useSidebarPrefs.getState().toggleRailPin(railPin));
 		await pin("schedules");
 		await pin("files");
-		expect(useSidebarPrefs.getState().railPins).toEqual(["files", "schedules"]);
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "files", "schedules"]);
 		expect(omp.prefs.set).toHaveBeenCalledWith(
 			"sidebar",
-			expect.objectContaining({ railPins: ["files", "schedules"] }),
+			expect.objectContaining({ railPins: ["usage", "files", "schedules"] }),
 		);
 		const pinned = [...(footer?.querySelectorAll("[data-rail-pin]") ?? [])].map(row => [
 			row.getAttribute("data-rail-pin"),
@@ -382,7 +390,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "schedules" });
 
 		await pin("files");
-		expect(useSidebarPrefs.getState().railPins).toEqual(["schedules"]);
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "schedules"]);
 	});
 
 	it("opens the command palette from the header and selecting a session returns from a page", async () => {

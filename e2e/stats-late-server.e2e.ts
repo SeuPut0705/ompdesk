@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 
 /**
  * Stand-in for the user's `@oh-my-pi/omp-stats`, loaded by the real
@@ -98,7 +98,7 @@ test("a stats server that binds late fills the open stats page with no reload", 
 	try {
 		const page = await app.firstWindow();
 		await page.waitForFunction(() => window.omp?.rpc != null);
-		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+		await openDestination(page, "insights");
 		const insights = page.locator('section[data-destination="insights"]');
 		await insights.getByRole("tab", { name: "All sessions", exact: true }).click();
 		// Down within seconds, not after the restart ladder gives up.

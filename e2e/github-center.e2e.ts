@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 import { resize } from "./shell-capture";
 
 // Agents › GitHub (C94–C99) on the fake omp with a stand-in `gh` that records
@@ -166,7 +166,7 @@ for (const [language, theme] of [
 		};
 		const ko = language === "ko";
 		try {
-			await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+			await openDestination(page, "agents");
 			const agents = page.locator('section[data-destination="agents"]');
 			await agents.getByRole("tab", { name: "GitHub", exact: true }).click();
 			const center = agents.locator("[data-github-center]");

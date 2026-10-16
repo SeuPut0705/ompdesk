@@ -14,7 +14,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron, type Locator, type Page } from "playwright";
 import { AGENT_TEMPLATES } from "../src/shared/agent-templates";
 import type { RpcAgentDefinitionInfo } from "../src/shared/rpc-types";
-import { exitApp } from "./harness";
+import { exitApp, openDestination } from "./harness";
 
 const SHOTS = process.env.OMPDESK_SHOTS_DIR;
 
@@ -92,7 +92,7 @@ test("agent editor and template gallery write definitions omp discovers", async 
 	page.on("pageerror", error => errors.push(error.message));
 
 	const openDefinitions = async (definitionsLabel: string) => {
-		await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+		await openDestination(page, "agents");
 		await page.getByRole("tab", { name: definitionsLabel, exact: true }).click();
 	};
 	const discovered = async (name: string) => (await definitions(page)).find(entry => entry.name === name);

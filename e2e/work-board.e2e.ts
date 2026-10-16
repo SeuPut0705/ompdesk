@@ -301,8 +301,8 @@ for (const language of ["en", "ko"] as const)
 				// The subscription account in use: its tightest window, the rest in the tooltip, a click opens the accounts page.
 				const account = board.locator("[data-board-account]");
 				await expect(account).toContainText("work@example.com");
-				await expect(account.locator('[data-window="5h"] .omp-work-board-gauge-text')).toHaveText("5H62%");
-				await expect(account.locator('[data-window="7d"] .omp-work-board-gauge-text')).toHaveText("7D41%");
+				await expect(account.locator('[data-window="5h"] .omp-usage-gauge-text')).toHaveText("5H62%");
+				await expect(account.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText("7D41%");
 				await expect(account).toHaveAttribute("title", /41%/);
 
 				// The turn's token speed (the fake omp reports 64 tok/s) sits beside its elapsed time.
@@ -338,6 +338,57 @@ for (const language of ["en", "ko"] as const)
 				await fixture(page, "fixture:board-end");
 				await expect(board.locator('[data-board-section="last"]')).toBeVisible();
 				await shot("idle");
+			} finally {
+				await exitApp(app);
+				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			}
+		});
+
+for (const language of ["en", "ko"] as const)
+	for (const theme of ["light", "dark"] as const)
+		test(`the sidebar's usage block: one gauge line per subscription account, in use marked, a click opens accounts (${language} ${theme})`, async () => {
+			test.setTimeout(180_000);
+			const { app, page, root } = await launch(language, theme);
+			try {
+				const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
+				if (captures) await fs.mkdir(captures, { recursive: true });
+				const shot = async (stage: string) => {
+					if (captures)
+						await page.screenshot({
+							path: path.join(captures, `sidebar-usage-${stage}-${language}-${theme}.png`),
+							animations: "disabled",
+							scale: "css",
+						});
+				};
+				const lines = page.locator("[data-rail-pin='usage'] .omp-sidebar-usage-line");
+				// No subscription account (the fixture provider reports no windows): nothing in the footer.
+				await expect(page.locator("[data-rail-pin='usage']")).toHaveCount(0);
+
+				for (const count of [1, 3, 5]) {
+					await fixture(page, `fixture:usage-accounts:${count}`);
+					await page.reload();
+					await page.waitForFunction(() => window.omp?.rpc != null);
+					await expect(lines).toHaveCount(Math.min(count, 4));
+					await expect(lines.first().locator('[data-window="5h"] .omp-usage-gauge-text')).toContainText("5H");
+					await expect(lines.first().locator('[data-window="7d"] .omp-usage-gauge-text')).toContainText("7D");
+					if (count === 5) {
+						await expect(page.locator(".omp-sidebar-usage-more")).toHaveText(
+							language === "en" ? "+1 more" : "+1개 더 보기",
+						);
+					}
+					if (count >= 2) {
+						// The fixture's own provider is the model in use: its line is the one marked.
+						await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveCount(1);
+						await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveAttribute(
+							"data-rail-account",
+							/^fixture:/,
+						);
+					}
+					await expect(lines.first()).toHaveAttribute("title", /limit|한도/);
+					await shot(`${count}`);
+				}
+				await lines.first().click();
+				await expect(page.locator('button[data-destination="settings"]')).toHaveAttribute("aria-current", "page");
 			} finally {
 				await exitApp(app);
 				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

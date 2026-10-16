@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
 
 type Language = "en" | "ko";
@@ -261,7 +261,8 @@ for (const language of ["en", "ko"] as const)
 				}
 
 				// ── Context inspector ───────────────────────────────────────────
-				await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+				// The palette's "context" row opens Stats for this session, the scope this view reads.
+				await openDestination(page, "insights", "context");
 				const stats = page.locator('section[data-destination="insights"]');
 				await expect(stats.getByText(text.files, { exact: true })).toBeVisible({ timeout: 15_000 });
 				await expect(stats.getByText(text.mcp, { exact: true })).toBeVisible();

@@ -577,7 +577,7 @@ export const ko: Record<string, string> = {
 	"sidebar.groupMenu": "프로젝트 메뉴",
 	"sidebar.pinFailed": "고정 목록을 저장할 수 없어요.",
 	"sidebar.pin.usage": "사용 한도",
-	"sidebar.pin.usageNone": "이 프로바이더는 사용 한도가 없어요",
+	"sidebar.pin.usageMore": "+{count}개 더 보기",
 	"sidebar.pinned": "고정됨",
 	"sidebar.pinSyncFailed": "OMPdesk에는 고정했지만 omp 재개 목록과 동기화하지 못했어요.",
 	"sidebar.kindMismatch": "에이전트 세션과 채팅 세션은 그 자리에서 전환할 수 없어요. 새 탭에서 세션을 여세요.",

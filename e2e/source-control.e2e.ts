@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Source control in the Changes panel and PR merge in the PR Center, on the
@@ -209,7 +209,7 @@ test("stage, commit, push, history and a squash merge", async () => {
 		await aside.getByRole("combobox", { name: "Changes" }).selectOption("repository");
 
 		// PR Center: squash merge through gh, deleting the head branch on GitHub.
-		await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+		await openDestination(page, "agents");
 		const agents = page.locator('section[data-destination="agents"]');
 		await agents.getByRole("tab", { name: "Pull requests" }).click();
 		await agents.getByRole("button", { name: /Add the login screen/ }).click();
@@ -292,7 +292,7 @@ for (const [language, theme] of [
 			await expect(narrow.locator("[data-commit-history]")).toContainText("feat: seed the project");
 			await shoot("commits-800");
 			await resize(app, 1440, 900);
-			await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+			await openDestination(page, "agents");
 			const agents = page.locator('section[data-destination="agents"]');
 			await agents.getByRole("tab", { name: /^(Pull requests|풀 리퀘스트)$/ }).click();
 			await agents.getByRole("button", { name: /Add the login screen/ }).click();

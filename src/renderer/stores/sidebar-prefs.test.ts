@@ -96,6 +96,23 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual([]);
 	});
 
+	it("pins the usage block until a saved choice says otherwise", async () => {
+		// Nothing stored, or a blob from before the pins existed: usage is on, the rest off.
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
+		get.mockResolvedValueOnce({ pinnedGroups: [] });
+		useSidebarPrefs.getState().reset();
+		await useSidebarPrefs.getState().hydrate();
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
+
+		// A saved choice is kept as it is: usage turned off stays off, even with nothing else pinned.
+		for (const saved of [[], ["files"]]) {
+			useSidebarPrefs.getState().reset();
+			get.mockResolvedValueOnce({ railPins: saved });
+			await useSidebarPrefs.getState().hydrate();
+			expect(useSidebarPrefs.getState().railPins).toEqual(saved);
+		}
+	});
+
 	it("archives and restores sessions by id, persisting the set and the flat-recent grouping", async () => {
 		await useSidebarPrefs.getState().setSessionsArchived(["s1", "s2"], true);
 		await useSidebarPrefs.getState().setSessionsArchived(["s2", "s3"], true);

@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -251,7 +251,7 @@ for (const language of ["en", "ko"] as const)
 				}
 				// The subagent transcript sheet: its read's contact sheet, the clip it read, and the
 				// files its reply names.
-				await page.locator('[data-destination="agents"]').click();
+				await openDestination(page, "agents");
 				await page
 					.getByRole("button", { name: language === "en" ? "View messages" : "메시지 보기" })
 					.first()

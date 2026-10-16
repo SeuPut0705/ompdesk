@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible } from "./harness";
 
 // At the smallest window OMPdesk allows (800×640, sidebar open) the settings
 // nav labels read in full and no settings section or settings tab scrolls
@@ -129,7 +129,7 @@ test("pull requests fit the smallest window", async () => {
 			.toBe("ready");
 		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 640));
 		await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(800);
-		await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+		await openDestination(page, "agents");
 		const agents = page.locator('section[data-destination="agents"]');
 		await agents.getByRole("tab", { name: "Pull requests", exact: true }).click();
 		await agents.getByRole("button", { name: title }).click();

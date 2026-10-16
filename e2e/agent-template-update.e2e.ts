@@ -17,7 +17,7 @@ import { serializeAgentMarkdown } from "../src/shared/agent-definition";
 import { LEGACY_TEMPLATE_MODELS, replaceModelLine } from "../src/shared/agent-template-migration";
 import { AGENT_TEMPLATES, templateDraft } from "../src/shared/agent-templates";
 import type { RpcAgentDefinitionInfo } from "../src/shared/rpc-types";
-import { exitApp } from "./harness";
+import { exitApp, openDestination } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_AGENT_UPDATE_CAPTURES ?? "";
 
@@ -112,7 +112,7 @@ for (const language of ["en", "ko"] as const)
 					.toMatchObject({ status: "ready" });
 				const setup = page.getByRole("region", { name: /Set up OMPdesk|OMPdesk 시작하기/ });
 				if (await setup.isVisible().catch(() => false)) await setup.getByRole("button").last().click();
-				await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+				await openDestination(page, "agents");
 				await page.getByRole("tab", { name: text.definitions, exact: true }).click();
 				await expect(page.getByRole("heading", { name: "debugger", exact: true })).toBeVisible({ timeout: 30_000 });
 

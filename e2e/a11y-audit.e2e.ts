@@ -14,7 +14,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination } from "./harness";
 
 const REPORT = process.env.OMP_GUI_A11Y_REPORT ?? "";
 const AXE_SOURCE = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
@@ -226,8 +226,8 @@ for (const [language, theme] of [
 			}
 			await page.keyboard.press("Meta+j");
 
-			for (const dest of ["agents", "insights"]) {
-				await page.locator(`[data-sidebar-destinations] [data-destination="${dest}"]`).click();
+			for (const dest of ["agents", "insights"] as const) {
+				await openDestination(page, dest);
 				await expect(page.locator("main .animate-spin")).toHaveCount(0, { timeout: 15_000 });
 				await scan(`page-${dest}`);
 				await scanTabs(`page-${dest}`, page.locator("main"));

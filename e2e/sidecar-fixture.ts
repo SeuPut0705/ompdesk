@@ -586,6 +586,8 @@ if (process.argv[2] === "stats") {
 	let boardGoal: Record<string, unknown> | undefined;
 	/** `fixture:board` gives the fixture provider a subscription account with two usage windows. */
 	let boardUsage = false;
+	/** `fixture:usage-accounts:N` (1..5): that many subscription accounts, the second of the fixture's own provider. */
+	let usageAccounts: Array<Record<string, unknown>> | undefined;
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
@@ -1989,7 +1991,8 @@ if (process.argv[2] === "stats") {
 		// Stock `fetchUsageReports` for the fixture provider: limited only after `fixture usage limit`.
 		usage: () => ({
 			reports:
-				usageLimitResetAt === undefined
+				usageAccounts ??
+				(usageLimitResetAt === undefined
 					? boardUsage
 						? [
 								{
@@ -2016,7 +2019,7 @@ if (process.argv[2] === "stats") {
 								},
 							]
 						: []
-					: [{ provider: "fixture", fetchedAt: Date.now(), limits: [], resetAt: usageLimitResetAt }],
+					: [{ provider: "fixture", fetchedAt: Date.now(), limits: [], resetAt: usageLimitResetAt }]),
 			session: {
 				input: 0,
 				output: 0,
@@ -4497,6 +4500,41 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				// The work board's showcase: a running turn with a few steps, agents on named models, a todo list
 				// part done, a goal with a budget and a question waiting on the user. `fixture:board-end` ends the
 				// turn (the board then sums it up).
+				if (line.startsWith("fixture:usage-accounts:")) {
+					const count = Number(line.slice("fixture:usage-accounts:".length));
+					const kinds = [
+						["anthropic", "work@example.com", false],
+						["fixture", "me@example.com (me…)", true],
+						["openai-codex", "codex@example.com", false],
+						["anthropic", "side@example.com", false],
+						["openai-codex", "extra@example.com", false],
+					] as const;
+					usageAccounts = kinds.slice(0, count).map(([provider, account, active], index) => ({
+						provider,
+						fetchedAt: Date.now(),
+						account,
+						credentialId: index + 1,
+						active,
+						limits: [
+							{
+								id: `${provider}:5h`,
+								label: "5 hour",
+								windowId: "5h",
+								usedFraction: 0.15 + index * 0.2,
+								resetsAt: Date.now() + 3 * 3_600_000,
+							},
+							{
+								id: `${provider}:7d`,
+								label: "7 day",
+								windowId: "7d",
+								usedFraction: 0.39 + index * 0.2,
+								resetsAt: Date.now() + 4 * 86_400_000,
+							},
+						],
+					}));
+					ok();
+					break;
+				}
 				if (line === "fixture:board-end") {
 					write({ type: "agent_end", messages: [] });
 					ok();

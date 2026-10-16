@@ -70,6 +70,24 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 }
 
 /**
+ * Open a sidebar destination page. The footer's Agents and Stats entries are off by default, so without them the
+ * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats.
+ */
+export async function openDestination(
+	page: Page,
+	destination: "agents" | "insights" | "settings",
+	paletteQuery = "stats",
+): Promise<void> {
+	const button = page.locator(`[data-sidebar-destinations] button[data-destination="${destination}"]`);
+	if (await button.isVisible()) return button.click();
+	const target = page.locator(`section[data-destination="${destination}"]`);
+	if (destination === "agents") return pressShortcutUntilVisible(page, "Alt+KeyA", target);
+	await page.keyboard.press("ControlOrMeta+k");
+	await page.keyboard.type(paletteQuery);
+	await page.keyboard.press("Enter");
+}
+
+/**
  * Walk a paired host's folder picker to `folder`: up to its root, then down one
  * level at a time. Each level is found by name through the filter, since the
  * host lists a bounded number of folders per level and a crowded temp folder

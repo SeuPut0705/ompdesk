@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
-import { railLimits } from "./SidebarUsage";
+import { usageLines } from "./SidebarUsage";
 
 const limit = (id: string, usedFraction: number | undefined, windowId?: string): UsageLimit => ({
 	id,
@@ -9,45 +9,43 @@ const limit = (id: string, usedFraction: number | undefined, windowId?: string):
 	windowId,
 });
 
-const report = (provider: string, limits: UsageLimit[], active?: boolean): UsageReport => ({
+const report = (provider: string, account: string, limits: UsageLimit[], active?: boolean): UsageReport => ({
 	provider,
+	account,
 	fetchedAt: 0,
 	limits,
 	active,
 });
 
-describe("railLimits", () => {
-	it("takes the 5-hour and weekly windows of the account in use for the tab's provider", () => {
+const five = (provider: string) => [limit(`${provider}:5h`, 0.15, "5h"), limit(`${provider}:7d`, 0.39, "7d")];
+
+describe("usageLines", () => {
+	it("lists one line per account with usage windows, by company then account, API keys left out", () => {
 		const reports = [
-			report("openai", [limit("openai:5h", 0.9, "5h")]),
-			report("anthropic", [limit("anthropic:5h", 0.1, "5h"), limit("anthropic:7d", 0.2, "7d")]),
-			report(
-				"anthropic",
-				[
-					limit("anthropic:7d:opus", 0.95, "7d"),
-					limit("anthropic:7d", 0.6, "7d"),
-					limit("anthropic:5h", 0.4, "5h"),
-				],
-				true,
-			),
+			report("openai-codex", "z@x.com", five("openai-codex")),
+			report("anthropic", "b@x.com", five("anthropic")),
+			report("openrouter", "key", []),
+			report("anthropic", "a@x.com", five("anthropic")),
+			report("zai", "calls", [limit("zai:calls", undefined)]),
 		];
-		expect(railLimits(reports, "anthropic").map(entry => [entry.id, entry.usedFraction])).toEqual([
-			["anthropic:5h", 0.4],
-			["anthropic:7d", 0.6],
+		expect(usageLines(reports, "anthropic").map(line => line.report.account)).toEqual([
+			"a@x.com",
+			"b@x.com",
+			"z@x.com",
 		]);
 	});
 
-	it("falls back to the two fullest measured limits, and to nothing for another provider", () => {
+	it("marks the account this tab uses, the active one of its provider", () => {
 		const reports = [
-			report("zai", [
-				limit("zai:tokens", 0.3, "monthly"),
-				limit("zai:calls", 0.8, "daily"),
-				limit("zai:unknown", undefined),
-				limit("zai:mcp", 0.5, "monthly"),
-			]),
+			report("anthropic", "a@x.com", five("anthropic")),
+			report("anthropic", "b@x.com", five("anthropic"), true),
+			report("openai-codex", "c@x.com", five("openai-codex")),
 		];
-		expect(railLimits(reports, "zai").map(entry => entry.id)).toEqual(["zai:calls", "zai:mcp"]);
-		expect(railLimits(reports, "anthropic")).toEqual([]);
-		expect(railLimits(reports, null)).toEqual([]);
+		expect(usageLines(reports, "anthropic").map(line => [line.report.account, line.inUse])).toEqual([
+			["a@x.com", false],
+			["b@x.com", true],
+			["c@x.com", false],
+		]);
+		expect(usageLines(reports, null).every(line => !line.inUse)).toBe(true);
 	});
 });

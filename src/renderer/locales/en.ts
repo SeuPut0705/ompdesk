@@ -585,7 +585,7 @@ export const en: Record<string, string> = {
 	"sidebar.groupMenu": "Project actions",
 	"sidebar.pinFailed": "Couldn't save the pinned list",
 	"sidebar.pin.usage": "Usage limits",
-	"sidebar.pin.usageNone": "No usage limits for this provider",
+	"sidebar.pin.usageMore": "+{count} more",
 	"sidebar.pinned": "Pinned",
 	"sidebar.pinSyncFailed": "Pinned in OMPdesk, but couldn't sync omp's resume list.",
 	"sidebar.kindMismatch": "Agent and chat sessions can't be switched in place. Open the session in a new tab instead.",

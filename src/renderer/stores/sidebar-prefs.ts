@@ -32,14 +32,26 @@ interface SidebarPrefsBlob {
 /**
  * What the sidebar footer can hold above its destinations (mixdog's activity-rail
  * pins): usage bars for the tab's provider, side panel views, and Schedules.
- * None by default; Settings › General › Sidebar shortcuts picks them.
+ * The footer's Agents and Stats entries are pins too (off by default; the palette, the menu and ⌥A reach them). Only usage is on until the user chooses; Settings › General › Sidebar shortcuts picks them.
  */
-export const RAIL_PINS = ["usage", "terminal", "diff", "preview", "files", "jobs", "schedules"] as const;
+export const RAIL_PINS = [
+	"usage",
+	"agents",
+	"stats",
+	"terminal",
+	"diff",
+	"preview",
+	"files",
+	"jobs",
+	"schedules",
+] as const;
 export type RailPin = (typeof RAIL_PINS)[number];
 
 /** Each pin's name, shared by its sidebar row and its Settings switch. */
 export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
 	usage: "sidebar.pin.usage",
+	agents: "destination.agents",
+	stats: "destination.insights",
 	terminal: "panel.tabs.terminal",
 	diff: "panel.tabs.diff",
 	preview: "panel.tabs.preview",
@@ -48,7 +60,12 @@ export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
 	schedules: "settings.section.schedules",
 };
 
+/** Pins on until the user chooses: only the usage block, and only while no choice is saved. */
+const DEFAULT_RAIL_PINS: readonly RailPin[] = ["usage"];
+
 function validRailPins(value: unknown): RailPin[] {
+	// An absent entry is "not chosen yet"; any saved array, empty included, is the user's choice.
+	if (value === undefined) return [...DEFAULT_RAIL_PINS];
 	if (!Array.isArray(value)) return [];
 	return RAIL_PINS.filter(pin => value.includes(pin));
 }
@@ -201,7 +218,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		groupOrder: [],
 		archivedSessions: [],
 		grouping: "projects",
-		railPins: [],
+		railPins: [...DEFAULT_RAIL_PINS],
 		hydrated: false,
 
 		hydrate: () => load(PREFS_BOOT_RETRY_MS),
@@ -264,7 +281,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				groupOrder: [],
 				archivedSessions: [],
 				grouping: "projects",
-				railPins: [],
+				railPins: [...DEFAULT_RAIL_PINS],
 				hydrated: false,
 			}),
 	};

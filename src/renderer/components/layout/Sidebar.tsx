@@ -203,7 +203,7 @@ function showPanelView(tab: PanelTab): void {
 }
 
 /** Footer shortcuts the user pins in Settings › General (usage renders as bars, the rest as rows). */
-const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage">, { icon: typeof Bot; open: () => void }> = {
+const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { icon: typeof Bot; open: () => void }> = {
 	terminal: { icon: RAIL_PIN_ICONS.terminal, open: () => showPanelView("terminal") },
 	diff: { icon: RAIL_PIN_ICONS.diff, open: () => showPanelView("diff") },
 	preview: { icon: RAIL_PIN_ICONS.preview, open: () => showPanelView("preview") },
@@ -294,7 +294,7 @@ function SortableProject({
 	);
 }
 
-/** Footer: Agents · Stats · Settings, with the help menu closing the Settings row. */
+/** Footer: Agents · Stats (each shown only while pinned) · Settings, with the help menu closing the Settings row. */
 function SidebarFooter() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
@@ -321,6 +321,8 @@ function SidebarFooter() {
 		>
 			{railPins.map(pin => {
 				if (pin === "usage") return <SidebarUsage key={pin} />;
+				// Agents and Stats are the destination rows below, shown only while pinned.
+				if (pin === "agents" || pin === "stats") return null;
 				const { icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
 				return (
 					<Button
@@ -335,7 +337,9 @@ function SidebarFooter() {
 					</Button>
 				);
 			})}
-			{DESTINATIONS.map(({ id, labelKey, icon: Icon }) => {
+			{DESTINATIONS.filter(
+				({ id }) => id === "settings" || railPins.includes(id === "agents" ? "agents" : "stats"),
+			).map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
 				const row = (
