@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Page } from "playwright";
+import type { ElectronApplication, Page } from "playwright";
 import type { MessagesPage } from "../src/shared/rpc-types";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -23,20 +23,15 @@ test.beforeEach(async () => {
 		JSON.stringify({ language: "en", firstRunComplete: true, transcriptDetail: "full" }),
 	);
 	record = path.join(profile, "rpc.jsonl");
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_TEST_LONG_SESSION: "1",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_LONG_SESSION: "1",
+		},
 	});
 	page = await app.firstWindow();
 	errors = [];

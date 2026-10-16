@@ -2,9 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
 import { writeViewerSamples } from "./file-viewer-fixtures";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 // The Files drawer viewer in the built app on the fake omp: the pdf.js worker
 // loads under the CSP and paints a page, images, tables, highlighted code,
@@ -19,18 +18,11 @@ test("file viewer renders pdf, image, csv, code, office and binary files", async
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	await writeViewerSamples(project);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
 	});
 	try {
 		const page = await app.firstWindow();

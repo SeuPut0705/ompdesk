@@ -9,8 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 test("a work run whose frames arrive late and twice ends without phantom or duplicate steps", async () => {
 	test.setTimeout(120_000);
@@ -20,20 +19,15 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_REPLAY_FRAMES: "1",
-		OMP_GUI_TEST_BATCH_INTERVAL_MS: "400",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_REPLAY_FRAMES: "1",
+			OMP_GUI_TEST_BATCH_INTERVAL_MS: "400",
+		},
 	});
 	try {
 		const page = await app.firstWindow();

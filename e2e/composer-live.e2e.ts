@@ -9,8 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -34,18 +33,11 @@ async function launch(language: Language, theme: Theme) {
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true, workBoard: false }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1100, 800));
@@ -162,8 +154,12 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.getByRole("button", { name: text.send })).toBeVisible();
 				const turnOpacity = 0.9;
 				expect(Number(await live.evaluate(element => getComputedStyle(element).opacity))).toBeLessThan(turnOpacity);
-				await page.getByRole("button", { name: text.send }).hover();
-				await expect(page.getByRole("tooltip")).toContainText(text.hint);
+				// Re-hover until the tooltip shows: under load the Send button can re-render under a single hover.
+				await expect(async () => {
+					await page.mouse.move(5, 5);
+					await page.getByRole("button", { name: text.send }).hover();
+					await expect(page.getByRole("tooltip")).toContainText(text.hint, { timeout: 2000 });
+				}).toPass({ timeout: 15_000 });
 				await page.waitForTimeout(250);
 				await capture("background-hint", 90, true);
 				await page.mouse.move(5, 5);

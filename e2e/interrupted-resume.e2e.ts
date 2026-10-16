@@ -16,7 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { capture, exitApp, fixtureOmp } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -85,10 +85,6 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	return { app, page };
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 interface MarkerFile {

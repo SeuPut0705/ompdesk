@@ -2,8 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 // A profile from before stock-backed history still holds `inputHistory` in
 // prefs.json. The first ready tab moves it into stock history and clears the
@@ -31,18 +30,11 @@ test("legacy prompt history migrates once and is recalled with ↑", async () =>
 			],
 		}),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
 	});
 	try {
 		const page = await app.firstWindow();

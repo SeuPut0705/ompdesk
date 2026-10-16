@@ -9,8 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -44,20 +43,15 @@ async function launch(language: Language, theme: Theme, size: { width: number; h
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_LOGIN: "1",
-		OMP_GUI_TEST_MODELS: "1",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_LOGIN: "1",
+			OMP_GUI_TEST_MODELS: "1",
+		},
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(
