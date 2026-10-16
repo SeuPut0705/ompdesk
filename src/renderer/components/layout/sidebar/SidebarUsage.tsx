@@ -16,7 +16,7 @@ import { useModelStore } from "../../../stores/model";
 import { useUiStore } from "../../../stores/ui";
 import { UsageGauges, usageDescription, usageTooltip } from "../../common/UsageGauges";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
-import { shortAccountLabel } from "../AccountLimit";
+import { bareEmail, shortAccountLabel } from "../AccountLimit";
 
 /** Providers the block stacks before "+N" takes the rest to Settings. */
 export const USAGE_LINE_CAP = 4;
@@ -42,7 +42,7 @@ export function SidebarUsage() {
 						key={report.provider}
 						aria-label={usageDescription(report, label, t)}
 						onClick={() => useUiStore.getState().openProviders()}
-						title={`${usageTooltip(report, label, t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
+						title={`${usageTooltip(report, bareEmail(label), t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
 						type="button"
 					>
 						<ProviderMark provider={{ id: report.provider, name: report.provider }} />

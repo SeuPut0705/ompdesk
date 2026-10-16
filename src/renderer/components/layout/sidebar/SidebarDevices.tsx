@@ -39,8 +39,9 @@ const DOT_CLASS: Record<HostView["state"], string> = {
 	offline: "bg-(--sc-text-subtle)",
 };
 
-function modifiedAt(session: SessionInfo): number {
-	const time = Date.parse(session.modified);
+/** Stock's `created`: a session's order must not move while a turn rewrites its file. */
+function createdAt(session: SessionInfo): number {
+	const time = Date.parse(session.created);
 	return Number.isNaN(time) ? 0 : time;
 }
 
@@ -199,7 +200,7 @@ function DeviceSessions({
 					sessionDisplayTitle(session, "").toLocaleLowerCase().includes(needle) ||
 					session.cwd.toLocaleLowerCase().includes(needle),
 			)
-			.toSorted((a, b) => modifiedAt(b) - modifiedAt(a));
+			.toSorted((a, b) => createdAt(b) - createdAt(a));
 	}, [sessions, hostTabs, host.deviceId, mode, query]);
 
 	const groups = useMemo(() => {

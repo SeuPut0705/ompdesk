@@ -64,7 +64,7 @@ import type { SessionInfo } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
-import { dropSessionNow, requestSessionSwitch } from "../../../hooks/use-session-switch";
+import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, copyText, cx, formatTimeAgo } from "../../../lib/format";
@@ -151,8 +151,9 @@ const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 420;
 const SIDEBAR_DEFAULT = 248;
 
-function modifiedAt(session: SessionInfo): number {
-	const timestamp = Date.parse(session.modified);
+/** Stock's own `created` (the session header's timestamp): fixed for a session's life, unlike `modified`. */
+function createdAt(session: SessionInfo): number {
+	const timestamp = Date.parse(session.created);
 	return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
@@ -534,19 +535,20 @@ export function Sidebar() {
 			session.cwd.toLocaleLowerCase().includes(query),
 		[query],
 	);
-	// Sessions sort by their last real activity (the transcript file's mtime),
-	// never by when they were last clicked, so opening a row keeps its place.
+	// Sessions sort by when they were created, newest first (stock's `created`), never by activity: a streaming
+	// turn rewrites the transcript, so its mtime would move rows while the user watches. Pinned ones come first;
+	// equal times break by path so the order never flickers.
 	const byPinThenRecency = useCallback(
 		(a: SessionInfo, b: SessionInfo) => {
 			const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
 			const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
 			if (aPinned !== bPinned) return aPinned - bPinned;
-			return modifiedAt(b) - modifiedAt(a);
+			return createdAt(b) - createdAt(a) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 		},
 		[pinnedSessions],
 	);
 	// Stock can write a session file before its first message (a header and
-	// settings entries, e.g. the replacement `drop_session` starts). Such a file
+	// settings entries, e.g. the one stock `new_session` writes at once). Such a file
 	// is not a conversation yet: an open tab that owns it keeps its live "new
 	// session" row (not deletable), and an orphaned one is not listed at all —
 	// otherwise deleting the last chat leaves an "Untitled" row whose deletion
@@ -577,13 +579,16 @@ export function Sidebar() {
 	);
 	// Every open tab keeps a row even before the index lists its session (a
 	// brand-new session has no file yet): synthesize it from the tab and, for
-	// the focused tab, the attached session's live identity.
+	// the focused tab, the attached session's live identity. The empty start
+	// tab (`placeholder`: startup, or what a deleted session's last tab gives
+	// way to) is no session until its first run, so it has no row until then.
 	const liveSessions = useMemo<SidebarSession[]>(() => {
 		const listedIds = new Set(listedSessions.map(session => session.id));
 		const listedPaths = new Set(listedSessions.map(session => session.path));
 		const now = new Date().toISOString();
 		const rows: SidebarSession[] = [];
 		for (const tab of localTabs) {
+			if (tab.placeholder === true) continue;
 			const focused = tab.id === activeTabId;
 			const id = (focused ? sessionId : "") || tab.sessionId || "";
 			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";
@@ -643,7 +648,7 @@ export function Sidebar() {
 		return orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
-			recency: group => Math.max(...group.sessions.map(modifiedAt)),
+			recency: group => Math.max(...group.sessions.map(createdAt)),
 		});
 	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency]);
 	const groups = useMemo(
@@ -677,7 +682,7 @@ export function Sidebar() {
 					(mode === "chat"),
 		)
 		.filter(matchesFilter)
-		.toSorted((a, b) => modifiedAt(b) - modifiedAt(a));
+		.toSorted((a, b) => createdAt(b) - createdAt(a));
 	const totalCount =
 		mode === "chat" ? chatLaneSessions.length : grouping === "recent" ? recentCodeSessions.length : groups.length;
 	// An empty lane must not read as "no sessions at all" while the other lane
@@ -918,15 +923,16 @@ export function Sidebar() {
 		const leaving = `session:${session.path}`;
 		const index = items.findIndex(item => item.dataset.rovingItem === leaving);
 		const neighbor = index === -1 ? undefined : (items[index + 1] ?? items[index - 1])?.dataset.rovingItem;
-		const deletedTabId = tabForSession(session)?.id;
 		try {
-			if (session.id === sessionId) {
-				await dropSessionNow();
-			} else {
-				await deleteSession(session.path);
+			// The tab showing the session closes as closing a tab does (the window's last tab gives way to the
+			// empty start tab); no session replaces it. A tab whose unsaved Files edits ask first stays, and the
+			// session with it.
+			if (!(await useTabsStore.getState().closeDeletedSession(session.path, tabForSession(session)?.id))) {
+				setPendingDelete(null);
+				return;
 			}
-			// The session is gone: it leaves its split (a split left with one session dissolves).
-			if (deletedTabId) await useTabsStore.getState().leaveSplit(deletedTabId);
+			// Main waits for that tab's omp to exit, then deletes the stored file (session-mutations.ts).
+			await deleteSession(session.path);
 			if (neighbor) refocusRow.current = { key: neighbor, leaving };
 			setPendingDelete(null);
 		} catch (error) {
@@ -948,26 +954,29 @@ export function Sidebar() {
 			// project) in the list, and closing it releases its session file.
 			const paths = new Set(group.sessions.map(session => session.path));
 			const ids = new Set(group.sessions.map(session => session.id));
-			const tabsStore = useTabsStore.getState();
-			const projectTabs = tabsStore.tabs.filter(
-				tab =>
-					tab.kind !== "chat" &&
-					tab.device === undefined &&
-					(tab.cwd === group.cwd ||
-						(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
-						(tab.sessionId !== undefined && ids.has(tab.sessionId))),
-			);
-			// The window keeps at least one tab: give it a home outside this project.
-			if (projectTabs.length > 0 && projectTabs.length === tabsStore.tabs.length) {
-				const fallback = allGroups.find(item => item.cwd !== group.cwd)?.cwd;
-				if (!(await tabsStore.openTab(fallback ? { cwd: fallback } : { work: true }))) return;
-			}
+			const projectTabs = useTabsStore
+				.getState()
+				.tabs.filter(
+					tab =>
+						tab.kind !== "chat" &&
+						tab.device === undefined &&
+						(tab.cwd === group.cwd ||
+							(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
+							(tab.sessionId !== undefined && ids.has(tab.sessionId))),
+				);
+			// Each closes as a deleted session's tab does: the window's last one gives way to the empty start
+			// tab, never to a new session somewhere else.
 			for (const tab of projectTabs) {
 				// eslint-disable-next-line no-await-in-loop -- each close switches the active tab
-				await useTabsStore.getState().closeTab(tab.id);
+				if (!(await useTabsStore.getState().closeDeletedSession(tab.sessionPath ?? "", tab.id))) {
+					setPendingDelete(null);
+					return;
+				}
 			}
 			// Then delete every session file in the project. Live-only rows have no file.
 			for (const session of group.sessions.filter(entry => entry.liveTabId === undefined)) {
+				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
+				await useTabsStore.getState().closeDeletedSession(session.path, undefined);
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
 				await deleteSession(session.path);
 			}
@@ -984,6 +993,8 @@ export function Sidebar() {
 		const deleted: string[] = [];
 		try {
 			for (const session of rows) {
+				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
+				await useTabsStore.getState().closeDeletedSession(session.path, undefined);
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
 				await deleteSession(session.path);
 				deleted.push(session.id);

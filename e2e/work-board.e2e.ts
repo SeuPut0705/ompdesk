@@ -429,7 +429,7 @@ for (const language of ["en", "ko"] as const)
 					).toEqual({ shadow: "none", width: "2px", content: '""' });
 					await expect(lines.first()).toHaveAttribute(
 						"title",
-						/me@example\.com[^\n]*\n5H 15% · ↻ (2h \d+m|3h)\n7D 39% · ↻ 3d 23h/,
+						/^me@example\.com\n5H 15% · ↻ (2h \d+m|3h)\n7D 39% · ↻ 3d 23h/,
 					);
 					if (captures && count === 3)
 						await fs.writeFile(

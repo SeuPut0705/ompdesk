@@ -82,7 +82,7 @@ describe("stock helper first-prompt fill", () => {
 		await expect(fs.access(marker)).rejects.toThrow();
 	});
 
-	it("returns stock's rows unchanged and logs once when the fill's modules cannot load", async () => {
+	it("blanks stock's placeholder and logs once when the fill's modules cannot load", async () => {
 		const rows = [
 			{ path: "/s/hidden.jsonl", firstMessage: "(no messages)" },
 			{ path: "/s/plain.jsonl", firstMessage: "hello" },
@@ -94,7 +94,7 @@ describe("stock helper first-prompt fill", () => {
 			expect(reply).not.toHaveProperty("error");
 			expect(reply).toMatchObject({
 				id,
-				result: [{ firstMessage: "(no messages)" }, { firstMessage: "hello" }],
+				result: [{ firstMessage: "" }, { firstMessage: "hello" }],
 			});
 		}
 		await expect.poll(() => stderr().match(/first-prompt fill unavailable/g)?.length).toBe(1);

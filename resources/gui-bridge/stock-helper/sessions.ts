@@ -188,6 +188,12 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 	return rows;
 }
 
+/** The placeholder never crosses the wire: a row whose prompt could not be read has no first message. */
+function withoutPlaceholder(rows: StockSessionInfo[]): StockSessionInfo[] {
+	for (const row of rows) if (row.firstMessage === NO_MESSAGES) row.firstMessage = "";
+	return rows;
+}
+
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"sessions.list": async params => {
 		const { sessionsRoot } = paths(params);
@@ -195,19 +201,26 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		const rows = await withFirstPrompts(await listing.listAllSessions(storage, sessionsRoot));
 		const listed = new Set(rows.map(row => row.path));
 		for (const path of firstPrompts.keys()) if (!listed.has(path)) firstPrompts.delete(path);
-		return rows;
+		return withoutPlaceholder(rows);
 	},
 	"sessions.list_directory": async params => {
 		const { sessionPath } = paths(params);
 		if (!sessionPath) throw new Error("Invalid session path");
 		const { listing, storage } = await stockSessions();
-		return withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage));
+		return withoutPlaceholder(
+			await withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage)),
+		);
 	},
+	/** Stock `deleteSessionWithArtifacts`; like stock's own `dropSession`, a file already gone (a tab's session never written) counts as deleted. */
 	"sessions.delete": async params => {
 		const { sessionPath } = paths(params);
 		if (!sessionPath) throw new Error("Invalid session path");
 		const { storage } = await stockSessions();
-		await storage.deleteSessionWithArtifacts(sessionPath);
+		try {
+			await storage.deleteSessionWithArtifacts(sessionPath);
+		} catch (error) {
+			if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+		}
 		return null;
 	},
 	/**

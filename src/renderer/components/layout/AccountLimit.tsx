@@ -52,7 +52,7 @@ export function AccountLimit() {
 						key={report.provider}
 						aria-label={usageDescription(report, fullLabel, t)}
 						onClick={() => useUiStore.getState().openProviders()}
-						title={`${usageTooltip(report, fullLabel, t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
+						title={`${usageTooltip(report, bareEmail(fullLabel), t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
 						type="button"
 					>
 						<span className="omp-work-board-account-name">

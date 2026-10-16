@@ -263,9 +263,18 @@ afterEach(async () => {
 });
 
 const LIST = [
-	session("/work/alpha/one.jsonl", "/work/alpha", { modified: "2026-01-02T00:00:00Z" }),
-	session("/work/alpha/two.jsonl", "/work/alpha", { modified: "2026-01-01T00:00:00Z" }),
-	session("/work/beta/three.jsonl", "/work/beta", { modified: "2026-01-03T00:00:00Z" }),
+	session("/work/alpha/one.jsonl", "/work/alpha", {
+		created: "2026-01-02T00:00:00Z",
+		modified: "2026-01-02T00:00:00Z",
+	}),
+	session("/work/alpha/two.jsonl", "/work/alpha", {
+		created: "2026-01-01T00:00:00Z",
+		modified: "2026-01-01T00:00:00Z",
+	}),
+	session("/work/beta/three.jsonl", "/work/beta", {
+		created: "2026-01-03T00:00:00Z",
+		modified: "2026-01-03T00:00:00Z",
+	}),
 ];
 
 function seedStores(): void {
@@ -492,6 +501,27 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(workspaceOrder()).toEqual(["/work/beta", "/work/alpha"]);
 		expect(alphaSessionOrder()[0]).toContain("Session /work/alpha/one");
 		expect(alphaSessionOrder()[1]).toContain("Session /work/alpha/two");
+	});
+
+	it("orders sessions by creation, not by the activity that rewrites their file", async () => {
+		// two.jsonl was created earlier but streamed last: its modified time is the newest.
+		installMockOmp([
+			session("/work/alpha/one.jsonl", "/work/alpha", {
+				created: "2026-01-02T00:00:00Z",
+				modified: "2026-01-02T00:00:00Z",
+			}),
+			session("/work/alpha/two.jsonl", "/work/alpha", {
+				created: "2026-01-01T00:00:00Z",
+				modified: "2026-02-01T00:00:00Z",
+			}),
+		]);
+		seedStores();
+		await mount(<Sidebar />);
+		const rows = [...container.querySelectorAll('[data-session-group="/work/alpha"] .omp-sidebar-session-row')]
+			.map(element => element.textContent ?? "")
+			.filter(text => text.includes("Session /work/alpha/"));
+		expect(rows[0]).toContain("Session /work/alpha/one");
+		expect(rows[1]).toContain("Session /work/alpha/two");
 	});
 
 	it("an active chat opens the Chat lane, whose New button starts a chat; Code starts agents", async () => {
@@ -1003,7 +1033,7 @@ describe("Sidebar menus and pinned ordering", () => {
 	});
 
 	it("a session file stock wrote before the first message is a new chat, not a deletable Untitled row", async () => {
-		// drop_session's replacement: stock wrote its header, no message and no title yet.
+		// A session stock `new_session` started: stock wrote its header, no message and no title yet.
 		const empty = { id: "fresh", messageCount: 0, firstMessage: "", title: null, kind: "chat" as const };
 		const owned = session("/work/alpha/fresh.jsonl", "/work/alpha", empty);
 		const orphan = session("/work/alpha/orphan.jsonl", "/work/alpha", { ...empty, id: "orphan" });
@@ -1166,6 +1196,51 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 	});
 
+	it("deleting the session the window's only tab shows closes that tab for the empty start tab, which has no row", async () => {
+		const omp = installMockOmp(LIST);
+		const deleted = new Set<string>();
+		omp.sessions.delete.mockImplementation(async (path: string) => {
+			deleted.add(path);
+		});
+		omp.sessions.list.mockImplementation(async () => LIST.filter(entry => !deleted.has(entry.path)));
+		useSessionStore.setState({ sessionFile: "/work/alpha/one.jsonl", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "t0",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/one.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+
+		await fire(rowFor("Session /work/alpha/one").querySelector('[aria-label="Delete session"]') as Element, "onClick");
+		await fire(
+			[...document.body.querySelectorAll('[role="dialog"] button')].find(
+				b => (b.textContent ?? "").trim() === "Delete",
+			) as unknown as Element,
+			"onClick",
+		);
+		// The tab closes first (its omp gives the file up), then the file goes; no session replaces it.
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ defaultWorkspace: true, placeholder: true }));
+		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
+		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
+		expect(omp.tabs.close.mock.invocationCallOrder[0]).toBeLessThan(
+			omp.sessions.delete.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(useTabsStore.getState().tabs).toEqual([expect.objectContaining({ id: "t-new", placeholder: true })]);
+		await flush();
+		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows.some(text => text.includes("New session"))).toBe(false);
+		expect(rows.some(text => text.includes("/work/alpha/one"))).toBe(false);
+	});
+
 	it("closes the project's tabs and deletes its sessions so the project leaves the list", async () => {
 		const omp = installMockOmp(LIST);
 		const deleted = new Set<string>();
@@ -1198,9 +1273,9 @@ describe("Sidebar menus and pinned ordering", () => {
 			"/work/alpha/one.jsonl",
 			"/work/alpha/two.jsonl",
 		]);
-		// t0 was the window's only tab and sat in alpha: a tab opens in the next
-		// project before t0 closes, so no live row keeps alpha in the list.
-		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/work/beta" }));
+		// t0 was the window's only tab and sat in alpha: the empty start tab opens before t0 closes (no
+		// new session in another project), so no live row keeps alpha in the list.
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ defaultWorkspace: true, placeholder: true }));
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
 		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
