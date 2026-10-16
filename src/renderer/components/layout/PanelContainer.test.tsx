@@ -3,7 +3,7 @@
  * the same in an agent and a chat tab (a chat is a full agent outside any
  * project). Todo/plan/agents cards stay in the center dock. Docked width
  * defaults into the spec's 360–460px range and stays resizable.
- * Same linkedom + react-dom harness as mode-visibility.test.tsx.
+ * Same linkedom + react-dom harness as composer/ComposerModes.chip.test.tsx.
  */
 
 import { parseHTML } from "linkedom";

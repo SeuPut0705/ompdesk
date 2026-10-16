@@ -8,14 +8,14 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode, useEffect } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider } from "../../../lib/i18n";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
 // React DOM must initialize only after the linkedom browser globals exist.
 const { createRoot } = await import("react-dom/client");
-const { WorkCrossfade } = await import("./work/WorkCrossfade");
-const { BashRenderer } = await import("../tools/renderers/BashRenderer");
+const { WorkCrossfade } = await import("./WorkCrossfade");
+const { BashRenderer } = await import("../../tools/renderers/BashRenderer");
 
 let root: Root;
 let container: HTMLElement;
@@ -108,7 +108,7 @@ describe("live terminal lines", () => {
 	});
 
 	it("animates arrived lines only, and reduced motion still stops them", () => {
-		const css = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
+		const css = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
 		const arrival = /\n([^\n{}]*)\{\s*animation: omp-work-arrival/.exec(css)?.[1]?.trim();
 		expect(arrival).toBe(".omp-work-motion .omp-bash-line:where([data-arrived])");
 		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)", css.indexOf(arrival ?? "")));

@@ -63,7 +63,7 @@ describe("live tool screens", () => {
 		expect(container.querySelector(".omp-bash-line")?.textContent).toContain("failed");
 	});
 	it("shows a live command that printed nothing as its command line alone, never an empty viewport", async () => {
-		// The stage keeps its fixed height and centres this line (WorkCard.test "silent command").
+		// The stage keeps its fixed height and centres this line (LiveStepPeek.card.test "silent command").
 		await mount(<BashRenderer livePreview isPartial args={{ command: "long-job" }} result={undefined} />);
 		expect(container.querySelector(".omp-bash-live")?.getAttribute("data-silent")).toBe("true");
 		expect(container.querySelector(".omp-bash-live > div:nth-child(2)")).toBeNull();

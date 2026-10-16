@@ -119,7 +119,7 @@ describe("work card on a narrow window (#21)", () => {
 			"grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 50%), 1fr) minmax(0, max-content)",
 		);
 		expect(rule(stylesheet, ".omp-work-head-side")).toContain("min-width: 0");
-		// The summary line drops whole parts instead of ellipsizing each (WorkCycle.test.tsx).
+		// The summary line drops whole parts instead of ellipsizing each (ExecutionGroup.summary-and-notes.test.tsx).
 		const summary = rule(stylesheet, ".omp-summary-line");
 		expect(summary).toContain("min-width: 0");
 		expect(summary).toContain("overflow: hidden");
