@@ -87,9 +87,11 @@ export type RpcCommand =
 	| { id?: string; type: "set_session_name"; name: string; sessionPath?: string }
 	// The editor's auto button: stock's `/rename` without a title on the live session; gui-bridge modes/auto-title.ts
 	| { id?: string; type: "regenerate_session_title" }
-	// The automatic Plan/Goal choice before a typed prompt, and the chip's undo; gui-bridge modes/auto-mode.ts
+	// The automatic Plan/Goal choice before a typed prompt, the chip's undo, and the end of the request it was used
+	// for; gui-bridge modes/auto-mode.ts
 	| { id?: string; type: "auto_mode_decide"; message: string; loop?: boolean }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
+	| { id?: string; type: "auto_mode_end"; mode: "plan" | "goal" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }

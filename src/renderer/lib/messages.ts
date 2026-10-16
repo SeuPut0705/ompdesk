@@ -14,6 +14,7 @@ import { type SessionStore, useSessionStore } from "../stores/session";
 import { focusedRuntimeTabId, sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
+import { endAutoGoal } from "./auto-mode-client";
 import { translate } from "./i18n";
 import type { TabRpc } from "./tab-rpc";
 
@@ -290,10 +291,12 @@ export async function runManualMaintenance(
  * runs afterwards, and it comes back into this tab's composer. Any live retry
  * UI retires synchronously first. A manual /compact or handoff is cancelled
  * through `abort_maintenance` instead: stock's serial queue would hold a plain
- * abort until it finished on its own.
+ * abort until it finished on its own. A goal the automatic choice started ends
+ * with the stopped turn (lib/auto-mode-client.ts).
  */
 export async function abortActiveTurn(
-	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry" | "abortMaintenance"> = window.omp.rpc,
+	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry" | "abortMaintenance"> &
+		Partial<Pick<TabRpc, "autoModeEnd">> = window.omp.rpc,
 	tabId?: string | null,
 ): Promise<RpcResponse> {
 	// Bind the composer before any await: the user may switch tabs meanwhile.
@@ -318,6 +321,8 @@ export async function abortActiveTurn(
 	}
 	const response = await rpc.abortAndRestoreQueue();
 	if (response.success && isRestoreResult(response.data)) restoreAbortedQueue(composer, response.data);
+	// A goal the automatic choice started for one request ends when the user stops it.
+	if (response.success && rpc.autoModeEnd) await endAutoGoal(session, { autoModeEnd: rpc.autoModeEnd });
 	return response;
 }
 

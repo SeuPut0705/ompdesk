@@ -319,6 +319,10 @@ export function runRpcUi(): void {
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
+	/** Plan mode is on for one request (`set_plan_mode {auto}`): a plain rejection of its plan ends it. */
+	let autoPlan = false;
+	/** When the last turn ended: a session that ran one within the idle window is busy for the automatic choice. */
+	let lastActivityAt: number | undefined;
 	let ratchetEnabled = false;
 	const ratchetMissing = (): string[] => {
 		const parsed: { missing?: string[] } = JSON.parse(process.env.OMP_GUI_TEST_RATCHET ?? "{}");
@@ -565,6 +569,7 @@ export function runRpcUi(): void {
 		noteTitleTurn();
 		scheduleRecap();
 		scheduleNextPrompt("turn");
+		lastActivityAt = Date.now();
 	};
 	/**
 	 * Stock's goal continuation (rpc-goal.ts `#scheduleContinuation`): `goal create` on an idle session starts the goal's
@@ -1819,6 +1824,8 @@ export function runRpcUi(): void {
 		},
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;
+			// `auto`: plan mode for one request (the bridge's auto-mode-state); the user's own switch takes it over.
+			autoPlan = planModeEnabled && params.auto === true;
 			if (!planModeEnabled) planProposal = undefined;
 			return { enabled: planModeEnabled };
 		},
@@ -1827,7 +1834,17 @@ export function runRpcUi(): void {
 		"modes.plan_approval": params => {
 			if (!planProposal) throw new Error("No plan is awaiting approval");
 			planProposal = undefined;
-			if (params.approved !== true) return { approved: false, dispatched: false, reason: "rejected" };
+			if (params.approved !== true) {
+				// Feedback re-plans; a plain rejection ends a plan the automatic choice used for one request (plan.ts).
+				if (typeof params.feedback === "string" && params.feedback.trim()) {
+					return { approved: false, dispatched: true };
+				}
+				if (!autoPlan) return { approved: false, dispatched: false, reason: "rejected" };
+				planModeEnabled = false;
+				autoPlan = false;
+				return { approved: false, dispatched: false, reason: "rejected", planModeEnabled: false };
+			}
+			autoPlan = false;
 			planModeEnabled = false;
 			setTimeout(() => {
 				isStreaming = true;
@@ -1846,12 +1863,18 @@ export function runRpcUi(): void {
 			return { approved: true, dispatched: true };
 		},
 		// gui-bridge modes/auto-mode.ts: the fake "classifier" reads keywords. A big change is plan, a completion
-		// condition is goal, anything else none; an undone decision stops further ones in the session.
-		// `OMP_GUI_TEST_AUTO_MODE_DELAY_MS` holds every answer that long, as the real judge's ~1 s round trip does.
+		// condition is goal, anything else none; an undone decision stops further ones in the session. Like the bridge
+		// it never classifies a busy session: a turn within `OMP_GUI_TEST_AUTO_MODE_IDLE_MS` (default ten minutes, the
+		// bridge's AUTO_MODE_IDLE_MS). `OMP_GUI_TEST_AUTO_MODE_DELAY_MS` holds every answer that long, as the real
+		// judge's ~1 s round trip does.
 		"modes.auto_mode_decide": (params, reply) => {
 			const message = typeof params.message === "string" ? params.message : "";
+			const idleMs = Number(process.env.OMP_GUI_TEST_AUTO_MODE_IDLE_MS ?? 600_000);
 			const decide = () => {
 				if (autoModeSuppressed) return { mode: "none", reason: "suppressed", latencyMs: 0 };
+				if (lastActivityAt !== undefined && Date.now() - lastActivityAt < idleMs) {
+					return { mode: "none", reason: "busy", latencyMs: 0 };
+				}
 				if (/\buntil\b.*\b(pass|green|done)\b/i.test(message)) {
 					return {
 						mode: "goal",
@@ -1870,7 +1893,10 @@ export function runRpcUi(): void {
 		},
 		"modes.auto_mode_undo": params => {
 			autoModeSuppressed = true;
-			if (params.mode === "plan") planModeEnabled = false;
+			if (params.mode === "plan") {
+				planModeEnabled = false;
+				autoPlan = false;
+			}
 			return { suppressed: true };
 		},
 		// gui-bridge modes/ratchet.ts: only with `OMP_GUI_TEST_RATCHET` (JSON `{missing?: string[]}`); otherwise the omp
@@ -2089,6 +2115,35 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		'  <rect x="4" y="4" width="112" height="52" rx="10" fill="none" stroke="var(--accent)" stroke-width="4"/>',
 		'  <circle cx="30" cy="30" r="12" fill="var(--success)"/>',
 		'  <text x="50" y="36" font-size="14" fill="var(--fg)">OMP</text>',
+		"</svg>",
+		"```",
+	].join("\n");
+	// The figure kind of the empty-box report: viewBox only (no width/height),
+	// every theme token stock teaches, Korean labels.
+	const SVG_VIEWBOX_REPLY = [
+		"요청 흐름입니다:",
+		"",
+		"```svg",
+		'<svg viewBox="0 0 760 470" xmlns="http://www.w3.org/2000/svg">',
+		'  <rect x="10" y="10" width="740" height="450" rx="14" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>',
+		'  <text x="40" y="58" font-size="24" font-weight="600" fill="var(--fg)">요청 흐름</text>',
+		'  <text x="40" y="88" font-size="15" fill="var(--muted)">브라우저에서 데이터베이스까지</text>',
+		'  <rect x="40" y="130" width="200" height="90" rx="10" fill="none" stroke="var(--accent)" stroke-width="3"/>',
+		'  <text x="140" y="182" font-size="18" text-anchor="middle" fill="var(--fg)">브라우저</text>',
+		'  <rect x="280" y="130" width="200" height="90" rx="10" fill="none" stroke="var(--c2)" stroke-width="3"/>',
+		'  <text x="380" y="182" font-size="18" text-anchor="middle" fill="var(--fg)">API 서버</text>',
+		'  <rect x="520" y="130" width="200" height="90" rx="10" fill="none" stroke="var(--c3)" stroke-width="3"/>',
+		'  <text x="620" y="182" font-size="18" text-anchor="middle" fill="var(--fg)">데이터베이스</text>',
+		'  <path d="M240 175 H280 M480 175 H520" stroke="var(--border)" stroke-width="3"/>',
+		'  <circle cx="80" cy="300" r="16" fill="var(--success)"/>',
+		'  <text x="110" y="306" font-size="16" fill="var(--fg)">성공</text>',
+		'  <circle cx="260" cy="300" r="16" fill="var(--error)"/>',
+		'  <text x="290" y="306" font-size="16" fill="var(--fg)">실패</text>',
+		'  <rect x="40" y="360" width="100" height="60" fill="var(--c1)"/>',
+		'  <rect x="160" y="380" width="100" height="40" fill="var(--c2)"/>',
+		'  <rect x="280" y="340" width="100" height="80" fill="var(--c3)"/>',
+		'  <rect x="400" y="390" width="100" height="30" fill="var(--c4)"/>',
+		'  <rect x="520" y="350" width="100" height="70" fill="var(--c5)"/>',
 		"</svg>",
 		"```",
 	].join("\n");
@@ -3764,15 +3819,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									? "Here is the chart:\n\n![chart](pixel.png)"
 									: message === "fixture svg"
 										? SVG_REPLY
-										: message === "fixture markdown"
-											? MARKDOWN_REPLY
-											: message === "fixture paths"
-												? PATHS_REPLY
-												: message === "fixture reply actions"
-													? ACTIONS_REPLY
-													: message === "fixture documents"
-														? DOCUMENTS_REPLY
-														: "Local fixture reply",
+										: message === "fixture svg viewbox"
+											? SVG_VIEWBOX_REPLY
+											: message === "fixture markdown"
+												? MARKDOWN_REPLY
+												: message === "fixture paths"
+													? PATHS_REPLY
+													: message === "fixture reply actions"
+														? ACTIONS_REPLY
+														: message === "fixture documents"
+															? DOCUMENTS_REPLY
+															: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),

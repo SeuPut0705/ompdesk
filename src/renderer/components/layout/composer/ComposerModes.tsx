@@ -47,8 +47,9 @@ export function ComposerModes() {
 	const requestedTab = useUiStore(s => s.modesTab);
 	const closeModes = useUiStore(s => s.closeModes);
 
-	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
-	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
+	// A mode the automatic choice uses for one request is not the user's mode: the picker leaves it out (its chip shows it).
+	const planModeEnabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
+	const goalActive = useSessionStore(s => (s.goalState?.status === "active" || !!s.goal) && s.autoMode !== "goal");
 	const loopActive = useSessionStore(s => s.loopMode?.enabled === true);
 	const vibeModeEnabled = useSessionStore(s => s.vibeModeEnabled);
 	const ratchetSupported = useSessionStore(s => s.ratchet !== null);
@@ -163,7 +164,8 @@ function PlanModeConfig() {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
-	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
+	// On only for the user's own plan mode, never for one the automatic choice uses for a single request.
+	const planModeEnabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
 	const [pending, setPending] = useState(false);
 
 	const toggle = async (next: boolean) => {
@@ -176,7 +178,8 @@ function PlanModeConfig() {
 			if (!response.success) throw new Error(response.error);
 			const data = response.data as { enabled?: boolean } | undefined;
 			if (typeof data?.enabled === "boolean" && session.getState().sessionId === originSession) {
-				session.setState({ planModeEnabled: data.enabled });
+				// Turned on over a plan the automatic choice used for one request: it is the user's plan mode now.
+				session.setState({ planModeEnabled: data.enabled, autoMode: null });
 			}
 		} catch (cause) {
 			toastError({ title: t("modesPanel.actionFailed"), error: cause });
@@ -268,8 +271,10 @@ function AutoModeSwitch() {
 }
 
 /**
- * "Auto: Plan" / "Auto: Goal": the mode the app entered for the last prompt, with a one-click undo (leaves the mode
- * and stops automatic decisions for this session). Gone as soon as that mode ends by any route.
+ * "This request: Plan" / "This request: Goal": the mode the automatic choice uses for the request it classified (the
+ * Mode picker never shows it), with a one-click undo (leaves the mode and stops automatic decisions for this session).
+ * Gone as soon as that mode ends by any route: the plan approved, rejected or replaced by an unrelated message, the
+ * goal completed or stopped.
  */
 function AutoModeChip() {
 	const t = useT();

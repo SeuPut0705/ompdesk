@@ -67,8 +67,9 @@ export const CONDITIONAL_MODEL_COMMAND_TYPES = [
 
 /** Commands that never call a model: reads, settings, git, files, queue edits, session moves. */
 export const QUOTA_FREE_COMMAND_TYPES = [
-	// The chip's undo: leaves the mode and marks the session; no model.
+	// The chip's undo and the end of the request an automatic mode was used for: leave the mode; no model.
 	"auto_mode_undo",
+	"auto_mode_end",
 	"abort",
 	"abort_and_restore_queue",
 	"abort_bash",

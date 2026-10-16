@@ -44,6 +44,8 @@ interface PlanApprovalResult {
 	approved: boolean;
 	dispatched: boolean;
 	reason?: string;
+	/** false when the rejection also ended plan mode (a plan the automatic choice used for one request). */
+	planModeEnabled?: boolean;
 	savedPath?: string;
 	freshSessionStarted?: boolean;
 }
@@ -138,8 +140,12 @@ export function PlanApprovalDialog() {
 					});
 					return;
 				}
-				// Plain reject / empty refine: resolved with nothing dispatched.
-				settleTabPlanApproval(originTabId, originSessionId, target, { clear: true });
+				// Plain reject / empty refine: resolved with nothing dispatched. A plan the automatic choice used for
+				// this request ends with it (the bridge reports plan mode off).
+				settleTabPlanApproval(originTabId, originSessionId, target, {
+					clear: true,
+					exitPlanMode: result.planModeEnabled === false,
+				});
 				return;
 			}
 			settleTabPlanApproval(originTabId, originSessionId, target, {

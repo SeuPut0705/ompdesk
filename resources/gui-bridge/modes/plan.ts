@@ -17,7 +17,7 @@ import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/
 import type { PlanProposalHandler } from "@oh-my-pi/pi-coding-agent/tools/resolve";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import { markPlanRejected } from "./auto-mode-state";
+import { autoModeFlags, markPlanRejected, setAutoPlan } from "./auto-mode-state";
 import {
 	attach,
 	emit,
@@ -110,6 +110,7 @@ function disarm(session: AgentSession): void {
 
 /** Leave plan mode (session-level subset of the TUI's `#tearDownPlanMode`). */
 export async function exitPlanMode(session: AgentSession): Promise<void> {
+	setAutoPlan(session.sessionManager.getSessionId(), false);
 	session.setPlanModeState(undefined);
 	disarm(session);
 	const restore = previousTools;
@@ -188,14 +189,24 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 
 	if (params.approved !== true) {
 		pending = undefined;
+		const sessionId = session.sessionManager.getSessionId();
 		// Automatic mode choice never enters plan mode again in this session.
-		markPlanRejected(session.sessionManager.getSessionId());
+		markPlanRejected(sessionId);
 		const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
 		if (feedback) {
+			// Feedback is a reply to the plan: an automatic plan stays on for the revised one.
 			void submitTurn(session, feedback, false).catch(reportTurnError);
 			return { approved: false, dispatched: true };
 		}
-		return { approved: false, dispatched: false, reason: "rejected" };
+		// A plan entered for one request ends with that plan; the user's own plan mode stays.
+		const autoPlan = autoModeFlags(sessionId).autoPlan;
+		if (autoPlan) await exitPlanMode(session);
+		return {
+			approved: false,
+			dispatched: false,
+			reason: "rejected",
+			...(autoPlan ? { planModeEnabled: false } : {}),
+		};
 	}
 
 	const option = (typeof params.option === "string" ? params.option : "execute") as ApprovalOption;
@@ -274,15 +285,23 @@ export const methods: BridgeMethods = guard("planMode", {
 		// `proposal`: the emitted proposal still awaiting `plan_approval`, if any.
 		return { ...planState(session), proposal: pending?.frame };
 	},
+	/** `auto: true` (main's automatic choice): plan mode for this one request, ended with its plan (auto-mode-state). */
 	"modes.set_plan_mode": async (params, env) => {
 		const session = attach(env);
 		const enabled = record(params).enabled === true;
+		const sessionId = session.sessionManager.getSessionId();
 		if (enabled === (session.getPlanModeState()?.enabled === true)) {
-			if (enabled) arm(session);
+			if (enabled) {
+				arm(session);
+				// The user turned on the plan mode an automatic plan holds: it is theirs now.
+				if (record(params).auto !== true) setAutoPlan(sessionId, false);
+			}
 			return planState(session);
 		}
-		if (enabled) await enterPlanMode(session);
-		else await exitPlanMode(session);
+		if (enabled) {
+			await enterPlanMode(session);
+			setAutoPlan(sessionId, record(params).auto === true);
+		} else await exitPlanMode(session);
 		return planState(session);
 	},
 	"modes.plan_approval": async (params, env) => {

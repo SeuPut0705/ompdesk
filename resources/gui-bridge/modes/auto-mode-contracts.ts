@@ -6,6 +6,10 @@
  * session, and `auto-thinking/classifier.ts` only picks a thinking effort. The bridge reuses the machinery of the
  * latter (stock `judgment`: `resolveJudge` over the `judge` role chain, which starts with the `tiny` and `smol`
  * roles) to ask one three-way question about the prompt.
+ *
+ * A decision is used for the one request it classified, never kept as the session's mode: an automatic plan ends
+ * when that plan is approved or rejected or the user sends something else, an automatic goal ends with the goal,
+ * and the composer's Mode picker never shows either (only the "This request: …" chip does).
  */
 
 /** prefs key (electron-store `prefs`); default on, only `false` turns it off. */
@@ -14,7 +18,13 @@ export const AUTO_MODE_PREF = "autoMode";
 /** A decision that is not made within this many milliseconds is "none": the prompt never waits longer. */
 export const AUTO_MODE_TIMEOUT_MS = 2000;
 
-/** The only two modes the app ever enables by itself. Loop, Vibe and the other manual modes stay manual. */
+/**
+ * A session that ran a turn more recently than this is busy: its next message continues that work, so it is never
+ * classified (reported: a session in the middle of a lot of work was switched into Plan).
+ */
+export const AUTO_MODE_IDLE_MS = 10 * 60_000;
+
+/** The only two modes the app ever uses by itself. Loop, Vibe and the other manual modes stay manual. */
 export type AutoModeKind = "plan" | "goal";
 
 /** Why a prompt got no automatic mode (debug log and tests; the UI shows nothing for these). */
@@ -26,6 +36,7 @@ export type AutoModeReason =
 	| "bash"
 	| "streaming"
 	| "mode_active"
+	| "busy"
 	| "plan_rejected"
 	| "suppressed"
 	| "unavailable"

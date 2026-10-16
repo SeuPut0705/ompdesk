@@ -132,6 +132,7 @@ export interface SessionRpcClient {
 	regenerateSessionTitle(): Promise<RpcResponse>;
 	autoModeDecide(message: string, active?: { loop?: boolean }): Promise<RpcResponse>;
 	autoModeUndo(mode: "plan" | "goal"): Promise<RpcResponse>;
+	autoModeEnd(mode: "plan" | "goal"): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
 	handoff(customInstructions?: string): Promise<RpcResponse>;
 	getLoginProviders(): Promise<RpcResponse>;
@@ -509,6 +510,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		regenerateSessionTitle: () => rpcCommand({ type: "regenerate_session_title" }),
 		autoModeDecide: (message, active) => rpcCommand({ type: "auto_mode_decide", message, loop: active?.loop }),
 		autoModeUndo: mode => rpcCommand({ type: "auto_mode_undo", mode }),
+		autoModeEnd: mode => rpcCommand({ type: "auto_mode_end", mode }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: customInstructions => rpcCommand({ type: "handoff", customInstructions }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),

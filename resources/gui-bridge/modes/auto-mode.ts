@@ -1,8 +1,10 @@
 /**
  * Automatic mode choice (Plan or Goal, never Loop, Vibe or the other manual modes): before a prompt the user typed runs,
  * the composer asks `auto_mode_decide`, which classifies the prompt with stock's own judge machinery and answers
- * `plan`, `goal` or `none`. It changes nothing itself: main applies a decision through the same commands the Mode
- * popover uses (`set_plan_mode`, stock `goal create`), so the decision stays a plain, undoable mode switch.
+ * `plan`, `goal` or `none`. It changes nothing itself: main uses a decision for that one request through stock's own
+ * commands (`set_plan_mode` with `auto`, stock `goal create`), and it is never the session's mode: an automatic plan
+ * ends when that plan is approved or rejected or the user sends something else (plan.ts, the composer), an
+ * automatic goal ends with the goal.
  *
  * Stock has no prompt→mode classifier (`plan.defaultOnStartup` is unconditional; `auto-thinking/classifier.ts`
  * picks a thinking effort), so this copies that classifier's approach and calls its pieces: `resolveJudge` over the
@@ -12,25 +14,68 @@
  * answer within AUTO_MODE_TIMEOUT_MS, fails, or is ambiguous means `none`: the prompt is never held up.
  *
  * Guards (auto-mode-core.ts `autoModeSkip`, per-session memory in auto-mode-state.ts): never while a mode the user
- * picked is active, mid-run, for slash commands or `!` bash, after the user rejected a plan in this session (no
- * plan again) or undid an automatic decision (nothing again).
+ * picked is active, mid-run, for slash commands or `!` bash, in a busy session (a turn within AUTO_MODE_IDLE_MS,
+ * open todos, running subagents or background jobs), after the user rejected a plan in this session (no plan again)
+ * or undid an automatic decision (nothing again). The judge also sees the previous exchange, so a follow-up or a
+ * correction of earlier work answers none.
  */
 
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { AUTO_MODE_TIMEOUT_MS, type AutoModeDecision } from "./auto-mode-contracts";
 import {
 	AUTO_MODE_INSTRUCTIONS,
+	type AutoModeWork,
 	autoModeCriteria,
 	autoModeSkip,
 	goalObjective,
 	modeFromAnswer,
 	noDecision,
+	previousExchange,
 } from "./auto-mode-core";
 import { autoModeFlags, markSuppressed } from "./auto-mode-state";
 import { exitPlanMode } from "./plan";
 import { ratchetEnabled } from "./ratchet";
 import { attach, errorMessage, record } from "./shared";
+
+/** A transcript message's plain text (string content or its text parts). */
+function messageText(message: unknown): string {
+	const content = record(message).content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map(part => (record(part).type === "text" && typeof record(part).text === "string" ? record(part).text : ""))
+		.join(" ");
+}
+
+/** What the session is doing and said last, read from the live session. */
+function sessionWork(session: AgentSession): { work: AutoModeWork; previous?: string } {
+	const messages: readonly unknown[] = session.messages;
+	let lastActivityAt: number | undefined;
+	let user: string | undefined;
+	let assistant: string | undefined;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = record(messages[index]);
+		if (lastActivityAt === undefined && typeof message.timestamp === "number") lastActivityAt = message.timestamp;
+		if (assistant === undefined && message.role === "assistant") assistant = messageText(message);
+		if (user === undefined && message.role === "user") user = messageText(message);
+		if (user !== undefined && lastActivityAt !== undefined) break;
+	}
+	const openTodos = session
+		.getTodoPhases()
+		.flatMap(phase => phase.tasks)
+		.filter(task => task.status === "pending" || task.status === "in_progress").length;
+	return {
+		work: {
+			now: Date.now(),
+			lastActivityAt,
+			openTodos,
+			runningJobs: session.getAsyncJobSnapshot()?.running.length ?? 0,
+		},
+		previous: previousExchange(user, assistant),
+	};
+}
 
 /** Stock `ChoiceAnswer`, as far as this module reads it. */
 interface Answer {
@@ -52,7 +97,7 @@ export function install(): void {
 	]);
 }
 
-async function enabledByStock(session: ReturnType<typeof attach>): Promise<{ plan: boolean; goal: boolean }> {
+async function enabledByStock(session: AgentSession): Promise<{ plan: boolean; goal: boolean }> {
 	const [{ cfgPlanEnabled }, { cfgGoalEnabled }] = await Promise.all([
 		import("@oh-my-pi/pi-coding-agent/plan-mode/settings"),
 		import("@oh-my-pi/pi-coding-agent/goals/settings"),
@@ -62,8 +107,9 @@ async function enabledByStock(session: ReturnType<typeof attach>): Promise<{ pla
 
 /** Ask the judge role's cheapest available model; throws when none answers. */
 async function ask(
-	session: ReturnType<typeof attach>,
+	session: AgentSession,
 	text: string,
+	previous: string | undefined,
 	allowPlan: boolean,
 	signal: AbortSignal,
 ): Promise<{ answer: Answer; model: string; tokens: { input: number; output: number }; costUsd?: number }> {
@@ -87,10 +133,8 @@ async function ask(
 		instructions: AUTO_MODE_INSTRUCTIONS,
 		criteria: autoModeCriteria(allowPlan),
 	};
-	const result = await judge.judge(
-		{ state: { request: preprocessTinyMessage(text) }, questions: { mode } },
-		{ signal },
-	);
+	const state = { request: preprocessTinyMessage(text), ...(previous ? { previous } : {}) };
+	const result = await judge.judge({ state, questions: { mode } }, { signal });
 	const { usage } = result;
 	return {
 		answer: result.answers.mode as Answer,
@@ -107,6 +151,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 	const flags = autoModeFlags(session.sessionManager.getSessionId());
 	const goal = session.getGoalModeState();
 	const ratchet = await ratchetEnabled(session).catch(() => false);
+	const { work, previous } = sessionWork(session);
 	const skip = autoModeSkip({
 		text,
 		enabled: true,
@@ -119,6 +164,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 			ratchet,
 		},
 		suppressed: flags.suppressed,
+		work,
 	});
 	const log = (decision: AutoModeDecision): AutoModeDecision => {
 		env.pi.logger.debug("gui-bridge: auto mode", {
@@ -143,7 +189,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 		);
 		let asked: Awaited<ReturnType<typeof ask>>;
 		try {
-			asked = await ask(session, text, planAllowed, controller.signal);
+			asked = await ask(session, text, previous, planAllowed, controller.signal);
 		} catch (error) {
 			if (controller.signal.aborted) return log(noDecision("timeout", Date.now() - started));
 			throw error;

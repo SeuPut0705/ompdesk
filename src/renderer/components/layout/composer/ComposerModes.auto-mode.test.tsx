@@ -1,6 +1,7 @@
 /**
  * The automatic mode choice in the composer: the Mode popover's "Auto mode" switch (pref `autoMode`, default on,
- * with its one muted line saying it covers Plan and Goal only) and the "Auto: Plan" chip with its one-click undo.
+ * with its one muted line saying it covers Plan and Goal only), the "This request: Plan" chip with its one-click undo,
+ * and the Mode picker, which never shows a mode used for one request.
  */
 
 import { parseHTML } from "linkedom";
@@ -42,12 +43,15 @@ function success(data: unknown): RpcResponse {
 let autoModeUndo: Mock<(mode: "plan" | "goal") => Promise<RpcResponse>>;
 let prefsSet: Mock<(key: string, value: unknown) => Promise<void>>;
 
-function installMockOmp(stored: unknown = undefined): void {
+function installMockOmp(
+	stored: unknown = undefined,
+	setPlanMode: Mock<(enabled: boolean) => Promise<RpcResponse>> = vi.fn(async () => success({})),
+): void {
 	autoModeUndo = vi.fn(async () => success({ suppressed: true }));
 	prefsSet = vi.fn(async () => {});
 	const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
 	(window as unknown as { omp: unknown }).omp = {
-		rpc: { getSettings: vi.fn(async () => success({ values: {} })), setPlanMode: vi.fn(), autoModeUndo },
+		rpc: { getSettings: vi.fn(async () => success({ values: {} })), setPlanMode, autoModeUndo },
 		prefs: { get: vi.fn(async () => stored), set: prefsSet },
 		events,
 	};
@@ -127,12 +131,12 @@ describe("Auto chip", () => {
 		expect(chip()).toBeNull();
 	});
 
-	it("reads 'Auto: Plan' and one click leaves plan mode through the undo command", async () => {
+	it("reads 'This request: Plan' and one click leaves plan mode through the undo command", async () => {
 		installMockOmp();
 		useSessionStore.setState({ planModeEnabled: true, autoMode: "plan" });
 		await mount(<ComposerModes />);
 		expect(chip()?.textContent).toBe(translate("input.autoMode.chip.plan"));
-		expect(chip()?.textContent).toBe("Auto: Plan");
+		expect(chip()?.textContent).toBe("This request: Plan");
 
 		await act(async () => chip()?.click());
 		await flush();
@@ -141,15 +145,57 @@ describe("Auto chip", () => {
 		expect(chip()).toBeNull();
 	});
 
-	it("reads 'Auto: Goal' and undoes the goal", async () => {
+	it("reads 'This request: Goal' and undoes the goal", async () => {
 		installMockOmp();
 		useSessionStore.setState({ goal: { objective: "ship it" }, goalState: { status: "active" }, autoMode: "goal" });
 		await mount(<ComposerModes />);
-		expect(chip()?.textContent).toBe("Auto: Goal");
+		expect(chip()?.textContent).toBe("This request: Goal");
 		await act(async () => chip()?.click());
 		await flush();
 		expect(autoModeUndo).toHaveBeenCalledWith("goal");
 		expect(useSessionStore.getState()).toMatchObject({ goal: null, goalState: null, autoMode: null });
+	});
+});
+
+describe("the Mode picker and a mode used for one request", () => {
+	const planSwitch = () => document.querySelector("[data-plan-mode]") as unknown as TestElement | null;
+
+	it("keeps the picker on the user's own modes: an automatic plan or goal never shows in it", async () => {
+		installMockOmp();
+		useSessionStore.setState({ planModeEnabled: true, autoMode: "plan" });
+		await mount(<ComposerModes />);
+		expect(trigger().textContent).toContain(translate("input.modes.label"));
+		expect(trigger().textContent).not.toContain(translate("input.modes.name.plan"));
+		await openPopover();
+		expect(planSwitch()?.getAttribute("aria-checked")).toBe("false");
+		await act(async () => root.unmount());
+
+		useSessionStore.getState().reset();
+		useSessionStore.setState({ goal: { objective: "ship it" }, goalState: { status: "active" }, autoMode: "goal" });
+		await mount(<ComposerModes />);
+		expect(trigger().textContent).toContain(translate("input.modes.label"));
+	});
+
+	it("shows the user's own plan mode as before", async () => {
+		installMockOmp();
+		useSessionStore.setState({ planModeEnabled: true, autoMode: null });
+		await mount(<ComposerModes />);
+		expect(trigger().textContent).toContain(translate("input.modes.name.plan"));
+		expect(chip()).toBeNull();
+	});
+
+	it("turning Plan on over an automatic plan makes it the user's own (a manual mode wins)", async () => {
+		const setPlanMode = vi.fn(async (_enabled: boolean) => success({ enabled: true }));
+		installMockOmp(undefined, setPlanMode);
+		useSessionStore.setState({ planModeEnabled: true, autoMode: "plan" });
+		await mount(<ComposerModes />);
+		await openPopover();
+		await act(async () => planSwitch()?.click());
+		await flush();
+		expect(setPlanMode).toHaveBeenCalledWith(true);
+		expect(useSessionStore.getState()).toMatchObject({ planModeEnabled: true, autoMode: null });
+		expect(chip()).toBeNull();
+		expect(trigger().textContent).toContain(translate("input.modes.name.plan"));
 	});
 
 	it("goes away by itself when the mode ends another way", async () => {

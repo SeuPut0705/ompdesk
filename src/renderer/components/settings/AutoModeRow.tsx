@@ -1,7 +1,8 @@
 /**
- * Settings › Agent behavior › Smart automation: choose Plan or Goal mode for a prompt (pref `autoMode`, default on).
- * A small model decides in at most 1.5 s when a prompt is sent with no mode active; Loop, Vibe and the other modes
- * stay manual. The Mode popover in the composer holds the same switch.
+ * Settings › Agent behavior › Smart automation: use Plan or Goal for one new request (pref `autoMode`, default on).
+ * A small model decides in at most 2 s when a prompt that starts new work is sent with no mode on; it never changes
+ * the user's mode, and Loop, Vibe and the other modes stay manual. The Mode popover in the composer holds the same
+ * switch.
  */
 
 import { Wand2 } from "lucide-react";

@@ -23,6 +23,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "../../../stores/composer";
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { type MessagesStore, useMessagesStore } from "../../../stores/messages";
+import { type PlanApprovalStore, usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { restoreTabComposer, useTabsStore } from "../../../stores/tabs";
@@ -327,6 +328,10 @@ export function useComposerSubmit({
 						isStreaming,
 						session: originSession ?? useSessionStore,
 						rpc,
+						planPending:
+							(
+								sessionRuntimeStore<PlanApprovalStore>(originTabId, "planApproval") ?? usePlanApprovalStore
+							).getState().pending !== null,
 					}),
 			});
 			if (submit.kind === "blocked") return;

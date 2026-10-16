@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AutoModeDecision } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { createSessionStore } from "../stores/session";
-import { runAutoMode } from "./auto-mode-client";
+import { endAutoGoal, runAutoMode } from "./auto-mode-client";
 import { planComposerSubmit } from "./composer-submit";
 
 const BIG = "refactor the whole settings module across all files";
@@ -18,10 +18,60 @@ function rig(decision: AutoModeDecision | Promise<RpcResponse> | Error) {
 		if (decision instanceof Error) throw decision;
 		return decision instanceof Promise ? decision : ok(decision);
 	});
-	return { session, autoModeDecide, rpc: { autoModeDecide } };
+	const autoModeEnd = vi.fn(async (_mode: "plan" | "goal") => ok({}));
+	return { session, autoModeDecide, autoModeEnd, rpc: { autoModeDecide, autoModeEnd } };
 }
 
 const planned: AutoModeDecision = { mode: "plan", latencyMs: 300, model: "p/m" };
+
+describe("a mode used for one request", () => {
+	it("ends an automatic plan before an unrelated message, through stock's exit, and classifies that message", async () => {
+		const { session, rpc, autoModeEnd, autoModeDecide } = rig({
+			mode: "none",
+			reason: "classified_none",
+			latencyMs: 9,
+		});
+		session.setState({ planModeEnabled: true, autoMode: "plan" });
+		await runAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => true });
+		expect(autoModeEnd).toHaveBeenCalledExactlyOnceWith("plan");
+		expect(session.getState()).toMatchObject({ planModeEnabled: false, autoMode: null });
+		expect(autoModeDecide).toHaveBeenCalledOnce();
+	});
+
+	it("keeps the automatic plan for a reply to it: a proposal awaiting approval, or a steer mid-run", async () => {
+		for (const reply of [{ planPending: true, isStreaming: false }, { isStreaming: true }]) {
+			const { session, rpc, autoModeEnd, autoModeDecide } = rig(planned);
+			session.setState({ planModeEnabled: true, autoMode: "plan" });
+			await runAutoMode({ message: BIG, session, rpc, readPref: async () => true, ...reply });
+			expect(autoModeEnd).not.toHaveBeenCalled();
+			expect(autoModeDecide).not.toHaveBeenCalled();
+			expect(session.getState()).toMatchObject({ planModeEnabled: true, autoMode: "plan" });
+		}
+	});
+
+	it("never ends the user's own plan mode, and never classifies while it is on (a manual mode wins)", async () => {
+		const { session, rpc, autoModeEnd, autoModeDecide } = rig(planned);
+		session.setState({ planModeEnabled: true, autoMode: null });
+		await runAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => true });
+		expect(autoModeEnd).not.toHaveBeenCalled();
+		expect(autoModeDecide).not.toHaveBeenCalled();
+		expect(session.getState().planModeEnabled).toBe(true);
+	});
+
+	it("ends an automatic goal when the user stops it, and leaves the user's own goal alone", async () => {
+		const auto = rig(planned);
+		auto.session.setState({ goal: { objective: "ship" }, goalState: { status: "active" }, autoMode: "goal" });
+		await endAutoGoal(auto.session, auto.rpc);
+		expect(auto.autoModeEnd).toHaveBeenCalledExactlyOnceWith("goal");
+		expect(auto.session.getState()).toMatchObject({ goal: null, goalState: null, autoMode: null });
+
+		const own = rig(planned);
+		own.session.setState({ goal: { objective: "ship" }, goalState: { status: "active" }, autoMode: null });
+		await endAutoGoal(own.session, own.rpc);
+		expect(own.autoModeEnd).not.toHaveBeenCalled();
+		expect(own.session.getState().goal).toEqual({ objective: "ship" });
+	});
+});
 
 describe("runAutoMode", () => {
 	it("enters plan in the store and remembers it was automatic", async () => {
