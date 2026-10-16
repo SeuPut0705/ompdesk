@@ -416,8 +416,11 @@ async function gitCounter(
 					return { argv: argv.slice(1).join(" "), cpu: null };
 				}),
 		};
-	let real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-	if (process.platform === "darwin" && real === "/usr/bin/git") {
+	// OMP_GUI_FLOW_GIT_REAL names the git the shim runs instead (e.g. /usr/bin/git, the trampoline a build
+	// before the bypass ran).
+	let real =
+		process.env.OMP_GUI_FLOW_GIT_REAL || execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+	if (!process.env.OMP_GUI_FLOW_GIT_REAL && process.platform === "darwin" && real === "/usr/bin/git") {
 		const developer = execFileSync("/usr/bin/xcode-select", ["-p"], { encoding: "utf8" }).trim();
 		const direct = path.join(developer, "usr", "bin", "git");
 		if (await fs.stat(direct).catch(() => null)) real = direct;
