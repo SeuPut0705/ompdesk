@@ -126,7 +126,6 @@ export const STOP_COMMANDS: Record<string, true> = {
  */
 export const TOUCH_COMMANDS: Record<string, true> = {
 	new_session: true,
-	drop_session: true,
 	switch_session: true,
 	fork: true,
 	fork_from: true,

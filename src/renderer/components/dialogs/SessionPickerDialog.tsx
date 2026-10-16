@@ -17,7 +17,7 @@ import { basename, formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
-import { sessionDisplayTitle } from "../../lib/session-title";
+import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
@@ -80,7 +80,9 @@ export function SessionPickerDialog() {
 		let cancelled = false;
 		void (async () => {
 			try {
-				const global = await window.omp.sessions.list("global");
+				// A header-only file (stock `new_session` writes one at once) is not a conversation: stock's
+				// own picker drops it too (`filterSessionsForPicker`), and so does the sidebar.
+				const global = (await window.omp.sessions.list("global")).filter(sessionHasContent);
 				if (cancelled) return;
 				listsRef.current.global = global;
 				setSessions(global);
@@ -102,7 +104,7 @@ export function SessionPickerDialog() {
 		setError(null);
 		setActiveIndex(0);
 		try {
-			const list = listsRef.current[target] ?? (await window.omp.sessions.list(target));
+			const list = listsRef.current[target] ?? (await window.omp.sessions.list(target)).filter(sessionHasContent);
 			listsRef.current[target] = list;
 			setSessions(list);
 			setScope(target);

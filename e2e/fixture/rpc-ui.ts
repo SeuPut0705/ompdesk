@@ -124,7 +124,7 @@ export function runRpcUi(): void {
 	const sessionCreated = new Date().toISOString();
 	let sessionTitle = "";
 	/**
-	 * The session stock `new_session` started (drop_session's replacement): the
+	 * The session stock `new_session` started (`/new`): the
 	 * journal's identity and file from then on, until a `switch_session`.
 	 */
 	let fresh: { id: string; file: string | undefined; created: string } | undefined;
@@ -1696,15 +1696,6 @@ export function runRpcUi(): void {
 			fs.mkdirSync(dir, { recursive: true });
 			fs.writeFileSync(sessionPath, `${[header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
 			return { sessionPath, sessionId: forkId };
-		},
-		"sessions.delete": params => {
-			const target = params.sessionPath;
-			if (typeof target !== "string" || !target.endsWith(".jsonl")) throw new Error("Invalid session path");
-			// Stock's guard: never the file the live session now writes (drop_session runs after new_session).
-			if (target === state().sessionFile) throw new Error("Cannot delete the active session");
-			fs.rmSync(target, { force: true });
-			fs.rmSync(target.slice(0, -6), { recursive: true, force: true });
-			return null;
 		},
 		"sessions.arg_completions": () => ({ items: [] }),
 		// Stock resolves `local://` under the session's artifacts; the fixture uses `<cwd>/local`.

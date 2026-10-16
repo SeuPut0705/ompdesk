@@ -106,7 +106,7 @@ export async function spawnTabForWindow(
 		kind,
 		payload?.worktree,
 		!sessionPath,
-		false,
+		payload?.placeholder === true && !sessionPath,
 		false,
 		undefined,
 		device,

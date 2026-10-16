@@ -94,7 +94,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"delete_agent_file",
 	"delete_plugin_setting",
 	"dequeue",
-	"drop_session",
 	"eval",
 	"export_html",
 	"forget_model_role",

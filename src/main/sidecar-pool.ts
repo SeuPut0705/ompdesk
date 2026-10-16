@@ -281,6 +281,11 @@ export class SidecarPool {
 	/** Session file → owning tab/window (F-OWN double-attach guard). */
 	#sessionOwners = new Map<string, IpcSessionOwner>();
 	/**
+	 * Session file (F-OWN key) → the exit of the omp a released tab ran it in: a delete waits
+	 * for it, so a closing process can no longer write the file it removes.
+	 */
+	#exiting = new Map<string, Promise<void>>();
+	/**
 	 * Pending renderer-facing request id → entry that raised it (F-UI-ORIGIN).
 	 * Registered when a tab forwards an extension_ui request to its window; a
 	 * response routes back to that exact sidecar even after the window's active
@@ -790,6 +795,7 @@ export class SidecarPool {
 		if (!this.#entries.delete(entry)) return Promise.resolve();
 		this.#byTabId.delete(entry.tabId);
 		this.onRunningChange?.();
+		const sessionFile = entry.sessionFile;
 		this.#unregisterSessionFile(entry);
 		// Drop pending request-id routes pointing at the released entry — a
 		// late renderer response must fall back, never write to a dead sidecar.
@@ -806,6 +812,7 @@ export class SidecarPool {
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
 		entry.sidecar.dispose();
+		if (sessionFile !== undefined) this.#noteExiting(ownerKey(entry.device, sessionFile), exited);
 		this.onTabReleased?.(entry.tabId, exited);
 		this.#leaveWindowView(entry.tabId, entry.winId, entry.win);
 		const viewers = [...entry.viewers];
@@ -929,11 +936,15 @@ export class SidecarPool {
 		for (const viewer of entry.viewers.values()) this.#sendTabList(viewer.win);
 	}
 
-	/** A destroyed window is skipped before its tabs are listed: its webContents can no longer be read. */
-	#sendTabList(win: ClientWindow): void {
+	/**
+	 * A destroyed window is skipped before its tabs are listed: its webContents can no longer be read.
+	 * `closed`: tabs of this window main itself closed (`closeSessionTab`), which the window drops.
+	 */
+	#sendTabList(win: ClientWindow, closed?: string[]): void {
 		if (win.isDestroyed()) return;
 		forwardToWindow(win, IPC_EVENTS.TAB_LIST_CHANGED, {
 			tabs: this.tabsForWindow(win),
+			...(closed ? { closed } : {}),
 		} satisfies IpcTabListChangedPayload);
 	}
 
@@ -1148,12 +1159,33 @@ export class SidecarPool {
 		return client ? await client.command(command) : null;
 	}
 
-	/** Send a command to the idle tab attached to `sessionPath`; null while a run or compaction is in flight. */
-	async commandForIdleSession(sessionPath: string, command: RpcCommand, device?: string): Promise<RpcResponse | null> {
-		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
+	/**
+	 * The session is being deleted: close the tab holding it, as a closed tab
+	 * goes, and resolve once no omp of this computer has the file open (the
+	 * owner's, or the one a tab the user just closed ran). The owner's window
+	 * hears the tab is gone (`TAB_LIST_CHANGED` `closed`) and drops it like its
+	 * own close. False, with nothing closed, while the owner's run or
+	 * compaction is in flight.
+	 */
+	async closeSessionTab(sessionPath: string, device?: string): Promise<boolean> {
+		const key = ownerKey(device, sessionPath);
+		const owner = this.#sessionOwners.get(key);
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
-		if (!entry || runBusy(entry.run)) return null;
-		return this.commandForSession(sessionPath, command, device);
+		if (entry) {
+			if (runBusy(entry.run)) return false;
+			this.#releaseEntry(entry);
+			this.#notifyWindowTabsChanged(entry.win);
+			this.#sendTabList(entry.win, [entry.tabId]);
+		}
+		await this.#exiting.get(key);
+		return true;
+	}
+
+	#noteExiting(key: string, exited: Promise<void>): void {
+		this.#exiting.set(key, exited);
+		void exited.finally(() => {
+			if (this.#exiting.get(key) === exited) this.#exiting.delete(key);
+		});
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */
@@ -1252,10 +1284,10 @@ export class SidecarPool {
 	/**
 	 * Whether the owner tab of `sessionPath` has a process holding that session
 	 * in memory. `asleep` (restored but never shown), `exited` and `error` have
-	 * no process at all, so the file on disk is the entire session: a delete or
-	 * rename must go to the filesystem instead of a `drop_session` /
-	 * `set_session_name` with nobody to answer it — which `commandForSession`
-	 * would refuse as if the process were still starting. `starting` counts as live: that
+	 * no process at all, so the file on disk is the entire session: a rename
+	 * must go to the filesystem instead of a `set_session_name` with nobody to
+	 * answer it — which `commandForSession` would refuse as if the process were
+	 * still starting. `starting` counts as live: that
 	 * spawn is about to read the file. A child that is still running always
 	 * counts, whatever the status says: a failed health check reports `error`
 	 * over a live process that still holds the file.
@@ -1299,22 +1331,6 @@ export class SidecarPool {
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.#notifyWindowTabsChanged(entry.win);
 		}
-	}
-
-	/**
-	 * `sessionPath` was deleted under this tab: its file, id and title go too, so
-	 * the sidebar and the saved layout keep no row for a session that is gone
-	 * (the tab is a fresh session now, or becomes one when it wakes). A tab
-	 * that already reported its next session keeps that one.
-	 */
-	forgetSession(tabId: string, sessionPath: string): void {
-		const entry = this.#byTabId.get(tabId);
-		if (!entry || entry.sessionFile !== sessionPath) return;
-		this.#unregisterSessionFile(entry);
-		entry.sessionId = undefined;
-		entry.title = undefined;
-		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
-		this.#notifyWindowTabsChanged(entry.win);
 	}
 
 	/**

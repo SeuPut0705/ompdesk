@@ -1,9 +1,10 @@
 /**
  * Deleting sessions end to end on the system omp in an isolated profile
- * (session-delete-flow.ts): stock `new_session` / `drop_session`, the bridge's
- * guarded stock `deleteSessionWithArtifacts` and the stock helper's stored
- * deletion are the real ones. No model is called: each session holds a user
- * turn and a `!` bash run, which a session opens without restoring a model.
+ * (session-delete-flow.ts): each tab holding a deleted session closes, its real
+ * omp exits, and the stock helper's `deleteSessionWithArtifacts` removes the
+ * file; no stock `new_session` runs, so no header-only replacement is written.
+ * No model is called: each session holds a user turn and a `!` bash run, which
+ * a session opens without restoring a model.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -51,7 +52,6 @@ test("real omp: deleting sessions removes them from the sidebar and the disk, an
 	try {
 		await deleteSessionsEndToEnd({ desktop, project, agent, work: path.resolve(agent, "..", "work"), env }, seed);
 		// Every seeded file and its artifacts directory is gone (stock's `.…lock.os` lease files stay).
-		// Stock writes each tab's replacement beside the session it left: header-only, unlisted.
 		const left = await fs.readdir(path.join(agent, "sessions", "seeded"));
 		expect(left.filter(name => name.startsWith("01a11000-"))).toEqual([]);
 	} finally {

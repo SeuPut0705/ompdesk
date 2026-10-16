@@ -371,7 +371,7 @@ describe("tabs store boot reconciliation", () => {
 			sessionId: "s-beta",
 			title: "Beta title",
 		});
-		// Main's forgetSession: the session was deleted under the tab.
+		// Main reports the tab holds no session file any more.
 		useTabsStore
 			.getState()
 			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "asleep", sessionPath: null });
@@ -982,6 +982,77 @@ describe("tabs store close", () => {
 		omp.tabs.spawn.mockResolvedValue(null);
 		expect(await useTabsStore.getState().reopenClosedTab()).toBeNull();
 		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toEqual(["/s/beta.jsonl"]);
+	});
+
+	it("a deleted session's tab closes like a closed tab, and the closed-tab history forgets the session", async () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, sessionPath: "/s/beta.jsonl" } : tab)),
+			closedTabs: [
+				{ sessionPath: "/s/beta.jsonl", cwd: "/beta", kind: "agent" },
+				{ sessionPath: "/s/kept.jsonl", cwd: "/kept", kind: "agent" },
+			],
+		}));
+
+		expect(await useTabsStore.getState().closeDeletedSession("/s/beta.jsonl", "t1")).toBe(true);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		// No session takes its place, and ⇧⌘T cannot bring the deleted one back.
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toEqual(["/s/kept.jsonl"]);
+
+		// A stored session no tab holds: only the history forgets it.
+		expect(await useTabsStore.getState().closeDeletedSession("/s/kept.jsonl", undefined)).toBe(true);
+		expect(useTabsStore.getState().closedTabs).toEqual([]);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+	});
+
+	it("the window's last tab gives way to the empty start tab, not to a new session", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		await useTabsStore.getState().reconcileTabs();
+		useTabsStore.setState(state => ({ tabs: state.tabs.map(tab => ({ ...tab, sessionPath: "/s/alpha.jsonl" })) }));
+		omp.tabs.spawn.mockResolvedValue({ tabId: "start", cwd: "/work" });
+
+		expect(await useTabsStore.getState().closeDeletedSession("/s/alpha.jsonl", "t0")).toBe(true);
+		expect(omp.tabs.spawn).toHaveBeenCalledWith({ kind: "agent", defaultWorkspace: true, placeholder: true });
+		const state = useTabsStore.getState();
+		expect(state.tabs).toEqual([expect.objectContaining({ id: "start", placeholder: true })]);
+		expect(state.activeTabId).toBe("start");
+		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
+	});
+
+	it("keeps a deleted session's tab whose unsaved Files edits ask first, so nothing may be deleted", async () => {
+		seedTabs("t0");
+		useUiStore.setState({ fileEditDirty: true, fileEditTabId: "t1", pendingFileSwitch: null });
+		try {
+			expect(await useTabsStore.getState().closeDeletedSession("/s/beta.jsonl", "t1")).toBe(false);
+			expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+			expect(isTabClosed("t1")).toBe(false);
+			expect(omp.tabs.close).not.toHaveBeenCalled();
+		} finally {
+			useUiStore.setState({
+				fileEditDirty: false,
+				fileEditTabId: null,
+				pendingFileSwitch: null,
+				discardedForTabClose: null,
+			});
+		}
+	});
+
+	it("drops a tab main closed because its session was deleted elsewhere, as its own close", async () => {
+		seedTabs("t1");
+		useToastStore.setState({ toasts: [] });
+		const left = [tabInfo("t0", "/alpha"), tabInfo("t2", "/gamma")];
+		// Main already released it: its close answers false and its list no longer names it.
+		omp.tabs.close.mockResolvedValue(false);
+		omp.tabs.list.mockResolvedValue(left);
+
+		await useTabsStore.getState().applyTabList(left, ["t1"]);
+		const state = useTabsStore.getState();
+		expect(state.tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(state.activeTabId).toBe("t2");
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts).toEqual([]);
 	});
 });
 
@@ -2029,23 +2100,6 @@ describe("remembered splits", () => {
 		expect(remembered).toHaveLength(1);
 		expect(splitTabIds(remembered[0]!)).toEqual(["t1", "t2"]);
 		expect(remembered[0]).toEqual(first.second);
-	});
-
-	it("leaves a session's split when its session is deleted", async () => {
-		await threePanes();
-		await useTabsStore.getState().switchTab("t3");
-		await useTabsStore.getState().leaveSplit("t2");
-		expect(splitTabIds(useTabsStore.getState().rememberedSplits[0]!)).toEqual(["t0", "t1"]);
-		expect(omp.tabs.setView).toHaveBeenLastCalledWith(
-			"t3",
-			["t3"],
-			undefined,
-			useTabsStore.getState().rememberedSplits,
-		);
-		await useTabsStore.getState().switchTab("t0");
-		await useTabsStore.getState().leaveSplit("t1");
-		expect(useTabsStore.getState().split).toBeNull();
-		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
 	});
 
 	it("reads the remembered splits main restored at boot", async () => {

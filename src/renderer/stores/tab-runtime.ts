@@ -28,7 +28,6 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
 	"handoff",
 	"fresh",
 	"tan",
-	"drop_session",
 	"switch_leaf",
 	"clear_context",
 ]);

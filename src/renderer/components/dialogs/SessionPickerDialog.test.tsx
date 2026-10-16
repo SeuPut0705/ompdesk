@@ -47,8 +47,9 @@ const search = vi.fn((_query: string, _scope: string): Promise<SessionContentMat
 	pendingSearch = Promise.withResolvers<SessionContentMatch[]>();
 	return pendingSearch.promise;
 });
+const list = vi.fn(async (_scope: string): Promise<SessionInfo[]> => SESSIONS);
 Object.assign(window as unknown as Record<string, unknown>, {
-	omp: { sessions: { list: vi.fn(async () => SESSIONS), search } },
+	omp: { sessions: { list, search } },
 });
 
 let root: Root | null = null;
@@ -122,5 +123,16 @@ describe("SessionPickerDialog content search", () => {
 		expect(rows()[1]).toContain("Release notes");
 		expect(rows()[1]).toContain("…we moved the retry into the queue worker…");
 		expect(rows()[1]).toContain(translate("sessionPicker.contentMatch"));
+	});
+});
+
+describe("SessionPickerDialog listing", () => {
+	it("leaves out a session file with no conversation yet (stock's header-only new session)", async () => {
+		const headerOnly: SessionInfo = { ...session("empty", ""), messageCount: 0, firstMessage: "", title: null };
+		list.mockResolvedValueOnce([...SESSIONS, headerOnly]);
+		await mount();
+		expect(rows()).toHaveLength(2);
+		expect(rows().join("\n")).toContain("Queue retry design");
+		expect(rows().join("\n")).toContain("Release notes");
 	});
 });

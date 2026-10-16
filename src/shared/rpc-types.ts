@@ -34,7 +34,6 @@ export type RpcCommand =
 	// TUI Esc parity: withdraw queued user input, then abort; returns the input.
 	| { id?: string; type: "abort_and_restore_queue" }
 	| { id?: string; type: "new_session"; parentSession?: string }
-	| { id?: string; type: "drop_session" }
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "set_slow_mode"; enabled: boolean }

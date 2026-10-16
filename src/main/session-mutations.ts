@@ -1,12 +1,13 @@
 /**
  * Deleting, renaming and moving a stored session, the same for this machine's
  * own sidebar (ipc.ts) and for a paired device using it as host
- * (remote/host-services.ts). A tab whose process has the session loaded gives
- * it up through `drop_session` / renames it in memory; otherwise the stored
- * file is the session, and any process-less tab's claim on it is dropped first
- * so that tab cannot wake into a path that no longer exists. A move needs the
- * session closed: an open tab moves its own session with stock `/move`.
- * Callers keep their own path validation, device routing and peer ownership checks.
+ * (remote/host-services.ts). A delete closes the tab holding the session, as
+ * closing a tab does (the window drops it), waits for that omp to exit and
+ * removes the stored file with stock: no replacement session is started. A
+ * rename goes to a live owner's process in memory, else to the file. A move
+ * needs the session closed: an open tab moves its own session with stock
+ * `/move`. Callers keep their own path validation, device routing and peer
+ * ownership checks.
  */
 import { codedError } from "../shared/ipc-error-codes";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
@@ -15,7 +16,7 @@ import type { SidecarPool } from "./sidecar-pool";
 
 export type SessionTabs = Pick<
 	SidecarPool,
-	"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "commandForIdleSession" | "forgetSession"
+	"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab"
 >;
 
 export async function deleteSession(
@@ -24,21 +25,8 @@ export async function deleteSession(
 	device: string | undefined,
 	deleteStored: () => Promise<unknown>,
 ): Promise<void> {
-	const owner = tabs.sessionOwner(sessionPath, device);
-	if (owner && tabs.sessionOwnerIsLive(sessionPath, device)) {
-		const response = await tabs.commandForIdleSession(sessionPath, { type: "drop_session" }, device);
-		if (!response) throw codedError("session_running", "Session is currently running");
-		if (!response.success) throw new Error(response.error);
-		const data = response.data;
-		if (typeof data === "object" && data !== null && "cancelled" in data && data.cancelled === true)
-			throw codedError("session_delete_cancelled", "Session deletion was cancelled");
-		// The owner moved on to a fresh session (drop_session reported its identity); a tab
-		// that did not report it yet drops the deleted session's file, id and title.
-		tabs.forgetSession(owner.tabId, sessionPath);
-		return;
-	}
-	// A tab without a process: the file is the session, and the tab wakes into a fresh one.
-	if (owner) tabs.forgetSession(owner.tabId, sessionPath);
+	if (!(await tabs.closeSessionTab(sessionPath, device)))
+		throw codedError("session_running", "Session is currently running");
 	await deleteStored();
 }
 

@@ -27,7 +27,7 @@ import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 import { routeCommands } from "../test-support/route-commands";
-import { dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
+import { newSessionNow, switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -85,7 +85,6 @@ interface MockOmp {
 		openInNewWindow: Mock<(payload: { sessionPath?: string; cwd?: string }) => Promise<boolean>>;
 	};
 	rpc: {
-		dropSession: Mock<() => Promise<RpcResponse>>;
 		newSession: Mock<() => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
 		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
@@ -110,7 +109,6 @@ function installMockOmp(): MockOmp {
 			openInNewWindow: vi.fn(async () => true),
 		},
 		rpc: routeCommands({
-			dropSession: vi.fn(async () => ok({ cancelled: false })),
 			newSession: vi.fn(async () => ok({ cancelled: false })),
 			getState: vi.fn(async () => ok(serverState())),
 			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
@@ -197,23 +195,6 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		expect(useTodoStore.getState().phases).toHaveLength(1);
 		expect(useSubagentsStore.getState().subagents.has("old-agent")).toBe(true);
 		expect(omp.rpc.getState).not.toHaveBeenCalled();
-	});
-
-	it("clears the attached task before projecting its replacement after deletion", async () => {
-		useMessagesStore.setState({ messages: [{ id: "old-message", role: "user", content: "old" }] });
-		useSubagentsStore.setState({
-			subagents: new Map([
-				["old-agent", { id: "old-agent", index: 0, agent: "task", status: "completed", lastUpdate: 1 }],
-			]),
-		});
-		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "replacement" })));
-
-		await dropSessionNow();
-
-		expect(omp.rpc.dropSession).toHaveBeenCalledOnce();
-		expect(useMessagesStore.getState().messages).toEqual([]);
-		expect(useSubagentsStore.getState().subagents.size).toBe(0);
-		expect(useSessionStore.getState().sessionId).toBe("replacement");
 	});
 
 	it("routes to the owning tab in this window without issuing switch_session", async () => {

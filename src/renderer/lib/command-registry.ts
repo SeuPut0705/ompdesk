@@ -661,7 +661,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.delete"),
 		description: t("cmd.drop.desc"),
 		category: "session",
-		affordance: { kind: "action", run: dropSessionFromGui },
+		affordance: { kind: "action", run: deleteSessionFromGui },
 		guard: "destructive",
 	});
 	add({
@@ -1990,19 +1990,28 @@ export async function retryFailedTurn(rpc: TabRpc): Promise<void> {
 	}
 }
 
-export async function dropSessionFromGui(): Promise<void> {
-	const runtime = focusedSessionRuntime();
-	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
-	if (!window.confirm(translate("drop.confirm"))) return;
-	const response = await rpc.dropSession();
-	if (!response.success) throw new Error(response.error);
-	const data = response.data as { cancelled?: boolean } | undefined;
-	if (data?.cancelled) {
-		toast({ variant: "info", message: translate("drop.cancelled") });
+/**
+ * `/delete` and the palette's Delete session: the focused tab's session goes as the sidebar's delete
+ * takes it — the tab closes (the window's last tab gives way to the empty start tab), then main deletes
+ * the stored file once the tab's omp has exited. No session replaces it.
+ */
+export async function deleteSessionFromGui(): Promise<void> {
+	const { tabs, activeTabId } = useTabsStore.getState();
+	const tab = tabs.find(entry => entry.id === activeTabId);
+	if (!tab) return;
+	const session = sessionRuntimeStore<SessionStore>(tab.id, "session")?.getState() ?? useSessionStore.getState();
+	// Closing a running tab would kill its turn; the sidebar refuses the same way.
+	if (session.isStreaming || session.isCompacting || tab.status === "running" || tab.compacting) {
+		toast({ variant: "warning", message: translate("sidebar.menu.taskRunning") });
 		return;
 	}
-	if (runtime) await hydrateTabSession(runtime.tabId);
-	else await hydrateSession();
+	if (!window.confirm(translate("drop.confirm"))) return;
+	const sessionPath = tab.sessionPath ?? session.sessionFile ?? undefined;
+	if (!(await useTabsStore.getState().closeDeletedSession(sessionPath ?? "", tab.id))) return;
+	if (sessionPath)
+		await (tab.device === undefined
+			? window.omp.sessions.delete(sessionPath)
+			: window.omp.sessions.delete(sessionPath, tab.device));
 	toast({ variant: "success", message: translate("drop.success") });
 }
 

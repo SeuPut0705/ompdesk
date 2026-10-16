@@ -875,7 +875,6 @@ describe("retryDelays and TOUCH_COMMANDS", () => {
 	it("names the commands that move a tab to another session or branch", () => {
 		expect(Object.keys(TOUCH_COMMANDS).sort()).toEqual([
 			"branch",
-			"drop_session",
 			"fork",
 			"fork_from",
 			"new_session",

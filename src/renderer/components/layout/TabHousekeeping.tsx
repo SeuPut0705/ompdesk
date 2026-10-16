@@ -18,7 +18,7 @@ import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { type QueueStore, useQueueStore } from "../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
-import { useTabsStore } from "../../stores/tabs";
+import { isTabClosed, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 
 /** Auto-cancel window for the armed close confirm (injectable for tests). */
@@ -63,7 +63,9 @@ export function TabHousekeeping({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirm
 			if (tab.placeholder !== true && !legacyEmptyStartupChat) return false;
 			if (indexedSession && sessionHasContent(indexedSession)) return false;
 			if (tab.worktree || tab.pendingSessionPath || tab.status === "running" || tab.compacting) return false;
-			if (!tabs.some(other => other.id !== tab.id && other.placeholder !== true)) return false;
+			// A tab already closing (its session is being deleted) is no reason for the start tab to go.
+			if (!tabs.some(other => other.id !== tab.id && other.placeholder !== true && !isTabClosed(other.id)))
+				return false;
 
 			if (tab.id === activeTabId) {
 				return (

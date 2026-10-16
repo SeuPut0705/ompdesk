@@ -3,10 +3,8 @@
  * leaf moves (`navigateTree`), an independent copy of one branch, and session
  * pins under omp's own cross-process lock.
  */
-import * as path from "node:path";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { guard } from "./health";
 import { promptOrigin } from "./prompt-origin";
 import { labelPromptOrigins } from "./prompt-origin-contracts";
@@ -102,18 +100,6 @@ export const methods: BridgeMethods = {
 				manager.getLeafId() === null ? [] : manager.getBranch(),
 				entryId => manager.getLabel(entryId),
 			);
-		},
-		/** Called only after stock new_session succeeds. Never delete the new active file. */
-		"sessions.delete": async (params, env) => {
-			const sessionPath = optionalString(params, "sessionPath");
-			if (!sessionPath || !path.isAbsolute(sessionPath) || !sessionPath.endsWith(".jsonl")) {
-				throw new Error("Invalid session path");
-			}
-			const target = path.resolve(sessionPath);
-			const active = env.session().sessionManager.getSessionFile();
-			if (active && target === path.resolve(active)) throw new Error("Cannot delete the active session");
-			await new FileSessionStorage().deleteSessionWithArtifacts(target);
-			return null;
 		},
 
 		/** Set (non-empty `label`) or clear a label on any entry; TUI tree-selector Shift+L. */

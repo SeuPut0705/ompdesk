@@ -99,25 +99,6 @@ export async function newSessionNow(): Promise<RpcResponse> {
 	return response;
 }
 
-/** Delete the attached idle session, then project its fresh replacement. */
-export async function dropSessionNow(): Promise<RpcResponse> {
-	const runtime = focusedSessionRuntime();
-	const response = await (runtime ? createTabRpc(runtime.command) : window.omp.rpc).dropSession();
-	if (!response.success) throw new Error(response.error);
-	if ((response.data as { cancelled?: boolean } | undefined)?.cancelled) return response;
-	if (runtime) {
-		if (sessionRuntime(runtime.tabId) !== runtime) return response;
-		withSessionRuntime(runtime.tabId, () =>
-			resetSessionSurface(useTabsStore.getState().activeTabId === runtime.tabId),
-		);
-		await hydrateTabSession(runtime.tabId);
-	} else {
-		resetSessionSurface();
-		await hydrateSession();
-	}
-	return response;
-}
-
 /**
  * F-OWN: route the user to the tab/window already attached to a session file
  * instead of attaching a second sidecar to it. Owner lives in THIS window →

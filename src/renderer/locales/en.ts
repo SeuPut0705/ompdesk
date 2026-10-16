@@ -706,7 +706,7 @@ export const en: Record<string, string> = {
 	"cmd.tree": "Session tree",
 	"cmd.tree.desc": "Navigate session branches",
 	"cmd.delete": "Delete session",
-	"cmd.drop.desc": "Delete this session and start a new one",
+	"cmd.drop.desc": "Delete this session and close its tab",
 	"cmd.close": "Close window",
 	"cmd.close.desc": "Close this window; other windows keep running",
 	"cmd.quit": "Quit OMPdesk",
@@ -1665,9 +1665,8 @@ export const en: Record<string, string> = {
 	"fork.success": "Session forked",
 	"fork.cancelled": "A session hook cancelled the fork.",
 
-	"drop.confirm": "Delete the current session and start a new one? This cannot be undone.",
-	"drop.success": "Session deleted; started a new session.",
-	"drop.cancelled": "A session hook cancelled the deletion.",
+	"drop.confirm": "Delete the current session and close its tab? This cannot be undone.",
+	"drop.success": "Session deleted.",
 
 	"shake.confirmElide":
 		"Drop heavy tool results and large blocks from the model's context? Originals are preserved in a session artifact.",

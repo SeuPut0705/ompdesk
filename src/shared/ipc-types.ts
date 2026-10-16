@@ -656,6 +656,8 @@ export interface IpcExtensionUiPayload {
 /** `TAB_LIST_CHANGED` event payload: the window's tabs, as GET_TABS lists them. */
 export interface IpcTabListChangedPayload {
 	tabs: IpcTabInfo[];
+	/** This window's own tabs main closed because their session was deleted; the window drops them. */
+	closed?: string[];
 }
 
 /** `PREFS_CHANGED` event payload: the preference key another window wrote. */
@@ -1311,6 +1313,8 @@ export interface IpcSpawnTabPayload {
 	kind?: SessionKind;
 	/** Spawn a full agent in the GUI-owned default Work workspace. */
 	defaultWorkspace?: boolean;
+	/** The empty start tab (`IpcTabInfo.placeholder`); only without `sessionPath`. */
+	placeholder?: boolean;
 	/**
 	 * Worktree binding minted by a prior worktree_create RPC: cwd is the
 	 * worktree path and the tab carries the binding for chip rendering and

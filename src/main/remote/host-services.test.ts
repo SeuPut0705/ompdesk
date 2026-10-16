@@ -101,6 +101,10 @@ class FakeHostSidecar extends EventEmitter {
 	dispose(): void {
 		this.disposed = true;
 	}
+	readonly exited = Promise.withResolvers<void>();
+	whenExited(): Promise<void> {
+		return this.exited.promise;
+	}
 	setStatus(status: SidecarStatus): void {
 		this.status = status;
 		this.processAlive = status === "ready";
@@ -139,17 +143,20 @@ afterEach(() => {
 function fakeLocalTabs() {
 	const tab = new FakeHostSidecar("/local", "agent");
 	const owned = new Map<string, { tabId: string; winId: number }>();
+	const closed: string[] = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
 		commandForSession: (_path, command) => tab.rpcClient.command(command),
-		commandForIdleSession: (_path, command) => tab.rpcClient.command(command),
-		forgetSession: (tabId, sessionPath) => {
-			if (owned.get(sessionPath)?.tabId === tabId) owned.delete(sessionPath);
+		closeSessionTab: async path => {
+			const owner = owned.get(path);
+			if (owner) closed.push(owner.tabId);
+			owned.delete(path);
+			return true;
 		},
 		allSidecars: () => [tab as unknown as SidecarLike],
 	};
-	return { tab, owned, localTabs };
+	return { tab, owned, closed, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -624,7 +631,7 @@ describe("LocalHostServices", () => {
 		expect(local.tab.accountRotationSyncs).toBe(0);
 	});
 
-	it("deletes and renames a session through this machine's own live tab that holds it", async () => {
+	it("renames a session through this machine's own live tab, and a delete closes that tab, then deletes the file", async () => {
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		local.owned.set("/s/local.jsonl", { tabId: "local-1", winId: 1 });
@@ -632,17 +639,14 @@ describe("LocalHostServices", () => {
 
 		await services.call(x.peer, "sessions.rename", { sessionPath: "/s/local.jsonl", name: " New " }, x);
 		await services.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x);
-		expect(local.tab.commands).toEqual([
-			{ type: "set_session_name", name: "New", sessionPath: "/s/local.jsonl" },
-			{ type: "drop_session" },
-		]);
+		// No replacement session: the tab closes and the stored file goes.
+		expect(local.tab.commands).toEqual([{ type: "set_session_name", name: "New", sessionPath: "/s/local.jsonl" }]);
 		expect(renameStoredSession).not.toHaveBeenCalled();
-		expect(deleteSession).not.toHaveBeenCalled();
-		// The local tab moved on to a fresh session: it no longer claims the file.
-		expect(local.owned.has("/s/local.jsonl")).toBe(false);
+		expect(local.closed).toEqual(["local-1"]);
+		expect(deleteSession).toHaveBeenCalledWith("/s/local.jsonl");
 	});
 
-	it("falls back to the stored file when no live tab holds the session, releasing a sleeping claim", async () => {
+	it("falls back to the stored file when no live tab holds the session, closing a sleeping tab", async () => {
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		local.owned.set("/s/asleep.jsonl", { tabId: "local-1", winId: 1 });
@@ -652,7 +656,25 @@ describe("LocalHostServices", () => {
 		expect(renameStoredSession).toHaveBeenCalledWith("/s/asleep.jsonl", "Kept");
 		expect(deleteSession).toHaveBeenCalledWith("/s/asleep.jsonl");
 		expect(local.tab.commands).toEqual([]);
-		expect(local.owned.has("/s/asleep.jsonl")).toBe(false);
+		expect(local.closed).toEqual(["local-1"]);
+	});
+
+	it("deletes a session the device's own tab held once that tab's omp has exited", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+
+		// The device closes its tab first (its sidebar's delete), then deletes the session.
+		await services.call(x.peer, "tab.close", { rtab: "t" }, x);
+		expect(sidecars[0]?.disposed).toBe(true);
+		const deleting = services.call(x.peer, "sessions.delete", { sessionPath: "/s/x.jsonl" }, x);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(deleteSession).not.toHaveBeenCalled();
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
 	});
 
 	it("refuses to delete a session another device's live host tab holds", async () => {

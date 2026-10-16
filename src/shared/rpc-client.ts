@@ -27,7 +27,6 @@ export interface SessionRpcClient {
 	/** Stop the turn the TUI Esc way: the queued user input comes back (RpcAbortAndRestoreQueueResult). */
 	abortAndRestoreQueue(): Promise<RpcResponse>;
 	newSession(parentSession?: string): Promise<RpcResponse>;
-	dropSession(): Promise<RpcResponse>;
 	switchSession(sessionPath: string, model?: SessionModelOverride): Promise<RpcResponse>;
 	branch(entryId: string): Promise<RpcResponse>;
 	fork(): Promise<RpcResponse>;
@@ -415,7 +414,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		abortAndPrompt: message => rpcCommand({ type: "abort_and_prompt", message }),
 		abortAndRestoreQueue: () => rpcCommand({ type: "abort_and_restore_queue" }),
 		newSession: parentSession => rpcCommand({ type: "new_session", parentSession }),
-		dropSession: () => rpcCommand({ type: "drop_session" }),
 		switchSession: (sessionPath, model) => rpcCommand({ type: "switch_session", sessionPath, ...model }),
 		branch: entryId => rpcCommand({ type: "branch", entryId }),
 		fork: () => rpcCommand({ type: "fork" }),

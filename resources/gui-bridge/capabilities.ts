@@ -864,7 +864,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/session-context`]: ["buildSessionContext()"],
 			[`${AGENT}/session/turn-persistence`]: ["sessionMessagePersistenceKey()", "sameMessageContent()"],
 			[`${AGENT}/session/session-pins`]: ["loadPinnedSessionIds()"],
-			[`${AGENT}/session/session-storage`]: ["FileSessionStorage.prototype.deleteSessionWithArtifacts()"],
 			[`${AGENT}/utils/atomic-file`]: ["replaceFileAtomically()"],
 			[UTILS]: ["getAgentDir()", "withFileLock()"],
 		},

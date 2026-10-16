@@ -20,7 +20,6 @@ import {
 	forgetSplitTab,
 	mapSplitLeaves,
 	readRememberedSplits,
-	rememberedSplitOf,
 	type SplitLayout,
 	type SplitPlacement,
 	type SplitView,
@@ -389,6 +388,8 @@ export interface TabsStore {
 		/** Paired host deviceId to run on; absent = this device. Without `cwd`,
 		 * only a tab on the same device lends its folder. */
 		device?: string;
+		/** The empty start tab (`SessionTab.placeholder`): no session until its first message. */
+		placeholder?: boolean;
 	}) => Promise<string | null>;
 	/**
 	 * Focus this tab (the pick rules live in `viewAfterPick`): a pane of the
@@ -399,20 +400,26 @@ export interface TabsStore {
 	splitTab: (id: string, placement: SplitPlacement, targetTabId?: string) => Promise<void>;
 	unsplit: (keepTabId?: string) => Promise<void>;
 	removePane: (tabId: string) => Promise<void>;
-	/** Drop a session from its split, on screen or remembered (its session was deleted); a split left with one session dissolves. */
-	leaveSplit: (tabId: string) => Promise<void>;
 	setSplitRatio: (ratio: number, path?: readonly ("first" | "second")[]) => void;
 	/** Close a tab (keeps ≥1). Closing the active tab activates its neighbor first. */
 	closeTab: (id: string) => Promise<void>;
+	/**
+	 * `sessionPath` is being deleted: `tabId`, the tab showing it, closes as `closeTab` closes it (the
+	 * window's last tab gives way to the empty start tab first), and the closed-tab history forgets the
+	 * session. False when the tab stayed (its unsaved Files edits ask first), so nothing may be deleted.
+	 */
+	closeDeletedSession: (sessionPath: string, tabId: string | undefined) => Promise<boolean>;
 	/** Merge a TAB_STATUS push: upsert the entry, stamp unreadDone when a
 	 * background run settles (running → ready while not active). */
 	applyTabStatus: (payload: IpcTabStatusPayload) => void;
 	/**
 	 * Apply main's tab list for this window (GET_TABS, TAB_LIST_CHANGED): a tab another window now shows
 	 * (or stopped showing) changes `viewerCount`, a tab a viewer window was attached to appears, and one its
-	 * owner closed leaves. It never touches this window's own tabs' order or the view.
+	 * owner closed leaves. `closed`: this window's own tabs main closed because their session was deleted
+	 * from elsewhere (another window, a paired device); each goes as `closeDeletedSession` closes it.
+	 * Otherwise it never touches this window's own tabs' order or the view.
 	 */
-	applyTabList: (list: readonly IpcTabInfo[]) => Promise<void>;
+	applyTabList: (list: readonly IpcTabInfo[], closed?: readonly string[]) => Promise<void>;
 	/** Saved sessions of closed tabs, most recent last (unsaved sessions have nothing to reopen). */
 	closedTabs: ClosedTab[];
 	/** Reopen the most recently closed tab's session where it ran. The entry stays when the
@@ -533,6 +540,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				sessionPath: args?.sessionPath,
 				kind,
 				...(args?.work ? { defaultWorkspace: true } : {}),
+				...(args?.placeholder ? { placeholder: true } : {}),
 				worktree: args?.worktree,
 				...(device === undefined ? {} : { device }),
 			});
@@ -595,7 +603,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				cwd: resolvedCwd,
 				status: "starting",
 				kind,
-				placeholder: false,
+				placeholder: args?.placeholder === true,
 				worktree: args?.worktree,
 				device,
 				unreadDone: false,
@@ -709,18 +717,6 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toastError({ title: translate("tabs.switchFailed"), error });
 			await get().reconcileTabs();
 		}
-	},
-
-	leaveSplit: async tabId => {
-		const state = get();
-		if (state.split && splitTabIds(state.split).includes(tabId)) {
-			await get().removePane(tabId);
-			return;
-		}
-		if (!rememberedSplitOf(state.rememberedSplits, tabId)) return;
-		set({ rememberedSplits: forgetSplitTab(state.rememberedSplits, tabId) });
-		if (state.activeTabId)
-			await routeTabView(state.activeTabId, visibleTabIds(get()), get().split).catch(() => false);
 	},
 
 	unsplit: async keepTabId => {
@@ -837,6 +833,27 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (split && splitTabIds(split).includes(id)) await get().reconcileTabs();
 	},
 
+	closeDeletedSession: async (sessionPath, tabId) => {
+		const tab = tabId ? get().tabs.find(entry => entry.id === tabId) : undefined;
+		if (tab) {
+			// Leaving already: the start tab opened next must not read it as company and give way at once.
+			closedTabIds.add(tab.id);
+			// The window keeps a tab: its last one gives way to the empty start tab, which is no session
+			// until its first message.
+			if (get().tabs.length === 1 && (await get().openTab({ work: true, placeholder: true })) === null) {
+				closedTabIds.delete(tab.id);
+				return false;
+			}
+			await get().closeTab(tab.id);
+			if (get().tabs.some(entry => entry.id === tab.id)) {
+				closedTabIds.delete(tab.id);
+				return false;
+			}
+		}
+		set(current => ({ closedTabs: current.closedTabs.filter(entry => entry.sessionPath !== sessionPath) }));
+		return true;
+	},
+
 	closedTabs: [],
 
 	reopenClosedTab: async () => {
@@ -936,7 +953,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (completedInBackground && payload.lastRun) notifyRunEnd(payload.tabId, payload.lastRun);
 	},
 
-	applyTabList: async list => {
+	applyTabList: async (list, closed) => {
+		for (const id of closed ?? []) {
+			const tab = get().tabs.find(entry => entry.id === id);
+			if (tab && !tab.shared) await get().closeDeletedSession(tab.sessionPath ?? "", id);
+		}
 		const known = new Map(get().tabs.map(tab => [tab.id, tab]));
 		const unseen = list.some(info => !known.has(info.tabId) && !isTabClosed(info.tabId));
 		if (unseen) {
@@ -1255,7 +1276,9 @@ export function useSessionTabs(): void {
 		if (typeof subscribe !== "function") return;
 		const offList =
 			typeof window.omp.events.onTabListChanged === "function"
-				? window.omp.events.onTabListChanged(payload => void useTabsStore.getState().applyTabList(payload.tabs))
+				? window.omp.events.onTabListChanged(
+						payload => void useTabsStore.getState().applyTabList(payload.tabs, payload.closed),
+					)
 				: undefined;
 		const offStatus = subscribe.call(window.omp.events, payload => {
 			const previousStatus = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId)?.status;

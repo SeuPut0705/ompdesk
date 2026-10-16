@@ -1,11 +1,13 @@
 /**
- * Deleting sessions from the sidebar, code and chat alike, shared by the fake
- * omp (session-delete.e2e.ts) and the real one (real-session-delete.e2e.ts):
- * the session the focused tab shows (stock `drop_session`: the tab moves to a
- * fresh empty session), one a background tab has live, one a restored tab
- * holds without a process, and stored ones no tab holds. Each leaves the
- * sidebar and the disk, no stray row takes its place, and a relaunch brings
- * none back.
+ * Deleting sessions, code and chat alike, shared by the fake omp
+ * (session-delete.e2e.ts) and the real one (real-session-delete.e2e.ts). A
+ * deleted session's tab closes as closing a tab does — a split pane, a live
+ * background tab, a restored tab that never started, the focused tab — and
+ * the window's last tab gives way to the empty start tab. No session takes
+ * a deleted one's place: no "New session" row appears, no header-only
+ * session file is written, and a relaunch brings nothing back. Deletes go
+ * through the row's trash button, its context menu and the composer's
+ * `/delete`.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -32,16 +34,23 @@ interface Seeded {
 
 const rowsText = (page: Page) => page.locator(".omp-sidebar-session-row").allTextContents();
 const tabs = (page: Page) => page.evaluate(() => window.omp.tabs.list());
+const tabPaths = async (page: Page) => (await tabs(page)).map(tab => tab.sessionPath ?? null);
 const selectedMode = (page: Page) => page.locator(".omp-sidebar-controls [role=tab][aria-selected=true]");
+const rowOf = (page: Page, session: Seeded) =>
+	page.locator(`.omp-sidebar-session-row[data-session-path="${session.file}"]`);
 
-async function deleteRow(page: Page, session: Seeded): Promise<void> {
-	const row = page.locator(`.omp-sidebar-session-row[data-session-path="${session.file}"]`);
-	await expect(row).toBeVisible();
-	await row.hover();
-	await row.locator('[aria-label="Delete session"]').click();
-	const dialog = page.getByRole("dialog");
-	await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-	await expect(dialog).toHaveCount(0);
+async function showMode(page: Page, name: "Code" | "Chat"): Promise<void> {
+	await page.locator(".omp-sidebar-controls [role=tab]").filter({ hasText: name }).click();
+	await expect(selectedMode(page)).toHaveText(name);
+}
+
+/** Every `.jsonl` under `dir`: a session file (stock's lock files are not). */
+async function sessionFiles(dir: string): Promise<string[]> {
+	const entries = await fs.readdir(dir, { recursive: true }).catch(() => []);
+	return entries.filter(name => name.endsWith(".jsonl")).sort();
+}
+
+async function expectGone(page: Page, session: Seeded): Promise<void> {
 	await expect
 		.poll(() =>
 			fs.access(session.file).then(
@@ -53,14 +62,30 @@ async function deleteRow(page: Page, session: Seeded): Promise<void> {
 	await expect.poll(async () => (await rowsText(page)).join("\n")).not.toContain(session.title);
 }
 
-/** The tab now shows a session of its own, not the deleted one. */
-async function expectFreshSession(page: Page, index: number, deleted: Seeded): Promise<void> {
-	await expect
-		.poll(async () => {
-			const sessionPath = (await tabs(page))[index]?.sessionPath ?? "";
-			return sessionPath.endsWith(".jsonl") && sessionPath !== deleted.file;
-		})
-		.toBe(true);
+async function confirmDialog(page: Page): Promise<void> {
+	const dialog = page.getByRole("dialog");
+	await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+	await expect(dialog).toHaveCount(0);
+}
+
+/** The row's hover trash button. */
+async function deleteByTrash(page: Page, session: Seeded): Promise<void> {
+	const row = rowOf(page, session);
+	await expect(row).toBeVisible();
+	await row.hover();
+	await row.locator('[aria-label="Delete session"]').click();
+	await confirmDialog(page);
+	await expectGone(page, session);
+}
+
+/** The row's context menu (right click) → Delete. */
+async function deleteByMenu(page: Page, session: Seeded): Promise<void> {
+	const row = rowOf(page, session);
+	await expect(row).toBeVisible();
+	await row.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+	await confirmDialog(page);
+	await expectGone(page, session);
 }
 
 async function launch(args: string[], env: Record<string, string>): Promise<{ app: ElectronApplication; page: Page }> {
@@ -80,7 +105,7 @@ async function launch(args: string[], env: Record<string, string>): Promise<{ ap
 }
 
 export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession: SeedSession): Promise<void> {
-	const { desktop, project, work } = profile;
+	const { desktop, project, work, agent } = profile;
 	await fs.mkdir(work, { recursive: true });
 	const seed = async (id: string, cwd: string, title: string, chat = false): Promise<Seeded> => ({
 		title,
@@ -88,12 +113,14 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 	});
 	const active = await seed("01a11000-0000-7000-8000-0000000000a1", project, "Alpha active");
 	const background = await seed("01a11000-0000-7000-8000-0000000000f1", project, "Foxtrot background");
+	const pane = await seed("01a11000-0000-7000-8000-0000000000a2", project, "Hotel split pane");
 	const asleep = await seed("01a11000-0000-7000-8000-0000000000b1", project, "Beta asleep");
 	const stored = await seed("01a11000-0000-7000-8000-0000000000d1", project, "Delta stored");
 	const chatActive = await seed("01a11000-0000-7000-8000-0000000000c1", work, "Gamma chat", true);
 	const chatAsleep = await seed("01a11000-0000-7000-8000-0000000000c2", work, "Golf chat asleep", true);
 	const chatStored = await seed("01a11000-0000-7000-8000-0000000000e1", work, "Echo chat stored", true);
-	const deleted = [active, background, asleep, stored, chatActive, chatAsleep, chatStored];
+	const deleted = [active, background, pane, asleep, stored, chatActive, chatAsleep, chatStored];
+	const sessionsRoot = path.join(agent, "sessions");
 	const tab = (session: Seeded, kind: "agent" | "chat") => ({
 		cwd: kind === "chat" ? work : project,
 		kind,
@@ -116,6 +143,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 					tabs: [
 						tab(active, "agent"),
 						tab(background, "agent"),
+						tab(pane, "agent"),
 						tab(asleep, "agent"),
 						tab(chatActive, "chat"),
 						tab(chatAsleep, "chat"),
@@ -132,49 +160,72 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 		const { page } = first;
 		const shot = (name: string) =>
 			page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
-		for (const session of [active, background, asleep, stored]) {
-			await expect(page.locator(`.omp-sidebar-session-row[data-session-path="${session.file}"]`)).toBeVisible();
+		for (const session of [active, background, pane, asleep, stored])
+			await expect(rowOf(page, session)).toBeVisible();
+		// The second and third tabs get their processes, then focus goes back: they hold their sessions live.
+		for (const [key, index] of [
+			["ControlOrMeta+2", 1],
+			["ControlOrMeta+3", 2],
+		] as const) {
+			await page.keyboard.press(key);
+			await expect.poll(async () => (await tabs(page))[index]?.status, { timeout: 60_000 }).toBe("ready");
 		}
-		// The second tab gets its process, then focus goes back: it holds its session live in the background.
-		await page.keyboard.press("ControlOrMeta+2");
-		await expect.poll(async () => (await tabs(page))[1]?.status, { timeout: 60_000 }).toBe("ready");
 		await page.keyboard.press("ControlOrMeta+1");
 		await expect.poll(async () => (await tabs(page)).find(entry => entry.active)?.sessionPath).toBe(active.file);
+		// The third session joins the focused one in a split (the row menu's Split right).
+		await rowOf(page, pane).click({ button: "right" });
+		await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+		await expect.poll(async () => (await tabs(page)).filter(entry => entry.visible).length).toBe(2);
 		await shot("code-before");
 
-		// The focused tab's own session: stock drop_session moves the tab to a fresh empty session.
-		await deleteRow(page, active);
-		await expectFreshSession(page, 0, active);
-		// A tab with its process in the background moves to a fresh session too.
-		await deleteRow(page, background);
-		await expectFreshSession(page, 1, background);
-		// A restored tab that never started: the stored file goes, and the tab forgets it.
-		await deleteRow(page, asleep);
+		// A split pane's session: the pane closes, the split dissolves, the focused session stays.
+		await deleteByMenu(page, pane);
 		await expect
-			.poll(async () => {
-				const forgotten = (await tabs(page))[2];
-				return [forgotten?.sessionPath ?? null, forgotten?.sessionId ?? null, forgotten?.title ?? null];
-			})
-			.toEqual([null, null, null]);
-		await deleteRow(page, stored);
-		// One row per open code tab and nothing else: no stray "new session" rows pile up.
-		await expect.poll(async () => (await rowsText(page)).length).toBe(3);
+			.poll(() => tabPaths(page))
+			.toEqual([active.file, background.file, asleep.file, chatActive.file, chatAsleep.file]);
+		await expect.poll(async () => (await tabs(page)).filter(entry => entry.visible).length).toBe(1);
+		// A live background tab closes too.
+		await deleteByTrash(page, background);
+		await expect.poll(() => tabPaths(page)).toEqual([active.file, asleep.file, chatActive.file, chatAsleep.file]);
+		// A restored tab that never started.
+		await deleteByMenu(page, asleep);
+		await expect.poll(() => tabPaths(page)).toEqual([active.file, chatActive.file, chatAsleep.file]);
+		// A stored session no tab holds.
+		await deleteByTrash(page, stored);
+		// The focused tab's own session: its tab closes and its neighbor takes focus; nothing starts.
+		await deleteByMenu(page, active);
+		await expect.poll(() => tabPaths(page)).toEqual([chatActive.file, chatAsleep.file]);
+		await expect.poll(async () => (await tabs(page)).find(entry => entry.active)?.sessionPath).toBe(chatActive.file);
+		await showMode(page, "Code");
+		// No code tab is left, and no "New session" row took any deleted session's place.
+		await expect.poll(async () => (await rowsText(page)).length).toBe(0);
 		await shot("code-after");
 
-		// Chat: the focused chat, a restored chat tab, a stored chat.
-		await page.keyboard.press("ControlOrMeta+4");
+		// Chat: a restored chat tab, a stored chat, then the focused chat through the composer's /delete.
+		await showMode(page, "Chat");
+		await deleteByTrash(page, chatAsleep);
+		await expect.poll(() => tabPaths(page)).toEqual([chatActive.file]);
+		await deleteByMenu(page, chatStored);
+		// `/delete` asks with the page's own `window.confirm`; the test answers it the way the user does.
+		await page.evaluate(() => {
+			window.confirm = () => true;
+		});
+		await page.locator("textarea").first().fill("/delete");
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await expectGone(page, chatActive);
+		// The window's last tab gave way to the empty start tab: no session, no row, nothing on disk.
 		await expect
-			.poll(async () => (await tabs(page)).find(entry => entry.active)?.sessionPath, { timeout: 60_000 })
-			.toBe(chatActive.file);
-		await expect(selectedMode(page)).toHaveText("Chat");
-		await deleteRow(page, chatActive);
-		await expectFreshSession(page, 3, chatActive);
-		await deleteRow(page, chatAsleep);
-		await deleteRow(page, chatStored);
-		await expect.poll(async () => (await rowsText(page)).length).toBe(2);
+			.poll(async () => (await tabs(page)).map(entry => ({ placeholder: entry.placeholder === true })))
+			.toEqual([{ placeholder: true }]);
+		for (const name of ["Code", "Chat"] as const) {
+			await showMode(page, name);
+			await expect.poll(async () => (await rowsText(page)).length).toBe(0);
+		}
 		await shot("chat-after");
 
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
+		// No session file at all: none replaced a deleted one, header-only or otherwise.
+		await expect.poll(() => sessionFiles(sessionsRoot)).toEqual([]);
 		// The saved layout names none of them, so a relaunch cannot bring one back under a tab.
 		await expect
 			.poll(async () => {
@@ -188,16 +239,15 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 		const second = await launch(args, profile.env);
 		app = second.app;
 		const again = second.page;
-		await expect.poll(async () => (await tabs(again)).length).toBe(5);
+		await expect
+			.poll(async () => (await tabs(again)).map(entry => ({ placeholder: entry.placeholder === true })))
+			.toEqual([{ placeholder: true }]);
 		for (const name of ["Code", "Chat"] as const) {
-			await again.locator(".omp-sidebar-controls [role=tab]").filter({ hasText: name }).click();
-			await expect(selectedMode(again)).toHaveText(name);
-			// One row per tab of the mode, none of them a deleted session.
-			await expect.poll(async () => (await rowsText(again)).length).toBe(name === "Code" ? 3 : 2);
-			const text = (await rowsText(again)).join("\n");
-			for (const session of deleted) expect(text).not.toContain(session.title);
+			await showMode(again, name);
+			await expect.poll(async () => (await rowsText(again)).length).toBe(0);
 		}
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
+		expect(await sessionFiles(sessionsRoot)).toEqual([]);
 		await again.screenshot({ path: test.info().outputPath("relaunch.png"), animations: "disabled", scale: "css" });
 	} finally {
 		if (app) await exitApp(app);

@@ -1,59 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RpcResponse } from "../shared/rpc-types";
+import { ipcErrorCode } from "../shared/ipc-error-codes";
 import { deleteSession, type SessionTabs } from "./session-mutations";
 
-function tabs(
-	live: boolean,
-	response: RpcResponse | null = {
-		type: "response",
-		command: "drop_session",
-		success: true,
-		data: { cancelled: false },
-	},
-) {
+function tabs(closes: boolean) {
 	const calls: string[] = [];
 	const fake: SessionTabs = {
 		sessionOwner: () => ({ tabId: "tab-a", winId: 1 }),
-		sessionOwnerIsLive: () => live,
+		sessionOwnerIsLive: () => true,
 		commandForSession: vi.fn(async () => null),
-		commandForIdleSession: vi.fn(async (_path, command) => {
-			calls.push(command.type);
-			return response;
+		closeSessionTab: vi.fn(async (sessionPath: string, device?: string) => {
+			calls.push(`close ${sessionPath} ${device ?? "local"}`);
+			return closes;
 		}),
-		forgetSession: (tabId, sessionPath) => {
-			calls.push(`forget ${tabId} ${sessionPath}`);
-		},
 	};
 	return { fake, calls };
 }
 
 describe("deleteSession", () => {
-	it("a tab holding the session live drops it, then forgets the deleted session's identity", async () => {
+	it("closes the tab holding the session (and waits for its omp), then deletes the stored file: no new session", async () => {
 		const { fake, calls } = tabs(true);
-		const deleteStored = vi.fn(async () => {});
-		await deleteSession(fake, "/s/a.jsonl", undefined, deleteStored);
-		expect(calls).toEqual(["drop_session", "forget tab-a /s/a.jsonl"]);
-		expect(deleteStored).not.toHaveBeenCalled();
-	});
-
-	it("a tab without a process forgets the session (file, id, title), then the stored file is deleted", async () => {
-		const { fake, calls } = tabs(false);
 		const deleteStored = vi.fn(async () => {
 			calls.push("deleteStored");
 		});
-		await deleteSession(fake, "/s/a.jsonl", undefined, deleteStored);
-		expect(calls).toEqual(["forget tab-a /s/a.jsonl", "deleteStored"]);
+		await deleteSession(fake, "/s/a.jsonl", "host-b", deleteStored);
+		expect(calls).toEqual(["close /s/a.jsonl host-b", "deleteStored"]);
+		// Nothing asks any omp for a replacement session.
+		expect(fake.commandForSession).not.toHaveBeenCalled();
 	});
 
-	it("a cancelled drop keeps the tab's session", async () => {
-		const cancelled: RpcResponse = {
-			type: "response",
-			command: "drop_session",
-			success: true,
-			data: { cancelled: true },
-		};
-		const { fake, calls } = tabs(true, cancelled);
-		await expect(deleteSession(fake, "/s/a.jsonl", undefined, async () => {})).rejects.toThrow("cancelled");
-		expect(calls).toEqual(["drop_session"]);
+	it("refuses while the holding tab runs a turn or compacts, and keeps the file", async () => {
+		const { fake, calls } = tabs(false);
+		const deleteStored = vi.fn(async () => {});
+		const refused = await deleteSession(fake, "/s/a.jsonl", undefined, deleteStored).catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_running");
+		expect(calls).toEqual(["close /s/a.jsonl local"]);
+		expect(deleteStored).not.toHaveBeenCalled();
 	});
 });

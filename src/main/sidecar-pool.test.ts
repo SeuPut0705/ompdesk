@@ -1050,7 +1050,9 @@ describe("SidecarPool applyExtensionUpdate (extensions updated on this computer)
 });
 
 describe("SidecarPool session ownership (F-OWN)", () => {
-	it("routes deletes only to an idle attached tab, renames even mid-run", async () => {
+	const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+
+	it("renames reach the attached tab even mid-run; a delete closes it only while idle", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
@@ -1062,15 +1064,17 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		sidecar?.emitStatus("ready");
 
 		sidecar?.emitAgentEvents(["agent_start"]);
-		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+		expect(await pool.closeSessionTab("/sessions/s.jsonl")).toBe(false);
+		expect(sidecar?.disposed).toBe(false);
 		expect((await pool.commandForSession("/sessions/s.jsonl", rename))?.success).toBe(true);
 		expect(sidecar?.rpcCommands).toEqual([rename]);
+		expect(await pool.commandForSession("/sessions/other.jsonl", rename)).toBeNull();
 
 		sidecar?.emitAgentEvents(["agent_end"]);
-		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toMatchObject({
-			success: true,
-		});
-		expect(await pool.commandForSession("/sessions/other.jsonl", rename)).toBeNull();
+		const closing = pool.closeSessionTab("/sessions/s.jsonl");
+		expect(sidecar?.disposed).toBe(true);
+		sidecar?.exited.resolve();
+		expect(await closing).toBe(true);
 	});
 
 	it("blocks deletes, not renames, while automatic compaction is in flight", async () => {
@@ -1082,7 +1086,7 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		sidecar?.emitAgentEvents(["auto_compaction_start"]);
 
 		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(true);
-		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+		expect(await pool.closeSessionTab("/sessions/s.jsonl")).toBe(false);
 		expect(
 			(
 				await pool.commandForSession("/sessions/s.jsonl", {
@@ -1095,9 +1099,48 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 
 		sidecar?.emitAgentEvents(["auto_compaction_end"]);
 		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(false);
-		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toMatchObject({
-			success: true,
+		const closing = pool.closeSessionTab("/sessions/s.jsonl");
+		sidecar?.exited.resolve();
+		expect(await closing).toBe(true);
+	});
+
+	it("closeSessionTab closes the owner like a tab close, tells its window and waits for its omp to exit", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
+		let settled = false;
+		const closing = pool.closeSessionTab("/sessions/a.jsonl").then(closed => {
+			settled = true;
+			return closed;
 		});
+		expect(sidecars[0]?.disposed).toBe(true);
+		expect(pool.sessionOwner("/sessions/a.jsonl")).toBeNull();
+		// The window drops the tab main closed; the saved layout no longer names the session.
+		expect(fw.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
+			tabs: pool.tabsForWindow(fw.win),
+			closed: ["tab-a"],
+		});
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["tab-b"]);
+		expect(pool.tabLayoutForWindow(fw.win)?.tabs.map(tab => tab.sessionPath)).toEqual(["/sessions/b.jsonl"]);
+		// The file is deleted only once the omp that had it open is gone.
+		await tick();
+		expect(settled).toBe(false);
+		sidecars[0]?.exited.resolve();
+		expect(await closing).toBe(true);
+
+		// The window closed the tab itself (CLOSE_TAB) just before the delete: its omp is waited for too.
+		pool.releaseTab("tab-b");
+		let waited = false;
+		const after = pool.closeSessionTab("/sessions/b.jsonl").then(() => {
+			waited = true;
+		});
+		await tick();
+		expect(waited).toBe(false);
+		sidecars[1]?.exited.resolve();
+		await after;
+		// A stored session nothing holds has nothing to wait for.
+		expect(await pool.closeSessionTab("/sessions/none.jsonl")).toBe(true);
 	});
 
 	it("reports a session as live only while some process holds it", () => {
@@ -1116,8 +1159,8 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		const sidecar = sidecars[0];
 
 		// Unowned paths are never live, and neither is an asleep owner — ipc.ts
-		// deletes or renames those straight on disk instead of asking a
-		// drop_session that has nobody to answer, rather than refusing it.
+		// renames those straight on disk instead of asking a set_session_name
+		// that has nobody to answer, rather than refusing it.
 		expect(pool.sessionOwnerIsLive("/sessions/other.jsonl")).toBe(false);
 		expect(pool.sessionOwnerIsLive("/sessions/s.jsonl")).toBe(false);
 
@@ -1223,30 +1266,6 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		// …so releasing the FORMER owner must not drop the new registration.
 		expect(pool.releaseTab("tab-a")).toBe(true);
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
-	});
-
-	it("forgetSession drops a deleted session's file, id and title from the tab and its saved layout", () => {
-		const { pool, sidecars } = fakePool();
-		const fw = fakeWindow(1);
-		// A restored tab that never started: it holds the stored session only by path and title.
-		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl", "agent", undefined, false, false, true, "Beta title");
-		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
-		sidecars[1]?.emitSessionInfo({ sessionId: "b-1", title: "Kept" });
-
-		pool.forgetSession("tab-a", "/sessions/a.jsonl");
-		expect(pool.sessionOwner("/sessions/a.jsonl")).toBeNull();
-		const pushed = fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data;
-		expect(pushed).toMatchObject({ tabId: "tab-a", sessionPath: null });
-		expect(pushed).not.toHaveProperty("title");
-		expect(pushed).not.toHaveProperty("sessionId");
-		// A relaunch must not bring the deleted session's row back under the tab.
-		expect(pool.tabLayoutForWindow(fw.win)?.tabs[0]).toEqual({ cwd: "/a", kind: "agent" });
-
-		// A tab that already reported its next session keeps it.
-		sidecars[1]?.emitSessionIdentity({ sessionId: "b-2", sessionFile: "/sessions/b2.jsonl" });
-		pool.forgetSession("tab-b", "/sessions/b.jsonl");
-		expect(pool.sessionOwner("/sessions/b2.jsonl")).toEqual({ tabId: "tab-b", winId: 1 });
-		expect(pool.tabsForWindow(fw.win)[1]).toMatchObject({ sessionPath: "/sessions/b2.jsonl", sessionId: "b-2" });
 	});
 
 	it("foreignSessionOwner blocks only foreign attaches", () => {

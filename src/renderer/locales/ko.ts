@@ -697,7 +697,7 @@ export const ko: Record<string, string> = {
 	"cmd.tree": "세션 트리",
 	"cmd.tree.desc": "세션 분기 탐색",
 	"cmd.delete": "세션 삭제",
-	"cmd.drop.desc": "이 세션을 삭제하고 새 세션 시작",
+	"cmd.drop.desc": "이 세션을 삭제하고 탭 닫기",
 	"cmd.close": "창 닫기",
 	"cmd.close.desc": "이 창 닫기. 다른 창은 계속 실행돼요",
 	"cmd.quit": "OMPdesk 종료",
@@ -1654,9 +1654,8 @@ export const ko: Record<string, string> = {
 	"fork.success": "세션을 포크했어요",
 	"fork.cancelled": "세션 훅이 포크를 취소했어요.",
 
-	"drop.confirm": "현재 세션을 삭제하고 새 세션을 시작할까요? 되돌릴 수 없어요.",
-	"drop.success": "세션을 삭제하고 새 세션을 시작했어요.",
-	"drop.cancelled": "세션 훅이 세션 삭제를 취소했어요.",
+	"drop.confirm": "현재 세션을 삭제하고 탭을 닫을까요? 되돌릴 수 없어요.",
+	"drop.success": "세션을 삭제했어요.",
 
 	"shake.confirmElide": "모델 컨텍스트에서 무거운 도구 결과와 큰 블록을 제거할까요? 원본은 세션 아티팩트에 보존돼요.",
 	"shake.confirmImages": "이 세션의 모델 컨텍스트에서 모든 이미지를 제거할까요?",

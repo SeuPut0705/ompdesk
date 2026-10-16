@@ -123,16 +123,12 @@ export interface HostServicesDeps {
 	machine: MachineServices;
 	/**
 	 * This machine's own tabs (the local pool): a session file one of them
-	 * holds is changed through that tab, and a credential change reaches them.
+	 * holds is changed through that tab (a delete closes it), and a credential
+	 * change reaches them.
 	 */
 	localTabs: Pick<
 		SidecarPool,
-		| "sessionOwner"
-		| "sessionOwnerIsLive"
-		| "commandForSession"
-		| "commandForIdleSession"
-		| "forgetSession"
-		| "allSidecars"
+		"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab" | "allSidecars"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -261,6 +257,11 @@ export class LocalHostServices implements HostServices {
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
 	readonly #conns = new Set<HostConnection>();
 	#sessionsTimer: NodeJS.Timeout | undefined;
+	/**
+	 * Session file → the exit of the omp a device tab closed here ran it in: the device closes its tab
+	 * before it deletes the session, and the delete waits for that omp to let go of the file.
+	 */
+	readonly #exiting = new Map<string, Promise<void>>();
 	readonly #runningListeners = new Set<() => void>();
 	#quota: PeerQuota | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
@@ -1021,9 +1022,13 @@ export class LocalHostServices implements HostServices {
 		return undefined;
 	}
 
-	/** This machine's sidebar policy (session-mutations.ts); a device tab holding the session refuses. */
+	/**
+	 * This machine's sidebar policy (session-mutations.ts): a tab of this machine holding the session
+	 * closes, another device's live tab refuses; a device's own tab, closed just before, is waited for.
+	 */
 	async #deleteSession(sessionPath: string): Promise<null> {
 		if (this.#liveOwner(sessionPath)) throw codedError("session_running", "Session is open on the host");
+		await this.#exiting.get(sessionPath);
 		await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
 			this.#deps.sessionIndex.deleteSession(sessionPath),
 		);
@@ -1055,7 +1060,16 @@ export class LocalHostServices implements HostServices {
 		clearTimeout(tab.graceTimer);
 		tab.conn = null;
 		tab.sidecar.removeAllListeners();
+		// Taken before dispose(), which forgets the child it kills.
+		const exited = tab.sidecar.whenExited?.() ?? Promise.resolve();
 		tab.sidecar.dispose();
+		const { sessionFile } = tab;
+		if (sessionFile !== undefined) {
+			this.#exiting.set(sessionFile, exited);
+			void exited.finally(() => {
+				if (this.#exiting.get(sessionFile) === exited) this.#exiting.delete(sessionFile);
+			});
+		}
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
 		this.#resume?.sync();

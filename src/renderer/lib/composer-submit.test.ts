@@ -17,6 +17,7 @@ import { useUiStore } from "../stores/ui";
 import { routeCommands } from "../test-support/route-commands";
 import { withGuiCommands } from "./command-registry";
 import { planComposerSubmit, settleComposerResponse } from "./composer-submit";
+import { translate } from "./i18n";
 
 function success(data: unknown): RpcResponse {
 	return { type: "response", command: "test", success: true, data };
@@ -28,7 +29,6 @@ interface MockOmp {
 		compact: Mock<() => Promise<RpcResponse>>;
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
-		dropSession: Mock<() => Promise<RpcResponse>>;
 		guidedGoal: Mock<(initial?: string) => Promise<RpcResponse>>;
 		setAgentsPaused: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 		setPlanMode: Mock<(enabled: boolean) => Promise<RpcResponse>>;
@@ -53,7 +53,6 @@ function installMockOmp(): MockOmp {
 			compact: vi.fn(async () => ({ ...success({}), command: "compact" })),
 			steer: vi.fn(async () => success({})),
 			followUp: vi.fn(async () => success({})),
-			dropSession: vi.fn(async () => success({ cancelled: false })),
 			guidedGoal: vi.fn(async () => success({ started: true })),
 			setAgentsPaused: vi.fn(async enabled => success({ paused: enabled, pausedAt: enabled ? 123 : undefined })),
 			setPlanMode: vi.fn(async enabled => success({ enabled })),
@@ -504,19 +503,32 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
-	it("routes typed /drop through confirmation and the destructive session RPC", () => {
+	it("routes typed /drop to the GUI delete, which refuses while the focused tab runs a turn", async () => {
 		const omp = installMockOmp();
-		const submit = planComposerSubmit({
-			message: "/drop",
-			images: [],
-			isStreaming: false,
-			mode: "prompt",
-			commands: [guiOnly("drop")],
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t1", cwd: "/a", status: "running", kind: "agent", unreadDone: false, sessionPath: "/s/a.jsonl" },
+			],
+			activeTabId: "t1",
 		});
+		try {
+			const submit = planComposerSubmit({
+				message: "/drop",
+				images: [],
+				isStreaming: false,
+				mode: "prompt",
+				commands: [guiOnly("drop")],
+			});
+			await Promise.resolve();
 
-		expect(submit.kind).toBe("handled");
-		expect(omp.rpc.dropSession).toHaveBeenCalledTimes(1);
-		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+			expect(submit.kind).toBe("handled");
+			// Closing a running tab would kill its turn: nothing is asked, closed or deleted.
+			expect(window.confirm).not.toHaveBeenCalled();
+			expect(useToastStore.getState().toasts.at(-1)?.message).toBe(translate("sidebar.menu.taskRunning"));
+			expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		} finally {
+			useTabsStore.setState({ tabs: [], activeTabId: null });
+		}
 	});
 
 	it("blocks an advertised non-text command until it has a native GUI affordance", () => {

@@ -1220,7 +1220,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		await fire(rowFor("Session /work/alpha/one").querySelector('[aria-label="Delete session"]') as Element, "onClick");
+		await fire(
+			rowFor("Session /work/alpha/one").querySelector('[aria-label="Delete session"]') as Element,
+			"onClick",
+		);
 		await fire(
 			[...document.body.querySelectorAll('[role="dialog"] button')].find(
 				b => (b.textContent ?? "").trim() === "Delete",
@@ -1228,7 +1231,9 @@ describe("Sidebar menus and pinned ordering", () => {
 			"onClick",
 		);
 		// The tab closes first (its omp gives the file up), then the file goes; no session replaces it.
-		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ defaultWorkspace: true, placeholder: true }));
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultWorkspace: true, placeholder: true }),
+		);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 		expect(omp.tabs.close.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1275,7 +1280,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		]);
 		// t0 was the window's only tab and sat in alpha: the empty start tab opens before t0 closes (no
 		// new session in another project), so no live row keeps alpha in the list.
-		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ defaultWorkspace: true, placeholder: true }));
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultWorkspace: true, placeholder: true }),
+		);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
 		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();

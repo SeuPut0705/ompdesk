@@ -130,6 +130,8 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 		await expect(fs.access(path.join(path.dirname(session), "orphan.jsonl"))).rejects.toThrow();
 		await index.deleteSession(session);
 		expect((await fs.readdir(path.dirname(session))).sort()).toEqual(["orphan.jsonl.123.bak"]);
+		// A file already gone (a session never written, or a second delete) is deleted already.
+		await index.deleteSession(session);
 		await expect(index.deleteSession("/tmp/not-a-session")).rejects.toThrow("Invalid session path");
 	});
 

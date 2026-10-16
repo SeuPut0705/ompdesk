@@ -209,19 +209,25 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await fs.mkdir(path.join(artifacts, "nested"), { recursive: true });
 		await fs.writeFile(path.join(artifacts, "nested", "artifact.txt"), "session artifact");
 		await fs.copyFile(seededSession, `${seededSession}.123.bak`);
-		const dropped = await page.evaluate(() => window.omp.rpc.dropSession());
-		expect(dropped.success).toBe(true);
+		// Leave the seeded session for a new one (`/new`), then delete it through the sidebar's IPC: the stock
+		// helper's `deleteSessionWithArtifacts` takes the file, its artifacts and the stale `.bak` (#11499).
+		await page.locator("textarea").first().fill("/new");
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await expect
+			.poll(async () => {
+				const state = await page.evaluate(() => window.omp.rpc.getState());
+				return state.success ? (state.data as RpcSessionState).sessionFile : seededSession;
+			})
+			.not.toBe(seededSession);
+		await page.evaluate(sessionPath => window.omp.sessions.delete(sessionPath), seededSession);
 		await expect(fs.access(seededSession)).rejects.toThrow();
 		await expect(fs.access(artifacts)).rejects.toThrow();
 		await expect(fs.access(`${seededSession}.123.bak`)).rejects.toThrow();
-		const afterDrop = await page.evaluate(() => window.omp.rpc.getState());
-		expect(afterDrop.success).toBe(true);
-		if (afterDrop.success) expect((afterDrop.data as RpcSessionState).sessionFile).not.toBe(seededSession);
 		// The palette's "context" row opens Stats on This session (its "stats" row opens All sessions).
 		await openDestination(page, "insights", "context");
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
-		// Stats open on This session. The drop replaced the tab's runtime without a
+		// Stats open on This session. `/new` replaced the tab's runtime without a
 		// tab switch; the page must read the new session, not refuse as the old one.
 		await expect(stats.getByText("Total tokens", { exact: true })).toBeVisible({ timeout: 15000 });
 		await expect(stats).not.toContainText("Couldn't load session stats");
