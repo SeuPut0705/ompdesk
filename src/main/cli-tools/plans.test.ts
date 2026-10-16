@@ -68,6 +68,34 @@ describe("checkCommand", () => {
 		).toBeNull();
 	});
 
+	it("runs Windows' npm.cmd through cmd.exe, quoted, and never the bare POSIX `npm` script beside it", async () => {
+		const prefix = await fakeBin("npm.cmd", "npm");
+		const owner = {
+			method: "npm",
+			name: "@openai/codex",
+			prefix,
+			root: path.join(prefix, "node_modules", "@openai", "codex"),
+		} as const;
+		const tools = { platform: "win32", pathEnv: "" } as const;
+		expect(checkCommand(detection("codex", owner), owner, tools)?.spawn).toEqual({
+			file: `"${path.join(prefix, "npm.cmd")}"`,
+			args: ['"view"', '"@openai/codex"', '"version"'],
+			shell: true,
+		});
+		expect(updateCommand(detection("codex", owner), owner, "0.51.0", tools)?.spawn).toEqual({
+			file: `"${path.join(prefix, "npm.cmd")}"`,
+			args: ['"install"', '"-g"', '"--prefix"', `"${prefix}"`, '"@openai/codex@0.51.0"'],
+			shell: true,
+		});
+		const bareOnly = await fakeBin("npm");
+		const elsewhere = npmOwner(await fakeBin());
+		expect(
+			checkCommand(detection("codex", elsewhere), elsewhere, { platform: "win32", pathEnv: bareOnly }),
+		).toBeNull();
+		const self: CliOwner = { method: "self" };
+		expect(checkCommand(detection("claude", self), self, { platform: "win32", pathEnv: bareOnly })).toBeNull();
+	});
+
 	it("asks Bun for a Bun global, with its BUN_INSTALL, in a package dir (bun pm view needs a package.json)", async () => {
 		const bunRoot = await fakeBin();
 		await fs.mkdir(path.join(bunRoot, "bin"));

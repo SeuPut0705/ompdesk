@@ -11,6 +11,7 @@ import { CLI_TOOLS } from "../../shared/cli-update";
 import { CLI_TOOL_SPECS, relevantTools } from "./catalog";
 import {
 	classifyInstall,
+	cmdShimTarget,
 	detectCliTool,
 	findBrew,
 	ghCopilotVersion,
@@ -247,6 +248,60 @@ describe("ghCopilotVersion", () => {
 	});
 });
 
+// What npm's cmd-shim writes for `npm install -g @openai/codex` on Windows (a JS bin with a node shebang).
+const NPM_CMD_SHIM = [
+	"@ECHO off",
+	"GOTO start",
+	":find_dp0",
+	"SET dp0=%~dp0",
+	"EXIT /b",
+	":start",
+	"SETLOCAL",
+	"CALL :find_dp0",
+	"",
+	'IF EXIST "%dp0%\\node.exe" (',
+	'  SET "_prog=%dp0%\\node.exe"',
+	") ELSE (",
+	'  SET "_prog=node"',
+	")",
+	"",
+	'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & set PATHEXT=%PATHEXT:;.JS;=;% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+	"",
+].join("\r\n");
+
+describe("cmdShimTarget (Windows npm globals are .cmd shims, not links)", () => {
+	it("reads the package file a shim runs, so its npm prefix owns it", () => {
+		const shim = "C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd";
+		const target = cmdShimTarget(shim, NPM_CMD_SHIM);
+		expect(target).toBe("C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js");
+		expect(classifyInstall(target ?? shim, CLI_TOOL_SPECS.codex, WIN).owner).toEqual({
+			method: "npm",
+			name: "@openai/codex",
+			prefix: "C:\\Users\\u\\AppData\\Roaming\\npm",
+			root: "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex",
+		});
+	});
+
+	it("reads older npm's %~dp0 shims and a native bin's, and names nothing for another .cmd", () => {
+		const old = [
+			'@IF EXIST "%~dp0\\node.exe" (',
+			'  "%~dp0\\node.exe"  "%~dp0\\node_modules\\@google\\gemini-cli\\dist\\index.js" %*',
+			") ELSE (",
+			"  @SETLOCAL",
+			"  @SET PATHEXT=%PATHEXT:;.JS;=;%",
+			'  node  "%~dp0\\node_modules\\@google\\gemini-cli\\dist\\index.js" %*',
+			")",
+		].join("\r\n");
+		expect(cmdShimTarget("D:\\npm\\gemini.cmd", old)).toBe(
+			"D:\\npm\\node_modules\\@google\\gemini-cli\\dist\\index.js",
+		);
+		expect(
+			cmdShimTarget("D:\\npm\\tool.cmd", '@ECHO off\r\n"%dp0%\\node_modules\\tool\\bin\\tool.exe"   %*\r\n'),
+		).toBe("D:\\npm\\node_modules\\tool\\bin\\tool.exe");
+		expect(cmdShimTarget("D:\\bin\\codex.cmd", "@echo off\r\ncodex-real.exe %*\r\n")).toBeNull();
+	});
+});
+
 const made: string[] = [];
 // Not the developer's own Homebrew: its claude or gh would answer for a PATH that holds none.
 process.env.OMP_GUI_TEST_BREW_DIRS = "";
@@ -388,6 +443,30 @@ describe.skipIf(process.platform === "win32")("detectCliTool", () => {
 		});
 		expect(present).toMatchObject({ id: "gh-copilot", installed: "1.0.5", owner: { method: "self" }, skip: null });
 		expect(await detectCliTool("gh-copilot", { pathEnv: bin, env: {}, ctx, probe: async () => "" })).toBeNull();
+	});
+});
+
+describe.runIf(process.platform === "win32")("detectCliTool on Windows", () => {
+	it("follows an npm global's .cmd shim to its package, and never takes the bare POSIX script beside it", async () => {
+		const { root, bin } = await sandbox();
+		const pkg = path.join(bin, "node_modules", "@openai", "codex");
+		await fs.mkdir(path.join(pkg, "bin"), { recursive: true });
+		await fs.writeFile(path.join(pkg, "bin", "codex.js"), "");
+		await fs.writeFile(path.join(pkg, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.50.1" }));
+		await fs.writeFile(path.join(bin, "codex"), "#!/bin/sh\n");
+		const ctx: InstallContext = { platform: "win32", toolsDir: path.join(root, "tools"), brew: null };
+		const never = async () => {
+			throw new Error("the version comes from the package manifest");
+		};
+		expect(await detectCliTool("codex", { pathEnv: bin, env: {}, ctx, probe: never })).toBeNull();
+		await fs.writeFile(path.join(bin, "codex.cmd"), NPM_CMD_SHIM);
+		expect(await detectCliTool("codex", { pathEnv: bin, env: {}, ctx, probe: never })).toMatchObject({
+			path: path.join(bin, "codex.cmd"),
+			real: path.join(pkg, "bin", "codex.js"),
+			installed: "0.50.1",
+			skip: null,
+			owner: { method: "npm", name: "@openai/codex", prefix: bin, root: pkg },
+		});
 	});
 });
 

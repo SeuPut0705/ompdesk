@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 } from "node:path";
 import type { CliSkipReason, CliToolId } from "../../shared/cli-update";
 import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
 import { findExecutable } from "../setup/detect";
@@ -178,12 +178,24 @@ export function ghCopilotVersion(list: string): string | null | undefined {
 	return parseOmpVersion(line);
 }
 
+/**
+ * The file a Windows npm `.cmd` shim runs, or null for a file that names none. npm links a global bin on
+ * POSIX, so its realpath is the package's own file; on Windows it writes a `.cmd` (npm's cmd-shim: the last
+ * line runs `"%dp0%\node_modules\<package>\<bin>" %*`, older npm wrote `%~dp0\`), and only that text names
+ * the package, relative to the shim's folder.
+ */
+export function cmdShimTarget(shim: string, text: string): string | null {
+	const target = [...text.matchAll(/"%~?dp0%?\\([^"]+)"/g)].at(-1)?.[1];
+	return target ? win32.join(win32.dirname(shim), target) : null;
+}
+
 /** Find and classify `id`; null when it is not installed (OMPdesk never installs a vendor CLI). */
 export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<CliDetection | null> {
 	const spec = CLI_TOOL_SPECS[id];
 	const { ctx } = deps;
 	const win = ctx.platform === "win32";
-	const names = win ? [`${spec.bin}.exe`, `${spec.bin}.cmd`, spec.bin] : [spec.bin];
+	// Never the bare name on Windows: npm writes one beside its `.cmd` for POSIX shells, which Windows cannot start.
+	const names = win ? [`${spec.bin}.exe`, `${spec.bin}.cmd`] : [spec.bin];
 	// Homebrew's prefixes count even when the login shell's PATH omits them (the same lookup `resolveBin` makes).
 	const path = findExecutable(
 		names,
@@ -195,6 +207,7 @@ export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<Cl
 	let real = path;
 	try {
 		real = realpathSync(path);
+		if (win && /\.cmd$/i.test(real)) real = cmdShimTarget(real, readFileSync(real, "utf8")) ?? real;
 	} catch {
 		// A dangling link resolves to itself; classification then reads its own path.
 	}

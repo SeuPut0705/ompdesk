@@ -43,13 +43,13 @@ function command(file: string, args: string[], env: Record<string, string> = {})
 	};
 }
 
+/** npm's Windows launcher is `npm.cmd`; the bare `npm` beside it is a POSIX shell script Windows cannot start. */
+const NPM_BIN = { win32: "npm.cmd", darwin: "npm" } as const;
+
 /** The npm that owns `prefix` (its own, else the first on PATH, always aimed at that prefix). */
 function npmFor(prefix: string, tools: PlanTools): string | null {
-	const own = tools.platform === "win32" ? [join(prefix, "npm.cmd")] : [join(prefix, "bin", "npm")];
-	return (
-		own.find(file => existsSync(file)) ??
-		findExecutable(tools.platform === "win32" ? ["npm.cmd", "npm"] : ["npm"], tools.pathEnv, tools.platform)
-	);
+	const own = tools.platform === "win32" ? join(prefix, "npm.cmd") : join(prefix, "bin", "npm");
+	return existsSync(own) ? own : findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
 }
 
 function bunFor(bunRoot: string, tools: PlanTools): string | null {
@@ -77,11 +77,7 @@ export function checkCommand(detection: CliDetection, owner: CliOwner, tools: Pl
 	switch (owner.method) {
 		case "self": {
 			if (spec.self?.checks !== "registry" || !spec.npm) return null;
-			const npm = findExecutable(
-				tools.platform === "win32" ? ["npm.cmd", "npm"] : ["npm"],
-				tools.pathEnv,
-				tools.platform,
-			);
+			const npm = findExecutable([NPM_BIN[tools.platform]], tools.pathEnv, tools.platform);
 			if (npm) return command(npm, ["view", spec.npm, "version"]);
 			const bun = findExecutable([tools.platform === "win32" ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
 			return bun ? bunView(bun, spec.npm) : null;
