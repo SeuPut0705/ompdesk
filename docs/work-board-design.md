@@ -61,9 +61,21 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 - Last turn (idle): duration, files changed with +/−, a click opens Changes.
 - Every section folds to its header; folds persist (`workBoardCollapsed`).
 - Motion: enter fade, a pulse on working dots, a 1 px sweep under a row that is working; all off under
-  `prefers-reduced-motion` (the global rule, plus explicit overrides in `work-board.css`).
+  `prefers-reduced-motion` (the global rule, plus explicit overrides in `work-board.css`). Every animation is
+  compositor-only: the sweep slides a clipped highlight by `transform` (the first version animated
+  `background-position`, which repainted the row every frame), and an active goal's dot pulses only during a turn.
 - One shared one-second clock (`useNowTick`) drives every timer; the board re-renders once a second only while
-  something runs, with tabular numbers so the digits do not jitter.
+  something runs and the window is in view, with tabular numbers so the digits do not jitter.
+- The account row and the running section read `get_usage` and `get_jobs` through one poll per tab
+  (`hooks/use-tab-poll.ts`), shared with the sidebar's usage lines, Stats › Usage, the Settings model tables and
+  accounts and the usage-limit notice (`use-usage-reports.ts`), and with the dock island and the Background tasks
+  view (`use-background-jobs.ts`).
+- Measured with `e2e/flow-performance.e2e.ts`'s `daily` flow (1600 px, the user's largest session, fake omp, 16 Oct
+  2026; share of one core): with agents running after a turn the renderer went from 28 % to 8 % (v0.31.0 without a
+  board: 8 %); idle IPC from 53 to 30 calls a minute (v0.31.0: 28), none while hidden; no frame over 10 ms while
+  streaming. Still open: while the transcript streams, the board's running animations (a pulse and a sweep per
+  live row) cost the GPU process about 13 % of a core (36 % against 18 % for v0.31.0; with only the head pulse
+  running, 15 %). The kind of animation does not matter (transform or opacity); the number of animated rows does.
 
 ## Not done
 
@@ -71,5 +83,3 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
   be needed and the board's rows change rarely.
 - A cost line in the idle summary (no per-turn cost is in the renderer's stores; deriving it would break the
   "read, never derive" rule).
-- A frame-time measurement with the performance harness; the board adds no per-frame work (CSS animations only,
-  one shared 1 s tick).

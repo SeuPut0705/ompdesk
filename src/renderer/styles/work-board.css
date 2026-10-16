@@ -269,7 +269,8 @@ button.omp-work-board-row:hover {
 
 /* A thin sweep under a row that is working right now. The track clips a 35%-wide highlight that slides
    across it by transform alone, so the compositor runs it: a moving background repainted the row every
-   frame (~28% of a core in the renderer and as much in the GPU process while agents ran). The keyframes
+   frame (agents running after a turn, 1600 px: renderer 28% of a core and GPU process 39%, against 8% and
+   25% with the transform; flow-performance's `daily` flow). The keyframes
    travel exactly the old background-position path, -40% to 140% of the free width (0.65 of the track),
    in units of the highlight's own width (0.35 of the track). */
 .omp-work-board-sweep {
