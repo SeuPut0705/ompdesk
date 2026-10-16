@@ -1589,6 +1589,8 @@ export interface OmpApi {
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
 		/** Fires when gui-bridge compatibility warnings are pending; take them with `bridgeHealth.take()`. */
 		onBridgeHealth(callback: () => void): () => void;
+		/** The window's tab list changed because another window joined or left one of its tabs, or closed it. */
+		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 	};
 	updater: {
 		check(): Promise<UpdateStatus>;
@@ -1776,6 +1778,8 @@ export interface OmpApi {
 		/** `device` = the paired host whose profile it is; absent = this device. */
 		getLaunchProfile(cwd: string, device?: string): Promise<LaunchProfile>;
 		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>, device?: string): Promise<LaunchProfile>;
+		/** Another window wrote a preference. */
+		onChanged(callback: (payload: IpcPrefsChangedPayload) => void): () => void;
 	};
 	sidecar: {
 		restart(payload?: IpcSidecarRestartPayload): Promise<void>;
