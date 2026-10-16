@@ -14,7 +14,7 @@ import { useT } from "../../../lib/i18n";
 import { lastUsedAccounts } from "../../../lib/usage-reports";
 import { useModelStore } from "../../../stores/model";
 import { useUiStore } from "../../../stores/ui";
-import { UsageGauges, usageTooltip } from "../../common/UsageGauges";
+import { UsageGauges, usageDescription, usageTooltip } from "../../common/UsageGauges";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { shortAccountLabel } from "../AccountLimit";
 
@@ -40,6 +40,7 @@ export function SidebarUsage() {
 						data-in-use={inUse || undefined}
 						data-rail-account={`${report.provider}:${report.account ?? ""}`}
 						key={report.provider}
+						aria-label={usageDescription(report, label, t)}
 						onClick={() => useUiStore.getState().openProviders()}
 						title={`${usageTooltip(report, label, t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
 						type="button"

@@ -85,7 +85,7 @@ test("keeps the open account list live without reopening it", async () => {
 		});
 	}
 	// The full window names, with their resets, are in the quota's tooltip.
-	await expect(quota).toHaveAttribute("title", /resets in [34]d \d+h/);
+	await expect(quota).toHaveAttribute("title", /7D \d+% · ↻ [34]d \d+h/);
 
 	// The 30-second poll: the fixture's next read spent more, and the open list shows it.
 	const before = await workUsed(work);

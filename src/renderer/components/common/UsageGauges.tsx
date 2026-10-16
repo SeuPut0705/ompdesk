@@ -20,21 +20,43 @@ export function resetText(resetsAt: number | undefined, t: Translate, now = Date
 	return resetsAt > now ? t("usage.resetsIn", { time: formatSpan(resetsAt - now) }) : t("usage.resetting");
 }
 
-/** The account's label, then every window with its share used and its reset: the full names the gauges shorten. */
-export function usageTooltip(report: UsageReport, label: string, t: Translate): string {
+function limitShare(limit: UsageLimit): string | null {
+	const fraction = limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : null);
+	return fraction === null ? null : `${Math.round(fraction * 100)}%`;
+}
+
+/**
+ * The account's label, then every window as the gauges name it, compact: "5H 23% · ↻ 1h 54m". A limit the gauges
+ * do not draw (a per-model tier, a call count) keeps its full name. The long localized sentences are
+ * {@link usageDescription}, the screen-reader text.
+ */
+export function usageTooltip(report: UsageReport, label: string, t: Translate, now = Date.now()): string {
+	const drawn = new Set(accountWindows(report.limits).map(({ limit }) => limit));
 	return [
 		label,
 		...report.limits.map((limit: UsageLimit) => {
-			const fraction =
-				limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : null);
-			return [
-				usageLimitLabel(limit, t),
-				fraction === null ? null : `${Math.round(fraction * 100)}%`,
-				resetText(limit.resetsAt, t),
-			]
-				.filter(Boolean)
-				.join(" · ");
+			const reset =
+				limit.resetsAt === undefined
+					? null
+					: limit.resetsAt > now
+						? `↻ ${formatSpanCompact(limit.resetsAt - now)}`
+						: "↻";
+			const share = limitShare(limit);
+			const head = drawn.has(limit)
+				? [shortWindowLabel(limit), share].filter(Boolean).join(" ")
+				: [usageLimitLabel(limit, t), share].filter(Boolean).join(" · ");
+			return [head, reset].filter(Boolean).join(" · ");
 		}),
+	].join("\n");
+}
+
+/** The same lines in full localized sentences ("5 hour · 23% · resets in 1h 54m"): the aria-label of a usage row. */
+export function usageDescription(report: UsageReport, label: string, t: Translate): string {
+	return [
+		label,
+		...report.limits.map((limit: UsageLimit) =>
+			[usageLimitLabel(limit, t), limitShare(limit), resetText(limit.resetsAt, t)].filter(Boolean).join(" · "),
+		),
 	].join("\n");
 }
 

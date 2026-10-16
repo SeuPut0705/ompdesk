@@ -565,6 +565,9 @@ describe("WorkBoard account limit", () => {
 		const tip = row?.getAttribute("title") ?? "";
 		expect(tip).toContain("work@example.com");
 		expect(tip).toContain("40%");
+		expect(tip).toMatch(/^work@example\.com\n5H 62% · ↻ 2h( 1m)?\n7D 40% · ↻ 3d 23h\nIn use$/);
+		// The long localized sentences are the accessible name.
+		expect(row?.getAttribute("aria-label")).toContain("resets in 2h");
 		await click("[data-board-account]");
 		expect(useUiStore.getState().settingsTab).toBe("models:accounts");
 	});
