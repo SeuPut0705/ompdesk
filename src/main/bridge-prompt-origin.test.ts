@@ -6,7 +6,7 @@
  * prompts from two devices or more.
  */
 import { describe, expect, it } from "vitest";
-import { install, methods, type PromptOriginHost } from "../../resources/gui-bridge/prompt-origin";
+import { install, methods, type PromptOriginHost } from "../../resources/gui-bridge/prompt-origin-core";
 import {
 	labelPromptOrigins,
 	localizePromptOrigins,
