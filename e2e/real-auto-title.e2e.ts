@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { TITLE_MAX_CHARS, TITLE_MAX_CJK_CHARS, TITLE_MAX_WORDS } from "../resources/gui-bridge/auto-title-core";
+import { TITLE_HARD_CHARS, TITLE_HARD_CJK_CHARS } from "../resources/gui-bridge/auto-title-core";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
@@ -13,7 +13,9 @@ import { realOmpProfile } from "./real-omp";
 // A first message gets a short plain title in its own language: the bridge gives stock's title paths stock's own
 // `title-system.md` plus the language, length and form line (auto-title-core.ts), with the reply language as the
 // fallback when it is not English and the same line without it when it is off, and OMPdesk holds
-// `title.icons: boring`, so no icon/code card heads it.
+// `title.icons: boring`, so no icon/code card heads it. A title past the limits gets one shorter retry and is then
+// kept whole up to the hard cap; the model's own answers come from the bridge's `auto-title: title` line in the
+// private profile's omp log (`<profile>/logs`).
 const RESULT_FILE = "/tmp/real-auto-title.json";
 const CASES = [
 	{
@@ -44,6 +46,20 @@ const results: Array<Record<string, unknown>> = [];
 test.afterAll(async () => {
 	if (results.length > 0) await fs.writeFile(RESULT_FILE, JSON.stringify(results, null, 2));
 });
+
+/** The bridge's `auto-title: title` records in the omp logs under `profile` (omp buffers its log for up to 1 s). */
+async function titleRecords(profile: string): Promise<Array<Record<string, unknown>>> {
+	const files = (await fs.readdir(profile, { recursive: true })).filter(file => /(^|\/)omp\.[^/]*\.log$/.test(file));
+	const records: Array<Record<string, unknown>> = [];
+	for (const file of files) {
+		for (const line of (await fs.readFile(path.join(profile, file), "utf8")).split("\n")) {
+			if (!line.includes('"auto-title: title"')) continue;
+			const record: unknown = JSON.parse(line);
+			if (record && typeof record === "object") records.push(Object.fromEntries(Object.entries(record)));
+		}
+	}
+	return records;
+}
 
 for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 	test(`real omp names first message ${index + 1} with a short plain title in its language`, async () => {
@@ -94,18 +110,29 @@ for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 			const title = await sessionName();
 			await expect(page.locator("[data-titlebar-session-name]")).toHaveText(title);
 
+			await expect.poll(async () => (await titleRecords(profile)).length, { timeout: 15_000 }).toBeGreaterThan(0);
+			const record = (await titleRecords(profile)).at(-1);
+
 			const words = title.split(/\s+/).filter(Boolean);
 			const korean = HANGUL.test(prompt);
-			const report = { replyLanguage, prompt, title, characters: title.length, words: words.length };
+			const report = {
+				replyLanguage,
+				prompt,
+				answer: record?.answer,
+				retry: record?.retry,
+				title,
+				characters: title.length,
+				words: words.length,
+			};
 			results.push(report);
 			console.log(`real-auto-title ${JSON.stringify(report)}`);
 
+			expect(record?.title).toBe(title);
 			expect(title).not.toMatch(CARD_LINE);
 			expect(title).not.toMatch(EMOJI);
 			expect(title).not.toMatch(/…|\.\.\./);
-			expect(words.length).toBeLessThanOrEqual(TITLE_MAX_WORDS);
-			const limit = korean ? TITLE_MAX_CJK_CHARS : TITLE_MAX_CHARS;
-			expect(title.length).toBeLessThanOrEqual(Math.max(limit, words[0]?.length ?? 0));
+			const cap = korean ? TITLE_HARD_CJK_CHARS : TITLE_HARD_CHARS;
+			expect(title.length).toBeLessThanOrEqual(Math.max(cap, ...words.map(word => word.length)));
 			if (korean) expect(title).toMatch(HANGUL);
 			else expect(title).not.toMatch(HANGUL);
 		} finally {

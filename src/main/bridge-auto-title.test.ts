@@ -34,6 +34,8 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 	const script = {
 		/** What `generateTitle` answers (the title model). */
 		generate: vi.fn(async (_text: string): Promise<string | null> => "Fix login bug"),
+		/** What `generateTitle` answers when asked with its own prompt (the engine's shorter retry). */
+		shorter: vi.fn(async (_text: string, _prompt: string): Promise<string | null> => null),
 		/** What `renameTitle()` without a title answers (a retitle from the conversation). */
 		retitle: vi.fn(async (): Promise<string | null | undefined> => "Migrate build to Vite"),
 		/** Runs while a title request is in flight. */
@@ -67,9 +69,9 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 		},
 		// What the fake stock `titleIcons` reads: OMPdesk holds `boring`, `cards` stands for icons the person chose.
 		settings: { icons: options.cards === false ? "boring" : "emoji" },
-		generateTitle: vi.fn(async (text: string) => {
-			script.prompts.push(titlePrompt);
-			const title = await script.generate(text);
+		generateTitle: vi.fn(async (text: string, custom?: string) => {
+			script.prompts.push(custom ?? titlePrompt);
+			const title = custom === undefined ? await script.generate(text) : await script.shorter(text, custom);
 			script.during?.();
 			return title;
 		}),
@@ -113,6 +115,7 @@ const stock: AutoTitleStock = {
 	formatCardTitle: (card, title) => `${card.icon} ${card.code}: ${title}`,
 	titleIcons: settings =>
 		settings && typeof settings === "object" && "icons" in settings ? String(settings.icons) : "nf+emoji",
+	log: () => {},
 };
 
 /** Every fake settles at once, so the engine's background work finishes within a few microtask turns. */
@@ -494,28 +497,87 @@ describe("title language and length", () => {
 		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
 	});
 
-	it("cuts a long title to whole words, a card the person chose kept", async () => {
+	it("asks once more for a title past the limits, with the shorter line, and keeps the shorter answer", async () => {
 		await replyLanguage.reply_language_set({ language: "Korean" });
 		const world = build({ cards: false });
-		world.script.generate.mockResolvedValue("로그인 비밀번호 오류 메시지 버그");
+		world.script.generate.mockResolvedValue("작업 현황판 화면 디자인");
+		world.script.shorter.mockResolvedValue("작업 현황판 디자인");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("작업 현황판 디자인을 바꾸고 싶어") });
+		await flush();
+		expect(world.script.shorter).toHaveBeenCalledExactlyOnceWith(
+			"작업 현황판 디자인을 바꾸고 싶어",
+			expect.any(String),
+		);
+		const retryPrompt = world.script.prompts[1] ?? "";
+		expect(retryPrompt.startsWith(world.session.titleSystemPrompt ?? "-")).toBe(true);
+		expect(retryPrompt).toContain('Shorter: the title "작업 현황판 화면 디자인" is too long');
+		expect(retryPrompt).toContain("Keep the key noun");
+		expect(world.manager.getSessionName()).toBe("작업 현황판 디자인");
+		// The title, its retry, and the (cardless) rename.
+		expect(await attach(world.session)).toMatchObject({ requests: 3 });
+	});
+
+	it("keeps the answer whole up to the hard cap when the retry is still long, and asks only once", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("작업 현황판 화면 디자인");
+		world.script.shorter.mockResolvedValue("작업 현황판 화면 디자인 개선");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("작업 현황판 디자인을 바꾸고 싶어") });
+		await flush();
+		expect(world.script.shorter).toHaveBeenCalledTimes(1);
+		// The head noun stays: no cut from the end.
+		expect(world.manager.getSessionName()).toBe("작업 현황판 화면 디자인");
+	});
+
+	it("past the hard cap drops leading words in Korean, so the head noun stays", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("로그인 화면 비밀번호 오류 메시지 표시 버그");
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("비밀번호 틀려도 에러가 안 보여") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("로그인 비밀번호 오류");
-
-		const carded = build({ name: "🔑 PWERR: 로그인 오류 수정", source: "auto" });
-		carded.script.retitle.mockResolvedValue("🔑 PWERR: Dark mode toggle support added");
-		await attach(carded.session);
-		expect(await regenerate(carded.session)).toEqual({ title: "🔑 PWERR: Dark mode toggle support" });
+		expect(world.manager.getSessionName()).toBe("비밀번호 오류 메시지 표시 버그");
 	});
 
-	it("cuts a long title when the language is off too", async () => {
+	it("keeps the first answer when the retry fails", async () => {
 		const world = build({ cards: false });
 		world.script.generate.mockResolvedValue("Settings page dark mode toggle added");
+		world.script.shorter.mockRejectedValue(new Error("offline"));
 		await attach(world.session);
 		await send(world.session, { type: "message_end", message: operator("add dark mode") });
 		await flush();
-		expect(world.manager.getSessionName()).toBe("Settings page dark mode");
+		expect(world.manager.getSessionName()).toBe("Settings page dark mode toggle added");
+	});
+
+	it("retries a regenerated title from the answer itself (stock built the context), a card the person chose kept", async () => {
+		const world = build({ name: "🔑 PWERR: 로그인 오류 수정", source: "auto" });
+		world.script.retitle.mockResolvedValue("🔑 PWERR: Dark mode toggle support for settings");
+		world.script.shorter.mockResolvedValue("Dark mode toggle");
+		await attach(world.session);
+		expect(await regenerate(world.session)).toEqual({ title: "🔑 PWERR: Dark mode toggle" });
+		expect(world.script.shorter).toHaveBeenCalledExactlyOnceWith(
+			"Dark mode toggle support for settings",
+			expect.stringContaining('the title "Dark mode toggle support for settings" is too long'),
+		);
+	});
+
+	it("applies the same rule when the language is off, and never retries a title that fits", async () => {
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("CSV export empty with filters");
+		world.script.shorter.mockResolvedValue("CSV export empty file");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("csv export is empty when filtered") });
+		await flush();
+		expect(world.manager.getSessionName()).toBe("CSV export empty file");
+
+		const short = build({ cards: false });
+		await attach(short.session);
+		await send(short.session, { type: "message_end", message: operator("fix the login bug") });
+		await flush();
+		expect(short.script.shorter).not.toHaveBeenCalled();
+		expect(short.manager.getSessionName()).toBe("Fix login bug");
 	});
 });
 

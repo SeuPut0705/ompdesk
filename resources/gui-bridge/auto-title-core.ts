@@ -151,12 +151,15 @@ export class EvolveGate {
 	}
 }
 
-/** The most words a title keeps ({@link titleLanguageLine} asks for 2-4). */
+/** The most words a title should have ({@link titleLanguageLine} asks for 2-4). */
 export const TITLE_MAX_WORDS = 4;
-/** The most characters a title in Korean, Chinese or Japanese keeps, where word counts say little. */
+/** The most characters a title in Korean, Chinese or Japanese should have, where word counts say little. */
 export const TITLE_MAX_CJK_CHARS = 12;
-/** The most characters a title in any other script keeps. */
+/** The most characters a title in any other script should have. */
 export const TITLE_MAX_CHARS = 30;
+/** Past the limits above even after the retry, a title is kept whole up to these; only longer ones are cut. */
+export const TITLE_HARD_CJK_CHARS = 18;
+export const TITLE_HARD_CHARS = 40;
 
 /**
  * The line that puts a title in the person's language and keeps it short and plain, appended to stock's own
@@ -164,11 +167,20 @@ export const TITLE_MAX_CHARS = 30;
  * whose 3-6 word imperative phrases read long). The language the person writes in comes first, so a Korean request
  * gets a Korean title whatever the reply language is; `language` (the reply language, undefined when off, unset or
  * English) decides only when the request shows none (code, names, a mix). Without it the line sets only the length
- * and form, and the title stays in the person's language. {@link conciseTitle} enforces the length on what comes back.
+ * and form, and the title stays in the person's language. A title past the limits is asked for once more
+ * ({@link titleFits}, {@link titleShorterLine}) and then fitted ({@link conciseTitle}).
  */
 export function titleLanguageLine(language: string | undefined): string {
 	const fallback = language ? `; when that is unclear (only code, names or a mix), write it in ${language}` : "";
-	return `Language, length and form (this overrides the 3-6 words and the imperative phrase above): write the title in the language the user writes in, even though the examples above are in English${fallback}. Make it a plain noun phrase that summarizes the task, like "Login error fix" or "로그인 오류 수정": 2-${TITLE_MAX_WORDS} words, never more, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included. When the task needs more, choose fewer and broader words: a longer title is cut. The title is plain text: no punctuation, quotes or emoji, no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
+	return `Language, length and form (this overrides the 3-6 words and the imperative phrase above): write the title in the language the user writes in, even though the examples above are in English${fallback}. Make it a plain noun phrase that summarizes the task, like "Login error fix" or "로그인 오류 수정": 2-${TITLE_MAX_WORDS} words, never more, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included. When the task needs more, choose fewer and broader words and keep the key noun. The title is plain text: no punctuation, quotes or emoji, no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
+}
+
+/**
+ * The line added for the one retry of a title past the limits: names the answer that was too long and asks for a
+ * shorter one that keeps the key noun (in Korean the last word, which a cut from the end would lose).
+ */
+export function titleShorterLine(tooLong: string): string {
+	return `Shorter: the title "${tooLong}" is too long. Write a shorter title for the same task: at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese or ${TITLE_MAX_CHARS} characters otherwise, spaces included, 2-${TITLE_MAX_WORDS} words. Keep the key noun (the thing the task is about; in Korean usually the last word) and drop modifiers instead.`;
 }
 
 const CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
@@ -176,24 +188,34 @@ const HAS_WORD = /[\p{L}\p{N}]/u;
 /** English words a cut title must not end on (`CSV export empty with` → `CSV export empty`). */
 const DANGLING = /^(?:a|an|the|and|or|but|of|for|with|without|to|in|on|at|by|from|into|via|vs)$/i;
 
+/** Whether `title` (without its card) is within the words and characters {@link titleLanguageLine} asks for. */
+export function titleFits(title: string): boolean {
+	const text = title.trim();
+	const limit = CJK.test(text) ? TITLE_MAX_CJK_CHARS : TITLE_MAX_CHARS;
+	return text.split(/\s+/).length <= TITLE_MAX_WORDS && text.length <= limit;
+}
+
 /**
- * `title` (without its card) cut to whole words: at most {@link TITLE_MAX_WORDS}, then at most
- * {@link TITLE_MAX_CJK_CHARS} characters for a title in Korean, Chinese or Japanese and {@link TITLE_MAX_CHARS}
- * for any other. Never an ellipsis and never part of a word, so the first word stays even when it alone is longer;
- * a cut drops trailing punctuation-only words and English function words (`with`, `the`, …), and the separator
- * left on the last word (`,` `:` `;` `-`).
+ * `title` (without its card) as the session keeps it once the retry is spent: whole up to
+ * {@link TITLE_HARD_CJK_CHARS} characters in Korean, Chinese or Japanese and {@link TITLE_HARD_CHARS} otherwise,
+ * whatever its word count. A longer one is cut to whole words, never an ellipsis and never part of a word (one word
+ * longer than the cap stays whole): in Korean, Chinese or Japanese the leading words go, since the head noun comes
+ * last; otherwise the trailing ones, never leaving an English function word, a
+ * punctuation-only word or a separator (`,` `:` `;` `-`) at the end.
  */
 export function conciseTitle(title: string): string {
 	const words = title.trim().split(/\s+/);
-	const limit = CJK.test(title) ? TITLE_MAX_CJK_CHARS : TITLE_MAX_CHARS;
-	const kept = words.slice(0, TITLE_MAX_WORDS);
-	while (kept.length > 1 && kept.join(" ").length > limit) kept.pop();
-	if (kept.length === words.length) return words.join(" ");
-	while (
-		kept.length > 1 &&
-		(!HAS_WORD.test(kept[kept.length - 1] ?? "") || DANGLING.test(kept[kept.length - 1] ?? ""))
-	)
-		kept.pop();
+	const cjk = CJK.test(title);
+	const cap = cjk ? TITLE_HARD_CJK_CHARS : TITLE_HARD_CHARS;
+	if (words.join(" ").length <= cap) return words.join(" ");
+	const kept = [...words];
+	if (cjk) {
+		while (kept.length > 1 && kept.join(" ").length > cap) kept.shift();
+		while (kept.length > 1 && !HAS_WORD.test(kept[0] ?? "")) kept.shift();
+		return kept.join(" ").replace(/^[\s,:;\-–—/&]+/u, "") || kept.join(" ");
+	}
+	while (kept.length > 1 && kept.join(" ").length > cap) kept.pop();
+	while (kept.length > 1 && (!HAS_WORD.test(kept.at(-1) ?? "") || DANGLING.test(kept.at(-1) ?? ""))) kept.pop();
 	return kept.join(" ").replace(/[\s,:;\-–—/&]+$/u, "") || kept.join(" ");
 }
 

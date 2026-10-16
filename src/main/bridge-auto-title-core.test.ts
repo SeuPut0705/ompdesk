@@ -16,12 +16,16 @@ import {
 	EvolveGate,
 	isRewordedTitle,
 	planTitlePrompt,
+	TITLE_HARD_CHARS,
+	TITLE_HARD_CJK_CHARS,
 	TITLE_MAX_CHARS,
 	TITLE_MAX_CJK_CHARS,
 	TITLE_MAX_WORDS,
 	type TitleChangeLike,
+	titleFits,
 	titleIsAuto,
 	titleLanguageLine,
+	titleShorterLine,
 	WEIGHT,
 } from "../../resources/gui-bridge/auto-title-core";
 
@@ -217,33 +221,49 @@ describe("title language and length", () => {
 		expect(planTitlePrompt("MINE", ours, "STOCK", "Korean")).toEqual({ keep: true });
 	});
 
-	it("cuts a long title to whole words, never an ellipsis", () => {
+	it("tells a title within the limits from one that needs the retry", () => {
+		expect([TITLE_HARD_CJK_CHARS, TITLE_HARD_CHARS]).toEqual([18, 40]);
+		for (const title of ["로그인 오류 수정", "작업 현황판 디자인", "Fix login bug", "Session title shortening rules"])
+			expect(titleFits(title), title).toBe(true);
+		for (const title of [
+			"작업 현황판 화면 디자인",
+			"로그인 비밀번호 오류 메시지 버그",
+			"Dark mode toggle support added",
+			"Session title internationalization rule",
+		])
+			expect(titleFits(title), title).toBe(false);
+	});
+
+	it("asks the retry for a shorter title that keeps the key noun", () => {
+		const line = titleShorterLine("작업 현황판 화면 디자인");
+		expect(line).toContain('the title "작업 현황판 화면 디자인" is too long');
+		expect(line).toContain(`at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese`);
+		expect(line).toContain(`${TITLE_MAX_CHARS} characters otherwise, spaces included`);
+		expect(line).toContain("Keep the key noun");
+	});
+
+	it("keeps a title whole up to the hard cap, then cuts whole words: leading ones in Korean, trailing ones otherwise", () => {
+		// Within the hard cap nothing is cut, whatever the word count: the head noun stays.
 		expect(conciseTitle("Fix login bug")).toBe("Fix login bug");
-		// At most four words, then at most 30 characters.
-		expect(conciseTitle("Dark mode toggle support added")).toBe("Dark mode toggle support");
-		expect(conciseTitle("Speed up the build, and tests")).toBe("Speed up the build");
-		expect(conciseTitle("Speed up the build - and cache")).toBe("Speed up the build");
-		expect(conciseTitle("Internationalization configuration refactoring")).toBe("Internationalization");
-		expect(conciseTitle("Session title shortening rules")).toBe("Session title shortening rules");
-		expect(conciseTitle("Session title internationalization rules")).toBe("Session title");
-		// A cut never ends on an English function word (a real title was cut to "CSV export empty with").
-		expect(conciseTitle("CSV export empty with filters")).toBe("CSV export empty");
-		expect(conciseTitle("Fix the bug in the parser")).toBe("Fix the bug");
-		// Only a cut drops them: a title that fits stays as written.
-		expect(conciseTitle("Sign in with Google")).toBe("Sign in with Google");
-		expect(conciseTitle("로그인 오류 수정")).toBe("로그인 오류 수정");
-		expect(conciseTitle("작업 현황판 디자인")).toBe("작업 현황판 디자인");
-		// Korean: at most four words, then at most 12 characters (today's real 5-word, 18-character title).
-		expect(conciseTitle("로그인 비밀번호 오류 메시지 버그")).toBe("로그인 비밀번호 오류");
-		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("세션 제목을 사용자");
-		expect(conciseTitle("데스크톱앱 자동세션제목 언어설정 반영하기")).toBe("데스크톱앱 자동세션제목");
-		expect(conciseTitle("auth.ts 수정")).toBe("auth.ts 수정");
-		expect(conciseTitle("auth.ts 로그인 리다이렉트 수정")).toBe("auth.ts 로그인");
-		// One word longer than the limit stays whole: never part of a word.
-		const unspaced = "修复会话标题语言设置问题并且保持简短";
-		expect(unspaced.length).toBeGreaterThan(TITLE_MAX_CJK_CHARS);
+		expect(conciseTitle("작업 현황판 화면 디자인")).toBe("작업 현황판 화면 디자인");
+		expect(conciseTitle("로그인 비밀번호 오류 메시지 버그")).toBe("로그인 비밀번호 오류 메시지 버그");
+		expect(conciseTitle("Settings page dark mode toggle added")).toBe("Settings page dark mode toggle added");
+		// Korean past 18 characters: the leading words go.
+		expect(conciseTitle("세션 제목을 사용자 언어로 짧게 생성하도록 수정")).toBe("언어로 짧게 생성하도록 수정");
+		expect(conciseTitle("로그인 화면 비밀번호 오류 메시지 표시 버그")).toBe("비밀번호 오류 메시지 표시 버그");
+		// Latin past 40 characters: the trailing words go, never ending on a function word.
+		expect(conciseTitle("Internationalization and localization configuration refactoring")).toBe(
+			"Internationalization and localization",
+		);
+		expect(conciseTitle("Fix the flaky upload test in the integration suite")).toBe("Fix the flaky upload test");
+		// One word longer than the cap stays whole: never part of a word.
+		const unspaced = "修复会话标题语言设置问题并且保持简短不要太长";
+		expect(unspaced.length).toBeGreaterThan(TITLE_HARD_CJK_CHARS);
 		expect(conciseTitle(unspaced)).toBe(unspaced);
-		for (const title of ["Dark mode toggle support added", "세션 제목을 사용자 언어로 짧게 생성하도록 수정"])
+		for (const title of [
+			"Fix the flaky upload test in the integration suite",
+			"세션 제목을 사용자 언어로 짧게 생성하도록 수정",
+		])
 			expect(conciseTitle(title)).not.toMatch(/…|\.\.\./);
 	});
 });

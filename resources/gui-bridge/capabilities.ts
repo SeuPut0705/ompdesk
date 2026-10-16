@@ -942,7 +942,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/messages`]: ["operatorTitleText()"],
 			[`${AGENT}/utils/title-card`]: ["splitCardTitle()", "formatCardTitle()"],
 			[`${AGENT}/utils/title-settings`]: ["cfgTitleIcons.get()"],
-			[UTILS]: ["prompt.render()"],
+			[UTILS]: ["prompt.render()", "logger.info()"],
 		},
 		prompts: ["system/title-system.md"],
 	},

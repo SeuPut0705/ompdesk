@@ -22,7 +22,9 @@
  *   one line ({@link planTitlePrompt}: the person's language, the reply language as the fallback when it is not
  *   English, a plain 2-4 word noun phrase), set when the engine attaches, when `reply_language_set` changes the
  *   language, and again before each request (stock's headless `/move` re-resolves the slot). While that line is in
- *   effect, a title that comes back longer is cut to whole words ({@link conciseTitle}). A person's own
+ *   effect, a title past the limits ({@link titleFits}) is asked for once more on the same title model with
+ *   {@link titleShorterLine}; the shorter answer is kept, cut only past the hard cap ({@link conciseTitle}). Each
+ *   generated title is logged with the model's answers (`auto-title: title` in omp's log). A person's own
  *   TITLE_SYSTEM.md is left as written, and its titles uncut.
  * - Cards: under `title.icons: boring` a fresh title for a session whose title has a card comes back plain
  *   (stock adds none, but its retitle keeps the current title's card).
@@ -45,7 +47,9 @@ import {
 	isRewordedTitle,
 	planTitlePrompt,
 	type TitleChangeLike,
+	titleFits,
 	titleIsAuto,
+	titleShorterLine,
 } from "./auto-title-core";
 import { currentReplyLanguage, onReplyLanguageChange } from "./modes/reply-language";
 
@@ -108,6 +112,8 @@ export interface AutoTitleStock {
 	formatCardTitle(card: { icon: string; code: string }, title: string): string;
 	/** `utils/title-settings` `cfgTitleIcons.get`: the session's `title.icons` (`boring` = no card). */
 	titleIcons(settings: unknown): string;
+	/** `pi-utils` `logger.info`: one line in omp's own log (`~/.omp/logs`). */
+	log(message: string, context: Record<string, unknown>): void;
 }
 
 let stock: AutoTitleStock | undefined;
@@ -183,16 +189,40 @@ async function applyTitleLanguage(session: TitleSession): Promise<void> {
 }
 
 /**
- * `title` as the session should show it: cut to the length the line asks for while that line is in effect, and
- * without its card under `title.icons: boring` (stock's retitle keeps the current title's card even then).
+ * `title` as the session should show it: without its card under `title.icons: boring` (stock's retitle keeps the
+ * current title's card even then), and while the line is in effect fitted to its length. With `retryInput` (what
+ * the title model names on the retry: the operator's message, or the answer itself when stock built the context)
+ * a title past the limits gets one retry on the title model (counted in `requests`); without it (a title that was
+ * fitted already) it is only fitted.
  */
-async function concise(session: TitleSession, title: string | null | undefined): Promise<string | null | undefined> {
+async function concise(
+	session: TitleSession,
+	title: string | null | undefined,
+	retryInput?: (answer: string) => string,
+): Promise<string | null | undefined> {
 	if (!title) return title;
-	const { splitCardTitle, formatCardTitle, titleIcons } = await stockFunctions();
-	const cut = ownPrompts.has(session) ? conciseTitle : (text: string) => text;
+	const { splitCardTitle, formatCardTitle, titleIcons, log } = await stockFunctions();
 	const card = splitCardTitle(title);
-	if (!card) return cut(title);
-	return titleIcons(session.settings) === "boring" ? cut(card.title) : formatCardTitle(card, cut(card.title));
+	const answer = card?.title ?? title;
+	const own = ownPrompts.get(session);
+	if (own === undefined) return card && titleIcons(session.settings) !== "boring" ? title : answer;
+	let text = answer;
+	let retry: string | null = null;
+	if (!titleFits(answer)) {
+		if (retryInput) {
+			requests++;
+			try {
+				retry = await session.generateTitle(retryInput(answer), `${own}\n\n${titleShorterLine(answer)}`);
+			} catch (error) {
+				// The first answer is still a title: keep it rather than lose the name.
+				log("auto-title: shorter retry failed", { answer, error: String(error) });
+			}
+		}
+		text = conciseTitle(retry && retry.trim().length < answer.trim().length ? retry : answer);
+	}
+	// Every generated title, with the model's own answers, so a title that reads wrong can be traced.
+	if (retryInput) log("auto-title: title", { answer, retry, title: text });
+	return card && titleIcons(session.settings) !== "boring" ? formatCardTitle(card, text) : text;
 }
 
 /**
@@ -215,7 +245,10 @@ function unchanged(session: TitleSession, sessionId: string, name: string | unde
 	return manager.getSessionId() === sessionId && session.sessionName === name && manager.titleRevision === revision;
 }
 
-/** `renameTitle` the way stock's `/rename` calls it: the revision it reserves is read right after the call. */
+/**
+ * `renameTitle` the way stock's `/rename` calls it: the revision it reserves is read right after the call. A typed
+ * `title` was fitted already, so only a generated one may get the retry.
+ */
 async function retitle(
 	session: TitleSession,
 	title?: string,
@@ -224,7 +257,8 @@ async function retitle(
 	requests++;
 	const generation = session.renameTitle(title);
 	const revision = session.sessionManager.titleRevision;
-	return { title: await concise(session, await generation), revision };
+	const named = await generation;
+	return { title: await concise(session, named, title === undefined ? answer => answer : undefined), revision };
 }
 
 /** The first title: the operator's message through the title model, then the card. */
@@ -233,7 +267,7 @@ async function firstTitle(session: TitleSession, text: string): Promise<void> {
 	const sessionId = manager.getSessionId();
 	await applyTitleLanguage(session);
 	requests++;
-	const plain = await concise(session, await session.generateTitle(text));
+	const plain = await concise(session, await session.generateTitle(text), () => text);
 	if (!plain || manager.getSessionId() !== sessionId || session.sessionName) return;
 	const { title, revision } = await retitle(session, plain);
 	if (!title || !unchanged(session, sessionId, undefined, revision)) return;
