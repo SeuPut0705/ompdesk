@@ -3801,3 +3801,19 @@ button.omp-file-chip-name:hover {
 		animation: none;
 	}
 }
+
+/* Software compositing (`html[data-gpu="software"]`, set from main's `?gpu=software`: no GPU, a crash fallback,
+   a CI runner): every animated frame costs real CPU there, so the cue takes the reduced-motion form. */
+html[data-gpu="software"] .omp-composer-live::before {
+	inset: 0;
+	width: auto;
+	aspect-ratio: auto;
+	translate: none;
+	background: color-mix(in srgb, var(--sc-accent) 70%, transparent);
+	animation: none;
+	will-change: auto;
+}
+
+html[data-gpu="software"] .omp-composer-send-live[data-composer-live]::after {
+	animation: none;
+}

@@ -11,6 +11,7 @@ import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
+import { softwareCompositing } from "./gpu-fallback";
 import { editLabels, getMainLanguage, mainT } from "./i18n";
 import type { LastWindowClose } from "./quit-guard";
 import {
@@ -178,6 +179,7 @@ export class WindowManager {
 		this.#observeRuntimeFailures(record);
 
 		this.#loadRenderer(record);
+		this.#markSoftwareCompositing(win);
 
 		win.once("ready-to-show", () => {
 			// OMP_GUI_HEADLESS (e2e): index.ts makes windows transparent; never take focus.
@@ -309,6 +311,24 @@ export class WindowManager {
 				},
 				context(),
 			);
+		});
+	}
+
+	/**
+	 * Software compositing: the renderer draws its looping cues still (`html[data-gpu="software"]`, components.css).
+	 * Set from main once the GPU process has reported, and again after each reload (the page starts without it).
+	 */
+	#markSoftwareCompositing(win: BrowserWindow): void {
+		void softwareCompositing().then(software => {
+			if (!software || win.isDestroyed()) return;
+			const mark = () => {
+				if (!win.isDestroyed() && !win.webContents.isDestroyed())
+					void win.webContents
+						.executeJavaScript(`document.documentElement.dataset.gpu = "software"`)
+						.catch(() => {});
+			};
+			win.webContents.on("dom-ready", mark);
+			if (!win.webContents.isLoading()) mark();
 		});
 	}
 

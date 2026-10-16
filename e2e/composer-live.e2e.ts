@@ -23,7 +23,7 @@ const TEXT = {
 	},
 } as const;
 
-async function launch(language: Language, theme: Theme) {
+async function launch(language: Language, theme: Theme, args: string[] = []) {
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-composer-live-")));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -38,6 +38,7 @@ async function launch(language: Language, theme: Theme) {
 		desktop,
 		agent,
 		profile: root,
+		args,
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1100, 800));
@@ -189,6 +190,10 @@ for (const language of ["en", "ko"] as const)
 				if (gpuCompositing) {
 					expect(strong.gpu - off.gpu).toBeLessThan(4);
 					expect(strong.renderer - off.renderer).toBeLessThan(2);
+				} else {
+					// Software compositing (a GPU-less runner): the cue is the still form, never an animation.
+					await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
+					expect(strong.gpu - off.gpu).toBeLessThan(2);
 				}
 
 				// A question waiting on the user wins over a running turn.
@@ -236,6 +241,47 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		await expect
 			.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationPlayState))
 			.toBe("paused");
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("software compositing draws the cue still and the cost stays flat", async () => {
+	test.setTimeout(120_000);
+	// `--disable-gpu` is the same switch the crash fallback honours (main/gpu-fallback.ts): Chromium composites in software.
+	const { app, page, root } = await launch("en", "light", ["--disable-gpu"]);
+	try {
+		const status = await app.evaluate(({ app: electronApp }) =>
+			String(electronApp.getGPUFeatureStatus().gpu_compositing),
+		);
+		expect(status.startsWith("enabled")).toBe(false);
+		await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
+		await send(page, "fixture stream");
+		const live = page.locator(".omp-composer-box > .omp-composer-live");
+		await expect(live).toHaveAttribute("data-composer-live", "turn");
+		const running = await page.evaluate(
+			() =>
+				document
+					.getAnimations()
+					.filter(
+						animation =>
+							animation.playState === "running" &&
+							animation instanceof CSSAnimation &&
+							animation.animationName.startsWith("omp-composer-live"),
+					).length,
+		);
+		expect(running).toBe(0);
+		await expect(live).toHaveCSS("opacity", "0.9");
+		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent.
+		await page.waitForTimeout(1000);
+		const withCue = await cpu(app, 4000);
+		await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
+		await page.waitForTimeout(1000);
+		const without = await cpu(app, 4000);
+		console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);
+		expect(withCue.gpu - without.gpu).toBeLessThan(2);
+		expect(withCue.renderer - without.renderer).toBeLessThan(2);
 	} finally {
 		await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
