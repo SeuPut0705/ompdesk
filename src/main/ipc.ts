@@ -19,6 +19,7 @@ import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/use
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
+import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
 import type {
 	CustomProviderInput,
 	IpcBenchmarkRunOptions,
@@ -79,7 +80,7 @@ import { requestQuit } from "./app-quit";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
-import { mainT } from "./i18n";
+import { getMainLanguage, mainT } from "./i18n";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
@@ -88,6 +89,7 @@ import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
+import { NotificationBatcher, type ShownNotice } from "./notification-batch";
 import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
@@ -240,6 +242,39 @@ let lastNotifyAt = 0;
 /** Shown notifications that switch to a tab on click, kept alive until then. */
 const liveNotifications = new Set<Notification>();
 
+/** Windows whose close already cancels their pending notification summary. */
+const notifyBatchedWindows = new Set<number>();
+
+/** One OS notification; one about a tab switches to it on click. */
+function showNotification(windowId: number, notice: ShownNotice): { close: () => void } {
+	const win = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.id === windowId);
+	const notification = new Notification({ title: notice.title, body: notice.body });
+	const { tabId } = notice;
+	if (win && tabId) {
+		// Held until clicked or dismissed: a collected Notification drops its click.
+		liveNotifications.add(notification);
+		const release = () => liveNotifications.delete(notification);
+		notification.on("close", release);
+		notification.on("click", () => {
+			release();
+			if (win.isDestroyed()) return;
+			if (win.isMinimized()) win.restore();
+			win.show();
+			win.focus();
+			win.webContents.send(IPC_EVENTS.NOTIFICATION_CLICK, { tabId } satisfies NotificationClickPayload);
+		});
+	}
+	notification.show();
+	return { close: () => notification.close() };
+}
+
+const notificationBatcher = new NotificationBatcher({
+	show: showNotification,
+	language: () => getMainLanguage(),
+	setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
+	clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
+});
+app.once("will-quit", () => notificationBatcher.dispose());
 // Per-window tray/progress snapshots, aggregated for the app-global tray/dock.
 const trayStates = new Map<number, TrayState>();
 const progressStates = new Map<number, RunProgressState>();
@@ -1009,23 +1044,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
 			lastNotifyKey = key;
 			lastNotifyAt = now;
-			const notification = new Notification({ title: payload.title, body: payload.body ?? "" });
-			const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
-			if (win && tabId) {
-				// Held until clicked or dismissed: a collected Notification drops its click.
-				liveNotifications.add(notification);
-				const release = () => liveNotifications.delete(notification);
-				notification.on("close", release);
-				notification.on("click", () => {
-					release();
-					if (win.isDestroyed()) return;
-					if (win.isMinimized()) win.restore();
-					win.show();
-					win.focus();
-					win.webContents.send(IPC_EVENTS.NOTIFICATION_CLICK, { tabId } satisfies NotificationClickPayload);
+			if (win && !notifyBatchedWindows.has(winId)) {
+				notifyBatchedWindows.add(winId);
+				win.once("closed", () => {
+					notifyBatchedWindows.delete(winId);
+					notificationBatcher.dropWindow(winId);
 				});
 			}
-			notification.show();
+			// Bursts fold into one summary unless the pref is off (notification-batch.ts).
+			notificationBatcher.notify(
+				winId,
+				{
+					title: payload.title,
+					body: payload.body,
+					tabId: typeof payload.tabId === "string" ? payload.tabId : undefined,
+					kind: payload.kind,
+				},
+				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
+			);
 		}
 	});
 

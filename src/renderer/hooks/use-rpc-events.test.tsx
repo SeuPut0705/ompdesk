@@ -2053,7 +2053,12 @@ describe("useRpcEvents background tabs", () => {
 				});
 			await finish();
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationComplete"), "t-back");
+			expect(notify).toHaveBeenCalledWith(
+				"Back task",
+				translate("events.notificationComplete"),
+				"t-back",
+				"completion",
+			);
 
 			// No title of its own: the app name, never the focused tab's session.
 			notify.mockClear();
@@ -2062,7 +2067,12 @@ describe("useRpcEvents background tabs", () => {
 			}));
 			await finish();
 			await flush();
-			expect(notify).toHaveBeenCalledWith("OMPdesk", translate("events.notificationComplete"), "t-back");
+			expect(notify).toHaveBeenCalledWith(
+				"OMPdesk",
+				translate("events.notificationComplete"),
+				"t-back",
+				"completion",
+			);
 
 			// A reply with prose: the banner reads its opening, Markdown removed.
 			notify.mockClear();
@@ -2085,7 +2095,7 @@ describe("useRpcEvents background tabs", () => {
 				);
 			});
 			await flush();
-			expect(notify).toHaveBeenCalledWith("OMPdesk", "Done. Fixed the parser.", "t-back");
+			expect(notify).toHaveBeenCalledWith("OMPdesk", "Done. Fixed the parser.", "t-back", "completion");
 		} finally {
 			restoreFocus();
 		}
@@ -2109,7 +2119,7 @@ describe("useRpcEvents background tabs", () => {
 				onExtensionUi({ type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] }, "t-back");
 			});
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back", "ask");
 		} finally {
 			restoreFocus();
 		}
@@ -2145,7 +2155,7 @@ describe("useRpcEvents background tabs", () => {
 				onExtensionUi({ type: "extension_ui_request", id: "ask-2", method: "ask", questions: [] }, "t-back");
 			});
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back", "ask");
 		} finally {
 			restoreFocus();
 		}
@@ -2186,7 +2196,7 @@ describe("useRpcEvents background tabs", () => {
 				onExtensionUi({ type: "extension_ui_request", id: "q", method: "ask", questions: [] }, "t-back");
 			});
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back", "ask");
 		} finally {
 			extensionUi.setState({ inlineLogins: 0, loginRequestIds: {} });
 			restoreFocus();

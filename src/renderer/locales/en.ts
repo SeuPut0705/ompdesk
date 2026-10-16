@@ -2104,6 +2104,8 @@ export const en: Record<string, string> = {
 	"settings.gui.autoPreviewDevServerDesc": "Shows a server the agent starts, once per address",
 	"settings.gui.autoOpenChanges": "Open Changes after edits",
 	"settings.gui.autoOpenChangesDesc": "At the end of a turn that edited files, if the panel is closed",
+	"settings.gui.batchNotifications": "Batch notifications",
+	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
 	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
 	"settings.gui.resumeInterruptedDesc":
 		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",

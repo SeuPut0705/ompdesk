@@ -131,6 +131,13 @@ export const MAIN_TEXT = {
 		en: "Continuing {count} interrupted task{plural}",
 		ko: "중단된 작업 {count}개를 이어서 하고 있어요",
 	},
+	// Batched completion notifications (notification-batch.ts): "3 tasks finished · 1 needs you".
+	"batch.finished.one": { en: "{count} task finished", ko: "작업 {count}개 완료" },
+	"batch.finished.other": { en: "{count} tasks finished", ko: "작업 {count}개 완료" },
+	"batch.failed": { en: "{count} failed", ko: "{count}개 실패" },
+	"batch.needsYou.one": { en: "{count} needs you", ko: "{count}개 확인 필요" },
+	"batch.needsYou.other": { en: "{count} need you", ko: "{count}개 확인 필요" },
+	"batch.more": { en: "{list} +{count} more", ko: "{list} 외 {count}개" },
 	"resume.stop": { en: "Stop", ko: "중단" },
 	// Status of a tab whose omp runs on a paired device that is unreachable.
 	"remote.offline": {

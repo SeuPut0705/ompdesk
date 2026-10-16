@@ -204,6 +204,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"changes diff open automatically edits turn end side panel smart automation 변경 사항 자동 열기 편집 패널 스마트 자동화",
 	},
 	{
+		id: "batchNotifications",
+		section: "agent",
+		labelKey: "settings.gui.batchNotifications",
+		aliases:
+			"batch group combine bundle notification notifications summary finished tasks smart automation 알림 묶기 묶음 합치기 요약 완료 작업 스마트 자동화",
+	},
+	{
 		id: "nextPromptSuggestions",
 		section: "agent",
 		labelKey: "settings.gui.nextPromptSuggestions",

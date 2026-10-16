@@ -1,6 +1,7 @@
 import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
+import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
@@ -60,6 +61,7 @@ export function AgentSection() {
 			<SettingsSection id="settings-agent-automation" scope="app" title={t("settings.agent.automation")}>
 				<AutoPreviewRow />
 				<AutoChangesRow />
+				<BatchNotificationsRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

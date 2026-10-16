@@ -846,11 +846,16 @@ export interface IpcStatsFetchPayload {
 	device?: string;
 }
 
+/** Why a tab notifies: a finished turn, a failed one, or a question waiting for the user. */
+export type IpcNotifyKind = "completion" | "error" | "ask";
+
 export interface IpcNotifyPayload {
 	title: string;
 	body?: string;
 	/** The tab the notification is about; a click on it switches to that tab. */
 	tabId?: string;
+	/** What happened; lets main fold a burst into one notification. Without it nothing is batched. */
+	kind?: IpcNotifyKind;
 }
 
 export interface NotificationClickPayload {
@@ -1720,7 +1725,7 @@ export interface OmpApi {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		): Promise<string[] | null>;
-		notify(title: string, body?: string, tabId?: string): void;
+		notify(title: string, body?: string, tabId?: string, kind?: IpcNotifyKind): void;
 	};
 	prefs: {
 		get(key?: string): Promise<unknown>;

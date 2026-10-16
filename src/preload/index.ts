@@ -29,6 +29,8 @@ import type {
 	IpcFsReadResult,
 	IpcHostOmpUpdate,
 	IpcModelSetupRunResult,
+	IpcNotifyKind,
+	IpcNotifyPayload,
 	IpcOpenExtensionRequest,
 	IpcOpenPathResult,
 	IpcRemotePairPayload,
@@ -441,8 +443,8 @@ const api: OmpApi = {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
-		notify: (title: string, body?: string, tabId?: string) => {
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body, tabId });
+		notify: (title: string, body?: string, tabId?: string, kind?: IpcNotifyKind) => {
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body, tabId, kind } satisfies IpcNotifyPayload);
 		},
 	},
 

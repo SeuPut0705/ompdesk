@@ -1165,18 +1165,24 @@ describe("tabs store background tab signals", () => {
 				"Beta job",
 				translate("events.notificationErrorDetail", { error: "boom" }),
 				"t1",
+				"error",
 			);
 
 			status({ status: "running" });
 			status({ lastRun: { stopReason: "stop" } });
 			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
-			expect(notify).toHaveBeenLastCalledWith("Beta job", translate("events.notificationComplete"), "t1");
+			expect(notify).toHaveBeenLastCalledWith(
+				"Beta job",
+				translate("events.notificationComplete"),
+				"t1",
+				"completion",
+			);
 
 			// Main's outcome carries the reply's start: the banner reads its prose, Markdown removed.
 			status({ status: "running" });
 			status({ lastRun: { stopReason: "stop", reply: "## Done\n\nFixed **the parser**." } });
 			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(3));
-			expect(notify).toHaveBeenLastCalledWith("Beta job", "Done. Fixed the parser.", "t1");
+			expect(notify).toHaveBeenLastCalledWith("Beta job", "Done. Fixed the parser.", "t1", "completion");
 
 			// A run the user aborted stays quiet.
 			status({ status: "running" });

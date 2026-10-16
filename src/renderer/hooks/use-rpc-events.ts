@@ -178,7 +178,7 @@ async function maybeNotify(
 		const effective = typeof setting === "string" ? setting : NOTIFY_DEFAULTS[kind];
 		if (effective === "off") return;
 		// The tab rides along so a click on the banner brings that tab forward.
-		window.omp.system.notify(title, body, tabId);
+		window.omp.system.notify(title, body, tabId, kind);
 		playNotificationSound();
 	} catch {
 		// Best-effort: a failed notification must never break event dispatch.

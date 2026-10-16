@@ -26,6 +26,9 @@ export const WORKTREE_AUTO_CLEAN_PREF = "worktreeAutoClean";
 /** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */
 export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
+/** Fold several tabs finishing within seconds into one notification (default on; only `false` turns it off). */
+export const BATCH_NOTIFICATIONS_PREF = "batchNotifications";
+
 /** A dev server's address in a bash result opens the Preview for the focused tab (default on; only `false` turns it off). */
 export const AUTO_PREVIEW_DEV_SERVER_PREF = "autoPreviewDevServer";
 
