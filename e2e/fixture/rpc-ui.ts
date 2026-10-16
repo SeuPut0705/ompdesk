@@ -33,6 +33,9 @@ import { tinyPdf } from "../tiny-pdf";
 import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "../work-recording";
 import { FIXTURE_OMP_VERSION } from "./version";
 
+/** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
+const E2E_DIR = nodePath.dirname(import.meta.dir);
+
 /**
  * The fake omp's `--mode rpc-ui`: stock RPC on stdin/stdout, plus the gui-bridge extension's socket (loaded
  * with `-e`, address in `OMP_GUI_BRIDGE`) answering the bridge methods the e2e suites reach.
@@ -3073,7 +3076,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message === "fixture real work replay") {
 			const recording = rebaseWorkRecording(
 				JSON.parse(
-					fs.readFileSync(nodePath.join(import.meta.dir, "fixtures/real-live-work.json"), "utf8"),
+					fs.readFileSync(nodePath.join(E2E_DIR, "fixtures/real-live-work.json"), "utf8"),
 				) as RecordedWorkFrame[],
 			);
 			// Held at AlphaCounter's `sleep 3 && wc -l` start (260) and its result (284).
@@ -3143,15 +3146,15 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			const out = nodePath.join(process.cwd(), "out");
 			fs.mkdirSync(out, { recursive: true });
 			for (const name of ["clip.webm", "tone.mp3"])
-				fs.copyFileSync(nodePath.join(import.meta.dir, "media", name), nodePath.join(out, name));
+				fs.copyFileSync(nodePath.join(E2E_DIR, "media", name), nodePath.join(out, name));
 			// 40 MB: an MP4 followed by a top-level `free` box, valid and seekable, over the old blob cap.
-			const longClip = fs.readFileSync(nodePath.join(import.meta.dir, "media", "clip.mp4"));
+			const longClip = fs.readFileSync(nodePath.join(E2E_DIR, "media", "clip.mp4"));
 			const padding = 40 * 1024 * 1024;
 			const free = Buffer.alloc(8);
 			free.writeUInt32BE(padding + 8, 0);
 			free.write("free", 4, "latin1");
 			fs.writeFileSync(nodePath.join(out, "long.mp4"), Buffer.concat([longClip, free, Buffer.alloc(padding)]));
-			const png = fs.readFileSync(nodePath.join(import.meta.dir, "../resources/icon.png"));
+			const png = fs.readFileSync(nodePath.join(E2E_DIR, "../resources/icon.png"));
 			fs.writeFileSync(nodePath.join(out, "frame.png"), png);
 			fs.writeFileSync(
 				nodePath.join(out, "chart.svg"),
@@ -3306,7 +3309,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// A subagent reads two PNGs back. Its transcript comes from its JSONL the way
 			// stock serves it: image bytes persisted as `blob:sha256:` references. One
 			// blob is in the store; the other was collected.
-			const png = fs.readFileSync(nodePath.join(import.meta.dir, "../resources/icon.png")).toString("base64");
+			const png = fs.readFileSync(nodePath.join(E2E_DIR, "../resources/icon.png")).toString("base64");
 			const hash = createHash("sha256").update(Buffer.from(png, "base64")).digest("hex");
 			imageBlobs.set(hash, png);
 			const shots = [
