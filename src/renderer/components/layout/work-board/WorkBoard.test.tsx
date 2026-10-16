@@ -568,6 +568,37 @@ describe("WorkBoard account limit", () => {
 		expect(useUiStore.getState().settingsTab).toBe("models:accounts");
 	});
 
+	it("lists one row per provider with its last-used account, the current provider first and marked", async () => {
+		const codexLimits = [{ id: "openai-codex:5h", label: "5 hour", windowId: "5h", usedFraction: 0.1 }];
+		usageReports = [
+			report({
+				provider: "openai-codex",
+				account: "codex@example.com (codex…)",
+				active: false,
+				limits: codexLimits,
+				lastUsedAt: 5,
+			}),
+			report({
+				provider: "openai-codex",
+				account: "old@example.com",
+				active: false,
+				limits: codexLimits,
+				lastUsedAt: 1,
+			}),
+			report({ account: "other@example.com", active: false }),
+			report(),
+		];
+		withAgent();
+		await mount();
+		const rows = [...pane.querySelectorAll("[data-board-account]")];
+		expect(rows.map(row => row.getAttribute("data-board-account"))).toEqual(["anthropic", "openai-codex"]);
+		expect(rows.map(row => row.querySelector(".omp-work-board-account-name")?.textContent)).toEqual([
+			"work@example.com",
+			"codex@example.com",
+		]);
+		expect(rows.map(row => row.hasAttribute("data-in-use"))).toEqual([true, false]);
+	});
+
 	it("tints each gauge near its limit and at it", async () => {
 		usageReports = [
 			report({
@@ -614,6 +645,7 @@ describe("shortAccountLabel", () => {
 		expect(shortAccountLabel("user7616@example.com (user7616)")).toBe("user7616@example.com");
 		expect(shortAccountLabel("user7616@example.com (use…")).toBe("user7616@example.com");
 		expect(shortAccountLabel("work@example.com (Work account)")).toBe("work@example.com (Work account)");
+		expect(shortAccountLabel("user7616@example.com (user76...")).toBe("user7616@example.com");
 		expect(shortAccountLabel("plain label")).toBe("plain label");
 	});
 });

@@ -2122,6 +2122,11 @@ export interface UsageReport {
 	credentialId?: number;
 	/** This tab's session is pinned to that account. */
 	active?: boolean;
+	/**
+	 * When this account last served a request, epoch ms: this session's pin, the response headers stock merged into
+	 * its report, or even rotation's ledger, whichever is latest. Absent when none names it.
+	 */
+	lastUsedAt?: number;
 	/** The account's saved rate-limit resets, when the provider reports any. */
 	resetPasses?: ResetPasses;
 }

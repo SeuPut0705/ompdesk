@@ -84,6 +84,30 @@ function promptOf(pi: ExtensionAPI, ctx: ExtensionContext): RotationPrompt | und
 	return { auth: ctx.modelRegistry.authStorage, provider: model.provider, modelId: model.id, sessionId };
 }
 
+/**
+ * When even rotation last handed each of `accounts` a session, in any omp this computer runs (epoch ms by
+ * credential id; accounts the ledger never named are left out). Empty in quota mode, which keeps no ledger.
+ */
+export function ledgerAssignedAt(
+	provider: string,
+	accounts: readonly {
+		credentialId: number;
+		accountId?: string;
+		email?: string;
+		projectId?: string;
+		orgId?: string;
+	}[],
+): Map<number, number> {
+	const assigned = LEDGER.read();
+	const at = new Map<number, number>();
+	for (const account of accounts) {
+		const key = STOCK.accountKey(provider, { ...account, active: false });
+		const when = assigned[key];
+		if (when !== undefined) at.set(account.credentialId, when);
+	}
+	return at;
+}
+
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (_event, ctx) => {

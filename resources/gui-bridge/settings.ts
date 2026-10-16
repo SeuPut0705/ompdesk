@@ -518,15 +518,37 @@ interface WireUsageReport {
 	account?: string;
 	credentialId?: number;
 	active?: boolean;
+	lastUsedAt?: number;
 	resetPasses?: ResetPasses;
+}
+
+/**
+ * When the account last served a request, from the three signals stock and the GUI keep: the pin of this session
+ * (`lastUsedAtMs`), the response headers stock merged into the account's report (`headersUpdatedAt`, shared by
+ * every omp through stock's cache) and even rotation's ledger of assignments. Undefined when none names it.
+ */
+function lastUsedAt(
+	report: UsageReport,
+	account: StoredAccount | undefined,
+	assigned: ReadonlyMap<number, number>,
+): number | undefined {
+	const headers = report.metadata?.headersUpdatedAt;
+	const times = [
+		account?.lastUsedAtMs,
+		typeof headers === "number" ? headers : undefined,
+		account ? assigned.get(account.credentialId) : undefined,
+	].filter((time): time is number => typeof time === "number" && Number.isFinite(time));
+	return times.length > 0 ? Math.max(...times) : undefined;
 }
 
 function shapeReport(
 	report: UsageReport,
 	account: StoredAccount | undefined,
 	projectReset: ((report: UsageReport, account: StoredAccount | undefined) => ResetPasses | undefined) | undefined,
+	assigned: ReadonlyMap<number, number>,
 ): WireUsageReport {
 	const resetPasses = projectReset?.(report, account);
+	const usedAt = lastUsedAt(report, account, assigned);
 	return {
 		provider: report.provider,
 		fetchedAt: report.fetchedAt,
@@ -539,6 +561,7 @@ function shapeReport(
 			(account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
 		...(account ? { credentialId: account.credentialId } : {}),
 		...(account?.active ? { active: true } : {}),
+		...(usedAt !== undefined ? { lastUsedAt: usedAt } : {}),
 		...(resetPasses ? { resetPasses } : {}),
 	};
 }
@@ -555,6 +578,19 @@ async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 	try {
 		const authStorage = session.modelRegistry.authStorage;
 		const projectReset = await resetProjector(env).catch(() => undefined);
+		// Dynamic on purpose (as resetProjector): account-rotation.ts needs omp internals a static import would make
+		// settings.ts depend on; an omp lacking them just contributes no assignment times.
+		const ledger = await import("./account-rotation").then(
+			module => module.ledgerAssignedAt,
+			() => undefined,
+		);
+		const assignedOf = (provider: string, accounts: readonly StoredAccount[]): ReadonlyMap<number, number> => {
+			try {
+				return ledger?.(provider, accounts) ?? new Map();
+			} catch {
+				return new Map();
+			}
+		};
 		let raw = (await session.fetchUsageReports()) ?? [];
 		const now = Date.now();
 		const stale = new Set(
@@ -587,14 +623,16 @@ async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
 				showReport(report.provider, account.credentialId, report);
 				shown.add(`${report.provider}\0${account.credentialId}`);
 			}
-			reports.push(shapeReport(report, account, projectReset));
+			reports.push(
+				shapeReport(report, account, projectReset, assignedOf(report.provider, accountsOf(report.provider))),
+			);
 		}
 		for (const key of lastReports.keys()) {
 			if (shown.has(key)) continue;
 			const [provider = "", id] = key.split("\0");
 			const account = accountsOf(provider).find(entry => entry.credentialId === Number(id));
 			const last = account && showReport(provider, account.credentialId, null);
-			if (last) reports.push(shapeReport(last, account, projectReset));
+			if (last) reports.push(shapeReport(last, account, projectReset, assignedOf(provider, accountsOf(provider))));
 		}
 	} catch {
 		// Provider usage fetch is best-effort; local session tallies always answer.

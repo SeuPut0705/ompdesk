@@ -339,7 +339,19 @@ for (const language of ["en", "ko"] as const)
 				expect(await page.evaluate(() => window.omp.prefs.get("workBoardCollapsed"))).toEqual({});
 
 				// The turn ends: the board sums it up.
+				// Three providers report usage: the turn's end re-reads the quotas, and the board lists one row per
+				// provider with its last-used account, the tab's own provider first and marked.
+				await fixture(page, "fixture:usage-accounts:3");
 				await fixture(page, "fixture:board-end");
+				const accounts = board.locator("[data-board-account]");
+				await expect(accounts).toHaveCount(3);
+				await expect(accounts.locator(".omp-work-board-account-name .truncate")).toHaveText([
+					"me@example.com",
+					"side@example.com",
+					"codex@example.com",
+				]);
+				await expect(accounts.first()).toHaveAttribute("data-in-use", "true");
+				await expect(board.locator("[data-board-account][data-in-use]")).toHaveCount(1);
 				await expect(board.locator('[data-board-section="last"]')).toBeVisible();
 				await shot("idle");
 			} finally {
@@ -350,7 +362,7 @@ for (const language of ["en", "ko"] as const)
 
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
-		test(`the sidebar's usage block: one gauge line per subscription account, in use marked, a click opens accounts (${language} ${theme})`, async () => {
+		test(`the sidebar's usage block: one gauge line per provider with its last-used account's email, in use marked, a click opens accounts (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const { app, page, root } = await launch(language, theme);
 			try {
@@ -368,34 +380,54 @@ for (const language of ["en", "ko"] as const)
 				// No subscription account (the fixture provider reports no windows): nothing in the footer.
 				await expect(page.locator("[data-rail-pin='usage']")).toHaveCount(0);
 
-				for (const count of [1, 3, 5]) {
+				const emails = ["me@example.com", "side@example.com", "codex@example.com", "kimi@example.com"];
+				for (const count of [1, 2, 3, 5]) {
 					await fixture(page, `fixture:usage-accounts:${count}`);
 					await page.reload();
 					await page.waitForFunction(() => window.omp?.rpc != null);
+					// One line per provider (never per account), the tab's own provider first.
 					await expect(lines).toHaveCount(Math.min(count, 4));
 					await expect(lines.first().locator('[data-window="5h"] .omp-usage-gauge-text')).toContainText("5H");
 					await expect(lines.first().locator('[data-window="7d"] .omp-usage-gauge-text')).toContainText("7D");
+					// Under each line the account that provider used last: its bare email, muted and truncated (with
+					// five providers the others follow by company name, so only the first two are fixed).
+					await expect(lines.locator(".omp-sidebar-usage-account")).toHaveText(
+						count === 5
+							? [emails[0] ?? "", emails[1] ?? "", /@example\.com$/, /@example\.com$/]
+							: emails.slice(0, count),
+					);
+					expect(
+						await lines
+							.first()
+							.locator(".omp-sidebar-usage-account")
+							.evaluate(email => {
+								const style = getComputedStyle(email);
+								return { overflow: style.overflow, ellipsis: style.textOverflow, nowrap: style.whiteSpace };
+							}),
+					).toEqual({ overflow: "hidden", ellipsis: "ellipsis", nowrap: "nowrap" });
 					if (count === 5) {
 						await expect(page.locator(".omp-sidebar-usage-more")).toHaveText(
 							language === "en" ? "+1 more" : "+1개 더 보기",
 						);
+					} else {
+						await expect(page.locator(".omp-sidebar-usage-more")).toHaveCount(0);
 					}
 					if (count >= 2) {
-						// The fixture's own provider is the model in use: its line is the one marked.
-						await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveCount(1);
-						await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveAttribute(
-							"data-rail-account",
-							/^fixture:/,
-						);
-						// A straight 2px edge, not an inset shadow that bends round the line's corners into a "(".
-						expect(
-							await page.locator("[data-rail-pin='usage'] [data-in-use]").evaluate(line => {
-								const edge = getComputedStyle(line, "::before");
-								return { shadow: getComputedStyle(line).boxShadow, width: edge.width, content: edge.content };
-							}),
-						).toEqual({ shadow: "none", width: "2px", content: '""' });
+						await expect(lines.nth(1)).not.toHaveAttribute("data-in-use", /.*/);
+						await expect(lines.nth(1)).toHaveAttribute("title", /side@example\.com|codex@example\.com/);
 					}
-					await expect(lines.first()).toHaveAttribute("title", /limit|한도/);
+					// The fixture's own provider is the model in use: its line is the one marked, and the first.
+					await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveCount(1);
+					await expect(lines.first()).toHaveAttribute("data-in-use", "true");
+					await expect(lines.first()).toHaveAttribute("data-rail-account", /^fixture:/);
+					// A straight 2px edge, not an inset shadow that bends round the line's corners into a "(".
+					expect(
+						await lines.first().evaluate(line => {
+							const edge = getComputedStyle(line, "::before");
+							return { shadow: getComputedStyle(line).boxShadow, width: edge.width, content: edge.content };
+						}),
+					).toEqual({ shadow: "none", width: "2px", content: '""' });
+					await expect(lines.first()).toHaveAttribute("title", /me@example\.com[\s\S]*15%/);
 					await shot(`${count}`);
 				}
 				await lines.first().click();

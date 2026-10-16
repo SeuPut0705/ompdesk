@@ -64,7 +64,8 @@
 	}
 }
 
-/* Usage block in the footer: one compact line per subscription account (SidebarUsage.tsx). */
+/* Usage block in the footer: one entry per provider company (SidebarUsage.tsx), the gauges on the first row and
+   the last-used account's email on a slim second row under them. */
 .omp-sidebar-usage {
 	display: flex;
 	flex-direction: column;
@@ -73,16 +74,29 @@
 
 .omp-sidebar-usage-line {
 	position: relative;
-	display: flex;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
 	width: 100%;
 	min-width: 0;
 	align-items: center;
-	gap: var(--sc-space-2);
+	column-gap: var(--sc-space-2);
+	row-gap: 1px;
 	padding: 3px var(--sc-space-2-5, 10px);
 	border-radius: var(--sc-radius-md);
 	color: var(--sc-text-secondary);
 	text-align: start;
 	cursor: pointer;
+}
+
+.omp-sidebar-usage-account {
+	grid-column: 2;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--sc-font-2xs);
+	line-height: 1.2;
+	color: var(--sc-text-muted);
 }
 
 .omp-sidebar-usage-line:hover,

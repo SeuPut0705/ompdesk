@@ -4394,36 +4394,54 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				// turn (the board then sums it up).
 				if (line.startsWith("fixture:usage-accounts:")) {
 					const count = Number(line.slice("fixture:usage-accounts:".length));
-					const kinds = [
-						["anthropic", "work@example.com", false],
-						["fixture", "me@example.com (me…)", true],
-						["openai-codex", "codex@example.com", false],
-						["anthropic", "side@example.com", false],
-						["openai-codex", "extra@example.com", false],
-					] as const;
-					usageAccounts = kinds.slice(0, count).map(([provider, account, active], index) => ({
-						provider,
-						fetchedAt: Date.now(),
-						account,
-						credentialId: index + 1,
-						active,
-						limits: [
-							{
-								id: `${provider}:5h`,
-								label: "5 hour",
-								windowId: "5h",
-								usedFraction: 0.15 + index * 0.2,
-								resetsAt: Date.now() + 3 * 3_600_000,
-							},
-							{
-								id: `${provider}:7d`,
-								label: "7 day",
-								windowId: "7d",
-								usedFraction: 0.39 + index * 0.2,
-								resetsAt: Date.now() + 4 * 86_400_000,
-							},
+					const now = Date.now();
+					// The first `count` providers, in this order; a provider with two accounts has one last used later
+					// (`lastUsedAt`), the one its entry must show.
+					const providers = [
+						["fixture", [["me@example.com (me…)", true, now - 60_000]]],
+						[
+							"anthropic",
+							[
+								["work@example.com", false, now - 3_600_000],
+								["side@example.com", false, now - 120_000],
+							],
 						],
-					}));
+						[
+							"openai-codex",
+							[
+								["codex@example.com", false, now - 300_000],
+								["extra@example.com", false, now - 7_200_000],
+							],
+						],
+						["kimi-code", [["kimi@example.com", false, now - 400_000]]],
+						["zai", [["zai@example.com", false, now - 500_000]]],
+					] as const;
+					usageAccounts = providers.slice(0, count).flatMap(([provider, accounts], providerIndex) =>
+						accounts.map(([account, active, lastUsedAt], accountIndex) => ({
+							provider,
+							fetchedAt: now,
+							account,
+							credentialId: providerIndex * 10 + accountIndex + 1,
+							active,
+							lastUsedAt,
+							limits: [
+								{
+									id: `${provider}:5h`,
+									label: "5 hour",
+									windowId: "5h",
+									usedFraction: 0.15 + providerIndex * 0.2,
+									resetsAt: now + 3 * 3_600_000,
+								},
+								{
+									id: `${provider}:7d`,
+									label: "7 day",
+									windowId: "7d",
+									usedFraction: 0.39 + providerIndex * 0.2,
+									resetsAt: now + 4 * 86_400_000,
+								},
+							],
+						})),
+					);
 					ok();
 					break;
 				}

@@ -7,6 +7,8 @@ export interface StoredAccount {
 	orgId?: string;
 	orgName?: string;
 	active: boolean;
+	/** Last use recorded on this session's pin; only on the `active` account. */
+	lastUsedAtMs?: number;
 }
 
 export function matchReportAccount<T>(

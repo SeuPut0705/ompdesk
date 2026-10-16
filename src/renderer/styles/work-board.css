@@ -337,9 +337,17 @@ button.omp-work-board-row:hover {
 	}
 }
 
-/* Account row: the subscription account in use, then one gauge per usage window with its reset beneath. */
-.omp-work-board-account {
+/* Account rows: one per provider company (AccountLimit.tsx) — the account it used last, its email, then one gauge
+   per usage window with its reset beneath. The provider this tab uses comes first with a quiet edge. */
+.omp-work-board-accounts {
 	grid-column: 1 / -1;
+	display: flex;
+	flex-direction: column;
+	gap: var(--sc-space-1);
+}
+
+.omp-work-board-account {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--sc-space-1-5);
@@ -350,6 +358,17 @@ button.omp-work-board-row:hover {
 	text-align: start;
 	color: var(--sc-text-muted);
 	cursor: pointer;
+}
+
+.omp-work-board-account[data-in-use]::before {
+	content: "";
+	position: absolute;
+	inset-block: 4px;
+	inset-inline-start: 0;
+	width: 2px;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-text-subtle);
+	pointer-events: none;
 }
 
 .omp-work-board-account:hover {

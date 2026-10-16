@@ -24,6 +24,8 @@
 
 import { create } from "zustand";
 import type { RpcResponse, UsageLimit, UsageReport } from "../../shared/rpc-types";
+import { providerBrand } from "../components/settings/providers/provider-marks";
+import { accountWindows } from "./usage-windows";
 
 export const USAGE_POLL_MS = 30_000;
 export const USAGE_BACKOFF_MAX_MS = 5 * 60_000;
@@ -69,6 +71,52 @@ export function readUsageReports(response: RpcResponse): UsageRead {
 export function inUseReport(reports: readonly UsageReport[], provider: string | null | undefined) {
 	const own = reports.filter(report => report.provider === provider && report.limits.length > 0);
 	return own.find(report => report.active) ?? own[0];
+}
+
+/** One provider company's entry in the sidebar and the work board: the account it last used. */
+export interface ProviderAccount {
+	report: UsageReport;
+	/** This tab's session uses the company's provider. */
+	inUse: boolean;
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+/**
+ * One entry per provider company (Anthropic, OpenAI, …) that reports usage windows (API-key providers have none),
+ * each showing the account the company's sessions used last: the report stock marks `active` (this tab's pin), else
+ * the one with the latest `lastUsedAt` (stock's response-header stamp, even rotation's ledger), else the first by
+ * account. The company this tab's model belongs to comes first and is `inUse`; the others follow by company name.
+ */
+export function lastUsedAccounts(
+	reports: readonly UsageReport[],
+	provider: string | null | undefined,
+): ProviderAccount[] {
+	const byCompany = new Map<string, UsageReport[]>();
+	for (const report of reports) {
+		if (accountWindows(report.limits).length === 0) continue;
+		const company = providerBrand({ id: report.provider, name: report.provider }).company;
+		byCompany.set(company, [...(byCompany.get(company) ?? []), report]);
+	}
+	const current = provider ? providerBrand({ id: provider, name: provider }).company : null;
+	return [...byCompany.entries()]
+		.map(([company, own]) => {
+			const ordered = [...own].sort(
+				(a, b) => collator.compare(a.account ?? "", b.account ?? "") || collator.compare(a.provider, b.provider),
+			);
+			let last = ordered[0] as UsageReport;
+			for (const report of ordered) {
+				if ((report.lastUsedAt ?? -1) > (last.lastUsedAt ?? -1)) last = report;
+			}
+			const pinned = ordered.find(report => report.active && report.provider === provider);
+			return {
+				company,
+				report: pinned ?? ordered.find(report => report.active) ?? last,
+				inUse: company === current,
+			};
+		})
+		.sort((a, b) => Number(b.inUse) - Number(a.inUse) || collator.compare(a.company, b.company))
+		.map(({ report, inUse }) => ({ report, inUse }));
 }
 
 /**

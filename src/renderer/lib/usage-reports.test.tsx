@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vite
 import type { UsageReport } from "../../shared/rpc-types";
 import {
 	inUseReport,
+	lastUsedAccounts,
 	readUsageReports,
 	USAGE_BACKOFF_MAX_MS,
 	USAGE_POLL_MS,
@@ -168,5 +169,58 @@ describe("inUseReport", () => {
 		expect(inUseReport([report(1), report(2, true), report(3)], "anthropic")?.credentialId).toBe(2);
 		expect(inUseReport([{ ...report(1), limits: [] }, report(3)], "anthropic")?.credentialId).toBe(3);
 		expect(inUseReport([report(1)], "openai-codex")).toBeUndefined();
+	});
+});
+
+describe("lastUsedAccounts", () => {
+	const five = (provider: string) => [
+		{ id: `${provider}:5h`, label: "5h", usedFraction: 0.15, windowId: "5h" },
+		{ id: `${provider}:7d`, label: "7d", usedFraction: 0.39, windowId: "7d" },
+	];
+	const report = (provider: string, account: string, patch: Partial<UsageReport> = {}): UsageReport => ({
+		provider,
+		account,
+		fetchedAt: 0,
+		limits: five(provider),
+		...patch,
+	});
+
+	it("lists one entry per provider company, API keys and window-less accounts left out", () => {
+		const reports = [
+			report("openai-codex", "z@x.com"),
+			report("anthropic", "b@x.com"),
+			report("openrouter", "key", { limits: [] }),
+			report("anthropic", "a@x.com"),
+			report("zai", "calls", { limits: [{ id: "zai:calls", label: "calls" }] }),
+		];
+		expect(lastUsedAccounts(reports, null).map(entry => entry.report.provider)).toEqual([
+			"anthropic",
+			"openai-codex",
+		]);
+	});
+
+	it("shows the account used last: the session's pin, else the latest lastUsedAt, else the first by account", () => {
+		const pinned = [
+			report("anthropic", "a@x.com", { lastUsedAt: 900 }),
+			report("anthropic", "b@x.com", { active: true, lastUsedAt: 100 }),
+		];
+		expect(lastUsedAccounts(pinned, "anthropic")[0]?.report.account).toBe("b@x.com");
+		const stamped = [
+			report("openai-codex", "a@x.com", { lastUsedAt: 100 }),
+			report("openai-codex", "b@x.com", { lastUsedAt: 300 }),
+			report("openai-codex", "c@x.com"),
+		];
+		expect(lastUsedAccounts(stamped, null)[0]?.report.account).toBe("b@x.com");
+		const unknown = [report("openai-codex", "z@x.com"), report("openai-codex", "a@x.com")];
+		expect(lastUsedAccounts(unknown, null)[0]?.report.account).toBe("a@x.com");
+	});
+
+	it("puts the provider this tab uses first and marks only it", () => {
+		const reports = [report("anthropic", "a@x.com"), report("openai-codex", "c@x.com")];
+		expect(lastUsedAccounts(reports, "openai-codex").map(entry => [entry.report.provider, entry.inUse])).toEqual([
+			["openai-codex", true],
+			["anthropic", false],
+		]);
+		expect(lastUsedAccounts(reports, null).every(entry => !entry.inUse)).toBe(true);
 	});
 });
