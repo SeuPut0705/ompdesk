@@ -11,6 +11,20 @@
  */
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import {
+	MOBILE_WEB_COMMAND,
+	MOBILE_WEB_GET_STATE,
+	MOBILE_WEB_STATE,
+	WEB_DEVICES_CHANGED,
+	WEB_DEVICES_LIST,
+	WEB_DEVICES_RENAME,
+	WEB_DEVICES_REVOKE,
+	WEB_DEVICES_SET_GRANTS,
+	WEB_DEVICES_SET_LIMITS,
+	WEB_PAIRING_CODE_NEW,
+	WEB_PAIRING_REQUEST,
+	WEB_PAIRING_RESPOND,
+} from "../../shared/mobile-web";
+import {
 	PREVIEW_COMMAND,
 	PREVIEW_PAGE,
 	PREVIEW_SAVE_PDF,
@@ -46,6 +60,18 @@ export type IpcChannel =
 	| typeof SSH_TOOLS_PROMPTS
 	| typeof SSH_TOOLS_STATE
 	| typeof SSH_TOOLS_PROMPT
+	| typeof MOBILE_WEB_GET_STATE
+	| typeof MOBILE_WEB_COMMAND
+	| typeof MOBILE_WEB_STATE
+	| typeof WEB_DEVICES_LIST
+	| typeof WEB_DEVICES_REVOKE
+	| typeof WEB_DEVICES_RENAME
+	| typeof WEB_DEVICES_SET_GRANTS
+	| typeof WEB_DEVICES_SET_LIMITS
+	| typeof WEB_DEVICES_CHANGED
+	| typeof WEB_PAIRING_CODE_NEW
+	| typeof WEB_PAIRING_REQUEST
+	| typeof WEB_PAIRING_RESPOND
 	| "terminal:shells"
 	| "terminal:request";
 
@@ -296,6 +322,15 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[SSH_TOOLS_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SSH_TOOLS_AGENT]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[SSH_TOOLS_PROMPTS]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[MOBILE_WEB_GET_STATE]: { dir: "invoke", permission: "device-self", mode: "pass" },
+	[MOBILE_WEB_COMMAND]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_DEVICES_LIST]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_DEVICES_REVOKE]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_DEVICES_RENAME]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_DEVICES_SET_GRANTS]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_DEVICES_SET_LIMITS]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_PAIRING_CODE_NEW]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_PAIRING_RESPOND]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 
 	// GitHub sign-in on the host.
 	[C.GITHUB_AUTH_REFRESH]: { dir: "invoke", permission: "workspace", mode: "pass" },
@@ -384,4 +419,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[SCHEDULES_STATE]: { dir: "push", mode: "pass" },
 	[SSH_TOOLS_STATE]: { dir: "push", mode: "pass" },
 	[SSH_TOOLS_PROMPT]: { dir: "push", mode: "pass" },
+	[MOBILE_WEB_STATE]: { dir: "push", mode: "pass" },
+	[WEB_DEVICES_CHANGED]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
+	[WEB_PAIRING_REQUEST]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
 };

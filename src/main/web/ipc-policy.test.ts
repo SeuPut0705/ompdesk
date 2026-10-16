@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
+import * as mobileWeb from "../../shared/mobile-web";
 import { createOmpApi } from "../../shared/omp-api";
 import * as preview from "../../shared/preview";
 import * as schedules from "../../shared/schedules";
@@ -13,7 +14,7 @@ import * as sshTools from "../../shared/ssh-tools";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 
 const MAIN = path.join(__dirname, "..");
-const NAMED: Record<string, unknown> = { ...preview, ...schedules, ...sshTools };
+const NAMED: Record<string, unknown> = { ...mobileWeb, ...preview, ...schedules, ...sshTools };
 const GROUPS: Record<string, Record<string, string>> = { IPC_COMMANDS, IPC_EVENTS };
 
 /** The channel a registration's first argument names: `IPC_COMMANDS.X`, a shared constant, or a literal. */
@@ -87,11 +88,12 @@ describe("IPC channel policy", () => {
 
 	it("refuses only the pairing boundary, and grants pairing-admin nowhere else", () => {
 		const boundary = Object.entries(IPC_POLICY).filter(([, policy]) => policy.mode === "boundary");
-		expect(boundary.map(([channel]) => channel)).toEqual([IPC_COMMANDS.REMOTE_ROTATE_CODE]);
+		const expected = [IPC_COMMANDS.REMOTE_ROTATE_CODE, ...mobileWeb.MOBILE_WEB_ADMIN_CHANNELS].sort();
+		expect(boundary.map(([channel]) => channel).sort()).toEqual(expected);
 		const pairing = Object.entries(IPC_POLICY).filter(
 			([, policy]) => policy.dir !== "push" && policy.permission === "pairing-admin",
 		);
-		expect(pairing.map(([channel]) => channel)).toEqual([IPC_COMMANDS.REMOTE_ROTATE_CODE]);
+		expect(pairing.map(([channel]) => channel).sort()).toEqual(expected);
 	});
 
 	it("says what the web side does for every channel it does not pass through", () => {

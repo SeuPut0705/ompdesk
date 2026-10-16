@@ -69,6 +69,23 @@ import type {
 	UpdateStatus,
 } from "./ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "./ipc-types";
+import {
+	MOBILE_WEB_COMMAND,
+	MOBILE_WEB_GET_STATE,
+	MOBILE_WEB_STATE,
+	type MobileWebState,
+	WEB_DEVICES_CHANGED,
+	WEB_DEVICES_LIST,
+	WEB_DEVICES_RENAME,
+	WEB_DEVICES_REVOKE,
+	WEB_DEVICES_SET_GRANTS,
+	WEB_DEVICES_SET_LIMITS,
+	WEB_PAIRING_CODE_NEW,
+	WEB_PAIRING_REQUEST,
+	WEB_PAIRING_RESPOND,
+	type WebDeviceInfo,
+	type WebPairingRequest,
+} from "./mobile-web";
 import type { ModelSetupRequest, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import {
@@ -180,6 +197,24 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			command: request => transport.invoke(SCHEDULES_COMMAND, request),
 			readLog: runId => transport.invoke(SCHEDULES_LOG, runId),
 			onState: callback => subscribe<SchedulesState>(SCHEDULES_STATE, callback),
+		},
+		mobileWeb: {
+			getState: () => transport.invoke(MOBILE_WEB_GET_STATE),
+			command: request => transport.invoke(MOBILE_WEB_COMMAND, request),
+			onState: callback => subscribe<MobileWebState>(MOBILE_WEB_STATE, callback),
+			devices: {
+				list: () => transport.invoke(WEB_DEVICES_LIST),
+				revoke: deviceId => transport.invoke(WEB_DEVICES_REVOKE, deviceId),
+				rename: (deviceId, name) => transport.invoke(WEB_DEVICES_RENAME, deviceId, name),
+				setGrants: (deviceId, grants) => transport.invoke(WEB_DEVICES_SET_GRANTS, deviceId, grants),
+				setLimits: (deviceId, limits) => transport.invoke(WEB_DEVICES_SET_LIMITS, deviceId, limits),
+				onChanged: callback => subscribe<WebDeviceInfo[]>(WEB_DEVICES_CHANGED, callback),
+			},
+			pairing: {
+				newCode: () => transport.invoke(WEB_PAIRING_CODE_NEW),
+				onRequest: callback => subscribe<WebPairingRequest>(WEB_PAIRING_REQUEST, callback),
+				respond: response => transport.invoke(WEB_PAIRING_RESPOND, response),
+			},
 		},
 		sshTools: {
 			command: request => transport.invoke(SSH_TOOLS_COMMAND, request),

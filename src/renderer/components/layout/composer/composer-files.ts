@@ -28,8 +28,8 @@ export interface ComposerFileIntake {
 export interface ComposerFileIntakeOptions {
 	/** Session cwd: paths inside it become relative mentions. */
 	cwd: string;
-	/** Absolute path of a dropped/picked file on this machine; "" when it has none. */
-	pathFor: (file: File) => string;
+	/** Absolute path of a dropped/picked file on this machine (a web page: its upload's path on the host); "" when it has none. */
+	pathFor: (file: File) => string | Promise<string>;
 	/** The tab's omp runs on another device, so this machine's paths mean nothing there. */
 	remote: boolean;
 }
@@ -75,7 +75,7 @@ export async function intakeComposerFiles(
 			intake.images.push(file);
 			continue;
 		}
-		const path = options.remote ? "" : options.pathFor(file);
+		const path = options.remote ? "" : await options.pathFor(file);
 		if (path) {
 			intake.mentions.push(fileMentionFor(path, options.cwd));
 			continue;

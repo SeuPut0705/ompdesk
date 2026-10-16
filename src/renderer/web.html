@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; worker-src 'self' blob:"
+		/>
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+		/>
+		<meta name="theme-color" content="#19191c" media="(prefers-color-scheme: dark)" />
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<link
+			rel="icon"
+			type="image/svg+xml"
+			href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-256 -256 512 512' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='pi-ink' gradientUnits='userSpaceOnUse' x1='0' y1='-200' x2='0' y2='200'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='1' stop-color='%23C4C6D0'/%3E%3C/linearGradient%3E%3ClinearGradient id='pi-accent' gradientUnits='userSpaceOnUse' x1='0' y1='-200' x2='0' y2='200'%3E%3Cstop offset='0' stop-color='%23A5A7FB'/%3E%3Cstop offset='1' stop-color='%236E70EE'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='-256' y='-256' width='512' height='512' rx='115' fill='%2317171C'/%3E%3Cg transform='scale(0.76)'%3E%3Cpath d='M-232 -224H232A24 24 0 0 1 256 -200V-152A24 24 0 0 1 232 -128H-232A24 24 0 0 1 -256 -152V-200A24 24 0 0 1 -232 -224ZM-160 -176H-64V80H-160V-176ZM64 -176H160V200A24 24 0 0 1 136 224H88A24 24 0 0 1 64 200V-176Z' fill='url(%23pi-ink)'/%3E%3Cpath d='M-160 32H-64V104A24 24 0 0 1 -88 128H-136A24 24 0 0 1 -160 104V32Z' fill='url(%23pi-accent)'/%3E%3C/g%3E%3C/svg%3E"
+		/>
+		<title>OMPdesk</title>
+		<script src="./pre-paint.js"></script>
+		<style>
+			/* Fallback for first launch. pre-paint.js writes the saved scheme inline
+			   before this style is parsed; inline wins until applyTheme clears it. */
+			html {
+				background: #fcfcfb;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./web/web-boot.ts"></script>
+	</body>
+</html>

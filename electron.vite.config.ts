@@ -128,7 +128,11 @@ export default defineConfig({
 		build: {
 			minify: "esbuild",
 			rollupOptions: {
-				input: { index: resolve(__dirname, "src/renderer/index.html") },
+				// `web` is the page a paired phone loads (src/renderer/web/); it shares every chunk with `index`.
+				input: {
+					index: resolve(__dirname, "src/renderer/index.html"),
+					web: resolve(__dirname, "src/renderer/web.html"),
+				},
 				output: {
 					manualChunks,
 					// Rollup's default (1) merges code-free re-export chunks into an

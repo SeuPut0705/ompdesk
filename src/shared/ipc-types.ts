@@ -10,6 +10,7 @@ import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
+import type { MobileWebApi } from "./mobile-web";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import type { PreviewApi } from "./preview";
@@ -1536,6 +1537,8 @@ export interface OmpApi {
 	schedules: SchedulesApi;
 	/** OMPdesk's own ssh on this computer: port forwards, port watch, agent state, prompts (Settings › SSH). */
 	sshTools: SshToolsApi;
+	/** Mobile web over Tailscale: the switch and its state, the paired phones, pairing (Settings › Mobile web). */
+	mobileWeb: MobileWebApi;
 	runtime: {
 		/** Best-effort fire-and-forget reporting so fatal render paths never wait on IPC. */
 		report(error: RuntimeErrorReport): void;
@@ -1847,8 +1850,11 @@ export interface OmpApi {
 		/** A seekable `omp-media://` URL for a local tab's audio/video file; release it when done. */
 		mediaStream(path: string, tabId?: string): Promise<IpcFsMediaStreamResult>;
 		releaseMediaStream(url: string): void;
-		/** This machine's absolute path of a dropped, pasted or picked `File` (Electron `webUtils.getPathForFile`); "" when it has none. */
-		pathForFile(file: File): string;
+		/**
+		 * The absolute path of a dropped, pasted or picked `File` on the computer the tab runs on; "" when it has none.
+		 * Electron answers at once (`webUtils.getPathForFile`); a web page uploads the file to the host first.
+		 */
+		pathForFile(file: File): string | Promise<string>;
 	};
 	editor: {
 		openExternal(content: string): Promise<{
