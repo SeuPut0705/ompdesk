@@ -1337,30 +1337,48 @@ describe("InputArea composer keys", () => {
 		expect(container.textContent).toContain(translate("input.skills.none"));
 	});
 
-	it("lists Set a goal, the skills that are on and Manage in the + menu", async () => {
+	it("keeps the + menu to compact actions and opens skills in a picker", async () => {
 		await mountIdle();
 		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
 		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		const longDescription = `Review a change.\n\n${"Use it when the user asks for a careful review. ".repeat(12)}`;
 		await act(async () =>
 			deliver(
 				[
 					{ name: "compact", description: "Compact" },
-					{ name: "skill:review", description: "Review a change", source: "skill" },
+					{ name: "skill:review", description: longDescription, source: "skill" },
 				],
 				"t0",
 			),
 		);
 		await typeInto(findTextarea(), "fix this");
 		setCaret(8);
-		await openAddMenuItem("review");
+		const add = document.querySelector('button[aria-label="Attach and more"]') as unknown as TestElement | null;
+		if (!add) throw new Error("+ menu trigger missing");
+		await click(add);
+		const labels = Array.from(document.querySelectorAll("[data-menu-item]")).map(item => item.textContent ?? "");
+		expect(labels).toHaveLength(5);
+		expect(labels.some(label => label.includes("Review a change"))).toBe(false);
+		expect(labels.at(-1)).toBe(translate("input.addMenu.skills"));
+		const skillsItem = Array.from(document.querySelectorAll("[data-menu-item]")).at(-1) as unknown as TestElement;
+		await click(skillsItem);
+		await flush();
+		const row = document.querySelector("[data-skill-row]") as unknown as TestElement | null;
+		if (!row) throw new Error("skill row missing");
+		expect(row.textContent?.startsWith("review")).toBe(true);
+		await click(row);
 		expect(useComposerStore.getState().draft).toBe("fix this /skill:review ");
+		expect(document.querySelector("[data-skill-picker]")).toBeNull();
 
 		// The goal tab of the modes popover listens to session events.
 		Object.assign(window.omp.events, { onBatch: vi.fn(() => () => {}) });
 		await openAddMenuItem("Set a goal");
 		expect(useUiStore.getState()).toMatchObject({ modesOpen: true, modesTab: "goal" });
 		await act(async () => useUiStore.setState({ modesOpen: false }));
-		await openAddMenuItem("Manage skills, plugins and MCP");
+		await openAddMenuItem("Use a skill");
+		const manage = document.querySelector("[data-skill-manage]") as unknown as TestElement | null;
+		if (!manage) throw new Error("manage button missing");
+		await click(manage);
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "tools:skills" });
 	});
 });

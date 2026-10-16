@@ -12,7 +12,6 @@ import {
 	Minimize2,
 	Paperclip,
 	Plus,
-	Puzzle,
 	Sparkles,
 	Square,
 	Target,
@@ -86,6 +85,7 @@ import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-ut
 import { chipIndexForCode, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
+import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
 
@@ -170,6 +170,7 @@ export function InputArea() {
 	const setSubmissionUncertain = useComposerStore(state => state.setSubmissionUncertain);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
+	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
 	const [dictation, setDictation] = useState<DictationPhase>("idle");
 	const [dictationLevels, setDictationLevels] = useState<readonly number[]>(() => Array(METER_BARS).fill(0));
 	const [dictationStartedAt, setDictationStartedAt] = useState<number | null>(null);
@@ -1184,6 +1185,11 @@ export function InputArea() {
 										event.preventDefault();
 										insertCompletion(item);
 									}}
+									title={
+										item.description
+											? `${item.label}\n${item.description.replace(/\s+/g, " ").trim()}`
+											: undefined
+									}
 									className={cx(
 										"flex min-h-(--sc-control-md) w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
 										index === menu.index ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
@@ -1218,6 +1224,30 @@ export function InputArea() {
 							onClose={() => {
 								setHistorySearchOpen(false);
 								requestAnimationFrame(() => textareaRef.current?.focus());
+							}}
+						/>
+					)}
+					{skillPickerOpen && (
+						<SkillPickerOverlay
+							skills={commands
+								.filter(command => command.name.startsWith("skill:"))
+								.map(command => ({
+									name: command.name.slice("skill:".length),
+									description: command.description ?? "",
+								}))
+								.sort((a, b) => a.name.localeCompare(b.name))}
+							onClose={() => {
+								setSkillPickerOpen(false);
+								requestAnimationFrame(() => textareaRef.current?.focus());
+							}}
+							onManage={() => {
+								setSkillPickerOpen(false);
+								openSettings("tools:skills");
+							}}
+							onSelect={name => {
+								setSkillPickerOpen(false);
+								textareaRef.current?.focus();
+								insertAtCaret(`/skill:${name}`);
 							}}
 						/>
 					)}
@@ -1487,27 +1517,16 @@ export function InputArea() {
 										separatorBefore: true,
 										onSelect: () => openModes("goal"),
 									},
-									// Stock's skills, inserted as its mid-prompt `/skill:<name>` token like the `$` palette.
-									...commands
-										.filter(command => command.name.startsWith("skill:"))
-										.sort((a, b) => a.name.localeCompare(b.name))
-										.map((command, index) => ({
-											id: command.name,
-											label: command.name.slice("skill:".length),
-											description: command.description || undefined,
-											icon: Sparkles,
-											separatorBefore: index === 0,
-											onSelect: () => insertAtCaret(`/${command.name}`),
-										})),
 									{
-										id: "manage",
-										label: t("input.addMenu.manage"),
-										icon: Puzzle,
+										id: "skills",
+										label: t("input.addMenu.skills"),
+										icon: Sparkles,
 										separatorBefore: true,
-										onSelect: () => openSettings("tools:skills"),
+										onSelect: () => setSkillPickerOpen(true),
 									},
 								]}
 								label={t("input.addMenu")}
+								side="above"
 								size="sm"
 							/>
 							<input

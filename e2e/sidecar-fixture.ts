@@ -4228,14 +4228,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"retry",
 					]
 						.map(name => ({ name, source: "builtin", textModeExecutable: false, description: name }))
-						.concat([
-							{
-								name: "skill:review",
+						.concat(
+							[
+								["review", "Review the working tree"],
+								[
+									"agent-reach",
+									"Use for backend-specific social content, transcripts, feeds; not ordinary browsing or posting.\n\nSupports many platforms and returns structured results.\n\nAlways check the platform limits before a large pull, and keep the output compact so the transcript stays readable.",
+								],
+								[
+									"cavecrew",
+									"Delegate to subagents for code location, editing, or review to compress context.\n\nWhen to use: any task that spans several files.\n\nWhen not to use: a one-line fix you can make yourself.",
+								],
+								["caveman", "Use for deliberately ultra-compressed or caveman-style requests; not for ordinary brevity needs."],
+								["caveman-commit", "When writing commit messages, generating commits, invoking /commit, or staging changes."],
+								["tdd", "Use for test-first implementation, red-green-refactor workflows, explicit TDD requirements."],
+							].map(([skill, description]) => ({
+								name: `skill:${skill}`,
 								source: "skill",
 								textModeExecutable: false,
-								description: "Review the working tree",
-							},
-						]),
+								description,
+							})),
+						),
 				});
 				break;
 			case "get_session_stats":
