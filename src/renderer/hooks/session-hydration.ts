@@ -162,6 +162,25 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 	}
 }
 
+/**
+ * Another window that shows the tab toggled a composer mode (plan, prewalk, the agents pause, vibe, loop,
+ * ratchet, goal, fast/slow). Most have no event of their own, so the host says so with a
+ * `config_update {modes: true}` frame (main/sidecar-pool.ts `noteModeChanged`) and this window re-reads them.
+ */
+export async function refreshSessionModes(tabId: string): Promise<void> {
+	const runtime = sessionRuntime(tabId);
+	if (!runtime) return;
+	const current: HydrationGuard = () => sessionRuntime(tabId) === runtime;
+	await Promise.all([
+		refreshSessionState(tabId),
+		refreshModelState(tabId),
+		syncGoal(tabId, runtime.command, current),
+		syncLoopMode(tabId, runtime.command, current),
+		syncRatchet(tabId, runtime.command, current),
+		syncVibeMode(tabId, runtime.command, current),
+	]);
+}
+
 /** Re-sync the model-derived stores after a model switch, ignoring event churn. */
 export async function refreshModelState(tabId = useTabsStore.getState().activeTabId): Promise<void> {
 	if (!tabId) return;

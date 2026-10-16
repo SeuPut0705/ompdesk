@@ -101,6 +101,12 @@ export function planComposerSubmit(input: {
 	rpc?: Pick<TabRpc, "compact" | "followUp" | "prompt" | "steer">;
 	/** Runs just before a plain (non-slash, non-streaming) prompt is sent. */
 	beforePrompt?: () => Promise<unknown>;
+	/**
+	 * Other devices may send to this tab (a shared tab, or a page on a phone), so this window's idea of
+	 * "running" can be a beat stale: a plain message goes as a prompt carrying how to join a run
+	 * (steer / follow-up) and the host, which holds the one authoritative run state, decides.
+	 */
+	hostDecides?: boolean;
 }): ComposerSubmit {
 	const { message, images, isStreaming, mode, commands, rpc = window.omp.rpc } = input;
 	const isSlashCommand = message.startsWith("/");
@@ -138,6 +144,15 @@ export function planComposerSubmit(input: {
 	// Stock sends a `/skill:<name>` token for a skill that is off (or missing) as plain text: say so.
 	for (const name of unavailableSkillTokens(message, commands))
 		toast({ variant: "warning", message: translate("input.skills.off", { name }) });
+	if (!isSlashCommand && input.hostDecides) {
+		return {
+			kind: "send",
+			request: async () => {
+				if (!isStreaming) await input.beforePrompt?.();
+				return rpc.prompt(message, images, mode === "followUp" ? "followUp" : "steer");
+			},
+		};
+	}
 	if (!isSlashCommand && isStreaming) {
 		return {
 			kind: "send",

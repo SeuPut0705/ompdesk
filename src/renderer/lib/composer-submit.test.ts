@@ -24,7 +24,7 @@ function success(data: unknown): RpcResponse {
 
 interface MockOmp {
 	rpc: {
-		prompt: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
+		prompt: Mock<(message: string, images?: unknown[], streamingBehavior?: string) => Promise<RpcResponse>>;
 		compact: Mock<() => Promise<RpcResponse>>;
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
@@ -210,6 +210,78 @@ describe("planComposerSubmit", () => {
 		if (followUpSubmit.kind !== "send") throw new Error("expected send");
 		await followUpSubmit.request();
 		expect(omp.rpc.followUp).toHaveBeenCalledWith("again", []);
+	});
+
+	describe("when the host decides (a shared tab, or a page on a phone)", () => {
+		it("sends a plain message as one prompt that says how to join a run, whatever this window thinks is running", async () => {
+			const omp = installMockOmp();
+			for (const isStreaming of [true, false]) {
+				const submit = planComposerSubmit({
+					message: "hello",
+					images: [],
+					isStreaming,
+					mode: "steer",
+					commands: [],
+					hostDecides: true,
+				});
+				if (submit.kind !== "send") throw new Error("expected send");
+				await submit.request();
+			}
+			expect(omp.rpc.prompt).toHaveBeenNthCalledWith(1, "hello", [], "steer");
+			expect(omp.rpc.prompt).toHaveBeenNthCalledWith(2, "hello", [], "steer");
+			expect(omp.rpc.steer).not.toHaveBeenCalled();
+			expect(omp.rpc.followUp).not.toHaveBeenCalled();
+		});
+
+		it("asks for a follow-up when the follow-up mode is chosen", async () => {
+			const omp = installMockOmp();
+			const submit = planComposerSubmit({
+				message: "later",
+				images: [],
+				isStreaming: true,
+				mode: "followUp",
+				commands: [],
+				hostDecides: true,
+			});
+			if (submit.kind !== "send") throw new Error("expected send");
+			await submit.request();
+			expect(omp.rpc.prompt).toHaveBeenCalledWith("later", [], "followUp");
+		});
+
+		it("runs the pre-prompt work only when this window sees an idle agent", async () => {
+			installMockOmp();
+			const beforePrompt = vi.fn(async () => undefined);
+			for (const isStreaming of [true, false]) {
+				const submit = planComposerSubmit({
+					message: "hello",
+					images: [],
+					isStreaming,
+					mode: "steer",
+					commands: [],
+					hostDecides: true,
+					beforePrompt,
+				});
+				if (submit.kind !== "send") throw new Error("expected send");
+				await submit.request();
+			}
+			expect(beforePrompt).toHaveBeenCalledTimes(1);
+		});
+
+		it("leaves a slash command on its own path", async () => {
+			const omp = installMockOmp();
+			const submit = planComposerSubmit({
+				message: "/compact",
+				images: [],
+				isStreaming: true,
+				mode: "steer",
+				commands: [],
+				hostDecides: true,
+			});
+			if (submit.kind !== "send") throw new Error("expected send");
+			await submit.request();
+			expect(omp.rpc.compact).toHaveBeenCalledOnce();
+			expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		});
 	});
 
 	it("routes exact /clear to the native clear path when idle — never to the model", () => {

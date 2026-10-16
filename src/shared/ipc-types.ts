@@ -1563,9 +1563,18 @@ export interface OmpApi {
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
-		/** `resent`: a paired host's re-attach sent the request again (`IpcExtensionUiPayload.resent`). */
+		/**
+		 * `resent`: a paired host's re-attach sent the request again (`IpcExtensionUiPayload.resent`).
+		 * `answeredElsewhere`: a synthetic `cancel` — another window that shows the tab answered first.
+		 */
 		onExtensionUi(
-			callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn, resent?: boolean) => void,
+			callback: (
+				request: ExtensionUIRequest,
+				tabId: string,
+				signIn?: IpcSignIn,
+				resent?: boolean,
+				answeredElsewhere?: boolean,
+			) => void,
 		): () => void;
 		/** A tab's provider sign-in finished while a reloaded page was showing it (`IpcSignIn.active`). */
 		onSignInEnded(callback: (payload: IpcSignInEndedPayload) => void): () => void;

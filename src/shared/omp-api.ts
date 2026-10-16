@@ -93,6 +93,11 @@ import {
 	PREVIEW_PAGE,
 	PREVIEW_SAVE_PDF,
 	PREVIEW_STATE,
+	PREVIEW_STREAM_COPY,
+	PREVIEW_STREAM_DIALOG,
+	PREVIEW_STREAM_INPUT,
+	PREVIEW_STREAM_PDF,
+	PREVIEW_STREAM_POLL,
 	PREVIEW_VISUAL,
 	PREVIEW_VISUALS,
 	type PreviewState,
@@ -192,6 +197,13 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			page: request => transport.invoke(PREVIEW_PAGE, request),
 			visuals: () => transport.invoke(PREVIEW_VISUALS),
 			onVisual: callback => subscribe<PreviewVisualEvent>(PREVIEW_VISUAL, callback),
+			stream: {
+				poll: request => transport.invoke(PREVIEW_STREAM_POLL, request),
+				input: events => transport.send(PREVIEW_STREAM_INPUT, events),
+				answerDialog: (id, answer) => transport.invoke(PREVIEW_STREAM_DIALOG, { id, ...answer }),
+				selectedText: () => transport.invoke(PREVIEW_STREAM_COPY),
+				pdf: () => transport.invoke(PREVIEW_STREAM_PDF),
+			},
 		},
 		schedules: {
 			command: request => transport.invoke(SCHEDULES_COMMAND, request),
@@ -252,10 +264,16 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 				subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
 			onExtensionUi: (
-				callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn, resent?: boolean) => void,
+				callback: (
+					request: ExtensionUIRequest,
+					tabId: string,
+					signIn?: IpcSignIn,
+					resent?: boolean,
+					answeredElsewhere?: boolean,
+				) => void,
 			) =>
 				subscribe<IpcExtensionUiPayload>(IPC_EVENTS.EXTENSION_UI, data =>
-					callback(data.request, data.tabId, data.signIn, data.resent === true),
+					callback(data.request, data.tabId, data.signIn, data.resent === true, data.answeredElsewhere === true),
 				),
 			onSignInEnded: (callback: (payload: IpcSignInEndedPayload) => void) =>
 				subscribe<IpcSignInEndedPayload>(IPC_EVENTS.SIGN_IN_ENDED, callback),

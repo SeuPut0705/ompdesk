@@ -74,6 +74,7 @@ import {
 	type SidecarStatus,
 	type SidecarStatusPayload,
 	type SubagentFrame,
+	type SubagentSubscriptionLevel,
 } from "../shared/rpc-types";
 import {
 	asSplitLayout,
@@ -121,6 +122,15 @@ function forwardToWindow(win: ClientWindow, channel: string, data: unknown): voi
 /** The renderer's composer-draft reports (`noteDraft`): each window says whether its own draft is empty. */
 export const DRAFT_COMMANDS = ["set_idle_compaction_draft", "set_next_prompt_draft"] as const;
 export type DraftCommand = (typeof DRAFT_COMMANDS)[number];
+
+const SUBAGENT_LEVEL_RANK: Record<SubagentSubscriptionLevel, number> = { off: 0, progress: 1, events: 2 };
+
+/** The level that serves every window's request: the highest. */
+function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): SubagentSubscriptionLevel {
+	let top: SubagentSubscriptionLevel = "off";
+	for (const level of levels) if (SUBAGENT_LEVEL_RANK[level] > SUBAGENT_LEVEL_RANK[top]) top = level;
+	return top;
+}
 
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
@@ -228,6 +238,8 @@ interface PoolEntry extends RunTracking {
 	full: FullWiring | null;
 	/** Each window's last draft report per draft command (`noteDraft`), by window id. */
 	drafts?: Map<DraftCommand, Map<number, boolean>>;
+	/** Each window's last `set_subagent_subscription` level (`noteSubagentLevel`), by window id. */
+	subagentLevels?: Map<number, SubagentSubscriptionLevel>;
 }
 
 type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
@@ -824,6 +836,7 @@ export class SidecarPool {
 		this.#unwireFull(entry, winId);
 		this.#leaveWindowView(tabId, winId, win);
 		this.#forgetDrafts(entry, winId);
+		this.#forgetSubagentLevel(entry, winId);
 		this.#sendTabLists(entry);
 		this.#sendTabList(win);
 	}
@@ -861,6 +874,45 @@ export class SidecarPool {
 		reports.set(winId, empty);
 		for (const report of reports.values()) if (!report) return false;
 		return true;
+	}
+
+	/**
+	 * A window sets the tab's subagent stream level. The tab's omp holds one level, while every window that
+	 * shows the tab (a work map open on the phone, none on the desktop) has its own: the omp is told the
+	 * highest of them, so one window closing its map never drops another's event stream.
+	 */
+	noteSubagentLevel(tabId: string, winId: number, level: SubagentSubscriptionLevel): SubagentSubscriptionLevel {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return level;
+		entry.subagentLevels ??= new Map();
+		entry.subagentLevels.set(winId, level);
+		return highestSubagentLevel(entry.subagentLevels.values());
+	}
+
+	/**
+	 * A window toggled a composer mode (plan, prewalk, agents pause, vibe, loop, ratchet, fast/slow): most have
+	 * no stock event, so the other windows that show the tab are told with a `config_update {modes: true}`
+	 * frame and re-read them (renderer `refreshSessionModes`).
+	 */
+	noteModeChanged(tabId: string, exceptWinId: number): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || entry.viewers.size === 0) return;
+		for (const [winId, target] of entry.full?.windows ?? []) {
+			if (winId === exceptWinId) continue;
+			forwardToWindow(target.win, IPC_EVENTS.CONFIG_UPDATE, {
+				tabId: entry.tabId,
+				payload: { type: "config_update", modes: true },
+			});
+		}
+	}
+
+	/** A viewer left: the level it asked for no longer counts, and the omp drops to what the rest need. */
+	#forgetSubagentLevel(entry: PoolEntry, winId: number): void {
+		const levels = entry.subagentLevels;
+		if (!levels?.delete(winId)) return;
+		void entry.sidecar.rpcClient
+			?.command({ type: "set_subagent_subscription", level: highestSubagentLevel(levels.values()) })
+			.catch(() => {});
 	}
 
 	/** A viewer left: its draft no longer holds the tab's timers back, so an all-empty tab says so now. */

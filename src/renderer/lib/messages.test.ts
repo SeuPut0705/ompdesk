@@ -18,6 +18,7 @@ interface FillComposerDetail {
 	text?: string;
 	images?: unknown[];
 	prepend?: boolean;
+	tabId?: string;
 }
 
 interface SessionTreeResponse {
@@ -372,5 +373,21 @@ describe("restoreQueuedMessages", () => {
 		expect(onEmpty).toHaveBeenCalledTimes(1);
 		expect(harness.fillDetail()).toBeUndefined();
 		expect(harness.deliveryOrder).toEqual([]);
+	});
+
+	it("names the tab that asked, so on a shared tab only that window's composer takes the popped message", async () => {
+		const harness = installWindow([]);
+		useTabsStore.setState({ activeTabId: "tab-a" });
+		harness.rpc.dequeue.mockImplementationOnce(async () => {
+			// Focus moves while the RPC runs; the answer still belongs to the tab the request came from.
+			useTabsStore.setState({ activeTabId: "tab-b" });
+			return { success: true as const, data: { messages: [{ text: "someone else's steer" }] } };
+		});
+
+		await restoreQueuedMessages(() => {
+			throw new Error("queue unexpectedly empty");
+		});
+
+		expect(harness.fillDetail()).toMatchObject({ text: "someone else's steer", prepend: true, tabId: "tab-a" });
 	});
 });

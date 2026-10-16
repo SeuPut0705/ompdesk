@@ -417,6 +417,9 @@ interface DequeuedMessage {
  * caller to surface.
  */
 export async function restoreQueuedMessages(onEmpty: () => void): Promise<void> {
+	// The tab that asked, taken now: focus can move while the RPC runs, and on a shared tab the popped
+	// message may be another device's — it still goes back into the composer of the window that asked.
+	const askedTabId = focusedRuntimeTabId() ?? useTabsStore.getState().activeTabId;
 	const response = await window.omp.rpc.dequeue();
 	if (!response.success) throw new Error(response.error);
 	const data = response.data as { messages?: DequeuedMessage[] } | undefined;
@@ -428,7 +431,12 @@ export async function restoreQueuedMessages(onEmpty: () => void): Promise<void> 
 	// InputArea owns the "omp:fill-composer" listener.
 	window.dispatchEvent(
 		new CustomEvent("omp:fill-composer", {
-			detail: { text: restored.text, images: restored.images, prepend: true },
+			detail: {
+				text: restored.text,
+				images: restored.images,
+				prepend: true,
+				...(askedTabId ? { tabId: askedTabId } : {}),
+			},
 		}),
 	);
 }

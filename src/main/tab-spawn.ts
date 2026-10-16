@@ -48,6 +48,11 @@ export type SpawnTabDeps = {
 	/** GUI-owned Work workspace, created on demand. */
 	defaultWorkspace: () => string;
 	remote: SpawnTabRemote;
+	/**
+	 * Test hook (env `OMP_GUI_TEST_VIEWER_WINDOWS=1`): any window, not only a paired web device's, views a
+	 * session another window holds. It lets the two-window e2e run on Electron windows.
+	 */
+	anyWindowViews?: boolean;
 };
 
 export async function spawnTabForWindow(
@@ -64,7 +69,9 @@ export async function spawnTabForWindow(
 		const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
 		if (owner) {
 			const callerId = win.webContents.id;
-			const shared = owner.winId !== callerId && (isWebWindow(callerId) || isWebWindow(owner.winId));
+			const shared =
+				owner.winId !== callerId &&
+				(deps.anyWindowViews === true || isWebWindow(callerId) || isWebWindow(owner.winId));
 			if (shared && deps.sidecarPool.attachViewer(win, owner.tabId)) return { tabId: owner.tabId, attached: true };
 			return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId, refusal: "owned" };
 		}

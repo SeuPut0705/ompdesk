@@ -26,6 +26,8 @@ function rig(cwd: string | null = null) {
 		reveal: vi.fn(),
 		openExternal: vi.fn(async () => {}),
 		setUiPrefs: vi.fn(() => true),
+		modelsRead: vi.fn(() => ({ path: "/agent/models.yml", text: "providers: {}\n", exists: true, stamp: "s1" })),
+		modelsWrite: vi.fn(async (_text: string, _stamp: string) => "s2"),
 	};
 	const owned = new Set<string>();
 	const table = createHostActions({
@@ -36,6 +38,7 @@ function rig(cwd: string | null = null) {
 		openPath: spies.openPath,
 		reveal: spies.reveal,
 		openExternal: spies.openExternal,
+		models: { read: spies.modelsRead, write: spies.modelsWrite },
 		homedir: () => home,
 	});
 	const context = {
@@ -65,6 +68,8 @@ describe("web-only channels", () => {
 			[WEB_HOST_CHANNELS.OPEN_EXTERNAL]: "desktop-control",
 			[WEB_HOST_CHANNELS.BLOB_OPEN]: "workspace",
 			[WEB_HOST_CHANNELS.BLOB_RELEASE]: "workspace",
+			[WEB_HOST_CHANNELS.MODELS_CONFIG_READ]: "settings-write",
+			[WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE]: "settings-write",
 			[WEB_DEVICE_CHANNELS.UI_PREFS_GET]: "device-self",
 			[WEB_DEVICE_CHANNELS.UI_PREFS_SET]: "device-self",
 		});
@@ -260,5 +265,34 @@ describe("the device's own preferences", () => {
 			call(WEB_DEVICE_CHANNELS.UI_PREFS_SET, { big: "x".repeat(DEVICE_UI_PREFS_MAX_BYTES) }),
 		).rejects.toThrow("[invalid_content]");
 		await expect(call(WEB_DEVICE_CHANNELS.UI_PREFS_SET, ["not", "a", "record"])).rejects.toThrow("[invalid_content]");
+	});
+});
+
+describe("models.yml for the in-app editor", () => {
+	it("hands over the file and saves a checked text, answering the new stamp", async () => {
+		const { call, modelsRead, modelsWrite } = rig();
+		expect(await call(WEB_HOST_CHANNELS.MODELS_CONFIG_READ)).toMatchObject({
+			path: "/agent/models.yml",
+			stamp: "s1",
+		});
+		expect(modelsRead).toHaveBeenCalledTimes(1);
+		expect(await call(WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE, { text: "providers: {}\n", stamp: "s1" })).toEqual({
+			ok: true,
+			stamp: "s2",
+		});
+		expect(modelsWrite).toHaveBeenCalledWith("providers: {}\n", "s1");
+	});
+
+	it("answers the reason instead of throwing when the parser or a newer file refuses the text", async () => {
+		const { call, modelsWrite } = rig();
+		modelsWrite.mockRejectedValueOnce(new Error("[invalid_content] models.yml: Nested mappings are not allowed"));
+		expect(await call(WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE, { text: "a: b: c", stamp: "s1" })).toEqual({
+			ok: false,
+			error: "models.yml: Nested mappings are not allowed",
+			code: "invalid_content",
+		});
+		await expect(call(WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE, { text: 5, stamp: "s1" })).rejects.toThrow(
+			"[invalid_content]",
+		);
 	});
 });

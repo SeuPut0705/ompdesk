@@ -38,6 +38,7 @@ import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } fro
 import { attachTabSession, hydrateSession, hydrateTabSession, refreshSessionState } from "../hooks/use-rpc-events";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
+import { readUnreadMarks, UNREAD_MARKS_KEY } from "../lib/unread-marks";
 import { routeCommands } from "../test-support/route-commands";
 import { type ComposerStore, useComposerStore } from "./composer";
 import { type ExtensionUiStore, useExtensionUiStore } from "./extension-ui";
@@ -67,6 +68,10 @@ import { useToastStore } from "./toast";
 import { useTodoStore } from "./todo";
 import { useToolsStore } from "./tools";
 import { useUiStore } from "./ui";
+
+// A web page and the desktop differ in what the tabs store keeps (lib/unread-marks.ts); `webMode.on` picks one.
+const webMode = vi.hoisted(() => ({ on: false }));
+vi.mock("../web/runtime", () => ({ webRuntime: () => (webMode.on ? {} : null), setWebRuntime: () => {} }));
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -2073,3 +2078,187 @@ function messageText(message: AgentMessage): string {
 	if (!Array.isArray(content)) return "";
 	return content.map(part => (part && typeof part === "object" && "text" in part ? String(part.text) : "")).join("");
 }
+
+describe("tabs other windows show too (multi-viewer)", () => {
+	const tabOf = (id: string) => useTabsStore.getState().tabs.find(tab => tab.id === id);
+	const viewed = (tabId: string, viewerCount: number, shared = false): IpcTabInfo => ({
+		...tabInfo(tabId, `/${tabId}`),
+		viewerCount,
+		...(shared ? { shared: true } : {}),
+	});
+	const messagesOf = (tabId: string) => sessionRuntimeStore<MessagesStore>(tabId, "messages")?.getState();
+
+	it("takes who else shows a tab from the tab list, and keeps it across a status push", async () => {
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/t0"), active: true, visible: true },
+			viewed("t1", 2, true),
+		]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(tabOf("t1")).toMatchObject({ shared: true, viewerCount: 2 });
+		expect(tabOf("t0")?.viewerCount).toBeUndefined();
+
+		// A status push carries no viewer fields: it never says "nobody shows it".
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/t1", status: "running" });
+		expect(tabOf("t1")).toMatchObject({ shared: true, viewerCount: 2, status: "running" });
+	});
+
+	it("applyTabList updates the viewer count of known tabs without asking main for the list again", async () => {
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/t0"), active: true, visible: true }, tabInfo("t1", "/t1")]);
+		await useTabsStore.getState().reconcileTabs();
+		omp.tabs.list.mockClear();
+
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0"), viewed("t1", 1)]);
+		expect(tabOf("t1")?.viewerCount).toBe(1);
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0"), tabInfo("t1", "/t1")]);
+		expect(tabOf("t1")?.viewerCount).toBeUndefined();
+		expect(omp.tabs.list).not.toHaveBeenCalled();
+	});
+
+	it("applyTabList reconciles when it names a tab this window does not know (a viewer was attached)", async () => {
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/t0"), active: true, visible: true }]);
+		await useTabsStore.getState().reconcileTabs();
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/t0"), active: true, visible: true },
+			viewed("t9", 1, true),
+		]);
+
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0"), viewed("t9", 1, true)]);
+
+		expect(tabOf("t9")).toMatchObject({ shared: true, viewerCount: 1 });
+	});
+
+	it("applyTabList lets go of a shared tab its owner closed", async () => {
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/t0"), active: true, visible: true },
+			viewed("t1", 1, true),
+		]);
+		await useTabsStore.getState().reconcileTabs();
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/t0"), active: true, visible: true }]);
+
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0")]);
+
+		expect(tabOf("t1")).toBeUndefined();
+		expect(tabOf("t0")).toBeDefined();
+	});
+
+	it("tells the tab's messages store it is shared, and that it no longer is", async () => {
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/t0"), active: true, visible: true }, tabInfo("t1", "/t1")]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(messagesOf("t1")?.sharedTab).toBe(false);
+
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0"), viewed("t1", 1)]);
+		expect(messagesOf("t1")?.sharedTab).toBe(true);
+		expect(messagesOf("t0")?.sharedTab).toBe(false);
+
+		await useTabsStore.getState().applyTabList([tabInfo("t0", "/t0"), tabInfo("t1", "/t1")]);
+		expect(messagesOf("t1")?.sharedTab).toBe(false);
+	});
+
+	describe("a card another window answered first", () => {
+		const ask: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "ask-1",
+			method: "confirm",
+			title: "Run?",
+			message: "m",
+		};
+		const cancel: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "c-1",
+			method: "cancel",
+			targetId: "ask-1",
+		};
+		const pending = () =>
+			sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")
+				?.getState()
+				.pendingRequests.map(request => request.id);
+
+		it("closes the card and says the other device answered", () => {
+			seedTabs();
+			pushTabExtensionUiRequest("t1", ask);
+			useToastStore.setState({ toasts: [] });
+
+			pushTabExtensionUiRequest("t1", cancel, undefined, true);
+
+			expect(pending()).toEqual([]);
+			expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual([
+				translate("extDialog.answeredElsewhere"),
+			]);
+		});
+
+		it("stays quiet when this window's own answer already closed it, or when it is a plain cancel", () => {
+			seedTabs();
+			useToastStore.setState({ toasts: [] });
+			pushTabExtensionUiRequest("t1", cancel, undefined, true);
+			expect(useToastStore.getState().toasts).toEqual([]);
+
+			pushTabExtensionUiRequest("t1", ask);
+			pushTabExtensionUiRequest("t1", cancel);
+			expect(pending()).toEqual([]);
+			expect(useToastStore.getState().toasts).toEqual([]);
+		});
+	});
+});
+
+describe("a web page's own done marks", () => {
+	const tabOf = (id: string) => useTabsStore.getState().tabs.find(tab => tab.id === id);
+	const storage = new Map<string, string>();
+	beforeEach(() => {
+		storage.clear();
+		(globalThis as Record<string, unknown>).localStorage = {
+			getItem: (key: string) => storage.get(key) ?? null,
+			setItem: (key: string, value: string) => void storage.set(key, value),
+		};
+		webMode.on = true;
+	});
+	afterEach(() => {
+		webMode.on = false;
+		delete (globalThis as Record<string, unknown>).localStorage;
+	});
+
+	const list = (status: IpcTabInfo["status"] = "ready"): IpcTabInfo[] => [
+		{ ...tabInfo("t0", "/t0"), active: true, visible: true },
+		tabInfo("t1", "/t1", status),
+		tabInfo("t2", "/t2"),
+	];
+
+	it("writes the tabs with a done mark and the running ones whenever the tab list changes", async () => {
+		omp.tabs.list.mockResolvedValue(list("running"));
+		await useTabsStore.getState().reconcileTabs();
+		expect(readUnreadMarks()).toEqual({ unread: [], running: ["t1"] });
+
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t2" ? { ...tab, unreadDone: true } : tab)),
+		}));
+		expect(readUnreadMarks().unread).toContain("t2");
+	});
+
+	it("restores a marked tab, and a tab that was running and finished while the page was away", async () => {
+		storage.set(UNREAD_MARKS_KEY, JSON.stringify({ unread: ["t2"], running: ["t1"] }));
+		omp.tabs.list.mockResolvedValue(list());
+		await useTabsStore.getState().reconcileTabs();
+		expect(tabOf("t1")?.unreadDone).toBe(true);
+		expect(tabOf("t2")?.unreadDone).toBe(true);
+		expect(tabOf("t0")?.unreadDone).toBe(false);
+	});
+
+	it("does not mark a tab that is still running, nor one the page already knew", async () => {
+		storage.set(UNREAD_MARKS_KEY, JSON.stringify({ unread: [], running: ["t1"] }));
+		omp.tabs.list.mockResolvedValue(list("running"));
+		await useTabsStore.getState().reconcileTabs();
+		expect(tabOf("t1")?.unreadDone).toBe(false);
+
+		omp.tabs.list.mockResolvedValue(list());
+		await useTabsStore.getState().reconcileTabs();
+		expect(tabOf("t1")?.unreadDone).toBe(false);
+	});
+
+	it("leaves the desktop's marks in memory only", async () => {
+		webMode.on = false;
+		storage.set(UNREAD_MARKS_KEY, JSON.stringify({ unread: ["t2"], running: [] }));
+		omp.tabs.list.mockResolvedValue(list());
+		await useTabsStore.getState().reconcileTabs();
+		expect(tabOf("t2")?.unreadDone).toBe(false);
+		expect(storage.get(UNREAD_MARKS_KEY)).toBe(JSON.stringify({ unread: ["t2"], running: [] }));
+	});
+});

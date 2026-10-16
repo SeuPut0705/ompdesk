@@ -14,6 +14,10 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  * booking's reset time, once its session's tab is open and idle, stock
  * `retry` runs the failed turn again. A booking whose session has moved on
  * (nothing left to retry) ends quietly. Mounted once, by App.
+ *
+ * A tab other windows show too (multi-viewer) is resumed by its owner window only: every window that shows
+ * it books the same reset, and each running `retry` would resume the turn once per window. A viewer keeps
+ * its booking untouched, so it still runs it if the tab is later its own.
  */
 export function useQuotaResume(): void {
 	const reservations = useQuotaResumeStore(state => state.reservations);
@@ -38,7 +42,9 @@ export function useQuotaResume(): void {
 				cancel(sessionId);
 				continue;
 			}
-			const tab = tabs.find(candidate => candidate.sessionId === sessionId && candidate.status === "ready");
+			const tab = tabs.find(
+				candidate => candidate.sessionId === sessionId && candidate.status === "ready" && !candidate.shared,
+			);
 			const runtime = tab ? sessionRuntime(tab.id) : null;
 			if (!runtime) continue;
 			cancel(sessionId);

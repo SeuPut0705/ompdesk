@@ -22,6 +22,10 @@ export const WEB_HOST_CHANNELS = {
 	BLOB_OPEN: "web:blob.open",
 	/** The blob URL (or `{url}`): the page is done with it. */
 	BLOB_RELEASE: "web:blob.release",
+	/** → `WebModelsText`: the agent's models.yml as text for the in-app editor (a skeleton when it does not exist yet). */
+	MODELS_CONFIG_READ: "web:models.config.read",
+	/** `WebModelsWriteRequest` → `WebModelsWriteResult`: check the text with the models.yml parser and save it. */
+	MODELS_CONFIG_WRITE: "web:models.config.write",
 } as const;
 
 export type WebHostChannel = (typeof WEB_HOST_CHANNELS)[keyof typeof WEB_HOST_CHANNELS];
@@ -85,3 +89,20 @@ export interface WebBlobOpenRequest {
 export type WebBlobOpenResult =
 	| { ok: true; url: string; mime: string; size: number; name: string }
 	| { ok: false; error: string; code?: IpcErrorCode };
+
+export interface WebModelsText {
+	/** The file on the host (shown, and what "Edit on computer" opens). */
+	path: string;
+	text: string;
+	/** False while the file does not exist: `text` is a skeleton and saving creates it. */
+	exists: boolean;
+	/** Identifies the file as read; a save refuses when the file changed since. */
+	stamp: string;
+}
+
+export interface WebModelsWriteRequest {
+	text: string;
+	stamp: string;
+}
+
+export type WebModelsWriteResult = { ok: true; stamp: string } | { ok: false; error: string; code?: IpcErrorCode };

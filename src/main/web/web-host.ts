@@ -22,6 +22,7 @@ import {
 	webDeviceTier,
 } from "../../shared/mobile-web";
 import { WEB_PERMISSIONS, type WebFeatures } from "../../shared/web-protocol";
+import { readModelsText, writeModelsText } from "../models-config";
 import { PeerQuota } from "../remote/peer-quota";
 import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
@@ -113,6 +114,7 @@ export class WebHost {
 				openPath: deps.shell.openPath,
 				reveal: deps.shell.reveal,
 				openExternal: deps.shell.openExternal,
+				models: { read: readModelsText, write: writeModelsText },
 			}),
 			features: () => ({ push: false, preview: false, upload: true, passkey: false, ...deps.features }),
 			activeTab: win => deps.tabs.activeTab(win),

@@ -17,6 +17,8 @@ import {
 	type WebHostListing,
 	type WebHostOpenResult,
 	type WebHostSaveResult,
+	type WebModelsText,
+	type WebModelsWriteResult,
 } from "../../shared/web-host";
 import { isOpenableExternalUrl } from "../external-url";
 import { FS_BINARY_LOCAL_MAX_BYTES, resolveWithin, sniffMime } from "../workspace-fs";
@@ -47,6 +49,8 @@ export interface HostActionsDeps {
 	openPath(abs: string): Promise<unknown>;
 	reveal(abs: string): void;
 	openExternal(url: string): Promise<void>;
+	/** The agent's models.yml as text, and the checked save (models-config.ts `readModelsText` / `writeModelsText`). */
+	models: { read(): WebModelsText; write(text: string, stamp: string): Promise<string> };
 	homedir?: () => string;
 }
 
@@ -60,6 +64,7 @@ const ListRequest = z
 	})
 	.default({});
 const PathRequest = z.object({ path: z.string().min(1).max(4096) });
+const ModelsWriteRequest = z.object({ text: z.string().max(512 * 1024), stamp: z.string().min(1).max(256) });
 const UrlRequest = z.object({ url: z.string().min(1).max(8192) });
 const SaveRequest = z.object({
 	dir: z.string().min(1).max(4096),
@@ -231,6 +236,18 @@ export function createHostActions(deps: HostActionsDeps): WebChannelTable {
 		deps.blobs.release(context.deviceId, typeof given === "string" ? given : given.url);
 	};
 
+	const modelsRead = (): WebModelsText => deps.models.read();
+
+	const modelsWrite = async (_context: WebCallContext, args: readonly unknown[]): Promise<WebModelsWriteResult> => {
+		const request = parse(ModelsWriteRequest, args[0]);
+		try {
+			return { ok: true, stamp: await deps.models.write(request.text, request.stamp) };
+		} catch (error) {
+			const raw = error instanceof Error ? error.message : String(error);
+			return { ok: false, error: raw.replace(/^\[[a-z_]+\]\s*/, ""), code: "invalid_content" };
+		}
+	};
+
 	return {
 		[WEB_HOST_CHANNELS.LIST_DIRS]: { dir: "invoke", permission: "workspace", heavy: true, handler: listDirs },
 		[WEB_HOST_CHANNELS.SAVE]: { dir: "invoke", permission: "workspace", handler: save },
@@ -239,6 +256,8 @@ export function createHostActions(deps: HostActionsDeps): WebChannelTable {
 		[WEB_HOST_CHANNELS.OPEN_EXTERNAL]: { dir: "invoke", permission: "desktop-control", handler: openExternal },
 		[WEB_HOST_CHANNELS.BLOB_OPEN]: { dir: "invoke", permission: "workspace", handler: blobOpen },
 		[WEB_HOST_CHANNELS.BLOB_RELEASE]: { dir: "send", permission: "workspace", handler: blobRelease },
+		[WEB_HOST_CHANNELS.MODELS_CONFIG_READ]: { dir: "invoke", permission: "settings-write", handler: modelsRead },
+		[WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE]: { dir: "invoke", permission: "settings-write", handler: modelsWrite },
 		[WEB_DEVICE_CHANNELS.UI_PREFS_GET]: {
 			dir: "invoke",
 			permission: "device-self",

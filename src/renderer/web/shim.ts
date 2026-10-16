@@ -12,6 +12,13 @@
  */
 import { IPC_COMMANDS, IPC_EVENTS, type IpcFsReadBinaryResult, type OmpApi } from "../../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
+import {
+	WEB_HOST_CHANNELS,
+	type WebHostListing,
+	type WebHostSaveResult,
+	type WebModelsText,
+	type WebModelsWriteResult,
+} from "../../shared/web-host";
 import type { WebChrome } from "./chrome";
 import { type LocalChannels, parseOmpUrl } from "./deep-link";
 import { base64ToBytes, type SaveOutcome } from "./download";
@@ -90,6 +97,14 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		revealPathOnComputer: (path, tabId) => transport.invoke(C.SYSTEM_REVEAL_PATH, path, tabId),
 		editOnComputer: content => transport.invoke<EditorResult>(C.EDITOR_OPEN_EXTERNAL, { content }),
 		openModelsConfigOnComputer: device => transport.invoke(C.MODELS_CONFIG_OPEN, device),
+		listDirs: request => transport.invoke<WebHostListing>(WEB_HOST_CHANNELS.LIST_DIRS, request),
+		saveToHost: request => transport.invoke<WebHostSaveResult>(WEB_HOST_CHANNELS.SAVE, request),
+		modelsConfigRead: () => transport.invoke<WebModelsText>(WEB_HOST_CHANNELS.MODELS_CONFIG_READ),
+		modelsConfigWrite: request =>
+			transport.invoke<WebModelsWriteResult>(WEB_HOST_CHANNELS.MODELS_CONFIG_WRITE, request),
+		downloadToPhone: (path, tabId) => viewOnPhone(path, tabId),
+		saveBytesToPhone: (name, mime, base64) => saveImagePhone(name, mime, base64),
+		pickPhoneFiles: filters => pickPhoneFiles(filters),
 	};
 
 	/** `FS_READ_BINARY`, with the bytes the page's viewers expect (`data: Uint8Array`). */
@@ -126,6 +141,14 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		} catch (error) {
 			return { saved: false, error: error instanceof Error ? error.message : String(error) };
 		}
+	}
+
+	/** Files picked on this device, uploaded to the computer: their host paths, or null when none. */
+	async function pickPhoneFiles(filters: FileFilter[] | undefined): Promise<string[] | null> {
+		const files = await env.pickFiles(acceptFromFilters(filters));
+		if (files.length === 0) return null;
+		const paths = (await Promise.all(files.map(pathForFile))).filter(path => path.length > 0);
+		return paths.length > 0 ? paths : null;
 	}
 
 	const failureText: Record<UploadFailure, string> = {
@@ -173,28 +196,25 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		[C.SYSTEM_SAVE_DIALOG]: async (defaultPath: unknown, filters: unknown) => {
 			const initial = typeof defaultPath === "string" ? defaultPath : undefined;
 			const pick = hooks().showSaveDialog;
-			if (pick) return pick(initial, filters as FileFilter[] | undefined);
+			if (pick) return pick(initial, filters as FileFilter[] | undefined, host);
 			return hostPath(env.t("web.hostPath.save"), initial ?? "");
 		},
 		[C.SYSTEM_SAVE_IMAGE]: (name: unknown, mime: unknown, data: unknown) => {
 			const save = hooks().saveImage;
 			return save
-				? save(String(name), String(mime), String(data))
+				? save(String(name), String(mime), String(data), host)
 				: saveImagePhone(String(name), String(mime), String(data));
 		},
 		[C.SYSTEM_OPEN_DIALOG]: async (filters: unknown, options: unknown) => {
 			const list = filters as FileFilter[] | undefined;
 			const opts = options as OpenDialogOptions | undefined;
 			const pick = hooks().showOpenDialog;
-			if (pick) return pick(list, opts);
+			if (pick) return pick(list, opts, host);
 			if (opts?.directory) {
 				const chosen = hostPath(opts.title ?? env.t("web.hostPath.folder"), "");
 				return chosen ? [chosen] : null;
 			}
-			const files = await env.pickFiles(acceptFromFilters(list));
-			if (files.length === 0) return null;
-			const paths = (await Promise.all(files.map(pathForFile))).filter(path => path.length > 0);
-			return paths.length > 0 ? paths : null;
+			return pickPhoneFiles(list);
 		},
 		[C.SYSTEM_NOTIFY]: async (payload: unknown) => {
 			const { title, body, tabId, kind } = payload as {
@@ -211,9 +231,14 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			const open = hooks().openEditor;
 			return open ? open(content, host) : Promise.resolve({ ok: false, unavailable: true, text: null });
 		},
+		[C.MODELS_CONFIG_OPEN]: async (device: unknown) => {
+			const open = hooks().openModelsConfig;
+			if (!open || typeof device === "string") return host.openModelsConfigOnComputer(device as string | undefined);
+			return open(host);
+		},
 		[C.SIDECAR_SELECT_PROJECT]: async () => {
 			const pick = hooks().selectProject;
-			if (pick) return pick();
+			if (pick) return pick(host);
 			return hostPath(env.t("web.hostPath.project"), "");
 		},
 		[C.SESSION_OPEN_NEW_WINDOW]: async (payload: unknown) => {

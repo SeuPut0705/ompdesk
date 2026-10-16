@@ -37,6 +37,18 @@ export interface MessagesStore {
 	removeLiveMessage: (message: AgentMessage) => void;
 	/** Clear partial assistant stream buffers without touching committed or live rows. */
 	clearStreaming: () => void;
+	/**
+	 * Another window shows this tab too (multi-viewer). Its prompts are delivered here as user messages
+	 * this window never echoed, so an echo is claimed only by the delivery with its own text.
+	 */
+	sharedTab: boolean;
+	setSharedTab: (shared: boolean) => void;
+	/**
+	 * Texts this window sent on a shared tab without a local echo (a steer or follow-up): their deliveries
+	 * are this window's own, not another viewer's (`appendLiveMessages`).
+	 */
+	ownSends: string[];
+	noteOwnSend: (text: string) => void;
 	/** Drop delivered live rows after an idle transcript hydrate; keep unsent local echo. */
 	clearDeliveredLiveMessages: () => void;
 	/**
@@ -58,6 +70,7 @@ const initialState = {
 	pageError: null as string | null,
 	isLoadingPage: false,
 	turnMeter: EMPTY_TURN_METER,
+	ownSends: [] as string[],
 	readTargets: new Map() as ReadonlyMap<string, ReadGroupTarget | null>,
 };
 
@@ -83,13 +96,53 @@ function holds(list: readonly AgentMessage[], message: AgentMessage, partial: bo
 	return false;
 }
 
-function appendLiveMessages(messages: AgentMessage[], delivered: AgentMessage[]): AgentMessage[] {
+/** A committed prompt keeps the "from another viewer" mark its live delivery carried (a reload names the sender). */
+function withViewerOrigins(committed: AgentMessage[], live: readonly AgentMessage[]): AgentMessage[] {
+	const flagged = live.filter(message => message.fromOtherViewer);
+	if (flagged.length === 0) return committed;
+	return committed.map(message =>
+		message.role === "user" &&
+		!message.fromOtherViewer &&
+		flagged.some(entry => userText(entry) === userText(message))
+			? { ...message, fromOtherViewer: true }
+			: message,
+	);
+}
+
+/** The typed text of a user message: a string, or the text blocks of a block list (attachments are not text). */
+function userText(message: AgentMessage): string {
+	const { content } = message;
+	if (typeof content === "string") return content;
+	return (content ?? []).map(block => (block.type === "text" ? block.text : "")).join("");
+}
+
+/**
+ * The delivery of a user message claims this window's oldest echo still waiting for it. On a tab no other
+ * window shows, that is the next non-steering user message (the host may have expanded the text, so
+ * nothing else is compared). On a shared tab another viewer's prompt can arrive first, so only the
+ * delivery with the echo's own text claims it, steering or not (a window whose view of the run was a beat
+ * behind echoed a prompt that the host queued as steering). A delivery nothing claims and this window did not
+ * send (`ownSends`: texts it sent without an echo, e.g. a steer) is another viewer's prompt: it appends,
+ * marked `fromOtherViewer`. `ownSends` is consumed in place.
+ */
+function appendLiveMessages(
+	messages: AgentMessage[],
+	delivered: AgentMessage[],
+	shared: boolean,
+	ownSends: string[],
+): AgentMessage[] {
 	let next = messages;
 	for (const message of delivered) {
+		const text = shared && message.role === "user" ? userText(message) : "";
+		const waiting = (entry: AgentMessage) => isOptimisticUser(entry) && !entry.optimisticDelivered;
 		const optimisticIndex =
-			message.role === "user" && !message.steering
-				? next.findIndex(entry => isOptimisticUser(entry) && !entry.optimisticDelivered)
-				: -1;
+			message.role !== "user"
+				? -1
+				: shared
+					? next.findIndex(entry => waiting(entry) && userText(entry) === text)
+					: message.steering
+						? -1
+						: next.findIndex(waiting);
 		if (optimisticIndex >= 0) {
 			const optimistic = next[optimisticIndex];
 			next = [...next];
@@ -101,7 +154,10 @@ function appendLiveMessages(messages: AgentMessage[], delivered: AgentMessage[])
 			};
 			continue;
 		}
-		next = [...next, message];
+		const own = shared && message.role === "user" ? ownSends.indexOf(text) : -1;
+		if (own >= 0) ownSends.splice(own, 1);
+		const fromOther = shared && message.role === "user" && own < 0 && message.promptFrom === undefined;
+		next = [...next, fromOther ? { ...message, fromOtherViewer: true } : message];
 	}
 	return next;
 }
@@ -164,8 +220,12 @@ export function mergeFetchedTranscript(
 export const createMessagesStore = () =>
 	createStore<MessagesStore>()((set, get) => ({
 		...initialState,
+		sharedTab: false,
+		setSharedTab: shared => set(state => (state.sharedTab === shared ? state : { sharedTab: shared })),
+		noteOwnSend: text => set(state => ({ ownSends: [...state.ownSends.slice(-31), text] })),
 		applyEvents: events => {
 			const state = get();
+			const ownSends = [...state.ownSends];
 			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking, turnMeter, readTargets } =
 				state;
 			const now = Date.now();
@@ -243,7 +303,7 @@ export const createMessagesStore = () =>
 						break;
 					}
 					case "message_end":
-						liveMessages = appendLiveMessages(liveMessages, [event.message]);
+						liveMessages = appendLiveMessages(liveMessages, [event.message], state.sharedTab, ownSends);
 						if (event.message.role === "assistant") {
 							streamingMessage = null;
 							streamingText = "";
@@ -252,7 +312,7 @@ export const createMessagesStore = () =>
 						break;
 					case "agent_end":
 						if (event.messages) {
-							messages = upsertCommittedMessages(messages, event.messages);
+							messages = upsertCommittedMessages(messages, withViewerOrigins(event.messages, liveMessages));
 							if (event.messages.some(message => message.entryId)) {
 								// A prompt queued locally after this run ended is not part of its commit.
 								liveMessages = liveMessages.filter(
@@ -291,6 +351,7 @@ export const createMessagesStore = () =>
 				streamingThinking,
 				turnMeter,
 				readTargets,
+				...(ownSends.length === state.ownSends.length ? {} : { ownSends }),
 				...(appended.length > 0 ? { lastAppended: appended } : {}),
 			});
 		},

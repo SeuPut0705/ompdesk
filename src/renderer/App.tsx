@@ -93,6 +93,7 @@ import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
+import { WebHostUi } from "./web/host-ui/WebHostUi";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
@@ -906,6 +907,7 @@ export function App() {
 				<HandoffDialog />
 				<RemoteFolderPickerHost />
 				<WebPairingDialog />
+				<WebHostUi />
 				<SshPromptDialog />
 				<Suspense fallback={null}>
 					<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />

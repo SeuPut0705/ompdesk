@@ -39,6 +39,7 @@ import type {
 	IpcScheduledRetry,
 	IpcSignIn,
 	IpcSpawnTabResult,
+	IpcTabInfo,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
 	SessionInfo,
@@ -53,13 +54,17 @@ import {
 	resetRetryPending,
 	supersedeTabHydration,
 } from "../hooks/use-rpc-events";
+import { maxSplitPanes } from "../hooks/use-shell-mode";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
+import { webRuntime } from "../web/runtime";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
 import { type AwaitedInput, awaitedInput, type ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
+import type { MessagesStore } from "./messages";
 import { useNextPromptStore } from "./next-prompt";
 import {
 	type PendingPlanProposal,
@@ -115,6 +120,10 @@ export interface SessionTab {
 	awaitingConnection?: boolean;
 	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
 	scheduledRetry?: IpcScheduledRetry;
+	/** Another window owns this tab and this one views it (multi-viewer); closing it here only leaves it. */
+	shared?: true;
+	/** How many windows besides the owner show this tab; absent when none does. Main's list is the authority. */
+	viewerCount?: number;
 }
 
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
@@ -176,6 +185,11 @@ function tabSessionChanged(previous: SessionTab | undefined, info: IpcTabStatusP
 	);
 }
 
+/** What a tab list (GET_TABS, TAB_LIST_CHANGED) says about who else shows a tab; absent = nobody. */
+function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCount"> {
+	return { shared: info.shared, viewerCount: info.viewerCount };
+}
+
 /**
  * Project a main-process tab snapshot (GET_TABS entry or TAB_STATUS push) over
  * the renderer's previous entry, keeping local flags (unreadDone,
@@ -204,6 +218,9 @@ function projectSessionTab(
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
 		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
+		// A status push carries no viewer fields: only a tab list (GET_TABS, TAB_LIST_CHANGED) states them.
+		...(previous?.shared ? { shared: true as const } : {}),
+		...(previous?.viewerCount === undefined ? {} : { viewerCount: previous.viewerCount }),
 	};
 }
 
@@ -390,6 +407,12 @@ export interface TabsStore {
 	/** Merge a TAB_STATUS push: upsert the entry, stamp unreadDone when a
 	 * background run settles (running → ready while not active). */
 	applyTabStatus: (payload: IpcTabStatusPayload) => void;
+	/**
+	 * Apply main's tab list for this window (GET_TABS, TAB_LIST_CHANGED): a tab another window now shows
+	 * (or stopped showing) changes `viewerCount`, a tab a viewer window was attached to appears, and one its
+	 * owner closed leaves. It never touches this window's own tabs' order or the view.
+	 */
+	applyTabList: (list: readonly IpcTabInfo[]) => Promise<void>;
 	/** Saved sessions of closed tabs, most recent last (unsaved sessions have nothing to reopen). */
 	closedTabs: ClosedTab[];
 	/** Reopen the most recently closed tab's session where it ran. The entry stays when the
@@ -419,6 +442,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A tab this window is closing is gone for it even while main still lists
 		// it (its release is in flight): reviving it would recreate its runtime.
 		const list = listed.filter(info => !isTabClosed(info.tabId));
+		// A web page keeps its own done marks across reloads (lib/unread-marks.ts); the desktop's live in memory.
+		const savedMarks = webRuntime() ? readUnreadMarks() : null;
 		set(state => {
 			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
 			const merged: SessionTab[] = list.map(info => {
@@ -429,7 +454,17 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					replaceTabRuntime(info.tabId);
 				}
 				ensureTabRuntime(info.tabId);
-				return projectSessionTab(info, existing, sessionChanged, false);
+				const tab: SessionTab = {
+					...projectSessionTab(info, existing, sessionChanged, false),
+					...viewerFields(info),
+				};
+				const restored =
+					savedMarks !== null &&
+					existing === undefined &&
+					!info.active &&
+					!info.visible &&
+					restoredUnread(savedMarks, info.tabId, info.status === "running");
+				return restored ? { ...tab, unreadDone: true } : tab;
 			});
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
 			// survive appended at the end.
@@ -540,7 +575,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const { tabId } = result;
 		ensureTabRuntime(tabId);
 		const resolvedCwd = result.cwd ?? cwd;
-		// Upsert eagerly — the fresh sidecar's first TAB_STATUS can beat the reply.
+		// Attached as a viewer of a session another window holds: the tab is already running there, so its
+		// status, title and viewers come from the list rather than from a first ready push that never comes.
+		if (result.attached) await get().reconcileTabs();
 		set(state => {
 			const existing = state.tabs.find(tab => tab.id === tabId);
 			if (existing) {
@@ -635,7 +672,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					mapSplitLeaves(state.split, tabId =>
 						tabId !== target
 							? { tabId }
-							: splitTabIds(state.split!).length === 4
+							: splitTabIds(state.split!).length >= maxSplitPanes()
 								? { tabId: id }
 								: splitForPlacement(tabId, id, placement),
 					),
@@ -899,6 +936,35 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (completedInBackground && payload.lastRun) notifyRunEnd(payload.tabId, payload.lastRun);
 	},
 
+	applyTabList: async list => {
+		const known = new Map(get().tabs.map(tab => [tab.id, tab]));
+		const unseen = list.some(info => !known.has(info.tabId) && !isTabClosed(info.tabId));
+		if (unseen) {
+			await get().reconcileTabs();
+		} else {
+			const byId = new Map(list.map(info => [info.tabId, info]));
+			set(state => {
+				let changed = false;
+				const tabs = state.tabs.map(tab => {
+					const info = byId.get(tab.id);
+					if (!info) return tab;
+					const next = { ...tab, ...viewerFields(info) };
+					if (!info.shared) delete next.shared;
+					if (info.viewerCount === undefined) delete next.viewerCount;
+					if (next.shared === tab.shared && next.viewerCount === tab.viewerCount) return tab;
+					changed = true;
+					return next;
+				});
+				return changed ? { tabs } : state;
+			});
+		}
+		// A tab another window owned and closed is gone for this viewer too.
+		const listed = new Set(list.map(info => info.tabId));
+		for (const tab of get().tabs) {
+			if (tab.shared && !listed.has(tab.id)) await get().closeTab(tab.id);
+		}
+	},
+
 	reset: () => {
 		switchVersion += 1;
 		if (ratioFlushTimer) {
@@ -933,6 +999,27 @@ useTabsStore.subscribe((next, previous) => {
 	}
 });
 
+// A web page's own done marks and running tabs, kept for the next load (lib/unread-marks.ts).
+useTabsStore.subscribe((next, previous) => {
+	if (next.tabs === previous.tabs || !webRuntime()) return;
+	writeUnreadMarks({
+		unread: next.tabs.filter(tab => tab.unreadDone).map(tab => tab.id),
+		running: next.tabs.filter(tab => tab.status === "running").map(tab => tab.id),
+	});
+});
+
+// A tab other windows show too: its messages store claims a local echo only by its own text, because
+// another viewer's prompt can be delivered first (stores/messages.ts). A replaced runtime starts unshared,
+// so every change of the list re-states the flag for every tab.
+useTabsStore.subscribe((next, previous) => {
+	if (next.tabs === previous.tabs) return;
+	for (const tab of next.tabs) {
+		sessionRuntimeStore<MessagesStore>(tab.id, "messages")
+			?.getState()
+			.setSharedTab(tab.shared === true || (tab.viewerCount ?? 0) > 0);
+	}
+});
+
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with
  * it; a late IPC delivery can never leak into the newly selected tab. A request
@@ -944,12 +1031,27 @@ useTabsStore.subscribe((next, previous) => {
  * a chat card. While its `login` still runs it goes to the login store and the
  * panel takes the sign-in over; once `login` has answered it is a leftover, answered
  * `cancelled` (stock never closes its code paste) like the panel does. */
-export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest, signIn?: IpcSignIn): void {
+export function pushTabExtensionUiRequest(
+	tabId: string,
+	request: ExtensionUIRequest,
+	signIn?: IpcSignIn,
+	answeredElsewhere?: boolean,
+): void {
 	// A request arriving after the tab closed must not resurrect a ghost runtime.
 	if (isTabClosed(tabId)) return;
 	ensureTabRuntime(tabId);
 	const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
 	const state = store?.getState();
+	// The synthetic cancel of a card another window answered first: the card closes, and the reader is told why
+	// (only when this window still showed it: its own answer closes it first).
+	if (answeredElsewhere && request.method === "cancel") {
+		if (state?.pendingRequests.some(pending => pending.id === request.targetId)) {
+			toast({ variant: "info", message: translate("extDialog.answeredElsewhere") });
+		}
+		state?.removeRequest(request.targetId);
+		watchTabAwaitingInput(tabId);
+		return;
+	}
 	if (!state || state.pendingRequests.some(pending => pending.id === request.id)) return;
 	if (!signIn) state.pushRequest(request);
 	else if (signIn.active) {
@@ -1151,7 +1253,11 @@ export function useSessionTabs(): void {
 			});
 		const subscribe = window.omp.events.onTabStatus;
 		if (typeof subscribe !== "function") return;
-		return subscribe.call(window.omp.events, payload => {
+		const offList =
+			typeof window.omp.events.onTabListChanged === "function"
+				? window.omp.events.onTabListChanged(payload => void useTabsStore.getState().applyTabList(payload.tabs))
+				: undefined;
+		const offStatus = subscribe.call(window.omp.events, payload => {
 			const previousStatus = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId)?.status;
 			useTabsStore.getState().applyTabStatus(payload);
 			if (payload.status !== "ready") return;
@@ -1203,5 +1309,9 @@ export function useSessionTabs(): void {
 				await hydrateTabSession(tab.id);
 			})();
 		});
+		return () => {
+			offStatus();
+			offList?.();
+		};
 	}, []);
 }

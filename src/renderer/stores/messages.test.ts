@@ -439,3 +439,98 @@ describe("a run that carries custom messages", () => {
 		expect(liveMessages).toEqual([]);
 	});
 });
+
+describe("a tab another window shows too (multi-viewer)", () => {
+	const echo = (text: string, timestamp: number): AgentMessage => ({
+		role: "user",
+		content: text,
+		timestamp,
+		optimistic: true,
+	});
+	const delivery = (text: string, timestamp: number, extra: Partial<AgentMessage> = {}): AgentMessage => ({
+		role: "user",
+		content: [{ type: "text", text }],
+		timestamp,
+		...extra,
+	});
+	const shared = () => {
+		const store = createMessagesStore();
+		store.getState().setSharedTab(true);
+		return store;
+	};
+
+	it("does not let another viewer's prompt absorb this window's echo", () => {
+		const store = shared();
+		const mine = echo("mine", 1);
+		store.getState().appendLiveMessage(mine);
+
+		// The other viewer's prompt reaches the host first and is delivered ahead of ours.
+		store.getState().applyEvents([{ type: "message_end", message: delivery("theirs", 2) }]);
+		expect(store.getState().liveMessages[0]).toBe(mine);
+		expect(store.getState().liveMessages[0]?.optimisticDelivered).toBeUndefined();
+		expect(store.getState().liveMessages.map(message => message.fromOtherViewer)).toEqual([undefined, true]);
+
+		store.getState().applyEvents([{ type: "message_end", message: delivery("mine", 3) }]);
+		expect(store.getState().liveMessages).toHaveLength(2);
+		expect(store.getState().liveMessages[0]?.optimisticDelivered).toBe(true);
+		expect(store.getState().liveMessages[1]?.fromOtherViewer).toBe(true);
+	});
+
+	it("keeps the unshared rule: the next user delivery claims the echo whatever its text (the host may expand it)", () => {
+		const store = createMessagesStore();
+		store.getState().appendLiveMessage(echo("/skill:review", 1));
+		store.getState().applyEvents([{ type: "message_end", message: delivery("Review the diff", 2) }]);
+		expect(store.getState().liveMessages).toHaveLength(1);
+		expect(store.getState().liveMessages[0]?.optimisticDelivered).toBe(true);
+		expect(store.getState().liveMessages[0]?.fromOtherViewer).toBeUndefined();
+	});
+
+	it("claims an echo by text even when the host queued the prompt as a steer", () => {
+		const store = shared();
+		store.getState().appendLiveMessage(echo("mine", 1));
+		store.getState().applyEvents([{ type: "message_end", message: delivery("mine", 2, { steering: true }) }]);
+		expect(store.getState().liveMessages).toHaveLength(1);
+		expect(store.getState().liveMessages[0]?.optimisticDelivered).toBe(true);
+	});
+
+	it("recognizes this window's own echo-less sends (a steer) so they are not marked as another viewer's", () => {
+		const store = shared();
+		store.getState().noteOwnSend("steer me");
+		store.getState().applyEvents([
+			{ type: "message_end", message: delivery("steer me", 2, { steering: true }) },
+			{ type: "message_end", message: delivery("steer me", 3, { steering: true }) },
+		]);
+		const [first, second] = store.getState().liveMessages;
+		expect(first?.fromOtherViewer).toBeUndefined();
+		expect(second?.fromOtherViewer).toBe(true);
+		expect(store.getState().ownSends).toEqual([]);
+	});
+
+	it("never marks a prompt the host already names a sender for, nor an assistant message", () => {
+		const store = shared();
+		store.getState().applyEvents([
+			{ type: "message_end", message: delivery("from the phone", 2, { promptFrom: "iPhone" }) },
+			{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: 3 } },
+		]);
+		expect(store.getState().liveMessages.some(message => message.fromOtherViewer)).toBe(false);
+	});
+
+	it("carries the other-viewer mark onto the committed prompt at agent_end", () => {
+		const store = shared();
+		store.getState().applyEvents([{ type: "message_end", message: delivery("theirs", 2) }]);
+		store.getState().applyEvents([
+			{
+				type: "agent_end",
+				isTerminal: true,
+				messages: [{ ...delivery("theirs", 2), entryId: "entry-1" }],
+			},
+		]);
+		expect(store.getState().messages.find(message => message.entryId === "entry-1")?.fromOtherViewer).toBe(true);
+	});
+
+	it("marks nothing on a single-window tab", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_end", message: delivery("typed elsewhere", 2) }]);
+		expect(store.getState().liveMessages[0]?.fromOtherViewer).toBeUndefined();
+	});
+});

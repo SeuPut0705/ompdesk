@@ -579,3 +579,67 @@ export function setModelOverride(provider: string, modelId: string, input: Model
 	mutation = operation.catch(() => undefined);
 	return operation;
 }
+
+// ============================================================================
+// The file as text, for an in-app editor (a paired web device edits models.yml where there is no $EDITOR).
+// ============================================================================
+
+/** What an in-app editor needs of the models file. */
+export interface ModelsText {
+	path: string;
+	/** The file, or a minimal skeleton while it does not exist. */
+	text: string;
+	exists: boolean;
+	/** Identifies the file as read; `writeModelsText` refuses when it changed since. */
+	stamp: string;
+}
+
+const MODELS_SKELETON = "# Custom model providers.\nproviders: {}\n";
+
+function stampToken(stamp: FileStamp | null): string {
+	return stamp ? `${stamp.mtimeMs}:${stamp.size}:${stamp.ino}` : "missing";
+}
+
+export function readModelsText(): ModelsText {
+	const file = modelsPath();
+	const stamp = fileStamp(file);
+	return {
+		path: file,
+		text: stamp ? readFileSync(file, "utf8") : MODELS_SKELETON,
+		exists: stamp !== null,
+		stamp: stampToken(stamp),
+	};
+}
+
+/**
+ * Save text an editor produced, through the same writer as every GUI edit: the models.yml parser and the
+ * agent's schema check it first (an invalid file is never written, the reason comes back), the swap is
+ * atomic, and a file that changed on disk since `stamp` was read is not overwritten. Resolves the new stamp.
+ */
+export function writeModelsText(text: string, stamp: string): Promise<string> {
+	const operation = mutation.then(async () => {
+		options = await modelsConfigMetadata();
+		const file = modelsPath();
+		const current = fileStamp(file);
+		if (stampToken(current) !== stamp) {
+			throw codedError(
+				"invalid_content",
+				`${file} changed on disk since it was opened. Nothing was written; reopen it.`,
+			);
+		}
+		const doc = parseDocument(text);
+		const issue = doc.errors[0];
+		if (issue) throw codedError("invalid_content", `models.yml: ${issue.message}`);
+		try {
+			await writeModelsFile(doc, current);
+		} catch (error) {
+			throw codedError("invalid_content", error instanceof Error ? error.message : String(error));
+		}
+		return stampToken(fileStamp(modelsPath()));
+	});
+	mutation = operation.then(
+		() => undefined,
+		() => undefined,
+	);
+	return operation;
+}

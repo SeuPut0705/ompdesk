@@ -8,6 +8,7 @@ import {
 	hydrateTabSession,
 	nextPromptPatch,
 	refreshModelState,
+	refreshSessionModes,
 	refreshSessionState,
 	retryPendingTabs,
 	syncGoal,
@@ -823,6 +824,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				void useSettingsStore.getState().syncDisplaySettings();
 				void useSettingsStore.getState().syncApproval();
 			});
+			// Another window toggled a composer mode: main says so with `modes: true` (no stock event exists).
+			if (frame.modes === true) void refreshSessionModes(tabId);
 		};
 		const unsubConfig = window.omp.events.onTabConfigUpdate(handleConfig);
 		// Extension slash commands can settle locally after the prompt response

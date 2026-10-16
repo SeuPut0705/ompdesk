@@ -27,6 +27,7 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { restoreTabComposer, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
+import { webRuntime } from "../../../web/runtime";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
@@ -89,6 +90,10 @@ export function useComposerSubmit({
 			const originSessionId = originSession?.getState().sessionId ?? useSessionStore.getState().sessionId;
 			const originCwd = (originSession?.getState() ?? useSessionStore.getState()).cwd;
 			const originDevice = useTabsStore.getState().tabs.find(tab => tab.id === originTabId)?.device;
+			// A shared tab, or any tab a phone sends to, can be sent to by another device at the same moment:
+			// whether a message joins the run (steer/follow-up) or starts one is the host's word, not this window's.
+			const originTab = useTabsStore.getState().tabs.find(tab => tab.id === originTabId);
+			const hostDecides = webRuntime() !== null || originTab?.shared === true || (originTab?.viewerCount ?? 0) > 0;
 			const originStillActive = () =>
 				originSession
 					? sessionRuntimeStore<ComposerStore>(originTabId, "composer") === originComposer
@@ -235,7 +240,8 @@ export function useComposerSubmit({
 					toast({ variant: "warning", message: t("input.queue.guiCommand") });
 					return;
 				}
-				const startImmediately = !isStreaming && queuedMessageCount === 0;
+				const startImmediately = hostDecides || (!isStreaming && queuedMessageCount === 0);
+				if (hostDecides) for (const item of dispatchItems) originMessages.getState().noteOwnSend(item);
 				// session.followUp throws on extension-command text (agent-session.ts:5508-5510),
 				// so those items go through prompt, whose slash chain executes them.
 				const extensionCommandNames = new Set(
@@ -313,6 +319,7 @@ export function useComposerSubmit({
 				isStreaming,
 				mode: forceMode ?? mode,
 				commands,
+				hostDecides,
 				rpc,
 				beforePrompt: () =>
 					runAutoMode({
@@ -361,6 +368,19 @@ export function useComposerSubmit({
 						}
 					: undefined;
 			if (optimisticMessage) originMessages.getState().appendLiveMessage(optimisticMessage);
+			else if (hostDecides && !expandedMessage.startsWith("/"))
+				originMessages.getState().noteOwnSend(expandedMessage);
+			// On a tab other devices send to, the host's own word that the prompt arrived (its echo claimed by the
+			// delivery, or dropped on a failure) frees the composer too, so a slow reply to this window's request
+			// never keeps it from steering. The request's own settling stays the fallback.
+			let stopWatching: (() => void) | undefined;
+			if (optimisticMessage && hostDecides) {
+				stopWatching = originMessages.subscribe(state => {
+					if (state.liveMessages.includes(optimisticMessage)) return;
+					stopWatching?.();
+					if (originStillActive()) setSending(false);
+				});
+			}
 			// Sending owns the live edge: pull the transcript back to the bottom even
 			// when the user had scrolled up through history before pressing Enter.
 			(originSession ?? useSessionStore).getState().pinTranscriptToBottom();
@@ -374,6 +394,7 @@ export function useComposerSubmit({
 			// work used to make Enter look ignored for a noticeable beat.
 			setTimeout(() => {
 				if (!originStillActive()) {
+					stopWatching?.();
 					if (optimisticMessage) originMessages.getState().removeLiveMessage(optimisticMessage);
 					restoreDraft(message, previousImages);
 					return;
@@ -405,6 +426,7 @@ export function useComposerSubmit({
 						showSendError(t("input.sendFailed"), error);
 					})
 					.finally(() => {
+						stopWatching?.();
 						if (originStillActive()) setSending(false);
 					});
 			}, 0);

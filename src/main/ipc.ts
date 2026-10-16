@@ -585,6 +585,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
 		const login = cmd.type === "login" ? cmd.providerId : null;
+		// One omp, one subagent stream level, several windows with their own work maps: it gets the highest.
+		if (issuerTabId && cmd.type === "set_subagent_subscription") {
+			cmd.level = sidecarPool.noteSubagentLevel(issuerTabId, win.webContents.id, cmd.level);
+		}
 		let signInError: string | null = null;
 		if (signIn && login) sidecarPool.noteSignIn(signIn, true, { providerId: login });
 		try {
@@ -682,6 +686,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, caller => {
 		const win = caller.win;
 		return win ? sidecarPool.openRequests(win) : [];
+			if (issuerTabId && response.success && MODE_TOGGLE_COMMANDS[cmd.type]) {
+				sidecarPool.noteModeChanged(issuerTabId, win.webContents.id);
+			}
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
@@ -882,6 +889,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// sidecar is tab 0 — main minted its tabId at acquire).
 	ipc.handle(IPC_COMMANDS.GET_TABS, caller => {
 		const win = caller.win;
+				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",
 		return win ? deps.sidecarPool.tabsForWindow(win) : [];
 	});
 

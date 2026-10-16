@@ -1985,6 +1985,11 @@ export interface AgentMessage {
 	promptFrom?: string;
 	stopReason?: string;
 	errorMessage?: string;
+	/**
+	 * GUI-only: a user prompt another viewer of this shared tab sent (delivered live here, never echoed by
+	 * this window). The host names no sender on a live delivery, so the label is generic until a reload.
+	 */
+	fromOtherViewer?: true;
 	errorId?: number;
 	timestamp?: string | number;
 	command?: string;
