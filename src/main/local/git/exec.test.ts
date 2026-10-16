@@ -34,15 +34,16 @@ describe.skipIf(process.platform === "win32")("resolveBin", () => {
 	it("finds a gh that lands on PATH after an earlier lookup missed it (setup installed it while the app ran)", async () => {
 		const before = await tempDir("omp-path-before-");
 		const managed = await tempDir("omp-path-managed-");
-		// A login shell whose PATH holds no gh, so the user's own gh never answers.
+		// A login shell whose PATH holds no gh, so the user's own gh never answers. No system dir is on it either:
+		// a runner's /usr/bin/gh (GitHub's Linux images ship one) would answer before setup does. `env` is the
+		// one system binary the probe needs.
+		await fs.symlink("/usr/bin/env", path.join(before, "env"));
 		const shell = path.join(before, "fake-shell");
-		await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env -i PATH=${before}:/usr/bin:/bin /bin/sh -c "$2"\n`, {
-			mode: 0o755,
-		});
+		await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env -i PATH=${before} /bin/sh -c "$2"\n`, { mode: 0o755 });
 		process.env.SHELL = shell;
 		// Not the developer's own Homebrew: a brew-installed gh would answer before setup does.
 		process.env.OMP_GUI_TEST_BREW_DIRS = "";
-		process.env.PATH = `${before}:/usr/bin:/bin`;
+		process.env.PATH = before;
 		resetLoginShellEnvCache();
 		expect(await resolveBin("gh")).toBeNull();
 

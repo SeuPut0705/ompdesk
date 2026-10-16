@@ -85,7 +85,10 @@ describe("isLauncherPath", () => {
 		expect(await isLauncherPath(bundle, "darwin")).toBe(true);
 	});
 
-	it("refuses an extensionless regular file with an executable bit on POSIX", async () => {
+	// NTFS has no exec bit (a chmod 0o755 file stats as 0o666), so these two need a POSIX filesystem.
+	const posixFs = it.skipIf(process.platform === "win32");
+
+	posixFs("refuses an extensionless regular file with an executable bit on POSIX", async () => {
 		expect(await isLauncherPath(file("runme", "#!/bin/sh\n", 0o755), "darwin")).toBe(true);
 	});
 
@@ -100,7 +103,7 @@ describe("isLauncherPath", () => {
 		expect(await isLauncherPath(link, "darwin")).toBe(true);
 	});
 
-	it("refuses a symlink to an executable file", async () => {
+	posixFs("refuses a symlink to an executable file", async () => {
 		const real = file("real", "#!/bin/sh\n", 0o755);
 		const link = path.join(dir, "notes.txt");
 		symlinkSync(real, link);
