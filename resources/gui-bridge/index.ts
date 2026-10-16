@@ -61,6 +61,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
 	{ name: "modes/next-prompt", features: ["nextPrompt"], load: () => import("./modes/next-prompt") },
+	{ name: "modes/auto-title", features: ["autoTitle"], load: () => import("./modes/auto-title") },
 	{ name: "modes/output-style", features: ["outputStyle"], load: () => import("./modes/output-style") },
 	{ name: "modes/user-profile", features: ["userProfile"], load: () => import("./modes/user-profile") },
 	{ name: "modes/delegation", features: ["delegation"], load: () => import("./modes/delegation") },

@@ -592,6 +592,11 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncNextPrompt();
 	}
 
+	/** This machine's automatic-title switches changed: the tabs it runs for paired devices follow them. */
+	syncAutoTitle(): void {
+		for (const tab of this.#tabs.values()) tab.sidecar.syncAutoTitle();
+	}
+
 	/** This machine's account-rotation setting changed: the tabs it runs for paired devices follow it. */
 	syncAccountRotation(): void {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncAccountRotation();

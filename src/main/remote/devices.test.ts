@@ -25,6 +25,7 @@ function fakeServices() {
 		attachQuota: vi.fn(),
 		disposeAll: vi.fn(),
 		syncNextPrompt: vi.fn(),
+		syncAutoTitle: vi.fn(),
 	};
 }
 
@@ -43,5 +44,23 @@ describe("RemoteDevices host settings", () => {
 		});
 		devices.hostNextPromptChanged();
 		expect(services.syncNextPrompt).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("RemoteDevices auto-title setting", () => {
+	it("pushes this machine's automatic-title switches to the tabs it hosts for paired devices", () => {
+		const services = fakeServices();
+		devices = new RemoteDevices({
+			userData,
+			appVersion: "1.0.0",
+			prefs: { get: () => undefined, set: () => {} },
+			broadcast: () => {},
+			services: services as unknown as LocalHostServices,
+			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
+			offlineMessage: () => "offline",
+			powerSaveBlocker: { start: () => 1, stop: () => {} },
+		});
+		devices.hostAutoTitleChanged();
+		expect(services.syncAutoTitle).toHaveBeenCalledTimes(1);
 	});
 });

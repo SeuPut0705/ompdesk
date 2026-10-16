@@ -2583,6 +2583,11 @@ export const en: Record<string, string> = {
 	"debug.outcome.timeout": "Program is still running — use Pause to interrupt and inspect.",
 	"debug.outcome.stopped": "Stopped at {location}.",
 	"debug.outcome.stoppedGeneric": "Stopped.",
+	"titleAuto.label": "Generate title automatically",
+	"titleAuto.failed": "Couldn't generate a title. Try again.",
+	"titleAuto.none": "There isn't enough conversation to name this session yet.",
+	"titleAuto.superseded": "The title changed while it was being generated, so it wasn't applied.",
+	"titleAuto.needsTab": "Open this session to generate its title",
 	"debug.outcome.terminated": "Program terminated.",
 	"debug.outcome.running": "Program is running.",
 
@@ -3993,6 +3998,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.composer": "Composer extras",
 	"bridgeHealth.feature.share": "Session sharing",
 	"bridgeHealth.feature.planMode": "Plan mode",
+	"bridgeHealth.feature.autoTitle": "Automatic session titles",
 	"bridgeHealth.feature.loopMode": "Loop mode",
 	"bridgeHealth.feature.vibeMode": "Vibe mode",
 	"bridgeHealth.feature.goalMode": "Goal mode",
@@ -5387,6 +5393,16 @@ export const en: Record<string, string> = {
 	"settings.gui.nextPromptInline": "Complete as I type",
 	"settings.gui.nextPromptInlineDesc":
 		"Shows a grey continuation after your cursor while you type a single line. Tab accepts it, Esc dismisses it.",
+	"settings.agent.titles": "Session titles",
+	"settings.gui.autoTitle": "Name sessions automatically",
+	"settings.gui.autoTitleDesc": "Names a new session from your first message.",
+	"settings.gui.autoTitleCost":
+		"Each title is one short request to omp's small title model, not the session's model. Turn it off to keep \"New session\" until you rename it.",
+	"settings.gui.autoTitleEvolve": "Keep the title up to date as work changes",
+	"settings.gui.autoTitleEvolveDesc":
+		"Re-titles an automatic title when the work moves on. A title you typed never changes.",
+	"settings.gui.autoTitleEvolveCost":
+		"At most one extra request per two finished turns, and only after files, the plan or the goal changed (or after six quiet turns).",
 	"input.suggestion.unavailable": "Suggestions are off",
 	"input.suggestion.unavailable.no_model": "Suggestions are off: no small model is set up",
 	"input.suggestion.unavailable.no_credentials": "Suggestions are off: the small model has no credentials",

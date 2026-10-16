@@ -6,11 +6,13 @@ import { useTabRpc } from "../../lib/tab-rpc";
  */
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Input, Modal } from "../common";
+import { AutoTitleButton } from "../common/AutoTitleButton";
 
 export function RenameSessionDialog() {
 	const tabRpc = useTabRpc();
@@ -24,6 +26,7 @@ export function RenameSessionDialog() {
 	const [name, setName] = useState("");
 	const [saving, setSaving] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const autoTitle = useAutoTitle(tabRpc.regenerateSessionTitle);
 
 	useEffect(() => {
 		if (!open) return;
@@ -52,6 +55,15 @@ export function RenameSessionDialog() {
 		} finally {
 			setSaving(false);
 		}
+	};
+
+	// The omp saves the title it makes: the field only shows it, and the dialog is done.
+	const regenerate = async () => {
+		const title = await autoTitle.run();
+		if (!title) return;
+		setName(title);
+		useSessionStore.setState({ sessionName: title });
+		close();
 	};
 
 	return (
@@ -91,9 +103,21 @@ export function RenameSessionDialog() {
 					label={t("rename.label")}
 					placeholder={t("rename.placeholder")}
 					value={name}
-					onChange={event => setName(event.target.value)}
+					onChange={event => {
+						setName(event.target.value);
+						autoTitle.clearError();
+					}}
 					maxLength={120}
 					autoFocus
+					error={autoTitle.error ?? undefined}
+					readOnly={autoTitle.pending}
+					trailing={
+						<AutoTitleButton
+							onClick={() => void regenerate()}
+							pending={autoTitle.pending}
+							unavailableReason={sidecarReady ? undefined : t("sidecar.notResponding")}
+						/>
+					}
 				/>
 			</form>
 		</Modal>

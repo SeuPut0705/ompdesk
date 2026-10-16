@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/next-prompt-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
@@ -1091,6 +1092,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (nextPrompt && typeof payload.value !== "boolean") {
 			throw codedError("invalid_preference_key", "Invalid prompt suggestion preference");
 		}
+		const autoTitle = payload.key === AUTO_TITLE_PREF || payload.key === AUTO_TITLE_EVOLVE_PREF;
+		if (autoTitle && typeof payload.value !== "boolean") {
+			throw codedError("invalid_preference_key", "Invalid automatic title preference");
+		}
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
 		}
@@ -1124,6 +1129,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Every open local session follows now; a paired host's tab follows the host's own setting.
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncNextPrompt();
 			remoteDevices.hostNextPromptChanged();
+		}
+		if (autoTitle) {
+			// Every open local session follows now; a paired host's tab follows the host's own setting.
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncAutoTitle();
+			remoteDevices.hostAutoTitleChanged();
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);

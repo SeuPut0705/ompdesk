@@ -131,6 +131,7 @@ export interface SessionRpcClient {
 	getCopyTargets(): Promise<RpcResponse>;
 	getLastLink(): Promise<RpcResponse>;
 	setSessionName(name: string): Promise<RpcResponse>;
+	regenerateSessionTitle(): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
 	handoff(customInstructions?: string): Promise<RpcResponse>;
 	getLoginProviders(): Promise<RpcResponse>;
@@ -506,6 +507,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getCopyTargets: () => rpcCommand({ type: "get_copy_targets" }),
 		getLastLink: () => rpcCommand({ type: "get_last_link" }),
 		setSessionName: name => rpcCommand({ type: "set_session_name", name }),
+		regenerateSessionTitle: () => rpcCommand({ type: "regenerate_session_title" }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: customInstructions => rpcCommand({ type: "handoff", customInstructions }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),

@@ -28,6 +28,7 @@ export const FEATURES = {
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
 	nextPrompt: "Prompt suggestions (next message, inline completion)",
+	autoTitle: "Automatic session titles (first message, as the work changes, regenerate)",
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
@@ -910,6 +911,29 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
 			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
 			[`${AGENT}/modes/controllers/input-controller`]: ["shouldSkipHistory()"],
+		},
+	},
+	/**
+	 * modes/auto-title.ts: stock's own title machinery on the live session: `generateTitle` (the title model
+	 * roles, `title-generator.ts`), `renameTitle` (`/rename` without a title: the card per `title.icons`),
+	 * `SessionManager.setSessionName(name, source, trigger)` and the journal's `title_change` entries (the title's
+	 * origin). `operatorTitleText` names what an operator message is about.
+	 */
+	autoTitle: {
+		session: [
+			"subscribe()",
+			"sessionName",
+			"generateTitle()",
+			"renameTitle()",
+			"sessionManager.getSessionId()",
+			"sessionManager.getSessionName()",
+			"sessionManager.setSessionName()",
+			"sessionManager.getEntries()",
+			"sessionManager.titleSource",
+			"sessionManager.titleRevision",
+		],
+		modules: {
+			[`${AGENT}/session/messages`]: ["operatorTitleText()"],
 		},
 	},
 	compactionLimits: {

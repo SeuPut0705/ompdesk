@@ -360,6 +360,11 @@ export class RemoteDevices {
 		this.#deps.services.syncNextPrompt();
 	}
 
+	/** This machine's automatic-title switches changed: tabs it hosts for devices follow them. */
+	hostAutoTitleChanged(): void {
+		this.#deps.services.syncAutoTitle();
+	}
+
 	/** This machine's account-rotation setting changed: tabs it hosts for devices follow it. */
 	hostAccountRotationChanged(): void {
 		this.#deps.services.syncAccountRotation();

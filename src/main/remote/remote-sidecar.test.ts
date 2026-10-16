@@ -144,6 +144,7 @@ describe("RemoteSidecar", () => {
 		// The host's own reply-language, prompt-suggestion and account-rotation settings apply: nothing goes over the link.
 		sidecar.syncReplyLanguage();
 		sidecar.syncNextPrompt();
+		sidecar.syncAutoTitle();
 		sidecar.syncAccountRotation();
 		expect(sidecar.adoptCwd("/canonical/p")).toBe(false);
 		expect(sidecar.adoptCwd("/elsewhere")).toBe(true);

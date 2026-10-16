@@ -15,8 +15,9 @@ import {
 	Wrench,
 	XCircle,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
+import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
@@ -45,6 +46,8 @@ import {
 	Spinner,
 	Tooltip,
 } from "../common";
+import { AutoTitleButton } from "../common/AutoTitleButton";
+import { SwapText } from "../common/SwapText";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
@@ -193,6 +196,9 @@ export function TitleBar() {
 	const [draft, setDraft] = useState("");
 	const [stats, setStats] = useState<SessionStats | null>(null);
 	const nameInputRef = useRef<HTMLInputElement>(null);
+	const autoTitle = useAutoTitle(tabRpc.regenerateSessionTitle);
+	const autoTitleErrorId = useId();
+	const generated = useRef(false);
 	const statusAnchorRef = useRef<HTMLButtonElement>(null);
 	// A settled transcript append and a fresh sidecar snapshot are the two things
 	// that can move these figures. Mid-run appends come several times a turn, so
@@ -244,6 +250,8 @@ export function TitleBar() {
 	const cacheHit = sessionCacheHitPercent(visibleStats);
 
 	const commitName = () => {
+		// The omp saved a generated title: a blur on the field's way out must not save the draft over it.
+		if (generated.current) return;
 		const name = draft.trim();
 		setEditingName(false);
 		if (!name || name === displayName) return;
@@ -263,7 +271,20 @@ export function TitleBar() {
 	};
 	const startRename = () => {
 		setDraft(sessionName ?? current?.title ?? "");
+		autoTitle.clearError();
+		generated.current = false;
 		setEditingName(true);
+	};
+	// The omp saves the title it makes; the title bar only shows it and leaves the editor.
+	const regenerateName = async () => {
+		const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
+		const originId = originSession.getState().sessionId;
+		const title = await autoTitle.run();
+		if (!title) return;
+		if (originSession.getState().sessionId === originId) originSession.setState({ sessionName: title });
+		setDraft(title);
+		generated.current = true;
+		setEditingName(false);
 	};
 
 	const working = isStreaming || isCompacting;
@@ -370,20 +391,44 @@ export function TitleBar() {
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 				/>
 				{editingName ? (
-					<div className="w-72 min-w-0">
+					<div className="relative w-72 min-w-0">
 						<Input
+							aria-describedby={autoTitle.error ? autoTitleErrorId : undefined}
+							aria-invalid={autoTitle.error ? true : undefined}
 							aria-label={t("titlebar.rename")}
 							controlSize="sm"
 							onBlur={commitName}
-							onChange={event => setDraft(event.target.value)}
+							onChange={event => {
+								setDraft(event.target.value);
+								autoTitle.clearError();
+							}}
 							onKeyDown={event => {
 								if (isImeKeyEvent(event)) return;
 								if (event.key === "Enter") commitName();
 								onEscape(event, () => setEditingName(false));
 							}}
+							readOnly={autoTitle.pending}
 							ref={nameInputRef}
+							trailing={
+								<AutoTitleButton
+									onClick={() => void regenerateName()}
+									pending={autoTitle.pending}
+									unavailableReason={status === "ready" ? undefined : t("sidecar.notResponding")}
+								/>
+							}
 							value={draft}
 						/>
+						{autoTitle.error && (
+							// Under the field, over the page: the bar keeps its height.
+							<p
+								className="absolute top-full left-0 z-20 mt-1 max-w-full rounded-(--sc-radius-sm) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2 py-1 text-sc-sm text-(--sc-danger) shadow-(--sc-shadow-md)"
+								data-auto-title-error=""
+								id={autoTitleErrorId}
+								role="alert"
+							>
+								{autoTitle.error}
+							</p>
+						)}
 					</div>
 				) : (
 					<Tooltip content={`${displayName} · ${t("titlebar.rename")}`} describe={false} side="bottom">
@@ -395,7 +440,9 @@ export function TitleBar() {
 							size="sm"
 							variant="ghost"
 						>
-							<span className="truncate text-sc-md">{displayName}</span>
+							<SwapText className="truncate text-sc-md" scope={sessionId ?? ""}>
+								{displayName}
+							</SwapText>
 						</Button>
 					</Tooltip>
 				)}

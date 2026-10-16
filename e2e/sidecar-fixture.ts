@@ -8,6 +8,13 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import {
+	type AutoTitleSettings,
+	evolveEffective,
+	normalizeAutoTitle,
+	parseAutoTitleEnv,
+	titleEffective,
+} from "../resources/gui-bridge/auto-title-contracts";
+import {
 	type NextPromptModelUsed,
 	type NextPromptSettings,
 	type NextPromptState,
@@ -746,6 +753,7 @@ if (process.argv[2] === "stats") {
 		isStreaming = false;
 		write({ type: "agent_end", messages });
 		recapPending = true;
+		noteTitleTurn();
 		scheduleRecap();
 		scheduleNextPrompt("turn");
 	};
@@ -817,6 +825,51 @@ if (process.argv[2] === "stats") {
 		for (const socket of bridgeClients) socket.write(frame);
 	};
 	const emitNextPromptConfig = () => pushBridgeEvent({ type: "next_prompt_config", ...nextPromptState() });
+	/**
+	 * Automatic session titles (gui-bridge modes/auto-title.ts). Only with `OMP_GUI_TEST_AUTO_TITLE` (JSON `{latencyMs?,
+	 * fail?}`): every other spec keeps its untitled session. The fixture names the session "Auto N: <prompt>" as the
+	 * bridge does: after the first prompt, and again after two more finished turns while the title is automatic and
+	 * the sub-switch is on; a typed name (`set_session_name`) makes it manual and stops both; `regenerate_title`
+	 * names it again and makes it automatic. `OMP_GUI_AUTO_TITLE` and `auto_title_set` carry the switches.
+	 */
+	const autoTitleScript: { latencyMs?: number; fail?: boolean } | undefined = (() => {
+		try {
+			return process.env.OMP_GUI_TEST_AUTO_TITLE ? JSON.parse(process.env.OMP_GUI_TEST_AUTO_TITLE) : undefined;
+		} catch {
+			return undefined;
+		}
+	})();
+	const autoTitleLatency = Math.max(1, autoTitleScript?.latencyMs ?? 1);
+	let autoTitleSettings: AutoTitleSettings = parseAutoTitleEnv(process.env.OMP_GUI_AUTO_TITLE);
+	let titleIsAuto = false;
+	let titleGeneration = 0;
+	let titleTurns = 0;
+	let lastPromptText = "";
+	const autoTitleRequests = { first: 0, evolve: 0, regenerate: 0 };
+	const nameAuto = (kind: keyof typeof autoTitleRequests): string => {
+		autoTitleRequests[kind]++;
+		titleGeneration++;
+		sessionTitle = `Auto ${titleGeneration}: ${lastPromptText.slice(0, 40)}`;
+		titleIsAuto = true;
+		titleTurns = 0;
+		persistSession();
+		pushBridgeEvent({ type: "session_info_update", title: sessionTitle, sessionId: state().sessionId });
+		return sessionTitle;
+	};
+	const noteTitlePrompt = (message: string) => {
+		lastPromptText = message;
+		if (!autoTitleScript || !titleEffective(autoTitleSettings) || sessionTitle) return;
+		setTimeout(() => {
+			if (!sessionTitle) nameAuto("first");
+		}, autoTitleLatency);
+	};
+	const noteTitleTurn = () => {
+		if (!autoTitleScript || !sessionTitle || !titleIsAuto || !evolveEffective(autoTitleSettings)) return;
+		if (++titleTurns < 2) return;
+		setTimeout(() => {
+			if (titleIsAuto) nameAuto("evolve");
+		}, autoTitleLatency);
+	};
 	/** The session identity as get_state reports it: what the renderer keys the memory by. */
 	const nextPromptSession = () => {
 		const current = state();
@@ -1808,6 +1861,17 @@ if (process.argv[2] === "stats") {
 			return nextPromptState();
 		},
 		next_prompt_state: () => nextPromptState(),
+		// gui-bridge modes/auto-title.ts (contracts in resources/gui-bridge/auto-title-contracts.ts).
+		auto_title_set: params => {
+			autoTitleSettings = normalizeAutoTitle(params);
+			return { ...autoTitleSettings, requests: { ...autoTitleRequests } };
+		},
+		regenerate_title: (_params, reply) => {
+			if (autoTitleScript?.fail) throw new Error("title model unavailable");
+			if (!lastPromptText) return { title: null, reason: "none" };
+			setTimeout(() => reply({ title: nameAuto("regenerate") }), autoTitleLatency);
+			return undefined;
+		},
 		// gui-bridge session-recap.ts: the draft report that arms (or cancels) the idle recap.
 		recap_draft: params => {
 			recapDraftEmpty = params.empty === true;
@@ -3119,6 +3183,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		const sentAt = Date.now();
 		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: sentAt };
 		appendMessage(user);
+		noteTitlePrompt(message);
 		// A85 (resources/gui-bridge/prompt-origin.ts): an omp a host runs for a paired device journals that device per prompt.
 		if (promptOrigin) {
 			const data = { deviceId: promptOrigin.deviceId, name: promptOrigin.name, timestamp: sentAt };
@@ -4742,6 +4807,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}
 				prompt(text("message"), ok);
 				break;
+			case "set_session_name": {
+				// Stock RPC `set_session_name` is the person's own rename: the title is manual from now on.
+				sessionTitle = text("name");
+				titleIsAuto = false;
+				persistSession();
+				ok();
+				break;
+			}
 			default:
 				fail(`Fixture does not implement ${type}`);
 		}

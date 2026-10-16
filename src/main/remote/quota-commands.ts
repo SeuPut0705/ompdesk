@@ -44,6 +44,8 @@ export const MODEL_COMMAND_TYPES = [
 	// The built-in prompt suggestions (bridge modes/next-prompt.ts): a cheap request on the `smol` role model.
 	"complete_inline",
 	"refresh_next_prompt",
+	// The automatic title (bridge modes/auto-title.ts): `/rename` without a title runs the cheap title model.
+	"regenerate_session_title",
 	// Stock `MemoryBackend.enqueue` (`/memory enqueue`): consolidation runs a model (mnemopi's fact extraction, the
 	// hindsight server, the local backend's next consolidation pass).
 	"memory_enqueue",

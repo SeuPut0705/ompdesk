@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteState } from "../../../shared/ipc-types";
+import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
@@ -15,6 +16,7 @@ import {
 } from "../../stores/session-runtime-context";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
+import { useToastStore } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { TitleBar } from "./TitleBar";
@@ -63,15 +65,27 @@ const setSessionName = vi.fn(async (_name: string) => ({
 	command: "set_session_name",
 	success: true as const,
 }));
+const regenerateSessionTitle = vi.fn(
+	async (): Promise<RpcResponse> => ({
+		type: "response",
+		command: "regenerate_session_title",
+		success: true,
+		data: { title: "Generated" },
+	}),
+);
 (
 	window as unknown as {
 		omp: {
 			sessions: typeof sessions;
 			events: typeof events;
-			rpc: { getSessionStats: typeof getSessionStats; setSessionName: typeof setSessionName };
+			rpc: {
+				getSessionStats: typeof getSessionStats;
+				setSessionName: typeof setSessionName;
+				regenerateSessionTitle: typeof regenerateSessionTitle;
+			};
 		};
 	}
-).omp = { sessions, events, rpc: { getSessionStats, setSessionName } };
+).omp = { sessions, events, rpc: { getSessionStats, setSessionName, regenerateSessionTitle } };
 
 let container: TestElement;
 let root: Root;
@@ -330,6 +344,98 @@ describe("TitleBar", () => {
 		} finally {
 			Reflect.deleteProperty(HTMLElement.prototype, "select");
 		}
+	});
+
+	describe("auto button in the rename field", () => {
+		const reply = (data: unknown): RpcResponse => ({
+			type: "response",
+			command: "regenerate_session_title",
+			success: true,
+			data,
+		});
+		const startRename = async () => {
+			useSessionStore.setState({
+				status: "ready",
+				sessionId: "session-1",
+				cwd: "/tmp/project",
+				sessionName: "My own name",
+			});
+			await mount();
+			await act(async () => Promise.resolve());
+			const rename = document.querySelector("[data-titlebar-session-name]") as unknown as TestButton | null;
+			if (!rename) throw new Error("title rename button missing");
+			await act(async () => rename.click());
+			const auto = document.querySelector("[data-auto-title]") as unknown as Element | null;
+			if (!auto) throw new Error("auto button missing in the rename field");
+			return auto;
+		};
+
+		it("is named in the UI language, keeps the field focused when pressed, and asks the tab's omp once", async () => {
+			// linkedom ships no HTMLInputElement.select(); the field autofocuses through it.
+			(HTMLElement.prototype as unknown as { select: () => void }).select = () => {};
+			try {
+				regenerateSessionTitle.mockResolvedValueOnce(reply({ title: "🐛 Fix login bug" }));
+				const auto = await startRename();
+				expect(auto.getAttribute("aria-label")).toBe(translate("titleAuto.label"));
+				// Pressing it must not blur the field: blur saves the draft as the person's own name.
+				const press = new Event("mousedown", { bubbles: true, cancelable: true });
+				auto.dispatchEvent(press);
+				expect(press.defaultPrevented).toBe(true);
+				await act(async () => (auto as unknown as TestButton).click());
+				expect(regenerateSessionTitle).toHaveBeenCalledTimes(1);
+			} finally {
+				Reflect.deleteProperty(HTMLElement.prototype, "select");
+			}
+		});
+
+		it("shows it is working, then fills in the saved title and closes the editor without renaming over it", async () => {
+			(HTMLElement.prototype as unknown as { select: () => void }).select = () => {};
+			try {
+				const pending = Promise.withResolvers<RpcResponse>();
+				regenerateSessionTitle.mockReturnValueOnce(pending.promise);
+				const auto = await startRename();
+				await act(async () => (auto as unknown as TestButton).click());
+				expect(document.querySelector("[data-auto-title]")?.getAttribute("aria-busy")).toBe("true");
+				await act(async () => pending.resolve(reply({ title: "🐛 Fix login bug" })));
+				expect(document.querySelector("input")).toBeNull();
+				expect(useSessionStore.getState().sessionName).toBe("🐛 Fix login bug");
+				expect(container.textContent).toContain("🐛 Fix login bug");
+				// The omp saved it: the editor never sends the old draft as a typed name.
+				expect(setSessionName).not.toHaveBeenCalled();
+			} finally {
+				Reflect.deleteProperty(HTMLElement.prototype, "select");
+			}
+		});
+
+		const failed: RpcResponse = {
+			type: "response",
+			command: "regenerate_session_title",
+			success: false,
+			error: "title model unavailable",
+		};
+		it.each([
+			["nothing to name yet", reply({ title: null, reason: "none" }), "titleAuto.none"],
+			["a newer rename won", reply({ title: null, reason: "superseded" }), "titleAuto.superseded"],
+			["the title model failed", failed, "titleAuto.failed"],
+		] as const)(
+			"says why in one inline sentence when %s, never a toast, and leaves the editor open",
+			async (_when, answer, key) => {
+				(HTMLElement.prototype as unknown as { select: () => void }).select = () => {};
+				try {
+					regenerateSessionTitle.mockResolvedValueOnce(answer);
+					const auto = await startRename();
+					await act(async () => (auto as unknown as TestButton).click());
+					const alert = document.querySelector("[data-auto-title-error]");
+					expect(alert?.getAttribute("role")).toBe("alert");
+					expect(alert?.textContent).toBe(translate(key));
+					expect(document.querySelector("input")).not.toBeNull();
+					expect(useToastStore.getState().toasts).toEqual([]);
+					expect(useSessionStore.getState().sessionName).toBe("My own name");
+				} finally {
+					Reflect.deleteProperty(HTMLElement.prototype, "select");
+				}
+			},
+		);
 	});
 
 	it("opens session actions and the side panel from visible toolbar buttons", async () => {

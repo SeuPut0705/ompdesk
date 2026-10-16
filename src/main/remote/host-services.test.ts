@@ -44,6 +44,7 @@ class FakeHostSidecar extends EventEmitter {
 	replyLanguageSyncs = 0;
 	userProfileSyncs = 0;
 	nextPromptSyncs = 0;
+	autoTitleSyncs = 0;
 	accountRotationSyncs = 0;
 	commands: RpcCommand[] = [];
 	readonly rpcClient = {
@@ -90,6 +91,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncNextPrompt(): void {
 		this.nextPromptSyncs++;
+	}
+	syncAutoTitle(): void {
+		this.autoTitleSyncs++;
 	}
 	syncAccountRotation(): void {
 		this.accountRotationSyncs++;
@@ -596,6 +600,17 @@ describe("LocalHostServices", () => {
 		services.syncNextPrompt();
 		expect(sidecars.map(sidecar => sidecar.nextPromptSyncs)).toEqual([1, 1]);
 		expect(local.tab.nextPromptSyncs).toBe(0);
+	});
+
+	it("pushes this machine's automatic-title switches to every tab it hosts, leaving the local pool to ipc", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		services.syncAutoTitle();
+		expect(sidecars.map(sidecar => sidecar.autoTitleSyncs)).toEqual([1, 1]);
+		expect(local.tab.autoTitleSyncs).toBe(0);
 	});
 
 	it("pushes this machine's account-rotation setting to every tab it hosts, leaving the local pool to its own fan-out", async () => {

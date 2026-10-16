@@ -22,6 +22,11 @@ import {
 	shell,
 } from "electron";
 import Store from "electron-store";
+import {
+	AUTO_TITLE_EVOLVE_PREF,
+	AUTO_TITLE_PREF,
+	autoTitleFromPrefs,
+} from "../../resources/gui-bridge/auto-title-contracts";
 import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts";
 import {
 	NEXT_PROMPT_INLINE_PREF,
@@ -504,6 +509,8 @@ app.whenReady().then(() => {
 		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
 		nextPromptPrefs: () =>
 			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),
+		autoTitlePrefs: () =>
+			autoTitleFromPrefs(prefsStore().get(AUTO_TITLE_PREF), prefsStore().get(AUTO_TITLE_EVOLVE_PREF)),
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),

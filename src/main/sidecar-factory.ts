@@ -4,6 +4,7 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
+import type { AutoTitleSettings } from "../../resources/gui-bridge/auto-title-contracts";
 import { isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
@@ -36,6 +37,8 @@ export interface LocalSidecarDeps {
 	userProfilePref: () => unknown;
 	/** The prompt-suggestion switches (`nextPromptSuggestions`, `nextPromptInline`; both default on), read per use. */
 	nextPromptPrefs: () => NextPromptSettings;
+	/** The automatic-title switches (`autoTitle`, `autoTitleEvolve`; both default on), read per use. */
+	autoTitlePrefs: () => AutoTitleSettings;
 	/** The composer delegation chip's last choice (`delegationMode`), read per spawn. */
 	delegationPref: () => unknown;
 	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
@@ -84,6 +87,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			nextPrompt: deps.nextPromptPrefs,
+			autoTitle: deps.autoTitlePrefs,
 			delegation: () => {
 				const stored = deps.delegationPref();
 				return isDelegationMode(stored) ? stored : "default";

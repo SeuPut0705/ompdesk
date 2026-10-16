@@ -122,6 +122,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	syncUserProfile(): void;
 	/** Push this machine's prompt-suggestion switches to the live session (the omp's own machine decides). */
 	syncNextPrompt(): void;
+	/** Push this machine's automatic-title switches to the live session (the omp's own machine decides). */
+	syncAutoTitle(): void;
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */
 	syncAccountRotation(): void;
 	dispose(): void;

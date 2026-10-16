@@ -7,6 +7,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
@@ -246,6 +247,13 @@ export interface SidecarOptions {
 	 */
 	nextPrompt?: () => NextPromptSettings;
 	/**
+	 * The automatic-title switches (prefs `autoTitle`, `autoTitleEvolve`), passed to omp as JSON in
+	 * `OMP_GUI_AUTO_TITLE` on every spawn and pushed by `syncAutoTitle()` (same point-of-use pattern as
+	 * nextPrompt). The spawn adds `suppressed`, read from the environment omp is started with.
+	 * Absent: the bridge's default (on).
+	 */
+	autoTitle?: () => AutoTitleSettings;
+	/**
 	 * The paired device a host tab runs for (and this host's name), passed as
 	 * JSON in `OMP_GUI_PROMPT_ORIGIN`: the bridge journals it per user message
 	 * (prompt-origin.ts). Absent for this machine's own tabs.
@@ -372,6 +380,8 @@ export class SidecarManager extends EventEmitter {
 	#freshLaunchPending: boolean;
 	/** Whether the current spawn cycle reached `ready`. */
 	#bootedThisSpawn = false;
+	/** The user's own environment turned stock's automatic titles off for this spawn (see AutoTitleSettings). */
+	#titleSuppressed = false;
 	/**
 	 * Saved session model that failed to restore at boot. The next spawn adds
 	 * `--model @default` so the session opens on the configured default model
@@ -502,6 +512,8 @@ export class SidecarManager extends EventEmitter {
 		// profile value that merely looks like a protected flag survives intact.
 		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)];
 		args.push(...stripDenylistedFlags(userFlags));
+		this.#titleSuppressed = titleSuppressedByEnv({ ...process.env, ...this.#shellEnvVars });
+		const autoTitle = this.#options.autoTitle?.();
 
 		const bin = runtime.bin;
 		console.log(`[sidecar] spawning omp ${runtime.version} (${args.length} args, cwd: ${cwd})`);
@@ -523,6 +535,9 @@ export class SidecarManager extends EventEmitter {
 						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
 						: {}),
 					...(nextPrompt ? { OMP_GUI_NEXT_PROMPT: JSON.stringify(nextPrompt) } : {}),
+					...(autoTitle
+						? { OMP_GUI_AUTO_TITLE: JSON.stringify({ ...autoTitle, suppressed: this.#titleSuppressed }) }
+						: {}),
 					...(this.#options.promptOrigin
 						? { OMP_GUI_PROMPT_ORIGIN: JSON.stringify(this.#options.promptOrigin) }
 						: {}),
@@ -808,6 +823,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncReplyLanguage();
 							this.syncUserProfile();
 							this.syncNextPrompt();
+							this.syncAutoTitle();
 							this.syncAccountRotation();
 							void bridge
 								.request("stream_metadata.start")
@@ -1017,6 +1033,24 @@ export class SidecarManager extends EventEmitter {
 		if (settings) {
 			void this.#bridge
 				?.request("next_prompt_set", { suggestions: settings.suggestions, inline: settings.inline })
+				.catch(() => {});
+		}
+	}
+
+	/**
+	 * Push the current automatic-title switches to this omp (gui-bridge `auto_title_set`); it also hands the
+	 * bridge the live session to watch. Fire-and-forget like syncNextPrompt: an unconnected bridge syncs on
+	 * connect, and an omp without the feature refuses it and stays stock.
+	 */
+	syncAutoTitle(): void {
+		const settings = this.#options.autoTitle?.();
+		if (settings) {
+			void this.#bridge
+				?.request("auto_title_set", {
+					enabled: settings.enabled,
+					evolve: settings.evolve,
+					suppressed: this.#titleSuppressed,
+				})
 				.catch(() => {});
 		}
 	}

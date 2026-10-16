@@ -2567,6 +2567,11 @@ export const ko: Record<string, string> = {
 	"debug.outcome.timeout": "프로그램이 아직 실행 중이에요. 일시정지를 눌러 중단하고 검사하세요.",
 	"debug.outcome.stopped": "{location}에서 중지됐어요.",
 	"debug.outcome.stoppedGeneric": "중지됐어요.",
+	"titleAuto.label": "제목 자동 생성",
+	"titleAuto.failed": "제목을 만들지 못했어요. 다시 시도해 주세요.",
+	"titleAuto.none": "아직 제목을 지을 만큼 대화가 쌓이지 않았어요.",
+	"titleAuto.superseded": "만드는 동안 제목이 바뀌어서 적용하지 않았어요.",
+	"titleAuto.needsTab": "세션을 열면 제목을 자동으로 만들 수 있어요",
 	"debug.outcome.terminated": "프로그램이 종료됐어요.",
 	"debug.outcome.running": "프로그램이 실행 중이에요.",
 
@@ -3979,6 +3984,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.composer": "입력창 확장 기능",
 	"bridgeHealth.feature.share": "세션 공유",
 	"bridgeHealth.feature.planMode": "계획 모드",
+	"bridgeHealth.feature.autoTitle": "세션 제목 자동 생성",
 	"bridgeHealth.feature.loopMode": "루프 모드",
 	"bridgeHealth.feature.vibeMode": "바이브 모드",
 	"bridgeHealth.feature.goalMode": "목표 모드",
@@ -5374,6 +5380,16 @@ export const ko: Record<string, string> = {
 	"settings.gui.nextPromptInline": "입력하는 동안 이어서 완성",
 	"settings.gui.nextPromptInlineDesc":
 		"한 줄을 입력하는 동안 커서 뒤에 회색 문장을 이어서 보여 줘요. Tab으로 받아들이고 Esc로 닫아요.",
+	"settings.agent.titles": "세션 제목",
+	"settings.gui.autoTitle": "세션 제목 자동 생성",
+	"settings.gui.autoTitleDesc": "첫 메시지를 보고 새 세션의 제목을 지어요.",
+	"settings.gui.autoTitleCost":
+		'제목 하나에 omp의 작은 제목 모델로 짧은 요청을 한 번 보내요. 세션 모델은 쓰지 않아요. 끄면 직접 바꾸기 전까지 "새 세션"으로 남아요.',
+	"settings.gui.autoTitleEvolve": "작업이 바뀌면 제목도 갱신",
+	"settings.gui.autoTitleEvolveDesc":
+		"자동으로 지은 제목은 작업이 달라지면 다시 지어요. 직접 입력한 제목은 바뀌지 않아요.",
+	"settings.gui.autoTitleEvolveCost":
+		"턴이 두 번 끝날 때마다 한 번 이하로, 파일·계획·목표가 바뀐 뒤에만 요청해요. 변화가 없으면 여섯 턴 뒤에 확인해요.",
 	"input.suggestion.unavailable": "제안이 꺼져 있어요",
 	"input.suggestion.unavailable.no_model": "제안이 꺼져 있어요: 작은 모델이 설정되지 않았어요",
 	"input.suggestion.unavailable.no_credentials": "제안이 꺼져 있어요: 작은 모델에 자격 증명이 없어요",

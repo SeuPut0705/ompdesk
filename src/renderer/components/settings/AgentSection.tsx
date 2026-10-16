@@ -1,6 +1,7 @@
 import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
+import { AutoTitleRow } from "./AutoTitleRow";
 import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { NextPromptRow } from "./NextPromptRow";
@@ -58,6 +59,9 @@ export function AgentSection() {
 			)}
 			<SettingsSection id="settings-agent-suggestions" scope="app" title={t("settings.agent.suggestions")}>
 				<NextPromptRow />
+			</SettingsSection>
+			<SettingsSection id="settings-agent-titles" scope="app" title={t("settings.agent.titles")}>
+				<AutoTitleRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-automation" scope="app" title={t("settings.agent.automation")}>
 				<AutoPreviewRow />

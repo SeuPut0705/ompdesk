@@ -106,10 +106,12 @@ import {
 } from "../common";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
+import { SwapText } from "../common/SwapText";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../onboarding/StarterGuide";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
+import { SidebarRenameField } from "./SidebarRenameField";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
@@ -1100,27 +1102,24 @@ export function Sidebar() {
 					)}
 					key={session.path}
 				>
-					<Input
-						aria-label={t("sidebar.rename")}
-						autoFocus
-						controlSize="sm"
-						onBlur={event => commitRename(session, event.currentTarget.value)}
-						onChange={event => setRenameDraft(event.target.value)}
-						onFocus={event => event.currentTarget.select()}
-						onKeyDown={event => {
-							if (isImeKeyEvent(event)) return;
-							// The field unmounts on Enter/Escape: hand focus back to the row. The
-							// Enter is spent here, so it must not go on to press the row it lands on.
-							if (event.key === "Enter") {
-								event.preventDefault();
-								refocusRow.current = { key };
-								commitRename(session, event.currentTarget.value);
-							}
-							onEscape(event, () => {
-								refocusRow.current = { key };
-								setRenamingSessionPath(null);
-							});
+					<SidebarRenameField
+						onCancel={() => {
+							refocusRow.current = { key };
+							setRenamingSessionPath(null);
 						}}
+						onChange={setRenameDraft}
+						onCommit={(value, via) => {
+							if (via === "enter") refocusRow.current = { key };
+							commitRename(session, value);
+						}}
+						onGenerated={title => {
+							// The omp saved it: show it in the owning tab's title bar and close the field.
+							const store = sessionRuntimeStore<SessionStore>(tab?.id ?? null, "session");
+							if (store?.getState().sessionId === session.id) store.setState({ sessionName: title });
+							setRenamingSessionPath(null);
+							refocusRow.current = { key };
+						}}
+						tabId={tab?.id}
 						value={renameDraft}
 					/>
 				</div>
@@ -1271,7 +1270,7 @@ export function Sidebar() {
 					selected={active}
 					title={
 						<>
-							{title}
+							<SwapText scope={session.path}>{title}</SwapText>
 							{forkLabel && <span className="sr-only">, {forkLabel}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>

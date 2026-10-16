@@ -3,6 +3,7 @@ import * as os from "node:os";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AutoTitleSettings } from "../../resources/gui-bridge/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
@@ -504,6 +505,66 @@ describe("SidecarManager spawn env", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
+
+	it("passes the automatic-title switches as OMP_GUI_AUTO_TITLE, pushes them on connect and on syncAutoTitle(), and reports the user's own no-title environment as suppressed", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-auto-title-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const envPath = path.join(tempDir, "auto-title.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`${loggingBridgeOmp(logPath)}\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.OMP_GUI_AUTO_TITLE ?? "unset");`,
+		);
+		// An omp session that runs the tests (or a user's rc file) may export it: only this test decides.
+		const previous = process.env.PI_NO_TITLE;
+		Reflect.deleteProperty(process.env, "PI_NO_TITLE");
+		let settings: AutoTitleSettings = { enabled: true, evolve: true, suppressed: false };
+		const create = () =>
+			new SidecarManager({
+				omp: async () => ({
+					ok: true,
+					runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+				}),
+				cwd: tempDir,
+				bridgeDir: tempDir,
+				autoTitle: () => settings,
+			});
+		const autoTitleRequests = () => bridgeRequests(logPath, "auto_title_set");
+		const sidecar = create();
+		try {
+			sidecar.start();
+			await expect.poll(autoTitleRequests, { timeout: 5_000, interval: 25 }).toEqual([settings]);
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({
+				enabled: true,
+				evolve: true,
+				suppressed: false,
+			});
+			settings = { enabled: true, evolve: false, suppressed: false };
+			sidecar.syncAutoTitle();
+			await expect.poll(autoTitleRequests, { timeout: 5_000, interval: 25 }).toEqual([
+				{ enabled: true, evolve: true, suppressed: false },
+				{ enabled: true, evolve: false, suppressed: false },
+			]);
+		} finally {
+			sidecar.dispose();
+		}
+
+		// Stock's rpc-ui sets PI_NO_TITLE itself, so only the user's own environment is read, at spawn.
+		settings = { enabled: true, evolve: true, suppressed: false };
+		process.env.PI_NO_TITLE = "1";
+		const envSuppressed = create();
+		try {
+			await fs.rm(logPath, { force: true });
+			envSuppressed.start();
+			await expect
+				.poll(autoTitleRequests, { timeout: 5_000, interval: 25 })
+				.toEqual([{ enabled: true, evolve: true, suppressed: true }]);
+		} finally {
+			envSuppressed.dispose();
+			if (previous === undefined) Reflect.deleteProperty(process.env, "PI_NO_TITLE");
+			else process.env.PI_NO_TITLE = previous;
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	}, 20_000);
 
 	it("passes a chosen delegation strength as OMP_GUI_DELEGATION, read on every spawn, and nothing for default", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-delegation-"));

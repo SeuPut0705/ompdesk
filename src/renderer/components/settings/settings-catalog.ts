@@ -231,6 +231,19 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "inline completion ghost text complete as i type autocomplete 이어서 완성 입력 자동 완성 회색",
 	},
 	{
+		id: "autoTitle",
+		section: "agent",
+		labelKey: "settings.gui.autoTitle",
+		aliases:
+			"auto title session name rename generate automatic first message small model 제목 이름 자동 생성 세션 첫 메시지 작은 모델",
+	},
+	{
+		id: "autoTitleEvolve",
+		section: "agent",
+		labelKey: "settings.gui.autoTitleEvolve",
+		aliases: "title evolve update refresh keep current as work changes 제목 갱신 업데이트 작업 변경 최신",
+	},
+	{
 		id: "profileName",
 		section: "general",
 		labelKey: "settings.gui.profileName",

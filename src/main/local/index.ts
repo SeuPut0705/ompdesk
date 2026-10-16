@@ -5,6 +5,7 @@
  */
 import type { RpcResponse } from "../../shared/rpc-types";
 import { handlers as agentFiles } from "./agent-files";
+import { handlers as autoTitle } from "./auto-title";
 import { handlers as composer } from "./composer";
 import { handlers as extensions } from "./extensions";
 import { handlers as git } from "./git";
@@ -31,6 +32,7 @@ export function mergeHandlers(areas: Record<string, Record<string, LocalHandler>
 
 const LOCAL_HANDLERS = mergeHandlers({
 	sessions,
+	autoTitle,
 	queue,
 	composer,
 	modes,

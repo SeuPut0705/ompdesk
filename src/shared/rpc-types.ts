@@ -4,6 +4,7 @@
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
 
+import type { TitleRegenerateResult } from "../../resources/gui-bridge/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type {
 	InlineCompletion,
@@ -86,6 +87,8 @@ export type RpcCommand =
 	| { id?: string; type: "fork" }
 	| { id?: string; type: "get_branch_messages" }
 	| { id?: string; type: "set_session_name"; name: string; sessionPath?: string }
+	// The editor's auto button: stock's `/rename` without a title on the live session; gui-bridge modes/auto-title.ts
+	| { id?: string; type: "regenerate_session_title" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }
@@ -1376,6 +1379,8 @@ export type RpcModelPoolState = PoolState;
 export type RpcNextPromptState = NextPromptState;
 /** `complete_inline` response data. */
 export type RpcInlineCompletion = InlineCompletion;
+/** `regenerate_session_title` response data: the new title (already saved), or why there is none. */
+export type RpcTitleRegeneration = TitleRegenerateResult;
 
 // ============================================================================
 // Ready Frame
