@@ -178,7 +178,7 @@ async function netBytes(): Promise<Map<number, { in: number; out: number }>> {
  * helper, ssh, git). Short-lived children that exit inside the window are not
  * counted; their rate shows in measure()'s IPC counts.
  */
-export async function measureTree(root: number, during: () => Promise<object>) {
+export async function measureTree<T extends object>(root: number, during: () => Promise<T>) {
 	const [cpuBefore, netBefore] = await Promise.all([treeCpu(root), netBytes()]);
 	const started = performance.now();
 	const result = await during();

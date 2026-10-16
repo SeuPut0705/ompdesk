@@ -17,21 +17,28 @@ import { tinyPdf } from "./tiny-pdf";
 // opens settings, works a sidebar of 500 sessions, types beside @file cards,
 // leaves the app idle with its background work on (quota polling and usage
 // bars, file cards, a chatty Preview page, an SSH port watch) on screen and
-// hidden, and streams for half an hour (memory). OMP_GUI_LIVE_SESSION_SOURCE
-// names the stock session file the sessions are cloned from (never written);
-// the fake omp serves the clones.
+// hidden, opens the side panel's Changes on 500 changed files (git calls and
+// their CPU while it idles shown and hidden), Terminal and Preview (`panels`),
+// and streams for half an hour (memory, with the process tree's RSS including
+// both stock helper workers). OMP_GUI_LIVE_SESSION_SOURCE names the stock
+// session file the sessions are cloned from (never written); the fake omp
+// serves the clones.
 //
 // OMP_GUI_FLOWS picks flows (comma list; default every flow but memory),
-// OMP_GUI_FLOW_RUNS runs per subject (default 3), OMP_GUI_CANDIDATE_DIR and
-// OMP_GUI_BASELINE_DIR the checkouts (each holding a built `out/`) measured in
-// alternating order, OMP_GUI_FLOW_OUT the JSON result file,
-// OMP_GUI_FLOW_MEMORY_MINUTES the memory flow's length (default 30).
+// OMP_GUI_FLOW_RUNS runs per subject (default 3), OMP_GUI_FLOW_RUN_FROM the
+// first run's index (so runs split over several lock holds keep alternating),
+// OMP_GUI_FLOW_PARALLEL=1 runs a run's subjects side by side instead (for the
+// memory flow, whose half hour per subject is not frame-sensitive),
+// OMP_GUI_CANDIDATE_DIR and OMP_GUI_BASELINE_DIR the checkouts (each holding a
+// built `out/`) measured in alternating order, OMP_GUI_FLOW_OUT the JSON result
+// file, OMP_GUI_FLOW_MEMORY_MINUTES the memory flow's length (default 30).
 
 const source = process.env.OMP_GUI_LIVE_SESSION_SOURCE;
 const flows = new Set(
 	(process.env.OMP_GUI_FLOWS ?? "launch,open,grid,expand,diff,settings,sidebar,compose,background").split(","),
 );
 const runs = Number(process.env.OMP_GUI_FLOW_RUNS ?? 3);
+const firstRun = Number(process.env.OMP_GUI_FLOW_RUN_FROM ?? 0);
 const subjects = [
 	{ name: "after", root: process.env.OMP_GUI_CANDIDATE_DIR ?? process.cwd() },
 	...(process.env.OMP_GUI_BASELINE_DIR ? [{ name: "before", root: process.env.OMP_GUI_BASELINE_DIR }] : []),
@@ -173,19 +180,28 @@ async function tailKey(file: string): Promise<string> {
 async function launch(
 	root: string,
 	where: Profile,
-	options: { seed?: string; prefs?: object; env?: Record<string, string> } = {},
+	options: { seed?: string; prefs?: object; env?: Record<string, string>; natives?: boolean } = {},
 ): Promise<{ app: ElectronApplication; page: Page; launchedMs: number; windowMs: number }> {
 	await fs.writeFile(
 		path.join(where.desktop, "prefs.json"),
 		JSON.stringify(options.prefs ?? { language: "en", firstRunComplete: true }),
 	);
+	const omp = await fixtureOmp(where.profile);
+	// The Terminal panel runs stock's PtySession: the fake omp borrows the installed pi-natives.
+	if (options.natives)
+		await fs.symlink(
+			process.env.OMP_GUI_TEST_NATIVES ||
+				path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives"),
+			path.join(path.dirname(omp), "node_modules/@oh-my-pi/pi-natives"),
+			"dir",
+		);
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: where.agent,
 		PI_CONFIG_DIR: path.relative(os.homedir(), where.profile),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(where.profile),
+		OMP_GUI_OMP: omp,
 		...(options.seed ? { OMP_GUI_TEST_SEED_SESSION: options.seed } : {}),
 		...options.env,
 	};
@@ -301,20 +317,134 @@ async function startTrace(page: Page): Promise<(name: string) => Promise<void>> 
 	};
 }
 
-/** Each run launches every subject on a fresh profile, alternating which goes first. */
+/**
+ * Each run launches every subject on a fresh profile, alternating which goes
+ * first (or, with OMP_GUI_FLOW_PARALLEL=1, both at once).
+ */
 async function eachRun(
 	flow: string,
 	body: (subject: { name: string; root: string }, run: number, where: Profile) => Promise<object>,
 ) {
-	for (let run = 0; run < runs; run++)
-		for (const subject of run % 2 ? [...subjects].reverse() : subjects) {
-			const where = await makeProfile();
-			try {
-				await record({ flow, subject: subject.name, run, ...(await body(subject, run, where)) });
-			} finally {
-				await fs.rm(where.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-			}
+	const one = async (subject: { name: string; root: string }, run: number) => {
+		const where = await makeProfile();
+		try {
+			await record({ flow, subject: subject.name, run, ...(await body(subject, run, where)) });
+		} finally {
+			await fs.rm(where.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		}
+	};
+	for (let run = firstRun; run < firstRun + runs; run++) {
+		const order = run % 2 ? [...subjects].reverse() : subjects;
+		if (process.env.OMP_GUI_FLOW_PARALLEL === "1") await Promise.all(order.map(subject => one(subject, run)));
+		else for (const subject of order) await one(subject, run);
+	}
+}
+
+/**
+ * Resident memory (MB) of the app's whole process tree by kind, from `ps`: the
+ * Electron processes, omp, and each stock helper worker (`host.ts <worker>`;
+ * v0.30.0's single worker reports as `helper`).
+ */
+async function treeRss(root: number): Promise<Record<string, number>> {
+	const rows = execFileSync("ps", ["-A", "-o", "pid=,ppid=,rss=,command="], { encoding: "utf8" })
+		.split("\n")
+		.map(line => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+		.filter(match => match !== null)
+		.map(([, pid, ppid, rss, command]) => ({
+			pid: Number(pid),
+			ppid: Number(ppid),
+			rss: Number(rss),
+			command: command ?? "",
+		}));
+	const children = Map.groupBy(rows, row => row.ppid);
+	const byKind: Record<string, number> = {};
+	const visit = (row: { pid: number; rss: number; command: string }) => {
+		const helper = /stock-helper\/host\.ts(?:\s+(\w+))?/.exec(row.command);
+		const electron = /Electron Helper \((\w+)\)/.exec(row.command)?.[1];
+		const kind = helper
+			? `helper-${helper[1] ?? "single"}`
+			: electron
+				? `electron-${electron.toLowerCase()}`
+				: /MacOS\/Electron/.test(row.command)
+					? "electron-main"
+					: (row.command.split(" ")[0]?.split("/").at(-1) ?? "?");
+		byKind[kind] = (byKind[kind] ?? 0) + row.rss;
+		for (const child of children.get(row.pid) ?? []) visit(child);
+	};
+	const self = rows.find(row => row.pid === root);
+	if (self) visit(self);
+	return Object.fromEntries(Object.entries(byKind).map(([kind, kb]) => [kind, Math.round(kb / 1024)]));
+}
+
+/**
+ * A `git` first on PATH that runs the real one and then writes `times` (its own
+ * and its waited children's CPU) and its argv to a fresh file in `<dir>/git-log`,
+ * so a window can count git processes and their CPU, which exit too fast for
+ * `ps`. `read()` returns every call since the shim was made.
+ */
+async function gitShim(dir: string): Promise<{ bin: string; read: () => Promise<{ argv: string; cpu: number }[]> }> {
+	const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+	const bin = path.join(dir, "git-shim");
+	const log = path.join(dir, "git-log");
+	await Promise.all([bin, log].map(folder => fs.mkdir(folder, { recursive: true })));
+	// Builtins only after git ran, so its children's time is git's alone; `times`
+	// runs in the shim's own shell (a `$(…)` subshell would report a fresh child's zeros).
+	await fs.writeFile(
+		path.join(bin, "git"),
+		`#!/bin/sh\n${JSON.stringify(real)} "$@"\nrc=$?\nn=0\nwhile [ -e ${JSON.stringify(log)}/$$.$n ]; do n=$((n + 1)); done\nout=${JSON.stringify(log)}/$$.$n\ntimes > "$out"\nprintf '%s\\n' "$*" >> "$out"\nexit $rc\n`,
+		{ mode: 0o755 },
+	);
+	const seconds = (field: string) => {
+		const match = /^(\d+)m([\d.]+)s$/.exec(field);
+		return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+	};
+	return {
+		bin,
+		read: async () =>
+			Promise.all(
+				(await fs.readdir(log)).map(async name => {
+					// Line 1: the shim shell's user/system; line 2: its children's (git); line 3: argv.
+					const [, children = "", argv = ""] = (await fs.readFile(path.join(log, name), "utf8")).split("\n");
+					const [user = "", system = ""] = children.split(" ");
+					return { argv, cpu: seconds(user) + seconds(system) };
+				}),
+			),
+	};
+}
+
+/** zsh with an empty profile and a fixed prompt, so a terminal's start never times the user's dotfiles. */
+async function quietShell(where: Profile): Promise<Record<string, string>> {
+	const home = path.join(where.profile, "zdot");
+	await fs.mkdir(home, { recursive: true });
+	await fs.writeFile(path.join(home, ".zshrc"), "PS1='perf$ '\n");
+	return { SHELL: "/bin/zsh", ZDOTDIR: home };
+}
+
+/**
+ * Tell the page it is hidden (or visible again) the way the app reads it
+ * (visibilityState / hidden and the visibilitychange event): Playwright's focus
+ * emulation holds the page captured, so Chromium keeps it "visible" whatever the
+ * window does. Timers stay unthrottled, so a hidden window is an upper bound of
+ * the real hidden cost.
+ */
+async function setHidden(page: Page, hidden: boolean) {
+	await page.evaluate(hidden => {
+		if (hidden) {
+			Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+			Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+		} else {
+			Reflect.deleteProperty(document, "visibilityState");
+			Reflect.deleteProperty(document, "hidden");
+		}
+		document.dispatchEvent(new Event("visibilitychange"));
+	}, hidden);
+}
+
+/** frameWhen check: the side panel's terminal rows hold `text`. */
+function terminalShows(text: string) {
+	return (document.querySelector("aside[data-docked] .xterm-rows")?.textContent ?? "").includes(text)
+		? performance.now()
+		: 0;
 }
 
 test.describe("flow performance", () => {
@@ -1150,20 +1280,199 @@ test.describe("flow performance", () => {
 					}
 
 					// Nothing on screen: the window hidden, everything above still on.
-					// Playwright's focus emulation holds the page captured, so Chromium
-					// keeps it "visible" whatever the window does: the page is told it is
-					// hidden the way the app reads it (visibilityState / hidden and the
-					// visibilitychange event). Timers stay unthrottled, so the window is an
-					// upper bound of the real hidden cost.
 					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
-					await page.evaluate(() => {
-						Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-						Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-						document.dispatchEvent(new Event("visibilitychange"));
-					});
+					await setHidden(page, true);
 					const hidden = await span("hidden", 30);
 					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.showInactive());
 					return { usagePin, fileCards, quiet, cards, preview, previewClosed, sshWatch, hidden };
+				} finally {
+					await exitApp(app);
+				}
+			});
+		} finally {
+			server.close();
+		}
+	});
+
+	test("panels: Changes on 500 changed files (open, idle git while shown and hidden), terminal, preview", async () => {
+		test.skip(!flows.has("panels"));
+		test.setTimeout(1_800_000);
+		const server = createServer((request, response) => {
+			response.writeHead(200, { "Content-Type": "text/html" });
+			response.end(`<!doctype html><title>Preview page</title><h1>${request.url}</h1>`);
+		});
+		const listening = Promise.withResolvers<void>();
+		server.listen(0, "127.0.0.1", () => listening.resolve());
+		await listening.promise;
+		const address = server.address();
+		if (!address || typeof address === "string") throw new Error("No page server address");
+		const url = `http://127.0.0.1:${address.port}/`;
+		try {
+			await eachRun("panels", async (subject, run, where) => {
+				// 500 committed files, every one of them modified.
+				const files = Array.from({ length: 500 }, (_, index) => path.join(where.project, "src", `f${index}.ts`));
+				await fs.mkdir(path.join(where.project, "src"), { recursive: true });
+				await Promise.all(files.map((file, index) => fs.writeFile(file, `export const v${index} = ${index};\n`)));
+				const git = (...args: string[]) =>
+					execFileSync("git", ["-c", "user.name=flow", "-c", "user.email=flow@example.com", ...args], {
+						cwd: where.project,
+					});
+				git("init", "--quiet");
+				git("add", "-A");
+				git("commit", "-qm", "init");
+				await Promise.all(files.map((file, index) => fs.appendFile(file, `export const w${index} = ${index};\n`)));
+				const shim = await gitShim(where.profile);
+				const seed = cloneSource(where);
+				const key = await tailKey(seed);
+				const { app, page } = await launch(subject.root, where, {
+					seed,
+					natives: true,
+					env: { PATH: [shim.bin, process.env.PATH].join(path.delimiter), ...(await quietShell(where)) },
+				});
+				try {
+					await sidecarReady(page);
+					await countIpc(app);
+					await reloadToTail(page, key);
+					await page.waitForTimeout(3000);
+					const pid = app.process().pid;
+					if (!pid) throw new Error("No main process id");
+					// Git calls and their CPU inside a window, next to the app tree's CPU.
+					const span = async (name: string, seconds: number) => {
+						const before = (await shim.read()).length;
+						const window = await measureTree(pid, () =>
+							measure(app, page, `panels-${subject.name}-${run}-${name}`, seconds, undefined, { idle: true }),
+						);
+						const calls = (await shim.read()).slice(before);
+						const perMinute = 60 / window.seconds;
+						return {
+							...window,
+							gitPerMinute: Math.round(calls.length * perMinute * 10) / 10,
+							gitCpuSecondsPerMinute:
+								Math.round(calls.reduce((sum, call) => sum + call.cpu, 0) * perMinute * 1000) / 1000,
+							gitCommands: Object.fromEntries(
+								Object.entries(Object.groupBy(calls, call => call.argv.split(" ").slice(0, 2).join(" "))).map(
+									([command, list]) => [command, list?.length ?? 0],
+								),
+							),
+						};
+					};
+					const aside = page.locator("aside[data-docked]");
+
+					// Changes (the panel's default view), then idle on screen and hidden.
+					let changesOpenMs = 0;
+					const changesOpen = await measure(
+						app,
+						page,
+						`panels-${subject.name}-${run}-changes-open`,
+						1,
+						async () => {
+							await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
+							changesOpenMs = await inputToFrame(page, () =>
+								document.querySelector("aside[data-docked] .omp-changes-list [data-staged]")
+									? performance.now()
+									: 0,
+							);
+						},
+					);
+					const changesRows = await page.locator("aside[data-docked] .omp-changes-list [data-staged]").count();
+					await page.waitForTimeout(3000);
+					const changesIdle = await span("changes-idle", 60);
+					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+					await setHidden(page, true);
+					const changesHidden = await span("changes-hidden", 30);
+					await setHidden(page, false);
+					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.showInactive());
+					await page.waitForTimeout(2000);
+
+					// Terminal: first open (the worker and the shell start), idle, typing, reopen.
+					const terminalButton = aside.getByRole("button", { name: "Terminal", exact: true });
+					let terminalColdMs = 0;
+					const terminalOpen = await measure(
+						app,
+						page,
+						`panels-${subject.name}-${run}-terminal-open`,
+						1,
+						async () => {
+							await terminalButton.click();
+							terminalColdMs = await inputToFrame(page, terminalShows, "perf$ ");
+						},
+					);
+					await page.waitForTimeout(2000);
+					// Focused (the cursor blinks), then with focus in the composer (a steady cursor).
+					const terminalIdle = await span("terminal-idle", 20);
+					await page.locator('textarea[aria-label="Message"]').first().focus();
+					await page.waitForTimeout(1000);
+					const terminalIdleBlurred = await span("terminal-idle-blurred", 20);
+					const echoMs: number[] = [];
+					const typing = await measure(app, page, `panels-${subject.name}-${run}-terminal-type`, 1, async () => {
+						for (let index = 1; index <= 5; index++) {
+							await aside.locator(".xterm-helper-textarea").focus();
+							await page.keyboard.type(`echo perf-${index}`, { delay: 30 });
+							await page.keyboard.press("Enter");
+							echoMs.push(
+								await inputToFrame(
+									page,
+									marker => {
+										const text = document.querySelector("aside[data-docked] .xterm-rows")?.textContent ?? "";
+										return text.split(marker).length > 2 ? performance.now() : 0;
+									},
+									`perf-${index}`,
+								),
+							);
+							await page.waitForTimeout(300);
+						}
+					});
+					await aside.getByRole("button", { name: "Changes", exact: true }).click();
+					await expect(aside.locator(".omp-changes-list [data-staged]").first()).toBeVisible({ timeout: 30_000 });
+					await page.waitForTimeout(1000);
+					await terminalButton.click();
+					const terminalWarmMs = await inputToFrame(page, terminalShows, "perf-5");
+					await page.waitForTimeout(1000);
+
+					// Preview: the window's first page, then a second one.
+					const previewMs: number[] = [];
+					const previewOpen = await measure(
+						app,
+						page,
+						`panels-${subject.name}-${run}-preview-open`,
+						1,
+						async () => {
+							await aside.getByRole("button", { name: "Preview", exact: true }).click();
+							const addressBar = aside.locator("form input[inputmode=url]");
+							for (const target of [url, `${url}second`]) {
+								await addressBar.fill(target);
+								await addressBar.press("Enter");
+								previewMs.push(
+									await inputToFrame(
+										page,
+										title =>
+											document.querySelector("[data-preview-status]")?.textContent === title
+												? performance.now()
+												: 0,
+										"Preview page",
+									),
+								);
+								await page.waitForTimeout(1500);
+							}
+						},
+					);
+					return {
+						changesOpenMs,
+						changesRows,
+						changesOpen,
+						changesIdle,
+						changesHidden,
+						terminalColdMs,
+						terminalWarmMs,
+						terminalOpen,
+						terminalIdle,
+						terminalIdleBlurred,
+						echoMs,
+						typing,
+						previewMs,
+						previewOpen,
+						rss: await treeRss(pid),
+					};
 				} finally {
 					await exitApp(app);
 				}
@@ -1180,7 +1489,11 @@ test.describe("flow performance", () => {
 		await eachRun("memory", async (subject, run, where) => {
 			const seed = cloneSource(where);
 			const key = await tailKey(seed);
-			const { app, page } = await launch(subject.root, where, { seed });
+			const { app, page } = await launch(subject.root, where, {
+				seed,
+				natives: true,
+				env: await quietShell(where),
+			});
 			try {
 				await sidecarReady(page);
 				// No frame probes in this document: the boot probe keeps one record per
@@ -1192,10 +1505,20 @@ test.describe("flow performance", () => {
 					key,
 				);
 				await page.waitForTimeout(2000);
+				const pid = app.process().pid;
+				if (!pid) throw new Error("No main process id");
+				// A terminal open (then the panel closed), so both stock helper workers
+				// live through the half hour.
+				const aside = page.locator("aside[data-docked]");
+				await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
+				await aside.getByRole("button", { name: "Terminal", exact: true }).click();
+				await frameWhen(page, terminalShows, "perf$ ");
+				await page.keyboard.press("ControlOrMeta+j");
+				await expect(aside).toBeHidden();
 				const control = (command: string) =>
 					page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
 				const stop = page.getByRole("button", { name: "Stop", exact: true });
-				const samples: object[] = [{ minute: 0, cycles: 0, ...(await heap(page)) }];
+				const samples: object[] = [{ minute: 0, cycles: 0, ...(await heap(page)), rss: await treeRss(pid) }];
 				// OMP_GUI_FLOW_HEAP_SNAPSHOTS: a directory for two heap snapshots, one
 				// after the first few cycles and one at the end, to diff what grows.
 				const snapshots = process.env.OMP_GUI_FLOW_HEAP_SNAPSHOTS;
@@ -1230,17 +1553,17 @@ test.describe("flow performance", () => {
 							minute: Math.round((Date.now() - started) / 6000) / 10,
 							cycles,
 							...(await heap(page, snapshot)),
+							rss: await treeRss(pid),
 						});
 						nextSample = Math.floor((Date.now() - started) / 60_000) + 1;
 					}
 				}
-				const late = snapshotPath("late");
-				if (late)
-					samples.push({
-						minute: Math.round((Date.now() - started) / 6000) / 10,
-						cycles,
-						...(await heap(page, late)),
-					});
+				samples.push({
+					minute: Math.round((Date.now() - started) / 6000) / 10,
+					cycles,
+					...(await heap(page, snapshotPath("late"))),
+					rss: await treeRss(pid),
+				});
 				const metrics = await app.evaluate(({ app }) =>
 					app
 						.getAppMetrics()
