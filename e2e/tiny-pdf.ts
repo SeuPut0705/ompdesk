@@ -1,6 +1,6 @@
 /**
  * A one-page PDF with real text and a filled bar, offsets computed so pdf.js
- * needs no xref repair. Dependency-free: the fake omp (sidecar-fixture.ts)
+ * needs no xref repair. Dependency-free: the fake omp (fixture/rpc-ui.ts)
  * writes it too, and must not load the viewer fixtures' sharp/JSZip on spawn.
  */
 export function tinyPdf(): Buffer {

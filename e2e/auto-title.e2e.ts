@@ -1,5 +1,5 @@
 /**
- * Automatic session titles on the fake omp (e2e/sidecar-fixture.ts serves the bridge's `auto_title_set` and
+ * Automatic session titles on the fake omp (e2e/fixture/rpc-ui.ts serves the bridge's `auto_title_set` and
  * `regenerate_title` and names the session "Auto N: <prompt>" the way resources/gui-bridge/modes/auto-title.ts does;
  * the real bridge logic against stock is covered by src/main/bridge-auto-title*.test.ts). Covers: the first
  * prompt names the session, a typed name is never replaced (not by later turns), the editor's auto button names it

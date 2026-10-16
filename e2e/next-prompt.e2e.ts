@@ -1,5 +1,5 @@
 /**
- * Built-in prompt suggestions on the fake omp (e2e/sidecar-fixture.ts serves the bridge's
+ * Built-in prompt suggestions on the fake omp (e2e/fixture/rpc-ui.ts serves the bridge's
  * `next_prompt_*` methods and pushes `next_prompt_update` / `next_prompt_config`; its answers are
  * scripted through `OMP_GUI_TEST_NEXT_PROMPT`). Covers the placeholder and chips after a turn,
  * inline ghost text and what it costs, the Settings switches (live, persisted), the legacy

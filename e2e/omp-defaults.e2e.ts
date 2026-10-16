@@ -1,5 +1,5 @@
 /**
- * Held omp defaults and the idle recap on the fake omp (e2e/sidecar-fixture.ts): the fixture serves the bridge's
+ * Held omp defaults and the idle recap on the fake omp (e2e/fixture/rpc-ui.ts): the fixture serves the bridge's
  * `recap_draft` and sends the `recap` custom message a real bridge's timer would
  * (`OMP_GUI_TEST_RECAP`, rules pinned in src/main/bridge-session-recap.test.ts and against stock in
  * bridge-session-recap-stock.test.ts), and reports `lsp.diagnosticsOnEdit` as the runtime override

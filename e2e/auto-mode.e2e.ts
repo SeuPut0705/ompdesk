@@ -1,5 +1,5 @@
 /**
- * Automatic mode choice on the fake omp (e2e/sidecar-fixture.ts answers the bridge's `modes.auto_mode_decide` /
+ * Automatic mode choice on the fake omp (e2e/fixture/rpc-ui.ts answers the bridge's `modes.auto_mode_decide` /
  * `modes.auto_mode_undo` by keyword; the real classifier against stock is covered by src/main/bridge-auto-mode*.test.ts
  * and the opt-in e2e/real-auto-mode.e2e.ts). Covers: a big-change prompt enters plan mode with the "Auto: Plan"
  * chip and one-click undo, "until tests pass" starts a goal, a question stays in no mode, the Mode popover's switch
