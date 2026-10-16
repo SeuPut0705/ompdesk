@@ -277,10 +277,26 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 
 test("@smoke missing omp installs on its own; a failed attempt shows why and retries into a ready session", async () => {
 	test.setTimeout(120_000);
-	const launched = await launch("flow", { language: "en" });
+	// An update (older last-seen version): the What's new card must wait out the setup takeover.
+	const launched = await launch("flow", { language: "en", whatsNewSeenVersion: "0.0.1" });
 	try {
+		const { page } = launched;
+		await expect(page.getByTestId("setup-takeover")).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator("[data-whats-new-card]")).toHaveCount(0);
+		expect(await page.evaluate(() => window.omp.prefs.get("whatsNewSeenVersion"))).toBe("0.0.1");
 		await flow(launched, "en-light", { retry: /Retry|Try again/ });
-		await expect(launched.page.getByText("What should we build?")).toBeVisible();
+		await expect(page.getByText("What should we build?")).toBeVisible();
+		// Setup is over: now the card (not a modal) offers the notes, and the version counts as seen.
+		const version = await page.evaluate(() => window.omp.updater.version());
+		await expect(page.locator("[data-whats-new-card]")).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator("[data-whats-new-card]")).toContainText(version);
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await expect.poll(() => page.evaluate(() => window.omp.prefs.get("whatsNewSeenVersion"))).toBe(version);
+		// Esc with focus in the card dismisses it, and no dialog opens.
+		await page.locator("[data-whats-new-card]").focus();
+		await page.keyboard.press("Escape");
+		await expect(page.locator("[data-whats-new-card]")).toHaveCount(0);
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await close(launched);

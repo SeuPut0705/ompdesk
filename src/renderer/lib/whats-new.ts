@@ -1,10 +1,21 @@
 /**
- * "What's new" after an update: the bundled CHANGELOG.md section of the
- * version now running, shown once. Prefs `whatsNewSeenVersion` holds the last
- * version whose notes were shown (or recorded without showing). It is written
- * only once the notice is on screen, so a launch that ends before then shows
- * it again next time.
+ * "What's new" after an update: a quiet card (WhatsNewCard) over the composer's corner offers the bundled
+ * CHANGELOG.md notes of the version now running, once. Prefs `whatsNewSeenVersion` holds the last version
+ * whose card was shown (or recorded without showing). It is written once the card is on screen, so a launch
+ * that ends before then shows it again next time. Skipped versions fold into one card for the newest, and
+ * its details list every release since the last seen one.
  */
+
+/** Compare dotted numeric versions ("0.33.0" vs "0.32.2"); a missing or non-numeric part counts as 0. */
+function compareVersions(a: string, b: string): number {
+	const left = a.split(".").map(part => Number.parseInt(part, 10) || 0);
+	const right = b.split(".").map(part => Number.parseInt(part, 10) || 0);
+	for (let index = 0; index < Math.max(left.length, right.length); index++) {
+		const diff = (left[index] ?? 0) - (right[index] ?? 0);
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
 
 export const WHATS_NEW_PREF = "whatsNewSeenVersion";
 
@@ -44,6 +55,53 @@ export function changelogReleases(markdown: string, lang = "ko"): string {
 		})
 		.join("")
 		.trim();
+}
+
+/**
+ * The notes of every release after `seen` up to and including `current`, in `lang`. One release reads as
+ * its bare notes; several (skipped updates) keep their `## [X.Y.Z]` headings, newest first. A `seen` that is
+ * not older than `current` (a downgrade) or has no releases in between falls back to `current`'s own notes.
+ */
+export function changelogSince(markdown: string, seen: string | null, current: string, lang = "ko"): string | null {
+	const versions = [...markdown.matchAll(/^## \[([^\]]+)\]/gm)]
+		.map(match => match[1] ?? "")
+		.filter(version => seen !== null && compareVersions(version, seen) > 0 && compareVersions(version, current) <= 0);
+	if (versions.length <= 1) return changelogSection(markdown, current, lang);
+	const lines = markdown.split("\n");
+	return versions
+		.map(version => {
+			const start = lines.findIndex(line => line.startsWith(`## [${version}]`));
+			const body = changelogSection(markdown, version, lang);
+			return body ? `${lines[start]}\n\n${body}` : null;
+		})
+		.filter(part => part !== null)
+		.join("\n\n");
+}
+
+/**
+ * The one-line summary of a release's notes: its first paragraph (what the card shows), as plain text.
+ * A section that opens with a list takes its first item.
+ */
+export function changelogSummary(notes: string): string {
+	const block = notes.split(/\n\s*\n/).find(part => part.trim() !== "" && !part.trimStart().startsWith("#")) ?? "";
+	const lines = block
+		.split("\n")
+		.map(line => line.trim())
+		.filter(Boolean);
+	const list = /^[-*]\s+/.test(lines[0] ?? "");
+	return (list ? lines.slice(0, 1) : lines)
+		.join(" ")
+		.replace(/^[-*]\s+/, "")
+		.replace(/\*\*|`/g, "")
+		.trim();
+}
+
+/**
+ * Whether a version's last digit is read with a final consonant (0 영, 3 삼, 6 육), so Korean takes "으로"
+ * after it and "로" otherwise; picks `whatsNew.cardTitle` over `whatsNew.cardTitleRo`.
+ */
+export function endsWithFinalConsonant(version: string): boolean {
+	return /[036]$/.test(version);
 }
 
 /**

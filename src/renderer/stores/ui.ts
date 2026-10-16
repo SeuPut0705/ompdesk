@@ -184,6 +184,10 @@ interface UiStore {
 	changelogOpen: boolean;
 	/** The changelog window shows only this version's notes ("What's new" after an update). */
 	changelogVersion: string | null;
+	/** With `changelogVersion`: the last version seen before the update; the notes list every release since. */
+	changelogSince: string | null;
+	/** The update card waiting in the composer's corner (the newest version, the last seen one). */
+	whatsNewCard: { version: string; since: string | null } | null;
 	activeToolsOpen: boolean;
 	shareSessionOpen: boolean;
 	forceToolOpen: boolean;
@@ -305,7 +309,9 @@ interface UiStore {
 	closeCopySelector: () => void;
 	openChangelog: () => void;
 	closeChangelog: () => void;
-	openWhatsNew: (version: string) => void;
+	openWhatsNew: (version: string, since?: string | null) => void;
+	showWhatsNewCard: (version: string, since: string | null) => void;
+	dismissWhatsNewCard: () => void;
 	openActiveTools: () => void;
 	closeActiveTools: () => void;
 	openShareSession: () => void;
@@ -600,9 +606,14 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	closeCopySelector: () => set({ copySelectorOpen: false }),
 	changelogOpen: false,
 	changelogVersion: null,
-	openChangelog: () => set({ changelogOpen: true, changelogVersion: null }),
-	openWhatsNew: version => set({ changelogOpen: true, changelogVersion: version }),
+	changelogSince: null,
+	whatsNewCard: null,
+	openChangelog: () => set({ changelogOpen: true, changelogVersion: null, changelogSince: null }),
+	openWhatsNew: (version, since = null) =>
+		set({ changelogOpen: true, changelogVersion: version, changelogSince: since, whatsNewCard: null }),
 	closeChangelog: () => set({ changelogOpen: false }),
+	showWhatsNewCard: (version, since) => set({ whatsNewCard: { version, since } }),
+	dismissWhatsNewCard: () => set({ whatsNewCard: null }),
 	activeToolsOpen: false,
 	openActiveTools: () => set({ activeToolsOpen: true }),
 	closeActiveTools: () => set({ activeToolsOpen: false }),

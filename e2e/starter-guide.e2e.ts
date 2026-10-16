@@ -1,7 +1,8 @@
 /**
  * Guidance after setup, on the real app with the fake omp:
- * - "What's new" opens once after an update with only the running version's
- *   notes, and the version counts as seen once it is on screen;
+ * - "What's new" shows once after an update as a quiet bottom-right card (never a modal) above the
+ *   composer; "See details" opens the running version's notes only, and the version counts as seen
+ *   once the card is on screen;
  * - the getting-started checklist at the sidebar foot completes from real
  *   state (the side panel opened) and its "Show me" spotlights the real control;
  * - a risky switch (secret masking off) waits for "Accept risk";
@@ -10,14 +11,20 @@
  * adds dark and Korean windows and a narrow one, and saves each screen.
  */
 
+import { readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 const OUT = process.env.OMP_GUI_STARTER_CAPTURES ?? "";
+// The release before the newest one in the shipped changelog: an update by exactly one version.
+const PREVIOUS_VERSION =
+	readFileSync("CHANGELOG.md", "utf8")
+		.match(/^## \[([^\]]+)\]/gm)?.[1]
+		?.slice(4, -1) ?? "0.0.1";
 
 interface Variant {
 	name: string;
@@ -64,7 +71,7 @@ for (const variant of VARIANTS)
 				language: variant.language,
 				themeName: variant.theme,
 				firstRunComplete: true,
-				whatsNewSeenVersion: "0.0.1",
+				whatsNewSeenVersion: PREVIOUS_VERSION,
 			}),
 		);
 		const env = {
@@ -91,17 +98,51 @@ for (const variant of VARIANTS)
 			await page.waitForFunction(() => window.omp?.rpc != null);
 			const version = await page.evaluate(() => window.omp.updater.version());
 
-			// What's new: this version's notes only, recorded as seen once shown.
+			// What's new: a quiet card in the corner, not a modal; the version counts as seen once it is up.
+			const card = page.locator("[data-whats-new-card]");
+			await expect(card).toBeVisible({ timeout: 60_000 });
+			await expect(page.getByRole("dialog")).toHaveCount(0);
+			await expect(card).toContainText(
+				variant.language === "ko" ? `OMPdesk v${version}` : `Updated to OMPdesk v${version}`,
+			);
+			if (variant.language === "ko") await expect(card).toContainText("업데이트됐어요");
+			await expect(card.locator("[data-whats-new-summary]")).not.toBeEmpty();
+			await expect(
+				card.getByRole("button", { name: variant.language === "ko" ? "자세히 보기" : "See details" }),
+			).toBeVisible();
+			await expect(page.locator('[role="status"][aria-live="polite"]').filter({ has: card })).toHaveCount(1);
+			// It sits above the composer and clear of the send button, in the pane's bottom-right.
+			const cardBox = await card.boundingBox();
+			const composerBox = await page.locator(".omp-composer-box").boundingBox();
+			const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+			if (!cardBox || !composerBox) throw new Error("card or composer has no box");
+			expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(composerBox.y);
+			expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(viewport.width);
+			expect(cardBox.x + cardBox.width / 2).toBeGreaterThan(viewport.width / 2);
+			await expect.poll(() => page.evaluate(() => window.omp.prefs.get("whatsNewSeenVersion"))).toBe(version);
+			await capture(page, `${variant.name}-01-whats-new-card`);
+
+			// "See details" opens this version's notes only, in the existing dialog.
 			const notice = page.getByRole("dialog").filter({ hasText: version });
-			await expect(notice).toBeVisible({ timeout: 60_000 });
+			await card.getByRole("button", { name: variant.language === "ko" ? "자세히 보기" : "See details" }).click();
+			await expect(notice).toBeVisible();
+			await expect(card).toHaveCount(0);
 			// The release's own notes, not the whole file: no other release heading.
 			await expect(notice.locator("li").first()).toBeVisible();
 			await expect(notice).not.toContainText("## [");
 			await expect(notice.locator("h2")).toHaveCount(0);
 			await capture(page, `${variant.name}-01-whats-new`);
-			await expect.poll(() => page.evaluate(() => window.omp.prefs.get("whatsNewSeenVersion"))).toBe(version);
 			await page.keyboard.press("Escape");
 			await expect(notice).toHaveCount(0);
+
+			// It stays reachable afterwards: the palette's "What's new" opens the whole changelog.
+			await pressShortcutUntilVisible(page, "ControlOrMeta+K", page.locator(".omp-command-list"));
+			await page.keyboard.type(variant.language === "ko" ? "변경 내역" : "What's new");
+			await page.keyboard.press("Enter");
+			const all = page.getByRole("dialog").filter({ has: page.locator("h2") });
+			await expect(all).toBeVisible();
+			await page.keyboard.press("Escape");
+			await expect(all).toHaveCount(0);
 
 			// The checklist completes the side panel step from real state.
 			const guide = page.locator("[data-starter-guide]");

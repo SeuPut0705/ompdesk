@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import changelogMarkdown from "../../../CHANGELOG.md?raw";
-import { changelogReleases, changelogSection, whatsNewAction } from "./whats-new";
+import {
+	changelogReleases,
+	changelogSection,
+	changelogSince,
+	changelogSummary,
+	endsWithFinalConsonant,
+	whatsNewAction,
+} from "./whats-new";
 
 const CHANGELOG = `# Changelog
 
@@ -91,5 +98,59 @@ describe("whatsNewAction", () => {
 	it("records the version silently on a first launch or when the release has no notes", () => {
 		expect(whatsNewAction(undefined, "0.3.0", true)).toBe("record");
 		expect(whatsNewAction("0.2.1", "0.3.0", false)).toBe("record");
+	});
+});
+
+describe("changelogSince", () => {
+	const THREE = `# Changelog
+
+## [0.10.0] - 2026-10-16
+
+열 번째.
+
+## [0.9.0] - 2026-10-15
+
+아홉 번째.
+
+## [0.8.0] - 2026-10-14
+
+여덟 번째.
+`;
+
+	it("reads one release as its bare notes", () => {
+		expect(changelogSince(THREE, "0.9.0", "0.10.0")).toBe("열 번째.");
+	});
+
+	it("lists every skipped release newest first, comparing versions numerically", () => {
+		expect(changelogSince(THREE, "0.8.0", "0.10.0")).toBe(
+			"## [0.10.0] - 2026-10-16\n\n열 번째.\n\n## [0.9.0] - 2026-10-15\n\n아홉 번째.",
+		);
+	});
+
+	it("falls back to the running version's notes without a usable last-seen version", () => {
+		expect(changelogSince(THREE, null, "0.9.0")).toBe("아홉 번째.");
+		expect(changelogSince(THREE, "0.10.0", "0.9.0")).toBe("아홉 번째.");
+	});
+});
+
+describe("changelogSummary", () => {
+	it("takes the first paragraph as plain text", () => {
+		expect(changelogSummary("한 줄 요약이에요 `code`.\n\n- 항목")).toBe("한 줄 요약이에요 code.");
+		expect(changelogSummary("첫 줄\n이어지는 줄\n\n- 항목")).toBe("첫 줄 이어지는 줄");
+	});
+
+	it("takes the first item of a section that opens with a list, and skips a leading heading", () => {
+		expect(changelogSummary("- 하나\n- 둘")).toBe("하나");
+		expect(changelogSummary("### 추가\n\n- 새 기능")).toBe("새 기능");
+	});
+});
+
+describe("endsWithFinalConsonant", () => {
+	it("is true for versions ending in 0, 3 or 6 (Korean 으로), false otherwise (로)", () => {
+		expect(endsWithFinalConsonant("0.33.0")).toBe(true);
+		expect(endsWithFinalConsonant("0.33.3")).toBe(true);
+		expect(endsWithFinalConsonant("0.33.6")).toBe(true);
+		expect(endsWithFinalConsonant("0.33.1")).toBe(false);
+		expect(endsWithFinalConsonant("0.33.2")).toBe(false);
 	});
 });

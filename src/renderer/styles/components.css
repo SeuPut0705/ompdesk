@@ -650,6 +650,36 @@
 	pointer-events: none;
 }
 
+/* What's new card (layout/WhatsNewCard.tsx): sits on the composer region's top edge, bottom-right of the
+   pane and left of the work board, so it never covers the composer; the live region is always mounted. */
+.omp-whats-new-slot {
+	position: absolute;
+	z-index: var(--sc-z-raised);
+	inset-block-end: 100%;
+	inset-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
+	width: min(24rem, 100%);
+	padding: 0 var(--sc-space-3) var(--sc-space-2);
+	pointer-events: none;
+}
+
+.omp-whats-new-slot > * {
+	pointer-events: auto;
+}
+
+@keyframes omp-whats-new-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+}
+
+/* No slide-in under reduced motion: the card is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+	.omp-whats-new-card {
+		animation: omp-whats-new-in var(--sc-duration-med) var(--sc-ease-enter) both;
+	}
+}
+
 /* What the board shows, its dock twin does not repeat. */
 .omp-session-pane[data-work-board-running] [data-workspace-island],
 .omp-session-pane[data-work-board-todo] [data-dock-card="todo"] {
