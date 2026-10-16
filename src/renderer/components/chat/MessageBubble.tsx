@@ -275,9 +275,10 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 }
 
 /**
- * Hover/focus-revealed message actions (time, copy, branch). Positioned over
- * the turn's own padding by CSS (`.omp-message-actions`) so an idle message is
- * exactly as tall as its content; opacity + :focus-within, never display:none.
+ * Hover/focus-revealed message actions (time, copy, branch). Placed by CSS
+ * (`.omp-message-actions`) in the action row the turn reserves in its own
+ * bottom padding, so they never cover text and showing them moves nothing;
+ * opacity + :focus-within, never display:none.
  */
 function MessageActions({
 	className,

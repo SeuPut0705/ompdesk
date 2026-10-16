@@ -838,12 +838,18 @@
 	content: none;
 }
 
-/* User turn: a compact soft bubble on the right; nothing reserves height
-   for its actions, which overlay the empty space left of the bubble. Its top
-   padding is the turn boundary. */
+/* Message actions (time, copy, branch) never overlay text: every turn reserves
+   one action row (--omp-actions-reserve) in its own bottom padding, so showing
+   the row on hover or focus moves nothing. */
+.omp-transcript-editorial {
+	--omp-actions-reserve: calc(var(--sc-control-sm) + var(--sc-space-0-5));
+}
+
+/* User turn: a compact soft bubble on the right; its actions sit right-aligned
+   in the reserved row under the bubble. Its top padding is the turn boundary. */
 .omp-transcript-editorial .omp-user-turn {
 	justify-content: flex-end;
-	padding: var(--omp-turn-gap) var(--omp-editorial-edge) var(--omp-prompt-gap) var(--omp-editorial-inset) !important;
+	padding: var(--omp-turn-gap) var(--omp-editorial-edge) max(var(--omp-prompt-gap), var(--omp-actions-reserve)) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-user-bubble {
@@ -862,8 +868,8 @@
 
 .omp-transcript-editorial .omp-user-actions {
 	position: absolute;
-	right: calc(100% + var(--sc-space-1));
-	bottom: 0;
+	right: 0;
+	top: calc(100% + var(--sc-space-0-5));
 }
 
 .omp-transcript-editorial .omp-message-actions {
@@ -880,20 +886,16 @@
 	pointer-events: auto;
 }
 
-/* Assistant turn: content first, no bubble. Its actions float over the
-   bottom-right of the turn (own padding + the end of the last line) on
-   hover/focus, on a canvas-colored pill so they never garble text. */
+/* Assistant turn: content first, no bubble. Its actions sit at the bottom-right
+   of the turn, in the reserved row below the last line. */
 .omp-transcript-editorial .omp-assistant-turn {
-	padding: var(--omp-reply-pad-top) var(--omp-editorial-edge) var(--omp-reply-pad-bottom) var(--omp-editorial-inset) !important;
+	padding: var(--omp-reply-pad-top) var(--omp-editorial-edge) max(var(--omp-reply-pad-bottom), var(--omp-actions-reserve)) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-assistant-actions {
 	position: absolute;
 	right: var(--omp-editorial-edge);
 	bottom: 0;
-	padding-inline-start: var(--sc-space-1);
-	border-radius: var(--sc-radius-md);
-	background: var(--sc-bg);
 }
 
 .omp-transcript-editorial .omp-assistant-turn--compact {
