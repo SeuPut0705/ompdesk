@@ -134,7 +134,10 @@ for (const language of ["en", "ko"] as const)
 				expect(boardBox.x).toBeGreaterThanOrEqual(shellBox.x + shellBox.width);
 				expect(boardBox.x + boardBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
 				expect(boardBox.y).toBeGreaterThanOrEqual(paneBox.y);
-				expect(await left(page.locator(".omp-transcript-row").first())).toBe(await left(shell));
+				// Columns line up; subpixel rounding of the shifted columns may differ by one pixel.
+				expect(
+					Math.abs((await left(page.locator(".omp-transcript-row").first())) - (await left(shell))),
+				).toBeLessThanOrEqual(1);
 				// The dock strips that say what the board says step aside while it shows.
 				await expect(page.locator("[data-workspace-island]")).toBeHidden();
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
