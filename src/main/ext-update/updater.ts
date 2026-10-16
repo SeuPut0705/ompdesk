@@ -1,8 +1,8 @@
 /**
  * Keeps the marketplaces, plugins, skills and MCP servers of this computer's omp current (contract:
  * src/shared/extension-update.ts, design in the stock helper's `extensions.*` methods). The schedule is the
- * tool CLIs' (`CliUpdater`): at launch after machine setup's first pass and every 4 h, a longer wait per row
- * after failures in a row (`nextCheckDelay`), deferred rows retried at the next check, everything one row at
+ * tool CLIs' (`CliUpdater`, update-scheduler.ts): at launch after machine setup's first pass and every 4 h, a
+ * longer wait per row after failures in a row, deferred rows retried at the next check, everything one row at
  * a time through a serial queue. Each pass reads the inventory (local files only), classifies it
  * (classify.ts), then works through marketplaces → plugins → skills → MCP servers: the first so plugin
  * checks see fresh catalogs, the plugin, skill and marketplace work is stock's own, run in the stock helper's
@@ -35,10 +35,10 @@ import type { CliCommand, PlanTools } from "../cli-tools/plans";
 import { runCheckProcess } from "../cli-tools/updater";
 import { EMPTY_APPLY_PLAN, type ExtensionApplyPlan, mergeApplyPlans, planIsEmpty } from "../extension-reload";
 import { parseOmpVersion } from "../omp-runtime";
-import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { type Backoff, settleBackoff, UpdateScheduler } from "../update-scheduler";
 import { classifyInventory, type ExtensionSeed, type SeedRow, type SeedTarget } from "./classify";
 import { classifyMcpServer } from "./mcp";
 import { detectMcpBinary, type McpBinary, type OwnerDeps } from "./mcp-owner";
@@ -90,16 +90,13 @@ export interface ExtensionUpdaterDeps {
 	runCheck?: (command: CliCommand, env: NodeJS.ProcessEnv) => Promise<string>;
 }
 
-interface RowRecord {
+interface RowRecord extends Backoff {
 	row: ExtensionRow;
 	target: SeedTarget;
 	/** What classification says (a skip the check cannot lift). */
 	seedSkip: ExtensionSkipReason | null;
 	/** What the last check found out: a plugin or skill the user pinned, or a catalog without versions. */
 	derivedSkip: "pinned" | "unversioned" | null;
-	failures: number;
-	/** No scheduled check before this (ms since the epoch). */
-	nextAt: number;
 }
 
 interface Environment {
@@ -116,13 +113,15 @@ export class ExtensionUpdater {
 	readonly #deps: ExtensionUpdaterDeps;
 	/** In display order (kinds, then name): `#refresh` rebuilds it from the classification. */
 	#records = new Map<string, RowRecord>();
-	#timer: NodeJS.Timeout | null = null;
-	#running: Promise<void> | null = null;
-	#started = false;
-	#disposed = false;
+	/** Every pass and listing runs through its queue, one at a time; the timer ticks every 4 h. */
+	readonly #scheduler: UpdateScheduler;
 
 	constructor(deps: ExtensionUpdaterDeps) {
 		this.#deps = deps;
+		this.#scheduler = new UpdateScheduler({
+			scheduled: deps.scheduled,
+			tick: () => this.#scheduler.enqueue(() => (this.#deps.enabled() ? this.#pass(null, true) : this.#refresh())),
+		});
 	}
 
 	state(): ExtensionUpdateState {
@@ -135,58 +134,28 @@ export class ExtensionUpdater {
 
 	/** Machine setup finished its first pass: list everything, and when this launch schedules, check now and on the timer. */
 	start(): void {
-		if (this.#started || this.#disposed) return;
-		this.#started = true;
-		if (this.#deps.scheduled) void this.#cycle();
-		else void this.#queue(() => this.#refresh().then(() => undefined));
+		if (this.#scheduler.start() && !this.#deps.scheduled) void this.#scheduler.enqueue(() => this.#refresh());
 	}
 
 	/** The pref changed: turning it on checks right away. */
 	prefChanged(): void {
 		this.#emit();
-		if (this.#started && this.#deps.scheduled && this.#deps.enabled()) void this.#queue(() => this.#pass(null, true));
+		if (this.#scheduler.started && this.#deps.scheduled && this.#deps.enabled())
+			void this.#scheduler.enqueue(() => this.#pass(null, true));
 	}
 
 	/** Settings › Update now: check (and update) the row `key`, or every row, whatever the pref and back-off say. */
 	updateNow(key?: string): Promise<void> {
-		return this.#queue(() => this.#pass(key ?? null, false));
+		return this.#scheduler.enqueue(() => this.#pass(key ?? null, false));
 	}
 
 	/** List what is installed again without checking or updating (Settings opened, a plugin installed meanwhile). */
 	rescan(): Promise<void> {
-		return this.#queue(() => this.#refresh().then(() => undefined));
+		return this.#scheduler.enqueue(() => this.#refresh());
 	}
 
 	dispose(): void {
-		this.#disposed = true;
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-	}
-
-	#queue(work: () => Promise<unknown>): Promise<void> {
-		const next = (this.#running ?? Promise.resolve()).then(async () => {
-			if (!this.#disposed) await work();
-		});
-		const settled = next.catch(() => undefined);
-		this.#running = settled;
-		void settled.then(() => {
-			if (this.#running === settled) this.#running = null;
-		});
-		return next;
-	}
-
-	async #cycle(): Promise<void> {
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-		try {
-			await this.#queue(() =>
-				this.#deps.enabled() ? this.#pass(null, true) : this.#refresh().then(() => undefined),
-			);
-		} catch {
-			// A throw from a dependency must not end the schedule.
-		} finally {
-			if (!this.#disposed) this.#timer = setTimeout(() => void this.#cycle(), CHECK_INTERVAL_MS);
-		}
+		this.#scheduler.dispose();
 	}
 
 	#now(): number {
@@ -194,7 +163,7 @@ export class ExtensionUpdater {
 	}
 
 	#emit(): void {
-		if (!this.#disposed) this.#deps.onState(this.state());
+		if (!this.#scheduler.disposed) this.#deps.onState(this.state());
 	}
 
 	#set(record: RowRecord, patch: Partial<ExtensionRow>): void {
@@ -209,9 +178,8 @@ export class ExtensionUpdater {
 	}
 
 	#finish(record: RowRecord, last: ExtensionResult): void {
-		const failed = last.kind === "failed" && last.failure.reason !== "cancelled";
-		record.failures = failed ? record.failures + 1 : 0;
-		record.nextAt = failed ? this.#now() + nextCheckDelay(record.failures) : 0;
+		// A cancel (the user's, or a quit) is no failure: it does not back off.
+		settleBackoff(record, last.kind === "failed" && last.failure.reason !== "cancelled", this.#now());
 		this.#set(record, { phase: "idle", last });
 	}
 
@@ -314,7 +282,7 @@ export class ExtensionUpdater {
 		const now = this.#now();
 		let plan = noPlan();
 		for (const record of [...this.#records.values()]) {
-			if (this.#disposed) return;
+			if (this.#scheduler.disposed) return;
 			if (only && record.row.key !== only) continue;
 			if (record.target.kind === "none") continue;
 			if (scheduled && now < record.nextAt) continue;
@@ -325,7 +293,7 @@ export class ExtensionUpdater {
 			}
 			plan = mergeApplyPlans(plan, await this.#work(record, environment));
 		}
-		if (!planIsEmpty(plan) && !this.#disposed) {
+		if (!planIsEmpty(plan) && !this.#scheduler.disposed) {
 			try {
 				this.#deps.apply(plan);
 			} catch {

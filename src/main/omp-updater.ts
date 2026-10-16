@@ -24,17 +24,8 @@ import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateFailure, OmpUpdateState } from "../shared/omp-update";
 import { isNewer } from "../shared/version";
 import type { OmpUpdateOutcome } from "./setup/service";
+import { nextCheckDelay, UpdateScheduler } from "./update-scheduler";
 import type { IpcRegistry } from "./web/ipc-registry";
-
-/** Between checks while all is well. */
-export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
-/** The longest wait after repeated failures. */
-export const MAX_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-/** Delay before the next scheduled check after `failures` failed ones in a row. */
-export function nextCheckDelay(failures: number): number {
-	return Math.min(CHECK_INTERVAL_MS * 2 ** Math.min(failures, 8), MAX_CHECK_INTERVAL_MS);
-}
 
 export interface OmpUpdaterDeps {
 	/** This launch checks on a timer: a packaged app, or a test launch that opts in. Dev and test launches never do. */
@@ -63,15 +54,22 @@ export interface OmpUpdaterDeps {
 
 export class OmpUpdater {
 	readonly #deps: OmpUpdaterDeps;
+	/** The check after `#failures` failed ones in a row waits `nextCheckDelay(#failures)`. */
+	readonly #scheduler: UpdateScheduler;
 	#state: OmpUpdateState;
-	#timer: NodeJS.Timeout | null = null;
 	#failures = 0;
+	/** One check at a time: Update now during a check joins it. */
 	#running: Promise<void> | null = null;
-	#started = false;
-	#disposed = false;
 
 	constructor(deps: OmpUpdaterDeps) {
 		this.#deps = deps;
+		this.#scheduler = new UpdateScheduler({
+			scheduled: deps.scheduled,
+			tick: async () => {
+				if (this.#deps.enabled()) await this.#run();
+			},
+			delay: () => nextCheckDelay(this.#failures),
+		});
 		this.#state = {
 			enabled: deps.enabled(),
 			scheduled: deps.scheduled,
@@ -94,15 +92,14 @@ export class OmpUpdater {
 
 	/** Machine setup finished its first pass: check now (when this launch schedules) and then on the timer. */
 	start(): void {
-		if (this.#started || this.#disposed) return;
-		this.#started = true;
-		if (this.#deps.scheduled) void this.#cycle();
+		this.#scheduler.start();
 	}
 
 	/** The pref changed: turning it on checks right away, turning it off lets the next timer pass. */
 	prefChanged(): void {
 		this.#emit();
-		if (this.#started && this.#deps.scheduled && this.#deps.enabled() && !this.#running) void this.#cycle();
+		if (this.#scheduler.started && this.#deps.scheduled && this.#deps.enabled() && !this.#running)
+			void this.#scheduler.tick();
 	}
 
 	/** Settings › Update now: check and install whatever the pref or the schedule says. */
@@ -111,25 +108,11 @@ export class OmpUpdater {
 	}
 
 	dispose(): void {
-		this.#disposed = true;
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-	}
-
-	async #cycle(): Promise<void> {
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-		try {
-			if (this.#deps.enabled()) await this.#run();
-		} catch {
-			// A throw from a dependency (a destroyed window in `onUpdated`) must not end the schedule.
-		} finally {
-			if (!this.#disposed) this.#timer = setTimeout(() => void this.#cycle(), nextCheckDelay(this.#failures));
-		}
+		this.#scheduler.dispose();
 	}
 
 	#run(): Promise<void> {
-		if (this.#disposed) return Promise.resolve();
+		if (this.#scheduler.disposed) return Promise.resolve();
 		this.#running ??= this.#check().finally(() => {
 			this.#running = null;
 			this.#set({ phase: "idle" });
@@ -143,7 +126,7 @@ export class OmpUpdater {
 	}
 
 	#emit(): void {
-		if (!this.#disposed) this.#deps.onState(this.state());
+		if (!this.#scheduler.disposed) this.#deps.onState(this.state());
 	}
 
 	#fail(failure: OmpUpdateFailure): void {
@@ -177,7 +160,7 @@ export class OmpUpdater {
 			await this.#deps.releaseHelpers();
 		});
 		// Quit while the installer ran: teardown is under way, so nothing starts again (helpers, tabs, toast).
-		if (this.#disposed) return;
+		if (this.#scheduler.disposed) return;
 		if (outcome.kind === "updated") {
 			this.#failures = 0;
 			this.#set({ failure: null, updatedTo: outcome.version });

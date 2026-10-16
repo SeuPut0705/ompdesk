@@ -1,29 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateState } from "../shared/omp-update";
-import {
-	CHECK_INTERVAL_MS,
-	MAX_CHECK_INTERVAL_MS,
-	nextCheckDelay,
-	OmpUpdater,
-	type OmpUpdaterDeps,
-	registerOmpUpdateIpc,
-} from "./omp-updater";
+import { OmpUpdater, type OmpUpdaterDeps, registerOmpUpdateIpc } from "./omp-updater";
 import type { OmpUpdateOutcome } from "./setup/service";
+import { CHECK_INTERVAL_MS, MAX_CHECK_INTERVAL_MS } from "./update-scheduler";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const HOUR = 60 * 60 * 1000;
-
-describe("nextCheckDelay", () => {
-	it("is a few hours while all is well, doubles per failure in a row, and stops at a day", () => {
-		expect(nextCheckDelay(0)).toBe(CHECK_INTERVAL_MS);
-		expect(CHECK_INTERVAL_MS).toBe(4 * HOUR);
-		expect(nextCheckDelay(1)).toBe(8 * HOUR);
-		expect(nextCheckDelay(2)).toBe(16 * HOUR);
-		expect(nextCheckDelay(3)).toBe(MAX_CHECK_INTERVAL_MS);
-		expect(nextCheckDelay(50)).toBe(MAX_CHECK_INTERVAL_MS);
-	});
-});
 
 interface Harness {
 	updater: OmpUpdater;

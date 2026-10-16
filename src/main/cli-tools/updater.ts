@@ -1,7 +1,7 @@
 /**
  * Keeps the vendor CLIs of connected accounts current (contract: src/shared/cli-update.ts). At launch (after
- * machine setup's first pass) and every 4 h, with a longer wait per tool after failures in a row (omp's
- * schedule, `nextCheckDelay`), it lists the providers with a stored credential (stock's own credential store,
+ * machine setup's first pass) and every 4 h, with a longer wait per tool after failures in a row (the shared
+ * schedule, update-scheduler.ts), it lists the providers with a stored credential (stock's own credential store,
  * through the stock helper), finds each relevant tool that is installed, asks its owner for the newest
  * version and, when that is newer, runs the owner's update under the setup supervisor
  * (`SetupService.runToolUpdate`, queued behind any install), then detects the tool again. A tool that is not
@@ -26,10 +26,10 @@ import {
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { isNewer } from "../../shared/version";
 import { parseOmpVersion } from "../omp-runtime";
-import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { type Backoff, settleBackoff, UpdateScheduler } from "../update-scheduler";
 import type { IpcRegistry } from "../web/ipc-registry";
 import { relevantTools } from "./catalog";
 import {
@@ -69,12 +69,9 @@ export interface CliUpdaterDeps {
 	runCheck?: (command: CliCommand, env: NodeJS.ProcessEnv) => Promise<string>;
 }
 
-interface ToolRecord {
+interface ToolRecord extends Backoff {
 	state: CliToolState;
 	detection: CliDetection;
-	failures: number;
-	/** No scheduled check before this (ms since the epoch). */
-	nextAt: number;
 }
 
 /** stdout of a short read-only check, or throws with its own reason. */
@@ -111,13 +108,15 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 export class CliUpdater {
 	readonly #deps: CliUpdaterDeps;
 	readonly #tools = new Map<CliToolId, ToolRecord>();
-	#timer: NodeJS.Timeout | null = null;
-	#running: Promise<void> | null = null;
-	#started = false;
-	#disposed = false;
+	/** Every pass and listing runs through its queue, one at a time; the timer ticks every 4 h. */
+	readonly #scheduler: UpdateScheduler;
 
 	constructor(deps: CliUpdaterDeps) {
 		this.#deps = deps;
+		this.#scheduler = new UpdateScheduler({
+			scheduled: deps.scheduled,
+			tick: () => this.#scheduler.enqueue(() => (this.#deps.enabled() ? this.#pass(null, true) : this.#refresh())),
+		});
 	}
 
 	state(): CliUpdateState {
@@ -133,60 +132,32 @@ export class CliUpdater {
 
 	/** Machine setup finished its first pass: list the tools, and when this launch schedules, check now and on the timer. */
 	start(): void {
-		if (this.#started || this.#disposed) return;
-		this.#started = true;
-		if (this.#deps.scheduled) void this.#cycle();
-		else void this.#queue(() => this.#refresh());
+		if (this.#scheduler.start() && !this.#deps.scheduled) void this.#scheduler.enqueue(() => this.#refresh());
 	}
 
 	/** The pref changed: turning it on checks right away. */
 	prefChanged(): void {
 		this.#emit();
-		if (this.#started && this.#deps.scheduled && this.#deps.enabled()) void this.#queue(() => this.#pass(null, true));
+		if (this.#scheduler.started && this.#deps.scheduled && this.#deps.enabled())
+			void this.#scheduler.enqueue(() => this.#pass(null, true));
 	}
 
 	/** Settings › Update now: check (and update) `id`, or every listed tool, whatever the pref and back-off say. */
 	updateNow(id?: CliToolId): Promise<void> {
-		return this.#queue(() => this.#pass(id ?? null, false));
+		return this.#scheduler.enqueue(() => this.#pass(id ?? null, false));
 	}
 
 	/** List the relevant installed tools again without checking or updating (a provider connected, a tool installed). */
 	rescan(): Promise<void> {
-		return this.#queue(() => this.#refresh());
+		return this.#scheduler.enqueue(() => this.#refresh());
 	}
 
 	dispose(): void {
-		this.#disposed = true;
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-	}
-
-	#queue(work: () => Promise<unknown>): Promise<void> {
-		const next = (this.#running ?? Promise.resolve()).then(async () => {
-			if (!this.#disposed) await work();
-		});
-		const settled = next.catch(() => undefined);
-		this.#running = settled;
-		void settled.then(() => {
-			if (this.#running === settled) this.#running = null;
-		});
-		return next;
-	}
-
-	async #cycle(): Promise<void> {
-		clearTimeout(this.#timer ?? undefined);
-		this.#timer = null;
-		try {
-			await this.#queue(() => (this.#deps.enabled() ? this.#pass(null, true) : this.#refresh()));
-		} catch {
-			// A throw from a dependency must not end the schedule.
-		} finally {
-			if (!this.#disposed) this.#timer = setTimeout(() => void this.#cycle(), CHECK_INTERVAL_MS);
-		}
+		this.#scheduler.dispose();
 	}
 
 	#emit(): void {
-		if (!this.#disposed) this.#deps.onState(this.state());
+		if (!this.#scheduler.disposed) this.#deps.onState(this.state());
 	}
 
 	#set(record: ToolRecord, patch: Partial<CliToolState>): void {
@@ -248,7 +219,7 @@ export class CliUpdater {
 		const deps = await this.#refresh();
 		const now = (this.#deps.now ?? Date.now)();
 		for (const id of CLI_TOOLS) {
-			if (this.#disposed) return;
+			if (this.#scheduler.disposed) return;
 			if (only && id !== only) continue;
 			const record = this.#tools.get(id);
 			if (!record || record.detection.skip || !record.detection.owner) continue;
@@ -258,10 +229,12 @@ export class CliUpdater {
 	}
 
 	#finish(record: ToolRecord, last: CliUpdateResult): void {
-		const now = (this.#deps.now ?? Date.now)();
-		const failed = last.kind === "failed" && last.failure.reason !== "cancelled";
-		record.failures = failed ? record.failures + 1 : 0;
-		record.nextAt = failed ? now + nextCheckDelay(record.failures) : 0;
+		// A cancel (the user's, or a quit) is no failure: it does not back off.
+		settleBackoff(
+			record,
+			last.kind === "failed" && last.failure.reason !== "cancelled",
+			(this.#deps.now ?? Date.now)(),
+		);
 		this.#set(record, { phase: "idle", last });
 	}
 

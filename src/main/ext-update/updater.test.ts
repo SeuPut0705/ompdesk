@@ -22,8 +22,8 @@ import {
 import type { ExtensionRow, ExtensionUpdateState } from "../../shared/extension-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { ExtensionApplyPlan } from "../extension-reload";
-import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
+import { CHECK_INTERVAL_MS, nextCheckDelay } from "../update-scheduler";
 import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { registerExtensionUpdateIpc } from "./ipc";
 import type { McpBinary, McpOwner } from "./mcp-owner";
