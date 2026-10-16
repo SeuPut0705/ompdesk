@@ -3130,6 +3130,7 @@ export const en: Record<string, string> = {
 	"hotkeys.row.prCenter": "Pull requests",
 	"hotkeys.row.settings": "Settings",
 	"hotkeys.row.sidebar": "Toggle sidebar",
+	"hotkeys.row.workBoard": "Jump to work board",
 	"hotkeys.row.panel": "Toggle side panel",
 	"hotkeys.row.expandTools": "Expand / collapse all tool cards",
 	"hotkeys.row.hotkeys": "Keyboard shortcuts",

@@ -3116,6 +3116,7 @@ export const ko: Record<string, string> = {
 	"hotkeys.row.prCenter": "풀 리퀘스트",
 	"hotkeys.row.settings": "설정",
 	"hotkeys.row.sidebar": "사이드바 전환",
+	"hotkeys.row.workBoard": "작업 현황으로 이동",
 	"hotkeys.row.panel": "사이드 패널 전환",
 	"hotkeys.row.expandTools": "모든 도구 카드 펼치기 / 접기",
 	"hotkeys.row.hotkeys": "키보드 단축키",

@@ -589,6 +589,14 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "view",
 	},
 	{
+		id: "board.focus",
+		labelKey: "hotkeys.row.workBoard",
+		defaults: ["⌥B"],
+		// Safe over an open question: that is exactly when the board's waiting row is wanted.
+		overlaySafe: true,
+		hotkeyGroup: "view",
+	},
+	{
 		// ⌃J is the composer's newline on macOS (emacs line editing), so only ⌘J toggles there.
 		id: "panel.toggle",
 		labelKey: "hotkeys.row.panel",

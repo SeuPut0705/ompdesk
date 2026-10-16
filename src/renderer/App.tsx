@@ -78,6 +78,7 @@ import {
 	resolveThemeSelection,
 } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
+import { focusWorkBoard } from "./lib/work-board-focus";
 import { selectFocusedTabProject } from "./lib/workspace-dirs";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
@@ -560,6 +561,10 @@ export function App() {
 					return;
 				case "settings":
 					ui.openSettings();
+					return;
+				case "board.focus":
+					// ⌥B — jump into the work board of the focused pane (waiting questions first).
+					focusWorkBoard();
 					return;
 				case "sidebar.toggle":
 					ui.toggleSidebar();

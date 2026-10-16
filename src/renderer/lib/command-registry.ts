@@ -56,6 +56,7 @@ import {
 import { runInTerminal } from "./run-in-terminal";
 import { closeActiveTab, closeOtherTabs } from "./tab-close";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
+import { focusWorkBoard } from "./work-board-focus";
 import {
 	addWorkspaceDirectory,
 	moveSessionTo,
@@ -1461,6 +1462,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			kind: "action",
 			run: () => setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock")),
 		},
+	});
+	add({
+		name: "focus-work-board",
+		label: t("hotkeys.row.workBoard"),
+		category: "settings",
+		shortcut: kbd("board.focus"),
+		affordance: { kind: "action", run: () => void focusWorkBoard() },
 	});
 	add({
 		name: "toggle-work-board",

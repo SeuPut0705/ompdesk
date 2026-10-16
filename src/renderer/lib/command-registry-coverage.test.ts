@@ -144,6 +144,7 @@ const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
 	"files.search": "search-files",
 	settings: "settings",
 	"sidebar.toggle": "toggle-sidebar",
+	"board.focus": "focus-work-board",
 	"panel.toggle": "toggle-panel",
 	"panel.terminal": "terminal",
 	"panel.diff": "git",
