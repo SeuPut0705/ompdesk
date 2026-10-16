@@ -61,6 +61,8 @@ interface World {
 }
 
 const text = (value: string) => ({ content: [{ type: "text", text: value }], stopReason: "stop" });
+/** UTF-8 read back as Windows-1252, the way the smol model once wrote a whole reply ("지금" → "ì§€ê¸ˆ"). */
+const garbled = (value: string) => new TextDecoder("windows-1252").decode(new TextEncoder().encode(value));
 
 function build(): World {
 	const frames: BridgeEvent[] = [];
@@ -322,6 +324,24 @@ describe("a finished turn", () => {
 		world.reply.current = async () => text("모드 추가할 건 없어? 모델풀은 지워야 할 것 같고\n효과 시안 먼저 보여줘");
 		await turnEnds();
 		expect(updates(world)[0]?.candidates).toEqual(["효과 시안 먼저 보여줘"]);
+	});
+
+	it("drops candidates the model wrote as UTF-8 read as Windows-1252 (mojibake), keeping the clean ones", async () => {
+		// The reported reply: the placeholder and the chip came out as "ì•Œê² ì–´ ê·¸ëŸ¼ ê³„ì† ì§„í–‰í•´" and
+		// "ì§€ê¸ˆ ì—ì´ì „íŠ¸ë“¤ ìƒíƒœ ë‹¤ì‹œ í•œë²ˆ ì •ë¦¬í•´ì¤˜".
+		world.reply.current = async () =>
+			text(
+				[garbled("알겠어 그럼 계속 진행해"), garbled("지금 에이전트들 상태 다시 한번 정리해줘"), "커밋해줘"].join(
+					"\n",
+				),
+			);
+		await turnEnds();
+		expect(updates(world)[0]?.candidates).toEqual(["커밋해줘"]);
+		world.reply.current = async () => text(garbled("지금 에이전트들 상태 다시 한번 정리해줘"));
+		await handlers.next_prompt_refresh({ reason: "refresh" }, world.env);
+		await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS);
+		await flush();
+		expect(updates(world).at(-1)).toMatchObject({ status: "ready", candidates: [] });
 	});
 
 	it("ignores a subagent's turn, a disabled feature and a session with no reply yet", async () => {
@@ -691,6 +711,11 @@ describe("inline completion", () => {
 		expect(await ask("그리고 윈도우버전에서는")).toMatchObject({ text: null });
 		world.reply.current = async () => text("그리고 지금 작업중인데 버튼이 안 바뀌어");
 		expect(await ask("그리고 지금 작업중인데 버튼이")).toMatchObject({ text: " 안 바뀌어" });
+	});
+
+	it("shows no ghost the model wrote as UTF-8 read as Windows-1252", async () => {
+		world.reply.current = async () => text(`please fix the ${garbled("버튼 테스트")}`);
+		expect(await ask("please fix the")).toMatchObject({ text: null });
 	});
 
 	it("validates its params", async () => {

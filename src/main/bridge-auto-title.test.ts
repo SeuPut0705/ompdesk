@@ -303,6 +303,21 @@ describe("first title", () => {
 		expect(world.manager.setSessionName).toHaveBeenCalledExactlyOnceWith("Plan the API", "auto", TITLE_TRIGGER);
 	});
 
+	it("never writes a title the model wrote as UTF-8 read as Windows-1252 (mojibake)", async () => {
+		const garbled = (value: string) => new TextDecoder("windows-1252").decode(new TextEncoder().encode(value));
+		const world = build();
+		world.script.generate.mockResolvedValue(garbled("로그인 버그 수정"));
+		world.script.retitle.mockResolvedValue(garbled("빌드 도구 이전"));
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("로그인 버그 고쳐줘") });
+		await flush();
+		await send(world.session, { type: "agent_end", isTerminal: true });
+		await flush();
+		expect(world.session.renameTitle).toHaveBeenCalledExactlyOnceWith(undefined);
+		expect(world.manager.setSessionName).not.toHaveBeenCalled();
+		expect(frames).toEqual([]);
+	});
+
 	it("waits for the final settle: a continuation's agent_end names nothing", async () => {
 		const world = build();
 		world.script.generate.mockResolvedValue(null);

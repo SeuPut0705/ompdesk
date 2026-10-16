@@ -32,6 +32,7 @@
  *
  * No omp imports: the GUI's vitest drives it with fake sessions (src/main/bridge-auto-title.test.ts).
  */
+import { isUtf8Mojibake } from "../mojibake";
 import {
 	type AutoTitleSettings,
 	DEFAULT_AUTO_TITLE,
@@ -291,6 +292,8 @@ async function concise(
 	retryInput?: (answer: string) => string,
 ): Promise<string | null | undefined> {
 	if (!title) return title;
+	// UTF-8 the model wrote as Windows-1252 ("ì§€ê¸ˆ") is no title: the session keeps the one it has.
+	if (isUtf8Mojibake(title)) return null;
 	const { splitCardTitle, formatCardTitle, titleIcons, log } = await stockFunctions();
 	const card = splitCardTitle(title);
 	const answer = card?.title ?? title;
@@ -308,7 +311,7 @@ async function concise(
 		}
 	}
 	if (!titleFits(answer)) {
-		const shorter = retry?.title;
+		const shorter = retry?.title && !isUtf8Mojibake(retry.title) ? retry.title : undefined;
 		text = conciseTitle(shorter && shorter.trim().length <= answer.trim().length ? shorter : answer);
 	}
 	// Every generated title, with the model's own answers, so a title that reads wrong can be traced.

@@ -13,6 +13,7 @@
  * ranked lines and a different skip token; src/main/bridge-next-prompt-stock.test.ts
  * pins the single-line behaviour to the installed stock function.
  */
+import { isUtf8Mojibake } from "../mojibake";
 import {
 	INLINE_DEBOUNCE_MS,
 	INLINE_MAX_DRAFT_CHARS,
@@ -162,14 +163,14 @@ export function matchRegister(text: string, register: KoreanRegister | undefined
 }
 
 /**
- * One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, a register it
- * cannot take, too long).
+ * One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, UTF-8 the
+ * model wrote as Windows-1252 ({@link isUtf8Mojibake}), a register it cannot take, too long).
  */
 export function cleanCandidateLine(line: string, register?: KoreanRegister): string | undefined {
 	let text = oneLine(line).replace(LIST_MARKER, "");
 	const quoted = WRAPPING_QUOTES.exec(text);
 	if (quoted) text = (quoted[1] ?? quoted[2] ?? quoted[3] ?? quoted[4] ?? "").trim();
-	if (!text || /^none\.?$/i.test(text) || text.startsWith("```")) return undefined;
+	if (!text || /^none\.?$/i.test(text) || text.startsWith("```") || isUtf8Mojibake(text)) return undefined;
 	// "Here are three options:" is the model talking, not a message to type.
 	if (text.endsWith(":")) return undefined;
 	// Checked on the whole line: one sentence in the assistant's voice means the model was answering, not predicting.
@@ -770,7 +771,7 @@ export function cleanInlineReply(reply: string, draft: string, checks: InlineChe
 	text = text.slice(typed.length);
 	if (/\s$/.test(draft)) text = text.replace(/^\s+/, "");
 	if (text.trim() === "") return null;
-	if (text.length > (CJK.test(text) ? INLINE_MAX_CHARS_CJK : INLINE_MAX_CHARS)) return null;
+	if (text.length > (CJK.test(text) ? INLINE_MAX_CHARS_CJK : INLINE_MAX_CHARS) || isUtf8Mojibake(text)) return null;
 	if (NOT_A_CONTINUATION.test(text) || SECOND_SENTENCE.test(text.trim())) return null;
 	const assembled = draft + text;
 	if (isAssistantVoice(assembled) && !isAssistantVoice(draft)) return null;

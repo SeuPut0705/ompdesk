@@ -16,6 +16,7 @@
  * TUI would only do at the next `agent_end`.
  */
 
+import { isUtf8Mojibake } from "./mojibake";
 import { IdleWindowTimer, type TimerSession } from "./timer-core";
 
 /** `recap.*` as stock's `cfgRecap` reads them. */
@@ -98,6 +99,8 @@ export class RecapTimer<S extends TimerSession = TimerSession> extends IdleWindo
 			const recap = await this.#hooks.generate(session, abort.signal);
 			// Idle conditions are re-checked after the reply so a stale recap never lands over fresh work.
 			if (this.#abort !== abort || abort.signal.aborted || !this.#idle(session) || !recap) return;
+			// UTF-8 the model wrote as Windows-1252 ("ì§€ê¸ˆ") is no recap: neither shown nor journaled.
+			if (isUtf8Mojibake(recap.reply)) return;
 			await this.#hooks.deliver(session, recap);
 		} catch {
 			// Stock only debug-logs a failed recap turn.
