@@ -3,7 +3,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixtureProviderOptions } from "../../../../e2e/models-config-fixture";
-import type { CustomProvidersConfig } from "../../../shared/ipc-types";
+import type { CustomProvidersConfig, CustomProviderView } from "../../../shared/ipc-types";
 import type { ModelInfo, ProviderInfo, ProvidersResult, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { FIRST_RUN_STEP_PREF, useFirstRunStore } from "../../stores/first-run";
@@ -60,6 +60,8 @@ const rpc = routeCommands({
 const listProviders = vi.fn(
 	async (): Promise<CustomProvidersConfig> => ({ providers: [], options: fixtureProviderOptions }),
 );
+/** This computer's omp holds a credential (main's `models:signed-in`); a test of a true first run sets false. */
+let signedIn: boolean | null = true;
 const prefs: Record<string, unknown> = {};
 const prefsApi = {
 	get: vi.fn(async (key?: string) => (key ? prefs[key] : prefs)),
@@ -72,7 +74,7 @@ const github = fakeGithubAuth();
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc,
-		models: { listProviders },
+		models: { listProviders, signedIn: vi.fn(async () => signedIn) },
 		prefs: prefsApi,
 		githubAuth: github.api,
 		ui: { respondExtensionUi: vi.fn() },
@@ -126,6 +128,7 @@ afterEach(async () => {
 	for (const fn of Object.values(rpc)) fn.mockClear();
 	for (const key of Object.keys(prefs)) delete prefs[key];
 	defaultRole = undefined;
+	signedIn = true;
 });
 
 describe("FirstRunGate", () => {
@@ -215,6 +218,40 @@ describe("FirstRunGate", () => {
 		await act(async () => delay(0));
 		expect(useFirstRunStore.getState().phase).toBe("idle");
 		expect(text()).not.toContain(translate("setup.title"));
+	});
+
+	it("opens the provider step before omp boots when this computer's omp holds no credential at all", async () => {
+		catalog = { ...catalog, providers: [apple, anthropic], models: [onDevice] };
+		signedIn = false;
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		await mount(
+			<>
+				<FirstRunGate />
+				<FirstRunSetup />
+			</>,
+		);
+		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: true });
+		expect(document.querySelector('[data-provider-connect="openai-codex"]')).not.toBeNull();
+	});
+
+	it("waits for omp when a credential exists, or a keyless models.yml endpoint can serve", async () => {
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		await mount(<FirstRunGate />);
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+
+		signedIn = false;
+		const keyless: CustomProviderView = {
+			id: "local",
+			api: "openai-completions",
+			baseUrl: "http://127.0.0.1:1234/v1",
+			hasApiKey: false,
+			auth: "none",
+			models: [{ id: "m" }],
+			builtin: false,
+		};
+		listProviders.mockResolvedValueOnce({ providers: [keyless], options: fixtureProviderOptions });
+		await mount(<FirstRunGate />);
+		expect(useFirstRunStore.getState().phase).toBe("idle");
 	});
 });
 

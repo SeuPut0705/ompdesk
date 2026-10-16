@@ -313,6 +313,9 @@ test("first-run: wizard timing on the real omp (fresh agent dir)", async () => {
 			.poll(async () => (await startupMarks(launched))["sidecar-ready"], { timeout: 60_000 })
 			.toBeGreaterThan(0);
 		await report(launched, "real omp launch");
+		// No credential anywhere: the provider step is up while omp still boots, not after it.
+		const marks = await startupMarks(launched);
+		expect(marks["first-run-visible"]).toBeLessThan(marks["sidecar-ready"] ?? 0);
 	} finally {
 		await launched.close();
 	}

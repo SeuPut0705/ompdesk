@@ -99,7 +99,7 @@ import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, renameSession } from "./session-mutations";
-import { resolveEditorCommand } from "./shell-env";
+import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
@@ -242,6 +242,8 @@ interface PrefsSchema {
 // Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
 let lastNotifyKey = "";
 let lastNotifyAt = 0;
+/** The first-run credential check is only worth it while it beats omp's boot; past this it says "cannot tell". */
+const SIGNED_IN_TIMEOUT_MS = 10_000;
 /** Shown notifications that switch to a tab on click, kept alive until then. */
 const liveNotifications = new Set<Notification>();
 /** Windows whose close already cancels their pending notification summary. */
@@ -1245,6 +1247,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, (event, device?: unknown) =>
 		machineFor(event, device).listProviders(),
 	);
+	// A true first run, known before omp boots (the first-run provider step opens at once): stock's own
+	// credential store and env-key map in the stock helper, under the environment omp itself gets. Anything
+	// that cannot answer (no omp yet, an old omp, a broker that is down) is "cannot tell".
+	ipcMain.handle(IPC_COMMANDS.MODELS_SIGNED_IN, async () => {
+		try {
+			const env = await shellSpawnEnv();
+			const result = await stockHelperRequest<{ signedIn: boolean }>(
+				"accounts.signedIn",
+				{ env },
+				{ timeoutMs: SIGNED_IN_TIMEOUT_MS },
+			);
+			return result.signedIn;
+		} catch {
+			return null;
+		}
+	});
 
 	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, (event, input: CustomProviderInput, device?: unknown) =>
 		machineFor(event, device).upsertProvider(input),

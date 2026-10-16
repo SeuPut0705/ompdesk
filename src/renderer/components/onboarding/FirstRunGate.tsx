@@ -42,6 +42,30 @@ export function FirstRunGate() {
 		useFirstRunStore.getState().openProvisional();
 	}, [ompInstalled, takeover]);
 
+	// omp is installed but holds no credential at all (stock's store and env keys, read in main without a
+	// session) and models.yml has no keyless endpoint: a true first run. The provider step opens now instead
+	// of after omp's boot (≈3.6 s for the real omp on macOS), settled by the check below like the one above.
+	// A paired host's tab, a saved later step or an answer after the check leaves it to that check.
+	useEffect(() => {
+		const device = focusedTabDevice();
+		if (device !== undefined) return;
+		let cancelled = false;
+		void Promise.all([
+			window.omp.models.signedIn(),
+			window.omp.models.listProviders().catch(() => null),
+			window.omp.prefs.get(FIRST_RUN_STEP_PREF).catch(() => undefined),
+		]).then(([signedIn, config, savedStep]) => {
+			if (cancelled || signedIn !== false || config === null || checkedThisLaunch.current) return;
+			if (isResumableFirstRunStep(savedStep) || useMachineSetupStore.getState().takeover) return;
+			if (config.providers.some(entry => entry.auth === "none" && entry.models.length > 0)) return;
+			if (useSessionStore.getState().status === "ready") return;
+			useFirstRunStore.getState().openProvisional();
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	useEffect(() => {
 		if (status !== "ready" || checkedThisLaunch.current) return;
 		let cancelled = false;

@@ -480,6 +480,7 @@ const api: OmpApi = {
 	models: {
 		listProviders: (device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDERS_LIST, device) as Promise<CustomProvidersConfig>,
+		signedIn: () => ipcRenderer.invoke(IPC_COMMANDS.MODELS_SIGNED_IN) as Promise<boolean | null>,
 		upsertProvider: (input: CustomProviderInput, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, input, device) as Promise<void>,
 		deleteProvider: (id: string, device?: string) =>

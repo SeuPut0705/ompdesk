@@ -201,6 +201,8 @@ export const IPC_COMMANDS = {
 	SIDECAR_DEFAULT_WORKSPACE: "sidecar:default-workspace",
 	/** List custom models.yml providers */
 	MODELS_PROVIDERS_LIST: "models:providers-list",
+	/** Whether this computer's omp holds any credential (stock store or env key); null when it cannot tell. */
+	MODELS_SIGNED_IN: "models:signed-in",
 	/** Upsert a custom provider into models.yml */
 	MODELS_PROVIDER_UPSERT: "models:provider-upsert",
 	/** Delete a custom provider from models.yml */
@@ -1770,6 +1772,11 @@ export interface OmpApi {
 	/** The agent's models.yml on `device` (a paired host; absent = this device). */
 	models: {
 		listProviders(device?: string): Promise<CustomProvidersConfig>;
+		/**
+		 * This computer's omp holds a credential (stored, or an API key in the environment it gets); null when
+		 * it cannot tell yet. Read without a session, so a true first run is known before omp boots.
+		 */
+		signedIn(): Promise<boolean | null>;
 		upsertProvider(input: CustomProviderInput, device?: string): Promise<void>;
 		deleteProvider(id: string, device?: string): Promise<void>;
 		/** Write (or with `null`, remove) one model's `modelOverrides` entry under `provider` (B43). */
