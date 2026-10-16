@@ -32,6 +32,10 @@
 	background: var(--sc-text-subtle);
 }
 
+/* The board's one running animation. Live rows stay still: while the transcript streams, every animated row
+   (a pulse and a sweep per row) cost the GPU process about 2% of a core, about 13% for a busy board, whatever
+   the kind of animation (flow-performance `daily`, 1600 px); the head pulse alone costs about 1%. Rows still fade
+   in and out once (usePresence). */
 .omp-work-board-pulse[data-state="working"] {
 	background: var(--sc-info);
 	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
@@ -263,46 +267,6 @@ button.omp-work-board-row:hover {
 	box-shadow: inset 0 0 0 1px var(--sc-text-subtle);
 }
 
-.omp-work-board-dot[data-live] {
-	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
-}
-
-/* A thin sweep under a row that is working right now. The track clips a 35%-wide highlight that slides
-   across it by transform alone, so the compositor runs it: a moving background repainted the row every
-   frame (agents running after a turn, 1600 px: renderer 28% of a core and GPU process 39%, against 8% and
-   25% with the transform; flow-performance's `daily` flow). The keyframes
-   travel exactly the old background-position path, -40% to 140% of the free width (0.65 of the track),
-   in units of the highlight's own width (0.35 of the track). */
-.omp-work-board-sweep {
-	position: absolute;
-	inset-inline: var(--sc-space-1-5);
-	bottom: 0;
-	height: 1px;
-	overflow: hidden;
-	opacity: 0.45;
-	pointer-events: none;
-}
-
-.omp-work-board-sweep::after {
-	content: "";
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 35%;
-	height: 100%;
-	background: linear-gradient(90deg, transparent, var(--sc-info), transparent);
-	animation: omp-board-sweep 2.4s linear infinite; /* motion-ok: working signal */
-}
-
-@keyframes omp-board-sweep {
-	from {
-		transform: translateX(-74.2857%);
-	}
-	to {
-		transform: translateX(260%);
-	}
-}
-
 /* Goal meters. */
 .omp-work-board-meter {
 	display: block;
@@ -339,12 +303,7 @@ button.omp-work-board-row:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.omp-work-board-item[data-live]::after {
-		display: none;
-	}
-
-	.omp-work-board-pulse,
-	.omp-work-board-dot[data-live] {
+	.omp-work-board-pulse {
 		animation: none;
 	}
 }

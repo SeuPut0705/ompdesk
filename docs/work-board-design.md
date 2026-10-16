@@ -52,7 +52,7 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 - Head: pulse (working / waiting / idle), status line, segmented todo bar, hide button.
 - Waiting on you first: questions, approvals and a pending plan review; the only live region (polite);
   `⌥B` (`board.focus`) jumps to its first row from anywhere.
-- This turn: the last four calls with their tool icon, target and duration; the live one pulses and sweeps.
+- This turn: the last four calls with their tool icon, target and duration; the live one's icon is tinted.
 - Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they
   run on) and background shells; a click opens the subagent in the side panel / Background tasks.
 - Todos: finished tasks fold into "N done", the active row is emphasised, finished rows are struck through;
@@ -60,10 +60,11 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 - Goal: objective, status, and budget / time meters from `get_goal` (warning colour from 90 %).
 - Last turn (idle): duration, files changed with +/−, a click opens Changes.
 - Every section folds to its header; folds persist (`workBoardCollapsed`).
-- Motion: enter fade, a pulse on working dots, a 1 px sweep under a row that is working; all off under
-  `prefers-reduced-motion` (the global rule, plus explicit overrides in `work-board.css`). Every animation is
-  compositor-only: the sweep slides a clipped highlight by `transform` (the first version animated
-  `background-position`, which repainted the row every frame), and an active goal's dot pulses only during a turn.
+- Motion: one running animation, the head's pulse while something works; rows fade in and out once
+  (`usePresence`) and otherwise stay still, so a live row is marked by colour (an info dot, a tinted icon), not by
+  movement. Every animated row cost the GPU process about 2 % of a core while the transcript streamed, whatever
+  the animation (an earlier version pulsed each live row's dot and swept a 1 px line under it). All motion is off
+  under `prefers-reduced-motion`.
 - One shared one-second clock (`useNowTick`) drives every timer; the board re-renders once a second only while
   something runs and the window is in view, with tabular numbers so the digits do not jitter.
 - The account row and the running section read `get_usage` and `get_jobs` through one poll per tab
@@ -71,11 +72,9 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
   accounts and the usage-limit notice (`use-usage-reports.ts`), and with the dock island and the Background tasks
   view (`use-background-jobs.ts`).
 - Measured with `e2e/flow-performance.e2e.ts`'s `daily` flow (1600 px, the user's largest session, fake omp, 16 Oct
-  2026; share of one core): with agents running after a turn the renderer went from 28 % to 8 % (v0.31.0 without a
-  board: 8 %); idle IPC from 53 to 30 calls a minute (v0.31.0: 28), none while hidden; no frame over 10 ms while
-  streaming. Still open: while the transcript streams, the board's running animations (a pulse and a sweep per
-  live row) cost the GPU process about 13 % of a core (36 % against 18 % for v0.31.0; with only the head pulse
-  running, 15 %). The kind of animation does not matter (transform or opacity); the number of animated rows does.
+  2026; share of one core, v0.31.0 without a board in brackets): streaming beside a busy board, GPU process 18 %
+  (18 %; 36–40 % with the per-row pulses and sweeps), no frame over 10 ms; agents running after a turn, renderer 9 %
+  and GPU 10 % (8 % and 24 %; 28 % and 39 % before this work); idle IPC 30 calls a minute (28), none while hidden.
 
 ## Not done
 

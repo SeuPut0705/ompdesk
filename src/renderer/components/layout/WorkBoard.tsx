@@ -52,24 +52,8 @@ const TURN_CLOCK_SLACK_MS = 500;
 
 const WAITING_AGENT: Record<string, true> = { parked: true, idle: true };
 
-function Dot({
-	tone,
-	live = false,
-	ring = false,
-}: {
-	tone: "info" | "success" | "warning" | "muted";
-	live?: boolean;
-	ring?: boolean;
-}) {
-	return (
-		<span
-			aria-hidden
-			className="omp-work-board-dot"
-			data-live={live || undefined}
-			data-ring={ring || undefined}
-			data-tone={tone}
-		/>
-	);
+function Dot({ tone, ring = false }: { tone: "info" | "success" | "warning" | "muted"; ring?: boolean }) {
+	return <span aria-hidden className="omp-work-board-dot" data-ring={ring || undefined} data-tone={tone} />;
 }
 
 function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; label: string }) {
@@ -167,7 +151,6 @@ function BoardRow({
 	onClick,
 	title,
 	data,
-	live = false,
 	exiting = false,
 }: {
 	lead: ReactNode;
@@ -177,7 +160,6 @@ function BoardRow({
 	onClick?: () => void;
 	title?: string;
 	data?: Record<string, string>;
-	live?: boolean;
 	exiting?: boolean;
 }) {
 	const body = (
@@ -193,12 +175,7 @@ function BoardRow({
 		</>
 	);
 	return (
-		<li
-			aria-hidden={exiting || undefined}
-			className="omp-work-board-item"
-			data-exiting={exiting || undefined}
-			data-live={live || undefined}
-		>
+		<li aria-hidden={exiting || undefined} className="omp-work-board-item" data-exiting={exiting || undefined}>
 			{onClick ? (
 				<button className="omp-work-board-row" onClick={onClick} title={title} type="button" {...data}>
 					{body}
@@ -208,7 +185,6 @@ function BoardRow({
 					{body}
 				</div>
 			)}
-			{live ? <span aria-hidden className="omp-work-board-sweep" /> : null}
 		</li>
 	);
 }
@@ -340,8 +316,7 @@ function AgentRow({
 			exiting={exiting}
 			data={{ "data-board-agent": agent.id, "data-status": agent.status }}
 			label={label}
-			lead={waiting ? <Pause aria-hidden className="size-3 text-(--sc-text-subtle)" /> : <Dot live tone="info" />}
-			live={!waiting}
+			lead={waiting ? <Pause aria-hidden className="size-3 text-(--sc-text-subtle)" /> : <Dot tone="info" />}
 			meta={elapsed === null ? undefined : formatElapsed(elapsed)}
 			onClick={onOpen}
 			sub={
@@ -521,8 +496,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 						<BoardRow
 							data={{ "data-board-turn": "" }}
 							label={turnState}
-							lead={<Dot live tone="info" />}
-							live
+							lead={<Dot tone="info" />}
 							title={turnState}
 						/>
 					) : (
@@ -544,7 +518,6 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 											className={cx("size-3.5", running ? "text-(--sc-info)" : "text-(--sc-text-subtle)")}
 										/>
 									}
-									live={running}
 									meta={
 										running
 											? clock(entry.startTime)
@@ -575,8 +548,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 							exiting={exiting}
 							key={job.id}
 							label={job.label}
-							lead={<Dot live tone="info" />}
-							live
+							lead={<Dot tone="info" />}
 							meta={clock(job.startTime)}
 							onClick={() => useUiStore.getState().openJobs()}
 							sub={t(`jobs.type.${job.type}`)}
@@ -630,14 +602,13 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 								row.status === "completed" ? (
 									<Check aria-hidden className="size-3 text-(--sc-success)" />
 								) : row.status === "in_progress" ? (
-									<Dot live tone="info" />
+									<Dot tone="info" />
 								) : row.status === "blocked" ? (
 									<Dot tone="warning" />
 								) : (
 									<Dot ring tone="muted" />
 								)
 							}
-							live={row.status === "in_progress"}
 							onClick={() => showTodoCard(pane)}
 							title={row.content}
 						/>
@@ -658,11 +629,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 							</span>
 						}
 						lead={
-							<Dot
-								// An active goal between turns waits on nobody's work: a steady dot, no animation to draw.
-								live={goalStatus === "active" && turnActive}
-								tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"}
-							/>
+							<Dot tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"} />
 						}
 						onClick={() => useUiStore.getState().openModes("goal")}
 						sub={

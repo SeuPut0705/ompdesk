@@ -276,6 +276,10 @@ describe("WorkBoard sections", () => {
 		expect(pane.querySelector('[data-board-job="j1"]')?.textContent).toContain("bun run dev");
 		expect(pane.querySelector('[data-board-job="j1"]')?.textContent).toMatch(/1m/);
 		expect(pane.querySelector('[data-board-job="j2"]')).toBeNull();
+		// Only the head pulse moves: running rows carry no animated mark (flow-performance `daily`: each one cost
+		// the GPU process about 2% of a core while the transcript streamed).
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("working");
+		expect(pane.querySelectorAll("[data-live], .omp-work-board-sweep")).toHaveLength(0);
 
 		await click('[data-board-agent="a1"]');
 		expect(useUiStore.getState().panelTab).toBe("subagent");
