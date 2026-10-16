@@ -138,6 +138,9 @@ describe("FirstRunGate", () => {
 		expect(useFirstRunStore.getState().phase).toBe("connect");
 		expect(text()).toContain(translate("setup.title"));
 		expect(text()).toContain("Anthropic (Claude Pro/Max)");
+		// The same compact, mark-first picker as Settings › Models & providers.
+		expect(document.querySelector("[data-provider-picker] [data-provider-mark]")).not.toBeNull();
+		expect(document.querySelector('[data-provider-connect="anthropic"]')).not.toBeNull();
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 
 		await act(async () => button(translate("setup.later"))?.click());
@@ -340,5 +343,43 @@ describe("FirstRunSetup resume and keys", () => {
 		await act(async () => later?.click());
 		expect(useFirstRunStore.getState().phase).toBe("idle");
 		expect(text()).not.toContain(translate("setup.title"));
+	});
+
+	it("answers Add custom endpoint at once while the provider options load, then shows the form", async () => {
+		catalog = { ...catalog, providers: [anthropic], models: [] };
+		const options = Promise.withResolvers<CustomProvidersConfig>();
+		listProviders.mockImplementationOnce(() => options.promise);
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("connect", null);
+		await mount(<FirstRunSetup />);
+
+		await act(async () => button(translate("providerList.addCustom"))?.click());
+		expect(document.querySelector('[data-testid="first-run-custom-pending"]')).not.toBeNull();
+		expect(button(translate("providerCfg.form.add"))).toBeUndefined();
+
+		await act(async () => options.resolve({ providers: [], options: fixtureProviderOptions }));
+		expect(document.querySelector('[data-testid="first-run-custom-pending"]')).toBeNull();
+		expect(button(translate("providerCfg.form.add"))).toBeDefined();
+	});
+
+	it("says so, with a Retry, when the provider options cannot be read", async () => {
+		catalog = { ...catalog, providers: [anthropic], models: [] };
+		listProviders.mockRejectedValueOnce(new Error("models.yml unreadable"));
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("connect", null);
+		await mount(<FirstRunSetup />);
+
+		await act(async () => button(translate("providerList.addCustom"))?.click());
+		const pending = document.querySelector('[data-testid="first-run-custom-pending"]');
+		expect(pending?.textContent).toContain(translate("setup.configReadFailed"));
+
+		// Back leaves the pending state for the provider list.
+		await act(async () => button(translate("setup.model.back"))?.click());
+		expect(document.querySelector('[data-testid="first-run-custom-pending"]')).toBeNull();
+		expect(button(translate("providerList.addCustom"))).toBeDefined();
+
+		await act(async () => button(translate("providerList.addCustom"))?.click());
+		await act(async () => button(translate("common.retry"))?.click());
+		expect(button(translate("providerCfg.form.add"))).toBeDefined();
 	});
 });

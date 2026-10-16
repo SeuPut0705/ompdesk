@@ -26,8 +26,9 @@ import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, Kbd, ListRow, Modal, Spinner } from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
-import { ProviderList, useProviderCatalog } from "../settings/providers/ProviderList";
-import { useProviderLogin } from "../settings/providers/ProviderLogin";
+import { useProviderCatalog } from "../settings/providers/ProviderList";
+import { ProviderLoginPanel, useProviderLogin } from "../settings/providers/ProviderLogin";
+import { ProviderPicker } from "../settings/providers/ProviderPicker";
 import {
 	canServe,
 	hasUsableModelProvider,
@@ -112,6 +113,11 @@ function ConnectStep() {
 	const catalog = useProviderCatalog();
 	const [customForm, setCustomForm] = useState(false);
 	const { providers, customConfigs, load } = catalog;
+	// The catalog drops its options whenever the tab's runtime is replaced and reads them again. Keep the last
+	// ones, so a form that is open (and what is typed in it) stays put through that read.
+	const lastOptions = useRef(catalog.options);
+	if (catalog.options) lastOptions.current = catalog.options;
+	const options = catalog.options ?? lastOptions.current;
 
 	const advance = useCallback(
 		async (providerId: string) => {
@@ -134,13 +140,44 @@ function ConnectStep() {
 		revealSetup();
 	}, [customForm]);
 
-	if (customForm && catalog.options) {
+	// The form needs the provider options. Until they arrive (or when reading them failed) say so in place,
+	// instead of leaving the list as it was and popping the form in later.
+	if (customForm && !options) {
+		return (
+			<div className="mt-8 flex flex-col gap-3" data-testid="first-run-custom-pending">
+				{catalog.configError ? (
+					<Banner
+						actions={
+							<Button onClick={() => void load(true)} size="sm" variant="secondary">
+								{t("common.retry")}
+							</Button>
+						}
+						live
+						variant="warning"
+					>
+						{t("setup.configReadFailed")}
+					</Banner>
+				) : (
+					<div className="flex justify-center py-8">
+						<Spinner label={t("modelPicker.loading")} />
+					</div>
+				)}
+				<div>
+					<Button icon={<ArrowLeft />} onClick={() => setCustomForm(false)} variant="ghost">
+						{t("setup.model.back")}
+					</Button>
+				</div>
+			</div>
+		);
+	}
+
+	if (customForm && options) {
 		return (
 			<div className="mt-8">
 				<CustomProviderForm
 					editing={null}
 					existing={customConfigs}
-					options={catalog.options}
+					options={options}
 					onCancel={() => setCustomForm(false)}
 					onSaved={providerId => {
 						setCustomForm(false);
@@ -179,7 +216,18 @@ function ConnectStep() {
 				</Banner>
 			)}
 			{catalog.configError && <Banner variant="warning">{t("setup.configReadFailed")}</Banner>}
-			<ProviderList catalog={catalog} login={login} onAddCustom={() => setCustomForm(true)} />
+			<ProviderPicker catalog={catalog} login={login} onAddCustom={() => setCustomForm(true)} />
+			{login.state.providerId !== null && (
+				<div data-login-panel>
+					<ProviderLoginPanel
+						login={login}
+						onRetry={() => void login.start(login.state.providerId ?? "")}
+						providerName={
+							providers.find(row => row.id === login.state.providerId)?.name ?? login.state.providerId
+						}
+					/>
+				</div>
+			)}
 			<div className="mt-2 flex flex-wrap items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
 				<div className="min-w-0 flex-1">
 					<div className="text-sc-md font-medium text-(--sc-text)">{t("setup.custom.title")}</div>

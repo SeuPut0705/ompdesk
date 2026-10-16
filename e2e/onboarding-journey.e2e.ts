@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp } from "./harness";
+import { realOmpProfile } from "./real-omp";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in audit of the first-time journey on the real omp (OMP_GUI_ONBOARDING=<dir>):
@@ -123,8 +124,32 @@ for (const variant of VARIANTS) {
 			if (reduced) await page.emulateMedia({ reducedMotion: "reduce" });
 			// The window's minimum size: the harshest layout a new user can have.
 			await resize(app, 800, 600);
-			const shoot = capturer(page, directory, prefix, findings);
+			const shoot = capturer(page, directory, `${prefix}-${test.info().repeatEachIndex}`, findings);
 			await page.waitForFunction(() => window.omp?.rpc != null);
+			// When the setup section mounts and unmounts: a step that is rebuilt under the user's hands shows up here.
+			await page.evaluate(() => {
+				const log: string[] = [];
+				Reflect.set(window, "__setupLog", log);
+				const start = performance.now();
+				const mark = (what: string, nodes: NodeList) => {
+					for (const node of nodes) {
+						if (!(node instanceof Element)) continue;
+						const hit = node.matches("[data-first-run-step]")
+							? node
+							: node.querySelector("[data-first-run-step]");
+						if (hit)
+							log.push(
+								`${Math.round(performance.now() - start)}ms ${what} ${hit.getAttribute("data-first-run-step")}`,
+							);
+					}
+				};
+				new MutationObserver(records => {
+					for (const record of records) {
+						mark("+", record.addedNodes);
+						mark("-", record.removedNodes);
+					}
+				}).observe(document.body, { childList: true, subtree: true });
+			});
 			await expect
 				.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
 				.toBe("ready");
@@ -165,13 +190,70 @@ for (const variant of VARIANTS) {
 			expect(await fs.readFile(path.join(project, "hello.txt"), "utf8")).toBe("hello\n");
 			notes.push(`window ${await page.evaluate(() => `${innerWidth}x${innerHeight}`)}`);
 		} finally {
+			notes.push(
+				...(await page
+					.evaluate<string[]>(() => Reflect.get(window, "__setupLog") ?? [])
+					.catch(() => ["page gone"])),
+			);
 			await fs.writeFile(
-				path.join(directory ?? os.tmpdir(), `${prefix}-findings.json`),
+				path.join(directory ?? os.tmpdir(), `${prefix}-${test.info().repeatEachIndex}-findings.json`),
 				JSON.stringify({ findings, notes, errors }, null, 2),
 			);
 			await exitApp(app);
 			server.close();
 			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+		expect(errors).toEqual([]);
+	});
+}
+
+// The same first prompt on the user's own small model (OMP_GUI_REAL_WORK=1 spends its tokens): an isolated profile
+// copied from the real one (e2e/real-omp.ts), so a provider is already connected and the window opens on the empty
+// session; the first request must end in a finished work card with the file on disk, at the minimum window size.
+for (const [language, theme] of [
+	["en", "light"],
+	["ko", "dark"],
+] as const) {
+	test(`first prompt on the small model ends in a finished work card (${language} ${theme})`, async () => {
+		test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "set OMP_GUI_REAL_WORK=1 to spend the small model's tokens");
+		test.setTimeout(300_000);
+		const real = await realOmpProfile({ language, themeName: theme });
+		const app = await electron.launch({
+			args: [path.resolve("out/main/index.js"), real.project, `--user-data-dir=${real.desktop}`],
+			env: real.env,
+		});
+		const findings: Finding[] = [];
+		const errors: string[] = [];
+		const prefix = `real-${language}-${theme}`;
+		const page = await app.firstWindow();
+		page.on("pageerror", error => errors.push(error.message));
+		try {
+			await resize(app, 800, 600);
+			const shoot = capturer(page, directory, prefix, findings);
+			await page.waitForFunction(() => window.omp?.rpc != null);
+			await expect
+				.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
+				.toBe("ready");
+			const composer = page.locator("textarea").first();
+			await expect(composer).toBeVisible();
+			await shoot("empty");
+			await composer.fill(
+				"Create the file hello.txt containing exactly the line hello. Then reply in one short sentence.",
+			);
+			await page.keyboard.press("Enter");
+			await shoot("sent");
+			const card = page.locator('.omp-execution-group[data-state="complete"]');
+			await expect(card).toBeVisible({ timeout: 240_000 });
+			await expect(page.locator('.omp-execution-group[data-state="running"]')).toHaveCount(0);
+			await shoot("work-card");
+			expect((await fs.readFile(path.join(real.project, "hello.txt"), "utf8")).trim()).toBe("hello");
+		} finally {
+			await fs.writeFile(
+				path.join(directory ?? os.tmpdir(), `${prefix}-findings.json`),
+				JSON.stringify({ findings, errors }, null, 2),
+			);
+			await exitApp(app);
+			await fs.rm(real.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		}
 		expect(errors).toEqual([]);
 	});
