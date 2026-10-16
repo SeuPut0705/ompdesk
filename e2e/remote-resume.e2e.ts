@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { exitApp } from "./harness";
+import { capture, exitApp } from "./harness";
 import {
 	freePort,
 	type Language,
@@ -48,10 +48,6 @@ function translate(language: Language, key: string, vars: Record<string, string 
 	const template = (language === "ko" ? ko : en)[key];
 	if (template === undefined) throw new Error(`no ${language} string ${key}`);
 	return template.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? `{${name}}`));
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 function isRunning(pid: number): boolean {

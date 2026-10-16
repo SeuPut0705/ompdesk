@@ -14,8 +14,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, walkRemotePicker } from "./harness";
+import type { ElectronApplication } from "playwright";
+import { capture, exitApp, launchApp, walkRemotePicker } from "./harness";
 
 interface Instance {
 	app: ElectronApplication;
@@ -38,20 +38,15 @@ async function launch(
 	await fs.mkdir(root);
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ ...prefs, firstRunComplete: true }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
-		OMP_GUI_REMOTE_PORT: "0",
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discoveryPort),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
+		env: {
+			OMP_GUI_REMOTE_PORT: "0",
+			OMP_GUI_REMOTE_DISCOVERY_PORT: String(discoveryPort),
+		},
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];
@@ -62,10 +57,6 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	return { app, page, project: await fs.realpath(project), desktop, errors };
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 test("a paired device shows the host's OMPdesk under Updates and, when asked, the host's theme and language", async () => {

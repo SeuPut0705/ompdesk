@@ -2,8 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 test("queued messages: remove one, send a follow-up now, and Stop restores the rest into the draft", async () => {
 	test.setTimeout(120_000);
@@ -13,18 +12,11 @@ test("queued messages: remove one, send a follow-up now, and Stop restores the r
 		project = path.join(profile, "project");
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(project)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en" }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];

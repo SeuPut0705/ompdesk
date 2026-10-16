@@ -2,9 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
 import { z } from "zod";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 // Drag-to-split on the fake omp with a real mouse drag: dragging an open
 // session's sidebar row over the workspace previews the half the new pane will
@@ -18,19 +17,14 @@ test("dragging a session previews and splits on the hovered side", async () => {
 	const recordFile = path.join(profile, "record.jsonl");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: recordFile,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: recordFile,
+		},
 	});
 	try {
 		const page = await app.firstWindow();

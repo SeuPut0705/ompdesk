@@ -13,8 +13,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -77,20 +76,15 @@ async function launch(options: LaunchOptions = {}): Promise<Launched> {
 			}),
 		);
 	}
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_TEST_NEXT_PROMPT: JSON.stringify(options.script ?? {}),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_NEXT_PROMPT: JSON.stringify(options.script ?? {}),
+		},
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];
@@ -164,10 +158,6 @@ function suggestionsSwitch(settings: Locator): Locator {
 
 function inlineSwitch(settings: Locator): Locator {
 	return settings.locator("#setting-gui-nextPromptInline").getByRole("switch");
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 test("after a turn the best candidate is the placeholder, the others are chips, and every way to take one works", async () => {

@@ -17,7 +17,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { exitApp, openDestination } from "./harness";
+import { capture, exitApp, openDestination } from "./harness";
 import {
 	type Language,
 	launchRemote,
@@ -56,10 +56,6 @@ async function seedHostProject(root: string, project: string): Promise<string> {
 	git(project, "remote", "add", "origin", remote);
 	git(project, "push", "-q", "-u", "origin", "main");
 	return remote;
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 /** The docked side panel on one of its views. */

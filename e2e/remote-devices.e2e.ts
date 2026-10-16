@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, walkRemotePicker } from "./harness";
+import type { ElectronApplication } from "playwright";
+import { exitApp, fixtureOmp, launchApp, walkRemotePicker } from "./harness";
 
 // Two OMPdesk instances on the fake omp: B shares itself, A pairs with it
 // through Settings › Remote devices, opens a session on B from its sidebar,
@@ -40,22 +40,18 @@ async function launch(profile: string, name: string, discoveryPort: number, cust
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: bin,
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_REMOTE_PORT: "0",
-		OMP_GUI_TEST_LOGIN: "1",
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discoveryPort),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
+		env: {
+			OMP_GUI_OMP: bin,
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_REMOTE_PORT: "0",
+			OMP_GUI_TEST_LOGIN: "1",
+			OMP_GUI_REMOTE_DISCOVERY_PORT: String(discoveryPort),
+		},
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];

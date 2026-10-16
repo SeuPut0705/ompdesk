@@ -3,8 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, openDestination, pressShortcutUntilVisible } from "./harness";
 
 // At the smallest window OMPdesk allows (800×640, sidebar open) the settings
 // nav labels read in full and no settings section or settings tab scrolls
@@ -22,18 +21,11 @@ for (const language of ["en", "ko"] as const)
 		await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
 		execFileSync("git", ["init", "--quiet"], { cwd: project });
 		await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
-		const env = {
-			...process.env,
-			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-			OMP_PROFILE: "",
-			PI_PROFILE: "",
-			OMP_GUI_OMP: await fixtureOmp(profile),
-		};
-		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-		const app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-			env,
+		const app = await launchApp({
+			project,
+			desktop,
+			agent,
+			profile,
 		});
 		try {
 			const page = await app.firstWindow();
@@ -107,19 +99,14 @@ test("pull requests fit the smallest window", async () => {
 		`#!/bin/sh\ncase "$1 $2" in\n"repo view") echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;\n"pr list") cat "${bin}/list.json" ;;\n"pr view") cat "${bin}/view.json" ;;\n*) exit 1 ;;\nesac\n`,
 		{ mode: 0o755 },
 	);
-	const env = {
-		...process.env,
-		PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+		},
 	});
 	try {
 		const page = await app.firstWindow();

@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import type { ElectronApplication, Page } from "playwright";
+import { exitApp, launchApp } from "./harness";
 
 // omp 18.8.6's per-session worktrees (`worktree.onStart` / `worktree.onExit`)
 // in GUI tabs, on the fake omp with the settings switched on
@@ -43,20 +43,15 @@ async function launch(policy: string, language: "en" | "ko" = "en"): Promise<voi
 	git(project, "add", ".");
 	git(project, "commit", "-q", "-m", "init");
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_WORKTREE_DIR: worktreeRoot,
-		OMP_GUI_TEST_WORKTREE_LIFECYCLE: policy,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_WORKTREE_DIR: worktreeRoot,
+			OMP_GUI_TEST_WORKTREE_LIFECYCLE: policy,
+		},
 	});
 	page = await app.firstWindow();
 	errors = [];

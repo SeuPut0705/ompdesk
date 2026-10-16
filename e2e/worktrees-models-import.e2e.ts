@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -115,10 +115,6 @@ async function launch(language: Language, theme: Theme, env: Record<string, stri
 		.toBe("ready");
 	launched = { app, page, desktop, agent, errors };
 	return launched;
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 async function openSettings(page: Page, section: string): Promise<Locator> {

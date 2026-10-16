@@ -11,8 +11,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 type Language = "en" | "ko";
 
@@ -39,19 +38,14 @@ async function launch(language: Language, delayMs: number): Promise<Launched> {
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: "light", firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECAP: JSON.stringify({ text: RECAP, delayMs }),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECAP: JSON.stringify({ text: RECAP, delayMs }),
+		},
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];
@@ -84,10 +78,6 @@ async function runTurn(page: Page, replies: number): Promise<void> {
 
 function recapLine(page: Page): Locator {
 	return page.locator("[data-recap]");
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 for (const language of ["en", "ko"] as const) {

@@ -9,8 +9,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron, type Page } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import type { Page } from "playwright";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 import { resize } from "./shell-capture";
 
 for (const [language, theme] of [
@@ -39,21 +39,16 @@ for (const [language, theme] of [
 			path.join(desktop, "prefs.json"),
 			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 		);
-		const env = {
-			...process.env,
-			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: path.relative(os.homedir(), root),
-			OMP_PROFILE: "",
-			PI_PROFILE: "",
-			OMP_GUI_OMP: await fixtureOmp(root),
-			OMP_GUI_TEST_RECORD: path.join(root, "rpc.jsonl"),
-			// Prompts write stock-shaped session files, so ⌥⌘T and ⇧⌘F have a saved session to find.
-			OMP_GUI_TEST_SESSION_FILES: "1",
-		};
-		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-		const app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-			env,
+		const app = await launchApp({
+			project,
+			desktop,
+			agent,
+			profile: root,
+			env: {
+				OMP_GUI_TEST_RECORD: path.join(root, "rpc.jsonl"),
+				// Prompts write stock-shaped session files, so ⌥⌘T and ⇧⌘F have a saved session to find.
+				OMP_GUI_TEST_SESSION_FILES: "1",
+			},
 		});
 		const page = await app.firstWindow();
 		const errors: string[] = [];

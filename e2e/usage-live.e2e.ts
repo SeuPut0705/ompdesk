@@ -11,8 +11,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron, type Locator, type Page } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import type { ElectronApplication, Locator, Page } from "playwright";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -45,22 +45,17 @@ test.beforeAll(async () => {
 	await Promise.all([fs.mkdir(project), fs.mkdir(userData), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(path.join(userData, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		OMP_GUI_TEST_RECORD: record,
-		OMP_GUI_TEST_LOGIN: "1",
-		OMP_GUI_TEST_MODELS: "1",
-		OMP_GUI_TEST_USAGE_DRIFT: "1",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${userData}`],
-		env,
+	app = await launchApp({
+		project,
+		desktop: userData,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_LOGIN: "1",
+			OMP_GUI_TEST_MODELS: "1",
+			OMP_GUI_TEST_USAGE_DRIFT: "1",
+		},
 	});
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));

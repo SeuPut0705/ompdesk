@@ -9,8 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -36,20 +35,15 @@ async function launch(language: Language, theme: Theme): Promise<Launched> {
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
-		// Stock-shaped session files: the split drag needs saved sessions.
-		OMP_GUI_TEST_SESSION_FILES: "1",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
+		env: {
+			// Stock-shaped session files: the split drag needs saved sessions.
+			OMP_GUI_TEST_SESSION_FILES: "1",
+		},
 	});
 	const page = await app.firstWindow();
 	await resize(app, 1600, 900);

@@ -2,8 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 // Opt-in audit of features meeting on one work card: a long command output, a media outcome (the
 // clip a read showed and the file the reply names), a steer delivered mid-run, a connection wait
@@ -41,18 +40,11 @@ async function launch(variant: Variant) {
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language: variant.language, themeName: variant.theme, firstRunComplete: true }),
 	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
 	});
 	const page = await app.firstWindow();
 	const [width, height] = variant.size;

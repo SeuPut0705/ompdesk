@@ -2,8 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, launchApp } from "./harness";
 
 // The stock-parity tool renderers (generic card, MCP, think, yield, LSP diagnostics, cfg://,
 // read metadata, ast_grep, eval cells, search limits, lsp failures, wait details, prose devices)
@@ -315,18 +314,11 @@ for (const variant of VARIANTS)
 			path.join(desktop, "prefs.json"),
 			JSON.stringify({ language: variant.language, themeName: variant.theme, firstRunComplete: true }),
 		);
-		const env = {
-			...process.env,
-			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: path.relative(os.homedir(), root),
-			OMP_PROFILE: "",
-			PI_PROFILE: "",
-			OMP_GUI_OMP: await fixtureOmp(root),
-		};
-		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-		const app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-			env,
+		const app = await launchApp({
+			project,
+			desktop,
+			agent,
+			profile: root,
 		});
 		try {
 			const page = await app.firstWindow();

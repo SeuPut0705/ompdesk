@@ -20,9 +20,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { exitApp, fixtureOmp, openDestination } from "./harness";
+import { capture, exitApp, launchApp, openDestination } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
 
 type Language = "en" | "ko";
@@ -84,19 +83,14 @@ async function launch(
 			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 		),
 	]);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(profile),
-		...(contextOver ? { OMP_GUI_TEST_CONTEXT_OVER: "1" } : {}),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			...(contextOver ? { OMP_GUI_TEST_CONTEXT_OVER: "1" } : {}),
+		},
 	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
@@ -105,10 +99,6 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	return { app, page, profile };
-}
-
-async function capture(page: Page, name: string): Promise<void> {
-	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });
 }
 
 /** A `bash` line the fake omp reads as a fixture command. */

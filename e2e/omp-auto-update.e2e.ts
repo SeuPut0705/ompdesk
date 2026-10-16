@@ -15,9 +15,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
+import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 /** The fake installer: logs each call; the omp update waits for the test's `go` file, then "installs" 18.12.0. */
 const INSTALLER = `
@@ -65,27 +65,23 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 	);
 	const omp = await fixtureOmp(root);
 	const installer = await writeFakeOmp(installerDir, INSTALLER);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), root),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: omp,
-		OMP_GUI_TEST_INSTALLER: installer,
-		OMP_GUI_TEST_OMP_UPDATES: "1",
-		OMP_GUI_TEST_LATEST_OMP: "18.12.0",
-		OMP_GUI_TEST_UPDATE_CHECK_LOG: path.join(root, "update-checks.log"),
-		OMP_GUI_TEST_VERSION_FILE: path.join(root, "omp-version"),
-		OMP_GUI_TEST_BOOT_LOG: path.join(root, "boots.log"),
-		OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE: "planMode",
-		OMPDESK_FAKE_INSTALLER_DIR: installerDir,
-		OMPDESK_FAKE_VERSION_FILE: path.join(root, "omp-version"),
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile: root,
+		env: {
+			OMP_GUI_OMP: omp,
+			OMP_GUI_TEST_INSTALLER: installer,
+			OMP_GUI_TEST_OMP_UPDATES: "1",
+			OMP_GUI_TEST_LATEST_OMP: "18.12.0",
+			OMP_GUI_TEST_UPDATE_CHECK_LOG: path.join(root, "update-checks.log"),
+			OMP_GUI_TEST_VERSION_FILE: path.join(root, "omp-version"),
+			OMP_GUI_TEST_BOOT_LOG: path.join(root, "boots.log"),
+			OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE: "planMode",
+			OMPDESK_FAKE_INSTALLER_DIR: installerDir,
+			OMPDESK_FAKE_VERSION_FILE: path.join(root, "omp-version"),
+		},
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];

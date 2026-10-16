@@ -3,8 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, openDestination } from "./harness";
+import { exitApp, fixtureOmp, launchApp, openDestination } from "./harness";
 
 /**
  * Stand-in for the user's `@oh-my-pi/omp-stats`, loaded by the real
@@ -81,19 +80,15 @@ test("a stats server that binds late fills the open stats page with no reload", 
 		"export async function openStandaloneJudge() { return { judge: null }; }\n",
 	);
 	const gate = path.join(profile, "stats-gate");
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-		OMP_GUI_OMP: bin,
-		OMP_GUI_TEST_STATS_GATE: gate,
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
-		env,
+	const app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: {
+			OMP_GUI_OMP: bin,
+			OMP_GUI_TEST_STATS_GATE: gate,
+		},
 	});
 	try {
 		const page = await app.firstWindow();
