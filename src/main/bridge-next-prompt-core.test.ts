@@ -20,6 +20,8 @@ import {
 	buildAppState,
 	buildInlineRequest,
 	buildSuggestionRequest,
+	COPY_MIN_UNITS,
+	COPY_SIMILARITY,
 	candidateKey,
 	classifyFailure,
 	cleanCandidateLine,
@@ -29,7 +31,10 @@ import {
 	fitCandidateLength,
 	gateSuggestion,
 	hashText,
+	INLINE_MAX_CHARS,
+	INLINE_MAX_CHARS_CJK,
 	INLINE_MIN_INTERVAL_MS,
+	type InlineChecks,
 	InlineScheduler,
 	inlineDraftEligibility,
 	inlineDraftWindow,
@@ -38,15 +43,16 @@ import {
 	isTestCommand,
 	koreanRegister,
 	koreanRegisterOf,
-	lastUserText,
 	matchRegister,
 	renderTranscript,
+	SentMessages,
 	SUGGEST_INSTRUCTIONS,
 	SUGGEST_TRANSCRIPT_CHARS,
 	SuggestionScheduler,
+	sentTexts,
 	suggestionStateKey,
 	type Timers,
-	userStyle,
+	userRegister,
 } from "../../resources/gui-bridge/next-prompt-core";
 
 /** A virtual clock: timers fire only when the test advances it. */
@@ -108,12 +114,13 @@ describe("candidates", () => {
 		expect(cleanCandidates("commit it\nNONE")).toEqual(["commit it"]);
 	});
 
-	it("drops preambles, fences, over-long lines and a repeat of the user's last message", () => {
+	it("drops preambles, fences, over-long lines and a repeat of the user's latest message", () => {
 		expect(cleanCandidates("Here are some options:\ncommit it")).toEqual(["commit it"]);
 		expect(cleanCandidates("```\ncommit it")).toEqual(["commit it"]);
 		expect(cleanCandidateLine("x".repeat(MAX_CANDIDATE_CHARS + 1))).toBeUndefined();
 		expect(cleanCandidateLine("x".repeat(MAX_CANDIDATE_CHARS))).toHaveLength(MAX_CANDIDATE_CHARS);
-		expect(cleanCandidates("run the tests\nship it", { lastUserMessage: "Run the tests." })).toEqual(["ship it"]);
+		const sent = new SentMessages(["Run the tests."]);
+		expect(cleanCandidates("run the tests\nship it", { sent })).toEqual(["ship it"]);
 	});
 
 	it("keeps the user's language and collapses whitespace and control characters", () => {
@@ -216,58 +223,45 @@ describe("candidates sound like the user (reported: long, polite, the assistant'
 		).toBeUndefined();
 	});
 
-	it("builds the voice reference from the user's own recent messages: short excerpts, oldest first", () => {
+	it("judges the register on the first lines of the user's last six typed messages", () => {
 		const pasted = `## 표\n${"긴 붙여넣기 ".repeat(5)}`;
 		const messages = [
-			{ role: "user", content: "아주 오래된 메시지" },
-			{ role: "user", content: "1,2,3,6번 먼저 만들어 줘", attribution: "user" },
+			{ role: "user", content: "확인해 주세요" },
+			{ role: "user", content: "고마워요" },
 			{ role: "assistant", content: [{ type: "text", text: "네, 맡겼어요." }] },
 			{ role: "user", content: "Continue working on the goal.", synthetic: true },
 			{ role: "user", content: "subagent result", attribution: "agent" },
 			{ role: "user", content: "/compact" },
-			{ role: "user", content: [{ type: "text", text: "<system-reminder>x</system-reminder>" }] },
-			{ role: "user", content: [{ type: "image", data: "…" }] },
-			{ role: "user", content: "배포해줘" },
+			{ role: "user", content: "1,2,3,6번 먼저 만들어 줘" },
 			{ role: "user", content: "배포해줘" },
 			{ role: "user", content: "더 순환해" },
 			{ role: "user", content: pasted },
-			{ role: "user", content: `세션 제목이 지금 영어로 작성되는데 ${"기본언어 인식해서 ".repeat(8)}` },
+			{ role: "user", content: "이거 맞아요?\n그리고 배포해" },
 			{ role: "user", content: [{ type: "text", text: "응 그 방향으로 전부 만들어줘" }] },
 			{ role: "bashExecution", command: "git status" },
 		];
-		const { excerpts, register } = userStyle(messages);
-		// Six at most: the oldest ("아주 오래된 메시지") falls out; skipped kinds and the repeated "배포해줘" do not count.
-		expect(excerpts).toEqual([
-			"1,2,3,6번 먼저 만들어 줘",
-			"배포해줘",
-			"더 순환해",
-			"## 표",
-			expect.stringMatching(/^세션 제목이 지금 영어로 작성되는데 .*…$/),
-			"응 그 방향으로 전부 만들어줘",
-		]);
-		expect(Math.max(...excerpts.map(line => line.length))).toBeLessThanOrEqual(80);
-		expect(register).toBe("casual");
-		expect(userStyle([{ role: "assistant", content: "hi" }])).toEqual({ excerpts: [] });
+		// The two polite ones are older than the last six; "이거 맞아요?" counts by its first line.
+		expect(userRegister(sentTexts(messages))).toBe("casual");
+		expect(userRegister(["확인해 주세요", "고마워요", "배포해줘"])).toBe("polite");
+		expect(userRegister([])).toBeUndefined();
 	});
 
-	it("puts the voice reference first in the request, its register named, and the voice rules in the prompt", () => {
-		expect(buildSuggestionRequest("user: 배포해줘", "", { excerpts: ["배포해줘", "더 순환해"] })).toBe(
-			"<user-style>\n- 배포해줘\n- 더 순환해\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
+	it("names the register in the request, carries no excerpt of the user's messages, and states the voice rules", () => {
+		expect(buildSuggestionRequest("user: 배포해줘", "")).toBe("<conversation>\nuser: 배포해줘\n</conversation>");
+		expect(buildSuggestionRequest("user: 배포해줘", "", "casual")).toBe(
+			"<user-style>\nregister: 반말 (casual). Write Korean the way they do (해줘, 해, 할래?, 돼?); never 요, 니다, 세요 or 까요.\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
 		);
-		expect(buildSuggestionRequest("user: 배포해줘", "", { excerpts: ["배포해줘"], register: "casual" })).toBe(
-			"<user-style>\n- 배포해줘\nregister: 반말 (casual). End every Korean candidate the way they do (해줘, 해, 할래?, 돼?); never 요, 니다, 세요 or 까요.\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>",
-		);
-		expect(
-			buildSuggestionRequest("user: 배포해 주세요", "", { excerpts: ["배포해 주세요"], register: "polite" }),
-		).toContain(
-			"register: 존댓말 (polite). End every Korean candidate politely (해 주세요, 할까요?, 돼요?); never 반말 like 해줘.",
+		expect(buildSuggestionRequest("user: 배포해 주세요", "", "polite")).toContain(
+			"register: 존댓말 (polite). Write Korean politely (해 주세요, 할까요?, 돼요?); never 반말 like 해줘.",
 		);
 		expect(SUGGEST_INSTRUCTIONS).toContain("Each candidate is a message the user sends to the assistant");
 		expect(SUGGEST_INSTRUCTIONS).toContain(
 			"never address the user, never offer, promise or announce what you will do",
 		);
-		expect(SUGGEST_INSTRUCTIONS).toMatch(/<user-style> holds their own recent messages: copy their register/);
-		expect(SUGGEST_INSTRUCTIONS).toContain("When it names a register, every candidate uses it.");
+		expect(SUGGEST_INSTRUCTIONS).toContain("never repeat, reword or re-ask what they already sent");
+		expect(SUGGEST_INSTRUCTIONS).toContain(
+			"<user-style> names their register (in Korean 반말 or 존댓말): every candidate uses it.",
+		);
 		expect(SUGGEST_INSTRUCTIONS).toContain(
 			`never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages`,
 		);
@@ -398,6 +392,154 @@ describe("the user's Korean register (reported: 존댓말 suggestions to a 반�
 		expect(cleanCandidates("확인했습니다\n배포해 주세요\n배포해 줘", { register: "casual" })).toEqual(["배포해 줘"]);
 		// Without a register nothing changes.
 		expect(cleanCandidates(reply)).toHaveLength(3);
+	});
+});
+
+/**
+ * Reported on v0.32.2: the placeholder "모드 추가할 건 없어? 모델풀은 지워야 할 것 같고" and the chip "윈도우 버전에서 추가
+ * 지시가 바로 안 들어가는데 지금 대기열에 걸려 있어" restated two messages the user had sent (and the agent had handled)
+ * minutes before, taken from the <user-style> excerpts. The fixture is the session's own recent messages.
+ */
+describe("restatements of sent messages (reported: suggestions copying the user's own messages back)", () => {
+	const sentBefore = [
+		"배포해줘",
+		"작업현황에 2개 작업중 이런 표시는 지워줄래 어차피 밑에 나오잖아 중복된 표현임",
+		"또 존대말 나오네",
+		"빌드시간,최적화,릴리즈시간 전부 개선해",
+		"WinBlank 수정 커밋하면 v0.32.2 바로 배포해줘",
+		"다 끝나면 배포해",
+		"응 좋아 끝나면 캡처 보여줘",
+		"모드가 이렇게 있잖아 여기서 자동으로 스스로 판단해서 사용하는 모드가 있나?",
+		"루프,바이브,모델풀은 자동모드에서 빼야할꺼같고 계획,목표만 자동모드 넣으면될듯?",
+		"모드를 추가할것은 없나? 모델풀은 삭제해야할꺼 같고",
+		"그리고 윈도우버전에서는 추가지시가 즉시 안들어감 지금 대기열에 걸려있음",
+		"작업현황에 나온 사용한도 표시 모습이 보기좋은데 설정에 있는 계정목록에도 적용해줄래",
+		"파일 및 폴더 구조 개선 그리고 리팩토링 필요하면 제대로 진행해줘 병렬로",
+		"그리고 지금 작업중인데 버튼이 작업중 버튼이 아니네 (보내기 버튼)",
+		"채팅 입력창에 뭔가 효과를 줘서 작업중이라는 느낌을 주면 좋을꺼같음",
+	];
+	const sent = new SentMessages(sentBefore);
+
+	it("catches the reported restatements and the copies the small model wrote on a replay of that moment", () => {
+		for (const text of [
+			"모드 추가할 건 없어? 모델풀은 지워야 할 것 같고",
+			"윈도우 버전에서 추가 지시가 바로 안 들어가는데 지금 대기열에 걸려 있어",
+			"윈도우 버전에서 추가 지시가 바로 안 들어가고 대기열에 걸려 있는 문제 먼저 고쳐줘",
+			"작업 현황에 나온 사용한도 표시를 설정의 계정 목록에도 적용해 줘",
+			"채팅 입력창에 뭔가 효과를 줘서 작업중이라는 느낌을 주면 좋을꺼같음",
+		])
+			expect(sent.isCopy(text), text).toBe(true);
+		expect(
+			sent.similarity("모드 추가할 건 없어? 모델풀은 지워야 할 것 같고", sentBefore[9] ?? ""),
+		).toBeGreaterThanOrEqual(COPY_SIMILARITY);
+	});
+
+	it("keeps new requests, including ones that share everyday words, and short requests that recur", () => {
+		for (const text of [
+			"입력창 효과는 어떤 후보가 좋을지 캡처로 비교해서 보여줘",
+			"리팩토링 계획 1단계부터 바로 진행해줘",
+			"ComposerLive 끝나면 캡처로 보여줘",
+			"WinBlank 결과 나오면 바로 알려줘",
+			"Windows에서 Ctrl+Enter로 추가 지시 되는지 확인해줘",
+			// Sent before, short and generic: worth suggesting again later (judged against the latest message only).
+			"배포해줘",
+			"이 작업 끝나면 바로 배포해줘",
+		])
+			expect(sent.isCopy(text), text).toBe(false);
+		expect(COPY_MIN_UNITS).toBe(14);
+	});
+
+	it("never restates the latest message, however short", () => {
+		const latest = new SentMessages([...sentBefore, "배포해줘"]);
+		expect(latest.isCopy("배포해줘")).toBe(true);
+		expect(latest.isCopy("배포해 줘!")).toBe(true);
+		expect(new SentMessages([]).isCopy("배포해줘")).toBe(false);
+	});
+
+	it("drops the restatements from the cleaned candidates", () => {
+		const reply = [
+			"모드 추가할 건 없어? 모델풀은 지워야 할 것 같고",
+			"윈도우 버전에서 추가 지시가 바로 안 들어가는데 지금 대기열에 걸려 있어",
+			"입력창 효과 너무 튀지 않게 해줘",
+		].join("\n");
+		expect(cleanCandidates(reply, { register: "casual", sent })).toEqual(["입력창 효과 너무 튀지 않게 해줘"]);
+	});
+});
+
+/**
+ * Reported with it: the ghost text while typing "suggests odd continuations". On a replay of six real drafts from the
+ * session (two runs each) all 12 continuations were wrong: 존댓말 ("…확인이 필요해요"), the assistant's voice ("확인해
+ * 볼게요", "정리해 둘게요"), whole new sentences, another topic; with the register fixed, 9 of 12 still glued onto the
+ * last word ("버튼이" + "이상하게", "모습이" + "가 맞는지"). The model now restates the draft and continues it, and the
+ * continuation is judged as part of the assembled message.
+ */
+describe("inline continuation is judged as the assembled message (reported: odd ghost text)", () => {
+	const sent = new SentMessages([
+		"모드를 추가할것은 없나? 모델풀은 삭제해야할꺼 같고",
+		"그리고 윈도우버전에서는 추가지시가 즉시 안들어감 지금 대기열에 걸려있음",
+		"배포해줘",
+	]);
+	const casual = { register: "casual" as const, sent };
+	/** The model's reply: the draft restated, then its continuation. */
+	const ghost = (draft: string, continuation: string, checks: InlineChecks = casual) =>
+		cleanInlineReply(draft + continuation, draft, checks);
+
+	it("keeps a continuation that finishes the user's own sentence, even as a fragment", () => {
+		// Real replies on the replay, draft restated.
+		expect(ghost("그리고 윈도우버전에서는 추가지시가", " 안 먹히는지 봐줄래?")).toBe(" 안 먹히는지 봐줄래?");
+		expect(ghost("작업현황에 나온 사용한도 표시 모습이", " 어떤지 봐줘")).toBe(" 어떤지 봐줘");
+		expect(ghost("그리고 지금 작업중인데 버튼이", " 안 바뀌어")).toBe(" 안 바뀌어");
+	});
+
+	it("shows nothing when the reply does not restate the draft as typed (the user's text is never rewritten)", () => {
+		expect(cleanInlineReply("이상하게 안 눌려서 확인 좀 해줘", "그리고 지금 작업중인데 버튼이", casual)).toBeNull();
+		expect(
+			cleanInlineReply("작업 현황에 나온 사용 한도 표시가 이상해", "작업현황에 나온 사용한도 표시", casual),
+		).toBeNull();
+		// A draft ending in a space: the model may drop it, and its own leading space is not doubled.
+		expect(cleanInlineReply("버튼 색이 안 바뀌어", "버튼 색이 ", casual)).toBe("안 바뀌어");
+	});
+
+	it("shows nothing for the replayed failures", () => {
+		const failures: Array<[string, string]> = [
+			["그리고 지금 작업중인데 버튼이", " 색이 바뀌지 않아서 확인이 필요해요"],
+			["그리고 윈도우버전에서는 추가지시가", " 안 되는지 확인해 볼게요."],
+			["작업현황에 나온 사용한도 표시 모습이", " 이 시각 정보, 바로 정리해 둘게요."],
+			["파일 및 폴더 구조 개선 그리고", " 정리 작업은 나중에 해요."],
+			["추천 프롬프트 이미 작업중인데", " ...입력창에 효과를 넣으면 CPU 부담이 생기니 측정부터 해 볼게요."],
+			["그리고 지금 작업중인데 버튼이", " 정확히 어떤 버튼인지 모르겠지만, 이 버튼 이슈는 먼저 처리하는 게 좋아요."],
+		];
+		for (const [draft, continuation] of failures) expect(ghost(draft, continuation), continuation).toBeNull();
+	});
+
+	it("shows nothing for a second sentence, a role label, a tag or a fence", () => {
+		expect(ghost("버튼 색이", " 이상해. 그리고 배포해줘")).toBeNull();
+		expect(ghost("버튼 색이", " assistant: 네")).toBeNull();
+		expect(ghost("버튼 색이", "<b>이상해</b>")).toBeNull();
+		expect(ghost("버튼 색이", "```")).toBeNull();
+		expect(ghost("버튼 색이", " 이상해.")).toBe(" 이상해.");
+	});
+
+	it("shows nothing when the assembled message restates a sent one", () => {
+		expect(ghost("그리고 윈도우버전에서는", " 추가지시가 즉시 안들어감")).toBeNull();
+		// A different question on the same draft is no restatement.
+		expect(ghost("그리고 윈도우버전에서는", " 고친 버전 언제 나와?")).toBe(" 고친 버전 언제 나와?");
+		expect(ghost("모드를 추가할것은 없나?", " 모델풀은 삭제해야할꺼 같고")).toBeNull();
+	});
+
+	it("never holds what the user typed against the ghost", () => {
+		// Polite or honorific words the user typed themselves: only what the ghost adds is judged.
+		expect(ghost("이거 확인해 주시고", " 배포도 해줘")).toBe(" 배포도 해줘");
+		expect(ghost("고마워요", " 그리고 커밋해")).toBe(" 그리고 커밋해");
+		// The user retyping a sent message is their call; the ghost only adds its own words.
+		expect(ghost("모드를 추가할것은 없나? 모델풀은 삭제해야할꺼", " 같고")).toBe(" 같고");
+	});
+
+	it("holds a polite user to 존댓말 without dropping their own casual words", () => {
+		const polite = { register: "polite" as const, sent };
+		expect(ghost("로그 확인하고 결과", " 알려줘", polite)).toBeNull();
+		expect(ghost("로그 확인하고 결과", " 알려 주세요", polite)).toBe(" 알려 주세요");
+		expect(ghost("로그 확인하고 결과", " 알려줘", {})).toBe(" 알려줘");
 	});
 });
 
@@ -603,7 +745,20 @@ describe("transcript and prompts", () => {
 
 	it("renders the tail as plain rows, newest last, without tool output or thinking", () => {
 		expect(renderTranscript(messages, 4000)).toBe("user: hello\nassistant: hi there\nuser: run tests");
-		expect(lastUserText(messages)).toBe("run tests");
+	});
+
+	it("lists what the user typed, oldest first, without synthetic, agent, slash or injected messages", () => {
+		expect(
+			sentTexts([
+				...messages,
+				{ role: "user", content: "Continue working on the goal.", synthetic: true },
+				{ role: "user", content: "subagent result", attribution: "agent" },
+				{ role: "user", content: "/compact" },
+				{ role: "user", content: "<system-reminder>x</system-reminder>" },
+				{ role: "user", content: [{ type: "image", data: "…" }] },
+				{ role: "user", content: "  배포해줘\n그리고 캡처  " },
+			]),
+		).toEqual(["hello", "run tests", "배포해줘\n그리고 캡처"]);
 	});
 
 	it("stays within its budget, keeping the newest rows", () => {
@@ -630,6 +785,10 @@ describe("transcript and prompts", () => {
 		expect(buildInlineRequest("", "fix the")).toBe("<draft>fix the</draft>");
 		expect(buildInlineRequest("user: hi", "fix the")).toBe(
 			"<conversation>\nuser: hi\n</conversation>\n<draft>fix the</draft>",
+		);
+		// Inline gets the register line only: an excerpt of a sent message invites a copy.
+		expect(buildInlineRequest("user: 배포해줘", "버튼이", "casual")).toBe(
+			"<user-style>\nregister: 반말 (casual). Write Korean the way they do (해줘, 해, 할래?, 돼?); never 요, 니다, 세요 or 까요.\n</user-style>\n<conversation>\nuser: 배포해줘\n</conversation>\n<draft>버튼이</draft>",
 		);
 	});
 });
@@ -716,19 +875,32 @@ describe("work already underway (reported: a suggestion asking for work just del
 });
 
 describe("inline reply", () => {
-	it("takes the first line, strips quotes and a repeat of the draft", () => {
-		expect(cleanInlineReply(" failing test next\nmore", "fix the")).toBe(" failing test next");
-		expect(cleanInlineReply('"and then deploy"', "ship it")).toBe("and then deploy");
-		expect(cleanInlineReply("fix the failing test", "fix the")).toBe(" failing test");
+	it("takes the first line and what follows the restated draft, without wrapping quotes", () => {
+		expect(cleanInlineReply("fix the failing test next\nmore", "fix the")).toBe(" failing test next");
+		expect(cleanInlineReply('"ship it and then deploy"', "ship it")).toBe(" and then deploy");
+		expect(cleanInlineReply("fix the failing test in a.ts", "fix the")).toBe(" failing test in a.ts");
 		expect(cleanInlineReply("NONE", "fix the")).toBeNull();
 		expect(cleanInlineReply("", "fix the")).toBeNull();
 		expect(cleanInlineReply("fix the", "fix the")).toBeNull();
+		// The continuation alone (the draft not restated) shows nothing.
+		expect(cleanInlineReply(" failing test next", "fix the")).toBeNull();
 	});
 
-	it("caps a runaway reply at a word boundary", () => {
-		const text = cleanInlineReply(` ${"word ".repeat(100)}`, "draft draft") ?? "";
-		expect(text.length).toBeLessThanOrEqual(160);
-		expect(text.endsWith("word")).toBe(true);
+	it("finds the continuation after the window a long draft sent", () => {
+		const draft = `${"word ".repeat(100)}fix the`;
+		expect(cleanInlineReply(`${inlineDraftWindow(draft)} failing test`, draft)).toBe(" failing test");
+	});
+
+	it("shows nothing for a runaway reply rather than cutting it into something the model never wrote", () => {
+		expect(cleanInlineReply(`draft draft ${"word ".repeat(100)}`, "draft draft")).toBeNull();
+		expect(cleanInlineReply(`draft draft ${"x".repeat(INLINE_MAX_CHARS)}`, "draft draft")).toBeNull();
+		expect(cleanInlineReply(`draft draft ${"x".repeat(INLINE_MAX_CHARS - 1)}`, "draft draft")).toHaveLength(
+			INLINE_MAX_CHARS,
+		);
+		expect(cleanInlineReply(`버튼 색이 ${"가".repeat(INLINE_MAX_CHARS_CJK - 1)}`, "버튼 색이")).toHaveLength(
+			INLINE_MAX_CHARS_CJK,
+		);
+		expect(cleanInlineReply(`버튼 색이 ${"가".repeat(INLINE_MAX_CHARS_CJK)}`, "버튼 색이")).toBeNull();
 	});
 
 	it("sends only the end of a long draft", () => {

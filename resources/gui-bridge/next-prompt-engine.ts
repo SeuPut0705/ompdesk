@@ -49,14 +49,15 @@ import {
 	inlineDraftEligibility,
 	inlineDraftWindow,
 	isOutputCapRefusal,
-	lastUserText,
 	renderTranscript,
+	SentMessages,
 	type SessionExtras,
 	SUGGEST_INSTRUCTIONS,
 	SUGGEST_TRANSCRIPT_CHARS,
 	SuggestionScheduler,
+	sentTexts,
 	suggestionStateKey,
-	userStyle,
+	userRegister,
 } from "./next-prompt-core";
 
 /** What the engine needs of the bridge's env (modes/next-prompt.ts hands it the real one). */
@@ -73,7 +74,8 @@ function record(params: unknown): Record<string, unknown> {
 
 /** Output ceilings: a ceiling, not a target (reasoning is off; see `ask`). */
 const SUGGEST_MAX_TOKENS = 512;
-const INLINE_MAX_TOKENS = 160;
+/** The inline reply restates the draft window (≤ 400 characters) before its short continuation. */
+const INLINE_MAX_TOKENS = 512;
 /** Stock's usage-ledger purpose for a composer prediction, so session totals and `/stats` include these requests. */
 const USAGE_PURPOSE = "composer-prediction";
 /** Sessions whose last suggestion key is remembered. */
@@ -457,8 +459,9 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		const resolved = await resolveSmol(session, stock);
 		if (signal.aborted) return;
 		requests.suggest++;
-		const style = userStyle(messages);
-		const prompt = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState, style);
+		const sent = sentTexts(messages);
+		const register = userRegister(sent);
+		const prompt = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState, register);
 		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, prompt, {
 			maxTokens: SUGGEST_MAX_TOKENS,
 			temperature: 0.3,
@@ -475,14 +478,14 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		compactedSinceSuggestion = false;
 		remember(key, stateKey);
 		lastModel = resolved.used;
-		const candidates = cleanCandidates(text, { lastUserMessage: lastUserText(messages), register: style.register });
+		const candidates = cleanCandidates(text, { register, sent: new SentMessages(sent) });
 		const ms = Math.round(performance.now() - started);
 		host?.logger.debug("next-prompt suggestion", {
 			trigger,
 			model: resolved.used.model,
 			ms,
 			candidates: candidates.length,
-			register: style.register,
+			register,
 		});
 		const wasUnavailable = unavailable !== undefined;
 		unavailable = undefined;
@@ -656,13 +659,16 @@ export const handlers: EngineMethods = {
 			const resolved = await resolveSmol(session, stock);
 			if (abort.signal.aborted) return none;
 			requests.inline++;
-			const transcript = renderTranscript(session.messages, INLINE_TRANSCRIPT_CHARS);
+			const messages = session.messages;
+			const sent = sentTexts(messages);
+			const register = userRegister(sent);
+			const transcript = renderTranscript(messages, INLINE_TRANSCRIPT_CHARS);
 			const { text } = await ask(
 				session,
 				stock,
 				resolved,
 				INLINE_INSTRUCTIONS,
-				buildInlineRequest(transcript, inlineDraftWindow(draft)),
+				buildInlineRequest(transcript, inlineDraftWindow(draft), register),
 				{
 					maxTokens: INLINE_MAX_TOKENS,
 					temperature: 0,
@@ -670,8 +676,16 @@ export const handlers: EngineMethods = {
 				},
 			);
 			if (abort.signal.aborted) return none;
-			const completion = cleanInlineReply(text, draft);
-			return { requestId, text: completion, used: resolved.used, ms: Math.round(performance.now() - started) };
+			const completion = cleanInlineReply(text, draft, { register, sent: new SentMessages(sent) });
+			const ms = Math.round(performance.now() - started);
+			// Whether a ghost was shown, never the text: evidence for "odd continuations" without logging what was typed.
+			host?.logger.debug("next-prompt inline", {
+				model: resolved.used.model,
+				ms,
+				shown: completion !== null,
+				register,
+			});
+			return { requestId, text: completion, used: resolved.used, ms };
 		} catch (error) {
 			if (abort.signal.aborted) return none;
 			const reason = error instanceof Unavailable ? error.reason : classifyFailure(error);

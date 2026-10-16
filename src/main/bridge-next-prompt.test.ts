@@ -169,10 +169,8 @@ describe("a finished turn", () => {
 		expect(call.options.sessionId).toBe("sess-1");
 		expect(call.context.systemPrompt[0]).toContain("Write exactly 3 candidates");
 		expect(call.context.messages[0]?.content).toContain("user: run the tests");
-		// The user's own messages ride along as the voice reference, ahead of the transcript.
-		expect(call.context.messages[0]?.content).toMatch(
-			/^<user-style>\n- run the tests\n<\/user-style>\n<conversation>/,
-		);
+		// No register to name for an English user, and never an excerpt of their messages.
+		expect(call.context.messages[0]?.content).toMatch(/^<conversation>\n/);
 		const [update] = updates(world);
 		expect(update).toMatchObject({
 			status: "ready",
@@ -298,8 +296,32 @@ describe("a finished turn", () => {
 		world.reply.current = async () =>
 			text("롤백해도 되나요?\nWinBlank 결과 나오면 바로 알려주세요\n테스트 결과를 확인했습니다");
 		await turnEnds();
-		expect((world.calls[0] as Call).context.messages[0]?.content).toContain("register: 반말 (casual).");
+		const prompt = (world.calls[0] as Call).context.messages[0]?.content ?? "";
+		expect(prompt).toMatch(/^<user-style>\nregister: 반말 \(casual\)\./);
+		expect(prompt).not.toContain("- 배포해줘");
 		expect(updates(world)[0]?.candidates).toEqual(["롤백해도 돼?", "WinBlank 결과 나오면 바로 알려줘"]);
+	});
+
+	it("drops a candidate restating a message the user already sent", async () => {
+		world.session.messages.push(
+			{ role: "user", content: "모드를 추가할것은 없나? 모델풀은 삭제해야할꺼 같고", timestamp: 3 },
+			{
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "ModeScout에게 맡겼어요." }],
+				timestamp: 4,
+			},
+			{ role: "user", content: "채팅 입력창에 뭔가 효과를 줘서 작업중이라는 느낌을 주면 좋을꺼같음", timestamp: 5 },
+			{
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "ComposerLive에게 맡겼어요." }],
+				timestamp: 6,
+			},
+		);
+		world.reply.current = async () => text("모드 추가할 건 없어? 모델풀은 지워야 할 것 같고\n효과 시안 먼저 보여줘");
+		await turnEnds();
+		expect(updates(world)[0]?.candidates).toEqual(["효과 시안 먼저 보여줘"]);
 	});
 
 	it("ignores a subagent's turn, a disabled feature and a session with no reply yet", async () => {
@@ -590,16 +612,17 @@ describe("state", () => {
 describe("inline completion", () => {
 	const ask = (draft: string, requestId = "r1") => handlers.next_prompt_inline({ draft, requestId }, world.env);
 
-	it("runs on the smol model with a small cap and returns the continuation", async () => {
-		world.reply.current = async () => text(" failing test in a.ts");
+	it("runs on the smol model and returns what follows the restated draft", async () => {
+		world.reply.current = async () => text("please fix the failing test in a.ts");
 		const result = await ask("please fix the");
 		expect(result).toMatchObject({ requestId: "r1", text: " failing test in a.ts", used: { model: "fake/smol-1" } });
 		const call = world.calls[0] as Call;
 		expect(call.model).toEqual(SMOL);
-		expect(call.options.maxTokens).toBe(160);
+		expect(call.options.maxTokens).toBe(512);
 		expect(call.options.temperature).toBe(0);
 		expect(call.options.disableReasoning).toBe(true);
 		expect(call.context.messages[0]?.content).toContain("<draft>please fix the</draft>");
+		expect(call.context.systemPrompt[0]).toContain("Reply with the whole message: first the draft exactly as typed");
 		expect(((await handlers.next_prompt_state({}, world.env)) as NextPromptState).requests).toEqual({
 			suggest: 0,
 			inline: 1,
@@ -636,13 +659,38 @@ describe("inline completion", () => {
 		expect(firstCall.options.signal.aborted).toBe(true);
 		expect(await first).toEqual({ requestId: "a", text: null });
 		await flush();
-		releases[1]?.(" test");
+		releases[1]?.("please fix the failing test");
 		expect(await second).toMatchObject({ requestId: "b", text: " test" });
 	});
 
 	it("reports why it failed without throwing", async () => {
 		world.chain.current = [];
 		expect(await ask("please fix the failing")).toEqual({ requestId: "r1", text: null, reason: "no_model" });
+	});
+
+	it("tells a 반말 user's register and shows nothing for a 존댓말, assistant-voiced or copied continuation", async () => {
+		world.session.messages.push(
+			{ role: "user", content: "배포해줘", timestamp: 3 },
+			{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "배포했어요." }], timestamp: 4 },
+			{
+				role: "user",
+				content: "그리고 윈도우버전에서는 추가지시가 즉시 안들어감 지금 대기열에 걸려있음",
+				timestamp: 5,
+			},
+			{
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "WinSteer에게 맡겼어요." }],
+				timestamp: 6,
+			},
+		);
+		world.reply.current = async () => text("그리고 지금 작업중인데 버튼이 안 되는지 확인해 볼게요.");
+		expect(await ask("그리고 지금 작업중인데 버튼이")).toMatchObject({ text: null });
+		expect((world.calls[0] as Call).context.messages[0]?.content).toContain("register: 반말 (casual).");
+		world.reply.current = async () => text("그리고 윈도우버전에서는 추가지시가 즉시 안들어감");
+		expect(await ask("그리고 윈도우버전에서는")).toMatchObject({ text: null });
+		world.reply.current = async () => text("그리고 지금 작업중인데 버튼이 안 바뀌어");
+		expect(await ask("그리고 지금 작업중인데 버튼이")).toMatchObject({ text: " 안 바뀌어" });
 	});
 
 	it("validates its params", async () => {
