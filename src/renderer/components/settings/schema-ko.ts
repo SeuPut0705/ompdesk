@@ -122,7 +122,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"task.structured": {
 		label: "구조화된 작업 결과",
 		description:
-			"task 도구에 outputSchema/schemaMode를 제공하고, 호출자 또는 에이전트의 출력 스키마로 검증한 하위 에이전트 결과를 yield 도구로 반환해요. 끄면 task 하위 에이전트는 yield 도구 없이 마지막 메시지를 일반 텍스트로 반환해요. Eval의 agent()/workpool로 실행한 에이전트는 항상 구조화된 결과를 사용해요.",
+			"task 도구에 outputSchema/schemaMode를 제공하고, 호출자 또는 에이전트의 출력 스키마로 검증한 서브에이전트 결과를 yield 도구로 반환해요. 끄면 task 서브에이전트는 yield 도구 없이 마지막 메시지를 일반 텍스트로 반환해요. Eval의 agent()/workpool로 실행한 에이전트는 항상 구조화된 결과를 사용해요.",
 	},
 	"task.agentCompactionThresholdOverrides": { label: "에이전트별 압축 임계값 재정의" },
 	"task.agentAccountPools": { label: "에이전트별 계정 풀" },
@@ -355,7 +355,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	includeWorkspaceTree: {
 		label: "프로젝트 트리 포함",
 		description:
-			"시스템 프롬프트에 프로젝트 디렉터리 트리를 렌더링해요. 경고: 파일이 바뀌면 세션 간 프롬프트 캐시가 깨질 수 있어요.",
+			"시스템 프롬프트에 프로젝트 폴더 트리를 렌더링해요. 경고: 파일이 바뀌면 세션 간 프롬프트 캐시가 깨질 수 있어요.",
 	},
 	skillful: {
 		label: "프롬프트에 스킬 나열",
@@ -442,7 +442,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 
 	// ── interaction ─────────────────────────────────────────────────────────
-	autoResume: { label: "자동 재개", description: "현재 디렉터리의 가장 최근 세션을 자동으로 재개" },
+	autoResume: { label: "자동 재개", description: "현재 폴더의 가장 최근 세션을 자동으로 재개해요" },
 	"power.sleepPrevention": {
 		label: "잠자기 방지",
 		description: "활성 세션 동안 macOS 잠자기를 막아요. 각 단계는 누적되어 하위 단계의 플래그를 모두 포함해요.",
@@ -567,7 +567,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"workspace.additionalDirectories": {
 		label: "추가 프로젝트 폴더",
 		description:
-			"모든 세션의 프로젝트에 추가 루트로 넣을 디렉터리예요(멀티 루트). /add-dir와 /remove-dir로 실시간 관리할 수 있어요. 경로는 cwd 기준으로 해석되며 절대 경로를 권장해요. 에이전트는 이 루트들의 존재를 알고 read/grep/glob을 사용할 수 있어요.",
+			"모든 세션의 프로젝트에 추가 루트로 넣을 폴더예요(멀티 루트). /add-dir와 /remove-dir로 실시간 관리할 수 있어요. 경로는 cwd 기준으로 해석되며 절대 경로를 권장해요. 에이전트는 이 루트들의 존재를 알고 read/grep/glob을 사용할 수 있어요.",
 	},
 	"contextPromotion.enabled": {
 		label: "컨텍스트 자동 승격",
@@ -695,7 +695,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"mnemopi.dbPath": {
 		label: "Mnemopi 데이터베이스 경로",
-		description: "선택적 SQLite 데이터베이스 경로. 기본값은 에이전트 메모리 디렉터리예요.",
+		description: "선택적 SQLite 데이터베이스 경로예요. 기본값은 에이전트 메모리 폴더예요.",
 	},
 	"mnemopi.bank": {
 		label: "Mnemopi 메모리 뱅크",
@@ -1027,9 +1027,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"cmux 소켓을 사용할 수 있으면 cmux WKWebView 화면으로 브라우저를 자동화해요. PI_BROWSER_CMUX=0 또는 PI_BROWSER_CMUX=1로 덮어쓸 수 있어요.",
 	},
 	"browser.screenshotDir": {
-		label: "스크린샷 디렉터리",
+		label: "스크린샷 폴더",
 		description:
-			"스크린샷을 저장할 디렉터리예요. 설정하지 않으면 임시 파일에 저장해요. ~를 지원해요. 예: ~/Downloads, ~/Desktop, /sdcard/Download(Android)",
+			"스크린샷을 저장할 폴더예요. 설정하지 않으면 임시 파일에 저장해요. ~를 지원해요. 예: ~/Downloads, ~/Desktop, /sdcard/Download(Android)",
 	},
 	"tools.intentTracing": {
 		label: "의도 추적",
@@ -1142,9 +1142,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "중첩 저장소 변경의 커밋 메시지 스타일(일반 또는 AI 생성)",
 	},
 	"worktree.base": {
-		label: "워크트리 기본 디렉터리",
+		label: "워크트리 기본 폴더",
 		description:
-			"에이전트가 관리하는 워크트리의 기본 디렉터리로, 서브에이전트 격리 사본, `github` PR 체크아웃, `omp worktree` 정리가 모두 여기에 있어요. 설정하지 않으면 ~/.omp/wt를 써요. 절대 경로나 ~ 기준 경로여야 하며 상대 경로는 무시돼요. OMP_WORKTREE_DIR 환경 변수로 덮어쓸 수 있어요.",
+			"에이전트가 관리하는 워크트리의 기본 폴더로, 서브에이전트 격리 사본, `github` PR 체크아웃, `omp worktree` 정리가 모두 여기에 있어요. 설정하지 않으면 ~/.omp/wt를 써요. 절대 경로나 ~ 기준 경로여야 하며 상대 경로는 무시돼요. OMP_WORKTREE_DIR 환경 변수로 덮어쓸 수 있어요.",
 	},
 	"task.eager": { label: "서브에이전트 위임 우선", description: "일을 서브에이전트에 위임하도록 유도하는 강도" },
 	"task.batch": {
@@ -1644,8 +1644,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: ".agent/skills와 .agents/skills에서 스킬을 불러와요",
 	},
 	"skills.customDirectories": {
-		label: "사용자 지정 스킬 디렉터리",
-		description: "스킬을 추가로 스캔할 사용자 지정 디렉터리 목록",
+		label: "사용자 지정 스킬 폴더",
+		description: "스킬을 추가로 스캔할 사용자 지정 폴더 목록이에요",
 	},
 	"skills.ignoredSkills": { label: "무시할 스킬", description: "이름 glob 패턴으로 무시할 스킬 목록" },
 	"skills.includeSkills": {
@@ -1704,8 +1704,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "오래되어도 항상 유지할 최신 비활성 세션 수(전역, 기본 20)",
 	},
 	"gc.retainNewestPerCwd": {
-		label: "디렉터리별 최신 세션 유지 수",
-		description: "작업 디렉터리마다 오래되어도 항상 유지할 최신 비활성 세션 수(기본 10)",
+		label: "폴더별 최신 세션 유지 수",
+		description: "작업 폴더마다 오래되어도 항상 유지할 최신 비활성 세션 수예요(기본 10)",
 	},
 	"gc.compress": {
 		label: "GC 오래된 세션 압축",
@@ -1852,8 +1852,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "계획 모드가 끝나면 승인된 계획을 디스크에 자동으로 저장해요.",
 	},
 	"plan.autosaveDir": {
-		label: "자동 저장 디렉터리",
-		description: "계획을 자동 저장할 디렉터리예요. 비워 두면 기본 위치를 써요.",
+		label: "자동 저장 폴더",
+		description: "계획을 자동 저장할 폴더예요. 비워 두면 기본 위치를 써요.",
 	},
 	"spelling.autocomplete": {
 		label: "단어 자동 완성(macOS)",
@@ -1944,7 +1944,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"claudeResets.autoRedeem": {
 		label: "Claude 리셋 자동 사용",
 		description:
-			"사용 가능한 Claude Cedar 또는 Juniper 리셋을 자동으로 사용해요. Cedar는 적용 대상 한도에만 쓰고, Juniper는 단독 5시간 차단만 복구할 수 있어요. unset은 첫 사용 전에 묻고, yes는 묻지 않고 사용하며, no는 차단 복구와 만료 구제를 끕니다.",
+			"사용 가능한 Claude Cedar 또는 Juniper 리셋을 자동으로 사용해요. Cedar는 적용 대상 한도에만 쓰고, Juniper는 단독 5시간 차단만 복구할 수 있어요. unset은 첫 사용 전에 묻고, yes는 묻지 않고 사용하며, no는 차단 복구와 만료 구제를 꺼요.",
 	},
 	"claudeResets.minBlockedMinutes": {
 		label: "Claude 자동 사용 최소 차단 시간",
@@ -1983,9 +1983,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "ida_domain과 idapro를 import할 수 있는 Python 인터프리터예요. 비우면 자동 감지해요.",
 	},
 	"ida.installDir": {
-		label: "IDA 설치 디렉터리",
+		label: "IDA 설치 폴더",
 		description:
-			"libidalib가 있는 디렉터리로, IDADIR로 내보내요. 비우면 자동 감지해요($IDADIR, ida-config.json, 표준 설치 경로).",
+			"libidalib가 있는 폴더로, IDADIR로 내보내요. 비우면 자동 감지해요($IDADIR, ida-config.json, 표준 설치 경로).",
 	},
 	"ida.maxOpen": {
 		label: "IDA 최대 열린 데이터베이스",

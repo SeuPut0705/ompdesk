@@ -161,7 +161,7 @@ describe("Settings for a tab on a paired host", () => {
 		focusTab(HOST_ID, "connecting");
 		await openSettings("general");
 		expect(query("#setting-gui-language")).not.toBeNull();
-		expect(query("main [data-this-device-tag]")?.textContent).toBe("This device");
+		expect(query(".settings-column [data-this-device-tag]")?.textContent).toBe("This device");
 		expect(query("[data-reply-language-host]")?.textContent).toBe("Tabs on Studio follow that device's own setting.");
 		expect(query("[data-host-offline]")).toBeNull();
 		expect(query("#setting-steeringMode")).toBeNull();
@@ -178,5 +178,14 @@ describe("Settings for a tab on a paired host", () => {
 		// No "This device" / "Selected host" lines anywhere for a local tab.
 		expect(query("[data-settings-section-scope]")).toBeNull();
 		expect(query("[data-settings-group-scope]")).toBeNull();
+	});
+
+	it("is a labelled region inside the app's one main landmark, not a second main", async () => {
+		focusTab(undefined);
+		await openSettings("general");
+		expect(query("[data-settings-page] main")).toBeNull();
+		const region = query(".settings-column");
+		expect(region?.tagName).toBe("SECTION");
+		expect(query(`#${region?.getAttribute("aria-labelledby")}`)?.textContent).toBe("General");
 	});
 });

@@ -600,6 +600,7 @@ export function CommandPalette() {
 					/>
 				)}
 				<div
+					aria-label={flatList.length > 0 ? t("palette.results") : undefined}
 					className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5"
 					id={listboxId}
 					ref={listRef}

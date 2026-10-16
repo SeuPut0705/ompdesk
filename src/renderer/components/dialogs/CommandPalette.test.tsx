@@ -257,6 +257,8 @@ describe("panel keyboard handling", () => {
 		expect(listboxId).toBeTruthy();
 		const listbox = palette().querySelector('[role="listbox"]');
 		expect(listbox?.getAttribute("id")).toBe(listboxId);
+		// axe: an ARIA input field (listbox) must have an accessible name.
+		expect(listbox?.getAttribute("aria-label")).toBe("Commands");
 		expect(rows().every(row => row.getAttribute("role") === "option")).toBe(true);
 		const announced = () =>
 			rows().find(row => row.getAttribute("id") === search?.getAttribute("aria-activedescendant"));

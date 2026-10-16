@@ -53,13 +53,13 @@ export function getCurrentLanguage(): Lang {
 
 function translateForLang(lang: Lang, key: string, params?: Record<string, string | number>): string {
 	const locale = LOCALES[lang];
-	let str = locale[key] ?? en[key] ?? key;
-	if (params) {
-		for (const [k, v] of Object.entries(params)) {
-			str = str.replace(`{${k}}`, String(v));
-		}
-	}
-	return str;
+	const str = locale[key] ?? en[key] ?? key;
+	if (!params) return str;
+	// One pass: a value is never re-scanned (a path holding "{name}" stays literal), a placeholder
+	// repeated in a string is filled everywhere, and "$&"-style patterns in a value are not special.
+	return str.replace(/\{(\w+)\}/g, (match, name: string) =>
+		Object.hasOwn(params, name) ? String(params[name]) : match,
+	);
 }
 
 /**

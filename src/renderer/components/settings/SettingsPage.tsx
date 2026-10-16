@@ -412,7 +412,7 @@ export function SettingsPage() {
 							))}
 						</nav>
 						<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
-							<main aria-labelledby="settings-section-title" className="settings-column">
+							<section aria-labelledby="settings-section-title" className="settings-column">
 								{host && <SettingsDeviceBanner host={host} />}
 								<header className="mb-6">
 									<h2
@@ -510,7 +510,7 @@ export function SettingsPage() {
 										</SettingsScopeProvider>
 									</div>
 								)}
-							</main>
+							</section>
 						</div>
 					</div>
 				</div>
