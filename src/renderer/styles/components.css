@@ -3747,8 +3747,14 @@ button.omp-file-chip-name:hover {
 	animation-play-state: paused;
 }
 
-/* Typing wins: while the field holds focus and a draft, the cue steps out of the way. */
-.omp-composer-box:has(textarea:focus)[data-composer-draft] .omp-composer-live {
+/* A draft wins: while the field holds one (focused or not), the border light and the Send ring step out of
+   the way; the ring's tooltip still says that a send starts at once. */
+.omp-composer-box[data-composer-draft] .omp-composer-live {
+	opacity: 0;
+}
+
+.omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after {
+	animation: none;
 	opacity: 0;
 }
 

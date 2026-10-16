@@ -64,11 +64,16 @@ describe("leavePageOnSessionSelect", () => {
 });
 
 describe("followPageFocus", () => {
-	/** A window with a session pane (composer), a sidebar button and a page section; focus is tracked by hand. */
+	/**
+	 * A window with a session pane (an ask card's answer field ahead of the composer), a sidebar
+	 * button and a page section; focus is tracked by hand.
+	 */
 	function setup() {
 		document.body.innerHTML = `
 			<aside><button id="row">Row</button></aside>
-			<div class="omp-session-pane" data-active="true"><textarea id="composer"></textarea></div>
+			<div class="omp-session-pane" data-active="true">
+				<textarea id="ask"></textarea><textarea id="composer" data-composer-input></textarea>
+			</div>
 			<section id="page" tabindex="-1"><button id="inside">Back</button></section>`;
 		let active: Element = document.body;
 		Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });

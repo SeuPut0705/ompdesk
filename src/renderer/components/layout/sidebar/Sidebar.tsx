@@ -68,6 +68,7 @@ import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { activeComposerInput } from "../../../lib/composer-focus";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, copyText, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -187,9 +188,7 @@ function activeTabUntouched(): boolean {
 }
 
 function focusComposer(): void {
-	requestAnimationFrame(() =>
-		document.querySelector<HTMLTextAreaElement>('.omp-session-pane[data-active="true"] textarea')?.focus(),
-	);
+	requestAnimationFrame(() => activeComposerInput()?.focus());
 }
 
 /** Destinations in the sidebar footer (design-spec §2.1): the only three. */

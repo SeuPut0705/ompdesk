@@ -190,7 +190,7 @@ html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-ch
 .omp-action-sheet {
 	width: 100%;
 	max-width: 40rem;
-	max-height: min(75dvh, calc(100dvh - var(--safe-t) - 1rem));
+	max-height: min(75dvh, calc(100dvh - var(--kb-inset) - var(--safe-t) - 1rem));
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	padding: 0 var(--sc-space-2) calc(var(--sc-space-2) + var(--safe-b));

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -139,9 +140,24 @@ describe("useShellMode", () => {
 
 describe("keyboard inset", () => {
 	it("is the part of the layout viewport the visual viewport leaves uncovered, never negative", () => {
-		expect(keyboardInset({ height: 500, offsetTop: 0 }, 852)).toBe(352);
-		expect(keyboardInset({ height: 600, offsetTop: 40 }, 852)).toBe(212);
-		expect(keyboardInset({ height: 852, offsetTop: 0 }, 852)).toBe(0);
-		expect(keyboardInset({ height: 900, offsetTop: 0 }, 852)).toBe(0);
+		expect(keyboardInset({ height: 500, offsetTop: 0, scale: 1 }, 852)).toBe(352);
+		expect(keyboardInset({ height: 600, offsetTop: 40, scale: 1 }, 852)).toBe(212);
+		expect(keyboardInset({ height: 852, offsetTop: 0, scale: 1 }, 852)).toBe(0);
+		expect(keyboardInset({ height: 900, offsetTop: 0, scale: 1 }, 852)).toBe(0);
+	});
+
+	it("ignores a pinch zoom, which shrinks and pans the visual viewport with no keyboard", () => {
+		// Zoomed 2× and panned to the middle: no keyboard covers anything.
+		expect(keyboardInset({ height: 426, offsetTop: 200, scale: 2 }, 852)).toBe(0);
+		// Zoomed 2× with a 300 px keyboard: the screen keeps 552 px, 276 CSS px of the zoomed page.
+		expect(keyboardInset({ height: 276, offsetTop: 0, scale: 2 }, 852)).toBe(300);
+	});
+
+	it("keeps an action sheet inside the overlay the keyboard shortens", () => {
+		// The overlay ends at the keyboard (`inset: … var(--kb-inset)`); a sheet sized to the whole
+		// viewport ran under it.
+		const css = readFileSync(new URL("../styles/mobile.css", import.meta.url), "utf8");
+		const sheet = /\n\.omp-action-sheet \{([^}]*)\}/.exec(css)?.[1] ?? "";
+		expect(sheet).toMatch(/max-height:[^;]*var\(--kb-inset\)/);
 	});
 });

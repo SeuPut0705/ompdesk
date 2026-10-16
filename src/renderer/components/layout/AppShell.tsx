@@ -17,6 +17,7 @@
 import { ArrowLeft, Menu, PanelLeft } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isDrawerMode, useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
+import { activeComposerInput } from "../../lib/composer-focus";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
 import { actionShortcut } from "../../lib/keymap";
@@ -148,10 +149,7 @@ export function followPageFocus(page: () => HTMLElement | null): () => void {
 			const target = returnTo;
 			returnTo = null;
 			if (!lost) return;
-			const back =
-				target?.isConnected && target.getClientRects().length > 0
-					? target
-					: document.querySelector<HTMLElement>('.omp-session-pane[data-active="true"] textarea');
+			const back = target?.isConnected && target.getClientRects().length > 0 ? target : activeComposerInput();
 			back?.focus();
 		});
 	});

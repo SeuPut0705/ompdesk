@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -162,5 +163,23 @@ describe("ComposerLiveEdge", () => {
 		Reflect.set(document, "visibilityState", "hidden");
 		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
 		expect(edge()?.hasAttribute("data-paused")).toBe(true);
+	});
+});
+
+describe("the cue beside a draft", () => {
+	const css = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
+	/** Declarations of the top-level rule whose selector is exactly `selector`. */
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
+	};
+
+	it("steps out of the way whenever the field holds a draft, focused or not, Send ring included", () => {
+		// AGENTS.md: the cue steps out of the way while the field holds a draft. The border light only
+		// did while the field was focused, and the Send ring never did.
+		expect(rule(".omp-composer-box[data-composer-draft] .omp-composer-live")).toContain("opacity: 0");
+		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
+		expect(ring).toContain("opacity: 0");
+		expect(ring).toContain("animation: none");
 	});
 });
