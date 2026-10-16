@@ -13,7 +13,7 @@ import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { CHECK_INTERVAL_MS } from "../omp-updater";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import type { CliDetection, CliOwner, DetectDeps } from "./detect";
-import { CliUpdater, type CliUpdaterDeps, registerCliUpdateIpc } from "./updater";
+import { CliUpdater, type CliUpdaterDeps, registerCliUpdateIpc, runCheckProcess } from "./updater";
 
 const NPM: CliOwner = { method: "npm", name: "@openai/codex", prefix: "/p", root: "/p/lib/node_modules/@openai/codex" };
 
@@ -409,5 +409,37 @@ describe("registerCliUpdateIpc", () => {
 			expect(() => now?.({}, bad)).toThrow(/Unknown tool/);
 		}
 		expect(updater.updateNow).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("runCheckProcess", () => {
+	const probe = (packageDir: boolean) => ({
+		spawn: {
+			file: process.execPath,
+			args: [
+				"-e",
+				'const fs = require("node:fs"); console.log(JSON.stringify({ cwd: process.cwd(), pkg: fs.existsSync("package.json") ? fs.readFileSync("package.json", "utf8") : null, root: process.env.BUN_INSTALL }))',
+			],
+			shell: false,
+		},
+		env: { BUN_INSTALL: "/b" },
+		...(packageDir ? { packageDir: true as const } : {}),
+	});
+
+	it("runs a package-dir check (bun pm view) in a private temp dir holding an empty package.json, removed after", async () => {
+		const out = JSON.parse(await runCheckProcess(probe(true), process.env)) as {
+			cwd: string;
+			pkg: string | null;
+			root: string;
+		};
+		expect(out.pkg?.trim()).toBe("{}");
+		expect(out.root).toBe("/b");
+		expect(path.basename(out.cwd)).toMatch(/^ompdesk-cli-check-/);
+		await expect(fs.stat(out.cwd)).rejects.toThrow();
+	});
+
+	it("leaves any other check in main's own cwd", async () => {
+		const out = JSON.parse(await runCheckProcess(probe(false), process.env)) as { cwd: string };
+		expect(await fs.realpath(out.cwd)).toBe(await fs.realpath(process.cwd()));
 	});
 });

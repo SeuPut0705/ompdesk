@@ -68,7 +68,7 @@ describe("checkCommand", () => {
 		).toBeNull();
 	});
 
-	it("asks Bun for a Bun global, with its BUN_INSTALL", async () => {
+	it("asks Bun for a Bun global, with its BUN_INSTALL, in a package dir (bun pm view needs a package.json)", async () => {
 		const bunRoot = await fakeBin();
 		await fs.mkdir(path.join(bunRoot, "bin"));
 		await fs.writeFile(path.join(bunRoot, "bin", "bun"), "#!/bin/sh\n", { mode: 0o755 });
@@ -82,7 +82,19 @@ describe("checkCommand", () => {
 		expect(command).toMatchObject({
 			spawn: { file: path.join(bunRoot, "bin", "bun"), args: ["pm", "view", "@google/gemini-cli", "version"] },
 			env: { BUN_INSTALL: bunRoot },
+			packageDir: true,
 		});
+		// Bun answers for a self-updating tool when no npm is on PATH: the same package dir.
+		const self: CliOwner = { method: "self" };
+		const onPath = await fakeBin("bun");
+		expect(checkCommand(detection("claude", self), self, { platform: "darwin", pathEnv: onPath })).toMatchObject({
+			spawn: { file: path.join(onPath, "bun"), args: ["pm", "view", "@anthropic-ai/claude-code", "version"] },
+			packageDir: true,
+		});
+		expect(
+			checkCommand(detection("codex", npmOwner(onPath)), npmOwner(onPath), { platform: "darwin", pathEnv: onPath })
+				?.packageDir,
+		).toBeUndefined();
 	});
 
 	it("asks brew for the formula or the cask, and winget for the id", async () => {

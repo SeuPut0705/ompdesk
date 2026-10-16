@@ -18,6 +18,11 @@ export interface CliCommand {
 	spawn: SpawnSpec;
 	/** Added to the installer environment. */
 	env: Record<string, string>;
+	/**
+	 * Run in a private temp dir holding an empty `package.json`: `bun pm view` refuses to run without one in its
+	 * cwd ("No package.json was found", Bun 1.4.2), and the check must not depend on where main happens to run.
+	 */
+	packageDir?: true;
 }
 
 export interface PlanTools {
@@ -58,6 +63,11 @@ function winget(tools: PlanTools): string | null {
 	return findExecutable(["winget.exe"], tools.pathEnv, tools.platform);
 }
 
+/** `bun pm view <name> version`, the newest version on the registry Bun is configured with. */
+function bunView(bun: string, name: string, env: Record<string, string> = {}): CliCommand {
+	return { ...command(bun, ["pm", "view", name, "version"], env), packageDir: true };
+}
+
 /**
  * The read-only check that prints the newest version, or null when only the tool's own updater can tell
  * (cursor-agent, gh-copilot) or the owner is machine setup's archive (checked through its release feed).
@@ -74,7 +84,7 @@ export function checkCommand(detection: CliDetection, owner: CliOwner, tools: Pl
 			);
 			if (npm) return command(npm, ["view", spec.npm, "version"]);
 			const bun = findExecutable([tools.platform === "win32" ? "bun.exe" : "bun"], tools.pathEnv, tools.platform);
-			return bun ? command(bun, ["pm", "view", spec.npm, "version"]) : null;
+			return bun ? bunView(bun, spec.npm) : null;
 		}
 		case "npm": {
 			const npm = npmFor(owner.prefix, tools);
@@ -82,7 +92,7 @@ export function checkCommand(detection: CliDetection, owner: CliOwner, tools: Pl
 		}
 		case "bun": {
 			const bun = bunFor(owner.bunRoot, tools);
-			return bun ? command(bun, ["pm", "view", owner.name, "version"], { BUN_INSTALL: owner.bunRoot }) : null;
+			return bun ? bunView(bun, owner.name, { BUN_INSTALL: owner.bunRoot }) : null;
 		}
 		case "brew":
 			return command(owner.brew, ["outdated", "--json=v2", owner.name]);

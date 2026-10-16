@@ -11,6 +11,9 @@
  * which is recorded and retried later. Each computer runs its own; a paired host keeps its own tools.
  */
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	CLI_TOOLS,
 	type CliToolId,
@@ -72,20 +75,32 @@ interface ToolRecord {
 }
 
 /** stdout of a short read-only check, or throws with its own reason. */
-function runCheckProcess(command: CliCommand, env: NodeJS.ProcessEnv): Promise<string> {
-	const { promise, resolve, reject } = Promise.withResolvers<string>();
-	execFile(
-		command.spawn.file,
-		command.spawn.args,
-		{ env: { ...env, ...command.env }, shell: command.spawn.shell, timeout: CHECK_TIMEOUT_MS, windowsHide: true },
-		(error, stdout, stderr) => {
-			// `brew outdated` exits 1 when it lists something; its JSON is the answer either way.
-			if (error && !stdout.trim())
-				reject(new Error((stderr || error.message).trim().split(/\r?\n/).at(-1) ?? error.message));
-			else resolve(stdout);
-		},
-	);
-	return promise;
+export async function runCheckProcess(command: CliCommand, env: NodeJS.ProcessEnv): Promise<string> {
+	const cwd = command.packageDir ? await mkdtemp(join(tmpdir(), "ompdesk-cli-check-")) : undefined;
+	try {
+		if (cwd) await writeFile(join(cwd, "package.json"), "{}\n");
+		const { promise, resolve, reject } = Promise.withResolvers<string>();
+		execFile(
+			command.spawn.file,
+			command.spawn.args,
+			{
+				env: { ...env, ...command.env },
+				cwd,
+				shell: command.spawn.shell,
+				timeout: CHECK_TIMEOUT_MS,
+				windowsHide: true,
+			},
+			(error, stdout, stderr) => {
+				// `brew outdated` exits 1 when it lists something; its JSON is the answer either way.
+				if (error && !stdout.trim())
+					reject(new Error((stderr || error.message).trim().split(/\r?\n/).at(-1) ?? error.message));
+				else resolve(stdout);
+			},
+		);
+		return await promise;
+	} finally {
+		if (cwd) await rm(cwd, { recursive: true, force: true });
+	}
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
