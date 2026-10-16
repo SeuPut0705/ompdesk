@@ -8,6 +8,7 @@ import {
 	Globe,
 	Hourglass,
 	ListOrdered,
+	MoreHorizontal,
 	MoreVertical,
 	ScrollText,
 	Terminal,
@@ -16,14 +17,14 @@ import {
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
-import { useMediaQuery } from "../../hooks/use-media-query";
+import { useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
 import { SessionRuntimeProvider, sessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { CLOSED_FILE_VIEW, COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
-import { IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
+import { CLOSED_FILE_VIEW, type PanelTab, useUiStore } from "../../stores/ui";
+import { ContextMenu, IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
@@ -65,7 +66,7 @@ const VIEWS = [
 /** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */
 const SUBAGENT_VIEW = { id: "subagent", labelKey: "panel.tabs.subagent", icon: Bot } as const;
 
-function PanelHeader() {
+function PanelHeader({ bare }: { bare?: boolean }) {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
@@ -76,32 +77,36 @@ function PanelHeader() {
 			<span title={t(current.labelKey)} className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
 				{t(current.labelKey)}
 			</span>
-			<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
-				{VIEWS.slice(0, 4).map(view => (
-					<IconButton
-						key={view.id}
-						icon={<view.icon />}
-						label={t(view.labelKey)}
-						aria-pressed={panelTab === view.id}
-						onClick={() => setPanelTab(view.id)}
+			{!bare && (
+				<>
+					<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
+						{VIEWS.slice(0, 4).map(view => (
+							<IconButton
+								key={view.id}
+								icon={<view.icon />}
+								label={t(view.labelKey)}
+								aria-pressed={panelTab === view.id}
+								onClick={() => setPanelTab(view.id)}
+								size="sm"
+							/>
+						))}
+					</div>
+					<MenuButton
+						className="no-drag shrink-0"
+						icon={<MoreVertical />}
+						label={t("panel.viewOptions")}
 						size="sm"
+						align="end"
+						items={VIEWS.slice(4).map(view => ({
+							id: view.id,
+							label: t(view.labelKey),
+							icon: view.icon,
+							checked: panelTab === view.id,
+							onSelect: () => setPanelTab(view.id),
+						}))}
 					/>
-				))}
-			</div>
-			<MenuButton
-				className="no-drag shrink-0"
-				icon={<MoreVertical />}
-				label={t("panel.viewOptions")}
-				size="sm"
-				align="end"
-				items={VIEWS.slice(4).map(view => ({
-					id: view.id,
-					label: t(view.labelKey),
-					icon: view.icon,
-					checked: panelTab === view.id,
-					onSelect: () => setPanelTab(view.id),
-				}))}
-			/>
+				</>
+			)}
 			<IconButton
 				className="no-drag shrink-0"
 				icon={<X />}
@@ -111,6 +116,67 @@ function PanelHeader() {
 				size="sm"
 			/>
 		</div>
+	);
+}
+
+/**
+ * The phone's view switcher: the four primary views, then a "More" sheet holding the rest. It sits at the
+ * bottom of the full-screen panel, where a thumb is.
+ */
+function PanelTabBar() {
+	const t = useT();
+	const panelTab = useUiStore(s => s.panelTab);
+	const setPanelTab = useUiStore(s => s.setPanelTab);
+	const [moreAnchor, setMoreAnchor] = useState<{ x: number; y: number; above: number } | null>(null);
+	const secondary = VIEWS.slice(4);
+	const inMore = secondary.some(view => view.id === panelTab) || panelTab === "subagent";
+	return (
+		<nav aria-label={t("panel.primaryViews")} className="omp-panel-tabbar" data-panel-tabbar="">
+			{VIEWS.slice(0, 4).map(view => (
+				<button
+					aria-current={panelTab === view.id ? "page" : undefined}
+					key={view.id}
+					onClick={() => setPanelTab(view.id)}
+					type="button"
+				>
+					<view.icon aria-hidden />
+					<span>{t(view.labelKey)}</span>
+				</button>
+			))}
+			<button
+				aria-current={inMore ? "page" : undefined}
+				aria-expanded={moreAnchor !== null}
+				aria-haspopup="menu"
+				onClick={event => {
+					const rect = event.currentTarget.getBoundingClientRect();
+					setMoreAnchor({ x: rect.left, y: rect.bottom, above: rect.top });
+				}}
+				type="button"
+			>
+				<MoreHorizontal aria-hidden />
+				<span>{t("panel.more")}</span>
+			</button>
+			{moreAnchor && (
+				<ContextMenu
+					above={moreAnchor.above}
+					ariaLabel={t("panel.viewOptions")}
+					items={secondary.map(view => ({
+						id: view.id,
+						label: t(view.labelKey),
+						icon: view.icon,
+						checked: panelTab === view.id,
+						onSelect: () => {
+							setMoreAnchor(null);
+							setPanelTab(view.id);
+						},
+					}))}
+					onClose={() => setMoreAnchor(null)}
+					side="above"
+					x={moreAnchor.x}
+					y={moreAnchor.y}
+				/>
+			)}
+		</nav>
 	);
 }
 
@@ -189,7 +255,8 @@ export function PanelContainer() {
 	const split = useTabsStore(s => s.split);
 	const panelSide = useUiStore(s => s.panelSide);
 	const routeReady = useActiveTabRouteReady();
-	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	const compact = useCompactShell();
+	const shellMode = useShellMode();
 
 	const [width, setWidth] = useState(defaultPanelWidth);
 	const viewerExpanded = useUiStore(
@@ -266,23 +333,42 @@ export function PanelContainer() {
 	}, []);
 
 	if (compact) {
+		const views = (
+			<div
+				className={cx("flex min-h-0 flex-1 flex-col", !routeReady && "pointer-events-none")}
+				aria-busy={!routeReady}
+			>
+				<PanelActionsContext.Provider value={actionsTarget}>
+					<SidePanelViews actionRef={setActionsTarget} />
+				</PanelActionsContext.Provider>
+			</div>
+		);
+		// A phone: the whole screen, views switched from a tab bar under the thumb. A portrait tablet: a wide right sheet.
+		if (shellMode === "phone") {
+			return (
+				<Sheet
+					bodyClassName="flex flex-col"
+					header={<PanelHeader bare />}
+					onClose={togglePanel}
+					open
+					placement="full"
+					title={t("panel.title")}
+				>
+					{views}
+					<PanelTabBar />
+				</Sheet>
+			);
+		}
 		return (
 			<Sheet
 				bodyClassName="flex flex-col"
 				onClose={togglePanel}
 				open
-				size="md"
+				size={shellMode === null ? "md" : "lg"}
 				title={t("panel.title")}
 				header={<PanelHeader />}
 			>
-				<div
-					className={cx("flex min-h-0 flex-1 flex-col", !routeReady && "pointer-events-none")}
-					aria-busy={!routeReady}
-				>
-					<PanelActionsContext.Provider value={actionsTarget}>
-						<SidePanelViews actionRef={setActionsTarget} />
-					</PanelActionsContext.Provider>
-				</div>
+				{views}
 			</Sheet>
 		);
 	}

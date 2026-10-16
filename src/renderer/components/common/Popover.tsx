@@ -12,9 +12,12 @@
 
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useBackLayer } from "../../hooks/use-back-layer";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
+import { SheetHandle } from "./Sheet";
 
 export type PopoverPlacement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
 
@@ -62,9 +65,11 @@ export function Popover({
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
 	const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+	const sheet = useShellMode() === "phone";
+	useBackLayer(open && sheet, onClose);
 
 	useLayoutEffect(() => {
-		if (!open) {
+		if (!open || sheet) {
 			setPosition(null);
 			return;
 		}
@@ -94,7 +99,7 @@ export function Popover({
 			window.removeEventListener("resize", place);
 			observer?.disconnect();
 		};
-	}, [open, placement, anchorRef]);
+	}, [open, placement, anchorRef, sheet]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -124,6 +129,25 @@ export function Popover({
 	}, [open, anchorRef]);
 
 	if (!open) return null;
+	// On a phone the popover is a bottom sheet: a panel anchored to a thumb-sized trigger has no room beside it.
+	if (sheet) {
+		return createPortal(
+			<div className="omp-action-sheet-overlay omp-fade-in" data-action-sheet="" role="presentation">
+				<div
+					aria-label={ariaLabel}
+					aria-modal
+					className="omp-action-sheet omp-sheet-in-bottom outline-none"
+					ref={panelRef}
+					role="dialog"
+					tabIndex={-1}
+				>
+					<SheetHandle onClose={onClose} panelRef={panelRef} />
+					<PopoverSurface className={cx("omp-action-sheet-surface", className)}>{children}</PopoverSurface>
+				</div>
+			</div>,
+			document.body,
+		);
+	}
 	return createPortal(
 		<div
 			aria-label={ariaLabel}

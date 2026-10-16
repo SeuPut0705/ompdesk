@@ -3,6 +3,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo,
 import { createPortal } from "react-dom";
 import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
 import { useSessionList } from "../../hooks/use-session-list";
+import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
@@ -302,6 +303,8 @@ export function SplitWorkspace() {
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const split = useTabsStore(state => state.split);
 	const splitTab = useTabsStore(state => state.splitTab);
+	const switchTab = useTabsStore(state => state.switchTab);
+	const single = isDrawerMode(useShellMode());
 	const [dragTabId, setDragTabId] = useState<string | null>(null);
 	// A sidebar subagent row in flight: dropping it on any pane opens it in the side panel.
 	const [dragSubagent, setDragSubagent] = useState<SubagentDrag | null>(null);
@@ -344,7 +347,8 @@ export function SplitWorkspace() {
 
 	if (!activeTabId) return null;
 	const visible = split ? splitTabIds(split) : [activeTabId];
-	const canDrop = dragTabId !== null && !visible.includes(dragTabId);
+	// A finger cannot drag a session onto a pane: no split is made on a phone or a portrait tablet.
+	const canDrop = !single && dragTabId !== null && !visible.includes(dragTabId);
 	// Every grid around a pane has definite tracks: the pane is a size container
 	// (`omp-workspace`), and an auto track laid it out at an indefinite height to
 	// size itself first. Its height queries then matched a short pane and unmatched
@@ -353,7 +357,7 @@ export function SplitWorkspace() {
 	const renderPane = (tabId: string) => (
 		<div
 			key={tabId}
-			data-split={split ? "pane" : undefined}
+			data-split={split && !single ? "pane" : undefined}
 			className="relative grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
 			onDragOver={event => {
 				if (!canDrop && !dragSubagent) return;
@@ -389,18 +393,36 @@ export function SplitWorkspace() {
 				setDropTarget(null);
 			}}
 		>
-			{pane(tabId, split !== null)}
+			{pane(tabId, split !== null && !single)}
 			{dragSubagent && dropTarget?.tabId === tabId && <SubagentDropPreview name={dragSubagent.label} />}
 			{canDrop && dropTarget?.tabId === tabId && (
-				<SplitDropPreview placement={dropTarget.placement} replace={visible.length === 4} />
+				<SplitDropPreview placement={dropTarget.placement} replace={visible.length >= maxSplitPanes()} />
 			)}
 		</div>
 	);
 	const dragLabel = dragSubagent ? dragSubagent.label : dragTabId ? labelFor(dragTabId) : null;
-	return (
+	const workspace = (
 		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
-			<SplitBranch node={split ?? { tabId: activeTabId }} path={[]} renderPane={renderPane} />
+			<SplitBranch
+				node={single ? { tabId: activeTabId } : (split ?? { tabId: activeTabId })}
+				path={[]}
+				renderPane={renderPane}
+			/>
 			{dragLabel !== null && <DragChip title={dragLabel} />}
+		</div>
+	);
+	// One pane at a time, whatever split view the window holds: a switcher names the others.
+	if (!single || !split) return workspace;
+	return (
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div aria-label={t("split.switcher")} className="omp-pane-switcher" role="group">
+				{splitTabIds(split).map(id => (
+					<button aria-pressed={id === activeTabId} key={id} onClick={() => void switchTab(id)} type="button">
+						<span className="truncate">{labelFor(id)}</span>
+					</button>
+				))}
+			</div>
+			{workspace}
 		</div>
 	);
 }

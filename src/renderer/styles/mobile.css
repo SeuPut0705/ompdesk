@@ -1,0 +1,426 @@
+/* Mobile / tablet shell (design §6, hooks/use-shell-mode.ts). Everything that changes how the app looks is gated
+   on `html[data-shell]` or `html[data-input="touch"]`, which only the web build (or the dev flag) ever sets, so an
+   Electron window — whatever its size or touch screen — keeps the desktop rules byte for byte. The only rules
+   outside a gate are tokens (safe-area, keyboard inset) and the sheet keyframes and handle. */
+
+:root {
+	/* Safe areas: the notch, the home indicator, a rounded display's corners. 0 on a desktop. */
+	--safe-t: env(safe-area-inset-top, 0px);
+	--safe-r: env(safe-area-inset-right, 0px);
+	--safe-b: env(safe-area-inset-bottom, 0px);
+	--safe-l: env(safe-area-inset-left, 0px);
+	/* The part of the layout viewport the on-screen keyboard covers (lib/keyboard-inset.ts). */
+	--kb-inset: 0px;
+}
+
+/* A keyboard covers the home indicator: nothing to keep clear of under it. */
+html[data-kb="open"] {
+	--safe-b: 0px;
+}
+
+/* ── Sheets: keyframes, handle ─────────────────────────────────────────────────────────────────────────── */
+@keyframes omp-sheet-in-bottom {
+	from {
+		transform: translateY(100%);
+	}
+	to {
+		transform: translateY(0);
+	}
+}
+
+@keyframes omp-sheet-out-bottom {
+	from {
+		transform: translateY(0);
+	}
+	to {
+		transform: translateY(100%);
+	}
+}
+
+@keyframes omp-sheet-in-left {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(0);
+	}
+}
+
+@keyframes omp-sheet-out-left {
+	from {
+		transform: translateX(0);
+	}
+	to {
+		transform: translateX(-100%);
+	}
+}
+
+.omp-sheet-in-bottom {
+	animation: omp-sheet-in-bottom var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-sheet-in-left {
+	animation: omp-sheet-in-left var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-sheet-out {
+	animation: omp-sheet-out-bottom var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+[data-sheet-placement="left"] > .omp-sheet-out {
+	animation-name: omp-sheet-out-left;
+}
+
+/* The grabber: a short bar in a taller touch strip. Pulling it dismisses the sheet (use-sheet-drag.ts). */
+.omp-sheet-handle {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	height: 28px;
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+}
+
+.omp-sheet-handle:active {
+	cursor: grabbing;
+}
+
+.omp-sheet-grip {
+	width: 36px;
+	height: 4px;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-border);
+}
+
+/* ── The page: the visual viewport, nothing scrolls ────────────────────────────────────────────────────── */
+html[data-shell],
+html[data-shell] body {
+	overscroll-behavior: none;
+	-webkit-text-size-adjust: 100%;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* Fixed to the layout viewport (it follows the dynamic toolbars, like 100dvh) and lifted by the keyboard, so the
+   composer rides above it and iOS has no page to scroll. */
+html[data-shell] body {
+	position: fixed;
+	inset: 0 0 var(--kb-inset) 0;
+	width: 100%;
+	height: auto;
+	padding-inline: var(--safe-l) var(--safe-r);
+	touch-action: manipulation;
+}
+
+html[data-shell] button,
+html[data-shell] [role="button"] {
+	-webkit-touch-callout: none;
+}
+
+
+/* Buttons on the bars a thumb works: at least the control size across as well as down (icon buttons already are). */
+html[data-input="touch"] :is(.omp-topbar, .omp-panel-topbar, .omp-composer-toolbar, .omp-pane-switcher) button {
+	min-width: var(--sc-control-md);
+	min-height: var(--sc-control-md);
+}
+/* ── Touch ergonomics: 44 px targets, 16 px fields (iOS zooms into anything smaller) ───────────────────── */
+html[data-input="touch"] {
+	--sc-control-sm: 44px;
+	--sc-control-md: 44px;
+	--sc-control-lg: 48px;
+	--sc-hit-min: 44px;
+}
+
+html[data-input="touch"] :is(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea, select) {
+	font-size: 16px;
+}
+
+html[data-input="touch"] :is([role="menuitem"], [role="menuitemcheckbox"], [role="option"], [role="treeitem"]),
+html[data-input="touch"] :is(.omp-session-sidebar [data-session-row], .omp-list-row) {
+	min-height: 48px;
+}
+
+/* ── Dialogs on a phone are bottom sheets ───────────────────────────────────────────────────────────────── */
+html[data-shell="phone"] .omp-dialog-overlay {
+	inset: 0 0 var(--kb-inset) 0;
+	align-items: flex-end;
+	padding: 0;
+}
+
+html[data-shell="phone"] .omp-dialog-panel.omp-dialog-panel--sheet {
+	width: 100%;
+	max-width: 100%;
+	height: auto;
+	max-height: calc(100dvh - var(--kb-inset) - var(--safe-t) - 12px);
+	padding-bottom: var(--safe-b);
+	border-bottom: 0;
+	border-radius: var(--sc-radius-xl) var(--sc-radius-xl) 0 0;
+}
+
+/* Pickers and full-size dialogs fill the sheet: their list is the point. */
+html[data-shell="phone"] .omp-dialog-panel--sheet:is(.omp-dialog-size-full, .omp-dialog-size-picker, .omp-dialog-size-picker-compact, .omp-dialog-size-lg) {
+	height: calc(100dvh - var(--kb-inset) - var(--safe-t) - 12px);
+}
+
+html[data-shell="phone"] .omp-dialog-panel--sheet.omp-scale-in {
+	animation: omp-sheet-in-bottom var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+html[data-shell="phone"] .omp-dialog-panel--sheet.omp-scale-out {
+	animation: omp-sheet-out-bottom var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+/* The wide action row of a dialog footer stacks into full-width buttons a thumb can hit. */
+html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-child):has(button) {
+	padding-bottom: calc(var(--sc-space-3) + var(--safe-b));
+}
+
+/* ── Action sheet: a menu or popover that a finger opened (ContextMenu, Popover on a phone) ────────────── */
+.omp-action-sheet-overlay {
+	position: fixed;
+	inset: 0 0 var(--kb-inset) 0;
+	z-index: var(--sc-z-popover);
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	background: var(--sc-overlay);
+}
+
+.omp-action-sheet {
+	width: 100%;
+	max-width: 40rem;
+	max-height: min(75dvh, calc(100dvh - var(--safe-t) - 1rem));
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 0 var(--sc-space-2) calc(var(--sc-space-2) + var(--safe-b));
+	border: 1px solid var(--sc-border-subtle);
+	border-bottom: 0;
+	border-radius: var(--sc-radius-xl) var(--sc-radius-xl) 0 0;
+	background: var(--sc-elevated);
+	box-shadow: var(--sc-shadow-lg);
+}
+
+.omp-action-sheet-title {
+	padding: 0 var(--sc-space-3) var(--sc-space-2);
+	font-size: var(--sc-font-sm);
+	color: var(--sc-text-muted);
+}
+
+.omp-action-sheet [data-menu-item] {
+	min-height: 48px;
+	font-size: var(--sc-font-lg);
+}
+
+/* ── Drawer (sidebar on a phone and a portrait tablet) ─────────────────────────────────────────────────── */
+.omp-drawer {
+	position: fixed;
+	inset: 0;
+	z-index: var(--sc-z-drawer);
+	display: flex;
+	justify-content: flex-start;
+	background: var(--sc-overlay);
+}
+
+.omp-drawer > .omp-drawer-panel {
+	display: flex;
+	width: min(86vw, 360px);
+	height: 100%;
+	padding-top: var(--safe-t);
+	padding-bottom: var(--safe-b);
+	padding-left: var(--safe-l);
+	background: var(--sc-surface-1);
+	box-shadow: var(--sc-shadow-lg);
+}
+
+/* The sidebar inside it fills the drawer: no docked width, no drag handle on its edge. */
+.omp-drawer .omp-session-sidebar {
+	width: 100% !important;
+	border-right: 0;
+}
+
+.omp-drawer .omp-session-sidebar > [role="separator"] {
+	display: none;
+}
+
+/* ── Top bar ───────────────────────────────────────────────────────────────────────────────────────────── */
+html[data-shell] .omp-topbar {
+	box-sizing: content-box;
+	padding-top: var(--safe-t);
+}
+
+html[data-shell="phone"] .omp-titlebar {
+	gap: 0;
+	padding-inline: var(--sc-space-1);
+}
+
+/* Phone: the title is the bar; project crumb, cost and the status words give way (tap the title for the
+   session sheet — the info popover keeps the status). */
+html[data-shell="phone"] .omp-titlebar-project,
+html[data-shell="phone"] .omp-titlebar-crumb-sep,
+html[data-shell="phone"] .omp-session-status-cost,
+html[data-shell="phone"] .omp-titlebar-status-label {
+	display: none;
+}
+
+html[data-shell="phone"] .omp-titlebar-status {
+	padding-inline: var(--sc-space-1);
+}
+
+/* ── Side panel on a phone: a full-screen sheet with a tab bar at the thumb ─────────────────────────────── */
+.omp-panel-tabbar {
+	display: flex;
+	flex-shrink: 0;
+	align-items: stretch;
+	border-top: var(--sc-hairline) solid var(--sc-divider);
+	background: var(--sc-surface-1);
+	padding-bottom: var(--safe-b);
+}
+
+.omp-panel-tabbar > button {
+	display: flex;
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 52px;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-muted);
+}
+
+.omp-panel-tabbar > button svg {
+	width: 20px;
+	height: 20px;
+}
+
+.omp-panel-tabbar > button[aria-current="page"] {
+	color: var(--sc-accent);
+}
+
+/* ── Composer: pinned above the keyboard (body's inset), clear of the home indicator, chips on one line ────── */
+html[data-shell] .omp-composer-region.pb-3 {
+	padding-bottom: calc(var(--spacing, 0.25rem) * 3 + var(--safe-b));
+}
+
+html[data-shell="phone"] .omp-composer-toolbar {
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+html[data-shell="phone"] .omp-composer-toolbar::-webkit-scrollbar {
+	display: none;
+}
+
+html[data-shell="phone"] .omp-composer-toolbar > * {
+	flex-shrink: 0;
+}
+
+html[data-shell="phone"] .omp-composer-send-cluster {
+	position: sticky;
+	right: 0;
+	margin-left: auto;
+	background: var(--sc-elevated);
+}
+
+/* ── Split view: one pane and a switcher on a phone and a portrait tablet ──────────────────────────────── */
+.omp-pane-switcher {
+	display: flex;
+	flex-shrink: 0;
+	gap: var(--sc-space-1);
+	overflow-x: auto;
+	padding: var(--sc-space-1) var(--sc-space-2);
+	border-bottom: var(--sc-hairline) solid var(--sc-divider);
+	scrollbar-width: none;
+}
+
+.omp-pane-switcher > button {
+	display: inline-flex;
+	min-height: 36px;
+	max-width: 12rem;
+	flex-shrink: 0;
+	align-items: center;
+	padding: 0 var(--sc-space-3);
+	border-radius: var(--sc-radius-full);
+	font-size: var(--sc-font-sm);
+	color: var(--sc-text-muted);
+}
+
+.omp-pane-switcher > button[aria-pressed="true"] {
+	background: var(--sc-selected);
+	color: var(--sc-text);
+}
+
+/* ── Work board: a chip above the composer, the board itself in a sheet ─────────────────────────────────── */
+.omp-work-chip {
+	display: flex;
+	width: min(100% - 2 * var(--omp-column-pad, var(--sc-space-3)), var(--omp-column-reading, 48rem));
+	min-height: 44px;
+	align-items: center;
+	gap: var(--sc-space-2);
+	margin: 0 auto var(--sc-space-1);
+	padding: 0 var(--sc-space-3);
+	border: var(--sc-hairline) solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-elevated);
+	font-size: var(--sc-font-sm);
+	color: var(--sc-text);
+	text-align: left;
+}
+
+.omp-work-chip[data-state="waiting"] {
+	border-color: var(--sc-warning);
+}
+
+.omp-work-chip > .omp-work-chip-label {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-work-chip-sheet .omp-work-board {
+	max-height: none;
+	padding-block: var(--sc-space-3);
+}
+
+/* A menu or popover shown inside the action sheet: the sheet is the surface, so the inner one is bare. */
+.omp-action-sheet .omp-action-sheet-list,
+.omp-action-sheet .omp-action-sheet-surface {
+	width: 100%;
+	min-width: 0;
+	max-width: none;
+	max-height: none;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+/* The left-edge strip that opens the drawer (SidebarDrawer.tsx): touch only, so a mouse never meets it. */
+.omp-edge-zone {
+	display: none;
+}
+
+html[data-input="touch"] .omp-edge-zone {
+	position: fixed;
+	inset-block: 0;
+	left: 0;
+	z-index: var(--sc-z-sticky);
+	display: block;
+	width: 20px;
+	touch-action: none;
+}
+
+/* Shortcut chips mean nothing without a keyboard; a tablet keeps them (a hardware keyboard may be attached). */
+html[data-shell="phone"] kbd {
+	display: none;
+}
+
+/* The board names and hides itself in its own header; in the sheet the sheet's header does both. */
+.omp-work-chip-sheet .omp-work-board-name,
+.omp-work-chip-sheet .omp-work-board-hide {
+	display: none;
+}

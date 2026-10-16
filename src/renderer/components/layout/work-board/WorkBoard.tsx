@@ -18,6 +18,7 @@ import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, use
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { usePresence } from "../../../hooks/use-presence";
+import { isDrawerMode, useShellMode } from "../../../hooks/use-shell-mode";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -43,6 +44,7 @@ import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panel
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
+import { WorkBoardChip } from "./WorkBoardChip";
 import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
@@ -710,6 +712,7 @@ export function WorkBoardHost() {
 	const slot = useRef<HTMLDivElement>(null);
 	const [pane, setPane] = useState<HTMLElement | null>(null);
 	const [fits, setFits] = useState(false);
+	const shellMode = useShellMode();
 	useLayoutEffect(() => {
 		const element = slot.current?.closest<HTMLElement>(".omp-session-pane") ?? null;
 		setPane(element);
@@ -731,9 +734,18 @@ export function WorkBoardHost() {
 		if (region) observer.observe(region);
 		return () => observer.disconnect();
 	}, []);
+	// Where the board cannot dock (a phone, a portrait tablet) it is a status chip over the composer and a sheet.
+	const chipPane = isDrawerMode(shellMode) && !fits && enabled ? pane : null;
 	return (
-		<div className="omp-work-board-slot" ref={slot}>
-			{enabled && !panelOpen && fits && pane ? <WorkBoard pane={pane} /> : null}
-		</div>
+		<>
+			<div className="omp-work-board-slot" ref={slot}>
+				{enabled && !panelOpen && fits && pane ? <WorkBoard pane={pane} /> : null}
+			</div>
+			{chipPane && (
+				<WorkBoardChip>
+					<WorkBoard pane={chipPane} />
+				</WorkBoardChip>
+			)}
+		</>
 	);
 }

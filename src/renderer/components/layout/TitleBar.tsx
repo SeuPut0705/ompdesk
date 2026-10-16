@@ -7,6 +7,7 @@ import {
 	GitBranch,
 	Info,
 	ListTree,
+	Menu,
 	MoreHorizontal,
 	PanelLeft,
 	PanelRight,
@@ -21,6 +22,7 @@ import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
+import { isDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -52,6 +54,7 @@ import { SwapText } from "../common/SwapText";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
+import { ViewersChip } from "./ViewersChip";
 
 type StatusTone = "ready" | "busy" | "attention" | "error";
 
@@ -174,6 +177,7 @@ export function TitleBar() {
 	const reconnecting = device !== undefined && !unpaired && host?.state !== "online";
 	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
+	const drawer = isDrawerMode(useShellMode());
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
@@ -352,8 +356,8 @@ export function TitleBar() {
 			{!sidebarVisible && (
 				<IconButton
 					className="no-drag"
-					icon={<PanelLeft />}
-					label={t("titlebar.toggleSidebar")}
+					icon={drawer ? <Menu /> : <PanelLeft />}
+					label={t(drawer ? "shell.openMenu" : "titlebar.toggleSidebar")}
 					onClick={() => ui().toggleSidebar()}
 					shortcut={actionKbd("sidebar.toggle", keymapOverrides)}
 				/>
@@ -365,6 +369,7 @@ export function TitleBar() {
 						<DeviceChip deviceId={device} />
 					</span>
 				)}
+				<ViewersChip />
 				<Tooltip
 					content={cwd && !isChat ? `${t("titlebar.switchProject")} · ${cwd}` : t("titlebar.switchProject")}
 					describe={false}

@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useRef } from "react";
+import { useBackLayer } from "../../hooks/use-back-layer";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 
@@ -16,6 +17,8 @@ const FOCUSABLE =
 export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | null>, onClose: () => void): void {
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
+	// The system back gesture closes the topmost sheet or dialog (web shell only).
+	useBackLayer(open, onClose);
 	const restoreRef = useRef<HTMLElement | null>(null);
 
 	useEffect(() => {

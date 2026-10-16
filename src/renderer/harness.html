@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-platform="web">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+		/>
+		<title>OMPdesk (dev harness)</title>
+		<!-- ?theme=dark|light and ?lang=en|ko set what the app's own pre-paint and i18n read from storage. -->
+		<script>
+			(function () {
+				var query = new URLSearchParams(location.search);
+				var theme = query.get("theme");
+				var lang = query.get("lang");
+				if (theme === "dark" || theme === "light") localStorage.setItem("omp.themeScheme", theme);
+				if (lang === "en" || lang === "ko") localStorage.setItem("omp.lang", lang);
+			})();
+		</script>
+		<script src="./pre-paint.js"></script>
+		<style>
+			html {
+				background: #fcfcfb;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./dev-harness/boot.ts"></script>
+	</body>
+</html>

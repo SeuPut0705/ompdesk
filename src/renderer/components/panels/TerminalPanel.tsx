@@ -18,11 +18,11 @@ import {
 	type TerminalShell,
 	type TerminalSnapshot,
 } from "../../../shared/terminal-types";
-import { useMediaQuery } from "../../hooks/use-media-query";
+import { useCompactShell } from "../../hooks/use-shell-mode";
 import { useT } from "../../lib/i18n";
 import { TerminalLocalEcho } from "../../lib/terminal-local-echo";
 import { useTabsStore } from "../../stores/tabs";
-import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
+import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner } from "../common";
 import "@xterm/xterm/css/xterm.css";
 
@@ -230,7 +230,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const tabsRef = useRef<HTMLDivElement>(null);
 	const [shells, setShells] = useState<TerminalShell[]>([]);
 	const expanded = useUiStore(s => s.terminalExpanded);
-	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	const compact = useCompactShell();
 	// A paired host's terminal answers over the network: typed characters are predicted (C109).
 	const remote = useTabsStore(state => state.tabs.some(tab => tab.id === tabId && tab.device !== undefined));
 	useEffect(() => {

@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
 import type { FsTreeEntry, IpcFsMutation } from "../../../shared/ipc-types";
 import type { RpcGitChanges } from "../../../shared/rpc-types";
-import { useMediaQuery } from "../../hooks/use-media-query";
+import { useCompactShell } from "../../hooks/use-shell-mode";
 import { errorMessage } from "../../lib/error-detail";
 import { FILE_DRAG_TYPE } from "../../lib/file-drag";
 import { copyText, formatBytes } from "../../lib/format";
@@ -36,7 +36,7 @@ import { actionKbd, PLATFORM } from "../../lib/keymap";
 import { useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
+import { useUiStore } from "../../stores/ui";
 import {
 	Banner,
 	Button,
@@ -243,7 +243,7 @@ function FilePreview({
 	const closeFilePreview = useUiStore(s => s.closeFilePreview);
 	const expanded = useUiStore(s => s.filePreviewExpanded);
 	const toggleExpanded = useUiStore(s => s.toggleFilePreviewExpanded);
-	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	const compact = useCompactShell();
 	const line = useUiStore(s => s.filePreviewLine);
 	const fileTabs = useUiStore(s => s.fileTabs);
 	const openFilePreview = useUiStore(s => s.openFilePreview);

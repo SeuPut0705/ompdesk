@@ -6,9 +6,11 @@
  * buttons are recolored to match whatever surface sits under them.
  */
 
-export type ChromePlatform = "darwin" | "win32" | "other";
+export type ChromePlatform = "darwin" | "win32" | "other" | "web";
 
+/** `web`: a browser page (the mobile web client), whose boot marks `html[data-platform="web"]` before React mounts. */
 export function chromePlatform(): ChromePlatform {
+	if (typeof document !== "undefined" && document.documentElement.dataset.platform === "web") return "web";
 	const platform = typeof navigator === "undefined" ? "" : navigator.platform.toLowerCase();
 	if (platform.startsWith("mac")) return "darwin";
 	if (platform.startsWith("win")) return "win32";

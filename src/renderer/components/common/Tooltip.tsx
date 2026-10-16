@@ -14,6 +14,7 @@ import {
 	cloneElement,
 	type FocusEvent,
 	type HTMLAttributes,
+	type MouseEvent,
 	type PointerEvent,
 	type ReactElement,
 	type ReactNode,
@@ -24,12 +25,16 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { formatShortcut } from "../../lib/keymap";
 
 export type TooltipSide = "top" | "bottom" | "left" | "right";
 
 const SHOW_DELAY_MS = 450;
+/** A finger: how long a press must hold to open the bubble, and how long the bubble then stays. */
+const TOUCH_PRESS_MS = 500;
+const TOUCH_LINGER_MS = 4000;
 const GAP = 6;
 const MARGIN = 8;
 
@@ -78,6 +83,10 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, chil
 	const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 	const bubbleRef = useRef<HTMLDivElement>(null);
 	const timerRef = useRef<number | undefined>(undefined);
+	const pressRef = useRef<number | undefined>(undefined);
+	/** The press that opened the bubble: the click it leads to is swallowed. */
+	const pressedRef = useRef(false);
+	const touch = useShellInput() === "touch";
 
 	const hide = () => {
 		clearTimeout(timerRef.current);
@@ -86,6 +95,22 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, chil
 	};
 
 	useEffect(() => () => clearTimeout(timerRef.current), []);
+	useEffect(() => () => clearTimeout(pressRef.current), []);
+
+	// A bubble a finger opened has no pointer to leave: it goes with the next press elsewhere, or by itself.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `hide` only clears state setters and a ref'd timer.
+	useEffect(() => {
+		if (!anchor || !touch) return;
+		const elsewhere = (event: globalThis.PointerEvent) => {
+			if (!anchor.contains(event.target as globalThis.Node | null)) hide();
+		};
+		const timer = window.setTimeout(hide, TOUCH_LINGER_MS);
+		document.addEventListener("pointerdown", elsewhere, true);
+		return () => {
+			window.clearTimeout(timer);
+			document.removeEventListener("pointerdown", elsewhere, true);
+		};
+	}, [anchor, touch]);
 
 	// Escape and scrolling dismiss without moving focus (WCAG 1.4.13).
 	useEffect(() => {
@@ -123,22 +148,64 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, chil
 	}, [anchor, side]);
 
 	const props = children.props;
+	// Where the main pointer is a finger there is no hover: a long press (or, for a control that does nothing
+	// on tap — an info glyph — a tap) opens the bubble, and the press that opened it never also clicks.
+	const tapOpens = touch && props.onClick === undefined;
+	const fingerDown = (event: PointerEvent<HTMLElement>) => touch && event.pointerType === "touch";
+	const stopPress = () => clearTimeout(pressRef.current);
 	const trigger = cloneElement(children, {
 		"aria-describedby": describe && anchor ? id : props["aria-describedby"],
 		onPointerEnter: (event: PointerEvent<HTMLElement>) => {
 			props.onPointerEnter?.(event);
+			if (fingerDown(event)) return;
 			const target = event.currentTarget;
 			clearTimeout(timerRef.current);
 			timerRef.current = window.setTimeout(() => setAnchor(target), SHOW_DELAY_MS);
 		},
 		onPointerLeave: (event: PointerEvent<HTMLElement>) => {
 			props.onPointerLeave?.(event);
+			if (fingerDown(event)) return stopPress();
 			hide();
 		},
 		onPointerDown: (event: PointerEvent<HTMLElement>) => {
 			props.onPointerDown?.(event);
+			if (fingerDown(event)) {
+				const target = event.currentTarget;
+				stopPress();
+				pressedRef.current = false;
+				if (!tapOpens) {
+					pressRef.current = window.setTimeout(() => {
+						pressedRef.current = true;
+						setAnchor(target);
+					}, TOUCH_PRESS_MS);
+				}
+				return;
+			}
 			hide();
 		},
+		onPointerUp: (event: PointerEvent<HTMLElement>) => {
+			props.onPointerUp?.(event);
+			stopPress();
+		},
+		onPointerCancel: (event: PointerEvent<HTMLElement>) => {
+			props.onPointerCancel?.(event);
+			stopPress();
+		},
+		onClickCapture: (event: MouseEvent<HTMLElement>) => {
+			props.onClickCapture?.(event);
+			if (!pressedRef.current) return;
+			pressedRef.current = false;
+			event.preventDefault();
+			event.stopPropagation();
+		},
+		...(tapOpens
+			? {
+					onClick: (event: MouseEvent<HTMLElement>) => {
+						const target = event.currentTarget;
+						setAnchor(current => (current === target ? null : target));
+					},
+				}
+			: {}),
 		onFocus: (event: FocusEvent<HTMLElement>) => {
 			props.onFocus?.(event);
 			if (event.currentTarget.matches(":focus-visible")) setAnchor(event.currentTarget);

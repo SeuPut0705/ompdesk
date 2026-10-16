@@ -17,14 +17,26 @@
  */
 
 import { Check, type LucideIcon } from "lucide-react";
-import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	Fragment,
+	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
+import { useBackLayer } from "../../hooks/use-back-layer";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
+import { SheetHandle } from "./Sheet";
 
 export interface ContextMenuItem {
 	/** Stable id for keyboard focus tracking. */
@@ -141,6 +153,9 @@ export function ContextMenu({
 	onClose,
 }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
+	const sheet = useShellInput() === "touch";
+	// The system back gesture dismisses the sheet.
+	useBackLayer(sheet, onClose);
 	const [activeIndex, setActiveIndex] = useState(() => items.findIndex(item => !item.disabled));
 
 	// Place inside the viewport before paint (menu size is content-driven). It
@@ -151,7 +166,7 @@ export function ContextMenu({
 	// position set here stands.
 	useLayoutEffect(() => {
 		const el = menuRef.current;
-		if (!el) return;
+		if (!el || sheet) return;
 		el.style.left = "0px";
 		el.style.top = "0px";
 		// DOMs without layout (linkedom) leave these undefined: treat as 0.
@@ -164,7 +179,7 @@ export function ContextMenu({
 				: Math.min(y, window.innerHeight - height - 8);
 		el.style.left = `${Math.max(8, left)}px`;
 		el.style.top = `${Math.max(8, top)}px`;
-	}, [x, y, above, align, side]);
+	}, [x, y, above, align, side, sheet]);
 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
@@ -224,56 +239,79 @@ export function ContextMenu({
 		});
 	};
 
+	const list = (
+		<MenuSurface
+			className={sheet ? "omp-action-sheet-list" : items.some(item => item.description) ? "min-w-64" : undefined}
+			style={side === "above" && !sheet ? { maxHeight: "min(60vh, calc(100dvh - 1rem))" } : undefined}
+		>
+			{items.map((item, index) => (
+				<Fragment key={item.id}>
+					{item.separatorBefore && index > 0 && (
+						<div className="mx-2 my-1 h-px bg-(--sc-divider)" role="separator" />
+					)}
+					<button
+						aria-checked={item.checked}
+						className={menuItemClasses(item, index === activeIndex)}
+						data-menu-item
+						disabled={item.disabled}
+						onClick={() => {
+							if (item.disabled) return;
+							item.onSelect();
+						}}
+						onMouseEnter={() => setActiveIndex(index)}
+						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+						title={item.disabled ? item.disabledReason : item.label}
+						type="button"
+					>
+						<MenuItemView item={item} />
+					</button>
+				</Fragment>
+			))}
+		</MenuSurface>
+	);
+	const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+		if (isImeKeyEvent(event)) return;
+		if (event.key === "ArrowDown") {
+			event.preventDefault();
+			step(1);
+		} else if (event.key === "ArrowUp") {
+			event.preventDefault();
+			step(-1);
+		} else if (event.key === "Enter") {
+			event.preventDefault();
+			const item = items[activeIndex];
+			if (item && !item.disabled) item.onSelect();
+		}
+	};
+
+	// A finger opened it (long press, ⋯): a bottom action sheet with 48 px rows, not a popover at the fingertip.
+	if (sheet) {
+		return createPortal(
+			<div className="omp-action-sheet-overlay omp-fade-in" data-action-sheet="" role="presentation">
+				<div
+					aria-label={ariaLabel}
+					className="omp-action-sheet omp-sheet-in-bottom"
+					onKeyDown={onMenuKeyDown}
+					ref={menuRef}
+					role="menu"
+				>
+					<SheetHandle onClose={onClose} panelRef={menuRef} />
+					{list}
+				</div>
+			</div>,
+			document.body,
+		);
+	}
 	return createPortal(
 		<div
 			aria-label={ariaLabel}
 			className="omp-pop-in fixed z-(--sc-z-popover)"
-			onKeyDown={event => {
-				if (isImeKeyEvent(event)) return;
-				if (event.key === "ArrowDown") {
-					event.preventDefault();
-					step(1);
-				} else if (event.key === "ArrowUp") {
-					event.preventDefault();
-					step(-1);
-				} else if (event.key === "Enter") {
-					event.preventDefault();
-					const item = items[activeIndex];
-					if (item && !item.disabled) item.onSelect();
-				}
-			}}
+			onKeyDown={onMenuKeyDown}
 			ref={menuRef}
 			role="menu"
 			style={{ left: 0, top: 0 }}
 		>
-			<MenuSurface
-				className={items.some(item => item.description) ? "min-w-64" : undefined}
-				style={side === "above" ? { maxHeight: "min(60vh, calc(100dvh - 1rem))" } : undefined}
-			>
-				{items.map((item, index) => (
-					<Fragment key={item.id}>
-						{item.separatorBefore && index > 0 && (
-							<div className="mx-2 my-1 h-px bg-(--sc-divider)" role="separator" />
-						)}
-						<button
-							aria-checked={item.checked}
-							className={menuItemClasses(item, index === activeIndex)}
-							data-menu-item
-							disabled={item.disabled}
-							onClick={() => {
-								if (item.disabled) return;
-								item.onSelect();
-							}}
-							onMouseEnter={() => setActiveIndex(index)}
-							role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-							title={item.disabled ? item.disabledReason : item.label}
-							type="button"
-						>
-							<MenuItemView item={item} />
-						</button>
-					</Fragment>
-				))}
-			</MenuSurface>
+			{list}
 		</div>,
 		document.body,
 	);

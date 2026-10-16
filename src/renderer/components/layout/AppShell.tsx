@@ -14,18 +14,20 @@
  * only the side panel becomes a sheet over a scrim.
  */
 
-import { ArrowLeft, PanelLeft } from "lucide-react";
+import { ArrowLeft, Menu, PanelLeft } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useMediaQuery } from "../../hooks/use-media-query";
+import { isDrawerMode, useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
 import { useT } from "../../lib/i18n";
+import { whenIdle } from "../../lib/idle";
 import { actionShortcut } from "../../lib/keymap";
 import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../stores/ui";
+import { type PageDestination, useUiStore } from "../../stores/ui";
 import { Button, IconButton, Spinner, Tooltip } from "../common";
 import type { SettingsPage as LoadedSettingsPage } from "../settings/SettingsPage";
 import { PanelContainer } from "./PanelContainer";
+import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TabHousekeeping } from "./TabHousekeeping";
@@ -66,13 +68,14 @@ function DestinationPage({ destination }: { destination: PageDestination }): Rea
 function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 	const t = useT();
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
+	const drawer = isDrawerMode(useShellMode());
 	const closeDestination = useUiStore(s => s.closeDestination);
 	return (
 		<div className="omp-topbar drag-region flex h-12 shrink-0 items-center gap-1 px-3">
 			{showSidebarToggle && (
 				<IconButton
 					className="no-drag"
-					icon={<PanelLeft />}
+					icon={drawer ? <Menu /> : <PanelLeft />}
 					label={t("titlebar.toggleSidebar")}
 					onClick={toggleSidebar}
 					shortcut={actionShortcut("sidebar.toggle")}
@@ -158,13 +161,39 @@ export function followPageFocus(page: () => HTMLElement | null): () => void {
 	};
 }
 
+/**
+ * Phone and portrait tablet keep the session list in a drawer: `sidebarVisible` is its open state, so it starts
+ * closed, and the docked state the window had comes back when the width does (a tablet turned to landscape).
+ * Returns whether the store matches `drawer` yet: the drawer mounts only after the layout effect closed the
+ * sidebar (still before paint), so it never opens for a frame, pushes a history entry and takes it back.
+ */
+function useDrawerSidebarSync(drawer: boolean): boolean {
+	const docked = useRef<boolean | null>(null);
+	const [syncedFor, setSyncedFor] = useState<boolean | null>(null);
+	useLayoutEffect(() => {
+		if (drawer) {
+			if (docked.current === null) docked.current = useUiStore.getState().sidebarVisible;
+			useUiStore.setState({ sidebarVisible: false });
+		} else if (docked.current !== null) {
+			useUiStore.setState({ sidebarVisible: docked.current });
+			docked.current = null;
+		}
+		// A desktop window never synced anything: keep `null`, so its first render stays its only one.
+		setSyncedFor(previous => (previous === null && !drawer ? null : drawer));
+	}, [drawer]);
+	return syncedFor === drawer;
+}
+
 export function AppShell() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const panelSide = useUiStore(s => s.panelSide);
-	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	const shellMode = useShellMode();
+	const drawer = isDrawerMode(shellMode);
+	const compact = useCompactShell();
+	const drawerReady = useDrawerSidebarSync(drawer);
 	const onPage = destination !== "session";
 	const panelOpen = !onPage && panelVisible;
 	const panelDocked = panelOpen && !compact;
@@ -191,16 +220,17 @@ export function AppShell() {
 	// (~460 KB) in an idle moment after startup, so the first open renders it
 	// directly; the same specifier as the lazy() above, so both resolve to one
 	// module record.
-	useEffect(() => {
-		const idle = requestIdleCallback(
-			() =>
-				void import("../settings/SettingsPage").then(module => {
-					preloadedSettingsPage = module.SettingsPage;
-				}),
-			{ timeout: 10_000 },
-		);
-		return () => cancelIdleCallback(idle);
-	}, []);
+	useEffect(
+		() =>
+			whenIdle(
+				() =>
+					void import("../settings/SettingsPage").then(module => {
+						preloadedSettingsPage = module.SettingsPage;
+					}),
+				10_000,
+			),
+		[],
+	);
 
 	// Esc on a page goes back to the session, unless something on the page
 	// (a search field, a menu) or an overlay already used the keystroke.
@@ -216,8 +246,15 @@ export function AppShell() {
 	}, [onPage]);
 
 	return (
-		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebarVisible ? "docked" : "hidden"}>
-			{sidebarVisible && <Sidebar />}
+		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebarVisible && !drawer ? "docked" : "hidden"}>
+			{drawer
+				? drawerReady && (
+						<>
+							<SidebarDrawer />
+							<EdgeSwipeZone />
+						</>
+					)
+				: sidebarVisible && <Sidebar />}
 			{panelOpen && panelSide === "left" && <PanelContainer />}
 
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">

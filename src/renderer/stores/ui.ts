@@ -87,9 +87,6 @@ const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTa
 const DEFAULT_SETTINGS_TAB = "general";
 /** Documents whose rendered/source choice the Files viewer remembers. */
 const FILE_VIEW_MODE_CAP = 200;
-/** Below this width the side panel becomes a sheet (design-spec §8); the sidebar never folds on its own. */
-export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
-
 /** Center-dock card identifiers: todo/plan render as live cards above the composer. */
 export type DockCardId = "todo" | "plan";
 

@@ -16,9 +16,11 @@ import { X } from "lucide-react";
 import { forwardRef, type HTMLAttributes, type ReactNode, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { IconButton } from "./IconButton";
+import { SheetHandle } from "./Sheet";
 import { useModalLayer } from "./use-modal-layer";
 
 export type ModalSize = "sm" | "md" | "lg" | "full" | "picker" | "picker-compact";
@@ -45,6 +47,8 @@ export interface DialogSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>,
 	chromeless?: boolean;
 	bodyClassName?: string;
 	footer?: ReactNode;
+	/** Drag handle above the header (a dialog shown as a sheet). */
+	handle?: ReactNode;
 }
 
 /**
@@ -61,6 +65,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 		onClose,
 		chromeless,
 		bodyClassName = "px-5 py-4",
+		handle,
 		footer,
 		className,
 		children,
@@ -78,6 +83,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 			ref={ref}
 			{...rest}
 		>
+			{handle}
 			{!chromeless && (
 				<div className="flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-0.5">
@@ -175,6 +181,8 @@ export function Modal({
 	const shown = shownRef.current;
 
 	useModalLayer(open, panelRef, onClose);
+	// On a phone every dialog is a bottom sheet (mobile.css lays it out); a dialog scoped to a container stays put.
+	const sheet = useShellMode() === "phone" && !container;
 
 	// Render on the opening commit so the focus/layer effect sees a real panel.
 	// `mounted` only extends the closing phase for the exit animation.
@@ -187,6 +195,7 @@ export function Modal({
 				container ? "absolute" : "fixed",
 				closing ? "omp-fade-out" : "omp-fade-in",
 				placement === "top" ? "items-start pt-[12dvh]" : "items-center",
+				sheet && "omp-dialog-overlay--sheet",
 			)}
 			inert={closing}
 			onMouseDown={event => {
@@ -208,8 +217,11 @@ export function Modal({
 					"omp-dialog-panel",
 					closing ? "omp-scale-out" : "omp-scale-in",
 					SIZE_CLASSES[size],
+					sheet && "omp-dialog-panel--sheet",
 					panelClassName,
 				)}
+				data-presentation={sheet ? "sheet" : undefined}
+				handle={sheet ? <SheetHandle onClose={onClose} panelRef={panelRef} /> : undefined}
 				footer={shown.footer}
 				onClose={onClose}
 				onKeyDown={event => {
