@@ -93,8 +93,20 @@ function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): boole
 	return runGuiAffordance(item.affordance, args);
 }
 
+/** Error code of a submission withdrawn before it was sent (see `signal`): no failure to show, the draft returns. */
+export const SUBMIT_CANCELLED = "submit_cancelled";
+const cancelledSubmit: RpcResponse = {
+	type: "response",
+	command: "prompt",
+	success: false,
+	error: "Withdrawn before it was sent",
+	code: SUBMIT_CANCELLED,
+};
+
 export function planComposerSubmit(input: {
 	message: string;
+	/** The draft as the user saw it (paste markers folded); a slash command is read from it. Defaults to `message`. */
+	typed?: string;
 	images: ImageContent[];
 	isStreaming: boolean;
 	mode: ComposerSendMode;
@@ -102,6 +114,8 @@ export function planComposerSubmit(input: {
 	rpc?: Pick<TabRpc, "compact" | "followUp" | "prompt" | "steer">;
 	/** Runs just before a plain (non-slash, non-streaming) prompt is sent: the automatic mode choice. */
 	beforePrompt?: () => Promise<AutoModeDecision | null | undefined>;
+	/** Aborted before the prompt leaves (Stop or Esc during the mode choice): nothing is sent. */
+	signal?: AbortSignal;
 	/**
 	 * Other devices may send to this tab (a shared tab, or a page on a phone), so this window's idea of
 	 * "running" can be a beat stale: a plain message goes as a prompt carrying how to join a run
@@ -110,7 +124,7 @@ export function planComposerSubmit(input: {
 	hostDecides?: boolean;
 }): ComposerSubmit {
 	const { message, images, isStreaming, mode, commands, rpc = window.omp.rpc } = input;
-	const isSlashCommand = message.startsWith("/");
+	const isSlashCommand = (input.typed ?? message).startsWith("/");
 	if (isSlashCommand && isStreaming) {
 		const commandName = parseSlashCommand(message)?.name;
 		if (commandName !== undefined && SESSION_REPLACING_COMMANDS[commandName]) {
@@ -150,6 +164,7 @@ export function planComposerSubmit(input: {
 			kind: "send",
 			request: async () => {
 				if (!isStreaming) await input.beforePrompt?.();
+				if (input.signal?.aborted) return cancelledSubmit;
 				return rpc.prompt(message, images, mode === "followUp" ? "followUp" : "steer");
 			},
 		};
@@ -165,6 +180,7 @@ export function planComposerSubmit(input: {
 		request: async () => {
 			// The automatic mode choice (lib/auto-mode-client.ts) never throws and is bounded; it runs only for a plain prompt.
 			const choice = isSlashCommand ? undefined : await input.beforePrompt?.();
+			if (input.signal?.aborted) return cancelledSubmit;
 			// Main started a goal with stock `goal create`, which on an idle session admits the goal's own turn at once,
 			// ahead of this prompt; stock refuses a plain prompt while a turn runs, and the composer then put the sent
 			// text back as "Message not sent". As a steer it joins that turn, or starts one when none runs yet.

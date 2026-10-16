@@ -188,7 +188,9 @@ export function ContextMenu({
 		// Restore focus to the element that opened the menu — unmounting the
 		// focused item otherwise drops focus to <body>. The restore runs ONLY
 		// on unmount (onClose is read through a ref): re-running per render
-		// would steal focus back to the trigger while the menu stays open.
+		// would steal focus back to the trigger while the menu stays open. An
+		// item that moved focus on purpose (a picker or overlay it opened, which
+		// focused its own field as it mounted) keeps it.
 		const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		const panel = menuRef.current;
 		const unregisterLayer = registerDialogLayer(panel);
@@ -220,7 +222,9 @@ export function ContextMenu({
 			document.removeEventListener("pointerdown", onDown);
 			document.removeEventListener("keydown", onKey, true);
 			unregisterLayer();
-			if (restore?.isConnected) restore.focus();
+			const focused = document.activeElement;
+			const dropped = !focused || focused === document.body || panel?.contains(focused) === true;
+			if (dropped && restore?.isConnected) restore.focus();
 		};
 	}, []);
 

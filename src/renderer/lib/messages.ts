@@ -311,6 +311,9 @@ export async function abortActiveTurn(
 		(tabId ? sessionRuntimeStore<ComposerStore>(tabId, "composer")?.getState() : undefined) ??
 		useComposerStore.getState();
 	const session = sessionRuntimeStore<SessionStore>(tabId ?? focusedRuntimeTabId(), "session") ?? useSessionStore;
+	// A prompt still waiting on the automatic mode choice has not reached omp: it is withdrawn (its
+	// draft comes back, use-composer-submit.ts) and nothing runs that could be stopped.
+	if (composer.cancelSubmit?.()) return { type: "response", command: "abort", success: true };
 	const maintenance = session.getState().compactionInfo;
 	if (maintenance?.reason === "manual") {
 		session.setState({ compactionInfo: { ...maintenance, cancelling: true } });

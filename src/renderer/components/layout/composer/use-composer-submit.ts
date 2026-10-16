@@ -8,14 +8,19 @@ import { useCallback } from "react";
 import type { AgentMessage, AvailableCommand } from "../../../../shared/rpc-types";
 import { refreshNextPromptAfterBash } from "../../../hooks/use-next-prompt";
 import { hydrateTabSession } from "../../../hooks/use-rpc-events";
-import { runAutoMode } from "../../../lib/auto-mode-client";
-import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../../lib/composer-submit";
+import { endAutoPlan, runAutoMode } from "../../../lib/auto-mode-client";
+import {
+	isGuiOnlyBuiltinCommand,
+	planComposerSubmit,
+	SUBMIT_CANCELLED,
+	settleComposerResponse,
+} from "../../../lib/composer-submit";
 import { expandEmoticons } from "../../../lib/emoji";
 import { errorDetail } from "../../../lib/error-detail";
 import { rememberHistoryImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
-import { clearSessionContext } from "../../../lib/messages";
+import { abortActiveTurn, clearSessionContext } from "../../../lib/messages";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { parseSlashCommand } from "../../../lib/slash-command";
@@ -75,8 +80,10 @@ export function useComposerSubmit({
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;
-			// ↑ history brings the pictures back with the text (stock keeps text only).
-			rememberHistoryImages(message, images);
+			// ↑ history brings the pictures back with the text (stock keeps text only). History holds the
+			// paste-expanded text, as stock's does: the blobs are freed once the send is accepted.
+			const historyText = expandPasteMarkers(message);
+			rememberHistoryImages(historyText, images);
 			if (!routeReady || !runtimeTabId) return;
 			if (status !== "ready") {
 				toast({ variant: "warning", message: t("input.agentConnecting") });
@@ -126,21 +133,22 @@ export function useComposerSubmit({
 				if (originSession) void hydrateTabSession(originTabId);
 			};
 
-			// Paste markers expand to full blob content BEFORE mode/queue parsing and
-			// every dispatch path (bash, python, prompt, queue items) — the wire only
-			// ever sees expanded text (TUI getExpandedText parity, regression #3737).
-			// History records the raw typed text (markers included), matching the TUI.
-			// Emoticon expansion also runs at submit time over the whole message
-			// (input-controller.ts:617 — Enter without a trailing space after `:)`).
-			const expandedMessage = emojiAutocomplete
-				? expandEmoticons(expandPasteMarkers(message))
-				: expandPasteMarkers(message);
+			// Paste markers expand to full blob content on every dispatch path (bash, python, prompt, queue
+			// items): the wire only ever sees expanded text (TUI getExpandedText parity, regression #3737).
+			// Which path a message takes is read from the draft as the user sees it, markers folded: a pasted
+			// block that happens to start with `!`, `$ `, `/` or `->` stays a prompt, and the badge the
+			// composer showed is the path it takes. Emoticon expansion runs at submit time over the prose
+			// (input-controller.ts:617 — Enter without a trailing space after `:)`), never in a shell command.
+			const expandProse = (draft: string) =>
+				emojiAutocomplete ? expandEmoticons(expandPasteMarkers(draft)) : expandPasteMarkers(draft);
+			const expandedMessage = expandProse(message);
 
 			// ↑ history is a record of what the model received, so it is written only
 			// once delivery is confirmed. Recording up front left every failed or
 			// blocked send in the list, and a recalled entry replays a prompt that
 			// never ran.
-			const parsed = parseComposerMode(expandedMessage);
+			const typedMode = parseComposerMode(message);
+			const parsed = typedMode && { ...typedMode, body: expandPasteMarkers(typedMode.body) };
 			// `! cmd` → bash, `$ code` → python mode (TUI parity): a running
 			// ExecutionBubble stands in until the transcript record lands. Python's
 			// language is left to the sidecar — interactive eval is python-only
@@ -195,7 +203,7 @@ export function useComposerSubmit({
 							return;
 						}
 						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
+						useInputHistoryStore.getState().record(historyText, originCwd, rpc, originDevice);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
 						await hydrateTabSession(originTabId);
@@ -220,10 +228,11 @@ export function useComposerSubmit({
 			// enumerated list into one queue entry per item; first item prompts with
 			// streamingBehavior:"followUp" when idle, everything else followUps;
 			// images ride on the first item only.
-			const queueBody = parseQueueShorthand(expandedMessage);
+			const queueBody = parseQueueShorthand(message);
 			if (queueBody !== undefined) {
 				const payload = images.map(image => image.content);
-				const items = splitQueuedMessages(queueBody);
+				// Split the folded draft, then expand each item: a pasted block stays inside its own item.
+				const items = splitQueuedMessages(queueBody).map(expandProse);
 				// Bare prefix + no images hits the usage warning, it does NOT enqueue
 				// (input-controller.ts:1186-1190). Images alone queue a single empty item.
 				if (items.length === 0 && payload.length === 0) {
@@ -275,7 +284,7 @@ export function useComposerSubmit({
 						// Only a fully dispatched shorthand enters history. A partial run
 						// restores the unsent remainder as the draft, so recording the
 						// original would offer ↑ a list whose first items already ran.
-						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
+						useInputHistoryStore.getState().record(historyText, originCwd, rpc, originDevice);
 						if (originStillActive()) dropReferencedPastes(message);
 					} catch (error) {
 						if (deliveryPending) markUncertain();
@@ -314,29 +323,44 @@ export function useComposerSubmit({
 			// while streaming), session-replacing commands are blocked while
 			// busy, and local-only resolutions rehydrate the transcript.
 			const payload = images.map(image => image.content);
+			// A plain prompt from an idle composer waits for the automatic mode choice (about a second on
+			// the real judge) before it leaves. Until then Stop and Esc withdraw it (lib/messages.ts
+			// abortActiveTurn): nothing reaches omp, a mode the choice already picked ends, the draft returns.
+			const withdraw = new AbortController();
+			let left = false;
+			const session = originSession ?? useSessionStore;
 			const submit = planComposerSubmit({
 				message: expandedMessage,
+				typed: message,
 				images: payload,
 				isStreaming,
 				mode: forceMode ?? mode,
 				commands,
 				hostDecides,
 				rpc,
-				beforePrompt: () =>
-					runAutoMode({
+				signal: withdraw.signal,
+				beforePrompt: async () => {
+					if (withdraw.signal.aborted) return null;
+					const choice = await runAutoMode({
 						message: expandedMessage,
 						isStreaming,
-						session: originSession ?? useSessionStore,
+						session,
 						rpc,
 						planPending:
 							(
 								sessionRuntimeStore<PlanApprovalStore>(originTabId, "planApproval") ?? usePlanApprovalStore
 							).getState().pending !== null,
-					}),
+					});
+					if (!withdraw.signal.aborted) left = true;
+					else if (choice?.mode === "plan") await endAutoPlan(session, rpc);
+					// Stock's `goal create` already started the goal's own turn: stopping it ends the goal too.
+					else if (choice?.mode === "goal") await abortActiveTurn(rpc, originTabId);
+					return choice;
+				},
 			});
 			if (submit.kind === "blocked") return;
 			if (submit.kind === "handled") {
-				useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
+				useInputHistoryStore.getState().record(historyText, originCwd, rpc, originDevice);
 				setText("");
 				setImages([]);
 				setMenu(null);
@@ -352,7 +376,7 @@ export function useComposerSubmit({
 				setMenu(null);
 				void clearSessionContext(rpc, () => hydrateTabSession(originTabId)).then(cleared => {
 					if (cleared) {
-						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
+						useInputHistoryStore.getState().record(historyText, originCwd, rpc, originDevice);
 						if (originStillActive()) dropReferencedPastes(message);
 						return;
 					}
@@ -362,7 +386,7 @@ export function useComposerSubmit({
 			}
 			const previousImages = images;
 			const optimisticMessage: AgentMessage | undefined =
-				!isStreaming && !expandedMessage.startsWith("/")
+				!isStreaming && !message.startsWith("/")
 					? {
 							role: "user",
 							content: [{ type: "text", text: expandedMessage }, ...payload],
@@ -373,8 +397,7 @@ export function useComposerSubmit({
 						}
 					: undefined;
 			if (optimisticMessage) originMessages.getState().appendLiveMessage(optimisticMessage);
-			else if (hostDecides && !expandedMessage.startsWith("/"))
-				originMessages.getState().noteOwnSend(expandedMessage);
+			else if (hostDecides && !message.startsWith("/")) originMessages.getState().noteOwnSend(expandedMessage);
 			// On a tab other devices send to, the host's own word that the prompt arrived (its echo claimed by the
 			// delivery, or dropped on a failure) frees the composer too, so a slow reply to this window's request
 			// never keeps it from steering. The request's own settling stays the fallback.
@@ -393,6 +416,14 @@ export function useComposerSubmit({
 			setImages([]);
 			setMenu(null);
 			setSending(true);
+			const cancelSubmit = optimisticMessage
+				? () => {
+						if (left || withdraw.signal.aborted) return false;
+						withdraw.abort();
+						return true;
+					}
+				: null;
+			if (cancelSubmit) originComposer.getState().setCancelSubmit(cancelSubmit);
 			let accepted = false;
 			// Let React commit the cleared draft before contextBridge serializes the
 			// request payload. On large sessions/attachments that synchronous bridge
@@ -408,14 +439,15 @@ export function useComposerSubmit({
 					.request()
 					.then(async response => {
 						if (!response.success) {
-							if (response.code === "rpc_delivery_unknown") markUncertain();
 							if (optimisticMessage) originMessages.getState().removeLiveMessage(optimisticMessage);
 							restoreDraft(message, previousImages);
+							if (response.code === SUBMIT_CANCELLED) return;
+							if (response.code === "rpc_delivery_unknown") markUncertain();
 							showSendError(t("input.sendFailed"), response);
 							return;
 						}
 						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
+						useInputHistoryStore.getState().record(historyText, originCwd, rpc, originDevice);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
 						await settleComposerResponse(response, () => hydrateTabSession(originTabId));
@@ -432,6 +464,8 @@ export function useComposerSubmit({
 					})
 					.finally(() => {
 						stopWatching?.();
+						if (cancelSubmit && originComposer.getState().cancelSubmit === cancelSubmit)
+							originComposer.getState().setCancelSubmit(null);
 						if (originStillActive()) setSending(false);
 					});
 			}, 0);

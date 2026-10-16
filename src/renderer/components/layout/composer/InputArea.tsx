@@ -81,6 +81,7 @@ import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { DraftFileCards } from "./DraftFileCards";
+import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { chipIndexForCode, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
@@ -97,6 +98,16 @@ const MENTION_FS_DEBOUNCE_MS = 150;
 const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
+/** Typing pause before the draft is saved for a reload or relaunch. */
+const DRAFT_SAVE_MS = 300;
+/** The window's localStorage; absent (tests, a locked-down page) the draft only lives in memory. */
+const browserStorage: Storage | undefined = (() => {
+	try {
+		return typeof localStorage === "undefined" ? undefined : localStorage;
+	} catch {
+		return undefined;
+	}
+})();
 
 /** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
 const NARROW_FIELD_PX = 290;
@@ -159,6 +170,12 @@ export function InputArea() {
 	const images = useComposerStore(s => s.images);
 	const setImages = useComposerStore(s => s.setImages);
 	const [mode, setMode] = useState<SendMode>("prompt");
+	// The chip says how messages join the run on screen: a Follow-up picked there lasts until that run
+	// ends, and the next run starts as Steer again (the chip is hidden between runs, so a choice that
+	// carried over sent every later message to the follow-up lane unseen).
+	useEffect(() => {
+		if (!isStreaming) setMode("prompt");
+	}, [isStreaming]);
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
 	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
 	const publishMenu = useCallback((next: CompletionMenu | null) => {
@@ -169,6 +186,12 @@ export function InputArea() {
 	const setSending = useComposerStore(state => state.setSending);
 	const submissionUncertain = useComposerStore(state => state.submissionUncertain);
 	const setSubmissionUncertain = useComposerStore(state => state.setSubmissionUncertain);
+	/** A prompt waits on the automatic mode choice: Stop and Esc withdraw it (lib/messages.ts abortActiveTurn). */
+	const submitPending = useComposerStore(state => state.cancelSubmit !== null);
+	/** A manual /compact or handoff runs: Esc is its cancel (the status row says so), not the draft's double Esc. */
+	const manualMaintenance = useSessionStore(s => s.compactionInfo?.reason === "manual");
+	/** Something Stop and Esc can end: the run, or a prompt not yet sent. */
+	const stoppable = isStreaming || submitPending;
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
@@ -195,6 +218,34 @@ export function InputArea() {
 	const [escHint, setEscHint] = useState(false);
 	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
+
+	// The unsent draft outlives a reload and a relaunch (draft-persistence.ts): the session's saved
+	// text comes back into an empty field once the session is known, and every change is saved.
+	const draftStore = useMemo(
+		() => draftKeys({ device: historyDevice, sessionFile, sessionId, cwd, empty: isEmptySession }),
+		[historyDevice, sessionFile, sessionId, cwd, isEmptySession],
+	);
+	/** The session key whose saved draft was read; saving waits for it so an empty first render never erases it. */
+	const [draftLoadedFor, setDraftLoadedFor] = useState<string | null>(null);
+	useEffect(() => {
+		if (!draftStore || draftLoadedFor === draftStore.session || !browserStorage) return;
+		const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
+		if (composer.getState().draft === "") {
+			const saved = loadDraft(browserStorage, draftStore, performance.timeOrigin);
+			if (saved !== undefined) composer.getState().setDraft(saved);
+		}
+		setDraftLoadedFor(draftStore.session);
+	}, [draftStore, draftLoadedFor, runtimeTabId]);
+	useEffect(() => {
+		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) return;
+		const storage = browserStorage;
+		// A sent or cleared draft is dropped at once; typing is saved once it pauses.
+		const timer = setTimeout(
+			() => saveDraft(storage, draftStore, expandPasteMarkers(text)),
+			text ? DRAFT_SAVE_MS : 0,
+		);
+		return () => clearTimeout(timer);
+	}, [text, draftStore, draftLoadedFor]);
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	/**
@@ -882,7 +933,7 @@ export function InputArea() {
 				el.setSelectionRange(el.selectionEnd, el.selectionEnd);
 				return;
 			}
-			if (!isStreaming) {
+			if (!isStreaming && !submitPending && !manualMaintenance) {
 				e.preventDefault();
 				const now = Date.now();
 				const armed = escArmedAt.current !== null && now - escArmedAt.current < DOUBLE_ESC_MS;
@@ -1114,7 +1165,7 @@ export function InputArea() {
 		document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
 	}, [menuId, menuIndex]);
 	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
-	const showSend = !isStreaming || text.trim() !== "" || images.length > 0;
+	const showSend = !stoppable || text.trim() !== "" || images.length > 0;
 
 	return (
 		<div
@@ -1613,7 +1664,11 @@ export function InputArea() {
 											data-send-mode={mode === "followUp" ? "followUp" : "steer"}
 											disabled={!routeReady}
 											icon={mode === "followUp" ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
-											onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
+											onClick={() => {
+												setMode(current => (current === "followUp" ? "steer" : "followUp"));
+												// The choice is for the message being typed: typing goes on in the field.
+												textareaRef.current?.focus();
+											}}
 											size="sm"
 											variant="ghost"
 										>
@@ -1626,13 +1681,17 @@ export function InputArea() {
 								{/* The turn's primary actions: a round Send that turns into Stop while a
 								    turn runs with nothing to send; with a draft, Stop steps back beside it. */}
 								<div className="ml-1 flex items-center gap-1.5">
-									{isStreaming && (
+									{stoppable && (
 										<IconButton
 											className="omp-composer-action"
 											disabled={!routeReady}
 											icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
 											label={t("input.abort")}
-											onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
+											onClick={() => {
+												void abortActiveTurn(rpc, runtimeTabId);
+												// The button leaves with the run: typing goes on in the field, never on <body>.
+												textareaRef.current?.focus();
+											}}
 											shortcut="Esc"
 											variant={showSend ? "secondary" : "primary"}
 										/>

@@ -20,7 +20,13 @@ export interface ComposerStore {
 	draft: string;
 	sending: boolean;
 	submissionUncertain: boolean;
+	/**
+	 * Withdraws the submission still being prepared (the automatic mode choice runs before a prompt
+	 * leaves): true when it had not left yet, so nothing reaches omp. Null when none is pending.
+	 */
+	cancelSubmit: (() => boolean) | null;
 	setSending: (value: boolean) => void;
+	setCancelSubmit: (cancel: (() => boolean) | null) => void;
 	setSubmissionUncertain: (value: boolean) => void;
 	images: ComposerImage[];
 	/** Replace the draft, or compute the next value from the current one
@@ -35,12 +41,14 @@ export const createComposerStore = () =>
 		draft: "",
 		sending: false,
 		submissionUncertain: false,
+		cancelSubmit: null,
 		setSending: sending => set({ sending }),
+		setCancelSubmit: cancelSubmit => set({ cancelSubmit }),
 		setSubmissionUncertain: submissionUncertain => set({ submissionUncertain }),
 		images: [],
 		setDraft: next => set(state => ({ draft: typeof next === "function" ? next(state.draft) : next })),
 		setImages: next => set(state => ({ images: typeof next === "function" ? next(state.images) : next })),
-		reset: () => set({ draft: "", images: [], sending: false, submissionUncertain: false }),
+		reset: () => set({ draft: "", images: [], sending: false, submissionUncertain: false, cancelSubmit: null }),
 	}));
 
 const defaultComposerStore = createComposerStore();

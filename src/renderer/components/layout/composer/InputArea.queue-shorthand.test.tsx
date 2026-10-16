@@ -459,6 +459,59 @@ describe("InputArea queue shorthand submit", () => {
 		await flush();
 	});
 
+	it("starts every run as Steer: a Follow-up picked on the chip lasts for that run only", async () => {
+		await mount();
+		const chip = () => document.querySelector("[data-send-mode]") as unknown as TestElement | null;
+		expect(chip()?.getAttribute("data-send-mode")).toBe("steer");
+		await click(chip() as TestElement);
+		expect(chip()?.getAttribute("data-send-mode")).toBe("followUp");
+		await typeInto(findTextarea(), "after this run");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(followUp).toHaveBeenCalledWith("after this run", []);
+
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		expect(chip()?.getAttribute("data-send-mode")).toBe("steer");
+		await typeInto(findTextarea(), "next run steer");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(steer).toHaveBeenCalledWith("next run steer", []);
+	});
+
+	it("offers Stop while the automatic mode choice holds a prompt back, and Stop withdraws it into the draft", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		const decision = Promise.withResolvers<RpcResponse>();
+		const autoModeDecide = vi.fn(() => decision.promise);
+		const autoModeEnd = vi.fn(async () => ok({}));
+		Reflect.set(window.omp.rpc, "autoModeDecide", autoModeDecide);
+		Reflect.set(window.omp.rpc, "autoModeEnd", autoModeEnd);
+		const stop = () =>
+			document.querySelector(`button[aria-label="${translate("input.abort")}"]`) as unknown as TestElement | null;
+		const request = "refactor the whole settings module across all files";
+		await typeInto(findTextarea(), request);
+		await pressEnter(findTextarea());
+		await flush();
+		await flush();
+		expect(autoModeDecide).toHaveBeenCalledOnce();
+		expect(useComposerStore.getState().draft).toBe("");
+		expect(stop()).not.toBeNull();
+		// Esc is the app-wide stop now, not the draft's double Esc.
+		expect((await pressKey({ key: "Escape" })).defaultPrevented).toBe(false);
+
+		await click(stop() as TestElement);
+		decision.resolve(ok({ mode: "plan", latencyMs: 900 }));
+		await flush();
+		await flush();
+		expect(prompt).not.toHaveBeenCalled();
+		expect(autoModeEnd).toHaveBeenCalledWith("plan");
+		expect(useComposerStore.getState().draft).toBe(request);
+		expect(useComposerStore.getState().sending).toBe(false);
+		expect(stop()).toBeNull();
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
 	it("does not dispatch a deferred prompt through a tab selected after Enter", async () => {
 		await mount();
 		await act(async () => useSessionStore.setState({ isStreaming: false }));
@@ -529,6 +582,55 @@ describe("InputArea prompt history", () => {
 
 		expect(prompt).toHaveBeenCalledWith("delivered prompt", []);
 		expect(useInputHistoryStore.getState().entries.map(entry => entry.prompt)).toEqual(["delivered prompt"]);
+	});
+
+	it("records a folded paste as its text, so ↑ sends the paste again and never the bare marker", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		const blob = storePaste(Array.from({ length: 12 }, (_, line) => `row ${line}`).join("\n"));
+		await typeInto(findTextarea(), `look: ${pasteMarkerText(blob.id, blob.content)}`);
+		await pressEnter(findTextarea());
+		await flush();
+		await flush();
+
+		expect(prompt).toHaveBeenCalledWith(`look: ${blob.content}`, []);
+		expect(useInputHistoryStore.getState().entries.map(entry => entry.prompt)).toEqual([`look: ${blob.content}`]);
+	});
+
+	it("reads `!`, `$` and `->` only from the draft as shown: a folded paste that starts with one is a prompt", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		const bash = vi.fn(async () => ok({ output: "", exitCode: 0 }));
+		const evaluate = vi.fn(async () => ok({}));
+		Reflect.set(window.omp.rpc, "bash", bash);
+		Reflect.set(window.omp.rpc, "eval", evaluate);
+		for (const head of ["!rm -rf build", "$ import os", "-> later"]) {
+			const blob = storePaste([head, ...Array.from({ length: 11 }, (_, line) => `row ${line}`)].join("\n"));
+			const marker = pasteMarkerText(blob.id, blob.content);
+			await typeInto(findTextarea(), marker);
+			expect(document.querySelector("[data-composer-mode]")?.getAttribute("data-composer-mode") ?? null).toBeNull();
+			await pressEnter(findTextarea());
+			await flush();
+			await flush();
+			expect(prompt).toHaveBeenLastCalledWith(blob.content, []);
+		}
+		expect(bash).not.toHaveBeenCalled();
+		expect(evaluate).not.toHaveBeenCalled();
+		expect(followUp).not.toHaveBeenCalled();
+	});
+
+	it("runs a typed `!` command with a folded paste in its body expanded", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		const bash = vi.fn(async () => ok({ output: "", exitCode: 0 }));
+		Reflect.set(window.omp.rpc, "bash", bash);
+		const blob = storePaste(Array.from({ length: 12 }, (_, line) => `line ${line}`).join("\n"));
+		await typeInto(findTextarea(), `!cat <<'EOF'\n${pasteMarkerText(blob.id, blob.content)}\nEOF`);
+		await pressEnter(findTextarea());
+		await flush();
+
+		expect(bash).toHaveBeenCalledWith(`cat <<'EOF'\n${blob.content}\nEOF`, false);
+		expect(prompt).not.toHaveBeenCalled();
 	});
 
 	it("keeps a refused prompt out of history", async () => {
