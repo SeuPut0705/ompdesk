@@ -8,6 +8,7 @@ import {
 	classifyRepoAccess,
 	DOWNLOAD_IDLE_TIMEOUT_MS,
 	firstUpdateToken,
+	githubApiHeaders,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	macBundlePath,
@@ -411,7 +412,7 @@ describe("installer debris sweep", () => {
 	});
 });
 
-describe("private release repo authentication", () => {
+describe("release access with an optional token", () => {
 	it("takes the first token in precedence order and never runs later lookups", async () => {
 		const calls: string[] = [];
 		const lookup = (name: string, value: string | undefined) => () => {
@@ -435,6 +436,38 @@ describe("private release repo authentication", () => {
 		expect(classifyRepoAccess(403)).toBe("denied");
 		expect(classifyRepoAccess(404)).toBe("denied");
 		expect(classifyRepoAccess(502)).toBe("network");
+	});
+
+	it("sends no Authorization header without a token and a Bearer one with a token", () => {
+		expect(githubApiHeaders(undefined)).toEqual({
+			accept: "application/vnd.github+json",
+			"x-github-api-version": "2022-11-28",
+		});
+		expect(githubApiHeaders("", "application/octet-stream")).not.toHaveProperty("authorization");
+		expect(githubApiHeaders("gho_abc", "application/octet-stream")).toEqual({
+			accept: "application/octet-stream",
+			authorization: "Bearer gho_abc",
+			"x-github-api-version": "2022-11-28",
+		});
+	});
+
+	it("reads GitHub's hourly rate limit as a failed request, not as missing access", () => {
+		expect(classifyRepoAccess(403, true)).toBe("network");
+		expect(classifyRepoAccess(403, false)).toBe("denied");
+		expect(classifyRepoAccess(429)).toBe("network");
+	});
+
+	it("asks for a token only when an anonymous request is refused", () => {
+		expect(settleFailedUpdateCheck("missing", "ERR_UPDATER_LATEST_VERSION_NOT_FOUND", "404", "0.1.0", false)).toEqual(
+			{
+				state: "auth-required",
+				reason: "missing",
+			},
+		);
+		expect(settleFailedUpdateCheck("ok", "ERR_UPDATER_LATEST_VERSION_NOT_FOUND", "404", "0.1.0", false)).toEqual({
+			state: "not-available",
+			version: "0.1.0",
+		});
 	});
 
 	it("turns a failed check into sign-in guidance, up to date, or a quiet background error", () => {

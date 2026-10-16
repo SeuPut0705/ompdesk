@@ -1,3 +1,4 @@
+import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type LocateDeps, locateTailscale, MAC_APP_BINARY, macVariantOfBundle } from "./locate";
 
@@ -79,11 +80,13 @@ describe("locateTailscale on macOS", () => {
 		expect(found).toEqual({ path: "/opt/homebrew/bin/tailscale", variant: "mac-cli", app: null, env: {} });
 	});
 
+	// The search joins with the host's `path`, so the expectation does too (a Windows runner runs this case).
 	it("searches the login shell's PATH last", async () => {
+		const custom = join("/opt/custom/bin", "tailscale");
 		const found = await locateTailscale(
-			deps({ files: ["/opt/custom/bin/tailscale"], path: "/usr/bin:/opt/custom/bin" }),
+			deps({ files: [custom], path: ["/usr/bin", "/opt/custom/bin"].join(delimiter) }),
 		);
-		expect(found?.path).toBe("/opt/custom/bin/tailscale");
+		expect(found?.path).toBe(custom);
 		expect(await locateTailscale(deps({ path: "/usr/bin" }))).toBeNull();
 	});
 
@@ -104,10 +107,9 @@ describe("locateTailscale on macOS", () => {
 
 describe("locateTailscale on Windows", () => {
 	const win = (world: World) => deps({ platform: "win32", ...world });
-	const programFiles = "C:\\Program Files";
 
 	it("looks in Program Files, then Program Files (x86), then PATH", async () => {
-		const x64 = `${programFiles}\\Tailscale\\tailscale.exe`.replaceAll("\\", "/");
+		const x64 = join("C:/Program Files", "Tailscale", "tailscale.exe");
 		const env = { ProgramFiles: "C:/Program Files", "ProgramFiles(x86)": "C:/Program Files (x86)" };
 		expect(await locateTailscale(win({ env, files: [x64] }))).toEqual({
 			path: x64,
@@ -115,7 +117,7 @@ describe("locateTailscale on Windows", () => {
 			app: null,
 			env: {},
 		});
-		const x86 = "C:/Program Files (x86)/Tailscale/tailscale.exe";
+		const x86 = join("C:/Program Files (x86)", "Tailscale", "tailscale.exe");
 		expect((await locateTailscale(win({ env, files: [x86] })))?.path).toBe(x86);
 		expect(await locateTailscale(win({ env, files: [] }))).toBeNull();
 	});

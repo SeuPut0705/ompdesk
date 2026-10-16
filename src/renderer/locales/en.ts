@@ -4759,20 +4759,22 @@ export const en: Record<string, string> = {
 	"updates.checking": "Checking…",
 	"updates.checkFailed": "Check failed",
 	"updates.upToDate": "Up to date",
-	"updates.authRequired": "Sign-in needed",
-	"updates.auth.label": "GitHub access",
+	"updates.authRequired": "Token needed",
+	"updates.auth.label": "GitHub token (optional)",
 	"updates.auth.description":
 		"OMPdesk ships from the private SeuPut0705/ompdesk repository, so updates use your own GitHub login: GH_TOKEN, the GitHub CLI (`gh auth login`), or a token saved here, encrypted on this device.",
 	"updates.auth.source.env": "Using GH_TOKEN from your environment",
 	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
 	"updates.auth.source.stored": "Using the saved token",
-	"updates.auth.source.none": "No GitHub login found",
-	"updates.auth.missing": "Sign in with gh or paste a GitHub token with access to SeuPut0705/ompdesk.",
+	"updates.auth.source.none": "No token, updating without one",
+	"updates.auth.missing":
+		"GitHub only shows the releases to a signed-in account. Sign in with gh or paste a GitHub token with access to SeuPut0705/ompdesk.",
 	"updates.auth.denied":
 		"This GitHub account can't see SeuPut0705/ompdesk. Accept the repository invite, or use a token from an account that has access.",
 	"updates.auth.invalid":
 		"GitHub rejected the token (expired or revoked). Run `gh auth login` again or paste a new token.",
-	"updates.auth.network": "Couldn't reach GitHub. Check your connection and try again.",
+	"updates.auth.network":
+		"Couldn't reach GitHub, or its hourly request limit was reached. Try again later; a token raises the limit.",
 	"updates.auth.ok": "Access to SeuPut0705/ompdesk confirmed.",
 	"updates.auth.placeholder": "Paste a GitHub token",
 	"updates.auth.tokenLabel": "GitHub token",

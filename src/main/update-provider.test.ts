@@ -10,6 +10,7 @@ import {
 	UPDATE_ASSETS,
 	UPDATE_METADATA_ERROR,
 } from "./update-release";
+import { githubApiHeaders } from "./updater-state";
 
 const API = "https://api.github.com/repos/SeuPut0705/ompdesk";
 const sha512 = (bytes: string) => createHash("sha512").update(bytes).digest("base64");
@@ -139,5 +140,47 @@ describe("release-notes update provider", () => {
 		const { provider } = feedFor(() => json(releasePayload()));
 		const info = await provider.getLatestVersion();
 		expect(() => provider.resolveFiles({ ...info, version: "0.18.1" })).toThrow(/No resolved release for 0\.18\.1/);
+	});
+
+	describe("without a token (the repo is public)", () => {
+		const anonymous: Partial<ReleaseFeed> = {
+			apiHeaders: githubApiHeaders(undefined),
+			downloadHeaders: githubApiHeaders(undefined, "application/octet-stream"),
+		};
+
+		it("looks the release up and offers the download without an Authorization header", async () => {
+			const { provider, requests } = feedFor(() => json(releasePayload()), anonymous);
+			const info = await provider.getLatestVersion();
+
+			expect(requests).toHaveLength(1);
+			expect(requests[0]?.url).toBe(`${API}/releases/latest`);
+			expect(requests[0]?.headers).toEqual({
+				accept: "application/vnd.github+json",
+				"x-github-api-version": "2022-11-28",
+			});
+			expect(Object.keys(requests[0]?.headers ?? {}).map(name => name.toLowerCase())).not.toContain("authorization");
+			expect(provider.fileExtraDownloadHeaders).toEqual({
+				accept: "application/octet-stream",
+				"x-github-api-version": "2022-11-28",
+			});
+			expect(findFile(provider.resolveFiles(info), "exe")?.url.href).toBe(`${API}/releases/assets/12`);
+		});
+
+		it("still refuses a release whose metadata is missing or contradicts the release", async () => {
+			await expect(
+				feedFor(() => json(releasePayload("v0.18.0", "Notes only.")), anonymous).provider.getLatestVersion(),
+			).rejects.toMatchObject({ code: UPDATE_METADATA_ERROR });
+
+			const wrongSize = {
+				...metadata,
+				files: { ...metadata.files, windows: { ...metadata.files.windows, size: 91 } },
+			};
+			const { provider, resolved } = feedFor(
+				() => json(releasePayload("v0.18.0", `<!-- ompdesk-update ${JSON.stringify(wrongSize)} -->`)),
+				anonymous,
+			);
+			await expect(provider.getLatestVersion()).rejects.toMatchObject({ code: UPDATE_METADATA_ERROR });
+			expect(resolved).toEqual([]);
+		});
 	});
 });

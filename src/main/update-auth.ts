@@ -1,6 +1,8 @@
 /**
- * GitHub token for the private release repo. Every user authenticates as
- * themselves — the app never bundles a token. Precedence:
+ * Optional GitHub token for the update check. The release repo is public, so
+ * updates work with none; a token only raises GitHub's rate limit (60 an hour
+ * anonymous) and keeps updates working if the repo is private again. The app
+ * never bundles a token. Precedence:
  *   1. GH_TOKEN / GITHUB_TOKEN (launch env, then the login shell's exports);
  *   2. `gh auth token` (the GitHub CLI's login);
  *   3. a token pasted in Settings › Updates, encrypted at rest with safeStorage.
@@ -21,7 +23,7 @@ import { codedError } from "../shared/ipc-error-codes";
 import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/ipc-types";
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
 import { executableName } from "./spawn";
-import { classifyRepoAccess, firstUpdateToken, type ResolvedUpdateToken } from "./updater-state";
+import { classifyRepoAccess, firstUpdateToken, githubApiHeaders, type ResolvedUpdateToken } from "./updater-state";
 
 const RELEASE_REPO = { owner: "SeuPut0705", repo: "ompdesk" } as const;
 export const GITHUB_API_REPO = `https://api.github.com/repos/${RELEASE_REPO.owner}/${RELEASE_REPO.repo}`;
@@ -84,15 +86,11 @@ export function resolveUpdateToken(): Promise<ResolvedUpdateToken | undefined> {
 	return firstUpdateToken(lookups);
 }
 
-export function githubApiHeaders(token: string, accept = "application/vnd.github+json"): Record<string, string> {
-	return { accept, authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28" };
-}
-
-/** Whether `token` can read the release repo. */
-export async function checkRepoAccess(token: string): Promise<UpdateAccess> {
+/** Whether the release repo is readable with `token`, or anonymously without one. */
+export async function checkRepoAccess(token: string | undefined): Promise<UpdateAccess> {
 	try {
 		const response = await net.fetch(GITHUB_API_REPO, { headers: githubApiHeaders(token) });
-		return classifyRepoAccess(response.status);
+		return classifyRepoAccess(response.status, response.headers.get("x-ratelimit-remaining") === "0");
 	} catch {
 		return "network";
 	}

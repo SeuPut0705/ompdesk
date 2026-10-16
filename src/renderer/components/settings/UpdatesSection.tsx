@@ -1,7 +1,7 @@
 /**
  * Settings › Updates: one honest overview (checking / up to date / update
- * available / could not verify) over the ompdesk desktop app, the GitHub
- * login its private release feed needs, and the system omp CLI — each with
+ * available / could not verify) over the ompdesk desktop app, the optional
+ * GitHub token for its release feed, and the system omp CLI — each with
  * its current state and its action — then diagnostics (stock
  * `omp plugin doctor`, plus a way to this computer's setup check) and About
  * (the repository and its star).
@@ -618,9 +618,10 @@ function PluginDoctorRow() {
 }
 
 /**
- * GitHub login for the private release feed: which source the updater uses
- * (env → gh → saved token), a masked field to save a token (encrypted by the
- * main process), a test, and removal of the saved token.
+ * Optional GitHub token for the update check (releases are public): which
+ * source the updater uses (env → gh → saved token; none = anonymous), a masked
+ * field to save a token (encrypted by the main process), a test, and removal
+ * of the saved token.
  */
 function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 	const t = useT();
@@ -668,7 +669,7 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 				info === undefined ? (
 					<Spinner label={t("updates.checking")} size="sm" />
 				) : (
-					<Badge variant={info.source ? "success" : "warning"}>{t(`updates.auth.source.${source}`)}</Badge>
+					<Badge variant={info.source ? "success" : "muted"}>{t(`updates.auth.source.${source}`)}</Badge>
 				)
 			}
 			description={t("updates.auth.description")}

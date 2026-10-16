@@ -188,11 +188,26 @@ export function settleIncompleteUpdateCheck(
 	return manual ? { state: "error", message: noResultMessage } : { state: "idle" };
 }
 
-/* ------------------------------------------------ private-repo authentication */
+/* ------------------------------------------- release access (token optional) */
 
 export interface ResolvedUpdateToken {
 	token: string;
 	source: UpdateTokenSource;
+}
+
+/**
+ * Headers for GitHub's REST API. The repo is public, so with no `token` the
+ * request carries no Authorization header at all (anonymous, 60 requests an
+ * hour per address); a token only raises that limit and keeps updates working
+ * if the repo is ever private again.
+ */
+export function githubApiHeaders(
+	token: string | undefined,
+	accept = "application/vnd.github+json",
+): Record<string, string> {
+	const headers: Record<string, string> = { accept, "x-github-api-version": "2022-11-28" };
+	if (token) headers.authorization = `Bearer ${token}`;
+	return headers;
 }
 
 /**
@@ -211,11 +226,14 @@ export async function firstUpdateToken(
 
 /**
  * `GET /repos/{owner}/{repo}` status → access. GitHub answers 404 (not 403)
- * for a private repo the token cannot see, so both mean "no access".
+ * for a private repo the caller cannot see, so both mean "no access". A 403
+ * with `rateLimited` (`x-ratelimit-remaining: 0`) is the hourly limit, which
+ * says nothing about access and reads as a network-class failure.
  */
-export function classifyRepoAccess(status: number): UpdateAccess {
+export function classifyRepoAccess(status: number, rateLimited = false): UpdateAccess {
 	if (status >= 200 && status < 300) return "ok";
 	if (status === 401) return "invalid";
+	if (status === 403 && rateLimited) return "network";
 	if (status === 403 || status === 404) return "denied";
 	return "network";
 }

@@ -22,10 +22,11 @@
  * just returns its status), and one that receives nothing for
  * DOWNLOAD_IDLE_TIMEOUT_MS fails as retryable.
  *
- * Releases live in a private repo, so every request — the release lookup and
- * asset downloads — carries the user's own GitHub token
- * (src/main/update-auth.ts). Without one, or without access, the state is
- * `auth-required` instead of a raw 404.
+ * The release repo is public, so a check and a download carry no credentials
+ * by default. A configured GitHub token (src/main/update-auth.ts) is added to
+ * every request as a rate-limit raise, and keeps updates working if the repo
+ * is private again; only when the repo answers an anonymous request with
+ * "not found" does the state become `auth-required`.
  */
 
 import { execFile, spawn } from "node:child_process";
@@ -48,7 +49,6 @@ import {
 	checkRepoAccess,
 	clearUpdateToken,
 	GITHUB_API_REPO,
-	githubApiHeaders,
 	resolveUpdateToken,
 	storeUpdateToken,
 	updateAuthInfo,
@@ -57,6 +57,7 @@ import { releaseUpdateProvider } from "./update-provider";
 import { type PlatformRelease, UPDATE_METADATA_ERROR, UPDATE_PLATFORM_ERROR } from "./update-release";
 import {
 	DOWNLOAD_IDLE_TIMEOUT_MS,
+	githubApiHeaders,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	type MacInstallerAsset,
@@ -78,8 +79,8 @@ import type { IpcRegistry } from "./web/ipc-registry";
 
 const { autoUpdater } = pkg;
 
-// Five minutes: a release reaches users within one interval. One authenticated
-// GitHub API call per check stays far under the 5,000/h rate limit.
+// Five minutes: a release reaches users within one interval. One GitHub API
+// call per check is 12 an hour, under the 60/h anonymous limit.
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const PROGRESS_INTERVAL_MS = 100;
 
@@ -117,7 +118,7 @@ let ownBundle: string | undefined;
 let stagedApp: string | undefined;
 /** The approved quit came from "Restart & install": reopen after the swap. */
 let relaunchAfterSwap = false;
-/** Token the last check authenticated with; the macOS asset download reuses it. */
+/** Token the last check authenticated with, if any; the macOS asset download reuses it. */
 let updateToken: string | undefined;
 /** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
 let checkInFlight = false;
@@ -240,13 +241,14 @@ async function openManualInstaller(filePath: string): Promise<void> {
 }
 
 /**
- * Signed CDN URL for a release asset. Private repos 404 on
- * `releases/download/...`; the API asset endpoint answers an authenticated
+ * Signed CDN URL for a release asset. The API asset endpoint answers an
  * `application/octet-stream` request with a redirect to a short-lived signed
- * URL. The redirect is taken by hand because Chromium would forward the
- * Authorization header to the CDN, which rejects a second auth mechanism.
+ * URL (a private repo 404s on `releases/download/...`, so this one path serves
+ * both). The redirect is taken by hand because Chromium would forward the
+ * Authorization header, when there is one, to the CDN, which rejects a second
+ * auth mechanism.
  */
-async function signedAssetUrl(assetApiUrl: string, token: string, signal: AbortSignal): Promise<string> {
+async function signedAssetUrl(assetApiUrl: string, token: string | undefined, signal: AbortSignal): Promise<string> {
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
 	const request = net.request({ url: assetApiUrl, redirect: "manual" });
 	for (const [name, value] of Object.entries(githubApiHeaders(token, "application/octet-stream"))) {
@@ -269,7 +271,7 @@ async function signedAssetUrl(assetApiUrl: string, token: string, signal: AbortS
 async function downloadMacAsset(
 	version: string,
 	asset: MacInstallerAsset,
-	token: string,
+	token: string | undefined,
 	mode: "manual" | "relaunch",
 ): Promise<void> {
 	// Manual installers land in Downloads for Finder; relaunch DMGs are private staging.
@@ -384,7 +386,7 @@ async function sweepUpdatesDirectory(keepAsset: string): Promise<void> {
 
 /** Background download for relaunch mode; failures stay out of the banner like any passive check. */
 async function prepareRelaunchUpdate(version: string): Promise<void> {
-	if (!macAsset || !updateToken) return;
+	if (!macAsset) return;
 	try {
 		await startMacDownload(version, macAsset, updateToken, "relaunch");
 	} catch (error) {
@@ -396,7 +398,7 @@ async function prepareRelaunchUpdate(version: string): Promise<void> {
 function startMacDownload(
 	version: string,
 	asset: MacInstallerAsset,
-	token: string,
+	token: string | undefined,
 	mode: "manual" | "relaunch",
 ): Promise<void> {
 	return macTransfer.start(() => {
@@ -443,18 +445,52 @@ function notesOf(info: { releaseNotes?: unknown }): string | undefined {
 }
 
 /**
- * One update check, authenticated as the user. `manual` checks surface
- * failures in the banner; background polls only update Settings.
+ * One update check, anonymous unless a token is configured. `manual` checks
+ * surface failures in the banner; background polls only update Settings.
  */
 async function runCheck(manual: boolean): Promise<void> {
-	const resolved = await resolveUpdateToken();
-	if (!resolved) {
-		updateToken = undefined;
-		broadcast({ state: "auth-required", reason: "missing" });
-		return;
+	let token = (await resolveUpdateToken())?.token;
+	let rejected = false;
+	checkInFlight = true;
+	try {
+		updateToken = token;
+		let failure = await attemptCheck(token);
+		// GitHub answers 401 to a bad token even for public data (an expired
+		// GH_TOKEN, a stale `gh` login). The repo is public, so ask again
+		// without it instead of blocking updates on the stale credential.
+		if (failure && token && (await checkRepoAccess(token)) === "invalid") {
+			rejected = true;
+			token = undefined;
+			updateToken = undefined;
+			failure = await attemptCheck(undefined);
+		}
+		if (!failure) {
+			const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
+			if (settled !== current) broadcast(settled);
+			return;
+		}
+		const error = failure.error;
+		let access = await checkRepoAccess(token);
+		// An anonymous request GitHub answers "not found" means the repo is
+		// private again: a token is needed (or the one tried was rejected).
+		if (access === "denied" && !token) access = rejected ? "invalid" : "missing";
+		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+		const detail = error instanceof Error ? error.message : String(error);
+		// A release without usable metadata is no update, but never a silent one.
+		const message =
+			code === UPDATE_METADATA_ERROR
+				? mainT("updates.releaseInvalid")
+				: code === UPDATE_PLATFORM_ERROR
+					? mainT("updates.installerMissing")
+					: mainT("updates.checkFailed");
+		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail));
+	} finally {
+		checkInFlight = false;
 	}
-	updateToken = resolved.token;
-	const token = resolved.token;
+}
+
+/** Points electron-updater at the release feed with `token` (none = anonymous) and checks once. */
+async function attemptCheck(token: string | undefined): Promise<{ error: unknown } | undefined> {
 	resolvedRelease = undefined;
 	autoUpdater.setFeedURL({
 		provider: "custom",
@@ -471,33 +507,21 @@ async function runCheck(manual: boolean): Promise<void> {
 			},
 		}),
 	});
-	checkInFlight = true;
 	try {
 		await autoUpdater.checkForUpdates();
-		const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
-		if (settled !== current) broadcast(settled);
+		return undefined;
 	} catch (error) {
-		const access = await checkRepoAccess(token);
-		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-		const detail = error instanceof Error ? error.message : String(error);
-		// A release without usable metadata is no update, but never a silent one.
-		const message =
-			code === UPDATE_METADATA_ERROR
-				? mainT("updates.releaseInvalid")
-				: code === UPDATE_PLATFORM_ERROR
-					? mainT("updates.installerMissing")
-					: mainT("updates.checkFailed");
-		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail));
-	} finally {
-		checkInFlight = false;
+		return { error };
 	}
 }
 
 async function testAuth(token: string | undefined): Promise<UpdateAuthTestResult> {
 	if (token?.trim()) return { access: await checkRepoAccess(token.trim()), source: null };
 	const resolved = await resolveUpdateToken();
-	if (!resolved) return { access: "missing", source: null };
-	return { access: await checkRepoAccess(resolved.token), source: resolved.source };
+	const access = await checkRepoAccess(resolved?.token);
+	// Anonymous and refused: the repo is private, so a token is what is missing.
+	if (!resolved) return { access: access === "denied" ? "missing" : access, source: null };
+	return { access, source: resolved.source };
 }
 
 /** The updater's current state (also what a paired device sees for this computer). */
@@ -519,10 +543,6 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
 	try {
 		if (current.mode === "manual" || current.mode === "relaunch") {
 			if (!macAsset) throw new Error(mainT("updates.installerMissing"));
-			if (!updateToken) {
-				broadcast({ state: "auth-required", reason: "missing" });
-				return current;
-			}
 			await startMacDownload(activeUpdate?.version ?? current.version, macAsset, updateToken, current.mode);
 		} else {
 			await autoUpdater.downloadUpdate();

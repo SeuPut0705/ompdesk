@@ -279,7 +279,7 @@ export const IPC_COMMANDS = {
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
 	UPDATER_VERSION: "updater:version",
-	/** Which GitHub token the updater would use for the private release repo */
+	/** Which GitHub token, if any, the updater would add to its requests (updates work without one) */
 	UPDATER_AUTH_INFO: "updater:authInfo",
 	/** Probe release-repo access with a pasted token, or the resolved one when omitted */
 	UPDATER_AUTH_TEST: "updater:authTest",
@@ -417,7 +417,7 @@ export type UpdateStatus =
 	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
 	 * technical cause (network/updater error text) for a secondary line or tooltip. */
 	| { state: "error"; message: string; detail?: string; showInBanner?: boolean }
-	/** No GitHub token, or the token cannot read the private release repo. Settings-only, never a banner. */
+	/** The release repo refused an anonymous request, or the token cannot read it (it is private again). Settings-only, never a banner. */
 	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
 
 /**

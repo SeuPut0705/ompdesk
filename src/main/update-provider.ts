@@ -30,9 +30,9 @@ export interface ReleaseFeed {
 	apiRepo: string;
 	platform: UpdatePlatform;
 	allowPrerelease: boolean;
-	/** Authenticated JSON headers for the release lookup. */
+	/** JSON headers for the release lookup (an Authorization header only when a token is configured). */
 	apiHeaders: Record<string, string>;
-	/** Authenticated `application/octet-stream` headers for the asset download. */
+	/** `application/octet-stream` headers for the asset download (same rule). */
 	downloadHeaders: Record<string, string>;
 	fetch: (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
 	/** The release a check resolved, before electron-updater compares versions. */

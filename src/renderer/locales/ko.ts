@@ -4749,20 +4749,22 @@ export const ko: Record<string, string> = {
 	"updates.checking": "확인 중…",
 	"updates.checkFailed": "확인에 실패했어요",
 	"updates.upToDate": "최신 상태",
-	"updates.authRequired": "로그인 필요",
-	"updates.auth.label": "GitHub 접근",
+	"updates.authRequired": "토큰 필요",
+	"updates.auth.label": "GitHub 토큰(선택)",
 	"updates.auth.description":
 		"OMPdesk는 비공개 저장소 SeuPut0705/ompdesk에서 배포돼서, 업데이트는 내 GitHub 로그인으로 받아요: GH_TOKEN, GitHub CLI(`gh auth login`), 또는 여기에 저장한 토큰(이 기기에 암호화해서 보관).",
 	"updates.auth.source.env": "환경 변수의 GH_TOKEN을 사용 중이에요",
 	"updates.auth.source.gh": "GitHub CLI(gh) 로그인을 사용 중이에요",
 	"updates.auth.source.stored": "저장한 토큰을 사용 중이에요",
-	"updates.auth.source.none": "GitHub 로그인을 찾지 못했어요",
-	"updates.auth.missing": "gh로 로그인하거나 SeuPut0705/ompdesk에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.",
+	"updates.auth.source.none": "토큰 없이 업데이트하는 중이에요",
+	"updates.auth.missing":
+		"GitHub가 로그인한 계정에만 릴리스를 보여 줘요. gh로 로그인하거나 SeuPut0705/ompdesk에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.",
 	"updates.auth.denied":
 		"이 GitHub 계정으로는 SeuPut0705/ompdesk를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.",
 	"updates.auth.invalid":
 		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). `gh auth login`을 다시 실행하거나 새 토큰을 붙여 넣으세요.",
-	"updates.auth.network": "GitHub에 연결하지 못했어요. 연결을 확인하고 다시 시도하세요.",
+	"updates.auth.network":
+		"GitHub에 연결하지 못했거나 시간당 요청 한도에 도달했어요. 잠시 뒤 다시 시도하세요. 토큰을 쓰면 한도가 늘어나요.",
 	"updates.auth.ok": "SeuPut0705/ompdesk 접근을 확인했어요.",
 	"updates.auth.placeholder": "GitHub 토큰 붙여 넣기",
 	"updates.auth.tokenLabel": "GitHub 토큰",
