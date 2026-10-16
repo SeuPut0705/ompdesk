@@ -141,8 +141,9 @@ describe("RemoteSidecar", () => {
 		// Sent once the open tab is confirmed, so it is awaited before the next calls.
 		await sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
 		sidecar.syncImageGeneration();
-		// The host's own reply-language and account-rotation settings apply: nothing goes over the link.
+		// The host's own reply-language, prompt-suggestion and account-rotation settings apply: nothing goes over the link.
 		sidecar.syncReplyLanguage();
+		sidecar.syncNextPrompt();
 		sidecar.syncAccountRotation();
 		expect(sidecar.adoptCwd("/canonical/p")).toBe(false);
 		expect(sidecar.adoptCwd("/elsewhere")).toBe(true);

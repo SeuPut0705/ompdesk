@@ -29,7 +29,12 @@ test.beforeEach(async () => {
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	// @legacy-next-prompt tests drive the extension's widget, which the renderer ignores while the built-in suggestions are on.
+	const builtinNextPrompt = !test.info().tags.includes("@legacy-next-prompt");
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language: "en", firstRunComplete: true, nextPromptSuggestions: builtinNextPrompt }),
+	);
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -217,7 +222,9 @@ test("a background run finishing notifies under that tab's name", async () => {
 	expect(errors).toEqual([]);
 });
 
-test("a background tab's next-prompt suggestion becomes the composer placeholder and survives an edited draft", async () => {
+test("a background tab's next-prompt suggestion becomes the composer placeholder and survives an edited draft", {
+	tag: "@legacy-next-prompt",
+}, async () => {
 	const suggestion = "Write the release notes next";
 	const background = await activeTab();
 	await nameTab(background, "Suggesting tab");

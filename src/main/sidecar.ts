@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
@@ -137,6 +138,9 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	goal_time_limit_reached: true,
 	loop_mode_update: true,
 	model_pool_update: true,
+	// The built-in prompt suggestions (bridge modes/next-prompt.ts): candidates, and the feature's state/availability.
+	next_prompt_update: true,
+	next_prompt_config: true,
 	plan_proposal: true,
 	queue_update: true,
 	token_rate: true,
@@ -227,6 +231,13 @@ export interface SidecarOptions {
 	 * replyLanguage). Absent or empty: no profile section.
 	 */
 	userProfile?: () => UserProfile;
+	/**
+	 * The prompt-suggestion switches (prefs `nextPromptSuggestions`,
+	 * `nextPromptInline`), passed to omp as JSON in `OMP_GUI_NEXT_PROMPT` on
+	 * every spawn and pushed by `syncNextPrompt()` (same point-of-use pattern as
+	 * replyLanguage). Absent: the bridge's default (on).
+	 */
+	nextPrompt?: () => NextPromptSettings;
 	/**
 	 * The paired device a host tab runs for (and this host's name), passed as
 	 * JSON in `OMP_GUI_PROMPT_ORIGIN`: the bridge journals it per user message
@@ -465,6 +476,7 @@ export class SidecarManager extends EventEmitter {
 		const { bridgeDir, cwd, extraFlags } = this.#options;
 		const replyLanguage = this.#options.replyLanguage?.();
 		const userProfile = this.#options.userProfile?.();
+		const nextPrompt = this.#options.nextPrompt?.();
 		const delegation = this.#options.delegation?.();
 		const accountRotation = this.#options.accountRotation?.();
 		const accountRotationLedger = this.#options.accountRotationLedger;
@@ -503,6 +515,7 @@ export class SidecarManager extends EventEmitter {
 					...(userProfile && (userProfile.name || userProfile.experience)
 						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
 						: {}),
+					...(nextPrompt ? { OMP_GUI_NEXT_PROMPT: JSON.stringify(nextPrompt) } : {}),
 					...(this.#options.promptOrigin
 						? { OMP_GUI_PROMPT_ORIGIN: JSON.stringify(this.#options.promptOrigin) }
 						: {}),
@@ -786,6 +799,7 @@ export class SidecarManager extends EventEmitter {
 							// The setting may have changed between spawn (env) and connect.
 							this.syncReplyLanguage();
 							this.syncUserProfile();
+							this.syncNextPrompt();
 							this.syncAccountRotation();
 							void bridge
 								.request("stream_metadata.start")
@@ -970,6 +984,22 @@ export class SidecarManager extends EventEmitter {
 	syncUserProfile(): void {
 		const profile = this.#options.userProfile?.();
 		if (profile) void this.#bridge?.request("user_profile_set", profile).catch(() => {});
+	}
+
+	/**
+	 * Push the current prompt-suggestion switches to this omp (gui-bridge
+	 * `next_prompt_set`); the bridge starts or stops suggesting and answers
+	 * with a `next_prompt_config` frame. Fire-and-forget like syncReplyLanguage:
+	 * an unconnected bridge syncs on connect, and an omp without the feature
+	 * refuses it and stays stock.
+	 */
+	syncNextPrompt(): void {
+		const settings = this.#options.nextPrompt?.();
+		if (settings) {
+			void this.#bridge
+				?.request("next_prompt_set", { suggestions: settings.suggestions, inline: settings.inline })
+				.catch(() => {});
+		}
 	}
 
 	/**

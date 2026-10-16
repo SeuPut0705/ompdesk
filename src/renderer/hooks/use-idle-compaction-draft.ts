@@ -13,7 +13,8 @@ interface Watch {
 }
 
 /**
- * Tells each tab's bridge whether its composer draft is empty. Stock's idle
+ * Tells each tab's bridge whether its composer draft is empty (idle compaction and
+ * the built-in prompt suggestions both need it). Stock's idle
  * compaction timer (re-armed by resources/gui-bridge/idle-compaction.ts) skips
  * a session whose input holds text, as the terminal UI does with its editor;
  * the bridge cannot see the GUI draft, so this reports every empty ⇄ non-empty
@@ -48,6 +49,8 @@ export function useIdleCompactionDraft(): void {
 				reported = empty;
 				// An omp without the feature answers unsupported_omp; the health toast already says so.
 				void rpc.command({ type: "set_idle_compaction_draft", empty }).catch(() => {});
+				// The prompt suggestions' bridge aborts a pending suggestion once the draft turns non-empty.
+				void rpc.command({ type: "set_next_prompt_draft", empty }).catch(() => {});
 			};
 			report();
 			watches.current.set(tab.id, { sessionId, store, unsubscribe: store.subscribe(report) });

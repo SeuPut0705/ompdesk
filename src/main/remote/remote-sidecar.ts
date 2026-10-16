@@ -248,6 +248,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The host's own profile setting applies to the omp it runs; this machine's is not sent. */
 	syncUserProfile(): void {}
 
+	/** The host's own prompt-suggestion switches apply to the omp it runs; this machine's are not sent. */
+	syncNextPrompt(): void {}
+
 	/** The host's own account-rotation setting applies to the omp it runs; this machine's is not sent. */
 	syncAccountRotation(): void {}
 

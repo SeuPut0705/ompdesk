@@ -41,6 +41,9 @@ export const MODEL_COMMAND_TYPES = [
 	// Main-side local handlers that run a model through stock `omp` (PR text, `omp commit --dry-run`).
 	"pr_draft",
 	"git_commit_message",
+	// The built-in prompt suggestions (bridge modes/next-prompt.ts): a cheap request on the `smol` role model.
+	"complete_inline",
+	"refresh_next_prompt",
 	// Stock `MemoryBackend.enqueue` (`/memory enqueue`): consolidation runs a model (mnemopi's fact extraction, the
 	// hindsight server, the local backend's next consolidation pass).
 	"memory_enqueue",
@@ -74,6 +77,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"browser_relay_stop",
 	"btw_cancel",
 	"cancel_job",
+	"cancel_next_prompt",
 	"clear_agent_worktrees",
 	"clear_context",
 	"compaction_limits",
@@ -127,6 +131,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_model_pool",
 	"get_model_role_metadata",
 	"get_model_roles",
+	"get_next_prompt",
 	"get_omp_update",
 	"get_plan_mode",
 	"get_plugin_detail",
@@ -241,6 +246,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"set_model",
 	"set_model_pool",
 	"set_model_role",
+	"set_next_prompt_draft",
 	"set_output_style",
 	"set_plan_mode",
 	"set_plugin_enabled",

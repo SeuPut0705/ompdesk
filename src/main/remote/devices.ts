@@ -355,6 +355,11 @@ export class RemoteDevices {
 		this.#deps.services.syncUserProfile();
 	}
 
+	/** This machine's prompt-suggestion switches changed: tabs it hosts for devices follow them. */
+	hostNextPromptChanged(): void {
+		this.#deps.services.syncNextPrompt();
+	}
+
 	/** This machine's account-rotation setting changed: tabs it hosts for devices follow it. */
 	hostAccountRotationChanged(): void {
 		this.#deps.services.syncAccountRotation();

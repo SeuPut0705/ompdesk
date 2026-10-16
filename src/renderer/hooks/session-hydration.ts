@@ -1,4 +1,5 @@
 import type { StoreApi } from "zustand";
+import type { NextPromptState } from "../../../resources/gui-bridge/next-prompt-contracts";
 import type {
 	AgentMessage,
 	MessagesPage,
@@ -265,6 +266,32 @@ export async function syncModelPool(tabId: string, command: TabCommand, isCurren
 		});
 	} catch {
 		// Transient — the next model_pool_update event or hydration retries.
+	}
+}
+
+/** The session-store fields a next-prompt state (get_next_prompt / next_prompt_config) sets. */
+export function nextPromptPatch(state: NextPromptState): Pick<SessionStore, "nextPrompt" | "nextPromptUnavailable"> {
+	return {
+		nextPrompt: state,
+		nextPromptUnavailable: state.unavailable ? { reason: state.unavailable, detail: state.detail } : null,
+	};
+}
+
+/** Fetch the built-in prompt suggestions' state (get_next_prompt) into the session store; an omp without
+ * the feature answers unsupported_omp and the field stays null (legacy widget path). next_prompt_config follows. */
+export async function syncNextPrompt(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	const before = withSessionRuntime(tabId, () => useSessionStore.getState().nextPrompt);
+	try {
+		const res = await command({ type: "get_next_prompt" });
+		if (!isCurrent() || !res.success || !res.data) return;
+		// A next_prompt_config frame that landed meanwhile is fresher than this reply.
+		if (withSessionRuntime(tabId, () => useSessionStore.getState().nextPrompt) !== before) return;
+		// get_next_prompt wire payload is NextPromptState; `data` crosses the bridge as unknown.
+		withSessionRuntime(tabId, () => {
+			useSessionStore.setState(nextPromptPatch(res.data as NextPromptState));
+		});
+	} catch {
+		// unsupported_omp or transient — next_prompt_config or the next hydration retries.
 	}
 }
 
@@ -574,6 +601,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		syncGoal("", activeTabCommand, isCurrent),
 		syncLoopMode("", activeTabCommand, isCurrent),
 		syncVibeMode("", activeTabCommand, isCurrent),
+		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
 		useSettingsStore.getState().syncDisplaySettings(),
 		useSettingsStore.getState().syncApproval(),
@@ -688,6 +716,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		syncLoopMode(tabId, runtime.command, isCurrent),
 		syncVibeMode(tabId, runtime.command, isCurrent),
 		syncModelPool(tabId, runtime.command, isCurrent),
+		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session
 		// switch all land here). refresh() swallows its own failures.

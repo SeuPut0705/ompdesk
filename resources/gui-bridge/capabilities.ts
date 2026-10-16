@@ -27,6 +27,7 @@ export const FEATURES = {
 	agentPause: "Agent pause",
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
+	nextPrompt: "Prompt suggestions (next message, inline completion)",
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
@@ -859,6 +860,32 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"HistoryStorage.prototype.search()",
 				"HistoryStorage.prototype.add()",
 			],
+			[`${AGENT}/modes/controllers/input-controller`]: ["shouldSkipHistory()"],
+		},
+	},
+	/**
+	 * modes/next-prompt.ts: a cheap request on stock's `smol` role (`resolveRoleChain` over `roleCandidatePool`, the
+	 * session's credentials through `modelRegistry.resolver`, `completeSimple`); `runEphemeralTurn` cannot take another
+	 * model. Reads of the todo, plan and goal state, the usage ledger (`appendModelUsage`) and the loaded-extension list
+	 * are feature-detected inside the module (they only enrich the request).
+	 */
+	nextPrompt: {
+		session: [
+			"messages",
+			"settings",
+			"isStreaming",
+			"isCompacting",
+			"queuedMessageCount",
+			"sessionId",
+			"modelRegistry.getApiKey()",
+			"modelRegistry.resolver()",
+			"sessionManager.getSessionId()",
+			"sessionManager.getLeafId()",
+		],
+		modules: {
+			"@oh-my-pi/pi-ai": ["completeSimple()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
 			[`${AGENT}/modes/controllers/input-controller`]: ["shouldSkipHistory()"],
 		},
 	},

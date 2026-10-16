@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import {
@@ -396,6 +397,41 @@ describe("SidecarManager spawn env", () => {
 			await expect.poll(profileRequests, { timeout: 5_000, interval: 25 }).toEqual([
 				{ name: "Sam", experience: "junior" },
 				{ name: "", experience: null },
+			]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("passes the prompt-suggestion switches as OMP_GUI_NEXT_PROMPT and pushes them on connect and on syncNextPrompt()", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-next-prompt-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const envPath = path.join(tempDir, "next-prompt.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`${loggingBridgeOmp(logPath)}\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.OMP_GUI_NEXT_PROMPT ?? "unset");`,
+		);
+		let settings: NextPromptSettings = { suggestions: true, inline: true };
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			bridgeDir: tempDir,
+			nextPrompt: () => settings,
+		});
+		const nextPromptRequests = () => bridgeRequests(logPath, "next_prompt_set");
+		try {
+			sidecar.start();
+			await expect.poll(nextPromptRequests, { timeout: 5_000, interval: 25 }).toEqual([settings]);
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ suggestions: true, inline: true });
+			settings = { suggestions: true, inline: false };
+			sidecar.syncNextPrompt();
+			await expect.poll(nextPromptRequests, { timeout: 5_000, interval: 25 }).toEqual([
+				{ suggestions: true, inline: true },
+				{ suggestions: true, inline: false },
 			]);
 		} finally {
 			sidecar.dispose();

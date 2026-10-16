@@ -3979,6 +3979,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.agentPause": "Agent pause",
 	"bridgeHealth.feature.modelPool": "Model pool",
 	"bridgeHealth.feature.replyLanguage": "Reply language",
+	"bridgeHealth.feature.nextPrompt": "Prompt suggestions",
 	"bridgeHealth.feature.outputStyle": "Reply style",
 	"bridgeHealth.feature.userProfile": "Profile (name, experience)",
 	"bridgeHealth.feature.accountRotation": "Even account rotation",
@@ -5318,6 +5319,25 @@ export const en: Record<string, string> = {
 	"settings.agent.modes": "Modes & helpers",
 	"settings.agent.context": "Context & memory",
 	"settings.agent.io": "Input & output",
+	"settings.agent.suggestions": "Suggestions",
+	"settings.gui.nextPromptSuggestions": "Suggest my next message",
+	"settings.gui.nextPromptSuggestionsDesc":
+		"After each reply, offers what you might say next: the best guess as the composer's placeholder (Tab accepts it), the others as chips above it.",
+	"settings.gui.nextPromptCost":
+		"Costs one short request per finished turn on your small model (the smol role, set in Settings › Models & accounts › Model roles). While you type, each pause of a second or so can add one more, at most one every 2 seconds.",
+	"settings.gui.nextPromptModel": "Runs on {model}.",
+	"settings.gui.nextPromptLegacy":
+		"Your own next-prompt extension is loaded too. The built-in suggestion wins and the extension's is hidden; turn the extension off to save its request.",
+	"settings.gui.nextPromptInline": "Complete as I type",
+	"settings.gui.nextPromptInlineDesc":
+		"Shows a grey continuation after your cursor while you type a single line. Tab accepts it, Esc dismisses it.",
+	"input.suggestion.unavailable": "Suggestions are off",
+	"input.suggestion.unavailable.no_model": "Suggestions are off: no small model is set up",
+	"input.suggestion.unavailable.no_credentials": "Suggestions are off: the small model has no credentials",
+	"input.suggestion.unavailable.refused": "Suggestions are off: the provider refused the request",
+	"input.suggestion.unavailable.offline": "Suggestions are paused: can't reach the provider",
+	"input.suggestion.unavailable.unsupported": "Suggestions are off: this omp version doesn't support them",
+	"input.suggestion.unavailable.error": "Suggestions are off: the last request failed",
 	"settings.appearance.input": "Input",
 	"settings.general.language": "Language",
 	"settings.general.notifications": "Notifications",

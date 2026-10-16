@@ -6,6 +6,7 @@
 
 import { useCallback } from "react";
 import type { AgentMessage, AvailableCommand } from "../../../shared/rpc-types";
+import { refreshNextPromptAfterBash } from "../../hooks/use-next-prompt";
 import { hydrateTabSession } from "../../hooks/use-rpc-events";
 import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { expandEmoticons } from "../../lib/emoji";
@@ -147,7 +148,12 @@ export function useComposerSubmit({
 								timestamp: Date.now(),
 								running: true,
 							} satisfies AgentMessage,
-							run: () => rpc.bash(parsed.body, parsed.excluded),
+							run: () =>
+								rpc.bash(parsed.body, parsed.excluded).then(response => {
+									// The command's output can change what the user says next.
+									if (response.success) refreshNextPromptAfterBash(rpc);
+									return response;
+								}),
 							failedTitle: t("input.bashFailed"),
 						}
 					: parsed?.body && parsed.mode === "python"

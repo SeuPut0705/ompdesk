@@ -5,6 +5,13 @@
  */
 
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type {
+	InlineCompletion,
+	NextPromptConfigFrame,
+	NextPromptRefreshReason,
+	NextPromptState,
+	NextPromptUpdate,
+} from "../../resources/gui-bridge/next-prompt-contracts";
 import type { PoolMember, PoolState } from "../../resources/gui-bridge/pool-contracts";
 import type { GithubRequest } from "./github";
 
@@ -223,6 +230,12 @@ export type RpcCommand =
 	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
 	| { id?: string; type: "get_model_pool" }
 	| { id?: string; type: "set_model_pool"; enabled: boolean; members: RpcModelPoolMember[] }
+	// Built-in prompt suggestions: gui-bridge modes/next-prompt.ts
+	| { id?: string; type: "get_next_prompt" }
+	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
+	| { id?: string; type: "refresh_next_prompt"; reason: NextPromptRefreshReason }
+	| { id?: string; type: "cancel_next_prompt"; scope: "suggest" | "inline" | "all" }
+	| { id?: string; type: "complete_inline"; draft: string; requestId: string }
 
 	// Domain actions (mutating)
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }
@@ -1359,6 +1372,10 @@ export interface RpcLoopModeState {
 /** Shared packaged pool contracts; the renderer-facing wire shape is unchanged. */
 export type RpcModelPoolMember = PoolMember;
 export type RpcModelPoolState = PoolState;
+/** `get_next_prompt` response data. */
+export type RpcNextPromptState = NextPromptState;
+/** `complete_inline` response data. */
+export type RpcInlineCompletion = InlineCompletion;
 
 // ============================================================================
 // Ready Frame
@@ -2603,6 +2620,8 @@ export type AgentSessionEvent =
 	  }
 	| { type: "loop_mode_update"; state: RpcLoopModeState }
 	| { type: "model_pool_update"; state: RpcModelPoolState }
+	| NextPromptUpdate
+	| NextPromptConfigFrame
 	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.
 	| { type: "goal_time_limit_reached"; minutes: number }
 	// Authoritative queue snapshot after every queue mutation (enqueue,

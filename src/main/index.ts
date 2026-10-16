@@ -22,6 +22,11 @@ import {
 } from "electron";
 import Store from "electron-store";
 import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts";
+import {
+	NEXT_PROMPT_INLINE_PREF,
+	NEXT_PROMPT_PREF,
+	nextPromptFromPrefs,
+} from "../../resources/gui-bridge/next-prompt-contracts";
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
@@ -482,6 +487,8 @@ app.whenReady().then(() => {
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
 		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
+		nextPromptPrefs: () =>
+			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),

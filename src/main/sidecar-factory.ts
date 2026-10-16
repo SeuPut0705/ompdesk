@@ -5,6 +5,7 @@
  */
 import { app } from "electron";
 import { isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { normalizeUserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
@@ -33,6 +34,8 @@ export interface LocalSidecarDeps {
 	replyLanguagePref: () => unknown;
 	/** The stored Settings › General profile pref (`userProfile`), read per use. */
 	userProfilePref: () => unknown;
+	/** The prompt-suggestion switches (`nextPromptSuggestions`, `nextPromptInline`; both default on), read per use. */
+	nextPromptPrefs: () => NextPromptSettings;
 	/** The composer delegation chip's last choice (`delegationMode`), read per spawn. */
 	delegationPref: () => unknown;
 	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
@@ -80,6 +83,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			shellEnv: shellSpawnEnv,
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
+			nextPrompt: deps.nextPromptPrefs,
 			delegation: () => {
 				const stored = deps.delegationPref();
 				return isDelegationMode(stored) ? stored : "default";

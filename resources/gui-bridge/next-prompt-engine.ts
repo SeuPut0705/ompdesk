@@ -1,0 +1,690 @@
+/**
+ * Built-in prompt suggestions. After each main-agent turn (and after a few other state changes: a compaction,
+ * the user's own `!` command, a session switch) the bridge asks a cheap model for the message the user will
+ * most likely send next and pushes `next_prompt_update` frames: 1–3 ranked candidates the composer shows as its
+ * placeholder (best) and chips (the rest). While the user types, `next_prompt_inline` completes the draft.
+ *
+ * Stock omp has no such feature over RPC: its `ComposerPredictionController` runs only in the TUI, and its
+ * `runEphemeralTurn` can only use the session's own model. A suggestion is not worth the main model's price, so
+ * the request goes through stock's `completeSimple` with the model stock's `smol` role resolves to (stock's own
+ * role chain, empty-role fallback included) and the session's credentials (`modelRegistry.resolver`). A role that
+ * resolves to nothing, or to a model without credentials, makes the feature unavailable with that reason; it
+ * never falls back to the main model. Rules live in next-prompt-core.ts; contracts in next-prompt-contracts.ts.
+ *
+ * - Enabled by `OMP_GUI_NEXT_PROMPT` at spawn and `next_prompt_set` afterwards (Settings › Agent behavior,
+ *   prefs `nextPromptSuggestions` / `nextPromptInline`).
+ * - The renderer reports whether its composer draft is empty (`next_prompt_draft`); typing aborts the pending
+ *   or running suggestion, emptying the draft asks again when the state moved.
+ * - Cost: one request per finished turn (a few k tokens in, ≤ 512 out, reasoning off) and, while typing, at most
+ *   one per 2 s of typing pauses (cached per draft). `next_prompt_state.requests` counts both.
+ * - The user's own `next-prompt` extension is detected through the loaded extension list; the renderer then
+ *   ignores its widget. Its own request cannot be stopped from here.
+ */
+import {
+	INLINE_MAX_DRAFT_CHARS,
+	type InlineCompletion,
+	inlineEffective,
+	NEXT_PROMPT_REFRESH_REASONS,
+	type NextPromptConfigFrame,
+	type NextPromptModelUsed,
+	type NextPromptSettings,
+	type NextPromptState,
+	type NextPromptTrigger,
+	type NextPromptUnavailable,
+	type NextPromptUpdate,
+	parseNextPromptEnv,
+} from "./next-prompt-contracts";
+import {
+	buildAppState,
+	buildInlineRequest,
+	buildSuggestionRequest,
+	classifyFailure,
+	cleanCandidates,
+	cleanInlineReply,
+	errorText,
+	extractFacts,
+	gateSuggestion,
+	INLINE_INSTRUCTIONS,
+	INLINE_TRANSCRIPT_CHARS,
+	inlineDraftEligibility,
+	inlineDraftWindow,
+	isOutputCapRefusal,
+	lastUserText,
+	renderTranscript,
+	type SessionExtras,
+	SUGGEST_INSTRUCTIONS,
+	SUGGEST_TRANSCRIPT_CHARS,
+	SuggestionScheduler,
+	suggestionStateKey,
+} from "./next-prompt-core";
+
+/** What the engine needs of the bridge's env (modes/next-prompt.ts hands it the real one). */
+export interface EngineEnv {
+	emit(event: NextPromptUpdate | NextPromptConfigFrame): void;
+	session(): unknown;
+}
+
+export type EngineMethods = Record<string, (params: unknown, env: EngineEnv) => Promise<unknown>>;
+
+function record(params: unknown): Record<string, unknown> {
+	return typeof params === "object" && params !== null ? (params as Record<string, unknown>) : {};
+}
+
+/** Output ceilings: a ceiling, not a target (reasoning is off; see `ask`). */
+const SUGGEST_MAX_TOKENS = 512;
+const INLINE_MAX_TOKENS = 160;
+/** Stock's usage-ledger purpose for a composer prediction, so session totals and `/stats` include these requests. */
+const USAGE_PURPOSE = "composer-prediction";
+/** Sessions whose last suggestion key is remembered. */
+const KEYS_KEPT = 20;
+/** A request that has not answered by then is no longer worth waiting for. */
+const REQUEST_DEADLINE_MS = 20_000;
+
+// ───────────────────────────── stock seam ─────────────────────────────
+
+interface ModelLike {
+	provider: string;
+	id: string;
+}
+
+interface Registry {
+	getApiKey(model: never, sessionId?: string): Promise<unknown>;
+	resolver(model: never, sessionId?: string): unknown;
+	getAvailable(kind?: string): unknown[];
+}
+
+interface MessageLike {
+	role: string;
+	[key: string]: unknown;
+}
+
+/** The slice of the live AgentSession this module reads. */
+export interface NextPromptSession {
+	messages: readonly MessageLike[];
+	isStreaming: boolean;
+	isCompacting: boolean;
+	queuedMessageCount: number;
+	sessionId: string;
+	sessionFile?: string;
+	settings: unknown;
+	modelRegistry: Registry;
+	sessionManager: {
+		getSessionId(): string;
+		getLeafId(): string | null;
+		appendModelUsage?(usage: Record<string, unknown>, owner: { sessionId: string; parentId: string | null }): unknown;
+	};
+	getTodoPhases?(): ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>;
+	getPlanModeState?(): { enabled: boolean; planFilePath?: string } | undefined;
+	getGoalModeState?(): { enabled: boolean; goal?: { objective?: string; status?: string } } | undefined;
+	extensionRunner?: {
+		getLoadedExtensions?(): ReadonlyArray<{ path: string }>;
+		isExtensionActive?(path: string): boolean;
+	};
+}
+
+interface AssistantReply {
+	content: ReadonlyArray<{ type: string; text?: string }>;
+	stopReason?: string;
+	errorMessage?: string;
+	[key: string]: unknown;
+}
+
+/** The stock functions this module calls (listed in capabilities.ts `nextPrompt`). */
+export interface NextPromptStock {
+	completeSimple(model: never, context: unknown, options: unknown): Promise<AssistantReply>;
+	roleCandidatePool(role: string, settings: never, registry: never): ModelLike[];
+	resolveRoleChain(role: string, settings: never, pool: never): Array<{ model: ModelLike }>;
+	shouldSkipHistory(text: string): boolean;
+}
+
+let stockOverride: NextPromptStock | undefined;
+let stockLoader: (() => Promise<NextPromptStock>) | undefined;
+let stockLoaded: Promise<NextPromptStock> | undefined;
+
+/** Tests hand in fakes; undefined restores the real stock modules. */
+export function setNextPromptStock(stock: NextPromptStock | undefined): void {
+	stockOverride = stock;
+}
+
+/**
+ * modes/next-prompt.ts registers the loader of the real stock modules (literal specifiers: omp rewrites only those
+ * onto its bundled singletons). It runs on first use, after `guard` checked the feature, so a vanished stock module
+ * cannot stop the bridge from loading.
+ */
+export function setNextPromptStockLoader(loader: () => Promise<NextPromptStock>): void {
+	stockLoader = loader;
+}
+
+function loadStock(): Promise<NextPromptStock> {
+	if (stockOverride) return Promise.resolve(stockOverride);
+	if (!stockLoader) return Promise.reject(new Error("The stock loader is not registered"));
+	stockLoaded ??= stockLoader();
+	return stockLoaded;
+}
+
+/** An `Error` that already knows the reason the footer hint names. */
+class Unavailable extends Error {
+	constructor(
+		readonly reason: NextPromptUnavailable,
+		message: string,
+	) {
+		super(message);
+	}
+}
+
+interface Resolved {
+	model: ModelLike;
+	used: NextPromptModelUsed;
+	resolver: unknown;
+}
+
+/**
+ * Stock's `smol` role: its configured value, then its empty-role fallbacks (`resolveRoleChain`), the first
+ * model with credentials. Nothing matching, or no credentials, is an `Unavailable`; the main model is never
+ * a stand-in.
+ */
+async function resolveSmol(session: NextPromptSession, stock: NextPromptStock): Promise<Resolved> {
+	const registry = session.modelRegistry;
+	const pool = stock.roleCandidatePool("smol", session.settings as never, registry as never);
+	const chain = stock.resolveRoleChain("smol", session.settings as never, pool as never);
+	if (chain.length === 0) throw new Unavailable("no_model", "The smol role resolves to no available model");
+	for (const candidate of chain) {
+		const key = await registry.getApiKey(candidate.model as never, session.sessionId);
+		if (!key) continue;
+		return {
+			model: candidate.model,
+			used: { model: `${candidate.model.provider}/${candidate.model.id}`, role: "smol" },
+			resolver: registry.resolver(candidate.model as never, session.sessionId),
+		};
+	}
+	const first = chain[0]?.model;
+	throw new Unavailable(
+		"no_credentials",
+		`No credentials for ${first ? `${first.provider}/${first.id}` : "the smol model"}`,
+	);
+}
+
+interface Asked {
+	text: string;
+	message: AssistantReply;
+}
+
+/**
+ * One cheap request. Reasoning is off and the output capped; a transport that refuses the cap (some Responses
+ * and Cursor-style transports do) is asked once more without one. A provider error comes back as a thrown
+ * error, never as an empty reply.
+ */
+async function ask(
+	session: NextPromptSession,
+	stock: NextPromptStock,
+	resolved: Resolved,
+	system: string,
+	user: string,
+	options: { maxTokens: number; temperature: number; signal: AbortSignal },
+): Promise<Asked> {
+	const signal = AbortSignal.any([options.signal, AbortSignal.timeout(REQUEST_DEADLINE_MS)]);
+	const context = { systemPrompt: [system], messages: [{ role: "user", content: user, timestamp: Date.now() }] };
+	const call = (maxTokens: number | undefined) =>
+		stock.completeSimple(resolved.model as never, context, {
+			apiKey: resolved.resolver,
+			sessionId: session.sessionId,
+			maxTokens,
+			disableReasoning: true,
+			temperature: options.temperature,
+			signal,
+		});
+	let message: AssistantReply;
+	try {
+		message = await call(options.maxTokens);
+	} catch (error) {
+		if (signal.aborted || !isOutputCapRefusal(error)) throw error;
+		message = await call(undefined);
+	}
+	if (message.stopReason === "error") throw new Error(message.errorMessage ?? "The model request failed");
+	const text = message.content
+		.map(block => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
+		.join("");
+	return { text, message };
+}
+
+// ───────────────────────────── module state ─────────────────────────────
+
+/** The slice of omp's ExtensionAPI this module needs. */
+export interface NextPromptHost {
+	on(event: "agent_start", handler: (event: unknown, ctx: HookContext) => void): void;
+	on(event: "agent_end", handler: (event: unknown, ctx: HookContext) => void): void;
+	on(event: "session_switch", handler: (event: unknown, ctx: HookContext) => void): void;
+	on(event: "session_compact", handler: (event: unknown, ctx: HookContext) => void): void;
+	on(event: "session_shutdown", handler: (event: unknown, ctx: HookContext) => void): void;
+	logger: { debug(message: string, data?: Record<string, unknown>): void };
+	pi: {
+		AgentRegistry: { global(): { get(id: unknown): { session?: unknown } | undefined } };
+		MAIN_AGENT_ID: unknown;
+	};
+	getCommands?(): ReadonlyArray<{ name: string; description?: string; source: string }>;
+}
+
+interface HookContext {
+	agent: { kind: string };
+}
+
+let settings: NextPromptSettings = parseNextPromptEnv(process.env.OMP_GUI_NEXT_PROMPT);
+let draftEmpty = true;
+let latestEnv: EngineEnv | undefined;
+let host: NextPromptHost | undefined;
+let unavailable: { reason: NextPromptUnavailable; detail?: string } | undefined;
+let lastModel: NextPromptModelUsed | undefined;
+let inlineAbort: AbortController | undefined;
+const requests = { suggest: 0, inline: 0 };
+/** Last suggestion's state key per session (session file, else id): "did the state move since?". */
+const lastKeys = new Map<string, string>();
+
+const scheduler = new SuggestionScheduler({ run: (trigger, signal) => generate(trigger, signal) });
+
+function mainSession(): NextPromptSession | undefined {
+	if (host) {
+		const entry = host.pi.AgentRegistry.global().get(host.pi.MAIN_AGENT_ID);
+		return entry?.session as NextPromptSession | undefined;
+	}
+	// Hooks are not installed yet (a method call came first): the env of that call knows the live session.
+	try {
+		return latestEnv?.session() as unknown as NextPromptSession | undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function sessionKey(session: NextPromptSession): string {
+	return session.sessionFile || session.sessionId;
+}
+
+function idle(session: NextPromptSession): boolean {
+	return !session.isStreaming && !session.isCompacting && session.queuedMessageCount === 0;
+}
+
+function emitFrame(frame: NextPromptUpdate | NextPromptConfigFrame): void {
+	latestEnv?.emit(frame);
+}
+
+function identity(session: NextPromptSession): Pick<NextPromptUpdate, "sessionFile" | "sessionId"> {
+	return { ...(session.sessionFile ? { sessionFile: session.sessionFile } : {}), sessionId: session.sessionId };
+}
+
+function remember(key: string, stateKey: string): void {
+	lastKeys.delete(key);
+	lastKeys.set(key, stateKey);
+	for (const stale of [...lastKeys.keys()].slice(0, Math.max(0, lastKeys.size - KEYS_KEPT))) lastKeys.delete(stale);
+}
+
+/** The user's own `next-prompt` extension is loaded and active (its widget is ignored while this feature is on). */
+function legacyExtensionLoaded(session: NextPromptSession | undefined): boolean {
+	const runner = session?.extensionRunner;
+	if (runner?.getLoadedExtensions) {
+		const active = runner.isExtensionActive?.bind(runner);
+		return runner
+			.getLoadedExtensions()
+			.some(
+				extension =>
+					/(?:^|[\\/])next-prompt\.[cm]?[jt]s$/.test(extension.path) && (active ? active(extension.path) : true),
+			);
+	}
+	// Without the runner: the extension's `/suggest` command is the tell.
+	return (
+		host
+			?.getCommands?.()
+			.some(
+				command =>
+					command.source === "extension" &&
+					command.name === "suggest" &&
+					/next-prompt/i.test(command.description ?? ""),
+			) ?? false
+	);
+}
+
+async function currentState(session: NextPromptSession | undefined): Promise<NextPromptState> {
+	let model: NextPromptModelUsed | undefined = lastModel;
+	let failure = unavailable;
+	if (session) {
+		try {
+			model = (await resolveSmol(session, await loadStock())).used;
+			lastModel = model;
+			if (failure && (failure.reason === "no_model" || failure.reason === "no_credentials")) {
+				unavailable = undefined;
+				failure = undefined;
+			}
+		} catch (error) {
+			model = undefined;
+			failure = {
+				reason: error instanceof Unavailable ? error.reason : classifyFailure(error),
+				detail: errorText(error),
+			};
+		}
+	}
+	return {
+		...settings,
+		legacyExtension: legacyExtensionLoaded(session),
+		...(model ? { model } : {}),
+		...(failure ? { unavailable: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}) } : {}),
+		requests: { ...requests },
+	};
+}
+
+/** Pushes the feature's current state (settings, legacy extension, model, availability). */
+async function emitConfig(): Promise<void> {
+	if (!latestEnv) return;
+	const frame: NextPromptConfigFrame = { type: "next_prompt_config", ...(await currentState(mainSession())) };
+	emitFrame(frame);
+}
+
+function fail(session: NextPromptSession, trigger: NextPromptTrigger, error: unknown): void {
+	const reason = error instanceof Unavailable ? error.reason : classifyFailure(error);
+	const detail = errorText(error);
+	host?.logger.debug("next-prompt suggestion unavailable", { reason, detail, trigger });
+	const changed = unavailable?.reason !== reason;
+	unavailable = { reason, detail };
+	const frame: NextPromptUpdate = {
+		type: "next_prompt_update",
+		status: "unavailable",
+		trigger,
+		reason,
+		detail,
+		...identity(session),
+	};
+	emitFrame(frame);
+	if (changed) void emitConfig();
+}
+
+// ───────────────────────────── suggestions ─────────────────────────────
+
+function sessionExtras(session: NextPromptSession): SessionExtras {
+	const plan = session.getPlanModeState?.();
+	const goal = session.getGoalModeState?.();
+	return {
+		...(plan ? { plan: { enabled: plan.enabled === true } } : {}),
+		...(session.getTodoPhases ? { todoPhases: session.getTodoPhases() } : {}),
+		...(goal?.goal?.objective
+			? {
+					goal: {
+						objective: goal.goal.objective,
+						enabled: goal.enabled,
+						...(goal.goal.status ? { status: goal.goal.status } : {}),
+					},
+				}
+			: {}),
+	};
+}
+
+/** Set by a compaction until the next suggestion consumes it. */
+let compactedSinceSuggestion = false;
+
+async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promise<void> {
+	const session = mainSession();
+	if (!session) return;
+	const key = sessionKey(session);
+	const messages = session.messages;
+	const facts = extractFacts(messages, {
+		...sessionExtras(session),
+		...(compactedSinceSuggestion ? { compacted: true } : {}),
+	});
+	const appState = buildAppState(facts);
+	const stateKey = suggestionStateKey(messages, appState);
+	const gate = gateSuggestion({
+		enabled: settings.suggestions,
+		idle: idle(session),
+		draftEmpty,
+		main: true,
+		hasReply: messages.some(message => message.role === "assistant"),
+		lastKey: lastKeys.get(key),
+		key: stateKey,
+		force: trigger === "refresh",
+	});
+	if (!gate.ok) {
+		host?.logger.debug("next-prompt suggestion skipped", { reason: gate.reason, trigger });
+		return;
+	}
+	const started = performance.now();
+	try {
+		const stock = await loadStock();
+		const resolved = await resolveSmol(session, stock);
+		if (signal.aborted) return;
+		requests.suggest++;
+		const request = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState);
+		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, request, {
+			maxTokens: SUGGEST_MAX_TOKENS,
+			temperature: 0.3,
+			signal,
+		});
+		recordUsage(session, resolved, message);
+		// The answer is worth showing only while the moment it was made for is still the moment.
+		const nowKey = suggestionStateKey(session.messages, appState);
+		if (signal.aborted || sessionKey(session) !== key || nowKey !== stateKey || !idle(session) || !draftEmpty) return;
+		compactedSinceSuggestion = false;
+		remember(key, stateKey);
+		lastModel = resolved.used;
+		const candidates = cleanCandidates(text, { lastUserMessage: lastUserText(messages) });
+		const ms = Math.round(performance.now() - started);
+		host?.logger.debug("next-prompt suggestion", {
+			trigger,
+			model: resolved.used.model,
+			ms,
+			candidates: candidates.length,
+		});
+		const wasUnavailable = unavailable !== undefined;
+		unavailable = undefined;
+		const update: NextPromptUpdate = {
+			type: "next_prompt_update",
+			status: "ready",
+			trigger,
+			candidates,
+			used: resolved.used,
+			ms,
+			...identity(session),
+		};
+		emitFrame(update);
+		if (wasUnavailable) void emitConfig();
+	} catch (error) {
+		if (signal.aborted) return;
+		fail(session, trigger, error);
+	}
+}
+
+/** Stock's usage ledger gets the request (as it does for its own predictions); never worth failing a suggestion for. */
+function recordUsage(session: NextPromptSession, resolved: Resolved, message: AssistantReply): void {
+	try {
+		session.sessionManager.appendModelUsage?.(
+			{
+				purpose: USAGE_PURPOSE,
+				role: "smol",
+				api: message.api,
+				provider: message.provider ?? resolved.model.provider,
+				model: message.model ?? resolved.model.id,
+				usage: message.usage,
+				stopReason: message.stopReason,
+			},
+			{ sessionId: session.sessionManager.getSessionId(), parentId: session.sessionManager.getLeafId() },
+		);
+	} catch (error) {
+		host?.logger.debug("next-prompt usage not recorded", { error: errorText(error) });
+	}
+}
+
+function request(trigger: NextPromptTrigger): void {
+	if (settings.suggestions) scheduler.request(trigger);
+}
+
+// ───────────────────────────── hooks ─────────────────────────────
+
+/** Called once per extension instance (main and every subagent rebinding) by index.ts. */
+export function install(pi: NextPromptHost): void {
+	host = pi;
+	const main = (ctx: HookContext) => ctx.agent.kind === "main";
+	pi.on("agent_start", (_event, ctx) => {
+		if (!main(ctx)) return;
+		// A new run makes any pending or running suggestion stale.
+		scheduler.cancel();
+	});
+	pi.on("agent_end", (_event, ctx) => {
+		if (main(ctx)) request("turn");
+	});
+	pi.on("session_compact", (_event, ctx) => {
+		if (!main(ctx)) return;
+		compactedSinceSuggestion = true;
+		request("compaction");
+	});
+	pi.on("session_switch", (_event, ctx) => {
+		if (!main(ctx)) return;
+		compactedSinceSuggestion = false;
+		// A session whose suggestion is missing or stale gets a fresh one; the gate drops an unchanged one.
+		request("switch");
+	});
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (!main(ctx)) return;
+		scheduler.cancel();
+		inlineAbort?.abort();
+	});
+}
+
+// ───────────────────────────── methods ─────────────────────────────
+
+function flag(params: Record<string, unknown>, name: string): boolean {
+	const value = params[name];
+	if (typeof value !== "boolean") throw new Error(`next_prompt_set needs {suggestions: boolean, inline: boolean}`);
+	return value;
+}
+
+function attach(env: EngineEnv): void {
+	latestEnv = env;
+}
+
+/** The method table before the guard (tests drive it with a fake stock). */
+export const handlers: EngineMethods = {
+	/** `{suggestions, inline}`: the Settings values (main pushes them at connect and on every change). */
+	next_prompt_set: async (params, env) => {
+		attach(env);
+		const input = record(params);
+		const next: NextPromptSettings = { suggestions: flag(input, "suggestions"), inline: flag(input, "inline") };
+		const enabledNow = next.suggestions && !settings.suggestions;
+		const disabledNow = !next.suggestions && settings.suggestions;
+		settings = next;
+		if (disabledNow) {
+			scheduler.cancel();
+			inlineAbort?.abort();
+			const session = mainSession();
+			if (session) emitFrame({ type: "next_prompt_update", status: "cleared", ...identity(session) });
+		}
+		if (!next.inline) inlineAbort?.abort();
+		if (enabledNow) request("refresh");
+		await emitConfig();
+		return { ...settings };
+	},
+
+	next_prompt_state: async (_params, env) => {
+		attach(env);
+		return currentState(mainSession());
+	},
+
+	/** `{empty}`: the composer draft is (not) empty. Typing aborts a pending suggestion; emptying it asks again when the state moved. */
+	next_prompt_draft: async (params, env) => {
+		attach(env);
+		const empty = record(params).empty;
+		if (typeof empty !== "boolean") throw new Error("next_prompt_draft needs {empty: boolean}");
+		const changed = empty !== draftEmpty;
+		draftEmpty = empty;
+		if (!changed) return { empty };
+		if (!empty) scheduler.cancel();
+		else request("refresh");
+		return { empty };
+	},
+
+	/** `{reason}`: the renderer saw something the bridge does not (a finished `!` command). Forced past the unchanged-state gate. */
+	next_prompt_refresh: async (params, env) => {
+		attach(env);
+		const reason = record(params).reason;
+		if (typeof reason !== "string" || !(NEXT_PROMPT_REFRESH_REASONS as readonly string[]).includes(reason))
+			throw new Error(`next_prompt_refresh needs {reason: ${NEXT_PROMPT_REFRESH_REASONS.join(" | ")}}`);
+		request(reason === "bash" ? "bash" : reason === "switch" ? "switch" : "refresh");
+		return { requested: settings.suggestions };
+	},
+
+	/** `{scope: "suggest" | "inline" | "all"}`. */
+	next_prompt_cancel: async (params, env) => {
+		attach(env);
+		const scope = record(params).scope;
+		if (scope !== "suggest" && scope !== "inline" && scope !== "all")
+			throw new Error("next_prompt_cancel needs {scope: suggest | inline | all}");
+		if (scope !== "inline") scheduler.cancel();
+		if (scope !== "suggest") inlineAbort?.abort();
+		return { cancelled: scope };
+	},
+
+	/** `{draft, requestId}` → InlineCompletion: the text that continues the draft, or null. */
+	next_prompt_inline: async (params, env): Promise<InlineCompletion> => {
+		attach(env);
+		const input = record(params);
+		const draft = input.draft;
+		const requestId = input.requestId;
+		if (typeof draft !== "string" || typeof requestId !== "string" || requestId === "")
+			throw new Error("next_prompt_inline needs {draft: string, requestId: string}");
+		const none: InlineCompletion = { requestId, text: null };
+		// Any newer request, eligible or not, supersedes the one in flight (the user typed on).
+		inlineAbort?.abort();
+		const abort = new AbortController();
+		inlineAbort = abort;
+		if (!inlineEffective(settings)) return none;
+		if (!inlineDraftEligibility({ draft, caretAtEnd: true, composing: false, menuOpen: false }).ok) return none;
+		const stock = await loadStock();
+		// A draft that looks like a secret (stock's history rule: /login, /join, /mcp add --token) never leaves the machine.
+		if (stock.shouldSkipHistory(draft)) return none;
+		const session = env.session() as unknown as NextPromptSession;
+		const started = performance.now();
+		try {
+			const resolved = await resolveSmol(session, stock);
+			if (abort.signal.aborted) return none;
+			requests.inline++;
+			const transcript = renderTranscript(session.messages, INLINE_TRANSCRIPT_CHARS);
+			const { text } = await ask(
+				session,
+				stock,
+				resolved,
+				INLINE_INSTRUCTIONS,
+				buildInlineRequest(transcript, inlineDraftWindow(draft)),
+				{
+					maxTokens: INLINE_MAX_TOKENS,
+					temperature: 0,
+					signal: abort.signal,
+				},
+			);
+			if (abort.signal.aborted) return none;
+			const completion = cleanInlineReply(text, draft);
+			return { requestId, text: completion, used: resolved.used, ms: Math.round(performance.now() - started) };
+		} catch (error) {
+			if (abort.signal.aborted) return none;
+			const reason = error instanceof Unavailable ? error.reason : classifyFailure(error);
+			host?.logger.debug("next-prompt inline unavailable", {
+				reason,
+				detail: errorText(error),
+				maxDraft: INLINE_MAX_DRAFT_CHARS,
+			});
+			return { requestId, text: null, reason };
+		} finally {
+			if (inlineAbort === abort) inlineAbort = undefined;
+		}
+	},
+};
+
+/** For tests: forget every module-level state. */
+export function resetNextPromptState(): void {
+	scheduler.cancel();
+	inlineAbort?.abort();
+	inlineAbort = undefined;
+	settings = parseNextPromptEnv(process.env.OMP_GUI_NEXT_PROMPT);
+	draftEmpty = true;
+	latestEnv = undefined;
+	host = undefined;
+	unavailable = undefined;
+	lastModel = undefined;
+	requests.suggest = 0;
+	requests.inline = 0;
+	lastKeys.clear();
+	compactedSinceSuggestion = false;
+}

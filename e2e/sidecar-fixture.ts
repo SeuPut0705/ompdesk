@@ -8,6 +8,15 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import {
+	type NextPromptModelUsed,
+	type NextPromptSettings,
+	type NextPromptState,
+	type NextPromptTrigger,
+	type NextPromptUnavailable,
+	normalizeNextPrompt,
+	parseNextPromptEnv,
+} from "../resources/gui-bridge/next-prompt-contracts";
+import {
 	labelPromptOrigins,
 	PROMPT_ORIGIN_ENTRY,
 	parsePromptOriginEnv,
@@ -689,6 +698,7 @@ if (process.argv[2] === "stats") {
 	const endTurn = (messages: AgentMessage[]) => {
 		isStreaming = false;
 		write({ type: "agent_end", messages });
+		scheduleNextPrompt("turn");
 	};
 	/** Stock's `subagent_lifecycle` frame for one roster subagent (any subscription level but `off`). */
 	const writeLifecycle = (agent: SubagentSnapshot, status: "started" | "completed") =>
@@ -714,6 +724,99 @@ if (process.argv[2] === "stats") {
 	const emitConfigUpdate = () => {
 		const frame = `${JSON.stringify({ event: { type: "config_update", model, thinkingLevel: "medium" } })}\n`;
 		for (const socket of bridgeClients) socket.write(frame);
+	};
+	/**
+	 * The built-in prompt suggestions (gui-bridge modes/next-prompt.ts). Switches come from
+	 * `OMP_GUI_NEXT_PROMPT` and `next_prompt_set`; `OMP_GUI_TEST_NEXT_PROMPT` scripts the model's answers:
+	 * `candidates` (best first), `inline` (the ghost continuation, null for none), `fail` (every suggestion
+	 * request is refused with that reason), `legacy` (state.legacyExtension), `latencyMs`, `model`.
+	 */
+	const nextPromptScript: {
+		candidates?: string[];
+		inline?: string | null;
+		fail?: NextPromptUnavailable;
+		legacy?: boolean;
+		latencyMs?: number;
+		model?: string;
+	} = (() => {
+		try {
+			return JSON.parse(process.env.OMP_GUI_TEST_NEXT_PROMPT ?? "{}");
+		} catch {
+			return {};
+		}
+	})();
+	let nextPromptSettings: NextPromptSettings = parseNextPromptEnv(process.env.OMP_GUI_NEXT_PROMPT);
+	/** The user's composer draft is empty (`next_prompt_draft`); a suggestion is only made over an empty one. */
+	let nextPromptDraftEmpty = true;
+	let nextPromptFailure: { reason: NextPromptUnavailable; detail: string } | undefined;
+	let nextPromptTimer: NodeJS.Timeout | undefined;
+	const nextPromptRequests = { suggest: 0, inline: 0 };
+	const nextPromptUsed = (): NextPromptModelUsed => ({
+		model: nextPromptScript.model ?? "fixture/smol",
+		role: "smol",
+	});
+	const nextPromptState = (): NextPromptState => ({
+		...nextPromptSettings,
+		legacyExtension: nextPromptScript.legacy === true,
+		...(nextPromptFailure
+			? { unavailable: nextPromptFailure.reason, detail: nextPromptFailure.detail }
+			: { model: nextPromptUsed() }),
+		requests: { ...nextPromptRequests },
+	});
+	const pushBridgeEvent = (event: object) => {
+		const frame = `${JSON.stringify({ event })}\n`;
+		for (const socket of bridgeClients) socket.write(frame);
+	};
+	const emitNextPromptConfig = () => pushBridgeEvent({ type: "next_prompt_config", ...nextPromptState() });
+	/** The session identity as get_state reports it: what the renderer keys the memory by. */
+	const nextPromptSession = () => {
+		const current = state();
+		return {
+			sessionId: current.sessionId,
+			...("sessionFile" in current ? { sessionFile: current.sessionFile } : {}),
+		};
+	};
+	const emitNextPrompt = (trigger: NextPromptTrigger) => {
+		nextPromptTimer = undefined;
+		if (!nextPromptSettings.suggestions || !nextPromptDraftEmpty) return;
+		nextPromptRequests.suggest++;
+		const ms = Math.max(1, nextPromptScript.latencyMs ?? 1);
+		if (nextPromptScript.fail) {
+			nextPromptFailure = { reason: nextPromptScript.fail, detail: `fixture: ${nextPromptScript.fail}` };
+			pushBridgeEvent({
+				type: "next_prompt_update",
+				status: "unavailable",
+				trigger,
+				reason: nextPromptFailure.reason,
+				detail: nextPromptFailure.detail,
+				ms,
+				...nextPromptSession(),
+			});
+			emitNextPromptConfig();
+			return;
+		}
+		const recovered = nextPromptFailure !== undefined;
+		nextPromptFailure = undefined;
+		pushBridgeEvent({
+			type: "next_prompt_update",
+			status: "ready",
+			trigger,
+			candidates: nextPromptScript.candidates ?? [
+				"Run the tests",
+				"Commit these changes",
+				"Explain what you changed",
+			],
+			used: nextPromptUsed(),
+			ms,
+			...nextPromptSession(),
+		});
+		if (recovered) emitNextPromptConfig();
+	};
+	/** One suggestion after `trigger`, unless a draft is in the way; typing aborts it while pending. */
+	const scheduleNextPrompt = (trigger: NextPromptTrigger) => {
+		if (!nextPromptSettings.suggestions || !nextPromptDraftEmpty) return;
+		clearTimeout(nextPromptTimer);
+		nextPromptTimer = setTimeout(() => emitNextPrompt(trigger), nextPromptScript.latencyMs ?? 0);
 	};
 	const securityDashboard = (): RpcSecurityDashboardResult => {
 		if (securityMode === "unavailable") throw new Error("Isolated dashboard unavailable");
@@ -1624,6 +1727,57 @@ if (process.argv[2] === "stats") {
 		"workspace.resolve_path": params => ({ path: nodePath.resolve(process.cwd(), String(params.path)) }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
+		// gui-bridge modes/next-prompt.ts (contracts in resources/gui-bridge/next-prompt-contracts.ts).
+		next_prompt_set: params => {
+			nextPromptSettings = normalizeNextPrompt(params);
+			if (!nextPromptSettings.suggestions) {
+				clearTimeout(nextPromptTimer);
+				nextPromptTimer = undefined;
+				pushBridgeEvent({ type: "next_prompt_update", status: "cleared", ...nextPromptSession() });
+			}
+			emitNextPromptConfig();
+			return nextPromptState();
+		},
+		next_prompt_state: () => nextPromptState(),
+		next_prompt_draft: params => {
+			nextPromptDraftEmpty = params.empty === true;
+			if (!nextPromptDraftEmpty) {
+				clearTimeout(nextPromptTimer);
+				nextPromptTimer = undefined;
+			}
+			return { empty: nextPromptDraftEmpty };
+		},
+		next_prompt_refresh: params => {
+			scheduleNextPrompt(params.reason === "bash" || params.reason === "switch" ? params.reason : "refresh");
+			return { ok: true };
+		},
+		next_prompt_cancel: params => {
+			if (params.scope !== "inline") {
+				clearTimeout(nextPromptTimer);
+				nextPromptTimer = undefined;
+			}
+			return { ok: true };
+		},
+		next_prompt_inline: (params, reply) => {
+			nextPromptRequests.inline++;
+			const effective = nextPromptSettings.suggestions && nextPromptSettings.inline;
+			const draft = typeof params.draft === "string" ? params.draft : "";
+			const text =
+				effective && draft.trim() !== ""
+					? "inline" in nextPromptScript
+						? nextPromptScript.inline
+						: " and explain why"
+					: null;
+			const answer = {
+				requestId: String(params.requestId),
+				text: text ?? null,
+				used: nextPromptUsed(),
+				ms: Math.max(1, nextPromptScript.latencyMs ?? 1),
+			};
+			if (!nextPromptScript.latencyMs) return answer;
+			setTimeout(() => reply(answer), nextPromptScript.latencyMs);
+			return undefined;
+		},
 		"modes.get_delegation": () => ({ mode: delegationMode }),
 		"modes.set_delegation": params => {
 			delegationMode = typeof params.mode === "string" ? params.mode : "default";
@@ -4376,6 +4530,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		fs.rmSync(bridgeAddress, { force: true });
 		const server = net.createServer(socket => {
 			bridgeClients.add(socket);
+			emitNextPromptConfig();
 			socket.setEncoding("utf8");
 			let buffer = "";
 			socket.on("data", (chunk: string) => {

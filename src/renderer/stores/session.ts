@@ -1,5 +1,6 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
+import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/next-prompt-contracts";
 import type {
 	ContextUsage,
 	RpcLoopModeState,
@@ -88,6 +89,11 @@ export interface SessionStore {
 	/** The session's model pool: model_pool_update frames, hydrated via get_model_pool
 	 * (the pool lives in the session journal). null = not yet fetched; chips treat as off. */
 	modelPool: RpcModelPoolState | null;
+	/** The built-in prompt suggestions' state of this tab's bridge (next_prompt_config frames,
+	 * hydrated via get_next_prompt). null = not reported / unsupported omp: the legacy widget path stays. */
+	nextPrompt: NextPromptState | null;
+	/** Why the last suggestion request failed (next_prompt_update unavailable); cleared by the next ready. */
+	nextPromptUnavailable: { reason: NextPromptUnavailable; detail?: string } | null;
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
 	setSidecarError: (error: string | null, restart?: SidecarRestartProgress | null) => void;
@@ -127,6 +133,8 @@ const initialState = {
 	loopMode: null,
 	vibeModeEnabled: false,
 	modelPool: null,
+	nextPrompt: null,
+	nextPromptUnavailable: null,
 };
 
 /**

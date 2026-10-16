@@ -1,6 +1,7 @@
 import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
+import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { MemoryReportSection } from "./PluginsSection";
 import { SchemaField } from "./SchemaField";
@@ -52,6 +53,9 @@ export function AgentSection() {
 					))}
 				</SettingsSection>
 			)}
+			<SettingsSection id="settings-agent-suggestions" scope="app" title={t("settings.agent.suggestions")}>
+				<NextPromptRow />
+			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />
 			</SettingsSection>

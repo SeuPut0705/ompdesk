@@ -6,6 +6,7 @@ import {
 	hydrateLegacySession,
 	hydrateSession,
 	hydrateTabSession,
+	nextPromptPatch,
 	refreshModelState,
 	refreshSessionState,
 	retryPendingTabs,
@@ -49,6 +50,7 @@ import {
 } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
+import { useNextPromptStore } from "../stores/next-prompt";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { useQueueStore } from "../stores/queue";
 import { type SessionStore, useSessionStore } from "../stores/session";
@@ -87,6 +89,9 @@ const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
 const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> = {
 	token_rate: true,
 	read_group_metadata: true,
+	// Suggestion frames change nothing get_state reports.
+	next_prompt_config: true,
+	next_prompt_update: true,
 };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
@@ -606,6 +611,24 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						case "model_pool_update": {
 							// The composer chip, the Modes popover and Agents › Live read the pool here.
 							useSessionStore.setState({ modelPool: event.state });
+							break;
+						}
+						case "next_prompt_config": {
+							// The built-in suggestions' switches, model and availability for this tab's bridge.
+							useSessionStore.setState(nextPromptPatch(event));
+							break;
+						}
+						case "next_prompt_update": {
+							const session = useSessionStore.getState();
+							const key = event.sessionFile || event.sessionId || session.sessionFile || session.sessionId;
+							if (key) useNextPromptStore.getState().recordUpdate(key, event);
+							if (event.status === "unavailable" && event.reason) {
+								useSessionStore.setState({
+									nextPromptUnavailable: { reason: event.reason, detail: event.detail },
+								});
+							} else if (event.status === "ready") {
+								useSessionStore.setState({ nextPromptUnavailable: null });
+							}
 							break;
 						}
 						case "queue_update": {

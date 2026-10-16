@@ -63,15 +63,21 @@ describe("useIdleCompactionDraft", () => {
 		await mount();
 		expect(sent()).toEqual([]);
 		await act(async () => useTabsStore.setState({ tabs: tab("ready") }));
-		expect(sent()).toEqual([{ type: "set_idle_compaction_draft", empty: true }]);
+		expect(sent()).toEqual([
+			{ type: "set_idle_compaction_draft", empty: true },
+			{ type: "set_next_prompt_draft", empty: true },
+		]);
 		await act(async () => composer.getState().setDraft("h"));
 		await act(async () => composer.getState().setDraft("hello"));
 		// Whitespace counts as empty, like stock's `getText().trim()`.
 		await act(async () => composer.getState().setDraft("   "));
 		expect(sent()).toEqual([
 			{ type: "set_idle_compaction_draft", empty: true },
+			{ type: "set_next_prompt_draft", empty: true },
 			{ type: "set_idle_compaction_draft", empty: false },
+			{ type: "set_next_prompt_draft", empty: false },
 			{ type: "set_idle_compaction_draft", empty: true },
+			{ type: "set_next_prompt_draft", empty: true },
 		]);
 	});
 
@@ -79,12 +85,15 @@ describe("useIdleCompactionDraft", () => {
 		useTabsStore.setState({ tabs: tab("ready"), activeTabId: "tab-1" });
 		await mount();
 		await act(async () => composer.getState().setDraft("draft"));
-		expect(sent()).toHaveLength(2);
+		expect(sent()).toHaveLength(4);
 		await act(async () => useTabsStore.setState({ tabs: tab("starting") }));
 		await act(async () => useTabsStore.setState({ tabs: tab("ready") }));
-		expect(sent().at(-1)).toEqual({ type: "set_idle_compaction_draft", empty: false });
+		expect(sent().slice(-2)).toEqual([
+			{ type: "set_idle_compaction_draft", empty: false },
+			{ type: "set_next_prompt_draft", empty: false },
+		]);
 		await act(async () => useTabsStore.setState({ tabs: [] }));
 		await act(async () => composer.getState().setDraft(""));
-		expect(sent()).toHaveLength(3);
+		expect(sent()).toHaveLength(6);
 	});
 });

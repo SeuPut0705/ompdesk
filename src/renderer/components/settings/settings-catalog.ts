@@ -190,6 +190,19 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "reply language conversation answer agent 대화 언어 답변",
 	},
 	{
+		id: "nextPromptSuggestions",
+		section: "agent",
+		labelKey: "settings.gui.nextPromptSuggestions",
+		aliases:
+			"next prompt suggestion suggest predict placeholder chips autocomplete smol small model 다음 메시지 제안 추천 칩 자동 완성 작은 모델",
+	},
+	{
+		id: "nextPromptInline",
+		section: "agent",
+		labelKey: "settings.gui.nextPromptInline",
+		aliases: "inline completion ghost text complete as i type autocomplete 이어서 완성 입력 자동 완성 회색",
+	},
+	{
 		id: "profileName",
 		section: "general",
 		labelKey: "settings.gui.profileName",

@@ -53,6 +53,7 @@ import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from 
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
 import { type AwaitedInput, awaitedInput, type ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
+import { useNextPromptStore } from "./next-prompt";
 import {
 	type PendingPlanProposal,
 	type PlanApprovalStore,
@@ -901,6 +902,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		});
 	},
 }));
+
+// A run starting in any tab — background ones included, whose agent_start never
+// reaches the renderer — makes that session's remembered suggestion stale. It lives
+// here, not in stores/next-prompt.ts, which use-rpc-events (imported by this file) loads.
+useTabsStore.subscribe((next, previous) => {
+	if (next.tabs === previous.tabs) return;
+	for (const tab of next.tabs) {
+		if (tab.status !== "running") continue;
+		if (previous.tabs.find(prior => prior.id === tab.id)?.status === "running") continue;
+		useNextPromptStore.getState().clear(tab.sessionPath, tab.sessionId);
+	}
+});
 
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with

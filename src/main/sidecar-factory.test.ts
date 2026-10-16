@@ -1,6 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { NextPromptSettings } from "../../resources/gui-bridge/next-prompt-contracts";
 import { BridgeHealth } from "./bridge-health";
 import { SessionKindStore } from "./session-kinds";
 import type { SidecarOptions } from "./sidecar";
@@ -36,6 +37,7 @@ describe("localSidecarFactory", () => {
 			replyLanguagePref: () => undefined,
 			userProfilePref: () => undefined,
 			delegationPref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
 			launchProfilesPref: () => stored,
@@ -50,6 +52,36 @@ describe("localSidecarFactory", () => {
 			expect(options.launchProfiles?.()).toEqual({ "/w/alpha": { noRules: true } });
 			stored = {};
 			expect(options.launchProfiles?.()).toEqual({});
+		}
+	});
+
+	it("hands every tab the prompt-suggestion switches, read per use, so a hosted tab follows this machine's pref", () => {
+		let stored: NextPromptSettings = { suggestions: true, inline: true };
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => undefined,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => stored,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+		});
+
+		create("/w/alpha", "agent", false);
+		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+		expect(created).toHaveLength(2);
+		for (const options of created) {
+			expect(options.nextPrompt?.()).toEqual({ suggestions: true, inline: true });
+			stored = { suggestions: true, inline: false };
+			expect(options.nextPrompt?.()).toEqual({ suggestions: true, inline: false });
+			stored = { suggestions: true, inline: true };
 		}
 	});
 });

@@ -22,6 +22,8 @@ import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { removeFileMention } from "../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
+import { useInlineCompletion } from "../../hooks/use-inline-completion";
+import { useNextPrompt } from "../../hooks/use-next-prompt";
 import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
@@ -80,6 +82,7 @@ import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { DraftFileCards } from "./DraftFileCards";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
+import { chipIndexForCode, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
@@ -133,11 +136,15 @@ export function InputArea() {
 	const nextPromptLines = useExtensionUiStore(s => s.widgetPanels[NEXT_PROMPT_WIDGET]);
 	const sessionFile = useSessionStore(s => s.sessionFile);
 	const nextPromptKey = sessionFile || sessionId || undefined;
-	const storedNextPrompt = useNextPromptStore(s => (nextPromptKey ? s.suggestions[nextPromptKey] : undefined));
-	const nextPrompt = status === "ready" && !isStreaming ? storedNextPrompt : undefined;
+	const nextPromptView = useNextPrompt();
+	/** The built-in's best candidate (or, while it is off, the legacy widget's entry): already empty unless ready and idle. */
+	const nextPrompt = nextPromptView.best;
+	// The legacy widget feeds the memory only while the built-in is off: with it on, a recorded
+	// widget would overwrite the built-in's entry.
 	useEffect(() => {
-		if (nextPromptKey) useNextPromptStore.getState().recordWidget(nextPromptKey, nextPromptLines);
-	}, [nextPromptKey, nextPromptLines]);
+		if (nextPromptKey && !nextPromptView.builtin)
+			useNextPromptStore.getState().recordWidget(nextPromptKey, nextPromptLines);
+	}, [nextPromptKey, nextPromptLines, nextPromptView.builtin]);
 	useEffect(() => {
 		if (isStreaming) useNextPromptStore.getState().clear(nextPromptKey);
 	}, [isStreaming, nextPromptKey]);
@@ -203,6 +210,26 @@ export function InputArea() {
 		},
 		[setText],
 	);
+	const chipsRef = useRef<NextPromptChipsHandle>(null);
+	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
+	const chipsShown =
+		nextPromptView.chips.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
+	const pickChip = useCallback(
+		(chip: string) => {
+			textareaRef.current?.focus();
+			placeDraft(chip, chip.length);
+			nextPromptView.accepted();
+		},
+		[placeDraft, nextPromptView],
+	);
+	/** Ghost text after the caret while the user types (slash / `@` menus, IME, `!` `$` `/` drafts: never). */
+	const inline = useInlineCompletion({
+		enabled: nextPromptView.inline && status === "ready" && !isStreaming && routeReady,
+		text,
+		menuOpen: menu !== null || pasteMenu !== null,
+		textareaRef,
+		complete: nextPromptView.completeInline,
+	});
 	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
 	// it shows the short prompt instead of a hint cut mid-glyph.
 	const [fieldNarrow, setFieldNarrow] = useState(false);
@@ -681,18 +708,40 @@ export function InputArea() {
 			}
 			return;
 		}
-		if (
-			nextPrompt !== undefined &&
-			text === "" &&
-			(e.key === "Tab" || e.key === "ArrowRight") &&
-			!e.shiftKey &&
-			!e.ctrlKey &&
-			!e.metaKey &&
-			!e.altKey &&
-			!isImeKeyEvent(e)
-		) {
+		// Ghost text: Tab takes it, Esc hides it (and only then keeps Esc's other meanings off);
+		// any other key drops it and aborts the request (typing restarts the debounce).
+		const plainKey = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+		if (e.key === "Tab" && plainKey) {
+			const accepted = inline.accept();
+			if (accepted !== null) {
+				e.preventDefault();
+				placeDraft(accepted, accepted.length);
+				return;
+			}
+		}
+		if (e.key === "Escape" && plainKey && inline.dismiss()) {
+			e.preventDefault();
+			return;
+		}
+		if (!["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) inline.drop();
+		if (chipsShown) {
+			const chipIndex = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? chipIndexForCode(e.code) : undefined;
+			const chip = chipIndex === undefined ? undefined : nextPromptView.chips[chipIndex];
+			if (chip !== undefined) {
+				e.preventDefault();
+				pickChip(chip);
+				return;
+			}
+			if (e.key === "ArrowDown" && plainKey) {
+				e.preventDefault();
+				chipsRef.current?.focusFirst();
+				return;
+			}
+		}
+		if (nextPrompt !== undefined && text === "" && (e.key === "Tab" || e.key === "ArrowRight") && plainKey) {
 			e.preventDefault();
 			setText(nextPrompt);
+			nextPromptView.accepted();
 			return;
 		}
 		if (menu && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
@@ -1114,6 +1163,14 @@ export function InputArea() {
 							}}
 						/>
 					)}
+					{chipsShown && (
+						<NextPromptChips
+							chips={nextPromptView.chips}
+							handleRef={chipsRef}
+							onPick={pickChip}
+							onReturn={() => textareaRef.current?.focus()}
+						/>
+					)}
 					{/* Focus and drag paint live in components.css (.omp-composer-box): the
 					    field state follows the TEXT field, not any focused descendant, so a
 					    focused toolbar control draws its own ring, never a ring in a ring. */}
@@ -1271,7 +1328,16 @@ export function InputArea() {
 									}
 								}}
 								onKeyDown={handleKeyDown}
-								onClick={() => setMenu(null)}
+								onClick={() => {
+									setMenu(null);
+									inline.syncCaret();
+								}}
+								onFocus={inline.onFocus}
+								onBlur={inline.onBlur}
+								onCompositionStart={inline.onCompositionStart}
+								onCompositionEnd={inline.onCompositionEnd}
+								onKeyUp={inline.syncCaret}
+								onSelect={inline.syncCaret}
 								onPaste={handlePaste}
 								rows={expanded ? undefined : 2}
 								placeholder={placeholder}
@@ -1282,6 +1348,13 @@ export function InputArea() {
 									showSuggestionHint && "pr-24",
 								)}
 							/>
+							{inline.ghost !== null && (
+								<div aria-hidden className="omp-inline-ghost text-sc-lg break-keep" data-inline-ghost>
+									<span>{text}</span>
+									<span className="omp-inline-ghost-text">{inline.ghost}</span>
+									<Kbd shortcut="Tab" />
+								</div>
+							)}
 							{dictation !== "idle" && (
 								<DictationOverlay levels={dictationLevels} phase={dictation} startedAt={dictationStartedAt} />
 							)}
@@ -1301,10 +1374,19 @@ export function InputArea() {
 							<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-esc-hint role="status">
 								{t("input.escAgainToClear")}
 							</div>
+						) : !menu && argHint ? (
+							<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
 						) : (
-							!menu &&
-							argHint && (
-								<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
+							nextPromptView.unavailable &&
+							status === "ready" && (
+								<div
+									className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)"
+									data-next-prompt-unavailable
+									role="status"
+									title={nextPromptView.unavailable.detail}
+								>
+									{t(`input.suggestion.unavailable.${nextPromptView.unavailable.reason}`)}
+								</div>
 							)
 						)}
 

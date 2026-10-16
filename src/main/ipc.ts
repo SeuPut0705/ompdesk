@@ -14,6 +14,7 @@ import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/next-prompt-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
@@ -1048,6 +1049,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (userProfile && !isUserProfile(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid profile");
 		}
+		const nextPrompt = payload.key === NEXT_PROMPT_PREF || payload.key === NEXT_PROMPT_INLINE_PREF;
+		if (nextPrompt && typeof payload.value !== "boolean") {
+			throw codedError("invalid_preference_key", "Invalid prompt suggestion preference");
+		}
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
 		}
@@ -1076,6 +1081,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (userProfile) {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncUserProfile();
 			remoteDevices.hostUserProfileChanged();
+		}
+		if (nextPrompt) {
+			// Every open local session follows now; a paired host's tab follows the host's own setting.
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncNextPrompt();
+			remoteDevices.hostNextPromptChanged();
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);

@@ -3965,6 +3965,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.agentPause": "에이전트 일시정지",
 	"bridgeHealth.feature.modelPool": "모델 풀",
 	"bridgeHealth.feature.replyLanguage": "답변 언어",
+	"bridgeHealth.feature.nextPrompt": "프롬프트 제안",
 	"bridgeHealth.feature.outputStyle": "답변 스타일",
 	"bridgeHealth.feature.userProfile": "프로필(이름, 경험)",
 	"bridgeHealth.feature.accountRotation": "균등 계정 순환",
@@ -5305,6 +5306,25 @@ export const ko: Record<string, string> = {
 	"settings.agent.modes": "모드와 도우미",
 	"settings.agent.context": "컨텍스트와 기억",
 	"settings.agent.io": "입출력",
+	"settings.agent.suggestions": "제안",
+	"settings.gui.nextPromptSuggestions": "다음 메시지 제안",
+	"settings.gui.nextPromptSuggestionsDesc":
+		"답이 끝날 때마다 이어서 보낼 만한 말을 제안해요. 가장 알맞은 제안은 입력창 안내 문구로, 나머지는 입력창 위 칩으로 보여 줘요. Tab으로 받아들일 수 있어요.",
+	"settings.gui.nextPromptCost":
+		"턴이 끝날 때마다 작은 모델(설정 › 모델 및 계정 › 모델 역할의 smol 역할)로 짧은 요청을 한 번 보내요. 입력하는 동안에는 잠시 멈출 때마다 요청이 더 갈 수 있고, 2초에 한 번을 넘지 않아요.",
+	"settings.gui.nextPromptModel": "{model} 모델로 실행해요.",
+	"settings.gui.nextPromptLegacy":
+		"직접 설치한 next-prompt 확장도 함께 로드돼 있어요. 내장 제안이 우선이라 확장의 제안은 숨겨져요. 확장을 끄면 그 요청도 아낄 수 있어요.",
+	"settings.gui.nextPromptInline": "입력하는 동안 이어서 완성",
+	"settings.gui.nextPromptInlineDesc":
+		"한 줄을 입력하는 동안 커서 뒤에 회색 문장을 이어서 보여 줘요. Tab으로 받아들이고 Esc로 닫아요.",
+	"input.suggestion.unavailable": "제안이 꺼져 있어요",
+	"input.suggestion.unavailable.no_model": "제안이 꺼져 있어요: 작은 모델이 설정되지 않았어요",
+	"input.suggestion.unavailable.no_credentials": "제안이 꺼져 있어요: 작은 모델에 자격 증명이 없어요",
+	"input.suggestion.unavailable.refused": "제안이 꺼져 있어요: 프로바이더가 요청을 거부했어요",
+	"input.suggestion.unavailable.offline": "제안이 잠시 멈췄어요: 프로바이더에 연결할 수 없어요",
+	"input.suggestion.unavailable.unsupported": "제안이 꺼져 있어요: 이 omp 버전은 제안을 지원하지 않아요",
+	"input.suggestion.unavailable.error": "제안이 꺼져 있어요: 마지막 요청이 실패했어요",
 	"settings.appearance.input": "입력",
 	"settings.general.language": "언어",
 	"settings.general.notifications": "알림",
