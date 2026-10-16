@@ -29,6 +29,11 @@ import {
 	PREVIEW_PAGE,
 	PREVIEW_SAVE_PDF,
 	PREVIEW_STATE,
+	PREVIEW_STREAM_COPY,
+	PREVIEW_STREAM_DIALOG,
+	PREVIEW_STREAM_INPUT,
+	PREVIEW_STREAM_PDF,
+	PREVIEW_STREAM_POLL,
 	PREVIEW_VISUAL,
 	PREVIEW_VISUALS,
 } from "../../shared/preview";
@@ -50,6 +55,11 @@ export type IpcChannel =
 	| typeof PREVIEW_SAVE_PDF
 	| typeof PREVIEW_PAGE
 	| typeof PREVIEW_VISUALS
+	| typeof PREVIEW_STREAM_POLL
+	| typeof PREVIEW_STREAM_INPUT
+	| typeof PREVIEW_STREAM_DIALOG
+	| typeof PREVIEW_STREAM_COPY
+	| typeof PREVIEW_STREAM_PDF
 	| typeof PREVIEW_STATE
 	| typeof PREVIEW_VISUAL
 	| typeof SCHEDULES_COMMAND
@@ -288,6 +298,36 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[PREVIEW_PAGE]: { dir: "invoke", permission: "workspace", mode: "web", web: "Runs on the streamed offscreen page" },
 	[PREVIEW_VISUALS]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[PREVIEW_STREAM_POLL]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "Acknowledges the last JPEG frame and waits for the next; nothing is sent before the ack, at most 12 a second",
+	},
+	[PREVIEW_STREAM_INPUT]: {
+		dir: "send",
+		permission: "workspace",
+		mode: "web",
+		web: "Taps, scrolls, drags, pinch, keys and committed text become mouse, wheel and key events on the offscreen page",
+	},
+	[PREVIEW_STREAM_DIALOG]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The phone answers the page's alert, confirm or prompt",
+	},
+	[PREVIEW_STREAM_COPY]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The page's selected text for the phone's own clipboard",
+	},
+	[PREVIEW_STREAM_PDF]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The page as a PDF for the phone to keep",
+	},
 
 	// Updates and setup of the host.
 	[C.UPDATER_CHECK]: { dir: "invoke", permission: "host-admin", mode: "pass" },

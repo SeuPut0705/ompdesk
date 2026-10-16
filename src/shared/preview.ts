@@ -7,6 +7,17 @@ export const PREVIEW_PAGE = "preview:page";
 export const PREVIEW_VISUALS = "preview:visuals";
 /** Main → renderer: the agent showed (or updated) a visual for a tab (`PreviewVisualEvent`). */
 export const PREVIEW_VISUAL = "preview:visual";
+/**
+ * Web viewers only (a paired phone or tablet): its page is an offscreen page on this computer streamed as JPEG
+ * frames over the socket (main/web/preview-stream.ts). `POLL` acknowledges the last frame and holds until the
+ * next one (the pacer sends none before the ack); the rest carry the viewer's input, a JS dialog's answer, the
+ * page's selected text and its PDF. An Electron window never calls them.
+ */
+export const PREVIEW_STREAM_POLL = "preview:stream-poll";
+export const PREVIEW_STREAM_INPUT = "preview:stream-input";
+export const PREVIEW_STREAM_DIALOG = "preview:stream-dialog";
+export const PREVIEW_STREAM_COPY = "preview:stream-copy";
+export const PREVIEW_STREAM_PDF = "preview:stream-pdf";
 /** Pages the agent's `gui_visualize` tool shows load from this scheme (main/preview/visuals.ts). */
 export const VISUAL_SCHEME = "omp-visual";
 
@@ -122,7 +133,8 @@ export const EMPTY_PREVIEW_PAGE: PreviewPageState = {
 };
 export const EMPTY_PREVIEW: PreviewState = { ...EMPTY_PREVIEW_PAGE, tabs: [], activeTab: "" };
 export type PreviewRequest =
-	| { action: "layout"; bounds: PreviewBounds; visible: boolean }
+	/** `dpr`: a web viewer's device pixel ratio (its frames are capped at 2); an Electron window never sends it. */
+	| { action: "layout"; bounds: PreviewBounds; visible: boolean; dpr?: number }
 	| { action: "load"; url: string }
 	/** Let `tabId`'s agent drive the page through the relay its bridge started (`browser_relay_start`). */
 	| { action: "agentStart"; tabId: string; url: string; token: string }
@@ -153,6 +165,75 @@ export interface PreviewApi {
 	visuals(): Promise<PreviewVisualRecord[]>;
 	/** The agent showed or updated a visual for a tab. */
 	onVisual(callback: (event: PreviewVisualEvent) => void): () => void;
+	/** A web viewer's streamed page (see `PREVIEW_STREAM_POLL`); a desktop window's calls are refused. */
+	stream: PreviewStreamApi;
+}
+
+/** One JPEG frame of the viewer's offscreen page. */
+export interface PreviewStreamFrame {
+	/** Counts up from 1 for this page stream; the next poll's `ack` names it. */
+	seq: number;
+	/** The tab (`PreviewTab.id`) the frame shows: a frame of another tab is stale after a switch. */
+	tab: string;
+	/** The image's pixels. */
+	width: number;
+	height: number;
+	/** Where the frame sits in the viewer's surface, in CSS px (a phone-sized frame is centred in a wide panel). */
+	rect: PreviewBounds;
+	/** JPEG, base64. */
+	jpeg: string;
+}
+
+/** A JS dialog the page opened and is blocked on until `PREVIEW_STREAM_DIALOG` answers it. */
+export interface PreviewStreamDialog {
+	id: number;
+	kind: "alert" | "confirm" | "prompt";
+	message: string;
+	/** A prompt's default text. */
+	initial: string | null;
+}
+
+export interface PreviewStreamPollRequest {
+	/** The last frame this viewer decoded; no frame follows before it. null after a reconnect or on the first poll. */
+	ack: number | null;
+	/** Longest hold in ms, default and cap 20 000: a still page answers `frame: null` and the viewer polls again. */
+	wait?: number;
+}
+
+export interface PreviewStreamPoll {
+	frame: PreviewStreamFrame | null;
+	/** Dialogs opened since the last poll, oldest first. */
+	dialogs: PreviewStreamDialog[];
+}
+
+/**
+ * One phone gesture or key, already read by the viewer. `x`/`y` are fractions (0–1) of the frame, so no scale
+ * crosses the wire; `dx`/`dy` are CSS px with the DOM's wheel sign (positive scrolls the content up).
+ */
+export type PreviewStreamInput =
+	| { t: "tap"; x: number; y: number; count?: 1 | 2 | 3 }
+	/** A long press without movement: the page's context menu. */
+	| { t: "context"; x: number; y: number }
+	/** A press, drag and release with the left button (text selection, sliders, drag and drop). */
+	| { t: "drag"; phase: "start" | "move" | "end"; x: number; y: number }
+	| { t: "hover"; x: number; y: number }
+	| { t: "wheel"; x: number; y: number; dx: number; dy: number }
+	/** A pinch's size change since the last event: the page's zoom is multiplied by it. */
+	| { t: "pinch"; scale: number }
+	/** A key press (down, char, up): a special key, a shortcut, or a hardware keyboard's key. */
+	| { t: "key"; key: string; mods?: Array<"shift" | "control" | "alt" | "meta"> }
+	/** Text the viewer committed (soft keyboard, IME composition result, paste): inserted at the caret. */
+	| { t: "text"; text: string };
+
+export interface PreviewStreamApi {
+	poll(request: PreviewStreamPollRequest): Promise<PreviewStreamPoll>;
+	/** Fire and forget; order is kept. */
+	input(events: PreviewStreamInput[]): void;
+	answerDialog(id: number, answer: { accept: boolean; text?: string }): Promise<void>;
+	/** The page's selected text (for the viewer's own clipboard). */
+	selectedText(): Promise<string>;
+	/** The page printed to PDF as base64, for the viewer to keep. */
+	pdf(): Promise<{ name: string; base64: string }>;
 }
 
 export interface PreviewVisualVersion {

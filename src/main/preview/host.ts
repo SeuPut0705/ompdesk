@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import { app, type BrowserWindow, dialog, type Session, session, type WebContents, WebContentsView } from "electron";
+import { setTimeout as sleep } from "node:timers/promises";
+import {
+	app,
+	BrowserWindow,
+	dialog,
+	ipcMain,
+	type NativeImage,
+	type Session,
+	session,
+	type WebContents,
+	WebContentsView,
+} from "electron";
 import { z } from "zod";
 import {
 	clampPreviewZoom,
@@ -13,6 +24,11 @@ import {
 	PREVIEW_PROBLEM_LIMIT,
 	PREVIEW_SAVE_PDF,
 	PREVIEW_STATE,
+	PREVIEW_STREAM_COPY,
+	PREVIEW_STREAM_DIALOG,
+	PREVIEW_STREAM_INPUT,
+	PREVIEW_STREAM_PDF,
+	PREVIEW_STREAM_POLL,
 	PREVIEW_TAB_LIMIT,
 	PREVIEW_VIEWPORTS,
 	PREVIEW_VISUALS,
@@ -25,7 +41,12 @@ import {
 	VISUAL_SCHEME,
 } from "../../shared/preview";
 import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
-import type { IpcRegistry } from "../web/ipc-registry";
+import { type ClientWindow, isWebWindow } from "../web/client-window";
+import type { IpcCaller, IpcRegistry } from "../web/ipc-registry";
+import { DIALOG_CHANNEL, dialogRequestSchema, dialogReturnValue } from "../web/preview-dialog";
+import { InputMapper, previewStreamBatchSchema } from "../web/preview-input";
+import { streamProfile } from "../web/preview-pacer";
+import { type OsrPage, PageStream, POLL_MAX_WAIT_MS } from "../web/preview-stream";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
@@ -40,6 +61,32 @@ const PROBLEM_TEXT_MAX = 2000;
 const GESTURE_WINDOW_MS = 1000;
 /** Widest region screenshot sent to the agent, in pixels. */
 const REGION_MAX_WIDTH = 1600;
+/** A viewer's poll for a page that does not exist yet (the panel asks before its first layout) is answered after this. */
+const NO_PAGE_RETRY_MS = 500;
+/** The most selected text, and the largest PDF, a viewer is sent. */
+const SELECTION_MAX_CHARS = 100_000;
+const PDF_MAX_BYTES = 5 * 1024 * 1024;
+
+const pollRequestSchema = z.object({
+	ack: z.number().int().nonnegative().nullable(),
+	wait: z.number().int().min(0).max(POLL_MAX_WAIT_MS).optional(),
+});
+const dialogAnswerSchema = z.object({
+	id: z.number().int().positive(),
+	accept: z.boolean(),
+	text: z.string().max(2000).nullish(),
+});
+
+/** A page's title as a file name: no separators or control characters, at most 100 characters. */
+function pdfName(title: string): string {
+	return (
+		title
+			.replace(/[\\/:*?"<>|]+/g, " ")
+			.replace(/\p{Cc}+/gu, " ")
+			.trim()
+			.slice(0, 100) || "page"
+	);
+}
 /**
  * The visual session's only route out: a proxy at loopback port 1 (tcpmux, which nothing serves on a desktop),
  * loopback included (`<-loopback>` drops Chromium's implicit loopback bypass), with no DIRECT fallback. Its pages
@@ -70,7 +117,10 @@ const pageRequestSchema: z.ZodType<PreviewPageRequest> = z.discriminatedUnion("a
 /** One tab of a window's preview: its own sandboxed page in the window's web or visual session. */
 interface PreviewPage {
 	id: string;
-	view: WebContentsView;
+	/** The page's native view in the app window; null for a web viewer's offscreen page. */
+	view: WebContentsView | null;
+	/** A web viewer's offscreen window (its pixels are streamed, never shown); null for a view. */
+	osr: BrowserWindow | null;
 	/** The view's WebContents, kept: `view.webContents` reads undefined once the window destroyed the view. */
 	contents: WebContents;
 	state: PreviewPageState;
@@ -80,6 +130,10 @@ interface PreviewPage {
 	visual: { id: string; version: number } | null;
 	/** When the user last released a mouse button or key on this page (epoch ms; the C143 gesture). */
 	lastInput: number;
+	/** A web viewer's frames, acknowledgements and dialogs; null for a view. */
+	stream: PageStream | null;
+	/** A web viewer's gesture state (a drag in progress). */
+	mapper: InputMapper;
 }
 
 interface AgentLink {
@@ -99,16 +153,66 @@ interface PreviewSessions {
 	ready: Promise<void>;
 }
 
+/** What a host needs of the page that owns it: the app window's renderer, or a web viewer's virtual window. */
+interface PreviewSender {
+	readonly id: number;
+	isDestroyed(): boolean;
+	send(channel: string, ...args: unknown[]): void;
+}
+
+/** The caller of a preview command: an app window's renderer, or a paired viewer's virtual window. */
+interface PreviewOwner {
+	win: BrowserWindow | null;
+	renderer: WebContents | null;
+	viewer: ClientWindow | null;
+	sender: PreviewSender;
+	remote: (tabId?: string) => boolean;
+}
+
+/** An offscreen page as the stream sees it: its paints, its frame rate, and whether it paints at all. */
+function osrPage(contents: WebContents): OsrPage {
+	return {
+		onPaint(listener) {
+			const handler = (_event: unknown, _dirty: unknown, image: NativeImage) => listener(image);
+			contents.on("paint", handler);
+			return () => {
+				if (!contents.isDestroyed()) contents.off("paint", handler);
+			};
+		},
+		setFrameRate(fps) {
+			if (!contents.isDestroyed()) contents.setFrameRate(fps);
+		},
+		invalidate() {
+			if (!contents.isDestroyed()) contents.invalidate();
+		},
+		setPainting(painting) {
+			if (contents.isDestroyed()) return;
+			if (painting) contents.startPainting();
+			else contents.stopPainting();
+		},
+		isDestroyed: () => contents.isDestroyed(),
+	};
+}
+
 interface PreviewHost {
-	win: BrowserWindow;
-	sender: Electron.WebContents;
+	/** The app window, null for a web viewer (its pages are offscreen windows, not views). */
+	win: BrowserWindow | null;
+	/** The app window's renderer; null for a web viewer. */
+	renderer: WebContents | null;
+	/** A web viewer's virtual window; null for an Electron window. */
+	viewer: ClientWindow | null;
+	sender: PreviewSender;
+	/** Whether the owner's active tab (or `tabId`) runs on a paired host: its loopback addresses stay blocked. */
+	remote: (tabId?: string) => boolean;
 	sessions: PreviewSessions;
 	pages: PreviewPage[];
 	active: PreviewPage;
 	agent: AgentLink | null;
 	/** The panel's last surface box, kept to re-fit the page when the viewport frame or the tab changes. */
-	layout: { bounds: PreviewBounds; visible: boolean } | null;
-	/** The window's `closed` and the app renderer's `did-start-navigation` handlers, taken off at dispose. */
+	layout: { bounds: PreviewBounds; visible: boolean; dpr: number } | null;
+	/** Frame numbers of a web viewer's streams share one counter, so an acknowledgement never names another page's frame. */
+	nextSeq: (() => number) | null;
+	/** The owner's `closed` and the app renderer's `did-start-navigation` handlers, taken off at dispose. */
 	onClosed: () => void;
 	onNavigated: (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => void;
 }
@@ -127,21 +231,47 @@ function windowState(host: PreviewHost): PreviewState {
 	};
 }
 
+/** What a web viewer's preview needs from the app (ipc.ts hands it over; a test or a build without Mobile web has none). */
+export interface PreviewWebSupport {
+	/** Whether `win`'s active tab (or `tabId`) runs on a paired host: its loopback addresses stay blocked. */
+	isRemote(win: ClientWindow, tabId?: string): boolean;
+	/** Device pixels per DIP of the screen the offscreen windows paint on (a frame is the window's size times this). */
+	hostScale(): number;
+	/** The dialog shim's preload on disk (preview-dialog.ts), written once. */
+	preloadPath(): string;
+}
+
+/** The widest or tallest an offscreen page's window is made, in DIPs. */
+const MAX_STREAM_DIP = 4096;
+/** Frames of the viewer's page are never asked for before this size exists. */
+const DEFAULT_STREAM_GEOMETRY = {
+	rect: { x: 0, y: 0, width: 390, height: 844 },
+	pixelWidth: 780,
+	profile: streamProfile(390, 2),
+};
+
 /**
  * No preload, no shell IPC, and two fresh in-memory sessions for each window, shared by its tabs: `web` for
  * every page the user, a popup or the agent browses, `visual` for `omp-visual:` pages alone. A page stays in the
  * session it was made in; a visual never turns into a web page or back, its tab is replaced instead.
  * `isRemote(senderId, tabId?)`: the window's active tab (or `tabId`) runs on a paired host.
+ *
+ * A paired phone's preview (`web`) is the same host with the same rules, its pages offscreen windows instead of
+ * views, in sessions of their own (`preview-web-<n>`, `preview-visual-web-<n>`); `web` also gives those sessions
+ * the one dialog-shim preload (preview-dialog.ts), the single exception to "no preload".
  * Returns what the agent's `gui_visualize` reads and waits on.
  */
 export function registerPreviewHost(
 	ipc: IpcRegistry,
 	isRemote: (senderId: number, tabId?: string) => boolean,
 	visuals: VisualStore,
+	viewers?: PreviewWebSupport,
 ): VisualPages {
 	const hosts = new Map<number, PreviewHost>();
 	/** One pair of sessions per window; Electron keeps a session for a name until the app quits, so hosts reuse it. */
-	const windowSessions = new WeakMap<BrowserWindow, PreviewSessions>();
+	const windowSessions = new WeakMap<object, PreviewSessions>();
+	/** The streams whose page may ask a dialog question (by the page's `webContents.id`). */
+	const dialogStreams = new Map<number, PageStream>();
 	const send = (host: PreviewHost) => {
 		if (!host.sender.isDestroyed()) host.sender.send(PREVIEW_STATE, windowState(host));
 	};
@@ -161,15 +291,53 @@ export function registerPreviewHost(
 		};
 		send(host);
 	};
+	/**
+	 * A web viewer's shown page: its offscreen window is the frame's size times `profile.dpr / screen scale` and
+	 * zoomed by the same, so a frame pixel is a phone pixel whatever the host screen's density is.
+	 */
+	const placeStreamed = (host: PreviewHost, layout: NonNullable<PreviewHost["layout"]>) => {
+		const page = host.active;
+		for (const other of host.pages) if (other !== page) other.stream?.setVisible(false);
+		const { stream, osr, contents } = page;
+		if (!stream || !osr || osr.isDestroyed()) return;
+		const fitted = fitPreviewFrame(layout.bounds, PREVIEW_VIEWPORTS[page.state.viewport]);
+		const profile = streamProfile(fitted.bounds.width, layout.dpr);
+		const scale = profile.dpr / Math.max(0.5, viewers?.hostScale() ?? 1);
+		const width = Math.max(1, Math.min(MAX_STREAM_DIP, Math.round(fitted.bounds.width * scale)));
+		const height = Math.max(1, Math.min(MAX_STREAM_DIP, Math.round(fitted.bounds.height * scale)));
+		const [currentWidth, currentHeight] = osr.getContentSize();
+		if (currentWidth !== width || currentHeight !== height) osr.setContentSize(width, height);
+		const factor = Math.max(MIN_FRAME_SCALE, page.state.zoom * fitted.scale) * scale;
+		if (factor !== page.factor || contents.getZoomFactor() !== factor) {
+			page.factor = factor;
+			contents.setZoomFactor(factor);
+		}
+		stream.configure({
+			rect: {
+				x: fitted.bounds.x - layout.bounds.x,
+				y: fitted.bounds.y - layout.bounds.y,
+				width: fitted.bounds.width,
+				height: fitted.bounds.height,
+			},
+			pixelWidth: Math.round(fitted.bounds.width * profile.dpr),
+			profile,
+		});
+		stream.setVisible(layout.visible && fitted.bounds.width > 0 && fitted.bounds.height > 0);
+	};
 	/** Size the shown page to the panel and its frame, zoom it, and hide every other tab. */
 	const place = (host: PreviewHost) => {
 		if (!host.layout) return;
+		if (!host.win) {
+			placeStreamed(host, host.layout);
+			return;
+		}
 		const [width, height] = host.win.getContentSize();
 		for (const page of host.pages) {
 			if (page === host.active) continue;
-			page.view.setVisible(false);
+			page.view?.setVisible(false);
 		}
 		const page = host.active;
+		if (!page.view) return;
 		const fitted = fitPreviewFrame(host.layout.bounds, PREVIEW_VIEWPORTS[page.state.viewport]);
 		applyPreviewLayout(page.view, fitted.bounds, host.layout.visible, { width, height });
 		const { contents } = page;
@@ -191,7 +359,7 @@ export function registerPreviewHost(
 	/** The web address a web page may show, or null: http(s) only, and no loopback for a paired host's tab. */
 	const allowed = (host: PreviewHost, url: string) => {
 		const safe = previewUrl(url);
-		return safe && !(isRemote(host.sender.id) && isLoopbackUrl(safe)) ? safe : null;
+		return safe && !(host.remote() && isLoopbackUrl(safe)) ? safe : null;
 	};
 	/**
 	 * A web address a visual's page tried to reach. It never goes there; right after the user's own click or key
@@ -204,12 +372,16 @@ export function registerPreviewHost(
 	};
 	const closePage = (host: PreviewHost, page: PreviewPage) => {
 		if (host.agent?.page === page) stopAgent(host);
-		if (!host.win.isDestroyed()) host.win.contentView.removeChildView(page.view);
-		if (!page.contents.isDestroyed()) page.contents.close();
+		page.stream?.dispose();
+		if (page.view && host.win && !host.win.isDestroyed()) host.win.contentView.removeChildView(page.view);
+		if (page.osr) {
+			if (!page.osr.isDestroyed()) page.osr.destroy();
+		} else if (!page.contents.isDestroyed()) page.contents.close();
 	};
 	const disposeHost = (host: PreviewHost) => {
-		host.win.off("closed", host.onClosed);
-		host.sender.off("did-start-navigation", host.onNavigated);
+		host.win?.off("closed", host.onClosed);
+		host.renderer?.off("did-start-navigation", host.onNavigated);
+		host.viewer?.removeListener("closed", host.onClosed);
 		stopAgent(host);
 		for (const page of host.pages) closePage(host, page);
 		// The window's later close or reload must not drop a preview created after this one was disposed.
@@ -236,35 +408,66 @@ export function registerPreviewHost(
 		page.visual = { id: visualId, version: view.version };
 		loadInto(host, page, url);
 	};
-	/** A sandboxed page in one of `win`'s preview sessions; its handlers find their window through `owner`. */
+	/**
+	 * A sandboxed page in one of the owner's preview sessions; its handlers find their host through `owner`. With
+	 * a `win` it is a view in that window; without one (a web viewer) an offscreen window whose paints stream to
+	 * the viewer, its frames numbered by `nextSeq`. Both carry the same rules below.
+	 */
 	const createPage = (
-		win: BrowserWindow,
+		win: BrowserWindow | null,
 		sessions: PreviewSessions,
 		kind: PreviewPageState["session"],
 		owner: () => PreviewHost,
+		nextSeq: (() => number) | null,
 	): PreviewPage => {
-		const view = new WebContentsView({
-			webPreferences: {
-				session: sessions[kind],
-				nodeIntegration: false,
-				contextIsolation: true,
-				sandbox: true,
-				webSecurity: true,
-				navigateOnDragDrop: false,
-			},
-		});
-		view.setVisible(false);
-		win.contentView.addChildView(view);
-		const contents = view.webContents;
+		const webPreferences = {
+			session: sessions[kind],
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: true,
+			webSecurity: true,
+			navigateOnDragDrop: false,
+		};
+		const view = win ? new WebContentsView({ webPreferences }) : null;
+		const osr = win
+			? null
+			: new BrowserWindow({
+					show: false,
+					width: DEFAULT_STREAM_GEOMETRY.rect.width,
+					height: DEFAULT_STREAM_GEOMETRY.rect.height,
+					useContentSize: true,
+					webPreferences: { ...webPreferences, offscreen: true, backgroundThrottling: false },
+				});
+		const contents = view?.webContents ?? osr?.webContents;
+		if (!contents) throw new Error("No preview surface");
+		if (view && win) {
+			view.setVisible(false);
+			win.contentView.addChildView(view);
+		}
+		const id = randomUUID();
+		const stream =
+			osr && nextSeq
+				? new PageStream({ page: osrPage(contents), tab: id, geometry: DEFAULT_STREAM_GEOMETRY, nextSeq })
+				: null;
 		const page: PreviewPage = {
-			id: randomUUID(),
+			id,
 			view,
+			osr,
 			contents,
 			state: { ...EMPTY_PREVIEW_PAGE, session: kind },
 			factor: 1,
 			visual: null,
 			lastInput: 0,
+			stream,
+			mapper: new InputMapper(),
 		};
+		if (stream) {
+			// The page's dialogs wait for the viewer (preview-dialog.ts); leaving a page is never a question.
+			const contentsId = contents.id;
+			dialogStreams.set(contentsId, stream);
+			contents.once("destroyed", () => dialogStreams.delete(contentsId));
+			contents.on("will-prevent-unload", event => event.preventDefault());
+		}
 		const update = (patch?: Partial<PreviewPageState>) => publish(owner(), page, patch);
 		const pageUpdated = () => {
 			const agent = owner().agent;
@@ -330,6 +533,8 @@ export function registerPreviewHost(
 			}
 			// Chromium keeps zoom per origin; the user's level follows the page across origins.
 			if (page === owner().active) place(owner());
+			// A viewer's frame must show the new page now, not at the next paint tick.
+			page.stream?.refresh();
 			update({ problems: [] });
 			pageUpdated();
 		});
@@ -345,13 +550,14 @@ export function registerPreviewHost(
 			if (mainFrame && code !== -3) update({ error: description, loading: false });
 		});
 		contents.on("render-process-gone", () => {
-			view.setVisible(false);
+			view?.setVisible(false);
+			stream?.setVisible(false);
 			update({ crashed: true, loading: false, notice: null });
 		});
 		return page;
 	};
 	function openPage(host: PreviewHost, kind: PreviewPageState["session"], show: boolean): PreviewPage {
-		const page = createPage(host.win, host.sessions, kind, () => host);
+		const page = createPage(host.win, host.sessions, kind, () => host, host.nextSeq);
 		host.pages.push(page);
 		if (show) select(host, page);
 		else send(host);
@@ -359,8 +565,11 @@ export function registerPreviewHost(
 	}
 	function select(host: PreviewHost, page: PreviewPage): void {
 		if (host.agent && host.agent.page !== page) stopAgent(host);
+		// A viewer's poll held on the page it leaves must not keep the next one waiting.
+		if (host.active !== page) host.active.stream?.release();
 		host.active = page;
 		place(host);
+		page.stream?.refresh();
 		send(host);
 	}
 	/** Close one tab; closing the last leaves a fresh empty one. */
@@ -375,7 +584,7 @@ export function registerPreviewHost(
 	}
 	/** Put a new page of session `kind` in `old`'s place (shown if `old` was), and close `old`. */
 	function replacePage(host: PreviewHost, old: PreviewPage, kind: PreviewPageState["session"]): PreviewPage {
-		const page = createPage(host.win, host.sessions, kind, () => host);
+		const page = createPage(host.win, host.sessions, kind, () => host, host.nextSeq);
 		host.pages.splice(host.pages.indexOf(old), 1, page);
 		closePage(host, old);
 		if (host.active === old) select(host, page);
@@ -424,16 +633,22 @@ export function registerPreviewHost(
 			contents.off("did-start-navigation", navigated);
 		});
 	}
-	/** The window's two in-memory sessions (its tabs share them, every host of the window reuses them), set up once. */
-	const sessionsOf = (win: BrowserWindow): PreviewSessions => {
-		const known = windowSessions.get(win);
+	/** The owner's two in-memory sessions (its tabs share them, every host of the owner reuses them), set up once. */
+	const sessionsOf = (owner: PreviewOwner): PreviewSessions => {
+		const keyed = owner.win ?? owner.viewer;
+		if (!keyed) throw new Error("Invalid preview owner");
+		const known = windowSessions.get(keyed);
 		if (known) return known;
-		const web = session.fromPartition(`preview-${win.id}`);
-		const visual = session.fromPartition(`preview-visual-${win.id}`);
-		const senderId = win.webContents.id;
+		const label = owner.viewer ? `web-${Math.abs(owner.sender.id)}` : String(owner.win?.id);
+		const web = session.fromPartition(`preview-${label}`);
+		const visual = session.fromPartition(`preview-visual-${label}`);
+		const senderId = owner.sender.id;
 		for (const partition of [web, visual]) {
 			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 			partition.setPermissionCheckHandler(() => false);
+			// A viewer's pages get the dialog shim and nothing else (preview-dialog.ts).
+			if (owner.viewer && viewers)
+				partition.registerPreloadScript({ type: "frame", filePath: viewers.preloadPath() });
 		}
 		// Pages see the user's languages, not the en-US the packaged locales leave Chromium (system-languages.ts).
 		const languages = app.getPreferredSystemLanguages();
@@ -455,29 +670,56 @@ export function registerPreviewHost(
 		const sessions = { web, visual, ready: visual.setProxy(VISUAL_NO_ROUTE) };
 		// A failed setup surfaces where a visual waits on it (it then never loads); nothing else awaits it.
 		sessions.ready.catch(() => {});
-		windowSessions.set(win, sessions);
+		windowSessions.set(keyed, sessions);
 		return sessions;
 	};
-	ipc.handle(PREVIEW_COMMAND, async (caller, request: PreviewRequest) => {
+	/** Who a preview call is for: the app window that asked, or a paired viewer's virtual window. */
+	const previewOwner = (caller: IpcCaller): PreviewOwner => {
 		const win = caller.browserWindow;
-		if (!win || win.webContents !== caller.sender) throw new Error("Invalid preview owner");
-		const sender = win.webContents;
+		if (win) {
+			if (win.webContents !== caller.sender) throw new Error("Invalid preview owner");
+			const renderer = win.webContents;
+			return { win, renderer, viewer: null, sender: renderer, remote: tabId => isRemote(renderer.id, tabId) };
+		}
+		const viewer = caller.win;
+		if (!viewers || !viewer || !isWebWindow(viewer.webContents.id)) throw new Error("Invalid preview owner");
+		return {
+			win: null,
+			renderer: null,
+			viewer,
+			sender: {
+				id: viewer.webContents.id,
+				isDestroyed: () => viewer.isDestroyed(),
+				send: (channel, ...args) => viewer.webContents.send(channel, ...args),
+			},
+			remote: tabId => viewers.isRemote(viewer, tabId),
+		};
+	};
+	ipc.handle(PREVIEW_COMMAND, async (caller, request: PreviewRequest) => {
+		const owner = previewOwner(caller);
+		const { sender } = owner;
 		let host = hosts.get(sender.id);
 		if (request.action === "dispose") {
 			if (host) disposeHost(host);
 			return EMPTY_PREVIEW;
 		}
 		if (!host) {
-			const sessions = sessionsOf(win);
-			const first = createPage(win, sessions, "web", () => created);
+			const sessions = sessionsOf(owner);
+			let frames = 0;
+			const nextSeq = owner.viewer ? () => ++frames : null;
+			const first = createPage(owner.win, sessions, "web", () => created, nextSeq);
 			const created: PreviewHost = {
-				win,
+				win: owner.win,
+				renderer: owner.renderer,
+				viewer: owner.viewer,
 				sender,
+				remote: owner.remote,
 				sessions,
 				pages: [first],
 				active: first,
 				agent: null,
 				layout: null,
+				nextSeq,
 				onClosed: () => disposeHost(created),
 				// Only the app renderer's own page load ends the preview, not a frame in it or an in-page change.
 				onNavigated: details => {
@@ -486,13 +728,15 @@ export function registerPreviewHost(
 			};
 			host = created;
 			hosts.set(sender.id, created);
-			win.on("closed", created.onClosed);
-			sender.on("did-start-navigation", created.onNavigated);
+			owner.win?.on("closed", created.onClosed);
+			owner.renderer?.on("did-start-navigation", created.onNavigated);
+			// A revoked device's window closes: its pages go with it.
+			owner.viewer?.once("closed", created.onClosed);
 		}
 		const current = host;
 		const page = current.active;
 		if (request.action === "agentStart") {
-			if (isRemote(sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
+			if (current.remote(request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
 			// The agent's browser drives web pages only; a visual's page has no network and its own rules.
 			if (page.state.session === "visual") throw new Error("Agent browsing is for web pages, not visuals");
 			const target = relayExtensionUrl(request.url, request.token);
@@ -563,7 +807,7 @@ export function registerPreviewHost(
 			request.action === "openVisual" ||
 			request.action === "restoreVisuals"
 		) {
-			if (isRemote(sender.id, request.tabId)) throw new Error("Visuals are for tabs on this computer");
+			if (current.remote(request.tabId)) throw new Error("Visuals are for tabs on this computer");
 			if (request.action === "openVisual" && !(await visuals.addToTab(request.tabId, request.visualId)))
 				throw new Error("Unknown visual");
 			await current.sessions.ready;
@@ -575,7 +819,8 @@ export function registerPreviewHost(
 				showVisual(current, request.visualId, request.action === "showVisual" ? request.version : undefined, true);
 			}
 		} else if (request.action === "layout") {
-			current.layout = { bounds: request.bounds, visible: request.visible };
+			const dpr = Number.isFinite(request.dpr) ? Math.min(4, Math.max(0.5, request.dpr ?? 1)) : 1;
+			current.layout = { bounds: request.bounds, visible: request.visible, dpr };
 			place(current);
 		} else if (request.action === "zoom") {
 			page.state = { ...page.state, zoom: clampPreviewZoom(request.zoom) };
@@ -615,13 +860,7 @@ export function registerPreviewHost(
 		const page = host?.active;
 		if (!page?.state.url || page.state.crashed) throw new Error("No page to save");
 		const { contents } = page;
-		const name =
-			contents
-				.getTitle()
-				.replace(/[\\/:*?"<>|]+/g, " ")
-				.replace(/\p{Cc}+/gu, " ")
-				.trim()
-				.slice(0, 100) || "page";
+		const name = pdfName(contents.getTitle());
 		const choice = await dialog.showSaveDialog(win, {
 			defaultPath: path.join(app.getPath("downloads"), `${name}.pdf`),
 			filters: [{ name: "PDF", extensions: ["pdf"] }],
@@ -661,6 +900,89 @@ export function registerPreviewHost(
 		const image = shot.getSize().width > REGION_MAX_WIDTH ? shot.resize({ width: REGION_MAX_WIDTH }) : shot;
 		return { image: image.toPNG().toString("base64"), elements };
 	});
+
+	/** A web viewer's host with its shown streamed page, or a refusal: an app window has no stream. */
+	const streamOf = (caller: IpcCaller) => {
+		const viewer = caller.win;
+		const host =
+			viewer && !caller.browserWindow && isWebWindow(viewer.webContents.id)
+				? hosts.get(viewer.webContents.id)
+				: undefined;
+		const page = host?.active;
+		if (!host || !page?.stream || !page.osr) throw new Error("No streamed preview page");
+		return { host, page, stream: page.stream, osr: page.osr };
+	};
+	ipc.handle(PREVIEW_STREAM_POLL, async (caller, raw: unknown) => {
+		const request = pollRequestSchema.parse(raw);
+		let found: ReturnType<typeof streamOf>;
+		try {
+			found = streamOf(caller);
+		} catch (error) {
+			// The panel polls before its first layout made the page: say nothing happened, a moment from now.
+			if (!caller.browserWindow && caller.win && isWebWindow(caller.win.webContents.id)) {
+				await sleep(NO_PAGE_RETRY_MS);
+				return { frame: null, dialogs: [] };
+			}
+			throw error;
+		}
+		return found.stream.poll({ ack: request.ack, ...(request.wait === undefined ? {} : { wait: request.wait }) });
+	});
+	ipc.on(PREVIEW_STREAM_INPUT, (caller, raw: unknown) => {
+		const batch = previewStreamBatchSchema.safeParse(raw);
+		if (!batch.success) return;
+		let found: ReturnType<typeof streamOf>;
+		try {
+			found = streamOf(caller);
+		} catch {
+			return;
+		}
+		const { host, page, osr } = found;
+		if (page.state.crashed || osr.isDestroyed()) return;
+		const [width, height] = osr.getContentSize();
+		for (const input of batch.data) {
+			for (const op of page.mapper.map(input, { width, height })) {
+				if (op.op === "event") page.contents.sendInputEvent(op.event);
+				else if (op.op === "text") void page.contents.insertText(op.text).catch(() => {});
+				else {
+					page.state = { ...page.state, zoom: clampPreviewZoom(page.state.zoom * op.scale) };
+					place(host);
+					publish(host, page);
+				}
+			}
+		}
+	});
+	ipc.handle(PREVIEW_STREAM_DIALOG, (caller, raw: unknown) => {
+		const { id, accept, text } = dialogAnswerSchema.parse(raw);
+		streamOf(caller).stream.answerDialog(id, { accept, text: text ?? null });
+	});
+	ipc.handle(PREVIEW_STREAM_COPY, async caller => {
+		const { page } = streamOf(caller);
+		const text = await runOnPage(page, "String(window.getSelection?.() ?? '')");
+		return typeof text === "string" ? text.slice(0, SELECTION_MAX_CHARS) : "";
+	});
+	ipc.handle(PREVIEW_STREAM_PDF, async caller => {
+		const { page } = streamOf(caller);
+		if (!page.state.url || page.state.crashed) throw new Error("No page to save");
+		const pdf = await page.contents.printToPDF({ printBackground: true });
+		if (pdf.length > PDF_MAX_BYTES) throw new Error("The page's PDF is too large to send over this link");
+		return { name: `${pdfName(page.contents.getTitle())}.pdf`, base64: pdf.toString("base64") };
+	});
+	if (viewers) {
+		// A viewer's page asks `alert`, `confirm` and `prompt` through its session's preload (preview-dialog.ts): the
+		// page stays blocked until the viewer answers, a dismissal (or the page's end) answers it, and a sender that
+		// is no streamed page gets nothing to show.
+		ipcMain.on(DIALOG_CHANNEL, (event, raw: unknown) => {
+			const request = dialogRequestSchema.safeParse(raw);
+			const stream = dialogStreams.get(event.sender.id);
+			if (!request.success || !stream) {
+				event.returnValue = null;
+				return;
+			}
+			void stream.openDialog(request.data).then(answer => {
+				event.returnValue = dialogReturnValue(request.data, answer);
+			});
+		});
+	}
 
 	/** The first page showing `visualId` (a window's shown page first), or null. */
 	const findVisual = (visualId: string) => {
