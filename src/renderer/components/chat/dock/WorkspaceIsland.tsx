@@ -1,8 +1,6 @@
 import { Bot, SquareTerminal } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { RpcJobsResult } from "../../../../shared/rpc-types";
+import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useT } from "../../../lib/i18n";
-import { useTabRpc } from "../../../lib/tab-rpc";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
@@ -13,44 +11,9 @@ import { useUiStore } from "../../../stores/ui";
 /** Subagent statuses that are doing work; `idle`/`parked` agents wait for a follow-up. */
 const WORKING_STATUSES: Record<string, true> = { started: true, running: true, pending: true };
 const WAITING_STATUSES: Record<string, true> = { idle: true, parked: true };
-/** How often the island re-reads stock's background jobs while the page is visible. */
-const JOBS_POLL_MS = 3000;
 
 const SEGMENT =
 	"flex h-7 min-w-0 items-center gap-1.5 rounded-(--sc-radius-full) px-2.5 text-sc-sm text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent)";
-
-/** Running background shells (stock `bash`/`eval` jobs; `task` jobs are the agents segment). */
-function useRunningShells(): number {
-	const rpc = useTabRpc();
-	const [running, setRunning] = useState(0);
-	useEffect(() => {
-		let cancelled = false;
-		let pending = false;
-		const refresh = async () => {
-			if (pending || document.visibilityState === "hidden") return;
-			pending = true;
-			try {
-				const response = await rpc.getJobs();
-				if (cancelled || !response.success) return;
-				const { jobs } = response.data as RpcJobsResult;
-				setRunning(jobs.filter(job => job.type !== "task" && job.status === "running").length);
-			} catch {
-				// No count beats a wrong one; the Background tasks view reports the error.
-			} finally {
-				pending = false;
-			}
-		};
-		void refresh();
-		const poll = window.setInterval(() => void refresh(), JOBS_POLL_MS);
-		document.addEventListener("visibilitychange", refresh);
-		return () => {
-			cancelled = true;
-			window.clearInterval(poll);
-			document.removeEventListener("visibilitychange", refresh);
-		};
-	}, [rpc]);
-	return running;
-}
 
 /**
  * One row above the composer collecting the session's work that outlives a
@@ -77,7 +40,7 @@ export function WorkspaceIsland() {
 		state => state.pendingRequests.filter(request => isUserBlockingRequest(state, request)).length,
 	);
 	const openJobs = useUiStore(state => state.openJobs);
-	const shells = useRunningShells();
+	const shells = useBackgroundJobs().length;
 	const agents = working + waiting;
 
 	if (agents === 0 && shells === 0) return null;

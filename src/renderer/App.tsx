@@ -235,6 +235,7 @@ export function App() {
 				"linkPreview",
 				"panelSide",
 				"thinkingExpanded",
+				"workBoard",
 				"transcriptDetail",
 				"panelTab",
 			] as const) {
@@ -285,6 +286,9 @@ export function App() {
 				}
 				if (typeof prefs.thinkingExpanded === "boolean" && !changedPreferences.has("thinkingExpanded")) {
 					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
+				}
+				if (typeof prefs.workBoard === "boolean" && !changedPreferences.has("workBoard")) {
+					useUiStore.setState({ workBoard: prefs.workBoard });
 				}
 				if (
 					(prefs.transcriptDetail === "compact" || prefs.transcriptDetail === "full") &&

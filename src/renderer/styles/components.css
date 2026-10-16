@@ -603,6 +603,52 @@
 	max-width: calc(var(--omp-column-workspace) + 2 * var(--omp-column-pad));
 }
 
+/* Work board (WorkBoard.tsx): a wide pane docks it in the right margin and shifts the transcript and composer
+   columns left by its width. The pane carries `data-work-board` only while the board has a section to show,
+   so an empty board takes no room. Widths mirror WORK_BOARD_WIDTH / WORK_BOARD_GAP in work-board.ts. */
+.omp-session-pane {
+	--omp-board-width: 264px;
+	--omp-board-gap: 24px;
+	--omp-board-reserve: 0px;
+}
+
+.omp-session-pane[data-work-board] {
+	--omp-board-reserve: calc(var(--omp-board-width) + var(--omp-board-gap));
+}
+
+.omp-session-pane[data-work-board] .omp-transcript-scroll {
+	padding-inline-end: var(--omp-board-reserve);
+}
+
+.omp-session-pane[data-work-board] .omp-composer-region:not(.omp-composer-region--expanded) {
+	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
+}
+
+.omp-work-board-slot {
+	position: absolute;
+	z-index: var(--sc-z-raised);
+	inset-block: 0;
+	inset-inline-end: var(--omp-scrollbar-size);
+	width: var(--omp-board-width);
+	pointer-events: none;
+}
+
+.omp-work-board {
+	display: flex;
+	flex-direction: column;
+	gap: var(--sc-space-3);
+	max-height: 100%;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding-block: var(--sc-space-6) var(--sc-space-3);
+	pointer-events: auto;
+}
+
+.omp-work-board-section + .omp-work-board-section {
+	padding-top: var(--sc-space-3);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
+}
+
 /* Surface policy card: the single content-card recipe (hairline, no fill). */
 .omp-card {
 	border: var(--sc-hairline) solid var(--sc-divider);
@@ -661,7 +707,8 @@
 	left: max(
 		var(--sc-space-2),
 		calc(
-			(100% - var(--omp-scrollbar-size) - var(--omp-column-reading)) / 2 - var(--sc-space-3) -
+			(100% - var(--omp-scrollbar-size) - var(--omp-board-reserve, 0px) - var(--omp-column-reading)) / 2 -
+				var(--sc-space-3) -
 				var(--sc-hit-min)
 		)
 	);

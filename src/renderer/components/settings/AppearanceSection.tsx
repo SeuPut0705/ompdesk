@@ -13,6 +13,7 @@ import {
 	ListOrdered,
 	Monitor,
 	Palette,
+	PanelRight,
 	PanelTop,
 	Rows3,
 	ScrollText,
@@ -217,6 +218,7 @@ export function AppearanceSection() {
 	const colorBlindMode = useUiStore(state => state.colorBlindMode);
 	const followAgentTheme = useUiStore(state => state.followAgentTheme);
 	const thinkingExpanded = useUiStore(state => state.thinkingExpanded);
+	const workBoard = useUiStore(state => state.workBoard);
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	const [pasteThresholdDraft, setPasteThresholdDraft] = useState<string | null>(null);
@@ -355,6 +357,16 @@ export function AppearanceSection() {
 						void saveGuiPreference("thinkingExpanded", next, () =>
 							useUiStore.getState().setThinkingExpanded(next),
 						)
+					}
+				/>
+				<SettingsSwitchRow
+					checked={workBoard}
+					description={t("settings.gui.workBoardDesc")}
+					icon={<PanelRight />}
+					id="setting-gui-workBoard"
+					label={t("settings.gui.workBoard")}
+					onCheckedChange={next =>
+						void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next))
 					}
 				/>
 				<SettingsSwitchRow

@@ -340,6 +340,12 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "thinkingExpanded reasoning thinking 사고 추론",
 	},
 	{
+		id: "workBoard",
+		section: "appearance",
+		labelKey: "settings.gui.workBoard",
+		aliases: "workBoard work board status panel margin 작업 현황 보드",
+	},
+	{
 		id: "lineNumbers",
 		section: "appearance",
 		labelKey: "codeblock.lineNumbers",

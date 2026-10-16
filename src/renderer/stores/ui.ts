@@ -239,6 +239,8 @@ interface UiStore {
 	panelSide: PanelSide;
 	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
 	thinkingExpanded: boolean;
+	/** Show the live work board in a wide session pane's right margin (Settings → Appearance, default on). */
+	workBoard: boolean;
 	/** Transcript density: compact folds reasoning/tools; full shows every step. */
 	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
@@ -351,6 +353,7 @@ interface UiStore {
 	setFontSize: (size: number) => void;
 	setNotifications: (enabled: boolean) => void;
 	setThinkingExpanded: (enabled: boolean) => void;
+	setWorkBoard: (enabled: boolean) => void;
 	setTranscriptDetail: (detail: TranscriptDetail) => void;
 	/**
 	 * User keybinding overrides (B3 remap layer): actionId → replacement chord
@@ -445,6 +448,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	linkPreview: false,
 	panelSide: "right",
 	thinkingExpanded: false,
+	workBoard: true,
 	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	// The editor's own dialog (Files view) asks first, so a switch that would unmount it waits in `pendingFileSwitch`.
@@ -691,6 +695,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
+	setWorkBoard: enabled => set({ workBoard: enabled }),
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 	keymapOverrides: {} as KeymapOverrides,
 	keymapHydrated: false,

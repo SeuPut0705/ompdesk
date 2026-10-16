@@ -37,7 +37,7 @@ import { useTodoStore } from "../stores/todo";
 import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
 import { checkForUpdatesInPlace } from "../stores/updater";
 import type { CommandGuard } from "./command-search";
-import { readDisplayPreference, setDisplayPreference } from "./display-preferences";
+import { readDisplayPreference, saveGuiPreference, setDisplayPreference } from "./display-preferences";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
@@ -1460,6 +1460,19 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "action",
 			run: () => setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock")),
+		},
+	});
+	add({
+		name: "toggle-work-board",
+		label: t("cmd.workBoard"),
+		description: t("cmd.workBoard.desc"),
+		category: "settings",
+		affordance: {
+			kind: "action",
+			run: () => {
+				const next = !useUiStore.getState().workBoard;
+				void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next));
+			},
 		},
 	});
 	add({

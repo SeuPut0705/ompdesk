@@ -1,0 +1,239 @@
+/**
+ * The work board on the fake omp: a wide session pane docks this session's live state in its right
+ * margin — the running subagents and the todo list here — and shifts the transcript and composer
+ * columns left together. It leaves when the pane gets narrow, when the side panel opens, and in a
+ * split whose panes are too narrow for it. Captures in light/dark × en/ko at 1600px and the split.
+ * They go to `OMP_GUI_WORK_BOARD_CAPTURES` (default: the test output directory).
+ */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { _electron as electron } from "playwright";
+import { exitApp, fixtureOmp } from "./harness";
+
+type Language = "en" | "ko";
+type Theme = "light" | "dark";
+
+const TEXT = {
+	en: { board: "Work board", closePanel: "Close side panel", hide: "Hide work board", running: "Running" },
+	ko: { board: "작업 현황", closePanel: "사이드 패널 닫기", hide: "작업 현황 숨기기", running: "실행 중" },
+} as const;
+
+interface Launched {
+	app: ElectronApplication;
+	page: Page;
+	root: string;
+}
+
+async function launch(language: Language, theme: Theme): Promise<Launched> {
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-work-board-")));
+	const project = path.join(root, "project");
+	const desktop = path.join(root, "desktop");
+	const agent = path.join(root, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
+	);
+	const env = {
+		...process.env,
+		PI_CODING_AGENT_DIR: agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), root),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		OMP_GUI_OMP: await fixtureOmp(root),
+		// Stock-shaped session files: the split drag needs saved sessions.
+		OMP_GUI_TEST_SESSION_FILES: "1",
+	};
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	const app = await electron.launch({
+		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		env,
+	});
+	const page = await app.firstWindow();
+	await resize(app, 1600, 900);
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+		.toBe("ready");
+	return { app, page, root };
+}
+
+const resize = (app: ElectronApplication, width: number, height: number) =>
+	app.evaluate(
+		({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height),
+		{ width, height },
+	);
+
+/** A `bash` line the fake omp reads as a fixture command. */
+async function fixture(page: Page, line: string): Promise<void> {
+	const response = await page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), line);
+	expect(response.success).toBe(true);
+}
+
+async function send(page: Page, text: string): Promise<void> {
+	const input = page.locator("textarea").first();
+	await input.fill(text);
+	await input.press("Enter");
+	await expect(input).toHaveValue("");
+}
+
+async function left(locator: Locator): Promise<number> {
+	const box = await locator.boundingBox();
+	if (!box) throw new Error("expected a box");
+	return Math.round(box.x);
+}
+
+for (const language of ["en", "ko"] as const)
+	for (const theme of ["light", "dark"] as const)
+		test(`${language === "en" && theme === "light" ? "@smoke " : ""}the work board docks in a wide pane and steps aside for a narrow one and the side panel (${language} ${theme})`, async () => {
+			test.setTimeout(180_000);
+			const text = TEXT[language];
+			const { app, page, root } = await launch(language, theme);
+			const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
+			if (captures) await fs.mkdir(captures, { recursive: true });
+			const capture = async (stage: string) => {
+				const file = `work-board-${stage}-${language}-${theme}.png`;
+				await page.screenshot({
+					path: captures ? path.join(captures, file) : test.info().outputPath(file),
+					animations: "disabled",
+					scale: "css",
+				});
+			};
+			try {
+				const errors: string[] = [];
+				page.on("pageerror", error => errors.push(error.message));
+				const board = page.getByRole("complementary", { name: text.board });
+				const pane = page.locator(".omp-session-pane").first();
+
+				// Nothing to show yet: no board takes the margin.
+				await send(page, "hello");
+				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
+				await expect(board).toHaveCount(0);
+				await expect(pane).not.toHaveAttribute("data-work-board", "");
+
+				// A running subagent and a todo list: the board appears with both.
+				await fixture(page, "fixture:subagents");
+				await fixture(page, "fixture:todo");
+				await expect(board).toBeVisible();
+				await expect(pane).toHaveAttribute("data-work-board", "");
+				await expect(board.getByRole("heading", { name: text.running })).toBeVisible();
+				const explore = board.locator('[data-board-agent="sa-explore"]');
+				await expect(explore).toContainText("Map the settings code");
+				await expect(board.locator('[data-board-agent="sa-review"]')).toHaveCount(0);
+				await expect(board.locator("[data-board-plan]")).toContainText("0/6");
+				await expect(board.locator("[data-board-plan]")).toContainText("Fixture task 1");
+
+				// The board sits in the right margin, clear of the columns, which line up with each other.
+				const boardBox = await board.boundingBox();
+				const shell = page.locator(".omp-composer-shell").first();
+				const shellBox = await shell.boundingBox();
+				const paneBox = await pane.boundingBox();
+				if (!boardBox || !shellBox || !paneBox) throw new Error("expected the board, composer and pane");
+				expect(boardBox.x).toBeGreaterThanOrEqual(shellBox.x + shellBox.width);
+				expect(boardBox.x + boardBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
+				expect(boardBox.y).toBeGreaterThanOrEqual(paneBox.y);
+				expect(await left(page.locator(".omp-transcript-row").first())).toBe(await left(shell));
+				await capture("wide");
+
+				// A narrow window has no room: the board goes and the columns centre again.
+				await resize(app, 1100, 900);
+				await expect(board).toHaveCount(0);
+				await expect(pane).not.toHaveAttribute("data-work-board", "");
+				await capture("narrow");
+				await resize(app, 1600, 900);
+				await expect(board).toBeVisible();
+
+				// Opening a subagent opens the side panel, and the board steps aside for it.
+				await explore.click();
+				await expect(page.locator("aside[data-docked]")).toBeVisible();
+				await expect(board).toHaveCount(0);
+				await expect(pane).not.toHaveAttribute("data-work-board", "");
+				await page.getByRole("button", { name: text.closePanel }).click();
+				await expect(board).toBeVisible();
+
+				// The board's own button hides it and keeps it off (the pref).
+				await board.getByRole("button", { name: text.hide }).click();
+				await expect(board).toHaveCount(0);
+				await expect
+					.poll(async () => (await page.evaluate(() => window.omp.prefs.get("workBoard"))) === false)
+					.toBe(true);
+				expect(errors).toEqual([]);
+			} finally {
+				await exitApp(app);
+				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			}
+		});
+
+test("a split's panes are too narrow for the work board", async () => {
+	test.setTimeout(240_000);
+	const { app, page, root } = await launch("en", "light");
+	const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
+	if (captures) await fs.mkdir(captures, { recursive: true });
+	try {
+		const tabId = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
+		if (!tabId) throw new Error("No active tab");
+		await send(page, "Work on Alpha");
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status)
+			.toBe("ready");
+		await fixture(page, "fixture:title:Alpha");
+		await fixture(page, "fixture:subagents");
+		await fixture(page, "fixture:todo");
+		const board = page.getByRole("complementary", { name: TEXT.en.board });
+		await expect(board).toBeVisible();
+
+		// A second session, dragged onto the right edge: two panes of about half the window each.
+		await page.keyboard.press("ControlOrMeta+t");
+		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(2);
+		const second = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId !== tabId);
+		if (!second) throw new Error("No second tab");
+		await expect
+			.poll(
+				async () =>
+					(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === second.tabId)?.status,
+			)
+			.toBe("ready");
+		await send(page, "Work on Beta");
+		await expect
+			.poll(async () => {
+				const tab = (await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === second.tabId);
+				return tab?.sessionPath ?? "";
+			})
+			.toMatch(/\.jsonl$/);
+		await page.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
+			second.tabId,
+			"fixture:title:Beta",
+		] as const);
+		const row = page.locator(".omp-sidebar-session-row", { hasText: "Alpha" });
+		await expect(row).toBeVisible();
+		const rowBox = await row.boundingBox();
+		const workspace = await page.locator(".omp-split-workspace").boundingBox();
+		if (!rowBox || !workspace) throw new Error("expected the row and the workspace");
+		await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(rowBox.x + rowBox.width / 2 + 20, rowBox.y + rowBox.height / 2, { steps: 4 });
+		await page.mouse.move(workspace.x + workspace.width * 0.92 + 2, workspace.y + workspace.height / 2, {
+			steps: 12,
+		});
+		await page.mouse.move(workspace.x + workspace.width * 0.92, workspace.y + workspace.height / 2, { steps: 2 });
+		await expect(page.locator("[data-split-ghost]")).toHaveAttribute("data-split-ghost", "right");
+		await page.mouse.up();
+		await expect(page.locator(".omp-session-pane")).toHaveCount(2);
+
+		// Neither pane has the room: no board, and no pane keeps its shift.
+		await expect(page.locator("[data-work-board-panel]")).toHaveCount(0);
+		await expect(page.locator(".omp-session-pane[data-work-board]")).toHaveCount(0);
+		await page.screenshot({
+			path: captures
+				? path.join(captures, "work-board-split-en-light.png")
+				: test.info().outputPath("work-board-split-en-light.png"),
+			animations: "disabled",
+			scale: "css",
+		});
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});

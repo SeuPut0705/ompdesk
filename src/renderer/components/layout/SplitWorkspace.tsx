@@ -17,6 +17,7 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./InputArea";
 import { SidecarBanner } from "./SidecarBanner";
+import { WorkBoardHost } from "./WorkBoard";
 
 const DIVIDER_SIZE = 5;
 const RATIO_STEP = 0.05;
@@ -190,6 +191,7 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 				<SidecarBanner />
 				<div className="relative flex min-h-0 flex-1 flex-col">
 					<ChatStream />
+					<WorkBoardHost />
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
 						<div className="omp-composer-shell relative w-full">
 							<WorkspaceDock />
