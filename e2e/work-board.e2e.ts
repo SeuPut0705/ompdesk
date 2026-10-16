@@ -301,7 +301,8 @@ for (const language of ["en", "ko"] as const)
 				// The subscription account in use: its tightest window, the rest in the tooltip, a click opens the accounts page.
 				const account = board.locator("[data-board-account]");
 				await expect(account).toContainText("work@example.com");
-				await expect(account).toContainText("62%");
+				await expect(account.locator('[data-window="5h"] .omp-work-board-gauge-text')).toHaveText("5H62%");
+				await expect(account.locator('[data-window="7d"] .omp-work-board-gauge-text')).toHaveText("7D41%");
 				await expect(account).toHaveAttribute("title", /41%/);
 
 				// The turn's token speed (the fake omp reports 64 tok/s) sits beside its elapsed time.

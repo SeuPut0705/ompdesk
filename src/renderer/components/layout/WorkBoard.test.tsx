@@ -16,7 +16,7 @@ import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { useWorkBoardStore } from "../../stores/work-board";
-import { shortAccountLabel } from "./AccountLimit";
+import { accountWindows, shortAccountLabel, shortWindowLabel } from "./AccountLimit";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -545,11 +545,16 @@ describe("WorkBoard account limit", () => {
 		await mount();
 		const row = pane.querySelector("[data-board-account]");
 		expect(row?.getAttribute("data-board-account")).toBe("anthropic");
-		expect(row?.textContent).toContain("work@example.com");
-		expect(row?.textContent).toContain("62%");
-		expect(row?.textContent).toContain("resets in 2h");
-		expect(row?.getAttribute("data-state")).toBe("ok");
-		expect(row?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
+		expect(row?.querySelector(".omp-work-board-account-name")?.textContent).toBe("work@example.com");
+		// Two gauges, shortest window first, each with its label and used share inside and its reset beneath.
+		const gauges = [...(row?.querySelectorAll(".omp-work-board-gauge") ?? [])];
+		expect(gauges.map(gauge => gauge.querySelector(".omp-work-board-gauge-text")?.textContent)).toEqual([
+			"5H62%",
+			"7D40%",
+		]);
+		expect(gauges[0]?.querySelector(".omp-work-board-gauge-reset")?.textContent).toContain("resets in 2h");
+		expect(gauges[0]?.getAttribute("data-state")).toBe("ok");
+		expect(gauges[0]?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
 		expect(row?.querySelector("[data-provider-mark]")).not.toBeNull();
 		const tip = row?.getAttribute("title") ?? "";
 		expect(tip).toContain("work@example.com");
@@ -558,22 +563,36 @@ describe("WorkBoard account limit", () => {
 		expect(useUiStore.getState().settingsTab).toBe("models:accounts");
 	});
 
-	it("tints near the limit and marks the limit itself", async () => {
+	it("tints each gauge near its limit and at it", async () => {
 		usageReports = [
-			report({ limits: [{ id: "anthropic:5h", label: "5 hour", windowId: "5h", usedFraction: 0.85 }] }),
+			report({
+				limits: [
+					{ id: "anthropic:5h", label: "5 hour", windowId: "5h", usedFraction: 0.85 },
+					{ id: "anthropic:7d", label: "7 day", windowId: "7d", usedFraction: 1 },
+				],
+			}),
 		];
 		withAgent();
 		await mount();
-		expect(pane.querySelector("[data-board-account]")?.getAttribute("data-state")).toBe("near");
-		usageReports = [
-			report({
-				provider: "openai",
-				limits: [{ id: "openai:5h", label: "5 hour", windowId: "5h", usedFraction: 1 }],
-			}),
+		const state = (window: string) => pane.querySelector(`[data-window="${window}"]`)?.getAttribute("data-state");
+		expect(state("5h")).toBe("near");
+		expect(state("7d")).toBe("limit");
+	});
+
+	it("shows one full-width gauge for one window and the two tightest of more, shortest first", async () => {
+		usageReports = [report({ limits: [{ id: "anthropic:5h", label: "5 hour", windowId: "5h", usedFraction: 0.3 }] })];
+		withAgent();
+		await mount();
+		expect(pane.querySelector(".omp-work-board-gauges")?.getAttribute("data-count")).toBe("1");
+		expect(accountWindows([]).length).toBe(0);
+		const many = [
+			{ id: "p:monthly", label: "Monthly", windowId: "monthly", usedFraction: 0.5 },
+			{ id: "p:5h", label: "5 hour", windowId: "5h", usedFraction: 0.2 },
+			{ id: "p:7d", label: "7 day", windowId: "7d", usedFraction: 0.9 },
+			{ id: "p:7d:opus", label: "7 Day (Opus)", windowId: "7d", usedFraction: 0.99 },
 		];
-		await act(async () => useModelStore.setState({ model: { provider: "openai", id: "other" } as never }));
-		await act(async () => {});
-		expect(pane.querySelector("[data-board-account]")?.getAttribute("data-state")).toBe("limit");
+		expect(accountWindows(many).map(entry => entry.limit.id)).toEqual(["p:7d", "p:monthly"]);
+		expect(many.map(limit => shortWindowLabel(limit))).toEqual(["30D", "5H", "7D", "7D"]);
 	});
 
 	it("hides for a provider with no usage windows", async () => {

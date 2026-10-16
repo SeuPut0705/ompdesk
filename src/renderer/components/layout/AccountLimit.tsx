@@ -6,12 +6,12 @@
  * windows (an API key) shows nothing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UsageReport } from "../../../shared/rpc-types";
+import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
 import { formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { inUseReport, tightestLimit, useLiveUsage } from "../../lib/usage-reports";
+import { inUseReport, useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -33,6 +33,46 @@ export function shortAccountLabel(label: string): string {
 		.trim()
 		.toLowerCase();
 	return inner === "" || local.startsWith(inner) ? (match[1] ?? label) : label;
+}
+
+/** A window's length in hours from its canonical id, or Infinity for one stock made up. */
+function windowHours(limit: UsageLimit): number {
+	const id = limit.windowId ?? "";
+	const span = /^(\d+)([hd])$/.exec(id);
+	if (span) return Number(span[1]) * (span[2] === "h" ? 1 : 24);
+	if (id === "daily") return 24;
+	if (id === "weekly" || id === "1w") return 168;
+	if (id === "monthly") return 720;
+	return Number.POSITIVE_INFINITY;
+}
+
+/** "5H", "7D": the window's own short name — from its id, else the first word of its label. */
+export function shortWindowLabel(limit: UsageLimit): string {
+	const id = limit.windowId ?? "";
+	const span = /^(\d+)([hd])$/.exec(id);
+	if (span) return `${span[1]}${span[2]?.toUpperCase()}`;
+	if (id === "daily") return "1D";
+	if (id === "weekly" || id === "1w") return "7D";
+	if (id === "monthly") return "30D";
+	return (limit.windowLabel ?? limit.label).split(/[\s(]/)[0]?.slice(0, 4).toUpperCase() ?? "";
+}
+
+/**
+ * The windows the row gauges: the two tightest of the account's whole-account limits (a per-model tier such as
+ * `7d:opus` only when nothing else is measured), shortest window first. The gauge fills with the share used,
+ * as the Settings accounts row does.
+ */
+export function accountWindows(limits: readonly UsageLimit[]): { limit: UsageLimit; fraction: number }[] {
+	const measured = limits.flatMap(limit => {
+		const fraction =
+			limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : null);
+		return fraction === null ? [] : [{ limit, fraction }];
+	});
+	const plain = measured.filter(entry => entry.limit.id.split(":").length <= 2);
+	return (plain.length > 0 ? plain : measured)
+		.sort((a, b) => b.fraction - a.fraction)
+		.slice(0, 2)
+		.sort((a, b) => windowHours(a.limit) - windowHours(b.limit));
 }
 
 export function AccountLimit() {
@@ -66,20 +106,16 @@ export function AccountLimit() {
 	}, [load]);
 	useLiveUsage(load, ready);
 
-	const tight = report ? tightestLimit(report) : null;
-	if (!report || !tight) return null;
+	const windows = report ? accountWindows(report.limits) : [];
+	if (!report || windows.length === 0) return null;
 
 	const now = Date.now();
-	const percent = Math.round(Math.min(1, tight.fraction) * 100);
 	const resets = (resetsAt: number | undefined) =>
 		resetsAt === undefined
 			? null
 			: resetsAt > now
 				? t("usage.resetsIn", { time: formatSpan(resetsAt - now) })
 				: t("usage.resetting");
-	const state = tight.fraction >= 1 ? "limit" : tight.fraction >= NEAR_FRACTION ? "near" : "ok";
-	const resetText = resets(tight.limit.resetsAt);
-	const headline = [`${percent}%`, resets(tight.limit.resetsAt)].filter(Boolean).join(" · ");
 	const fullLabel = report.account?.trim() || report.provider;
 	const account = shortAccountLabel(fullLabel);
 	const tooltip = [
@@ -101,27 +137,47 @@ export function AccountLimit() {
 		<button
 			className="omp-work-board-account"
 			data-board-account={report.provider}
-			data-state={state}
 			onClick={() => useUiStore.getState().openProviders()}
 			title={tooltip}
 			type="button"
 		>
-			<ProviderMark className="omp-work-board-provider" provider={{ id: report.provider, name: report.provider }} />
-			<span className="min-w-0 flex-1 truncate">{account}</span>
-			<span className="omp-work-board-meta">{`${percent}%`}</span>
-			<span className="omp-work-board-account-foot">
-				<span
-					aria-label={usageLimitLabel(tight.limit, t)}
-					aria-valuemax={100}
-					aria-valuemin={0}
-					aria-valuenow={percent}
-					aria-valuetext={headline}
-					className="omp-work-board-meter"
-					role="progressbar"
-				>
-					<span style={{ width: `${percent}%` }} />
-				</span>
-				{resetText ? <span className="omp-work-board-meta">{resetText}</span> : null}
+			<span className="omp-work-board-account-name">
+				<ProviderMark
+					className="omp-work-board-provider"
+					provider={{ id: report.provider, name: report.provider }}
+				/>
+				<span className="min-w-0 flex-1 truncate">{account}</span>
+			</span>
+			<span className="omp-work-board-gauges" data-count={windows.length}>
+				{windows.map(({ limit, fraction }) => {
+					const percent = Math.round(Math.min(1, fraction) * 100);
+					const name = usageLimitLabel(limit, t);
+					return (
+						<span
+							className="omp-work-board-gauge"
+							data-state={fraction >= 1 ? "limit" : fraction >= NEAR_FRACTION ? "near" : "ok"}
+							data-window={limit.windowId ?? limit.id}
+							key={limit.id}
+						>
+							<span
+								aria-label={name}
+								aria-valuemax={100}
+								aria-valuemin={0}
+								aria-valuenow={percent}
+								aria-valuetext={`${percent}%`}
+								className="omp-work-board-gauge-bar"
+								role="progressbar"
+							>
+								<span className="omp-work-board-gauge-fill" style={{ width: `${percent}%` }} />
+								<span className="omp-work-board-gauge-text">
+									<span>{shortWindowLabel(limit)}</span>
+									<span>{percent}%</span>
+								</span>
+							</span>
+							<span className="omp-work-board-gauge-reset">{resets(limit.resetsAt)}</span>
+						</span>
+					);
+				})}
 			</span>
 		</button>
 	);
