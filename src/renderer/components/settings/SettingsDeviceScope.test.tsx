@@ -16,6 +16,7 @@ import { useSessionStore } from "../../stores/session";
 import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
+import { fakeMobileWeb } from "../../test-support/mobile-web";
 import { SettingsPage } from "./SettingsPage";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -35,6 +36,7 @@ Object.assign(globalThis, {
 const notConnected = { type: "response", command: "test", success: false, error: "not connected" };
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
+		mobileWeb: fakeMobileWeb().api,
 		prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 		system: { info: vi.fn(async () => ({ deviceLanguage: "en-US" })) },
 		sidecar: { restart: vi.fn(async () => {}) },
@@ -154,7 +156,7 @@ describe("Settings for a tab on a paired host", () => {
 			[...document.querySelectorAll("[data-settings-group-scope]")].map(node =>
 				node.getAttribute("data-settings-group-scope"),
 			),
-		).toEqual(["app", "host"]);
+		).toEqual(["app", "host", "app"]);
 	});
 
 	it("keeps this device's settings available while the host is offline", async () => {

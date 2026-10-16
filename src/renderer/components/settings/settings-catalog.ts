@@ -509,6 +509,15 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "remote pairing address sharing keep awake 원격 기기 페어링 주소 공유 잠자기",
 	},
 	{
+		id: "mobileWeb",
+		section: "connections",
+		sub: "mobile-web",
+		rowId: "settings-connections-mobile-web",
+		labelKey: "settings.connections.mobileWeb",
+		aliases:
+			"mobile web phone tablet tailscale serve pairing qr code link devices https magicdns 모바일 웹 폰 휴대폰 태블릿 페어링 큐알 링크 기기",
+	},
+	{
 		id: "hostAppearance",
 		section: "connections",
 		sub: "remote",

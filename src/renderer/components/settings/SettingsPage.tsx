@@ -48,6 +48,7 @@ import { GeneralSection } from "./GeneralSection";
 import { KeyboardSection } from "./KeyboardSection";
 import { LaunchProfileSection } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
+import { MobileWebSection } from "./MobileWebSection";
 import { ModelsSection } from "./ModelsSection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
 import { AdvancedSchemaSettings, OwnedSchemaSettings } from "./OwnedSchemaSettings";
@@ -340,6 +341,13 @@ export function SettingsPage() {
 								<SshSection />
 							</SettingsSection>
 						</HostScoped>
+						<SettingsSection
+							scope="app"
+							id="settings-connections-mobile-web"
+							title={t("settings.connections.mobileWeb")}
+						>
+							<MobileWebSection />
+						</SettingsSection>
 					</>
 				);
 			case "updates":
