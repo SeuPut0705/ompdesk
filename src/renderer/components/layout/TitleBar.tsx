@@ -25,6 +25,7 @@ import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens }
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
+import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView, useRemoteStore } from "../../stores/remote";
@@ -124,17 +125,9 @@ function ExecutionDurationRow() {
 		() => [...liveTools.values(), ...finishedTools.values()],
 		[liveTools, finishedTools, finishedVersion],
 	);
-	const [now, setNow] = useState(() => Date.now());
 	// Only live (pending/running) calls keep the clock alive; history-aborted
 	// calls never end and are finished entries.
-	const hasRunningTool = liveTools.size > 0;
-	const ticking = isStreaming || hasRunningTool;
-	useEffect(() => {
-		setNow(Date.now());
-		if (!ticking) return;
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(timer);
-	}, [ticking]);
+	const now = useNowTick(isStreaming || liveTools.size > 0);
 	const executionDuration = sessionExecutionDurationMs({
 		messages,
 		streamingMessage,

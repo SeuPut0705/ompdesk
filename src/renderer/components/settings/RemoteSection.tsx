@@ -24,6 +24,7 @@ import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
+import { useNowTick } from "../../lib/now-tick";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
 import { Badge, Banner, Button, ConfirmDialog, CopyButton, ErrorDetail, Input, ListRow, Spinner } from "../common";
@@ -70,17 +71,12 @@ function remaining(expiresAt: number, now: number): string {
 /** The pairing code, its countdown, and the refresh; an expired code is replaced automatically. */
 function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: number | null }) {
 	const t = useT();
-	// Re-renders every second; the countdown itself reads the clock at render time,
+	// Re-renders every second while a code counts down; the countdown itself reads the clock at render time,
 	// so a code that just arrived never shows more than its lifetime.
-	const [, setTick] = useState(0);
+	useNowTick(expiresAt !== null);
 	const [rotating, setRotating] = useState(false);
 	/** The expiry already handed to an automatic refresh, so a slow reply is not asked for twice. */
 	const rotatedFor = useRef<number | null>(null);
-
-	useEffect(() => {
-		const timer = window.setInterval(() => setTick(tick => tick + 1), 1000);
-		return () => window.clearInterval(timer);
-	}, []);
 
 	const rotate = async () => {
 		setRotating(true);

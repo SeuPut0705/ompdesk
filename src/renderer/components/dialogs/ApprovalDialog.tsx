@@ -7,9 +7,10 @@
  */
 
 import { ShieldAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useNowTick } from "../../lib/now-tick";
 import { APPROVAL_TITLE_PREFIX, type ApprovalSelect } from "../../stores/extension-ui";
 import { Badge, type BadgeVariant } from "../common";
 import { ChoiceList, PromptCard, TimeoutFooter } from "./PromptCard";
@@ -54,11 +55,7 @@ function tierFor(toolName: string): { key: string; variant: BadgeVariant } {
 /** How long the agent has waited on this approval, counted from its arrival (queued time included). */
 function WaitedFor({ since }: { since: number }) {
 	const t = useT();
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const timer = setInterval(() => setNow(Date.now()), 1000);
-		return () => clearInterval(timer);
-	}, []);
+	const now = useNowTick(true);
 	const elapsed = formatElapsed(now - since);
 	if (!elapsed) return null;
 	return (
