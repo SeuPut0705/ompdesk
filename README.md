@@ -255,3 +255,5 @@ bun run dev
 Apache License 2.0. See LICENSE and NOTICE; third-party notices are in THIRD_PARTY_NOTICES.txt.
 
 **상표**: "OMPdesk"라는 이름과 표장(아이콘 포함)은 라이선스 대상이 아니에요. Apache-2.0 §6도 상표 권리를 주지 않아요. 포크는 이름을 바꿔 주세요. (The name and mark "OMPdesk" and its icon are not licensed. Apache-2.0 §6 grants no trademark rights. Rename your fork.)
+
+만든 사람: [@SeuPut0705](https://github.com/SeuPut0705)

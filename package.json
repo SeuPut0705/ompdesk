@@ -1,7 +1,7 @@
 {
   "name": "ompdesk",
   "version": "0.33.0",
-  "author": "SeuPut <228744781+SeuPut0705@users.noreply.github.com>",
+  "author": "SeuPut (https://github.com/SeuPut0705)",
   "private": true,
   "type": "module",
   "description": "ompdesk: an unofficial desktop app for the omp coding agent, running on the system-installed omp",
