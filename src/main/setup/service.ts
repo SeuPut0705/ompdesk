@@ -44,7 +44,7 @@ import {
 import { type RunOutcome, SetupRunner } from "./runner";
 
 /** Automatic attempts before an item waits BACKOFF_MS between automatic attempts. */
-export const BACKOFF_AFTER = 3;
+const BACKOFF_AFTER = 3;
 export const BACKOFF_MS = 24 * 60 * 60 * 1000;
 const OUTPUT_EMIT_MS = 100;
 

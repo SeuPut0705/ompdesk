@@ -47,7 +47,7 @@ export function parseOmpVersion(output: string): string | null {
 	return /(\d+\.\d+\.\d+)/.exec(output)?.[1] ?? null;
 }
 
-export interface OmpUpdateCheck {
+interface OmpUpdateCheck {
 	currentVersion: string;
 	latestVersion: string;
 }
