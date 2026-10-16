@@ -26,9 +26,9 @@ Issues are welcome.
 - Do not add AI-attribution trailers to commit messages.
 - The maintainer commits locally and batches releases, so a PR may be merged by rebase or squash rather than as-is.
 
-Contributions are accepted under the [GNU AGPL-3.0-only](LICENSE), the same license as the project (inbound = outbound). The maintainer may relicense their own code. There is no CLA today, so external contributions stay AGPL-3.0-only; the maintainer may add a CLA later.
+Contributions are submitted under the [Apache License 2.0](LICENSE) (section 5; inbound = outbound), the same license as the project. There is no CLA. The maintainer may relicense their own code.
 
-New source files may start with `// SPDX-License-Identifier: AGPL-3.0-only`. It is not required, and please do not mass-edit existing headers.
+New source files may start with `// SPDX-License-Identifier: Apache-2.0`. It is optional, and please do not mass-edit existing headers.
 
 ## Development rules
 
