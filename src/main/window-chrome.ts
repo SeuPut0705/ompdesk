@@ -10,6 +10,10 @@
  *   renderer.
  * - Windows 11 (build 22621+): the Mica backdrop (`backgroundMaterial`); the
  *   renderer, loaded with `?mica=1`, lets it show through the sidebar.
+ * - Every window: `nativeTheme.themeSource` follows the app's saved theme
+ *   ({@link nativeThemeSource}), so what the OS draws (the Mica tint, the
+ *   caption buttons' first colors) and pre-paint's OS fallback match the
+ *   scheme the renderer applies, whatever the OS is set to.
  */
 
 import type { BrowserWindowConstructorOptions } from "electron";
@@ -27,6 +31,18 @@ const DEFAULT_COLORS: Record<"light" | "dark", WindowChromeColors> = {
 /** Windows 11 22H2 (build 22621) is the first build Electron's Mica material draws on. */
 export function micaSupported(platform: NodeJS.Platform, release: string): boolean {
 	return platform === "win32" && Number(release.split(".")[2] ?? 0) >= 22621;
+}
+
+/**
+ * `nativeTheme.themeSource` for the saved theme: prefs `themeName` when it is a
+ * scheme itself, else the legacy `theme`, which the renderer writes alongside
+ * every named theme as that theme's scheme. Anything else follows the OS.
+ */
+export function nativeThemeSource(themeName: unknown, theme: unknown): "system" | "light" | "dark" {
+	for (const value of [themeName, theme]) {
+		if (value === "system" || value === "light" || value === "dark") return value;
+	}
+	return "system";
 }
 
 export function windowChromeOptions(

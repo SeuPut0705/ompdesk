@@ -3,7 +3,10 @@
  * module. The prefs IPC that resolves the real theme is async, so without
  * this every cold start painted a default first: a flash of the wrong
  * scheme. Mirrors the scheme written by lib/themes.ts (applyThemeByName →
- * localStorage "omp.themeScheme"); with nothing saved, ompdesk follows the OS.
+ * localStorage "omp.themeScheme"); with nothing saved here, the color-scheme
+ * query answers: main sets nativeTheme.themeSource to the saved theme's
+ * scheme before any window opens (src/main/window-chrome.ts), so a window
+ * whose renderer never picked a theme still paints the app's, not the OS's.
  * Background colors are --sc-bg from theme-dark.css / theme-light.css.
  */
 (function () {

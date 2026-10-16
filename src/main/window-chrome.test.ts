@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { micaSupported, sanitizeChromeColors, TOP_BAR_HEIGHT, windowChromeOptions } from "./window-chrome";
+import {
+	micaSupported,
+	nativeThemeSource,
+	sanitizeChromeColors,
+	TOP_BAR_HEIGHT,
+	windowChromeOptions,
+} from "./window-chrome";
 
 describe("windowChromeOptions", () => {
 	it("insets the macOS traffic lights into the top bar", () => {
@@ -28,6 +34,26 @@ describe("windowChromeOptions", () => {
 
 	it("leaves other platforms on the native frame", () => {
 		expect(windowChromeOptions("linux", false)).toEqual({});
+	});
+});
+
+describe("nativeThemeSource", () => {
+	it("follows the saved scheme, not the OS", () => {
+		expect(nativeThemeSource("dark", undefined)).toBe("dark");
+		expect(nativeThemeSource("light", "dark")).toBe("light");
+		expect(nativeThemeSource("system", "light")).toBe("system");
+	});
+
+	it("takes a named theme's scheme from the legacy pref written beside it", () => {
+		expect(nativeThemeSource("nord", "dark")).toBe("dark");
+		expect(nativeThemeSource("paper", "light")).toBe("light");
+		expect(nativeThemeSource(undefined, "dark")).toBe("dark");
+	});
+
+	it("follows the OS when nothing usable is saved", () => {
+		expect(nativeThemeSource(undefined, undefined)).toBe("system");
+		expect(nativeThemeSource("nord", undefined)).toBe("system");
+		expect(nativeThemeSource(3, "sepia")).toBe("system");
 	});
 });
 

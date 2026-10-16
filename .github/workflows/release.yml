@@ -300,7 +300,7 @@ jobs:
 
   # Package the `build` job's out/, then the @smoke e2e on the fake omp against it: setup takeover,
   # split select, auto-resume after a kill and a quit, Model roles, the Changes commit, the Files
-  # edit, Preview, Mica and close-to-tray. About 100 s on this runner (18 s with the one boot spec
+  # edit, Preview, Mica and close-to-tray, a new window's theme. About 100 s on this runner (18 s with the one boot spec
   # it had before); two halves on two jobs (`--shard`) would save 30 s of wall time for another
   # billed minute.
   win:

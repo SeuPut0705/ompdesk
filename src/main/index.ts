@@ -13,6 +13,7 @@ import {
 	ipcMain,
 	Notification,
 	nativeImage,
+	nativeTheme,
 	net,
 	powerMonitor,
 	powerSaveBlocker,
@@ -98,6 +99,7 @@ import {
 	updateStatus,
 } from "./updater";
 import { WindowManager } from "./window";
+import { nativeThemeSource } from "./window-chrome";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
 import {
 	isWorktreeStartCandidate,
@@ -465,6 +467,8 @@ function spawnWindow(
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
+	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
+	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 
 	// Tools setup installed into the managed dir (PortableGit, Node/gh archives)
 	// reach every process spawned from here on, sidecars included.
@@ -947,6 +951,9 @@ app.whenReady().then(() => {
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
+			if (key === "themeName" || key === "theme") {
+				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
+			}
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
