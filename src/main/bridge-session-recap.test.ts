@@ -9,12 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type Recap,
 	type RecapHooks,
-	type RecapSession,
 	type RecapSettings,
 	RecapTimer,
 } from "../../resources/gui-bridge/session-recap-core";
+import type { TimerSession } from "../../resources/gui-bridge/timer-core";
 
-interface FakeSession extends RecapSession {
+interface FakeSession extends TimerSession {
 	isStreaming: boolean;
 	isCompacting: boolean;
 }

@@ -9,28 +9,19 @@
  * methods. The recap itself stays stock's (its prompt, `runEphemeralTurn`,
  * `recordRecap`); `generate` and `deliver` are supplied by session-recap.ts.
  *
- * One difference, as in idle-compaction-core.ts: the TUI reads its editor, the
+ * The idle window, the arm's supersession and the GUI draft are
+ * timer-core.ts's, shared with idle compaction: the TUI reads its editor, the
  * bridge gets the GUI draft's emptiness from the renderer (`setDraftEmpty`).
  * Clearing a draft while a window is still pending arms the timer, which the
  * TUI would only do at the next `agent_end`.
  */
 
+import { IdleWindowTimer, type TimerSession } from "./timer-core";
+
 /** `recap.*` as stock's `cfgRecap` reads them. */
 export interface RecapSettings {
 	enabled: boolean;
 	idleSeconds: number;
-}
-
-/** The slice of the live AgentSession the timer touches. */
-export interface RecapSession {
-	readonly isStreaming: boolean;
-	readonly isCompacting: boolean;
-}
-
-/** Session event fields the timer reacts to. */
-export interface RecapEvent {
-	type: string;
-	isTerminal?: boolean;
 }
 
 /** The settings whose live change re-arms the timer (stock's `refreshIdleRecapTimer`). */
@@ -46,7 +37,7 @@ export interface Recap {
 	preview: string;
 }
 
-export interface RecapHooks<S extends RecapSession> {
+export interface RecapHooks<S extends TimerSession> {
 	read(session: S): RecapSettings | Promise<RecapSettings>;
 	/** Stock's recap turn; undefined when there is nothing to recap or the reply was empty. */
 	generate(session: S, signal: AbortSignal): Promise<Recap | undefined>;
@@ -54,22 +45,14 @@ export interface RecapHooks<S extends RecapSession> {
 	deliver(session: S, recap: Recap): Promise<void>;
 }
 
-export class RecapTimer<S extends RecapSession = RecapSession> {
-	#timer: NodeJS.Timeout | undefined;
-	/** Bumped by every cancel, so an arm still reading its settings knows it was superseded. */
-	#generation = 0;
+/** Stock's idle window (`#idleRecapPending`) runs from a terminal `agent_end` until its timer fires. */
+export class RecapTimer<S extends TimerSession = TimerSession> extends IdleWindowTimer<S, RecapSettings> {
 	#abort: AbortController | undefined;
-	#draftEmpty = true;
-	/** True from a terminal `agent_end` until this idle window's timer fires (stock's `#idleRecapPending`). */
-	#pending = false;
 	readonly #hooks: RecapHooks<S>;
 
 	constructor(hooks: RecapHooks<S>) {
+		super(session => hooks.read(session));
 		this.#hooks = hooks;
-	}
-
-	get armed(): boolean {
-		return this.#timer !== undefined;
 	}
 
 	/** A recap turn is in flight. */
@@ -78,10 +61,8 @@ export class RecapTimer<S extends RecapSession = RecapSession> {
 	}
 
 	/** Drops the timer and aborts a recap turn in flight: any activity supersedes the recap. */
-	cancel(): void {
-		this.#generation += 1;
-		clearTimeout(this.#timer);
-		this.#timer = undefined;
+	override cancel(): void {
+		super.cancel();
 		this.#abort?.abort();
 		this.#abort = undefined;
 	}
@@ -89,31 +70,24 @@ export class RecapTimer<S extends RecapSession = RecapSession> {
 	/** The session changed under the timer (switch, branch, tree move): no idle window of the old one carries over. */
 	reset(): void {
 		this.cancel();
-		this.#pending = false;
+		this.closeWindow();
 	}
 
-	async schedule(session: S): Promise<void> {
-		this.cancel();
-		const generation = this.#generation;
-		if (session.isCompacting) return;
-		const settings = await this.#hooks.read(session);
-		// An arm or a cancel that came while the settings loaded supersedes this one.
-		if (generation !== this.#generation) return;
-		if (!settings.enabled || !this.#draftEmpty) return;
+	protected delayMs(settings: RecapSettings, session: S): number | undefined {
+		if (!settings.enabled) return undefined;
 		// A turn may have started while the settings loaded.
-		if (session.isStreaming) return;
-		const seconds = Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, settings.idleSeconds));
-		this.#timer = setTimeout(() => {
-			this.#timer = undefined;
-			this.#pending = false;
-			void this.#run(session);
-		}, seconds * 1000);
-		this.#timer.unref?.();
+		if (session.isStreaming) return undefined;
+		return Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, settings.idleSeconds)) * 1000;
+	}
+
+	protected fire(session: S): void {
+		this.closeWindow();
+		void this.#run(session);
 	}
 
 	/** Stock's idle gate, shared by the timer fire and the re-check after the reply lands. */
 	#idle(session: S): boolean {
-		return !session.isStreaming && !session.isCompacting && this.#draftEmpty;
+		return !session.isStreaming && !session.isCompacting && this.draftEmpty;
 	}
 
 	async #run(session: S): Promise<void> {
@@ -132,39 +106,10 @@ export class RecapTimer<S extends RecapSession = RecapSession> {
 		}
 	}
 
-	/** Stock arms after a terminal `agent_end` and cancels when a turn or an auto-compaction starts or ends. */
-	onEvent(event: RecapEvent, session: S): Promise<void> | undefined {
-		switch (event.type) {
-			case "agent_start":
-				// The window of the turn before is over; the next terminal agent_end opens one.
-				this.#pending = false;
-				this.cancel();
-				return undefined;
-			case "auto_compaction_start":
-			case "auto_compaction_end":
-				this.cancel();
-				return undefined;
-			case "agent_end":
-				// A pending async wake is a pause, not idle.
-				if (event.isTerminal === false) return undefined;
-				this.#pending = true;
-				return this.schedule(session);
-			default:
-				return undefined;
-		}
-	}
-
 	/** A live write of one of {@link RECAP_SETTING_PATHS}: rearm (or cancel, per the new values) inside a pending idle window. */
 	settingChanged(path: string, session: S): Promise<void> | undefined {
 		if (!RECAP_SETTING_PATHS.includes(path)) return undefined;
-		if (!this.#pending || session.isStreaming) return undefined;
+		if (!this.windowOpen || session.isStreaming) return undefined;
 		return this.schedule(session);
-	}
-
-	async setDraftEmpty(empty: boolean, session: S): Promise<void> {
-		const wasEmpty = this.#draftEmpty;
-		this.#draftEmpty = empty;
-		if (!empty) this.cancel();
-		else if (!wasEmpty && this.#pending && !session.isStreaming) await this.schedule(session);
 	}
 }

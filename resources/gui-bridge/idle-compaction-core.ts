@@ -6,12 +6,11 @@
  * `refreshIdleCompactionTimer` (stock `modes/controllers/event-controller.ts`),
  * which only the terminal UI runs: RPC mode has no timer, and the bridge
  * cannot call the controller's private methods. The work itself stays stock's
- * (`AgentSession.runIdleCompaction()`).
- *
- * One difference: the TUI reads its editor, the bridge gets the GUI draft's
- * emptiness from the renderer (`setDraftEmpty`). Clearing a draft while idle
- * after a turn arms the timer, which the TUI would only do at the next `agent_end`.
+ * (`AgentSession.runIdleCompaction()`). The idle window, the arm's
+ * supersession and the GUI draft are timer-core.ts's, shared with the recap.
  */
+
+import { IdleWindowTimer, type TimerSession } from "./timer-core";
 
 /** `cfgCompaction.get(settings)` fields this timer reads. */
 export interface IdleSettings {
@@ -21,17 +20,9 @@ export interface IdleSettings {
 }
 
 /** The slice of the live AgentSession the timer touches. */
-export interface IdleSession {
-	readonly isStreaming: boolean;
-	readonly isCompacting: boolean;
+export interface IdleSession extends TimerSession {
 	getContextUsage(): { tokens?: number | null } | undefined;
 	runIdleCompaction(): Promise<void>;
-}
-
-/** Session event fields the timer reacts to. */
-export interface IdleEvent {
-	type: string;
-	isTerminal?: boolean;
 }
 
 /** The three settings whose live change re-arms the timer (stock's `refreshIdleCompactionTimer`). */
@@ -41,75 +32,27 @@ export const IDLE_SETTING_PATHS: readonly string[] = [
 	"compaction.idleTimeoutSeconds",
 ];
 
-export class IdleCompactionTimer<S extends IdleSession = IdleSession> {
-	#timer: NodeJS.Timeout | undefined;
-	/** Bumped by every cancel, so an arm still reading its settings knows it was superseded. */
-	#generation = 0;
-	#draftEmpty = true;
-	readonly #read: (session: S) => IdleSettings | Promise<IdleSettings>;
-	/** A turn ended and none started since: the window stock's timer covers. */
-	#idleAfterTurn = false;
+/** Stock clamps the delay to this many seconds. */
+const MIN_SECONDS = 60;
+const MAX_SECONDS = 3600;
 
-	constructor(read: (session: S) => IdleSettings | Promise<IdleSettings>) {
-		this.#read = read;
-	}
-
-	get armed(): boolean {
-		return this.#timer !== undefined;
-	}
-
-	cancel(): void {
-		this.#generation += 1;
-		clearTimeout(this.#timer);
-		this.#timer = undefined;
-	}
-
-	async schedule(session: S): Promise<void> {
-		this.cancel();
-		// The settings read awaits: an arm or a cancel that comes meanwhile supersedes this one,
-		// or two arms would each set a timer and only the second could ever be cancelled.
-		const generation = this.#generation;
-		// Context maintenance may reset the session before the timer fires.
-		if (session.isCompacting) return;
-		const settings = await this.#read(session);
-		if (generation !== this.#generation) return;
-		if (!settings.idleEnabled || !this.#draftEmpty) return;
+export class IdleCompactionTimer<S extends IdleSession = IdleSession> extends IdleWindowTimer<S, IdleSettings> {
+	protected delayMs(settings: IdleSettings, session: S): number | undefined {
+		if (!settings.idleEnabled) return undefined;
 		const threshold = settings.idleThresholdTokens;
-		if (threshold <= 0 || (session.getContextUsage()?.tokens ?? 0) < threshold) return;
+		if (threshold <= 0 || (session.getContextUsage()?.tokens ?? 0) < threshold) return undefined;
 		// A turn may have started while the settings loaded.
-		if (session.isStreaming || session.isCompacting) return;
-		const timeoutMs = Math.max(60, Math.min(3600, settings.idleTimeoutSeconds)) * 1000;
-		this.#timer = setTimeout(() => {
-			this.#timer = undefined;
-			// Re-check like stock: pruning may have dropped usage below the threshold meanwhile.
-			if (session.isStreaming || session.isCompacting || !this.#draftEmpty) return;
-			if ((session.getContextUsage()?.tokens ?? 0) < threshold) return;
-			void session.runIdleCompaction().catch(() => {
-				// Stock reports its own failure through its compaction events.
-			});
-		}, timeoutMs);
-		this.#timer.unref?.();
+		if (session.isStreaming || session.isCompacting) return undefined;
+		return Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, settings.idleTimeoutSeconds)) * 1000;
 	}
 
-	/** Stock arms after `agent_end` and cancels when a turn or an auto-compaction starts or ends. */
-	onEvent(event: IdleEvent, session: S): Promise<void> | undefined {
-		switch (event.type) {
-			case "agent_start":
-				this.#idleAfterTurn = false;
-				this.cancel();
-				return undefined;
-			case "auto_compaction_start":
-			case "auto_compaction_end":
-				this.cancel();
-				return undefined;
-			case "agent_end":
-				// A pending async wake is a pause, not idle.
-				if (event.isTerminal === false) return undefined;
-				this.#idleAfterTurn = true;
-				return this.schedule(session);
-			default:
-				return undefined;
-		}
+	protected fire(session: S, settings: IdleSettings): void {
+		// Re-check like stock: pruning may have dropped usage below the threshold meanwhile.
+		if (session.isStreaming || session.isCompacting || !this.draftEmpty) return;
+		if ((session.getContextUsage()?.tokens ?? 0) < settings.idleThresholdTokens) return;
+		void session.runIdleCompaction().catch(() => {
+			// Stock reports its own failure through its compaction events.
+		});
 	}
 
 	/** A live write of one of {@link IDLE_SETTING_PATHS}: re-arm while idle, cancel while streaming. */
@@ -118,12 +61,5 @@ export class IdleCompactionTimer<S extends IdleSession = IdleSession> {
 		if (!session.isStreaming) return this.schedule(session);
 		this.cancel();
 		return undefined;
-	}
-
-	async setDraftEmpty(empty: boolean, session: S): Promise<void> {
-		const wasEmpty = this.#draftEmpty;
-		this.#draftEmpty = empty;
-		if (!empty) this.cancel();
-		else if (!wasEmpty && this.#idleAfterTurn && !session.isStreaming) await this.schedule(session);
 	}
 }
