@@ -19,8 +19,8 @@ import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-b
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
-import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
+import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
 	IpcBenchmarkRunOptions,
@@ -89,8 +89,8 @@ import { type LocalMachine, type MachineServices, machineFor as pickMachine } fr
 import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
-import { systemOmp } from "./omp-runtime";
 import { NotificationBatcher, type ShownNotice } from "./notification-batch";
+import { systemOmp } from "./omp-runtime";
 import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
@@ -242,7 +242,6 @@ let lastNotifyKey = "";
 let lastNotifyAt = 0;
 /** Shown notifications that switch to a tab on click, kept alive until then. */
 const liveNotifications = new Set<Notification>();
-
 /** Windows whose close already cancels their pending notification summary. */
 const notifyBatchedWindows = new Set<number>();
 
@@ -276,6 +275,7 @@ const notificationBatcher = new NotificationBatcher({
 	clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
 });
 app.once("will-quit", () => notificationBatcher.dispose());
+
 // Per-window tray/progress snapshots, aggregated for the app-global tray/dock.
 const trayStates = new Map<number, TrayState>();
 const progressStates = new Map<number, RunProgressState>();
@@ -558,9 +558,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
 		// process dies before the run's end event arrives (turn-resume.ts).
 		if (issuerTabId && STOP_COMMANDS[cmd.type]) sidecarPool.noteStopped(issuerTabId);
-		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
 		// The user is moving the tab to another session or branch: a scheduled retry of its old failure is off.
 		if (issuerTabId && TOUCH_COMMANDS[cmd.type]) sidecarPool.noteTouched(issuerTabId);
+		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
 		const login = cmd.type === "login" ? cmd.providerId : null;

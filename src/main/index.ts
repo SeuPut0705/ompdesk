@@ -43,12 +43,12 @@ import {
 	closeToTrayEnabled,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
+	SCHEDULED_RETRY_PREF,
 	WORKTREE_AUTO_CLEAN_PREF,
 } from "../shared/desktop-prefs";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
-	SCHEDULED_RETRY_PREF,
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -910,6 +910,8 @@ app.whenReady().then(() => {
 				sidecarPool.setAwaitingConnection(tabId, awaiting);
 				hostServices.setAwaitingConnection(tabId, awaiting);
 			},
+			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
+			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
 			tabForSession: (sessionPath, peer) =>
 				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
@@ -917,8 +919,6 @@ app.whenReady().then(() => {
 				sidecarPool.noteStopped(tabId);
 				hostServices.noteStopped(tabId);
 			},
-			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
-			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
 		},
 		network: {
 			get online() {
@@ -927,13 +927,6 @@ app.whenReady().then(() => {
 			shouldWait: () => connectivity.shouldWait(),
 		},
 		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
-		// A quit tears every tab down: that must not read as the turns ending.
-		frozen: () => quitApproved(),
-		now: Date.now,
-		openTab: marker => {
-			if (marker.peer) return devices.reviveHostTab(marker.peer, marker);
-			const win = windowManager.getMainWindow();
-			if (!win) return null;
 		scheduledRetry: {
 			enabled: () => prefs.get(SCHEDULED_RETRY_PREF) !== false,
 			// OMP_GUI_RETRY_DELAYS_MS (comma list of ms) shortens the waits for e2e runs.
@@ -943,6 +936,13 @@ app.whenReady().then(() => {
 				return () => clearTimeout(timer);
 			},
 		},
+		// A quit tears every tab down: that must not read as the turns ending.
+		frozen: () => quitApproved(),
+		now: Date.now,
+		openTab: marker => {
+			if (marker.peer) return devices.reviveHostTab(marker.peer, marker);
+			const win = windowManager.getMainWindow();
+			if (!win) return null;
 			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
 			return sidecar ? sidecarPool.tabForSession(marker.sessionPath) : null;
 		},
@@ -1010,6 +1010,7 @@ app.whenReady().then(() => {
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
+			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
@@ -1017,7 +1018,6 @@ app.whenReady().then(() => {
 			if (key === "themeName" || key === "theme") {
 				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 			}
-			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
