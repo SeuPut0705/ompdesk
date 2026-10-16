@@ -173,7 +173,7 @@ describe("mac bundle configs", () => {
 		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
-	it("ships OMPdesk's AGPL-3.0 LICENSE and the generated third-party notices on both platforms", () => {
+	it("ships OMPdesk's Apache-2.0 LICENSE and the generated third-party notices on both platforms", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
@@ -192,12 +192,12 @@ describe("mac bundle configs", () => {
 		const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")) as {
 			license?: string;
 		};
-		expect(manifest.license).toBe("AGPL-3.0-only");
+		expect(manifest.license).toBe("Apache-2.0");
 		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8")).toContain(
-			"GNU AFFERO GENERAL PUBLIC LICENSE",
+			"Apache License\n                           Version 2.0, January 2004",
 		);
 		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8")).toContain(
-			"GNU Affero General Public License v3.0 only",
+			"licensed under the Apache License, Version 2.0 (see LICENSE)",
 		);
 		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
 		expect(notices).toContain("electron ");
