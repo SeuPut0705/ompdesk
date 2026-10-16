@@ -618,6 +618,8 @@ export interface IpcExtensionUiPayload {
 	tabId: string;
 	request: ExtensionUIRequest;
 	signIn?: IpcSignIn;
+	/** A paired host's re-attach sent again an ask this window already showed (its OS notification went out then). */
+	resent?: true;
 }
 
 /**
@@ -1496,7 +1498,10 @@ export interface OmpApi {
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
-		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn) => void): () => void;
+		/** `resent`: a paired host's re-attach sent the request again (`IpcExtensionUiPayload.resent`). */
+		onExtensionUi(
+			callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn, resent?: boolean) => void,
+		): () => void;
 		/** A tab's provider sign-in finished while a reloaded page was showing it (`IpcSignIn.active`). */
 		onSignInEnded(callback: (payload: IpcSignInEndedPayload) => void): () => void;
 		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;

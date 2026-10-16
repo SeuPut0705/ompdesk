@@ -170,6 +170,13 @@ export function refusedCommand(method: string, params: unknown): string | null {
 	if (method === "Page.navigate" && !navigableUrl("url" in named ? named.url : undefined)) {
 		return "OMPdesk's preview only opens http(s) pages";
 	}
+	// DevTools' resource loader (source maps): only what the page could fetch from the web, never a local file.
+	if (method === "Network.loadNetworkResource") {
+		const url = "url" in named ? named.url : undefined;
+		if (typeof url !== "string" || previewUrl(url) === null) {
+			return "OMPdesk's preview only loads http(s) resources";
+		}
+	}
 	// The target URL is read from the page's own history before the command goes out (see `#historyRefusal`).
 	if (method === "Page.navigateToHistoryEntry" && !("entryId" in named && Number.isInteger(named.entryId))) {
 		return "OMPdesk's preview needs a history entry id to navigate";

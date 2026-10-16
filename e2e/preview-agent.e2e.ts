@@ -155,6 +155,13 @@ for (const [language, theme] of [
 			] as const) {
 				await expect(session.send(method, params), method).rejects.toThrow(/does not allow/);
 			}
+			await expect(
+				session.send("Network.loadNetworkResource", {
+					frameId: "main",
+					url: "file:///etc/hosts",
+					options: { disableCache: true, includeCredentials: false },
+				}),
+			).rejects.toThrow(/http\(s\) resources/);
 			await expect(session.send("Runtime.evaluate", { expression: "1 + 1" })).resolves.toMatchObject({
 				result: { value: 2 },
 			});
@@ -246,6 +253,73 @@ test("Electron's per-page debugger turns Input.dispatchDragEvent files into a dr
 		expect(result).toEqual({ errors: [], seen: { drops: [["secret.txt:19"]], types: [["Files"]] } });
 	} finally {
 		await exitApp(app);
+		await fs.rm(dir, { recursive: true, force: true });
+	}
+});
+
+// Network.loadNetworkResource and file: URLs. Finding (Electron 36, observed Oct 2026): the per-page debugger refuses a
+// `file:` URL with "Unsupported URL scheme", so the agent cannot read a local file through it plus IO.read; the relay's
+// http(s)-only rule for the method is defence in depth. A bare window on an http page is probed here, not the relay.
+// If a future Electron reads the file, this fails.
+test("Electron's per-page debugger refuses a file: URL in Network.loadNetworkResource", async () => {
+	test.setTimeout(60_000);
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-load-probe-"));
+	const main = path.join(dir, "main.js");
+	const secret = path.join(dir, "secret.txt");
+	await fs.writeFile(
+		main,
+		'const { app } = require("electron");\napp.on("window-all-closed", () => {});\napp.whenReady();\n',
+	);
+	await fs.writeFile(secret, "local file contents");
+	const server = createServer((_request, response) => {
+		response.writeHead(200, { "Content-Type": "text/html" });
+		response.end("<title>probe</title>");
+	});
+	await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+	const address = server.address();
+	if (!address || typeof address === "string") throw new Error("expected a TCP address");
+	const env = { ...process.env, OMP_GUI_HEADLESS: "1" };
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	const app = await electron.launch({ args: [main], env });
+	try {
+		const result = await app.evaluate(
+			async ({ BrowserWindow }, { site, file }) => {
+				const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+				await win.loadURL(site);
+				const dbg = win.webContents.debugger;
+				dbg.attach("1.3");
+				const tree = (await dbg.sendCommand("Page.getFrameTree")) as { frameTree: { frame: { id: string } } };
+				try {
+					const loaded = (await dbg.sendCommand("Network.loadNetworkResource", {
+						frameId: tree.frameTree.frame.id,
+						url: file,
+						options: { disableCache: true, includeCredentials: false },
+					})) as { resource: { success: boolean; stream?: string } };
+					let text = "";
+					for (let eof = !loaded.resource.stream; !eof; ) {
+						const chunk = (await dbg.sendCommand("IO.read", { handle: loaded.resource.stream })) as {
+							data: string;
+							base64Encoded?: boolean;
+							eof: boolean;
+						};
+						text += chunk.base64Encoded ? Buffer.from(chunk.data, "base64").toString("utf8") : chunk.data;
+						eof = chunk.eof;
+					}
+					return { success: loaded.resource.success, text };
+				} catch (error) {
+					return { error: error instanceof Error ? error.message : String(error) };
+				} finally {
+					win.destroy();
+				}
+			},
+			{ site: `http://127.0.0.1:${address.port}/`, file: pathToFileURL(secret).href },
+		);
+		expect(result).toEqual({ error: "Unsupported URL scheme" });
+	} finally {
+		await exitApp(app);
+		const closed = Promise.withResolvers<void>();
+		server.close(() => closed.resolve());
+		await closed.promise;
 		await fs.rm(dir, { recursive: true, force: true });
 	}
 });

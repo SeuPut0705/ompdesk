@@ -396,7 +396,13 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				return;
 			}
 			this.#processAlive = false;
-			this.#setStatus("error", { message: error instanceof Error ? error.message : String(error) });
+			// The link is up, so this is the host's answer (`no_workspace`, an unknown tab): the omp the tab's asks
+			// came from is gone, and the pool drops their routes. A request the link dropped stays a link status.
+			this.#setStatus(
+				"error",
+				{ message: error instanceof Error ? error.message : String(error) },
+				isOfflineError(error),
+			);
 		}
 	}
 

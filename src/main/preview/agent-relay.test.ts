@@ -278,6 +278,32 @@ describe("preview relay extension", () => {
 		expect(fake.sent.map(entry => entry.method)).toEqual(["Input.dispatchDragEvent", "Input.dispatchDragEvent"]);
 	});
 
+	it("loads a network resource for the page only from an http(s) URL", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		const load = (id: number, url: unknown) =>
+			rpc(id, {
+				op: "send",
+				tabId: 7,
+				method: "Network.loadNetworkResource",
+				params: { frameId: "f", url, options: { disableCache: true, includeCredentials: false } },
+			});
+		for (const [id, url] of [
+			[2, "file:///etc/hosts"],
+			[3, "FILE:///etc/hosts"],
+			[4, "chrome://version"],
+			[5, "data:text/plain,x"],
+			[6, undefined],
+		] as const) {
+			const result = await load(id, url);
+			expect(result?.ok, String(url)).toBe(false);
+			expect(String(result?.error)).toMatch(/http\(s\)/);
+		}
+		expect(fake.sent).toEqual([]);
+		expect((await load(7, "https://example.com/app.js.map"))?.ok).toBe(true);
+		expect(fake.sent.map(entry => entry.method)).toEqual(["Network.loadNetworkResource"]);
+	});
+
 	it("only reaches sessions this page's own debugger announced", async () => {
 		const { fake, rpc } = setup();
 		await rpc(1, { op: "attach", tabId: 7 });

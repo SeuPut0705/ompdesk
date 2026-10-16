@@ -492,8 +492,13 @@ export class SidecarPool {
 			for (const request of requests) {
 				// Answered meanwhile: the list was taken before the answer reached the host.
 				if (this.#answering.has(request.id)) continue;
+				// Already this tab's before the link dropped: the window notified for it then.
+				const resent = this.#requestOwners.get(request.id) === entry;
 				this.#holdRequest(entry, request);
-				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
+				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, {
+					...this.#uiFrame(entry, request),
+					...(resent ? { resent: true as const } : {}),
+				});
 			}
 			this.onRunningChange?.();
 		});

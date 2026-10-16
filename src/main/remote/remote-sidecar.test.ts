@@ -181,6 +181,26 @@ describe("RemoteSidecar", () => {
 		]);
 	});
 
+	it("reports a host's refusal to re-attach as the host's status, not a link blip", async () => {
+		const { link, sidecar } = setup();
+		const seen: Array<[string, boolean | undefined]> = [];
+		sidecar.on("status", (payload: SidecarStatusPayload) => seen.push([payload.status, sidecar.statusFromLink]));
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+		// The link is back, but the host no longer runs that tab and has no workspace to open it in.
+		link.state = "online";
+		link.handlers["tab.open"] = () => {
+			throw new Error("No workspace");
+		};
+		sidecar.linkStateChanged("online");
+		await settle();
+		expect(seen.at(-1)).toEqual(["error", false]);
+		expect(sidecar.statusPayload).toMatchObject({ status: "error", message: "No workspace" });
+	});
+
 	it("hands on the open asks the host re-sends with each re-attach, and ignores a malformed list", async () => {
 		const { link, sidecar } = setup();
 		const ask = { type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] };

@@ -1855,12 +1855,13 @@ describe("SidecarPool background tabs", () => {
 			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["kept", "raised"]);
 			expect(pool.resumeFacts()[0]?.awaitingUi).toBe(true);
 			// The gone one's card closes; the reconnect's `starting` cleared the page, so the open ones come back.
+			// One this window already showed is marked `resent` (its OS notification went out then); the new one is not.
 			expect(uiSent()).toEqual([
 				{
 					tabId: "tab-a",
 					request: { type: "extension_ui_request", id: "withdrawn:stale", method: "cancel", targetId: "stale" },
 				},
-				{ tabId: "tab-a", request: kept },
+				{ tabId: "tab-a", request: kept, resent: true },
 				{ tabId: "tab-a", request: raised },
 			]);
 			expect(await pool.routeSideChannel("stale", { type: "extension_ui_response", id: "stale" })).toBe(false);
@@ -1871,7 +1872,7 @@ describe("SidecarPool background tabs", () => {
 			const answering = pool.routeSideChannel("kept", { type: "extension_ui_response", id: "kept", answers: [] });
 			fw.sent.length = 0;
 			a.emit("openAsks", [kept, raised]);
-			expect(uiSent()).toEqual([{ tabId: "tab-a", request: raised }]);
+			expect(uiSent()).toEqual([{ tabId: "tab-a", request: raised, resent: true }]);
 			delivered.resolve();
 			expect(await answering).toBe(true);
 			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["raised"]);

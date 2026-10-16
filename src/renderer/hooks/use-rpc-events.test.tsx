@@ -12,7 +12,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSidecarStatusPayload } from "../../shared/ipc-types";
+import type { IpcSidecarStatusPayload, IpcSignIn } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	AgentSessionEvent,
@@ -2107,6 +2107,42 @@ describe("useRpcEvents background tabs", () => {
 			await mount(<RpcEventsProbe />);
 			await act(async () => {
 				onExtensionUi({ type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] }, "t-back");
+			});
+			await flush();
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
+		} finally {
+			restoreFocus();
+		}
+	});
+
+	it("does not notify again for an ask a paired host's re-attach sends again, but does for one raised while away", async () => {
+		installTabRoutedMockOmp();
+		let onExtensionUi: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn, resent?: boolean) => void =
+			() => {};
+		(window.omp.events as unknown as Record<string, unknown>).onExtensionUi = vi.fn(
+			(callback: typeof onExtensionUi) => {
+				onExtensionUi = callback;
+				return () => {};
+			},
+		);
+		const { notify } = window.omp.system as unknown as { notify: Mock<(title: string, body: string) => void> };
+		seedTabs();
+		const restoreFocus = blurWindow();
+		try {
+			await mount(<RpcEventsProbe />);
+			await act(async () => {
+				onExtensionUi(
+					{ type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] },
+					"t-back",
+					undefined,
+					true,
+				);
+			});
+			await flush();
+			expect(notify).not.toHaveBeenCalled();
+
+			await act(async () => {
+				onExtensionUi({ type: "extension_ui_request", id: "ask-2", method: "ask", questions: [] }, "t-back");
 			});
 			await flush();
 			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");

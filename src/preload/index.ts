@@ -200,9 +200,11 @@ const api: OmpApi = {
 			subscribeActiveTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
 		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
-		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn) => void) =>
+		onExtensionUi: (
+			callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn, resent?: boolean) => void,
+		) =>
 			subscribe<IpcExtensionUiPayload>(IPC_EVENTS.EXTENSION_UI, data =>
-				callback(data.request, data.tabId, data.signIn),
+				callback(data.request, data.tabId, data.signIn, data.resent === true),
 			),
 		onSignInEnded: (callback: (payload: IpcSignInEndedPayload) => void) =>
 			subscribe<IpcSignInEndedPayload>(IPC_EVENTS.SIGN_IN_ENDED, callback),
