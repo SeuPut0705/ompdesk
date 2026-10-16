@@ -21,7 +21,7 @@
  * Bun reads the home directory once at startup, so the check runs in a child
  * started with the isolated environment (as setup-install-check.ts does).
  * Only ci.yml's manual `win_e2e` run runs it on Windows (18 s would tip
- * release.yml's `win-test` into another billed minute).
+ * release.yml's `win` into another billed minute).
  */
 
 import { spawnSync } from "node:child_process";
