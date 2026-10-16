@@ -304,6 +304,38 @@ describe("SidecarManager spawn env", () => {
 		}
 	});
 
+	it("spawns omp with OTLP telemetry export off, over whatever the user's environment says", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-otel-"));
+		const envPath = path.join(tempDir, "otel.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ disabled: process.env.OTEL_SDK_DISABLED ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		setEnv("OTEL_SDK_DISABLED", "false");
+		setEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318");
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			shellEnv: async () => ({ OTEL_SDK_DISABLED: "false" }),
+		});
+		const ready = Promise.withResolvers<void>();
+		sidecar.on("status", ({ status }) => {
+			if (status === "ready") ready.resolve();
+		});
+		try {
+			sidecar.start();
+			await ready.promise;
+			// Stock's initTelemetryExport returns at once on exactly this value.
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ disabled: "true" });
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("pushes the current reply language over the gui-bridge on connect and on syncReplyLanguage()", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-bridge-"));
 		const logPath = path.join(tempDir, "bridge.jsonl");

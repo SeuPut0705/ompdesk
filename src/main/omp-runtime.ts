@@ -108,6 +108,15 @@ export function ompPathEnv(bin: string, basePath: string): string {
 }
 
 /**
+ * Added last to the env of every omp OMPdesk runs a session in (tabs, hosted tabs, scheduled runs, benchmarks,
+ * model setup, `omp` CLI calls): OTLP telemetry export stays off whatever `OTEL_*` endpoints the user's
+ * environment names. Stock's only exporter, `initTelemetryExport` (telemetry-export.ts, called from main.ts
+ * after the session options are built, before any extension loads), returns at once when
+ * `OTEL_SDK_DISABLED` is `true`; nothing else in stock exports telemetry.
+ */
+export const OMP_TELEMETRY_OFF = { OTEL_SDK_DISABLED: "true" } as const;
+
+/**
  * What points stock `omp update` (and `--check`) at `bin`'s own install. Stock updates the first `omp` on PATH
  * (`resolveOmpPath` = `$which("omp")`) and calls it a Bun install only when that launcher sits in `bun pm bin -g`
  * (BUN_INSTALL's `bin`); otherwise it routes through npm, Homebrew or a standalone-binary replacement. So `bin`'s
@@ -192,7 +201,7 @@ function runOmp(
 	const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
 	const child = spawn(ompSpawnCommand(bin), ompSpawnArgs(bin, args), {
 		cwd: opts.cwd,
-		env: { ...process.env, ...opts.env, PATH: ompPathEnv(bin, opts.env?.PATH ?? basePath) },
+		env: { ...process.env, ...opts.env, PATH: ompPathEnv(bin, opts.env?.PATH ?? basePath), ...OMP_TELEMETRY_OFF },
 		shell: ompNeedsShell(bin),
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,

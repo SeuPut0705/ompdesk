@@ -31,7 +31,14 @@ import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
-import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
+import {
+	OMP_TELEMETRY_OFF,
+	type OmpResolution,
+	ompNeedsShell,
+	ompPathEnv,
+	ompSpawnArgs,
+	ompSpawnCommand,
+} from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
@@ -526,6 +533,7 @@ export class SidecarManager extends EventEmitter {
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",
+					...OMP_TELEMETRY_OFF,
 				},
 				cwd,
 				shell: ompNeedsShell(bin),

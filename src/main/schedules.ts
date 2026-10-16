@@ -31,7 +31,14 @@ import {
 	type SchedulesState,
 	scheduleDraftProblem,
 } from "../shared/schedules";
-import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
+import {
+	OMP_TELEMETRY_OFF,
+	type OmpResolution,
+	ompNeedsShell,
+	ompPathEnv,
+	ompSpawnArgs,
+	ompSpawnCommand,
+} from "./omp-runtime";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
 
 /** How often due schedules are checked; a wall-clock check survives system sleep, a long timer would not. */
@@ -444,7 +451,13 @@ export function ompRunLauncher(options: {
 					shell: ompNeedsShell(bin),
 					inputFile: files.prompt,
 				},
-				{ ...env, PATH: ompPathEnv(bin, env.PATH ?? ""), PI_NOTIFICATIONS: "off", PI_NO_PTY: "1" },
+				{
+					...env,
+					PATH: ompPathEnv(bin, env.PATH ?? ""),
+					PI_NOTIFICATIONS: "off",
+					PI_NO_PTY: "1",
+					...OMP_TELEMETRY_OFF,
+				},
 				schedule.cwd,
 			);
 		} catch (error) {
