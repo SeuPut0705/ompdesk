@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { isNewer } from "../shared/version";
 import type { OmpRuntime } from "./local/types";
 import { spawnPath } from "./shell-env";
 
@@ -63,17 +64,6 @@ export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
 		/New version available:\s*(\d+\.\d+\.\d+\S*)/.exec(output)?.[1] ??
 		(/Already up to date/.test(output) ? current : undefined);
 	return latest ? { currentVersion: current, latestVersion: latest } : null;
-}
-
-/** Numeric semver compare on major.minor.patch; prerelease tags are ignored. */
-export function compareVersions(a: string, b: string): number {
-	const pa = a.split(".").map(part => Number.parseInt(part, 10) || 0);
-	const pb = b.split(".").map(part => Number.parseInt(part, 10) || 0);
-	for (let i = 0; i < 3; i++) {
-		const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-		if (diff !== 0) return diff;
-	}
-	return 0;
 }
 
 /** Windows `.cmd`/`.bat` shims only run through cmd.exe. */
@@ -269,7 +259,7 @@ export async function resolveOmp(): Promise<OmpResolution> {
 			reason: { kind: "cannot-run", bin, detail },
 		};
 	}
-	if (compareVersions(version, MIN_OMP_VERSION) < 0) {
+	if (isNewer(MIN_OMP_VERSION, version)) {
 		return {
 			ok: false,
 			error: `omp ${version} is too old; this GUI needs omp ${MIN_OMP_VERSION} or newer. Run \`omp update\`, then relaunch.`,

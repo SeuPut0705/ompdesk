@@ -25,14 +25,8 @@ import {
 	type SetupState,
 	setupItemRequired,
 } from "../../shared/setup";
-import {
-	compareVersions,
-	ompNeedsShell,
-	ompSpawnArgs,
-	ompSpawnCommand,
-	ompUpdateEnv,
-	parseUpdateCheck,
-} from "../omp-runtime";
+import { isNewer } from "../../shared/version";
+import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
 import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
@@ -525,7 +519,7 @@ export class SetupService {
 		const presence = item.presence;
 		if (presence?.kind !== "present")
 			return { kind: "failed", failure: { reason: "unusable", detail: detail(reason) } };
-		if (presence.version && compareVersions(presence.version, target) >= 0) {
+		if (presence.version && !isNewer(target, presence.version)) {
 			return { kind: "updated", version: presence.version };
 		}
 		return { kind: "failed", failure: { reason: "not-updated", detail: detail(reason) } };

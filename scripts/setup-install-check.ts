@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compareVersions, MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
+import { MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
 import {
 	applyManagedToolEnv,
 	bunInstallDir,
@@ -29,6 +29,7 @@ import {
 } from "../src/main/setup/paths";
 import { SetupService } from "../src/main/setup/service";
 import type { SetupState } from "../src/shared/setup";
+import { isNewer } from "../src/shared/version";
 
 const ROOT_ENV = "OMPDESK_INSTALL_CHECK_ROOT";
 const PROGRAM_FILES_ENV = "OMPDESK_INSTALL_CHECK_PROGRAM_FILES";
@@ -163,7 +164,7 @@ async function check(root: string): Promise<void> {
 	const omp = await resolveOmp();
 	if (!omp.ok) fail(`omp resolution failed: ${omp.error}`);
 	if (!omp.runtime.bin.startsWith(home)) fail(`omp resolved outside the temp profile: ${omp.runtime.bin}`);
-	if (compareVersions(omp.runtime.version, MIN_OMP_VERSION) < 0) {
+	if (isNewer(MIN_OMP_VERSION, omp.runtime.version)) {
 		fail(`omp ${omp.runtime.version} is below ${MIN_OMP_VERSION}`);
 	}
 	const version = await omp.runtime.run(["--version"]);

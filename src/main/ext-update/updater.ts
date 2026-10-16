@@ -29,6 +29,7 @@ import type {
 	ExtensionSkipReason,
 	ExtensionUpdateState,
 } from "../../shared/extension-update";
+import { isNewer } from "../../shared/version";
 import { type CliPlatform, findBrew, type InstallContext, probeOutput } from "../cli-tools/detect";
 import type { CliCommand, PlanTools } from "../cli-tools/plans";
 import { runCheckProcess } from "../cli-tools/updater";
@@ -49,7 +50,6 @@ import {
 	runnerCheck,
 } from "./mcp-plans";
 import { deferForRunning, runningServer, scansProcesses } from "./running";
-import { isNewer } from "./versions";
 
 /** Inventory, check and refresh: local files or one registry round trip. */
 const CHECK_TIMEOUT_MS = 120_000;

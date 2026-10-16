@@ -22,6 +22,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
+import { compareVersions } from "../shared/version";
 
 const PROBE_TIMEOUT_MS = 4_000;
 const BEGIN = "__OMP_ENV_BEGIN__";
@@ -106,17 +107,6 @@ export function resolveLoginShellEnv(platform: NodeJS.Platform = process.platfor
 	return promise;
 }
 
-/** Compare two `vX.Y.Z` directory names numerically (nvm version dirs). */
-function compareVersionDirs(a: string, b: string): number {
-	const pa = a.slice(1).split(".").map(Number);
-	const pb = b.slice(1).split(".").map(Number);
-	for (let i = 0; i < 3; i++) {
-		const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-		if (diff !== 0) return diff;
-	}
-	return 0;
-}
-
 /** Homebrew's bin dirs (Apple Silicon, Intel). */
 const BREW_BIN_DIRS: readonly string[] = ["/opt/homebrew/bin", "/usr/local/bin"];
 
@@ -158,7 +148,7 @@ function fallbackBinDirs(platform: NodeJS.Platform): string[] {
 		const nvmDir = join(home, ".nvm", "versions", "node");
 		const newest = readdirSync(nvmDir)
 			.filter(entry => entry.startsWith("v"))
-			.sort(compareVersionDirs)
+			.sort((a, b) => compareVersions(a, b) ?? 0)
 			.at(-1);
 		if (newest) candidates.push(join(nvmDir, newest, "bin"));
 	} catch {

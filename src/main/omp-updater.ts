@@ -22,7 +22,7 @@
  */
 import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateFailure, OmpUpdateState } from "../shared/omp-update";
-import { compareVersions } from "./omp-runtime";
+import { isNewer } from "../shared/version";
 import type { OmpUpdateOutcome } from "./setup/service";
 
 /** Between checks while all is well. */
@@ -164,7 +164,7 @@ export class OmpUpdater {
 		this.#set({ latest, checkedAt: (this.#deps.now ?? Date.now)() });
 		const installed = this.#deps.installed();
 		if (installed === null) return;
-		if (compareVersions(latest, installed) <= 0) {
+		if (!isNewer(latest, installed)) {
 			this.#failures = 0;
 			this.#set({ failure: null });
 			return;

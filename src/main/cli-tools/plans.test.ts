@@ -7,7 +7,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CliToolId } from "../../shared/cli-update";
-import { compareVersions } from "../omp-runtime";
 import type { CliDetection, CliOwner } from "./detect";
 import { checkCommand, parseLatest, runningIn, updateCommand, waitsForIdle } from "./plans";
 
@@ -195,16 +194,6 @@ describe("parseLatest", () => {
 			"Name        Id          Version Available Source\n-------------------------------\nGitHub CLI  GitHub.cli  2.96.0  2.99.1    winget\n";
 		expect(parseLatest(owner, table, "2.96.0")).toBe("2.99.1");
 		expect(parseLatest(owner, "No installed package found matching input criteria.\n", "2.96.0")).toBe("2.96.0");
-	});
-});
-
-describe("version compare", () => {
-	it("orders versions numerically, not as text", () => {
-		expect(compareVersions("0.10.0", "0.9.0")).toBeGreaterThan(0);
-		expect(compareVersions("2.1.296", "2.1.30")).toBeGreaterThan(0);
-		expect(compareVersions("1.2.3", "1.2.3")).toBe(0);
-		expect(compareVersions("1.2", "1.2.0")).toBe(0);
-		expect(compareVersions("18.8.7", "18.9.0")).toBeLessThan(0);
 	});
 });
 

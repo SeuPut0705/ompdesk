@@ -1,9 +1,10 @@
 /**
- * "Is `latest` newer than `installed`" for every kind of row. Plugins, skills and MCP packages publish
- * semver (with prerelease tags: `1.0.0-beta.2` is older than `1.0.0`), PyPI and catalogs sometimes do not
- * (`2024.1`, `1.0rc1`, a commit): a pair that cannot be ordered falls back to inequality, so a changed
- * version counts as newer rather than hiding an update. `omp-runtime`'s `compareVersions` ignores
- * prerelease tags (it serves omp and the vendor CLIs), which is why this has its own ordering.
+ * Version order for everything OMPdesk compares: omp, the vendor CLIs, extensions, nvm's node dirs.
+ * Semver with prerelease tags (`1.0.0-beta.2` is older than `1.0.0`), an optional leading `v`, any
+ * number of dotted parts (`1.2` equals `1.2.0`, `2024.2` is newer than `2024.1.5`), build metadata
+ * ignored. PyPI and catalogs sometimes publish versions that cannot be ordered (`1.0rc1`, a commit):
+ * `compareVersions` is null for those and `isNewer` falls back to inequality, so a changed version
+ * counts as newer rather than hiding an update.
  */
 
 interface Parsed {
@@ -40,8 +41,8 @@ function comparePre(a: string[], b: string[]): number {
 	return 0;
 }
 
-/** Negative, zero or positive like `Array.sort`; null when either side is not a dotted-number version. */
-export function compareExtensionVersions(a: string, b: string): number | null {
+/** -1, 0 or 1 like `Array.sort`; null when either side is not a dotted-number version. */
+export function compareVersions(a: string, b: string): number | null {
 	const pa = parse(a);
 	const pb = parse(b);
 	if (!pa || !pb) return null;
@@ -59,7 +60,7 @@ export function compareExtensionVersions(a: string, b: string): number | null {
  */
 export function isNewer(latest: string, installed: string | null): boolean {
 	if (installed === null) return true;
-	const order = compareExtensionVersions(latest, installed);
+	const order = compareVersions(latest, installed);
 	return order === null ? latest.trim() !== installed.trim() : order > 0;
 }
 

@@ -147,6 +147,25 @@ describe("spawnPath", () => {
 		}
 	});
 
+	itProbes("takes the newest nvm node by version number, not by text, when the probe fails", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-nvm-"));
+		setEnv("SHELL", path.join(os.tmpdir(), "omp-no-such-shell"));
+		setEnv("HOME", tempDir);
+		setEnv("PATH", "/usr/bin");
+		try {
+			// Bun's compat ignores the stubbed $HOME; never write into a real ~/.nvm.
+			if (homedir() !== tempDir) return;
+			const nvm = path.join(tempDir, ".nvm", "versions", "node");
+			for (const version of ["v9.11.2", "v18.17.0", "v18.9.1", "v10.1.0"]) {
+				await fs.mkdir(path.join(nvm, version, "bin"), { recursive: true });
+			}
+			const entries = (await spawnPath()).split(path.delimiter);
+			expect(entries.filter(entry => entry.startsWith(nvm))).toEqual([path.join(nvm, "v18.17.0", "bin")]);
+		} finally {
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("appends the Windows per-user tool dirs, never a probed shell PATH, on Windows", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-win-"));
 		setEnv("SHELL", await writeFakeShell(tempDir, envDumpBody({ PATH: "/probed/bin" }, false)));

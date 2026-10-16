@@ -594,6 +594,11 @@ describe("SetupService", () => {
 			expect(existsSync(join(dir, "setup-state.json"))).toBe(false);
 		});
 
+		it("counts the installed core of a canary target as updated (omp --version prints no prerelease tag)", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { installedVersion: "18.9.0" });
+			expect(await h.service.updateOmp("18.9.0-canary.3")).toEqual({ kind: "updated", version: "18.9.0" });
+		});
+
 		it("runs stock `omp update` on the detected omp when no test installer is set", async () => {
 			const h = harness(machine({ omp: present("18.8.7") }), { testInstaller: null });
 			// The fake spawner records the spec, then cannot map the real one to an item and fails the spawn.

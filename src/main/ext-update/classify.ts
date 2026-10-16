@@ -23,10 +23,10 @@ import {
 	type ExtensionRow,
 	type ExtensionSkipReason,
 } from "../../shared/extension-update";
+import { isExactVersion } from "../../shared/version";
 import { classifyMcpServer, commandName, type McpRunner } from "./mcp";
 import type { McpBinary, McpOwner } from "./mcp-owner";
 import type { RunnerPackage } from "./mcp-plans";
-import { isExactVersion } from "./versions";
 
 /** The fields of a row that classification decides; the updater adds the live ones (latest, phase, last…). */
 export type SeedRow = Pick<

@@ -30,9 +30,10 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compareVersions, MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
+import { MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
 import { bunInstallDir, managedToolsDir, setupPlatform } from "../src/main/setup/paths";
 import { type OmpUpdateOutcome, SetupService } from "../src/main/setup/service";
+import { isNewer } from "../src/shared/version";
 
 const ROOT_ENV = "OMPDESK_UPDATE_LOCK_CHECK_ROOT";
 const PACKAGE = "@oh-my-pi/pi-coding-agent";
@@ -383,11 +384,11 @@ async function check(root: string): Promise<void> {
 		if (exit !== 0) fail(`omp hold exited ${exit}`);
 		const second = await service.updateOmp(newer.version);
 		console.log(`→ update after omp exited: ${describe(second)}`);
-		if (second.kind !== "updated" || compareVersions(second.version, newer.version) < 0) {
+		if (second.kind !== "updated" || isNewer(newer.version, second.version)) {
 			fail(`the update after omp exited ended as ${describe(second)}`);
 		}
 		const resolved = await resolveOmp();
-		if (!resolved.ok || compareVersions(resolved.runtime.version, newer.version) < 0) {
+		if (!resolved.ok || isNewer(newer.version, resolved.runtime.version)) {
 			fail(`omp resolves to ${resolved.ok ? resolved.runtime.version : resolved.error}, not ${newer.version}`);
 		}
 		const fresh = lineProcess([launcher, "hold"]);

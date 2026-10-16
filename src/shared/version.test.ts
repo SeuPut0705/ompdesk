@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareExtensionVersions, isExactVersion, isNewer } from "./versions";
+import { compareVersions, isExactVersion, isNewer } from "./version";
 
 describe("isNewer", () => {
 	it("orders dotted numbers numerically, not as text", () => {
@@ -37,11 +37,33 @@ describe("isNewer", () => {
 	});
 });
 
-describe("compareExtensionVersions", () => {
+describe("compareVersions", () => {
+	it("compares numerically, not lexically", () => {
+		expect(compareVersions("18.10.0", "18.6.0")).toBe(1);
+		expect(compareVersions("18.11.0", "18.9.0")).toBe(1);
+		expect(compareVersions("19.0.0", "18.99.99")).toBe(1);
+		expect(compareVersions("0.10.0", "0.9.0")).toBe(1);
+		expect(compareVersions("2.1.296", "2.1.30")).toBe(1);
+		expect(compareVersions("17.99.99", "18.0.0")).toBe(-1);
+		expect(compareVersions("18.8.7", "18.9.0")).toBe(-1);
+		expect(compareVersions("18.6.0", "18.6.0")).toBe(0);
+		expect(compareVersions("1.2", "1.2.0")).toBe(0);
+	});
+
+	it("sorts nvm's `vX.Y.Z` dirs by version", () => {
+		const dirs = ["v9.11.2", "v18.17.0", "v18.9.1", "v10.1.0"];
+		expect(dirs.sort((a, b) => compareVersions(a, b) ?? 0)).toEqual(["v9.11.2", "v10.1.0", "v18.9.1", "v18.17.0"]);
+	});
+
+	it("orders a prerelease below its release and ignores build metadata", () => {
+		expect(compareVersions("18.9.0-canary.3", "18.9.0")).toBe(-1);
+		expect(compareVersions("18.6.1-beta", "18.6.0")).toBe(1);
+		expect(compareVersions("18.9.0+build.5", "18.9.0")).toBe(0);
+	});
+
 	it("is null when either side is not a dotted-number version", () => {
-		expect(compareExtensionVersions("main", "1.0.0")).toBeNull();
-		expect(compareExtensionVersions("1.0.0", "1.0.1")).toBe(-1);
-		expect(compareExtensionVersions("1.0.0", "1.0.0")).toBe(0);
+		expect(compareVersions("main", "1.0.0")).toBeNull();
+		expect(compareVersions("1.0rc2", "1.0rc1")).toBeNull();
 	});
 });
 

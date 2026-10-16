@@ -24,7 +24,8 @@ import {
 	isCliToolId,
 } from "../../shared/cli-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
-import { compareVersions, ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
+import { isNewer } from "../../shared/version";
+import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion } from "../omp-runtime";
 import { CHECK_INTERVAL_MS, nextCheckDelay } from "../omp-updater";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
@@ -298,7 +299,7 @@ export class CliUpdater {
 		}
 		this.#set(record, { latest, checkedAt: (this.#deps.now ?? Date.now)() });
 		const installed = detection.installed;
-		if (latest && installed && compareVersions(latest, installed) <= 0) {
+		if (latest && installed && !isNewer(latest, installed)) {
 			this.#finish(record, { kind: "current" });
 			return;
 		}
@@ -340,8 +341,8 @@ export class CliUpdater {
 			record.detection = after;
 			this.#set(record, { installed: now, path: after.real });
 		}
-		const moved = now !== null && (installed === null || compareVersions(now, installed) > 0);
-		if (moved && (!latest || compareVersions(now, latest) >= 0)) {
+		const moved = now !== null && isNewer(now, installed);
+		if (moved && (!latest || !isNewer(latest, now))) {
 			this.#finish(record, { kind: "updated", from: installed, to: now });
 			return;
 		}

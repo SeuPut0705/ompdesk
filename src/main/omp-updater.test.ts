@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateState } from "../shared/omp-update";
-import { compareVersions } from "./omp-runtime";
 import {
 	CHECK_INTERVAL_MS,
 	MAX_CHECK_INTERVAL_MS,
@@ -13,15 +12,6 @@ import {
 import type { OmpUpdateOutcome } from "./setup/service";
 
 const HOUR = 60 * 60 * 1000;
-
-describe("version order", () => {
-	it("compares versions numerically, so 18.11 is newer than 18.9", () => {
-		expect(compareVersions("18.11.0", "18.9.0")).toBeGreaterThan(0);
-		expect(compareVersions("18.9.0", "18.11.0")).toBeLessThan(0);
-		expect(compareVersions("18.11.0", "18.11.0")).toBe(0);
-		expect(compareVersions("19.0.0", "18.99.99")).toBeGreaterThan(0);
-	});
-});
 
 describe("nextCheckDelay", () => {
 	it("is a few hours while all is well, doubles per failure in a row, and stops at a day", () => {
@@ -127,6 +117,21 @@ describe("OmpUpdater", () => {
 		expect(h.calls).toEqual(["fetch"]);
 		expect(h.updater.state()).toMatchObject({ latest: "18.9.0", installed: "18.11.0", failure: null });
 		h.updater.dispose();
+	});
+
+	it("treats a canary of the installed release as not newer, and a canary of a newer release as newer", async () => {
+		const same = harness({ installed: "18.9.0" });
+		same.set.latest = "18.9.0-canary.3";
+		same.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(same.calls).toEqual(["fetch"]);
+		same.updater.dispose();
+		const newer = harness({ installed: "18.8.7" });
+		newer.set.latest = "18.9.0-canary.3";
+		newer.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(newer.calls[1]).toBe("update 18.9.0-canary.3");
+		newer.updater.dispose();
 	});
 
 	it("leaves a missing omp to machine setup: no check (stock's needs an omp to run), no failure", async () => {

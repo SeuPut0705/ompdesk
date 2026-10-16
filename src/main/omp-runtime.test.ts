@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	compareVersions,
 	MIN_OMP_VERSION,
 	ompCandidates,
 	ompNeedsShell,
@@ -35,12 +34,6 @@ describe("omp version parsing", () => {
 	it("reads the semver out of `omp --version`", () => {
 		expect(parseOmpVersion("omp/18.6.1\n")).toBe("18.6.1");
 		expect(parseOmpVersion("no version here")).toBeNull();
-	});
-
-	it("compares numerically, not lexically", () => {
-		expect(compareVersions("18.10.0", "18.6.0")).toBeGreaterThan(0);
-		expect(compareVersions("18.6.0", "18.6.0")).toBe(0);
-		expect(compareVersions("17.99.99", "18.0.0")).toBeLessThan(0);
 	});
 });
 
