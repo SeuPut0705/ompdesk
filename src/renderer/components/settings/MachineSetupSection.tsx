@@ -25,6 +25,7 @@ import {
 	setupPresencePath,
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
+import { CliUpdateRows } from "./CliUpdateRows";
 import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
@@ -154,6 +155,7 @@ export function MachineSetupSection() {
 			) : (
 				<InlineNotice title={t("machineSetup.checking")} tone="pending" />
 			)}
+			{state && <CliUpdateRows />}
 		</SettingsSection>
 	);
 }

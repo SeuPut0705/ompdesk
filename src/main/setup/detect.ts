@@ -10,7 +10,7 @@ import { REA_NODE_REQUIREMENT } from "../../shared/builtin-mcp";
 import type { SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
 import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand, parseOmpVersion, resolveOmp } from "../omp-runtime";
-import { spawnPath } from "../shell-env";
+import { brewBinDirs, spawnPath } from "../shell-env";
 import { findGitBash } from "./paths";
 
 export interface Detection {
@@ -144,7 +144,13 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 				process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, "Microsoft", "WindowsApps", "winget.exe")] : [],
 			)
 		: null;
-	const gh = findExecutable([win ? "gh.exe" : "gh"], pathEnv, platform);
+	// Homebrew's gh is the user's even when the login shell's PATH omits Homebrew's bin dir.
+	const gh = findExecutable(
+		[win ? "gh.exe" : "gh"],
+		pathEnv,
+		platform,
+		win ? [] : brewBinDirs().map(dir => join(dir, "gh")),
+	);
 	const [bunPresence, omp, git, ghPresence, node] = await Promise.all([
 		bun ? versionOf(bun, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectOmp(),

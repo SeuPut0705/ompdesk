@@ -11,11 +11,13 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useGithubAuthStore } from "../../stores/github-auth";
+import { useMachineSetupStore } from "../../stores/machine-setup";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useUiStore } from "../../stores/ui";
 import { fakeGithubAuth, githubState } from "../../test-support/github-auth";
+import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -183,14 +185,36 @@ describe("AgentsPage", () => {
 		expect(omp.setSetting).toHaveBeenCalledWith("task.agentPrewalk", { reviewer: "on" });
 	});
 
-	it("offers the fix when GitHub CLI is missing", async () => {
+	it("connects right in the PR center when GitHub CLI is missing: the card's sign-in installs it, no download page", async () => {
 		const omp = installOmp();
-		useUiStore.getState().openAgents("prs");
-		await mount();
-		expect(omp.prRepo).toHaveBeenCalled();
-		expect(document.body.textContent).toContain("GitHub CLI (gh) is not installed");
-		await fire(byText("button", "Install GitHub CLI")!, "click");
-		expect(omp.openExternal).toHaveBeenCalledWith("https://cli.github.com");
+		const github = fakeGithubAuth(
+			githubState({
+				status: { installed: false, version: null, authenticated: false, login: null, otherAccounts: [] },
+			}),
+		);
+		const setup = fakeSetupApi(
+			setupState(
+				"darwin",
+				{ gh: { phase: "idle", presence: { kind: "missing" }, method: "brew" } },
+				{ automatic: true },
+			),
+		);
+		Object.assign(window.omp, { githubAuth: github.api, setup: setup.api });
+		try {
+			useUiStore.getState().openAgents("prs");
+			await mount();
+			expect(omp.prRepo).toHaveBeenCalled();
+			expect(document.body.textContent).toContain("GitHub CLI (gh) is not installed");
+			expect(document.body.textContent).toContain(translate("prCenter.unavailableHint.gh_missing_local"));
+			expect(byText("button", translate("prCenter.installGh"))).toBeUndefined();
+			expect(document.querySelector('[data-testid="github-sign-in"]')).not.toBeNull();
+			await fire(byText("button", translate("githubAuth.signIn"))!, "click");
+			expect(github.api.startLogin).toHaveBeenCalledOnce();
+			expect(omp.openExternal).not.toHaveBeenCalled();
+		} finally {
+			useGithubAuthStore.getState().reset();
+			useMachineSetupStore.getState().reset();
+		}
 	});
 
 	it("signs in to GitHub right in the PR center and checks the repo again once signed in", async () => {

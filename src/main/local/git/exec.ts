@@ -7,7 +7,7 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { spawnPath } from "../../shell-env";
+import { brewBinDirs, spawnPath } from "../../shell-env";
 
 /** Timeout for a `git`/`gh` call that names none; commands' answer budgets count in it. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -52,11 +52,18 @@ export function findOnPath(name: string, pathEnv: string, platform: NodeJS.Platf
 	return null;
 }
 
+// Homebrew's prefixes are looked in too when its bin dir is not on the login-shell PATH (a shell that never
+// runs `brew shellenv`, a PATH an rc file rebuilds): a gh or git installed by brew is still the user's.
+
 /** Absolute path to `git`/`gh`, or null when not installed. */
 export function resolveBin(name: "git" | "gh"): Promise<string | null> {
 	let pending = binCache.get(name);
 	if (!pending) {
-		pending = spawnPath().then(pathEnv => findOnPath(name, pathEnv));
+		pending = spawnPath().then(
+			pathEnv =>
+				findOnPath(name, pathEnv) ??
+				(process.platform === "darwin" ? findOnPath(name, brewBinDirs().join(delimiter)) : null),
+		);
 		binCache.set(name, pending);
 		// A missing binary is re-probed next call (the user may install it).
 		void pending.then(bin => {

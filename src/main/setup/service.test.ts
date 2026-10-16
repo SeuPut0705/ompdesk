@@ -66,20 +66,36 @@ function harness(
 		installedVersion?: string;
 		/** Where detection finds omp (default /home/u/.bun/bin/omp). */
 		ompBin?: string;
+		/** A vendor CLI update's exit code (default 0), output, and whether it runs until a cancel. */
+		toolExit?: number;
+		toolOutput?: string;
+		holdTool?: boolean;
+		fetchText?: (url: string) => Promise<string>;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
 	const states: SetupState[] = [];
 	const onOmpReady = vi.fn();
-	const itemOf = (spec: SpawnSpec): SetupItemId => {
+	const itemOf = (spec: SpawnSpec): SetupItemId | "tool" => {
 		const id = spec.args[0];
 		if (id === "bun" || id === "omp" || id === "git" || id === "gh" || id === "node") return id;
+		// A vendor CLI's update (`SetupService.runToolUpdate`): the fake installer's `cli-<tool> …` or a test's own spec.
+		if (id?.startsWith("cli-")) return "tool";
 		throw new Error(`unexpected spec ${JSON.stringify(spec)}`);
 	};
 	const runner = new SetupRunner((spec, env) => {
 		spawned.push({ spec, env });
 		const child = new FakeChild();
 		const item = itemOf(spec);
+		if (item === "tool") {
+			if (!options.holdTool) {
+				setImmediate(() => {
+					child.stdout.write(`${options.toolOutput ?? "updating tool"}\n`);
+					setImmediate(() => child.close(options.toolExit ?? 0));
+				});
+			}
+			return child;
+		}
 		if (item !== options.hold) {
 			setImmediate(() => {
 				child.stdout.write(`${options.output?.[item] ?? `installing ${item}`}\n`);
@@ -116,9 +132,11 @@ function harness(
 		detect,
 		runner,
 		refreshPath: async () => {},
-		fetchText: async url => {
-			throw new Error(`no network in tests: ${url}`);
-		},
+		fetchText:
+			options.fetchText ??
+			(async url => {
+				throw new Error(`no network in tests: ${url}`);
+			}),
 		fetch:
 			options.fetch ??
 			(async url => {
@@ -687,6 +705,105 @@ process.exit(1);`,
 			const none = harness(machine({ omp: missing }), { automatic: false });
 			await none.service.start();
 			await expect(none.service.latestOmp()).rejects.toThrow("omp is not installed");
+		});
+	});
+
+	describe("runToolUpdate (a connected account's vendor CLI)", () => {
+		const request = { tool: "codex", method: "npm", spawn: null, env: {} };
+
+		it("runs the fake installer as `cli-<tool> <method> update` under the supervisor, with the request's env on top, and leaves every setup item alone", async () => {
+			const h = harness(machine({}));
+			const before = h.service.state().items.map(item => item.phase);
+			const outcome = await h.service.runToolUpdate({ ...request, env: { BUN_INSTALL: "/x/.bun" } });
+			expect(outcome).toEqual({ kind: "succeeded" });
+			expect(h.spawned.map(entry => entry.spec)).toEqual([
+				{ file: "/fake/installer", args: ["cli-codex", "npm", "update"], shell: false },
+			]);
+			expect(h.spawned[0]?.env).toMatchObject({ PATH: "/usr/bin", BUN_INSTALL: "/x/.bun" });
+			expect(h.service.state().items.map(item => item.phase)).toEqual(before);
+			expect(existsSync(join(dir, "setup-state.json"))).toBe(false);
+			expect(h.onOmpReady).not.toHaveBeenCalled();
+		});
+
+		it("runs the owner's own command when no test installer is set", async () => {
+			const h = harness(machine({}), { testInstaller: null });
+			const spawn = { file: "/opt/homebrew/bin/brew", args: ["cli-upgrade", "gh"], shell: false };
+			const outcome = await h.service.runToolUpdate({
+				tool: "gh",
+				method: "brew",
+				spawn,
+				env: { HOMEBREW_NO_AUTO_UPDATE: "1" },
+			});
+			expect(outcome).toEqual({ kind: "succeeded" });
+			expect(h.spawned.map(entry => entry.spec)).toEqual([spawn]);
+			expect(h.spawned[0]?.env).toMatchObject({ HOMEBREW_NO_AUTO_UPDATE: "1" });
+		});
+
+		it("reports the exit code and the last output of a failing update", async () => {
+			const h = harness(machine({}), { toolExit: 1, toolOutput: "EACCES: permission denied" });
+			const outcome = await h.service.runToolUpdate(request);
+			expect(outcome).toMatchObject({ kind: "failed" });
+			expect(outcome.kind === "failed" ? outcome.detail : "").toMatch(/^exit 1 — .*EACCES: permission denied/);
+		});
+
+		it("waits behind a running install and runs when it ends", async () => {
+			const h = harness(machine({ gh: missing }), { hold: "gh" });
+			void h.service.installForConnection("gh");
+			await vi.waitFor(() => expect(h.phase("gh")).toBe("running"));
+			const run = h.service.runToolUpdate(request);
+			expect(h.service.cancel()).toBe(true);
+			expect(await run).toEqual({ kind: "succeeded" });
+			// The install was first in the queue; the update ran only after it ended.
+			expect(h.spawned.map(entry => entry.spec.args[0])).toEqual(["gh", "cli-codex"]);
+		});
+
+		it("a cancel from This computer ends the running update as cancelled", async () => {
+			const h = harness(machine({}), { holdTool: true });
+			const run = h.service.runToolUpdate(request);
+			await vi.waitFor(() => expect(h.spawned).toHaveLength(1));
+			expect(h.service.cancel()).toBe(true);
+			expect(await run).toEqual({ kind: "cancelled" });
+		});
+
+		it("skips after quitting and on a platform without setup", async () => {
+			const quit = harness(machine({}));
+			quit.service.dispose();
+			expect(await quit.service.runToolUpdate(request)).toEqual({ kind: "skipped" });
+			const other = harness(machine({}), { platform: "other" });
+			expect(await other.service.runToolUpdate(request)).toEqual({ kind: "skipped" });
+			expect([...quit.spawned, ...other.spawned]).toEqual([]);
+		});
+
+		it("updates the managed copy from machine setup's archive release, failing readably when the lookup fails", async () => {
+			const h = harness(machine({}), { testInstaller: null });
+			const outcome = await h.service.runToolUpdate({
+				tool: "gh",
+				method: "managed",
+				spawn: null,
+				managed: "gh",
+				env: {},
+			});
+			expect(outcome).toMatchObject({ kind: "failed", detail: expect.stringContaining("no network in tests") });
+			expect(h.spawned).toEqual([]);
+		});
+	});
+
+	describe("latestManaged", () => {
+		it("is the version of the verified archive release machine setup would download", async () => {
+			const sha = "a".repeat(64);
+			const h = harness(machine({}), {
+				fetchText: async url => {
+					if (url.endsWith("/releases/latest")) return JSON.stringify({ tag_name: "v2.99.0" });
+					if (url.endsWith("_checksums.txt")) return `${sha}  gh_2.99.0_macOS_arm64.zip\n`;
+					throw new Error(`unexpected ${url}`);
+				},
+			});
+			await expect(h.service.latestManaged("gh")).resolves.toBe("2.99.0");
+		});
+
+		it("rejects with the lookup's reason", async () => {
+			const h = harness(machine({}));
+			await expect(h.service.latestManaged("node")).rejects.toThrow("no network in tests");
 		});
 	});
 });

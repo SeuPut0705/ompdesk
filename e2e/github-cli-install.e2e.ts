@@ -124,6 +124,8 @@ for (const language of ["en", "ko"] as const) {
 			PI_PROFILE: "",
 			OMP_GUI_OMP: bin,
 			OMP_GUI_TEST_INSTALLER: installer,
+			// Not the developer's own Homebrew: its gh would answer for the PATH this test emptied of gh.
+			OMP_GUI_TEST_BREW_DIRS: "",
 			OMP_GUI_TEST_DOWNLOAD: download.url,
 			OMP_GUI_TEST_DOWNLOAD_SHA256: createHash("sha256").update(DOWNLOAD).digest("hex"),
 			OMPDESK_FAKE_INSTALLER_DIR: installerDir,

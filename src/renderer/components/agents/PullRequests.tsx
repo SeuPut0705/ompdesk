@@ -145,20 +145,23 @@ export function PullRequests() {
 
 	if (!repo.available) {
 		const reason = repo.reason;
-		// Signed out: sign in right here when the tab runs on this computer (its gh is ours).
-		if (reason === "gh_unauthenticated") {
-			const local = focusedTabDevice() === undefined;
+		// Signed out, or gh missing: connect right here when the tab runs on this computer (its gh is ours; the
+		// card installs a missing gh by itself, then signs in). A paired host's gh is the host's to set up.
+		const local = focusedTabDevice() === undefined;
+		if (reason === "gh_unauthenticated" || (reason === "gh_missing" && local)) {
+			const hint =
+				reason === "gh_missing"
+					? "prCenter.unavailableHint.gh_missing_local"
+					: local
+						? "prCenter.unavailableHint.gh_unauthenticated"
+						: "prCenter.unavailableHint.gh_unauthenticated_remote";
 			return (
 				<div className="flex flex-1 flex-col items-center justify-center overflow-y-auto">
 					<EmptyState
 						actions={retry}
-						description={t(
-							local
-								? "prCenter.unavailableHint.gh_unauthenticated"
-								: "prCenter.unavailableHint.gh_unauthenticated_remote",
-						)}
+						description={t(hint)}
 						icon={<GitPullRequest />}
-						title={t("prCenter.unavailable.gh_unauthenticated")}
+						title={t(`prCenter.unavailable.${reason}`)}
 					/>
 					{local && <GithubSignIn className="mb-8 w-full max-w-lg" onSignedIn={() => void probe()} />}
 				</div>

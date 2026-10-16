@@ -120,6 +120,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/session/model-compaction-threshold"),
 	"@oh-my-pi/pi-coding-agent/session/session-context": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-context"),
+	"@oh-my-pi/pi-coding-agent/sdk": () => import("@oh-my-pi/pi-coding-agent/sdk"),
 	"@oh-my-pi/pi-coding-agent/session/session-loader": () => import("@oh-my-pi/pi-coding-agent/session/session-loader"),
 	"@oh-my-pi/pi-coding-agent/session/session-manager": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-manager"),

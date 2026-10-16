@@ -35,11 +35,14 @@ export function GithubCenter() {
 	if (!probe.data) {
 		if (probe.error) {
 			const missing = probe.errorCode === "gh_missing";
-			return (
+			// On this computer the connect card installs a missing gh by itself and then signs in; a paired
+			// host's gh is the host's to set up (its own link below).
+			const connectHere = missing && focusedTabDevice() === undefined;
+			const empty = (
 				<EmptyState
 					actions={
 						<>
-							{missing && (
+							{missing && !connectHere && (
 								<Button
 									onClick={() => void window.omp.system.openExternal(GH_INSTALL_URL)}
 									size="sm"
@@ -55,7 +58,11 @@ export function GithubCenter() {
 					}
 					description={
 						missing ? (
-							t("prCenter.unavailableHint.gh_missing")
+							t(
+								connectHere
+									? "prCenter.unavailableHint.gh_missing_local"
+									: "prCenter.unavailableHint.gh_missing",
+							)
 						) : (
 							<span role="alert">
 								<ErrorDetail error={probe.error} />
@@ -65,6 +72,13 @@ export function GithubCenter() {
 					icon={<Github />}
 					title={t(missing ? "prCenter.unavailable.gh_missing" : "github.probeFailed")}
 				/>
+			);
+			if (!connectHere) return empty;
+			return (
+				<div className="flex flex-1 flex-col items-center justify-center overflow-y-auto">
+					{empty}
+					<GithubSignIn className="mb-8 w-full max-w-lg" onSignedIn={probe.reload} />
+				</div>
 			);
 		}
 		return (

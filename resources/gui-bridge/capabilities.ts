@@ -663,6 +663,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"@oh-my-pi/pi-ai/oauth": ["getOAuthProviders()", "getOAuthCredentialProvider()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
 			[`${AGENT}/slash-commands/helpers/logout`]: ["listLogoutAccounts()", "logoutCredential()"],
+			// The Updates section's tool CLIs read the connected providers in the stock helper (accounts.providers).
+			[`${AGENT}/sdk`]: ["discoverAuthStorage()"],
 		},
 	},
 	modelRoles: {

@@ -145,6 +145,26 @@ export type OmpUpdateOutcome =
 	| { kind: "failed"; failure: OmpUpdateFailure }
 	| { kind: "skipped" };
 
+/** One vendor CLI update for `SetupService.runToolUpdate` (src/main/cli-tools/updater.ts). */
+export interface ToolUpdateRequest {
+	/** The tool and its update method; the fake installer is called `<installer> cli-<tool> <method> update`. */
+	tool: string;
+	method: string;
+	/** The owner's update command; null with `managed`. */
+	spawn: SpawnSpec | null;
+	/** Machine setup's own archive of this item again (the copy in the managed tools dir). */
+	managed?: "gh" | "node";
+	/** Added to the installer environment (BUN_INSTALL, HOMEBREW_NO_AUTO_UPDATE). */
+	env: Record<string, string>;
+}
+
+/** `skipped`: the app is quitting, or setup cannot run here. */
+export type ToolUpdateOutcome =
+	| { kind: "succeeded" }
+	| { kind: "failed"; detail?: string }
+	| { kind: "cancelled" }
+	| { kind: "skipped" };
+
 export class SetupService {
 	readonly #deps: SetupServiceDeps;
 	readonly #runner: SetupRunner;
@@ -291,6 +311,94 @@ export class SetupService {
 		const parsed = code === 0 ? parseUpdateCheck(output) : null;
 		if (!parsed) throw new Error(updateDetail(output) ?? `omp update --check exited with code ${code}`);
 		return parsed.latestVersion;
+	}
+
+	/** The newest release of machine setup's verified archive for gh or Node (`runToolUpdate`'s `managed` update installs it). */
+	async latestManaged(item: "gh" | "node"): Promise<string> {
+		const release = await resolveArchiveRelease(item, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+		return release.version;
+	}
+
+	/**
+	 * One vendor CLI's update (src/main/cli-tools/): its owner's command, or machine setup's own verified
+	 * archive again for the gh or Node copy in the managed tools dir, under the supervisor, queued behind any
+	 * install. It never touches the setup items' state; This computer's Cancel and quitting stop it.
+	 */
+	runToolUpdate(request: ToolUpdateRequest): Promise<ToolUpdateOutcome> {
+		const { promise, resolve } = Promise.withResolvers<ToolUpdateOutcome>();
+		const settled = this.#enqueue(async () => {
+			resolve(await this.#runToolUpdate(request));
+		});
+		// A disposed service runs no task: settle as skipped. After a normal finish this resolve is a no-op.
+		settled.then(
+			() => resolve({ kind: "skipped" }),
+			error => resolve({ kind: "failed", detail: String(error) }),
+		);
+		return promise;
+	}
+
+	async #runToolUpdate(request: ToolUpdateRequest): Promise<ToolUpdateOutcome> {
+		if (this.#disposed || this.#deps.platform === "other") return { kind: "skipped" };
+		const installer = this.#deps.testInstaller;
+		let spawn: SpawnSpec;
+		let download: PlanDownload | null = null;
+		if (installer) {
+			const platform = this.#deps.platform === "win32" ? "win32" : "darwin";
+			spawn = {
+				file: ompSpawnCommand(installer, platform),
+				args: ompSpawnArgs(installer, [`cli-${request.tool}`, request.method, "update"], platform),
+				shell: ompNeedsShell(installer, platform),
+			};
+			download = this.#testDownload();
+		} else if (request.spawn) {
+			spawn = request.spawn;
+		} else if (request.managed) {
+			if (!this.#detection) await this.#detect();
+			const detection = this.#detection;
+			let release: ArchiveRelease;
+			try {
+				release = await resolveArchiveRelease(request.managed, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+			} catch (error) {
+				return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
+			}
+			const plan = detection ? buildPlan(request.managed, "archive", this.#planContext(detection), release) : null;
+			if (!plan) return { kind: "failed", detail: `no archive plan for ${request.managed}` };
+			spawn = plan.spawn;
+			download = plan.download;
+		} else return { kind: "skipped" };
+		let output = "";
+		try {
+			if (download) {
+				const controller = new AbortController();
+				this.#download = controller;
+				try {
+					await downloadVerified({
+						...download,
+						signal: controller.signal,
+						onProgress: () => {},
+						...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
+					});
+				} catch (error) {
+					if (controller.signal.aborted) return { kind: "cancelled" };
+					return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
+				} finally {
+					this.#download = null;
+				}
+			}
+			const env = { ...(await this.#installEnv()), ...request.env };
+			const outcome = await this.#runner.run(spawn, env, chunk => {
+				output = (output + chunk).slice(-SETUP_OUTPUT_TAIL);
+			});
+			if (outcome.kind === "cancelled") return { kind: "cancelled" };
+			if (outcome.kind === "failed") {
+				const exit = outcome.exitCode === null ? undefined : `exit ${outcome.exitCode}`;
+				const detail = [exit, updateDetail(output) ?? outcome.detail].filter(Boolean).join(" — ");
+				return { kind: "failed", ...(detail ? { detail } : {}) };
+			}
+			return { kind: "succeeded" };
+		} finally {
+			if (download) await rm(download.file, { force: true });
+		}
 	}
 
 	/** Cancel the running install (its download or its process) and the rest of its pipeline. */

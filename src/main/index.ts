@@ -30,6 +30,7 @@ import {
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
+import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	CLOSE_TO_TRAY_NOTICE_PREF,
 	CLOSE_TO_TRAY_PREF,
@@ -49,6 +50,7 @@ import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -82,7 +84,7 @@ import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
-import { stopStockHelper } from "./stock-helper";
+import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, TurnResume } from "./turn-resume";
@@ -315,6 +317,7 @@ let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let ompUpdater: OmpUpdater | null = null;
+let cliUpdater: CliUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
@@ -730,10 +733,39 @@ app.whenReady().then(() => {
 	});
 	ompUpdater = updater;
 	registerOmpUpdateIpc(ipcMain, updater);
+	// The vendor CLIs of connected accounts (Claude Code, Codex, Gemini, Cursor Agent, gh, …) keep current
+	// the same way (src/main/cli-tools/, pref `cliAutoUpdate`): already-installed tools only, through the
+	// method that owns each. A test launch needs the fake installer and OMP_GUI_TEST_CLI_UPDATES=1. A
+	// paired host does its own; remote tabs never reach this computer's tools.
+	const cliToolUpdater = new CliUpdater({
+		scheduled: testInstaller
+			? process.env.OMP_GUI_TEST_CLI_UPDATES === "1"
+			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+		enabled: () => prefs.get(CLI_AUTO_UPDATE_PREF) !== false,
+		platform: platform === "win32" ? "win32" : "darwin",
+		toolsDir,
+		connectedProviders: () =>
+			stockHelperRequest<{ providers: string[] }>("accounts.providers").then(result => result.providers),
+		env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		testInstaller,
+		managedLatest: item => setup.latestManaged(item),
+		runUpdate: request => setup.runToolUpdate(request),
+		processes: psCommands,
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.CLI_UPDATE_STATE, state);
+			}
+		},
+	});
+	cliUpdater = cliToolUpdater;
+	registerCliUpdateIpc(ipcMain, cliToolUpdater);
 	void setup
 		.start()
 		.catch(() => undefined)
-		.then(() => updater.start());
+		.then(() => {
+			updater.start();
+			cliToolUpdater.start();
+		});
 	githubAuthService = createGithubAuthService(
 		state => {
 			for (const win of BrowserWindow.getAllWindows()) {
@@ -914,6 +946,7 @@ app.whenReady().then(() => {
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
+			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
@@ -996,6 +1029,7 @@ installQuitGuard(
 	() => {
 		void statsServer?.kill();
 		ompUpdater?.dispose();
+		cliUpdater?.dispose();
 		setupService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();

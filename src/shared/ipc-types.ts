@@ -5,6 +5,7 @@
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { BuiltinReaState } from "./builtin-mcp";
+import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
@@ -115,6 +116,8 @@ export const IPC_EVENTS = {
 	OMP_UPDATED: "omp-update:updated",
 	/** A paired host's omp update changed (pushed by the host over the link); payload is an IpcHostOmpUpdate. */
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
+	/** The tool CLIs' automatic updates changed (src/main/cli-tools/updater.ts); payload is the whole CliUpdateState. */
+	CLI_UPDATE_STATE: "cli-update:state",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
 	GITHUB_AUTH_STATE: "github-auth:state",
 } as const;
@@ -291,6 +294,10 @@ export const IPC_COMMANDS = {
 	HOST_OMP_UPDATE_GET: "host-omp-update:get",
 	/** Update the paired host's omp now, whatever its pref says (runs on the host in the background) */
 	HOST_OMP_UPDATE_NOW: "host-omp-update:now",
+	/** The tool CLIs' automatic updates (src/main/cli-tools/updater.ts): whole CliUpdateState snapshot */
+	CLI_UPDATE_GET_STATE: "cli-update:get-state",
+	/** Check and update one tool (a CliToolId) or all now, whatever the pref says (runs in the background) */
+	CLI_UPDATE_NOW: "cli-update:now",
 	/** GitHub sign-in on this machine: whole GithubAuthState, re-checked when stale (`force` re-checks now) */
 	GITHUB_AUTH_REFRESH: "github-auth:refresh",
 	/** Start `gh auth login --web` (ends any live sign-in) */
@@ -1578,6 +1585,13 @@ export interface OmpApi {
 		/** Check and update the host's omp now, whatever its pref says; progress arrives through `onState`. */
 		now(device: string): Promise<OmpUpdateState>;
 		onState(callback: (update: IpcHostOmpUpdate) => void): () => void;
+	};
+	/** This computer's tool CLIs (Claude Code, Codex, Gemini, Cursor Agent, gh, Node…), kept current by its own updater. */
+	cliUpdate: {
+		getState(): Promise<CliUpdateState>;
+		/** Check and update `tool` (or every listed tool) now, whatever the pref says; progress arrives through `onState`. */
+		now(tool?: CliToolId): Promise<void>;
+		onState(callback: (state: CliUpdateState) => void): () => void;
 	};
 	/** This machine's GitHub CLI sign-in; remote tabs never use it (their host signs in on its own). */
 	githubAuth: {

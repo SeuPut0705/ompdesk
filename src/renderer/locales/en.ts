@@ -258,6 +258,8 @@ export const en: Record<string, string> = {
 	"prCenter.installGh": "Install GitHub CLI",
 	"prCenter.unavailableHint.gh_missing":
 		"Install the GitHub CLI, then sign in from Settings › General — no terminal needed.",
+	"prCenter.unavailableHint.gh_missing_local":
+		"Sign in below and OMPdesk installs the GitHub CLI for you first — no terminal needed.",
 	"prCenter.unavailableHint.gh_unauthenticated":
 		"Sign in below. The GitHub CLI on this computer, and your terminal, use the same login.",
 	"prCenter.unavailableHint.gh_unauthenticated_remote": "Sign in to GitHub on the computer this tab runs on.",
@@ -5801,4 +5803,43 @@ export const en: Record<string, string> = {
 	"ompUpdate.failure.not-updated": "The omp update finished, but omp is still older than {latest}.",
 	"ompUpdate.failure.unusable": "The updated omp doesn't run. Open tabs keep the omp they have.",
 	"ompUpdate.failure.cancelled": "You cancelled the omp update.",
+	"cliUpdate.auto": "Update tool CLIs automatically",
+	"cliUpdate.autoDesc":
+		"Keeps the command-line tools of your connected accounts (Claude Code, Codex, Gemini CLI, Cursor Agent, GitHub CLI) current, each the way it was installed. Only tools already on this computer are updated; OMPdesk never installs one.",
+	"cliUpdate.none": "None of your connected accounts' CLIs are installed on this computer.",
+	"cliUpdate.now": "Update now",
+	"cliUpdate.nowFor": "Update {name} now",
+	"cliUpdate.nowFailed": "Couldn't start the CLI update",
+	"cliUpdate.retryNote": "OMPdesk tries again at the next check.",
+	"cliUpdate.method": "Updated via {method}",
+	"cliUpdate.method.none": "Not updated by OMPdesk",
+	"cliUpdate.method.self": "its own updater",
+	"cliUpdate.method.npm": "npm",
+	"cliUpdate.method.bun": "Bun",
+	"cliUpdate.method.brew": "Homebrew",
+	"cliUpdate.method.brew-cask": "Homebrew cask",
+	"cliUpdate.method.winget": "winget",
+	"cliUpdate.method.managed": "OMPdesk's tools folder",
+	"cliUpdate.version.installed": "Installed {version}",
+	"cliUpdate.version.unknown": "Installed (version unknown)",
+	"cliUpdate.version.latest": "Latest {version}",
+	"cliUpdate.skip.system": "The operating system owns this copy, so OMPdesk leaves it alone.",
+	"cliUpdate.skip.bundled": "This copy ships inside another app, which updates it.",
+	"cliUpdate.skip.not-writable":
+		"It sits where only an administrator can write; OMPdesk never uses administrator rights.",
+	"cliUpdate.skip.unknown-install":
+		"Installed in a way OMPdesk can't update (a version manager or a copy you placed yourself).",
+	"cliUpdate.status.checking": "Checking for a newer version…",
+	"cliUpdate.status.updating": "Updating…",
+	"cliUpdate.status.notChecked": "Not checked yet.",
+	"cliUpdate.status.manualOnly": "This build doesn't check on its own. Update now still works.",
+	"cliUpdate.status.current": "Up to date.",
+	"cliUpdate.status.updatedFrom": "Updated {from} → {to}.",
+	"cliUpdate.status.updated": "Updated to {to}.",
+	"cliUpdate.status.deferred":
+		"Version {latest} is available, but it is running. OMPdesk updates it at the next check after it quits.",
+	"cliUpdate.failure.check": "Couldn't check for a newer version.",
+	"cliUpdate.failure.install": "The update failed.",
+	"cliUpdate.failure.not-updated": "The update finished, but it still reports the old version.",
+	"cliUpdate.failure.cancelled": "The update was cancelled.",
 };

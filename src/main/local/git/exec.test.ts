@@ -9,6 +9,7 @@ const made: string[] = [];
 const savedEnv = { PATH: process.env.PATH, SHELL: process.env.SHELL };
 afterEach(async () => {
 	delete process.env.DEVELOPER_DIR;
+	delete process.env.OMP_GUI_TEST_BREW_DIRS;
 	process.env.PATH = savedEnv.PATH;
 	process.env.SHELL = savedEnv.SHELL;
 	resetLoginShellEnvCache();
@@ -39,6 +40,8 @@ describe.skipIf(process.platform === "win32")("resolveBin", () => {
 			mode: 0o755,
 		});
 		process.env.SHELL = shell;
+		// Not the developer's own Homebrew: a brew-installed gh would answer before setup does.
+		process.env.OMP_GUI_TEST_BREW_DIRS = "";
 		process.env.PATH = `${before}:/usr/bin:/bin`;
 		resetLoginShellEnvCache();
 		expect(await resolveBin("gh")).toBeNull();

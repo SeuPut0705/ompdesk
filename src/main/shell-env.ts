@@ -117,6 +117,19 @@ function compareVersionDirs(a: string, b: string): number {
 	return 0;
 }
 
+/** Homebrew's bin dirs (Apple Silicon, Intel). */
+const BREW_BIN_DIRS: readonly string[] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/**
+ * Where a brew-installed tool is looked for even when the shell's PATH omits Homebrew's bin dir.
+ * `OMP_GUI_TEST_BREW_DIRS` (a PATH-style list, empty for none) replaces it so a test launch is not
+ * answered by the developer's own Homebrew.
+ */
+export function brewBinDirs(): readonly string[] {
+	const override = process.env.OMP_GUI_TEST_BREW_DIRS;
+	return override === undefined ? BREW_BIN_DIRS : override.split(delimiter).filter(Boolean);
+}
+
 /** Existing well-known user bin dirs, used when the shell probe fails. */
 function fallbackBinDirs(platform: NodeJS.Platform): string[] {
 	const home = homedir();
@@ -138,8 +151,7 @@ function fallbackBinDirs(platform: NodeJS.Platform): string[] {
 		join(home, "bin"),
 		join(home, ".cargo", "bin"),
 		join(home, ".volta", "bin"),
-		"/opt/homebrew/bin",
-		"/usr/local/bin",
+		...BREW_BIN_DIRS,
 	];
 	// nvm keeps no stable "current" symlink; take the newest installed node.
 	try {

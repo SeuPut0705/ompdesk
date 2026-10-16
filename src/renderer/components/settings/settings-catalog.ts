@@ -295,6 +295,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		labelKey: "ompUpdate.auto",
 		aliases: "omp update upgrade automatically auto version cli npm 자동 업데이트 업그레이드 버전",
 	},
+	{
+		id: "cliAutoUpdate",
+		section: "updates",
+		labelKey: "cliUpdate.auto",
+		aliases:
+			"cli tools update upgrade automatically auto claude code codex gemini cursor agent copilot gh github cli node 도구 자동 업데이트 업그레이드 클로드 코덱스 제미나이 커서",
+	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{
 		id: "followAgentTheme",

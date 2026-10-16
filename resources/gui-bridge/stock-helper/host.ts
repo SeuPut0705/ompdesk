@@ -6,6 +6,7 @@
  * without taking a single shell with it.
  */
 import { createInterface } from "node:readline";
+import { methods as accounts } from "./accounts";
 import { createDispatcher, type HelperMethods } from "./dispatch";
 import { methods as models } from "./models";
 import { methods as search } from "./search";
@@ -13,7 +14,7 @@ import { methods as sessions } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
 
 const terminalWorker = process.argv[2] === "terminals";
-const methods: HelperMethods = terminalWorker ? terminals : { ...sessions, ...models, ...search };
+const methods: HelperMethods = terminalWorker ? terminals : { ...sessions, ...models, ...search, ...accounts };
 const input = createInterface({ input: process.stdin });
 if (terminalWorker) process.on("exit", disposeTerminals);
 input.on("close", () => {
