@@ -522,6 +522,7 @@ export const en: Record<string, string> = {
 	"input.modelTooltip": "Change model · {id}",
 	"input.sendModeLabel": "While running, send as: {mode}. Click to switch",
 	"input.sendModeHint": "Steer reaches the running turn right away; a follow-up is sent after the turn ends.",
+	"input.live.background": "Background agents running: {count}. Sending now starts right away.",
 	"input.more.autoCompact": "Auto-compact context",
 	"input.more.autoRetry": "Auto-retry on failure",
 	"input.more.steeringAll": "Steer with all queued messages",

@@ -73,6 +73,7 @@ import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip, ZoomableImage } from "../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../dialogs/ask-dock";
+import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
@@ -1265,9 +1266,11 @@ export function InputArea() {
 					<div
 						className="omp-composer-box relative flex flex-col rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-field) shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)"
 						data-composer-mode={composerMode?.mode}
+						data-composer-draft={text !== "" || undefined}
 						data-drag-active={dragActive || undefined}
 						{...dropProps}
 					>
+						<ComposerLiveEdge />
 						{dragActive && (
 							<div aria-hidden className="omp-composer-drop omp-fade-in">
 								<Paperclip aria-hidden className="size-(--sc-icon-md)" />
@@ -1649,21 +1652,24 @@ export function InputArea() {
 										/>
 									) : (
 										showSend && (
-											<IconButton
-												className="omp-composer-action"
-												disabled={sendDisabled}
-												icon={<ArrowUp strokeWidth={2.25} />}
-												label={t("input.send")}
-												onClick={() => {
-													if (expanded) setExpanded(false);
-													send();
-													// The button disables itself once the draft clears; a disabled
-													// focused control swallows keystrokes (⌘, and friends), so keep
-													// typing focus in the composer like Enter does.
-													textareaRef.current?.focus();
-												}}
-												variant="primary"
-											/>
+											<ComposerSend label={t("input.send")}>
+												<IconButton
+													className="omp-composer-action"
+													disabled={sendDisabled}
+													icon={<ArrowUp strokeWidth={2.25} />}
+													label={t("input.send")}
+													onClick={() => {
+														if (expanded) setExpanded(false);
+														send();
+														// The button disables itself once the draft clears; a disabled
+														// focused control swallows keystrokes (⌘, and friends), so keep
+														// typing focus in the composer like Enter does.
+														textareaRef.current?.focus();
+													}}
+													tooltip={false}
+													variant="primary"
+												/>
+											</ComposerSend>
 										)
 									)}
 								</div>

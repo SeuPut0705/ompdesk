@@ -514,6 +514,7 @@ export const ko: Record<string, string> = {
 	"input.modelTooltip": "모델 변경 · {id}",
 	"input.sendModeLabel": "실행 중 보내기 방식: {mode} — 클릭해서 전환",
 	"input.sendModeHint": "추가 지시는 실행 중인 턴에 바로 반영되고, 후속 메시지는 턴이 끝난 뒤 보내져요.",
+	"input.live.background": "{count}개 에이전트가 백그라운드에서 작업 중이에요. 지금 보내도 바로 시작해요.",
 	"input.more.autoCompact": "컨텍스트 자동 압축",
 	"input.more.autoRetry": "실패 시 자동 재시도",
 	"input.more.steeringAll": "대기 중인 메시지를 모두 추가 지시로 보내기",

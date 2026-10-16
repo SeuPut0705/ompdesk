@@ -3666,3 +3666,108 @@ button.omp-file-chip-name:hover {
 	left: 50%;
 	transform: translate(-50%, -50%);
 }
+
+/* Composer "work is going on" cue (layout/ComposerLive.tsx). One accent light travels the box's border:
+   the 1px ring is a static mask over the box's own edge and only the gradient layer inside it turns, so the
+   compositor moves one layer (transform) and nothing repaints per frame. `turn` = the main turn runs;
+   `background` = idle with agents or shells still working: fainter and slower. */
+.omp-composer-live {
+	position: absolute;
+	inset: -1px;
+	padding: 1px;
+	overflow: hidden;
+	border-radius: inherit;
+	pointer-events: none;
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+	opacity: 0.9;
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-composer-live::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 170%;
+	aspect-ratio: 1;
+	translate: -50% -50%;
+	background: conic-gradient(
+		from 0deg,
+		transparent 0 58%,
+		color-mix(in srgb, var(--sc-accent) 70%, transparent) 84%,
+		var(--sc-accent) 94%,
+		transparent 100%
+	);
+	animation: omp-composer-live-turn 8s linear infinite; /* motion-ok: working signal */
+	will-change: transform;
+}
+
+.omp-composer-live[data-composer-live="background"] {
+	opacity: 0.45;
+}
+
+.omp-composer-live[data-composer-live="background"]::before {
+	animation-duration: 16s; /* motion-ok: working signal */
+}
+
+/* Hidden window: the light rests (nothing animates for nobody). */
+.omp-composer-live[data-paused]::before {
+	animation-play-state: paused;
+}
+
+/* Typing wins: while the field holds focus and a draft, the cue steps out of the way. */
+.omp-composer-box:has(textarea:focus)[data-composer-draft] .omp-composer-live {
+	opacity: 0;
+}
+
+.omp-composer-region--expanded .omp-composer-live {
+	display: none;
+}
+
+@keyframes omp-composer-live-turn {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Background work: a ring on Send whose breathing is opacity only. */
+.omp-composer-send-live {
+	position: relative;
+	display: inline-flex;
+	border-radius: var(--sc-radius-full);
+}
+
+.omp-composer-send-live[data-composer-live]::after {
+	content: "";
+	position: absolute;
+	inset: -3px;
+	border: 1px solid var(--sc-accent-border);
+	border-radius: inherit;
+	pointer-events: none;
+	animation: omp-composer-live-breathe 3.2s ease-in-out infinite; /* motion-ok: working signal */
+}
+
+@keyframes omp-composer-live-breathe {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+/* Reduced motion: a static indicator — the full ring, softly tinted, and a still send ring. */
+@media (prefers-reduced-motion: reduce) {
+	.omp-composer-live::before {
+		inset: 0;
+		width: auto;
+		aspect-ratio: auto;
+		translate: none;
+		background: color-mix(in srgb, var(--sc-accent) 70%, transparent);
+		animation: none;
+		will-change: auto;
+	}
+
+	.omp-composer-send-live[data-composer-live]::after {
+		animation: none;
+	}
+}
