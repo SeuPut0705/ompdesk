@@ -18,8 +18,8 @@ import {
 } from "./machine-services";
 import type { OmpUpdater } from "./omp-updater";
 import { HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
+import type { Revive } from "./restart-policy";
 import { resetLoginShellEnvCache } from "./shell-env";
-import type { Revive } from "./stats-restart-policy";
 
 const statsText = (key: "stats.notRunning" | "stats.notReady") => `local:${key}`;
 const OPTIONS: IpcBenchmarkRunOptions = { models: ["anthropic/x"], profile: "chat", runs: 1, parallel: 1 };

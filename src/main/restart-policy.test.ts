@@ -1,13 +1,20 @@
 /**
- * Contracts for the stats server's restart budget — the part that decides
+ * Contracts for the crash-restart ladder and the stats server's restart budget — the part that decides
  * whether a dead dashboard ever comes back. Without the ceiling the manager
  * respawns a broken binary forever; without the revive path it gives up at port
  * 0 and every later read answers "not ready" for the rest of the session.
  */
 import { describe, expect, it } from "vitest";
-import { MAX_RESTART_ATTEMPTS, RestartBudget } from "./stats-restart-policy";
+import { MAX_RESTART_ATTEMPTS, RestartBudget, restartDelay } from "./restart-policy";
 
 const COOLDOWN_MS = 30_000;
+
+describe("restartDelay", () => {
+	it("waits 1 s, 2 s, then 4 s across one crash cycle of three restarts", () => {
+		expect(MAX_RESTART_ATTEMPTS).toBe(3);
+		expect([1, 2, 3].map(restartDelay)).toEqual([1000, 2000, 4000]);
+	});
+});
 
 describe("RestartBudget", () => {
 	it("caps one crash cycle and then stops asking for a respawn", () => {

@@ -41,13 +41,11 @@ import {
 	ompSpawnCommand,
 } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
+import { MAX_RESTART_ATTEMPTS, restartDelay } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
-
-const MAX_RESTART_ATTEMPTS = 3;
-const RESTART_DELAYS = [1000, 2000, 4000];
 
 /** stderr lines kept per spawn for the crash report. */
 const STDERR_TAIL_LINES = 20;
@@ -903,7 +901,7 @@ export class SidecarManager extends EventEmitter {
 			return;
 		}
 
-		const delay = RESTART_DELAYS[attempt - 1] ?? 4000;
+		const delay = restartDelay(attempt);
 		this.#restartCount = attempt;
 		this.#setStatus("restarting", detail, { attempt, maxAttempts: MAX_RESTART_ATTEMPTS });
 

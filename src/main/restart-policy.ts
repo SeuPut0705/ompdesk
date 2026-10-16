@@ -1,17 +1,23 @@
 /**
- * Restart budget for the bundled stats server. Kept out of `stats-server.ts`
- * (which spawns) so the ladder itself is testable: a crash cycle gets a bounded
- * backoff ladder, and a server that already gave up can be revived on demand by
- * the next dashboard read — for a capped number of rounds, after which the
- * failure is reported instead of retried forever.
+ * Crash-restart ladder shared by every tab's omp (`sidecar.ts`) and the bundled stats server
+ * (`stats-server.ts`): a crash cycle gets a bounded backoff ladder. For the stats server, which spawns
+ * only on demand, a server that already gave up can be revived by the next dashboard read — for a capped
+ * number of rounds, after which the failure is reported instead of retried forever. Kept out of the
+ * spawning modules so the ladder itself is testable.
  */
 
+/** Restarts in a row before a crash cycle gives up. */
 export const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_DELAYS_MS = [1000, 2000, 4000];
 /** Minimum gap between two demand-driven revive rounds. */
 const REVIVE_COOLDOWN_MS = 30_000;
 /** Revive rounds allowed since the last successful bind. */
 const MAX_REVIVE_ROUNDS = 3;
+
+/** The wait before restart `attempt` (1-based, up to MAX_RESTART_ATTEMPTS) of a crash cycle. */
+export function restartDelay(attempt: number): number {
+	return RESTART_DELAYS_MS[attempt - 1] ?? 4000;
+}
 
 export type Revive = "scheduled" | "already-pending" | "exhausted";
 
@@ -26,9 +32,8 @@ export class RestartBudget {
 	 */
 	nextDelay(): number | null {
 		if (this.#attempt >= MAX_RESTART_ATTEMPTS) return null;
-		const delay = RESTART_DELAYS_MS[this.#attempt] ?? 4000;
 		this.#attempt++;
-		return delay;
+		return restartDelay(this.#attempt);
 	}
 
 	/**

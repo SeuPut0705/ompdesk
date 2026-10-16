@@ -11,7 +11,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { stripVTControlCharacters } from "node:util";
-import { MAX_RESTART_ATTEMPTS, RestartBudget, type Revive } from "./stats-restart-policy";
+import { MAX_RESTART_ATTEMPTS, RestartBudget, type Revive } from "./restart-policy";
 
 /** How long `kill()` waits for the process to exit (an omp update replaces the files it reads). */
 const STOP_WAIT_MS = 5000;

@@ -45,8 +45,8 @@ import {
 	ModelSetupStatusSchema,
 	OmpUpdateStateSchema,
 } from "./remote/app-protocol";
+import type { Revive } from "./restart-policy";
 import type { StatsClient } from "./stats-client";
-import type { Revive } from "./stats-restart-policy";
 
 export interface MachineServices {
 	listProviders(): Promise<CustomProvidersConfig>;
