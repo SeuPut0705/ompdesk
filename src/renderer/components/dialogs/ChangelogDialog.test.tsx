@@ -1,6 +1,8 @@
 /**
  * DOM smoke test for the changelog window: ui-store open/close wiring and
  * the bundled CHANGELOG.md rendering through the sanitized markdown pipeline.
+ * The markdown is a lazy chunk (`loadChangelog`), so each step that shows it
+ * first lets that import finish (`settle`).
  * Same linkedom harness as the other dialog tests (no jsdom in this repo).
  */
 
@@ -10,7 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import changelogMarkdown from "../../../../CHANGELOG.md?raw";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { WHATS_NEW_PREF } from "../../lib/whats-new";
+import { loadChangelog, WHATS_NEW_PREF } from "../../lib/whats-new";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useSessionStore } from "../../stores/session";
@@ -65,6 +67,15 @@ async function mount(ui: ReactElement): Promise<void> {
 	});
 }
 
+/** Let the changelog import and the notice's async prefs/version reads finish. */
+const settle = () =>
+	act(async () => {
+		await loadChangelog();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 0);
+		await promise;
+	});
+
 afterEach(async () => {
 	await act(async () => {
 		root?.unmount();
@@ -89,12 +100,14 @@ describe("ChangelogDialog", () => {
 		await act(async () => {
 			useUiStore.getState().openChangelog();
 		});
+		await settle();
 		expect(document.body.textContent ?? "").toContain(firstRelease);
 	});
 
 	it("renders the bundled changelog as sanitized markdown under the window's one title", async () => {
 		useUiStore.getState().openChangelog();
 		await mount(<ChangelogDialog />);
+		await settle();
 		const text = document.body.textContent ?? "";
 		// The help menu's item and the window share one name.
 		expect(text).toContain("What's new");
@@ -108,6 +121,7 @@ describe("ChangelogDialog", () => {
 	it("closes back to an empty body", async () => {
 		useUiStore.getState().openChangelog();
 		await mount(<ChangelogDialog />);
+		await settle();
 		expect(document.body.textContent ?? "").toContain(firstRelease);
 		await act(async () => {
 			useUiStore.getState().closeChangelog();
@@ -121,13 +135,6 @@ describe("ChangelogDialog", () => {
 });
 
 describe("WhatsNewNotice", () => {
-	/** Let the notice's async prefs/version reads finish. */
-	const settle = () =>
-		act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 0);
-			await promise;
-		});
 	const click = (label: string) =>
 		act(async () => {
 			[...document.querySelectorAll("button")]
@@ -214,6 +221,8 @@ describe("WhatsNewNotice", () => {
 		expect(document.querySelector("[data-whats-new-card]")).toBeNull();
 
 		await act(async () => useUiStore.getState().showWhatsNewCard(latest, older));
+		await settle();
+		expect(document.querySelector("[data-whats-new-summary]")?.textContent?.length ?? 0).toBeGreaterThan(0);
 		await act(async () => {
 			(document.querySelector("[data-whats-new-summary]") as HTMLElement | null)?.click();
 		});

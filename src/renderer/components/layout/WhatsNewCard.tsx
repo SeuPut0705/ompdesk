@@ -11,9 +11,14 @@
 
 import { Sparkles, X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import changelogMarkdown from "../../../../CHANGELOG.md?raw";
 import { useLang, useT } from "../../lib/i18n";
-import { changelogSection, changelogSummary, endsWithFinalConsonant, WHATS_NEW_PREF } from "../../lib/whats-new";
+import {
+	changelogSection,
+	changelogSummary,
+	endsWithFinalConsonant,
+	useChangelog,
+	WHATS_NEW_PREF,
+} from "../../lib/whats-new";
 import { useUiStore } from "../../stores/ui";
 import { Button, IconButton } from "../common";
 
@@ -24,8 +29,9 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 	const t = useT();
 	const { lang } = useLang();
 	const paused = useRef(false);
-	const notes = changelogSection(changelogMarkdown, version, lang) ?? "";
-	const summary = changelogSummary(notes);
+	// Loaded already when WhatsNewNotice put the card up; the summary follows the title otherwise.
+	const markdown = useChangelog();
+	const summary = markdown === null ? "" : changelogSummary(changelogSection(markdown, version, lang) ?? "");
 	const title = t(endsWithFinalConsonant(version) ? "whatsNew.cardTitle" : "whatsNew.cardTitleRo", { version });
 
 	const open = () => useUiStore.getState().openWhatsNew(version, since);

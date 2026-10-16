@@ -6,6 +6,49 @@
  * its details list every release since the last seen one.
  */
 
+import { useEffect, useState } from "react";
+
+let changelog: string | null = null;
+let loading: Promise<string> | null = null;
+
+/**
+ * The bundled CHANGELOG.md (~130 KB), in its own chunk: only the update decision, the card and the changelog
+ * window read it, so it stays out of the first screen's main chunk. One import per page; a failed one is
+ * tried again on the next call.
+ */
+export function loadChangelog(): Promise<string> {
+	loading ??= import("../../../CHANGELOG.md?raw").then(
+		module => (changelog = module.default),
+		(error: unknown) => {
+			loading = null;
+			throw error;
+		},
+	);
+	return loading;
+}
+
+/** The changelog markdown once loaded (at once when it already is), loading it while `enabled`; null until then. */
+export function useChangelog(enabled = true): string | null {
+	const [loaded, setLoaded] = useState(changelog);
+	const markdown = loaded ?? changelog;
+	useEffect(() => {
+		if (!enabled || markdown !== null) return;
+		let live = true;
+		loadChangelog().then(
+			text => {
+				if (live) setLoaded(text);
+			},
+			() => {
+				// Nothing to show; the next open asks again.
+			},
+		);
+		return () => {
+			live = false;
+		};
+	}, [enabled, markdown]);
+	return markdown;
+}
+
 /** Compare dotted numeric versions ("0.33.0" vs "0.32.2"); a missing or non-numeric part counts as 0. */
 function compareVersions(a: string, b: string): number {
 	const left = a.split(".").map(part => Number.parseInt(part, 10) || 0);

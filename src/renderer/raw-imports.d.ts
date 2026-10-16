@@ -1,6 +1,6 @@
 /**
  * Ambient declarations for Vite `?raw` and `?url` imports (embed file contents as
- * strings; used by ChangelogDialog for the bundled CHANGELOG.md). Must live
+ * strings; used by lib/whats-new's `loadChangelog` for the bundled CHANGELOG.md). Must live
  * in a non-module .d.ts — wildcard module declarations are ignored in module
  * files like global.d.ts.
  */

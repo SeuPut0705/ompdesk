@@ -1,6 +1,7 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import type { Plugin } from "vite";
 import { pwaPlugin } from "./scripts/pwa-plugin";
 
 /**
@@ -92,6 +93,38 @@ function manualChunks(id: string): string | undefined {
  */
 const KEEP_NAMES = { minifyIdentifiers: false };
 
+/** Font packages whose @font-face rules list .woff/.ttf fallbacks after their .woff2. */
+const WOFF2_ONLY_FONT_PACKAGES = ["katex", "@fontsource/jetbrains-mono"];
+
+/** A non-first `src` entry in the old formats: `, url(…) format("woff"|"truetype")`. */
+const LEGACY_FONT_SRC = /,\s*url\(\s*(["']?)([^"')]+)\1\s*\)\s*format\(\s*["'](?:woff|truetype)["']\s*\)/g;
+
+/**
+ * Electron's Chromium always takes the .woff2 entry of an @font-face `src` list, so the .woff and .ttf
+ * fallbacks KaTeX and JetBrains Mono list after it were dead weight in out/ (55 files, ~1 MB). This drops
+ * those entries from the CSS before Vite resolves its `url()`s, so the files are never emitted. It runs
+ * after Tailwind's compile (also `pre`), which inlines global.css's @fontsource imports with rebased URLs.
+ * scripts/check-main-bundle.ts fails the build if a .woff or .ttf reaches out/renderer.
+ */
+function woff2OnlyFonts(): Plugin {
+	const sep = String.raw`[\\/]`;
+	const packageDirs = WOFF2_ONLY_FONT_PACKAGES.map(
+		name => new RegExp(`${sep}node_modules${sep}${name.replace("/", sep)}${sep}`),
+	);
+	return {
+		name: "ompdesk:woff2-only-fonts",
+		enforce: "pre",
+		transform(code, id) {
+			if (!/\.css(\?|$)/.test(id) || !code.includes("@font-face")) return null;
+			const base = dirname(id.replace(/\?.*$/, ""));
+			const stripped = code.replace(LEGACY_FONT_SRC, (entry, _quote: string, url: string) =>
+				packageDirs.some(dir => dir.test(resolve(base, url))) ? "" : entry,
+			);
+			return stripped === code ? null : { code: stripped, map: null };
+		},
+	};
+}
+
 export default defineConfig({
 	main: {
 		esbuild: KEEP_NAMES,
@@ -120,7 +153,8 @@ export default defineConfig({
 	renderer: {
 		esbuild: KEEP_NAMES,
 		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts).
-		plugins: [tailwindcss(), pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") })],
+		// woff2OnlyFonts after tailwindcss: both are `pre`, and it must see global.css with its imports inlined.
+		plugins: [tailwindcss(), woff2OnlyFonts(), pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") })],
 		resolve: {
 			alias: {
 				"@renderer": resolve(__dirname, "src/renderer"),

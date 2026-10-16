@@ -7,6 +7,8 @@
  *   The bundle is minified, so its imports are read by a parser, not a line regex.
  * - axe-core (the e2e accessibility audit's engine, a devDependency) never ships
  *   in the renderer.
+ * - the renderer ships no .woff or .ttf font: Electron's Chromium always takes the
+ *   .woff2, and the renderer's `woff2OnlyFonts` plugin drops the older fallbacks.
  */
 
 import * as fs from "node:fs/promises";
@@ -15,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 // `URL.pathname` keeps a leading slash on Windows (`/E:/…`), which no API opens.
 const BUNDLE = fileURLToPath(new URL("../out/main/index.js", import.meta.url));
+const RENDERER = fileURLToPath(new URL("../out/renderer/", import.meta.url));
 const RENDERER_ASSETS = fileURLToPath(new URL("../out/renderer/assets/", import.meta.url));
 /** A property name only axe-core's source carries; it survives minification. */
 const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
@@ -52,4 +55,15 @@ for (const name of await fs.readdir(RENDERER_ASSETS)) {
 	}
 }
 
-console.log("main bundle is self-contained: no un-bundled runtime imports; the renderer ships no axe-core");
+const legacyFonts = (await fs.readdir(RENDERER, { recursive: true })).filter(name => /\.(woff|ttf)$/i.test(name));
+if (legacyFonts.length > 0) {
+	console.error(
+		`out/renderer ships ${legacyFonts.length} .woff/.ttf fonts (${legacyFonts.slice(0, 3).join(", ")}…); ` +
+			"Electron only loads .woff2. Add the package to WOFF2_ONLY_FONT_PACKAGES in electron.vite.config.ts.",
+	);
+	process.exit(1);
+}
+
+console.log(
+	"main bundle is self-contained: no un-bundled runtime imports; the renderer ships no axe-core and no .woff/.ttf fonts",
+);

@@ -6,6 +6,7 @@ import {
 	changelogSince,
 	changelogSummary,
 	endsWithFinalConsonant,
+	loadChangelog,
 	whatsNewAction,
 } from "./whats-new";
 
@@ -152,5 +153,13 @@ describe("endsWithFinalConsonant", () => {
 		expect(endsWithFinalConsonant("0.33.6")).toBe(true);
 		expect(endsWithFinalConsonant("0.33.1")).toBe(false);
 		expect(endsWithFinalConsonant("0.33.2")).toBe(false);
+	});
+});
+
+describe("loadChangelog", () => {
+	it("loads the bundled CHANGELOG.md once, from its own chunk", async () => {
+		const first = loadChangelog();
+		expect(loadChangelog()).toBe(first);
+		expect(await first).toBe(changelogMarkdown);
 	});
 });

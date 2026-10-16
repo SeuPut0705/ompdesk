@@ -1,8 +1,9 @@
 /**
  * Changelog window (/changelog): renders the GUI's own CHANGELOG.md through
- * the shared sanitized markdown pipeline. The markdown is embedded in the
- * renderer bundle via a `?raw` import, so packaged builds need no resource
- * resolution and the content is always in sync with the shipped version.
+ * the shared sanitized markdown pipeline. The markdown is bundled with the
+ * renderer via a `?raw` import (its own chunk, `loadChangelog` in lib/whats-new),
+ * so packaged builds need no resource resolution and the content is always in
+ * sync with the shipped version.
  *
  * After an update a quiet card offers the same window as "What's new" (`WhatsNewNotice` decides, the card is
  * `layout/WhatsNewCard`) with the running version's notes, or every release since the last seen one after
@@ -10,13 +11,14 @@
  */
 
 import { useEffect, useRef } from "react";
-import changelogMarkdown from "../../../../CHANGELOG.md?raw";
 import { useLang, useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import {
 	changelogReleases,
 	changelogSection,
 	changelogSince,
+	loadChangelog,
+	useChangelog,
 	WHATS_NEW_PREF,
 	whatsNewAction,
 } from "../../lib/whats-new";
@@ -34,7 +36,10 @@ export function ChangelogDialog() {
 	const since = useUiStore(state => state.changelogSince);
 	const close = useUiStore(state => state.closeChangelog);
 	const { lang } = useLang();
-	const notes = version ? changelogSince(changelogMarkdown, since, version, lang) : null;
+	const markdown = useChangelog(open);
+	const notes = version && markdown !== null ? changelogSince(markdown, since, version, lang) : null;
+	// Until the markdown is in (only on the first open), a version's window keeps its title and an empty body.
+	const whatsNew = version !== null && (markdown === null || notes !== null);
 	return (
 		<Modal
 			footer={
@@ -47,13 +52,9 @@ export function ChangelogDialog() {
 			onClose={close}
 			open={open}
 			size="lg"
-			title={version && notes ? t("whatsNew.title", { version }) : t("changelog.title")}
+			title={version && whatsNew ? t("whatsNew.title", { version }) : t("changelog.title")}
 		>
-			{version && notes ? (
-				<MarkdownRenderer content={notes} />
-			) : (
-				<MarkdownRenderer content={changelogReleases(changelogMarkdown, lang)} />
-			)}
+			{markdown === null ? null : <MarkdownRenderer content={notes ?? changelogReleases(markdown, lang)} />}
 		</Modal>
 	);
 }
@@ -74,11 +75,12 @@ export function WhatsNewNotice() {
 		if (!ready || firstRunActive || takeover || touring || decided.current) return;
 		decided.current = true;
 		void (async () => {
-			const [seen, current] = await Promise.all([
+			const [seen, current, markdown] = await Promise.all([
 				window.omp.prefs.get(WHATS_NEW_PREF),
 				window.omp.updater.version(),
+				loadChangelog(),
 			]);
-			const action = whatsNewAction(seen, current, changelogSection(changelogMarkdown, current) !== null);
+			const action = whatsNewAction(seen, current, changelogSection(markdown, current) !== null);
 			if (action === "record") await window.omp.prefs.set(WHATS_NEW_PREF, current);
 			else if (action === "show" && typeof seen === "string") useUiStore.getState().showWhatsNewCard(current, seen);
 		})().catch(() => {
