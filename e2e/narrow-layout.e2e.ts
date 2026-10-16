@@ -56,6 +56,15 @@ for (const language of ["en", "ko"] as const)
 				.toEqual([]);
 
 			const content = settings.locator(".settings-content");
+			// Compact rows: a label, its short description or info glyph and its control share one line, even here.
+			await settings.locator('[data-settings-section="general"]').click();
+			await expect(content.locator("#setting-gui-language")).toBeVisible();
+			const rowHeights = await content.evaluate(() =>
+				["setting-gui-language", "setting-gui-notifications", "setting-gui-panelSide"].map(
+					id => document.getElementById(id)?.getBoundingClientRect().height ?? 0,
+				),
+			);
+			expect.soft(rowHeights.every(height => height > 0 && height <= 48)).toBe(true);
 			const overflowing: string[] = [];
 			const ids = await nav.evaluateAll(buttons =>
 				buttons.map(button => button.getAttribute("data-settings-section") ?? ""),

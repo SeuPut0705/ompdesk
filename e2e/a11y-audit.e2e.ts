@@ -243,6 +243,24 @@ for (const [language, theme] of [
 				await settings.locator(`[data-settings-section="${section}"]`).click();
 				await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
 				await scan(`settings-${section}`);
+				// Compact rows: every info glyph is a named button, every row icon is decorative.
+				const compact = await settings.locator(".settings-content").evaluate(root => ({
+					unnamedInfo: [...root.querySelectorAll("[data-setting-info]")].filter(
+						button => !button.getAttribute("aria-label"),
+					).length,
+					loudIcons: [...root.querySelectorAll("[data-setting-icon]")].filter(
+						icon => icon.getAttribute("aria-hidden") !== "true",
+					).length,
+				}));
+				expect(compact, `compact rows in settings-${section}`).toEqual({ unnamedInfo: 0, loudIcons: 0 });
+				// A long description is reachable from the keyboard: focusing its glyph shows it.
+				if (section === "general") {
+					const glyph = settings.locator("[data-setting-info]").first();
+					await glyph.focus();
+					await page.keyboard.press("Shift+Tab");
+					await page.keyboard.press("Tab");
+					await expect(page.getByRole("tooltip")).toBeVisible();
+				}
 				await scanTabs(`settings-${section}`, settings.locator(".settings-content"));
 			}
 			await page.keyboard.press("Escape");
