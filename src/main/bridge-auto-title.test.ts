@@ -13,6 +13,7 @@ import {
 	type TitleEvent,
 	type TitleSession,
 } from "../../resources/gui-bridge/auto-title-engine";
+import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
 
 interface Entry {
 	type: "title_change";
@@ -22,10 +23,11 @@ interface Entry {
 }
 
 /** A session that behaves like stock's for what the engine reads: the title source rules, the revision counter, the journal. */
-function build(options: { cards?: boolean; name?: string; source?: "auto" | "user" } = {}) {
+function build(options: { cards?: boolean; name?: string; source?: "auto" | "user"; titlePrompt?: string } = {}) {
 	const entries: Entry[] = [];
 	let name = options.name;
 	let source: "auto" | "user" | undefined = options.name ? (options.source ?? "auto") : undefined;
+	let titlePrompt = options.titlePrompt;
 	let revision = 0;
 	if (name && source) entries.push({ type: "title_change", title: name, source });
 	const listeners: Array<(event: TitleEvent) => void> = [];
@@ -36,6 +38,8 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 		retitle: vi.fn(async (): Promise<string | null | undefined> => "Migrate build to Vite"),
 		/** Runs while a title request is in flight. */
 		during: undefined as undefined | (() => void),
+		/** The title prompt override each title-model request ran with. */
+		prompts: [] as Array<string | undefined>,
 	};
 	const manager = {
 		getSessionId: () => "s1",
@@ -62,6 +66,7 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 			return name;
 		},
 		generateTitle: vi.fn(async (text: string) => {
+			script.prompts.push(titlePrompt);
 			const title = await script.generate(text);
 			script.during?.();
 			return title;
@@ -72,6 +77,7 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 			if (title && options.cards === false) return title;
 			revision++;
 			if (title) return `🐛 ${title}`;
+			script.prompts.push(titlePrompt);
 			const next = await script.retitle();
 			script.during?.();
 			return next;
@@ -79,6 +85,12 @@ function build(options: { cards?: boolean; name?: string; source?: "auto" | "use
 		subscribe: vi.fn((listener: (event: TitleEvent) => void) => {
 			listeners.push(listener);
 			return () => {};
+		}),
+		get titleSystemPrompt() {
+			return titlePrompt;
+		},
+		setTitleSystemPrompt: vi.fn((next: string | undefined) => {
+			titlePrompt = next;
 		}),
 	};
 	return { session: session as unknown as TitleSession & typeof session, manager, script, entries, listeners };
@@ -90,6 +102,13 @@ const stock: AutoTitleStock = {
 		const m = message as { role?: string; attribution?: string; content?: string };
 		return m.role === "user" && m.attribution === "user" ? m.content : undefined;
 	},
+	titleSystemPrompt: "STOCK TITLE PROMPT\n",
+	// Stock's card form, `<icon> <CODE>: <title>` (utils/title-card.ts).
+	splitCardTitle: title => {
+		const line = /^(\S+) ([A-Z0-9]{1,6}): (\S.*)$/u.exec(title);
+		return line ? { icon: line[1] ?? "", code: line[2] ?? "", title: line[3] ?? "" } : undefined;
+	},
+	formatCardTitle: (card, title) => `${card.icon} ${card.code}: ${title}`,
 };
 
 /** Every fake settles at once, so the engine's background work finishes within a few microtask turns. */
@@ -127,9 +146,10 @@ beforeEach(() => {
 	setAutoTitleStock(stock);
 });
 
-afterEach(() => {
+afterEach(async () => {
 	resetAutoTitleState();
 	setAutoTitleStock(undefined);
+	await replyLanguage.reply_language_set({ language: null });
 });
 
 describe("first title", () => {
@@ -418,5 +438,76 @@ describe("auto_title_set", () => {
 		await flush();
 		// The title, then its card.
 		expect(await attach(world.session)).toMatchObject({ requests: 2 });
+	});
+});
+
+describe("title language and length", () => {
+	const korean = `STOCK TITLE PROMPT\n\nLanguage and length`;
+
+	it("gives every title path stock's prompt plus the language line, follows reply_language_set, and stays stock when off or English", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build();
+		await attach(world.session);
+		expect(world.session.titleSystemPrompt).toMatch(new RegExp(`^${korean}.*write it in Korean\\.`, "s"));
+
+		await replyLanguage.reply_language_set({ language: "Japanese" });
+		expect(world.session.titleSystemPrompt).toContain("write it in Japanese.");
+		await send(world.session, { type: "message_end", message: operator("fix the login bug") });
+		await flush();
+		expect(world.script.prompts[0]).toContain("write it in Japanese.");
+
+		for (const language of [null, "English", ""]) {
+			await replyLanguage.reply_language_set({ language: "Korean" });
+			await replyLanguage.reply_language_set({ language });
+			expect(world.session.titleSystemPrompt).toBeUndefined();
+		}
+		expect(await regenerate(world.session)).toEqual({ title: "Migrate build to Vite" });
+		expect(world.script.prompts.at(-1)).toBeUndefined();
+	});
+
+	it("puts the line back before a request when stock re-resolved the slot (a headless move)", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build();
+		await attach(world.session);
+		world.session.setTitleSystemPrompt(undefined);
+		await send(world.session, { type: "message_end", message: operator("fix the login bug") });
+		await flush();
+		expect(world.script.prompts[0]).toContain("write it in Korean.");
+	});
+
+	it("leaves a person's own TITLE_SYSTEM.md as written and does not cut its titles", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build({ titlePrompt: "MY TITLE RULES", cards: false });
+		world.script.generate.mockResolvedValue("Add support for the dark mode toggle");
+		await attach(world.session);
+		await replyLanguage.reply_language_set({ language: "Japanese" });
+		expect(world.session.setTitleSystemPrompt).not.toHaveBeenCalled();
+		await send(world.session, { type: "message_end", message: operator("add dark mode") });
+		await flush();
+		expect(world.script.prompts).toEqual(["MY TITLE RULES"]);
+		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
+	});
+
+	it("cuts a long title to whole words while the line is in effect, card kept", async () => {
+		await replyLanguage.reply_language_set({ language: "Korean" });
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("세션 제목을 사용자 언어로 짧게 생성하도록 수정");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("세션 제목을 짧게 만들어 줘") });
+		await flush();
+		expect(world.manager.getSessionName()).toBe("세션 제목을 사용자 언어로 짧게");
+
+		world.script.retitle.mockResolvedValue("🌐 LANG: Add support for dark mode toggle");
+		expect(await regenerate(world.session)).toEqual({ title: "🌐 LANG: Add support for dark mode" });
+		expect(world.manager.getSessionName()).toBe("🌐 LANG: Add support for dark mode");
+	});
+
+	it("writes a long title as it came when the language is off (stock's prompt asks for 3-6 words)", async () => {
+		const world = build({ cards: false });
+		world.script.generate.mockResolvedValue("Add support for the dark mode toggle");
+		await attach(world.session);
+		await send(world.session, { type: "message_end", message: operator("add dark mode") });
+		await flush();
+		expect(world.manager.getSessionName()).toBe("Add support for the dark mode toggle");
 	});
 });

@@ -917,7 +917,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * modes/auto-title.ts: stock's own title machinery on the live session: `generateTitle` (the title model
 	 * roles, `title-generator.ts`), `renameTitle` (`/rename` without a title: the card per `title.icons`),
 	 * `SessionManager.setSessionName(name, source, trigger)` and the journal's `title_change` entries (the title's
-	 * origin). `operatorTitleText` names what an operator message is about.
+	 * origin). `operatorTitleText` names what an operator message is about. The title language: the session's
+	 * TITLE_SYSTEM.md slot (`titleSystemPrompt`, `setTitleSystemPrompt`) holds stock's own `title-system.md`
+	 * (rendered with `prompt.render`) plus one language line; `title-card` splits a card off a title cut to length.
 	 */
 	autoTitle: {
 		session: [
@@ -925,6 +927,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionName",
 			"generateTitle()",
 			"renameTitle()",
+			"titleSystemPrompt",
+			"setTitleSystemPrompt()",
 			"sessionManager.getSessionId()",
 			"sessionManager.getSessionName()",
 			"sessionManager.setSessionName()",
@@ -934,7 +938,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/session/messages`]: ["operatorTitleText()"],
+			[`${AGENT}/utils/title-card`]: ["splitCardTitle()", "formatCardTitle()"],
+			[UTILS]: ["prompt.render()"],
 		},
+		prompts: ["system/title-system.md"],
 	},
 	compactionLimits: {
 		session: ["settings", "getAvailableModels()", "modelRegistry.getAll()", "modelRegistry.getAvailable()"],

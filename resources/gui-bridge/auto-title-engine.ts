@@ -16,6 +16,12 @@
  *   write re-checks that the name and the title revision are the ones the request started from.
  * - `regenerate_title` (the editor's auto button) is `/rename` without a title on the live session; the
  *   result is automatic from then on, even over a typed name.
+ * - Language and length: every title path above reads the session's title prompt override
+ *   (`AgentSession.titleSystemPrompt`, stock's TITLE_SYSTEM.md slot). For a non-English reply language it is
+ *   stock's own `title-system.md` plus one line ({@link planTitlePrompt}: the person's language, 2-5 words), set
+ *   when the engine attaches, when `reply_language_set` changes the language, and again before each request
+ *   (stock's headless `/move` re-resolves the slot). While that line is in effect, a title that comes back longer
+ *   is cut to whole words ({@link conciseTitle}, its card kept). A person's own TITLE_SYSTEM.md is left as written.
  *
  * No omp imports: the GUI's vitest drives it with fake sessions (src/main/bridge-auto-title.test.ts).
  */
@@ -29,7 +35,15 @@ import {
 	type TitleRegenerateResult,
 	titleEffective,
 } from "./auto-title-contracts";
-import { EvolveGate, isRewordedTitle, type TitleChangeLike, titleIsAuto } from "./auto-title-core";
+import {
+	conciseTitle,
+	EvolveGate,
+	isRewordedTitle,
+	planTitlePrompt,
+	type TitleChangeLike,
+	titleIsAuto,
+} from "./auto-title-core";
+import { currentReplyLanguage, onReplyLanguageChange } from "./modes/reply-language";
 
 /** A frame the engine pushes to the GUI (it reaches the renderer as if omp had written it). */
 export interface AutoTitleFrame {
@@ -71,12 +85,21 @@ export interface TitleSession {
 	generateTitle(firstMessage: string, customSystemPrompt?: string, signal?: AbortSignal): Promise<string | null>;
 	renameTitle(title?: string, signal?: AbortSignal): Promise<string | null | undefined>;
 	subscribe(listener: (event: TitleEvent) => void): () => void;
+	/** The title prompt override every title path uses (stock's TITLE_SYSTEM.md slot); undefined = stock's own. */
+	readonly titleSystemPrompt: string | undefined;
+	setTitleSystemPrompt(prompt: string | undefined): void;
 }
 
 /** Stock functions the engine calls (loaded by modes/auto-title.ts behind the compatibility guard). */
 export interface AutoTitleStock {
 	/** `session/messages` `operatorTitleText`: what an operator message names, undefined for anything else. */
 	operatorTitleText(message: never): string | undefined;
+	/** Stock's bundled title prompt (`prompts/system/title-system.md`, rendered as stock renders it). */
+	titleSystemPrompt: string;
+	/** `utils/title-card` `splitCardTitle`: the pieces of `<icon> <CODE>: <title>`, undefined for a plain title. */
+	splitCardTitle(title: string): { icon: string; code: string; title: string } | undefined;
+	/** `utils/title-card` `formatCardTitle`: `title` headed by `card`. */
+	formatCardTitle(card: { icon: string; code: string }, title: string): string;
 }
 
 let stock: AutoTitleStock | undefined;
@@ -113,6 +136,11 @@ let emitFrame: AutoTitleEnv["emit"] | undefined;
 let clock: () => number = Date.now;
 /** Title-model requests started (a first title, a retitle, a card, a regeneration), for the cost report. */
 let requests = 0;
+/** The title prompt the engine last set on each session; any other value there is the person's TITLE_SYSTEM.md. */
+const ownPrompts = new WeakMap<TitleSession, string>();
+/** The live main session (the latest attach), which a changed reply language retitles the prompt of. */
+let live: TitleSession | undefined;
+let followsLanguage = false;
 
 function tracking(session: TitleSession): Tracking {
 	const sessionId = session.sessionManager.getSessionId();
@@ -127,6 +155,32 @@ function tracking(session: TitleSession): Tracking {
 /** Stock's source for a write: "auto" unless a typed name made it "user" (stock refuses "auto" over that). */
 function writeSource(manager: TitleManager): "auto" | "user" {
 	return manager.titleSource === "user" ? "user" : "auto";
+}
+
+/** Give `session`'s title paths the reply language (see {@link planTitlePrompt}). */
+async function applyTitleLanguage(session: TitleSession): Promise<void> {
+	const { titleSystemPrompt } = await stockFunctions();
+	const plan = planTitlePrompt(
+		session.titleSystemPrompt,
+		ownPrompts.get(session),
+		titleSystemPrompt,
+		currentReplyLanguage(),
+	);
+	if (plan.keep) {
+		ownPrompts.delete(session);
+		return;
+	}
+	if (plan.prompt === undefined) ownPrompts.delete(session);
+	else ownPrompts.set(session, plan.prompt);
+	if (session.titleSystemPrompt !== plan.prompt) session.setTitleSystemPrompt(plan.prompt);
+}
+
+/** `title` cut to the length the language line asks for, card kept; as it came while that line is not in effect. */
+async function concise(session: TitleSession, title: string | null | undefined): Promise<string | null | undefined> {
+	if (!title || !ownPrompts.has(session)) return title;
+	const { splitCardTitle, formatCardTitle } = await stockFunctions();
+	const card = splitCardTitle(title);
+	return card ? formatCardTitle(card, conciseTitle(card.title)) : conciseTitle(title);
 }
 
 /**
@@ -154,18 +208,20 @@ async function retitle(
 	session: TitleSession,
 	title?: string,
 ): Promise<{ title: string | null | undefined; revision: number }> {
+	await applyTitleLanguage(session);
 	requests++;
 	const generation = session.renameTitle(title);
 	const revision = session.sessionManager.titleRevision;
-	return { title: await generation, revision };
+	return { title: await concise(session, await generation), revision };
 }
 
 /** The first title: the operator's message through the title model, then the card. */
 async function firstTitle(session: TitleSession, text: string): Promise<void> {
 	const manager = session.sessionManager;
 	const sessionId = manager.getSessionId();
+	await applyTitleLanguage(session);
 	requests++;
-	const plain = await session.generateTitle(text);
+	const plain = await concise(session, await session.generateTitle(text));
 	if (!plain || manager.getSessionId() !== sessionId || session.sessionName) return;
 	const { title, revision } = await retitle(session, plain);
 	if (!title || !unchanged(session, sessionId, undefined, revision)) return;
@@ -224,11 +280,19 @@ async function onEvent(event: TitleEvent, session: TitleSession): Promise<void> 
 	if (state.gate.turnEnded(clock())) runBackground(session, () => evolveTitle(session));
 }
 
-function attach(session: TitleSession, env: AutoTitleEnv): void {
+/** Follow the live session's events, and give its title prompt the reply language. */
+async function attach(session: TitleSession, env: AutoTitleEnv): Promise<void> {
 	emitFrame = event => env.emit(event);
-	if (subscribed.has(session)) return;
-	subscribed.add(session);
-	session.subscribe(event => void onEvent(event, session).catch(() => {}));
+	live = session;
+	if (!followsLanguage) {
+		followsLanguage = true;
+		onReplyLanguageChange(() => (live ? applyTitleLanguage(live) : undefined));
+	}
+	if (!subscribed.has(session)) {
+		subscribed.add(session);
+		session.subscribe(event => void onEvent(event, session).catch(() => {}));
+	}
+	await applyTitleLanguage(session);
 }
 
 /** `{enabled, evolve, suppressed}` as main's prefs say; anything else is refused rather than read as on. */
@@ -259,13 +323,13 @@ export const handlers: AutoTitleMethods = {
 	/** Main sends this to every live local sidecar when a pref changes, and on bridge connect. */
 	auto_title_set: async (params, env) => {
 		settings = parseSettings(params);
-		attach(env.session() as unknown as TitleSession, env);
+		await attach(env.session() as unknown as TitleSession, env);
 		return { ...settings, requests };
 	},
 	/** The editor's auto button: a fresh automatic title for the live session. */
 	regenerate_title: async (_params, env) => {
 		const session = env.session() as unknown as TitleSession;
-		attach(session, env);
+		await attach(session, env);
 		return regenerate(session);
 	},
 };
@@ -274,6 +338,7 @@ export const handlers: AutoTitleMethods = {
 export function resetAutoTitleState(next: AutoTitleSettings = DEFAULT_AUTO_TITLE, now: () => number = Date.now): void {
 	settings = { ...next };
 	emitFrame = undefined;
+	live = undefined;
 	clock = now;
 	requests = 0;
 }

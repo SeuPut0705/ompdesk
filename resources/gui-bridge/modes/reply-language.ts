@@ -18,6 +18,9 @@
  *   whose language wins by the instruction's own rule; any question they
  *   surface to the person follows the setting.
  *
+ * Session titles follow the same language (auto-title-engine.ts reads
+ * {@link currentReplyLanguage} and hears {@link onReplyLanguageChange}).
+ *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`
  * (src/main/bridge-reply-language.test.ts).
  */
@@ -30,11 +33,22 @@ export type ReplyLanguageHost = PromptSectionHost;
 /** Longer than any `Intl.DisplayNames` language name; anything bigger is not one. */
 const MAX_LANGUAGE_NAME = 64;
 
+/** Could `name` (trimmed) be a language name: non-empty, short, no control characters. */
+function isLanguageName(name: string): boolean {
+	return name.length > 0 && name.length <= MAX_LANGUAGE_NAME && !/\p{Cc}/u.test(name);
+}
+
+/** The language OMPdesk steers toward; undefined for missing, malformed or English (stock's own language). */
+export function replyLanguageName(language: string | undefined): string | undefined {
+	const name = language?.trim() ?? "";
+	if (!isLanguageName(name) || name.toLowerCase() === "english") return undefined;
+	return name;
+}
+
 /** The system-prompt line for `language`; undefined for missing, malformed or English. */
 export function replyLanguageInstruction(language: string | undefined): string | undefined {
-	const name = language?.trim() ?? "";
-	if (!name || name.length > MAX_LANGUAGE_NAME || /\p{Cc}/u.test(name)) return undefined;
-	if (name.toLowerCase() === "english") return undefined;
+	const name = replyLanguageName(language);
+	if (!name) return undefined;
 	return [
 		"<reply-language>",
 		`By default, write your replies, plans, summaries and questions to the user in ${name}. If the user writes in a different language, answer in the user's language instead. Keep code, identifiers, commit messages and file contents in whatever language the project already uses.`,
@@ -42,8 +56,23 @@ export function replyLanguageInstruction(language: string | undefined): string |
 	].join("\n");
 }
 
+/** The current language (see {@link replyLanguageName}); undefined = none. */
+let language = replyLanguageName(process.env.OMP_GUI_REPLY_LANGUAGE);
 /** The instruction every hooked prompt gets; undefined = none. */
-let instruction = replyLanguageInstruction(process.env.OMP_GUI_REPLY_LANGUAGE);
+let instruction = replyLanguageInstruction(language);
+
+type ReplyLanguageListener = () => void | Promise<void>;
+const listeners = new Set<ReplyLanguageListener>();
+
+/** The language OMPdesk steers toward right now; undefined when off, unset or English. */
+export function currentReplyLanguage(): string | undefined {
+	return language;
+}
+
+/** `listener` runs after every `reply_language_set`; the method waits for it. */
+export function onReplyLanguageChange(listener: ReplyLanguageListener): void {
+	listeners.add(listener);
+}
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ReplyLanguageHost): void {
@@ -56,21 +85,25 @@ export function install(pi: ReplyLanguageHost): void {
  * silently dropping the instruction.
  */
 export function setReplyLanguage(params: unknown): { language: string | null } {
-	const language = typeof params === "object" && params !== null && "language" in params ? params.language : undefined;
-	if (language === null) {
+	const value = typeof params === "object" && params !== null && "language" in params ? params.language : undefined;
+	if (value === null) {
+		language = undefined;
 		instruction = undefined;
 		return { language: null };
 	}
-	if (typeof language !== "string") throw new Error("reply_language_set needs {language: string | null}");
-	const name = language.trim();
-	const next = replyLanguageInstruction(name);
-	if (!next && name && name.toLowerCase() !== "english")
-		throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
-	instruction = next;
+	if (typeof value !== "string") throw new Error("reply_language_set needs {language: string | null}");
+	const name = value.trim();
+	if (name && !isLanguageName(name)) throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
+	language = replyLanguageName(name);
+	instruction = replyLanguageInstruction(language);
 	return { language: name || null };
 }
 
 export const methods = {
 	/** Main sends this to every live local sidecar when the setting changes, and on bridge connect. */
-	reply_language_set: async (params: unknown) => setReplyLanguage(params),
+	reply_language_set: async (params: unknown) => {
+		const result = setReplyLanguage(params);
+		for (const listener of listeners) await listener();
+		return result;
+	},
 };

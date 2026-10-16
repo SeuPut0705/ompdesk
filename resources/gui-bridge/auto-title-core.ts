@@ -150,3 +150,57 @@ export class EvolveGate {
 		return true;
 	}
 }
+
+/** The most words a title keeps ({@link titleLanguageLine} asks for 2-5). */
+export const TITLE_MAX_WORDS = 5;
+/** The most characters a title in Korean, Chinese or Japanese keeps, where word counts say little. */
+export const TITLE_MAX_CJK_CHARS = 20;
+
+/**
+ * The line that puts a title in the person's language and keeps it short, appended to stock's own
+ * `title-system.md` (whose rules and examples are English only, so a cheap title model answers in English, and
+ * whose 3-6 words read long). The language the person writes in comes first, so a Korean request gets a Korean
+ * title whatever the reply language is; `language` (the reply language) decides only when the request shows none
+ * (code, names, a mix). {@link conciseTitle} enforces the length on what comes back.
+ */
+export function titleLanguageLine(language: string): string {
+	return `Language and length (this overrides the 3-6 words above): write the title in the language the user writes in, even though the examples above are in English; when that is unclear (only code, names or a mix), write it in ${language}. Keep it short: 2-${TITLE_MAX_WORDS} words, and at most ${TITLE_MAX_CJK_CHARS} characters in Korean, Chinese or Japanese; no filler words. Keep code identifiers, file names and proper nouns as the user wrote them.`;
+}
+
+const CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const HAS_WORD = /[\p{L}\p{N}]/u;
+
+/**
+ * `title` (without its card) cut to whole words: at most {@link TITLE_MAX_WORDS}, and for a title in Korean,
+ * Chinese or Japanese at most {@link TITLE_MAX_CJK_CHARS} characters. Never an ellipsis and never part of a word,
+ * so the first word stays even when it alone is longer; a cut drops trailing punctuation-only words and the
+ * separator left on the last word (`,` `:` `;` `-`).
+ */
+export function conciseTitle(title: string): string {
+	const words = title.trim().split(/\s+/);
+	const kept = words.slice(0, TITLE_MAX_WORDS);
+	if (CJK.test(title)) while (kept.length > 1 && kept.join(" ").length > TITLE_MAX_CJK_CHARS) kept.pop();
+	if (kept.length === words.length) return words.join(" ");
+	while (kept.length > 1 && !HAS_WORD.test(kept[kept.length - 1] ?? "")) kept.pop();
+	return kept.join(" ").replace(/[\s,:;\-–—/&]+$/u, "") || kept.join(" ");
+}
+
+/** What a session's title prompt override should be: `keep` leaves it as it is. */
+export type TitlePromptPlan = { keep: true } | { keep: false; prompt: string | undefined };
+
+/**
+ * The title prompt override (`AgentSession.titleSystemPrompt`) a session should carry for `language` (the reply
+ * language: undefined when off, unset or English). `current` is what the session holds, `own` what OMPdesk last set
+ * there. Any other value is the person's own TITLE_SYSTEM.md: stock treats it as the whole title prompt, so it is
+ * kept as written. Otherwise: stock's prompt plus {@link titleLanguageLine}, or no override (stock's bundled prompt,
+ * byte for byte) without a language.
+ */
+export function planTitlePrompt(
+	current: string | undefined,
+	own: string | undefined,
+	stockPrompt: string,
+	language: string | undefined,
+): TitlePromptPlan {
+	if (current !== undefined && current !== own) return { keep: true };
+	return { keep: false, prompt: language ? `${stockPrompt.trimEnd()}\n\n${titleLanguageLine(language)}` : undefined };
+}

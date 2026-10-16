@@ -1,8 +1,19 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	cpSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { titleLanguageLine } from "../../resources/gui-bridge/auto-title-core";
 
 /**
  * Pins the automatic session titles to the installed omp, in an empty private agent dir (no model is called):
@@ -11,12 +22,16 @@ import { describe, expect, it } from "vitest";
  *   source "user" with the bridge's trigger stamp, and its own `title_change` journal is the origin record the engine reads;
  * - stock's `operatorTitleText` names an operator message and nothing else;
  * - the title model is stock's cheap role chain (`tiny`, `commit`, `smol`), not the session's default model;
- * - `regenerate_title` on the real session with nothing to name answers "none" without writing a name.
+ * - `regenerate_title` on the real session with nothing to name answers "none" without writing a name;
+ * - the title prompt override every title path reads is stock's own `title-system.md` plus the language line for a
+ *   non-English reply language (at attach and after `reply_language_set`), none for English or off, and a person's
+ *   own TITLE_SYSTEM.md stays as stock resolved it.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { methods } from "./modes/auto-title";
+import { methods as replyLanguage } from "./modes/reply-language";
 import { capabilitiesFor } from "./probe-helper";
 import { TITLE_TRIGGER } from "./auto-title-contracts";
 import { titleIsAuto } from "./auto-title-core";
@@ -30,6 +45,14 @@ export default function (pi) {
    out.unavailable = await capabilitiesFor(env);
    const manager = session.sessionManager;
    out.set = await methods.auto_title_set({ enabled: true, evolve: true, suppressed: false }, env);
+   out.promptAtAttach = session.titleSystemPrompt ?? null;
+   await replyLanguage.reply_language_set({ language: "Japanese" });
+   out.promptJapanese = session.titleSystemPrompt ?? null;
+   await replyLanguage.reply_language_set({ language: "English" });
+   out.promptEnglish = session.titleSystemPrompt ?? null;
+   await replyLanguage.reply_language_set({ language: "Korean" });
+   await replyLanguage.reply_language_set({ language: null });
+   out.promptOff = session.titleSystemPrompt ?? null;
    out.regenerateEmpty = await methods.regenerate_title({}, env);
    out.nameAfterEmpty = session.sessionName ?? null;
    out.typed = await manager.setSessionName("Typed name", "user");
@@ -66,6 +89,10 @@ export async function capabilitiesFor(env) {
 interface Probe {
 	unavailable: Array<{ feature: string; missing: string[] }>;
 	set: { enabled: boolean; evolve: boolean; suppressed: boolean; requests: number };
+	promptAtAttach: string | null;
+	promptJapanese: string | null;
+	promptEnglish: string | null;
+	promptOff: string | null;
 	regenerateEmpty: { title: string | null; reason?: string };
 	nameAfterEmpty: string | null;
 	typed: boolean;
@@ -81,7 +108,12 @@ interface Probe {
 	titleModels: Array<{ role: string; model: string }>;
 }
 
-function run(config: string): Probe {
+/** Stock's own title prompt, read from the omp install the probe runs (`dist/cli.js` → `src/prompts`). */
+function stockTitlePrompt(): string {
+	return readFileSync(join(dirname(dirname(realpathSync(omp))), "src/prompts/system/title-system.md"), "utf8");
+}
+
+function run(config: string, options: { replyLanguage?: string; titleSystem?: string } = {}): Probe {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-at-"));
 	chmodSync(isolated, 0o700);
 	try {
@@ -90,6 +122,11 @@ function run(config: string): Probe {
 		writeFileSync(join(bridge, "at-probe.ts"), PROBE);
 		writeFileSync(join(bridge, "probe-helper.ts"), HELPER);
 		writeFileSync(join(isolated, "config.yml"), config);
+		// A project's own TITLE_SYSTEM.md (`.omp/TITLE_SYSTEM.md`, stock's `discoverTitleSystemPromptFile`).
+		const project = join(isolated, "project");
+		mkdirSync(join(project, ".omp"), { recursive: true });
+		if (options.titleSystem !== undefined)
+			writeFileSync(join(project, ".omp", "TITLE_SYSTEM.md"), options.titleSystem);
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
@@ -97,6 +134,7 @@ function run(config: string): Probe {
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
+			OMP_GUI_REPLY_LANGUAGE: options.replyLanguage,
 		};
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
 			Reflect.deleteProperty(env, key);
@@ -112,7 +150,7 @@ function run(config: string): Probe {
 				"-e",
 				join(bridge, "at-probe.ts"),
 			],
-			{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
+			{ cwd: project, env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
 		);
 		const line = result.stderr.split("\n").find(value => value.startsWith("AT_PROBE="));
 		expect(line, result.stderr.slice(-2500)).toMatch(/^AT_PROBE=/);
@@ -148,4 +186,30 @@ describe.skipIf(!existsSync(omp))("automatic session titles on stock omp", () =>
 		expect(probe.titleModels[0]).toEqual({ role: "smol", model: "openai/gpt-5-mini" });
 		expect(probe.titleModels.map(candidate => candidate.model)).not.toContain("openai/gpt-5");
 	}, 130_000);
+
+	it("gives the title paths stock's own prompt plus the language line, and leaves English, off and a person's TITLE_SYSTEM.md alone", () => {
+		const config = "modelRoles:\n  smol: openai/gpt-5-mini\n  default: openai/gpt-5\n";
+		const probe = run(config, { replyLanguage: "Korean" });
+		expect(probe.unavailable).toEqual([]);
+		const stockLines = stockTitlePrompt()
+			.split("\n")
+			.map(line => line.trim())
+			.filter(Boolean);
+		expect(stockLines.length).toBeGreaterThan(5);
+		for (const [prompt, language] of [
+			[probe.promptAtAttach, "Korean"],
+			[probe.promptJapanese, "Japanese"],
+		] as const) {
+			for (const line of stockLines) expect(prompt).toContain(line);
+			expect(prompt?.endsWith(`\n\n${titleLanguageLine(language)}`)).toBe(true);
+		}
+		expect(probe.promptEnglish).toBeNull();
+		expect(probe.promptOff).toBeNull();
+
+		const own = "Name the session in exactly two words.";
+		const custom = run(config, { replyLanguage: "Korean", titleSystem: own });
+		expect(custom.unavailable).toEqual([]);
+		for (const prompt of [custom.promptAtAttach, custom.promptJapanese, custom.promptEnglish, custom.promptOff])
+			expect(prompt?.trim()).toBe(own);
+	}, 260_000);
 });

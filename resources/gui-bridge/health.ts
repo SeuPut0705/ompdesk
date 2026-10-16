@@ -192,6 +192,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-utils": () => import("@oh-my-pi/pi-utils"),
 	"@oh-my-pi/pi-tui/status-line/context-usage": () => import("@oh-my-pi/pi-tui/status-line/context-usage"),
 	"@oh-my-pi/pi-coding-agent/session/messages": () => import("@oh-my-pi/pi-coding-agent/session/messages"),
+	"@oh-my-pi/pi-coding-agent/utils/title-card": () => import("@oh-my-pi/pi-coding-agent/utils/title-card"),
 	"@oh-my-pi/pi-ai/utils/schema": () => import("@oh-my-pi/pi-ai/utils/schema"),
 };
 
