@@ -16,6 +16,7 @@ import { useTodoStore } from "../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { useWorkBoardStore } from "../../stores/work-board";
+import { shortAccountLabel } from "./AccountLimit";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -219,7 +220,8 @@ describe("WorkBoard header", () => {
 			},
 		]);
 		await mount();
-		expect(pane.querySelector(".omp-work-board-status")?.textContent).toBe("2 working · 1 waiting on you");
+		// What the sections already say is not repeated in a status line.
+		expect(pane.querySelector(".omp-work-board-status")).toBeNull();
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 		const bar = pane.querySelector(".omp-work-board-segments");
 		expect(bar?.getAttribute("aria-label")).toBe("1 of 3 done");
@@ -235,7 +237,7 @@ describe("WorkBoard header", () => {
 		await mount();
 		await act(async () => useTodoStore.getState().setTurnActive(true, Date.now() - 3000));
 		await act(async () => useTodoStore.getState().setTurnActive(false));
-		expect(pane.querySelector(".omp-work-board-status")?.textContent).toBe("Idle");
+		expect(pane.querySelector(".omp-work-board-status")).toBeNull();
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("idle");
 	});
 });
@@ -399,6 +401,7 @@ describe("WorkBoard sections", () => {
 		const live = pane.querySelector('[aria-live="polite"]');
 		expect(live?.getAttribute("role")).toBe("status");
 		expect(live?.textContent).toBe("2 waiting on you");
+		expect(live?.closest("[data-board-section]")?.getAttribute("data-board-section")).toBe("waiting");
 		// Nothing else on the board is a live region.
 		expect(pane.querySelectorAll("[aria-live]")).toHaveLength(1);
 	});
@@ -579,5 +582,14 @@ describe("WorkBoard account limit", () => {
 		await mount();
 		expect(pane.querySelector("[data-board-account]")).toBeNull();
 		expect(board()).not.toBeNull();
+	});
+});
+
+describe("shortAccountLabel", () => {
+	it("drops a parenthesized name that repeats the address and keeps any other", () => {
+		expect(shortAccountLabel("user7616@example.com (user7616)")).toBe("user7616@example.com");
+		expect(shortAccountLabel("user7616@example.com (use…")).toBe("user7616@example.com");
+		expect(shortAccountLabel("work@example.com (Work account)")).toBe("work@example.com (Work account)");
+		expect(shortAccountLabel("plain label")).toBe("plain label");
 	});
 });

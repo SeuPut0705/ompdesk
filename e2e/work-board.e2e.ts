@@ -278,9 +278,7 @@ for (const language of ["en", "ko"] as const)
 					"waiting",
 				);
 				await expect(board.locator('[data-board-waiting="board-confirm"]')).toContainText("Overwrite settings.ts?");
-				await expect(board.locator(".omp-work-board-status")).toContainText(
-					language === "en" ? "waiting on you" : "답변을 기다려요",
-				);
+				await expect(board.locator(".omp-work-board-status")).toHaveCount(0);
 				await expect(board.getByRole("status")).toHaveText(
 					language === "en" ? "1 waiting on you" : "1개가 답변을 기다려요",
 				);

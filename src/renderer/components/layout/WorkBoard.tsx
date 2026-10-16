@@ -112,9 +112,12 @@ function BoardSection({
 	count,
 	aside,
 	tone,
+	live,
 	children,
 }: {
 	id: WorkBoardSectionId;
+	/** Announced politely whenever it changes (the waiting section only). */
+	live?: string;
 	title: string;
 	count?: ReactNode;
 	aside?: ReactNode;
@@ -145,6 +148,11 @@ function BoardSection({
 				</button>
 				{aside ? <span className="omp-work-board-aside">{aside}</span> : null}
 			</h3>
+			{live ? (
+				<span aria-live="polite" className="sr-only" role="status">
+					{live}
+				</span>
+			) : null}
 			{folded ? null : <ul className="omp-work-board-list">{children}</ul>}
 		</section>
 	);
@@ -425,10 +433,6 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	if (!present) return null;
 
 	const working = agents.filter(agent => !WAITING_AGENT[agent.status]).length + jobs.length + (turnActive ? 1 : 0);
-	const summary = [
-		working > 0 ? t("workBoard.status.working", { count: working }) : null,
-		waiting > 0 ? t("workBoard.status.waiting", { count: waiting }) : null,
-	].filter(Boolean);
 	const pulse = waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
 
 	const turnState = retryInfo
@@ -449,11 +453,6 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 
 	return (
 		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel>
-			{waiting > 0 && (
-				<span aria-live="polite" className="sr-only" role="status">
-					{t("workBoard.status.waiting", { count: waiting })}
-				</span>
-			)}
 			<header className="omp-work-board-head">
 				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
 				<h2 className="omp-work-board-name">{t("workBoard.label")}</h2>
@@ -466,9 +465,6 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 					}
 					size="sm"
 				/>
-				<p className="omp-work-board-status">
-					{summary.length > 0 ? summary.join(" · ") : t("workBoard.status.idle")}
-				</p>
 				{plan ? (
 					<span className="omp-work-board-progress">
 						<SegmentBar
@@ -485,6 +481,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 				<BoardSection
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
 					count={waiting}
+					live={t("workBoard.status.waiting", { count: waiting })}
 					id="waiting"
 					title={t("workBoard.waiting")}
 					tone="warning"

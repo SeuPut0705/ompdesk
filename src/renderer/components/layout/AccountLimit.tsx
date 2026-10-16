@@ -20,6 +20,21 @@ import { ProviderMark } from "../settings/providers/ProviderMark";
 /** From here the window is near its limit (warning); at 100 % it is the limit (danger). */
 const NEAR_FRACTION = 0.8;
 
+/**
+ * "me@example.com (me…)" shows as "me@example.com": a parenthesized name that only repeats the start of the
+ * address's local part adds nothing. Any other suffix stays.
+ */
+export function shortAccountLabel(label: string): string {
+	const match = /^(\S+@\S+)\s*\((.*)\)?$/.exec(label);
+	if (!match) return label;
+	const local = (match[1]?.split("@")[0] ?? "").toLowerCase();
+	const inner = (match[2] ?? "")
+		.replace(/[….)]+$/, "")
+		.trim()
+		.toLowerCase();
+	return inner === "" || local.startsWith(inner) ? (match[1] ?? label) : label;
+}
+
 export function AccountLimit() {
 	const t = useT();
 	const tabRpc = useTabRpc();
@@ -65,9 +80,10 @@ export function AccountLimit() {
 	const state = tight.fraction >= 1 ? "limit" : tight.fraction >= NEAR_FRACTION ? "near" : "ok";
 	const resetText = resets(tight.limit.resetsAt);
 	const headline = [`${percent}%`, resets(tight.limit.resetsAt)].filter(Boolean).join(" · ");
-	const account = report.account?.trim() || report.provider;
+	const fullLabel = report.account?.trim() || report.provider;
+	const account = shortAccountLabel(fullLabel);
 	const tooltip = [
-		account,
+		fullLabel,
 		...report.limits.map(limit => {
 			const fraction =
 				limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : null);
