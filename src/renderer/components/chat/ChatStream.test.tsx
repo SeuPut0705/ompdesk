@@ -17,6 +17,7 @@ import {
 	LIVE_EDGE_SLACK_PX,
 	liveWorkTail,
 	mergeTodoSnapshots,
+	nextTranscriptIdentity,
 	ROW_ENTRANCE_TAIL_ROWS,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
@@ -732,5 +733,21 @@ describe("transcript row entrances", () => {
 		const other = history(30);
 		expect(claim(latch, "session-b", true, other)).toEqual([]);
 		expect(claim(latch, "session-b", true, [...other, "a30"])).toEqual(["a30"]);
+	});
+});
+
+describe("transcript identity", () => {
+	it("keeps the transcript while a tab learns its first session id, and replaces it on a switch", () => {
+		const pending = { sessionId: "", generation: 0 };
+		expect(nextTranscriptIdentity(pending, "")).toBe(pending);
+		// get_state landing after the empty transcript (and its first-run setup) showed is not a switch.
+		const first = nextTranscriptIdentity(pending, "session-a");
+		expect(first).toEqual({ sessionId: "session-a", generation: 0 });
+		const switched = nextTranscriptIdentity(first, "session-b");
+		expect(switched).toEqual({ sessionId: "session-b", generation: 1 });
+		// A restart resets the id: that empty transcript is new, and its id arriving keeps it.
+		const restarted = nextTranscriptIdentity(switched, "");
+		expect(restarted.generation).toBe(2);
+		expect(nextTranscriptIdentity(restarted, "session-c").generation).toBe(2);
 	});
 });

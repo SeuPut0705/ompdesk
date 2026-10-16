@@ -57,6 +57,7 @@ import {
 	liveWorkTail,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
+	nextTranscriptIdentity,
 	progressiveRange,
 	type Row,
 	replyMarkdownTail,
@@ -116,7 +117,11 @@ interface PrependAnchor {
 export function ChatStream() {
 	const tabId = useRuntimeTabId();
 	const sessionId = useSessionStore(s => s.sessionId);
-	return <SessionTranscript key={`${tabId ?? ""}:${sessionId}`} />;
+	// One transcript per session (nextTranscriptIdentity); a new identity remounts it.
+	const [transcript, setTranscript] = useState({ sessionId, generation: 0 });
+	const next = nextTranscriptIdentity(transcript, sessionId);
+	if (next !== transcript) setTranscript(next);
+	return <SessionTranscript key={`${tabId ?? ""}:${next.generation}`} />;
 }
 
 function SessionTranscript() {
@@ -1638,6 +1643,7 @@ export {
 	LIVE_EDGE_SLACK_PX,
 	liveWorkTail,
 	mergeTodoSnapshots,
+	nextTranscriptIdentity,
 	ROW_ENTRANCE_TAIL_ROWS,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,

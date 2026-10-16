@@ -145,6 +145,23 @@ export interface MountedTranscriptRow {
 	key: string;
 }
 
+/** Which mounted transcript a tab shows: `generation` changes when its session does, which remounts it. */
+export interface TranscriptIdentity {
+	sessionId: string;
+	generation: number;
+}
+
+/**
+ * The transcript for the tab's current session id. A switch to another session is a new transcript.
+ * A tab only learning its first id ("" until get_state lands) keeps the one it shows, since nothing in it
+ * belonged to another session: on a loaded machine the id lands after the empty transcript's first-run
+ * setup is up, and remounting there dropped a provider sign-in in flight.
+ */
+export function nextTranscriptIdentity(current: TranscriptIdentity, sessionId: string): TranscriptIdentity {
+	if (current.sessionId === sessionId) return current;
+	return { sessionId, generation: current.sessionId === "" ? current.generation : current.generation + 1 };
+}
+
 /** Bookkeeping for which rows have already been treated as arriving content. */
 export interface RowEntranceState {
 	sessionId: string | undefined;
