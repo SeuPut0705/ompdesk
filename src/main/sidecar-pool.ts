@@ -33,7 +33,7 @@
  * another tab (sidecarForWindow would misroute it to the newly active
  * sidecar, which never saw the request).
  */
-import type { BrowserWindow } from "electron";
+
 import {
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
@@ -84,6 +84,7 @@ import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 import type { ResumeFact } from "./turn-resume";
+import type { ClientWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
 
 /** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
@@ -100,7 +101,7 @@ function ownerKey(device: string | undefined, sessionPath: string): string {
 	return device ? `${device}\u0000${sessionPath}` : sessionPath;
 }
 
-function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): void {
+function forwardToWindow(win: ClientWindow, channel: string, data: unknown): void {
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
 }
 
@@ -121,7 +122,7 @@ const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: stri
 interface PoolEntry extends RunTracking {
 	sidecar: SidecarLike;
 	tabId: string;
-	win: BrowserWindow;
+	win: ClientWindow;
 	/** Paired host deviceId the tab runs on; undefined = this machine. Immutable; set at acquire. */
 	device?: string;
 	/** win.webContents.id, cached at acquire — safe to read after the window is destroyed. */
@@ -230,10 +231,10 @@ export class SidecarPool {
 	 * hostToolCall (shown or hidden tab), unknown tools with an explicit error.
 	 */
 	hostToolExecutor:
-		| ((sidecar: SidecarLike, request: HostToolCallRequest, tab: { tabId: string; win: BrowserWindow }) => void)
+		| ((sidecar: SidecarLike, request: HostToolCallRequest, tab: { tabId: string; win: ClientWindow }) => void)
 		| null = null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
-	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
+	onWindowTabsChanged: ((win: ClientWindow, layout: PersistedTabLayout | null) => void) | null = null;
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
 	onRunningChange: (() => void) | null = null;
 	/**
@@ -275,7 +276,7 @@ export class SidecarPool {
 	 */
 	acquire(
 		cwd: string,
-		win: BrowserWindow,
+		win: ClientWindow,
 		tabId: string = nextSnowflake(),
 		sessionPath?: string,
 		kind: "agent" | "chat" = "agent",
@@ -669,7 +670,7 @@ export class SidecarPool {
 	}
 
 	/** The window's active entry (first entry as a fallback, e.g. mid-teardown). */
-	entryForWindow(win: BrowserWindow): PoolEntry | undefined {
+	entryForWindow(win: ClientWindow): PoolEntry | undefined {
 		const active = this.#byTabId.get(this.#activeByWindow.get(win.webContents.id) ?? "");
 		if (active && active.win === win) return active;
 		for (const entry of this.#entries) {
@@ -771,12 +772,12 @@ export class SidecarPool {
 	}
 
 	/** Resolves via the ACTIVE tab, so every existing ipc.ts handler keeps working unchanged. */
-	sidecarForWindow(win: BrowserWindow): SidecarLike | null {
+	sidecarForWindow(win: ClientWindow): SidecarLike | null {
 		return this.entryForWindow(win)?.sidecar ?? null;
 	}
 
 	/** The sidecar of one specific tab, scoped to the window that owns it. */
-	sidecarForTab(win: BrowserWindow, tabId: string): SidecarLike | null {
+	sidecarForTab(win: ClientWindow, tabId: string): SidecarLike | null {
 		const entry = this.#byTabId.get(tabId);
 		return entry && entry.win === win ? entry.sidecar : null;
 	}
@@ -786,7 +787,7 @@ export class SidecarPool {
 	 * the device it runs on, so a handler can route a remote tab to its host.
 	 */
 	tabTarget(
-		win: BrowserWindow,
+		win: ClientWindow,
 		tabId?: string,
 	): { tabId: string; sidecar: SidecarLike; device: string | undefined } | null {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.entryForWindow(win);
@@ -816,13 +817,13 @@ export class SidecarPool {
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */
-	setActiveTab(win: BrowserWindow, tabId: string): boolean {
+	setActiveTab(win: ClientWindow, tabId: string): boolean {
 		return this.setTabView(win, tabId, [tabId]);
 	}
 
 	/** Atomically focus one tab and wire full streams for up to four visible tabs. */
 	setTabView(
-		win: BrowserWindow,
+		win: ClientWindow,
 		focusedTabId: string,
 		visibleTabIds: readonly string[],
 		split?: IpcSetTabViewPayload["split"],
@@ -1018,7 +1019,7 @@ export class SidecarPool {
 	}
 
 	/** The asks and approvals this window's tabs still wait on, for a page that loaded after they were raised. */
-	openRequests(win: BrowserWindow): IpcOpenExtensionRequest[] {
+	openRequests(win: ClientWindow): IpcOpenExtensionRequest[] {
 		const open: IpcOpenExtensionRequest[] = [];
 		for (const [id, request] of this.#requestBodies) {
 			const owner = this.#requestOwners.get(id);
@@ -1088,12 +1089,12 @@ export class SidecarPool {
 	}
 
 	/** The window's active tab id (null when the window has no tabs). */
-	activeTabForWindow(win: BrowserWindow): string | null {
+	activeTabForWindow(win: ClientWindow): string | null {
 		return this.#activeByWindow.get(win.webContents.id) ?? null;
 	}
 
 	/** The window's tabs in acquisition order (GET_TABS boot reconciliation). */
-	tabsForWindow(win: BrowserWindow): IpcTabInfo[] {
+	tabsForWindow(win: ClientWindow): IpcTabInfo[] {
 		const tabs: IpcTabInfo[] = [];
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);
 		const visibleTabIds = this.#visibleByWindow.get(win.webContents.id);
@@ -1117,7 +1118,7 @@ export class SidecarPool {
 	 * other windows' tabs keep their slots. False unless `order` names exactly
 	 * the window's tabs once each. The saved layout follows.
 	 */
-	reorderWindowTabs(win: BrowserWindow, order: readonly string[]): boolean {
+	reorderWindowTabs(win: ClientWindow, order: readonly string[]): boolean {
 		const mine = [...this.#entries].filter(entry => entry.win === win);
 		const byId = new Map(mine.map(entry => [entry.tabId, entry]));
 		const sorted = order.flatMap(id => byId.get(id) ?? []);
@@ -1248,7 +1249,7 @@ export class SidecarPool {
 	}
 
 	/** Serializable layout for the window, excluding transient run/status data. */
-	tabLayoutForWindow(win: BrowserWindow): PersistedTabLayout | null {
+	tabLayoutForWindow(win: ClientWindow): PersistedTabLayout | null {
 		const entries = [...this.#entries].filter(entry => entry.win === win);
 		if (entries.length === 0) return null;
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);
@@ -1304,7 +1305,7 @@ export class SidecarPool {
 	 * ends up showing get a process, so a restored ten-tab session costs one
 	 * sidecar instead of ten.
 	 */
-	restoreLayout(win: BrowserWindow, layout: PersistedTabLayout): number {
+	restoreLayout(win: ClientWindow, layout: PersistedTabLayout): number {
 		const winId = win.webContents.id;
 		this.#restoringWindows.add(winId);
 		let restoredCount = 0;
@@ -1358,7 +1359,7 @@ export class SidecarPool {
 		return restoredCount;
 	}
 
-	#notifyWindowTabsChanged(win: BrowserWindow): void {
+	#notifyWindowTabsChanged(win: ClientWindow): void {
 		if (!this.onWindowTabsChanged || this.#restoringWindows.has(win.webContents.id)) return;
 		this.onWindowTabsChanged(win, this.tabLayoutForWindow(win));
 	}

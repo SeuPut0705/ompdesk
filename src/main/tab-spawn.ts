@@ -1,7 +1,7 @@
 /**
  * SPAWN_TAB decision logic, extracted from ipc.ts so the refusal contracts
  * are directly testable without an Electron runtime. The handler stays a
- * thin shell: BrowserWindow lookup + this call.
+ * thin shell: the caller's window + this call.
  *
  * Two refusal codes, mirroring the F-OWN shape:
  * - `owned` — the session file is already attached to a tab (double-attach).
@@ -18,12 +18,12 @@
  * a remote tab), exactly like an explicit `defaultWorkspace` request.
  */
 
-import type { BrowserWindow } from "electron";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
 import { nextSnowflake } from "./snowflake";
+import type { ClientWindow } from "./web/client-window";
 
 /** Host-side lookups for a tab on a paired device. */
 export interface SpawnTabRemote {
@@ -48,7 +48,7 @@ export type SpawnTabDeps = {
 
 export async function spawnTabForWindow(
 	deps: SpawnTabDeps,
-	win: BrowserWindow,
+	win: ClientWindow,
 	payload: IpcSpawnTabPayload,
 ): Promise<IpcSpawnTabResult | null> {
 	const device = typeof payload?.device === "string" && payload.device ? payload.device : undefined;

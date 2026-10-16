@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { BrowserWindow } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
@@ -11,6 +10,7 @@ import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
+import type { ClientWindow } from "./web/client-window";
 
 /** Minimal SidecarManager stand-in: an EventEmitter with lifecycle recording. */
 class FakeSidecar extends EventEmitter {
@@ -135,13 +135,13 @@ class FakeSidecar extends EventEmitter {
 }
 
 interface FakeWindow {
-	win: BrowserWindow;
+	win: ClientWindow & { listenerCount(event: "closed"): number };
 	sent: Array<{ channel: string; data: unknown }>;
 	close(): void;
 	sentTo(channel: string): Array<{ channel: string; data: unknown }>;
 }
 
-/** Minimal BrowserWindow stand-in: captured sends + a triggerable "closed". */
+/** Minimal window: captured sends + a triggerable "closed". */
 function fakeWindow(id: number): FakeWindow {
 	const emitter = new EventEmitter();
 	const sent: Array<{ channel: string; data: unknown }> = [];
@@ -154,10 +154,10 @@ function fakeWindow(id: number): FakeWindow {
 			},
 		},
 		isDestroyed: () => destroyed,
-		once: (event: string, listener: () => void) => emitter.once(event, listener),
-		removeListener: (event: string, listener: () => void) => emitter.removeListener(event, listener),
-		listenerCount: (event: string) => emitter.listenerCount(event),
-	} as unknown as BrowserWindow;
+		once: (event: "closed", listener: () => void) => emitter.once(event, listener),
+		removeListener: (event: "closed", listener: () => void) => emitter.removeListener(event, listener),
+		listenerCount: (event: "closed") => emitter.listenerCount(event),
+	};
 	return {
 		win,
 		sent,

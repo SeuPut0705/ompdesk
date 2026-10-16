@@ -21,6 +21,7 @@ import {
 	shouldRestartForChangedResources,
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import type { ClientWindow } from "./web/client-window";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
 import { micaSupported, windowChromeOptions } from "./window-chrome";
 
@@ -416,7 +417,7 @@ export class WindowManager {
 		requestQuit();
 	}
 
-	recordFor(win: BrowserWindow): WindowRecord | undefined {
+	recordFor(win: ClientWindow): WindowRecord | undefined {
 		return this.#records.get(win.webContents.id);
 	}
 
@@ -435,13 +436,13 @@ export class WindowManager {
 	}
 
 	/** Update a window's project dir (called when its sidecar switches project). */
-	setRecordCwd(win: BrowserWindow, cwd: string): void {
+	setRecordCwd(win: ClientWindow, cwd: string): void {
 		const record = this.#records.get(win.webContents.id);
 		if (record) record.cwd = cwd;
 	}
 
 	/** Read-and-clear the session a fresh window should switch to (one-shot). */
-	consumePendingSession(win: BrowserWindow): string | undefined {
+	consumePendingSession(win: ClientWindow): string | undefined {
 		const record = this.#records.get(win.webContents.id);
 		const path = record?.pendingSessionPath;
 		if (record) record.pendingSessionPath = undefined;

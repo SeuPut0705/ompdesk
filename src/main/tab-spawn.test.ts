@@ -1,18 +1,18 @@
-import { EventEmitter } from "node:events";
-import type { BrowserWindow } from "electron";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { type SpawnTabDeps, spawnTabForWindow } from "./tab-spawn";
+import type { ClientWindow } from "./web/client-window";
 
-/** Minimal BrowserWindow stand-in (only the identity fields the guard touches). */
-function fakeWindow(): BrowserWindow {
+/** Minimal window (only the identity fields the guard touches). */
+function fakeWindow(): ClientWindow {
 	return {
-		webContents: { id: 1 },
+		webContents: { id: 1, send: () => {} },
 		isDestroyed: () => false,
-		once: () => new EventEmitter(),
-	} as unknown as BrowserWindow;
+		once: () => {},
+		removeListener: () => {},
+	};
 }
 
 interface Harness {
