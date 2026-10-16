@@ -7,6 +7,11 @@ import type { UiLanguage } from "../shared/ui-language";
 
 export const MAIN_TEXT = {
 	"dialog.openProject": { en: "Open project", ko: "프로젝트 열기" },
+	"web.unknownDevice.title": { en: "An unknown device tried to connect", ko: "알 수 없는 기기가 접속을 시도했어요" },
+	"web.unknownDevice.body": {
+		en: "Mobile web refused it (no paired device). Nothing to do unless it was you.",
+		ko: "모바일 웹이 거부했어요(페어링된 기기가 아니에요). 직접 시도한 게 아니라면 할 일은 없어요.",
+	},
 	"menu.about": { en: "About OMPdesk", ko: "OMPdesk 정보" },
 	"menu.checkUpdates": { en: "Check for Updates…", ko: "업데이트 확인…" },
 	"menu.services": { en: "Services", ko: "서비스" },
