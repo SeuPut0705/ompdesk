@@ -7,7 +7,6 @@ import type {
 	RpcCommand,
 	RpcDebugParams,
 	RpcMcpServerInput,
-	RpcModelPoolState,
 	RpcResponse,
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
@@ -132,7 +131,7 @@ export interface SessionRpcClient {
 	getLastLink(): Promise<RpcResponse>;
 	setSessionName(name: string): Promise<RpcResponse>;
 	regenerateSessionTitle(): Promise<RpcResponse>;
-	autoModeDecide(message: string, active?: { loop?: boolean; other?: boolean }): Promise<RpcResponse>;
+	autoModeDecide(message: string, active?: { loop?: boolean }): Promise<RpcResponse>;
 	autoModeUndo(mode: "plan" | "goal"): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
 	handoff(customInstructions?: string): Promise<RpcResponse>;
@@ -257,8 +256,6 @@ export interface SessionRpcClient {
 	omfg(complaint: string): Promise<RpcResponse>;
 	getLoopMode(): Promise<RpcResponse>;
 	setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
-	getModelPool(): Promise<RpcResponse>;
-	setModelPool(state: RpcModelPoolState): Promise<RpcResponse>;
 	setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
 	manageSkill(args: {
 		action: "create" | "update" | "delete";
@@ -510,8 +507,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getLastLink: () => rpcCommand({ type: "get_last_link" }),
 		setSessionName: name => rpcCommand({ type: "set_session_name", name }),
 		regenerateSessionTitle: () => rpcCommand({ type: "regenerate_session_title" }),
-		autoModeDecide: (message, active) =>
-			rpcCommand({ type: "auto_mode_decide", message, loop: active?.loop, other: active?.other }),
+		autoModeDecide: (message, active) => rpcCommand({ type: "auto_mode_decide", message, loop: active?.loop }),
 		autoModeUndo: mode => rpcCommand({ type: "auto_mode_undo", mode }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: customInstructions => rpcCommand({ type: "handoff", customInstructions }),
@@ -607,8 +603,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		omfg: complaint => rpcCommand({ type: "omfg", complaint }),
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
 		setLoopMode: (enabled, args) => rpcCommand({ type: "set_loop_mode", enabled, args }),
-		getModelPool: () => rpcCommand({ type: "get_model_pool" }),
-		setModelPool: state => rpcCommand({ type: "set_model_pool", ...state }),
 		setSkillEnabled: (name, enabled) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
 		manageSkill: args => rpcCommand({ type: "manage_skill", ...args }),
 		setHookEnabled: (hookId, enabled) => rpcCommand({ type: "set_hook_enabled", hookId, enabled }),

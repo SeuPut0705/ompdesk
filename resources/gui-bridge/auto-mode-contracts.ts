@@ -56,8 +56,6 @@ export interface AutoModeActive {
 	goal: boolean;
 	loop: boolean;
 	vibe: boolean;
-	/** Any other manual mode (the model pool). */
-	other: boolean;
 }
 
 /** The stored pref (anything not a boolean reads as the default, on) → whether the choice runs. */

@@ -16,7 +16,7 @@ import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { modelSelector } from "../../lib/model-pool";
+import { modelSelector } from "../../lib/model-usage";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
 import { useGithubAuthStore } from "../../stores/github-auth";

@@ -105,9 +105,7 @@ export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolea
 
 export type TranscriptDetail = "compact" | "full";
 /** Composer Modes popover tabs a request can open (`openModes`). */
-export type ModesTab = "vibe" | "goal" | "loop" | "pool";
-/** What a model-picker pick does: switch the session model, or add a model-pool member. */
-export type ModelPickerPurpose = "session" | "pool";
+export type ModesTab = "vibe" | "goal" | "loop";
 
 export interface GuiDisplayPreferences {
 	hideThinkingBlock?: boolean | null;
@@ -169,8 +167,6 @@ interface UiStore {
 	fileViewModes: ReadonlyMap<string, "rendered" | "source">;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
-	/** "pool" adds the picked model to the session's model pool instead of switching to it. */
-	modelPickerPurpose: ModelPickerPurpose;
 	/** What the main area shows: the session or a destination page. */
 	destination: Destination;
 	agentsTab: AgentsTab;
@@ -275,8 +271,8 @@ interface UiStore {
 	focusDockCard: (id: DockCardId) => void;
 	openCommandPalette: () => void;
 	closeCommandPalette: () => void;
-	/** Open the model picker; `"pool"` picks a model-pool member (anything else switches the session model). */
-	openModelPicker: (purpose?: ModelPickerPurpose) => void;
+	/** Open the model picker. */
+	openModelPicker: () => void;
 	closeModelPicker: () => void;
 	/** Open a destination page; `section` selects its tab/section when valid. */
 	openDestination: (destination: PageDestination, section?: string) => void;
@@ -431,7 +427,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	previewUrl: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
-	modelPickerPurpose: "session",
 	destination: "session",
 	agentsTab: "live",
 	insightsTab: "stats",
@@ -550,7 +545,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		}),
 	openCommandPalette: () => set({ commandPaletteOpen: true }),
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
-	openModelPicker: purpose => set({ modelPickerOpen: true, modelPickerPurpose: purpose ?? "session" }),
+	openModelPicker: () => set({ modelPickerOpen: true }),
 	closeModelPicker: () => set({ modelPickerOpen: false }),
 	openDestination: (destination, section) => {
 		if (destination === "settings") get().openSettings(section);

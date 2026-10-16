@@ -17,7 +17,7 @@
  */
 
 import { Check, type LucideIcon } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -49,6 +49,7 @@ export interface ContextMenuItem {
 }
 
 export type MenuAlign = "start" | "end";
+export type MenuSide = "above" | "below";
 
 interface ContextMenuProps {
 	items: ContextMenuItem[];
@@ -59,17 +60,27 @@ interface ContextMenuProps {
 	above?: number;
 	align?: MenuAlign;
 	ariaLabel?: string;
+	side?: MenuSide;
 	onClose: () => void;
 }
 
 /** Menu panel visuals. */
-export function MenuSurface({ className, children }: { className?: string; children: ReactNode }) {
+export function MenuSurface({
+	className,
+	style,
+	children,
+}: {
+	className?: string;
+	style?: CSSProperties;
+	children: ReactNode;
+}) {
 	return (
 		<div
 			className={cx(
 				"min-w-48 max-w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)",
 				className,
 			)}
+			style={style}
 		>
 			{children}
 		</div>
@@ -119,7 +130,16 @@ export function menuItemClasses(item: Pick<ContextMenuItem, "danger" | "disabled
 	);
 }
 
-export function ContextMenu({ items, x, y, above, align = "start", ariaLabel, onClose }: ContextMenuProps) {
+export function ContextMenu({
+	items,
+	x,
+	y,
+	above,
+	align = "start",
+	side = "below",
+	ariaLabel,
+	onClose,
+}: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [activeIndex, setActiveIndex] = useState(() => items.findIndex(item => !item.disabled));
 
@@ -139,12 +159,12 @@ export function ContextMenu({ items, x, y, above, align = "start", ariaLabel, on
 		const left = Math.min(align === "end" ? x - width : x, window.innerWidth - width - 8);
 		const fitsBelow = y + height <= window.innerHeight - 8;
 		const top =
-			!fitsBelow && above !== undefined && above - height >= 8
+			(side === "above" || !fitsBelow) && above !== undefined && above - height >= 8
 				? above - height
 				: Math.min(y, window.innerHeight - height - 8);
 		el.style.left = `${Math.max(8, left)}px`;
 		el.style.top = `${Math.max(8, top)}px`;
-	}, [x, y, above, align]);
+	}, [x, y, above, align, side]);
 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
@@ -226,7 +246,10 @@ export function ContextMenu({ items, x, y, above, align = "start", ariaLabel, on
 			role="menu"
 			style={{ left: 0, top: 0 }}
 		>
-			<MenuSurface className={items.some(item => item.description) ? "min-w-64" : undefined}>
+			<MenuSurface
+				className={items.some(item => item.description) ? "min-w-64" : undefined}
+				style={side === "above" ? { maxHeight: "min(60vh, calc(100dvh - 1rem))" } : undefined}
+			>
 				{items.map((item, index) => (
 					<Fragment key={item.id}>
 						{item.separatorBefore && index > 0 && (
@@ -283,6 +306,8 @@ export interface MenuButtonProps {
 	size?: ButtonSize;
 	/** Which trigger edge the menu lines up with. */
 	align?: MenuAlign;
+	/** `above` opens over the trigger (capped at 60vh) when it fits; `below` is the default. */
+	side?: MenuSide;
 	disabled?: boolean;
 	className?: string;
 }
@@ -299,6 +324,7 @@ export function MenuButton({
 	variant,
 	size = "md",
 	align = "start",
+	side = "below",
 	disabled,
 	className,
 }: MenuButtonProps) {
@@ -338,6 +364,7 @@ export function MenuButton({
 					above={anchor.above}
 					align={align}
 					ariaLabel={label}
+					side={side}
 					items={items.map(item => ({
 						...item,
 						onSelect: () => {

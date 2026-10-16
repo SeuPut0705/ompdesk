@@ -20,7 +20,7 @@ import {
 	resetAutoModeFlags,
 } from "../../resources/gui-bridge/auto-mode-state";
 
-const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false, other: false };
+const idle: AutoModeActive = { plan: false, goal: false, loop: false, vibe: false };
 
 function input(over: Partial<AutoModeGuardInput> = {}): AutoModeGuardInput {
 	return {

@@ -233,7 +233,12 @@ interface MainPrefs {
 let mainPrefsStore: Store<MainPrefs> | null = null;
 
 function prefsStore(): Store<MainPrefs> {
-	mainPrefsStore ??= new Store<MainPrefs>({ name: "prefs" });
+	if (!mainPrefsStore) {
+		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
+		// The model pool was removed; its saved presets (pref `modelPool`) are dropped once. The journal's
+		// `ompdesk.model-pool` entries stay in old sessions and are ignored.
+		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("modelPool");
+	}
 	return mainPrefsStore;
 }
 

@@ -53,7 +53,7 @@ function messageTimestamp(message: object): number {
 /**
  * The system prompt of the next turn. Stock keeps only what it built in
  * `session.systemPrompt` between turns; OMPdesk's own sections (reply language,
- * profile, reply style, model pool, visuals) join through `before_agent_start`
+ * profile, reply style, visuals) join through `before_agent_start`
  * as a turn starts, so they are applied here the way the hook does.
  */
 function turnPrompt(session: AgentSession): { parts: readonly string[]; added: readonly string[] } {

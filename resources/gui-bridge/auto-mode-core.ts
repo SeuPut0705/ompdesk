@@ -30,8 +30,8 @@ export function autoModeSkip(input: AutoModeGuardInput): AutoModeReason | null {
 	if (!text) return "empty";
 	if (text.startsWith("/")) return "slash";
 	if (text.startsWith("!")) return "bash";
-	const { plan, goal, loop, vibe, other } = input.active;
-	if (plan || goal || loop || vibe || other) return "mode_active";
+	const { plan, goal, loop, vibe } = input.active;
+	if (plan || goal || loop || vibe) return "mode_active";
 	if ([...text].length < MIN_CLASSIFIED_CHARS) return "short";
 	return null;
 }

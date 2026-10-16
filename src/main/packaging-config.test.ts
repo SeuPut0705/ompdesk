@@ -140,15 +140,15 @@ describe("mac bundle configs", () => {
 		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
-	it("ships the shared pool contract inside the bridge on macOS and Windows", () => {
+	it("ships the shared auto-mode contract inside the bridge on macOS and Windows", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			const bridge = config.extraResources?.find(resource => resource.to === "gui-bridge");
 			expect(bridge?.from, file).toBe("resources/gui-bridge");
-			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "pool-contracts.ts");
-			expect(fs.existsSync(source), `${file} omits pool-contracts.ts`).toBe(true);
-			const core = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/gui-bridge/modes/pool-core.ts"), "utf8");
-			expect(core).toContain('from "../pool-contracts"');
+			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "auto-mode-contracts.ts");
+			expect(fs.existsSync(source), `${file} omits auto-mode-contracts.ts`).toBe(true);
+			const core = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/gui-bridge/auto-mode-core.ts"), "utf8");
+			expect(core).toContain('from "./auto-mode-contracts"');
 			expect(fs.readFileSync(source, "utf8")).not.toMatch(/^\s*import\s/m);
 		}
 	});

@@ -25,7 +25,6 @@ export const FEATURES = {
 	tan: "/tan background tangents",
 	omfg: "/omfg rule forging",
 	agentPause: "Agent pause",
-	modelPool: "Model pool",
 	replyLanguage: "Reply language",
 	nextPrompt: "Prompt suggestions (next message, inline completion)",
 	autoTitle: "Automatic session titles (first message, as the work changes, regenerate)",
@@ -359,9 +358,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.pause()", "agentPauseGate.resume()", "agentPauseGate.pausedAt"],
 		},
-	},
-	modelPool: {
-		session: ["getEnabledToolNames()", "sessionManager.getBranch()", "sessionManager.appendCustomEntry()"],
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},

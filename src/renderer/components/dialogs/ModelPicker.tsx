@@ -6,10 +6,6 @@
  * every new session falls back to omp's catalog choice, which can be a keyless
  * on-device model that cannot hold a coding session.
  *
- * Opened with purpose "pool" (from the Modes popover's model-pool tab, which
- * closes first: no overlay opens another), a pick adds the model to the
- * session's model pool instead, checks mark pool members, and closing returns
- * to that tab.
  */
 
 import { Check, Settings2, TriangleAlert } from "lucide-react";
@@ -22,7 +18,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { LoginProvider, ModelInfo, RpcModelPoolState } from "../../../shared/rpc-types";
+import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
 import { compactionPointValue, useCompactionPoints } from "../../lib/compaction-limits";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -30,11 +26,10 @@ import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { runManualMaintenance } from "../../lib/messages";
-import { addPoolMember, EMPTY_MODEL_POOL, modelSelector } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
-import { type SessionStore, useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useSessionStore } from "../../stores/session";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
@@ -59,10 +54,6 @@ export function ModelPicker() {
 	const t = useT();
 	const open = useUiStore(state => state.modelPickerOpen);
 	const close = useUiStore(state => state.closeModelPicker);
-	const purpose = useUiStore(state => state.modelPickerPurpose);
-	const openModes = useUiStore(state => state.openModes);
-	const pool = useSessionStore(state => state.modelPool);
-	const forPool = purpose === "pool";
 	const openProviders = useUiStore(state => state.openProviders);
 	const availableModels = useModelStore(state => state.availableModels);
 	const catalogProviders = useModelStore(state => state.providers);
@@ -198,11 +189,11 @@ export function ModelPicker() {
 			.map(([provider, models]): PickerGroup => ({ id: provider, provider, models }));
 		// Stock's most-recently-used models on top while nothing is typed (the
 		// `/models` hub's Recent block); a pool pick has no "recent" meaning.
-		if (q.length > 0 || forPool) return byProvider;
+		if (q.length > 0) return byProvider;
 		const bySelector = new Map(filtered.map(model => [`${model.provider}/${model.id}`, model]));
 		const recent = recentSelectors.flatMap(selector => bySelector.get(selector) ?? []).slice(0, RECENT_LIMIT);
 		return recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent }, ...byProvider] : byProvider;
-	}, [availableModels, connected, forPool, nameByProvider, query, recentSelectors]);
+	}, [availableModels, connected, nameByProvider, query, recentSelectors]);
 
 	// Flat row order (group order → in-group order) for keyboard navigation; a
 	// recent model also listed under its provider is a separate row.
@@ -229,35 +220,9 @@ export function ModelPicker() {
 	}, [activeIndex]);
 
 	const isOverContext = (model: ModelInfo): boolean => {
-		// Pool members run as fresh subagents: the main context never moves to them.
-		if (forPool) return false;
 		const tokens = contextUsage?.tokens ?? 0;
 		const contextWindow = model.contextWindow ?? 0;
 		return tokens > 0 && contextWindow > 0 && tokens > contextWindow;
-	};
-
-	/** Close; a pool pick returns to the Modes popover's pool tab it came from. */
-	const dismiss = () => {
-		close();
-		if (forPool) openModes("pool");
-	};
-
-	const addToPool = async (model: ModelInfo) => {
-		const current = pool ?? EMPTY_MODEL_POOL;
-		const next = addPoolMember(current, { selector: modelSelector(model), name: modelDisplayName(model) });
-		if (next === current) {
-			dismiss();
-			return;
-		}
-		const response = await tabRpc.setModelPool(next);
-		if (!response.success) {
-			toastError({ title: t("modelPool.updateFailed"), error: response });
-			return;
-		}
-		(sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore).setState({
-			modelPool: response.data as RpcModelPoolState,
-		});
-		dismiss();
 	};
 
 	const select = async (provider: string, modelId: string) => {
@@ -266,10 +231,6 @@ export function ModelPicker() {
 		setSwitching(key);
 		try {
 			const target = availableModels.find(m => m.provider === provider && m.id === modelId);
-			if (forPool) {
-				if (target) await addToPool(target);
-				return;
-			}
 			// TUI parity: picking a model whose context window is smaller than the
 			// live session usage compacts with the CURRENT model first, then
 			// switches. The row carries the over-context warning before the pick.
@@ -358,7 +319,7 @@ export function ModelPicker() {
 			ariaLabel={t("modelPicker.searchLabel")}
 			bodyClassName="p-0"
 			chromeless
-			onClose={dismiss}
+			onClose={close}
 			open={open}
 			placement="top"
 			size="picker-compact"
@@ -445,9 +406,7 @@ export function ModelPicker() {
 									</div>
 									{models.map(model => {
 										const key = `${model.provider}/${model.id}`;
-										const isCurrent = forPool
-											? (pool?.members.some(member => member.selector === key) ?? false)
-											: current?.provider === model.provider && current.id === model.id;
+										const isCurrent = current?.provider === model.provider && current.id === model.id;
 										const optionIndex = indexByKey.get(`${groupId}:${key}`) ?? 0;
 										const isActive = optionIndex === activeIndex;
 										const over = !isCurrent && isOverContext(model);
@@ -539,7 +498,7 @@ export function ModelPicker() {
 												{switching === key && <Spinner size="sm" />}
 												{isCurrent && (
 													<Check
-														aria-label={forPool ? t("modelPool.inPool") : t("modelPicker.current")}
+														aria-label={t("modelPicker.current")}
 														className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
 													/>
 												)}
@@ -553,7 +512,7 @@ export function ModelPicker() {
 				</div>
 				<div
 					className="flex items-center gap-3 border-t border-(--sc-divider) px-2 py-1 text-sc-2xs text-(--sc-text-muted)"
-					title={forPool ? t("modelPool.pickerHint") : t("modelPicker.defaultHint")}
+					title={t("modelPicker.defaultHint")}
 				>
 					<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
 						<Kbd shortcut="↑" />

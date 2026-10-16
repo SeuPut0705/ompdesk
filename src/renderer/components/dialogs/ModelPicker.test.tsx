@@ -58,7 +58,7 @@ async function mount(): Promise<void> {
 			generation: 1,
 		}),
 	});
-	useUiStore.setState({ modelPickerOpen: true, modelPickerPurpose: "session" });
+	useUiStore.setState({ modelPickerOpen: true });
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);

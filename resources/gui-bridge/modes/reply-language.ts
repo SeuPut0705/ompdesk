@@ -5,7 +5,7 @@
  * `reply_language_set` whenever the setting changes, so open sessions follow
  * from their next turn without a restart. Stock omp has no such setting, so
  * the public `before_agent_start` hook appends one soft instruction to the
- * system prompt, every prompt, like modes/pool.ts.
+ * system prompt, every prompt.
  *
  * - No language, off or English: the hook returns nothing, so the prompt stays
  *   byte-identical to stock and the provider prompt cache is untouched.

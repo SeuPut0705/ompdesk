@@ -610,11 +610,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							if (next) useSessionStore.setState({ loopMode: next });
 							break;
 						}
-						case "model_pool_update": {
-							// The composer chip, the Modes popover and Agents › Live read the pool here.
-							useSessionStore.setState({ modelPool: event.state });
-							break;
-						}
 						case "next_prompt_config": {
 							// The built-in suggestions' switches, model and availability for this tab's bridge.
 							useSessionStore.setState(nextPromptPatch(event));

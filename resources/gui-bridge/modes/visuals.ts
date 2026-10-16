@@ -6,8 +6,7 @@
  * gets them and Settings' `tui.renderMermaid` / `tui.renderSvg` switches did
  * nothing in OMPdesk, which draws both. The public `before_agent_start` hook
  * renders stock's own Visuals section of `system/system-prompt.md` with the
- * current settings (visuals-core.ts) and appends it, every prompt, like
- * modes/pool.ts.
+ * current settings (visuals-core.ts) and appends it, every prompt.
  *
  * - Subagents never get it, as in stock (`tuiTranscript && !isSubagentSession`).
  * - Both settings off, or a prompt that already carries the section (an omp

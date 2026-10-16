@@ -27,7 +27,7 @@ describe("runAutoMode", () => {
 	it("enters plan in the store and remembers it was automatic", async () => {
 		const { session, rpc, autoModeDecide } = rig(planned);
 		await runAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => undefined });
-		expect(autoModeDecide).toHaveBeenCalledWith(BIG, { loop: false, other: false });
+		expect(autoModeDecide).toHaveBeenCalledWith(BIG, { loop: false });
 		expect(session.getState()).toMatchObject({ planModeEnabled: true, autoMode: "plan" });
 	});
 

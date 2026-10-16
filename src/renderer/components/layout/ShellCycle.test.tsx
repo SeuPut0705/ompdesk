@@ -161,8 +161,8 @@ describe("picker search fields", () => {
 
 	it("the model picker keeps its default hint as the footer tooltip, not as a line of its own", () => {
 		const picker = readFileSync(new URL("../dialogs/ModelPicker.tsx", import.meta.url), "utf8");
-		expect(picker).toMatch(/title=\{forPool \? t\("modelPool\.pickerHint"\) : t\("modelPicker\.defaultHint"\)\}/);
-		expect(picker).not.toMatch(/<span[^>]*>\s*\{forPool \? t\("modelPool\.pickerHint"\)/);
+		expect(picker).toMatch(/title=\{t\("modelPicker\.defaultHint"\)\}/);
+		expect(picker).not.toMatch(/<span[^>]*>\s*\{t\("modelPicker\.defaultHint"\)/);
 	});
 });
 

@@ -13,7 +13,6 @@ import type {
 	NextPromptState,
 	NextPromptUpdate,
 } from "../../resources/gui-bridge/next-prompt-contracts";
-import type { PoolMember, PoolState } from "../../resources/gui-bridge/pool-contracts";
 import type { GithubRequest } from "./github";
 
 // ============================================================================
@@ -90,7 +89,7 @@ export type RpcCommand =
 	// The editor's auto button: stock's `/rename` without a title on the live session; gui-bridge modes/auto-title.ts
 	| { id?: string; type: "regenerate_session_title" }
 	// The automatic Plan/Goal choice before a typed prompt, and the chip's undo; gui-bridge modes/auto-mode.ts
-	| { id?: string; type: "auto_mode_decide"; message: string; loop?: boolean; other?: boolean }
+	| { id?: string; type: "auto_mode_decide"; message: string; loop?: boolean }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
@@ -234,8 +233,6 @@ export type RpcCommand =
 	  }
 	| { id?: string; type: "get_loop_mode" }
 	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
-	| { id?: string; type: "get_model_pool" }
-	| { id?: string; type: "set_model_pool"; enabled: boolean; members: RpcModelPoolMember[] }
 	// Built-in prompt suggestions: gui-bridge modes/next-prompt.ts
 	| { id?: string; type: "get_next_prompt" }
 	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
@@ -1375,9 +1372,6 @@ export interface RpcLoopModeState {
 	prompt?: string;
 	limit?: RpcLoopLimit;
 }
-/** Shared packaged pool contracts; the renderer-facing wire shape is unchanged. */
-export type RpcModelPoolMember = PoolMember;
-export type RpcModelPoolState = PoolState;
 /** `get_next_prompt` response data. */
 export type RpcNextPromptState = NextPromptState;
 /** `complete_inline` response data. */
@@ -2629,7 +2623,6 @@ export type AgentSessionEvent =
 			options: string[];
 	  }
 	| { type: "loop_mode_update"; state: RpcLoopModeState }
-	| { type: "model_pool_update"; state: RpcModelPoolState }
 	| NextPromptUpdate
 	| NextPromptConfigFrame
 	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.

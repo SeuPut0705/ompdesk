@@ -10,7 +10,7 @@
 import type { CustomProviderView } from "../../../shared/ipc-types";
 import type { ModelInfo, ProviderInfo } from "../../../shared/rpc-types";
 import { applyModelInfo } from "../../hooks/session-hydration";
-import { modelSelector } from "../../lib/model-pool";
+import { modelSelector } from "../../lib/model-usage";
 import type { TabRpc } from "../../lib/tab-rpc";
 import { canServe, pickDefaultModel, servingProviderIds } from "../settings/providers/provider-catalog";
 

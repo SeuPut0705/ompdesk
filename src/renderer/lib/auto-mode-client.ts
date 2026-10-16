@@ -36,18 +36,17 @@ export async function runAutoMode(input: {
 		const enabled = autoModeFromPref(await (input.readPref ?? (() => window.omp.prefs.get(AUTO_MODE_PREF)))());
 		const state = session.getState();
 		const loop = state.loopMode?.enabled === true;
-		const other = state.modelPool?.enabled === true && state.modelPool.members.length >= 2;
 		const skip = autoModeSkip({
 			text: message,
 			enabled,
 			streaming: isStreaming,
-			active: { plan: state.planModeEnabled, goal: goalIsActive(state), loop, vibe: state.vibeModeEnabled, other },
+			active: { plan: state.planModeEnabled, goal: goalIsActive(state), loop, vibe: state.vibeModeEnabled },
 			suppressed: false,
 		});
 		if (skip) return null;
 		const origin = state.sessionId;
 		const response = await Promise.race([
-			rpc.autoModeDecide(message, { loop, other }),
+			rpc.autoModeDecide(message, { loop }),
 			new Promise<null>(resolve => setTimeout(() => resolve(null), CLIENT_DEADLINE_MS)),
 		]);
 		if (!response?.success) return null;

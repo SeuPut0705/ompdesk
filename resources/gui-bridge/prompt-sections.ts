@@ -1,6 +1,6 @@
 /**
  * OMPdesk's own per-turn system-prompt sections (reply language, profile,
- * reply style, model pool, visuals). Each one is appended through the public
+ * reply style, visuals). Each one is appended through the public
  * `before_agent_start` hook, and stock keeps what that hook added only while a
  * turn runs (its per-turn override is dropped when the turn ends, and a rebuild
  * of the base prompt replaces it), so `session.systemPrompt` lacks them before
@@ -12,7 +12,12 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
-import type { JournalEntry } from "./modes/pool-core";
+/** One journal entry as a section reads it. */
+export interface JournalEntry {
+	type?: unknown;
+	customType?: unknown;
+	data?: unknown;
+}
 
 /** The slice of omp's extension context a section may read. */
 export interface PromptSectionContext {

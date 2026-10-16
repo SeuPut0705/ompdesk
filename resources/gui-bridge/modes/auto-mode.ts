@@ -114,7 +114,6 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 			goal: goal?.enabled === true || goal?.goal?.status === "paused",
 			loop: record(params).loop === true,
 			vibe: session.getVibeModeState()?.enabled === true,
-			other: record(params).other === true,
 		},
 		suppressed: flags.suppressed,
 	});

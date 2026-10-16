@@ -21,7 +21,6 @@ export const handlers: Record<string, LocalHandler> = {
 			decision = await ctx.bridge.request<AutoModeDecision>("modes.auto_mode_decide", {
 				message: text(command.message),
 				loop: command.loop === true,
-				other: command.other === true,
 			});
 		} catch {
 			return noDecision("unavailable");

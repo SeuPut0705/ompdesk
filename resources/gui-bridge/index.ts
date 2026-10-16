@@ -58,7 +58,6 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/vibe", features: ["vibeMode"], load: () => import("./modes/vibe") },
 	{ name: "modes/goal", features: ["goalMode"], load: () => import("./modes/goal") },
 	{ name: "modes/loop", features: ["loopMode"], load: () => import("./modes/loop") },
-	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
 	{ name: "modes/next-prompt", features: ["nextPrompt"], load: () => import("./modes/next-prompt") },
 	{ name: "modes/auto-title", features: ["autoTitle"], load: () => import("./modes/auto-title") },
