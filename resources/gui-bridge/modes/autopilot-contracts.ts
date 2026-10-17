@@ -195,6 +195,23 @@ export interface AutopilotChildReport {
 	sha?: string;
 }
 
+/** What a cycle changed in the repository, measured by the bridge (`git diff --numstat` from the turn's start to HEAD). */
+export interface AutopilotChangeStat {
+	files: number;
+	added: number;
+	removed: number;
+	commits: number;
+	/** Every changed file is documentation (README, `docs/`, `*.md`...). */
+	docOnly?: boolean;
+}
+
+/** Why the bridge did not take a green claim as it was: no check command ran, the last one failed, or files were edited after it. */
+export interface AutopilotVerifyNote {
+	kind: "no_check" | "check_failed" | "edited_after";
+	/** `check_failed`: the command that failed. */
+	command?: string;
+}
+
 /** Payload of {@link AUTOPILOT_CYCLE_ENTRY} (what `autopilot end` reported, plus what the bridge measured). */
 export interface AutopilotCycleRecord {
 	n: number;
@@ -215,6 +232,10 @@ export interface AutopilotCycleRecord {
 	compactions: number;
 	/** The user reverted it from the screen. */
 	reverted?: boolean;
+	/** The bridge did not take the reported verify as it was (it shows what the cycle's own tool calls say): why. */
+	verifyNote?: AutopilotVerifyNote;
+	/** What the cycle changed; absent when it left no commit. */
+	change?: AutopilotChangeStat;
 }
 
 export interface AutopilotNote {
@@ -305,6 +326,7 @@ export interface AutopilotShipState {
 
 export type AutopilotToolInput =
 	| { op: "begin" }
+	| { op: "pick"; area: AutopilotCycleArea; title: string }
 	| {
 			op: "end";
 			area: AutopilotCycleArea;
@@ -312,6 +334,8 @@ export type AutopilotToolInput =
 			summary: string;
 			verify: CycleVerify;
 			commit?: string;
+			/** The exact command that ran the repo's check: the runtime looks for it among the cycle's tool calls. */
+			check?: string;
 			backlogId?: string;
 			followups?: string[];
 			ship?: { kind: "release"; version: string; runUrl?: string };
@@ -346,6 +370,10 @@ export interface AutopilotBeginResult {
 	budgetLeft?: Partial<AutopilotLimits>;
 	/** The project's guide (AUTOPILOT.md at the worktree root), bounded; absent when the repo has none. Re-read at every `begin`. */
 	guide?: { text: string; truncated?: boolean };
+	/** Said once per cycle: what to do right after the audit. */
+	pick: string;
+	/** What the run's own history says about this pick (carried follow-ups, a docs-only last cycle); absent when nothing stands out. */
+	hints?: string[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -383,7 +411,7 @@ export interface AutopilotStatus {
 	baseBranch?: string;
 	cycle?: number;
 	/** The cycle in flight, set by `begin` and cleared by the cycle's record. */
-	now?: { n: number; area?: AutopilotCycleArea; startedAt: number };
+	now?: { n: number; area?: AutopilotCycleArea; title?: string; startedAt: number };
 	startedAt?: number;
 	activeMs?: number;
 	settings?: AutopilotSettings;

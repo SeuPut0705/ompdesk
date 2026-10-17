@@ -35,6 +35,7 @@ import {
 	type AutopilotArmParams,
 	type AutopilotBacklogEvent,
 	type AutopilotBacklogParams,
+	type AutopilotChangeStat,
 	type AutopilotChildEntry,
 	type AutopilotConfigureParams,
 	type AutopilotCycleAmendParams,
@@ -51,7 +52,9 @@ import {
 	type AutopilotStateEntry,
 	type AutopilotStatus,
 	type AutopilotStopRequest,
+	type AutopilotVerifyNote,
 	DEFAULT_AUTOPILOT_SETTINGS,
+	isAutopilotArea,
 	STALL_SECONDS,
 } from "./autopilot-contracts";
 import {
@@ -86,6 +89,16 @@ import {
 import { evaluateToolCall } from "./autopilot-guard-core";
 import { draftGuide, fileIo, type GuideIo, readGuide, readGuideInfo } from "./autopilot-guide";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
+import {
+	judgeVerify,
+	type LedgerCall,
+	ledgerCall,
+	mergeRepeatedEnd,
+	parseNumstat,
+	reconcileCommit,
+	shouldSteerStop,
+	type VerifyVerdict,
+} from "./autopilot-verify";
 import { completeOnSmol, type NextPromptSession } from "./next-prompt-engine";
 import { attach, emit, errorMessage, onSessionEvent, record } from "./shared";
 
@@ -115,6 +128,16 @@ interface LiveState extends LiveCycle {
 	compactions: number;
 	report?: EndReport;
 	proposed: boolean;
+	/** The turn's tool calls the verify check reads, in order, and the ones still running. */
+	calls: LedgerCall[];
+	pending: Map<string, { tool: string; args: unknown }>;
+	/** HEAD when the turn began (what the cycle's change is measured from). */
+	headStart?: Promise<string | undefined>;
+	/** What the bridge measured of the report (see `autopilot-verify.ts`). */
+	verifyNote?: AutopilotVerifyNote;
+	change?: AutopilotChangeStat;
+	/** The report was refused (a green claim the tool calls do not show): the agent may run the check and `end` again. */
+	amendable?: boolean;
 }
 
 let hostPi: ExtensionAPI | undefined;
@@ -315,8 +338,23 @@ function nextCycleNumber(entries: readonly JournalEntry[]): number {
 	return (cycleRecords(entries).at(-1)?.n ?? 0) + 1;
 }
 
+async function gitOut(root: string, args: string[]): Promise<{ code: number; out: string }> {
+	try {
+		const result = await hostPi?.exec("git", args, { cwd: root });
+		return result ? { code: result.code, out: result.stdout.trim() } : { code: 1, out: "" };
+	} catch {
+		return { code: 1, out: "" };
+	}
+}
+
+async function headOf(root: string): Promise<string | undefined> {
+	const result = await gitOut(root, ["rev-parse", "HEAD"]);
+	return result.code === 0 && result.out ? result.out : undefined;
+}
+
 function startLive(session: Session, entries: readonly JournalEntry[]): LiveState {
 	const at = now();
+	const root = lastStateEntry(entries)?.root;
 	live = {
 		n: nextCycleNumber(entries),
 		startedAt: at,
@@ -324,6 +362,9 @@ function startLive(session: Session, entries: readonly JournalEntry[]): LiveStat
 		usageStart: usageNow(session),
 		compactions: 0,
 		proposed: false,
+		calls: [],
+		pending: new Map(),
+		...(root ? { headStart: headOf(root) } : {}),
 	};
 	return live;
 }
@@ -375,6 +416,8 @@ function onAgentEnd(session: Session, event: unknown): void {
 		now: at,
 		usage: usageDelta(finished.usageStart, usageNow(session)),
 		compactions: finished.compactions,
+		...(finished.verifyNote ? { verifyNote: finished.verifyNote } : {}),
+		...(finished.change ? { change: finished.change } : {}),
 	});
 	append(session, AUTOPILOT_CYCLE_ENTRY, cycle);
 	let state = requireRun(session);
@@ -436,11 +479,28 @@ function scheduleStall(session: Session): void {
 	stallTimer.unref?.();
 }
 
+/** The cycle's ledger follows the main agent's tool calls (`autopilot-verify.ts` judges a green claim against it). */
+function noteToolEvent(event: unknown): void {
+	if (!live) return;
+	const fields = record(event);
+	const id = typeof fields.toolCallId === "string" ? fields.toolCallId : "";
+	const tool = typeof fields.toolName === "string" ? fields.toolName : "";
+	if (fields.type === "tool_execution_start") {
+		live.pending.set(id, { tool, args: fields.args });
+		return;
+	}
+	const started = live.pending.get(id);
+	live.pending.delete(id);
+	const call = ledgerCall(tool, started?.args, fields.result, fields.isError === true);
+	if (call) live.calls.push(call);
+}
+
 onSessionEvent((event, session) => {
 	try {
 		if (event.type === "agent_start") onAgentStart(session);
 		else if (event.type === "agent_end" && (event as { isTerminal?: boolean }).isTerminal !== false)
 			onAgentEnd(session, event);
+		else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") noteToolEvent(event);
 		else if (event.type === "goal_updated") onGoalUpdated(session, event);
 	} catch (error) {
 		emit({ type: "notice", level: "error", message: `Autopilot: ${errorMessage(error)}` });
@@ -479,12 +539,50 @@ function newId(prefix: string): string {
 }
 
 async function gitClean(root: string): Promise<boolean> {
-	try {
-		const result = await hostPi?.exec("git", ["status", "--porcelain"], { cwd: root });
-		return result !== undefined && result.code === 0 && result.stdout.trim() === "";
-	} catch {
-		return false;
-	}
+	const result = await gitOut(root, ["status", "--porcelain"]);
+	return result.code === 0 && result.out === "";
+}
+
+/**
+ * What the repository and the cycle's own tool calls say about an `end` report: the commit the cycle really made
+ * (the agent often leaves the hash out), what it changed, and whether a green claim shows in the tool calls. A release
+ * cycle is judged by its own procedure, not by a check command.
+ */
+async function observeReport(
+	root: string,
+	current: LiveState,
+	report: EndReport,
+): Promise<{ report: EndReport; verdict: VerifyVerdict; change?: AutopilotChangeStat }> {
+	const start = await current.headStart;
+	const head = await headOf(root);
+	const moved = start !== undefined && head !== undefined && start !== head;
+	const claimed = report.commit && /^[0-9a-f]{4,40}$/i.test(report.commit) ? report.commit : undefined;
+	const [short, ancestor, dirty, stat, count] = await Promise.all([
+		gitOut(root, ["rev-parse", "--short", "HEAD"]),
+		claimed ? gitOut(root, ["merge-base", "--is-ancestor", claimed, "HEAD"]) : undefined,
+		gitOut(root, ["status", "--porcelain"]),
+		moved ? gitOut(root, ["diff", "--numstat", start, head]) : undefined,
+		moved ? gitOut(root, ["rev-list", "--count", `${start}..${head}`]) : undefined,
+	]);
+	const changed = moved || dirty.out !== "" || current.calls.some(call => call.tool !== "bash" && call.ok);
+	const verdict =
+		report.area === "release"
+			? { verify: report.verify, amendable: false }
+			: judgeVerify({ claimed: report.verify, calls: current.calls, changed, declared: report.check });
+	const commit = reconcileCommit({
+		claimed,
+		// Without a repository there is nothing to check the hash against: the claim stands.
+		claimedKnown: ancestor?.code === 0 || head === undefined,
+		head: short.code === 0 && short.out ? short.out : undefined,
+		moved,
+	});
+	const { commit: _reported, ...rest } = report;
+	const change = stat?.code === 0 ? parseNumstat(stat.out, Number(count?.out) || 1) : null;
+	return {
+		report: { ...rest, verify: verdict.verify, ...(commit ? { commit } : {}) },
+		verdict,
+		...(change ? { change } : {}),
+	};
 }
 
 async function runTool(session: Session, params: Record<string, unknown>, kind: "main" | "sub"): Promise<unknown> {
@@ -520,7 +618,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			});
 			if (current.beganAt === undefined) current.startedAt = now();
 			current.beganAt = now();
-			current.area = due ? "release" : result.rotation.suggested;
+			if (due) current.area = "release";
 			if (guardState) guardState.due = due;
 			if (due && state.inFlight?.kind !== "release") {
 				appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
@@ -528,8 +626,40 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			publish(session);
 			return toolText(result);
 		}
+		case "pick": {
+			const area = params.area;
+			const title = typeof params.title === "string" ? params.title.trim() : "";
+			if (typeof area !== "string" || !(isAutopilotArea(area) || area === "user" || area === "release")) {
+				throw new Error("autopilot pick: area must be an area name, user or release");
+			}
+			if (!title) throw new Error("autopilot pick: title is required");
+			if (area !== "user" && area !== "release" && isDuplicateTitle(records, title)) {
+				return toolText({
+					picked: false,
+					duplicate: true,
+					note: "This title repeats a recent cycle: pick a different item.",
+				});
+			}
+			current.area = area as AutopilotCycleArea;
+			current.title = title;
+			publish(session);
+			return toolText({ picked: true, cycle: current.n });
+		}
 		case "end": {
-			const report = endReportOrThrow(params);
+			const parsed = endReportOrThrow(params);
+			if (current.report && !current.amendable) {
+				// The first report stands: a later `end` (a stop steer, a second thought) only adds what the first left out.
+				current.report = mergeRepeatedEnd(current.report, parsed);
+				publish(session);
+				return toolText({
+					recorded: true,
+					cycle: current.n,
+					repeated: true,
+					note: "This cycle was already reported and the first report stands (only follow-ups, children and ship were added). Stop now.",
+				});
+			}
+			const followups = [...new Set([...(current.report?.followups ?? []), ...(parsed.followups ?? [])])];
+			const report: EndReport = followups.length > 0 ? { ...parsed, followups } : parsed;
 			const backlog = backlogItems(entries);
 			const pinned = report.backlogId ? backlog.find(item => item.id === report.backlogId && !item.done) : undefined;
 			const duplicate =
@@ -538,7 +668,11 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				const done: AutopilotBacklogEvent = { op: "done", id: pinned.id, cycle: current.n, at: now() };
 				append(session, AUTOPILOT_BACKLOG_ENTRY, done);
 			}
-			current.report = report;
+			const seen = await observeReport(state.root, current, report);
+			current.report = seen.report;
+			current.verifyNote = seen.verdict.why;
+			current.change = seen.change;
+			current.amendable = seen.verdict.amendable;
 			current.area = report.area as AutopilotCycleArea;
 			publish(session);
 			return toolText({
@@ -547,7 +681,15 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				...(duplicate
 					? { duplicate: true, note: "This title repeats a recent cycle: pick a different item next cycle." }
 					: {}),
-				next: "Stop now; the runtime starts the next cycle.",
+				...(seen.verdict.note
+					? {
+							verify: seen.verdict.verify,
+							refused: `${seen.verdict.note} Run the repo's check now and call end again (check: the command you ran); until then this cycle counts as ${seen.verdict.verify}.`,
+						}
+					: {}),
+				next: seen.verdict.amendable
+					? "Run the check, then call end again."
+					: "Stop now; the runtime starts the next cycle.",
 			});
 		}
 		case "ship": {
@@ -614,17 +756,20 @@ function registerTool(pi: ExtensionAPI): void {
 		name: AUTOPILOT_TOOL,
 		label: "Autopilot",
 		description:
-			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, backlog, notes, rotation, recent cycles, follow-ups, ship state). op=end: report the finished cycle. op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent).",
+			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, backlog, notes, rotation, recent cycles, follow-ups, ship state, what to do next, hints). op=pick: name the item you chose after your audit (area + title). op=end: report the finished cycle (the runtime checks the commit and the check against your tool calls). op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent).",
 		parameters: z.object({
-			op: z.enum(["begin", "end", "ship", "propose_release"]),
+			op: z.enum(["begin", "pick", "end", "ship", "propose_release"]),
 			area: z
 				.string()
 				.optional()
-				.describe("end: design | performance | features | refactoring | tests | bugs | docs | user | release"),
-			title: z.string().optional().describe("end: the item, one line (used to avoid repeats)"),
+				.describe(
+					"pick, end: design | performance | features | refactoring | tests | bugs | docs | user | release",
+				),
+			title: z.string().optional().describe("pick, end: the item, one line (used to avoid repeats)"),
 			summary: z.string().optional().describe("end: what you did, assumptions you made"),
 			verify: z.enum(["green", "red", "skipped"]).optional().describe("end: the repo's own check result"),
 			commit: z.string().optional().describe("end: commit hash"),
+			check: z.string().optional().describe("end: the exact command you ran as the repo's check"),
 			backlogId: z.string().optional().describe("end: the pinned backlog item this cycle did"),
 			followups: z.array(z.string()).optional().describe("end: items found but not done"),
 			ship: z
@@ -815,7 +960,11 @@ function setStatePatch(
 function setState(session: Session, params: AutopilotSetStateParams): AutopilotStatus {
 	const prev = requireRun(session);
 	const next = appendState(session, setStatePatch(params, prev), prev);
-	if (next.state === "stopping" && prev.state !== "stopping" && session.isStreaming) {
+	if (
+		next.state === "stopping" &&
+		prev.state !== "stopping" &&
+		shouldSteerStop({ streaming: session.isStreaming, reported: live?.report !== undefined })
+	) {
 		hostPi?.sendMessage(
 			{ customType: "autopilot-stop", content: AUTOPILOT_STOPPING_STEER, display: true },
 			{ deliverAs: "steer" },

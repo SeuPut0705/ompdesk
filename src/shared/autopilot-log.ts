@@ -37,13 +37,27 @@ function clip(text: string): string {
 	return flat.length > SUMMARY_MAX ? `${flat.slice(0, SUMMARY_MAX - 1)}…` : flat;
 }
 
+const VERIFY_NOTE: Record<NonNullable<AutopilotCycleRecord["verifyNote"]>["kind"], string> = {
+	no_check: "reported green, but no check ran this cycle",
+	check_failed: "reported green, but the last check failed",
+	edited_after: "reported green, but files were edited after the last check",
+};
+
 function cycleLines(cycle: AutopilotCycleRecord): string[] {
 	const verify = cycle.verify === "unreported" ? "no report" : cycle.verify;
 	const parts = [`**#${cycle.n}** ${cycle.title.trim() || "(untitled)"} — ${verify}`];
 	if (cycle.commit) parts.push(`\`${short(cycle.commit)}\``);
+	if (cycle.change) {
+		const { added, removed, files } = cycle.change;
+		parts.push(`+${added} −${removed} in ${files} ${files === 1 ? "file" : "files"}`);
+	}
 	if (cycle.reverted) parts.push("reverted");
 	const lines = [`- ${parts.join(" · ")}`];
 	if (cycle.summary.trim()) lines.push(`  ${clip(cycle.summary)}`);
+	if (cycle.verifyNote) {
+		const { kind, command } = cycle.verifyNote;
+		lines.push(`  - Verify: ${VERIFY_NOTE[kind]}${kind === "check_failed" && command ? ` (\`${command}\`)` : ""}`);
+	}
 	for (const followup of cycle.followups) lines.push(`  - Follow-up: ${followup}`);
 	for (const child of cycle.children) {
 		lines.push(`  - Child \`${child.branch}\`: ${child.outcome}${child.sha ? ` \`${short(child.sha)}\`` : ""}`);

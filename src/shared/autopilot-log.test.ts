@@ -99,4 +99,22 @@ describe("formatAutopilotLog", () => {
 		expect(open).toContain("- A");
 		expect(open).toContain("- C");
 	});
+
+	it("shows what a cycle changed and why a reported green was not taken", () => {
+		const log = formatAutopilotLog({
+			branch: "b",
+			cycles: [
+				cycle({ n: 1, commit: "abcdef1234", change: { files: 1, added: 4, removed: 0, commits: 1 } }),
+				cycle({
+					n: 2,
+					verify: "skipped",
+					verifyNote: { kind: "check_failed", command: "bun test" },
+					change: { files: 3, added: 13, removed: 1, commits: 2 },
+				}),
+			],
+		});
+		expect(log).toContain("+4 −0 in 1 file");
+		expect(log).toContain("+13 −1 in 3 files");
+		expect(log).toContain("Verify: reported green, but the last check failed (`bun test`)");
+	});
 });

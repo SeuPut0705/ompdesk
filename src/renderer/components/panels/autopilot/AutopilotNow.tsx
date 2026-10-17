@@ -112,6 +112,11 @@ export function AutopilotNow() {
 				</p>
 			) : (
 				<>
+					{now.title && (
+						<p className="truncate text-sc-sm" data-autopilot-pick title={now.title}>
+							{now.title}
+						</p>
+					)}
 					<ol className="flex flex-wrap gap-x-3 gap-y-1 text-sc-sm" data-autopilot-steps>
 						{AUTOPILOT_STEPS.map((step: AutopilotStep) => (
 							<li

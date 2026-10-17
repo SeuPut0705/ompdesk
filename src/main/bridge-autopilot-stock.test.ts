@@ -422,8 +422,9 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 			area: "tests",
 			title: "stock probe item",
 			verify: "green",
-			commit: "abc1234",
 		});
+		// The probe model reports a hash that is no commit of the worktree: the bridge drops it instead of recording it.
+		expect(record.commit).toBeUndefined();
 		expect(record.tokens).toBeGreaterThan(0);
 
 		// Turn 1: the autopilot tool reached the model as a top-level tool; the section was in the prompt.

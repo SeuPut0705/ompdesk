@@ -90,6 +90,16 @@ function CycleRow({
 				<span>{formatDuration(cycle.durationMs)}</span>
 				<span>{t("autopilot.tokens", { tokens: formatTokens(cycle.tokens) })}</span>
 				{cycle.usd > 0 && <span>{formatCost(cycle.usd, 2)}</span>}
+				{cycle.change && (
+					<span data-autopilot-change>
+						{t("autopilot.change", {
+							files: cycle.change.files,
+							added: cycle.change.added,
+							removed: cycle.change.removed,
+						})}
+					</span>
+				)}
+				{cycle.change?.docOnly && <Badge variant="muted">{t("autopilot.docOnly")}</Badge>}
 				{cycle.reverted && <Badge variant="muted">{t("autopilot.reverted")}</Badge>}
 				{cycle.commit && !cycle.reverted && (
 					<Button
@@ -103,6 +113,11 @@ function CycleRow({
 					</Button>
 				)}
 			</div>
+			{cycle.verifyNote && (
+				<p className="pl-7 text-sc-xs text-(--sc-warning)" data-autopilot-verify-note={cycle.verifyNote.kind}>
+					{t(`autopilot.verifyNote.${cycle.verifyNote.kind}`, { command: cycle.verifyNote.command ?? "" })}
+				</p>
+			)}
 			{cycle.children.length > 0 && (
 				<ul className="flex flex-col gap-0.5">
 					{cycle.children.map(child => (
@@ -142,7 +157,7 @@ export function AutopilotTimeline() {
 					<span className="w-5 shrink-0 text-right text-sc-xs text-(--sc-text-muted) tabular-nums">{now.n}</span>
 					{now.area && <AreaIcon area={now.area} />}
 					<span className="min-w-0 flex-1 truncate">
-						{now.area ? t(`autopilot.area.${now.area}`) : t("autopilot.picking")}
+						{now.title ?? (now.area ? t(`autopilot.area.${now.area}`) : t("autopilot.picking"))}
 					</span>
 					<Badge dot pulse variant="info">
 						{t("autopilot.inProgress")}

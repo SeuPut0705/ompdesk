@@ -16,6 +16,7 @@ import {
 	type AutopilotBacklogEvent,
 	type AutopilotBacklogItem,
 	type AutopilotBeginResult,
+	type AutopilotChangeStat,
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
 	type AutopilotLimits,
@@ -29,6 +30,7 @@ import {
 	type AutopilotStatus,
 	type AutopilotStopRequest,
 	type AutopilotToolInput,
+	type AutopilotVerifyNote,
 	CHURN_COMPACTIONS_PER_CYCLE,
 	CHURN_CYCLES_IN_A_ROW,
 	DEFAULT_AUTOPILOT_SETTINGS,
@@ -568,6 +570,9 @@ export interface FinalizeFacts {
 	now: number;
 	usage: UsageTotals;
 	compactions: number;
+	/** What the bridge measured of the report: why the verify differs from the claim, what the cycle changed. */
+	verifyNote?: AutopilotVerifyNote;
+	change?: AutopilotChangeStat;
 }
 
 /** The record journaled at the terminal agent_end: the report, or `unreported`. */
@@ -603,6 +608,8 @@ export function finalizeCycle(facts: FinalizeFacts): AutopilotCycleRecord {
 		followups: (report.followups ?? []).map(text => text.trim()).filter(Boolean),
 		...(report.ship ? { ship: report.ship } : {}),
 		children: report.children ?? [],
+		...(facts.verifyNote ? { verifyNote: facts.verifyNote } : {}),
+		...(facts.change ? { change: facts.change } : {}),
 	};
 }
 
@@ -625,6 +632,7 @@ export function parseEndReport(input: Record<string, unknown>): EndReport | { er
 		verify: input.verify,
 	};
 	if (typeof input.commit === "string" && input.commit.trim()) report.commit = input.commit.trim();
+	if (typeof input.check === "string" && input.check.trim()) report.check = input.check.trim();
 	if (typeof input.backlogId === "string" && input.backlogId) report.backlogId = input.backlogId;
 	if (Array.isArray(input.followups))
 		report.followups = input.followups.filter((x): x is string => typeof x === "string");
@@ -685,6 +693,56 @@ export interface BeginFacts {
 	guide?: { text: string; truncated?: boolean } | null;
 }
 
+/** Cycles a follow-up may be carried before `begin` asks for a decision on it. */
+export const CARRIED_FOLLOWUP_CYCLES = 3;
+
+/** What `begin` tells the agent to do after its audit (the static protocol only says "PICK"). */
+export const BEGIN_PICK =
+	'After the audit and before any edit: autopilot({op:"pick", area, title}). It shows the item in the panel and refuses a title that repeats a recent cycle. In `end`, give the commit hash and `check`, the exact command you ran as the repo\'s check.';
+
+/** Consecutive cycles, ending with the last one, whose follow-ups name `text` (case, punctuation and spacing ignored). */
+export function followupAge(records: readonly AutopilotCycleRecord[], text: string): number {
+	const key = normalizeTitle(text);
+	let age = 0;
+	for (let i = records.length - 1; i >= 0; i--) {
+		if (!(records[i].followups ?? []).some(followup => normalizeTitle(followup) === key)) break;
+		age++;
+	}
+	return age;
+}
+
+/** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
+export function beginHints(
+	records: readonly AutopilotCycleRecord[],
+	facts: { open: readonly string[]; backlog: number; maxParallel: number },
+): string[] {
+	const hints: string[] = [];
+	const carried = facts.open
+		.map(text => ({ text, age: followupAge(records, text) }))
+		.filter(item => item.age >= CARRIED_FOLLOWUP_CYCLES)
+		.sort((a, b) => b.age - a.age)
+		.slice(0, 2);
+	for (const { text, age } of carried) {
+		hints.push(
+			`The follow-up "${text}" has been carried for ${age} cycles: do it now if the guide ranks it in scope, or drop it and say why in followups, before another small finding.`,
+		);
+	}
+	const last = records.at(-1);
+	if (
+		last &&
+		last.area !== "unreported" &&
+		(last.change?.docOnly === true || (last.area === "docs" && !last.change))
+	) {
+		hints.push("The last cycle changed documentation only: pick code, tests or a bug unless nothing else is left.");
+	}
+	if (facts.maxParallel > 0 && facts.backlog + facts.open.length >= 2) {
+		hints.push(
+			"Fan-out pays only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Small items are faster and cheaper one after the other.",
+		);
+	}
+	return hints;
+}
+
 /** The `begin` result: everything the agent needs for the cycle, from the journal. */
 export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 	const { settings, records, state } = facts;
@@ -697,14 +755,17 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		...(record.reverted ? { reverted: true } : {}),
 	}));
 	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
+	const open = openFollowups(records);
+	const backlog = facts.backlog.filter(item => !item.done);
+	const hints = beginHints(records, { open, backlog: backlog.length, maxParallel: settings.maxParallel });
 	return {
 		cycle: facts.cycle,
 		focus: settings.focus,
-		backlog: facts.backlog.filter(item => !item.done),
+		backlog,
 		notes: [...facts.notes],
 		rotation: rotation(records, settings.focus),
 		recent,
-		openFollowups: openFollowups(records),
+		openFollowups: open,
 		redStreak: redStreak(records),
 		stopping: facts.stopping,
 		ship: {
@@ -718,6 +779,8 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		},
 		...(left ? { budgetLeft: left } : {}),
 		...(facts.guide ? { guide: facts.guide } : {}),
+		pick: BEGIN_PICK,
+		...(hints.length > 0 ? { hints } : {}),
 	};
 }
 
@@ -728,6 +791,8 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 export interface LiveCycle {
 	n: number;
 	area?: AutopilotCycleArea;
+	/** The item the agent picked (`pick`), once it has. */
+	title?: string;
 	startedAt: number;
 	/** When `begin` last ran this cycle: notes added before it are delivered. */
 	beganAt?: number;
@@ -752,7 +817,16 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		branch: state.branch,
 		baseBranch: state.baseBranch,
 		cycle,
-		...(live ? { now: { n: live.n, ...(live.area ? { area: live.area } : {}), startedAt: live.startedAt } } : {}),
+		...(live
+			? {
+					now: {
+						n: live.n,
+						...(live.area ? { area: live.area } : {}),
+						...(live.title ? { title: live.title } : {}),
+						startedAt: live.startedAt,
+					},
+				}
+			: {}),
 		startedAt: state.startedAt,
 		activeMs,
 		settings: state.settings,

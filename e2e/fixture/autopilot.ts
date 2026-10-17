@@ -22,7 +22,8 @@
  *   limit, `quotaResetMs` later), `error` (a failed turn), `complete` (the agent calls `goal complete`),
  *   `noContinue` (stock stops continuing: the stall timer runs), `card` (an approval card raised mid-turn),
  *   `forgeQuote` (the agent calls `ship push` with words the user never said), `release` (what a due release cycle
- *   does: `{tools, version, runUrl, verify}`).
+ *   does: `{tools, version, runUrl, verify}`), `endTwice` (a second `end` with another title: the first report
+ *   stands). Every cycle names its item with `pick` after `begin`, as the bridge's `begin.pick` tells the agent.
  * - `childMs` (800) / `childTokens` / `childUsd`: a child session's turn (a session armed with role child).
  *
  * The agent's tool calls and their outcome are recorded in `OMP_GUI_TEST_RECORD` as `fixture_autopilot_tool`,
@@ -55,6 +56,7 @@ import {
 	type AutopilotStatus,
 	type AutopilotStopRequest,
 	DEFAULT_AUTOPILOT_SETTINGS,
+	isAutopilotArea,
 	AUTOPILOT_BRIDGE_METHODS as M,
 	STALL_SECONDS,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
@@ -71,6 +73,7 @@ import {
 	finalizeCycle,
 	inFlightAfter,
 	initialStateEntry,
+	isDuplicateTitle,
 	type JournalEntry,
 	type LiveCycle,
 	lastStateEntry,
@@ -87,8 +90,8 @@ import {
 } from "../../resources/gui-bridge/modes/autopilot-core";
 import { evaluateToolCall } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import { draftGuide, fileIo, readGuideInfo } from "../../resources/gui-bridge/modes/autopilot-guide";
+import { mergeRepeatedEnd } from "../../resources/gui-bridge/modes/autopilot-verify";
 import { goalActiveAtExit, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
-import type { AgentMessage } from "../../src/shared/rpc-types";
 
 /** The fake's own journal entry for the stock Goal's objective and status (stock journals them as `mode_change`). */
 const GOAL_ENTRY = "ompdesk.fixture-goal";
@@ -121,6 +124,8 @@ interface CycleScript {
 	noContinue?: boolean;
 	card?: { title: string };
 	forgeQuote?: string;
+	/** The agent calls `end` a second time with another title (a stop steer, a second thought): the first report stands. */
+	endTwice?: boolean;
 	verify?: "green" | "red" | "skipped" | "none";
 	release?: { tools?: ToolStep[]; version?: string; runUrl?: string; verify?: "green" | "red"; holdMs?: number };
 }
@@ -258,7 +263,9 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		return { tokens: host.stats.tokens.total, usd: host.stats.cost };
 	}
 	function statusNow(): AutopilotStatus {
-		const l = live ? { n: live.n, area: live.area, startedAt: live.startedAt, beganAt: live.beganAt } : undefined;
+		const l = live
+			? { n: live.n, area: live.area, title: live.title, startedAt: live.startedAt, beganAt: live.beganAt }
+			: undefined;
 		return buildStatus(entries(), now(), l);
 	}
 	function publish(): AutopilotStatus {
@@ -479,7 +486,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				});
 				if (cur.beganAt === undefined) cur.startedAt = now();
 				cur.beganAt = now();
-				cur.area = due ? "release" : result.rotation.suggested;
+				cur.area = due ? "release" : cur.area;
 				if (guardState) guardState.due = due;
 				if (due && current.inFlight?.kind !== "release") {
 					appendState({ inFlight: { kind: "release", startedAt: now() } }, current);
@@ -487,9 +494,28 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				publish();
 				return { text: result };
 			}
+			case "pick": {
+				const area = String(params.area ?? "");
+				const title = String(params.title ?? "").trim();
+				if (!(isAutopilotArea(area) || area === "user" || area === "release") || !title) {
+					return { text: null, error: "autopilot pick: area and title are required" };
+				}
+				if (area !== "user" && area !== "release" && isDuplicateTitle(records, title)) {
+					return { text: { picked: false, duplicate: true } };
+				}
+				cur.area = area as AutopilotCycleArea;
+				cur.title = title;
+				publish();
+				return { text: { picked: true, cycle: cur.n } };
+			}
 			case "end": {
 				const report = parseEndReport(params);
 				if ("error" in report) return { text: null, error: `autopilot end: ${report.error}` };
+				if (cur.report) {
+					cur.report = mergeRepeatedEnd(cur.report, report);
+					publish();
+					return { text: { recorded: true, cycle: cur.n, repeated: true } };
+				}
 				const pinned = report.backlogId
 					? backlogItems(entries()).find(item => item.id === report.backlogId && !item.done)
 					: undefined;
@@ -714,6 +740,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				);
 				const rotation = (begun.text as { rotation?: { suggested?: string } } | null)?.rotation?.suggested;
 				const releasing = due && cs.release !== undefined;
+				const area = (releasing ? "release" : (cs.area ?? rotation ?? "tests")) as AutopilotCycleArea;
+				const title =
+					cs.title ?? (releasing ? `Release ${cs.release?.version ?? "v0.0.1"}` : `Cycle ${n}: ${area} polish`);
+				callOp({ op: "pick", area, title });
 				for (const step of (releasing ? cs.release?.tools : cs.tools) ?? []) {
 					runStep(step);
 					await sleep(20, ctl);
@@ -732,13 +762,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				const holdMs = (releasing ? cs.release?.holdMs : cs.holdMs) ?? 0;
 				if (holdMs > 0) await sleep(holdMs, ctl);
 				if (verify !== "none") {
-					const area = (releasing ? "release" : (cs.area ?? rotation ?? "tests")) as AutopilotCycleArea;
 					callOp({
 						op: "end",
 						area,
-						title:
-							cs.title ??
-							(releasing ? `Release ${cs.release?.version ?? "v0.0.1"}` : `Cycle ${n}: ${area} polish`),
+						title,
 						summary: releasing ? "Ran the release procedure." : `Fixture cycle ${n}.`,
 						verify,
 						...(commit ? { commit } : {}),
@@ -752,6 +779,15 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 								}
 							: {}),
 					});
+					if (cs.endTwice) {
+						callOp({
+							op: "end",
+							area,
+							title: "Autopilot stopped by user; no new work",
+							summary: "Nothing new.",
+							verify: "skipped",
+						});
+					}
 				}
 				reply = assistant(
 					process.env.OMP_GUI_README_SCENE

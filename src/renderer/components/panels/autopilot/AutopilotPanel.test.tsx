@@ -215,6 +215,43 @@ describe("Autopilot screen", () => {
 		expect($("[data-ship-procedure]")?.textContent).toContain("AGENTS.md › Change workflow › Release");
 	});
 
+	it("shows the picked item, what a cycle changed and why a reported green was not taken", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({
+			...status,
+			now: { n: 3, startedAt: Date.now() },
+			cycles: [
+				cycle(1, { change: { files: 3, added: 13, removed: 1, commits: 1 } }),
+				cycle(2, {
+					verify: "skipped",
+					verifyNote: { kind: "check_failed", command: "bun test" },
+					change: { files: 1, added: 4, removed: 0, commits: 1, docOnly: true },
+				}),
+			],
+		});
+		await mount(<AutopilotPanel />);
+		// Before the agent picks, the live row says so instead of showing the rotation's guess.
+		expect($("[data-autopilot-cycle-live]")?.textContent).toContain(translate("autopilot.picking"));
+		expect($("[data-autopilot-pick]")).toBeNull();
+		expect($('[data-autopilot-cycle="1"] [data-autopilot-change]')?.textContent).toBe(
+			translate("autopilot.change", { files: 3, added: 13, removed: 1 }),
+		);
+		expect($('[data-autopilot-cycle="2"]')?.textContent).toContain(translate("autopilot.docOnly"));
+		expect($("[data-autopilot-verify-note]")?.getAttribute("data-autopilot-verify-note")).toBe("check_failed");
+		expect($("[data-autopilot-verify-note]")?.textContent).toBe(
+			translate("autopilot.verifyNote.check_failed", { command: "bun test" }),
+		);
+		expect($('[data-autopilot-cycle="1"] [data-autopilot-verify-note]')).toBeNull();
+
+		await act(async () =>
+			useAutopilotStore
+				.getState()
+				.apply({ ...status, now: { n: 3, area: "bugs", title: "chunk loops on size 0", startedAt: Date.now() } }),
+		);
+		expect($("[data-autopilot-pick]")?.textContent).toBe("chunk loops on size 0");
+		expect($("[data-autopilot-cycle-live]")?.textContent).toContain("chunk loops on size 0");
+	});
+
 	it("sends one action per control", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);

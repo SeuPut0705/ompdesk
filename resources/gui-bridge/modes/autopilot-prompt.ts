@@ -50,4 +50,4 @@ HARD LIMITS (nothing can lift them): you never push, tag, release or publish; no
 
 /** The steer sent when the run is ending while a turn is in flight (the `stopping` state). */
 export const AUTOPILOT_STOPPING_STEER =
-	"Autopilot is ending (the user asked). Start no new work and open or send nothing to other sessions. Finish what is in progress (a started push or release is finished, never abandoned), list unmerged child branches in the `end` report, call autopilot end, then end the turn. A command that was running may have moved to a background job: use wait to let it finish.";
+	"Autopilot is ending (the user asked). Start no new work and open or send nothing to other sessions. Finish what is in progress (a started push or release is finished, never abandoned), list unmerged child branches in the `end` report, call autopilot end once (skip it if you already called it this turn), then end the turn. A command that was running may have moved to a background job: use wait to let it finish.";

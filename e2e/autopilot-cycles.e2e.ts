@@ -118,7 +118,7 @@ for (const language of variants(["en", "ko"] as const))
 test("Stop lets the cycle in flight finish, empties and closes the children, ends the run and notifies once", async () => {
 	test.setTimeout(180_000);
 	const profile = await makeApProfile({
-		script: { cycleMs: 600, childMs: 6_000, cycle: { children: 2 } },
+		script: { cycleMs: 600, childMs: 6_000, cycle: { children: 2, endTwice: true } },
 	});
 	const { app, page } = await launchAp(profile);
 	try {
@@ -140,6 +140,8 @@ test("Stop lets the cycle in flight finish, empties and closes the children, end
 			"two children run",
 		);
 		const children = (running.children ?? []).map(child => child.tabId);
+		// The live cycle names the item the agent picked, not the rotation's guess.
+		expect(running.now?.title).toMatch(/^Cycle 1: /);
 		expect((await tabIds(page)).length).toBeGreaterThanOrEqual(4);
 		// A follow-up waits in each child's queue.
 		for (const child of children) {
@@ -161,6 +163,9 @@ test("Stop lets the cycle in flight finish, empties and closes the children, end
 		// The cycle in flight finished and was recorded; no next cycle started.
 		expect(ended.cycles?.length).toBe(1);
 		expect(ended.cycles?.[0]?.verify).toBe("green");
+		// A second `end` in the same turn (a stop steer, a second thought) never replaced the first report.
+		expect(ended.cycles?.[0]?.title).toMatch(/^Cycle 1: /);
+		expect(ended.cycles?.[0]?.commit).toBeTruthy();
 		await page.waitForTimeout(2_500);
 		expect((await status(page, tabId)).cycles?.length).toBe(1);
 		// The children's tabs are closed; the run's own tab and the user's stay.
