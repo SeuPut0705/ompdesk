@@ -1013,11 +1013,12 @@ app.whenReady().then(() => {
 			resumeNotice = count;
 		},
 		// An autopilot run is armed again before its goal resumes; the coordinator also learns when a tab's launch
-		// continuation ended without a goal to resume (no marker, or a turn that was not cut off): `paused: app_closed`.
+		// continuation ended without resuming its goal, and then resumes the run itself (or, after the user's Stop on
+		// the toast, shows it paused: `app_closed`).
 		resumeGoal: async tabId => {
 			await autopilotRef.current?.resumeGoal(tabId);
 		},
-		goalSettled: (tabId, goalResumed) => autopilotRef.current?.resumeSettled(tabId, goalResumed),
+		goalSettled: (tabId, outcome) => autopilotRef.current?.resumeSettled(tabId, outcome),
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
 		const count = resumeNotice;
@@ -1078,7 +1079,7 @@ app.whenReady().then(() => {
 		worktreePrompts: prompts,
 		autopilotRef,
 		desktopSlotRef,
-		expectsResume: tabId => turnResume.hasLaunchMarker(tabId),
+		relaunchContinuation: tabId => turnResume.relaunchContinuation(tabId),
 		mediaStreams,
 		schedules: () => scheduleService,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.

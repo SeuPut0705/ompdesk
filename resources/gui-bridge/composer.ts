@@ -328,7 +328,9 @@ export const methods: BridgeMethods = {
 			requireFn(restore, "restoreSession", "composer", "task/restore");
 			const branch = session.sessionManager.getBranch() as readonly JournalEntry[];
 			const cutOff = interruptedJobs(branch);
-			const goalPausedByExit = goalActiveAtExit(branch) && session.getGoalModeState()?.goal.status === "paused";
+			// This process's start: the entries before it are the lives of the processes the relaunch replaced.
+			const goalPausedByExit =
+				goalActiveAtExit(branch, performance.timeOrigin) && session.getGoalModeState()?.goal.status === "paused";
 			const outcome = await restore.restoreSession(session);
 			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
 			if (cutOff.length > 0) {

@@ -1,7 +1,11 @@
 /**
  * The fake omp's end of Autopilot: the gui-bridge `modes.autopilot_*` methods, the four frames and the stock Goal
  * continuation they ride on (rpc-goal.ts), emulated over the fixture's journal so a SIGKILL relaunch restores the run
- * from the fake session file (`OMP_GUI_TEST_SESSION_FILES=1`).
+ * from the fake session file (`OMP_GUI_TEST_SESSION_FILES=1`). What stock does around a restart is emulated as stock
+ * 18.11 does it (src/main/bridge-autopilot-stock.test.ts pins it): its RPC client closing stdin mid-turn journals the
+ * turn aborted and nothing more (no `session_exit`); the next process pauses an active goal when it loads the session
+ * (a `goal_paused` mode change) and remembers the tool set of that moment, which its `goal resume` puts back and its
+ * `goal pause` restores and forgets.
  *
  * The rules are the bridge's own: the pure functions of `modes/autopilot-core.ts` (status, begin, finalize, stop rules,
  * ship quotes) and `modes/autopilot-guard-core.ts` (the tool guard) are imported, not copied, so what this fake does
@@ -80,10 +84,13 @@ import {
 	verifyShipQuote,
 } from "../../resources/gui-bridge/modes/autopilot-core";
 import { evaluateToolCall } from "../../resources/gui-bridge/modes/autopilot-guard-core";
+import { goalActiveAtExit, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
-/** The fake's own journal entry for the stock Goal (stock keeps it in the session; a restart pauses it). */
+/** The fake's own journal entry for the stock Goal's objective and status (stock journals them as `mode_change`). */
 const GOAL_ENTRY = "ompdesk.fixture-goal";
+/** Tools an armed run never has (the bridge's `EXCLUDED_TOOLS`). */
+const EXCLUDED_TOOLS = ["ask", "eval", "debug"];
 
 interface ToolStep {
 	tool: string;
@@ -135,6 +142,10 @@ export interface AutopilotFakeHost {
 	record(frame: object): void;
 	entries(): readonly JournalEntry[];
 	appendCustom(customType: string, data: unknown): void;
+	/** Stock's `mode_change` entry (`goal`, `goal_paused`, `none`). */
+	appendModeChange(mode: string): void;
+	/** The journal's `mode_change` entries with their times, as restart-core reads them. */
+	modeChanges(): RestartJournalEntry[];
 	appendMessage(message: AgentMessage): void;
 	isStreaming(): boolean;
 	setStreaming(streaming: boolean): void;
@@ -192,8 +203,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 	let turn: Ctl | undefined;
 	let childTurn: { ctl: Ctl; timer: NodeJS.Timeout } | undefined;
 	let goal: { objective: string; status: string; tokenBudget?: number } | undefined;
-	/** The goal was active when the previous process ended: stock paused it at startup (`goalPausedByExit`). */
-	let goalWasActive = false;
+	/** The session's active tools as stock lists them (`get_state.dumpTools`). */
+	let tools = ["ask", "bash", "debug", "edit", "eval", "read", "write"];
+	/** Stock RpcGoalController's `#previousTools`: the set it took when it added `goal`; `goal pause` puts it back. */
+	let previousTools: string[] | undefined;
 	const quotaDone = new Set<number>();
 	let continuation: NodeJS.Timeout | undefined;
 	/** Retry of a failed cycle turn: the same cycle runs again. */
@@ -273,11 +286,23 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		goal = { ...goal, status };
 		host.setGoal(goal);
 		host.appendCustom(GOAL_ENTRY, { objective: goal.objective, status });
+		host.appendModeChange(status === "active" ? "goal" : status === "paused" ? "goal_paused" : "none");
 		host.write({
 			type: "goal_updated",
 			goal,
 			state: { enabled: status === "active", goal, ...(status === "complete" ? { mode: "exiting" } : {}) },
 		});
+	}
+	/** Stock `#enter`: the tool set before the goal is taken once (a reattached goal already holds one), plus `goal`. */
+	function enterGoalTools(): void {
+		const before = previousTools ?? tools;
+		previousTools = before;
+		tools = [...new Set([...before, "goal"])];
+	}
+	/** Stock `#exit` (every `goal pause` and `drop`): the set taken at `#enter` comes back and is forgotten. */
+	function exitGoalTools(): void {
+		if (previousTools) tools = previousTools;
+		previousTools = undefined;
 	}
 	/** Whether this `goal` command is an Autopilot run's (any other goal stays the fixture's own board goal). */
 	function claimsGoal(command: Params): boolean {
@@ -289,20 +314,25 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			goal = { objective: command.objective, status: "active" };
 			host.setGoal(goal);
 			host.appendCustom(GOAL_ENTRY, { objective: goal.objective, status: "active" });
+			host.appendModeChange("goal");
+			enterGoalTools();
 			host.write({ type: "goal_updated", goal, state: { enabled: true, goal } });
 			setImmediate(maybeContinue);
 		} else if (op === "pause") {
 			if (goal?.status === "active") setGoalStatus("paused");
+			exitGoalTools();
 		} else if (op === "resume") {
 			if (goal?.status === "paused") {
 				setGoalStatus("active");
-				goalWasActive = false;
+				enterGoalTools();
 				setImmediate(maybeContinue);
 			}
 		} else if (op === "drop") {
 			goal = undefined;
 			host.setGoal(undefined);
 			host.appendCustom(GOAL_ENTRY, { objective: "", status: "dropped" });
+			host.appendModeChange("none");
+			exitGoalTools();
 			host.write({ type: "goal_updated", goal: null, state: { enabled: false } });
 		}
 		return goalState();
@@ -648,6 +678,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		const ctl: Ctl = { aborted: false, wake: null };
 		turn = ctl;
 		failedTurn = false;
+		// The bridge's `ensureTools` (before_agent_start): stock's goal resume may have put back the set it remembered.
+		if (!tools.includes("autopilot") || EXCLUDED_TOOLS.some(name => tools.includes(name))) armTools("parent");
 		host.setStreaming(true);
 		host.write({ type: "agent_start" });
 		onAgentStart();
@@ -745,6 +777,11 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 	}
 
 	// ---- Bridge methods ----------------------------------------------------------------------
+	/** The bridge's `applyTools`: the excluded tools off, `autopilot` on for a parent (off for a child). */
+	function armTools(role: "parent" | "child"): void {
+		const next = tools.filter(name => !EXCLUDED_TOOLS.includes(name) && name !== "autopilot");
+		tools = role === "parent" ? [...next, "autopilot"] : next;
+	}
 	function arm(params: AutopilotArmParams): AutopilotStatus {
 		for (const key of ["root", "run", "branch", "baseBranch"] as const) {
 			if (typeof params[key] !== "string" || !params[key]) throw new Error(`arm needs ${key}`);
@@ -754,7 +791,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			throw new Error("This session already has an autopilot run; resume or end it first.");
 		}
 		if (!params.resume && goal?.status === "active") throw new Error("A goal is already active in this session.");
-		const removed = ["ask", "eval", "debug"];
+		const removed = EXCLUDED_TOOLS.filter(name => tools.includes(name));
+		armTools(params.role);
 		const resumed = params.resume && previous ? previous : undefined;
 		const settings = resumed?.settings ?? mergeSettings(DEFAULT_AUTOPILOT_SETTINGS, params.settings ?? {});
 		const patch: Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> = {
@@ -810,6 +848,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			appendState({ state: "ended", reason }, current);
 		}
 		guardState = undefined;
+		tools = [...new Set([...tools.filter(name => name !== "autopilot"), ...current.excludedTools])];
 		host.record({ type: "fixture_autopilot_session", action: "disarm", restoredTools: current.excludedTools });
 		return publish();
 	}
@@ -927,9 +966,15 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		const saved = [...entries()].reverse().find(entry => entry.type === "custom" && entry.customType === GOAL_ENTRY)
 			?.data as { objective: string; status: string } | undefined;
 		if (saved && (saved.status === "active" || saved.status === "paused")) {
-			goalWasActive = saved.status === "active";
 			goal = { objective: saved.objective, status: "paused" };
 			host.setGoal(goal);
+			// Stock's startup reconcile: an active goal is paused and journaled, and the goal is reattached with the
+			// tool set of this moment remembered (the one its `goal resume` puts back).
+			if (saved.status === "active") {
+				host.appendCustom(GOAL_ENTRY, { objective: saved.objective, status: "paused" });
+				host.appendModeChange("goal_paused");
+			}
+			enterGoalTools();
 		}
 	}
 	return {
@@ -997,10 +1042,20 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			setImmediate(maybeContinue);
 			return true;
 		},
-		/** Stock `restoreSession`: nothing to continue, but the goal was active when the last process ended. */
+		/** Stock `restoreSession` plus the bridge's `goalPausedByExit` (restart-core's rule over this journal). */
 		restore(): { turn: false; subagents: []; goalPausedByExit: true } | undefined {
-			if (!goal || !goalWasActive) return undefined;
+			if (goal?.status !== "paused" || !goalActiveAtExit(host.modeChanges(), performance.timeOrigin))
+				return undefined;
 			return { turn: false, subagents: [], goalPausedByExit: true };
+		},
+		/** Stock when its RPC client closes stdin: the turn in flight is journaled aborted; the process then ends. */
+		hangUp(): void {
+			if (!turn && !childTurn) return;
+			host.appendMessage(assistant("", { stopReason: "aborted", errorMessage: "Request was aborted" }));
+		},
+		/** The active tools for `get_state`; undefined when this session never was an Autopilot run. */
+		dumpTools(): Array<{ name: string }> | undefined {
+			return state() ? tools.map(name => ({ name })) : undefined;
 		},
 		hostToolResult(command: { id?: unknown; result?: unknown; isError?: unknown }): boolean {
 			const waiter = typeof command.id === "string" ? hostTools.get(command.id) : undefined;

@@ -226,6 +226,25 @@ export async function status(page: Page, tabId: string): Promise<AutopilotStatus
 	return (response.data ?? { active: false }) as AutopilotStatus;
 }
 
+/** The tab's active tools as its omp lists them (`get_state.dumpTools`), sorted. */
+export async function activeTools(page: Page, tabId: string): Promise<string[]> {
+	const { data } = await command(page, tabId, { type: "get_state" });
+	const dump = data !== null && typeof data === "object" && "dumpTools" in data ? data.dumpTools : undefined;
+	return (Array.isArray(dump) ? dump : [])
+		.flatMap(tool =>
+			tool !== null && typeof tool === "object" && "name" in tool && typeof tool.name === "string"
+				? [tool.name]
+				: [],
+		)
+		.sort();
+}
+
+/** An armed parent run's tool set: `autopilot` on, `ask`/`eval`/`debug` off (the bridge's `applyTools`). */
+export function expectArmedTools(tools: readonly string[]): void {
+	expect(tools).toContain("autopilot");
+	for (const name of ["ask", "eval", "debug"]) expect(tools, name).not.toContain(name);
+}
+
 /** Poll the run's status until `check` holds; resolves with the status that satisfied it. */
 export async function waitForStatus(
 	page: Page,

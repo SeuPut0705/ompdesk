@@ -9,6 +9,7 @@ import type { SidecarLike } from "./sidecar-types";
 import {
 	continuingCount,
 	deriveMarkers,
+	type GoalSettlement,
 	InterruptedTurnStore,
 	isNetworkError,
 	isTransientError,
@@ -239,8 +240,8 @@ function setup(
 		scheduledRetry?: boolean;
 		/** An injected goal resume (autopilot's); default: the tab's `set_goal` resume. */
 		resumeGoal?: (tabId: string) => Promise<void>;
-		/** Told when a tab's launch continuation ended, and whether it resumed a goal. */
-		goalSettled?: (tabId: string, goalResumed: boolean) => void;
+		/** Told how a tab's launch continuation ended for its goal. */
+		goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -581,9 +582,9 @@ describe("TurnResume launch", () => {
 		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
 	});
 
-	it("tells the goal hook whether the launch continuation resumed a goal, also when the tab never came up", async () => {
-		const settled: Array<[string, boolean]> = [];
-		const goalSettled = (tabId: string, resumed: boolean) => void settled.push([tabId, resumed]);
+	it("tells the goal hook how the launch continuation ended: resumed, none (also when the tab never came up), cancelled", async () => {
+		const settled: Array<[string, GoalSettlement]> = [];
+		const goalSettled = (tabId: string, outcome: GoalSettlement) => void settled.push([tabId, outcome]);
 		h = setup({
 			answers: { restore_interrupted: restoreAnswer({ turn: true, goalPausedByExit: true }) },
 			resumeGoal: async () => undefined,
@@ -593,7 +594,7 @@ describe("TurnResume launch", () => {
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
 		await settle();
-		expect(settled).toEqual([["restored", true]]);
+		expect(settled).toEqual([["restored", "resumed"]]);
 		rmSync(h.dir, { recursive: true, force: true });
 
 		settled.length = 0;
@@ -605,7 +606,7 @@ describe("TurnResume launch", () => {
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
 		await settle();
-		expect(settled).toEqual([["restored", false]]);
+		expect(settled).toEqual([["restored", "none"]]);
 		rmSync(h.dir, { recursive: true, force: true });
 
 		settled.length = 0;
@@ -614,17 +615,31 @@ describe("TurnResume launch", () => {
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
 		await settle();
-		expect(settled).toEqual([["restored", false]]);
+		expect(settled).toEqual([["restored", "none"]]);
+		rmSync(h.dir, { recursive: true, force: true });
+
+		// The toast's Stop while the tab's omp is still starting.
+		settled.length = 0;
+		h = setup({ status: "starting", goalSettled });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await h.resume.stopResumed();
+		h.setStatus("ready");
+		await settle();
+		expect(settled).toEqual([["restored", "cancelled"]]);
 	});
 
-	it("knows which tabs a launch marker still waits for", async () => {
+	it("says how a tab whose omp came up again goes on: after its launch continuation, at once, or not at all", async () => {
 		h = setup({ answers: { restore_interrupted: restoreAnswer({ turn: true }) } });
 		new InterruptedTurnStore(h.file).write([marker()]);
 		h.facts.push(fact({ tabId: "restored", running: false }));
-		expect(h.resume.hasLaunchMarker("restored")).toBe(false);
+		expect(h.resume.relaunchContinuation("restored")).toBe("now");
 		h.resume.launch();
-		expect(h.resume.hasLaunchMarker("restored")).toBe(true);
-		expect(h.resume.hasLaunchMarker("other")).toBe(false);
+		expect(h.resume.relaunchContinuation("restored")).toBe("after_restore");
+		expect(h.resume.relaunchContinuation("other")).toBe("now");
+		h.state.enabled = false;
+		expect(h.resume.relaunchContinuation("other")).toBe("off");
 		await settle();
 	});
 

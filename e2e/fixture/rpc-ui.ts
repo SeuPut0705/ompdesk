@@ -372,7 +372,7 @@ export function runRpcUi(): void {
 		...(slowModeSupported ? { slowModeScope: "session" } : {}),
 		messageCount: entries.length,
 		systemPrompt: [],
-		dumpTools: [],
+		dumpTools: autopilot.dumpTools() ?? [],
 		contextUsage: { tokens: 74_800, contextWindow: 128_000, percent: 58 },
 	});
 	let securityMode = "disabled";
@@ -707,6 +707,13 @@ export function runRpcUi(): void {
 			isStreaming = streaming;
 		},
 		endTurn,
+		appendModeChange: mode => append({ type: "mode_change", mode }, Date.now()),
+		modeChanges: () =>
+			entries.flatMap(entry =>
+				entry.type === "mode_change" && typeof entry.mode === "string"
+					? [{ type: entry.type, mode: entry.mode, timestamp: entry.timestamp }]
+					: [],
+			),
 		getGoal: () => boardGoal,
 		setGoal: goal => {
 			boardGoal = goal;
@@ -5315,8 +5322,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		});
 		createInterface({ input: process.stdin })
 			.on("line", line => handleCommand(JSON.parse(line)))
-			// Like stock rpc mode: the host closing stdin ends the process (a running stream timer would not).
-			.on("close", () => process.exit(0));
+			// Like stock rpc mode: the host closing stdin ends the process (a running stream timer would not), and a
+			// turn in flight is journaled aborted first.
+			.on("close", () => {
+				autopilot.hangUp();
+				process.exit(0);
+			});
 	};
 
 	// Like the real extension: inert unless loaded and handed an address, and listening before `ready`.

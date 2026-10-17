@@ -24,6 +24,7 @@ import {
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepo } from "./local/git/test-repos";
 import type { SidecarLike } from "./sidecar-types";
+import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
 
 interface Call {
@@ -63,6 +64,7 @@ class World {
 	plan = false;
 	goal: { enabled: boolean; status?: string } = { enabled: false };
 	failGoalCreate = false;
+	failGoalResume = false;
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -78,6 +80,8 @@ class World {
 		if (type === "get_goal") return ok(this.goal);
 		if (type === "get_session_stats") return ok(this.stats.get(tab) ?? { tokens: { total: 0 }, cost: 0 });
 		if (type === "set_goal" && rest.objective && this.failGoalCreate) return fail("goal refused");
+		if (type === "set_goal" && rest.action === "resume" && this.failGoalResume)
+			return fail("No paused goal to resume.");
 		return ok({});
 	}
 
@@ -168,7 +172,7 @@ function text(key: MainTextKey, params?: Record<string, string | number>): strin
 	);
 }
 
-function build(over: { releaseProcedure?: boolean; expectsResume?: boolean } = {}): void {
+function build(over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuation } = {}): void {
 	const pool: AutopilotPool = {
 		sidecarOf: tab => (world.sidecars.get(tab) as unknown as SidecarLike | undefined) ?? null,
 		tabFacts: tab =>
@@ -212,7 +216,7 @@ function build(over: { releaseProcedure?: boolean; expectsResume?: boolean } = {
 		text,
 		ghRun: async () => releaseState,
 		prCreate: async () => ({ url: "https://github.com/o/r/pull/1", number: 1 }),
-		expectsResume: () => over.expectsResume === true,
+		relaunchContinuation: () => over.relaunch ?? "now",
 		now: () => clock.value,
 		today: () => "2026-10-17",
 		after: run => {
@@ -1224,8 +1228,8 @@ describe("approval cards", () => {
 
 describe("restart", () => {
 	/** A process that came up with the run `running` in the journal and stock's goal paused. */
-	async function relaunched(expects: boolean): Promise<FakeSidecar> {
-		build({ expectsResume: expects });
+	async function relaunched(relaunch: RelaunchContinuation): Promise<FakeSidecar> {
+		build({ relaunch });
 		const sidecar = world.addTab("t1", path.join(tmp, "wt-restart"));
 		world.statuses.set("t1", {
 			active: true,
@@ -1247,31 +1251,63 @@ describe("restart", () => {
 		return sidecar;
 	}
 
-	it("without a launch marker the run is paused with app_closed and nothing resumes by itself", async () => {
-		await relaunched(false);
+	/** Stock's goal pause first (it forgets the tool set it reattached with), then arm with resume, then the resume. */
+	function expectContinued(): void {
+		const steps = world
+			.names("t1")
+			.filter(
+				name =>
+					name === AUTOPILOT_BRIDGE_METHODS.arm ||
+					name === "set_goal" ||
+					name === AUTOPILOT_BRIDGE_METHODS.setState,
+			);
+		expect(steps).toEqual(["set_goal", AUTOPILOT_BRIDGE_METHODS.arm, "set_goal"]);
+		expect(world.stock("t1", "set_goal").map(call => call.params)).toEqual([
+			{ action: "pause" },
+			{ action: "resume" },
+		]);
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({
+			resume: true,
+			role: "parent",
+		});
+	}
+
+	it("without a launch marker (a kill between turns) the run goes on at once", async () => {
+		await relaunched("now");
+		expectContinued();
+		expect(notices).toEqual([]);
+	});
+
+	it("a readiness judged before TurnResume's marker was in place continues once, even when resumeGoal follows", async () => {
+		await relaunched("now");
+		await autopilot.resumeGoal("t1");
+		autopilot.resumeSettled("t1", "resumed");
+		await autopilot.idle();
+		expectContinued();
+	});
+	it("with Continue interrupted work off the run is paused with app_closed and nothing resumes by itself", async () => {
+		await relaunched("off");
 		expect(world.stock("t1", "set_goal").map(call => call.params?.action)).toEqual(["pause"]);
 		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
 			state: "paused",
 			reason: "app_closed",
 		});
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)).toHaveLength(0);
 		expect(notices).toEqual([]);
 	});
 
-	it("with a marker TurnResume's goal resume arms again first, then resumes the goal", async () => {
-		await relaunched(true);
+	it("with a marker the run waits for TurnResume, whose goal resume pauses, arms again, then resumes", async () => {
+		await relaunched("after_restore");
 		expect(world.stock("t1", "set_goal")).toHaveLength(0);
 		await autopilot.resumeGoal("t1");
-		const names = world.names("t1").filter(name => name === AUTOPILOT_BRIDGE_METHODS.arm || name === "set_goal");
-		expect(names).toEqual([AUTOPILOT_BRIDGE_METHODS.arm, "set_goal"]);
-		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({
-			resume: true,
-			role: "parent",
-		});
-		expect(world.stock("t1", "set_goal")[0]?.params).toEqual({ action: "resume" });
+		autopilot.resumeSettled("t1", "resumed");
+		await autopilot.idle();
+		expectContinued();
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState)).toHaveLength(0);
 	});
 
-	it("arms again even when TurnResume's goal resume comes before the readiness check has adopted the run", async () => {
-		build({ expectsResume: true });
+	it("arms again once even when TurnResume's goal resume comes before the readiness check has adopted the run", async () => {
+		build({ relaunch: "after_restore" });
 		const sidecar = world.addTab("t1", path.join(tmp, "wt-restart"));
 		world.statuses.set("t1", {
 			active: true,
@@ -1291,26 +1327,36 @@ describe("restart", () => {
 		sidecar.emit("status", { status: "ready" });
 		await autopilot.resumeGoal("t1");
 		await autopilot.idle();
-		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({ resume: true });
-		expect(world.stock("t1", "set_goal").map(call => call.params?.action)).toEqual(["resume"]);
+		expectContinued();
 		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState)).toHaveLength(0);
 	});
 
-	it("a launch continuation that ends without a goal to resume pauses the run with app_closed", async () => {
-		await relaunched(true);
-		autopilot.resumeSettled("t1", false);
+	it("a launch continuation that ends without resuming the goal still continues the run", async () => {
+		await relaunched("after_restore");
+		autopilot.resumeSettled("t1", "none");
 		await autopilot.idle();
+		expectContinued();
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState)).toHaveLength(0);
+	});
+
+	it("the user's Stop on the Continuing toast leaves the run paused with app_closed", async () => {
+		await relaunched("after_restore");
+		autopilot.resumeSettled("t1", "cancelled");
+		await autopilot.idle();
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)).toHaveLength(0);
 		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
 			reason: "app_closed",
 		});
 	});
 
-	it("a goal that was resumed leaves the run running", async () => {
-		await relaunched(true);
-		await autopilot.resumeGoal("t1");
-		autopilot.resumeSettled("t1", true);
-		await autopilot.idle();
-		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState)).toHaveLength(0);
+	it("a goal stock cannot resume shows the run paused with app_closed, and TurnResume hears of the failure", async () => {
+		await relaunched("after_restore");
+		world.failGoalResume = true;
+		await expect(autopilot.resumeGoal("t1")).rejects.toThrow(/No paused goal/);
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
+			state: "paused",
+			reason: "app_closed",
+		});
 	});
 
 	it("resumeGoal on a tab that is no run is stock's own resume", async () => {

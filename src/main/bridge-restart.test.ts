@@ -78,15 +78,33 @@ describe("interruptedJobs", () => {
 });
 
 describe("goalActiveAtExit", () => {
-	it("is true only when the last mode before the exit was an active goal", () => {
-		expect(goalActiveAtExit([{ type: "mode_change", mode: "goal" }, exit])).toBe(true);
-		expect(
-			goalActiveAtExit([{ type: "mode_change", mode: "goal" }, { type: "mode_change", mode: "goal_paused" }, exit]),
-		).toBe(false);
-		// The startup pause after the exit does not count.
-		expect(
-			goalActiveAtExit([{ type: "mode_change", mode: "goal" }, exit, { type: "mode_change", mode: "goal_paused" }]),
-		).toBe(true);
-		expect(goalActiveAtExit([{ type: "mode_change", mode: "goal" }])).toBe(false);
+	/** This process started at 10:00:00; the entries before were journaled by the processes it replaced. */
+	const startedAt = Date.parse("2026-10-17T10:00:00.000Z");
+	const mode = (value: string, time: string): JournalEntry => ({
+		type: "mode_change",
+		mode: value,
+		timestamp: `2026-10-17T${time}.000Z`,
+	});
+	const aborted: JournalEntry = {
+		type: "message",
+		message: { role: "assistant" },
+		timestamp: "2026-10-17T09:59:58.000Z",
+	};
+
+	it("is true when the last mode the earlier processes journaled was an active goal", () => {
+		expect(goalActiveAtExit([mode("goal", "09:59:50"), exit], startedAt)).toBe(true);
+		expect(goalActiveAtExit([mode("goal", "09:59:50"), mode("goal_paused", "09:59:55"), exit], startedAt)).toBe(
+			false,
+		);
+		// This process's startup pause does not count.
+		expect(goalActiveAtExit([mode("goal", "09:59:50"), exit, mode("goal_paused", "10:00:01")], startedAt)).toBe(true);
+	});
+
+	it("needs no session_exit: stock journals only the aborted turn when its client closes stdin, nothing on SIGKILL", () => {
+		expect(goalActiveAtExit([mode("goal", "09:59:50"), aborted, mode("goal_paused", "10:00:01")], startedAt)).toBe(
+			true,
+		);
+		expect(goalActiveAtExit([mode("goal_paused", "09:59:50"), aborted], startedAt)).toBe(false);
+		expect(goalActiveAtExit([mode("goal", "10:00:02")], startedAt)).toBe(false);
 	});
 });

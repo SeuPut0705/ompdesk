@@ -129,7 +129,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
-import { STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
+import { type RelaunchContinuation, STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
 import { appVersion } from "./updater";
 import type { ClientWindow } from "./web/client-window";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
@@ -186,8 +186,8 @@ export interface IpcDeps {
 	autopilotRef: { current: Autopilot | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
-	/** Whether TurnResume holds a launch marker for a tab (an autopilot run restarts through it). */
-	expectsResume: (tabId: string) => boolean;
+	/** How a tab whose omp came up with an autopilot run `running` goes on (TurnResume's `relaunchContinuation`). */
+	relaunchContinuation: (tabId: string) => RelaunchContinuation;
 }
 
 /**
@@ -832,7 +832,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			);
 		},
 		text: (key, params) => mainT(key, undefined, params),
-		expectsResume: deps.expectsResume,
+		relaunchContinuation: deps.relaunchContinuation,
 	});
 	deps.autopilotRef.current = autopilot;
 	// The desktop slot (src/main/desktop-slot-host.ts): the bridge's slot frames come through the sidecar factory.

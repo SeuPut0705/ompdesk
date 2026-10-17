@@ -11,6 +11,8 @@ export interface JournalEntry {
 	customType?: string;
 	mode?: string;
 	details?: unknown;
+	/** ISO time the entry was journaled (stock `SessionEntry.timestamp`). */
+	timestamp?: string;
 	message?: { role?: string; content?: unknown; toolCallId?: string; details?: unknown };
 }
 
@@ -94,12 +96,21 @@ export function interruptedJobs(branch: readonly JournalEntry[]): InterruptedJob
 	return jobs;
 }
 
-/** The goal mode journaled last before the latest `session_exit` was an active goal (`goal`, not `goal_paused`). */
-export function goalActiveAtExit(branch: readonly JournalEntry[]): boolean {
-	const exit = branch.findLastIndex(isExit);
-	if (exit < 0) return false;
-	const mode = branch.findLast((entry, index) => index < exit && entry.type === "mode_change");
+/**
+ * The goal mode the earlier processes journaled last was an active goal (`goal`, not `goal_paused`). Their entries are
+ * the ones journaled before `startedAt`, this process's start (epoch ms): stock pauses an active goal when the session
+ * loads, so this process's own `goal_paused` comes after. No `session_exit` is needed: stock journals none for a
+ * SIGKILL or a crash, and not always when its RPC client closes stdin mid-turn, which is what a killed or quitting
+ * OMPdesk does (omp 18.11 journaled only the aborted turn: src/main/bridge-autopilot-stock.test.ts).
+ */
+export function goalActiveAtExit(branch: readonly JournalEntry[], startedAt: number): boolean {
+	const mode = branch.findLast(entry => entry.type === "mode_change" && journaledBefore(entry, startedAt));
 	return mode?.mode === "goal";
+}
+
+function journaledBefore(entry: JournalEntry, at: number): boolean {
+	const time = entry.timestamp === undefined ? Number.NaN : Date.parse(entry.timestamp);
+	return Number.isFinite(time) && time < at;
 }
 
 /** The agent's hidden follow-up: which jobs the restart stopped, and to go on. */

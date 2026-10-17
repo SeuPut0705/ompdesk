@@ -153,6 +153,8 @@ interface Harness {
 	waitFrame(predicate: (frame: { type: string; [key: string]: unknown }) => boolean, ms?: number): Promise<void>;
 	/** Kills omp and the bridge; `keep` leaves the agent dir and the repo for a restart. */
 	stop(keep?: boolean): Promise<void>;
+	/** What a killed or quitting OMPdesk does to omp: its bridge and stdin close; resolves once omp has exited. */
+	hangUp(): Promise<void>;
 }
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -280,6 +282,13 @@ async function startOmp(provider: Provider, previous?: Harness): Promise<Harness
 			if (keep) return;
 			rmSync(isolated, { recursive: true, force: true });
 			rmSync(root, { recursive: true, force: true });
+		},
+		async hangUp() {
+			const exited = new Promise<void>(done => child.once("exit", () => done()));
+			bridge.close();
+			child.stdin.end();
+			await exited;
+			removeBridgeAddress(address);
 		},
 	};
 	cleanups.push(() => harness.stop());
@@ -560,4 +569,55 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		const trace = JSON.stringify([record, second.requests.at(-1)?.tools]);
 		expect(record, trace).toMatchObject({ n: 3, area: "bugs", title: "after restart", verify: "green" });
 	}, 240_000);
+
+	it("after OMPdesk goes away mid-turn, the relaunch sees the goal cut off and the resumed run keeps its armed tools", async () => {
+		const presentation = async (h: Harness) => {
+			const state = (await h.send({ type: "get_state" })).data as
+				| { dumpTools?: Array<{ name: string }> }
+				| undefined;
+			return (state?.dumpTools ?? []).map(tool => tool.name);
+		};
+		const expectArmed = (tools: string[]) => {
+			expect(tools).toContain("autopilot");
+			for (const name of ["ask", "eval", "debug"]) expect(tools, name).not.toContain(name);
+		};
+		// The model never answers: the run's first turn is streaming when OMPdesk dies, and so is every later one.
+		const streaming = Promise.withResolvers<void>();
+		const provider = await startProvider(() => {
+			streaming.resolve();
+			return { hang: true };
+		});
+		cleanups.push(() => provider.close());
+		const before = await startOmp(provider);
+		const arm = {
+			role: "parent",
+			root: before.root,
+			run: "2026-10-17",
+			branch: "autopilot/2026-10-17",
+			baseBranch: "main",
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
+		};
+		await before.bridge.request(M.arm, arm);
+		await before.send({ type: "goal", op: "create", objective: "Autopilot: test objective" });
+		await streaming.promise;
+		// A killed or quitting OMPdesk closes omp's stdin and the bridge. Stock journals the turn aborted and may exit
+		// without a `session_exit`.
+		await before.hangUp();
+
+		const after = await startOmp(provider, before);
+		// The goal was active until that process ended; stock paused it at startup.
+		const restored = await after.bridge.request<{ goalPausedByExit?: boolean }>("composer.restore_interrupted", {});
+		expect(restored.goalPausedByExit).toBe(true);
+
+		// Main's relaunch order (autopilot.ts `#continueAfterRestart`): stock's `goal pause` drops the tool set stock
+		// remembered when it reattached the goal (ask, eval and debug back, no `autopilot`), then arm, then resume.
+		expect((await after.send({ type: "goal", op: "pause" })).success).toBe(true);
+		await after.bridge.request(M.arm, { ...arm, resume: true });
+		const resumed = await after.send({ type: "goal", op: "resume" });
+		expect(resumed.success, JSON.stringify(resumed)).toBe(true);
+		expectArmed(await presentation(after));
+		// What stock restores on the next pause (a stop rule) is the armed set too: the run stays armed while it lives.
+		expect((await after.send({ type: "goal", op: "pause" })).success).toBe(true);
+		expectArmed(await presentation(after));
+	}, 120_000);
 });

@@ -341,41 +341,23 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 			)
 			.not.toBe("");
 		await page.evaluate(id => window.omp.tabs.setActive(id), resumedId);
-		// A turn cut by the kill resumes by itself (TurnResume's marker); a kill the run saw between turns leaves it
-		// paused as app_closed, unarmed in the new omp, until Resume arms it again. Either way it must hold the run's
+		// The run continues by itself after the kill (the user's rule: always continue after a restart): main arms it
+		// again in the new omp and resumes stock's goal, whose continuation begins the next cycle. It must hold the run's
 		// permissions while running and give them back at the end.
 		const relaunched = await waitForStatus(
 			page,
 			resumedId,
-			s => s.state === "running" || (s.state === "paused" && s.reason === "app_closed"),
-			"run 2 is back after the kill",
+			s => s.state === "running" && s.now !== undefined,
+			"run 2 continues after the kill",
 			300_000,
 		);
-		const afterRelaunch = {
-			state: relaunched.state,
-			reason: relaunched.reason,
-			held: await permissions(page, resumedId),
-		};
-		if (relaunched.state === "paused") {
-			expect(afterRelaunch.held).toEqual(base2);
-			expect(await setAutopilot(page, resumedId, { action: "resume" })).toMatchObject({ success: true });
-			await waitForStatus(page, resumedId, s => s.state === "running", "run 2 resumes", 300_000);
-		}
-		// The journal says `running` from the start; the new omp holds the run once main re-armed it (`arm` with resume).
-		await expect
-			.poll(async () => JSON.stringify((await permissions(page, resumedId)).layers), {
-				timeout: 300_000,
-				message: "the relaunched run is armed again",
-			})
-			.toContain("runtime");
 		const armed3 = await permissions(page, resumedId);
 		expectArmed(armed3);
 		expect(await fs.readFile(configPath, "utf8")).toBe(config);
 		evidence.run2 = {
 			base: base2,
 			armed: armed2,
-			afterRelaunch,
-			armedAfterResume: armed3,
+			afterRelaunch: { state: relaunched.state, cycle: relaunched.now?.n, held: armed3 },
 			...(await stopAndRestore(resumedId, base2, "run 2")),
 		};
 		evidence.cost = await spentIn(agent);

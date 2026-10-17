@@ -10,7 +10,7 @@
  * - each cycle's end (`autopilot_cycle_end`): fold the children's usage in and close them, audit git,
  *   run the ShipRunner (push after green, the screen's queue), follow a release run;
  * - the stop rules the bridge reports (`autopilot_stop_requested`) become a stock pause, errors/quota stay
- *   with TurnResume and the renderer, a restart resumes through TurnResume's `resumeGoal`;
+ *   with TurnResume and the renderer, a restart resumes the run (after TurnResume's restore of the cut-off turn);
  * - answers the approval cards of autopilot tabs (autopilot-approver.ts), overlays children and the ship
  *   queue on the bridge's `autopilot_update`, notifies.
  *
@@ -55,6 +55,7 @@ import { prCreate } from "./local/git/pr";
 import { detectReleaseProcedure } from "./release-detect";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
+import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
 
 const READY_TIMEOUT_MS = 120_000;
@@ -125,8 +126,11 @@ export interface AutopilotDeps {
 		cwd: string,
 		input: { title: string; body: string; base?: string; head?: string; draft?: boolean },
 	): Promise<{ url: string; number: number }>;
-	/** Whether TurnResume holds a launch marker for the tab (it will send `resumeGoal` after its restore). */
-	expectsResume(tabId: string): boolean;
+	/**
+	 * How a tab whose omp came up with the run `running` goes on (TurnResume's `relaunchContinuation`): after its
+	 * launch continuation (`resumeGoal` or `resumeSettled` follows), at once, or not (Continue interrupted work is off).
+	 */
+	relaunchContinuation(tabId: string): RelaunchContinuation;
 	/** Test seams; defaults are the clock, the local date, a timer and the repository's rules files. */
 	now?: () => number;
 	today?: () => string;
@@ -186,6 +190,8 @@ interface Run {
 	refreshAgain: boolean;
 	stopPolling: (() => void) | null;
 	releaseItem?: string;
+	/** `#start` is still arming this new run: its first readiness is no restart. */
+	starting: boolean;
 }
 
 interface ChildRun {
@@ -312,6 +318,8 @@ export class Autopilot {
 	readonly #background = new Set<Promise<unknown>>();
 	/** Tabs `resumeGoal` already armed and resumed this launch: `#onReady` must not pause them as closed. */
 	readonly #resumedOnLaunch = new Set<string>();
+	/** Tabs `#onReady` continued at once: a later TurnResume `resumeGoal` for that readiness has nothing left to do. */
+	readonly #continuedOnReady = new Set<string>();
 	#control: AutopilotControl | null = null;
 
 	constructor(deps: AutopilotDeps) {
@@ -350,6 +358,7 @@ export class Autopilot {
 	tabReleased(tabId: string): void {
 		this.#childRuns.delete(tabId);
 		this.#awaitingResume.delete(tabId);
+		this.#continuedOnReady.delete(tabId);
 		const run = this.#runs.get(tabId);
 		if (!run) return;
 		this.#runs.delete(tabId);
@@ -577,6 +586,7 @@ export class Autopilot {
 			settings,
 			release,
 		});
+		run.starting = true;
 		try {
 			await this.#ready(newTab);
 			const arm: AutopilotArmParams = {
@@ -605,6 +615,8 @@ export class Autopilot {
 			throw error instanceof AutopilotError
 				? error
 				: new AutopilotError(error instanceof Error ? error.message : String(error));
+		} finally {
+			run.starting = false;
 		}
 		return { ...this.#overlaid(run, await this.#fetchStatus(run)), tabId: newTab };
 	}
@@ -664,6 +676,7 @@ export class Autopilot {
 			children: new Map(),
 			childBranches: new Set(),
 			stopping: false,
+			starting: false,
 			pushNetworkFailures: 0,
 			chain: Promise.resolve(),
 			refreshing: false,
@@ -779,31 +792,75 @@ export class Autopilot {
 		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
 		const status = run ? await this.#fetchStatus(run).catch(() => null) : null;
 		if (run && status?.state === "running") {
-			this.#awaitingResume.delete(tabId);
-			this.#resumedOnLaunch.add(tabId);
-			await this.#resume(run);
+			// `#onReady` already continued this readiness (TurnResume's marker was not in place yet when it judged).
+			if (this.#continuedOnReady.delete(tabId)) return;
+			// `#onReady` has not judged this readiness yet when it is not waiting on us: it must not resume it again.
+			if (!this.#awaitingResume.delete(tabId)) this.#resumedOnLaunch.add(tabId);
+			try {
+				await this.#continueAfterRestart(run);
+			} catch (error) {
+				// Shown paused with Resume; TurnResume drops the marker, so the next launch does not resume it unarmed.
+				await this.#closedQuietly(run);
+				throw error;
+			}
 			return;
 		}
 		const response = await this.#stockResponse(tabId, { type: "set_goal", action: "resume" });
 		if (!response.success) throw new Error(response.error ?? "the tab is gone");
 	}
 
-	/** TurnResume finished a tab's launch continuation without resuming a goal. */
-	resumeSettled(tabId: string, goalResumed: boolean): void {
-		if (goalResumed || !this.#awaitingResume.delete(tabId)) return;
+	/**
+	 * TurnResume finished a tab's launch continuation. A run it did not resume goes on all the same: the journal says
+	 * `running`, whatever the restore read from stock's journal of the cut. Only the user's Stop on the "Continuing"
+	 * toast leaves it paused.
+	 */
+	resumeSettled(tabId: string, outcome: GoalSettlement): void {
+		if (outcome === "resumed" || !this.#awaitingResume.delete(tabId)) return;
 		const run = this.#runs.get(tabId);
-		if (run) this.#track(this.#appClosed(run).catch(error => this.#log(`app_closed: ${String(error)}`)));
+		if (!run) return;
+		this.#track(outcome === "cancelled" ? this.#closedQuietly(run) : this.#continueOrPause(run));
 	}
 
 	async #onReady(tabId: string): Promise<void> {
 		if (this.#childRuns.has(tabId)) return;
 		const run = await this.#adopt(tabId);
-		if (!run || this.#resumedOnLaunch.delete(tabId)) return;
+		if (!run || run.starting || this.#resumedOnLaunch.delete(tabId)) return;
 		const status = await this.#fetchStatus(run);
 		if (status.state !== "running" || this.#resumedOnLaunch.delete(tabId)) return;
-		// A process that came up with a run `running` in the journal: stock paused the goal at startup.
-		if (this.#deps.expectsResume(tabId)) this.#awaitingResume.add(tabId);
-		else await this.#appClosed(run);
+		// The process came up with the run `running` in its journal (a relaunch, or its omp restarted): stock paused
+		// the goal at startup. The run goes on after any restart; with a launch marker, after TurnResume's restore.
+		const continuation = this.#deps.relaunchContinuation(tabId);
+		if (continuation === "after_restore") this.#awaitingResume.add(tabId);
+		else if (continuation === "now") {
+			this.#continuedOnReady.add(tabId);
+			await this.#continueOrPause(run);
+		} else await this.#appClosed(run);
+	}
+
+	/** The run goes on after a restart; if stock cannot resume its goal, it shows paused with Resume. */
+	async #continueOrPause(run: Run): Promise<void> {
+		try {
+			await this.#continueAfterRestart(run);
+		} catch (error) {
+			this.#log(`resume after restart: ${String(error)}`);
+			await this.#closedQuietly(run);
+		}
+	}
+
+	/**
+	 * Arm and resume a run whose omp came up again. Stock reattached the goal paused at startup and remembered the
+	 * tool set of that moment (ask, eval, debug and no `autopilot`); its `goal resume` would put that set back over
+	 * the armed one. Its `goal pause` drops what it remembered (stock restores it and forgets it), so the arm comes
+	 * after the pause and the resume keeps the armed set, as it does for a run the user resumes.
+	 */
+	async #continueAfterRestart(run: Run): Promise<void> {
+		const paused = await this.#stockResponse(run.tabId, { type: "set_goal", action: "pause" });
+		if (!paused.success) throw new AutopilotError(paused.error ?? "The goal could not be paused.");
+		await this.#resume(run);
+	}
+
+	async #closedQuietly(run: Run): Promise<void> {
+		await this.#appClosed(run).catch(error => this.#log(`app_closed: ${String(error)}`));
 	}
 
 	async #appClosed(run: Run): Promise<void> {
