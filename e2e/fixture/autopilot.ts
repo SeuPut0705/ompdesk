@@ -745,7 +745,11 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 							: {}),
 					});
 				}
-				reply = assistant(`Autopilot cycle ${n}: ${cs.title ?? "done"}`);
+				reply = assistant(
+					process.env.OMP_GUI_README_SCENE
+						? `Cycle ${n} (${cs.title ?? "done"}): audited the area, fixed the top finding, tests green, committed.`
+						: `Autopilot cycle ${n}: ${cs.title ?? "done"}`,
+				);
 			}
 			await sleep(Math.round(cycleMs * 0.3), ctl);
 		} catch (error) {

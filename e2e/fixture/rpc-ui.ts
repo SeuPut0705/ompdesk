@@ -307,7 +307,7 @@ export function runRpcUi(): void {
 
 	const model = {
 		id: "local-fixture",
-		name: README_SCENE ? "Example model" : "Local fixture",
+		name: process.env.OMP_GUI_README_SCENE ? "Example model" : "Local fixture",
 		provider: "fixture",
 		reasoning: true,
 		contextWindow: 128000,

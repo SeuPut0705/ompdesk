@@ -4,6 +4,7 @@
  * Uses the Autopilot fake (`e2e/fixture/autopilot.ts`), whose commits are real git in the temp repository.
  */
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { cleanupAp, makeApProfile, waitForRunTab, waitForStatus } from "../../../e2e/autopilot-harness";
 import { exitApp } from "../../../e2e/harness";
@@ -13,7 +14,21 @@ test("autopilot cycles", async () => {
 	// The profile's temp folders live under a fixed, neutral path.
 	await fs.mkdir(WORK_DIR, { recursive: true });
 	process.env.TMPDIR = WORK_DIR;
-	const profile = await makeApProfile({ language: "en", theme: "light", script: { cycleMs: 2_400 } });
+	const profile = await makeApProfile({
+		language: "en",
+		theme: "light",
+		script: { cycleMs: 2_400 },
+		env: { OMP_GUI_README_SCENE: "model" },
+	});
+	// The example repository is named acme-web, like the other scenes'.
+	const renamed = path.join(profile.root, "acme-web");
+	await fs.rename(profile.project, renamed);
+	profile.project = renamed;
+	const prefsFile = path.join(profile.desktop, "prefs.json");
+	await fs.writeFile(
+		prefsFile,
+		JSON.stringify({ ...JSON.parse(await fs.readFile(prefsFile, "utf8")), lastProject: renamed }),
+	);
 	const { app, page } = await launch(profile, 1440, 900);
 	const recorder = new Recorder("autopilot", { width: 1440, height: 900, maxHold: 1_400, endHold: 2_500 });
 	try {
