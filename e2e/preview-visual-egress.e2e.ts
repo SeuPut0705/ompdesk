@@ -43,20 +43,36 @@ async function sentinel() {
 		socket.on("error", () => {});
 		socket.setTimeout(2000, () => socket.destroy());
 	});
-	tcp.listen(0, "127.0.0.1");
-	await once(tcp, "listening");
-	const port = (tcp.address() as net.AddressInfo).port;
-	const udp = dgram.createSocket("udp4");
-	udp.on("message", data => hits.push({ kind: "udp", head: `${data.length} bytes` }));
-	udp.bind(port, "127.0.0.1");
-	await once(udp, "listening");
+	// TCP and UDP have separate port spaces: the free TCP port the system hands out can be a UDP port in use (it was,
+	// once in three runs here), so look for a port that is free in both rather than assume it.
+	let port = 0;
+	let udp: dgram.Socket | null = null;
+	for (let candidate = 0; !udp && candidate < 20; candidate++) {
+		tcp.listen(0, "127.0.0.1");
+		await once(tcp, "listening");
+		port = (tcp.address() as net.AddressInfo).port;
+		const socket = dgram.createSocket("udp4");
+		const bound = await new Promise<boolean>(resolve => {
+			socket.once("error", () => resolve(false));
+			socket.bind(port, "127.0.0.1", () => resolve(true));
+		});
+		if (bound) udp = socket;
+		else {
+			socket.close();
+			tcp.close();
+			await once(tcp, "close");
+		}
+	}
+	if (!udp) throw new Error("No loopback port free for both TCP and UDP");
+	const datagrams = udp;
+	datagrams.on("message", data => hits.push({ kind: "udp", head: `${data.length} bytes` }));
 	return {
 		port,
 		hits,
 		close: async () => {
 			tcp.close();
-			udp.close();
-			await Promise.all([once(tcp, "close"), once(udp, "close")]);
+			datagrams.close();
+			await Promise.all([once(tcp, "close"), once(datagrams, "close")]);
 		},
 	};
 }
