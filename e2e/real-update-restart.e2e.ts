@@ -254,10 +254,20 @@ async function run(scenario: Scenario): Promise<void> {
 
 const optIn = () => test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 
+/** The sidebar's session rows: one conversation is one row (the relaunch made no second session for it). */
+async function sidebarRows(page: Page): Promise<string[]> {
+	return page
+		.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")
+		.evaluateAll(rows => rows.map(row => row.getAttribute("data-session-path") ?? ""));
+}
+
 /** The tabs after the relaunch: a continued first turn runs in the restored tab, not in a second, hidden one. */
 async function tabsAfterRelaunch(page: Page): Promise<Record<string, unknown>> {
 	const tabs = await page.evaluate(() => window.omp.tabs.list());
-	return { tabs: tabs.map(tab => ({ active: tab.active, status: tab.status, sessionPath: tab.sessionPath })) };
+	return {
+		tabs: tabs.map(tab => ({ active: tab.active, status: tab.status, sessionPath: tab.sessionPath })),
+		sidebarRows: await sidebarRows(page),
+	};
 }
 
 /** Mid-stream: the list is showing but not finished. */
@@ -277,9 +287,11 @@ test("real omp update restart (a): a streaming reply", async () => {
 		name: "a-streaming",
 		prompt: fruits("STREAM-DONE"),
 		underway: listStreaming,
-		// In the tab the layout restored: no second, hidden tab took the prompt.
+		// In the tab the layout restored: no second, hidden tab took the prompt, and no second session holds it.
 		continued: async ({ agent, page }) =>
-			replied(agent, "STREAM-DONE") && (await page.evaluate(() => window.omp.tabs.list())).length === 1,
+			replied(agent, "STREAM-DONE") &&
+			(await page.evaluate(() => window.omp.tabs.list())).length === 1 &&
+			(await sidebarRows(page)).length === 1,
 		inspect: tabsAfterRelaunch,
 	});
 });
@@ -304,7 +316,7 @@ test("real omp update restart (a2): a streaming reply in the session's second tu
 			await input.press("Enter");
 		},
 		underway: listStreaming,
-		continued: ({ agent }) => replied(agent, "STREAM2-DONE"),
+		continued: async ({ agent, page }) => replied(agent, "STREAM2-DONE") && (await sidebarRows(page)).length === 1,
 		inspect: tabsAfterRelaunch,
 	});
 });

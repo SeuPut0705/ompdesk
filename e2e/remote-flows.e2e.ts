@@ -507,26 +507,15 @@ for (const language of ["en", "ko"] as const)
 				});
 
 				await test.step("prompt origin: on B, A's prompt reads 'from Laptop A'", async () => {
-					// A's tab closes; its omp wrote the session it continued (the fixture: a new file holding it all).
+					// A's tab closes; its omp kept writing the session it continued, as stock does: the shared file.
 					await a.keyboard.press("ControlOrMeta+w");
 					await expect
 						.poll(async () =>
 							(await a.evaluate(() => window.omp.tabs.list())).some(tab => tab.device === deviceId),
 						)
 						.toBe(false);
-					const dir = path.dirname(shared);
-					let continued = "";
-					await expect
-						.poll(async () => {
-							for (const name of await fs.readdir(dir)) {
-								const file = path.join(dir, name);
-								if (file !== shared && (await fs.readFile(file, "utf8")).includes("Typed on the laptop"))
-									continued = file;
-							}
-							return continued;
-						})
-						.not.toBe("");
-					await b.locator(`[data-session-path="${continued}"] button[data-roving-item]`).click();
+					await expect.poll(() => fs.readFile(shared, "utf8")).toContain("Typed on the laptop");
+					await b.locator(`[data-session-path="${shared}"] button[data-roving-item]`).click();
 					const from = b.locator("[data-prompt-from]");
 					await expect(from.first()).toBeVisible({ timeout: 30_000 });
 					await expect(from.first()).toHaveText(tb("chat.promptFrom", { device: "Laptop A" }));

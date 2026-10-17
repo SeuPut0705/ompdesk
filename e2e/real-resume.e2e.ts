@@ -391,6 +391,8 @@ test("real omp: a turn killed mid-run continues on the next launch through stock
 				timeout: 30_000,
 			})
 			.toEqual([]);
+		// One conversation, one session: the relaunch answered in the killed turn's own session file.
+		await expect(page2.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")).toHaveCount(1);
 	} finally {
 		if (current) await exitApp(current);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

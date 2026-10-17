@@ -43,6 +43,7 @@ declare global {
 interface Profile {
 	root: string;
 	desktop: string;
+	agent: string;
 	env: Record<string, string>;
 }
 
@@ -67,7 +68,7 @@ async function makeProfile(language: Language, theme: Theme): Promise<Profile> {
 		OMP_GUI_TEST_SESSION_FILES: "1",
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	return { root, desktop, env };
+	return { root, desktop, agent, env };
 }
 
 /**
@@ -120,12 +121,45 @@ async function layoutHasSession(profile: Profile): Promise<boolean> {
 	}
 }
 
-async function startLongTurn(profile: Profile, page: Page): Promise<void> {
+/** Sends a turn that runs until stopped; resolves with its session file once the marker and the layout name it. */
+async function startLongTurn(profile: Profile, page: Page): Promise<string> {
 	const input = page.locator(".omp-composer-input").first();
 	await input.fill("fixture running");
 	await input.press("Enter");
 	await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
 	await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
+	return (await markers(profile))[0]?.sessionPath ?? "";
+}
+
+/** Every session file of the profile's agent dir. */
+async function sessionFiles(profile: Profile): Promise<string[]> {
+	const root = path.join(profile.agent, "sessions");
+	const names = await fs.readdir(root, { recursive: true }).catch(() => []);
+	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(root, name));
+}
+
+/**
+ * The continued turn answered in the session it was cut off in: that file holds the answer, no second session
+ * file holds the prompt again, and the sidebar lists the conversation once, as the indexed session of its tab.
+ */
+async function expectOneSession(profile: Profile, page: Page, sessionPath: string): Promise<void> {
+	await expect
+		.poll(() => fs.readFile(sessionPath, "utf8").catch(() => ""), { timeout: 15_000 })
+		.toContain("Continued after the interruption.");
+	expect(await sessionFiles(profile)).toEqual([sessionPath]);
+	const rows = page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]");
+	await expect
+		.poll(
+			() =>
+				rows.evaluateAll(elements =>
+					elements.map(row => ({
+						path: row.getAttribute("data-session-path"),
+						live: row.hasAttribute("data-live"),
+					})),
+				),
+			{ timeout: 15_000 },
+		)
+		.toEqual([{ path: sessionPath, live: false }]);
 }
 
 function isRunning(pid: number): boolean {
@@ -183,7 +217,7 @@ for (const language of ["en", "ko"] as const)
 			try {
 				const first = await launch(profile);
 				current = first.app;
-				await startLongTurn(profile, first.page);
+				const sessionPath = await startLongTurn(profile, first.page);
 				// The marker is already on disk and no quit hook will run.
 				await crash(first.app);
 				await expect
@@ -197,6 +231,7 @@ for (const language of ["en", "ko"] as const)
 				await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
 				// The finished turn leaves no marker behind.
 				await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
+				await expectOneSession(profile, second.page, sessionPath);
 				await capture(second.page, `${language}-${theme}-relaunch-resumed`);
 			} finally {
 				if (current) await exitApp(current);
@@ -211,7 +246,7 @@ test("@smoke a normal quit asks nothing and continues the running turn on the ne
 	try {
 		const first = await launch(profile);
 		current = first.app;
-		await startLongTurn(profile, first.page);
+		const sessionPath = await startLongTurn(profile, first.page);
 
 		// Continue interrupted work is on: the quit asks nothing. A prompt would be answered "Keep working",
 		// so the app would not exit and the wait below would time out.
@@ -232,6 +267,7 @@ test("@smoke a normal quit asks nothing and continues the running turn on the ne
 		current = second.app;
 		await expect(second.page.getByText(TEXT.en.continuing)).toBeVisible({ timeout: 30_000 });
 		await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
+		await expectOneSession(profile, second.page, sessionPath);
 	} finally {
 		if (current) await exitApp(current);
 		await cleanup(profile);

@@ -138,17 +138,22 @@ export function runRpcUi(): void {
 	 */
 	let fresh: { id: string; file: string | undefined; created: string } | undefined;
 	let freshCount = 0;
+	/**
+	 * The stored session `--session` or `switch_session` opened (a restored tab, a relaunch reopening a run it
+	 * cut off): stock's SessionManager keeps writing that file, under its own header, never a second one.
+	 */
+	let resumed: { id: string; file: string; created?: string; cwd?: string } | undefined;
 	const persistSession = () => {
-		const file = fresh ? fresh.file : sessionFile;
+		const file = fresh ? fresh.file : resumed && sessionFile ? resumed.file : sessionFile;
 		if (!file || entries.length === 0) return;
 		const lines = [
 			{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() },
 			{
 				type: "session",
 				version: 3,
-				id: fresh?.id ?? sessionId,
-				timestamp: fresh?.created ?? sessionCreated,
-				cwd: process.cwd(),
+				id: fresh?.id ?? resumed?.id ?? sessionId,
+				timestamp: fresh?.created ?? resumed?.created ?? sessionCreated,
+				cwd: (!fresh && resumed?.cwd) || process.cwd(),
 			},
 			...entries,
 		];
@@ -223,11 +228,15 @@ export function runRpcUi(): void {
 	 */
 	const loadJournal = (file: string) => {
 		entries.length = 0;
-		const header: { id?: string; title?: string } = {};
+		const header: { id?: string; title?: string; created?: string; cwd?: string } = {};
 		for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 			if (!line) continue;
 			const entry = JSON.parse(line) as Entry;
-			if (entry.type === "session") header.id = entry.id;
+			if (entry.type === "session") {
+				header.id = entry.id;
+				header.created = entry.timestamp;
+				if (typeof entry.cwd === "string") header.cwd = entry.cwd;
+			}
 			if (entry.type === "title") header.title = String(entry.title ?? "");
 			if (entry.type === "session" || entry.type === "title") continue;
 			if (entry.type !== "custom_message") {
@@ -316,8 +325,6 @@ export function runRpcUi(): void {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	};
 	const lanes: Record<"steering" | "followUp", string[]> = { steering: [], followUp: [] };
-	/** The stored session `switch_session` opened (a relaunch reopening a run it cut off). */
-	let resumed: { id: string; file: string } | undefined;
 	let isStreaming = false;
 	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
 	let thinking = { level: "medium", configured: "medium" };
@@ -336,7 +343,7 @@ export function runRpcUi(): void {
 	// opened on a fork, a restored tab), so get_state already names it.
 	if (flags["--session"] && fs.existsSync(flags["--session"])) {
 		const header = loadJournal(flags["--session"]);
-		resumed = { id: header.id ?? sessionId, file: flags["--session"] };
+		resumed = { ...header, id: header.id ?? sessionId, file: flags["--session"] };
 		sessionTitle = header.title ?? "";
 		// Stock `/retry` reads the failed reply from the session, not from process memory: an omp
 		// started on a session whose last reply lost the connection still retries it.
@@ -5215,7 +5222,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}
 				// The stored file becomes the live journal, as it was written.
 				const header = loadJournal(sessionPath);
-				resumed = { id: header.id ?? sessionId, file: sessionPath };
+				resumed = { ...header, id: header.id ?? sessionId, file: sessionPath };
 				fresh = undefined;
 				sessionTitle = header.title ?? "";
 				ok({ cancelled: false });
