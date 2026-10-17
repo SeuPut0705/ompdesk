@@ -1,14 +1,44 @@
 # Changelog
 
-## [Unreleased]
+## [0.36.0] - 2026-10-18
+
+휴대폰과 태블릿에서 쓰기 편해졌고, 휴대폰 화면 아래가 가려지던 문제를 고쳤어요.
+
+### 새로 생긴 것
+- 휴대폰·태블릿에서 터치로 누르기 편하게 다듬었어요. 세션 목록, 프로젝트 머리글, 할 일, 계획 단계, 변경된 파일, 작업 칩, 보드 행, 질문·승인 카드의 버튼이 44px로 커지고, 마우스를 올려야만 보이던 행 동작은 ⋯ 메뉴로 열려요. 스위치도 터치에서 더 넓어졌고 작은 글자는 한 단계 커졌어요.
+- 세로로 든 태블릿(너비 800px 이상)에서는 세션 목록이 두 번째 패널로 붙어요.
+- 웹 화면이 알맞은 때에 스스로 업데이트돼요. 저장하지 않은 파일 편집이나 열려 있는 시트·대화상자가 있으면 기다리고, 업데이트 배너와 관련 문구는 없어졌어요.
+- 휴대폰·태블릿에서 열어 둔 탭이 컴퓨터 쪽 앱이 재시작되어도 남아요. 같은 기기로 다시 접속하면 탭이 돌아오고, 차단하거나 해제한 기기의 탭은 지워져요.
 
 ### 고친 것
+- 휴대폰에서 화면 아래의 UI가 시스템 내비게이션 바나 홈 인디케이터에 가려지던 것을 고쳤어요. 시트, 토스트, 입력창, 배너가 안전 영역 위에 놓여요. 키보드가 화면 크기를 바꾸는 기기에서는 아래 여백을 따로 더하지 않아요.
 - 내가 보낸 메시지에서 "여기서 새 탭으로 분기"를 누르면 그 메시지까지 복사한 세션이 생겨서, 보낸 적 없는 요청이 답 없이 남았어요. 재시작 뒤에는 "중단됨"으로 보이고 이어지지도 않았어요. 이제 분기는 그 메시지 바로 앞에서 끝나고, 메시지는 새 탭 입력창에 들어가요.
+- 결과를 기다리는 도구 호출에서 분기하면 그 호출 바로 앞에서 끊어요. 답이 오지 않을 호출이 새 세션에 남지 않아요.
+- 휴대폰에서 메시지를 탭한 뒤 스크롤을 멈추려고 다시 탭하면 분기 버튼이 눌리던 것을 고쳤어요. 터치에서는 분기가 ⋯ 메뉴 안에 있어요.
 - 재시작 뒤 이어서 돌아가는 서브에이전트가 화면에 보이지 않던 것을 고쳤어요. 이제 작업 보드와 에이전트 목록에 실행 중으로 나와요.
 - 재시작 후 이어하기 판단(찾은 기록, 탭, 이어간 결과)을 `logs/gui-runtime.jsonl`에 남겨요.
-- 휴대폰에서 메시지를 탭한 뒤 스크롤을 멈추려고 다시 탭하면 분기 버튼이 눌리던 것을 고쳤어요. 터치에서는 분기가 ⋯ 메뉴 안에 있어요.
-- 결과를 기다리는 도구 호출에서 분기하면 그 호출 바로 앞에서 끊어요. 답이 오지 않을 호출이 새 세션에 남지 않아요.
-- 휴대폰·태블릿에서 열어 둔 탭이 컴퓨터 쪽 앱이 재시작되면 사라지던 것을 고쳤어요. 같은 기기로 다시 접속하면 탭이 돌아와요. 차단하거나 해제한 기기의 탭은 지워져요.
+- 세션을 연달아 열면 사이드바 목록이 오래된 순으로 보였다가 잠시 뒤 최신 순으로 뒤집히던 것을 고쳤어요.
+- 로컬 포트가 바뀌어도 모바일 웹이 Tailscale 주소를 하나 더 남겨 두지 않아요.
+
+<!-- en -->
+
+Phones and tablets are easier to use, and the bottom of the screen is no longer covered on phones.
+
+### Added
+- Touch use on phones and tablets is easier. Buttons on session rows, project heads, todos, plan steps, changed files, work chips, board rows and the ask/approval card grow to 44 px, and row actions that only showed on hover open from a ⋯ menu. Switches are wider on touch and small type steps up a point.
+- A portrait tablet from 800 px wide docks the session list as a second pane.
+- The web page now updates itself at a safe moment. It waits while there are unsaved file edits or an open sheet or dialog; the update banner and its strings are gone.
+- Tabs opened on a phone or tablet survive the desktop app's relaunch. Reconnecting with the same device brings them back, and a blocked or revoked device's tabs are dropped.
+
+### Fixed
+- Bottom UI on phones was hidden behind the system navigation bar or home indicator. Sheets, toasts, the prompt and banners now sit above the safe area, and no extra bottom inset is added on devices whose keyboard resizes the content.
+- Choosing "Branch to new tab here" on a message you sent copied the session including that message, leaving a request that was never sent and never answered; after a restart it showed as "Interrupted" and did not resume. A branch now ends just before that message, and the message goes into the new tab's composer.
+- Branching at a tool call that is still awaiting its result now cuts just before that call, so no call that will never be answered lands in the new session.
+- On a phone, tapping a message and then tapping again to stop scrolling pressed the Branch button. On touch, Branch is inside the ⋯ menu.
+- Subagents that resume after a restart were not visible. They now show as running on the task board and in the agent list.
+- Resume decisions after a relaunch (the records found, the tabs, the outcome) are logged to `logs/gui-runtime.jsonl`.
+- Sessions opened in quick succession no longer show oldest first in the sidebar and flip to newest first a moment later.
+- Mobile web no longer leaves a second Tailscale address behind when the local port changes.
 
 ## [0.35.1] - 2026-10-18
 
