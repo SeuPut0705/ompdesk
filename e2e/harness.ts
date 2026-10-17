@@ -185,6 +185,14 @@ export async function openDestination(
 }
 
 /**
+ * `value` as a quoted CSS attribute-selector string. A Windows path's backslashes are CSS escapes
+ * (`"C:\Users"` reads as `C:Users` with a `\U` escape), so a raw path in `[data-x="…"]` matches nothing there.
+ */
+export function cssString(value: string): string {
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
  * Walk a paired host's folder picker to `folder`: up to its root, then down one
  * level at a time. Each level is found by name through the filter, since the
  * host lists a bounded number of folders per level and a crowded temp folder
@@ -214,7 +222,7 @@ export async function walkRemotePicker(picker: Locator, folder: string): Promise
 				return rows.includes(current) && rows.every(row => path.basename(row).toLocaleLowerCase().includes(needle));
 			})
 			.toBe(true);
-		await picker.locator(`[data-remote-dir="${current}"]`).click();
+		await picker.locator(`[data-remote-dir=${cssString(current)}]`).click();
 		await expect(pickerPath).toHaveText(current);
 	}
 }

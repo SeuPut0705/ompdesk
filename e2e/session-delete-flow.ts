@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp } from "./harness";
+import { cssString, exitApp } from "./harness";
 
 export interface DeleteProfile {
 	desktop: string;
@@ -37,7 +37,7 @@ const tabs = (page: Page) => page.evaluate(() => window.omp.tabs.list());
 const tabPaths = async (page: Page) => (await tabs(page)).map(tab => tab.sessionPath ?? null);
 const selectedMode = (page: Page) => page.locator(".omp-sidebar-controls [role=tab][aria-selected=true]");
 const rowOf = (page: Page, session: Seeded) =>
-	page.locator(`.omp-sidebar-session-row[data-session-path="${session.file}"]`);
+	page.locator(`.omp-sidebar-session-row[data-session-path=${cssString(session.file)}]`);
 
 async function showMode(page: Page, name: "Code" | "Chat"): Promise<void> {
 	await page.locator(".omp-sidebar-controls [role=tab]").filter({ hasText: name }).click();
