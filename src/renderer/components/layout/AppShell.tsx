@@ -16,7 +16,7 @@
 
 import { ArrowLeft, Menu, PanelLeft, X } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { isDrawerMode, useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
+import { useCompactShell, useDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
 import { activeComposerInput } from "../../lib/composer-focus";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
@@ -71,7 +71,7 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 	const t = useT();
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
 	const shellMode = useShellMode();
-	const drawer = isDrawerMode(shellMode);
+	const drawer = useDrawerMode();
 	const closeDestination = useUiStore(s => s.closeDestination);
 	// A phone keeps the page's own back control (MasterDetailBack) in this one row: the menu, the page's back
 	// button and title in the slot, and the way out to the session as an icon at the right.
@@ -218,8 +218,9 @@ export function AppShell() {
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const panelSide = useUiStore(s => s.panelSide);
-	const shellMode = useShellMode();
-	const drawer = isDrawerMode(shellMode);
+	// Keeps `html[data-shell]` and the keyboard, long-press and back-gesture listeners alive for the whole page.
+	useShellMode();
+	const drawer = useDrawerMode();
 	const compact = useCompactShell();
 	const drawerReady = useDrawerSidebarSync(drawer);
 	const onPage = destination !== "session";

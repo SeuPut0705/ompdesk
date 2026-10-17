@@ -13,8 +13,10 @@ import {
 	PHONE_QUERY,
 	resetShellModeForTests,
 	shellModeFor,
+	TABLET_DOCK_QUERY,
 	TABLET_PORTRAIT_QUERY,
 	TOUCH_QUERY,
+	useDrawerMode,
 	useShellMode,
 } from "./use-shell-mode";
 
@@ -30,6 +32,7 @@ function stubViewport(width: number, height: number, coarse: boolean): void {
 		[PHONE_QUERY]: width < 600 || (height < 500 && width > height),
 		[TABLET_PORTRAIT_QUERY]: width < 1000,
 		[TOUCH_QUERY]: coarse,
+		[TABLET_DOCK_QUERY]: width >= 800,
 	};
 	Object.assign(window, {
 		matchMedia: (query: string) => ({
@@ -94,6 +97,28 @@ describe("shell mode breakpoints", () => {
 		expect(isDrawerMode("tablet-portrait")).toBe(true);
 		expect(isDrawerMode("tablet-landscape")).toBe(false);
 		expect(isDrawerMode(null)).toBe(false);
+	});
+});
+
+function DrawerProbe() {
+	return <span data-drawer={String(useDrawerMode())} />;
+}
+
+describe("the session list's second pane", () => {
+	it.each([
+		[393, 852, true],
+		[744, 1133, true],
+		[834, 1194, false],
+		[1194, 834, false],
+	])("%i×%i keeps the list in a drawer: %s", async (width, height, drawer) => {
+		setPlatform("web");
+		stubViewport(width, height, true);
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container as unknown as Element);
+		await act(async () => root.render(<DrawerProbe />));
+		expect(container.querySelector("span")?.getAttribute("data-drawer")).toBe(String(drawer));
+		await act(async () => root.unmount());
 	});
 });
 

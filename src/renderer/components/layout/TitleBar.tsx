@@ -23,7 +23,7 @@ import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
-import { isDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
+import { useDrawerMode } from "../../hooks/use-shell-mode";
 import { cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -179,7 +179,7 @@ export function TitleBar() {
 	const reconnecting = device !== undefined && !unpaired && host?.state !== "online";
 	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
-	const drawer = isDrawerMode(useShellMode());
+	const drawer = useDrawerMode();
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);

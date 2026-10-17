@@ -28,11 +28,13 @@ test.describe.configure({ retries: 1 });
 
 type Shell = "phone" | "tablet-portrait" | "tablet-landscape";
 
-const DEVICES: ReadonlyArray<{ name: string; shell: Shell }> = [
-	{ name: "iPhone 15", shell: "phone" },
-	{ name: "Pixel 8", shell: "phone" },
-	{ name: "iPad Pro 11", shell: "tablet-portrait" },
-	{ name: "iPad Pro 11 landscape", shell: "tablet-landscape" },
+// `drawer`: the session list waits behind a menu button. A portrait tablet from 800 px (the iPad Pro 11's 834)
+// docks it as a second pane beside the transcript, as the landscape one does.
+const DEVICES: ReadonlyArray<{ name: string; shell: Shell; drawer: boolean }> = [
+	{ name: "iPhone 15", shell: "phone", drawer: true },
+	{ name: "Pixel 8", shell: "phone", drawer: true },
+	{ name: "iPad Pro 11", shell: "tablet-portrait", drawer: false },
+	{ name: "iPad Pro 11 landscape", shell: "tablet-landscape", drawer: false },
 ];
 
 const ENGINES: ReadonlyArray<{ name: string; type: BrowserType }> = [
@@ -209,7 +211,7 @@ for (const { engine, device } of variants(
 )) {
 	test.describe(`${engine.name} · ${device.name}`, () => {
 		let browser: Browser;
-		const drawerMode = device.shell !== "tablet-landscape";
+		const drawerMode = device.drawer;
 
 		test.beforeAll(async () => {
 			browser = await engine.type.launch();
@@ -246,7 +248,7 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		test("the sidebar is a drawer on a phone and a portrait tablet, docked on a landscape tablet", async () => {
+		test("the sidebar is a drawer on a phone, docked beside the transcript on a tablet", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
 			if (!drawerMode) {
 				await expect(page.locator(".omp-session-sidebar")).toBeVisible();
@@ -311,7 +313,7 @@ for (const { engine, device } of variants(
 		test("the work board is a chip and a sheet where it cannot dock", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
 			const chip = page.locator("[data-work-chip]");
-			if (!drawerMode) {
+			if (device.shell === "tablet-landscape") {
 				await expect(chip).toHaveCount(0);
 				await page.context().close();
 				return;
@@ -480,6 +482,8 @@ for (const { engine, device } of variants(
 						await capture(page, "drawer", tag);
 						await page.goBack();
 						await expect(drawer(page)).toHaveCount(0);
+					}
+					if (device.shell !== "tablet-landscape") {
 						await page.locator("[data-work-chip]").click();
 						await capture(page, "board", tag);
 						await page.goBack();

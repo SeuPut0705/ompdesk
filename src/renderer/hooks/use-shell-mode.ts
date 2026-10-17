@@ -29,7 +29,9 @@ export const SHELL_MODES: readonly ShellMode[] = ["phone", "tablet-portrait", "t
 export const PHONE_QUERY = "(max-width: 599px), (max-height: 499px) and (orientation: landscape)";
 export const TABLET_PORTRAIT_QUERY = "(max-width: 999px)";
 export const TOUCH_QUERY = "(pointer: coarse)";
-const QUERIES = [PHONE_QUERY, TABLET_PORTRAIT_QUERY, TOUCH_QUERY] as const;
+/** A portrait tablet at least this wide docks the session list instead of a drawer. */
+export const TABLET_DOCK_QUERY = "(min-width: 800px)";
+const QUERIES = [PHONE_QUERY, TABLET_PORTRAIT_QUERY, TOUCH_QUERY, TABLET_DOCK_QUERY] as const;
 
 const DEV_KEY = "omp.shell";
 
@@ -41,9 +43,11 @@ export function shellModeFor(phone: boolean, narrow: boolean): ShellMode {
 interface Snapshot {
 	mode: ShellMode | null;
 	input: ShellInput | null;
+	/** A portrait tablet wide enough to dock the session list (`TABLET_DOCK_QUERY`). */
+	listDocked: boolean;
 }
 
-const DESKTOP: Snapshot = { mode: null, input: null };
+const DESKTOP: Snapshot = { mode: null, input: null, listDocked: false };
 
 /** The URL and storage do not change under a page: read once (tests call `resetShellModeForTests`). */
 let devParams: { shell: string | null; input: string | null } | undefined;
@@ -77,7 +81,11 @@ function compute(): Snapshot {
 	const mode =
 		SHELL_MODES.find(candidate => candidate === shell) ??
 		shellModeFor(matches(PHONE_QUERY), matches(TABLET_PORTRAIT_QUERY));
-	return { mode, input: input === "touch" || input === "mouse" ? input : matches(TOUCH_QUERY) ? "touch" : "mouse" };
+	return {
+		mode,
+		input: input === "touch" || input === "mouse" ? input : matches(TOUCH_QUERY) ? "touch" : "mouse",
+		listDocked: mode === "tablet-portrait" && matches(TABLET_DOCK_QUERY),
+	};
 }
 
 // One set of media listeners for the whole app, however many components read the mode (tooltips are everywhere).
@@ -87,7 +95,13 @@ let detach: (() => void) | null = null;
 
 function refresh(): void {
 	const next = compute();
-	if (attached && attached.mode === next.mode && attached.input === next.input) return;
+	if (
+		attached &&
+		attached.mode === next.mode &&
+		attached.input === next.input &&
+		attached.listDocked === next.listDocked
+	)
+		return;
 	attached = next;
 	for (const listener of listeners) listener();
 }
@@ -162,6 +176,19 @@ export function useCompactShell(): boolean {
 /** Phone and tablet portrait keep the session list in a drawer; a landscape tablet docks it. */
 export function isDrawerMode(mode: ShellMode | null): boolean {
 	return mode === "phone" || mode === "tablet-portrait";
+}
+
+/**
+ * Whether the session list lives in a drawer: the phone and a narrow portrait tablet. A portrait tablet from
+ * 800 px (iPad Air and Pro) docks it as a second pane (two panes, list and transcript), so the page never
+ * waits behind a menu button while there is room.
+ */
+export function useDrawerMode(): boolean {
+	return useSyncExternalStore(
+		subscribe,
+		() => isDrawerMode(currentShellMode()) && !snapshot().listDocked,
+		() => false,
+	);
 }
 
 export function applyShellAttributes(root: HTMLElement = document.documentElement): void {
