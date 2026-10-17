@@ -129,6 +129,53 @@ export async function cleanupAp(profile: ApProfile): Promise<void> {
 	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
+/** TurnResume's launch markers in a userData directory (`interrupted-turns.json`); none when the file is absent. */
+export async function markers(desktop: string): Promise<Array<{ reason: string }>> {
+	try {
+		return JSON.parse(await fs.readFile(path.join(desktop, "interrupted-turns.json"), "utf8"));
+	} catch {
+		return [];
+	}
+}
+
+/** The saved layout names the tabs' session files: what a relaunch reopens. */
+export async function layoutSessions(desktop: string): Promise<number> {
+	try {
+		const prefs = JSON.parse(await fs.readFile(path.join(desktop, "prefs.json"), "utf8")) as {
+			tabLayouts?: Array<{ tabs: Array<{ sessionPath?: string }> }>;
+		};
+		return prefs.tabLayouts?.flatMap(layout => layout.tabs).filter(tab => tab.sessionPath !== undefined).length ?? 0;
+	} catch {
+		return 0;
+	}
+}
+
+/** SIGKILL of the app's main process: no quit hook, no teardown. */
+export async function crash(app: ElectronApplication): Promise<void> {
+	const pid = await app.evaluate(() => process.pid);
+	process.kill(pid, "SIGKILL");
+	await expect
+		.poll(
+			() => {
+				try {
+					process.kill(pid, 0);
+					return true;
+				} catch {
+					return false;
+				}
+			},
+			{ timeout: 20_000, message: "the killed app must be gone" },
+		)
+		.toBe(false);
+}
+
+/** Processes whose command line names `root`: what a killed app left running there. */
+export function survivors(root: string): string[] {
+	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
+		.split("\n")
+		.filter(line => line.includes(root));
+}
+
 /** The run's tab: a tab bound to a worktree on an `autopilot/` branch. */
 export interface RunTab {
 	tabId: string;

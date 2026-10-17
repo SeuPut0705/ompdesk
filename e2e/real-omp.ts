@@ -13,6 +13,29 @@ export interface RealOmpProfile {
 	smol: string;
 }
 
+/** `value[key]` when `value` is an object that has it, else undefined: reads a field of an RPC answer or a JSON line. */
+export function field(value: unknown, key: string): unknown {
+	return value !== null && typeof value === "object" && key in value ? Reflect.get(value, key) : undefined;
+}
+
+/** What every session of an agent dir spent (stock's `usage` on each assistant message, subagents included). */
+export async function spentIn(agent: string): Promise<{ usd: number; tokens: number }> {
+	const total = { usd: 0, tokens: 0 };
+	const root = path.join(agent, "sessions");
+	for (const file of await fs.readdir(root, { recursive: true }).catch(() => [])) {
+		if (!file.endsWith(".jsonl")) continue;
+		for (const line of (await fs.readFile(path.join(root, file), "utf8")).split("\n")) {
+			if (!line.includes('"usage"')) continue;
+			const usage = field(field(JSON.parse(line), "message"), "usage");
+			const usd = field(field(usage, "cost"), "total");
+			const tokens = field(usage, "totalTokens");
+			if (typeof usd === "number") total.usd += usd;
+			if (typeof tokens === "number") total.tokens += tokens;
+		}
+	}
+	return total;
+}
+
 /**
  * A private, disposable omp agent dir for opt-in model audits: the user's
  * config.yml and credentials database are copied (never touched) into a 0700

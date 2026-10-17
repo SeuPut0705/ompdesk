@@ -5,8 +5,6 @@
  * shows paused:app_closed with a Resume button. A release in flight is still marked after the restart, and the
  * agent's next `begin` says so before anything else.
  */
-import { execFileSync } from "node:child_process";
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -15,59 +13,21 @@ import {
 	type ApProfile,
 	agentTools,
 	cleanupAp,
+	crash,
 	launchAp,
+	layoutSessions,
 	mainTab,
 	makeApProfile,
+	markers,
 	recorded,
 	setAutopilot,
 	startRun,
 	status,
+	survivors,
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { exitApp, fixtureOmp } from "./harness";
-
-async function markers(profile: ApProfile): Promise<Array<{ reason: string }>> {
-	try {
-		return JSON.parse(await fs.readFile(path.join(profile.desktop, "interrupted-turns.json"), "utf8"));
-	} catch {
-		return [];
-	}
-}
-
-/** The saved layout names the tabs' session files: what a relaunch reopens. */
-async function layoutSessions(profile: ApProfile): Promise<number> {
-	try {
-		const prefs = JSON.parse(await fs.readFile(path.join(profile.desktop, "prefs.json"), "utf8")) as {
-			tabLayouts?: Array<{ tabs: Array<{ sessionPath?: string }> }>;
-		};
-		return prefs.tabLayouts?.flatMap(layout => layout.tabs).filter(tab => tab.sessionPath !== undefined).length ?? 0;
-	} catch {
-		return 0;
-	}
-}
-
-function isRunning(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/** SIGKILL of the app's main process: no quit hook, no teardown. */
-async function crash(app: ElectronApplication): Promise<void> {
-	const pid = await app.evaluate(() => process.pid);
-	process.kill(pid, "SIGKILL");
-	await expect.poll(() => isRunning(pid), { timeout: 20_000, message: "the killed app must be gone" }).toBe(false);
-}
-
-function survivors(root: string): string[] {
-	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
-		.split("\n")
-		.filter(line => line.includes(root));
-}
 
 /** Relaunch on the profile's userData with no argv cwd, so the saved layout (the run's tab) is restored. */
 async function relaunch(profile: ApProfile): Promise<{ app: ElectronApplication; page: Page }> {
@@ -115,8 +75,8 @@ test("a cycle running when OMPdesk is killed resumes by itself on the next launc
 			"cycle 2 is running",
 			90_000,
 		);
-		await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
-		await expect.poll(() => layoutSessions(profile), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+		await expect.poll(() => markers(profile.desktop), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => layoutSessions(profile.desktop), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
 		const armsBefore = (await recorded(profile, "fixture_autopilot_session")).filter(
 			entry => entry.action === "arm",
 		).length;
@@ -152,8 +112,8 @@ test("a kill between turns leaves no marker: the run is paused as app_closed and
 	try {
 		const tabId = await startRun(page, await mainTab(page));
 		await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) === 1, "cycle 1 is done", 60_000);
-		await expect.poll(() => markers(profile), { timeout: 30_000 }).toEqual([]);
-		await expect.poll(() => layoutSessions(profile), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+		await expect.poll(() => markers(profile.desktop), { timeout: 30_000 }).toEqual([]);
+		await expect.poll(() => layoutSessions(profile.desktop), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
 
 		const second = await crashAndRelaunch(profile, app);
 		current = second.app;
@@ -204,8 +164,8 @@ test("a release in flight is still marked after a crash, and the agent's next be
 			ship: { autoPush: false, autoRelease: { on: true, cadence: { kind: "every", n: 1 } } },
 		});
 		await waitForStatus(page, tabId, s => s.ship?.inFlight?.kind === "release", "a release is in flight", 90_000);
-		await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
-		await expect.poll(() => layoutSessions(profile), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+		await expect.poll(() => markers(profile.desktop), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => layoutSessions(profile.desktop), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
 
 		const second = await crashAndRelaunch(profile, app);
 		current = second.app;
