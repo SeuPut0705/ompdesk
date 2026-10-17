@@ -307,6 +307,24 @@ export interface ResumeDeps {
 	 * resuming one (`none`: nothing said the goal was cut off, or its resume failed), or the user called it off.
 	 */
 	goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
+	/**
+	 * One line of the runtime log (`gui-runtime.jsonl`, source `turn-resume`): each relaunch decision, so a
+	 * turn that did not continue can be explained afterwards from the user's own files.
+	 */
+	log?: (message: "launch" | "marker" | "continue", details: ResumeLogDetails) => void;
+}
+
+export type ResumeLogDetails = Record<string, string | number | boolean>;
+
+/** What stock's `restore_interrupted` found, in a word: the cut-off turn, what it revived, or nothing. */
+function restoreSummary(data: Record<string, unknown> | undefined): string {
+	if (!data) return "failed";
+	if (data.turn === true) return "turn";
+	const parts = (["subagents", "jobs"] as const).flatMap(key => {
+		const value = data[key];
+		return Array.isArray(value) && value.length > 0 ? [`${key}:${value.length}`] : [];
+	});
+	return parts.length > 0 ? parts.join(",") : "nothing";
 }
 
 /**
@@ -649,6 +667,7 @@ export class TurnResume {
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
 		const sidecar = this.#deps.pool.startTab(tabId);
 		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
+			this.#deps.log?.("continue", { tab: tabId, action, ready: false, cancelled: cancelled() });
 			this.#pending.delete(tabId);
 			this.#deps.goalSettled?.(tabId, cancelled() ? "cancelled" : "none");
 			this.sync();
@@ -677,18 +696,21 @@ export class TurnResume {
 		// Stock `restoreSession` then finds nothing unfinished; stock `retry` (`/retry`) replays that failed tool
 		// batch (the card reopens) or the aborted reply, and does nothing for a turn that really ended.
 		const restored = action === "restore" ? await send("restore_interrupted") : undefined;
-		let started = continues(restored) || continues(await send("retry"));
+		const retried = !continues(restored) && continues(await send("retry"));
+		let started = continues(restored) || retried;
 		// A new session's first turn cut off before stock wrote its file left nothing to restore (its tab starts a
 		// fresh session in the same folder): the prompt runs again. It leaves the marker before it is sent, so no
 		// later continuation of this tab sends it a second time.
 		const pending = this.#pending.get(tabId);
 		const unsavedPrompt = pending?.prompt;
+		let promptSent = false;
 		if (pending && unsavedPrompt && !started && !cancelled()) {
 			delete pending.prompt;
 			const response = await sidecar.rpcClient
 				?.command({ type: "prompt", message: unsavedPrompt })
 				.catch(() => undefined);
-			started = response?.success === true;
+			promptSent = response?.success === true;
+			started = promptSent;
 		}
 		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
 		// restored turn (the goal's continuation waits for the session to be idle).
@@ -702,6 +724,16 @@ export class TurnResume {
 				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
 			}
 		}
+		this.#deps.log?.("continue", {
+			tab: tabId,
+			action,
+			restored: action === "restore" ? restoreSummary(restored) : "skipped",
+			retried,
+			prompt: promptSent,
+			goal: goalResumed,
+			started,
+			...(cancelled() ? { cancelled: true } : {}),
+		});
 		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : cancelled() ? "cancelled" : "none");
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
@@ -765,6 +797,7 @@ export class TurnResume {
 	launch(): void {
 		const markers = this.#deps.store.read();
 		this.#launched = true;
+		this.#deps.log?.("launch", { markers: markers.length, enabled: this.#deps.enabled() });
 		if (!this.#deps.enabled()) {
 			this.#deps.store.write([]);
 			return;
@@ -772,10 +805,16 @@ export class TurnResume {
 		const resumable: Array<{ tabId: string; action: ResumeAction }> = [];
 		for (const marker of markers) {
 			const action = launchAction(marker);
-			const tabId =
-				this.#deps.pool.tabForSession(marker.sessionPath, marker.peer) ??
-				this.#unwrittenSessionTab(marker) ??
-				this.#deps.openTab(marker);
+			const found = this.#deps.pool.tabForSession(marker.sessionPath, marker.peer);
+			const unwritten = found ? null : this.#unwrittenSessionTab(marker);
+			const tabId = found ?? unwritten ?? this.#deps.openTab(marker);
+			this.#deps.log?.("marker", {
+				session: marker.sessionPath,
+				reason: marker.reason,
+				tab: tabId ?? "none",
+				via: found ? "layout" : unwritten ? "unwritten" : tabId ? "opened" : "none",
+				...(marker.peer ? { peer: marker.peer } : {}),
+			});
 			if (!tabId) continue;
 			resumable.push({ tabId, action });
 			this.#pending.set(tabId, { ...marker, tab: tabId });

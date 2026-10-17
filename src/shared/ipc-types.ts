@@ -386,6 +386,8 @@ export type RuntimeErrorSource =
 	| "background-task"
 	/** A launch timing mark (src/main/startup-timing.ts): `message` names it, `details.sinceLaunchMs` is when. */
 	| "startup-timing"
+	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
+	| "turn-resume"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

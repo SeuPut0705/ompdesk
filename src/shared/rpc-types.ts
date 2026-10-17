@@ -2488,6 +2488,16 @@ export interface RpcSwitchLeafResult {
 	activeLeafId?: string;
 }
 
+/**
+ * Result of fork_from (bridge `sessions.fork_from`): the new session file. From a user prompt the copy ends
+ * before it and `draft` carries the prompt for the new session's composer (stock `branch` semantics).
+ */
+export interface RpcForkFromResult {
+	sessionPath: string;
+	sessionId: string;
+	draft?: { text: string; images: ImageContent[] };
+}
+
 /** Lightweight metadata of one Claude/Codex session offered for import. */
 export interface RpcForeignSessionInfo {
 	id: string;

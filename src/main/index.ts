@@ -977,12 +977,12 @@ app.whenReady().then(() => {
 			},
 			// Only this computer's own tabs show the row: a paired device's tab mirrors its host's turn.
 			setResuming: (tabId, resuming) => sidecarPool.setResuming(tabId, resuming),
+			resumeRank: tabId => sidecarPool.resumeRank(tabId),
 			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
 			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
 			tabForSession: (sessionPath, peer) =>
 				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
-			resumeRank: tabId => sidecarPool.resumeRank(tabId),
 			noteStopped: tabId => {
 				sidecarPool.noteStopped(tabId);
 				hostServices.noteStopped(tabId);
@@ -1021,6 +1021,7 @@ app.whenReady().then(() => {
 			await autopilotRef.current?.resumeGoal(tabId);
 		},
 		goalSettled: (tabId, outcome) => autopilotRef.current?.resumeSettled(tabId, outcome),
+		log: (message, details) => writeRuntimeLog({ source: "turn-resume", message, details }),
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_caller, tabId: unknown) => {
 		if (typeof tabId !== "string") return;

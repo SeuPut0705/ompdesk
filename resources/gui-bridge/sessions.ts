@@ -9,6 +9,7 @@ import { guard } from "./health";
 import { promptOrigin } from "./prompt-origin";
 import { labelPromptOrigins } from "./prompt-origin-contracts";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
+import { forkCut } from "./session-fork-core";
 import { setSessionPinned } from "./session-pins";
 import { transcriptPageMessages, transcriptTurnStart } from "./transcript-page";
 import type { BridgeMethods } from "./types";
@@ -140,6 +141,12 @@ export const methods: BridgeMethods = {
 		 * Write a new, independent session holding only the root→`entryId` path and
 		 * leave the live session where it is (omp's own `fork`/`branch` move the live
 		 * session onto the copy). Labels in effect on the path and the title carry over.
+		 *
+		 * From a user prompt the copy ends before it and the prompt comes back as `draft`, the way
+		 * stock `branch` restores it into the editor: a copy through the prompt would end on a prompt
+		 * nothing ever sends, which stock reads as a turn its process never finished (the next omp to
+		 * open it journals "Previous OMP process exited before completing the turn.", and a restore
+		 * would run it again).
 		 */
 		"sessions.fork_from": async (params, env) => {
 			const entryId = entryIdParam(params);
@@ -155,10 +162,11 @@ export const methods: BridgeMethods = {
 				initialCwd: cwd,
 			});
 			try {
-				const sessionPath = copy.createBranchedSession(entryId, { copyArtifacts: true });
+				const cut = forkCut(copy.getEntry(entryId), entryId);
+				const sessionPath = copy.createBranchedSession(cut.leafId, { copyArtifacts: true });
 				if (!sessionPath) throw new Error("omp did not persist the new session");
 				await copy.flush();
-				return { sessionPath, sessionId: copy.getSessionId() };
+				return { sessionPath, sessionId: copy.getSessionId(), ...(cut.draft ? { draft: cut.draft } : {}) };
 			} finally {
 				await copy.close();
 			}

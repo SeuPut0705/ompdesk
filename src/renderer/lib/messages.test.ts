@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RpcAbortAndRestoreQueueResult, RpcSessionTreeNode } from "../../shared/rpc-types";
-import { useComposerStore } from "../stores/composer";
+import type { RpcAbortAndRestoreQueueResult, RpcForkFromResult, RpcSessionTreeNode } from "../../shared/rpc-types";
+import { draftKeys, loadDraft } from "../components/layout/composer/draft-persistence";
+import { type ComposerStore, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
+import { sessionRuntimeStore } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import {
@@ -68,8 +70,23 @@ function installWindow(messages: Array<{ text: string }>) {
 	return { rpc, deliveryOrder, fillDetail: () => fillDetail };
 }
 
+function memoryStorage(): Storage {
+	const values = new Map<string, string>();
+	return {
+		get length() {
+			return values.size;
+		},
+		clear: () => values.clear(),
+		getItem: key => values.get(key) ?? null,
+		key: index => [...values.keys()][index] ?? null,
+		removeItem: key => void values.delete(key),
+		setItem: (key, value) => void values.set(key, value),
+	};
+}
+
 afterEach(() => {
 	delete (globalThis as Record<string, unknown>).window;
+	delete (globalThis as Record<string, unknown>).localStorage;
 	useMessagesStore.getState().reset();
 	useSessionStore.getState().reset();
 	useComposerStore.getState().reset();
@@ -247,6 +264,58 @@ describe("forkSessionFromEntryInNewTab", () => {
 
 		expect(await branch).toBe("saved");
 		expect(openTab).not.toHaveBeenCalled();
+	});
+
+	it("puts a branched prompt into the new tab's composer, with its pictures", async () => {
+		const harness = installWindow([]);
+		useTabsStore.setState({
+			activeTabId: "source-tab",
+			tabs: [{ id: "source-tab", cwd: "/project", status: "ready", kind: "agent", unreadDone: false }],
+		});
+		const image = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
+		harness.rpc.forkFrom.mockResolvedValue({
+			success: true,
+			data: {
+				sessionPath: "/sessions/branch.jsonl",
+				sessionId: "branch-session",
+				draft: { text: "second question", images: [image] },
+			},
+		} as never);
+		vi.spyOn(useTabsStore.getState(), "openTab").mockResolvedValue("branch-draft-tab");
+
+		expect(await forkSessionFromEntryInNewTab("user-entry")).toBe("opened");
+		const composer = sessionRuntimeStore<ComposerStore>("branch-draft-tab", "composer")?.getState();
+		expect(composer?.draft).toBe("second question");
+		expect(composer?.images).toEqual([{ content: image, preview: "data:image/png;base64,aGk=" }]);
+	});
+
+	it("files a branched prompt as the new session's saved draft when its tab does not open", async () => {
+		const storage = memoryStorage();
+		(globalThis as Record<string, unknown>).localStorage = storage;
+		const harness = installWindow([]);
+		useTabsStore.setState({
+			activeTabId: "source-tab",
+			tabs: [
+				{ id: "source-tab", cwd: "/source", status: "ready", kind: "agent", unreadDone: false },
+				{ id: "other-tab", cwd: "/other", status: "ready", kind: "agent", unreadDone: false },
+			],
+		});
+		const fork = Promise.withResolvers<{ success: true; data: RpcForkFromResult }>();
+		harness.rpc.forkFrom.mockReturnValue(fork.promise as never);
+		const branch = forkSessionFromEntryInNewTab("user-entry");
+		useTabsStore.setState({ activeTabId: "other-tab" });
+		fork.resolve({
+			success: true,
+			data: {
+				sessionPath: "/sessions/branch.jsonl",
+				sessionId: "branch-session",
+				draft: { text: "second question", images: [] },
+			},
+		});
+
+		expect(await branch).toBe("saved");
+		const keys = draftKeys({ sessionFile: "/sessions/branch.jsonl", empty: false });
+		expect(keys && loadDraft(storage, keys, 0)).toBe("second question");
 	});
 });
 

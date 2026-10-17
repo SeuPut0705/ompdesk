@@ -2,16 +2,19 @@ import type {
 	AgentMessage,
 	ImageContent,
 	RpcAbortAndRestoreQueueResult,
+	RpcForkFromResult,
 	RpcResponse,
 	RpcRestoredQueuedMessage,
 	RpcSessionTreeNode,
 	RpcSessionTreeResult,
 } from "../../shared/rpc-types";
+import { draftKeys, saveDraft } from "../components/layout/composer/draft-persistence";
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { type ComposerStore, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { focusedRuntimeTabId, sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
+import { ensureTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { endAutoGoal } from "./auto-mode-client";
@@ -349,6 +352,21 @@ export async function branchSessionFromEntry(entryId: string): Promise<"branched
 	return "branched";
 }
 
+/**
+ * File a branch's prompt (fork_from's `draft`: a branch from a prompt ends before it) as the new session's saved
+ * draft (draft-persistence.ts), so its composer shows it whenever and in whichever window that session opens.
+ * Only the text is kept there, as for every saved draft.
+ */
+export function fileBranchDraft(result: RpcForkFromResult, device: string | undefined): void {
+	const keys = draftKeys({ device, sessionFile: result.sessionPath, empty: false });
+	if (!keys || !result.draft?.text.trim()) return;
+	try {
+		if (typeof localStorage !== "undefined") saveDraft(localStorage, keys, result.draft.text);
+	} catch {
+		// A page without storage: the prompt is still in the session it was branched from.
+	}
+}
+
 /** Copy the tree path through one message into an independent session and open it in a new tab. */
 export async function forkSessionFromEntryInNewTab(
 	entryId: string,
@@ -363,8 +381,9 @@ export async function forkSessionFromEntryInNewTab(
 	if (!sourceTab) throw new Error("The source session is no longer open");
 	const response = await rpc.forkFrom(entryId);
 	if (!response.success) throw new Error(response.error);
-	const data = response.data as { sessionPath?: string } | undefined;
+	const data = response.data as RpcForkFromResult | undefined;
 	if (!data?.sessionPath) throw new Error("fork_from did not return a session path");
+	fileBranchDraft(data, sourceTab.device);
 	if (useTabsStore.getState().activeTabId !== sourceTabId || useSessionStore.getState().switchPending !== null) {
 		return "saved";
 	}
@@ -373,7 +392,17 @@ export async function forkSessionFromEntryInNewTab(
 		sessionPath: data.sessionPath,
 		kind: sourceTab.kind,
 	});
-	return tabId ? "opened" : "saved";
+	if (!tabId) return "saved";
+	// The new tab's composer takes the prompt at once, with its pictures (a saved draft keeps only text).
+	if (data.draft) {
+		ensureTabRuntime(tabId);
+		const composer = sessionRuntimeStore<ComposerStore>(tabId, "composer")?.getState();
+		composer?.setDraft(data.draft.text);
+		composer?.setImages(
+			data.draft.images.map(content => ({ content, preview: `data:${content.mimeType};base64,${content.data}` })),
+		);
+	}
+	return "opened";
 }
 
 /** Resolve legacy transcript messages through the active OMP session tree, then fork them. */

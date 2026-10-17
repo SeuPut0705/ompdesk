@@ -27,6 +27,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"error-toast",
 	"background-task",
 	"startup-timing",
+	"turn-resume",
 	"unknown",
 ]);
 

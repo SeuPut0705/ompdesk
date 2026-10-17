@@ -35,6 +35,7 @@ import {
 	restartJobsDetails,
 	restartJobsNotice,
 } from "../../resources/gui-bridge/restart-core";
+import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
@@ -1606,17 +1607,14 @@ export function runRpcUi(): void {
 			activeLeafId = params.entryId;
 			return { cancelled: false, activeLeafId };
 		},
-		// Stock `fork_from`: a new session file holding the root→entry path.
+		// Stock `fork_from` (the bridge's `sessions.fork_from`): a new session file holding the root→entry path,
+		// ending before a prompt, which comes back as the draft.
 		"sessions.fork_from": params => {
 			const byId = new Map(entries.map(entry => [entry.id, entry]));
+			const cut = forkCut(byId.get(String(params.entryId)) as ForkEntry | undefined, String(params.entryId));
 			const path: Entry[] = [];
-			for (
-				let entry = byId.get(String(params.entryId));
-				entry;
-				entry = entry.parentId ? byId.get(entry.parentId) : undefined
-			)
+			for (let entry = byId.get(cut.leafId); entry; entry = entry.parentId ? byId.get(entry.parentId) : undefined)
 				path.unshift(entry);
-			if (path.length === 0) throw new Error("Unknown session entry");
 			const forkId = `fixture-fork-${process.pid}-${Date.now()}`;
 			const dir = sessionFile
 				? nodePath.dirname(sessionFile)
@@ -1631,7 +1629,7 @@ export function runRpcUi(): void {
 			};
 			fs.mkdirSync(dir, { recursive: true });
 			fs.writeFileSync(sessionPath, `${[header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
-			return { sessionPath, sessionId: forkId };
+			return { sessionPath, sessionId: forkId, ...(cut.draft ? { draft: cut.draft } : {}) };
 		},
 		"sessions.arg_completions": () => ({ items: [] }),
 		// Stock resolves `local://` under the session's artifacts; the fixture uses `<cwd>/local`.

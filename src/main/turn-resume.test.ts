@@ -15,6 +15,7 @@ import {
 	launchAction,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
+	type ResumeLogDetails,
 	type ResumeMarker,
 	type ResumePool,
 	retryDelays,
@@ -223,6 +224,8 @@ interface Harness {
 	resuming: Array<[string, boolean]>;
 	/** The tabs whose process the resume started, in order. */
 	started: string[];
+	/** What the coordinator wrote to the runtime log (gui-runtime.jsonl), in order. */
+	logs: Array<[string, ResumeLogDetails]>;
 }
 
 function setup(
@@ -253,6 +256,7 @@ function setup(
 	const prefs = { scheduledRetry: options.scheduledRetry ?? true };
 	const resuming: Array<[string, boolean]> = [];
 	const started: string[] = [];
+	const logs: Array<[string, ResumeLogDetails]> = [];
 	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
@@ -315,6 +319,9 @@ function setup(
 		},
 		...(options.resumeGoal ? { resumeGoal: options.resumeGoal } : {}),
 		...(options.goalSettled ? { goalSettled: options.goalSettled } : {}),
+		log: (message, details) => {
+			logs.push([message, details]);
+		},
 	});
 	return {
 		dir,
@@ -334,6 +341,7 @@ function setup(
 		prefs,
 		resuming,
 		started,
+		logs,
 	};
 }
 
@@ -434,6 +442,47 @@ describe("TurnResume launch", () => {
 		h.facts[0] = fact({ tabId: "restored", running: true });
 		h.resume.sync();
 		expect(h.store.read()[0]).toMatchObject({ tab: "restored", reason: "running" });
+	});
+
+	it("logs each launch decision: the markers read, where each found its tab and what its continuation did", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker(), marker({ tab: "m2", sessionPath: "/s/lost.jsonl" })]);
+		h.facts.push(fact({ tabId: "restored" }));
+
+		h.resume.launch();
+		await settle();
+
+		const continued = {
+			action: "restore",
+			restored: "turn",
+			retried: false,
+			prompt: false,
+			goal: false,
+			started: true,
+		};
+		expect(h.logs).toEqual([
+			["launch", { markers: 2, enabled: true }],
+			["marker", { session: "/s/a.jsonl", reason: "running", tab: "restored", via: "layout" }],
+			["marker", { session: "/s/lost.jsonl", reason: "running", tab: "opened", via: "opened" }],
+			["continue", { tab: "restored", ...continued }],
+			["continue", { tab: "opened", ...continued }],
+		]);
+	});
+
+	it("logs a launch with the setting off, and a continuation whose omp never came up", async () => {
+		h = setup({ enabled: false });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.resume.launch();
+		expect(h.logs).toEqual([["launch", { markers: 1, enabled: false }]]);
+		rmSync(h.dir, { recursive: true, force: true });
+
+		h = setup({ status: "error" });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored" }));
+		h.resume.launch();
+		await settle();
+		const notReady = { tab: "restored", action: "restore", ready: false, cancelled: false };
+		expect(h.logs.at(-1)).toEqual(["continue", notReady]);
 	});
 
 	it("continues the focused tab before its split's panes and the background tabs, not in marker order", async () => {

@@ -160,6 +160,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getArtifactsDir()",
 			"sessionManager.getSessionId()",
 			"restoreInterruptedTurn()",
+			"getToolByName()",
 			"sessionManager.getBranch()",
 			"promptCustomMessage()",
 			"getGoalModeState()",
@@ -835,6 +836,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/session-manager`]: [
 				"SessionManager.open()",
 				"SessionManager.prototype.createBranchedSession()",
+				"SessionManager.prototype.getEntry()",
 				"SessionManager.prototype.flush()",
 				"SessionManager.prototype.close()",
 				"SessionManager.prototype.getSessionId()",

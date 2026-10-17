@@ -1,7 +1,13 @@
 /** GUI transcript pagination and session commands; stock replay and indexed tree projection run in the bridge. */
 import { resolve } from "node:path";
 import { z } from "zod";
-import type { AgentMessage, MessagesPage, RpcSessionTreeResult, RpcSwitchLeafResult } from "../../shared/rpc-types";
+import type {
+	AgentMessage,
+	MessagesPage,
+	RpcForkFromResult,
+	RpcSessionTreeResult,
+	RpcSwitchLeafResult,
+} from "../../shared/rpc-types";
 import { handlers as extraHandlers } from "./session-extras";
 import { renameStoredSession } from "./session-files";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
@@ -170,9 +176,12 @@ export const handlers: Record<string, LocalHandler> = {
 		});
 	},
 
-	/** A new session file holding the root→entry path; the attached session stays where it is. */
+	/**
+	 * A new session file holding the root→entry path; the attached session stays where it is. From a prompt the
+	 * copy ends before it and the prompt comes back as `draft` (resources/gui-bridge/session-fork-core.ts).
+	 */
 	fork_from: async (command, ctx) => {
 		const entryId = requiredString(command, "entryId", "Entry id");
-		return ctx.bridge.request<{ sessionPath: string; sessionId: string }>("sessions.fork_from", { entryId });
+		return ctx.bridge.request<RpcForkFromResult>("sessions.fork_from", { entryId });
 	},
 };

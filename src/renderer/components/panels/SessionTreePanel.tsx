@@ -32,13 +32,13 @@ import type {
 	SetStateAction,
 } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RpcSwitchLeafResult } from "../../../shared/rpc-types";
+import type { RpcForkFromResult, RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { routeToSessionOwner } from "../../hooks/use-session-switch";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { branchSessionFromEntry } from "../../lib/messages";
+import { branchSessionFromEntry, fileBranchDraft } from "../../lib/messages";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -379,7 +379,8 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 
 	// Independent new session from this node (fork_from): writes a new session
 	// file containing only the path to this node and opens it in a NEW WINDOW —
-	// the attached session stays untouched, so every view stays open.
+	// the attached session stays untouched, so every view stays open. From a
+	// prompt the copy ends before it and the prompt waits as that session's draft.
 	const forkFromNode = async (entryId: string) => {
 		if (!sidecarReady || branching !== null) return;
 		setBranching(entryId);
@@ -389,8 +390,9 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 				failureToast("sessionTree.forkFailed", response);
 				return;
 			}
-			const data = response.data as { sessionPath?: string } | undefined;
+			const data = response.data as RpcForkFromResult | undefined;
 			if (!data?.sessionPath) return;
+			fileBranchDraft(data, useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.device);
 			const opened = await window.omp.sessions.openInNewWindow({ sessionPath: data.sessionPath });
 			if (!opened) {
 				toast({ variant: "error", message: t("sidebar.openFailed") });

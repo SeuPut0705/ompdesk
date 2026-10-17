@@ -8,6 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { RestoreOptions } from "@oh-my-pi/pi-coding-agent/task/restore";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 import { requireFn } from "./capabilities";
 import { buildCopyTargets } from "./copy-targets";
@@ -325,6 +326,7 @@ export const methods: BridgeMethods = {
 			requireFn(session, "restoreInterruptedTurn", "composer");
 			requireFn(session, "sessionManager.getBranch", "composer");
 			requireFn(session, "promptCustomMessage", "composer");
+			requireFn(session, "getToolByName", "composer");
 			requireFn(session, "getGoalModeState", "composer");
 			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
 			requireFn(restore, "restoreSession", "composer", "task/restore");
@@ -334,7 +336,15 @@ export const methods: BridgeMethods = {
 			const cutOff = interruptedJobs(branch, startedAt);
 			const goalPausedByExit =
 				goalActiveAtExit(branch, startedAt) && session.getGoalModeState()?.goal.status === "paused";
-			const outcome = await restore.restoreSession(session);
+			// The buses a live `task` run reports its subagents on (the task tool's stock `ToolSession`), as
+			// `omp --restore` passes main.ts's own: without them a revived subagent runs unseen, since omp's RPC
+			// subagent registry (`get_subagents`, the `subagent_*` frames) listens on `subagentEventBus` only.
+			// The cast: TaskTool keeps its ToolSession in a TypeScript-private `session` field.
+			const taskTool = session.getToolByName("task") as { session?: RestoreOptions } | undefined;
+			const outcome = await restore.restoreSession(session, {
+				eventBus: taskTool?.session?.eventBus,
+				subagentEventBus: taskTool?.session?.subagentEventBus,
+			});
 			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
 			if (cutOff.length > 0) {
 				void session
