@@ -121,15 +121,37 @@ export function portTaken(config: ServeConfig, port: number): boolean {
 
 /**
  * The URL of the single `/` proxy on `record`'s `<host>:<port>` when it is exactly what OMPdesk published: `current`
- * (the local address plus the secret path now in force) or the bare recorded target an earlier release published (the
- * one-time cutover). Any other path on the same local address is somebody else's handler and is never ours.
+ * (the local address plus the secret path now in force), the same secret path on another loopback port (the
+ * last run listened elsewhere because 47831 was busy: the secret is ours alone, so the port does not matter), or
+ * the bare recorded target an earlier release published (the one-time cutover). Any other path on the same local
+ * address is somebody else's handler and is never ours.
  */
 export function ownProxy(config: ServeConfig, record: ServeRecord, current: string): string | null {
 	const handlers = config.web.get(siteKey(record.host, record.port));
 	if (handlers?.size !== 1) return null;
 	const root = handlers.get("/");
 	if (root === undefined || root.other || root.proxy === null) return null;
-	return root.proxy === record.target || root.proxy === current ? root.proxy : null;
+	return root.proxy === record.target || root.proxy === current || sameSecretPath(root.proxy, current)
+		? root.proxy
+		: null;
+}
+
+/** Both are `http://127.0.0.1:<port>/<secret>` with the same non-empty path. */
+function sameSecretPath(proxy: string, current: string): boolean {
+	try {
+		const a = new URL(proxy);
+		const b = new URL(current);
+		return (
+			a.protocol === "http:" &&
+			b.protocol === "http:" &&
+			a.hostname === "127.0.0.1" &&
+			b.hostname === "127.0.0.1" &&
+			b.pathname.length > 1 &&
+			a.pathname === b.pathname
+		);
+	} catch {
+		return false;
+	}
 }
 
 /** The handler on `record`'s `<host>:<port>` is what OMPdesk published (see `ownProxy`). */

@@ -137,6 +137,23 @@ describe("planPublish", () => {
 		expect(planPublish(current, HOST, `${TARGET}/other`, record)).toEqual({ kind: "publish", port: 47831 });
 	});
 
+	it("republishes over our own handler when the app now listens on another local port, never over one without our secret", () => {
+		const record = { host: HOST, port: 47832, target: TARGET };
+		const oldPort = "http://127.0.0.1:47999";
+		const next = "http://127.0.0.1:48123/s3cr3t";
+		const at = (proxyUrl: string) =>
+			config({ TCP: { "47832": { HTTPS: true } }, Web: { [`${HOST}:47832`]: proxy(proxyUrl) } });
+		// The last run proxied to another port under this secret: ours (the secret is ours alone), same serve port.
+		expect(ownProxy(at(`${oldPort}/s3cr3t`), record, next)).toBe(`${oldPort}/s3cr3t`);
+		expect(planPublish(at(`${oldPort}/s3cr3t`), HOST, next, record)).toEqual({ kind: "publish", port: 47832 });
+		// Another secret, a non-loopback host or an https proxy is not ours, whatever its port.
+		expect(ownProxy(at(`${oldPort}/other`), record, next)).toBeNull();
+		expect(ownProxy(at("http://192.168.1.5:47999/s3cr3t"), record, next)).toBeNull();
+		expect(ownProxy(at("https://127.0.0.1:47999/s3cr3t"), record, next)).toBeNull();
+		// A target without a secret path never matches on the path alone.
+		expect(ownProxy(at(oldPort), record, "http://127.0.0.1:48123")).toBeNull();
+	});
+
 	it("owns only the exact current secret target and the bare recorded target of the cutover, nothing else", () => {
 		const record = { host: HOST, port: 47832, target: TARGET };
 		const current = `${TARGET}/s3cr3t`;
