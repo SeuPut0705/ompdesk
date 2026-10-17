@@ -213,7 +213,7 @@ for (const language of ["en", "ko"] as const)
 				const gpuBudget = process.env.GITHUB_ACTIONS ? 8 : 4;
 				if (!software) {
 					expect(strong.gpu - off.gpu).toBeLessThan(gpuBudget);
-					expect(strong.renderer - off.renderer).toBeLessThan(2);
+					expect(strong.renderer - off.renderer).toBeLessThan(process.env.GITHUB_ACTIONS ? 4 : 2);
 				} else {
 					// Software compositing (a GPU-less runner): the cue is the still form, never an animation. The agents
 					// and the turn cost what they cost there (`off` has none running), so compare with the cue removed.

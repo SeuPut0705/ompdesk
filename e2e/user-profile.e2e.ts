@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 import { resize } from "./shell-capture";
 
 for (const [language, theme] of [
@@ -60,8 +60,8 @@ for (const [language, theme] of [
 			// An empty profile is still pushed on connect, so a cleared one clears.
 			await expect.poll(profileSets).toEqual([{ name: "", experience: null }]);
 
-			await page.keyboard.press("ControlOrMeta+Comma");
 			const settings = page.locator("[data-settings-page]");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 			await settings.locator('[data-settings-section="general"]').click();
 			const name = settings.locator("#setting-gui-profileName input");
 			const experience = settings.locator("#setting-gui-profileExperience select");

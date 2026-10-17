@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, pressShortcutUntil, pressShortcutUntilVisible } from "./harness";
 
 // omp 18.8.6's per-session worktrees (`worktree.onStart` / `worktree.onExit`)
 // in GUI tabs, on the fake omp with the settings switched on
@@ -73,8 +73,7 @@ function tabs() {
 /** ⌘T from the focused tab; resolves the new tab once it is ready. */
 async function openTab() {
 	const before = (await tabs()).map(tab => tab.tabId);
-	await page.keyboard.press("ControlOrMeta+t");
-	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
+	await pressShortcutUntil(page, "ControlOrMeta+t", async () => (await tabs()).length === before.length + 1);
 	const created = (await tabs()).find(tab => !before.includes(tab.tabId));
 	if (!created) throw new Error("No new tab");
 	await expect
@@ -237,8 +236,7 @@ for (const { language, theme, label } of [
 		await launch("create:keep", language);
 		await page.emulateMedia({ colorScheme: theme });
 		const settings = page.locator("[data-settings-page]");
-		await page.keyboard.press("ControlOrMeta+Comma");
-		await expect(settings).toBeVisible();
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await settings.locator('[data-settings-section="workspace"]').click();
 		const row = settings.locator("#setting-gui-worktreeBranchPrefix");
 		const field = row.getByRole("textbox", { name: label.field, exact: true });

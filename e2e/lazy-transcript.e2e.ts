@@ -114,9 +114,14 @@ test("renders only the tail, anchors older pages, reaches the first turn and app
 	await expect(nav).toBeVisible();
 	await fixture("fixture:hold-history");
 	const scroll = page.locator(".omp-transcript-scroll");
-	await scroll.focus();
-	await page.keyboard.press("Home");
-	await expect(page.getByRole("status").filter({ hasText: "Loading earlier messages" })).toBeVisible();
+	// Home, repeated until the page starts loading: a key sent while the renderer still settles is lost.
+	await expect(async () => {
+		await scroll.focus();
+		await page.keyboard.press("Home");
+		await expect(page.getByRole("status").filter({ hasText: "Loading earlier messages" })).toBeVisible({
+			timeout: 2_000,
+		});
+	}).toPass({ timeout: 20_000 });
 	await page.evaluate(
 		() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
 	);
@@ -171,9 +176,13 @@ test("snaps tool boundaries, retries a failed page and loads an old tree leaf", 
 	expect(data.messages[0]?.role).toBe("user");
 	expect(data.messages).toHaveLength(102);
 	await fixture("fixture:fail-history");
-	await page.locator(".omp-transcript-scroll").focus();
-	await page.keyboard.press("Home");
-	await expect(page.getByRole("alert").filter({ hasText: "Couldn't load earlier messages" })).toBeVisible();
+	await expect(async () => {
+		await page.locator(".omp-transcript-scroll").focus();
+		await page.keyboard.press("Home");
+		await expect(page.getByRole("alert").filter({ hasText: "Couldn't load earlier messages" })).toBeVisible({
+			timeout: 2_000,
+		});
+	}).toPass({ timeout: 20_000 });
 	await page.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(page.getByTestId("transcript-history-status")).toHaveCount(0);
 	const switched = await page.evaluate(() => window.omp.rpc.switchLeaf("entry-120"));

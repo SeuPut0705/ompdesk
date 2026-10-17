@@ -138,10 +138,11 @@ for (const language of ["en", "ko"] as const)
 				expect(boardBox.x).toBeGreaterThanOrEqual(shellBox.x + shellBox.width);
 				expect(boardBox.x + boardBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
 				expect(boardBox.y).toBeGreaterThanOrEqual(paneBox.y);
-				// Columns line up; subpixel rounding of the shifted columns may differ by one pixel.
+				// Columns line up; subpixel rounding of the shifted columns may differ by a pixel or two (the
+				// window's width on a hosted runner is odd, so each column's half pixel rounds its own way).
 				expect(
 					Math.abs((await left(page.locator(".omp-transcript-row").first())) - (await left(shell))),
-				).toBeLessThanOrEqual(1);
+				).toBeLessThanOrEqual(2);
 				// The dock strips that say what the board says step aside while it shows.
 				await expect(page.locator("[data-workspace-island]")).toBeHidden();
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();

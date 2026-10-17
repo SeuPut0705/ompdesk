@@ -53,6 +53,20 @@ const AXE_OFF: Record<string, string> = {
 
 async function axeScan(page: Page, surface: string, findings: Finding[]): Promise<void> {
 	// Reduced motion collapses entrance fades and slides (global.css), so axe never scores a mid-transition blend.
+	// A title still fading in (a slow runner draws it late) is a blend of its colours: let finite animations end first.
+	await page
+		.waitForFunction(
+			() =>
+				document
+					.getAnimations()
+					.every(
+						animation =>
+							animation.effect?.getTiming().iterations === Infinity || animation.playState !== "running",
+					),
+			undefined,
+			{ timeout: 5_000 },
+		)
+		.catch(() => undefined);
 	await page.evaluate(await fs.readFile(AXE_SOURCE, "utf8"));
 	const violations = await page.evaluate(async off => {
 		interface AxeResult {

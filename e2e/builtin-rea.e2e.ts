@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { z } from "zod";
 import { REA_MOUNTED_TOOL_COUNT, REA_VERSION } from "../src/shared/builtin-mcp";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
 const Servers = z.object({
@@ -69,8 +69,8 @@ async function launch(fake: boolean) {
 test("Settings shows the built-in REA entry and stores its new-session toggle", async () => {
 	const { profile, app, page } = await launch(true);
 	try {
-		await page.keyboard.press("ControlOrMeta+Comma");
 		const settingsPage = page.locator("[data-settings-page]");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settingsPage);
 		await settingsPage.locator('[data-settings-section="tools"]').click();
 		await settingsPage.getByRole("tab", { name: /^MCP servers/ }).click();
 		const entry = page.locator("[data-builtin-rea]");

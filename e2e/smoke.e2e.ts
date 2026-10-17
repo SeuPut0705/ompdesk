@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, pressShortcutUntil, pressShortcutUntilVisible } from "./harness";
 
 // The release workflow's mac and win jobs run this (`--grep @smoke`) against
 // the build packaging just made: launch on the fake omp, gui-bridge over the
@@ -34,8 +34,11 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 			.poll(() => page.evaluate(() => window.omp.rpc.getSettings(["compaction.enabled"])))
 			.toMatchObject({ success: true });
 
-		await page.keyboard.press("ControlOrMeta+t");
-		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
+		await pressShortcutUntil(
+			page,
+			"ControlOrMeta+t",
+			async () => (await page.evaluate(() => window.omp.tabs.list())).length === 2,
+		);
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status, { timeout: 60_000 })
 			.toBe("ready");
@@ -44,8 +47,8 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
 
-		await page.keyboard.press("ControlOrMeta+Comma");
 		const settings = page.locator("[data-settings-page]");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await expect(settings.locator('[data-settings-section="appearance"]')).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
