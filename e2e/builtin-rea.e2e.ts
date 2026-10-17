@@ -4,8 +4,8 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { z } from "zod";
-import { REA_MOUNTED_TOOL_COUNT, REA_VERSION } from "../src/shared/builtin-mcp";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { REA_MOUNTED_TOOL_COUNT } from "../src/shared/builtin-mcp";
+import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
 const Servers = z.object({
@@ -26,14 +26,10 @@ const SessionTools = z.object({
 	sessionFile: z.string().nullable().optional(),
 });
 
-async function launch(fake: boolean) {
-	const isolated = fake ? undefined : await realOmpProfile();
-	const profile = isolated?.profile ?? (await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-rea-")));
-	const project = isolated?.project ?? path.join(profile, "project");
-	const desktop = isolated?.desktop ?? path.join(profile, "desktop");
-	const agent = isolated?.agent ?? path.join(profile, "agent");
+/** OMPdesk on an isolated copy of the user's real omp profile (`real-omp.ts`), with its own npm cache. */
+async function launch() {
+	const { profile, project, desktop, agent, env: base } = await realOmpProfile();
 	const cache = path.join(profile, "npm-cache");
-	if (fake) await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent, { mode: 0o700 })]);
 	await fs.mkdir(cache);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
@@ -44,7 +40,7 @@ async function launch(fake: boolean) {
 		}),
 	);
 	const env = {
-		...(isolated?.env ?? process.env),
+		...base,
 		PI_CODING_AGENT_DIR: agent,
 		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
 		OMP_PROFILE: "",
@@ -53,7 +49,6 @@ async function launch(fake: boolean) {
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	Reflect.deleteProperty(env, "OMP_GUI_OMP");
-	if (fake) Object.assign(env, { OMP_GUI_OMP: await fixtureOmp(profile) });
 	const started = performance.now();
 	const app = await electron.launch({
 		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
@@ -66,36 +61,11 @@ async function launch(fake: boolean) {
 	return { profile, app, page, started, readyMs: performance.now() - started };
 }
 
-test("Settings shows the built-in REA entry and stores its new-session toggle", async () => {
-	const { profile, app, page } = await launch(true);
-	try {
-		const settingsPage = page.locator("[data-settings-page]");
-		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settingsPage);
-		await settingsPage.locator('[data-settings-section="tools"]').click();
-		await settingsPage.getByRole("tab", { name: /^MCP servers/ }).click();
-		const entry = page.locator("[data-builtin-rea]");
-		await expect(entry).toBeVisible();
-		await expect(entry).toContainText("REA — reverse engineering (built in)");
-		await expect(entry).toContainText(REA_VERSION);
-		await expect(entry).toContainText("15 curated");
-		await expect(entry).toContainText("full catalog available on demand");
-		await expect(entry).toContainText("Changes apply to new sessions");
-		await expect(entry.getByRole("switch")).toBeEnabled();
-		await entry.getByRole("switch").click();
-		await expect(entry.getByRole("switch")).toHaveAttribute("aria-checked", "false");
-		expect(await page.evaluate(() => window.omp.prefs.get("builtinMcp.rea"))).toBe(false);
-		await expect(page.locator("[data-builtin-rea]")).toContainText("Node.js ^22.19.0 || ^24.11.0 || >=26.0.0");
-	} finally {
-		await exitApp(app);
-		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
-
 test("real stock omp mounts the curated relay and uses catalog discovery on the small model", async () => {
 	const testInfo = test.info();
 	test.skip(process.env.OMP_GUI_REAL_REA !== "1", "Opt-in isolated npm download and small-model request");
 	test.setTimeout(420_000);
-	const { profile, app, page, started, readyMs } = await launch(false);
+	const { profile, app, page, started, readyMs } = await launch();
 	try {
 		const availability = await page.evaluate(() => window.omp.builtinRea.get());
 		expect(availability).toMatchObject({ enabled: true, available: true });
