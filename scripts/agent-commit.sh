@@ -30,6 +30,7 @@ commit_once() {
 	index=$(mktemp "${TMPDIR:-/tmp}/agent-commit.XXXXXX")
 	trap 'rm -f "$index"' RETURN
 	GIT_INDEX_FILE="$index" git read-tree "$head"
+	check_fresh "$head" || return 1
 	if [ -n "$patch" ]; then
 		GIT_INDEX_FILE="$index" git apply --cached "$patch"
 		allowed=$(git apply --numstat "$patch" | awk '{print $3}' | sort -u)
@@ -58,20 +59,75 @@ commit_once() {
 	new=$(git commit-tree "$tree" -p "$head" -m "$msg")
 	# Atomic: fails if HEAD moved since read-tree.
 	git update-ref HEAD "$new" "$head"
+	[ -n "$patch" ] || sync_worktree "$new"
 	echo "$new"
 }
 
+# After a whole-file commit the named paths are exactly HEAD's: make disk and the shared index say so, so no
+# later whole-file commit from this checkout can start from an older copy. Disk is rewritten only when it
+# differs from the committed blob (clean filters). Patch commits leave both alone: the working copy holds
+# hunks that are not in the commit.
+sync_worktree() {
+	local new=$1 file blob mode staged
+	for file in "${paths[@]}"; do
+		blob=$(git rev-parse -q --verify "$new:$file" || true)
+		if [ -z "$blob" ]; then
+			git update-index --force-remove -- "$file"
+			continue
+		fi
+		mode=$(git ls-tree "$new" -- "$file" | awk '{print $1}')
+		staged=$(git hash-object -- "$file" 2>/dev/null || true)
+		if [ "$staged" != "$blob" ] && [ -f "$file" ]; then
+			git cat-file blob "$blob" >"$file"
+		fi
+		git update-index --add --cacheinfo "$mode,$blob,$file"
+	done
+}
+
+# Refuse a whole-file commit of a copy that predates HEAD's version of the path: it would silently delete what
+# commits since then added (the reverts of 4021e94, 770071f and a689abd). The copy is judged stale when it equals
+# an older committed blob, or when HEAD last changed the path after the file was last written on disk and the
+# commit would remove lines of HEAD.
+check_fresh() {
+	local head=$1 file h w c mtime changed removed
+	[ -n "$patch" ] && return 0
+	for file in "${paths[@]}"; do
+		[ -f "$file" ] || continue
+		h=$(git rev-parse -q --verify "$head:$file" || true)
+		[ -n "$h" ] || continue
+		w=$(git hash-object -- "$file")
+		[ "$w" != "$h" ] || continue
+		while read -r c; do
+			if [ "$(git rev-parse -q --verify "$c:$file" || true)" = "$w" ]; then
+				echo "agent-commit: $file on disk is an older committed version (of $c), HEAD has moved on; refusing to revert it." >&2
+				echo "agent-commit: re-read HEAD's version, redo your edit, or use --patch-file" >&2
+				return 1
+			fi
+		done < <(git log --format=%H "$head" -- "$file")
+		mtime=$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file")
+		changed=$(git log -1 --format=%ct "$head" -- "$file")
+		removed=$(git diff --numstat "$head" -- "$file" | awk '{print $2}')
+		if [ "${changed:-0}" -gt "$mtime" ] && [ "${removed:-0}" != 0 ]; then
+			echo "agent-commit: $file was changed in HEAD after this copy was last written and the commit would remove $removed line(s) of HEAD; use --patch-file" >&2
+			return 1
+		fi
+	done
+}
+
+# Divergence from origin: fail, never move HEAD, never merge, never force.
+check_origin() {
+	git fetch -q origin main
+	if ! git merge-base --is-ancestor origin/main HEAD; then
+		echo "agent-commit: origin/main has commits HEAD lacks (diverged); HEAD left untouched. Integrate them, then commit again." >&2
+		return 1
+	fi
+}
+
+[ "$push" = 0 ] || check_origin
 commit_once
 if [ "$push" = 1 ]; then
 	for attempt in 1 2 3; do
-		git fetch -q origin main
-		if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ] && ! git merge-base --is-ancestor origin/main HEAD; then
-			# origin moved: redo the commit on top of it (never merge, never force).
-			mine=$(git rev-parse HEAD)
-			git update-ref HEAD "$(git rev-parse origin/main)" "$mine"
-			git read-tree HEAD
-			commit_once
-		fi
+		check_origin
 		git push origin HEAD:main && exit 0
 		echo "agent-commit: push rejected, retrying ($attempt)" >&2
 	done
