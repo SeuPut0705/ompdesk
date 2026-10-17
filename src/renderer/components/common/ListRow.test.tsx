@@ -38,4 +38,34 @@ describe("ListRow", () => {
 		// The meta steps aside while they show, keeping its box (no shift).
 		expect(quiet).toContain("group-hover/row:invisible");
 	});
+
+	it("with no hover (a finger) the actions show at rest and the title yields their room", () => {
+		const row = markup({ actionCount: 3 });
+		expect(row).toContain("[@media(hover:none)]:opacity-100");
+		expect(row).toContain("[@media(hover:none)]:pr-(--row-room)");
+		expect(row).toContain("--row-room:6rem");
+		const quiet = renderToStaticMarkup(
+			<ListRow actions={<button type="button">act</button>} actionsOnHover meta="2m" title="Session" />,
+		);
+		expect(quiet).toContain("[@media(hover:none)]:pointer-events-auto");
+		expect(quiet).toContain("[@media(hover:none)]:invisible");
+	});
+
+	it("actionsAtRest puts the actions after the meta as an ordinary control: no overlay, no padding, meta kept", () => {
+		const row = renderToStaticMarkup(
+			<ListRow
+				actions={<button type="button">act</button>}
+				actionsAtRest
+				actionsOnHover
+				meta="2m"
+				onClick={() => {}}
+				title="Session"
+			/>,
+		);
+		expect(row).not.toContain("absolute inset-y-0");
+		expect(row).not.toContain("group-hover/row:invisible");
+		expect(row).not.toContain("--row-room");
+		expect(row.indexOf("2m")).toBeLessThan(row.indexOf("act"));
+		expect(row).toContain("-mr-1.5");
+	});
 });

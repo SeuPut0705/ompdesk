@@ -476,7 +476,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 															{step.text}
 														</span>
 														<IconButton
-															className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+															className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 															icon={<MessageSquare />}
 															label={t("planPanel.stepFeedbackAria", { index: step.index })}
 															onClick={() => setStepFeedback({ step, draft: "", sending: false })}

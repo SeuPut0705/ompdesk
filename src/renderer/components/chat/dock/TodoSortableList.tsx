@@ -118,7 +118,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 			}}
 		>
 			<IconButton
-				className="cursor-grab opacity-0 group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+				className="cursor-grab opacity-0 group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing [@media(hover:none)]:opacity-100"
 				icon={<GripVertical />}
 				label={t("todoPanel.reorder")}
 				size="sm"
@@ -193,7 +193,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 						{task.content}
 					</span>
 					<IconButton
-						className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+						className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 						icon={<Pencil />}
 						label={t("todoPanel.edit")}
 						onClick={() => {

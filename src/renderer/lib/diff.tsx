@@ -445,7 +445,7 @@ export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps)
 		// stays put while the patch scrolls.
 		<div className="group/diff relative">
 			<CopyButton
-				className="absolute top-0 right-0 z-10 bg-(--sc-surface-1) opacity-0 focus-visible:opacity-100 group-hover/diff:opacity-100 data-copied:opacity-100"
+				className="absolute top-0 right-0 z-10 bg-(--sc-surface-1) opacity-0 focus-visible:opacity-100 group-hover/diff:opacity-100 data-copied:opacity-100 [@media(hover:none)]:opacity-100"
 				label={t("diff.copy")}
 				text={diff}
 			/>

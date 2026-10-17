@@ -1246,6 +1246,7 @@ export function Sidebar() {
 		return (
 			<Fragment key={session.path}>
 				<ListRow
+					actionsAtRest={touchInput}
 					actionsOnHover={!touchInput}
 					actionCount={
 						touchInput ? 1 : [true, archivable, variant === "archived", deletable].filter(Boolean).length
@@ -1505,7 +1506,7 @@ export function Sidebar() {
 							{renamingGroupCwd !== group.cwd && (
 								<span className="omp-sidebar-project-actions relative flex shrink-0 items-center pr-1">
 									<IconButton
-										className="omp-sidebar-project-menu pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
+										className="omp-sidebar-project-menu pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 										icon={<MoreHorizontal />}
 										label={t("sidebar.groupMenu")}
 										onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
@@ -1821,7 +1822,7 @@ export function Sidebar() {
 								</button>
 								<span className="relative flex shrink-0 items-center pr-1">
 									<IconButton
-										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
+										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 										icon={<MoreHorizontal />}
 										label={t("sidebar.archivedMenu")}
 										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}

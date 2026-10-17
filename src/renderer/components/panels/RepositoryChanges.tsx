@@ -391,7 +391,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 													<ChangeCounts added={file.added} removed={file.removed} />
 												</PanelListRow>
 												<IconButton
-													className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+													className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 													disabled={scmBusy || conflicted}
 													icon={<Undo2 />}
 													label={t("scm.discardFile", { path: file.path })}

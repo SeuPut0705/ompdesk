@@ -110,7 +110,8 @@ interface CaptureState {
 }
 
 /** Hover-revealed row controls: opacity + focus-within, never display:none. */
-const REVEAL_CLASS = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100";
+const REVEAL_CLASS =
+	"opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100";
 
 export function KeyboardSection({ query }: { query: string }) {
 	const t = useT();

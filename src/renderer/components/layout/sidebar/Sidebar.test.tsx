@@ -15,6 +15,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
+import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useComposerStore } from "../../../stores/composer";
@@ -2154,5 +2155,39 @@ describe("Sidebar worktree groups", () => {
 		await mount(<Sidebar />);
 		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
 		expect(header?.textContent?.trim()).toBe("2026-10-17");
+	});
+});
+
+describe("Sidebar on a touch screen", () => {
+	afterEach(() => {
+		delete document.documentElement.dataset.platform;
+		Object.assign(window, { matchMedia: undefined });
+		resetShellModeForTests();
+	});
+
+	it("gives every session row and every project head a visible ⋯ menu: touch has no hover to reveal them", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+		});
+		resetShellModeForTests();
+		await mount(<SidebarWithWorkspaceRecency />);
+		await flush();
+		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].filter(
+			row => !row.getAttribute("data-session-path")?.startsWith("tab:"),
+		);
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(row.querySelectorAll("[data-sidebar-row-menu]")).toHaveLength(1);
+			expect(row.querySelector("button[aria-label='Rename session']")).toBeNull();
+		}
+		const head = container.querySelector(".omp-sidebar-project-menu");
+		expect(head?.getAttribute("class")).toContain("[@media(hover:none)]:opacity-100");
 	});
 });

@@ -35,6 +35,11 @@ export interface ListRowProps {
 	 * title keeps its full width at rest and never shifts). Meta stays until they appear.
 	 */
 	actionsOnHover?: boolean;
+	/**
+	 * Touch: there is no hover to reveal anything, so the actions are an ordinary control after the meta, shown
+	 * for every row and never over the title (the row loses the width, not its actions). Wins over `actionsOnHover`.
+	 */
+	actionsAtRest?: boolean;
 	/** Always-visible control at the right edge (e.g. a disclosure); actions show to its left. */
 	trailing?: ReactNode;
 	selected?: boolean;
@@ -79,6 +84,7 @@ export function ListRow({
 	actions,
 	actionCount,
 	actionsOnHover,
+	actionsAtRest,
 	trailing,
 	selected,
 	disabled,
@@ -91,12 +97,12 @@ export function ListRow({
 	const room = ACTION_ROOM[Math.min(Math.max(actionCount ?? 2, 1), ACTION_ROOM.length) - 1] ?? ACTION_ROOM[1];
 	// Overlaid on the right edge (left of `trailing`) so hidden actions never
 	// reserve the width the title needs at rest.
-	const actionsOverlay = actions && (
+	const actionsOverlay = actions && !actionsAtRest && (
 		<span
 			className={cx(
-				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100",
+				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100",
 				actionsOnHover &&
-					"pointer-events-none group-focus-within/row:pointer-events-auto group-hover/row:pointer-events-auto",
+					"pointer-events-none group-focus-within/row:pointer-events-auto group-hover/row:pointer-events-auto [@media(hover:none)]:pointer-events-auto",
 				trailing ? "right-full pr-0.5" : "right-1.5",
 				selected && !actionsOnHover && "opacity-100",
 			)}
@@ -124,9 +130,11 @@ export function ListRow({
 				className={cx(
 					"min-w-0 flex-1",
 					// Actions overlay the right edge; make room only while they show.
-					actions != null && !actionsOnHover && room.reveal,
-					actions != null && !actionsOnHover && selected && room.always,
-					actions != null && actionsOnHover && cx(room.var, QUIET_FADE),
+					actions != null && !actionsOnHover && !actionsAtRest && room.reveal,
+					actions != null && !actionsOnHover && !actionsAtRest && selected && room.always,
+					actions != null && actionsOnHover && !actionsAtRest && cx(room.var, QUIET_FADE),
+					// No hover at all (a finger): the actions show at rest and the title yields their room.
+					actions != null && !actionsAtRest && cx(room.var, "[@media(hover:none)]:pr-(--row-room)"),
 				)}
 			>
 				{onClick ? (
@@ -152,11 +160,11 @@ export function ListRow({
 				<span
 					className={cx(
 						"shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)",
-						actions
+						actions && !actionsAtRest
 							? cx(
 									actionsOnHover
-										? "group-focus-within/row:invisible group-hover/row:invisible"
-										: "group-focus-within/row:hidden group-hover/row:hidden",
+										? "group-focus-within/row:invisible group-hover/row:invisible [@media(hover:none)]:invisible"
+										: "group-focus-within/row:hidden group-hover/row:hidden [@media(hover:none)]:hidden",
 									selected && !actionsOnHover && "hidden",
 								)
 							: undefined,
@@ -164,6 +172,9 @@ export function ListRow({
 				>
 					{meta}
 				</span>
+			)}
+			{actionsAtRest && actions != null && (
+				<span className="relative z-(--sc-z-raised) -mr-1.5 flex shrink-0 items-center gap-0.5">{actions}</span>
 			)}
 			{trailing ? (
 				<span className="relative z-(--sc-z-raised) flex shrink-0 items-center">
