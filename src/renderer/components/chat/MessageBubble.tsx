@@ -1,9 +1,10 @@
-import { Archive, ChevronRight, FileText, GitBranch, Terminal } from "lucide-react";
+import { Archive, ChevronRight, FileText, GitBranch, MoreHorizontal, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import { RESTART_JOBS_MESSAGE } from "../../../../resources/gui-bridge/restart-core";
 import { parseAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -17,7 +18,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, CopyButton, IconButton } from "../common";
+import { Badge, Button, CopyButton, IconButton, MenuButton } from "../common";
 import type { GalleryImage } from "../common/ZoomableImage";
 import { referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
@@ -299,21 +300,41 @@ function MessageActions({
 	timestamp: string;
 }) {
 	const t = useT();
+	// On touch a tap reveals this row (sticky :hover / :focus-within), and the next scroll-stop tap can land in
+	// it: Branch waits in the ⋯ menu there, never directly under a tap.
+	const touch = useShellInput() === "touch";
 	return (
 		// select-none: a selection through the turn copies the message, never its clock.
 		<div className={cx("omp-message-actions flex select-none items-center gap-0.5", className)}>
 			{timestamp && <time className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">{timestamp}</time>}
 			<CopyButton label={t("chat.copyMessage")} text={copyText} />
-			{onBranch && (
-				<IconButton
-					className="disabled:cursor-wait"
-					disabled={branchDisabled}
-					icon={<GitBranch />}
-					label={t("chat.branchFromHere")}
-					onClick={onBranch}
-					size="sm"
-				/>
-			)}
+			{onBranch &&
+				(touch ? (
+					<MenuButton
+						align="end"
+						icon={<MoreHorizontal />}
+						items={[
+							{
+								id: "branch",
+								label: t("chat.branchFromHere"),
+								icon: GitBranch,
+								disabled: branchDisabled,
+								onSelect: onBranch,
+							},
+						]}
+						label={t("panel.more")}
+						size="sm"
+					/>
+				) : (
+					<IconButton
+						className="disabled:cursor-wait"
+						disabled={branchDisabled}
+						icon={<GitBranch />}
+						label={t("chat.branchFromHere")}
+						onClick={onBranch}
+						size="sm"
+					/>
+				))}
 		</div>
 	);
 }

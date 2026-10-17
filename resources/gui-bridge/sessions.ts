@@ -162,7 +162,14 @@ export const methods: BridgeMethods = {
 				initialCwd: cwd,
 			});
 			try {
-				const cut = forkCut(copy.getEntry(entryId), entryId);
+				const cut = forkCut(
+					{
+						entry: id => copy.getEntry(id),
+						path: id => copy.getBranch(id),
+						children: id => copy.getChildren(id),
+					},
+					entryId,
+				);
 				const sessionPath = copy.createBranchedSession(cut.leafId, { copyArtifacts: true });
 				if (!sessionPath) throw new Error("omp did not persist the new session");
 				await copy.flush();

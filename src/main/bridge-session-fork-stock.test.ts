@@ -22,6 +22,8 @@ import { methods } from "./sessions";
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 const user = content => ({ role: "user", content, timestamp: Date.now() });
 const reply = text => ({ role: "assistant", content: [{ type: "text", text }], api: "openai-responses", provider: "openai", model: "gpt-probe", usage, stopReason: "stop", timestamp: Date.now() });
+const call = id => ({ role: "assistant", content: [{ type: "toolCall", id, name: "read", arguments: { path: "." } }], api: "openai-responses", provider: "openai", model: "gpt-probe", usage, stopReason: "toolUse", timestamp: Date.now() });
+const result = (id, text) => ({ role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text }], isError: false, timestamp: Date.now() });
 async function describeFork(result) {
  const copy = await SessionManager.open(result.sessionPath, undefined, undefined, { throwIfMissing: true });
  try {
@@ -33,6 +35,8 @@ async function describeFork(result) {
    texts: messages.map(message => message.content.filter(block => block.type === "text").map(block => block.text).join("")),
    lastRole: last?.role,
    restorable: hasRestorableTurn(branch),
+   // Tool calls in the copy whose result it does not hold: work nothing would ever answer.
+   unanswered: messages.flatMap(message => message.role === "assistant" ? message.content.filter(block => block.type === "toolCall").map(block => block.id) : []).filter(id => !messages.some(message => message.role === "toolResult" && message.toolCallId === id)).length,
    draft: result.draft,
   };
  } finally {
@@ -49,11 +53,16 @@ export default function (pi) {
    const firstReply = sm.appendMessage(reply("first answer"));
    const prompt = sm.appendMessage(user([{ type: "text", text: "second question" }, { type: "image", data: "aGk=", mimeType: "image/png" }]));
    sm.appendMessage(reply("second answer"));
+   const answeredCall = sm.appendMessage(call("c1"));
+   sm.appendMessage(result("c1", "listing"));
+   const openCall = sm.appendMessage(call("c2"));
    await sm.flush();
    const fork = methods["sessions.fork_from"];
    const out = {
     atPrompt: await describeFork(await fork({ entryId: prompt }, env)),
     atReply: await describeFork(await fork({ entryId: firstReply }, env)),
+    atAnsweredCall: await describeFork(await fork({ entryId: answeredCall }, env)),
+    atOpenCall: await describeFork(await fork({ entryId: openCall }, env)),
    };
    console.error("FORK_PROBE=" + JSON.stringify(out));
   } catch (err) {
@@ -68,10 +77,11 @@ interface ForkReport {
 	texts: string[];
 	lastRole?: string;
 	restorable: boolean;
+	unanswered: number;
 	draft?: { text: string; images: Array<{ type: string; data: string; mimeType: string }> };
 }
 
-function runProbe(): { atPrompt: ForkReport; atReply: ForkReport } {
+function runProbe(): Record<"atPrompt" | "atReply" | "atAnsweredCall" | "atOpenCall", ForkReport> {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-fork-"));
 	chmodSync(isolated, 0o700);
 	try {
@@ -123,5 +133,16 @@ describe.skipIf(!existsSync(omp))("branch from here on stock omp", () => {
 		expect(atReply.texts).toEqual(["first question", "first answer"]);
 		expect(atReply.restorable).toBe(false);
 		expect(atReply.draft).toBeUndefined();
+	}, 130_000);
+
+	it("keeps a tool batch through its recorded results, and cuts before a call still awaiting its result", () => {
+		const { atAnsweredCall, atOpenCall } = runProbe();
+		// Like stock `fork(entryId)`: the cut is carried through the call's recorded result.
+		expect(atAnsweredCall.lastRole).toBe("toolResult");
+		expect(atAnsweredCall.unanswered).toBe(0);
+		// A call with no result anywhere: the copy ends before it, so it holds no call nothing will answer.
+		expect(atOpenCall.lastRole).toBe("toolResult");
+		expect(atOpenCall.unanswered).toBe(0);
+		expect(atOpenCall.draft).toBeUndefined();
 	}, 130_000);
 });

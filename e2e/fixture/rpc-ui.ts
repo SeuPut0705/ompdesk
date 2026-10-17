@@ -1608,13 +1608,24 @@ export function runRpcUi(): void {
 			return { cancelled: false, activeLeafId };
 		},
 		// Stock `fork_from` (the bridge's `sessions.fork_from`): a new session file holding the root→entry path,
-		// ending before a prompt, which comes back as the draft.
+		// cut by the bridge's rule (session-fork-core.ts: before a prompt, which comes back as the draft).
 		"sessions.fork_from": params => {
-			const byId = new Map(entries.map(entry => [entry.id, entry]));
-			const cut = forkCut(byId.get(String(params.entryId)) as ForkEntry | undefined, String(params.entryId));
-			const path: Entry[] = [];
-			for (let entry = byId.get(cut.leafId); entry; entry = entry.parentId ? byId.get(entry.parentId) : undefined)
-				path.unshift(entry);
+			const byId = new Map(entries.map(entry => [entry.id, entry as ForkEntry]));
+			const pathTo = (id: string): ForkEntry[] => {
+				const path: ForkEntry[] = [];
+				for (let entry = byId.get(id); entry; entry = entry.parentId ? byId.get(entry.parentId) : undefined)
+					path.unshift(entry);
+				return path;
+			};
+			const cut = forkCut(
+				{
+					entry: id => byId.get(id),
+					path: pathTo,
+					children: id => [...byId.values()].filter(entry => entry.parentId === id),
+				},
+				String(params.entryId),
+			);
+			const path = pathTo(cut.leafId);
 			const forkId = `fixture-fork-${process.pid}-${Date.now()}`;
 			const dir = sessionFile
 				? nodePath.dirname(sessionFile)

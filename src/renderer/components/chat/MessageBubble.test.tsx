@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { wrapAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage } from "../../../shared/rpc-types";
+import { resetShellModeForTests, TOUCH_QUERY } from "../../hooks/use-shell-mode";
 import { I18nProvider } from "../../lib/i18n";
 import { preloadMarkdownPipeline } from "../../lib/markdown";
 import { useToolsStore } from "../../stores/tools";
@@ -731,6 +732,46 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).not.toContain(">You<");
 		expect(html).toContain("omp-user-actions");
 		expect(html).toContain("Copy message text");
+	});
+});
+
+describe("MessageBubble on a touch screen", () => {
+	afterEach(() => {
+		delete document.documentElement.dataset.platform;
+		Object.assign(window, { matchMedia: undefined });
+		resetShellModeForTests();
+	});
+
+	// Reported on v0.35.1: a scroll-stop tap under a tapped prompt hit its revealed Branch button and opened a
+	// branch tab nobody asked for. On touch Branch sits in the row's ⋯ menu, never directly under a tap.
+	it("puts Branch in the ⋯ menu instead of a direct button", async () => {
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+		});
+		resetShellModeForTests();
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () => {
+				root.render(
+					<I18nProvider>
+						<MessageBubble message={{ role: "user", content: "a prompt", timestamp: 1 }} />
+					</I18nProvider>,
+				);
+			});
+			expect(container.querySelector("button[aria-label='Branch to a new tab from here']")).toBeNull();
+			const more = container.querySelector(".omp-message-actions button[aria-haspopup='menu']");
+			expect(more?.getAttribute("aria-label")).toBe("More");
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
 	});
 });
 

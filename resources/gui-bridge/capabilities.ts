@@ -837,6 +837,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"SessionManager.open()",
 				"SessionManager.prototype.createBranchedSession()",
 				"SessionManager.prototype.getEntry()",
+				"SessionManager.prototype.getBranch()",
+				"SessionManager.prototype.getChildren()",
 				"SessionManager.prototype.flush()",
 				"SessionManager.prototype.close()",
 				"SessionManager.prototype.getSessionId()",
