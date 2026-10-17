@@ -1471,30 +1471,37 @@ export function runRpcUi(): void {
 				write({ type: "message_end", message: notice });
 			}
 			if (!cutOff && stopped.length === 0) return { turn: false, subagents: [], jobs };
-			isStreaming = true;
-			write({ type: "agent_start" });
-			setTimeout(() => {
-				const answer: AgentMessage = {
-					role: "assistant",
-					// After a restart-job notice the answer is tall, so the transcript overflows and "stays at the bottom" means something.
-					content: [
-						{
-							type: "text",
-							text:
-								stopped.length > 0
-									? `Continued after the interruption.\n\n${Array.from({ length: 30 }, (_, index) => `- Checked item ${index + 1}`).join("\n")}`
-									: "Continued after the interruption.",
-						},
-					],
-					timestamp: Date.now(),
-					provider: model.provider,
-					model: model.id,
-					stopReason: "stop",
-				};
-				appendMessage(answer);
-				write({ type: "message_end", message: answer });
-				endTurn([answer]);
-			}, 600);
+			// A model that is slow to start (the relaunch's spawn and first request): the tab's "continuing" row stays
+			// up for the whole wait, so a spec observes it instead of racing a resume that finishes in a frame.
+			setTimeout(
+				() => {
+					isStreaming = true;
+					write({ type: "agent_start" });
+					setTimeout(() => {
+						const answer: AgentMessage = {
+							role: "assistant",
+							// After a restart-job notice the answer is tall, so the transcript overflows and "stays at the bottom" means something.
+							content: [
+								{
+									type: "text",
+									text:
+										stopped.length > 0
+											? `Continued after the interruption.\n\n${Array.from({ length: 30 }, (_, index) => `- Checked item ${index + 1}`).join("\n")}`
+											: "Continued after the interruption.",
+								},
+							],
+							timestamp: Date.now(),
+							provider: model.provider,
+							model: model.id,
+							stopReason: "stop",
+						};
+						appendMessage(answer);
+						write({ type: "message_end", message: answer });
+						endTurn([answer]);
+					}, 600);
+				},
+				stopped.length > 0 ? 1500 : 0,
+			);
 			return { turn: true, subagents: [], jobs };
 		},
 		"composer.share_preview": () => ({
