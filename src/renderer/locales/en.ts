@@ -3054,6 +3054,11 @@ export const en: Record<string, string> = {
 	"chat.exec.python": "Python",
 	"chat.exec.shell": "Shell",
 	"chat.exec.running": "running",
+	"desktopSlot.busy": "Screen in use: {title}",
+	"desktopSlot.busyWaiting": "Screen in use: {title} · {count} waiting",
+	"desktopSlot.stop": "Stop",
+	"desktopSlot.stopFailed": "Couldn't stop the screen session",
+	"desktopSlot.waiting": "Waiting for the screen (#{position})",
 	"chat.exec.cancelled": "cancelled",
 	"chat.exec.finished": "finished",
 	"chat.exec.exit": "exit {code}",
@@ -4174,6 +4179,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.streamMetadata": "Read grouping and token rate",
 	"bridgeHealth.feature.agentBrowser": "Agent browsing in the preview",
 	"bridgeHealth.feature.agentControl": "OMPdesk control tools (sessions, confirmation cards)",
+	"bridgeHealth.feature.desktopSlot": "Screen turns between sessions",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)

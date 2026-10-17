@@ -15,6 +15,14 @@ export function record(params: unknown): Record<string, unknown> {
 	return typeof params === "object" && params !== null ? (params as Record<string, unknown>) : {};
 }
 
+/**
+ * Lets `emit` reach the GUI before any modes call attached (index.ts binds its env at start): a frame sent from
+ * a stock seam, like the desktop slot's acquire, must not depend on the renderer having asked for state first.
+ */
+export function bindEnv(env: BridgeEnv): void {
+	attachedEnv = env;
+}
+
 /** Push a frame to the GUI through the env of the latest modes call. */
 export function emit(event: BridgeEvent): void {
 	attachedEnv?.emit(event);

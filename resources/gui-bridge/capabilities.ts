@@ -64,6 +64,7 @@ export const FEATURES = {
 	agentBrowser: "Agent browsing in the Preview panel (stock browser relay)",
 	agentControl: "OMPdesk control tools (confirmation cards)",
 	autopilot: "Autopilot (guarded, unattended Goal loop)",
+	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -382,6 +383,19 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
+		},
+	},
+	/**
+	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits
+	 * for the slot) and awaits `revokeControl()` on every supervisor it saw before the slot is handed on. Without
+	 * either the bridge keeps stock behaviour.
+	 */
+	desktopSlot: {
+		modules: {
+			[`${AGENT}/tools/computer/supervisor`]: [
+				"ComputerSupervisor.prototype.run()",
+				"ComputerSupervisor.prototype.revokeControl()",
+			],
 		},
 	},
 	/** modes/delegation.ts: runtime overrides of stock's task settings; each handle is reached through `lookup`. */

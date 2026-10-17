@@ -18,6 +18,7 @@ import * as net from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { type AreaFailure, type FeatureId, mergeAreaFailures, UnsupportedOmpError } from "./capabilities";
 import { probe } from "./health";
+import { bindEnv } from "./modes/shared";
 import type { BridgeEnv, BridgeEvent, BridgeMethods } from "./types";
 
 interface Area {
@@ -78,6 +79,7 @@ const AREAS: readonly Area[] = [
 	{ name: "browser-relay", features: ["agentBrowser"], load: () => import("./browser-relay") },
 	{ name: "agent-control", features: ["agentControl"], load: () => import("./agent-control") },
 	{ name: "modes/autopilot", features: ["autopilot"], load: () => import("./modes/autopilot") },
+	{ name: "desktop-slot", features: ["desktopSlot"], load: () => import("./desktop-slot") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {
@@ -208,6 +210,7 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 			for (const socket of clients) write(socket, { event });
 		},
 	};
+	bindEnv(env);
 
 	const respond = async (method: unknown, params: unknown): Promise<unknown> => {
 		const { table, failures } = await loading;

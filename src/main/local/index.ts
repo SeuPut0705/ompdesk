@@ -10,6 +10,7 @@ import { handlers as autoMode } from "./auto-mode";
 import { handlers as autoTitle } from "./auto-title";
 import { handlers as autopilot } from "./autopilot";
 import { handlers as composer } from "./composer";
+import { handlers as desktopSlot } from "./desktop-slot";
 import { handlers as extensions } from "./extensions";
 import { handlers as git } from "./git";
 import { handlers as misc } from "./misc";
@@ -40,6 +41,7 @@ const LOCAL_HANDLERS = mergeHandlers({
 	autoTitle,
 	autoMode,
 	autopilot,
+	desktopSlot,
 	queue,
 	composer,
 	modes,

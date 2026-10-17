@@ -6,6 +6,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import {
 	type AutoTitleSettings,
 	evolveEffective,
@@ -1187,6 +1188,23 @@ export function runRpcUi(): void {
 					? [{ feature: process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE, missing: ["fixture"] }]
 					: [],
 		}),
+		// gui-bridge desktop-slot.ts: main grants an acting run's `desktop_slot_acquire`, and takes the screen back
+		// with a revoke that answers only after a short delay (stock's `revokeControl()`); the recorded
+		// `desktop_slot.revoke_answered` line lets a spec check that main's next grant came after it.
+		"desktop_slot.grant": params => {
+			const run = desktopRuns.get(String(params.requestId));
+			desktopRuns.delete(String(params.requestId));
+			run?.(params.waited === true);
+			return { granted: run !== undefined };
+		},
+		"desktop_slot.revoke": (params, reply) => {
+			setTimeout(() => {
+				desktopHolding = false;
+				record({ type: "desktop_slot.revoke_answered", reason: params.reason });
+				reply({ revoked: true });
+			}, 400);
+			return undefined;
+		},
 		// gui-bridge extensions/update.ts: the requests land in OMP_GUI_TEST_RECORD like every bridge request.
 		"extension_update.reload": () => ({ ok: true }),
 		"extension_update.reconnect": params => ({
@@ -3218,6 +3236,54 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 		};
 	};
+	/**
+	 * `fixture desktop acting`: an eval run that wants the desktop slot (the bridge's `desktop_slot_acquire`), waiting
+	 * for main's `desktop_slot.grant`. Once granted the run ends (a run that had to wait returns the stale notice) and
+	 * the turn goes on holding the slot until `fixture desktop done` lets go (`desktop_slot_release`) or main revokes.
+	 */
+	const desktopRuns = new Map<string, (waited: boolean) => void>();
+	let desktopHolding = false;
+	let desktopRequests = 0;
+	const startDesktopActing = (user: AgentMessage) => {
+		const id = `fixture-desktop-${sessionId}-${++desktopRequests}`;
+		const args = { code: "const w = await computer.focusedWindow(); await w.press('shift')", language: "js" };
+		const call: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id, name: "eval", arguments: args }],
+			timestamp: Date.now(),
+			provider: model.provider,
+			model: model.id,
+			stopReason: "toolUse",
+		};
+		write({ type: "message_start", message: call });
+		appendMessage(call);
+		write({ type: "message_end", message: call });
+		write({ type: "tool_execution_start", toolCallId: id, toolName: "eval", args });
+		desktopRuns.set(id, waited => {
+			desktopHolding = true;
+			const content: AgentMessage["content"] = [
+				{ type: "text", text: waited ? DESKTOP_SLOT_STALE_NOTICE : "acted" },
+			];
+			write({
+				type: "tool_execution_end",
+				toolCallId: id,
+				toolName: "eval",
+				result: { content },
+				isError: false,
+			});
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: id,
+				toolName: "eval",
+				content,
+				isError: false,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			write({ type: "message_end", message: result });
+		});
+		pushBridgeEvent({ type: "desktop_slot_acquire", requestId: id });
+	};
 	const prompt = (message: string, respond: () => void) => {
 		if (message === "fixture hold settings") {
 			holdSettings = true;
@@ -3278,6 +3344,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				});
 			};
 			replayRecordedWork();
+		} else if (message === "fixture desktop acting") {
+			startDesktopActing(user);
+		} else if (message === "fixture desktop done") {
+			// The holder's turn ends: the bridge let go itself, so main needs no revoke.
+			if (desktopHolding) pushBridgeEvent({ type: "desktop_slot_release", reason: "turn_end" });
+			desktopHolding = false;
+			endTurn([user]);
 		} else if (message === "fixture write figure") {
 			// A finished write of a mermaid file: the tool card's figure box.
 			const args = { path: "docs/flow.mmd", content: "graph LR\n  Plan --> Build --> Ship\n" };

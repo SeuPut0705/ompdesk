@@ -94,6 +94,7 @@ import { AgentControlRuntime } from "./agent-control/host";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { DesktopSlotHost } from "./desktop-slot-host";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
@@ -183,6 +184,8 @@ export interface IpcDeps {
 	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
 	/** Autopilot's coordinator, built in `registerIpcHandlers` (it needs the RPC dispatcher) and published here for the sidecar factory and TurnResume. */
 	autopilotRef: { current: Autopilot | null };
+	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
+	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** Whether TurnResume holds a launch marker for a tab (an autopilot run restarts through it). */
 	expectsResume: (tabId: string) => boolean;
 }
@@ -569,6 +572,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		issuerTabId: string | null,
 		payload: IpcRpcCommandPayload,
 	) => {
+		// The desktop slot is app-wide, not a tab's: answered here, whatever the tab's omp is doing.
+		if (payload.command.type === "get_desktop_slot" || payload.command.type === "desktop_slot_stop") {
+			if (payload.command.type === "desktop_slot_stop") await desktopSlot.stop();
+			return {
+				id: payload.command.id,
+				type: "response",
+				command: payload.command.type,
+				success: true,
+				data: desktopSlot.state(),
+			};
+		}
 		const client = sidecar?.rpcClient;
 		if (!client || !sidecar) {
 			return {
@@ -805,8 +819,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		expectsResume: deps.expectsResume,
 	});
 	deps.autopilotRef.current = autopilot;
-	sidecarPool.onAcquire = (tabId, sidecar) => autopilot.attachSidecar(tabId, sidecar);
-	sidecarPool.observeTabs(activity => autopilot.observeActivity(activity));
+	// The desktop slot (src/main/desktop-slot-host.ts): the bridge's slot frames come through the sidecar factory.
+	const desktopSlot = new DesktopSlotHost({
+		pool: sidecarPool,
+		broadcast: state => sidecarPool.broadcastEvent({ type: "desktop_slot_update", state }),
+	});
+	deps.desktopSlotRef.current = desktopSlot;
+	sidecarPool.onAcquire = (tabId, sidecar) => {
+		autopilot.attachSidecar(tabId, sidecar);
+		desktopSlot.attachSidecar(tabId, sidecar);
+	};
+	sidecarPool.observeTabs(activity => {
+		autopilot.observeActivity(activity);
+		desktopSlot.observeActivity(activity);
+	});
 
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({

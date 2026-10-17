@@ -355,6 +355,18 @@ export class SidecarPool {
 		return () => this.#activityObservers.delete(observer);
 	}
 
+	/**
+	 * App-wide state for every window (the desktop slot): one event, delivered as a batch of each window's active
+	 * tab, which is the stream every window already reads. A window without a tab has no use for it.
+	 */
+	broadcastEvent(event: AgentSessionEvent): void {
+		for (const [winId, tabId] of this.#activeByWindow) {
+			const entry = this.#byTabId.get(tabId);
+			const win = entry && windowOf(entry, winId);
+			if (win) forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId, payload: [event] });
+		}
+	}
+
 	/** The facts of a live tab; null for an unknown (released) one. */
 	tabFacts(tabId: string): TabFacts | null {
 		const entry = this.#byTabId.get(tabId);

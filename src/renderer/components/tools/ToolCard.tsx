@@ -3,6 +3,8 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { selectDesktopSlotPosition, useDesktopSlotStore } from "../../stores/desktop-slot";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
@@ -124,6 +126,11 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 	const t = useT();
 	const entry = useToolsStore(s => selectToolEntry(s, toolCallId));
 	const expandAll = useUiStore(s => s.toolsExpandAll);
+	// A running `eval` of a session queued for the desktop slot is not running yet: it waits for its turn.
+	const tabId = useRuntimeTabId();
+	const slotPosition = useDesktopSlotStore(s =>
+		toolName === "eval" && entry?.status === "running" ? selectDesktopSlotPosition(s, tabId) : null,
+	);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
 	// Only an open body shows streaming output, so a collapsed card ignores it.
 	const partialResult = useToolsStore(s => (expanded ? s.partialResults.get(toolCallId) : undefined));
@@ -181,6 +188,14 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 					{header.labelKey ? t(header.labelKey, header.labelParams) : header.tool}
 				</span>
 				{status === "running" && !failed ? <span className="sr-only">{t("chat.exec.running")}</span> : null}
+				{slotPosition !== null && !failed ? (
+					<span
+						className="omp-tool-summary min-w-0 truncate text-(--sc-text-muted)"
+						data-desktop-slot-waiting={slotPosition}
+					>
+						{t("desktopSlot.waiting", { position: slotPosition })}
+					</span>
+				) : null}
 				{header.path ? (
 					<ToolPathTarget moreFiles={header.moreFiles} path={header.path} />
 				) : header.target ? (

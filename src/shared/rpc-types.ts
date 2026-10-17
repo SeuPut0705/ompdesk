@@ -4,6 +4,7 @@
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
 
+import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -15,6 +16,8 @@ import type {
 	NextPromptUpdate,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { GithubRequest } from "./github";
+
+export type { DesktopSlotState };
 
 // ============================================================================
 // RPC Commands (GUI → omp stdin)
@@ -223,6 +226,11 @@ export type RpcCommand =
 	| { id?: string; type: "autopilot_branch_status"; root: string; base: string; branch: string }
 	/** Main's own calls into the bridge's autopilot module (src/main/local/autopilot.ts allow-lists the methods); never sent by a renderer. */
 	| { id?: string; type: "autopilot_bridge"; method: string; params?: unknown }
+	// The desktop slot (one session at a time drives the screen; src/main/desktop-slot.ts): main answers both, never omp.
+	| { id?: string; type: "get_desktop_slot" }
+	| { id?: string; type: "desktop_slot_stop" }
+	/** Main's own calls into the bridge's desktop slot module (src/main/local/desktop-slot.ts allow-lists the methods); never sent by a renderer. */
+	| { id?: string; type: "desktop_slot_bridge"; method: string; params?: unknown }
 	// Delegation strength (composer chip): gui-bridge modes/delegation.ts
 	| { id?: string; type: "get_delegation" }
 	| { id?: string; type: "set_delegation"; mode: DelegationMode }
@@ -2609,6 +2617,8 @@ export type AgentSessionEvent =
 	  }
 	| { type: "goal_updated"; goal: unknown; state?: unknown }
 	| { type: "autopilot_update"; status: AutopilotStatus }
+	// Main's desktop slot changed (who drives the screen, who waits); app-wide, carried by the window's active tab.
+	| { type: "desktop_slot_update"; state: DesktopSlotState }
 	| {
 			type: "plan_proposal";
 			planFilePath: string;

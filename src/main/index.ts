@@ -66,6 +66,7 @@ import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/update
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import type { DesktopSlotHost } from "./desktop-slot-host";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
@@ -539,6 +540,8 @@ app.whenReady().then(() => {
 	};
 	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
 	const autopilotRef: { current: Autopilot | null } = { current: null };
+	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
+	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -559,6 +562,7 @@ app.whenReady().then(() => {
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 		autopilot: () => autopilotRef.current,
+		desktopSlot: () => desktopSlotRef.current,
 	});
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
@@ -1073,6 +1077,7 @@ app.whenReady().then(() => {
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
 		autopilotRef,
+		desktopSlotRef,
 		expectsResume: tabId => turnResume.hasLaunchMarker(tabId),
 		mediaStreams,
 		schedules: () => scheduleService,

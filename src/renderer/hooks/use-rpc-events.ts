@@ -44,6 +44,7 @@ import { playNotificationSound } from "../lib/notification-sound";
 import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
 import { useAutopilotStore } from "../stores/autopilot";
+import { useDesktopSlotStore } from "../stores/desktop-slot";
 import {
 	claimsLoginRequest,
 	type ExtensionUiStore,
@@ -96,6 +97,8 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 	next_prompt_update: true,
 	// The Autopilot status is a feed of its own (get_autopilot), not something a get_state snapshot reports.
 	autopilot_update: true,
+	// The desktop slot is app-wide state main owns, not something a get_state snapshot reports.
+	desktop_slot_update: true,
 };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
@@ -601,6 +604,10 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						case "autopilot_update": {
 							useAutopilotStore.getState().apply(event.status);
+							break;
+						}
+						case "desktop_slot_update": {
+							useDesktopSlotStore.getState().apply(event.state);
 							break;
 						}
 						case "goal_time_limit_reached": {

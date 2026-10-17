@@ -3035,6 +3035,11 @@ export const ko: Record<string, string> = {
 	"chat.exec.python": "Python",
 	"chat.exec.shell": "Shell",
 	"chat.exec.running": "실행 중",
+	"desktopSlot.busy": "화면 사용 중: {title}",
+	"desktopSlot.busyWaiting": "화면 사용 중: {title} · 대기 {count}",
+	"desktopSlot.stop": "중지",
+	"desktopSlot.stopFailed": "화면 사용 세션을 중지하지 못했어요",
+	"desktopSlot.waiting": "화면 차례를 기다리는 중 ({position}번째)",
 	"chat.exec.cancelled": "취소됨",
 	"chat.exec.finished": "완료",
 	"chat.exec.exit": "종료 코드 {code}",
@@ -4157,6 +4162,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.streamMetadata": "읽기 묶음과 토큰 속도",
 	"bridgeHealth.feature.agentBrowser": "미리보기에서 에이전트 브라우징",
 	"bridgeHealth.feature.agentControl": "OMPdesk 제어 도구(세션, 확인 카드)",
+	"bridgeHealth.feature.desktopSlot": "세션 간 화면 사용 차례",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)

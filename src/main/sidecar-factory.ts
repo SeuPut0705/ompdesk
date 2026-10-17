@@ -62,6 +62,11 @@ export interface LocalSidecarDeps {
 	 * made. Absent or null: autopilot frames pass through untouched.
 	 */
 	autopilot?: () => AutopilotFrameSink | null;
+	/**
+	 * The desktop slot (src/main/desktop-slot-host.ts), read per frame: it is built with the IPC handlers, after the
+	 * factory. Absent or null: the bridge's slot frames go unanswered.
+	 */
+	desktopSlot?: () => DesktopSlotFrameSink | null;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -80,6 +85,11 @@ export type LocalSidecarFactory = (
 /** What the factory hands the coordinator: the status to overlay, and the bridge's autopilot frames. */
 export interface AutopilotFrameSink {
 	overlay(sidecar: SidecarManager, frame: Record<string, unknown>): Record<string, unknown>;
+	frame(sidecar: SidecarManager, frame: Record<string, unknown>): void;
+}
+
+/** What the factory hands the desktop slot: the bridge's `desktop_slot_*` frames of one omp process. */
+export interface DesktopSlotFrameSink {
 	frame(sidecar: SidecarManager, frame: Record<string, unknown>): void;
 }
 
@@ -186,6 +196,12 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 		sc.on("frame", (frame: Record<string, unknown>) => {
 			if (typeof frame.type === "string" && (AUTOPILOT_FRAME_TYPES as readonly string[]).includes(frame.type)) {
 				deps.autopilot?.()?.frame(sc, frame);
+			}
+		});
+		// The bridge's desktop slot frames (acquire, touch, release) are the slot's to act on; they reach no window.
+		sc.on("frame", (frame: Record<string, unknown>) => {
+			if (typeof frame.type === "string" && frame.type.startsWith("desktop_slot_")) {
+				deps.desktopSlot?.()?.frame(sc, frame);
 			}
 		});
 		// omp has no session kind; remember which sessions chat tabs created.

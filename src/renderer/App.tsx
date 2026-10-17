@@ -30,6 +30,7 @@ import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleDialog";
 import { AppShell } from "./components/layout/AppShell";
+import { DesktopSlotIndicator } from "./components/layout/DesktopSlotIndicator";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
@@ -81,6 +82,7 @@ import {
 import { startVoiceAutoSpeak } from "./lib/voice";
 import { focusWorkBoard } from "./lib/work-board-focus";
 import { selectFocusedTabProject } from "./lib/workspace-dirs";
+import { hydrateDesktopSlot } from "./stores/desktop-slot";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
 import { useMachineSetupStore } from "./stores/machine-setup";
@@ -174,6 +176,14 @@ function IdleCompactionDraftEffects() {
 function HostAppearanceEffects() {
 	useHostAppearance();
 	return null;
+}
+
+/** Boot read of the desktop slot (frames keep it current after); own component so tab updates never re-render App. */
+function DesktopSlotEffects() {
+	useEffect(() => {
+		void hydrateDesktopSlot();
+	}, []);
+	return <DesktopSlotIndicator />;
 }
 
 /** ⌥⌘ arrow actions → the direction `paneInDirection` looks in. */
@@ -868,6 +878,7 @@ export function App() {
 			<div className="contents" inert={setupTakeover}>
 				{activeTabId && <FocusedSessionEffects />}
 				<QuotaResumeEffects />
+				<DesktopSlotEffects />
 				<InterruptedWorkEffects />
 				<OutputStyleEffects />
 				<IdleCompactionDraftEffects />

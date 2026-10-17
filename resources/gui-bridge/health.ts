@@ -165,6 +165,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tools/browser/relay/server": () =>
 		import("@oh-my-pi/pi-coding-agent/tools/browser/relay/server"),
 	"@oh-my-pi/pi-coding-agent/tools/browser/settings": () => import("@oh-my-pi/pi-coding-agent/tools/browser/settings"),
+	"@oh-my-pi/pi-coding-agent/tools/computer/supervisor": () =>
+		import("@oh-my-pi/pi-coding-agent/tools/computer/supervisor"),
 	"@oh-my-pi/pi-coding-agent/tools/builtin-names": () => import("@oh-my-pi/pi-coding-agent/tools/builtin-names"),
 	"@oh-my-pi/pi-coding-agent/tools/debug": () => import("@oh-my-pi/pi-coding-agent/tools/debug"),
 	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () => import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),

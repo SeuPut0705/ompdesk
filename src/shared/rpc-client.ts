@@ -246,6 +246,10 @@ export interface SessionRpcClient {
 	getAutopilot(): Promise<RpcResponse>;
 	setAutopilot(action: AutopilotAction): Promise<RpcResponse>;
 	autopilotBranchStatus(root: string, base: string, branch: string): Promise<RpcResponse>;
+	/** The desktop slot (who drives this computer's screen, who waits): `data` is a `DesktopSlotState`. */
+	getDesktopSlot(): Promise<RpcResponse>;
+	/** Stop the session using the screen: its run is aborted and the slot goes to the next waiter. */
+	stopDesktopSlot(): Promise<RpcResponse>;
 	getDelegation(): Promise<RpcResponse>;
 	setDelegation(mode: DelegationMode): Promise<RpcResponse>;
 	setGoal(args: {
@@ -595,6 +599,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setAutopilot: action => rpcCommand({ type: "set_autopilot", ...action }),
 		autopilotBranchStatus: (root, base, branch) =>
 			rpcCommand({ type: "autopilot_branch_status", root, base, branch }),
+		getDesktopSlot: () => rpcCommand({ type: "get_desktop_slot" }),
+		stopDesktopSlot: () => rpcCommand({ type: "desktop_slot_stop" }),
 		getDelegation: () => rpcCommand({ type: "get_delegation" }),
 		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),
