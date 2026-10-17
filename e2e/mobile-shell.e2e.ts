@@ -364,6 +364,14 @@ for (const { engine, device } of variants(
 			await expect(
 				sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
 			).toHaveCount(0);
+			// Every row carries one (a finger has no hover), as a 44 px target that leaves the title its width.
+			const menus = sidebar.locator("[data-sidebar-row-menu]");
+			expect(await menus.count()).toBe(
+				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
+			);
+			for (const box of await menus.evaluateAll(buttons => buttons.map(b => b.getBoundingClientRect().toJSON()))) {
+				expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+			}
 			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
 			await current.locator("[data-sidebar-row-menu]").click();
 			const menu = page.locator("[data-action-sheet] [role='menu']");
