@@ -20,7 +20,7 @@ export function mountUpdateBanner(source: UpdateSource, doc: Document, t: (key: 
 		bar.setAttribute("role", "status");
 		bar.setAttribute("aria-live", "polite");
 		bar.style.cssText =
-			"position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:2147483000;" +
+			"position:fixed;left:calc(env(safe-area-inset-left,0px) + 8px);right:calc(env(safe-area-inset-right,0px) + 8px);bottom:calc(var(--kb-inset,0px) + var(--safe-b,env(safe-area-inset-bottom,0px)) + 8px);z-index:2147483000;" +
 			"display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 12px;border-radius:10px;" +
 			"font:500 13px/1.3 system-ui,sans-serif;background:var(--sc-surface-2,#fff);color:var(--sc-text,#1a1a1a);" +
 			"border:1px solid var(--sc-border,#d0d0d0);box-shadow:0 4px 16px rgba(0,0,0,.2)";

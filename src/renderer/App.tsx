@@ -886,7 +886,7 @@ export function App() {
 	}, [lang, setLang, t]);
 
 	const surface = (
-		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
+		<div className="omp-app-root flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			<div className="contents" inert={setupTakeover}>
 				{activeTabId && <FocusedSessionEffects />}
 				<QuotaResumeEffects />

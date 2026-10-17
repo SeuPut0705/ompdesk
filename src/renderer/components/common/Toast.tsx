@@ -141,7 +141,7 @@ export function ToastStack() {
 	return createPortal(
 		<div
 			aria-live="polite"
-			className="pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+			className="omp-toast-stack pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
 			data-toast-stack
 			onBlur={event => {
 				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);

@@ -38,7 +38,7 @@ function PromptDock({ children }: { children: ReactNode }) {
 	const dock = useAskDock();
 	if (dock) return createPortal(children, dock);
 	return (
-		<div className="pointer-events-none fixed inset-x-0 bottom-3 z-(--sc-z-popover)">
+		<div className="omp-prompt-dock pointer-events-none fixed inset-x-0 bottom-3 z-(--sc-z-popover)">
 			<div className="omp-composer-shell pointer-events-auto">{children}</div>
 		</div>
 	);

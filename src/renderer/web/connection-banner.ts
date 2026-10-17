@@ -37,7 +37,7 @@ export function mountConnectionBanner(
 			bar.setAttribute("role", "status");
 			bar.setAttribute("aria-live", "polite");
 			bar.style.cssText =
-				"position:fixed;left:0;right:0;top:0;z-index:2147483001;padding:calc(env(safe-area-inset-top,0px) + 6px) 12px 6px;" +
+				"position:fixed;left:0;right:0;top:0;z-index:2147483001;padding:calc(env(safe-area-inset-top,0px) + 6px) calc(env(safe-area-inset-right,0px) + 12px) 6px calc(env(safe-area-inset-left,0px) + 12px);" +
 				"text-align:center;font:500 13px/1.3 system-ui,sans-serif;background:var(--sc-warning-soft,#fff3cd);" +
 				"color:var(--sc-text,#1a1a1a);border-bottom:1px solid var(--sc-border,#d0d0d0)";
 			doc.body.append(bar);

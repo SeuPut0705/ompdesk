@@ -75,8 +75,22 @@ interface Look {
 	lang: "en" | "ko";
 }
 
-async function openHarness(browser: Browser, device: string, look: Look): Promise<Page> {
-	const context = await browser.newContext({ ...devices[device] });
+async function openHarness(
+	browser: Browser,
+	device: string,
+	look: Look,
+	options: { landscape?: boolean } = {},
+): Promise<Page> {
+	const preset = devices[device];
+	if (!preset) throw new Error(`unknown device ${device}`);
+	const context = await browser.newContext(
+		options.landscape
+			? {
+					...preset,
+					viewport: { width: preset.viewport.height, height: preset.viewport.width },
+				}
+			: { ...preset },
+	);
 	const page = await context.newPage();
 	page.on("pageerror", error => {
 		throw error;
@@ -84,6 +98,51 @@ async function openHarness(browser: Browser, device: string, look: Look): Promis
 	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	return page;
+}
+
+interface Insets {
+	top: number;
+	right: number;
+	bottom: number;
+	left: number;
+}
+
+/**
+ * Gives the page the system insets of a notched phone: Chromium through CDP (`env(safe-area-inset-*)` itself),
+ * WebKit (which has no such override) and a Chromium without the CDP method through the `--safe-*` tokens
+ * mobile.css derives from `env()`. Returns what the page's `--safe-b` resolves to, so a test can see it took.
+ */
+async function emulateInsets(page: Page, engine: string, insets: Insets): Promise<void> {
+	const probe = () =>
+		page.evaluate(() => {
+			const el = document.createElement("div");
+			el.style.cssText =
+				"position:fixed;visibility:hidden;padding:var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l)";
+			document.body.append(el);
+			const style = getComputedStyle(el);
+			const read = {
+				top: Number.parseFloat(style.paddingTop),
+				right: Number.parseFloat(style.paddingRight),
+				bottom: Number.parseFloat(style.paddingBottom),
+				left: Number.parseFloat(style.paddingLeft),
+			};
+			el.remove();
+			return read;
+		});
+	if (engine === "chromium") {
+		try {
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send("Emulation.setSafeAreaInsetsOverride" as never, { insets } as never);
+		} catch {
+			// An older Chromium: the token override below takes over.
+		}
+	}
+	if ((await probe()).bottom !== insets.bottom) {
+		await page.addStyleTag({
+			content: `:root { --safe-t: ${insets.top}px; --safe-r: ${insets.right}px; --safe-b: ${insets.bottom}px; --safe-l: ${insets.left}px; }`,
+		});
+	}
+	expect(await probe()).toEqual(insets);
 }
 
 const menuButton = (page: Page): Locator => page.locator("header button:has(svg.lucide-menu)");
@@ -339,6 +398,75 @@ for (const { engine, device } of variants(
 			).toHaveCount(0);
 			await page.context().close();
 		});
+
+		// Bottom-anchored UI sits above the system UI: a gesture bar / home indicator (portrait) and the notch
+		// and gesture insets on the sides (landscape), with the keyboard closed and open. The insets are emulated
+		// (CDP `Emulation.setSafeAreaInsetsOverride`, else the `--safe-*` tokens), and the page is resized the way
+		// a retracting browser toolbar resizes the dynamic viewport.
+		for (const theme of ["light", "dark"] as const) {
+			for (const landscape of device.shell === "phone" ? [false, true] : []) {
+				test(`the composer clears the system insets: ${theme}, ${landscape ? "landscape" : "portrait"}`, async () => {
+					const page = await openHarness(browser, device.name, { theme, lang: "en" }, { landscape });
+					const insets: Insets = landscape
+						? { top: 0, right: 47, bottom: 21, left: 47 }
+						: { top: 47, right: 0, bottom: 34, left: 0 };
+					await emulateInsets(page, engine.name, insets);
+					const shell = page.locator(".omp-composer-region .omp-composer-shell").first();
+					await expect(shell).toBeVisible();
+					const tag = `${engine.name}-${device.name.replace(/ /g, "-")}-${theme}-${landscape ? "landscape" : "portrait"}`;
+
+					const measure = () =>
+						page.evaluate(() => {
+							const box = document
+								.querySelector(".omp-composer-region .omp-composer-shell")
+								?.getBoundingClientRect();
+							const root = document.querySelector(".omp-app-root")?.getBoundingClientRect();
+							const body = document.body.getBoundingClientRect();
+							return {
+								width: window.innerWidth,
+								height: window.innerHeight,
+								shell: box && { left: box.left, right: box.right, bottom: box.bottom },
+								root: root && { width: root.width, height: root.height },
+								body: { width: body.width, height: body.height },
+							};
+						});
+
+					// Keyboard closed: the app fills the body (never the large viewport), the composer ends above the inset.
+					let seen = await measure();
+					expect(seen.root?.height).toBeCloseTo(seen.body.height, 0);
+					expect(seen.root?.width).toBeCloseTo(seen.body.width - insets.left - insets.right, 0);
+					expect(seen.shell?.bottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(seen.height - insets.bottom);
+					expect(seen.shell?.left ?? 0).toBeGreaterThanOrEqual(insets.left);
+					expect(seen.shell?.right ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(seen.width - insets.right);
+					await capture(page, "safe-area", tag);
+
+					// A dynamic viewport: the browser toolbar returns and the window gets shorter; the composer follows it.
+					const full = page.viewportSize();
+					if (!full) throw new Error("no viewport");
+					await page.setViewportSize({ width: full.width, height: full.height - 56 });
+					await expect.poll(async () => (await measure()).height).toBe(full.height - 56);
+					seen = await measure();
+					expect(seen.root?.height).toBeCloseTo(seen.body.height, 0);
+					expect(seen.shell?.bottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(seen.height - insets.bottom);
+					await page.setViewportSize(full);
+
+					// Keyboard open (what lib/keyboard-inset.ts writes): the composer rides on top of the keyboard.
+					const keyboard = landscape ? 120 : 300;
+					await page.evaluate(px => {
+						document.documentElement.style.setProperty("--kb-inset", `${px}px`);
+						document.documentElement.dataset.kb = "open";
+					}, keyboard);
+					await expect
+						.poll(async () => Math.round((await measure()).root?.height ?? 0))
+						.toBe(full.height - keyboard);
+					seen = await measure();
+					expect(seen.root?.height).toBeCloseTo(full.height - keyboard, 0);
+					expect(seen.shell?.bottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(seen.height - keyboard);
+					await capture(page, "safe-area-keyboard", tag);
+					await page.context().close();
+				});
+			}
+		}
 
 		// Registered only with OMP_GUI_MOBILE_SHELL=<dir>: a capture asserts nothing the tests above do not.
 		for (const theme of captures ? (["light", "dark"] as const) : []) {

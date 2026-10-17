@@ -42,7 +42,7 @@ const PLACEMENT: Record<SheetPlacement, { overlay: string; panel: string; enter:
 		overlay: "items-end justify-center",
 		panel: "w-full max-w-160",
 		enter: "omp-sheet-in-bottom",
-		surface: "h-auto! max-h-[inherit] rounded-t-(--sc-radius-xl) border-t",
+		surface: "omp-sheet-surface h-auto! max-h-[inherit] rounded-t-(--sc-radius-xl) border-t",
 	},
 	full: {
 		overlay: "items-end justify-center",

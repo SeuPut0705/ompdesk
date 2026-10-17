@@ -145,7 +145,7 @@ html[data-input="touch"] :is(.omp-session-sidebar [data-session-row], .omp-list-
 html[data-shell="phone"] .omp-dialog-overlay {
 	inset: 0 0 var(--kb-inset) 0;
 	align-items: flex-end;
-	padding: 0;
+	padding: 0 var(--safe-r) 0 var(--safe-l);
 }
 
 html[data-shell="phone"] .omp-dialog-panel.omp-dialog-panel--sheet {
@@ -185,6 +185,7 @@ html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-ch
 	align-items: flex-end;
 	justify-content: center;
 	background: var(--sc-overlay);
+	padding-inline: var(--safe-l) var(--safe-r);
 }
 
 .omp-action-sheet {
@@ -505,6 +506,51 @@ html[data-shell="phone"] [role="tablist"]::-webkit-scrollbar {
 /* The model picker's rows (the sheet itself is full height through the dialog size rule above). */
 html[data-shell="phone"] [data-model-option] {
 	min-height: 56px;
+}
+
+/* ── Safe-area audit (browser tab, installed PWA, keyboard open/closed, landscape) ────────────────────────── */
+/* The app root is the body's box, never the large viewport: 100vh is the tall viewport on Android Chrome and
+   iOS Safari (toolbars retracted), so a `h-screen` root ran past the fixed body (overflow hidden) and its
+   bottom — the composer — sat under the system navigation bar / home indicator. */
+html[data-shell] .omp-app-root {
+	width: 100%;
+	height: 100%;
+}
+
+/* Modal sheets (Sheet.tsx) are fixed to the layout viewport: end them at the keyboard and keep clear of the
+   side insets in landscape; the bottom surface clears the home indicator / gesture bar. */
+html[data-shell] [data-sheet-placement] {
+	inset: 0 0 var(--kb-inset) 0;
+	padding-inline: var(--safe-l) var(--safe-r);
+}
+
+html[data-shell] [data-sheet-placement="full"] > [data-sheet-panel] {
+	height: 100%;
+}
+
+html[data-shell] [data-sheet-placement="bottom"] > [data-sheet-panel] {
+	max-height: calc(100% - var(--safe-t) - 1rem);
+}
+
+html[data-shell] .omp-sheet-surface {
+	padding-bottom: var(--safe-b);
+}
+
+/* Toasts sit at the top right: clear the notch / rounded corner / landscape cutout. */
+html[data-shell] .omp-toast-stack {
+	top: calc(var(--safe-t) + 4.5rem);
+	right: calc(var(--safe-r) + 1rem);
+	max-width: calc(100vw - var(--safe-l) - var(--safe-r) - 2rem);
+}
+
+/* Fixed fallbacks of the composer's prompts and extension widgets (no dock to portal into). */
+html[data-shell] .omp-prompt-dock {
+	bottom: calc(var(--kb-inset) + 0.75rem + var(--safe-b));
+	padding-inline: var(--safe-l) var(--safe-r);
+}
+
+html[data-shell] .omp-widget-float {
+	bottom: calc(var(--kb-inset) + 2.25rem + var(--safe-b));
 }
 
 /* ── Touch: small controls get a finger-sized box, small type steps up one point ───────────────────────── */
