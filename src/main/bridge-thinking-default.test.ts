@@ -198,6 +198,7 @@ describe("gui-bridge held stock defaults", () => {
 			"lsp.diagnosticsOnEdit": true,
 			"lsp.formatOnWrite": true,
 			"astGrep.enabled": true,
+			"computer.enabled": true,
 			"advisor.enabled": true,
 			"title.icons": "boring",
 		});

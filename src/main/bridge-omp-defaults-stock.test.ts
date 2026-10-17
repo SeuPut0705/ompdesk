@@ -27,6 +27,7 @@ const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>>
 	"lsp.diagnosticsOnEdit": [true, false],
 	"lsp.formatOnWrite": [true, false],
 	"astGrep.enabled": [true, false],
+	"computer.enabled": [true, false],
 	"advisor.enabled": [true, false],
 	"title.icons": ["boring", "emoji"],
 };
@@ -62,6 +63,7 @@ export default function (pi) {
    const out = { initial: await read() };
    out.advisorEnabled = session.isAdvisorEnabled?.();
    out.tools = session.getEnabledToolNames?.() ?? [];
+   out.computerPrelude = session.getEvalPreludes?.().some(definition => definition.name === "computer") ?? null;
    const { resolveAdvisorRoleSelection } = await import("@oh-my-pi/pi-coding-agent/config/model-resolver");
    const advisor = resolveAdvisorRoleSelection(session.settings, session.modelRegistry.getAvailable());
    out.advisorRole = advisor ? { model: advisor.model.id, thinkingLevel: advisor.thinkingLevel } : null;
@@ -118,6 +120,7 @@ function runProbe(configYml: string | undefined, write: boolean) {
 			initial: Readings;
 			advisorEnabled?: boolean;
 			tools: string[];
+			computerPrelude: boolean | null;
 			advisorRole: { model: string; thinkingLevel?: string } | null;
 			written?: Readings;
 			reset?: Readings;
@@ -139,6 +142,9 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 		expect(probe.advisorEnabled).toBe(true);
 		// ast_grep joined the enabled tool set; the advisor role resolves (unset: stock's slow chain) on an available model.
 		expect(probe.tools).toContain("ast_grep");
+		// `/computer status` reads "enabled" and "prelude: active" from exactly these two facts.
+		expect(probe.tools).toContain("eval");
+		expect(probe.computerPrelude).toBe(true);
 		expect(probe.advisorRole?.model).toBeTruthy();
 		// Everything else keeps stock's value, with no runtime layer.
 		for (const path of UNHELD) {

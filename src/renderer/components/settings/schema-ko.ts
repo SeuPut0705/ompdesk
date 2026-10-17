@@ -974,14 +974,14 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"computer.enabled": {
 		label: "데스크톱 제어",
-		description: "OpenAI computer use를 위한 네이티브 데스크톱 스크린샷과 입력 사용",
+		description: "스크립트로 호스트 데스크톱을 다루는 eval 프렐류드(스크린샷, 입력, 접근성) 사용",
 	},
 	"computer.display": {
 		label: "데스크톱 제어 디스플레이",
-		description: "모든 디스플레이를 합성하거나 네이티브 디스플레이 id 하나를 선택",
+		description: "활성 창의 디스플레이(active), 모든 디스플레이(all), 또는 네이티브 디스플레이 id 하나",
 	},
-	"computer.maxWidth": { label: "스크린샷 최대 너비", description: "합성 스크린샷의 최대 너비(픽셀)" },
-	"computer.maxHeight": { label: "스크린샷 최대 높이", description: "합성 스크린샷의 최대 높이(픽셀)" },
+	"computer.maxWidth": { label: "스크린샷 최대 너비", description: "스크린샷의 최대 너비(픽셀)" },
+	"computer.maxHeight": { label: "스크린샷 최대 높이", description: "스크린샷의 최대 높이(픽셀)" },
 	"images.questionTimeoutMs": {
 		label: "이미지 질문 타임아웃",
 		description:

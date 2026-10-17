@@ -41,6 +41,8 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"lsp.formatOnWrite": true,
 	// The tool is a native addon shipped with omp (`@oh-my-pi/pi-natives`); thinking-default.ts feature-detects it.
 	"astGrep.enabled": true,
+	// The scriptable host-desktop eval prelude (screenshots, input, accessibility); an omp without the setting is skipped.
+	"computer.enabled": true,
 	// Stock pins it off for RPC/ACP hosts (`protocolDefault`); a pinned default is not the user's choice.
 	"advisor.enabled": true,
 	// Plain session titles: no icon/code card, and no card request to the title model.
