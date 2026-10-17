@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntil, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 // omp 18.8.6's per-session worktrees (`worktree.onStart` / `worktree.onExit`)
 // in GUI tabs, on the fake omp with the settings switched on
@@ -73,7 +73,9 @@ function tabs() {
 /** ⌘T from the focused tab; resolves the new tab once it is ready. */
 async function openTab() {
 	const before = (await tabs()).map(tab => tab.tabId);
-	await pressShortcutUntil(page, "ControlOrMeta+t", async () => (await tabs()).length === before.length + 1);
+	// Sent once (⌘T opens a tab each time it lands); the new tab may be slow to appear on a hosted runner.
+	await page.keyboard.press("ControlOrMeta+t");
+	await expect.poll(async () => (await tabs()).length, { timeout: 30_000 }).toBe(before.length + 1);
 	const created = (await tabs()).find(tab => !before.includes(tab.tabId));
 	if (!created) throw new Error("No new tab");
 	await expect

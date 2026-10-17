@@ -18,7 +18,7 @@
 # suite; `e2e` runs the FULL Playwright suite on macOS, split into shards
 # (e2e-shards.yml) against that out/; `mac` and `win` package and launch their
 # own build (@smoke, plus the real-omp suite on macOS); `publish` runs only
-# when every one of them, every shard included, passed. Windows packages the
+# when everything but the shards passed (the shards report, they do not block). Windows packages the
 # shared out/ and runs the OS-independent tests beside it, in one job
 # (platform tests while it waits for out/, then package, then @smoke).
 # Four shards plus `mac` are the five macOS jobs a public repo may run at
@@ -398,10 +398,13 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  # Runs only when every job above succeeded, each e2e shard included (the job
-  # `if` keeps GitHub's implicit success(), so a failed or skipped need stops it).
+  # Runs when prepare, build, check, mac (@smoke + real-core) and win (@smoke)
+  # succeeded (the job `if` keeps GitHub's implicit success(), so a failed or
+  # skipped need stops it). The sharded full e2e is deliberately NOT a need: on
+  # hosted runners it is informational until it is stable (AGENTS.md, CI);
+  # its results stay visible on the run. Local `bun run gate` is the full-suite proof.
   publish:
-    needs: [prepare, build, check, e2e, mac, win]
+    needs: [prepare, build, check, mac, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

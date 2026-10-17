@@ -147,18 +147,6 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 }
 
 /**
- * Press an app shortcut until `done` holds, for a shortcut that is not a toggle (⌘T opens a tab each time):
- * the press repeats only while `done` is false, so a lost key (the renderer still mounting) is sent again and
- * a delivered one never doubles.
- */
-export async function pressShortcutUntil(page: Page, shortcut: string, done: () => Promise<boolean>): Promise<void> {
-	await expect(async () => {
-		if (!(await done())) await page.keyboard.press(shortcut);
-		await expect.poll(done, { timeout: 2_000 }).toBe(true);
-	}).toPass({ timeout: 20_000 });
-}
-
-/**
  * Open a sidebar destination page. The footer's Agents and Stats entries are off by default, so without them the
  * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats. Both shortcuts
  * repeat until their target shows, since one pressed while the renderer still mounts is lost.

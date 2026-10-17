@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { exitApp, launchApp, pressShortcutUntil, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 // The release workflow's mac and win jobs run this (`--grep @smoke`) against
 // the build packaging just made: launch on the fake omp, gui-bridge over the
@@ -34,11 +34,10 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 			.poll(() => page.evaluate(() => window.omp.rpc.getSettings(["compaction.enabled"])))
 			.toMatchObject({ success: true });
 
-		await pressShortcutUntil(
-			page,
-			"ControlOrMeta+t",
-			async () => (await page.evaluate(() => window.omp.tabs.list())).length === 2,
-		);
+		// Sent once: ⌘T opens a tab each time it lands. A second omp starts cold on a 3-core runner, so the
+		// tab list may take longer than the default timeout to show it; the count must be exactly two.
+		await page.keyboard.press("ControlOrMeta+t");
+		await expect.poll(() => page.evaluate(() => window.omp.tabs.list()), { timeout: 60_000 }).toHaveLength(2);
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status, { timeout: 60_000 })
 			.toBe("ready");
