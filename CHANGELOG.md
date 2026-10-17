@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.34.0] - 2026-10-17
+
+오토파일럿이 생겼어요. 자기 worktree에서 쉬지 않고 개발을 이어가고, 메인 에이전트가 OMPdesk의 다른 세션을 열고 지켜보고 합칠 수 있어요.
+
+### 새 기능
+- 오토파일럿: 새 git worktree 탭(브랜치 `autopilot/<날짜>`)에서 목표 모드를 이어 가며 개발을 계속해요. 사이클 기록, 계정 순환, 멈춤 규칙, 푸시·릴리스 단계, 승인자, git 감사, 출시 대기열, 패널과 작업 현황판 카드, 모드 메뉴 탭이 있어요. 앱이나 omp가 다시 켜져도, 강제 종료 뒤에도 자기 도구와 함께 이어서 달려요.
+- OMPdesk 제어 도구(설정 › 도구·확장, 기본 켜짐): 메인 에이전트가 이 창의 세션을 열고, 읽고, 지시하고, 질문에 답하고, 기다리고, 멈출 수 있어요.
+- 병렬 작업: 하위 세션마다 worktree와 브랜치(`omp/agent/…`)를 만들어 나눠 맡기고, 결과를 비교해 이긴 쪽만 합쳐요(로컬 병합만, 푸시 없음). 검토 대기열은 작업 현황판에 떠요. 일정을 만들고 위임 교훈을 메모리에 남기는 것도 도구로 해요.
+- 컴퓨터 사용은 기본으로 켜졌고, 한 번에 한 세션만 데스크톱을 조작하는 "데스크톱 자리"가 생겼어요. 쥐고 있던 세션이 멈춘 걸 확인한 뒤에만 자리를 넘겨요.
+- 모바일 웹(베타, 기본 꺼짐): 내 Tailscale 네트워크 안에서 휴대폰으로 진행 중인 작업을 지켜보고 지시해요. 설정 화면의 한 단계씩 안내, 페어링 코드와 QR, 기기별 권한, 휴대폰용 설정·센터·Preview·터미널·변경 사항 화면이 있어요.
+- 모바일 웹 푸시와 앱 설치(PWA): 서비스 워커, 아이콘, 푸시 알림(질문·완료, 켜기는 선택), iOS 설치 안내가 들어갔고, 화면을 보면 이미 본 알림은 스스로 닫아요.
+- 앱을 다시 시작하면 끊긴 작업을 묻지 않고 이어 가요(설정 › 일반 › 중단된 작업 이어가기). 처음 답이 세션에 기록되기 전에 끊긴 첫 턴도 자기 탭에서 이어져요.
+- 입력창: 붙여넣기는 모드를 고르지 않고, 기록에 붙여넣은 글이 남고, 메뉴가 초점을 지키고, 쓰던 글이 새로고침·재시작 뒤에도 남아요. 대기 중인 메시지는 거둘 수 있어요. `->`가 지워지고, `@`가 한글과 공백 경로를 읽고, 편집을 되돌릴 수 있고, 창 너비가 바뀌면 다시 맞춰요.
+- 세션을 지우면 그 탭을 닫기만 하고 새 세션을 만들지 않아요. 사이드바는 stock이 기록한 만든 순서로 정렬하고, "(no messages)" 자리표시는 가려요. 프로젝트마다 "병렬 작업" 묶음이 하나이고, 지워진 worktree는 묶음을 만들지 않아요. worktree 폴더 이름 대신 원래 프로젝트 이름을 보여줘요.
+- 하위 에이전트: 패널을 메인 대화와 같은 구성요소로 다시 만들었고, 제목은 `Title:` 첫 줄 덕분에 답변 언어로 나와요.
+- 코드 블록, mermaid·svg 그림, Files 뷰어가 상자마다 머리줄 하나(왼쪽 종류, 오른쪽 아이콘 버튼)를 써요. viewBox만 있는 svg도 빈 상자가 되지 않아요.
+- 사용량·계정: 사이드바는 제공자마다 한 줄에 마지막으로 쓴 계정을 보여주고, 작업 현황판에는 모든 제공자의 계정이 나와요. 게이지 아래에 초기화 시간이 짧게 붙고(`5H 23% · ↻ 1h 54m`), 이메일은 짧게 보여요. 할당량 모드에서는 턴이 시작될 때 자동 고정을 다시 골라요.
+- 자동 모드는 고른 한 요청에만 쓰고 바쁜 세션은 건드리지 않아요. 자동 목표가 프롬프트를 입력창으로 되돌리던 것도 고쳤어요.
+- 라이선스는 MIT이고, 저장소는 공개예요. 업데이트 확인과 내려받기는 익명으로 되고 GitHub 토큰은 선택이에요. 서드파티 고지는 앱에 들어 있어요.
+- 래칫, 바이브, 루프 모드를 없앴어요. 계획과 목표는 그대로예요.
+
+### 고친 것
+- 모델이 UTF-8을 cp1252로 잘못 쓴 깨진 다음 메시지 제안은 버려요.
+- 사진만 있는 세션도 이름이 남아요(사진 또는 파일 메시지).
+- 대화 앵커와 작업 메모가 에이전트 메시지 포장이 아니라 사용자 본문을 보여줘요.
+- 강제 종료된 omp의 백그라운드 bash 작업을 다시 시작할 때 알려줘요.
+- 세션 폴더 감시를 파일 하나 놓치지 않는 재귀 감시 하나로 합쳤어요.
+- 데스크톱 자리 응답이 `{}`이면 화면이 죽던 것을 고쳤어요.
+
+### 가벼워진 것
+- 글꼴은 woff2만 담고, 업데이트 내용(CHANGELOG)은 필요할 때 불러와요. 설치 파일과 첫 화면이 가벼워졌어요.
+- 첫 실행은 omp를 기다리지 않고 제공자 단계부터 열려요.
+
+<!-- en -->
+Autopilot arrives: it keeps developing on its own in its own worktree, and the main agent can now open, watch and merge other OMPdesk sessions.
+
+### New
+- Autopilot: a guarded, unattended Goal loop in a new git worktree tab (branch `autopilot/<date>`), with a cycle ledger, account rotation, stop rules, push and release levels, an approver, a git audit, a ship queue, a panel, a work-board card and a Mode tab. It continues after an app or omp restart and after a SIGKILL, armed with its own tools.
+- OMPdesk control tools (Settings › Tools & extensions, on by default): the main agent can open, read, steer, answer, wait for and stop the sessions of its window.
+- Parallel work: each child gets its own worktree and branch (`omp/agent/…`), you compare the results and merge only the winner (local merge, never a push), and the review queue sits on the work board. Agents can also create schedules and save delegation lessons to memory.
+- Computer use is on by default, and a desktop slot lets one session at a time drive the desktop; it is handed on only once the holder is confirmed stopped.
+- Mobile web (beta, off by default): steer and read a running task from a phone over your own Tailscale network, with one-step setup guidance, a pairing code and QR, per-device permissions, and phone layouts for Settings, centers, Preview, Terminal and Changes.
+- Mobile web push and install (PWA): service worker, icons, opt-in push notifications for questions and finished work, an iOS install guide, and notifications the page closes itself once you look at it.
+- After a restart, interrupted work continues without asking (Settings › General › Continue interrupted work), including a first turn cut off before its session was written.
+- Composer: pastes never pick a mode, history keeps pasted text, menus keep focus, drafts survive reload and relaunch, a pending prompt can be withdrawn, `->` deletes, `@` reads Hangul and paths with spaces, edits are undoable, and the field refits when the width changes.
+- Deleting a session only closes its tab, never starts a new one. The sidebar orders sessions by stock's created time and hides the "(no messages)" placeholder, shows one Parallel work group per project (none for a discarded worktree) and names a worktree by its origin project instead of its folder.
+- Subagents: the panel is rebuilt on the main transcript's components, and titles come in the reply language through a `Title:` first line.
+- Code blocks, mermaid/svg figures and the Files viewer wear one header row per box (kind left, icon actions right); a viewBox-only svg no longer collapses.
+- Usage and accounts: one sidebar line per provider with its last-used account, every provider's account on the work board, compact reset lines (`5H 23% · ↻ 1h 54m`) and bare emails, and quota mode re-ranks the automatic pin at turn start.
+- Auto mode is used for the one request it classified and leaves busy sessions alone; an automatic Goal no longer sends its prompt back to the composer.
+- MIT license and a public repository; update checks and downloads are anonymous and a GitHub token is optional; third-party notices ship in the app.
+- Ratchet, Vibe and Loop are removed; Plan and Goal stay.
+
+### Fixed
+- Next-message suggestions the model wrote as UTF-8-in-cp1252 are dropped.
+- An image-only session keeps a label (Image or file message).
+- Conversation anchors and work notes show the user's text, not the agent-message wrapper.
+- A SIGKILLed omp's background bash jobs are named on relaunch.
+- The session watcher is one recursive watch that loses no files.
+- A host answering the desktop slot with `{}` no longer crashes the page.
+
+### Lighter
+- Fonts ship as woff2 only and the CHANGELOG loads on demand, so the installer and first paint are lighter.
+- A true first run opens the provider step before omp boots.
+
 ## [0.33.0] - 2026-10-16
 
 메시지를 보내면 계획·목표 모드를 알아서 고르고, 사이드바와 계정 목록에 구독 사용량이 막대로 보여요. 세션 삭제와 Windows 추가 지시 문제를 고쳤고, 앱이 가벼워졌어요.
