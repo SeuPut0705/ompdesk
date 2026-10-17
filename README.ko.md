@@ -37,12 +37,12 @@
 
 <table>
 <tr>
-<td width="50%" valign="top"><b>오토파일럿</b><br>자기 Git 워크트리에서 감사 → 구현 → 검증 → 커밋을 사이클마다 이어서 반복해요. 기본은 로컬만이고, 더 하려면 직접 골라요.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="오토파일럿 사이클 1, 2, 3이 사이드 패널 타임라인에 쌓이고, 같은 실행이 작업 현황에 보이는 모습" width="100%"></a></td>
+<td width="50%" valign="top"><b>오토파일럿</b><br>자기 Git 워크트리에서 감사 → 구현 → 검증 → 커밋을 사이클마다 이어서 반복해요. 기본은 로컬만이고, 더 하려면 직접 골라요. 프로젝트별 <code>AUTOPILOT.md</code> 가이드(초안을 만들어 줘요)로 방향을 정해요.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="오토파일럿 사이클 1, 2, 3이 사이드 패널 타임라인에 쌓이고, 같은 실행이 작업 현황에 보이는 모습" width="100%"></a></td>
 <td width="50%" valign="top"><b>병렬 세션과 조율</b><br>에이전트가 일을 각자 워크트리의 세션으로 나눠 맡기고, 브랜치를 비교하고, 승인하면 하나를 병합해요. 푸시는 하지 않아요.<br><a href="docs/media/fan-out.webp"><img src="docs/media/fan-out.webp" alt="워크트리 세션 셋을 비교하고, 검토 대기열에서 하나는 승인해 병합하고 하나는 버리는 모습" width="100%"></a></td>
 </tr>
 <tr>
 <td width="50%" valign="top"><b>분할 화면과 작업 현황</b><br>세션을 최대 4개까지 나란히 열어요. 칸마다 서브에이전트, 할 일, 기다리는 질문이 실시간 보드에 보여요.<br><a href="docs/media/split-board.webp"><img src="docs/media/split-board.webp" alt="실행 중인 세션과 작업 현황, 이어서 세션 둘을 끌어 와 세 칸으로 나누는 모습" width="100%"></a></td>
-<td width="50%" valign="top"><b>모바일 웹 (베타, 기본값 꺼짐)</b><br>내 Tailscale 네트워크로 휴대폰에서 실행 중인 작업에 추가 지시를 보내고, 원하면 푸시 알림을 받아요. <a href="docs/mobile-web.ko.md">설정 방법</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="폭 390px 휴대폰 화면: 실행 중인 세션에 추가 지시를 보내고, 설정에서 알림 켜기를 고르는 모습" width="45%"></a></td>
+<td width="50%" valign="top"><b>모바일 웹 (베타, 기본값 꺼짐)</b><br>내 Tailscale 네트워크로 휴대폰에서 실행 중인 작업에 추가 지시를 보내요. 링크를 복사해 같은 Tailscale 계정으로 로그인한 기기에서 열면 끝이에요. 코드도 QR도 필요 없고, 원하면 푸시 알림도 받아요. <a href="docs/mobile-web.ko.md">설정 방법</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="폭 390px 휴대폰 화면: 실행 중인 세션에 추가 지시를 보내고, 설정에서 알림 켜기를 고르는 모습" width="45%"></a></td>
 </tr>
 <tr>
 <td width="50%" valign="top"><b>재시작 뒤 이어서 하기</b><br>작업 도중에 종료하거나, 비정상 종료하거나, 업데이트로 다시 시작해도 다음 실행에서 멈춘 곳부터 이어가요.<br><a href="docs/media/resume.webp"><img src="docs/media/resume.webp" alt="작업 중 OMPdesk를 종료하고 다시 열면 알림과 함께 작업이 이어지는 모습" width="100%"></a></td>

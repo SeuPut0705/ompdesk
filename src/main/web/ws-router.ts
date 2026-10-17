@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
-import { WEB_DEVICES_CHANGED, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
+import { WEB_DEVICE_CONNECTED, WEB_DEVICES_CHANGED, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import {
 	WEB_PROTOCOL_VERSION,
@@ -86,7 +86,11 @@ const STREAM_CHANNELS: ReadonlySet<string> = new Set([
 ]);
 
 /** Pushes for the desktop's own windows: a web window never gets them. */
-const DESKTOP_ONLY_PUSH: ReadonlySet<string> = new Set([WEB_DEVICES_CHANGED, WEB_PAIRING_REQUEST]);
+const DESKTOP_ONLY_PUSH: Readonly<Record<string, true>> = {
+	[WEB_DEVICES_CHANGED]: true,
+	[WEB_DEVICE_CONNECTED]: true,
+	[WEB_PAIRING_REQUEST]: true,
+};
 
 /** Calls that read or scan a lot: a device runs a few at once. */
 const HEAVY_CHANNELS: ReadonlySet<string> = new Set([
@@ -360,7 +364,7 @@ export class WsRouter {
 	deliver(deviceId: string, channel: string, payload: unknown): void {
 		this.#recordTokens(deviceId, channel, payload);
 		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as IpcChannel] : undefined;
-		if (policy?.dir !== "push" || policy.mode === "client" || DESKTOP_ONLY_PUSH.has(channel)) return;
+		if (policy?.dir !== "push" || policy.mode === "client" || Object.hasOwn(DESKTOP_ONLY_PUSH, channel)) return;
 		const data = channel === IPC_EVENTS.REMOTE_STATE ? withoutPairingCode(payload) : payload;
 		for (const connection of this.#connections.get(deviceId) ?? []) connection.push(channel, data);
 	}

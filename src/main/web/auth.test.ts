@@ -1,6 +1,6 @@
 /**
- * The request checks (Host, Origin, Sec-Fetch-Site, Tailscale identity, Funnel), the identity headers' RFC 2047
- * decoding, the device cookie, the one-time tokens and a device's key proof.
+ * The request checks (the serve secret prefix, Host, Origin, Sec-Fetch-Site, Tailscale identity, Funnel), the
+ * identity headers' RFC 2047 decoding, the device cookie, the one-time tokens and a device's key proof.
  */
 import { generateKeyPairSync, sign } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
@@ -16,16 +16,18 @@ import {
 	parsePublicKeyJwk,
 	type RequestPolicy,
 	serializeDeviceCookie,
+	stripServePrefix,
 	tailscaleLogin,
 	verifyDeviceProof,
 } from "./auth";
 
 const HOST = "mac.tail1234.ts.net";
+const SECRET = "s3cr3tPrefixValue_0123456789abcdefghijklmnop";
 const policy = (over: Partial<RequestPolicy> = {}): RequestPolicy => ({
 	host: HOST,
 	publicPort: 47831,
 	secure: true,
-	requireIdentity: true,
+	servePrefix: SECRET,
 	allowedUsers: () => ["me@example.com"],
 	...over,
 });
@@ -41,6 +43,7 @@ function check(headers: IncomingHttpHeaders, over: Partial<Parameters<typeof che
 		headers,
 		method: "POST",
 		kind: "api",
+		url: `/${SECRET}/api/pair`,
 		remoteAddress: "127.0.0.1",
 		policy: policy(),
 		...over,
@@ -66,9 +69,30 @@ describe("RFC 2047 identity headers", () => {
 	});
 });
 
+describe("stripServePrefix", () => {
+	it("takes the secret first segment off and keeps the rest", () => {
+		expect(stripServePrefix(`/${SECRET}`, SECRET)).toBe("/");
+		expect(stripServePrefix(`/${SECRET}/`, SECRET)).toBe("/");
+		expect(stripServePrefix(`/${SECRET}/ws?x=1`, SECRET)).toBe("/ws?x=1");
+		expect(stripServePrefix(`/${SECRET}?x=1`, SECRET)).toBe("/?x=1");
+		expect(stripServePrefix(`/${SECRET}/assets/a.js`, SECRET)).toBe("/assets/a.js");
+	});
+
+	it("answers null for anything that is not exactly the secret segment", () => {
+		expect(stripServePrefix("/api/pair", SECRET)).toBeNull();
+		expect(stripServePrefix("/", SECRET)).toBeNull();
+		expect(stripServePrefix(`/${SECRET}x/ws`, SECRET)).toBeNull();
+		expect(stripServePrefix(`/${SECRET.slice(0, -1)}/ws`, SECRET)).toBeNull();
+		expect(stripServePrefix(`/${SECRET.slice(0, -1)}X/ws`, SECRET)).toBeNull();
+		expect(stripServePrefix(`//${SECRET}/ws`, SECRET)).toBeNull();
+		expect(stripServePrefix(`/x/${SECRET}/ws`, SECRET)).toBeNull();
+		expect(stripServePrefix("*", SECRET)).toBeNull();
+	});
+});
+
 describe("checkRequest", () => {
-	it("accepts the published host and origin from an allowed Tailscale user", () => {
-		expect(check(good)).toEqual({ ok: true, login: "me@example.com" });
+	it("accepts the published host and origin from an allowed Tailscale user, with the prefix taken off", () => {
+		expect(check(good)).toEqual({ ok: true, login: "me@example.com", target: "/api/pair" });
 		expect(originOf(policy())).toBe(`https://${HOST}:47831`);
 		expect(originOf(policy({ publicPort: 443 }))).toBe(`https://${HOST}`);
 	});
@@ -76,6 +100,24 @@ describe("checkRequest", () => {
 	it("compares an encoded login after decoding and ignores case", () => {
 		const encoded = { ...good, "tailscale-user-login": "=?utf-8?q?ME=40Example.com?=" };
 		expect(check(encoded)).toMatchObject({ ok: true });
+	});
+
+	it("answers 404 and believes no header when the request did not come through serve (a forged login)", () => {
+		// A local process can write every header, but not the secret prefix serve's target carries.
+		expect(check(good, { url: "/api/pair" })).toMatchObject({ ok: false, status: 404, why: "other", login: null });
+		expect(check(good, { url: "/" })).toMatchObject({ ok: false, status: 404 });
+		expect(check(good, { url: `/${SECRET.slice(0, -1)}X/api/pair` })).toMatchObject({ ok: false, status: 404 });
+		expect(check(good, { url: `/other/${SECRET}/api/pair` })).toMatchObject({ ok: false, status: 404 });
+		const forged = { ...good, "tailscale-user-name": "x", "x-forwarded-for": "100.64.0.9" };
+		expect(check(forged, { url: "/ws", kind: "ws", method: "GET" })).toMatchObject({ ok: false, status: 404 });
+	});
+
+	it("serves nothing while serve is not published (no prefix configured)", () => {
+		expect(check(good, { policy: policy({ servePrefix: null }) })).toMatchObject({ ok: false, status: 404 });
+		expect(check(good, { policy: policy({ servePrefix: null }), url: "/api/pair" })).toMatchObject({
+			ok: false,
+			status: 404,
+		});
 	});
 
 	it("refuses a Host other than the published one (DNS rebinding)", () => {
@@ -104,18 +146,34 @@ describe("checkRequest", () => {
 		expect(check(navigation, { method: "GET", kind: "api" })).toMatchObject({ ok: false });
 	});
 
-	it("refuses a missing, other or empty Tailscale user, and anything carrying the Funnel header", () => {
-		expect(check({ ...good, "tailscale-user-login": undefined })).toMatchObject({ ok: false, status: 403 });
-		expect(check({ ...good, "tailscale-user-login": "other@example.com" })).toMatchObject({ ok: false, status: 403 });
-		expect(check({ ...good, "tailscale-funnel-request": "?1" })).toMatchObject({ ok: false, status: 403 });
-		expect(check(good, { policy: policy({ allowedUsers: () => [] }) })).toMatchObject({ ok: false });
+	it("names why a Tailscale user is refused: no user, another user, nobody allowed", () => {
+		expect(check({ ...good, "tailscale-user-login": undefined })).toMatchObject({
+			ok: false,
+			status: 403,
+			why: "no tailscale user",
+			login: null,
+		});
+		expect(check({ ...good, "tailscale-user-login": "other@example.com" })).toMatchObject({
+			ok: false,
+			status: 403,
+			why: "user not allowed",
+			login: "other@example.com",
+		});
+		expect(check(good, { policy: policy({ allowedUsers: () => [] }) })).toMatchObject({
+			ok: false,
+			why: "user not allowed",
+		});
 	});
 
-	it("skips the identity header when the policy does not require one (a test, plain HTTP)", () => {
-		const plain = policy({ host: "127.0.0.1", publicPort: 5000, secure: false, requireIdentity: false });
-		const headers = { host: "127.0.0.1:5000", origin: "http://127.0.0.1:5000" };
-		expect(check(headers, { policy: plain })).toEqual({ ok: true, login: null });
-		expect(originOf(plain)).toBe("http://127.0.0.1:5000");
+	it("refuses anything carrying the Funnel header, whatever else it has", () => {
+		expect(check({ ...good, "tailscale-funnel-request": "?1" })).toMatchObject({
+			ok: false,
+			status: 403,
+			reason: "funnel request",
+		});
+		// Funnel traffic carries no identity headers, and a public request never carries the prefix either.
+		const funnel = { host: `${HOST}:47831`, "tailscale-funnel-request": "?1" };
+		expect(check(funnel, { url: "/" })).toMatchObject({ ok: false, status: 403 });
 	});
 
 	it("serves only a loopback peer", () => {

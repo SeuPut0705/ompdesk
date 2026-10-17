@@ -1,15 +1,18 @@
 /**
- * Settings › Mobile web: the paired devices (name with Rename, a connected dot, last seen, Tailscale user,
+ * Settings › Mobile web: the connected devices (name with Rename, a connected dot, last seen, Tailscale user,
  * today's model use, the access tier with a select for the presets and per-permission switches under a
- * disclosure, Limits, Revoke) and the Tailscale users allowed to reach the page. Main owns both lists; every
- * action answers with the whole new list (devices) or state (users).
+ * disclosure, Limits, Block), the blocked ones with Unblock, and the Tailscale users allowed to reach the page.
+ * Block keeps a device out for good (its Tailscale node, or its whole login when Tailscale gave no node
+ * identity: the confirm says so). Main owns the lists; every action answers with the whole new list (devices,
+ * blocks) or state (users).
  */
-import { Pencil, Smartphone } from "lucide-react";
+import { Ban, Pencil, Smartphone } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
 	type MobileWebState,
 	WEB_GRANT_PRESETS,
+	type WebBlockedInfo,
 	type WebDeviceInfo,
 	type WebGrantPreset,
 	webDeviceTier,
@@ -19,7 +22,7 @@ import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
-import { mobileWebCommand, mobileWebDeviceAction } from "../../stores/mobile-web";
+import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../../stores/mobile-web";
 import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, Select, Switch } from "../common";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsSection } from "./SettingsLayout";
@@ -208,7 +211,7 @@ function DeviceRow({
 export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 	const t = useT();
 	const [limitsFor, setLimitsFor] = useState<string | null>(null);
-	/** The device a Revoke waits on: it only comes back with a new code. */
+	/** The device a Block waits on: it stays out until it is unblocked. */
 	const [revoking, setRevoking] = useState<WebDeviceInfo | null>(null);
 	const limited = devices.find(device => device.id === limitsFor);
 	return (
@@ -229,7 +232,14 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 			)}
 			<ConfirmDialog
 				confirmLabel={t("mobileWeb.devices.revoke")}
-				message={t("mobileWeb.devices.revokeBody", { name: revoking?.name ?? "" })}
+				message={
+					revoking?.blockScope === "login"
+						? t("mobileWeb.devices.revokeBodyLogin", {
+								name: revoking.name,
+								user: revoking.tailscaleLogin ?? "",
+							})
+						: t("mobileWeb.devices.revokeBody", { name: revoking?.name ?? "" })
+				}
 				onCancel={() => setRevoking(null)}
 				onConfirm={() => {
 					const target = revoking;
@@ -255,6 +265,45 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 				}}
 				peer={limited ? asPeer(limited) : null}
 			/>
+		</SettingsSection>
+	);
+}
+
+/** The blocks: a device (its node) or every device of a login, each with Unblock. */
+export function MobileWebBlocked({ blocked }: { blocked: WebBlockedInfo[] }) {
+	const t = useT();
+	return (
+		<SettingsSection description={t("mobileWeb.blocked.desc")} title={t("mobileWeb.blocked.title")}>
+			<div className="flex flex-col gap-px py-2" data-mobile-web-blocked>
+				{blocked.map(entry => {
+					const user = entry.tailscaleLogin ?? "";
+					const line =
+						entry.scope === "login"
+							? t("mobileWeb.blocked.login", { user })
+							: t("mobileWeb.blocked.node", { user });
+					return (
+						<div data-web-blocked={entry.id} key={entry.id}>
+							<ListRow
+								description={<span title={line}>{line}</span>}
+								leading={<Ban aria-hidden />}
+								title={entry.name}
+								titleText={entry.name}
+								trailing={
+									<Button
+										aria-label={t("mobileWeb.blocked.unblockLabel", { name: entry.name })}
+										data-web-unblock
+										onClick={() => void mobileWebUnblock(entry.id, t("mobileWeb.blocked.failed"))}
+										size="sm"
+										variant="ghost"
+									>
+										{t("mobileWeb.blocked.unblock")}
+									</Button>
+								}
+							/>
+						</div>
+					);
+				})}
+			</div>
 		</SettingsSection>
 	);
 }

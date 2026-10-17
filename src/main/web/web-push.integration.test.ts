@@ -95,6 +95,9 @@ let timers: Map<number, { at: number; fn: () => void }>;
 let clock: number;
 
 const origin = () => `http://127.0.0.1:${port}`;
+/** The secret path prefix of serve's target, and the identity headers serve adds to every request it forwards. */
+const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+const IDENTITY = { "tailscale-user-login": "me@example.com", "x-forwarded-for": "100.64.0.9" };
 const language = { current: "en" as "en" | "ko" };
 
 function advance(ms: number): void {
@@ -178,8 +181,9 @@ beforeEach(async () => {
 		tabs: { activeTab: () => null, cwd: () => null, facts: tabId => pool.tabFacts(tabId) },
 		openMedia: async () => new Response(null, { status: 404 }),
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
-		allowedUsers: () => [],
-		confirmPairing: () => false,
+		allowedUsers: () => ["me@example.com"],
+		confirmNewDevices: () => false,
+		whois: async () => null,
 		onUnpairedAuth: () => undefined,
 		language: () => language.current,
 		batchNotifications: () => true,
@@ -196,6 +200,7 @@ beforeEach(async () => {
 		},
 	});
 	({ port } = await host.start({ port: 0 }));
+	host.server.configure({ host: "127.0.0.1", publicPort: port, secure: false, servePrefix: SECRET });
 	pool.observeTabs(activity => host.tabActivity(activity));
 });
 
@@ -207,9 +212,15 @@ afterEach(async () => {
 });
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {
-	return fetch(`http://127.0.0.1:${port}${path}`, {
+	return fetch(`http://127.0.0.1:${port}/${SECRET}${path}`, {
 		method: "POST",
-		headers: { "content-type": "application/json", origin: origin(), "user-agent": "TestBrowser/1.0", ...headers },
+		headers: {
+			"content-type": "application/json",
+			origin: origin(),
+			"user-agent": "TestBrowser/1.0",
+			...IDENTITY,
+			...headers,
+		},
 		body: JSON.stringify(body),
 	});
 }
@@ -227,8 +238,7 @@ function subscriptionBody() {
 async function phone(
 	options: { visible: boolean; connect?: boolean; push?: Record<string, unknown> } = { visible: false },
 ) {
-	const { code } = host.pairing.issue();
-	const paired = await post("/api/pair", { code, name: "Test phone" });
+	const paired = await post("/api/pair", { name: "Test phone" });
 	expect(paired.status).toBe(200);
 	const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 	const { deviceId } = (await paired.json()) as { deviceId: string };
@@ -240,8 +250,8 @@ async function phone(
 	if (options.connect !== false) {
 		const ticket = (await (await post("/api/session", {}, { cookie })).json()) as { ticket: string };
 		const opened = Promise.withResolvers<WebSocket>();
-		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, ["ompdesk.v1", `ticket.${ticket.ticket}`], {
-			headers: { origin: origin(), cookie, "user-agent": "TestBrowser/1.0" },
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/${SECRET}/ws`, ["ompdesk.v1", `ticket.${ticket.ticket}`], {
+			headers: { origin: origin(), cookie, "user-agent": "TestBrowser/1.0", ...IDENTITY },
 		});
 		sockets.push(ws);
 		ws.on("message", data => frames.push(JSON.parse(data.toString())));
@@ -402,7 +412,7 @@ describe("subscription lifecycle", () => {
 		await flush();
 		expect(calls).toHaveLength(1);
 		const state = (await (
-			await fetch(`http://127.0.0.1:${port}/api/push`, { headers: { cookie: p.cookie } })
+			await fetch(`http://127.0.0.1:${port}/${SECRET}/api/push`, { headers: { cookie: p.cookie, ...IDENTITY } })
 		).json()) as WebPushStateResponse;
 		expect(state.subscribed).toBe(false);
 		omp.ask("ask-2", "Again?");

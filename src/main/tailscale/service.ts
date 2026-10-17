@@ -11,6 +11,8 @@
  * the daemon when the app quits (it is restored on the next launch); turning the switch off removes our handler
  * and nothing else (serve.ts).
  */
+
+import { isIP } from "node:net";
 import { z } from "zod";
 import type { MobileWebPhase, MobileWebRequest, MobileWebState, MobileWebTailscale } from "../../shared/mobile-web";
 import type { SetupItemState, SetupState } from "../../shared/setup";
@@ -29,6 +31,7 @@ import type { LocatedTailscale } from "./locate";
 import {
 	funnelOn,
 	handlerIsOurs,
+	ownProxy,
 	parseServeStatus,
 	planPublish,
 	readServeRecord,
@@ -44,11 +47,13 @@ import {
 	parseStatus,
 	type TailscaleStatus,
 } from "./status";
+import { parseWhois, type TailnetPeer } from "./whois";
 
 /** Prefs (electron-store; a dotted key is a nested path). */
 export const MOBILE_WEB_PREFS = {
 	enabled: "mobileWeb.enabled",
 	allowedUsers: "mobileWeb.allowedUsers",
+	confirmNewDevices: "mobileWeb.confirmNewDevices",
 	serve: "mobileWeb.serve",
 	tailscaleBin: "mobileWeb.tailscaleBin",
 } as const;
@@ -68,8 +73,12 @@ export interface MobileWebServerPort {
 	/** Listens on loopback; `port` is where. Resolves at once when it already does. */
 	start(): Promise<{ port: number }>;
 	stop(): Promise<void>;
-	/** The address the page is published at (Host/Origin checks, `Secure` cookies, Tailscale's identity headers). */
-	configure(address: { host: string; publicPort: number; secure: boolean; requireIdentity: boolean }): void;
+	/**
+	 * The address the page is published at (Host/Origin checks, `Secure` cookies) and the secret path of the serve
+	 * handler's target: only a request that carries it came through serve, so only then are Tailscale's identity
+	 * headers believed (web/serve-secret.ts).
+	 */
+	configure(address: { host: string; publicPort: number; secure: boolean; servePrefix: string }): void;
 }
 
 export interface MobileWebPrefsPort {
@@ -88,6 +97,8 @@ export interface MobileWebServiceDeps {
 	platform: "darwin" | "win32" | "other";
 	prefs: MobileWebPrefsPort;
 	server: MobileWebServerPort;
+	/** The per-install secret path of the serve target (never stored in the prefs). */
+	serveSecret: () => string;
 	setup: MobileWebSetupPort;
 	/** The Tailscale CLI of this machine (reads `mobileWeb.tailscaleBin` itself), or null. */
 	locate: () => Promise<LocatedTailscale | null>;
@@ -110,6 +121,7 @@ const RequestSchema = z.discriminatedUnion("action", [
 	z.object({ action: z.literal("retry") }),
 	z.object({ action: z.literal("open-system-settings") }),
 	z.object({ action: z.literal("set-allowed-users"), users: z.array(z.string().max(320)).max(100) }),
+	z.object({ action: z.literal("set-confirm-new-devices"), on: z.boolean() }),
 	z.object({ action: z.literal("watch"), on: z.boolean() }),
 ]);
 
@@ -211,6 +223,7 @@ export class MobileWebService {
 			port: on ? this.#port : null,
 			user: this.#user,
 			allowedUsers: this.allowedUsers(),
+			confirmNewDevices: this.confirmNewDevices(),
 			tailscale,
 			install: install
 				? {
@@ -281,6 +294,10 @@ export class MobileWebService {
 			case "set-allowed-users":
 				this.#setAllowedUsers(request.users);
 				break;
+			case "set-confirm-new-devices":
+				this.#deps.prefs.set(MOBILE_WEB_PREFS.confirmNewDevices, request.on);
+				this.#emit();
+				break;
 			case "watch":
 				this.#watching = request.on;
 				if (request.on && this.#enabled) void this.refresh();
@@ -288,6 +305,23 @@ export class MobileWebService {
 				break;
 		}
 		return this.state();
+	}
+
+	/** A new device waits for the user's approval on this computer. Off unless the user turned it on. */
+	confirmNewDevices(): boolean {
+		return this.#deps.prefs.get(MOBILE_WEB_PREFS.confirmNewDevices) === true;
+	}
+
+	/**
+	 * Which node and user a tailnet address belongs to (`tailscale whois`), or null when it is no address, the CLI is
+	 * not there or does not know it. Read-only and not queued behind the poll: a visit waits on it.
+	 */
+	async whois(address: string): Promise<TailnetPeer | null> {
+		if (!this.#enabled || isIP(address) === 0) return null;
+		const cli = await this.#cliOrNull();
+		if (!cli) return null;
+		const result = await cli.whois(address);
+		return result.code === 0 ? parseWhois(result.stdout) : null;
 	}
 
 	/** One poll tick now, then the next is scheduled. */
@@ -637,7 +671,9 @@ export class MobileWebService {
 				return;
 			}
 		}
-		const target = `http://127.0.0.1:${this.#localPort}`;
+		const base = `http://127.0.0.1:${this.#localPort}`;
+		// Serve joins the target's path to every request's path: only traffic through serve carries the secret.
+		const target = `${base}/${this.#deps.serveSecret()}`;
 		const read = await cli.serveStatus();
 		const config = read.code === 0 ? parseServeStatus(read.stdout) : null;
 		if (!config) return this.#block("serve-blocked", firstLine(read, "Could not read the serve configuration"));
@@ -645,16 +681,16 @@ export class MobileWebService {
 		const plan = planPublish(config, host, target, record);
 		if (plan.kind === "none") return this.#block("serve-blocked", "No free port for the page on this machine");
 		if (funnelOn(config, host, plan.port))
-			return this.#refuseFunnel(host, plan.port, handlerIsOurs(config, { host, port: plan.port, target }));
+			return this.#refuseFunnel(host, plan.port, handlerIsOurs(config, { host, port: plan.port, target: base }));
 		if (plan.kind === "publish") {
 			this.#published = false;
 			const result = await cli.servePublish(plan.port, target);
 			if (result.code !== 0) return this.#refused(result);
-			const next: ServeRecord = { host, port: plan.port, target };
+			const next: ServeRecord = { host, port: plan.port, target: base };
 			this.#deps.prefs.set(MOBILE_WEB_PREFS.serve, next);
 			const after = await cli.serveStatus();
 			const verified = after.code === 0 ? parseServeStatus(after.stdout) : null;
-			if (!verified || !handlerIsOurs(verified, next)) {
+			if (!verified || ownProxy(verified, next) !== target) {
 				return this.#block("serve-blocked", "Tailscale accepted the command, but the handler is not in place");
 			}
 			if (funnelOn(verified, host, plan.port)) return this.#refuseFunnel(host, plan.port, true);
@@ -662,8 +698,14 @@ export class MobileWebService {
 		this.#blocked = null;
 		this.#serveGuide = null;
 		this.#funnelExposed = false;
-		// The server answers only to the address it is published at, and only for an allowed tailnet user.
-		this.#deps.server.configure({ host, publicPort: plan.port, secure: true, requireIdentity: true });
+		// The server answers only to the address it is published at, only to traffic that came through serve (the
+		// secret path), and only for an allowed tailnet user.
+		this.#deps.server.configure({
+			host,
+			publicPort: plan.port,
+			secure: true,
+			servePrefix: this.#deps.serveSecret(),
+		});
 		this.#published = true;
 		this.#port = plan.port;
 		this.#phase = "ready";

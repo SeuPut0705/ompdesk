@@ -10,6 +10,8 @@ import type { LocatedTailscale } from "./locate";
 
 export const CLI_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT = 4 * 1024 * 1024;
+/** A whois answers from the daemon's own netmap: slower than this is a daemon in trouble. */
+export const WHOIS_TIMEOUT_MS = 4_000;
 
 export interface ExecOptions {
 	/** Added over the app's own environment. */
@@ -95,6 +97,11 @@ export class TailscaleCli {
 	/** Read-only: the control server's URL, for a self-hosted tailnet's sign-in page. */
 	debugPrefs(): Promise<ExecResult> {
 		return this.run(["debug", "prefs"]);
+	}
+
+	/** Read-only: the node and user behind a tailnet address (`ip` is already checked to be one). */
+	whois(ip: string): Promise<ExecResult> {
+		return this.run(["whois", "--json", ip], WHOIS_TIMEOUT_MS);
 	}
 
 	/** Publish `https://<this machine>:<port>` to the tailnet, proxied to `target`. Only ever our own port. */

@@ -4,8 +4,8 @@
  * renderer. Main owns every piece of state (src/main/tailscale/ for the Tailscale side, src/main/web/ for the
  * server and the paired devices); the page only shows it and asks for changes.
  *
- * Every request here is `pairing-admin`: a web device never gets it, so a stolen cookie cannot pair another device
- * or switch the feature off. The state itself holds no secret, so a web device may read it.
+ * Every request here is `pairing-admin`: a web device never gets it, so a stolen cookie cannot connect another
+ * device or switch the feature off. The state itself holds no secret, so a web device may read it.
  */
 import type { PeerLimits, PeerUsageView } from "./ipc-types";
 import type { SetupFailure, SetupProgress } from "./setup";
@@ -22,7 +22,11 @@ export const MOBILE_WEB_STATE = "mobile-web:state";
 
 /** `WebDeviceInfo[]`. */
 export const WEB_DEVICES_LIST = "mobile-web:devices-list";
-/** Forget a device (`deviceId`): its sockets close with 4401, its tabs are released. Answers the new list. */
+/**
+ * Block a device (`deviceId`): its record goes, its sockets close with 4401 and its tabs are released, and the block
+ * (its Tailscale node, or its whole Tailscale login when serve gave no node identity: `WebDeviceInfo.blockScope`)
+ * keeps it from connecting again until it is unblocked. Answers the new list.
+ */
 export const WEB_DEVICES_REVOKE = "mobile-web:devices-revoke";
 /** `deviceId, name`. Answers the new list. */
 export const WEB_DEVICES_RENAME = "mobile-web:devices-rename";
@@ -32,9 +36,16 @@ export const WEB_DEVICES_SET_GRANTS = "mobile-web:devices-set-grants";
 export const WEB_DEVICES_SET_LIMITS = "mobile-web:devices-set-limits";
 /** Push: the device list or a device's connection changed; payload is the whole `WebDeviceInfo[]`. */
 export const WEB_DEVICES_CHANGED = "mobile-web:devices-changed";
-/** A fresh single-use pairing code (replaces an unused one); answers a `WebPairingCode`. */
-export const WEB_PAIRING_CODE_NEW = "mobile-web:pairing-code-new";
-/** Push to desktop windows only: a phone entered a valid code and waits for a decision (`WebPairingRequest`). */
+/** `WebBlockedInfo[]`. */
+export const WEB_BLOCKS_LIST = "mobile-web:blocks-list";
+/** Lift a block (`blockId`); the device connects again on its next visit. Answers the new `WebBlockedInfo[]`. */
+export const WEB_BLOCKS_REMOVE = "mobile-web:blocks-remove";
+/**
+ * Push to desktop windows only: a device connected for the first time (its record was just made) and the user can
+ * block it from the notice (`WebDeviceConnected`). Not sent while "approve new devices" is on: the dialog asked.
+ */
+export const WEB_DEVICE_CONNECTED = "mobile-web:device-connected";
+/** Push to desktop windows only: a new device waits for the user's decision (`WebPairingRequest`). */
 export const WEB_PAIRING_REQUEST = "mobile-web:pairing-request";
 /** Answer a `WebPairingRequest` (`WebPairingResponse`). */
 export const WEB_PAIRING_RESPOND = "mobile-web:pairing-respond";
@@ -47,7 +58,8 @@ export const MOBILE_WEB_ADMIN_CHANNELS = [
 	WEB_DEVICES_RENAME,
 	WEB_DEVICES_SET_GRANTS,
 	WEB_DEVICES_SET_LIMITS,
-	WEB_PAIRING_CODE_NEW,
+	WEB_BLOCKS_LIST,
+	WEB_BLOCKS_REMOVE,
 	WEB_PAIRING_RESPOND,
 ] as const;
 
@@ -118,8 +130,10 @@ export interface MobileWebState {
 	port: number | null;
 	/** The login name of the tailnet user of this computer; it is allowed by default. */
 	user: string | null;
-	/** Tailscale logins allowed to reach the page (still need a code to pair). */
+	/** Tailscale logins whose devices connect to the page without a code (the first visit makes the device). */
 	allowedUsers: string[];
+	/** A new device waits for the user's approval on this computer (pref `mobileWeb.confirmNewDevices`, default off). */
+	confirmNewDevices: boolean;
 	tailscale: MobileWebTailscale | null;
 	install: MobileWebInstall | null;
 	/** The sign-in page, while `needs-login` / `logging-in`. Only a Tailscale host is ever offered. */
@@ -147,6 +161,7 @@ export type MobileWebRequest =
 	| { action: "retry" }
 	| { action: "open-system-settings" }
 	| { action: "set-allowed-users"; users: string[] }
+	| { action: "set-confirm-new-devices"; on: boolean }
 	/** Settings is open: poll `status --json` every 2 s instead of 15 s; false when it closes. */
 	| { action: "watch"; on: boolean };
 
@@ -155,10 +170,10 @@ export interface WebDeviceInfo {
 	id: string;
 	name: string;
 	userAgent: string;
-	/** The Tailscale login that paired it. */
+	/** The Tailscale login that connected it. */
 	tailscaleLogin: string | null;
 	createdAt: number;
-	/** Epoch ms of the last request; null when it never connected after pairing. */
+	/** Epoch ms of the last request; null when it never connected after it was made. */
 	lastSeenAt: number | null;
 	connected: boolean;
 	grants: WebPermission[];
@@ -166,9 +181,24 @@ export interface WebDeviceInfo {
 	limits: PeerLimits;
 	/** What the device used today (local date). */
 	usage: PeerUsageView;
+	/** What blocking it blocks: its Tailscale node, or (no node identity was known) every device of its login. */
+	blockScope: WebBlockScope;
 }
 
-/** The grant presets: the pairing sheet and the device row pick one; anything else is `custom`. */
+export type WebBlockScope = "node" | "login";
+
+/** A block as Settings lists it: a node, or a whole login. */
+export interface WebBlockedInfo {
+	id: string;
+	scope: WebBlockScope;
+	/** The device's name when it was blocked. */
+	name: string;
+	/** The Tailscale login of the device (for a login block: the blocked login). */
+	tailscaleLogin: string | null;
+	blockedAt: number;
+}
+
+/** The grant presets: the approval dialog and the device row pick one; anything else is `custom`. */
 export const WEB_GRANT_PRESETS = {
 	full: DEFAULT_WEB_GRANTS,
 	"no-desktop": DEFAULT_WEB_GRANTS.filter(permission => permission !== "desktop-control"),
@@ -187,19 +217,14 @@ export function webDeviceTier(grants: readonly WebPermission[]): WebDeviceTier {
 	return "custom";
 }
 
-export interface WebPairingCode {
-	/** Eight Crockford characters, single use. */
-	code: string;
-	/** Epoch ms. */
-	expiresAt: number;
+/** A device connected for the first time: what the desktop's notice names (`WEB_DEVICE_CONNECTED`). */
+export interface WebDeviceConnected {
+	id: string;
+	name: string;
+	tailscaleLogin: string | null;
 }
 
-/** The page a phone opens to pair; the code rides the fragment so no log or Referer sees it. */
-export function webPairingUrl(baseUrl: string, code: string): string {
-	return `${baseUrl.replace(/\/+$/, "")}/pair#${code}`;
-}
-
-/** A phone entered a valid code; the desktop decides. */
+/** A new device waits for the desktop's decision (only while "approve new devices" is on). */
 export interface WebPairingRequest {
 	id: string;
 	name: string;
@@ -225,14 +250,18 @@ export interface MobileWebApi {
 	onState(callback: (state: MobileWebState) => void): () => void;
 	devices: {
 		list(): Promise<WebDeviceInfo[]>;
+		/** Block the device (see `WEB_DEVICES_REVOKE`). */
 		revoke(deviceId: string): Promise<WebDeviceInfo[]>;
+		blocked(): Promise<WebBlockedInfo[]>;
+		unblock(blockId: string): Promise<WebBlockedInfo[]>;
 		rename(deviceId: string, name: string): Promise<WebDeviceInfo[]>;
 		setGrants(deviceId: string, grants: WebPermission[]): Promise<WebDeviceInfo[]>;
 		setLimits(deviceId: string, limits: PeerLimits): Promise<WebDeviceInfo[]>;
 		onChanged(callback: (devices: WebDeviceInfo[]) => void): () => void;
+		/** A device connected for the first time (desktop windows only). */
+		onConnected(callback: (device: WebDeviceConnected) => void): () => void;
 	};
 	pairing: {
-		newCode(): Promise<WebPairingCode>;
 		onRequest(callback: (request: WebPairingRequest) => void): () => void;
 		respond(response: WebPairingResponse): Promise<void>;
 	};

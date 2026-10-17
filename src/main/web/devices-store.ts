@@ -26,8 +26,10 @@ export interface WebDevice {
 	deviceId: string;
 	name: string;
 	userAgent: string;
-	/** The Tailscale login that paired it. */
+	/** The Tailscale login that connected it. */
 	tailscaleLogin: string | null;
+	/** The device's Tailscale node (`tailscale whois` stable ID) when serve and whois gave one; blocking keys on it. */
+	nodeId?: string | null | undefined;
 	/** SHA-256 hex of the cookie secret. */
 	secretSha256: string;
 	/** The device's ECDSA P-256 public key (WebCrypto), when its page could make one (a secure context). */
@@ -50,6 +52,7 @@ const StoredDevice = z.object({
 	name: z.string(),
 	userAgent: z.string(),
 	tailscaleLogin: z.string().nullable(),
+	nodeId: z.string().nullable().optional(),
 	secretSha256: z.string().regex(/^[0-9a-f]{64}$/),
 	publicKeyJwk: z.object({}).passthrough().nullable(),
 	grants: z.array(z.enum(WEB_PERMISSIONS)),
@@ -107,6 +110,7 @@ export interface NewWebDevice {
 	name: string;
 	userAgent: string;
 	tailscaleLogin: string | null;
+	nodeId?: string | null;
 	publicKeyJwk: JsonWebKey | null;
 	grants?: readonly WebPermission[];
 }
@@ -162,6 +166,7 @@ export class WebDevices implements QuotaStore {
 			name: init.name.trim().slice(0, NAME_MAX) || "Phone",
 			userAgent: init.userAgent.slice(0, USER_AGENT_MAX),
 			tailscaleLogin: init.tailscaleLogin,
+			nodeId: init.nodeId ?? null,
 			secretSha256: hashSecret(secret),
 			publicKeyJwk: init.publicKeyJwk,
 			grants: sanitizeGrants(init.grants ?? DEFAULT_WEB_GRANTS),

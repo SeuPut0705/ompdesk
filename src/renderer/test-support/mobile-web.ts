@@ -1,13 +1,15 @@
 /**
  * A `window.omp.mobileWeb` double: `getState`/`command` answer with the state the test set, the device
- * actions answer with the current list, and `push*` deliver main's pushes.
+ * actions answer with the current list, `blocked`/`unblock` with the current blocks, and `push*` deliver main's
+ * pushes.
  */
 import { vi } from "vitest";
 import type {
 	MobileWebApi,
 	MobileWebState,
+	WebBlockedInfo,
+	WebDeviceConnected,
 	WebDeviceInfo,
-	WebPairingCode,
 	WebPairingRequest,
 } from "../../shared/mobile-web";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
@@ -21,6 +23,7 @@ export function mobileWebState(partial: Partial<MobileWebState> = {}): MobileWeb
 		port: null,
 		user: "kim@example.com",
 		allowedUsers: ["kim@example.com"],
+		confirmNewDevices: false,
 		tailscale: null,
 		install: null,
 		loginUrl: null,
@@ -59,17 +62,34 @@ export function webDevice(partial: Partial<WebDeviceInfo> = {}): WebDeviceInfo {
 		tier: "full",
 		limits: {},
 		usage: { requests: 0, tokens: 0 },
+		blockScope: "node",
 		...partial,
 	};
 }
 
-export function fakeMobileWeb(initial: MobileWebState = mobileWebState(), initialDevices: WebDeviceInfo[] = []) {
+export function blockedDevice(partial: Partial<WebBlockedInfo> = {}): WebBlockedInfo {
+	return {
+		id: "node:nPIXEL1",
+		scope: "node",
+		name: "Pixel",
+		tailscaleLogin: "kim@example.com",
+		blockedAt: Date.now() - 3_600_000,
+		...partial,
+	};
+}
+
+export function fakeMobileWeb(
+	initial: MobileWebState = mobileWebState(),
+	initialDevices: WebDeviceInfo[] = [],
+	initialBlocked: WebBlockedInfo[] = [],
+) {
 	let state = initial;
 	let devices = initialDevices;
+	let blocked = initialBlocked;
 	const stateListeners = new Set<(state: MobileWebState) => void>();
 	const deviceListeners = new Set<(devices: WebDeviceInfo[]) => void>();
+	const connectedListeners = new Set<(device: WebDeviceConnected) => void>();
 	const requestListeners = new Set<(request: WebPairingRequest) => void>();
-	let nextCode: WebPairingCode = { code: "K7QM2XDP", expiresAt: Date.now() + 10 * 60_000 };
 
 	const api = {
 		getState: vi.fn(async () => state),
@@ -81,6 +101,8 @@ export function fakeMobileWeb(initial: MobileWebState = mobileWebState(), initia
 		devices: {
 			list: vi.fn(async () => devices),
 			revoke: vi.fn(async (_deviceId: string) => devices),
+			blocked: vi.fn(async () => blocked),
+			unblock: vi.fn(async (_blockId: string) => blocked),
 			rename: vi.fn(async (_deviceId: string, _name: string) => devices),
 			setGrants: vi.fn(async (_deviceId: string, _grants: WebDeviceInfo["grants"]) => devices),
 			setLimits: vi.fn(async (_deviceId: string, _limits: WebDeviceInfo["limits"]) => devices),
@@ -88,9 +110,12 @@ export function fakeMobileWeb(initial: MobileWebState = mobileWebState(), initia
 				deviceListeners.add(callback);
 				return () => deviceListeners.delete(callback);
 			}),
+			onConnected: vi.fn((callback: (device: WebDeviceConnected) => void) => {
+				connectedListeners.add(callback);
+				return () => connectedListeners.delete(callback);
+			}),
 		},
 		pairing: {
-			newCode: vi.fn(async () => nextCode),
 			onRequest: vi.fn((callback: (request: WebPairingRequest) => void) => {
 				requestListeners.add(callback);
 				return () => requestListeners.delete(callback);
@@ -109,9 +134,9 @@ export function fakeMobileWeb(initial: MobileWebState = mobileWebState(), initia
 		setDevices(next: WebDeviceInfo[]) {
 			devices = next;
 		},
-		/** The code the next `newCode()` answers with. */
-		setCode(next: WebPairingCode) {
-			nextCode = next;
+		/** The blocks the next read or unblock answers with. */
+		setBlocked(next: WebBlockedInfo[]) {
+			blocked = next;
 		},
 		/** A state push from main. */
 		pushState(next: MobileWebState) {
@@ -121,6 +146,10 @@ export function fakeMobileWeb(initial: MobileWebState = mobileWebState(), initia
 		pushDevices(next: WebDeviceInfo[]) {
 			devices = next;
 			for (const listener of deviceListeners) listener(next);
+		},
+		/** A device connected for the first time (the desktop's notice). */
+		pushConnected(device: WebDeviceConnected) {
+			for (const listener of connectedListeners) listener(device);
 		},
 		pushRequest(request: WebPairingRequest) {
 			for (const listener of requestListeners) listener(request);

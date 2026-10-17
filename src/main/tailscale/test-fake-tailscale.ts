@@ -45,7 +45,16 @@ export interface FakeTailscaleScenario {
 	httpsCapability: boolean;
 	/** The sign-in page `status --json` and `up` report while `NeedsLogin`. */
 	authUrl: string | null;
-	peers: Array<{ hostName: string; os: string; online: boolean; userId: number }>;
+	/** `ip` is the node's tailnet address (what serve puts in `X-Forwarded-For` and `whois` is asked about). */
+	peers: Array<{
+		hostName: string;
+		os: string;
+		online: boolean;
+		userId: number;
+		ip?: string;
+		stableId?: string;
+		login?: string;
+	}>;
 	/** What `serve status --json` answers. Starts with the user's own `443 → http://127.0.0.1:3010`. */
 	serve: FakeServeConfig;
 	/** Set: every `serve` that writes fails with exactly this stderr (a policy block, another Windows user). */
@@ -80,7 +89,9 @@ export function defaultTailscaleScenario(overrides: Partial<FakeTailscaleScenari
 		magicDns: true,
 		httpsCapability: true,
 		authUrl: "https://login.tailscale.com/a/fake0123456789",
-		peers: [{ hostName: "iphone", os: "iOS", online: true, userId: 1001 }],
+		peers: [
+			{ hostName: "iphone", os: "iOS", online: true, userId: 1001, ip: "100.64.0.9", stableId: "nIPHONE1CNTRL" },
+		],
 		serve: structuredClone(USER_SERVE),
 		serveError: null,
 		upResult: "Running",
@@ -229,6 +240,24 @@ export function answer(argv: string[], scenario: FakeTailscaleScenario): FakeAns
 	}
 	if (command === "status" && rest.includes("--json")) return reply(0, statusJson(scenario));
 	if (command === "serve") return answerServe(rest, scenario);
+	if (command === "whois") {
+		const ip = rest.find(arg => !arg.startsWith("-"));
+		const peer = scenario.peers.find(candidate => candidate.ip !== undefined && candidate.ip === ip);
+		if (!peer) return reply(1, "", `fake-tailscale: no match for IP ${ip ?? ""}\n`);
+		const login = peer.login ?? (peer.userId === scenario.userId ? scenario.login : "other@example.com");
+		return reply(
+			0,
+			`${JSON.stringify({
+				Node: {
+					StableID: peer.stableId ?? `nFAKE${peer.hostName}`,
+					Name: `${peer.hostName}.${scenario.tailnet}.`,
+					ComputedName: peer.hostName,
+					Hostinfo: { Hostname: peer.hostName, OS: peer.os },
+				},
+				UserProfile: { LoginName: login },
+			})}\n`,
+		);
+	}
 	if (command === "funnel") return reply(99, "", "fake-tailscale: `funnel` is never run by OMPdesk\n");
 	if (command === "debug" && rest[0] === "prefs") {
 		return reply(

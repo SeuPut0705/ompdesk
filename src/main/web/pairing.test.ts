@@ -1,71 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebPairingRequest } from "../../shared/mobile-web";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
-import { normalizeCode } from "../remote/crypto";
-import {
-	MAX_PAIRING_FAILURES,
-	PAIRING_CODE_TTL_MS,
-	PAIRING_CONFIRM_TIMEOUT_MS,
-	PairingConfirmations,
-	WebPairing,
-} from "./pairing";
-
-describe("WebPairing", () => {
-	it("answers inactive until a code is issued, then accepts it once", () => {
-		const pairing = new WebPairing();
-		expect(pairing.attempt("ABCD-EFGH")).toBe("inactive");
-		const { code } = pairing.issue();
-		expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
-		expect(pairing.active()?.code).toBe(code);
-		expect(pairing.attempt(code.toLowerCase())).toBe("ok");
-		expect(pairing.attempt(code)).toBe("inactive");
-		expect(pairing.active()).toBeNull();
-	});
-
-	it("is its own code generator, not the remote host's", () => {
-		const first = new WebPairing().issue().code;
-		const second = new WebPairing().issue().code;
-		expect(normalizeCode(first)).not.toBeNull();
-		expect(first).not.toBe(second);
-	});
-
-	it("expires after ten minutes", () => {
-		let now = 0;
-		const pairing = new WebPairing(() => now);
-		const { code } = pairing.issue();
-		now = PAIRING_CODE_TTL_MS - 1;
-		expect(pairing.active()).not.toBeNull();
-		now = PAIRING_CODE_TTL_MS;
-		expect(pairing.attempt(code)).toBe("inactive");
-	});
-
-	it("replaces an unused code with a new one", () => {
-		const pairing = new WebPairing();
-		const old = pairing.issue().code;
-		const fresh = pairing.issue().code;
-		expect(pairing.attempt(old)).toBe("wrong");
-		expect(pairing.attempt(fresh)).toBe("ok");
-	});
-
-	it("locks and replaces the code at the fifth wrong try", () => {
-		const onChange = vi.fn();
-		const pairing = new WebPairing(Date.now, onChange);
-		const { code } = pairing.issue();
-		for (let i = 1; i < MAX_PAIRING_FAILURES; i++) expect(pairing.attempt("0000-0000")).toBe("wrong");
-		expect(pairing.attempt("0000-0000")).toBe("locked");
-		expect(pairing.attempt(code)).toBe("wrong");
-		expect(pairing.active()?.code).not.toBe(code);
-		expect(onChange).toHaveBeenCalled();
-	});
-
-	it("counts a malformed code as wrong and can be cleared", () => {
-		const pairing = new WebPairing();
-		pairing.issue();
-		expect(pairing.attempt("short")).toBe("wrong");
-		pairing.clear();
-		expect(pairing.attempt("short")).toBe("inactive");
-	});
-});
+import { PAIRING_CONFIRM_TIMEOUT_MS, PairingConfirmations } from "./pairing";
 
 describe("PairingConfirmations", () => {
 	beforeEach(() => vi.useFakeTimers());

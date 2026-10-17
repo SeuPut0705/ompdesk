@@ -1,12 +1,15 @@
 /**
  * The mobile web server: HTTP and WebSocket on `127.0.0.1` only (`tailscale serve` publishes it to the tailnet
- * with HTTPS). Serves the built renderer from an allowlist, `/api/pair`, `/api/session` (a 30-second single-use
- * WebSocket ticket, after the device proves its key), `/ws`, `/blob/<token>` and `/upload`. Every request first
- * passes auth.ts's checks; every device call then needs the device's cookie. CORS headers are never sent.
+ * with HTTPS, its target carrying a per-install secret path that this server strips). Serves the built renderer
+ * from an allowlist, `/api/pair` (the first visit of an allowed Tailscale login makes its device and cookie; no
+ * code), `/api/session` (a 30-second single-use WebSocket ticket, after the device proves its key), `/ws`,
+ * `/blob/<token>` and `/upload`. Every request first passes auth.ts's checks; every device call then needs the
+ * device's cookie. CORS headers are never sent.
  */
 import { createHash, type JsonWebKey } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { isIP } from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
@@ -15,6 +18,7 @@ import { type RawData, WebSocketServer } from "ws";
 import { z } from "zod";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
 import { WEB_PUSH_CATEGORIES, type WebPushSettings, type WebPushStateResponse } from "../../shared/web-push";
+import type { TailnetPeer } from "../tailscale/whois";
 import {
 	checkRequest,
 	clearedDeviceCookie,
@@ -23,18 +27,21 @@ import {
 	OneTimeTokens,
 	originOf,
 	parsePublicKeyJwk,
+	type RequestCheck,
 	type RequestKind,
 	type RequestPolicy,
 	serializeDeviceCookie,
+	stripServePrefix,
 	TICKET_TTL_MS,
-	tailscaleLogin,
 	verifyDeviceProof,
 } from "./auth";
 import { BLOB_URL_PREFIX, type BlobStore } from "./blobs";
+import type { BlockVerdict, WebBlocks } from "./blocks-store";
 import { pushSettingsOf, type WebDevice, type WebDevices } from "./devices-store";
-import type { PairingConfirmations, WebPairing } from "./pairing";
+import type { PairingConfirmations } from "./pairing";
 import { isPushEndpoint } from "./push";
 import { PairingGuard, SlidingWindowLimiter, UnpairedThrottle } from "./rate-limit";
+import { refusalPage } from "./refusal-page";
 import { UploadError, type UploadStore } from "./uploads";
 import { MAX_FRAME_BYTES, type RouterSocket, type WsRouter } from "./ws-router";
 
@@ -42,6 +49,11 @@ export const WEB_SERVER_HOST = "127.0.0.1";
 const JSON_BODY_MAX_BYTES = 32 * 1024;
 const SESSION_REQUESTS_PER_MINUTE = 20;
 const PUSH_REQUESTS_PER_MINUTE = 20;
+/** New devices made in an hour, over all of them: a loop of cleared cookies cannot fill the list. */
+const NEW_DEVICES_PER_HOUR = 20;
+/** How long a whois answer is reused for one tailnet address. */
+const PEER_CACHE_MS = 60_000;
+const PEER_CACHE_MAX = 256;
 /** Compressed copies of static files kept in memory, in bytes. */
 const COMPRESSED_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const WS_PROTOCOL = "ompdesk.v1";
@@ -96,8 +108,8 @@ class HttpError extends Error {
 	}
 }
 
+/** `POST /api/pair`: the device's own name (a fallback for whois') and its public key; no code. */
 const PairBody = z.object({
-	code: z.string().min(1).max(64),
 	name: z.string().max(200).default(""),
 	clientInstanceId: z.string().max(128).optional(),
 	publicKeyJwk: z.unknown().optional(),
@@ -123,10 +135,14 @@ export interface WebServerDeps {
 	/** Mutable: `configure` changes the published address as Tailscale reports it. */
 	policy: RequestPolicy;
 	devices: WebDevices;
-	pairing: WebPairing;
+	blocks: WebBlocks;
 	confirmations: PairingConfirmations;
-	/** Ask the desktop before a phone is paired (on by default; off only by the user's choice). */
-	confirmPairing: () => boolean;
+	/** Hold a new device until the desktop approves it (Settings, off by default). */
+	confirmNewDevices: () => boolean;
+	/** The node and user behind a tailnet address (`tailscale whois`); null when it does not know. */
+	whois: (address: string) => Promise<TailnetPeer | null>;
+	/** A device was just made without asking the desktop: it is told once, with the way to block it. */
+	onDeviceConnected: (device: WebDevice) => void;
 	router: WsRouter;
 	uploads: UploadStore;
 	blobs: BlobStore;
@@ -143,7 +159,13 @@ interface ConfigurablePolicy {
 	host?: string;
 	publicPort?: number;
 	secure?: boolean;
-	requireIdentity?: boolean;
+	servePrefix?: string | null;
+}
+
+/** The Tailscale address serve put in `X-Forwarded-For` (it sets it itself, over any value the client sent), or null. */
+function tailnetAddress(req: IncomingMessage): string | null {
+	const forwarded = singleHeader(req.headers["x-forwarded-for"])?.split(",")[0]?.trim();
+	return forwarded && isIP(forwarded) !== 0 ? forwarded : null;
 }
 
 function singleHeader(value: string | string[] | undefined): string | undefined {
@@ -170,6 +192,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
 function sendStatus(res: ServerResponse, status: number, headers: Record<string, string> = {}): void {
 	res.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...headers });
 	res.end(http.STATUS_CODES[status] ?? "");
+}
+
+/** A small HTML answer (the refusal pages): its own CSP allows only inline style, nothing is cached. */
+function sendHtml(res: ServerResponse, status: number, html: string): void {
+	res.writeHead(status, {
+		"content-type": "text/html; charset=utf-8",
+		"content-length": String(Buffer.byteLength(html)),
+		"cache-control": "no-store",
+		"content-security-policy":
+			"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+		"x-content-type-options": "nosniff",
+		"referrer-policy": "no-referrer",
+	});
+	res.end(html);
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -212,6 +248,8 @@ export class WebServer {
 	readonly #pairGuard: PairingGuard;
 	readonly #unpaired: UnpairedThrottle;
 	readonly #pushLimiter: SlidingWindowLimiter;
+	readonly #enrollLimiter: SlidingWindowLimiter;
+	readonly #peers = new Map<string, { peer: TailnetPeer; at: number }>();
 	readonly #wss = new WebSocketServer({
 		noServer: true,
 		maxPayload: MAX_FRAME_BYTES,
@@ -228,6 +266,7 @@ export class WebServer {
 		this.#now = deps.now ?? Date.now;
 		this.#sessionLimiter = new SlidingWindowLimiter(SESSION_REQUESTS_PER_MINUTE, 60_000, this.#now);
 		this.#pushLimiter = new SlidingWindowLimiter(PUSH_REQUESTS_PER_MINUTE, 60_000, this.#now);
+		this.#enrollLimiter = new SlidingWindowLimiter(NEW_DEVICES_PER_HOUR, 60 * 60_000, this.#now);
 		this.#pairGuard = new PairingGuard(this.#now);
 		this.#unpaired = new UnpairedThrottle(this.#now);
 	}
@@ -268,7 +307,6 @@ export class WebServer {
 		if (!server) return;
 		this.#server = null;
 		this.#port = null;
-		this.#deps.pairing.clear();
 		this.#deps.confirmations.declineAll();
 		const clients = [...this.#wss.clients];
 		const closed = Promise.all(
@@ -301,22 +339,102 @@ export class WebServer {
 		}
 	}
 
-	#check(req: IncomingMessage, kind: RequestKind): string | null {
-		const result = checkRequest({
+	#check(req: IncomingMessage, kind: RequestKind): RequestCheck {
+		return checkRequest({
 			headers: req.headers,
 			method: req.method ?? "GET",
 			kind,
+			url: req.url ?? "/",
 			remoteAddress: req.socket.remoteAddress,
 			policy: this.#deps.policy,
 		});
-		return result.ok ? null : result.reason;
+	}
+
+	/** A walled request: a status, or for a login Tailscale vouches for but we do not allow, the page that says so. */
+	#refuse(
+		req: IncomingMessage,
+		res: ServerResponse,
+		check: Extract<RequestCheck, { ok: false }>,
+		kind: RequestKind,
+	): void {
+		if (check.why === "other") {
+			sendStatus(res, check.status);
+			return;
+		}
+		if (kind !== "page") {
+			sendJson(res, 403, {
+				error: check.why === "user not allowed" ? "tailscale_user_not_allowed" : "no_tailscale_user",
+			});
+			return;
+		}
+		sendHtml(
+			res,
+			403,
+			refusalPage({
+				kind: check.why === "user not allowed" ? "user-not-allowed" : "no-user",
+				login: check.login,
+				allowed: this.#deps.policy.allowedUsers(),
+				acceptLanguage: singleHeader(req.headers["accept-language"]),
+			}),
+		);
+	}
+
+	/** A blocked device (or login): the page that says so, or the JSON error of an API call. */
+	#refuseBlocked(
+		req: IncomingMessage,
+		res: ServerResponse,
+		verdict: Exclude<BlockVerdict, null>,
+		kind: RequestKind,
+		login: string,
+	): void {
+		if (kind !== "page") {
+			sendJson(res, 403, { error: "blocked" });
+			return;
+		}
+		const loginScope = verdict !== "unidentified" && verdict.scope === "login";
+		sendHtml(
+			res,
+			403,
+			refusalPage({
+				kind: loginScope ? "blocked-login" : "blocked-node",
+				login,
+				allowed: this.#deps.policy.allowedUsers(),
+				acceptLanguage: singleHeader(req.headers["accept-language"]),
+			}),
+		);
+	}
+
+	/** whois for a tailnet address, reused for a minute; a failed answer is not kept. */
+	async #peer(address: string): Promise<TailnetPeer | null> {
+		const now = this.#now();
+		const cached = this.#peers.get(address);
+		if (cached && now - cached.at < PEER_CACHE_MS) return cached.peer;
+		let peer: TailnetPeer | null = null;
+		try {
+			peer = await this.#deps.whois(address);
+		} catch {
+			peer = null;
+		}
+		if (peer) {
+			if (this.#peers.size >= PEER_CACHE_MAX) this.#peers.clear();
+			this.#peers.set(address, { peer, at: now });
+		}
+		return peer;
+	}
+
+	/** Whether the request carries the cookie of a device that still exists. */
+	#hasDevice(req: IncomingMessage): boolean {
+		const cookie = deviceCookieValue(req.headers, this.#deps.policy.secure);
+		return cookie !== null && this.#deps.devices.authenticate(cookie).ok;
 	}
 
 	async #route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const method = req.method ?? "GET";
-		const target = req.url ?? "/";
-		const queryAt = target.indexOf("?");
-		const pathname = queryAt === -1 ? target : target.slice(0, queryAt);
+		const { policy } = this.#deps;
+		// Only a request that came through serve carries the secret prefix; everything below sees it taken off.
+		const stripped = policy.servePrefix === null ? null : stripServePrefix(req.url ?? "/", policy.servePrefix);
+		const queryAt = (stripped ?? "/").indexOf("?");
+		const pathname = queryAt === -1 ? (stripped ?? "/") : (stripped ?? "/").slice(0, queryAt);
 
 		const isApi =
 			pathname === "/api/pair" ||
@@ -325,10 +443,23 @@ export class WebServer {
 			pathname === "/upload" ||
 			pathname === "/healthz" ||
 			pathname.startsWith(BLOB_URL_PREFIX);
-		const refused = this.#check(req, isApi ? "api" : "page");
-		if (refused) {
-			sendStatus(res, refused === "wrong host" ? 421 : 403);
+		const kind: RequestKind = isApi ? "api" : "page";
+		const check = this.#check(req, kind);
+		if (!check.ok) {
+			this.#refuse(req, res, check, kind);
 			return;
+		}
+		const target = check.target;
+		req.url = target;
+		// A blocked device must not reach the app: a page load without a device cookie asks who the visitor is.
+		if (PAGE_ROUTES.has(pathname) && this.#deps.blocks.active && !this.#hasDevice(req)) {
+			const address = tailnetAddress(req);
+			const peer = address ? await this.#peer(address) : null;
+			const verdict = this.#deps.blocks.check({ nodeId: peer?.nodeId ?? null, login: check.login });
+			if (verdict !== null) {
+				this.#refuseBlocked(req, res, verdict, kind, check.login);
+				return;
+			}
 		}
 
 		if (pathname === "/healthz") {
@@ -336,7 +467,7 @@ export class WebServer {
 			sendJson(res, 200, { ok: true });
 			return;
 		}
-		if (pathname === "/api/pair") return this.#pair(req, res, method);
+		if (pathname === "/api/pair") return this.#pair(req, res, method, check.login);
 		if (pathname === "/api/session") return this.#session(req, res, method);
 		if (pathname === "/api/push") return this.#push(req, res, method);
 		if (pathname === "/upload") return this.#upload(req, res, method);
@@ -351,16 +482,22 @@ export class WebServer {
 		const cookie = deviceCookieValue(req.headers, policy.secure);
 		const result = cookie === null ? null : devices.authenticate(cookie);
 		if (result?.ok) return result.device;
-		if (this.#unpaired.record()) this.#deps.onUnpairedAuth?.({ address: sourceAddress(req) });
+		// A visit with no cookie yet is the normal first visit of a new device (it enrolls next), not a stranger.
+		if (cookie !== null && this.#unpaired.record()) this.#deps.onUnpairedAuth?.({ address: sourceAddress(req) });
 		const headers: Record<string, string> = {};
 		if (result && result.reason !== "malformed") headers["set-cookie"] = clearedDeviceCookie(policy.secure);
 
 		throw new HttpError(401, "unauthorized", headers);
 	}
 
-	async #pair(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
+	/**
+	 * `POST /api/pair`: a Tailscale login that is allowed (the walls checked it) connects its device. whois names the
+	 * node (its device name and stable ID) and must agree on the login; a blocked node or login is refused; the
+	 * desktop is asked first only when the user turned that on, otherwise told afterwards, once.
+	 */
+	async #pair(req: IncomingMessage, res: ServerResponse, method: string, login: string): Promise<void> {
 		if (method !== "POST") throw new HttpError(405, "method not allowed");
-		const { pairing, devices, confirmations, policy } = this.#deps;
+		const { devices, blocks, confirmations, policy } = this.#deps;
 		const address = sourceAddress(req);
 		const decision = this.#pairGuard.check(address);
 		if (!decision.ok) {
@@ -369,39 +506,40 @@ export class WebServer {
 		const parsed = PairBody.safeParse(await readJsonBody(req));
 		if (!parsed.success) throw new HttpError(400, "invalid_request");
 		const body = parsed.data;
-		// An unissued code answers 404 for any input, so the endpoint tells nothing to someone guessing.
-		const attempt = pairing.attempt(body.code);
-		if (attempt === "inactive") throw new HttpError(404, "not_found");
-		if (attempt === "wrong" || attempt === "locked") {
-			this.#pairGuard.fail(address);
-			throw new HttpError(403, attempt === "locked" ? "locked" : "wrong_code");
-		}
 		let publicKeyJwk: JsonWebKey | null = null;
 		if (body.publicKeyJwk !== undefined && body.publicKeyJwk !== null) {
 			publicKeyJwk = parsePublicKeyJwk(body.publicKeyJwk);
 			if (!publicKeyJwk) throw new HttpError(400, "invalid_key");
 		}
+		const forwarded = tailnetAddress(req);
+		const peer = forwarded ? await this.#peer(forwarded) : null;
+		// whois reads the address serve itself put in; a different login behind it is not what the header claimed.
+		if (peer?.login && peer.login.toLowerCase() !== login.toLowerCase())
+			throw new HttpError(403, "identity_mismatch");
+		if (blocks.check({ nodeId: peer?.nodeId ?? null, login }) !== null) throw new HttpError(403, "blocked");
+		if (!this.#enrollLimiter.hit("*")) throw new HttpError(429, "rate_limited", { "retry-after": "3600" });
 		const userAgent = singleHeader(req.headers["user-agent"]) ?? "";
-		const login = tailscaleLogin(req.headers);
+		const name = peer?.nodeName ?? (body.name.trim() || "Phone");
 		let grants = [...DEFAULT_WEB_GRANTS];
-		if (this.#deps.confirmPairing()) {
-			const outcome = await confirmations.request({
-				name: body.name.trim() || "Phone",
-				userAgent,
-				tailscaleLogin: login,
-				ip: address,
-			});
-			if (!outcome.approved) throw new HttpError(403, outcome.reason);
+		const asked = this.#deps.confirmNewDevices();
+		if (asked) {
+			const outcome = await confirmations.request({ name, userAgent, tailscaleLogin: login, ip: address });
+			if (!outcome.approved) {
+				this.#pairGuard.fail(address);
+				throw new HttpError(403, outcome.reason);
+			}
 			grants = outcome.grants;
 		}
 		this.#pairGuard.succeed(address);
 		const { device, cookie } = devices.create({
-			name: body.name,
+			name,
 			userAgent,
 			tailscaleLogin: login,
+			nodeId: peer?.nodeId ?? null,
 			publicKeyJwk,
 			grants,
 		});
+		if (!asked) this.#deps.onDeviceConnected(device);
 		sendJson(
 			res,
 			200,
@@ -596,10 +734,11 @@ export class WebServer {
 			);
 			socket.destroy();
 		};
-		const pathname = (req.url ?? "").split("?", 1)[0];
-		if (pathname !== "/ws" || !isLoopbackAddress(req.socket.remoteAddress)) return deny(404);
-		const refused = this.#check(req, "ws");
-		if (refused) return deny(refused === "wrong host" ? 421 : 403);
+		const { servePrefix } = this.#deps.policy;
+		const stripped = servePrefix === null ? null : stripServePrefix(req.url ?? "", servePrefix);
+		if (stripped?.split("?", 1)[0] !== "/ws" || !isLoopbackAddress(req.socket.remoteAddress)) return deny(404);
+		const checked = this.#check(req, "ws");
+		if (!checked.ok) return deny(checked.status);
 
 		const protocols = (singleHeader(req.headers["sec-websocket-protocol"]) ?? "").split(",").map(part => part.trim());
 		const ticketToken = protocols.find(part => part.startsWith("ticket."))?.slice("ticket.".length);

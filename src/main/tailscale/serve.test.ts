@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	funnelOn,
 	handlerIsOurs,
+	ownProxy,
 	parseServeStatus,
 	planPublish,
 	portTaken,
@@ -118,6 +119,36 @@ describe("planPublish", () => {
 		expect(planPublish(config(userOnly), HOST, TARGET, record)).toEqual({ kind: "publish", port: 47831 });
 		// A record for another machine name is not this host's handler.
 		expect(planPublish(ours, "renamed.ts.net", TARGET, record)).toEqual({ kind: "publish", port: 47831 });
+	});
+
+	it("publishes the secret path: reuses a handler that already proxies there, republishes one that does not", () => {
+		const withSecret = `${TARGET}/s3cr3t`;
+		const record = { host: HOST, port: 47832, target: TARGET };
+		const current = config({ TCP: { "47832": { HTTPS: true } }, Web: { [`${HOST}:47832`]: proxy(withSecret) } });
+		expect(planPublish(current, HOST, withSecret, record)).toEqual({ kind: "reuse", port: 47832 });
+		// An earlier OMPdesk published the bare address; a rotated secret is another path.
+		const bare = config({ TCP: { "47832": { HTTPS: true } }, Web: { [`${HOST}:47832`]: proxy(TARGET) } });
+		expect(planPublish(bare, HOST, withSecret, record)).toEqual({ kind: "publish", port: 47832 });
+		expect(planPublish(current, HOST, `${TARGET}/other`, record)).toEqual({ kind: "publish", port: 47832 });
+	});
+
+	it("owns a handler that proxies to the recorded address alone or with a path, and nothing that merely resembles it", () => {
+		const record = { host: HOST, port: 47832, target: TARGET };
+		const at = (proxyUrl: string, extra: object = {}) =>
+			config({
+				TCP: { "47832": { HTTPS: true } },
+				Web: { [`${HOST}:47832`]: { Handlers: { "/": { Proxy: proxyUrl }, ...extra } } },
+			});
+		expect(ownProxy(at(TARGET), record)).toBe(TARGET);
+		expect(ownProxy(at(`${TARGET}/s3cr3t`), record)).toBe(`${TARGET}/s3cr3t`);
+		expect(handlerIsOurs(at(`${TARGET}/s3cr3t`), record)).toBe(true);
+		// Another local port, or a longer port number that only starts with ours, is not ours.
+		expect(ownProxy(at("http://127.0.0.1:51001"), record)).toBeNull();
+		expect(ownProxy(at("http://127.0.0.1:510000/x"), record)).toBeNull();
+		expect(ownProxy(at("http://127.0.0.1:3010"), record)).toBeNull();
+		// A second handler on the port means it is not a single `/` proxy of ours.
+		expect(ownProxy(at(TARGET, { "/docs": { Proxy: "http://127.0.0.1:9" } }), record)).toBeNull();
+		expect(ownProxy(config(userOnly), record)).toBeNull();
 	});
 
 	it("gives up when no port in range is free", () => {

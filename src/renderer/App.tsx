@@ -25,6 +25,7 @@ import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
 import { TabOverviewDialog } from "./components/dialogs/TabOverviewDialog";
 import { TabSwitcher, useTabSwitcherStore } from "./components/dialogs/TabSwitcher";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
+import { WebDeviceNotice } from "./components/dialogs/WebDeviceNotice";
 import { WebPairingDialog } from "./components/dialogs/WebPairingDialog";
 import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
@@ -929,6 +930,7 @@ export function App() {
 				<HandoffDialog />
 				<RemoteFolderPickerHost />
 				<WebPairingDialog />
+				<WebDeviceNotice />
 				<WebHostUi />
 				<SshPromptDialog />
 				<Suspense fallback={null}>

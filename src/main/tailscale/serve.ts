@@ -1,11 +1,12 @@
 /**
  * Publishing OMPdesk's page with `tailscale serve`, without touching anything else the user serves (design §4.3).
  *
- * The only commands this module's callers ever run are `serve --bg --https=<port> http://127.0.0.1:<local>` and
- * `serve --https=<port> off`, and the second only for a handler the prefs record says OMPdesk published and that
- * is still exactly that (one `/` handler proxying to the recorded target). There is no reset of the whole serve
- * config and no Funnel command anywhere: a port Funnel could expose (443, 8443, 10000) is never ours, and a Funnel
- * flag found on our own port makes the page refuse to start.
+ * The only commands this module's callers ever run are `serve --bg --https=<port> http://127.0.0.1:<local>/<secret>`
+ * and `serve --https=<port> off`, and the second only for a handler the prefs record says OMPdesk published and that
+ * is still exactly that (one `/` handler proxying to the recorded target, with or without the secret path: an
+ * earlier OMPdesk published it without). There is no reset of the whole serve config and no Funnel command
+ * anywhere: a port Funnel could expose (443, 8443, 10000) is never ours, and a Funnel flag found on our own port
+ * makes the page refuse to start. The secret (web/serve-secret.ts) is never recorded in the prefs.
  */
 import { z } from "zod";
 import { MOBILE_WEB_PORT } from "../../shared/mobile-web";
@@ -94,7 +95,7 @@ export function parseServeStatus(stdout: string): ServeConfig | null {
 export interface ServeRecord {
 	host: string;
 	port: number;
-	/** `http://127.0.0.1:<local port>`. */
+	/** `http://127.0.0.1:<local port>`, without the secret path. */
 	target: string;
 }
 
@@ -118,12 +119,21 @@ export function portTaken(config: ServeConfig, port: number): boolean {
 	return false;
 }
 
-/** The handler on `record`'s `<host>:<port>` is exactly what OMPdesk published: a single `/` proxy to its target. */
-export function handlerIsOurs(config: ServeConfig, record: ServeRecord): boolean {
+/**
+ * The URL of the single `/` proxy on `record`'s `<host>:<port>` when it is what OMPdesk published (the recorded
+ * target, alone or followed by a path: the secret), else null.
+ */
+export function ownProxy(config: ServeConfig, record: ServeRecord): string | null {
 	const handlers = config.web.get(siteKey(record.host, record.port));
-	if (handlers?.size !== 1) return false;
+	if (handlers?.size !== 1) return null;
 	const root = handlers.get("/");
-	return root !== undefined && !root.other && root.proxy === record.target;
+	if (root === undefined || root.other || root.proxy === null) return null;
+	return root.proxy === record.target || root.proxy.startsWith(`${record.target}/`) ? root.proxy : null;
+}
+
+/** The handler on `record`'s `<host>:<port>` is what OMPdesk published. */
+export function handlerIsOurs(config: ServeConfig, record: ServeRecord): boolean {
+	return ownProxy(config, record) !== null;
 }
 
 /** Funnel exposes `<host>:<port>`. */
@@ -137,8 +147,9 @@ const PORT_ATTEMPTS = 50;
 export type PublishPlan = { kind: "reuse"; port: number } | { kind: "publish"; port: number } | { kind: "none" };
 
 /**
- * Where to publish `target` on `host`:
- * - our own earlier handler (the record matches what is there): that port, left alone when the target is the same;
+ * Where to publish `target` (the full proxy URL, secret path included) on `host`:
+ * - our own earlier handler (the record matches what is there): that port, left alone when it already proxies to
+ *   exactly `target`, published again over itself otherwise (an old target without the secret, a new local port);
  * - else the first port from 47831 up that nothing uses (the user's other handlers are never moved or reused).
  */
 export function planPublish(
@@ -149,7 +160,9 @@ export function planPublish(
 	first: number = MOBILE_WEB_PORT,
 ): PublishPlan {
 	if (record && record.host.toLowerCase() === host.toLowerCase() && handlerIsOurs(config, record)) {
-		return record.target === target ? { kind: "reuse", port: record.port } : { kind: "publish", port: record.port };
+		return ownProxy(config, record) === target
+			? { kind: "reuse", port: record.port }
+			: { kind: "publish", port: record.port };
 	}
 	for (let port = first; port < first + PORT_ATTEMPTS && port <= 65535; port++) {
 		if (!portTaken(config, port)) return { kind: "publish", port };

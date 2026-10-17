@@ -96,6 +96,23 @@ describe("WebDevices", () => {
 		expect(store().list()).toEqual([]);
 	});
 
+	it("keeps the Tailscale node a device came from, and reads an older record that has none", () => {
+		const devices = store();
+		const withNode = devices.create({ ...phone, nodeId: "nPHONE1" }).device;
+		const without = devices.create({ ...phone, name: "Old" }).device;
+		expect(withNode.nodeId).toBe("nPHONE1");
+		expect(without.nodeId).toBeNull();
+		const file = join(dir, "web-devices.json");
+		const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+			devices: Array<{ deviceId: string; nodeId?: unknown }>;
+		};
+		for (const entry of parsed.devices) if (entry.deviceId === without.deviceId) delete entry.nodeId;
+		writeFileSync(file, JSON.stringify(parsed));
+		const reloaded = new WebDevices(dir, () => now);
+		expect(reloaded.get(withNode.deviceId)?.nodeId).toBe("nPHONE1");
+		expect(reloaded.get(without.deviceId)?.nodeId ?? null).toBeNull();
+	});
+
 	it("renames, trims, and refuses an empty name", () => {
 		const devices = store();
 		const { device } = devices.create({ ...phone, name: "  " });

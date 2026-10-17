@@ -26,6 +26,9 @@ import {
 
 const LOCAL_PORT = 51000;
 const TARGET = `http://127.0.0.1:${LOCAL_PORT}`;
+const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+/** What serve proxies to: the local address plus the secret path only serve's traffic carries. */
+const FULL_TARGET = `${TARGET}/${SECRET}`;
 const HOST = USER_SERVE_HOST;
 const ok: ExecResult = { code: 0, stdout: "", stderr: "", timedOut: false, spawnError: null };
 
@@ -74,6 +77,7 @@ function harness(options: Options = {}) {
 		platform: options.platform ?? "darwin",
 		prefs,
 		server,
+		serveSecret: () => SECRET,
 		setup,
 		locate: async () => (installed ? located : null),
 		exec,
@@ -151,15 +155,17 @@ describe("MobileWebService publishing", () => {
 			guideUrl: null,
 			detail: null,
 		});
-		expect(h.writes()).toEqual([["serve", "--bg", "--https=47831", TARGET]]);
+		expect(h.writes()).toEqual([["serve", "--bg", "--https=47831", FULL_TARGET]]);
+		// The prefs record names the local address only: the secret lives in its own 0600 file, never in the prefs.
 		expect(h.store.get(MOBILE_WEB_PREFS.serve)).toEqual({ host: HOST, port: 47831, target: TARGET });
+		expect(JSON.stringify([...h.store])).not.toContain(SECRET);
 		expect(h.store.get(MOBILE_WEB_PREFS.enabled)).toBe(true);
 		expect(h.store.get(MOBILE_WEB_PREFS.allowedUsers)).toEqual(["seuput@example.com"]);
 		expect(h.server.configure).toHaveBeenCalledWith({
 			host: HOST,
 			publicPort: 47831,
 			secure: true,
-			requireIdentity: true,
+			servePrefix: SECRET,
 		});
 		expect(JSON.stringify(h.scenario.serve.Web?.[`${HOST}:443`])).toBe(userServe());
 		expectNoDangerousCalls(h.calls);
@@ -182,7 +188,7 @@ describe("MobileWebService publishing", () => {
 		);
 		const state = await h.enable();
 		expect(state).toMatchObject({ phase: "ready", port: 47833, url: `https://${HOST}:47833` });
-		expect(h.writes()).toEqual([["serve", "--bg", "--https=47833", TARGET]]);
+		expect(h.writes()).toEqual([["serve", "--bg", "--https=47833", FULL_TARGET]]);
 		expect(h.scenario.serve.Web?.[`${HOST}:47831`]).toEqual(foreign);
 		expect(h.store.get(MOBILE_WEB_PREFS.serve)).toEqual({ host: HOST, port: 47833, target: TARGET });
 	});
@@ -194,7 +200,7 @@ describe("MobileWebService publishing", () => {
 				scenario: {
 					serve: {
 						TCP: { "443": { HTTPS: true }, "47832": { HTTPS: true } },
-						Web: { ...USER_SERVE.Web, [`${HOST}:47832`]: { Handlers: { "/": { Proxy: TARGET } } } },
+						Web: { ...USER_SERVE.Web, [`${HOST}:47832`]: { Handlers: { "/": { Proxy: FULL_TARGET } } } },
 					},
 				},
 			}),
@@ -220,8 +226,26 @@ describe("MobileWebService publishing", () => {
 			}),
 		);
 		expect(await h.enable()).toMatchObject({ phase: "ready", port: 47831 });
-		expect(h.writes()).toEqual([["serve", "--bg", "--https=47831", TARGET]]);
+		expect(h.writes()).toEqual([["serve", "--bg", "--https=47831", FULL_TARGET]]);
 		expect(h.store.get(MOBILE_WEB_PREFS.serve)).toEqual({ host: HOST, port: 47831, target: TARGET });
+	});
+
+	it("publishes again over a handler an earlier OMPdesk made without the secret path, on the same port", async () => {
+		const h = track(
+			harness({
+				prefs: { [MOBILE_WEB_PREFS.serve]: { host: HOST, port: 47832, target: TARGET } },
+				scenario: {
+					serve: {
+						TCP: { "443": { HTTPS: true }, "47832": { HTTPS: true } },
+						Web: { ...USER_SERVE.Web, [`${HOST}:47832`]: { Handlers: { "/": { Proxy: TARGET } } } },
+					},
+				},
+			}),
+		);
+		expect(await h.enable()).toMatchObject({ phase: "ready", port: 47832, published: true });
+		expect(h.writes()).toEqual([["serve", "--bg", "--https=47832", FULL_TARGET]]);
+		expect(h.scenario.serve.Web?.[`${HOST}:47832`]).toEqual({ Handlers: { "/": { Proxy: FULL_TARGET } } });
+		expect(JSON.stringify(h.scenario.serve.Web?.[`${HOST}:443`])).toBe(userServe());
 	});
 
 	it("refuses to start when Funnel exposes our port, and takes the server down", async () => {
@@ -250,7 +274,7 @@ describe("MobileWebService publishing", () => {
 		expect(after).toMatchObject({ phase: "ready", funnelExposed: false, published: true });
 		expect(h.writes()).toEqual([
 			["serve", "--https=47831", "off"],
-			["serve", "--bg", "--https=47831", TARGET],
+			["serve", "--bg", "--https=47831", FULL_TARGET],
 		]);
 		expect(h.scenario.serve.AllowFunnel?.[`${HOST}:47831`]).toBeUndefined();
 		expect(JSON.stringify(h.scenario.serve.Web?.[`${HOST}:443`])).toBe(userServe());
@@ -722,6 +746,40 @@ describe("MobileWebService allowed users and requests", () => {
 		const off = statusCalls();
 		await vi.advanceTimersByTimeAsync(POLL_MS * 2);
 		expect(statusCalls()).toBe(off);
+	});
+
+	it("holds new devices for the desktop's approval only after the user turns that on, and says so in the state", async () => {
+		const h = track(harness());
+		expect(h.service.confirmNewDevices()).toBe(false);
+		expect(h.service.state().confirmNewDevices).toBe(false);
+		const on = await h.service.request({ action: "set-confirm-new-devices", on: true });
+		expect(on.confirmNewDevices).toBe(true);
+		expect(h.store.get(MOBILE_WEB_PREFS.confirmNewDevices)).toBe(true);
+		expect(h.service.confirmNewDevices()).toBe(true);
+		expect(h.states.at(-1)?.confirmNewDevices).toBe(true);
+		const off = await h.service.request({ action: "set-confirm-new-devices", on: false });
+		expect(off.confirmNewDevices).toBe(false);
+		await expect(h.service.request({ action: "set-confirm-new-devices", on: "yes" })).rejects.toThrow();
+	});
+
+	it("asks `tailscale whois` for the node behind a tailnet address, read-only, and nothing for anything else", async () => {
+		const h = track(harness());
+		expect(await h.service.whois("100.64.0.9")).toBeNull();
+		await h.enable();
+		expect(await h.service.whois("100.64.0.9")).toEqual({
+			nodeId: "nIPHONE1CNTRL",
+			nodeName: "iphone",
+			login: "seuput@example.com",
+		});
+		expect(h.calls.filter(args => args[0] === "whois")).toEqual([["whois", "--json", "100.64.0.9"]]);
+		// An unknown address, and text that is no address (never passed to the CLI), answer null.
+		expect(await h.service.whois("100.64.0.200")).toBeNull();
+		expect(await h.service.whois("--help")).toBeNull();
+		expect(await h.service.whois("not an address")).toBeNull();
+		expect(h.calls.filter(args => args[0] === "whois")).toHaveLength(2);
+		expectNoDangerousCalls(h.calls);
+		await h.service.request({ action: "disable" });
+		expect(await h.service.whois("100.64.0.9")).toBeNull();
 	});
 });
 

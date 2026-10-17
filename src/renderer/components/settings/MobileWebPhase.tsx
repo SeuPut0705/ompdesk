@@ -17,8 +17,11 @@ import { Banner, Button, CopyButton, InlineNotice, ProgressBar, Spinner } from "
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/** The requests a phase's button sends: the switch and the allowed users have their own controls. */
-type PhaseAction = Exclude<MobileWebRequest["action"], "enable" | "set-allowed-users" | "watch">;
+/** The requests a phase's button sends: the switch, the allowed users and the approval switch have their own controls. */
+type PhaseAction = Exclude<
+	MobileWebRequest["action"],
+	"enable" | "set-allowed-users" | "set-confirm-new-devices" | "watch"
+>;
 
 /** Why Tailscale's install ended without it, as one sentence (setup's wording for the same reasons). */
 function installFailureText(t: Translate, failure: SetupFailure): string {

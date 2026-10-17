@@ -1,20 +1,28 @@
 /**
  * Settings › Mobile web: the switch sends enable/disable, each phase shows its one next step and sends the
- * right request, the page tells main it is open (`watch`) and nothing else on unmount, the ready state shows
- * the link and a pairing QR with its countdown (an expired code is replaced), the paired devices rename,
- * change their access tier and permissions, set limits and revoke, and the allowed users add and remove.
+ * right request, the page tells main it is open (`watch`) and nothing else on unmount, the ready state shows the
+ * link with a big Copy button and one QR of it (no pairing code anywhere), the approval switch sends its request,
+ * the connected devices rename, change their access tier and permissions, set limits and are blocked (the confirm
+ * says when a whole login is blocked), the blocked ones are listed and unblocked, and the allowed users add and
+ * remove.
  */
 
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type MobileWebState, webPairingUrl } from "../../../shared/mobile-web";
+import type { MobileWebState } from "../../../shared/mobile-web";
 import { DEFAULT_WEB_GRANTS } from "../../../shared/web-protocol";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useMobileWebStore } from "../../stores/mobile-web";
 import { useToastStore } from "../../stores/toast";
-import { fakeMobileWeb, mobileWebState, readyMobileWebState, webDevice } from "../../test-support/mobile-web";
+import {
+	blockedDevice,
+	fakeMobileWeb,
+	mobileWebState,
+	readyMobileWebState,
+	webDevice,
+} from "../../test-support/mobile-web";
 import { qrPath } from "../common/QrCode";
 import { MobileWebSection } from "./MobileWebSection";
 
@@ -132,7 +140,7 @@ describe("MobileWebSection switch and watch", () => {
 		fake.api.command.mockClear();
 		fake.api.getState.mockClear();
 		fake.api.devices.list.mockClear();
-		fake.api.pairing.newCode.mockClear();
+		fake.api.devices.blocked.mockClear();
 		const root = roots.pop();
 		await act(async () => {
 			root?.unmount();
@@ -140,7 +148,7 @@ describe("MobileWebSection switch and watch", () => {
 		expect(requests()).toEqual([{ action: "watch", on: false }]);
 		expect(fake.api.getState).not.toHaveBeenCalled();
 		expect(fake.api.devices.list).not.toHaveBeenCalled();
-		expect(fake.api.pairing.newCode).not.toHaveBeenCalled();
+		expect(fake.api.devices.blocked).not.toHaveBeenCalled();
 	});
 
 	it("follows a state push", async () => {
@@ -355,9 +363,9 @@ describe("MobileWebSection ready", () => {
 		await mount();
 		const link = "https://studio.tail1234.ts.net:47831";
 		expect(document.body.querySelector(`[data-copyable="${link}"]`)?.textContent).toBe(link);
-		expect(buttonLabeled(translate("remote.copy", { value: link }))).toBeDefined();
 		expect(document.body.textContent).toContain(translate("mobileWeb.step2", { user: "kim@example.com" }));
 		expect(document.body.textContent).toContain(translate("mobileWeb.phoneConnected", { name: "Kim's iPhone" }));
+		expect(document.body.textContent).toContain(translate("mobileWeb.step3"));
 		const stores = Array.from(document.body.querySelectorAll("[data-mobile-web-store]")).map(node =>
 			node.getAttribute("data-mobile-web-store"),
 		);
@@ -376,41 +384,73 @@ describe("MobileWebSection ready", () => {
 		expect(document.body.querySelector("[data-mobile-web-phones]")).toBeNull();
 	});
 
-	it("pairs a phone: the code, its m:ss countdown and the QR of the pairing page", async () => {
-		fake.set(readyMobileWebState());
-		await mount();
-		expect(document.body.querySelector("[data-mobile-web-pairing]")).toBeNull();
-		await click(translate("mobileWeb.pair"));
-		expect(fake.api.pairing.newCode).toHaveBeenCalledTimes(1);
-		expect(document.body.querySelector('[data-copyable="K7QM2XDP"]')).not.toBeNull();
-		expect(document.body.querySelector("[data-mobile-web-code-expiry]")?.textContent).toMatch(/9:5\d|10:00/);
-		const qr = document.body.querySelector("[data-mobile-web-pairing] svg[data-qr-code]");
-		expect(qr?.getAttribute("aria-label")).toBe(translate("mobileWeb.pairQr"));
-		const expected = qrPath(webPairingUrl("https://studio.tail1234.ts.net:47831", "K7QM2XDP"));
-		expect(qr?.querySelector("path")?.getAttribute("d")).toBe(expected.path);
-		expect(qr?.getAttribute("viewBox")).toBe(`0 0 ${expected.size} ${expected.size}`);
+	it("copies the link with the big Copy button and says so for a moment", async () => {
+		const writeText = vi.fn(async (_text: string) => {});
+		vi.stubGlobal("navigator", { clipboard: { writeText } });
+		try {
+			fake.set(readyMobileWebState());
+			await mount();
+			const button = document.body.querySelector("[data-mobile-web-copy]") as HTMLButtonElement | null;
+			expect(button?.textContent).toContain(translate("mobileWeb.copyLink"));
+			await act(async () => {
+				button?.click();
+			});
+			expect(writeText).toHaveBeenCalledWith("https://studio.tail1234.ts.net:47831");
+			expect(button?.getAttribute("data-copied")).not.toBeNull();
+			expect(button?.textContent).toContain(translate("mobileWeb.linkCopied"));
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
-	it("replaces an expired code on its own, once", async () => {
+	it("shows one QR of the link and no pairing code, button or countdown", async () => {
 		fake.set(readyMobileWebState());
-		fake.api.pairing.newCode
-			.mockResolvedValueOnce({ code: "OLD00000", expiresAt: Date.now() - 1_000 })
-			.mockResolvedValueOnce({ code: "NEW11111", expiresAt: Date.now() + 10 * 60_000 });
 		await mount();
-		await click(translate("mobileWeb.pair"));
+		const codes = document.body.querySelectorAll("svg[data-qr-code]");
+		// The link's QR, then the two Tailscale store QRs of step 1.
+		expect(codes).toHaveLength(3);
+		const qr = document.body.querySelector("[data-mobile-web-link] svg[data-qr-code]");
+		expect(qr?.getAttribute("aria-label")).toBe(translate("mobileWeb.qr"));
+		const expected = qrPath("https://studio.tail1234.ts.net:47831");
+		expect(qr?.querySelector("path")?.getAttribute("d")).toBe(expected.path);
+		expect(qr?.getAttribute("viewBox")).toBe(`0 0 ${expected.size} ${expected.size}`);
+		expect(document.body.querySelector("[data-mobile-web-pairing]")).toBeNull();
+		expect(document.body.querySelector("[data-mobile-web-pair]")).toBeNull();
+		expect(document.body.querySelector("[data-mobile-web-code-expiry]")).toBeNull();
+		expect(fake.api.pairing.respond).not.toHaveBeenCalled();
+	});
+
+	it("shows the approval switch off by default and sends its request", async () => {
+		fake.set(readyMobileWebState());
+		await mount();
+		const toggle = () =>
+			document.body.querySelector('#settings-mobile-web-confirm [role="switch"]') as HTMLButtonElement | null;
+		expect(document.body.textContent).toContain(translate("mobileWeb.confirmNew"));
+		expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+		fake.api.command.mockClear();
+		fake.set(readyMobileWebState({ confirmNewDevices: true }));
 		await act(async () => {
-			await Promise.resolve();
+			toggle()?.click();
 		});
-		expect(fake.api.pairing.newCode).toHaveBeenCalledTimes(2);
-		expect(document.body.querySelector('[data-copyable="NEW11111"]')).not.toBeNull();
-		expect(document.body.querySelector('[data-copyable="OLD00000"]')).toBeNull();
+		expect(requests()).toEqual([{ action: "set-confirm-new-devices", on: true }]);
+		expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+		fake.set(readyMobileWebState({ confirmNewDevices: false }));
+		await act(async () => {
+			toggle()?.click();
+		});
+		expect(requests().at(-1)).toEqual({ action: "set-confirm-new-devices", on: false });
+	});
+
+	it("shows no approval switch while Mobile web is off", async () => {
+		await mount();
+		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
 	});
 });
 
 describe("QR code", () => {
 	it("draws a square quiet-zoned matrix whose size grows with the data", () => {
-		const short = qrPath("https://a.ts.net:47831/pair#ABCDEFGH");
-		const long = qrPath(`https://a.ts.net:47831/pair#${"x".repeat(120)}`);
+		const short = qrPath("https://a.ts.net:47831");
+		const long = qrPath(`https://a.ts.net:47831/${"x".repeat(120)}`);
 		expect(short.path.startsWith("M4 4")).toBe(true);
 		expect(long.size).toBeGreaterThan(short.size);
 	});
@@ -450,7 +490,7 @@ describe("MobileWebSection devices", () => {
 		expect(ipad?.querySelector("[data-device-line]")?.textContent).toContain("3");
 	});
 
-	it("shows an empty note while nothing is paired", async () => {
+	it("shows an empty note while nothing is connected", async () => {
 		fake.setDevices([]);
 		await mount();
 		expect(document.body.textContent).toContain(translate("mobileWeb.devices.empty"));
@@ -505,12 +545,13 @@ describe("MobileWebSection devices", () => {
 		expect(fake.api.devices.rename).not.toHaveBeenCalled();
 	});
 
-	it("revokes a device only after the confirmation", async () => {
+	it("blocks a device only after the confirmation", async () => {
 		await mount();
 		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
 		expect(fake.api.devices.revoke).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("mobileWeb.devices.revokeTitle", { name: "iPhone" }));
 		expect(document.body.textContent).toContain(translate("mobileWeb.devices.revokeBody", { name: "iPhone" }));
+		expect(document.body.textContent).not.toContain("every device signed in as");
 		fake.setDevices([webDevice({ id: "device-ipad", name: "iPad" })]);
 		await act(async () => {
 			const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]');
@@ -522,7 +563,17 @@ describe("MobileWebSection devices", () => {
 		expect(document.body.querySelector('[data-web-device="device-iphone"]')).toBeNull();
 	});
 
-	it("keeps the device when the revoke is cancelled", async () => {
+	it("says every device of the login is blocked when Tailscale gave no node identity", async () => {
+		fake.setDevices([webDevice({ blockScope: "login", tailscaleLogin: "kim@example.com" })]);
+		await mount();
+		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
+		expect(document.body.textContent).toContain(
+			translate("mobileWeb.devices.revokeBodyLogin", { name: "iPhone", user: "kim@example.com" }),
+		);
+		expect(document.body.textContent).not.toContain(translate("mobileWeb.devices.revokeBody", { name: "iPhone" }));
+	});
+
+	it("keeps the device when the block is cancelled", async () => {
 		await mount();
 		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
 		await click(translate("common.cancel"));
@@ -548,6 +599,59 @@ describe("MobileWebSection devices", () => {
 		});
 		expect(document.body.querySelector('[data-web-device="device-pixel"]')).not.toBeNull();
 		expect(document.body.querySelector('[data-web-device="device-iphone"]')).toBeNull();
+	});
+});
+
+describe("MobileWebSection blocked devices", () => {
+	beforeEach(() => {
+		fake.set(readyMobileWebState());
+		fake.setBlocked([
+			blockedDevice(),
+			blockedDevice({
+				id: "login:lee@example.com",
+				scope: "login",
+				name: "Lee's phone",
+				tailscaleLogin: "lee@example.com",
+			}),
+		]);
+	});
+
+	it("lists a blocked device and a blocked login, and nothing while there are none", async () => {
+		await mount();
+		const node = document.body.querySelector('[data-web-blocked="node:nPIXEL1"]');
+		expect(node?.textContent).toContain("Pixel");
+		expect(node?.textContent).toContain(translate("mobileWeb.blocked.node", { user: "kim@example.com" }));
+		const login = document.body.querySelector('[data-web-blocked="login:lee@example.com"]');
+		expect(login?.textContent).toContain(translate("mobileWeb.blocked.login", { user: "lee@example.com" }));
+		for (const root of roots.splice(0)) {
+			await act(async () => {
+				root.unmount();
+			});
+		}
+		useMobileWebStore.getState().reset();
+		fake.setBlocked([]);
+		await mount();
+		expect(document.body.querySelector("[data-mobile-web-blocked]")).toBeNull();
+	});
+
+	it("unblocks through the device API and drops the entry", async () => {
+		await mount();
+		fake.setBlocked([blockedDevice({ id: "login:lee@example.com", scope: "login", name: "Lee's phone" })]);
+		await click(translate("mobileWeb.blocked.unblockLabel", { name: "Pixel" }));
+		expect(fake.api.devices.unblock).toHaveBeenCalledWith("node:nPIXEL1");
+		expect(document.body.querySelector('[data-web-blocked="node:nPIXEL1"]')).toBeNull();
+		expect(document.body.querySelector('[data-web-blocked="login:lee@example.com"]')).not.toBeNull();
+	});
+
+	it("reads the blocks again when the device list changes (a block was added or lifted)", async () => {
+		await mount();
+		fake.setBlocked([blockedDevice({ id: "node:nNEW", name: "Tablet" })]);
+		await act(async () => {
+			fake.pushDevices([]);
+			await Promise.resolve();
+		});
+		expect(document.body.querySelector('[data-web-blocked="node:nNEW"]')).not.toBeNull();
+		expect(document.body.querySelector('[data-web-blocked="node:nPIXEL1"]')).toBeNull();
 	});
 });
 

@@ -1,49 +1,25 @@
 /**
- * Settings › Mobile web, once it is `ready`: the link, then the three steps that add a phone — Tailscale on the
- * phone (a QR link per store and the download page), the same account, and the pairing QR. "Pair a phone" asks
- * main for a single-use code (`pairing.newCode`) and shows it with its m:ss countdown and the QR of the page
- * that takes it (`webPairingUrl`: the code rides the URL fragment); an expired code is replaced on its own.
+ * Settings › Mobile web, once it is `ready`: the link with a big Copy button and one QR of it, then the short
+ * steps that get a phone onto it — Tailscale on the phone (a QR link per store and the download page), the same
+ * account, open the link. There is no pairing code: a device signed in to an allowed Tailscale account connects on
+ * its first visit (the computer only hears of it afterwards, or asks first when that setting is on).
  */
-import { ExternalLink, QrCode as QrIcon, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { type MobileWebState, type WebPairingCode, webPairingUrl } from "../../../shared/mobile-web";
+import { Check, Copy, ExternalLink } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { MobileWebState } from "../../../shared/mobile-web";
+import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useNowTick } from "../../lib/now-tick";
-import { toastError } from "../../stores/toast";
-import { Button, CopyButton, Spinner } from "../common";
+import { toast } from "../../stores/toast";
+import { Button, Spinner } from "../common";
 import { QrCode } from "../common/QrCode";
-import { SettingsRow, SettingsSection } from "./SettingsLayout";
+import { SettingsSection } from "./SettingsLayout";
 import { IosInstallSteps } from "./WebNotificationsSection";
 
 const IOS_APP_URL = "https://apps.apple.com/app/tailscale/id1470499037";
 const ANDROID_APP_URL = "https://play.google.com/store/apps/details?id=com.tailscale.ipn";
 const DOWNLOAD_URL = "https://tailscale.com/download";
-
-/** m:ss until `expiresAt`. */
-function remaining(expiresAt: number, now: number): string {
-	const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-/** Selectable monospace value with a copy button. */
-function CopyableValue({ value, large }: { value: string; large?: boolean }) {
-	const t = useT();
-	return (
-		<span className="inline-flex min-w-0 items-center gap-1">
-			<span
-				className={
-					large
-						? "font-mono text-sc-xl font-semibold tracking-[0.12em] text-(--sc-text) select-all"
-						: "min-w-0 truncate font-mono text-sc-sm text-(--sc-text) select-all"
-				}
-				data-copyable={value}
-			>
-				{value}
-			</span>
-			<CopyButton label={t("remote.copy", { value })} text={value} />
-		</span>
-	);
-}
+/** How long the button reads "Copied" before it goes back to "Copy link". */
+const COPIED_MS = 1500;
 
 function StepNumber({ n }: { n: number }) {
 	return (
@@ -60,7 +36,7 @@ function StepNumber({ n }: { n: number }) {
 function StoreLink({ label, qrTitle, url }: { label: string; qrTitle: string; url: string }) {
 	return (
 		<div className="flex flex-col items-center gap-1" data-mobile-web-store={url}>
-			<QrCode size={88} title={qrTitle} value={url} />
+			<QrCode size={72} title={qrTitle} value={url} />
 			<Button
 				icon={<ExternalLink />}
 				onClick={() => void window.omp.system.openExternal(url)}
@@ -73,72 +49,36 @@ function StoreLink({ label, qrTitle, url }: { label: string; qrTitle: string; ur
 	);
 }
 
-/** "Pair a phone": the code, its countdown and QR; replaced when it expires. */
-function PairPhone({ url }: { url: string }) {
+/** The big Copy button: the label turns into "Copied" for a moment; a refused clipboard is a toast. */
+function CopyLinkButton({ url }: { url: string }) {
 	const t = useT();
-	const [code, setCode] = useState<WebPairingCode | null>(null);
-	const [busy, setBusy] = useState(false);
-	// Re-renders every second while a code counts down.
-	useNowTick(code !== null);
-	/** The expiry already handed to an automatic replacement, so a slow reply is not asked for twice. */
-	const replacedFor = useRef<number | null>(null);
-
-	const request = async () => {
-		setBusy(true);
-		try {
-			setCode(await window.omp.mobileWeb.pairing.newCode());
-		} catch (error) {
-			toastError({ title: t("mobileWeb.pairFailed"), error });
-		} finally {
-			setBusy(false);
-		}
-	};
-
+	const [copied, setCopied] = useState(false);
 	useEffect(() => {
-		if (!code || Date.now() < code.expiresAt || replacedFor.current === code.expiresAt) return;
-		replacedFor.current = code.expiresAt;
-		void request();
-	});
-
-	if (!code) {
-		return (
+		if (!copied) return;
+		const timer = window.setTimeout(() => setCopied(false), COPIED_MS);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+	return (
+		<>
 			<Button
-				data-mobile-web-pair
-				icon={<QrIcon />}
-				loading={busy}
-				onClick={() => void request()}
-				size="sm"
+				data-copied={copied || undefined}
+				data-mobile-web-copy
+				icon={copied ? <Check /> : <Copy />}
+				onClick={() => {
+					void copyText(url).then(ok => {
+						if (ok) setCopied(true);
+						else toast({ variant: "error", message: t("common.copyFailed") });
+					});
+				}}
+				size="lg"
 				variant="primary"
 			>
-				{t("mobileWeb.pair")}
+				{copied ? t("mobileWeb.linkCopied") : t("mobileWeb.copyLink")}
 			</Button>
-		);
-	}
-	return (
-		<div className="flex min-w-0 flex-wrap items-start gap-4" data-mobile-web-pairing>
-			<QrCode title={t("mobileWeb.pairQr")} value={webPairingUrl(url, code.code)} />
-			<div className="flex min-w-0 flex-1 basis-48 flex-col gap-2">
-				<div className="flex flex-wrap items-center gap-3">
-					<CopyableValue large value={code.code} />
-					<span className="text-sc-sm text-(--sc-text-muted) tabular-nums" data-mobile-web-code-expiry>
-						{t("remote.host.expiresIn", { time: remaining(code.expiresAt, Date.now()) })}
-					</span>
-				</div>
-				<p className="text-sc-xs break-words break-keep text-(--sc-text-muted)">{t("mobileWeb.pairHint")}</p>
-				<div>
-					<Button
-						data-mobile-web-pair
-						icon={<RefreshCw />}
-						loading={busy}
-						onClick={() => void request()}
-						size="sm"
-						variant="secondary"
-					>
-						{t("remote.host.newCode")}
-					</Button>
-				</div>
-			</div>
-		</div>
+			<span aria-live="polite" className="sr-only" role="status">
+				{copied ? t("common.copied") : ""}
+			</span>
+		</>
 	);
 }
 
@@ -146,11 +86,23 @@ export function MobileWebConnect({ state, url }: { state: MobileWebState; url: s
 	const t = useT();
 	return (
 		<SettingsSection description={t("mobileWeb.linkDesc")} title={t("mobileWeb.connect.title")}>
-			<SettingsRow id="settings-mobile-web-link" label={t("mobileWeb.link")}>
-				<CopyableValue value={url} />
-			</SettingsRow>
+			<div className="settings-row flex min-w-0 flex-wrap items-center gap-4 py-3" data-mobile-web-link>
+				<div className="flex min-w-0 flex-1 basis-56 flex-col gap-3">
+					<span
+						className="min-w-0 font-mono text-sc-lg break-all text-(--sc-text) select-all"
+						data-copyable={url}
+						id="settings-mobile-web-link"
+					>
+						{url}
+					</span>
+					<div>
+						<CopyLinkButton url={url} />
+					</div>
+				</div>
+				<QrCode size={132} title={t("mobileWeb.qr")} value={url} />
+			</div>
 			<div className="settings-row py-2">
-				<ol className="flex flex-col gap-4" data-mobile-web-steps>
+				<ol className="flex flex-col gap-3" data-mobile-web-steps>
 					<li className="flex min-w-0 gap-2.5">
 						<StepNumber n={1} />
 						<div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -196,10 +148,7 @@ export function MobileWebConnect({ state, url }: { state: MobileWebState; url: s
 					</li>
 					<li className="flex min-w-0 gap-2.5">
 						<StepNumber n={3} />
-						<div className="flex min-w-0 flex-1 flex-col gap-2">
-							<p className="text-sc-md">{t("mobileWeb.step3")}</p>
-							<PairPhone key={url} url={url} />
-						</div>
+						<p className="min-w-0 flex-1 text-sc-md break-words">{t("mobileWeb.step3")}</p>
 					</li>
 					<li className="flex min-w-0 gap-2.5" data-mobile-web-ios-install>
 						<StepNumber n={4} />

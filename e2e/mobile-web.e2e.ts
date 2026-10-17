@@ -2,8 +2,13 @@
  * Settings › Devices & connections › Mobile web, end to end on the fake omp and the fake Tailscale CLI
  * (`e2e/fixture/fake-tailscale-install.ts`, never the user's own Tailscale or its serve config):
  * - the switch on a signed-out Tailscale: the sign-in step, Sign in opens Tailscale's login page, the user
- *   signing in (the scenario changes) walks it to ready with the link, the connected phone and the pairing QR;
- * - a phone pairs with that code and talks to the built app's web server over /ws (`phoneRoundTrip`);
+ *   signing in (the scenario changes) walks it to ready with the link, a big Copy button, one QR of the link and
+ *   the connected phone (no pairing code anywhere);
+ * - a phone's first visit, sent the way `tailscale serve` hands requests on (the secret path prefix serve's target
+ *   carries, the Tailscale login and tailnet address headers): headers forged without the prefix get a 404 and no
+ *   device; through the prefix the device connects on its own, the desktop shows one notice, the phone talks to the
+ *   built app's web server over /ws (`phoneRoundTrip`); Block in the notice keeps it out (old cookie, the page, a
+ *   new connection) until Unblock in Settings; "Approve new devices on this computer" brings the dialog back;
  * - the user's own `443 → 127.0.0.1:3010` serve handler is never touched, no `serve reset` or `funnel` ever runs,
  *   and switching off removes only OMPdesk's own handler;
  * - a tailnet with HTTPS certificates off: the guidance names the public certificate log, the button opens the
@@ -122,8 +127,9 @@ const ownKeys = (tailscale: FixtureTailscale) =>
 const PUBLISHED = `${USER_SERVE_HOST}:47831`;
 
 /** One request to the app's loopback web server, carrying a Host `fetch` would not send. */
-function post(
+function send(
 	port: string,
+	method: "GET" | "POST",
 	pathname: string,
 	body: unknown,
 	headers: Record<string, string>,
@@ -138,8 +144,8 @@ function post(
 			host: "127.0.0.1",
 			port,
 			path: pathname,
-			method: "POST",
-			headers: { ...headers, "content-type": "application/json" },
+			method,
+			headers: method === "POST" ? { ...headers, "content-type": "application/json" } : headers,
 		},
 		res => {
 			const chunks: Buffer[] = [];
@@ -150,33 +156,60 @@ function post(
 		},
 	);
 	req.on("error", reject);
-	req.end(JSON.stringify(body));
+	req.end(method === "POST" ? JSON.stringify(body) : undefined);
 	return promise;
 }
 
+/** The fake `iphone` peer of the scenario: the tailnet address serve puts in `X-Forwarded-For`. */
+const PHONE_IP = "100.64.0.9";
+
 /**
- * A phone pairs with the code on screen and talks to the built app's web server over /ws, sent the way
- * `tailscale serve` hands requests on (loopback, the published Host and Origin, the Tailscale login), and the
- * desktop approves it. Every frame a WebSocket client sends is masked: v0.34.0's main process died on the first
- * one (`bufferUtil.unmask is not a function`, the bundler's empty stand-in for ws's optional `bufferutil`), which
+ * A phone's first visit, the way `tailscale serve` hands requests on, then Block and Unblock from the desktop.
+ * Every frame a WebSocket client sends is masked: v0.34.0's main process died on the first one
+ * (`bufferUtil.unmask is not a function`, the bundler's empty stand-in for ws's optional `bufferutil`), which
  * `src/main/web/server.test.ts` cannot see because it runs ws unbundled.
  */
-async function phoneRoundTrip(app: ElectronApplication, page: Page, tailscale: FixtureTailscale, code: string) {
+async function phoneRoundTrip(
+	app: ElectronApplication,
+	page: Page,
+	section: Locator,
+	tailscale: FixtureTailscale,
+	t: (key: string, vars?: Record<string, string | number>) => string,
+) {
 	const target = tailscale.scenario().serve.Web?.[PUBLISHED]?.Handlers["/"]?.Proxy;
 	if (!target) throw new Error(`no serve handler for ${PUBLISHED}`);
-	const { port } = new URL(target);
+	const { port, pathname } = new URL(target);
+	// Serve's target carries the install's secret path: only traffic that came through serve has it.
+	const prefix = pathname.replace(/\/$/, "");
+	expect(prefix).toMatch(/^\/[A-Za-z0-9_-]{43}$/);
 	const headers = {
 		host: PUBLISHED,
 		origin: `https://${PUBLISHED}`,
 		"tailscale-user-login": "seuput@example.com",
+		"x-forwarded-for": PHONE_IP,
 		"user-agent": "E2EPhone/1.0",
 	};
-	const pairing = post(port, "/api/pair", { code, name: "E2E phone", clientInstanceId: "e2e-phone" }, headers);
-	await page.locator("[data-web-pairing-approve]").click();
-	const paired = await pairing;
+	const devices = () => page.evaluate(() => window.omp.mobileWeb.devices.list());
+
+	// A local process can write the same headers, but not the prefix: nothing is served and no device is made.
+	const forged = await send(port, "POST", "/api/pair", { name: "forged", clientInstanceId: "forged" }, headers);
+	expect(forged.status, forged.body).toBe(404);
+	expect((await send(port, "GET", "/", undefined, headers)).status).toBe(404);
+	expect(await devices()).toEqual([]);
+
+	// The first visit through serve: the page, then the device connects on its own, named from `tailscale whois`.
+	const visit = await send(port, "GET", `${prefix}/`, undefined, headers);
+	expect(visit.status, visit.body).toBe(200);
+	const paired = await send(port, "POST", `${prefix}/api/pair`, { name: "E2E phone" }, headers);
 	expect(paired.status, paired.body).toBe(200);
+	expect(JSON.parse(paired.body)).toMatchObject({ name: "iphone" });
 	const cookie = (paired.headers["set-cookie"]?.[0] ?? "").split(";")[0] ?? "";
-	const session = await post(port, "/api/session", {}, { ...headers, cookie });
+	// One quiet notice on the desktop, with the way to block it; no approval dialog was asked.
+	await expect(page.locator("[data-toast-stack]")).toContainText(t("mobileWeb.notice.message", { name: "iphone" }));
+	await expect(page.locator("[data-web-pairing-approve]")).toHaveCount(0);
+	await expect(section.locator("[data-mobile-web-devices] [data-web-device]")).toHaveCount(1);
+
+	const session = await send(port, "POST", `${prefix}/api/session`, {}, { ...headers, cookie });
 	expect(session.status, session.body).toBe(200);
 	const { ticket } = JSON.parse(session.body) as { ticket: string };
 
@@ -187,7 +220,7 @@ async function phoneRoundTrip(app: ElectronApplication, page: Page, tailscale: F
 		Reflect.set(globalThis, "mainUncaught", uncaught);
 		process.on("uncaughtException", error => uncaught.push(String(error.stack ?? error)));
 	});
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
+	const socket = new WebSocket(`ws://127.0.0.1:${port}${prefix}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
 		headers: { ...headers, cookie },
 	});
 	try {
@@ -203,9 +236,49 @@ async function phoneRoundTrip(app: ElectronApplication, page: Page, tailscale: F
 			return uncaught.length > 0 ? uncaught : frames.find(frame => frame.t === "res")?.id;
 		};
 		await expect.poll(answer, { timeout: 15_000 }).toBe(1);
+
+		// Block in the notice: the socket closes, the cookie is dead, and the page and a new connection are refused.
+		const closed = once(socket, "close");
+		await page.locator("[data-toast-action]").click();
+		const [code] = await closed;
+		expect(code).toBe(4401);
 	} finally {
 		socket.terminate();
 	}
+	await expect.poll(devices).toEqual([]);
+	expect((await send(port, "POST", `${prefix}/api/session`, {}, { ...headers, cookie })).status).toBe(401);
+	const blockedPage = await send(port, "GET", `${prefix}/`, undefined, headers);
+	expect(blockedPage.status).toBe(403);
+	expect(blockedPage.body).toContain('data-refusal="blocked-node"');
+	const again = await send(port, "POST", `${prefix}/api/pair`, { name: "E2E phone" }, headers);
+	expect(again.status, again.body).toBe(403);
+	expect(JSON.parse(again.body)).toEqual({ error: "blocked" });
+	expect(await devices()).toEqual([]);
+
+	// Settings lists the block; Unblock lets the same device connect again.
+	await expect(section.locator("[data-web-blocked]")).toHaveCount(1);
+	await section.locator("[data-web-unblock]").click();
+	await expect(section.locator("[data-web-blocked]")).toHaveCount(0);
+	const back = await send(port, "POST", `${prefix}/api/pair`, { name: "E2E phone" }, headers);
+	expect(back.status, back.body).toBe(200);
+	await expect(section.locator("[data-mobile-web-devices] [data-web-device]")).toHaveCount(1);
+
+	// "Approve new devices on this computer": the visit waits for the desktop's dialog.
+	const confirm = section.locator('#settings-mobile-web-confirm [role="switch"]');
+	await confirm.click();
+	await expect(confirm).toHaveAttribute("aria-checked", "true");
+	const asked = send(
+		port,
+		"POST",
+		`${prefix}/api/pair`,
+		{ name: "E2E tablet" },
+		{ ...headers, "x-forwarded-for": "100.64.0.77" },
+	);
+	await page.locator("[data-web-pairing-approve]").click();
+	const approved = await asked;
+	expect(approved.status, approved.body).toBe(200);
+	await confirm.click();
+	await expect(confirm).toHaveAttribute("aria-checked", "false");
 }
 
 for (const language of ["en", "ko"] as const)
@@ -241,22 +314,28 @@ for (const language of ["en", "ko"] as const)
 				const link = `https://${USER_SERVE_HOST}:47831`;
 				await expect(section.locator(`[data-copyable="${link}"]`)).toHaveText(link);
 				await expect(section.locator("[data-mobile-web-phones]")).toContainText("iphone");
-				// OMPdesk's own handler is in place next to the user's, which stays as it was.
+				// OMPdesk's own handler is in place next to the user's, which stays as it was; serve's target is
+				// the loopback address plus the install's secret path.
 				expect(serveCalls(tailscale).some(argv => argv.includes("--https=47831") && argv.includes("--bg"))).toBe(
 					true,
 				);
 				expect(ownKeys(tailscale)).toEqual([`${USER_SERVE_HOST}:47831`]);
+				expect(tailscale.scenario().serve.Web?.[PUBLISHED]?.Handlers["/"]?.Proxy).toMatch(
+					/^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/,
+				);
 				userHandlerIntact(tailscale);
 
-				// Pair a phone: the code with its countdown and a QR of the pairing page.
-				await section.getByRole("button", { name: t("mobileWeb.pair"), exact: true }).click();
-				const pairing = section.locator("[data-mobile-web-pairing]");
-				const code = pairing.locator("[data-copyable]").first();
-				await expect(code).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
-				await expect(pairing.locator("[data-mobile-web-code-expiry]")).toContainText(/\d:\d\d/);
-				await expect(pairing.locator("svg[data-qr-code]")).toHaveAttribute("aria-label", t("mobileWeb.pairQr"));
-				expect(await pairing.locator("svg[data-qr-code] path").getAttribute("d")).toMatch(/^M4 4/);
+				// The link, one big Copy button and one QR of it; no pairing code, countdown or pair button.
+				await expect(section.locator("[data-mobile-web-copy]")).toHaveText(t("mobileWeb.copyLink"));
+				const qr = section.locator("[data-mobile-web-link] svg[data-qr-code]");
+				await expect(qr).toHaveAttribute("aria-label", t("mobileWeb.qr"));
+				expect(await qr.locator("path").getAttribute("d")).toMatch(/^M4 4/);
+				await expect(section.locator("[data-mobile-web-pairing], [data-mobile-web-pair]")).toHaveCount(0);
 				await expect(section.locator("[data-mobile-web-store]")).toHaveCount(2);
+				await expect(section.locator('#settings-mobile-web-confirm [role="switch"]')).toHaveAttribute(
+					"aria-checked",
+					"false",
+				);
 				await capture(page, `mobile-web-${language}-${theme}-4-ready`);
 				await section.screenshot({
 					animations: "disabled",
@@ -264,8 +343,8 @@ for (const language of ["en", "ko"] as const)
 				});
 				await expect(section.locator("[data-mobile-web-users]")).toContainText("seuput@example.com");
 
-				// A phone pairs with that code and talks to the built app over /ws.
-				await phoneRoundTrip(app, page, tailscale, (await code.textContent()) ?? "");
+				// A phone's first visit connects it on its own and talks to the built app over /ws; Block and Unblock.
+				await phoneRoundTrip(app, page, section, tailscale, t);
 
 				// Off removes OMPdesk's handler and nothing else.
 				await toggle.click();

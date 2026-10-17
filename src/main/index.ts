@@ -1113,8 +1113,9 @@ app.whenReady().then(() => {
 			openExternal: url => shell.openExternal(url),
 		},
 		allowedUsers: () => mobileWebService?.allowedUsers() ?? [],
-		// On unless the user turned it off: a phone is only paired after the desktop says yes.
-		confirmPairing: () => prefs.get("mobileWeb.confirmPairing") !== false,
+		// Off unless the user turned it on (Settings › Mobile web): a device Tailscale vouches for connects on its own.
+		confirmNewDevices: () => mobileWebService?.confirmNewDevices() ?? false,
+		whois: address => mobileWebService?.whois(address) ?? Promise.resolve(null),
 		onUnpairedAuth: () =>
 			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
@@ -1155,6 +1156,7 @@ app.whenReady().then(() => {
 		setup,
 		locate: async () =>
 			tailscaleOs
+		serveSecret: () => host.serveSecret(),
 				? locateTailscale(
 						systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
 							readBundleId(mac, execFileExecutor),

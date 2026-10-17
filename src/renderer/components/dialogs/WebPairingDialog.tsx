@@ -1,8 +1,8 @@
 /**
- * Desktop-only confirmation of a phone's pairing request (`mobileWeb.pairing.onRequest`): a phone entered a
- * valid single-use code and waits. The dialog shows who asks (name, browser, Tailscale user, address), lets
- * the user pick the access preset and answers Approve or Decline (`pairing.respond`). Closing it declines.
- * Requests queue; one that expires unanswered drops out.
+ * Desktop-only approval of a new device (`mobileWeb.pairing.onRequest`), asked only while "Approve new devices on
+ * this computer" is on: a device signed in to an allowed Tailscale account opened Mobile web and waits. The dialog
+ * shows who asks (name, browser, Tailscale user, address), lets the user pick the access preset and answers
+ * Approve or Decline (`pairing.respond`). Closing it declines. Requests queue; one that expires unanswered drops out.
  */
 import { useEffect, useState } from "react";
 import {

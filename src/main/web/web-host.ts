@@ -1,24 +1,27 @@
 /**
- * Mobile web's host side, assembled: the paired devices, pairing, the server with its router, the virtual
- * windows, uploads and blobs, and the desktop-facing handlers (`WEB_DEVICES_*`, the pairing code and the
- * confirm dialog's events). `index.ts` creates one `WebHost`; Mobile web's service (src/main/tailscale/)
- * starts and stops its server and tells it the published address.
+ * Mobile web's host side, assembled: the connected devices and the blocks, the desktop's say over a new device,
+ * the server with its router, the virtual windows, uploads and blobs, and the desktop-facing handlers
+ * (`WEB_DEVICES_*`, `WEB_BLOCKS_*`, the new-device notice and the approval dialog's events). `index.ts` creates one
+ * `WebHost`; Mobile web's service (src/main/tailscale/) starts and stops its server and tells it the published
+ * address and the secret path of its serve handler.
  */
 import { join } from "node:path";
 import { z } from "zod";
 import type { PeerLimits } from "../../shared/ipc-types";
 import {
+	WEB_BLOCKS_LIST,
+	WEB_BLOCKS_REMOVE,
+	WEB_DEVICE_CONNECTED,
 	WEB_DEVICES_CHANGED,
 	WEB_DEVICES_LIST,
 	WEB_DEVICES_RENAME,
 	WEB_DEVICES_REVOKE,
 	WEB_DEVICES_SET_GRANTS,
 	WEB_DEVICES_SET_LIMITS,
-	WEB_PAIRING_CODE_NEW,
 	WEB_PAIRING_REQUEST,
 	WEB_PAIRING_RESPOND,
+	type WebBlockedInfo,
 	type WebDeviceInfo,
-	type WebPairingCode,
 	webDeviceTier,
 } from "../../shared/mobile-web";
 import type { UiLanguage } from "../../shared/ui-language";
@@ -26,14 +29,17 @@ import { WEB_PERMISSIONS, type WebFeatures } from "../../shared/web-protocol";
 import { readModelsText, writeModelsText } from "../models-config";
 import { PeerQuota } from "../remote/peer-quota";
 import type { TabActivity, TabFacts } from "../sidecar-pool";
+import type { TailnetPeer } from "../tailscale/whois";
 import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
+import { WebBlocks } from "./blocks-store";
 import type { ClientWindow } from "./client-window";
 import { type WebDevice, WebDevices } from "./devices-store";
 import { createHostActions } from "./host-actions";
 import type { IpcRegistry } from "./ipc-registry";
-import { PairingConfirmations, WebPairing } from "./pairing";
+import { PairingConfirmations } from "./pairing";
 import { PushSender, type PushTransport } from "./push";
+import { ServeSecretStore } from "./serve-secret";
 import { WebServer } from "./server";
 import { UploadStore } from "./uploads";
 import { VapidStore } from "./vapid-store";
@@ -68,8 +74,10 @@ export interface WebHostDeps {
 	};
 	/** Tailscale logins that may reach the page (Mobile web's service decides). */
 	allowedUsers: () => readonly string[];
-	/** Ask the desktop before pairing a phone. */
-	confirmPairing: () => boolean;
+	/** Hold a new device until the desktop approves it (Settings › Mobile web, off by default). */
+	confirmNewDevices: () => boolean;
+	/** The node and user behind a tailnet address (`tailscale whois`); null when it cannot say. */
+	whois: (address: string) => Promise<TailnetPeer | null>;
 	onUnpairedAuth: (info: { address: string }) => void;
 	features?: Partial<WebFeatures>;
 	now?: () => number;
@@ -93,10 +101,11 @@ const Grants = z.array(z.enum(WEB_PERMISSIONS)).max(WEB_PERMISSIONS.length);
 const Count = z.number().int().nonnegative();
 const Limits = z.object({ requestsPerDay: Count.optional(), tokensPerDay: Count.optional() });
 const PairingResponse = z.object({ id: z.string().min(1), approve: z.boolean(), grants: Grants.optional() });
+const BlockId = z.string().min(1).max(400);
 
 export class WebHost {
 	readonly devices: WebDevices;
-	readonly pairing: WebPairing;
+	readonly blocks: WebBlocks;
 	readonly server: WebServer;
 	readonly router: WsRouter;
 	readonly windows: WebWindows;
@@ -108,6 +117,7 @@ export class WebHost {
 	readonly vapid: VapidStore;
 	readonly sender: PushSender;
 	readonly notifier: WebPushNotifier;
+	readonly #serveSecret: ServeSecretStore;
 	#sweeper: ReturnType<typeof setInterval> | undefined;
 
 	constructor(deps: WebHostDeps) {
@@ -125,7 +135,8 @@ export class WebHost {
 		this.quota = new PeerQuota(this.devices, () => this.devices.notifyChanged());
 		this.blobs = new BlobStore({ now });
 		this.uploads = new UploadStore({ root: join(deps.userData, "web-uploads"), now });
-		this.pairing = new WebPairing(now);
+		this.blocks = new WebBlocks(deps.userData, now);
+		this.#serveSecret = new ServeSecretStore(deps.userData);
 		this.confirmations = new PairingConfirmations({
 			notify: request => this.#toDesktop(WEB_PAIRING_REQUEST, request),
 			now,
@@ -168,15 +179,22 @@ export class WebHost {
 			host: "127.0.0.1",
 			publicPort: 0,
 			secure: false,
-			requireIdentity: false,
+			servePrefix: null,
 			allowedUsers: deps.allowedUsers,
 		};
 		this.server = new WebServer({
 			policy,
 			devices: this.devices,
-			pairing: this.pairing,
+			blocks: this.blocks,
 			confirmations: this.confirmations,
-			confirmPairing: deps.confirmPairing,
+			confirmNewDevices: deps.confirmNewDevices,
+			whois: deps.whois,
+			onDeviceConnected: device =>
+				this.#toDesktop(WEB_DEVICE_CONNECTED, {
+					id: device.deviceId,
+					name: device.name,
+					tailscaleLogin: device.tailscaleLogin,
+				}),
 			router: this.router,
 			uploads: this.uploads,
 			blobs: this.blobs,
@@ -190,6 +208,8 @@ export class WebHost {
 			this.#release(deviceId);
 		});
 		this.devices.onChanged(() => this.#toDesktop(WEB_DEVICES_CHANGED, this.list()));
+		// A block added or lifted changes what the device list's block scopes mean: the desktop reads both again.
+		this.blocks.onChanged(() => this.devices.notifyChanged());
 		this.#register();
 	}
 
@@ -203,12 +223,17 @@ export class WebHost {
 		return started;
 	}
 
-	/** Stop serving: sockets close (1001), the pairing code and pending confirmations are dropped; devices stay paired. */
+	/** Stop serving: sockets close (1001) and pending approvals are declined; devices stay connected, blocks stay. */
 	async stop(): Promise<void> {
 		clearInterval(this.#sweeper);
 		this.#sweeper = undefined;
 		this.notifier.dispose();
 		await this.server.stop();
+	}
+
+	/** The secret path of the serve handler's target (made on first use, kept 0600). */
+	serveSecret(): string {
+		return this.#serveSecret.get();
 	}
 
 	/**
@@ -244,7 +269,30 @@ export class WebHost {
 			tier: webDeviceTier(device.grants),
 			limits: device.limits ?? {},
 			usage: this.quota.usage(device),
+			blockScope: device.nodeId ? "node" : "login",
 		};
+	}
+
+	/**
+	 * Block a device: the record of its Tailscale node (or, with no node identity, of its login) is kept apart so the
+	 * next visit cannot make a new one, and every record of that node or login is revoked. False when it is unknown.
+	 */
+	block(deviceId: string): boolean {
+		const device = this.devices.get(deviceId);
+		if (!device) return false;
+		const nodeId = device.nodeId ?? null;
+		const login = device.tailscaleLogin;
+		const sameKey = (other: WebDevice): boolean =>
+			nodeId !== null ? other.nodeId === nodeId : other.tailscaleLogin?.toLowerCase() === login?.toLowerCase();
+		if (nodeId !== null) {
+			this.blocks.add({ scope: "node", key: nodeId, name: device.name, tailscaleLogin: login });
+		} else if (login !== null) {
+			this.blocks.add({ scope: "login", key: login, name: device.name, tailscaleLogin: login });
+		} else {
+			return this.devices.revoke(deviceId);
+		}
+		for (const other of this.devices.list()) if (sameKey(other)) this.devices.revoke(other.deviceId);
+		return true;
 	}
 
 	/** A revoked or expired device: its sockets close, its tabs and files are released. */
@@ -265,8 +313,13 @@ export class WebHost {
 		const { ipc } = this.#deps;
 		ipc.handle(WEB_DEVICES_LIST, () => this.list());
 		ipc.handle(WEB_DEVICES_REVOKE, (_caller, deviceId: unknown) => {
-			this.devices.revoke(DeviceId.parse(deviceId));
+			this.block(DeviceId.parse(deviceId));
 			return this.list();
+		});
+		ipc.handle(WEB_BLOCKS_LIST, (): WebBlockedInfo[] => this.blocks.list());
+		ipc.handle(WEB_BLOCKS_REMOVE, (_caller, blockId: unknown): WebBlockedInfo[] => {
+			this.blocks.remove(BlockId.parse(blockId));
+			return this.blocks.list();
 		});
 		ipc.handle(WEB_DEVICES_RENAME, (_caller, deviceId: unknown, name: unknown) => {
 			this.devices.rename(DeviceId.parse(deviceId), Name.parse(name));
@@ -282,7 +335,6 @@ export class WebHost {
 			this.devices.notifyChanged();
 			return this.list();
 		});
-		ipc.handle(WEB_PAIRING_CODE_NEW, (): WebPairingCode => this.pairing.issue());
 		ipc.handle(WEB_PAIRING_RESPOND, (_caller, response: unknown) => {
 			this.confirmations.respond(PairingResponse.parse(response));
 		});

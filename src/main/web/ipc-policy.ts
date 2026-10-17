@@ -15,13 +15,15 @@ import {
 	MOBILE_WEB_COMMAND,
 	MOBILE_WEB_GET_STATE,
 	MOBILE_WEB_STATE,
+	WEB_BLOCKS_LIST,
+	WEB_BLOCKS_REMOVE,
+	WEB_DEVICE_CONNECTED,
 	WEB_DEVICES_CHANGED,
 	WEB_DEVICES_LIST,
 	WEB_DEVICES_RENAME,
 	WEB_DEVICES_REVOKE,
 	WEB_DEVICES_SET_GRANTS,
 	WEB_DEVICES_SET_LIMITS,
-	WEB_PAIRING_CODE_NEW,
 	WEB_PAIRING_REQUEST,
 	WEB_PAIRING_RESPOND,
 } from "../../shared/mobile-web";
@@ -79,8 +81,10 @@ export type IpcChannel =
 	| typeof WEB_DEVICES_RENAME
 	| typeof WEB_DEVICES_SET_GRANTS
 	| typeof WEB_DEVICES_SET_LIMITS
+	| typeof WEB_BLOCKS_LIST
+	| typeof WEB_BLOCKS_REMOVE
 	| typeof WEB_DEVICES_CHANGED
-	| typeof WEB_PAIRING_CODE_NEW
+	| typeof WEB_DEVICE_CONNECTED
 	| typeof WEB_PAIRING_REQUEST
 	| typeof WEB_PAIRING_RESPOND
 	| "terminal:shells"
@@ -341,6 +345,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		mode: "web",
 		web: "Confirmation sheet on the phone, then a reconnect after the restart",
 	},
+	[C.UPDATER_POSTPONE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.UPDATER_INSTALL_MODE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_GET_STATUS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_VERSION]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_AUTH_INFO]: { dir: "invoke", permission: "host-admin", mode: "pass" },
@@ -372,7 +378,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[WEB_DEVICES_RENAME]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 	[WEB_DEVICES_SET_GRANTS]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 	[WEB_DEVICES_SET_LIMITS]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
-	[WEB_PAIRING_CODE_NEW]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_BLOCKS_LIST]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
+	[WEB_BLOCKS_REMOVE]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 	[WEB_PAIRING_RESPOND]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 
 	// GitHub sign-in on the host.
@@ -464,6 +471,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[SSH_TOOLS_PROMPT]: { dir: "push", mode: "pass" },
 	[MOBILE_WEB_STATE]: { dir: "push", mode: "pass" },
 	[WEB_DEVICES_CHANGED]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
+	[WEB_DEVICE_CONNECTED]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
 	[WEB_PAIRING_REQUEST]: { dir: "push", mode: "transform", web: "Sent to desktop windows only" },
 	[AGENT_CONTROL_VIEW]: { dir: "push", mode: "pass" },
 	[AGENT_CONTROL_REVIEW]: { dir: "push", mode: "pass" },

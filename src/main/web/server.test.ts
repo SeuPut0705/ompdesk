@@ -1,8 +1,11 @@
 /**
- * The whole web server on an ephemeral loopback port: static allowlist, request checks, pairing with the
- * desktop's confirmation, the key-proof session ticket, a WebSocket that invokes a passthrough channel against
- * a fake handler, uploads and blobs, and revocation closing the socket. Only Electron is faked (the IPC
- * registry and the desktop window); the server, router, stores and `ws` are the real ones.
+ * The whole web server on an ephemeral loopback port, behind the secret path prefix `tailscale serve`'s target
+ * carries and with the identity headers it adds: static allowlist, request checks, a device connecting on its first
+ * visit (and with the desktop's approval when that is on), which account may open the page, forged headers without
+ * the prefix, blocking and unblocking a device, the key-proof session ticket, a WebSocket that invokes a
+ * passthrough channel against a fake handler, uploads and blobs, and revocation closing the socket. Only Electron
+ * is faked (the IPC registry, the desktop window and `tailscale whois`); the server, router, stores and `ws` are
+ * the real ones.
  */
 import { createECDH, generateKeyPairSync, type KeyObject, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -13,14 +16,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import {
+	WEB_BLOCKS_LIST,
+	WEB_BLOCKS_REMOVE,
+	WEB_DEVICE_CONNECTED,
 	WEB_DEVICES_LIST,
+	WEB_DEVICES_REVOKE,
 	WEB_PAIRING_REQUEST,
+	type WebBlockedInfo,
 	type WebDeviceInfo,
 	type WebPairingRequest,
 } from "../../shared/mobile-web";
 import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host";
 import type { WebServerFrame } from "../../shared/web-protocol";
 import type { WebPushStateResponse } from "../../shared/web-push";
+import type { TailnetPeer } from "../tailscale/whois";
 import type { ClientWindow } from "./client-window";
 import type { IpcCaller } from "./ipc-registry";
 import { WebHost, type WebHostDeps } from "./web-host";
@@ -35,9 +44,20 @@ let port: number;
 let handlers: Map<string, Handler>;
 let desktopSent: { channel: string; payload: unknown }[];
 let unpaired: ReturnType<typeof vi.fn>;
-let confirm: boolean;
+let confirmNew: boolean;
 let approve: boolean;
 let sockets: WebSocket[];
+let peers: Map<string, TailnetPeer>;
+let allowed: string[];
+let realFetch: typeof fetch;
+
+/** The secret first path segment of the serve target; a request carries it only when it came through serve. */
+const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+const LOGIN = "me@example.com";
+/** The phone's tailnet address, as serve writes it into `X-Forwarded-For`. */
+const PEER_IP = "100.64.0.9";
+/** What serve adds to every request it forwards. */
+const IDENTITY: Record<string, string> = { "tailscale-user-login": LOGIN, "x-forwarded-for": PEER_IP };
 
 const PAGE = "<!doctype html><title>OMPdesk</title>";
 const SCRIPT = `${"console.log('x');".repeat(200)}\n`;
@@ -70,9 +90,11 @@ beforeEach(async () => {
 	handlers = new Map();
 	desktopSent = [];
 	unpaired = vi.fn();
-	confirm = true;
+	confirmNew = false;
 	approve = true;
 	sockets = [];
+	allowed = [LOGIN];
+	peers = new Map([[PEER_IP, { nodeId: "nPHONE1", nodeName: "s25u", login: LOGIN }]]);
 	const deps: WebHostDeps = {
 		ipc: {
 			handle: <A extends unknown[]>(channel: string, handler: (caller: IpcCaller, ...args: A) => unknown): void => {
@@ -91,19 +113,27 @@ beforeEach(async () => {
 		tabs: { activeTab: () => null, cwd: () => null, facts: () => null },
 		openMedia: async () => new Response(null, { status: 404 }),
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
-		allowedUsers: () => [],
-		confirmPairing: () => confirm,
+		allowedUsers: () => allowed,
+		confirmNewDevices: () => confirmNew,
+		whois: async address => peers.get(address) ?? null,
 		onUnpairedAuth: unpaired,
 		language: () => "en",
 		batchNotifications: () => true,
 	};
 	host = new WebHost(deps);
 	({ port } = await host.start({ port: 0 }));
-	base = `http://127.0.0.1:${port}`;
+	// What the service tells the server once serve is published: this address and the secret path.
+	host.server.configure({ host: "127.0.0.1", publicPort: port, secure: false, servePrefix: SECRET });
+	base = `http://127.0.0.1:${port}/${SECRET}`;
+	// Every request of the tests carries serve's identity headers unless a test overrides one.
+	realFetch = globalThis.fetch;
+	vi.stubGlobal("fetch", (input: Parameters<typeof fetch>[0], init: RequestInit = {}) =>
+		realFetch(input, { ...init, headers: { ...IDENTITY, ...(init.headers as Record<string, string> | undefined) } }),
+	);
 });
 
 afterEach(async () => {
-	for (const socket of sockets) socket.terminate();
+	vi.unstubAllGlobals();
 	await host.stop();
 	rmSync(userData, { recursive: true, force: true });
 	rmSync(staticRoot, { recursive: true, force: true });
@@ -119,27 +149,46 @@ function post(path: string, body: unknown, headers: Record<string, string> = {})
 	});
 }
 
-/** A raw request, for a path or Host that `fetch` would normalise. */
-function raw(
-	path: string,
+/** A raw request at `target` exactly as written (the secret prefix is the caller's), with serve's headers. */
+function rawAt(
+	target: string,
 	headers: Record<string, string> = {},
 	method = "GET",
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
-	return new Promise((resolve, reject) => {
-		const req = http.request(
-			{ host: "127.0.0.1", port, path, method, headers: { host: `127.0.0.1:${port}`, ...headers } },
-			res => {
-				const chunks: Buffer[] = [];
-				res.on("data", chunk => chunks.push(chunk as Buffer));
-				res.on("end", () =>
-					resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString() }),
-				);
-			},
-		);
-		req.on("error", reject);
-		req.end();
-	});
+	const { promise, resolve, reject } = Promise.withResolvers<{
+		status: number;
+		headers: http.IncomingHttpHeaders;
+		body: string;
+	}>();
+	const req = http.request(
+		{
+			host: "127.0.0.1",
+			port,
+			path: target,
+			method,
+			headers: { host: `127.0.0.1:${port}`, ...IDENTITY, ...headers },
+		},
+		res => {
+			const chunks: Buffer[] = [];
+			res.on("data", chunk => chunks.push(chunk as Buffer));
+			res.on("end", () =>
+				resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString() }),
+			);
+		},
+	);
+	req.on("error", reject);
+	req.end();
+	return promise;
 }
+
+/** A raw request through serve (the prefix added), for a path or Host that `fetch` would normalise. */
+function raw(path: string, headers: Record<string, string> = {}, method = "GET") {
+	return rawAt(`/${SECRET}${path}`, headers, method);
+}
+
+/** What the desktop was sent on `channel`. */
+const sent = (channel: string): unknown[] =>
+	desktopSent.filter(item => item.channel === channel).map(item => item.payload);
 
 interface Paired {
 	cookie: string;
@@ -148,12 +197,10 @@ interface Paired {
 }
 
 async function pair(options: { withKey?: boolean; name?: string } = {}): Promise<Paired> {
-	const { code } = host.pairing.issue();
 	const keys = options.withKey === false ? null : generateKeyPairSync("ec", { namedCurve: "P-256" });
 	const response = await post(
 		"/api/pair",
 		{
-			code,
 			name: options.name ?? "Test phone",
 			clientInstanceId: "browser-1",
 			...(keys ? { publicKeyJwk: keys.publicKey.export({ format: "jwk" }) } : {}),
@@ -188,10 +235,11 @@ function open(
 	headers: Record<string, string> = {},
 ): Promise<{ socket: WebSocket; frames: WebServerFrame[] }> {
 	return new Promise((resolve, reject) => {
-		const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
+		const socket = new WebSocket(`ws://127.0.0.1:${port}/${SECRET}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
 			headers: {
 				origin: origin(),
 				"user-agent": "TestBrowser/1.0",
+				...IDENTITY,
 				...(paired ? { cookie: paired.cookie } : {}),
 				...headers,
 			},
@@ -295,68 +343,69 @@ describe("static files", () => {
 	});
 });
 
-describe("pairing", () => {
-	it("answers 404 until a code is issued, so the endpoint tells a guesser nothing", async () => {
-		expect((await post("/api/pair", { code: "ABCD-EFGH", name: "x" })).status).toBe(404);
-	});
-
-	it("pairs with the right code after the desktop approves, sets a hardened cookie and spends the code", async () => {
-		const { code } = host.pairing.issue();
-		const response = await post("/api/pair", { code, name: "iPhone" }, { "user-agent": "Safari/1" });
+describe("connecting a device", () => {
+	it("makes the device on the first visit of an allowed login: hardened cookie, named from whois, the desktop told once", async () => {
+		const response = await post("/api/pair", { name: "Android phone · Chrome" }, { "user-agent": "Safari/1" });
 		expect(response.status).toBe(200);
 		const cookie = response.headers.get("set-cookie") ?? "";
 		expect(cookie).toMatch(/^ompdesk=[\w-]+\.[\w-]{43};/);
 		expect(cookie).toContain("HttpOnly");
 		expect(cookie).toContain("SameSite=Strict");
-		expect(await response.json()).toMatchObject({ name: "iPhone", grants: expect.arrayContaining(["workspace"]) });
-		const request = desktopSent.find(sent => sent.channel === WEB_PAIRING_REQUEST)?.payload as WebPairingRequest;
-		expect(request).toMatchObject({ name: "iPhone", userAgent: "Safari/1", tailscaleLogin: null });
-		expect(request.grants).not.toContain("pairing-admin");
-		expect((await post("/api/pair", { code, name: "again" })).status).toBe(404);
+		expect(await response.json()).toMatchObject({ name: "s25u", grants: expect.arrayContaining(["workspace"]) });
 		const [device] = host.devices.list();
-		expect(device).toMatchObject({ name: "iPhone", userAgent: "Safari/1" });
+		expect(device).toMatchObject({ name: "s25u", userAgent: "Safari/1", tailscaleLogin: LOGIN, nodeId: "nPHONE1" });
 		expect(device?.grants).not.toContain("pairing-admin");
+		expect(sent(WEB_PAIRING_REQUEST)).toEqual([]);
+		expect(sent(WEB_DEVICE_CONNECTED)).toEqual([{ id: device?.deviceId, name: "s25u", tailscaleLogin: LOGIN }]);
 	});
 
-	it("applies the grants the desktop picked in its dialog", async () => {
+	it("compares an encoded login after decoding", async () => {
+		const encoded = "=?utf-8?q?ME=40Example.com?=";
+		expect((await post("/api/pair", { name: "x" }, { "tailscale-user-login": encoded })).status).toBe(200);
+	});
+
+	it("names the device from the page when whois cannot say, and keeps it without a node identity", async () => {
+		const response = await post("/api/pair", { name: "iPhone · Safari" }, { "x-forwarded-for": "100.64.0.77" });
+		expect(response.status).toBe(200);
+		expect(host.devices.list()[0]).toMatchObject({ name: "iPhone · Safari", nodeId: null });
+		expect((await post("/api/pair", { name: "  " }, { "x-forwarded-for": "100.64.0.78" })).status).toBe(200);
+		expect(host.devices.list().map(device => device.name)).toContain("Phone");
+	});
+
+	it("refuses a login that whois does not put behind the address", async () => {
+		peers.set(PEER_IP, { nodeId: "nOTHER", nodeName: "laptop", login: "kim@example.com" });
+		const response = await post("/api/pair", { name: "x" });
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "identity_mismatch" });
+		expect(host.devices.list()).toEqual([]);
+	});
+
+	it("asks the desktop first when the setting is on, applies the grants it picked and sends no notice", async () => {
+		confirmNew = true;
 		const original = host.confirmations.respond.bind(host.confirmations);
 		vi.spyOn(host.confirmations, "respond").mockImplementation(response =>
 			original({ ...response, grants: ["workspace", "device-self"] }),
 		);
 		const paired = await pair();
 		expect(host.devices.get(paired.deviceId)?.grants).toEqual(["workspace", "device-self"]);
+		const [request] = sent(WEB_PAIRING_REQUEST) as WebPairingRequest[];
+		expect(request).toMatchObject({ name: "s25u", tailscaleLogin: LOGIN, ip: PEER_IP });
+		expect(request?.grants).not.toContain("pairing-admin");
+		expect(sent(WEB_DEVICE_CONNECTED)).toEqual([]);
 	});
 
-	it("refuses when the desktop declines, and the code is spent", async () => {
+	it("makes no device when the desktop declines", async () => {
+		confirmNew = true;
 		approve = false;
-		const { code } = host.pairing.issue();
-		const response = await post("/api/pair", { code, name: "x" });
+		const response = await post("/api/pair", { name: "x" });
 		expect(response.status).toBe(403);
 		expect(await response.json()).toEqual({ error: "declined" });
 		expect(host.devices.list()).toEqual([]);
-		expect((await post("/api/pair", { code, name: "x" })).status).toBe(404);
-	});
-
-	it("pairs without asking when the user turned the confirmation off", async () => {
-		confirm = false;
-		await pair();
-		expect(desktopSent.filter(sent => sent.channel === WEB_PAIRING_REQUEST)).toEqual([]);
-		expect(host.devices.list()).toHaveLength(1);
-	});
-
-	it("counts wrong codes, replaces the code at the fifth, backs off, and limits per address", async () => {
-		const { code } = host.pairing.issue();
-		const wrong = await post("/api/pair", { code: "0000-0000", name: "x" });
-		expect(wrong.status).toBe(403);
-		expect(await wrong.json()).toEqual({ error: "wrong_code" });
-		const backoff = await post("/api/pair", { code, name: "x" });
-		expect(backoff.status).toBe(429);
-		expect(backoff.headers.get("retry-after")).toBe("1");
+		expect(sent(WEB_DEVICE_CONNECTED)).toEqual([]);
 	});
 
 	it("rejects a malformed body, a wrong content type and a private key", async () => {
-		host.pairing.issue();
-		expect((await post("/api/pair", { name: "no code" })).status).toBe(400);
+		expect((await post("/api/pair", { name: 5 })).status).toBe(400);
 		const text = await fetch(`${base}/api/pair`, {
 			method: "POST",
 			headers: { "content-type": "text/plain", origin: origin() },
@@ -364,19 +413,205 @@ describe("pairing", () => {
 		});
 		expect(text.status).toBe(415);
 		const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-		const { code } = host.pairing.issue();
-		const leaked = await post("/api/pair", { code, name: "x", publicKeyJwk: privateKey.export({ format: "jwk" }) });
+		const leaked = await post("/api/pair", { name: "x", publicKeyJwk: privateKey.export({ format: "jwk" }) });
 		expect(leaked.status).toBe(400);
+		expect(host.devices.list()).toEqual([]);
+	});
+
+	it("limits an address to 10 tries a minute and the host to 20 new devices an hour", async () => {
+		const statuses: number[] = [];
+		for (let i = 0; i < 11; i++) statuses.push((await post("/api/pair", { name: "x" })).status);
+		expect(statuses.filter(status => status === 200)).toHaveLength(10);
+		expect(statuses.at(-1)).toBe(429);
+		for (let i = 0; i < 10; i++) {
+			const response = await post("/api/pair", { name: "x" }, { "x-forwarded-for": `100.64.2.${i}` });
+			expect(response.status).toBe(200);
+		}
+		const capped = await post("/api/pair", { name: "x" }, { "x-forwarded-for": "100.64.3.1" });
+		expect(capped.status).toBe(429);
+		expect(capped.headers.get("retry-after")).toBe("3600");
+		expect(host.devices.list()).toHaveLength(20);
+	});
+});
+
+describe("which account may open the page", () => {
+	it("tells a login that is not allowed which account to use, in the browser's language", async () => {
+		const other = { "tailscale-user-login": "kim@example.com" };
+		const english = await raw("/", other);
+		expect(english.status).toBe(403);
+		expect(english.headers["content-type"]).toContain("text/html");
+		expect(english.headers["cache-control"]).toBe("no-store");
+		expect(english.body).toContain("kim@example.com");
+		expect(english.body).toContain(LOGIN);
+		expect(english.body).toContain('data-refusal="user-not-allowed"');
+		const korean = await raw("/pair", { ...other, "accept-language": "ko-KR,ko;q=0.9" });
+		expect(korean.status).toBe(403);
+		expect(korean.body).toContain("이 계정으로는 열 수 없어요");
+		expect(korean.body).not.toContain(PAGE);
+	});
+
+	it("answers an API call of a login that is not allowed with a JSON error and makes no device", async () => {
+		const response = await post("/api/pair", { name: "x" }, { "tailscale-user-login": "kim@example.com" });
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "tailscale_user_not_allowed" });
+		expect(host.devices.list()).toEqual([]);
+		expect(sent(WEB_DEVICE_CONNECTED)).toEqual([]);
+	});
+
+	it("refuses a request with no Tailscale login (a tagged device) and says so on the page", async () => {
+		const response = await post("/api/pair", { name: "x" }, { "tailscale-user-login": "" });
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: "no_tailscale_user" });
+		const page = await raw("/", { "tailscale-user-login": "" });
+		expect(page.status).toBe(403);
+		expect(page.body).toContain('data-refusal="no-user"');
+		expect(host.devices.list()).toEqual([]);
+	});
+
+	it("lets a login in once the user allows it", async () => {
+		allowed = [LOGIN, "kim@example.com"];
+		expect((await raw("/", { "tailscale-user-login": "kim@example.com" })).status).toBe(200);
+	});
+
+	it("never serves a Funnel request, whatever login it claims", async () => {
+		const funnel = { "tailscale-funnel-request": "?1" };
+		expect((await raw("/", funnel)).status).toBe(403);
+		expect((await post("/api/pair", { name: "x" }, funnel)).status).toBe(403);
+		expect(host.devices.list()).toEqual([]);
+	});
+});
+
+describe("headers forged on the loopback", () => {
+	it("trusts nothing that did not come through serve: no prefix, a wrong prefix or no secret yet is a 404", async () => {
+		// A local process can write Tailscale-User-Login and X-Forwarded-For, but not the prefix serve adds.
+		const direct = `http://127.0.0.1:${port}`;
+		const forged = { "content-type": "application/json", origin: origin(), ...IDENTITY };
+		const pairDirect = await realFetch(`${direct}/api/pair`, { method: "POST", headers: forged, body: "{}" });
+		expect(pairDirect.status).toBe(404);
+		expect((await rawAt("/")).status).toBe(404);
+		expect((await rawAt("/pair")).status).toBe(404);
+		expect((await rawAt("/healthz")).status).toBe(404);
+		expect((await rawAt("/assets/app-abc.js")).status).toBe(404);
+		expect((await rawAt(`/${SECRET.slice(0, -1)}X/api/pair`, {}, "POST")).status).toBe(404);
+		expect((await rawAt(`/x/${SECRET}/`)).status).toBe(404);
+		expect(host.devices.list()).toEqual([]);
+		expect(sent(WEB_DEVICE_CONNECTED)).toEqual([]);
+		// Not even the page that names an account: nothing answers without the prefix.
+		expect((await rawAt("/", { "tailscale-user-login": "kim@example.com" })).body).not.toContain("kim@example.com");
+		host.server.configure({ servePrefix: null });
+		expect((await raw("/")).status).toBe(404);
+	});
+
+	it("refuses a WebSocket upgrade without the prefix", async () => {
+		const paired = await pair();
+		const ticket = await ticketFor(paired);
+		const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
+			headers: { origin: origin(), cookie: paired.cookie, ...IDENTITY },
+		});
+		sockets.push(socket);
+		const status = await new Promise<number>(resolve => {
+			socket.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+			socket.once("error", () => resolve(0));
+		});
+		expect(status).toBe(404);
+	});
+});
+
+describe("blocking a device", () => {
+	const list = async () => (await handlers.get(WEB_DEVICES_LIST)?.({} as IpcCaller)) as WebDeviceInfo[];
+	const blockedList = async () => (await handlers.get(WEB_BLOCKS_LIST)?.({} as IpcCaller)) as WebBlockedInfo[];
+
+	it("keeps a revoked device out: its cookie, the page and a new connection are all refused until it is unblocked", async () => {
+		const paired = await pair();
+		expect(await list()).toMatchObject([{ id: paired.deviceId, blockScope: "node" }]);
+		const left = await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, paired.deviceId);
+		expect(left).toEqual([]);
+		expect(host.devices.list()).toEqual([]);
+		expect((await post("/api/session", {}, { cookie: paired.cookie })).status).toBe(401);
+
+		const page = await raw("/", { "accept-language": "ko" });
+		expect(page.status).toBe(403);
+		expect(page.body).toContain("이 기기는 차단됐어요");
+		expect(page.body).toContain('data-refusal="blocked-node"');
+		const again = await post("/api/pair", { name: "x" });
+		expect(again.status).toBe(403);
+		expect(await again.json()).toEqual({ error: "blocked" });
+		expect(host.devices.list()).toEqual([]);
+
+		const blocked = await blockedList();
+		expect(blocked).toMatchObject([{ scope: "node", name: "s25u", tailscaleLogin: LOGIN }]);
+		const afterUnblock = await handlers.get(WEB_BLOCKS_REMOVE)?.({} as IpcCaller, blocked[0]?.id);
+		expect(afterUnblock).toEqual([]);
+		expect((await raw("/")).status).toBe(200);
+		expect((await pair()).deviceId).not.toBe(paired.deviceId);
+	});
+
+	it("blocks the node, not the login: another device of the same login still connects", async () => {
+		const first = await pair();
+		peers.set("100.64.0.10", { nodeId: "nTABLET", nodeName: "tablet", login: LOGIN });
+		const tablet = await post("/api/pair", { name: "t" }, { "x-forwarded-for": "100.64.0.10" });
+		expect(tablet.status).toBe(200);
+		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		expect(host.devices.list().map(device => device.name)).toEqual(["tablet"]);
+		const visit = await raw("/", { "x-forwarded-for": "100.64.0.10" });
+		expect(visit.status).toBe(200);
+		expect((await raw("/")).status).toBe(403);
+	});
+
+	it("revokes every record of the blocked node, closing its sockets with 4401", async () => {
+		const first = await pair({ name: "Safari" });
+		await pair({ name: "Home Screen app" });
+		const { socket, frames } = await open(first, await ticketFor(first));
+		await until(() => frames.length > 0);
+		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
+		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		expect(await closed).toBe(4401);
+		expect(host.devices.list()).toEqual([]);
+	});
+
+	it("lets a device with a cookie keep working while whois is down", async () => {
+		const first = await pair();
+		peers.set("100.64.0.10", { nodeId: "nTABLET", nodeName: "tablet", login: LOGIN });
+		const tablet = await post("/api/pair", { name: "t" }, { "x-forwarded-for": "100.64.0.10" });
+		const tabletCookie = (tablet.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		peers.clear();
+		expect((await raw("/", { cookie: tabletCookie, "x-forwarded-for": "100.64.0.10" })).status).toBe(200);
+		// A visit that cannot be told apart from the blocked node is held back too.
+		expect((await raw("/", { "x-forwarded-for": "100.64.0.99" })).status).toBe(403);
+	});
+
+	it("falls back to blocking the login when whois gave no node identity, and says so in the device list", async () => {
+		allowed = [LOGIN, "kim@example.com"];
+		peers.set(PEER_IP, { nodeId: null, nodeName: "s25u", login: LOGIN });
+		const paired = await pair();
+		expect(await list()).toMatchObject([{ id: paired.deviceId, blockScope: "login" }]);
+		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, paired.deviceId);
+		expect(await blockedList()).toMatchObject([{ scope: "login", tailscaleLogin: LOGIN }]);
+		const page = await raw("/", { "x-forwarded-for": "100.64.0.50" });
+		expect(page.status).toBe(403);
+		expect(page.body).toContain('data-refusal="blocked-login"');
+		expect((await post("/api/pair", { name: "x" }, { "x-forwarded-for": "100.64.0.50" })).status).toBe(403);
+		// Another account is not caught by it.
+		const other = await post(
+			"/api/pair",
+			{ name: "x" },
+			{ "tailscale-user-login": "kim@example.com", "x-forwarded-for": "100.64.0.51" },
+		);
+		expect(other.status).toBe(200);
 	});
 });
 
 describe("session tickets", () => {
-	it("refuses a request without a valid cookie and counts it", async () => {
+	it("refuses a request without a valid cookie and counts only the ones that carry a bad cookie", async () => {
+		// A first visit has no cookie yet (it connects next): that is not a stranger.
 		expect((await post("/api/session", {})).status).toBe(401);
 		const forged = await post("/api/session", {}, { cookie: "ompdesk=abc.def" });
 		expect(forged.status).toBe(401);
 		expect(forged.headers.get("set-cookie")).toContain("Max-Age=0");
 		expect((await post("/api/session", {}, { cookie: "ompdesk=nodot" })).status).toBe(401);
+		expect(unpaired).not.toHaveBeenCalled();
+		expect((await post("/api/session", {}, { cookie: "ompdesk=abc.xyz" })).status).toBe(401);
 		expect(unpaired).toHaveBeenCalledTimes(1);
 	});
 

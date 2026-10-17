@@ -4,7 +4,7 @@ import { LocalChannels, parseOmpUrl, parseOpenHash } from "./deep-link";
 import { signNonce } from "./device-key";
 import { base64ToBytes, safeFileName, saveBlob } from "./download";
 import { isNotificationClickMessage, notifyPage, registerServiceWorker } from "./notify";
-import { defaultDeviceName, normalizePairCode } from "./pairing";
+import { defaultDeviceName, pairFailureOf } from "./pairing";
 import { fetchTicket, UnpairedError } from "./session";
 import { acceptFromFilters } from "./upload";
 
@@ -105,11 +105,18 @@ describe("page-made links", () => {
 });
 
 describe("pairing helpers", () => {
-	it("normalizes a typed code like the host", () => {
-		expect(normalizePairCode("abcd-efgh")).toBe("ABCDEFGH");
-		expect(normalizePairCode("0IL1 oo12")).toBe("01110012");
-		expect(normalizePairCode("short")).toBeNull();
-		expect(normalizePairCode("ABCDEFGU")).toBeNull();
+	it("maps a refused connect to the message the page shows", () => {
+		expect(pairFailureOf(429, null)).toBe("limited");
+		expect(pairFailureOf(403, "blocked")).toBe("blocked");
+		for (const error of ["tailscale_user_not_allowed", "no_tailscale_user", "identity_mismatch"]) {
+			expect(pairFailureOf(403, error)).toBe("notAllowed");
+		}
+		expect(pairFailureOf(403, "declined")).toBe("declined");
+		expect(pairFailureOf(403, "timeout")).toBe("declined");
+		expect(pairFailureOf(403, "something else")).toBe("network");
+		expect(pairFailureOf(403, null)).toBe("network");
+		expect(pairFailureOf(404, null)).toBe("network");
+		expect(pairFailureOf(500, "blocked")).toBe("network");
 	});
 
 	it("names the device from its user agent", () => {

@@ -1,33 +1,45 @@
 /**
- * What every request to the web server must pass before it is routed (design §5.3): the `Host` and `Origin`
- * of the one published address, `Sec-Fetch-Site`, and, behind `tailscale serve`, the identity headers it adds
- * (RFC 2047 encoded when not ASCII) against the allowed Tailscale logins. A `Tailscale-Funnel-Request` header
- * means the request came from the public internet and is always refused. These checks are extra walls, never
- * the authentication: a local process can forge a header on the loopback, so every device call still needs
- * its cookie. Also the device cookie's name, parsing and attributes, the one-time tokens (WebSocket tickets,
- * proof nonces) and the check of a device's key signature.
+ * What every request to the web server must pass before it is routed (design §5.3). Behind `tailscale serve`:
+ * the secret path prefix only serve's target carries (a request without it never came through serve, so no
+ * header on it is believed and it is answered 404), the `Host` and `Origin` of the one published address,
+ * `Sec-Fetch-Site`, and the identity headers serve adds (RFC 2047 encoded when not ASCII) against the allowed
+ * Tailscale logins. A `Tailscale-Funnel-Request` header means the request came from the public internet and is
+ * always refused. Identity is Tailscale's: an allowed login's first visit makes its device (server.ts); these
+ * walls only decide who may ask. A local process can still forge the headers *and* read the prefix from the
+ * serve config or the 0600 secret file, but such a process runs as the user and could read the cookie store
+ * anyway. Also the device cookie's name, parsing and attributes, the one-time tokens (WebSocket tickets, proof
+ * nonces) and the check of a device's key signature.
  */
-import { createPublicKey, type JsonWebKey, randomBytes, verify } from "node:crypto";
+import { createPublicKey, type JsonWebKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import { allowedLogin } from "../../shared/mobile-web";
 
 /** What the server accepts; `host`/`publicPort`/`secure` describe the address the page is reached at. */
 export interface RequestPolicy {
-	/** The published name (`<machine>.<tailnet>.ts.net`), or `127.0.0.1` in a test or the plain-HTTP mode. */
+	/** The published name (`<machine>.<tailnet>.ts.net`), or `127.0.0.1` before serve is configured. */
 	host: string;
 	/** The port in the published address (it differs from the loopback port when serve moved to a free one). */
 	publicPort: number;
 	/** The page is served over HTTPS (`tailscale serve`): `Secure` cookies, `https://` origin. */
 	secure: boolean;
-	/** Require a `Tailscale-User-Login` of an allowed user (always on behind serve, off in tests and plain HTTP). */
-	requireIdentity: boolean;
+	/**
+	 * The secret first path segment of the serve handler's target. Null until serve is published: nothing is
+	 * served then, and with it set only a request carrying it is.
+	 */
+	servePrefix: string | null;
 	allowedUsers: () => readonly string[];
 }
 
 /** What a request is: a page load, an API call/upload/blob, or the WebSocket upgrade. */
 export type RequestKind = "page" | "api" | "ws";
 
-export type RequestCheck = { ok: true; login: string | null } | { ok: false; status: number; reason: string };
+/** Why a request is refused: the walls the page has a message for, or any other. */
+export type RefusalReason = "user not allowed" | "no tailscale user" | "other";
+
+export type RequestCheck =
+	/** `target` is the request target with the serve prefix taken off (`/ws`, `/api/session?x=1`). */
+	| { ok: true; login: string; target: string }
+	| { ok: false; status: number; reason: string; why: RefusalReason; login: string | null };
 
 /** `https://host:port` as the browser writes `Origin` (the default port is left out). */
 export function originOf(policy: Pick<RequestPolicy, "host" | "publicPort" | "secure">): string {
@@ -86,19 +98,53 @@ export function tailscaleLogin(headers: IncomingHttpHeaders): string | null {
 	return login === "" ? null : login;
 }
 
+/**
+ * `target` without the secret first segment, or null when it does not start with `/<secret>` (the comparison does not
+ * leak how much of the secret matched): `/<secret>` → `/`, `/<secret>/ws?x=1` → `/ws?x=1`.
+ */
+export function stripServePrefix(target: string, secret: string): string | null {
+	if (!target.startsWith("/")) return null;
+	const end = target.slice(1).search(/[/?#]/);
+	const segment = end === -1 ? target.slice(1) : target.slice(1, 1 + end);
+	const given = Buffer.from(segment);
+	const wanted = Buffer.from(secret);
+	if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) return null;
+	const rest = end === -1 ? "" : target.slice(1 + end);
+	if (rest === "") return "/";
+	return rest.startsWith("/") ? rest : `/${rest}`;
+}
+
 /** Run every check for one request. `remoteAddress` is the socket's peer: only the loopback may speak for serve. */
 export function checkRequest(input: {
 	headers: IncomingHttpHeaders;
 	method: string;
 	kind: RequestKind;
+	/** The request target as it arrived (`req.url`), prefix included. */
+	url: string;
 	remoteAddress: string | undefined;
 	policy: RequestPolicy;
 }): RequestCheck {
-	const { headers, method, kind, remoteAddress, policy } = input;
-	const refuse = (status: number, reason: string): RequestCheck => ({ ok: false, status, reason });
+	const { headers, method, kind, url, remoteAddress, policy } = input;
+	const refuse = (
+		status: number,
+		reason: string,
+		why: RefusalReason = "other",
+		login: string | null = null,
+	): RequestCheck => ({
+		ok: false,
+		status,
+		reason,
+		why,
+		login,
+	});
 
 	if (!isLoopbackAddress(remoteAddress)) return refuse(403, "not a loopback peer");
 	if (headers["tailscale-funnel-request"] !== undefined) return refuse(403, "funnel request");
+
+	// Not through serve (or not published yet): a bare 404, and no header on the request is read.
+	if (policy.servePrefix === null) return refuse(404, "not published");
+	const target = stripServePrefix(url, policy.servePrefix);
+	if (target === null) return refuse(404, "not through serve");
 
 	const standard = policy.secure ? 443 : 80;
 	const expectedHost = hostHeaderOf(policy.host, policy.publicPort, standard).toLowerCase();
@@ -119,10 +165,11 @@ export function checkRequest(input: {
 		if (!navigation) return refuse(403, "cross-site request");
 	}
 
-	if (!policy.requireIdentity) return { ok: true, login: tailscaleLogin(headers) };
 	const login = tailscaleLogin(headers);
-	if (!allowedLogin(policy.allowedUsers(), login)) return refuse(403, "tailscale user not allowed");
-	return { ok: true, login };
+	if (login === null) return refuse(403, "no tailscale user", "no tailscale user");
+	if (!allowedLogin(policy.allowedUsers(), login))
+		return refuse(403, "tailscale user not allowed", "user not allowed", login);
+	return { ok: true, login, target };
 }
 
 /** 127.0.0.0/8, ::1 and its IPv4-mapped form. */

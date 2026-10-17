@@ -1,16 +1,19 @@
 /**
- * `/pair`: the page a phone opens from the QR code (`/pair#<CODE>`) or by hand. It makes the device key,
- * sends the code and a name to `POST /api/pair`, and waits while the computer asks its user to approve (the
- * request stays open up to a minute). The host answers 200 with the device cookie; the refusals are
- * pairing.ts `PAIR_FAILURE_BY_STATUS`.
+ * `/pair`: where a browser the computer does not know yet lands (the page sends it here when its session is
+ * refused). No code and no form: the browser is on the tailnet and Tailscale vouched for its account, so this makes
+ * the device key and asks `POST /api/pair` to connect it, then goes into the app. While the user asked to approve
+ * new devices on the computer the request stays open (up to a minute) and the page says so. A refusal is shown
+ * with its reason (blocked, account not allowed, declined, too many tries) and a Try again button. A browser that
+ * is already connected just goes on to the app.
  */
-import { useRef, useState } from "react";
-import { Banner, BrandMark, Button, Input } from "../components/common";
+import { useEffect, useRef, useState } from "react";
+import { Banner, BrandMark, Button, Spinner } from "../components/common";
 import { useT } from "../lib/i18n";
 import { createDeviceKey, deviceKeySupported } from "./device-key";
-import { defaultDeviceName, normalizePairCode, PAIR_FAILURE_BY_STATUS, type PairFailure } from "./pairing";
+import { defaultDeviceName, type PairFailure, pairFailureOf } from "./pairing";
+import { fetchTicket } from "./session";
 
-type PairState = "idle" | "working" | "approval" | "failed";
+type PairState = "working" | "approval" | "failed";
 
 const INSTANCE_KEY = "omp.web.instance";
 
@@ -26,41 +29,51 @@ function instanceId(): string {
 	}
 }
 
-/** Read the code from `#<CODE>` once and drop it from the address bar. */
-function takeFragmentCode(): string {
-	const code = decodeURIComponent(location.hash.replace(/^#/, ""));
-	if (code) history.replaceState(null, "", location.pathname + location.search);
-	return code;
+/**
+ * This browser already holds a cookie the computer knows and the key that goes with it: it can get a session
+ * ticket, so there is nothing to connect. (A cookie whose key is gone, or one the computer forgot, cannot.)
+ */
+async function alreadyConnected(): Promise<boolean> {
+	try {
+		await fetchTicket({ fetch: (input, init) => fetch(input, init) });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
-function deviceName(): string {
-	return defaultDeviceName(navigator.userAgent, navigator.maxTouchPoints);
+/** The `{error}` a refused call carried, or null. */
+async function errorOf(response: Response): Promise<string | null> {
+	try {
+		const body: unknown = await response.json();
+		return typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+			? body.error
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 export function PairScreen() {
 	const t = useT();
-	const [code, setCode] = useState(takeFragmentCode);
-	const [name, setName] = useState(deviceName);
-	const [state, setState] = useState<PairState>("idle");
+	const [state, setState] = useState<PairState>("working");
 	const [failure, setFailure] = useState<PairFailure | null>(null);
-	const submitting = useRef(false);
+	const running = useRef(false);
 
-	const fail = (reason: PairFailure) => {
-		setFailure(reason);
-		setState("failed");
-	};
-
-	const submit = async () => {
-		if (submitting.current) return;
-		const normalized = normalizePairCode(code);
-		if (!normalized) {
-			fail("badCode");
-			return;
-		}
-		submitting.current = true;
+	const connect = async () => {
+		if (running.current) return;
+		running.current = true;
 		setFailure(null);
 		setState("working");
+		const fail = (reason: PairFailure) => {
+			setFailure(reason);
+			setState("failed");
+		};
 		try {
+			if (await alreadyConnected()) {
+				location.replace("/");
+				return;
+			}
 			let publicKeyJwk: JsonWebKey | undefined;
 			if (deviceKeySupported()) {
 				try {
@@ -70,15 +83,14 @@ export function PairScreen() {
 					return;
 				}
 			}
-			// The host asks its user before it answers: say that we are waiting for them.
+			// The computer may ask its user first: say that we are waiting for them.
 			const waiting = setTimeout(() => setState("approval"), 1500);
 			try {
 				const response = await fetch("/api/pair", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
-						code: normalized,
-						name: name.trim() || deviceName(),
+						name: defaultDeviceName(navigator.userAgent, navigator.maxTouchPoints),
 						clientInstanceId: instanceId(),
 						publicKeyJwk,
 					}),
@@ -88,68 +100,45 @@ export function PairScreen() {
 					location.replace("/");
 					return;
 				}
-				fail(PAIR_FAILURE_BY_STATUS[response.status] ?? "network");
+				fail(pairFailureOf(response.status, await errorOf(response)));
 			} finally {
 				clearTimeout(waiting);
 			}
 		} catch {
 			fail("network");
 		} finally {
-			submitting.current = false;
+			running.current = false;
 		}
 	};
 
-	const busy = state === "working" || state === "approval";
+	// Once on arrival; Try again calls `connect` itself.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: connect reads only refs and setters
+	useEffect(() => {
+		void connect();
+	}, []);
+
 	return (
-		<main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 p-6">
+		<main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 p-6" data-pair-state={state}>
 			<div className="flex items-center gap-3">
 				<BrandMark size={36} />
 				<h1 className="text-sc-xl font-semibold text-(--sc-text)">{t("web.pair.title")}</h1>
 			</div>
-			<p className="text-sc-md text-(--sc-text-muted)">{t("web.pair.intro")}</p>
-			<form
-				className="flex flex-col gap-3"
-				onSubmit={event => {
-					event.preventDefault();
-					void submit();
-				}}
-			>
-				<Input
-					label={t("web.pair.code")}
-					value={code}
-					onChange={event => setCode(event.target.value)}
-					autoCapitalize="characters"
-					autoCorrect="off"
-					autoComplete="off"
-					spellCheck={false}
-					enterKeyHint="go"
-					disabled={busy}
-					controlSize="lg"
-					className="font-mono tracking-[0.12em]"
-				/>
-				<Input
-					label={t("web.pair.name")}
-					hint={t("web.pair.nameHint")}
-					value={name}
-					onChange={event => setName(event.target.value)}
-					autoComplete="off"
-					enterKeyHint="go"
-					disabled={busy}
-					controlSize="lg"
-				/>
-				<Button type="submit" variant="primary" size="lg" loading={busy} disabled={code.trim().length === 0}>
-					{state === "approval" ? t("web.pair.waiting") : t("web.pair.submit")}
-				</Button>
-			</form>
+			{state === "failed" ? null : <p className="text-sc-md text-(--sc-text-muted)">{t("web.pair.intro")}</p>}
+			{state === "working" ? <Spinner label={t("web.pair.waiting")} /> : null}
 			{state === "approval" ? (
 				<Banner variant="info" live>
 					{t("web.pair.approval")}
 				</Banner>
 			) : null}
 			{failure ? (
-				<Banner variant="danger" live>
-					{t(`web.pair.error.${failure}`)}
-				</Banner>
+				<>
+					<Banner variant="danger" live>
+						{t(`web.pair.error.${failure}`)}
+					</Banner>
+					<Button variant="primary" size="lg" onClick={() => void connect()}>
+						{t("web.pair.retry")}
+					</Button>
+				</>
 			) : null}
 		</main>
 	);
