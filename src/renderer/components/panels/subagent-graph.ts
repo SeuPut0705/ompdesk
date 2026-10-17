@@ -10,6 +10,7 @@
  * registry (filled in as transcripts load) for nested ones.
  */
 
+import { assignmentTitle } from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import type { BadgeVariant } from "../common";
@@ -102,10 +103,11 @@ export function registerTranscriptToolCalls(agentId: string, messages: AgentMess
 
 /** Human task label used consistently by the sidebar rows, the agents page, and the transcript sheet. */
 export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): string {
-	// `description` is the sidecar's tiny-model UI label. `assignment` is the
+	// The assignment's own `Title:` line (the person's reply language) comes first; otherwise `description` is
+	// the sidecar's tiny-model UI label. `assignment` is the
 	// complete delegated prompt and may include markdown/system scaffolding, so
 	// it belongs in the transcript rather than the compact row heading.
-	const raw = agent.description ?? agent.assignment ?? agent.task ?? agent.agent;
+	const raw = assignmentTitle(agent.assignment) ?? agent.description ?? agent.assignment ?? agent.task ?? agent.agent;
 	const text = raw.trim() || agent.agent;
 	return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }

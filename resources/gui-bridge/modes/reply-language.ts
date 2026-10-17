@@ -19,13 +19,20 @@
  *   surface to the person follows the setting.
  *
  * Session titles follow the same language (auto-title-engine.ts reads
- * {@link currentReplyLanguage} and hears {@link onReplyLanguageChange}).
+ * {@link currentReplyLanguage} and hears {@link onReplyLanguageChange}). So do
+ * the labels a person sees in the interface (the section's second line). Stock's
+ * task tool has no `description` field and its tiny-model label of the
+ * assignment (`generateTaskLabel`, task/label.ts, a module-constant prompt
+ * nothing can extend) is always English, so the agent writes a `Title:` first
+ * line (subagent-title-contracts.ts) that the GUI shows instead; thinking and
+ * the rest of the assignment stay as written.
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`
  * (src/main/bridge-reply-language.test.ts).
  */
 
 import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
+import { ASSIGNMENT_TITLE_PREFIX } from "./subagent-title-contracts";
 
 /** The slice of omp's ExtensionAPI this module needs. */
 export type ReplyLanguageHost = PromptSectionHost;
@@ -52,6 +59,7 @@ export function replyLanguageInstruction(language: string | undefined): string |
 	return [
 		"<reply-language>",
 		`By default, write your replies, plans, summaries and questions to the user in ${name}. If the user writes in a different language, answer in the user's language instead. Keep code, identifiers, commit messages and file contents in whatever language the project already uses.`,
+		`Only the labels a person sees in the interface follow that language: todo items and phase names, and the first line of each task assignment, written as "${ASSIGNMENT_TITLE_PREFIX} <a short ${name} sentence>" (the interface shows it as the subagent's title; the rest of the assignment stays as you would write it). Your thinking, the rest of every assignment and prompt, tool arguments, code, identifiers and file contents stay as they are.`,
 		"</reply-language>",
 	].join("\n");
 }

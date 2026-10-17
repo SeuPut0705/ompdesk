@@ -1,3 +1,4 @@
+import { assignmentTitle } from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { resultDetails, resultText } from "../../../lib/format";
 import { asRecord } from "../../../lib/wire-value";
@@ -230,7 +231,9 @@ export function runTranscript(
 				...(row.agentSource === "bundled" || row.agentSource === "user" || row.agentSource === "project"
 					? { agentSource: row.agentSource }
 					: {}),
-				description: typeof row.description === "string" ? row.description : previous?.description,
+				description:
+					assignmentTitle(typeof row.assignment === "string" ? row.assignment : previous?.assignment) ??
+					(typeof row.description === "string" ? row.description : previous?.description),
 				assignment: typeof row.assignment === "string" ? row.assignment : previous?.assignment,
 				task: typeof row.task === "string" ? row.task : previous?.task,
 				status: typeof row.status === "string" ? row.status : (previous?.status ?? "pending"),

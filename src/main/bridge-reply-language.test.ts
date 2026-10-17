@@ -14,6 +14,7 @@ import {
 	replyLanguageInstruction,
 	setReplyLanguage,
 } from "../../resources/gui-bridge/modes/reply-language";
+import { assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
 
 type Handler = Parameters<ReplyLanguageHost["on"]>[1];
 
@@ -41,6 +42,49 @@ describe("gui-bridge reply language", () => {
 		expect(instruction).toContain("questions to the user in Korean");
 		expect(instruction).toContain("answer in the user's language");
 		expect(instruction).toContain("commit messages and file contents");
+	});
+
+	it("asks only for the labels a person sees (todo items, the assignment's title line) in the language", () => {
+		const text = replyLanguageInstruction("Korean") ?? "";
+		const lines = text.split("\n");
+		expect(lines).toHaveLength(4);
+		expect(lines[2]).toContain("Only the labels a person sees");
+		expect(lines[2]).toContain("todo items");
+		expect(lines[2]).toContain(
+			'the first line of each task assignment, written as "Title: <a short Korean sentence>"',
+		);
+		expect(lines[2]).toContain("short Korean sentence");
+		expect(lines[2]).toContain("Your thinking, the rest of every assignment");
+		expect(lines[2]).toContain("code, identifiers and file contents stay as they are");
+	});
+
+	it("names whatever language was resolved in the labels line, and nothing for off or English", () => {
+		for (const name of ["Korean", "Japanese", "German"]) {
+			const lines = (replyLanguageInstruction(name) ?? "").split("\n");
+			expect(lines[1]).toContain(`in ${name}.`);
+			expect(lines[2]).toContain(`short ${name} sentence`);
+		}
+		for (const off of [undefined, "", "English", "english"]) expect(replyLanguageInstruction(off)).toBeUndefined();
+	});
+
+	it("reads the Title: first line of an assignment, and nothing from one without it", () => {
+		expect(assignmentTitle("Title: alpha.txt 줄 수 세기\n\n# Target\nx")).toBe("alpha.txt 줄 수 세기");
+		expect(assignmentTitle("Title: 行数を数える")).toBe("行数を数える");
+		expect(assignmentTitle("# Target\nTitle: not first")).toBeUndefined();
+		expect(assignmentTitle("Title:\n# Target")).toBeUndefined();
+		expect(assignmentTitle(`Title: ${"x".repeat(121)}`)).toBeUndefined();
+		expect(assignmentTitle(undefined)).toBeUndefined();
+	});
+
+	it("sends that line with the hook for a steered language and nothing for off, unset or English", async () => {
+		const hook = installedHook();
+		await methods.reply_language_set({ language: "Japanese" });
+		expect(hook({ systemPrompt: ["base"] })?.systemPrompt[1]).toContain("Only the labels a person sees");
+		for (const off of [null, "English", ""]) {
+			await methods.reply_language_set({ language: off });
+			expect(hook({ systemPrompt: ["base"] })).toBeUndefined();
+		}
+		expect(replyLanguageInstruction(undefined)).toBeUndefined();
 	});
 
 	it("follows a changed language on the next prompt without reinstalling", async () => {

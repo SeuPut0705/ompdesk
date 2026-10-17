@@ -69,6 +69,15 @@ describe("subagent labels", () => {
 		expect(subagentPrimaryLabel(agent)).toBe("Inspect session switching");
 	});
 
+	it("shows the assignment's Title: line, in the person's language, ahead of stock's English label", () => {
+		const agent = {
+			...snapshot("running", 1),
+			assignment: "Title: alpha.txt 줄 수 세기\n\n# Target\nRun wc -l",
+			description: "Count lines in alpha.txt",
+		};
+		expect(subagentPrimaryLabel(agent)).toBe("alpha.txt 줄 수 세기");
+	});
+
 	it("falls back to the delegated assignment when no generated UI label exists", () => {
 		const agent = { ...snapshot("running", 1), assignment: "Inspect session switching" };
 		expect(subagentPrimaryLabel(agent)).toBe("Inspect session switching");

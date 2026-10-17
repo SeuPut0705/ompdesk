@@ -1,5 +1,6 @@
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
+import { assignmentTitle } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
@@ -52,7 +53,9 @@ const LIVE_STATUSES: Record<string, true> = {
 };
 
 function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
-	return snapshot.status === "running" && snapshot.live === false ? { ...snapshot, status: "stale" } : snapshot;
+	const title = assignmentTitle(snapshot.assignment);
+	const titled = title && title !== snapshot.description ? { ...snapshot, description: title } : snapshot;
+	return titled.status === "running" && titled.live === false ? { ...titled, status: "stale" } : titled;
 }
 
 /**
@@ -67,7 +70,7 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 		...fresh,
 		task: fresh.task ?? prev.task,
 		assignment: fresh.assignment ?? prev.assignment,
-		description: fresh.description ?? prev.description,
+		description: assignmentTitle(fresh.assignment ?? prev.assignment) ?? fresh.description ?? prev.description,
 		progress: fresh.progress ?? prev.progress,
 		sessionFile: fresh.sessionFile ?? prev.sessionFile,
 	};
@@ -229,7 +232,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 						index: p.index,
 						agent: p.agent,
 						agentSource: p.agentSource,
-						description: p.description ?? existing?.description,
+						description: assignmentTitle(existing?.assignment) ?? p.description ?? existing?.description,
 						status: p.status === "started" ? "running" : p.status,
 						task: existing?.task,
 						assignment: existing?.assignment,
@@ -255,7 +258,10 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 						index: frame.payload.index,
 						agent: frame.payload.agent,
 						agentSource: frame.payload.agentSource,
-						description: progress.description ?? existing?.description,
+						description:
+							assignmentTitle(frame.payload.assignment ?? existing?.assignment) ??
+							progress.description ??
+							existing?.description,
 						status: progress.status,
 						task: frame.payload.task,
 						assignment: frame.payload.assignment ?? existing?.assignment,
