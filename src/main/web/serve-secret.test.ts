@@ -15,7 +15,7 @@ describe("ServeSecretStore", () => {
 		const secret = new ServeSecretStore(dir).get();
 		expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
 		const file = join(dir, "web-serve-secret.json");
-		expect(statSync(file).mode & 0o777).toBe(0o600);
+		if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
 		expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ v: 1, secret });
 	});
 

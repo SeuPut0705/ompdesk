@@ -69,7 +69,7 @@ describe("WebBlocks", () => {
 		const blocks = new WebBlocks(dir, () => 7);
 		blocks.add({ scope: "node", key: "n1", name: "s25u", tailscaleLogin: "me@example.com" });
 		const file = join(dir, "web-blocked.json");
-		expect(statSync(file).mode & 0o777).toBe(0o600);
+		if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
 		expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ v: 1, blocked: [{ id: "node:n1" }] });
 		expect(new WebBlocks(dir).list()).toMatchObject([{ id: "node:n1", name: "s25u", blockedAt: 7 }]);
 	});
