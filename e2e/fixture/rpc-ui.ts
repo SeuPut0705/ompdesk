@@ -1476,7 +1476,16 @@ export function runRpcUi(): void {
 			setTimeout(() => {
 				const answer: AgentMessage = {
 					role: "assistant",
-					content: [{ type: "text", text: "Continued after the interruption." }],
+					// After a restart-job notice the answer is tall, so the transcript overflows and "stays at the bottom" means something.
+					content: [
+						{
+							type: "text",
+							text:
+								stopped.length > 0
+									? `Continued after the interruption.\n\n${Array.from({ length: 30 }, (_, index) => `- Checked item ${index + 1}`).join("\n")}`
+									: "Continued after the interruption.",
+						},
+					],
 					timestamp: Date.now(),
 					provider: model.provider,
 					model: model.id,

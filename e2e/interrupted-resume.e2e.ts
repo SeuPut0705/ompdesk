@@ -265,6 +265,8 @@ async function expectQuietContinuation(page: Page, notice: string): Promise<void
 	const probe = await page.evaluate(() => window.__resumeProbe);
 	expect(probe?.rows, "the resuming row was shown").toBe(1);
 	expect(probe?.toasts, "no toast announces the resume").toEqual([]);
+	// The window is short on purpose: the transcript overflows, so "at the bottom" is a real claim.
+	expect((await gapToBottom(page)).overflow, "the transcript overflows the short window").toBeGreaterThan(0);
 	await expect
 		.poll(async () => (await gapToBottom(page)).gap, { message: "the transcript stays at the bottom" })
 		.toBeLessThanOrEqual(2);
