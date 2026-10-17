@@ -74,7 +74,9 @@ describe("mergeBranch", () => {
 		await commitIn(wt.path, "feature.ts", "export const x = 1;\n");
 		const outcome = await mergeBranch(wt, "Worker");
 		expect(outcome).toMatchObject({ merged: true });
-		expect(await fs.readFile(path.join(repo, "feature.ts"), "utf8")).toBe("export const x = 1;\n");
+		expect((await fs.readFile(path.join(repo, "feature.ts"), "utf8")).replaceAll("\r\n", "\n")).toBe(
+			"export const x = 1;\n",
+		);
 		expect(gitSync(repo, "log", "-1", "--format=%s")).toBe("Merge omp/agent/c into main (Worker)");
 		expect(gitSync(repo, "rev-list", "--parents", "-n", "1", "HEAD").split(" ")).toHaveLength(3);
 		expect(gitSync(repo, "remote")).toBe("");
@@ -89,7 +91,9 @@ describe("mergeBranch", () => {
 		expect(outcome).toEqual({ merged: false, reason: "conflict", files: ["README.md"] });
 		expect(gitSync(repo, "rev-parse", "HEAD")).toBe(head);
 		expect(gitSync(repo, "status", "--porcelain")).toBe("");
-		expect(await fs.readFile(path.join(repo, "README.md"), "utf8")).toBe("from the parent\n");
+		expect((await fs.readFile(path.join(repo, "README.md"), "utf8")).replaceAll("\r\n", "\n")).toBe(
+			"from the parent\n",
+		);
 	});
 
 	it("refuses to lose uncommitted work, to mix with the parent's edits, to merge nothing or into a detached HEAD", async () => {

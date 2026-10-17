@@ -267,7 +267,7 @@ describe("merge", () => {
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("failed");
 		expect(gitSync(main, "status", "--porcelain")).toBe("");
-		expect(await fs.readFile(path.join(main, "README.md"), "utf8")).toBe("theirs\n");
+		expect((await fs.readFile(path.join(main, "README.md"), "utf8")).replaceAll("\r\n", "\n")).toBe("theirs\n");
 	});
 });
 

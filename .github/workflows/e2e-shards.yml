@@ -55,6 +55,9 @@ jobs:
           bun install -g @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
+      # mobile-*.e2e.ts drive the web build in Playwright's own browsers, which a fresh runner lacks.
+      - name: Playwright browsers
+        run: bunx playwright install chromium webkit
       # The bundle is the same bytes whichever OS built it.
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:

@@ -231,6 +231,12 @@ describe("link schemes", () => {
 describe("mermaid and wrap controls", () => {
 	it("shows a mermaid fence's source on request", async () => {
 		const view = await mount(<MarkdownRenderer content={"```mermaid\ngraph TD\n  A --> B\n```"} />);
+		// The figure is a lazy chunk; a slow runner shows its fallback first.
+		await act(async () => {
+			await vi.waitFor(() => expect(view.querySelector('[data-figure-mode-button="code"]')).not.toBeNull(), {
+				timeout: 20_000,
+			});
+		});
 		const code = view.querySelector('[data-figure-mode-button="code"]');
 		await click(code);
 		expect(view.querySelector(".omp-code-block")?.textContent).toContain("A --> B");

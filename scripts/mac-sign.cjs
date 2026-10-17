@@ -58,6 +58,8 @@ async function sign(opts) {
 	const keychain = path.join(dir, "signing.keychain-db");
 	const p12 = path.join(dir, "identity.p12");
 	const keychainPassword = crypto.randomBytes(24).toString("hex");
+	/** The user's keychain search list, put back in `finally` (only a hosted runner ever changes it). */
+	let searchList = null;
 	try {
 		await fs.writeFile(p12, identity.p12, { mode: 0o600 });
 		await run(SECURITY, ["create-keychain", "-p", keychainPassword, keychain]);
@@ -80,6 +82,14 @@ async function sign(opts) {
 		if (!stdout.toUpperCase().includes(sha1)) {
 			throw new Error(`signing certificate is not the pinned OMPdesk certificate ${certificateSha1}`);
 		}
+		// macOS 26 (GitHub's macos-latest) answers "no identity found" for an identity that only
+		// `--keychain` names, so the throwaway keychain joins the search list for the run. Only on a
+		// hosted runner: it is ephemeral, and the maintainer's own search list is never touched.
+		if (process.env.GITHUB_ACTIONS === "true") {
+			const { stdout: listed } = await run(SECURITY, ["list-keychains", "-d", "user"]);
+			searchList = listed.split("\n").map(line => line.trim().replace(/^"|"$/g, "")).filter(Boolean);
+			await run(SECURITY, ["list-keychains", "-d", "user", "-s", keychain, ...searchList]);
+		}
 		const optionsForFile = opts.optionsForFile;
 		await signAsync({
 			...opts,
@@ -90,6 +100,7 @@ async function sign(opts) {
 			optionsForFile: filePath => ({ ...(optionsForFile ? optionsForFile(filePath) : {}), timestamp: "none" }),
 		});
 	} finally {
+		if (searchList) await run(SECURITY, ["list-keychains", "-d", "user", "-s", ...searchList]).catch(() => undefined);
 		await run(SECURITY, ["delete-keychain", keychain]).catch(() => undefined);
 		await fs.rm(dir, { recursive: true, force: true });
 	}
