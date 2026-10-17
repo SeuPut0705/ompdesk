@@ -11,7 +11,6 @@ import {
 	BrowserWindow,
 	globalShortcut,
 	ipcMain,
-	Notification,
 	nativeImage,
 	nativeTheme,
 	net,
@@ -59,6 +58,7 @@ import { SCHEDULES_STATE } from "../shared/schedules";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
+import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -138,7 +138,10 @@ import {
 // "ompdesk Safe Storage" keychain item, so it stays lowercase and is set before
 // anything resolves that path. People see the display name, OMPdesk.
 app.setName("ompdesk");
-app.setAboutPanelOptions({ applicationName: "OMPdesk" });
+// The Windows toast and taskbar group are keyed on this id: electron-builder gives the Start-menu shortcut the
+// appId, so the same id there makes a toast wear the shortcut's name and icon (the dev run has no shortcut).
+if (process.platform === "win32") app.setAppUserModelId("com.seuput.ompdesk");
+app.setAboutPanelOptions({ applicationName: "OMPdesk", iconPath: appIconPath() });
 
 // Honor Electron's explicit profile before acquiring its instance lock.
 const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir");
@@ -927,7 +930,7 @@ app.whenReady().then(() => {
 		// macOS: the Dock icon is the way back and needs no explanation.
 		if (process.platform === "darwin" || prefs.get(CLOSE_TO_TRAY_NOTICE_PREF) === true) return;
 		prefs.set(CLOSE_TO_TRAY_NOTICE_PREF, true);
-		new Notification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
+		appNotification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
 	};
 	const workAwake = new KeepAwakePolicy({
 		blocker: {
@@ -1113,7 +1116,7 @@ app.whenReady().then(() => {
 		// On unless the user turned it off: a phone is only paired after the desktop says yes.
 		confirmPairing: () => prefs.get("mobileWeb.confirmPairing") !== false,
 		onUnpairedAuth: () =>
-			new Notification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
+			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
 		batchNotifications: () => prefs.get(BATCH_NOTIFICATIONS_PREF) !== false,
 		log: message => console.warn(`[web-push] ${message}`),

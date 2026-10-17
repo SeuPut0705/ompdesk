@@ -26,7 +26,7 @@ interface BuilderConfig {
 		extendInfo?: Record<string, unknown>;
 		target?: { target?: string; arch?: string[] }[];
 	};
-	dmg?: { artifactName?: string };
+	dmg?: { artifactName?: string; icon?: string; background?: string };
 	win?: { target?: { target?: string; arch?: string[] }[] };
 	nsis?: Record<string, unknown> & { artifactName?: string; include?: string };
 }
@@ -110,6 +110,22 @@ describe("mac bundle configs", () => {
 	it("ships the gui-bridge extension outside the asar", () => {
 		const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
+	});
+
+	it("wears the generated mark on the DMG, the installer and the Windows icon file", () => {
+		const main = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
+		expect(main.dmg).toMatchObject({ icon: "icon.icns", background: "resources/dmg-background.tiff" });
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			expect(config.extraResources, file).toContainEqual({
+				from: "resources/brand/app-icon.png",
+				to: "app-icon.png",
+			});
+			expect(config.nsis, file).toMatchObject({
+				installerIcon: "resources/icon.ico",
+				uninstallerIcon: "resources/icon.ico",
+			});
+		}
 	});
 
 	it("ships the built-in REA relay and declaration outside the asar on both platforms", () => {

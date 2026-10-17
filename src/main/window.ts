@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, nativeTheme, screen, shell } from "electron";
 import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
+import { appIconPath } from "./app-icon";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
 import { softwareCompositing } from "./gpu-fallback";
@@ -148,6 +149,8 @@ export class WindowManager {
 			// default screen's size; the specs size windows to what their layout needs (setContentSize).
 			enableLargerThanScreen: process.env.OMP_GUI_HEADLESS === "1",
 			autoHideMenuBar: process.platform === "win32",
+			// macOS draws the window's icon from the bundle; Windows (and its dev run) takes a file.
+			...(process.platform === "darwin" ? {} : { icon: appIconPath() }),
 			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, mica),
 			webPreferences: {
 				contextIsolation: true,

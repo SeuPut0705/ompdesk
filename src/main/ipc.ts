@@ -11,7 +11,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, clipboard, dialog, Notification, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import {
@@ -91,6 +91,7 @@ import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-langua
 import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
+import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -291,7 +292,7 @@ const notifyBatchedWindows = new Set<number>();
 /** One OS notification; one about a tab switches to it on click. */
 function showNotification(windowId: number, notice: ShownNotice): { close: () => void } {
 	const win = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.id === windowId);
-	const notification = new Notification({ title: notice.title, body: notice.body });
+	const notification = appNotification({ title: notice.title, body: notice.body });
 	const { tabId } = notice;
 	if (win && tabId) {
 		// Held until clicked or dismissed: a collected Notification drops its click.
@@ -1929,7 +1930,7 @@ function executeGuiHostTool(name: string, args: Record<string, unknown>): string
 		case "gui_notify": {
 			const title = typeof args.title === "string" ? args.title : "Notification";
 			const body = typeof args.body === "string" ? args.body : "";
-			new Notification({ title, body }).show();
+			appNotification({ title, body }).show();
 			return "Notification shown";
 		}
 		case "gui_clipboard_read": {

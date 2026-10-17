@@ -9,7 +9,7 @@
  * counts as seen once the card is up (lib/whats-new), and the Help menu's "What's new" stays reachable.
  */
 
-import { Sparkles, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useLang, useT } from "../../lib/i18n";
 import {
@@ -20,7 +20,7 @@ import {
 	WHATS_NEW_PREF,
 } from "../../lib/whats-new";
 import { useUiStore } from "../../stores/ui";
-import { Button, IconButton } from "../common";
+import { BrandMark, Button, IconButton } from "../common";
 
 /** Focused, unhovered time before the card hides itself. */
 export const WHATS_NEW_AUTO_HIDE_MS = 60_000;
@@ -84,7 +84,7 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 			}}
 			tabIndex={0}
 		>
-			<Sparkles aria-hidden className="mt-0.5 size-(--sc-icon-md) shrink-0 text-(--sc-accent)" />
+			<BrandMark className="mt-0.5" size={18} />
 			<div className="min-w-0 flex-1 py-px">
 				<div className="mb-0.5 text-sc-sm font-semibold break-words break-keep text-(--sc-text)">{title}</div>
 				{summary && (

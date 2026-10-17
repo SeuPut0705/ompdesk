@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BRAND_SVGS, FAVICON_HREF } from "../../scripts/brand-svgs";
+import { BRAND_SVGS, brandHtml, FAVICON_HREF } from "../../scripts/brand-svgs";
 import { BRAND_MARK, piFormForSize } from "./brand-mark";
 
 const RESOURCES = path.join(__dirname, "..", "..", "resources");
@@ -28,10 +28,14 @@ describe("brand mark sources", () => {
 		expect(onDisk.sort()).toEqual(Object.keys(BRAND_SVGS).sort());
 	});
 
-	it("the renderer favicon is the generated tile", () => {
-		const html = fs.readFileSync(path.join(__dirname, "..", "renderer", "index.html"), "utf8");
-		expect(html).toContain(`href="${FAVICON_HREF}"`);
-	});
+	it.each(["index.html", "web.html"])(
+		"the renderer page %s carries the generated favicon and first-paint mark",
+		page => {
+			const html = fs.readFileSync(path.join(__dirname, "..", "renderer", page), "utf8");
+			expect(html).toContain(`href="${FAVICON_HREF}"`);
+			expect(brandHtml(html)).toBe(html);
+		},
+	);
 
 	it("each form is a π: one ink shape and the accent foot", () => {
 		for (const pi of [BRAND_MARK.full, BRAND_MARK.small]) {
@@ -61,6 +65,9 @@ describe("brand mark sources", () => {
 			"icon.png",
 			"icon.icns",
 			"icon.ico",
+			"dmg-background.tiff",
+			"brand/app-icon.png",
+			"brand/social-preview.png",
 			"brand/tray.png",
 			"brand/tray@2x.png",
 			"brand/trayTemplate.png",
@@ -68,5 +75,10 @@ describe("brand mark sources", () => {
 		]) {
 			expect(fs.existsSync(path.join(RESOURCES, file)), file).toBe(true);
 		}
+	});
+
+	it("the social preview is the 1280x640 GitHub asks for", () => {
+		const png = fs.readFileSync(path.join(RESOURCES, "brand", "social-preview.png"));
+		expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1280, 640]);
 	});
 });

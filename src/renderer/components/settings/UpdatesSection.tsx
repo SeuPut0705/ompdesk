@@ -37,7 +37,17 @@ import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { useUpdaterStore } from "../../stores/updater";
-import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, ProgressBar, Spinner } from "../common";
+import {
+	Badge,
+	Banner,
+	type BannerVariant,
+	BrandMark,
+	Button,
+	ErrorDetail,
+	Input,
+	ProgressBar,
+	Spinner,
+} from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
 import { OmpUpdateFailureNotice } from "./OmpUpdateRows";
@@ -190,6 +200,14 @@ export function UpdatesSection() {
 				</Button>
 			}
 		>
+			<div className="my-3 flex items-center gap-3" data-about-brand>
+				<BrandMark size={40} variant="tile" />
+				<div className="min-w-0">
+					<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">OMPdesk</div>
+					<div className="font-mono text-sc-xs text-(--sc-text-muted)">{guiVersion ? `v${guiVersion}` : "—"}</div>
+				</div>
+			</div>
+
 			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
 				{overview === "error" && (appError || coreError) ? (
 					<UpdateFailureLines app={appError} core={coreError} />

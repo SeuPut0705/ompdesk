@@ -43,6 +43,7 @@ export interface NotificationShowOptions {
 	/** A replaced notification with the same tag alerts again unless it is silent. */
 	renotify: boolean;
 	icon: string;
+	badge: string;
 	data: { tabId?: string; url: string };
 }
 
@@ -52,6 +53,8 @@ export interface PushRegistrationLike {
 }
 
 export const NOTIFICATION_ICON = "/icons/icon-192.png";
+/** The status-bar badge (Android keeps only its alpha): the mark in one colour, `badge` of PWA_ICON_SVGS. */
+export const NOTIFICATION_BADGE = "/icons/badge-96.png";
 
 /** What a `push` event carries; unreadable data is ignored (nothing to show). */
 export async function handlePush(
@@ -78,6 +81,7 @@ export async function handlePush(
 		silent,
 		renotify: !silent,
 		icon: NOTIFICATION_ICON,
+		badge: NOTIFICATION_BADGE,
 		data: { ...(payload.tabId ? { tabId: payload.tabId } : {}), url: notificationOpenUrl(payload.tabId) },
 	});
 	return "shown";

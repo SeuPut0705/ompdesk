@@ -80,12 +80,43 @@ const WORDMARK_LETTERS = [
  * baseline), 32 units wide from x 1, with a 10-unit gap before the "o".
  */
 const WORDMARK_SCALE = 28 / 392;
+const lockupBody = (p: Paint) =>
+	`  <g transform="translate(17 20) scale(${Math.round(WORDMARK_SCALE * 100000) / 100000})">\n${pi(BRAND_MARK.full, p)}  </g>\n  <g transform="translate(43 4)" stroke="${p.ink}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">\n${WORDMARK_LETTERS.map(l => `    ${l}\n`).join("")}  </g>\n`;
 const wordmark = (p: Paint, background: string) =>
 	svg(
 		"0 0 196 40",
 		`ompdesk lockup for ${background} backgrounds: the full π (bar on the ascender line, right leg on the baseline) and a monoline geometric wordmark.`,
-		`  <g transform="translate(17 20) scale(${Math.round(WORDMARK_SCALE * 100000) / 100000})">\n${pi(BRAND_MARK.full, p)}  </g>\n  <g transform="translate(43 4)" stroke="${p.ink}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">\n${WORDMARK_LETTERS.map(l => `    ${l}\n`).join("")}  </g>\n`,
+		lockupBody(p),
 	);
+
+/** GitHub's social preview (repository settings): 1280×640, the dark lockup centred on the ink tile colour. */
+const SOCIAL_PREVIEW = { width: 1280, height: 640, scale: 5.5 };
+const socialPreview = () => {
+	const { width, height, scale } = SOCIAL_PREVIEW;
+	const x = (width - 196 * scale) / 2;
+	const y = (height - 40 * scale) / 2;
+	return svg(
+		`0 0 ${width} ${height}`,
+		"ompdesk GitHub social preview (1280x640): the lockup on the ink tile colour.",
+		`  <rect width="${width}" height="${height}" fill="${tile.background}"/>\n  <g transform="translate(${x} ${y}) scale(${scale})">\n${lockupBody(DARK)}  </g>\n`,
+	);
+};
+
+/**
+ * The DMG window (electron-builder `dmg.background`): 540×380, the app and the Applications link sit at
+ * y 220 (electron-builder.yml), so the lockup rides at the top and an accent arrow points between them.
+ */
+export const DMG_BACKGROUND = { width: 540, height: 380 };
+const dmgBackground = () => {
+	const { width, height } = DMG_BACKGROUND;
+	const scale = 0.9;
+	const x = (width - 196 * scale) / 2;
+	return svg(
+		`0 0 ${width} ${height}`,
+		"ompdesk DMG window background (540x380): the lockup above the drag-to-Applications arrow.",
+		`  <rect width="${width}" height="${height}" fill="#F4F4F6"/>\n  <g transform="translate(${x} 40) scale(${scale})">\n${lockupBody(LIGHT)}  </g>\n  <path d="M236 220H300M286 206L300 220L286 234" stroke="${LIGHT.accent}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>\n`,
+	);
+};
 
 /** Path relative to resources/ → file contents. */
 export const BRAND_SVGS: Record<string, string> = {
@@ -117,6 +148,8 @@ export const BRAND_SVGS: Record<string, string> = {
 	),
 	"brand/wordmark-light.svg": wordmark(LIGHT, "light"),
 	"brand/wordmark-dark.svg": wordmark(DARK, "dark"),
+	"brand/social-preview.svg": socialPreview(),
+	"brand/dmg-background.svg": dmgBackground(),
 };
 
 /** Square full-bleed tile: a launcher or iOS applies its own mask. `scale` sizes the π inside it. */
@@ -136,6 +169,11 @@ export const PWA_ICON_SVGS = {
 	any: tileSvg(BRAND_MARK.full, "ompdesk web app icon (any purpose)."),
 	opaque: squareTile(tile.glyphScale, "ompdesk web app icon, opaque square (apple-touch-icon)."),
 	maskable: squareTile(0.6, "ompdesk web app icon, maskable (π inside the safe zone)."),
+	badge: mark(
+		BRAND_MARK.small,
+		{ ink: "#FFFFFF", accent: "#FFFFFF" },
+		"ompdesk notification badge: the pixel-grid π in one colour (Android keeps only its alpha).",
+	),
 } as const;
 
 /** The rasterized files (relative to src/renderer/public/): the manifest, web.html and their test read this list. */
@@ -144,4 +182,31 @@ export const PWA_ICON_FILES = [
 	{ file: "icons/icon-512.png", source: "any", size: 512 },
 	{ file: "icons/icon-maskable-512.png", source: "maskable", size: 512 },
 	{ file: "apple-touch-icon.png", source: "opaque", size: 180 },
+	{ file: "icons/badge-96.png", source: "badge", size: 96 },
 ] as const;
+
+/**
+ * The page's first paint, before React mounts: the full π centred in `#root` (React replaces it) and the
+ * colours of each scheme, which pre-paint.js has already set on `<html data-theme>`. gen-icons writes both
+ * blocks between their `boot-mark` markers in src/renderer/index.html and web.html.
+ */
+export const BOOT_MARK_STYLE = `<style>.boot-mark{position:fixed;inset:0;display:grid;place-items:center}.boot-ink{fill:${LIGHT.ink}}.boot-accent{fill:${LIGHT.accent}}[data-theme="dark"] .boot-ink{fill:${DARK.ink}}[data-theme="dark"] .boot-accent{fill:${DARK.accent}}</style>`;
+export const BOOT_MARK_HTML = `<div class="boot-mark"><svg width="64" height="64" viewBox="${BRAND_MARK.viewBox}" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path class="boot-ink" d="${BRAND_MARK.full.ink}"/><path class="boot-accent" d="${BRAND_MARK.full.accent}"/></svg></div>`;
+
+/**
+ * A page shell (src/renderer/index.html, web.html) with the generated parts written in: the favicon, and
+ * the first-paint mark between the `boot-mark` markers. gen-icons writes it; brand-mark.test.ts checks the
+ * checked-in pages equal it.
+ */
+export function brandHtml(html: string): string {
+	const favicon = /(<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href=")[^"]*"/;
+	if (!favicon.test(html)) throw new Error('page has no <link rel="icon" type="image/svg+xml">');
+	const block = (name: string, body: string) => {
+		const pattern = new RegExp(`(<!--boot-mark:${name}-->)[\\s\\S]*?(<!--/boot-mark:${name}-->)`);
+		if (!pattern.test(html)) throw new Error(`page has no boot-mark:${name} markers`);
+		html = html.replace(pattern, (_, open: string, close: string) => `${open}${body}${close}`);
+	};
+	block("style", BOOT_MARK_STYLE);
+	block("root", BOOT_MARK_HTML);
+	return html.replace(favicon, (_, head: string) => `${head}${FAVICON_HREF}"`);
+}

@@ -1,33 +1,43 @@
 /**
  * Generate every brand asset from the π geometry in src/shared/brand-mark.ts:
  * - writes the SVGs in scripts/brand-svgs.ts (resources/icon-source*.svg,
- *   resources/brand/*.svg) and the favicon data URL in src/renderer/index.html,
- *   then rasterizes the SVGs:
+ *   resources/brand/*.svg) and, into src/renderer/index.html and web.html, the
+ *   favicon data URL and the first-paint mark (`brandHtml`), then rasterizes the SVGs:
  * - icon-source.svg → icon.png (1024px master: dev dock icon); on macOS,
  *   icon.icns (via an iconset + iconutil) from icon-source.svg above 48px and
  *   icon-source-small.svg at 48px and below.
  * - brand/mark-tile.svg / mark-tile-small.svg (same size split) → icon.ico
  *   (full-bleed tile, Windows); mark-tile-small.svg → brand/tray.png + tray@2x.png
- *   (Windows tray).
+ *   (Windows tray); mark-tile.svg → brand/app-icon.png (256px: the window,
+ *   About panel and Windows notification icon).
  * - brand/mark-mono.svg → brand/trayTemplate.png + trayTemplate@2x.png
  *   (macOS menu-bar template: monochrome, alpha only; the system tints it).
+ * - brand/social-preview.svg → brand/social-preview.png (GitHub's 1280×640
+ *   repository social preview; upload it in Settings › Social preview).
+ * - brand/dmg-background.svg → dmg-background.tiff (1x + 2x, macOS only: the
+ *   DMG window, electron-builder.yml `dmg.background`).
  * - PWA_ICON_SVGS → src/renderer/public/icons/*.png and apple-touch-icon.png (the installed web app's
- *   icons, scripts/pwa-icons.ts).
+ *   icons and notification badge, scripts/pwa-icons.ts).
  * Run: `bun run gen:icons`.
  */
 
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import sharp from "sharp";
 import { BRAND_MARK } from "../src/shared/brand-mark";
-import { BRAND_SVGS, FAVICON_HREF } from "./brand-svgs";
+import { BRAND_SVGS, brandHtml, DMG_BACKGROUND } from "./brand-svgs";
 import { writePwaIcons } from "./pwa-icons";
 
 const resources = path.join(import.meta.dir, "..", "resources");
-const rendererHtml = path.join(import.meta.dir, "..", "src", "renderer", "index.html");
+const rendererDir = path.join(import.meta.dir, "..", "src", "renderer");
+/** The two page shells: the desktop window and the paired phone's. */
+const RENDERER_PAGES = [path.join(rendererDir, "index.html"), path.join(rendererDir, "web.html")];
 const brand = path.join(resources, "brand");
 const iconset = path.join(resources, "icon.iconset");
+/** The 256 px window / About / notification icon. */
+const APP_ICON_PX = 256;
 
 // (name, px) pairs for the macOS iconset; @2x entries are double resolution.
 const ICONSET: [string, number][] = [
@@ -79,15 +89,33 @@ async function writeIco(frames: { size: number; data: Buffer }[], outPath: strin
 	await Bun.write(outPath, Buffer.concat([header, entries, ...blobs]));
 }
 
+/** A non-square SVG rasterized at `width` × `height` (the density scales its own size up to that). */
+async function renderBox(svg: Buffer, width: number, height: number): Promise<sharp.Sharp> {
+	const { width: own = width } = await sharp(svg).metadata();
+	return sharp(svg, { density: Math.ceil((72 * width) / own) }).resize(width, height);
+}
+
+/** The DMG window picture as a two-resolution TIFF (Finder picks the 144 dpi frame on Retina). macOS only: tiffutil. */
+async function writeDmgBackground(svg: Buffer): Promise<void> {
+	const { width, height } = DMG_BACKGROUND;
+	const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-dmg-"));
+	try {
+		const frames = [path.join(tmp, "1x.tiff"), path.join(tmp, "2x.tiff")];
+		await (await renderBox(svg, width, height)).withMetadata({ density: 72 }).tiff().toFile(frames[0]);
+		await (await renderBox(svg, width * 2, height * 2)).withMetadata({ density: 144 }).tiff().toFile(frames[1]);
+		execFileSync(
+			"tiffutil",
+			["-cathidpicheck", frames[0], frames[1], "-out", path.join(resources, "dmg-background.tiff")],
+			{ stdio: "inherit" },
+		);
+	} finally {
+		await fs.rm(tmp, { recursive: true, force: true });
+	}
+}
+
 async function main(): Promise<void> {
 	for (const [file, contents] of Object.entries(BRAND_SVGS)) await Bun.write(path.join(resources, file), contents);
-	const html = await Bun.file(rendererHtml).text();
-	const favicon = /(<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href=")[^"]*"/;
-	if (!favicon.test(html)) throw new Error('src/renderer/index.html has no <link rel="icon" type="image/svg+xml">');
-	await Bun.write(
-		rendererHtml,
-		html.replace(favicon, (_, head: string) => `${head}${FAVICON_HREF}"`),
-	);
+	for (const page of RENDERER_PAGES) await Bun.write(page, brandHtml(await Bun.file(page).text()));
 	const source = (file: string) => Buffer.from(BRAND_SVGS[file]);
 	const small = (px: number) => px <= BRAND_MARK.smallMaxPx;
 	const appIcon = source("icon-source.svg");
@@ -119,9 +147,17 @@ async function main(): Promise<void> {
 	await Bun.write(path.join(brand, "trayTemplate@2x.png"), await render(mono, TRAY_POINTS * 2));
 	await Bun.write(path.join(brand, "tray.png"), await render(tileSmall, WIN_TRAY_PX));
 	await Bun.write(path.join(brand, "tray@2x.png"), await render(tileSmall, WIN_TRAY_PX * 2));
+	// The window, About panel and Windows notification icon (a file: packaged apps ship it in resources/).
+	await Bun.write(path.join(brand, "app-icon.png"), await render(tile, APP_ICON_PX));
+	await Bun.write(
+		path.join(brand, "social-preview.png"),
+		await (await renderBox(source("brand/social-preview.svg"), 1280, 640)).png({ compressionLevel: 9 }).toBuffer(),
+	);
+	if (process.platform === "darwin") await writeDmgBackground(source("brand/dmg-background.svg"));
+	else console.warn("Skipping dmg-background.tiff: tiffutil is macOS-only.");
 	await writePwaIcons();
 
-	console.log("Generated brand SVGs, icon.png, icon.icns (macOS), icon.ico, and brand/tray*.png");
+	console.log("Generated brand SVGs, icon.png, icon.icns (macOS), icon.ico, brand/*.png and dmg-background.tiff");
 }
 
 await main();

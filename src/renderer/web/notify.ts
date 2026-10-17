@@ -6,6 +6,7 @@
  * one and listens for the clicks it reports.
  */
 import type { IpcNotifyKind, NotificationClickPayload } from "../../shared/ipc-types";
+import { NOTIFICATION_BADGE, NOTIFICATION_ICON } from "./sw-core";
 
 /** What the service worker posts to its pages when a notification is clicked (the page then routes it). */
 export interface NotificationClickMessage {
@@ -80,6 +81,8 @@ export async function notifyPage(
 		body,
 		// One notification per tab and kind: a newer one replaces the older.
 		tag: tabId ? `${tabId}:${kind ?? "info"}` : (kind ?? "info"),
+		icon: NOTIFICATION_ICON,
+		badge: NOTIFICATION_BADGE,
 		data: tabId ? { tabId } : undefined,
 	});
 	return "system";
