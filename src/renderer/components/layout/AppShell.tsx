@@ -34,6 +34,7 @@ import { Sidebar } from "./sidebar/Sidebar";
 import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
+import { WhatsNewCard } from "./WhatsNewCard";
 
 const AgentsPage = lazy(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
 const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
@@ -285,6 +286,7 @@ export function AppShell() {
 					<TitleBar />
 					<TabHousekeeping />
 					<UpdateBanner />
+					<WhatsNewCard />
 					<SplitWorkspace />
 				</div>
 				{onPage && (

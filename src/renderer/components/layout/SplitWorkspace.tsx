@@ -20,7 +20,6 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./composer/InputArea";
 import { SidecarBanner } from "./SidecarBanner";
-import { WhatsNewCard } from "./WhatsNewCard";
 import { WorkBoardHost } from "./work-board/WorkBoard";
 
 const DIVIDER_SIZE = 5;
@@ -221,7 +220,6 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 					<ChatStream />
 					<WorkBoardHost />
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
-						{active && <WhatsNewCard />}
 						<div className="omp-composer-shell relative w-full">
 							<WorkspaceDock />
 						</div>
