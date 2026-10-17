@@ -92,6 +92,7 @@ import { evaluateToolCall } from "../../resources/gui-bridge/modes/autopilot-gua
 import { draftGuide, fileIo, readGuideInfo } from "../../resources/gui-bridge/modes/autopilot-guide";
 import { mergeRepeatedEnd } from "../../resources/gui-bridge/modes/autopilot-verify";
 import { goalActiveAtExit, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
+import type { AgentMessage } from "../../src/shared/rpc-types";
 
 /** The fake's own journal entry for the stock Goal's objective and status (stock journals them as `mode_change`). */
 const GOAL_ENTRY = "ompdesk.fixture-goal";
@@ -126,6 +127,9 @@ interface CycleScript {
 	forgeQuote?: string;
 	/** The agent calls `end` a second time with another title (a stop steer, a second thought): the first report stands. */
 	endTwice?: boolean;
+	/** What the bridge would have measured of this cycle (`change`) and why it did not take a green claim (`verifyNote`). */
+	change?: AutopilotCycleRecord["change"];
+	verifyNote?: AutopilotCycleRecord["verifyNote"];
 	verify?: "green" | "red" | "skipped" | "none";
 	release?: { tools?: ToolStep[]; version?: string; runUrl?: string; verify?: "green" | "red"; holdMs?: number };
 }
@@ -202,6 +206,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		compactions: number;
 		report?: EndReport;
 		proposed: boolean;
+		change?: AutopilotCycleRecord["change"];
+		verifyNote?: AutopilotCycleRecord["verifyNote"];
 	}
 	let guardState: Guard | undefined;
 	let live: Live | undefined;
@@ -410,6 +416,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			now: now(),
 			usage: usageDelta(finished.usageStart, usageNow()),
 			compactions: finished.compactions,
+			...(finished.change ? { change: finished.change } : {}),
+			...(finished.verifyNote ? { verifyNote: finished.verifyNote } : {}),
 		});
 		host.appendCustom(AUTOPILOT_CYCLE_ENTRY, record);
 		let current = requireRun();
@@ -788,6 +796,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 							verify: "skipped",
 						});
 					}
+				}
+				if (live) {
+					live.change = cs.change;
+					live.verifyNote = cs.verifyNote;
 				}
 				reply = assistant(
 					process.env.OMP_GUI_README_SCENE

@@ -27,18 +27,34 @@ import {
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
-import { capture, exitApp, variants } from "./harness";
+import { capture, captureTo, exitApp, variants } from "./harness";
 
 const TEXT = {
-	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot" },
-	ko: { running: /사이클 \d/, close: "사이드 패널 닫기", autopilot: "오토파일럿" },
+	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot", docOnly: "docs only" },
+	ko: { running: /사이클 \d/, close: "사이드 패널 닫기", autopilot: "오토파일럿", docOnly: "문서만" },
 } as const;
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
 		test(`${language === "en" && theme === "light" ? "@smoke " : ""}cycles 1, 2, 3 follow in a new worktree tab with the chip, the board and the panel (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
-			const profile = await makeApProfile({ language, theme, script: { cycleMs: 700 } });
+			const profile = await makeApProfile({
+				language,
+				theme,
+				script: {
+					cycleMs: 700,
+					// What the bridge measures of a cycle (`change`) and why it did not take a green claim (`verifyNote`).
+					cycles: {
+						"1": { change: { files: 3, added: 42, removed: 5, commits: 1 } },
+						"2": { change: { files: 1, added: 8, removed: 2, commits: 1, docOnly: true } },
+						"3": {
+							verify: "skipped",
+							verifyNote: { kind: "no_check" },
+							change: { files: 2, added: 19, removed: 0, commits: 1 },
+						},
+					},
+				},
+			});
 			const { app, page } = await launchAp(profile);
 			try {
 				// A new worktree tab on autopilot/<date>; the folder the user opened is untouched.
@@ -58,12 +74,24 @@ for (const language of variants(["en", "ko"] as const))
 
 				// The screen opens by itself when a run starts: timeline rows with the verify result, totals, state badge.
 				await expect(page.locator("[data-autopilot-panel]")).toBeVisible();
-				for (const n of [1, 2, 3]) {
+				for (const n of [1, 2]) {
 					await expect(page.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
 				}
+				// A reported green the bridge did not take shows why, and every cycle says how much it changed.
+				await expect(page.locator('[data-autopilot-cycle="3"]')).toHaveAttribute("data-verify", "skipped");
+				await expect(
+					page.locator('[data-autopilot-cycle="3"] [data-autopilot-verify-note="no_check"]'),
+				).toBeVisible();
+				await expect(page.locator('[data-autopilot-cycle="1"] [data-autopilot-change]')).toBeVisible();
+				await expect(page.locator('[data-autopilot-cycle="2"]')).toContainText(TEXT[language].docOnly);
 				await expect(page.locator("[data-autopilot-totals]")).toBeVisible();
 				await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
 				await capture(page, `${language}-${theme}-panel`);
+				const captures = process.env.OMP_GUI_AUTOPILOT_CAPTURES;
+				await captureTo(captures, page, `autopilot-timeline-${language}-${theme}`);
+				// The older rows sit below the fold: scroll them in for the change size and the docs-only badge.
+				await page.locator('[data-autopilot-cycle="1"]').scrollIntoViewIfNeeded();
+				await captureTo(captures, page, `autopilot-timeline-older-${language}-${theme}`);
 
 				// The Mode popover shows the run instead of the sheet.
 				await page.locator("[data-composer-modes-trigger]").click();
