@@ -145,15 +145,23 @@ export async function recordsOfType(file: string, type: string): Promise<Record<
 }
 
 /**
- * Press an app shortcut until `target` shows. A key pressed while the renderer
- * is still mounting (slow CI runners) has no listener yet and is lost; the
- * press repeats only while the target is absent, so toggles never double-fire.
+ * Press an app shortcut and wait for `target`. A key pressed while the renderer is still mounting has no listener
+ * and is lost, so it is sent again, but only after a long wait: a slow runner may take seconds to show a page the
+ * first press already opened, and a quick second press would toggle it shut again.
  */
 export async function pressShortcutUntilVisible(page: Page, shortcut: string, target: Locator): Promise<void> {
-	await expect(async () => {
-		if (!(await target.isVisible())) await page.keyboard.press(shortcut);
-		await expect(target).toBeVisible({ timeout: 2_000 });
-	}).toPass({ timeout: 20_000 });
+	for (let attempt = 0; attempt < 3; attempt++) {
+		if (await target.isVisible()) return;
+		await page.keyboard.press(shortcut);
+		if (
+			await target.waitFor({ state: "visible", timeout: 12_000 }).then(
+				() => true,
+				() => false,
+			)
+		)
+			return;
+	}
+	await expect(target).toBeVisible({ timeout: 1_000 });
 }
 
 /**
