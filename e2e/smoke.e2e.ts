@@ -36,6 +36,10 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 
 		// Sent once: ⌘T opens a tab each time it lands. A second omp starts cold on a 3-core runner, so the
 		// tab list may take longer than the default timeout to show it; the count must be exactly two.
+		// The checks above are preload, main and bridge only: on a fast boot they pass before the renderer
+		// mounts the window's keydown handler (v0.36.0's mac job pressed 0.4 s after the window and the chord
+		// was lost), so the press waits for the composer.
+		await expect(page.locator("textarea").first()).toBeVisible();
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list()), { timeout: 60_000 }).toHaveLength(2);
 		await expect
