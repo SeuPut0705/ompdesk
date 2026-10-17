@@ -23,11 +23,15 @@ export interface DesktopSlotHostDeps {
 	pool: DesktopSlotPool;
 	/** Every window hears the slot's new state. */
 	broadcast(state: DesktopSlotState): void;
+	/** Tests shorten the wait for a killed process to exit. */
+	killConfirmMs?: number;
 }
 
 /** A revoke waits for stock's `revokeControl()` on every controller; the slot gives up on it first (10 s). */
 const REVOKE_COMMAND_TIMEOUT_MS = 15_000;
 const GRANT_COMMAND_TIMEOUT_MS = 10_000;
+/** A killed omp that has not exited by now is not confirmed gone (SIGTERM only: the slot stays held). */
+const KILL_CONFIRM_MS = 5_000;
 
 export class DesktopSlotHost {
 	readonly #slot: DesktopSlot;
@@ -38,17 +42,21 @@ export class DesktopSlotHost {
 	/** Last known title per id: a tab that is gone still shows under its name while it hands over. */
 	readonly #titles = new Map<string, string>();
 	#hosted = 0;
+	readonly #killConfirmMs: number;
 
 	constructor(deps: DesktopSlotHostDeps) {
 		this.#deps = deps;
+		this.#killConfirmMs = deps.killConfirmMs ?? KILL_CONFIRM_MS;
 		this.#slot = new DesktopSlot({
 			titleOf: id => this.#title(id),
 			revoke: (id, reason) =>
 				this.#call(id, DESKTOP_SLOT_BRIDGE_METHODS.revoke, { reason }, REVOKE_COMMAND_TIMEOUT_MS),
+			kill: id => this.#kill(id),
 			grant: (id, requestId, waited) => {
-				// A grant that cannot reach the process means that session is gone: do not leave the slot with it.
+				// A grant that does not arrive proves nothing about the process, so the slot stays with that session:
+				// its lease runs out and the revoke path (confirmed, or revoke-failed) decides.
 				this.#call(id, DESKTOP_SLOT_BRIDGE_METHODS.grant, { requestId, waited }, GRANT_COMMAND_TIMEOUT_MS).catch(
-					() => this.#slot.crashed(id),
+					() => undefined,
 				);
 			},
 			onChange: state => deps.broadcast(state),
@@ -104,6 +112,37 @@ export class DesktopSlotHost {
 		await this.#slot.stop(holder.tabId);
 	}
 
+	/** The user's "try again" on a revoke-failed holder. */
+	retry(): void {
+		this.#slot.retry();
+	}
+
+	/** The user's "stop that session" on a revoke-failed holder: abort it and end its omp; frees the slot once it exited. */
+	async killHolder(): Promise<boolean> {
+		return this.#slot.killHolder();
+	}
+
+	/** Abort the session and end its omp process; true only once that process has exited. */
+	async #kill(id: string): Promise<boolean> {
+		const sidecar = this.#sidecars.get(id);
+		if (!sidecar) return true;
+		const exited = sidecar.whenExited?.();
+		if (!exited) return false;
+		this.#deps.pool.noteStopped(id);
+		sidecar.rpcClient?.command({ type: "abort" }).catch(() => undefined);
+		// Ends the child with SIGTERM and starts the tab's omp afresh, as the tab's own restart does.
+		sidecar.restart();
+		let timer: NodeJS.Timeout | undefined;
+		const gone = await Promise.race([
+			exited.then(() => true),
+			new Promise<boolean>(resolve => {
+				timer = setTimeout(() => resolve(false), this.#killConfirmMs);
+			}),
+		]);
+		clearTimeout(timer);
+		return gone;
+	}
+
 	dispose(): void {
 		this.#slot.dispose();
 	}
@@ -111,10 +150,19 @@ export class DesktopSlotHost {
 	#track(id: string, sidecar: SidecarLike): void {
 		this.#idOf.set(sidecar, id);
 		this.#sidecars.set(id, sidecar);
-		// The process went away or restarts: nothing left to revoke. (`error` over a live child is a failed health
-		// check, not an exit.)
+		// The process whose exit proves it is gone: the current child, re-read whenever the sidecar is ready (a status
+		// other than ready arrives after the manager already forgot its child, and a restart's `starting` comes before
+		// the old child has exited).
+		let exited: Promise<void> = sidecar.whenExited?.() ?? Promise.resolve();
 		sidecar.on("status", (payload: { status: string }) => {
-			if (payload.status !== "ready" && payload.status !== "error") this.#slot.crashed(id);
+			if (payload.status === "ready") {
+				exited = sidecar.whenExited?.() ?? Promise.resolve();
+				return;
+			}
+			// `error` over a live child is a failed health check, not an exit. Anything else hands the slot on only once
+			// the old process has really exited: a holder whose revoke failed may still be driving the desktop.
+			if (payload.status === "error") return;
+			void exited.then(() => this.#slot.crashed(id));
 		});
 	}
 

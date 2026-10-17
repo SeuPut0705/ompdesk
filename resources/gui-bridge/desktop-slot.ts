@@ -46,7 +46,11 @@ const core = new DesktopSlotCore({
 	emit,
 	newId: () => crypto.randomUUID(),
 	async revokeControllers() {
-		await Promise.allSettled([...controllers].map(controller => controller.revokeControl?.()));
+		// Every controller is tried, but one that rejects makes the whole revoke fail: the slot is handed on only when
+		// stock confirmed the control stopped everywhere.
+		const results = await Promise.allSettled([...controllers].map(controller => controller.revokeControl?.()));
+		const failed = results.flatMap(result => (result.status === "rejected" ? [errorMessage(result.reason)] : []));
+		if (failed.length > 0) throw new Error(`revokeControl failed: ${failed.join("; ")}`);
 	},
 });
 

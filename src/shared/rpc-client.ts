@@ -250,6 +250,10 @@ export interface SessionRpcClient {
 	getDesktopSlot(): Promise<RpcResponse>;
 	/** Stop the session using the screen: its run is aborted and the slot goes to the next waiter. */
 	stopDesktopSlot(): Promise<RpcResponse>;
+	/** Revoke-failed holder: ask its omp to release the screen control again. */
+	retryDesktopSlot(): Promise<RpcResponse>;
+	/** Revoke-failed holder: abort it and end its omp; the slot is freed only once that process has exited. */
+	killDesktopSlot(): Promise<RpcResponse>;
 	getDelegation(): Promise<RpcResponse>;
 	setDelegation(mode: DelegationMode): Promise<RpcResponse>;
 	setGoal(args: {
@@ -601,6 +605,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "autopilot_branch_status", root, base, branch }),
 		getDesktopSlot: () => rpcCommand({ type: "get_desktop_slot" }),
 		stopDesktopSlot: () => rpcCommand({ type: "desktop_slot_stop" }),
+		retryDesktopSlot: () => rpcCommand({ type: "desktop_slot_retry" }),
+		killDesktopSlot: () => rpcCommand({ type: "desktop_slot_kill" }),
 		getDelegation: () => rpcCommand({ type: "get_delegation" }),
 		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),

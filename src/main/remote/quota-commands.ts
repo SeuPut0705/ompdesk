@@ -126,6 +126,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"autopilot_branch_status",
 	"get_desktop_slot",
 	"desktop_slot_stop",
+	"desktop_slot_retry",
+	"desktop_slot_kill",
 	"desktop_slot_bridge",
 	"get_delegation",
 	"get_directories",

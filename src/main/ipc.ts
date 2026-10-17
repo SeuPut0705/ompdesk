@@ -573,12 +573,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		payload: IpcRpcCommandPayload,
 	) => {
 		// The desktop slot is app-wide, not a tab's: answered here, whatever the tab's omp is doing.
-		if (payload.command.type === "get_desktop_slot" || payload.command.type === "desktop_slot_stop") {
-			if (payload.command.type === "desktop_slot_stop") await desktopSlot.stop();
+		const slotCommand = payload.command.type;
+		if (
+			slotCommand === "get_desktop_slot" ||
+			slotCommand === "desktop_slot_stop" ||
+			slotCommand === "desktop_slot_retry" ||
+			slotCommand === "desktop_slot_kill"
+		) {
+			if (slotCommand === "desktop_slot_stop") await desktopSlot.stop();
+			if (slotCommand === "desktop_slot_retry") desktopSlot.retry();
+			if (slotCommand === "desktop_slot_kill" && !(await desktopSlot.killHolder())) {
+				return {
+					id: payload.command.id,
+					type: "response",
+					command: slotCommand,
+					success: false,
+					error: "That session's omp has not exited, so the screen stays reserved for it.",
+				};
+			}
 			return {
 				id: payload.command.id,
 				type: "response",
-				command: payload.command.type,
+				command: slotCommand,
 				success: true,
 				data: desktopSlot.state(),
 			};

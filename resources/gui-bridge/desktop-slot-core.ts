@@ -57,6 +57,8 @@ export class DesktopSlotCore {
 	readonly #waiting = new Map<string, Waiter>();
 	/** A let-go in progress (aborting and revoking): new acting runs wait for it before asking again. */
 	#leaving: Promise<void> | undefined;
+	/** The last revoke failed: the slot is still held and input is blocked until a revoke succeeds. */
+	#failed: Error | undefined;
 
 	constructor(host: SlotHost) {
 		this.#host = host;
@@ -88,8 +90,11 @@ export class DesktopSlotCore {
 		for (;;) {
 			if (signal?.aborted) throw abortReason(signal);
 			if (this.#leaving) {
-				await this.#leaving;
+				await this.#leaving.catch(() => undefined);
 				continue;
+			}
+			if (this.#failed) {
+				throw new Error(`Screen control could not be released, so input is blocked: ${this.#failed.message}`);
 			}
 			if (this.#holding) return this.#runHeld(acting);
 			const waited = await this.#acquire(signal);
@@ -171,6 +176,11 @@ export class DesktopSlotCore {
 		this.#clearIdle();
 	}
 
+	/**
+	 * Abort the in-flight runs and revoke the controllers. A revoke that rejects is NOT a release: the slot stays
+	 * held (`#failed`), acting runs are refused until a later revoke succeeds, and the rejection reaches the caller
+	 * (main then keeps the slot with this session and retries).
+	 */
 	#leave(emitRelease: boolean, reason: DesktopSlotReason | undefined): Promise<void> {
 		if (this.#leaving) return this.#leaving;
 		if (!this.#holding) return Promise.resolve();
@@ -182,13 +192,20 @@ export class DesktopSlotCore {
 		const leaving = (async () => {
 			try {
 				await this.#host.revokeControllers();
-			} finally {
-				this.#holding = false;
+			} catch (error) {
+				this.#failed = error instanceof Error ? error : new Error(String(error));
 				this.#leaving = undefined;
-				if (emitRelease && reason) this.#host.emit({ type: "desktop_slot_release", reason });
+				throw error;
 			}
+			this.#failed = undefined;
+			this.#holding = false;
+			this.#leaving = undefined;
+			if (emitRelease && reason) this.#host.emit({ type: "desktop_slot_release", reason });
 		})();
 		this.#leaving = leaving;
+		leaving.catch(() => {
+			if (this.#leaving === leaving) this.#leaving = undefined;
+		});
 		return leaving;
 	}
 

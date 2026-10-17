@@ -16,7 +16,9 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 const stopDesktopSlot = vi.fn(async () => ({ success: true }));
-(window as unknown as { omp: unknown }).omp = { rpc: { stopDesktopSlot } };
+const retryDesktopSlot = vi.fn(async () => ({ success: true }));
+const killDesktopSlot = vi.fn(async () => ({ success: true }));
+(window as unknown as { omp: unknown }).omp = { rpc: { stopDesktopSlot, retryDesktopSlot, killDesktopSlot } };
 // Dynamic imports: React and the component must load after the linkedom DOM globals above exist.
 
 const { createRoot } = await import("react-dom/client");
@@ -42,6 +44,8 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
 	stopDesktopSlot.mockClear();
+	retryDesktopSlot.mockClear();
+	killDesktopSlot.mockClear();
 	useDesktopSlotStore.getState().reset();
 });
 
@@ -77,6 +81,26 @@ describe("DesktopSlotIndicator", () => {
 		expect(stop.getAttribute("aria-label")).toBe(translate("desktopSlot.stop"));
 		await act(async () => stop.click());
 		expect(stopDesktopSlot).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows a revoke-failed holder with retry and kill instead of Stop, and calls them", async () => {
+		useDesktopSlotStore.getState().apply({
+			holder: { tabId: "a", title: "Alpha", since: 1, revokeFailed: true },
+			queue: [{ tabId: "b", title: "Beta" }],
+		});
+		await mount();
+		expect(container.querySelector("[data-desktop-slot-text]")?.textContent).toBe(
+			translate("desktopSlot.revokeFailed", { title: "Alpha" }),
+		);
+		expect(container.querySelector("[data-desktop-slot-stop]")).toBeNull();
+		// linkedom's elements, as the Stop test above reads them.
+		const retry = container.querySelector("[data-desktop-slot-retry]") as HTMLElement;
+		const kill = container.querySelector("[data-desktop-slot-kill]") as HTMLElement;
+		await act(async () => retry.click());
+		await act(async () => kill.click());
+		expect(retryDesktopSlot).toHaveBeenCalledTimes(1);
+		expect(killDesktopSlot).toHaveBeenCalledTimes(1);
+		expect(stopDesktopSlot).not.toHaveBeenCalled();
 	});
 
 	it("disappears when the slot frees", async () => {

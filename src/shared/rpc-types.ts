@@ -229,6 +229,8 @@ export type RpcCommand =
 	// The desktop slot (one session at a time drives the screen; src/main/desktop-slot.ts): main answers both, never omp.
 	| { id?: string; type: "get_desktop_slot" }
 	| { id?: string; type: "desktop_slot_stop" }
+	| { id?: string; type: "desktop_slot_retry" }
+	| { id?: string; type: "desktop_slot_kill" }
 	/** Main's own calls into the bridge's desktop slot module (src/main/local/desktop-slot.ts allow-lists the methods); never sent by a renderer. */
 	| { id?: string; type: "desktop_slot_bridge"; method: string; params?: unknown }
 	// Delegation strength (composer chip): gui-bridge modes/delegation.ts

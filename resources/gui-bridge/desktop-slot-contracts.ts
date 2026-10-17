@@ -28,9 +28,14 @@ export interface DesktopSlotSession {
 	title: string;
 }
 
-/** What the renderer shows: the holder (null when free) and the waiting sessions in grant order. */
+/**
+ * What the renderer shows: the holder (null when free) and the waiting sessions in grant order. `revokeFailed` is
+ * set while the holder's screen control could not be confirmed stopped (stock `revokeControl()` rejected or never
+ * answered): nobody is granted until it is retried successfully, the holder's process is confirmed gone, or the user
+ * stops that session.
+ */
 export interface DesktopSlotState {
-	holder: (DesktopSlotSession & { since: number }) | null;
+	holder: (DesktopSlotSession & { since: number; revokeFailed?: true }) | null;
 	queue: DesktopSlotSession[];
 }
 

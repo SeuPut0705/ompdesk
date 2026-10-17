@@ -270,4 +270,38 @@ describe("desktop slot: letting go", () => {
 		await h.core.revoke("stop");
 		expect(h.revoked).toBe(0);
 	});
+
+	describe("a revoke that fails", () => {
+		it("rejects, keeps the slot held and sends no release", async () => {
+			const h = harness(() => Promise.reject(new Error("Timed out revoking computer control")));
+			await take(h, false);
+			await expect(h.core.revoke("stop")).rejects.toThrow("Timed out");
+			expect(h.core.holding).toBe(true);
+			expect(types(h).includes("desktop_slot_release")).toBe(false);
+		});
+
+		it("blocks acting runs (they must not run) until a revoke succeeds", async () => {
+			let fail = true;
+			const h = harness(() => (fail ? Promise.reject(new Error("stuck")) : Promise.resolve()));
+			await take(h, false);
+			await expect(h.core.revoke("stop")).rejects.toThrow("stuck");
+			const { run, state } = acting();
+			await expect(h.core.runActing(run)).rejects.toThrow("input is blocked");
+			expect(state.ran).toBe(0);
+			// Read-only runs still pass.
+			await expect(h.core.runReadOnly(() => Promise.resolve("shot"))).resolves.toBe("shot");
+			fail = false;
+			await h.core.revoke("retry");
+			expect(h.core.holding).toBe(false);
+			expect(h.revoked).toBe(2);
+		});
+
+		it("a failed turn-end revoke sends no release either", async () => {
+			const h = harness(() => Promise.reject(new Error("stuck")));
+			await take(h, false);
+			await expect(h.core.turnEnd()).rejects.toThrow("stuck");
+			expect(h.core.holding).toBe(true);
+			expect(types(h).includes("desktop_slot_release")).toBe(false);
+		});
+	});
 });
