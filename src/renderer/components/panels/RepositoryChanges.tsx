@@ -347,22 +347,26 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 													setMenu({ anchor: anchorFromEvent(event), file });
 												}}
 											>
-												<input
-													aria-checked={state === "all" ? "true" : state === "partial" ? "mixed" : "false"}
-													aria-label={
-														state === "all"
-															? t("scm.unstageFile", { path: file.path })
-															: t("scm.stageFile", { path: file.path })
-													}
-													checked={state === "all"}
-													className={cx(CHECKBOX, "ml-2")}
-													disabled={scmBusy}
-													onChange={() => setStaged([file.path], state !== "all")}
-													ref={element => {
-														if (element) element.indeterminate = state === "partial";
-													}}
-													type="checkbox"
-												/>
+												<label className="ml-1 flex h-(--sc-hit-min) w-7 shrink-0 cursor-pointer items-center justify-center">
+													<input
+														aria-checked={
+															state === "all" ? "true" : state === "partial" ? "mixed" : "false"
+														}
+														aria-label={
+															state === "all"
+																? t("scm.unstageFile", { path: file.path })
+																: t("scm.stageFile", { path: file.path })
+														}
+														checked={state === "all"}
+														className={CHECKBOX}
+														disabled={scmBusy}
+														onChange={() => setStaged([file.path], state !== "all")}
+														ref={element => {
+															if (element) element.indeterminate = state === "partial";
+														}}
+														type="checkbox"
+													/>
+												</label>
 												<PanelListRow
 													aria-pressed={selected === file.path}
 													className="min-w-0 flex-1"
