@@ -157,15 +157,13 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 ## Change workflow
 
-Changes accumulate as local commits on `main` and ship together only when the user asks:
+Changes are committed and pushed as they land, and released in small batches without waiting to be asked (the repo is public, so CI and releases cost nothing):
 
-1. Each finished fix or feature: run its own checks, then commit it locally (a normal descriptive message; no version bump, no CHANGELOG release section). Do not push.
-2. When the user asks to release ("배포해줘"): no local gate. CI is the gate (release.yml: types, biome, surface policy, vitest, the full sharded Playwright suite, `mac` and `win` smoke, all before `publish`). Run `bun run check:changed` as usual before each commit; `bun run gate` stays available for a full local run when someone wants one.
-3. Then release with the steps below: one dated `CHANGELOG.md` section (Korean summary plus English summary) covering every local commit since the last release, bump the version once, commit `release: vX.Y.Z`, push everything to `main` in one push, and watch the release run to the end (rerun only the failed shards or jobs).
+1. Each finished fix or feature: run its own checks (`bun run check:changed`), commit it with a normal descriptive message (no version bump, no CHANGELOG release section) and push it to `main`. ci.yml's `check` runs on the push; a red `check` is fixed before anything else lands.
+2. Release when a few user-visible fixes or features have gathered, about once or twice a day, never several times an hour: every release prompts every user to update and restart. A defect in the released version that makes the app unusable ships right away on its own. No local gate: release.yml is the gate (types, biome, surface policy, vitest, `mac` and `win` packaging with `@smoke` and real-core); the full sharded Playwright suite runs alongside and is informational until it is stable on hosted runners.
+3. Release with the steps below: one dated `CHANGELOG.md` section (Korean summary plus English summary) covering every commit since the last release, bump the version once, commit `release: vX.Y.Z`, push, and watch the release run to the end (rerun only the failed jobs). Tell the user when a release went out.
 
-Exception: a defect in the released version that makes the app unusable ships right away on its own.
-
-Releases are batched: a release run takes about 12-16 minutes of wall time on GitHub's hosted runners (free for this public repo; an estimate until a dry run measures it), every release prompts every user to update, and a failure after the push is only known at the end of the run. Unpushed commits live only on this Mac, so tell the user when several are waiting. Failed runs cost time, not money: rerun only the failed jobs. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
+A release run takes about 7 minutes to `publish` (measured on v0.34.0: build 1:25, check 2:56, win 3:55, mac 4:31). Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
 
 ## Release
 
