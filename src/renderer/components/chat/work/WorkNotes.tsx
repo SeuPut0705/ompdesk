@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { formatAgo, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { messageText } from "../../../lib/messages";
+import { messageDisplayText } from "../../../lib/messages";
 import { Badge } from "../../common/Badge";
 import { advisorSeverityLabel, CustomMessageCard, workNoteSummary } from "../CustomMessageCard";
 import { TodoReminderNote } from "../TodoReminderNote";
@@ -42,7 +42,7 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 					const key = typeof message.id === "string" ? message.id : `${String(message.timestamp)}-${index}`;
 					const itemClass = live ? "omp-work-notes-item omp-work-notes-item--arriving" : "omp-work-notes-item";
 					if (isRunSteer(message)) {
-						const text = messageText(message).trim();
+						const text = messageDisplayText(message).trim();
 						const time = formatAgo(message.timestamp);
 						return (
 							<li key={key} className={`${itemClass} omp-work-steer`} data-steer>

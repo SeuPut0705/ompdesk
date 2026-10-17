@@ -7,7 +7,7 @@
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { resultDetails } from "../../lib/format";
 import { messageIdentity } from "../../lib/message-identity";
-import { isRenderableMessageText, messageText, splitReaction } from "../../lib/messages";
+import { isRenderableMessageText, messageDisplayText, splitReaction } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
 import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
@@ -313,7 +313,7 @@ export function buildConversationAnchors(rows: readonly Row[], rowKeys: readonly
 		anchors.push({
 			key: rowKeys[rowIndex] ?? `conversation-${rowIndex}`,
 			rowIndex,
-			preview: conversationPreview(messageText(row.message)),
+			preview: conversationPreview(messageDisplayText(row.message)),
 			timestamp: row.message.timestamp,
 		});
 	}
