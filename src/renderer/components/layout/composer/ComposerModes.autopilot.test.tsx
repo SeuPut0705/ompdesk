@@ -240,14 +240,23 @@ describe("Autopilot start sheet", () => {
 		expect($("button[data-autopilot-start]")?.disabled).toBe(true);
 	});
 
-	/** linkedom fires no React synthetic events, so the test calls the element's own handler. */
-	async function typeInto(selector: string, value: string): Promise<void> {
-		const element = document.querySelector(selector) as unknown as HTMLTextAreaElement;
+	interface FieldHandlers {
+		onChange?: (event: object) => void;
+		onFocus?: (event: object) => void;
+		onBlur?: (event: object) => void;
+	}
+
+	/** linkedom fires no React synthetic events, so the test calls the element's own handlers, as React would. */
+	function handlersOf(element: HTMLTextAreaElement): FieldHandlers {
 		const record = element as unknown as Record<string, unknown>;
 		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
-		const props = (key ? record[key] : {}) as { onChange?: (event: object) => void };
+		return (key ? record[key] : {}) as FieldHandlers;
+	}
+
+	async function typeInto(selector: string, value: string): Promise<void> {
+		const element = document.querySelector(selector) as unknown as HTMLTextAreaElement;
 		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set?.call(element, value);
-		await act(async () => props.onChange?.({ target: element, currentTarget: element }));
+		await act(async () => handlersOf(element).onChange?.({ target: element, currentTarget: element }));
 	}
 
 	function draftOnRequest(draft: string): void {
@@ -277,6 +286,29 @@ describe("Autopilot start sheet", () => {
 		expect(start).toMatchObject({ action: "start", guide: "# Mine\n\nEdited by the user.\n" });
 		// One draft only, however often the sheet re-renders.
 		expect(setAutopilot.mock.calls.filter(call => call[0].action === "guide_draft")).toHaveLength(1);
+	});
+
+	it("Start sends the edited guide even though the press blurs the guide box first, and the box keeps its size", async () => {
+		installMockOmp();
+		draftOnRequest("# Drafted guide\n");
+		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
+		await mount(<ComposerModes />);
+		await openSheet();
+		await flush();
+		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
+		expect(box.getAttribute("rows")).toBe("1");
+		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
+		expect(box.getAttribute("rows")).toBe("8");
+		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nMARKER-ONE\n");
+		// A press on Start blurs the box at mousedown, before the click: the sheet must not reflow under the pointer,
+		// or the release lands beside Start and the click never reaches it (v0.35.0: Start did nothing).
+		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
+		expect(box.getAttribute("rows")).toBe("8");
+		await act(async () => $("button[data-autopilot-start]")?.click());
+		await flush();
+		const starts = setAutopilot.mock.calls.filter(call => call[0].action === "start");
+		expect(starts).toHaveLength(1);
+		expect(starts[0]?.[0]).toMatchObject({ action: "start", guide: "# Mine\n\nMARKER-ONE\n" });
 	});
 
 	it("shows the repo's own guide for editing and drafts nothing", async () => {

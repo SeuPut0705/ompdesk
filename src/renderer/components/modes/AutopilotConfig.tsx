@@ -207,22 +207,22 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 	);
 }
 
-/** A text box that reads as one line until it is focused, then opens to `focusRows` lines (the sheet stays short). */
-function GrowArea({ focusRows, onFocus, onBlur, className, ...rest }: TextAreaProps & { focusRows: number }) {
-	const [focused, setFocused] = useState(false);
+/**
+ * A text box that reads as one line until it is first focused, then stays open at `focusRows` lines (the sheet stays
+ * short until the user writes in it). It never collapses on blur: the blur of a press on Start happens at mousedown, so
+ * a collapse reflowed the popover under the pointer, the release landed elsewhere and the click never reached Start.
+ */
+function GrowArea({ focusRows, onFocus, className, ...rest }: TextAreaProps & { focusRows: number }) {
+	const [opened, setOpened] = useState(false);
 	return (
 		<TextArea
 			{...rest}
 			className={cx("resize-none py-1 text-sc-sm", className)}
-			onBlur={event => {
-				setFocused(false);
-				onBlur?.(event);
-			}}
 			onFocus={event => {
-				setFocused(true);
+				setOpened(true);
 				onFocus?.(event);
 			}}
-			rows={focused ? focusRows : 1}
+			rows={opened ? focusRows : 1}
 		/>
 	);
 }
