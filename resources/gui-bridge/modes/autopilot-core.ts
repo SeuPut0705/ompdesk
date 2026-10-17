@@ -8,6 +8,7 @@ import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_BACKLOG_ENTRY,
 	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_GUIDE_MAX_BYTES,
 	AUTOPILOT_NOTE_ENTRY,
 	AUTOPILOT_SHIP_REQUEST_ENTRY,
 	AUTOPILOT_STATE_ENTRY,
@@ -650,6 +651,24 @@ export function parseEndReport(input: Record<string, unknown>): EndReport | { er
 	return report;
 }
 
+const GUIDE_CUT_MARKER = "\n[... guide cut here: only the first 8 KB are passed on]";
+
+/**
+ * The guide as `begin` hands it on: at most `AUTOPILOT_GUIDE_MAX_BYTES` UTF-8 bytes in all (the marker included), cut on a
+ * character boundary. Blank or whitespace-only text is no guide (`null`).
+ */
+export function boundGuide(raw: string): { text: string; truncated?: boolean } | null {
+	const text = raw.replace(/^\uFEFF/, "").trim();
+	if (!text) return null;
+	const encoder = new TextEncoder();
+	const bytes = encoder.encode(text);
+	if (bytes.length <= AUTOPILOT_GUIDE_MAX_BYTES) return { text };
+	const room = AUTOPILOT_GUIDE_MAX_BYTES - encoder.encode(GUIDE_CUT_MARKER).length;
+	// A cut inside a multi-byte character decodes to U+FFFD at the end: drop it.
+	const cut = new TextDecoder().decode(bytes.subarray(0, room)).replace(/\uFFFD+$/, "");
+	return { text: cut.trimEnd() + GUIDE_CUT_MARKER, truncated: true };
+}
+
 export interface BeginFacts {
 	cycle: number;
 	settings: AutopilotSettings;
@@ -662,6 +681,8 @@ export interface BeginFacts {
 	due: boolean;
 	used: UsageTotals;
 	activeMs: number;
+	/** The project guide as read at this `begin` (already bounded), or null. */
+	guide?: { text: string; truncated?: boolean } | null;
 }
 
 /** The `begin` result: everything the agent needs for the cycle, from the journal. */
@@ -696,6 +717,7 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 			...(state.releaseProcedure ? { releaseProcedure: state.releaseProcedure } : {}),
 		},
 		...(left ? { budgetLeft: left } : {}),
+		...(facts.guide ? { guide: facts.guide } : {}),
 	};
 }
 

@@ -14,6 +14,7 @@ export function autopilotSection(maxParallel: number): string {
 	return `<autopilot>
 You are in OMPdesk autopilot: an unattended, endless development loop in your own git worktree. Each turn is ONE cycle. The user ends it; you never do: never call goal complete.
 Authority: the repository's own rules files (already loaded: AGENTS.md etc.) outrank this protocol, except the HARD LIMITS. Approvals are granted automatically and you never ask the user questions: the ask tool is not available, decide yourself, state the assumption in your cycle summary, and move on. The eval and debug tools are not available either: use bash and the file tools.
+Project guide: begin.guide, when present, is the project's own AUTOPILOT.md (goals, priorities, no-touch paths, done criteria, taste, release cadence, long-lived ideas), read again at every begin so an edit applies from the next cycle. Follow it when you audit, pick and implement. It ranks below the repository's rules files (AGENTS.md etc.), which win wherever they differ, and it can never lift the HARD LIMITS. It is direction, not an item list: the backlog stays in begin.backlog, and you never write backlog items into the guide.
 
 Cycle:
 1. autopilot({op:"begin"}) first, every turn. Read rotation, recent cycles, follow-ups, ship state. If ship.inFlight is set, reconcile it first (git log, remote state, run status); never redo a half-finished push or release. If red_streak>0 or the last verify was red, fixing it is this cycle's item.

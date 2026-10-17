@@ -163,6 +163,14 @@ export const MAIN_TEXT = {
 		en: "Denied a request that breaks a hard limit: {reason}",
 		ko: "금지된 요청을 거절했어요: {reason}",
 	},
+	"autopilot.err.guideTooLarge": {
+		en: "The Autopilot guide is too large (limit 256 KB). Shorten it, then start again.",
+		ko: "오토파일럿 가이드가 너무 커요(최대 256KB). 줄인 뒤 다시 시작하세요.",
+	},
+	"autopilot.err.guideCommit": {
+		en: "Could not commit AUTOPILOT.md to the new Autopilot branch:",
+		ko: "새 오토파일럿 브랜치에 AUTOPILOT.md를 커밋하지 못했어요:",
+	},
 	"autopilot.err.notRepo": {
 		en: "Autopilot needs a git repository with at least one commit.",
 		ko: "오토파일럿은 커밋이 하나 이상 있는 git 저장소에서만 시작할 수 있어요.",

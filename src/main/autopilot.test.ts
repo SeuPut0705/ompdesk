@@ -65,6 +65,8 @@ class World {
 	goal: { enabled: boolean; status?: string } = { enabled: false };
 	failGoalCreate = false;
 	failGoalResume = false;
+	/** What the bridge answers `modes.autopilot_guide` with. */
+	guide: unknown = { exists: false, text: "" };
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -119,6 +121,8 @@ class World {
 				}
 				return current;
 			}
+			case AUTOPILOT_BRIDGE_METHODS.guide:
+				return this.guide;
 			case AUTOPILOT_BRIDGE_METHODS.takeShipRequests:
 				return { requests: this.requests.splice(0) };
 			case AUTOPILOT_BRIDGE_METHODS.disarm:
@@ -359,6 +363,66 @@ describe("start", () => {
 			settings: { focus: ["tests"], ship: { autoPush: true } },
 		});
 		expect(await fs.stat(path.join(tmp, "wt-2026-10-17"))).toBeTruthy();
+	});
+
+	it("commits the sheet's guide as the branch's first commit and leaves the user's branch alone", async () => {
+		const { response } = await start({
+			type: "set_autopilot",
+			action: "start",
+			guide: "# Guide\n\nSmall diffs.",
+		});
+		expect(response.success).toBe(true);
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe("# Guide\n\nSmall diffs.\n");
+		expect(gitSync(worktree, "log", "--format=%s", "main..HEAD")).toBe("docs: add AUTOPILOT.md guide");
+		expect(gitSync(worktree, "show", "--name-only", "--format=", "HEAD")).toBe("AUTOPILOT.md");
+		expect(gitSync(worktree, "status", "--porcelain")).toBe("");
+		await expect(fs.access(path.join(main, "AUTOPILOT.md"))).rejects.toThrow();
+		expect(gitSync(main, "log", "--format=%s", "main").split("\n")).not.toContain("docs: add AUTOPILOT.md guide");
+	});
+
+	it("commits nothing when the sheet's guide is the repo's own text", async () => {
+		await fs.writeFile(path.join(main, "AUTOPILOT.md"), "# Ours\n");
+		gitSync(main, "add", "AUTOPILOT.md");
+		gitSync(main, "commit", "-q", "-m", "add guide");
+		await start({ type: "set_autopilot", action: "start", guide: "# Ours\n" });
+		expect(gitSync(path.join(tmp, "wt-2026-10-17"), "log", "--format=%s", "main..HEAD")).toBe("");
+	});
+
+	it("commits an edit of the repo's own guide as an update", async () => {
+		await fs.writeFile(path.join(main, "AUTOPILOT.md"), "# Ours\n");
+		gitSync(main, "add", "AUTOPILOT.md");
+		gitSync(main, "commit", "-q", "-m", "add guide");
+		await start({ type: "set_autopilot", action: "start", guide: "# Ours\n\nEdited.\n" });
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		expect(gitSync(worktree, "log", "--format=%s", "main..HEAD")).toBe("docs: update AUTOPILOT.md guide");
+		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe("# Ours\n\nEdited.\n");
+	});
+
+	it("asks the bridge for the repo's guide with the status, and for a draft only on guide_draft", async () => {
+		const sidecar = world.addTab("sheet", main);
+		autopilot.attachSidecar("sheet", sidecar as unknown as SidecarLike);
+		world.guide = { exists: false, text: "" };
+		const idle = await autopilot.status(sidecar as unknown as SidecarLike, "sheet");
+		expect(idle).toMatchObject({ active: false, guide: { exists: false, text: "" } });
+		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide)[0]?.params).toMatchObject({
+			root: expect.any(String),
+			draft: false,
+		});
+		world.guide = { exists: false, text: "# Draft\n", draft: "template" };
+		const drafted = await autopilot.handleCommand(
+			win,
+			sidecar as unknown as SidecarLike,
+			"sheet",
+			{ type: "set_autopilot", action: "guide_draft" },
+			"2",
+		);
+		expect(dataOf<AutopilotStatus>(drafted)).toMatchObject({
+			active: false,
+			guide: { text: "# Draft\n", draft: "template" },
+			ship: { queue: [] },
+		});
+		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide).at(-1)?.params).toMatchObject({ draft: true });
 	});
 
 	it("passes a token ceiling to stock as the goal's budget and never a time limit", async () => {

@@ -344,6 +344,8 @@ export interface AutopilotBeginResult {
 		releaseProcedure?: AutopilotReleaseProcedure;
 	};
 	budgetLeft?: Partial<AutopilotLimits>;
+	/** The project's guide (AUTOPILOT.md at the worktree root), bounded; absent when the repo has none. Re-read at every `begin`. */
+	guide?: { text: string; truncated?: boolean };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -389,6 +391,8 @@ export interface AutopilotStatus {
 	backlog?: AutopilotBacklogItem[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;
+	/** A session that is no run: the repo's guide, or a draft of one (`ship` stays what the sheet needs). */
+	guide?: AutopilotGuideInfo;
 	totals?: AutopilotTotals;
 	children?: AutopilotChildLive[];
 	/** Waiting for the account quota until this time (ms). */
@@ -423,10 +427,13 @@ export type AutopilotStartOptions = {
 	maxParallel?: number;
 	notify?: AutopilotNotifyMode;
 	backlog?: string[];
+	/** The guide text to commit as the autopilot branch's first commit when the new worktree's AUTOPILOT.md differs (or is missing). */
+	guide?: string;
 };
 
 export type AutopilotAction =
 	| ({ action: "start" } & AutopilotStartOptions)
+	| { action: "guide_draft" }
 	| { action: "stop" }
 	| { action: "abort" }
 	| { action: "pause" }
@@ -468,6 +475,27 @@ export const AUTOPILOT_CHILD_TAG = "autopilot-child";
 // ---------------------------------------------------------------------------------------------
 // Constants for the objective, the tools and the branch name
 // ---------------------------------------------------------------------------------------------
+
+/** The per-project Autopilot guide: project-wide direction in the repo's own root, read at every `begin` from the run's worktree. */
+export const AUTOPILOT_GUIDE_FILE = "AUTOPILOT.md";
+/** What `begin` passes on of the guide (bytes); a longer file is cut with a marker. */
+export const AUTOPILOT_GUIDE_MAX_BYTES = 8 * 1024;
+/** What the start sheet loads of a guide to edit it (bytes); a longer file is shown read-only. */
+export const AUTOPILOT_GUIDE_SHEET_MAX_BYTES = 64 * 1024;
+
+/** The guide as the start sheet shows it (`get_autopilot` / `guide_draft` on a session that is no run). */
+export interface AutopilotGuideInfo {
+	/** The repo's checkout has an AUTOPILOT.md. */
+	exists: boolean;
+	/** The file's text, or the draft when there is no file. */
+	text: string;
+	/** The file exceeds the sheet's limit: `text` is empty and the guide is not editable here. */
+	tooLarge?: boolean;
+	/** Where a draft came from: one smol-role request, or the deterministic template. */
+	draft?: "model" | "template";
+	/** What the draft's one model request cost (a model draft only): the smol model that answered, dollars and tokens. */
+	cost?: { model: string; usd?: number; tokens?: number };
+}
 
 /** The fixed Goal objective (<= 300 characters; focus and settings reach the agent only through `begin`). */
 export const AUTOPILOT_OBJECTIVE =
@@ -531,6 +559,8 @@ export const AUTOPILOT_BRIDGE_METHODS = {
 	cycleAmend: "modes.autopilot_cycle_amend",
 	/** `{}`: restore tools/overrides, journal `ended` (the state main passed to `setState` first stays the reason). */
 	disarm: "modes.autopilot_disarm",
+	/** `{root, draft?}` -> {@link AutopilotGuideInfo}: the checkout's AUTOPILOT.md; with `draft` and no file, one smol-role draft (template on failure). Works on any session. */
+	guide: "modes.autopilot_guide",
 } as const;
 
 export interface AutopilotArmParams {

@@ -42,6 +42,7 @@ import {
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
 	type AutopilotFrame,
+	type AutopilotGuideInfo,
 	type AutopilotNote,
 	type AutopilotSetStateParams,
 	type AutopilotSettings,
@@ -83,7 +84,9 @@ import {
 	verifyShipQuote,
 } from "./autopilot-core";
 import { evaluateToolCall } from "./autopilot-guard-core";
+import { draftGuide, fileIo, type GuideIo, readGuide, readGuideInfo } from "./autopilot-guide";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
+import { completeOnSmol, type NextPromptSession } from "./next-prompt-engine";
 import { attach, emit, errorMessage, onSessionEvent, record } from "./shared";
 
 /** Tools an autopilot session never has: `ask` (it decides itself), `eval`/`debug` (their subprocesses bypass the tool_call guard). */
@@ -513,6 +516,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				due,
 				used: status.totals ?? totalsOf(records),
 				activeMs: status.activeMs ?? state.activeMs,
+				guide: await readGuide(state.root, guideIo()),
 			});
 			if (current.beganAt === undefined) current.startedAt = now();
 			current.beganAt = now();
@@ -874,6 +878,48 @@ function takeShipRequests(session: Session): { requests: AutopilotShipRequest[] 
 	return { requests };
 }
 
+function guideIo(): GuideIo {
+	return fileIo(async (command, args, cwd) => {
+		try {
+			const result = await hostPi?.exec(command, args, { cwd });
+			return result !== undefined && result.code === 0 ? result.stdout : null;
+		} catch {
+			return null;
+		}
+	});
+}
+
+/** The start sheet's view of the guide: the file when there is one, else (asked to) a draft. The draft is never written here. */
+async function guideInfo(session: Session, root: string, draft: boolean): Promise<AutopilotGuideInfo> {
+	const io = guideIo();
+	const existing = await readGuideInfo(root, io);
+	if (existing) return existing;
+	if (!draft) return { exists: false, text: "" };
+	const drafted = await draftGuide(root, io, (system, user) =>
+		completeOnSmol(session as unknown as NextPromptSession, {
+			system,
+			user,
+			maxTokens: 1200,
+			temperature: 0.3,
+			purpose: "autopilot-guide-draft",
+		}),
+	);
+	return {
+		exists: false,
+		text: drafted.text,
+		draft: drafted.draft,
+		...(drafted.model
+			? {
+					cost: {
+						model: drafted.model,
+						...(drafted.usd !== undefined ? { usd: drafted.usd } : {}),
+						...(drafted.tokens !== undefined ? { tokens: drafted.tokens } : {}),
+					},
+				}
+			: {}),
+	};
+}
+
 function methodsTable(): BridgeMethods {
 	return {
 		/** Never throws for a session that is no run: `{active:false}`; never arms anything. */
@@ -886,6 +932,12 @@ function methodsTable(): BridgeMethods {
 			}
 			if (!guardState) followState(lastStateEntry(entriesOf(session)));
 			return statusOf(session);
+		},
+		/** The checkout's guide, or (with `draft`) one smol request's draft of it; never throws for a failed draft: that is the template. */
+		[M.guide]: async (params, env) => {
+			const p = record(params);
+			if (typeof p.root !== "string" || !p.root) throw new Error("guide needs root");
+			return guideInfo(attach(env), p.root, p.draft === true);
 		},
 		...guard("autopilot", {
 			[M.arm]: async (params, env) => arm(attach(env), parseArm(params)),

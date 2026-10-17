@@ -24,6 +24,7 @@ import {
 	startRun,
 	status,
 	tabIds,
+	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { capture, exitApp } from "./harness";
@@ -310,6 +311,44 @@ test("a usage limit waits for the quota, books a resume by itself and retries af
 		expect(
 			(await recorded(profile, "prompt")).filter(entry => entry.message === "/retry").length,
 		).toBeGreaterThanOrEqual(1);
+	} finally {
+		await exitApp(app);
+		await cleanupAp(profile);
+	}
+});
+
+test("the project guide: a repo without one gets a draft in the sheet, the edited text is the branch's first commit (never main's), and every begin reads the file afresh", async () => {
+	test.setTimeout(180_000);
+	const profile = await makeApProfile({ script: { cycleMs: 900 } });
+	const { app, page } = await launchAp(profile);
+	try {
+		await page.locator("[data-composer-modes-trigger]").click();
+		await page.getByRole("tab", { name: /^(Autopilot|오토파일럿)/ }).click();
+		const box = page.locator("[data-autopilot-guide]");
+		// The fake omp has no smol model: the draft is the deterministic template over what the repo says.
+		await expect(box).toHaveValue(/# Autopilot guide: project/);
+		await expect(box).toHaveValue(/AGENTS\.md/);
+		await box.fill("# Our guide\n\nPrefer small diffs. MARKER-ONE\n");
+		await page.locator("[data-autopilot-start]").click();
+		const { cwd } = await waitForRunTab(page);
+
+		// The guide is the autopilot branch's first commit; the user's checkout and branch never get it.
+		const [first] = git(cwd, "log", "--reverse", "--format=%H %s", "main..HEAD").split("\n");
+		expect(first).toMatch(/ docs: add AUTOPILOT\.md guide$/);
+		expect(git(cwd, "show", "--name-only", "--format=", first?.split(" ")[0] ?? "")).toBe("AUTOPILOT.md");
+		expect(git(profile.project, "log", "--format=%s")).toBe("seed");
+		await expect(fs.access(path.join(profile.project, "AUTOPILOT.md"))).rejects.toThrow();
+
+		const guideOf = async (marker: string) =>
+			(await agentTools(profile)).some(
+				entry =>
+					entry.op === "begin" &&
+					(entry.result as { guide?: { text?: string } } | undefined)?.guide?.text?.includes(marker),
+			);
+		await expect.poll(() => guideOf("MARKER-ONE"), { timeout: 60_000 }).toBe(true);
+		// An edit applies from the next cycle's begin.
+		await fs.writeFile(path.join(cwd, "AUTOPILOT.md"), "# Our guide\n\nPrefer small diffs. MARKER-TWO\n");
+		await expect.poll(() => guideOf("MARKER-TWO"), { timeout: 60_000 }).toBe(true);
 	} finally {
 		await exitApp(app);
 		await cleanupAp(profile);

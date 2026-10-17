@@ -625,6 +625,17 @@ export const ko: Record<string, string> = {
 	"autopilot.sheet.notify": "알림",
 	"autopilot.sheet.backlog": "백로그 (한 줄에 항목 하나)",
 	"autopilot.sheet.backlogPlaceholder": "에이전트가 먼저 할 항목",
+	"autopilot.sheet.guide": "프로젝트 가이드(AUTOPILOT.md)",
+	"autopilot.sheet.guidePlaceholder": "목표, 우선순위, 건드리지 말 경로, 완료 기준, 취향",
+	"autopilot.sheet.guideExists":
+		"이 저장소에 있는 가이드예요. 고친 내용은 현재 브랜치가 아니라 새 오토파일럿 브랜치의 첫 커밋으로 들어가요.",
+	"autopilot.sheet.guideDrafting": "규칙 파일, README, 최근 커밋으로 가이드 초안을 만드는 중…",
+	"autopilot.sheet.guideModel":
+		"규칙 파일, README, 최근 커밋으로 만든 초안이에요. 고치거나 비워도 돼요. 현재 브랜치가 아니라 새 오토파일럿 브랜치의 첫 커밋으로 들어가요.",
+	"autopilot.sheet.guideTemplate":
+		"규칙 파일, README, 최근 커밋으로 채운 기본 틀이에요. 고치거나 비워도 돼요. 현재 브랜치가 아니라 새 오토파일럿 브랜치의 첫 커밋으로 들어가요.",
+	"autopilot.sheet.guideTooLarge":
+		"AUTOPILOT.md가 64KB보다 커요. 저장소에서 직접 고치세요. 오토파일럿은 있는 그대로 읽어요.",
 	"autopilot.sheet.limits": "상한 (선택)",
 	"autopilot.sheet.limitsHint": "기본은 모두 꺼짐이에요. 계정 쿼터와 정지 규칙이 브레이크예요.",
 	"autopilot.sheet.worktreeNote": "워크트리는 현재 HEAD에서 만들어져서 커밋하지 않은 변경은 포함되지 않아요.",

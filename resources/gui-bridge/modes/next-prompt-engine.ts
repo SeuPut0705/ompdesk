@@ -507,11 +507,16 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 }
 
 /** Stock's usage ledger gets the request (as it does for its own predictions); never worth failing a suggestion for. */
-function recordUsage(session: NextPromptSession, resolved: Resolved, message: AssistantReply): void {
+function recordUsage(
+	session: NextPromptSession,
+	resolved: Resolved,
+	message: AssistantReply,
+	purpose = USAGE_PURPOSE,
+): void {
 	try {
 		session.sessionManager.appendModelUsage?.(
 			{
-				purpose: USAGE_PURPOSE,
+				purpose,
 				role: "smol",
 				api: message.api,
 				provider: message.provider ?? resolved.model.provider,
@@ -716,4 +721,47 @@ export function resetNextPromptState(): void {
 	requests.inline = 0;
 	lastKeys.clear();
 	compactedSinceSuggestion = false;
+}
+
+/** What one cheap smol request answered with (the model that served it, the text, what it cost). */
+export interface SmolCompletion {
+	text: string;
+	model: string;
+	usd?: number;
+	tokens?: number;
+}
+
+/**
+ * One cheap request on stock's `smol` role for another bridge module (Autopilot's guide draft): same resolution as
+ * the suggestions (never the main model), same ceilings, the request in stock's usage ledger under `purpose`. Throws
+ * when no smol model or credentials exist or the request fails; the caller owns its fallback.
+ */
+export async function completeOnSmol(
+	session: NextPromptSession,
+	request: {
+		system: string;
+		user: string;
+		maxTokens: number;
+		temperature: number;
+		purpose: string;
+		signal?: AbortSignal;
+	},
+): Promise<SmolCompletion> {
+	const stock = await loadStock();
+	const resolved = await resolveSmol(session, stock);
+	const asked = await ask(session, stock, resolved, request.system, request.user, {
+		maxTokens: request.maxTokens,
+		temperature: request.temperature,
+		signal: request.signal ?? new AbortController().signal,
+	});
+	recordUsage(session, resolved, asked.message, request.purpose);
+	const usage = asked.message.usage as { cost?: { total?: unknown }; totalTokens?: unknown } | undefined;
+	const cost = usage?.cost?.total;
+	const tokens = usage?.totalTokens;
+	return {
+		text: asked.text,
+		model: resolved.used.model,
+		...(typeof cost === "number" ? { usd: cost } : {}),
+		...(typeof tokens === "number" ? { tokens } : {}),
+	};
 }

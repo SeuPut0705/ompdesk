@@ -60,6 +60,7 @@ import {
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	backlogItems,
+	boundGuide,
 	buildBegin,
 	buildStatus,
 	classifyStall,
@@ -85,6 +86,7 @@ import {
 	verifyShipQuote,
 } from "../../resources/gui-bridge/modes/autopilot-core";
 import { evaluateToolCall } from "../../resources/gui-bridge/modes/autopilot-guard-core";
+import { draftGuide, fileIo, readGuideInfo } from "../../resources/gui-bridge/modes/autopilot-guide";
 import { goalActiveAtExit, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
@@ -473,6 +475,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					due,
 					used: status.totals ?? totalsOf(records),
 					activeMs: status.activeMs ?? current.activeMs,
+					guide: guideNow(current.root),
 				});
 				if (cur.beganAt === undefined) cur.startedAt = now();
 				cur.beganAt = now();
@@ -891,10 +894,38 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 		return `${prefix}${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 	}
 
+	/** The worktree's AUTOPILOT.md as `begin` passes it on, read afresh at every begin. */
+	function guideNow(root: string): { text: string; truncated?: boolean } | null {
+		try {
+			return boundGuide(fs.readFileSync(nodePath.join(root, "AUTOPILOT.md"), "utf8"));
+		} catch {
+			return null;
+		}
+	}
+
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		[M.status]: () => {
 			if (!guardState) followState(state());
 			return statusNow();
+		},
+		[M.guide]: (params, reply) => {
+			const root = String(params.root);
+			const io = fileIo(async (command, args, cwd) => {
+				try {
+					return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+				} catch {
+					return null;
+				}
+			});
+			void (async () => {
+				const existing = await readGuideInfo(root, io);
+				if (existing) return reply(existing);
+				if (params.draft !== true) return reply({ exists: false, text: "" });
+				// No smol model on the fake omp: the draft is the deterministic template.
+				const drafted = await draftGuide(root, io, () => Promise.reject(new Error("fixture: no smol model")));
+				reply({ exists: false, text: drafted.text, draft: drafted.draft });
+			})();
+			return undefined;
 		},
 		[M.arm]: params => arm(params as unknown as AutopilotArmParams),
 		[M.configure]: params => {

@@ -18,9 +18,12 @@
  * what it keeps in memory (ship queue, children, audit baseline) is only what the journal cannot hold.
  */
 import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
+	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotAction,
 	type AutopilotArea,
@@ -28,6 +31,7 @@ import {
 	type AutopilotChildLive,
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
+	type AutopilotGuideInfo,
 	type AutopilotPauseReason,
 	type AutopilotReleaseProcedure,
 	type AutopilotSettings,
@@ -61,8 +65,12 @@ import type { ClientWindow } from "./web/client-window";
 const READY_TIMEOUT_MS = 120_000;
 const RELEASE_POLL_MS = 15_000;
 const RELEASE_CACHE_MS = 60_000;
+/** The most a sheet-provided guide may weigh when it is committed (the file may exceed what `begin` passes on). */
+const GUIDE_COMMIT_MAX_BYTES = 256 * 1024;
 const GIT_MS = 30_000;
 const WORKTREE_MS = 660_000;
+/** A guide draft is one model request (the bridge gives it 20 s, plus reading the repo): longer than the default 8 s RPC wait. */
+const GUIDE_DRAFT_MS = 45_000;
 /** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */
 const ERROR_GRACE_MS = 3_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
@@ -460,16 +468,7 @@ export class Autopilot {
 		if (run) return this.#overlaid(run, await this.#fetchStatus(run));
 		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
 		if (status?.active) return status;
-		const release = await this.#releaseFor(sidecar.cwd);
-		return {
-			active: false,
-			ship: {
-				policy: this.#storedPolicy(),
-				queue: [],
-				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
-				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
-			},
-		};
+		return this.#idleStatus(sidecar, tabId, false);
 	}
 
 	async #action(
@@ -479,6 +478,7 @@ export class Autopilot {
 		action: AutopilotAction,
 	): Promise<AutopilotStatus & { tabId?: string }> {
 		if (action.action === "start") return this.#start(win, sidecar, tabId, action);
+		if (action.action === "guide_draft") return this.#idleStatus(sidecar, tabId, true);
 		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
 		if (!run) throw new AutopilotError(this.#deps.text("autopilot.err.noRun"), "autopilot_no_run");
 		switch (action.action) {
@@ -570,6 +570,9 @@ export class Autopilot {
 		);
 		if (!created.success) throw new AutopilotError(created.error ?? "Creating the worktree failed.");
 		const made = created.data as RpcWorktreeCreateResult;
+		if (typeof options.guide === "string" && options.guide.trim()) {
+			await this.#commitGuide(made.path, options.guide);
+		}
 		const runId = made.branch.startsWith("autopilot/") ? made.branch.slice("autopilot/".length) : made.branch;
 		const spawned = await this.#deps.spawnTab(win, {
 			cwd: made.path,
@@ -1359,10 +1362,10 @@ export class Autopilot {
 		});
 	}
 
-	async #bridge<T = unknown>(tabId: string, method: string, params: unknown): Promise<T> {
+	async #bridge<T = unknown>(tabId: string, method: string, params: unknown, timeoutMs?: number): Promise<T> {
 		const client = this.#deps.pool.sidecarOf(tabId)?.rpcClient;
 		if (!client) throw new Error("That session's process is gone.");
-		const response = await client.command({ type: "autopilot_bridge", method, params });
+		const response = await client.command({ type: "autopilot_bridge", method, params }, timeoutMs);
 		if (!response.success) throw new Error(response.error ?? `${method} failed`);
 		return response.data as T;
 	}
@@ -1409,6 +1412,66 @@ export class Autopilot {
 	async #gitText(cwd: string, args: string[]): Promise<string> {
 		const result = await gitRaw(cwd, args, { timeoutMs: GIT_MS }).catch(() => null);
 		return result?.code === 0 ? result.stdout.toString("utf8").trim() : "";
+	}
+
+	/**
+	 * Writes the start sheet's guide into the new worktree and commits it as the autopilot branch's first commit; nothing
+	 * happens when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not
+	 * be able to stop the start) and so is signing. The user's own branch is never written.
+	 */
+	async #commitGuide(root: string, guide: string): Promise<void> {
+		const body = `${guide.trim()}\n`;
+		if (Buffer.byteLength(body) > GUIDE_COMMIT_MAX_BYTES) {
+			throw new AutopilotError(this.#deps.text("autopilot.err.guideTooLarge"), "autopilot_guide_large");
+		}
+		const file = join(root, AUTOPILOT_GUIDE_FILE);
+		const current = await readFile(file, "utf8").catch(() => null);
+		if (current !== null && `${current.trim()}\n` === body) return;
+		await writeFile(file, body, "utf8");
+		const message = current === null ? "docs: add AUTOPILOT.md guide" : "docs: update AUTOPILOT.md guide";
+		const steps = [
+			["add", "--", AUTOPILOT_GUIDE_FILE],
+			["-c", "commit.gpgsign=false", "commit", "--no-verify", "-m", message, "--", AUTOPILOT_GUIDE_FILE],
+		];
+		for (const args of steps) {
+			const result = await gitRaw(root, args, { timeoutMs: GIT_MS }).catch(() => null);
+			if (result?.code !== 0) {
+				const why = result?.stderr.trim() || "git failed";
+				throw new AutopilotError(
+					`${this.#deps.text("autopilot.err.guideCommit")} ${why}`,
+					"autopilot_guide_commit",
+				);
+			}
+		}
+	}
+
+	/** The repo's guide as the sheet shows it (with `draft`, a drafted one when there is none); null when the bridge cannot say. */
+	async #guideFor(tabId: string, cwd: string, draft: boolean): Promise<AutopilotGuideInfo | null> {
+		const root = (await this.#gitText(cwd, ["rev-parse", "--show-toplevel"])) || cwd;
+		const info = await this.#bridge<unknown>(
+			tabId,
+			AUTOPILOT_BRIDGE_METHODS.guide,
+			{ root, draft },
+			draft ? GUIDE_DRAFT_MS : undefined,
+		).catch(() => null);
+		if (typeof info !== "object" || info === null || !("exists" in info) || !("text" in info)) return null;
+		return typeof info.exists === "boolean" && typeof info.text === "string" ? (info as AutopilotGuideInfo) : null;
+	}
+
+	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the guide. */
+	async #idleStatus(sidecar: SidecarLike, tabId: string, draft: boolean): Promise<AutopilotStatus> {
+		const release = await this.#releaseFor(sidecar.cwd);
+		const guide = await this.#guideFor(tabId, sidecar.cwd, draft);
+		return {
+			active: false,
+			ship: {
+				policy: this.#storedPolicy(),
+				queue: [],
+				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
+				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
+			},
+			...(guide ? { guide } : {}),
+		};
 	}
 
 	/** The checkout the worktree was cut from: the first entry of `git worktree list` (the primary one). */

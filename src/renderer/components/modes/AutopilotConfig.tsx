@@ -5,7 +5,7 @@
  */
 
 import { PanelRight, Rocket } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_LIMITS_PREF,
@@ -14,10 +14,12 @@ import {
 	AUTOPILOT_SHIP_PREF,
 	AUTOPILOT_SHIP_PRESETS,
 	type AutopilotArea,
+	type AutopilotGuideInfo,
 	type AutopilotNotifyMode,
 	type AutopilotReleaseCadence,
 	type AutopilotShipPolicy,
 	type AutopilotShipPreset,
+	type AutopilotStatus,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DEFAULT_RELEASE_EVERY,
 	MAX_PARALLEL_CHILDREN,
@@ -25,7 +27,7 @@ import {
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
+import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
@@ -46,6 +48,26 @@ function isPreset(value: unknown): value is AutopilotShipPreset {
 
 function isNotifyMode(value: unknown): value is AutopilotNotifyMode {
 	return (AUTOPILOT_NOTIFY_MODES as readonly unknown[]).includes(value);
+}
+
+function isIdleStatus(value: unknown): value is AutopilotStatus {
+	return typeof value === "object" && value !== null && "active" in value && value.active === false;
+}
+
+type GuideHintKey =
+	| "autopilot.sheet.guideTooLarge"
+	| "autopilot.sheet.guideExists"
+	| "autopilot.sheet.guideDrafting"
+	| "autopilot.sheet.guideModel"
+	| "autopilot.sheet.guideTemplate";
+
+/** The line under the guide box: what the text is (the repo's file, a draft, a template) and where it goes. */
+function guideHintKey(guide: AutopilotGuideInfo | undefined, drafting: boolean): GuideHintKey | null {
+	if (guide?.tooLarge) return "autopilot.sheet.guideTooLarge";
+	if (guide?.exists) return "autopilot.sheet.guideExists";
+	if (drafting) return "autopilot.sheet.guideDrafting";
+	if (guide?.draft === "model") return "autopilot.sheet.guideModel";
+	return guide?.draft === "template" ? "autopilot.sheet.guideTemplate" : null;
 }
 
 /** A saved ship policy (Settings › Agent behavior › Smart automation), tolerating a missing or hand-edited value. */
@@ -178,6 +200,8 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const tabId = useRuntimeTabId();
 	const live = useAutopilotStore(isLiveAutopilot);
 	const detected = useAutopilotStore(s => s.status.ship);
+	const guide = useAutopilotStore(s => s.status.guide);
+	const rpc = useTabRpc();
 	const remote = useTabsStore(s => Boolean(s.tabs.find(tab => tab.id === tabId)?.device));
 	const planMode = useSessionStore(s => s.planModeEnabled);
 	const hasGoal = useSessionStore(s => s.goal !== null);
@@ -193,6 +217,29 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const [limits, setLimits] = useState({ tokens: "", minutes: "", cycles: "", usd: "" });
 	const [notify, setNotify] = useState<AutopilotNotifyMode>(DEFAULT_AUTOPILOT_SETTINGS.notify);
 	const [backlog, setBacklog] = useState("");
+	const [guideText, setGuideText] = useState("");
+	const [guideEdited, setGuideEdited] = useState(false);
+	const [drafting, setDrafting] = useState(false);
+	const draftAsked = useRef(false);
+
+	// The repo's guide (or the draft the first look asked for) fills the box until the user types in it.
+	useEffect(() => {
+		if (!guideEdited && guide?.text) setGuideText(guide.text);
+	}, [guide, guideEdited]);
+
+	// A repo with no guide gets one drafted, once per sheet: one cheap smol request in the bridge, the template on failure.
+	useEffect(() => {
+		if (live || remote || isRepo !== true || !guide || guide.exists || guide.text || draftAsked.current) return;
+		draftAsked.current = true;
+		setDrafting(true);
+		void rpc
+			.setAutopilot({ action: "guide_draft" })
+			.then(response => {
+				if (response.success && isIdleStatus(response.data)) tabAutopilotStore(tabId).getState().apply(response.data);
+			})
+			.catch(() => {})
+			.finally(() => setDrafting(false));
+	}, [live, remote, isRepo, guide, rpc, tabId]);
 
 	// The saved defaults seed the sheet once they are read; what the user then changes is theirs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the read lands once.
@@ -208,6 +255,8 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	}, [defaults.loaded]);
 
 	if (live) return <RunSummary onOpened={onStarted} />;
+	const guideKey = guideHintKey(guide, drafting);
+	const guideHint = guideKey ? t(guideKey) : undefined;
 
 	const block = startBlock({ remote, isRepo, planMode, hasGoal });
 	const procedure = detected?.releaseProcedure;
@@ -234,6 +283,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			maxParallel: parallel,
 			notify,
 			...(items.length > 0 ? { backlog: items } : {}),
+			...(guideText.trim() && guide?.tooLarge !== true ? { guide: guideText } : {}),
 		});
 		if (started) onStarted?.();
 	};
@@ -335,6 +385,20 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 					placeholder={t("autopilot.sheet.backlogPlaceholder")}
 					rows={2}
 					value={backlog}
+				/>
+				<TextArea
+					data-autopilot-guide
+					disabled={guide?.tooLarge === true}
+					hint={guideHint}
+					label={t("autopilot.sheet.guide")}
+					mono
+					onChange={event => {
+						setGuideEdited(true);
+						setGuideText(event.target.value);
+					}}
+					placeholder={t("autopilot.sheet.guidePlaceholder")}
+					rows={8}
+					value={guideText}
 				/>
 				<details className="group" data-autopilot-limits>
 					<summary className="cursor-pointer text-sc-sm text-(--sc-text-secondary) hover:text-(--sc-text)">

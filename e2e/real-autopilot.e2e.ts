@@ -369,3 +369,43 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+test("real omp autopilot guide: the start sheet's draft is one request on the smol role, and its cost", async () => {
+	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
+	test.setTimeout(300_000);
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	await fs.mkdir(evidenceDir, { recursive: true });
+	const { profile, project, desktop, agent, env } = await seededProfile();
+	const { app, page } = await launch(desktop, env, project);
+	try {
+		await expect
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
+			.toMatchObject({ status: "ready" });
+		const origin = await mainTab(page);
+		// A repository without AUTOPILOT.md: the status says so, and nothing has been asked of a model yet.
+		const idle = await command(page, origin, { type: "get_autopilot" });
+		expect(idle).toMatchObject({ success: true, data: { active: false, guide: { exists: false, text: "" } } });
+		expect(await spentIn(agent)).toEqual({ usd: 0, tokens: 0 });
+
+		const drafted = await setAutopilot(page, origin, { action: "guide_draft" });
+		expect(drafted).toMatchObject({ success: true });
+		const guide = field(field(drafted, "data"), "guide");
+		const text = String(field(guide, "text"));
+		const cost = field(guide, "cost");
+		const evidence = { draft: field(guide, "draft"), chars: text.length, cost, text };
+		await fs.writeFile(path.join(evidenceDir, "guide-draft.json"), JSON.stringify(evidence, null, 2));
+		test.info().annotations.push({ type: "guide-draft-cost", description: JSON.stringify(cost) });
+		// The real smol model answered (not the template), with a usable guide that names the repo's own rule.
+		expect(field(guide, "draft")).toBe("model");
+		expect(text).toMatch(/^#/m);
+		expect(text.length).toBeGreaterThan(200);
+		expect(text.length).toBeLessThanOrEqual(5_100);
+		expect(text).toContain("bun test");
+		expect(typeof field(cost, "model")).toBe("string");
+		// Nothing was written anywhere: the checkout still has no AUTOPILOT.md.
+		await expect(fs.access(path.join(project, "AUTOPILOT.md"))).rejects.toThrow();
+	} finally {
+		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});

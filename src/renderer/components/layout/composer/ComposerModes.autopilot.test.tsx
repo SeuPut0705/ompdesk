@@ -208,6 +208,24 @@ describe("Autopilot start sheet", () => {
 		});
 	});
 
+	it("is one dense row per setting: no paragraphs, a short warning line, the details behind (i) glyphs", async () => {
+		installMockOmp();
+		await mount(<ComposerModes />);
+		await openSheet();
+		const count = (selector: string) => document.querySelectorAll(`[data-autopilot-sheet] ${selector}`).length;
+		// Descriptions ride tooltips; the only paragraph left sits inside the closed ceilings disclosure.
+		expect(count("p:not(details p)")).toBe(0);
+		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(7);
+		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(4);
+		expect($("[data-autopilot-warning] .truncate")?.textContent).toBe(translate("autopilot.sheet.warningShort"));
+		// The release procedure is a glyph with the sentence as its name, not a line of text.
+		expect($("button[data-autopilot-no-procedure]")?.getAttribute("aria-label")).toBe(
+			translate("autopilot.ship.noProcedure"),
+		);
+		expect(document.body.textContent).not.toContain("Changes apply to the current session immediately.");
+		expect($("[data-autopilot-limits]")?.getAttribute("open")).toBeNull();
+	});
+
 	it("says why it cannot start and keeps Start disabled: no repository, Plan on, an existing Goal", async () => {
 		installMockOmp();
 		gitStatus.isRepo = false;
@@ -220,6 +238,69 @@ describe("Autopilot start sheet", () => {
 		await act(async () => useSessionStore.setState({ planModeEnabled: true }));
 		await flush();
 		expect($("button[data-autopilot-start]")?.disabled).toBe(true);
+	});
+
+	/** linkedom fires no React synthetic events, so the test calls the element's own handler. */
+	async function typeInto(selector: string, value: string): Promise<void> {
+		const element = document.querySelector(selector) as unknown as HTMLTextAreaElement;
+		const record = element as unknown as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+		const props = (key ? record[key] : {}) as { onChange?: (event: object) => void };
+		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set?.call(element, value);
+		await act(async () => props.onChange?.({ target: element, currentTarget: element }));
+	}
+
+	function draftOnRequest(draft: string): void {
+		setAutopilot.mockImplementation(async action =>
+			action.action === "guide_draft"
+				? success({ active: false, guide: { exists: false, text: draft, draft: "model" } })
+				: success({ active: true, tabId: "new-tab" }),
+		);
+	}
+
+	it("shows a drafted guide for a repo without one and commits the user's edit with the start", async () => {
+		installMockOmp();
+		draftOnRequest("# Drafted guide\n\nKeep it small.\n");
+		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
+		await mount(<ComposerModes />);
+		await openSheet();
+		await flush();
+		expect(setAutopilot.mock.calls.map(call => call[0].action)).toEqual(["guide_draft"]);
+		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null;
+		expect(box?.value).toBe("# Drafted guide\n\nKeep it small.\n");
+		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideModel"));
+
+		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nEdited by the user.\n");
+		await act(async () => $("button[data-autopilot-start]")?.click());
+		await flush();
+		const start = setAutopilot.mock.calls.find(call => call[0].action === "start")?.[0];
+		expect(start).toMatchObject({ action: "start", guide: "# Mine\n\nEdited by the user.\n" });
+		// One draft only, however often the sheet re-renders.
+		expect(setAutopilot.mock.calls.filter(call => call[0].action === "guide_draft")).toHaveLength(1);
+	});
+
+	it("shows the repo's own guide for editing and drafts nothing", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n\nDo X.\n" } });
+		await mount(<ComposerModes />);
+		await openSheet();
+		await flush();
+		expect(setAutopilot).not.toHaveBeenCalled();
+		expect(($("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null)?.value).toBe(
+			"# Ours\n\nDo X.\n",
+		);
+		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideExists"));
+	});
+
+	it("sends no guide when the box is cleared", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n" } });
+		await mount(<ComposerModes />);
+		await openSheet();
+		await typeInto("textarea[data-autopilot-guide]", "");
+		await act(async () => $("button[data-autopilot-start]")?.click());
+		await flush();
+		expect(setAutopilot.mock.calls[0]?.[0]).not.toHaveProperty("guide");
 	});
 
 	it("shows the run's controls instead of the sheet while a run is live", async () => {

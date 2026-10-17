@@ -635,6 +635,17 @@ export const en: Record<string, string> = {
 	"autopilot.sheet.notify": "Notifications",
 	"autopilot.sheet.backlog": "Backlog (one item per line)",
 	"autopilot.sheet.backlogPlaceholder": "Items the agent does first",
+	"autopilot.sheet.guide": "Project guide (AUTOPILOT.md)",
+	"autopilot.sheet.guidePlaceholder": "Goals, priorities, paths to leave alone, what done means, taste",
+	"autopilot.sheet.guideExists":
+		"Found in this repository. Edits are committed to the new Autopilot branch as its first commit, never to your current branch.",
+	"autopilot.sheet.guideDrafting": "Drafting a guide from your rules files, README and recent commits…",
+	"autopilot.sheet.guideModel":
+		"Drafted from your rules files, README and recent commits. Edit it or clear it; it is committed to the new Autopilot branch as its first commit, never to your current branch.",
+	"autopilot.sheet.guideTemplate":
+		"A starting outline from your rules files, README and recent commits. Edit it or clear it; it is committed to the new Autopilot branch as its first commit, never to your current branch.",
+	"autopilot.sheet.guideTooLarge":
+		"AUTOPILOT.md is larger than 64 KB: edit it in the repository. Autopilot reads it as it is.",
 	"autopilot.sheet.limits": "Ceilings (optional)",
 	"autopilot.sheet.limitsHint": "All off by default: the account quota and the stop rules are the brakes.",
 	"autopilot.sheet.worktreeNote":
