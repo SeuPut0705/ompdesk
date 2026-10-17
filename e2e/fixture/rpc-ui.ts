@@ -28,6 +28,7 @@ import {
 	PROMPT_ORIGIN_ENTRY,
 	parsePromptOriginEnv,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
+import { interruptedJobs, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
@@ -1430,7 +1431,10 @@ export function runRpcUi(): void {
 			const last = [...entries].reverse().find(entry => entry.type === "message");
 			const cutOff =
 				last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
-			if (!cutOff) return { turn: false, subagents: [] };
+			// The bridge's `jobs`: background bash jobs the replaced process left unsettled (restart-core's rule).
+			const journal = entries as readonly RestartJournalEntry[];
+			const jobs = interruptedJobs(journal, performance.timeOrigin).map(job => job.id);
+			if (!cutOff) return { turn: false, subagents: [], jobs };
 			isStreaming = true;
 			write({ type: "agent_start" });
 			setTimeout(() => {
@@ -1446,7 +1450,7 @@ export function runRpcUi(): void {
 				write({ type: "message_end", message: answer });
 				endTurn([answer]);
 			}, 600);
-			return { turn: true, subagents: [] };
+			return { turn: true, subagents: [], jobs };
 		},
 		"composer.share_preview": () => ({
 			snapshotId: "fixture",

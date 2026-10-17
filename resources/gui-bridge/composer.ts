@@ -327,10 +327,11 @@ export const methods: BridgeMethods = {
 			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
 			requireFn(restore, "restoreSession", "composer", "task/restore");
 			const branch = session.sessionManager.getBranch() as readonly JournalEntry[];
-			const cutOff = interruptedJobs(branch);
 			// This process's start: the entries before it are the lives of the processes the relaunch replaced.
+			const startedAt = performance.timeOrigin;
+			const cutOff = interruptedJobs(branch, startedAt);
 			const goalPausedByExit =
-				goalActiveAtExit(branch, performance.timeOrigin) && session.getGoalModeState()?.goal.status === "paused";
+				goalActiveAtExit(branch, startedAt) && session.getGoalModeState()?.goal.status === "paused";
 			const outcome = await restore.restoreSession(session);
 			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
 			if (cutOff.length > 0) {

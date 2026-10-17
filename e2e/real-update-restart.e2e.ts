@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp } from "./harness";
-import { realOmpProfile } from "./real-omp";
+import { realOmpProfile, spentIn } from "./real-omp";
 
 // Opt-in audits on the user's small model: "Restart to update" while work runs. The update path
 // is an approved quit (relaunch mode: `requestQuit()`; Squirrel: `before-quit-for-update`, then
@@ -155,7 +155,8 @@ async function prefs(desktop: string, project: string): Promise<void> {
 }
 
 async function observe(name: string, data: Record<string, unknown>, agent: string): Promise<void> {
-	const body = JSON.stringify(data, null, 2);
+	// What the scenario spent so far (stock's `usage` on every assistant message of the agent dir).
+	const body = JSON.stringify({ ...data, spent: await spentIn(agent) }, null, 2);
 	console.log(`[observe ${name}] ${body}`);
 	await test.info().attach(`${name}.json`, { body, contentType: "application/json" });
 	await fs.writeFile(test.info().outputPath(`${name}.json`), body);

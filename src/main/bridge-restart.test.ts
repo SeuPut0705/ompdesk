@@ -8,6 +8,7 @@ import {
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
+	RESTART_JOBS_MESSAGE,
 	restartJobsNotice,
 } from "../../resources/gui-bridge/restart-core";
 
@@ -40,16 +41,22 @@ function delivered(jobId: string): JournalEntry {
 }
 
 describe("interruptedJobs", () => {
+	/** This process started at 10:00:00; `before` stamps entries the replaced processes journaled. */
+	const startedAt = Date.parse("2026-10-17T10:00:00.000Z");
+	const replaced = (...entries: JournalEntry[]): JournalEntry[] =>
+		entries.map(entry => ({ ...entry, timestamp: "2026-10-17T09:59:00.000Z" }));
+	const now = (entry: JournalEntry): JournalEntry => ({ ...entry, timestamp: "2026-10-17T10:00:01.000Z" });
+
 	it("names the background bash jobs the last process left unfinished, with their commands", () => {
-		const branch = [
+		const branch = replaced(
 			bashCall("c1", "sleep 40; echo a"),
 			started("c1", "bg_1"),
 			bashCall("c2", "make"),
 			started("c2", "bg_2"),
-		];
-		expect(interruptedJobs([...branch, delivered("bg_2"), exit])).toEqual([
-			{ id: "bg_1", command: "sleep 40; echo a" },
-		]);
+			delivered("bg_2"),
+			exit,
+		);
+		expect(interruptedJobs(branch, startedAt)).toEqual([{ id: "bg_1", command: "sleep 40; echo a" }]);
 	});
 
 	it("treats a job a wait report settled as finished", () => {
@@ -61,15 +68,26 @@ describe("interruptedJobs", () => {
 				content: [{ type: "text", text: "### bg_1 [bash] — completed" }],
 			},
 		};
-		expect(interruptedJobs([bashCall("c1", "x"), started("c1", "bg_1"), report, exit])).toEqual([]);
+		expect(interruptedJobs(replaced(bashCall("c1", "x"), started("c1", "bg_1"), report, exit), startedAt)).toEqual(
+			[],
+		);
 	});
 
-	it("reads only the life of the process the latest exit ended, and nothing without an exit", () => {
-		const earlier = [bashCall("c1", "old"), started("c1", "bg_1"), exit];
-		expect(interruptedJobs([...earlier, bashCall("c2", "new"), started("c2", "bg_1"), exit])).toEqual([
-			{ id: "bg_1", command: "new" },
-		]);
-		expect(interruptedJobs([bashCall("c1", "x"), started("c1", "bg_1")])).toEqual([]);
+	it("needs no session_exit: stock journals none for a SIGKILL, and not always when its stdin closes", () => {
+		const aborted: JournalEntry = { type: "message", message: { role: "assistant" } };
+		const branch = [...replaced(bashCall("c1", "sleep 60"), started("c1", "bg_1"), aborted), now(aborted)];
+		expect(interruptedJobs(branch, startedAt)).toEqual([{ id: "bg_1", command: "sleep 60" }]);
+		// This process's own jobs are not the restart's.
+		expect(interruptedJobs([now(bashCall("c1", "x")), now(started("c1", "bg_1"))], startedAt)).toEqual([]);
+	});
+
+	it("leaves out an older life before the second-to-last exit, and a job an earlier relaunch already named", () => {
+		const older = [bashCall("c1", "old"), started("c1", "bg_1"), exit];
+		expect(
+			interruptedJobs(replaced(...older, bashCall("c2", "new"), started("c2", "bg_1"), exit), startedAt),
+		).toEqual([{ id: "bg_1", command: "new" }]);
+		const named: JournalEntry = { type: "custom_message", customType: RESTART_JOBS_MESSAGE, content: "- bg_1: `x`" };
+		expect(interruptedJobs(replaced(bashCall("c1", "x"), started("c1", "bg_1"), named), startedAt)).toEqual([]);
 	});
 
 	it("tells the agent which jobs stopped and to go on", () => {

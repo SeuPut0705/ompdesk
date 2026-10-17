@@ -11,6 +11,8 @@ export interface JournalEntry {
 	customType?: string;
 	mode?: string;
 	details?: unknown;
+	/** A `custom_message` entry's content. */
+	content?: unknown;
 	/** ISO time the entry was journaled (stock `SessionEntry.timestamp`). */
 	timestamp?: string;
 	message?: { role?: string; content?: unknown; toolCallId?: string; details?: unknown };
@@ -57,11 +59,17 @@ function toolCallCommand(entry: JournalEntry, toolCallId: string): string | unde
 	return undefined;
 }
 
-/** A later entry that settles job `id`: its async-result delivery, a settled job frame, or a wait/jobs report naming it. */
+/**
+ * A later entry that settles job `id`: its async-result delivery, a settled job frame, a wait/jobs report naming it,
+ * or an earlier relaunch's notice that already named it to the agent.
+ */
 function settles(entry: JournalEntry, id: string): boolean {
 	if (entry.type === "custom_message" && entry.customType === ASYNC_RESULT) {
 		const jobs = isObject(entry.details) ? entry.details.jobs : undefined;
 		return Array.isArray(jobs) && jobs.some(job => isObject(job) && job.jobId === id);
+	}
+	if (entry.type === "custom_message" && entry.customType === RESTART_JOBS_MESSAGE) {
+		return JSON.stringify(entry.content ?? "").includes(`- ${id}:`);
 	}
 	if (entry.type !== "message" || entry.message?.role !== "toolResult") return false;
 	const state = asyncState(entry.message.details);
@@ -71,21 +79,24 @@ function settles(entry: JournalEntry, id: string): boolean {
 }
 
 /**
- * Background bash jobs started by the process the latest `session_exit` ended and never settled
- * before it: that process took them down. Earlier processes had their own relaunch.
+ * Background bash jobs the processes this one replaced started and never settled: they took them down. Their entries
+ * are the ones journaled before `startedAt`, this process's start (epoch ms), never cut at a `session_exit` alone,
+ * which stock does not journal for a SIGKILL or a crash and not always when its stdin closes. The life looked at
+ * starts after the second-to-last `session_exit` among them: the last one may be the dying process's own (stock
+ * journals it before the turn's abort) or the one before it, which then had its own relaunch; a job an earlier
+ * relaunch already named (`RESTART_JOBS_MESSAGE`) counts as settled.
  */
-export function interruptedJobs(branch: readonly JournalEntry[]): InterruptedJob[] {
-	const exit = branch.findLastIndex(isExit);
-	if (exit < 0) return [];
-	const start = branch.findLastIndex((entry, index) => index < exit && isExit(entry)) + 1;
-	const life = branch.slice(start, exit);
+export function interruptedJobs(branch: readonly JournalEntry[], startedAt: number): InterruptedJob[] {
+	const earlier = branch.filter(entry => journaledBefore(entry, startedAt));
+	const exits = earlier.flatMap((entry, index) => (isExit(entry) ? [index] : []));
+	const life = earlier.slice((exits.at(-2) ?? -1) + 1);
 	const jobs: InterruptedJob[] = [];
 	life.forEach((entry, index) => {
 		const message = entry.message;
 		if (entry.type !== "message" || message?.role !== "toolResult" || !message.toolCallId) return;
 		const state = asyncState(message.details);
 		if (state?.state !== "running" || state.type !== "bash") return;
-		if (life.slice(index + 1).some(later => settles(later, state.jobId))) return;
+		if (branch.slice(branch.indexOf(entry) + 1).some(later => settles(later, state.jobId))) return;
 		let command: string | undefined;
 		for (let back = index - 1; back >= 0 && command === undefined; back--) {
 			const candidate = life[back];

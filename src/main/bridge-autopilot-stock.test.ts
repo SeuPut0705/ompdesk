@@ -1,5 +1,15 @@
 import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import * as http from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -619,5 +629,34 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		// What stock restores on the next pause (a stop rule) is the armed set too: the run stays armed while it lives.
 		expect((await after.send({ type: "goal", op: "pause" })).success).toBe(true);
 		expectArmed(await presentation(after));
+	}, 120_000);
+
+	it("after a SIGKILL of omp, the relaunch names a background bash job the last process started (no session_exit)", async () => {
+		// The turn starts a background job, then the model never answers again: the turn is streaming at the kill.
+		const streaming = Promise.withResolvers<void>();
+		const provider = await startProvider(requests => {
+			if (requests.length === 1) return { tool: "bash", args: { command: "sleep 60", async: true } };
+			streaming.resolve();
+			return { hang: true };
+		});
+		cleanups.push(() => provider.close());
+		const before = await startOmp(provider);
+		await before.send({ type: "prompt", message: "start the job" });
+		await streaming.promise;
+		expect(provider.requests[1]?.toolResults.join("\n")).toMatch(/bg_|job/i);
+		// A crash or SIGKILL: stock journals no `session_exit` (a closed stdin sometimes does not either).
+		await before.stop(true);
+		const sessions = join(before.isolated, "agent", "sessions");
+		const journal = readdirSync(sessions, { recursive: true })
+			.map(String)
+			.filter(file => file.endsWith(".jsonl"))
+			.map(file => readFileSync(join(sessions, file), "utf8"))
+			.join("\n");
+		// What made the old rule (the life before the latest `session_exit`) report nothing.
+		expect(journal).not.toContain('"customType":"session_exit"');
+
+		const after = await startOmp(provider, before);
+		const restored = await after.bridge.request<{ jobs?: string[] }>("composer.restore_interrupted", {});
+		expect(restored.jobs, JSON.stringify(restored)).toHaveLength(1);
 	}, 120_000);
 });
