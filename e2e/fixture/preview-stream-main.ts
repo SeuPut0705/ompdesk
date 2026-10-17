@@ -37,19 +37,29 @@ app.setPath("userData", userData);
 // The page under test is on 127.0.0.1; nothing here touches the user's screen.
 app.dock?.hide();
 
-/** What the test page posts about the events it saw. */
+/**
+ * What the test page posts about the events it saw. Each post is its own request and they may arrive out of order:
+ * `n` is the page's own count of the events, so the order is read from `n`, never from arrival.
+ */
 interface PageLog {
 	type: string;
 	trusted: boolean;
+	n: number;
 	[key: string]: unknown;
 }
 
+// The textarea is kept clear of the strip right under the text field. After every change typed into a field,
+// Electron's autofill agent opens a suggestion popup even with nothing to suggest (electron_autofill_agent.cc); on an
+// offscreen page its view proxy first takes the field's own size directly below the field and outlives the empty
+// popup by a task, and a tap inside it in that moment goes to the proxy, never to the page
+// (OffScreenRenderWidgetHostView::SendMouseEvent). Tapped inside that strip, the textarea missed its tap in 9 of 40
+// runs (no `input-event` for it at all); tapped below it, in none of 40.
 const PAGE = `<!doctype html><meta name=viewport content="width=device-width">
 <style>
 body{margin:0;font:16px system-ui;background:#fff}
 #btn{position:fixed;left:20px;top:30px;width:160px;height:56px;font-size:18px}
 #t{position:fixed;left:20px;top:110px;width:300px;height:44px;font-size:18px}
-#area{position:fixed;left:20px;top:170px;width:300px;height:80px;font-size:16px}
+#area{position:fixed;left:20px;top:230px;width:300px;height:80px;font-size:16px}
 #list{margin-top:300px}.row{height:28px;padding:4px 8px;border-bottom:1px solid #ddd}.row:nth-child(3n){background:#eef}
 #busy{position:fixed;right:0;top:0;width:120px;height:120px;background:#06c}
 </style>
@@ -57,10 +67,11 @@ body{margin:0;font:16px system-ui;background:#fff}
 <div id=list></div>
 <script>
 const q = new URLSearchParams(location.search);
-const send = entry => fetch('/log', { method: 'POST', body: JSON.stringify(entry) }).catch(() => {});
+let n = 0;
+const send = entry => fetch('/log', { method: 'POST', body: JSON.stringify({ ...entry, n: n++ }) }).catch(() => {});
 document.getElementById('list').innerHTML = Array.from({ length: 400 }, (_, i) => '<div class=row>row ' + i + ' the quick brown fox ' + (i * 7919 % 1000) + '</div>').join('');
 addEventListener('click', e => send({ type: 'click', trusted: e.isTrusted, x: e.clientX, y: e.clientY, target: e.target.id, active: navigator.userActivation.isActive }), true);
-addEventListener('keydown', e => send({ type: 'keydown', trusted: e.isTrusted, key: e.key }), true);
+addEventListener('keydown', e => send({ type: 'keydown', trusted: e.isTrusted, key: e.key, id: e.target.id }), true);
 addEventListener('input', e => send({ type: 'input', trusted: e.isTrusted, value: e.target.value, id: e.target.id }), true);
 addEventListener('wheel', e => send({ type: 'wheel', trusted: e.isTrusted, dy: e.deltaY }), true);
 addEventListener('scroll', () => send({ type: 'scroll', trusted: true, y: scrollY }), true);
@@ -258,25 +269,32 @@ async function main() {
 	// 3. Keys and committed text reach a focused field as trusted input.
 	log.length = 0;
 	input({ t: "tap", x: 100 / 390, y: 132 / 700 });
-	await sleep(100);
+	await waitFor("the tap on the field", () => log.some(entry => entry.type === "click" && entry.target === "t"));
 	input({ t: "key", key: "a" }, { t: "key", key: "b" }, { t: "key", key: "Backspace" }, { t: "text", text: "한글" });
-	await waitFor("the typed value", () =>
-		log.some(entry => entry.type === "input" && String(entry.value).includes("한글")),
+	const inField = () => log.filter(entry => entry.id === "t").toSorted((a, b) => a.n - b.n);
+	await waitFor(
+		"the typed value",
+		() =>
+			inField().filter(entry => entry.type === "keydown").length >= 3 &&
+			inField().some(entry => entry.type === "input" && String(entry.value).includes("한글")),
 	);
-	const typed = log.filter(entry => entry.type === "input" || entry.type === "keydown");
+	const typed = inField().filter(entry => entry.type === "input" || entry.type === "keydown");
 	result.typing = {
-		// The posts may overtake each other: the entry that holds the committed text carries the field's value.
-		value: log.find(entry => entry.type === "input" && String(entry.value).includes("한글"))?.value,
-		allTrusted: typed.length > 0 && typed.every(entry => entry.trusted === true),
-		keys: log.filter(entry => entry.type === "keydown").map(entry => entry.key),
+		value: typed.findLast(entry => entry.type === "input")?.value,
+		allTrusted: typed.every(entry => entry.trusted === true),
+		keys: typed.filter(entry => entry.type === "keydown").map(entry => entry.key),
 	};
 	// Enter types a newline in a textarea (the char event after the key).
 	log.length = 0;
-	input({ t: "tap", x: 100 / 390, y: 200 / 700 });
-	await sleep(100);
+	input({ t: "tap", x: 100 / 390, y: 270 / 700 });
+	await waitFor("the tap on the textarea", () => log.some(entry => entry.type === "click" && entry.target === "area"));
 	input({ t: "key", key: "x" }, { t: "key", key: "Enter" }, { t: "key", key: "y" });
-	await waitFor("the textarea value", () => log.filter(entry => entry.type === "input").length >= 3);
-	result.enter = JSON.stringify(log.find(entry => entry.type === "input" && String(entry.value).endsWith("y"))?.value);
+	await waitFor(
+		"the textarea value",
+		() => log.filter(entry => entry.type === "input" && entry.id === "area").length >= 3,
+	);
+	const areaInputs = log.filter(entry => entry.type === "input" && entry.id === "area").toSorted((a, b) => a.n - b.n);
+	result.enter = JSON.stringify(areaInputs.at(-1)?.value);
 
 	// 4. A wheel gesture scrolls the page (trusted), in the DOM's sign.
 	log.length = 0;
