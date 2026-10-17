@@ -53,3 +53,9 @@ describe("the prompt card on touch", () => {
 		expect(ask).toContain("data-ask-note");
 	});
 });
+
+describe("switches on touch", () => {
+	it("every switch (settings row, Mode popover, dialog) is 44 px wide, not only the settings rows'", () => {
+		expect(rule('html[data-input="touch"] [role="switch"]')).toMatch(/min-width:\s*44px/);
+	});
+});

@@ -479,9 +479,9 @@ html[data-shell="phone"] [data-setting-desc] {
 	white-space: normal;
 }
 
-/* A switch is 32 px wide: widen its hit area to a finger; the info glyph gets a finger-sized box that leaves the
+/* A switch (a settings row, the Mode popover, a dialog) is 28–32 px wide: widen its hit area to a finger; the info glyph gets a finger-sized box that leaves the
    row's layout alone (negative margin). */
-html[data-input="touch"] .settings-field-row [role="switch"] {
+html[data-input="touch"] [role="switch"] {
 	min-width: 44px;
 	justify-content: center;
 }
