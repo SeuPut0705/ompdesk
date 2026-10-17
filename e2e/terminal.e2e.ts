@@ -6,6 +6,9 @@ import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } f
 
 for (const theme of variants(["light", "dark"] as const)) {
 	test(`${theme === "light" ? "@smoke " : ""}real interactive terminal in ${theme}`, async () => {
+		// The terminal runs stock's installed PTY natives; the Windows e2e jobs install no stock omp
+		// (remote-devices' remote terminal step skips there for the same reason).
+		test.skip(process.platform === "win32", "no installed stock omp natives on the Windows e2e runner");
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-terminal-"));
 		const desktop = path.join(profile, "desktop");
 		const project = path.join(profile, "project");
