@@ -2515,6 +2515,7 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 			busy: false,
 			awaitingConnection: false,
 			retrying: false,
+			scheduledRetry: false,
 		});
 		a.emitEvents([{ type: "agent_start" }]);
 		pool.setAwaitingConnection("tab-a", true);
@@ -2524,7 +2525,12 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 			busy: true,
 			awaitingConnection: true,
 			retrying: true,
+			scheduledRetry: false,
 		});
+		pool.setScheduledRetry("tab-a", { at: 1_000, attempt: 1, max: 3 });
+		expect(pool.tabFacts("tab-a")?.scheduledRetry).toBe(true);
+		pool.setScheduledRetry("tab-a", undefined);
+		expect(pool.tabFacts("tab-a")?.scheduledRetry).toBe(false);
 		pool.releaseTab("tab-a");
 		expect(pool.tabFacts("tab-a")).toBeNull();
 		expect(pool.tabFacts("nope")).toBeNull();
