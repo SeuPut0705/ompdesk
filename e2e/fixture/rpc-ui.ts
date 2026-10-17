@@ -40,6 +40,12 @@ import { FIXTURE_OMP_VERSION } from "./version";
 const E2E_DIR = nodePath.dirname(import.meta.dir);
 
 /**
+ * `OMP_GUI_README_SCENE=1` (`scripts/readme-media`): every prompt starts a `fixture flow` turn, which the scene script
+ * plays op by op with its own text, so the README clips show a natural prompt and answer instead of a fixture phrase.
+ */
+const README_SCENE = process.env.OMP_GUI_README_SCENE === "1";
+
+/**
  * The fake omp's `--mode rpc-ui`: stock RPC on stdin/stdout, plus the gui-bridge extension's socket (loaded
  * with `-e`, address in `OMP_GUI_BRIDGE`) answering the bridge methods the e2e suites reach.
  */
@@ -301,7 +307,7 @@ export function runRpcUi(): void {
 
 	const model = {
 		id: "local-fixture",
-		name: "Local fixture",
+		name: README_SCENE ? "Example model" : "Local fixture",
 		provider: "fixture",
 		reasoning: true,
 		contextWindow: 128000,
@@ -702,12 +708,6 @@ export function runRpcUi(): void {
 		record,
 		entries: () => entries,
 		appendCustom: (customType, data) => append({ type: "custom", customType, data }, Date.now()),
-		appendMessage,
-		isStreaming: () => isStreaming,
-		setStreaming: streaming => {
-			isStreaming = streaming;
-		},
-		endTurn,
 		appendModeChange: mode => append({ type: "mode_change", mode }, Date.now()),
 		modeChanges: () =>
 			entries.flatMap(entry =>
@@ -715,6 +715,12 @@ export function runRpcUi(): void {
 					? [{ type: entry.type, mode: entry.mode, timestamp: entry.timestamp }]
 					: [],
 			),
+		appendMessage,
+		isStreaming: () => isStreaming,
+		setStreaming: streaming => {
+			isStreaming = streaming;
+		},
+		endTurn,
 		getGoal: () => boardGoal,
 		setGoal: goal => {
 			boardGoal = goal;
@@ -3333,7 +3339,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			startWorkView(user);
 		} else if (message === "fixture steer work") {
 			startSteerWork(user);
-		} else if (message === "fixture flow") {
+		} else if (message === "fixture flow" || README_SCENE) {
 			startFlow(user);
 		} else if (message === "fixture real work replay") {
 			const recording = rebaseWorkRecording(

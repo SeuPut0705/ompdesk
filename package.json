@@ -33,6 +33,8 @@
     "locked": "bun scripts/build-lock.ts",
     "lock-stats": "bun scripts/lock-stats.ts",
     "bench": "vitest bench",
+    "readme:media": "bun scripts/readme-media/run.ts",
+    "readme:check": "bun scripts/readme-media/check-readme.ts",
     "package:win:dir": "bun run build && electron-builder --config electron-builder.win.yml --win --x64 --dir"
   },
   "dependencies": {

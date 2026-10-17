@@ -1,242 +1,92 @@
 <div align="center">
 
+**English** · [한국어](README.ko.md)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="resources/brand/wordmark-dark.svg">
   <img src="resources/brand/wordmark-light.svg" alt="OMPdesk" height="64">
 </picture>
 
-**설치된 omp로 대화하고, 코드를 고치고, 여러 작업을 한 화면에서 관리하는 데스크톱 앱이에요.**
+**The desktop app for the omp coding agent: parallel sessions, autopilot, and your phone.**
 
-<sub>An unofficial desktop app for [omp](https://github.com/can1357/oh-my-pi) (by can1357/oh-my-pi). Not affiliated with or endorsed by its authors. Docs are in Korean; the app UI is in English and Korean.</sub>
+<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-mac-arm64.dmg"><img src="resources/brand/download-macos.svg" alt="Download for macOS (Apple Silicon)" width="280" height="64"></a>
+<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-windows-setup.exe"><img src="resources/brand/download-windows.svg" alt="Download for Windows (x64)" width="280" height="64"></a>
 
-<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-mac-arm64.dmg"><img src="resources/brand/download-macos.svg" alt="macOS (Apple Silicon) 다운로드" width="280" height="64"></a>
-<a href="https://github.com/SeuPut0705/ompdesk/releases/latest/download/ompdesk-windows-setup.exe"><img src="resources/brand/download-windows.svg" alt="Windows 다운로드" width="280" height="64"></a>
+[![Latest release](https://img.shields.io/github/v/release/SeuPut0705/ompdesk?style=flat-square&color=5B5BD6)](https://github.com/SeuPut0705/ompdesk/releases/latest)
+![macOS and Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square)
+[![MIT license](https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square)](LICENSE)
 
-<sub>macOS(Apple Silicon)와 Windows(x64)용이에요. 계정 없이 받을 수 있어요.</sub>
+<sub>An unofficial app for [omp](https://github.com/can1357/oh-my-pi), not affiliated with its authors. The UI is in English and Korean.</sub>
 
-<br><br>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.webp">
+  <img src="docs/media/hero.webp" alt="A prompt to add a dark theme toggle: the agent works through tool steps, two subagents and a todo list on the work board, then reports the result" width="860">
+</picture>
 
-<img src="https://img.shields.io/badge/omp-18.11.0%2B-5B5BD6?style=flat-square" alt="omp 18.11.0 이상">
-<img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square" alt="macOS · Windows">
-<img src="https://img.shields.io/badge/UI-한국어%20%C2%B7%20English-5B5BD6?style=flat-square" alt="한국어 · English UI">
-<img src="https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square" alt="MIT 라이선스">
+<sub>Recorded on a test omp with example files, not real accounts or data.</sub>
 
 </div>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-  <img src="docs/screenshots/main.png" alt="OMPdesk 대화와 작업 화면" width="100%">
-</picture>
+## Why OMPdesk
 
-<sub>스크린샷은 테스트용 omp와 예제 파일로 촬영했어요. 실제 계정·작업 데이터가 아니에요.</sub>
+- **Stock omp, nothing forked.** It runs the omp installed on your computer, with the same settings, logins and sessions as your terminal.
+- **Many sessions in parallel.** Split view, git worktrees, and agents that fan work out, compare it and merge the winner.
+- **Keep working from anywhere.** Autopilot keeps going, a restart picks tasks back up, and your phone can steer a run.
 
-## 목차
+## Features
 
-- [OMPdesk는 무엇인가요](#ompdesk는-무엇인가요)
-- [필요한 것](#필요한-것)
-- [시작하기](#시작하기)
-- [주요 기능](#주요-기능)
-- [업데이트](#업데이트)
-- [원격 기기 연결](#원격-기기-연결)
-- [문제 해결](#문제-해결)
-- [데이터와 개인정보](#데이터와-개인정보)
-- [소스에서 실행하기](#소스에서-실행하기)
-- [라이선스](#라이선스)
+<table>
+<tr>
+<td width="50%" valign="top"><b>Autopilot</b><br>An endless run in its own git worktree: audit, implement, verify, commit, every cycle. Local only unless you choose more.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="Autopilot cycles 1, 2 and 3 landing in the side panel's timeline, then the same run on the work board" width="100%"></a></td>
+<td width="50%" valign="top"><b>Parallel sessions and orchestration</b><br>An agent fans work out to sessions in their own worktrees, compares the branches, and merges one after you approve. Nothing is pushed.<br><a href="docs/media/fan-out.webp"><img src="docs/media/fan-out.webp" alt="Three worktree sessions are compared, one approved and merged from the review queue, one discarded" width="100%"></a></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>Split view and work board</b><br>Up to four sessions side by side. Each shows its subagents, todos and waiting questions on a live board.<br><a href="docs/media/split-board.webp"><img src="docs/media/split-board.webp" alt="One running session with its work board, then two more sessions dragged in to make a three-pane split" width="100%"></a></td>
+<td width="50%" valign="top"><b>Mobile web (beta, off by default)</b><br>Steer a running task from your phone over your own Tailscale network, with opt-in push notifications. <a href="docs/mobile-web.md">Set it up</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="A 390-pixel-wide phone view: a steering message sent to a running session, then the notification opt-in in Settings" width="45%"></a></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>Resume after restart</b><br>Quit, crash or update in the middle of a task and the next launch continues it where it stopped.<br><a href="docs/media/resume.webp"><img src="docs/media/resume.webp" alt="OMPdesk quits during a running task and, on relaunch, continues it with a notice" width="100%"></a></td>
+<td width="50%" valign="top"><b>Accounts and usage</b><br>Several accounts per provider with live limit gauges, and a model role for every kind of job.<br><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/models-dark.webp"><img src="docs/media/models.webp" alt="Settings, Models and accounts: subscription accounts with their 5-hour and 7-day usage gauges" width="100%"></picture></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>Files, Changes, Preview, Terminal</b><br>Code, Markdown, PDF and Office files, diffs, a live preview and a terminal, beside the chat.<br><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/files-dark.webp"><img src="docs/media/files.webp" alt="The right panel's Files view with a TypeScript file open next to the chat" width="100%"></picture></td>
+<td width="50%" valign="top"><b>Remote devices</b><br>Run tabs on another computer, with its omp, files and accounts, and steer them from here. <a href="docs/remote-devices.md">How</a>.<br><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/devices-dark.webp"><img src="docs/media/devices.webp" alt="Settings, Devices and connections: sharing this computer, connecting to a device, SSH hosts and Mobile web" width="100%"></picture></td>
+</tr>
+</table>
 
-## OMPdesk는 무엇인가요
+Also in the box: computer use (on by default, one session drives the desktop at a time, `/computer off` to disable), a subagent side panel, and compact headers on code blocks and figures.
 
-OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위한 **비공식** 데스크톱 앱이에요. omp 제작자와 관계가 없어요. 컴퓨터에 설치된 omp를 그대로 실행하고, 그 위에 대화·작업·파일·Git 화면을 얹어요.
+## Install
 
-- **omp를 포함하지 않아요.** 앱 안에 omp를 넣거나 고치지 않아요. 터미널에서 쓰던 omp의 설정, 로그인, 세션 기록을 그대로 함께 써요.
-- **업데이트는 따로 받아요.** omp는 새 버전이 나오면 스스로 업데이트하고, OMPdesk는 직접 요청할 때만 업데이트해요.
-- **omp의 규칙을 그대로 따라요.** 스킬·플러그인·에이전트·MCP 목록, 설정 검증, 토큰 속도 같은 값은 설치된 omp가 계산한 것을 보여 줘요.
+1. **Download** with a button above. macOS: open the DMG and drag **OMPdesk** to Applications. Windows: run the installer.
+2. **Launch it.** On first launch OMPdesk installs omp, Bun and (on Windows) Git by itself. No terminal.
+3. **Sign in to a model** (a provider login or an API key). A terminal omp login works as is.
 
-## 필요한 것
+macOS first open: the build is signed but not notarized, so right-click the app and choose **Open** once.
 
-| 항목 | 내용 |
-|---|---|
-| 컴퓨터 | macOS Apple Silicon(M1 이상) 또는 Windows 10/11 x64 |
-| omp | 18.11.0 이상. 없으면 OMPdesk가 첫 실행 때 [Bun](https://bun.sh)과 함께 알아서 설치해요. |
-| 모델 | 사용할 프로바이더의 로그인 또는 API 키 |
-| 선택 | Git 작업에는 Git, GitHub PR 기능에는 [GitHub CLI](https://cli.github.com)(`gh`) 로그인, 내장 REA 도구에는 Node.js. 없으면 OMPdesk가 백그라운드에서 설치해요. |
+Needs macOS on Apple Silicon or Windows 10/11 x64. omp 18.11.0 or newer is installed for you.
 
-## 시작하기
+## Updates
 
-### 1. OMPdesk 설치
+OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and MCP servers update themselves while the app is open. Running work is not interrupted, and restarting for an app update asks first if tasks are running. No GitHub account or token is needed. [Details](docs/updates.md).
 
-맨 위 다운로드 버튼을 누르거나 [Releases 페이지](https://github.com/SeuPut0705/ompdesk/releases)에서 받으세요.
+## FAQ
 
-| 운영체제 | 설치 방법 |
-|---|---|
-| macOS | DMG를 열고 **OMPdesk**를 **응용 프로그램** 폴더로 옮긴 뒤 실행하세요. DMG 안에서 바로 실행하면 자동 업데이트가 동작하지 않아요. 빌드는 자체 서명 인증서로 서명했고 Apple 공증은 받지 않아서, 처음 한 번은 Finder에서 앱을 **우클릭 → 열기**로 실행해야 해요. |
-| Windows | `ompdesk-windows-setup.exe`를 더블클릭하세요. 질문이나 관리자 권한 요청 없이 진행 막대만 보이며 내 계정(`%LOCALAPPDATA%\Programs\ompdesk`)에 설치되고, 끝나면 OMPdesk가 열려요. 예전에 "모든 사용자"용으로 설치했다면 그 사본을 먼저 지울지 한 번 묻고, 이때만 Windows 권한 확인이 떠요. SmartScreen 경고가 나오면 **추가 정보 → 실행**을 누르세요. |
+- **Is it the official omp app?** No. It is an unofficial app that drives the omp you have installed; omp itself is never modified.
+- **Does it cost anything?** No. It is MIT licensed and needs no account. Your model providers bill you as they do in the terminal.
+- **Can the agent control my computer?** Computer use is on by default, and only one session drives the desktop at a time. On macOS it needs Screen Recording and Accessibility granted to OMPdesk. With omp's default tool approval the agent acts without asking: set **Tool approval** to always ask in Settings › Permissions & security, or turn it off with `/computer off`.
+- **I closed the window and the app is still running.** By design: tasks continue until you quit (⌘Q or the tray menu).
+- **Something else broke.** See [Troubleshooting](docs/troubleshooting.md), or open an [issue](https://github.com/SeuPut0705/ompdesk/issues).
 
-다른 보안 경고가 나오면 [문제 해결](#문제-해결)을 참고하세요.
+## Privacy
 
-### 2. 첫 실행: 필요한 도구는 앱이 설치해요
+- **Local.** Settings, sessions and accounts stay on the computer that runs omp. Model calls go to your own providers.
+- **No telemetry.** OMPdesk collects no usage statistics and switches omp's OTLP export off.
+- **Mobile web stays on your tailnet.** It is off by default and reachable only through your own Tailscale network.
 
-터미널을 열 필요가 없어요. 처음 켜면 OMPdesk가 이 컴퓨터를 확인하고 빠진 것을 바로 설치해요. 진행 상황은 설치 화면에 단계별로 보이고, 출력은 펼쳐서 볼 수 있어요. 실패하면 이유와 직접 설치하는 방법이 나오고 **다시 시도**할 수 있어요.
+## Build from source
 
-| 항목 | 설치 방법 |
-|---|---|
-| Bun (필수) | Bun 공식 설치 스크립트로 사용자 폴더(`~/.bun`)에 설치해요. 관리자 권한이 필요 없어요. |
-| omp (필수) | `bun install -g @oh-my-pi/pi-coding-agent`. 18.11.0보다 낮으면 `omp update`를 실행해요. |
-| Git for Windows (Windows 필수) | omp의 셸 도구가 Git Bash를 써요. 이미 설치돼 있으면 그대로 쓰고, 없으면 고정된 PortableGit 릴리스를 SHA-256으로 확인한 뒤 `%LOCALAPPDATA%\ompdesk\tools\git`에 풀어요. 관리자 권한이 필요 없어요. WSL은 쓰지 않아요. |
-| Git (macOS, 선택) | `xcode-select --install`. macOS의 설치 창이 떠요. |
-| GitHub CLI, Node.js (선택) | macOS는 Homebrew가 있으면 `brew install`, 없으면 공식 압축 파일을 체크섬으로 확인해 OMPdesk 도구 폴더에 풀어요. Windows는 `winget`을 쓰고, 이때 Windows가 권한을 물어볼 수 있어요. |
-
-필수 항목이 끝나면 omp를 다시 찾아 바로 다음 단계로 넘어가요. 선택 항목은 그 뒤 백그라운드에서 설치되고, 상태와 다시 시도는 **설정 › 일반 › 이 컴퓨터**에서 볼 수 있어요. 이미 있는 항목은 건너뛰고, 실패한 항목은 다음 실행 때 다시 시도해요(계속 실패하면 하루에 한 번).
-
-직접 설치하고 싶다면 터미널에서 이렇게 하세요.
-
-```bash
-curl -fsSL https://bun.sh/install | bash        # Windows: powershell -c "irm bun.sh/install.ps1 | iex"
-bun install -g @oh-my-pi/pi-coding-agent
-omp --version
-```
-
-이미 설치했는데 18.11.0보다 낮다면 `omp update`를 실행하세요.
-
-### 3. 모델 연결하고 첫 작업 보내기
-
-1. 첫 실행 안내를 따라 계정을 연결하거나 API 키를 넣으세요. 터미널 omp에서 이미 로그인했다면 그 계정을 바로 써요.
-2. 프로젝트 폴더를 열고 입력창에 할 일을 적어 보내세요.
-3. 모델 배치가 고민되면 **설정 › 모델과 계정**의 **자동으로 구성**을 써 보세요. 제안을 확인하고 **적용**을 눌러야 바뀌어요.
-
-## 주요 기능
-
-### 대화와 작업
-
-- **작업 상자**: 한 번의 작업은 대화 안의 작업 상자 하나로 보여요. 맨 위 줄에 지금 하는 일과 경과 시간이 나오고, 명령 출력·파일 변경·서브에이전트 화면이 높이가 고정된 무대에서 차례로 바뀌어요. 끝나면 완료·실패·중단을 표시하고 바뀐 파일, 실행한 명령, 확인한 이미지를 결과 줄에 모아 보여 줘요.
-- **작업 중 추가 지시**: 실행 중에 메시지를 보내면 작업 상자 안에 이어서 붙어요. 대기열에서 지금 전달하거나 다음 턴으로 미룰 수 있어요.
-- **질문과 승인 카드**: 에이전트의 질문, 도구 승인, 계획 승인은 대화를 가리지 않는 카드로 입력창 위에 나와요.
-- **자동 추론 강도**: 따로 정하지 않으면 작업 난이도에 맞춰 추론 강도를 골라요. 직접 정한 값이 항상 우선해요.
-- **기본으로 켜 둔 omp 기능**: OMPdesk에서 여는 세션은 omp 기본값과 달리 토큰 사용량 표시, 편집 뒤 LSP 진단, 쓰기 뒤 LSP 서식 정리, `ast_grep` 도구, **어드바이저**(두 번째 모델이 매 턴을 검토하는 기능)를 켠 채 시작해요. 어드바이저는 턴마다 모델 호출이 한 번 더 들고 `advisor` 역할(비어 있으면 `slow` 역할)의 모델을 써요. 이 값들은 OMPdesk가 실행 중에만 얹어 두므로 omp의 `config.yml`에는 쓰이지 않고 터미널의 omp는 그대로예요. **설정**에서 직접 바꾸거나 `config.yml`에 적어 둔 값이 항상 우선해요(설정의 "설정한 곳"에는 "Runtime override"로 나와요).
-- **자리 비운 뒤 요약**: 턴이 끝나고 입력창이 빈 채 4분(omp의 `recap.idleSeconds`) 지나면 지금 어디까지 왔는지 한두 문장으로 대화 안에 조용히 남겨요. omp의 `recap.enabled`를 따르고(기본 켜짐), 모델 요청이 한 번 들어요. 입력창에 쓰던 글이 있으면 만들지 않고, 이 요약은 모델에게는 보내지 않아요.
-- **다음 메시지 제안**: 턴이 끝나면 다음에 보낼 만한 말을 입력창 힌트로 보여 줘요. `Tab`이나 `→`로 채우고, 다른 후보 두세 개는 입력창 위 칩(`↓`로 들어가거나 `Alt`+`1`~`3`)으로 골라요. 직접 쓰기 시작하면 사라져요. 쓰는 동안에는 커서 뒤에 이어질 말이 흐리게 나오고 `Tab`으로 받아요(`Esc`로 닫아요). 비싼 현재 모델 대신 omp의 `smol` 역할 모델(작고 싼 모델)로 요청하고, 턴마다 한 번, 입력 중에는 2초에 한 번보다 덜 요청해요. **설정 › 에이전트 동작**에서 끄거나 입력 중 이어쓰기만 끌 수 있어요. 쓸 수 없으면 입력창 아래에 이유가 조용히 나와요.
-- **세션 제목 자동 생성**: 새 세션은 첫 메시지를 보내면 제목이 저절로 붙어요. 세션 모델이 아니라 omp가 제목용으로 쓰는 작은 모델(`tiny`, 없으면 `commit`·`smol` 역할)에 요청하고, 제목 하나에 요청이 한 번, 제목 앞에 붙는 아이콘(omp의 `title.icons`)에 한 번 더 들어요. 작업이 바뀌면 자동으로 지은 제목은 같이 바뀌어요. 턴이 두 번 끝날 때마다 한 번 이하로, 파일·계획·목표가 바뀐 뒤(또는 여섯 턴 뒤)에만 확인하고, 이름만 조금 다른 제목으로는 바꾸지 않아요. 직접 입력한 제목은 절대 바꾸지 않아요. 제목 입력창 안의 ✨ 버튼을 누르면 직접 지은 제목도 새로 지어 주고, 그 뒤로는 다시 작업에 맞춰 바뀌어요. 다시 직접 입력하면 멈춰요. 세션이 열려 있지 않으면 ✨ 버튼은 쓸 수 없고, 연결한 기기의 탭은 그 호스트가 제목을 지어요. **설정 › 에이전트 동작 › 세션 제목**에서 끄거나 "작업이 바뀌면 제목도 갱신"만 끌 수 있어요(기본값 켜짐). 환경 변수 `PI_NO_TITLE`을 켜 두면 자동으로 만들지 않아요.
-- **중단된 작업 이어서 하기**: 인터넷이 끊기거나 노트북이 잠자기에 들어갔다 깨어난 사이에 턴이 네트워크 오류로 끝나면 실패 카드 대신 "인터넷 연결을 기다리는 중이에요…"가 나오고, 연결이 돌아오면 omp의 재시도(`/retry`)로 자동으로 이어져요. 기다리기가 싫으면 **취소**를 누르세요. OMPdesk를 종료하거나 비정상 종료되거나 업데이트로 다시 시작해도, 실행 중이던 턴은 다음에 열 때 omp의 `--restore`와 같은 방식으로 멈춘 곳에서 이어져요("중단된 작업 N개를 이어서 하고 있어요" 알림, 알림의 **중지**로 멈출 수 있어요). 직접 멈춘 턴은 이어지지 않고, 질문·승인을 기다리던 턴은 그 카드를 다시 열어요. **설정 › 일반 › 다시 열 때 중단된 작업 이어서 하기**로 끌 수 있어요(기본은 켜짐). 연결한 기기의 탭은 그 호스트가 스스로 이어요.
-- **개발 서버 미리보기 자동 열기**: 지금 보고 있는 탭의 에이전트가 개발 서버를 띄워 주소(`http://localhost:포트`)가 출력에 나오면 오른쪽 패널에서 미리보기를 그 주소로 열어요. 패널이 닫혀 있거나, 30초 넘게 손대지 않은 보기(변경 사항·백그라운드 작업 등)가 열려 있을 때만 해요. 터미널·파일·미리보기를 쓰는 중이거나 저장하지 않은 파일 편집이 있으면 건드리지 않고, 입력창 포커스도 옮기지 않아요. 같은 주소는 세션마다 한 번만 열고, 직접 닫으면 닫힌 채로 둬요. 연결한 컴퓨터의 탭은 localhost가 달라서 열지 않아요. **설정 › 에이전트 동작 › 스마트 자동화 › 개발 서버를 미리보기로 열기**로 끌 수 있어요(기본값 켜짐).
-- **편집 뒤 변경 사항 자동 열기**: 보고 있는 탭에서 파일을 고치는 턴(`edit`·`write`·`apply_patch`·`ast_edit`, 또는 명령으로 git 변경이 달라진 경우)이 끝나면 패널이 닫혀 있을 때 변경 사항을 열어요. 작업 도중에는 열지 않고, 다른 보기가 열려 있거나 분할 화면에서 포커스가 없는 칸이면 열지 않아요. 턴마다 한 번이고, 직접 닫으면 그 세션에서는 직접 다시 열 때까지 열지 않아요. **설정 › 에이전트 동작 › 스마트 자동화 › 편집 뒤 변경 사항 열기**로 끌 수 있어요(기본값 켜짐).
-- **알림 묶기**: 창이 포커스를 잃은 사이 여러 탭이 4초 안에 끝나거나 실패하거나 확인을 기다리면, 먼저 온 알림은 바로 띄우고 4초 뒤 "작업 3개 완료 · 1개 확인 필요" 같은 알림 하나로 바꿔요. 클릭하면 확인이 필요한 탭부터 열려요. **설정 › 에이전트 동작 › 스마트 자동화 › 알림 묶기**로 끌 수 있어요(기본값 켜짐).
-- **일시 오류 뒤 자동 재시도**: omp의 자체 재시도가 끝난 뒤에도 서버 오류·과부하·시간 초과·연결 끊김으로 턴이 실패하면, 실패 카드에 "0:30 뒤에 다시 시도해요…"가 나오고 30초, 2분, 10분 간격으로 최대 3번 omp의 재시도(`/retry`)를 보내요. **취소**나 **지금 다시 시도**로 직접 정할 수 있어요. 로그인·한도·요청 오류, 컨텍스트 초과, 인증서 문제는 기다려도 풀리지 않아서 재시도하지 않아요. 직접 멈춘 턴, 연결한 컴퓨터의 탭, omp의 재시도 설정(`retry.enabled`)이 꺼져 있을 때도 하지 않아요. **설정 › 에이전트 동작 › 스마트 자동화 › 일시 오류 뒤 자동 재시도**로 끌 수 있어요(기본값 켜짐).
-- **자동 모드**: 메시지를 보내는데 켜진 모드가 없으면 작은 모델(omp의 `tiny`, 없으면 `smol` 역할)이 2초 안에 계획 모드나 목표 모드가 도움이 될지 판단해요. 여러 파일을 크게 바꾸는 일이면 **계획**을, "테스트가 통과할 때까지"처럼 끝나는 조건이 있는 일이면 **목표**를 켜고, 질문·작은 수정·잡담은 그대로 보내요. 다른 모드는 절대 자동으로 켜지 않아요. 제때 답이 없거나 애매하거나 실패하면 아무것도 켜지 않고, 실행 중인 턴·슬래시 명령·`!` 명령은 건드리지 않아요. 입력창에 "자동: 계획"/"자동: 목표" 칩이 나오고 칩을 누르면 바로 취소돼요. 취소하면 그 세션에서는 다시 자동으로 켜지 않고, 계획을 거절한 세션에서는 계획을 다시 자동으로 켜지 않아요. **모드** 메뉴의 **자동 모드** 스위치나 **설정 › 에이전트 동작 › 스마트 자동화 › 자동 모드**로 끌 수 있어요(기본값 켜짐). 연결한 컴퓨터의 탭은 그 컴퓨터가 판단해요.
-- **오토파일럿**: **모드** 메뉴의 **오토파일럿** 탭에서 켜면 현재 HEAD에서 새 워크트리와 브랜치(`autopilot/<날짜>`)를 만든 새 탭이 열리고, 에이전트가 감사 → 구현 → 검증 → 커밋을 사이클마다 이어서 반복해요. 종료할 때까지 계속되고, 시작 시트에서 초점 영역·병렬 세션 수(0–4, 기본 3)·알림·상한(기본 모두 꺼짐)을 정해요. 기본은 **로컬만**이라 아무것도 푸시하지 않고, 푸시·릴리스(저장소가 릴리스 절차를 정의한 경우만)는 직접 고른 만큼만 해요. 모든 도구를 자동 승인하는 대신 파괴적 git은 막고 사이클이 끝날 때마다 git 기록을 감사해요. 입력창 칩 "오토파일럿 · 사이클 N · 영역", 작업 보드 카드, 사이드 패널의 **오토파일럿** 화면(타임라인·영역 비율·백로그·배포 상자·사이클 되돌리기)으로 지켜보고, **종료**는 진행 중인 사이클을 마친 뒤 멈추고 **즉시 중단**은 바로 끊어요. 쿼터에 걸리면 리셋 시각에 스스로 이어가요. **설정 › 에이전트 동작 › 스마트 자동화**에서 시작값(배포 단계·알림·상한)을 바꿀 수 있어요.
-- **긴 대화도 가볍게**: 긴 세션은 최근 기록부터 열고, 위로 스크롤하면 읽던 위치를 지킨 채 이전 기록을 이어 불러와요.
-- **기본 제공 REA MCP**: [REA](https://github.com/morluto/rea)의 리버스 엔지니어링 도구를 새 세션에 연결해요. Node.js와 npx가 필요하고 **설정 › 도구 및 확장 › MCP**에서 끌 수 있어요. 사용자의 omp 설정은 바꾸지 않아요.
-
-### 계정과 모델
-
-- **여러 계정과 순환**: 프로바이더별 계정과 남은 한도를 보고, 남은 한도 순이나 고르게 돌아가며 계정을 써요.
-- **용도별 모델 역할**: 설정 › 모델 및 계정에서 omp의 기본 역할 15개를 대화·에이전트 작업·입력과 출력으로 묶어 보여 줘요. 역할마다 언제 쓰이는지, 실제로 쓰는 모델(비어 있으면 omp가 따라가는 모델), 그 프로바이더의 로그인 상태와 남은 한도, 사고 수준을 한 줄로 확인하고 omp가 허용하는 모델만 골라 지정해요.
-- **에이전트별 모델 역할**: 탐색·리뷰·디버깅·문서·테스트·디자인 역할을 기본으로 제공하고, 에이전트 템플릿이 이 역할의 모델을 써서 에이전트 종류마다 다른 모델로 돌릴 수 있어요. 역할을 비워 두면 템플릿이 정한 다음 역할(사고 모델, 하위 작업 모델)을 따라가요. 직접 만든 역할도 추가·이름 변경·삭제할 수 있고, 어떤 에이전트가 쓰는지 같이 보여 줘요.
-- **모델 구성 도우미**: 용도 그룹별로 모델 배치를 조사해 이유와 출처와 함께 제안해요. 기본 역할만 배치하고 직접 만든 역할은 건드리지 않아요. 조사에는 모델 사용량이 들어요.
-- **사용자 지정 프로바이더**: omp가 지원하는 프로토콜과 인증 방식으로 추가하고, 저장 전에 omp 규칙으로 검증해요.
-- **통계와 사용량**: 기간별 요청, 비용, 모델, 도구 사용과 계정별 한도를 확인해요.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/models-dark.png">
-  <img src="docs/screenshots/models.png" alt="모델과 계정 설정의 계정·순환 방식" width="100%">
-</picture>
-
-### 파일과 병렬 작업
-
-- **분할 화면**: 최대 4개 세션을 나란히 열어요. 각 칸에서 질문에 답하고 메시지를 보낼 수 있어요.
-- **Git 워크트리 탭**: 별도 작업 폴더에서 세션을 돌려 같은 저장소의 작업을 나눠요.
-- **에이전트가 세션을 직접 조율**: 에이전트가 OMPdesk 도구로 다른 세션을 만들고, 지금 하는 일을 보고, 메시지를 보내고, 결과를 모아 정리해요. "이 작업을 세션 3개로 나눠 돌리고 끝나면 여기에 정리해 줘"처럼 말하면 돼요. 세션마다 Git 워크트리를 따로 줄 수 있고, 다른 세션이 물어본 질문에도 대신 답할 수 있어요. 다른 에이전트가 보낸 메시지에는 "에이전트가 보냄", 대신 답한 곳에는 "에이전트가 답함"이 표시돼요. 에이전트가 직접 열지 않은 세션을 멈추거나 닫거나 삭제하려면 먼저 확인 카드가 떠요. 다른 세션의 도구 승인은 설정에서 허용하기 전까지 사용자가 직접 해야 하고, 계정·설정·권한은 건드리지 못해요. 서브에이전트는 이 도구를 쓸 수 없어요. 한 에이전트가 열 수 있는 세션(동시 6개, 턴당 4개, 시간당 12개)과 메시지(턴당 20개, 시간당 60개, 같은 두 세션 사이 분당 6개, 연쇄 3단계)에는 상한이 있어요. 세션 메뉴의 **다른 에이전트가 이 세션을 보지 못하게**로 개별 세션을 숨기고, **설정 › 도구 및 확장 › OMPdesk 조작 도구**에서 전체를 끄거나 승인 대신하기·다른 세션 관리하기를 허용할 수 있어요. 켜 둔 동안 스킬(`ompdesk`)이 함께 로드돼요.
-- **워크트리로 나눠 돌리고 비교해 병합**: 에이전트가 같은 문제를 여러 세션에 각자 Git 워크트리로 맡기면, 작업 현황의 **검토가 필요해요**에 끝난 세션이 변경 파일·줄 수와 함께 올라와요. **검토**로 변경 사항을 보고, **승인**하면 그 브랜치를 지금 체크아웃에 병합하고(푸시는 하지 않아요), **버리기**는 세션을 닫고 워크트리와 브랜치를 지워요. 충돌하면 병합을 취소하고 충돌 파일을 알려 줘요. 에이전트가 `ompdesk_merge`로 병합하려 해도 먼저 확인 카드가 떠요.
-- **예약한 조율과 위임 메모**: 에이전트가 반복 작업(예: 매일 아침 열린 PR 검토)을 설정 › 예약 실행에 올릴 수 있어요. 만들 때 확인 카드가 먼저 뜨고, `[agent]` 표시가 붙으며, 자동 승인 없이 실행돼요. 30분보다 짧은 반복이나 사용자가 만든 예약은 건드리지 못해요. 메모리를 켜 두었다면 에이전트가 조율을 마친 뒤 짧은 교훈 한 줄을 메모리에 남길 수 있어요.
-- **오른쪽 패널**: 터미널, 변경 사항(diff), 개발 서버 미리보기, 파일 보기를 아이콘으로 바꾸고, ⋮ 메뉴에서 백그라운드 작업·계획·로그·대기열·세션 트리·메모리를 열어요.
-- **사이드바 바로가기**: 사용 한도 막대, 패널 보기, 예약 실행을 사이드바 아래에 고정할 수 있어요. 처음엔 꺼져 있고 **도움말 › 사이드바 맞춤 설정…**(설정 › 일반 › 사이드바 바로가기)에서 켜요.
-- **정돈된 설정**: 각 섹션은 자주 쓰는 항목만 먼저 보여 주고, 드물게 바꾸는 항목은 섹션 끝의 **고급**에 접어 둬요. 설정 검색은 접힌 항목까지 찾아 바로 펼쳐 줘요.
-- **파일 뷰어**: 코드, Markdown, PDF, 이미지·영상, CSV·JSON, Jupyter 노트북, Office 문서(`.docx`, `.xlsx`, `.pptx`)를 열어요.
-- **GitHub PR**: PR을 조회·생성하고 체크아웃해요.
-- **세션 트리와 분기**: 대화의 특정 지점으로 돌아가거나 거기서부터 새 세션으로 복사해요.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/files-dark.png">
-  <img src="docs/screenshots/files.png" alt="오른쪽 패널의 Office 문서 미리보기" width="100%">
-</picture>
-
-## 업데이트
-
-### OMPdesk
-
-앱 메뉴의 **업데이트 확인…** 또는 **설정 › 업데이트 및 정보**에서 받아요. macOS는 응용 프로그램 폴더처럼 쓰기 가능한 위치에 설치해 두면 재시작만으로 업데이트돼요.
-
-재시작하기 전에 실행 중인 작업이 있으면 확인 창이 떠요. **재시작 후에 하던 작업을 이어서 한다**고 안내하고(위 설정이 켜져 있을 때), 그대로 진행하면 업데이트 뒤 첫 실행에서 이어져요.
-
-GitHub 계정이나 토큰 없이 받을 수 있어요. 저장소가 공개라서 앱이 GitHub 릴리스를 바로 읽고, 내려받은 파일은 릴리스 메타데이터의 SHA-512와 맞는지 확인해요.
-
-GitHub 요청 한도에 자주 걸리면 **선택 사항**으로 토큰을 줄 수 있어요. 토큰은 한도만 늘려 주고, 없어도 업데이트는 동작해요. 위에서부터 차례로 찾아 써요.
-
-1. 환경 변수 `GH_TOKEN` 또는 `GITHUB_TOKEN`
-2. GitHub CLI 로그인 (`gh auth login`)
-3. **설정 › 업데이트 및 정보 › GitHub 접근**에 저장한 [토큰](https://github.com/settings/tokens). 토큰은 OS의 안전한 저장소로 암호화해 보관해요.
-
-### omp
-
-omp는 스스로 업데이트해요. OMPdesk를 켜 두는 동안 npm의 최신 `@oh-my-pi/pi-coding-agent`를 실행할 때와 그 뒤 몇 시간마다 확인하고, 더 새로운 버전이 있으면 백그라운드에서 `omp update`를 실행해요. 누를 것도, 기다릴 것도 없어요.
-
-- **하던 일은 끊기지 않아요.** 실행 중인 omp는 이미 불러온 코드를 그대로 쓰기 때문에 작업 중인 세션도 계속 돌아가요. 쉬고 있는 탭은 새 omp로 바로 다시 시작하고, 작업 중인 탭은 그 작업이 끝난 뒤 다시 시작해요. 세션 기록과 입력 중인 글은 그대로 남아요.
-- **조용히 알려요.** 끝나면 "omp를 업데이트했어요" 알림이 한 번 떠요. 새 omp에서 OMPdesk의 어떤 기능이 지원되지 않으면 그 기능 이름과 함께 경고가 떠요.
-- **실패하면** 이유가 **설정 › 업데이트 및 정보 › 이 컴퓨터**에 남고 다음 확인 때 다시 시도해요. 네트워크 오류가 이어지면 확인 간격을 늘려요. Windows는 실행 중인 omp의 파일이 잠겨 있으면 설치가 실패할 수 있고, 이때도 다음 확인 때 다시 시도해요.
-- **끄거나 직접 실행하려면** 같은 곳의 **omp 자동 업데이트** 스위치(기본값 켜짐)와 **지금 업데이트** 버튼을 쓰세요. 직접 업데이트하려면 터미널에서 `omp update`를 실행해도 돼요.
-- **원격 기기는 각자 업데이트해요.** 연결한 컴퓨터의 omp는 그 컴퓨터의 OMPdesk가 자기 설정에 따라 업데이트하고, 이 컴퓨터가 다른 기기의 omp를 업데이트하지 않아요.
-- 개발 실행과 테스트 실행은 자동으로 업데이트하지 않아요.
-
-### 플러그인·마켓플레이스·스킬·MCP 서버
-
-omp가 불러오는 확장도 스스로 최신으로 유지해요. OMPdesk를 켜 두는 동안 실행할 때와 그 뒤 4시간마다 확인해요. 설치된 것만 업데이트하고, 새로 설치하거나 설정 파일을 고치지는 않아요.
-
-- **마켓플레이스**는 카탈로그를 새로 받아요. **플러그인**은 마켓플레이스나 npm·git으로 설치한 것이 대상이고, 새 버전이 있으면 omp의 업그레이드 방식 그대로 올려요.
-- **고정한 버전은 건드리지 않아요.** npm 플러그인을 `pkg@1.2.3`처럼 정확한 버전이나 범위로 설치했거나, git 플러그인이 커밋·버전 태그에 묶여 있거나, MCP 서버가 `pkg@1.2.3`으로 실행되면 새 버전이 있는지만 알려 주고 그대로 둬요. 로컬 폴더에 연결한 플러그인도 그대로 둬요.
-- **스킬**은 스킬 레지스트리에서 설치한 것만 업데이트해요. 플러그인이 주는 스킬은 그 플러그인을 따라가고, 그냥 로컬 파일은 "로컬, 업데이트 안 함"으로 보여 줘요. 스크립트가 들어 있는 새 버전은 직접 허락해야 해서 자동으로 설치하지 않아요.
-- **MCP 서버**: 버전을 정하지 않은 `npx`·`bunx`·`uvx` 패키지는 시작할 때마다 최신을 받아서 따로 할 일이 없어요. `npm`·`bun`·`brew`·`pipx`·`uv`·`pip`로 전역 설치한 실행 파일은 설치한 도구로 업데이트하고, 시스템·관리자 권한이 필요한 설치는 건드리지 않아요. 내장 REA는 OMPdesk 버전에 맞춰 고정돼 있어요. MCP 설정 파일은 OMPdesk가 수정하지 않아요.
-- **하던 일은 끊기지 않아요.** 쉬고 있는 탭은 바로 `/reload-plugins`와 같은 방식으로 다시 불러오고(훅·도구가 있는 플러그인은 탭을 다시 시작하고, 업데이트한 MCP 서버는 다시 연결해요), 작업 중인 탭은 그 턴이 끝난 뒤에 해요. 실행 중인 MCP 서버의 파일을 바꾸면 깨질 수 있는 업데이트는 서버가 멈출 때까지 미뤄요.
-- **끄거나 직접 실행하려면** **설정 › 업데이트 및 정보 › 이 컴퓨터 › 확장**의 **확장 자동 업데이트** 스위치(기본값 켜짐)와 항목별 **지금 업데이트** 버튼을 쓰세요. 실패한 이유와 건너뛴 이유도 거기에 남아요.
-- **원격 기기는 각자 업데이트해요.** 연결한 컴퓨터의 확장은 그 컴퓨터의 OMPdesk가 업데이트해요.
-
-## 원격 기기 연결
-
-다른 컴퓨터의 omp, 파일, Git, 계정으로 작업할 수 있어요.
-
-1. 양쪽 컴퓨터에 OMPdesk를 설치하세요. omp는 각 컴퓨터에서 첫 실행 때 설치돼요.
-2. **작업을 실행할 컴퓨터**에서 **설정 › 기기 및 연결 › OMPdesk 공유 › 다른 기기에서 이 컴퓨터 사용 허용**을 켜고, 표시된 연결 코드(`XXXX-XXXX`)를 확인하세요. 코드는 10분 동안 한 번만 쓸 수 있어요.
-3. **지금 쓰는 컴퓨터**에서 **기기 연결**을 누르고 같은 네트워크의 기기를 고르거나 주소를 입력한 뒤 코드를 넣으세요. Tailscale 같은 네트워크에서는 주소를 직접 입력하세요.
-4. 사이드바에서 연결한 기기의 프로젝트와 세션을 열어요.
-
-연결은 기기별 키로 인증하고 암호화해요. 원격 탭의 설정·통계는 그 컴퓨터 기준이에요.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/remote-dark.png">
-  <img src="docs/screenshots/remote.png" alt="원격 기기 설정과 일회용 연결 코드" width="100%">
-</picture>
-
-## 문제 해결
-
-| 증상 | 확인할 것 |
-|---|---|
-| macOS가 "확인되지 않은 개발자" 경고를 띄워요 | 정상이에요. 빌드는 자체 서명 인증서로 서명했고 Apple 공증은 받지 않았어요. Finder에서 앱을 **우클릭 → 열기**로 한 번 실행하세요. 계속 막히면 **시스템 설정 › 개인정보 보호 및 보안**에서 허용하세요. |
-| Windows SmartScreen이 막아요 | **추가 정보 → 실행**을 누르세요. 회사 정책으로 막히면 관리자에게 문의하세요. |
-| 창을 닫았는데 앱이 꺼지지 않아요 | 의도한 동작이에요. 마지막 창을 닫으면 창만 숨겨지고 진행 중인 작업은 계속돼요. macOS는 Dock 아이콘, Windows는 트레이 아이콘이나 앱을 다시 실행해 창을 되살려요. 종료는 ⌘Q, 메뉴 종료, 트레이 종료로 하고, 진행 중인 작업이 있으면 먼저 물어봐요. Windows에서 창을 닫을 때 종료하려면 **설정 › 일반 › 창**의 트레이 스위치를 끄세요. 여러 창 중 마지막이 아닌 창은 그대로 닫혀요. |
-| omp를 찾을 수 없어요 | 설치 화면이나 **설정 › 일반 › 이 컴퓨터**에서 실패 이유를 확인하고 **다시 시도**를 누르세요. 직접 설치했다면 터미널에서 `omp --version`을 확인하세요. 다른 경로에 설치했다면 `OMP_GUI_OMP` 환경 변수에 실행 파일 경로를 지정하세요. |
-| omp 버전이 낮다고 나와요 | OMPdesk가 `omp update`를 알아서 실행해요. 실패했다면 터미널에서 `omp update` 후 **다시 시작**을 누르세요. 18.11.0 이상이 필요해요. |
-| 앱 업데이트가 "요청 한도 초과"로 실패해요 | 잠시 뒤 다시 시도하세요. 선택 사항인 GitHub 토큰(`GH_TOKEN`, `gh auth login`, 설정의 **GitHub 접근**)을 쓰면 한도가 늘어나요. |
-| PR 기능이 동작하지 않아요 | Git 저장소를 열었는지, `gh auth status`가 로그인 상태인지 확인하세요. |
-
-## 데이터와 개인정보
-
-- 앱 설정과 omp의 설정·계정·세션은 실행하는 컴퓨터에 저장돼요. 원격 탭의 데이터는 작업을 실행하는 컴퓨터에 있어요.
-- OMPdesk는 사용 통계를 따로 수집하지 않아요. omp의 OTLP 텔레메트리 내보내기도 꺼 둬요: OMPdesk가 실행하는 모든 omp에 `OTEL_SDK_DISABLED=true`를 넘겨서, 환경 변수에 `OTEL_*` 주소가 있어도 아무것도 보내지 않아요.
-- 다음 메시지 제안을 켜 두면(기본값) 최근 대화 일부와 입력 중인 글이 현재 모델이 아니라 `smol` 역할 모델의 프로바이더로 가요. **설정 › 에이전트 동작**에서 끌 수 있어요.
-- 어드바이저(기본 켜짐)는 대화를 `advisor` 역할 모델의 프로바이더에도 보내요. 자리 비운 뒤 요약은 현재 모델에 요청을 한 번 더 보내요. 둘 다 omp 설정(`advisor.enabled`, `recap.enabled`)에서 끌 수 있어요.
-- 오프라인 앱은 아니에요. 모델 요청은 연결한 프로바이더로 가고, 웹 검색·로그인·GitHub·업데이트·원격 연결·세션 공유 업로드에도 네트워크를 써요.
-- 앱에는 배포용 토큰이 들어 있지 않아요. 업데이트용 GitHub 토큰은 선택 사항이고 사용자가 직접 설정해요.
-
-## 소스에서 실행하기
-
-Bun, Git, omp 18.11.0 이상이 필요해요.
+Needs Bun, Git and omp 18.11.0 or newer.
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git
@@ -245,15 +95,10 @@ bun install
 bun run dev
 ```
 
-개발·검사·배포 규칙은 [AGENTS.md](AGENTS.md), 버전별 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있어요.
+Development, checks and release rules are in [AGENTS.md](AGENTS.md); changes per version in [CHANGELOG.md](CHANGELOG.md). To re-record the media above: `bun run readme:media`.
 
-## 기여와 보안
+## Contributing · Security · License
 
-- 버그 제보와 기능 제안은 [Issues](https://github.com/SeuPut0705/ompdesk/issues)에, 코드 기여는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있어요.
-- 보안 취약점은 공개 이슈로 올리지 말고 [SECURITY.md](SECURITY.md)의 방법으로 비공개 제보해 주세요.
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT License](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.txt)
 
-## 라이선스
-
-MIT License. See [LICENSE](LICENSE); third-party notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
-
-만든 사람: [@SeuPut0705](https://github.com/SeuPut0705)
+Made by [@SeuPut0705](https://github.com/SeuPut0705)

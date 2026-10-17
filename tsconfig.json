@@ -18,6 +18,6 @@
 			"@renderer/*": ["./src/renderer/*"]
 		}
 	},
-	"include": ["src/**/*.ts", "src/**/*.tsx", "e2e/**/*.ts"],
+	"include": ["src/**/*.ts", "src/**/*.tsx", "e2e/**/*.ts", "scripts/readme-media/**/*.ts"],
 	"exclude": ["node_modules", "out", "dist"]
 }

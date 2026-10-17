@@ -4,5 +4,6 @@
 		"composite": true,
 		"types": ["node"]
 	},
-	"include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "electron.vite.config.ts", "scripts/**/*.ts"]
+	"include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "electron.vite.config.ts", "scripts/**/*.ts"],
+	"exclude": ["node_modules", "out", "dist", "scripts/readme-media"]
 }
