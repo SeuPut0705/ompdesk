@@ -300,9 +300,14 @@ async function main() {
 	log.length = 0;
 	input({ t: "wheel", x: 0.5, y: 0.8, dx: 0, dy: 240 });
 	await waitFor("the scroll", () => log.some(entry => entry.type === "scroll" && Number(entry.y) > 0));
+	// Chromium may hand the page one wheel event of 240 or two of 120 (a busy host splits it); the gesture's
+	// delta is their sum, so wait for all of it.
+	const wheelDelta = () =>
+		log.filter(entry => entry.type === "wheel").reduce((sum, entry) => sum + Number(entry.dy), 0);
+	await waitFor("the whole wheel delta", () => wheelDelta() >= 240);
 	result.wheel = {
-		trusted: log.find(entry => entry.type === "wheel")?.trusted,
-		dy: log.find(entry => entry.type === "wheel")?.dy,
+		trusted: log.filter(entry => entry.type === "wheel").every(entry => entry.trusted),
+		dy: wheelDelta(),
 	};
 
 	// 5. A pinch multiplies the page's zoom and the viewer is told.

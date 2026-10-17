@@ -181,10 +181,16 @@ test("Stop and Esc withdraw a prompt the automatic mode choice still holds back"
 		const input = composer(page);
 		const request = "refactor the parser into separate modules";
 		for (const how of ["Esc", "Stop"] as const) {
+			const asked = (await readRecords(dirs.record)).filter(r => r.type === "modes.auto_mode_decide").length;
 			await input.fill(request);
 			await input.press("Enter");
 			await expect(input).toHaveValue("");
 			await expect(stop(page)).toBeVisible();
+			// Withdraw only once the choice is in flight: on a slow runner Esc could come before the request left, and
+			// a prompt withdrawn that early is never classified at all (nothing for this test to see).
+			await expect
+				.poll(async () => (await readRecords(dirs.record)).filter(r => r.type === "modes.auto_mode_decide").length)
+				.toBe(asked + 1);
 			if (how === "Esc") await input.press("Escape");
 			else await stop(page).click();
 			await expect(input).toHaveValue(request);
