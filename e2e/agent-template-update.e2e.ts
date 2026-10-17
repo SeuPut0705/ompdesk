@@ -16,7 +16,7 @@ import { serializeAgentMarkdown } from "../src/shared/agent-definition";
 import { LEGACY_TEMPLATE_MODELS, replaceModelLine } from "../src/shared/agent-template-migration";
 import { AGENT_TEMPLATES, templateDraft } from "../src/shared/agent-templates";
 import type { RpcAgentDefinitionInfo } from "../src/shared/rpc-types";
-import { exitApp, launchApp, openDestination } from "./harness";
+import { exitApp, launchApp, openDestination, variants } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_AGENT_UPDATE_CAPTURES ?? "";
 
@@ -52,8 +52,8 @@ function installedBeforeV030(name: string): string {
 	return edit.content.replace("---\n", "---\n# mine: keep this comment\n");
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`a template agent from before v0.30 is offered the role-based model line (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];

@@ -18,7 +18,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -154,7 +154,7 @@ async function openGeneralSettings(page: Page) {
 	return settings;
 }
 
-for (const [language, theme] of RUNS) {
+for (const [language, theme] of variants(RUNS)) {
 	const text = TEXT[language];
 
 	test(`Settings › General: chime, links in Preview, left side panel, keep awake while working (${language}-${theme})`, async () => {

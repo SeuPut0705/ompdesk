@@ -108,6 +108,16 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 	});
 }
 
+/**
+ * The theme, language, size or device variants a test is registered for. The default run keeps one
+ * (the first, or those `keep` accepts) because the others only re-check rendering; `OMP_GUI_VARIANTS=1`
+ * registers every variant, for captures and the occasional full sweep. Unregistered variants do not
+ * show as skipped and do not weigh on `scripts/e2e-shard.ts`.
+ */
+export function variants<T>(all: readonly T[], keep: (item: T) => boolean = item => item === all[0]): readonly T[] {
+	return process.env.OMP_GUI_VARIANTS === "1" ? all : all.filter(keep);
+}
+
 /** A screenshot of `page` in the test's output dir (`<name>.png`), CSS pixels, animations stopped. */
 export async function capture(page: Page, name: string): Promise<void> {
 	await page.screenshot({ path: test.info().outputPath(`${name}.png`), animations: "disabled", scale: "css" });

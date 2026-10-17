@@ -11,7 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { capture, exitApp, fixtureOmp } from "./harness";
+import { capture, exitApp, fixtureOmp, variants } from "./harness";
 
 type Language = "en" | "ko";
 
@@ -83,7 +83,7 @@ async function cleanup(profile: Profile): Promise<void> {
 	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
-for (const language of ["en", "ko"] as const)
+for (const language of variants(["en", "ko"] as const))
 	test(`a transient failure counts down to a retry that can be cancelled (${language})`, async () => {
 		test.setTimeout(120_000);
 		const profile = await makeProfile(language, "55000,55000,55000");

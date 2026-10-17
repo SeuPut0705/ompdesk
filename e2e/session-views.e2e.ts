@@ -21,7 +21,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { capture, exitApp, launchApp, openDestination } from "./harness";
+import { capture, exitApp, launchApp, openDestination, variants } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
 
 type Language = "en" | "ko";
@@ -114,8 +114,8 @@ async function send(page: Page, text: string): Promise<void> {
 	await expect(input).toHaveValue("");
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`file cards, subagent panel, drag-select and context inspector (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];

@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, recordsOfType, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -502,7 +502,8 @@ test("with no small model the composer shows a quiet footer hint and no toast", 
 	}
 });
 
-for (const language of ["en", "ko"] as const)
+// Screenshots only (the flows they show are the tests above): every variant waits for OMP_GUI_VARIANTS=1.
+for (const language of variants(["en", "ko"] as const, () => false))
 	for (const theme of ["light", "dark"] as const) {
 		test(`captures: placeholder, chips and ghost text (${language} ${theme})`, async () => {
 			test.setTimeout(150_000);

@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 // Figures in the built app on the fake omp: a .mmd file in the Files drawer
 // renders as a Mermaid diagram with a Source switch, and an assistant ```svg
@@ -84,7 +84,7 @@ test("mermaid files and svg replies render as figures", async () => {
 // A viewBox-only figure (no width/height, as models write them) once laid out
 // at 0×0: the empty chip of the report. It fills the chip's width at the
 // viewBox ratio, and its theme tokens take the app's --sc-* colors in both themes.
-for (const theme of ["light", "dark"] as const) {
+for (const theme of variants(["light", "dark"] as const)) {
 	test(`a viewBox-only svg reply fills the chip width in ${theme}`, async () => {
 		test.setTimeout(120_000);
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-figures-viewbox-"));

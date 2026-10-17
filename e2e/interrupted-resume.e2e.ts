@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { capture, exitApp, fixtureOmp } from "./harness";
+import { capture, exitApp, fixtureOmp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -258,7 +258,8 @@ async function expectQuietContinuation(page: Page, notice: string): Promise<void
 	await expect(page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
 	await expect(page.locator("[data-restart-jobs]")).toHaveText(notice);
 	await expect(page.locator("[data-restart-jobs]")).toHaveCount(1);
-	await expect(page.locator(".omp-user-bubble")).toHaveText(["fixture running with job"]);
+	// The prompt's own bubble is the only one (it carries its clock after the text).
+	await expect(page.locator(".omp-user-bubble")).toHaveText([/^fixture running with job/]);
 	await expect(page.getByText("OMPdesk restarted")).toHaveCount(0);
 	await expect(page.locator("[data-resuming]")).toHaveCount(0);
 	const probe = await page.evaluate(() => window.__resumeProbe);
@@ -269,8 +270,8 @@ async function expectQuietContinuation(page: Page, notice: string): Promise<void
 		.toBeLessThanOrEqual(2);
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`${language === "en" && theme === "light" ? "@smoke " : ""}a turn running when OMPdesk is killed continues on the next launch (${language} ${theme})`, async () => {
 			test.setTimeout(150_000);
 			const profile = await makeProfile(language, theme);
@@ -450,8 +451,8 @@ test("the setting off: a quit asks before stopping the running turn, and quittin
 	}
 });
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`a network error while offline waits calmly and continues when the connection returns (${language} ${theme})`, async () => {
 			test.setTimeout(120_000);
 			const profile = await makeProfile(language, theme);

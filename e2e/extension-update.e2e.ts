@@ -24,7 +24,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 /**
  * `cli-mcp-<server> <method> check` prints the newest version; `update` of `mcp-thing` waits while the `hold`
@@ -321,7 +321,7 @@ const status = (settings: Locator, id: string) => settings.getByTestId(`extensio
 
 test.skip(process.platform === "win32", "the fake npm package's bin is a symlink to a shebang script");
 
-for (const language of ["en", "ko"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
 	const strings: Record<string, string> = language === "en" ? en : ko;
 	const tr = (key: string, params: Record<string, string> = {}) =>
 		Object.entries(params).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, value), strings[key] ?? key);

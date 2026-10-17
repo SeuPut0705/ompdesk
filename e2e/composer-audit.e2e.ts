@@ -11,7 +11,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, recordsOfType } from "./harness";
+import { capture, exitApp, launchApp, recordsOfType, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -51,8 +51,8 @@ async function launch(
 	return { app, page, profile, record };
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`steer with paste chip and file card, completion listbox, remapped chord in the palette (${language} ${theme})`, async () => {
 			test.setTimeout(150_000);
 			const { app, page, profile, record } = await launch(language, theme);

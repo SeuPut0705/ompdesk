@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, captureTo, exitApp, launchApp } from "./harness";
+import { capture, captureTo, exitApp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -100,9 +100,9 @@ async function atTail(scroller: Locator): Promise<boolean> {
 	return scroller.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight <= 2);
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
-		for (const width of [380, 520] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
+		for (const width of variants([380, 520] as const))
 			test(`subagent view: header, turns, tool cards, steer, live follow (${language} ${theme} ${width}px)`, async () => {
 				test.setTimeout(180_000);
 				const text = TEXT[language];

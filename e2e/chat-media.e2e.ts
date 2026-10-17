@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, openDestination } from "./harness";
+import { capture, exitApp, launchApp, openDestination, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -101,8 +101,8 @@ async function dragToPane(page: Page, tabId: string, targetIndex: number, x: num
 	await page.mouse.up();
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`chat plays the media the agent made (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const { app, page, profile, project } = await launch(language, theme);

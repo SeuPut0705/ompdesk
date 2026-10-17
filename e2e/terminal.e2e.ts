@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of variants(["light", "dark"] as const)) {
 	test(`real interactive terminal in ${theme}`, async () => {
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-terminal-"));
 		const desktop = path.join(profile, "desktop");

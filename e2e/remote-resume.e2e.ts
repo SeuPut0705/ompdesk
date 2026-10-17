@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { capture, exitApp, readRecords } from "./harness";
+import { capture, exitApp, readRecords, variants } from "./harness";
 import {
 	freePort,
 	type Language,
@@ -93,8 +93,8 @@ async function remoteStatus(page: Page, deviceId: string): Promise<string | unde
 	return (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === deviceId)?.status;
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`the host continues a device's turn after a crash; the device skips it and finds it running (${language} ${theme})`, async () => {
 			test.setTimeout(300_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
@@ -176,8 +176,8 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`a network failure on the host waits for the host's connection, across a lost link (${language} ${theme})`, async () => {
 			test.setTimeout(300_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
@@ -242,10 +242,10 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const)
+] as const))
 	test(`a question open on a host's tab comes back with the link, and goes once the host's omp restarted (${language} ${theme})`, async () => {
 		test.skip(process.platform === "win32", "finds the host tab's omp with ps");
 		test.setTimeout(300_000);

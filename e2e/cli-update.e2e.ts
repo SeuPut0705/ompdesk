@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 /**
  * `cli-<tool> <method> check` prints the newest version; `update` waits while the `hold` file exists, then
@@ -159,7 +159,7 @@ async function openThisComputer(page: Page) {
 
 test.skip(process.platform === "win32", "the fake claude, codex and the stand-in login shell are shebang scripts");
 
-for (const language of ["en", "ko"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
 	test(`a connected account's Claude Code updates on its own: check, update, re-detect; a bundled Codex is left alone (${language})`, async () => {
 		test.setTimeout(120_000);
 		const launched = await launch(`auto-${language}`, { language });

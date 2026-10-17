@@ -17,7 +17,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { capture, exitApp, openDestination } from "./harness";
+import { capture, exitApp, openDestination, variants } from "./harness";
 import {
 	type Language,
 	launchRemote,
@@ -74,8 +74,8 @@ async function exists(file: string): Promise<boolean> {
 	);
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`a host's tab works on the host: terminal, files, changes, media, context (${language} ${theme})`, async () => {
 			test.setTimeout(240_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
@@ -319,8 +319,8 @@ async function sendPrompt(page: Page, text: string): Promise<void> {
 	await input.press("Enter");
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`a host's tab shows the host: settings rows, its appearance, prompt origins, daily limits (${language} ${theme})`, async () => {
 			test.setTimeout(240_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);

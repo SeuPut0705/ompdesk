@@ -9,15 +9,15 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { exitApp, launchApp, recordsOfType } from "./harness";
+import { exitApp, launchApp, recordsOfType, variants } from "./harness";
 import { resize } from "./shell-capture";
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
 	["ko", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`delegation chip switches the live tab and new spawns (${language} ${theme})`, async () => {
 		test.setTimeout(90_000);
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-delegation-${language}-${theme}-`));

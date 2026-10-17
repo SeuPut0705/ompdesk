@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { exitApp, launchApp, openDestination } from "./harness";
+import { exitApp, launchApp, openDestination, variants } from "./harness";
 
 const REPORT = process.env.OMP_GUI_A11Y_REPORT ?? "";
 const AXE_SOURCE = createRequire(import.meta.url).resolve("axe-core/axe.min.js");
@@ -176,10 +176,10 @@ async function tabWalk(page: Page, surface: string, findings: Finding[], limit =
 	return stops;
 }
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const)
+] as const))
 	test(`a11y audit (${language} ${theme})`, async () => {
 		test.setTimeout(600_000);
 		const findings: Finding[] = [];

@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, fixtureOmp, launchApp } from "./harness";
+import { capture, exitApp, fixtureOmp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -89,8 +89,8 @@ async function launch(
 	return { app, page, profile };
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`reply link menus, CJK markdown, run in terminal, $ skills and Auto · level (${language} ${theme})`, async () => {
 			test.setTimeout(150_000);
 			const { app, page, profile } = await launch(language, theme);

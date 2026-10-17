@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, variants } from "./harness";
 
 // The agent's gui_visualize tool (C135) shows a page from the project in the
 // Preview, keeps versions (C141) and "All visuals"; the user comments on an
@@ -43,10 +43,10 @@ interface Frame {
 	result?: unknown;
 }
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`gui_visualize: versions, element comments, CSS variables, real-click choice (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const label = LABELS[language];

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, variants } from "./harness";
 
 // The hover actions (time, copy, branch) of a message must sit in space the turn
 // reserves for them: never over the message's last text line or its bubble, and
@@ -204,8 +204,8 @@ function check(measures: Measure[], where: string): void {
 	}
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`message actions never cover the message ${language} ${theme}`, async () => {
 			test.setTimeout(180_000);
 			const { app, page } = await launch(language, theme);

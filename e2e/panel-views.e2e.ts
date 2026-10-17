@@ -3,9 +3,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
-import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of variants(["light", "dark"] as const)) {
 	test(`all panel views, modes and responsive chrome in ${theme}`, async () => {
 		test.setTimeout(120_000);
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-panel-views-"));

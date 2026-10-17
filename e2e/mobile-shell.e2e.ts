@@ -13,6 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { variants } from "./harness";
 
 // The mobile shell (design §6) in Chromium and WebKit device emulation, on the dev harness: the renderer in a
 // browser over a fixture transport (src/renderer/dev-harness), served by Vite from vite.harness.config.ts. Each
@@ -141,222 +142,225 @@ async function capture(page: Page, name: string, tag: string): Promise<void> {
 	await page.screenshot({ path: path.join(captures, `${tag}-${name}.png`), animations: "disabled" });
 }
 
-for (const engine of ENGINES) {
-	for (const device of DEVICES) {
-		test.describe(`${engine.name} · ${device.name}`, () => {
-			let browser: Browser;
-			const drawerMode = device.shell !== "tablet-landscape";
+// The default run keeps each shell mode once in Chromium plus WebKit on a phone; the other engine × device
+// pairs repeat a mode and run with OMP_GUI_VARIANTS=1.
+for (const { engine, device } of variants(
+	ENGINES.flatMap(engine => DEVICES.map(device => ({ engine, device }))),
+	({ engine, device }) => (engine.name === "chromium" ? device.name !== "Pixel 8" : device.name === "iPhone 15"),
+)) {
+	test.describe(`${engine.name} · ${device.name}`, () => {
+		let browser: Browser;
+		const drawerMode = device.shell !== "tablet-landscape";
 
-			test.beforeAll(async () => {
-				browser = await engine.type.launch();
-			});
-			test.afterAll(async () => {
-				await browser.close();
-			});
-
-			test("the page is in the shell mode its size gives, with touch input", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				const root = page.locator("html");
-				await expect(root).toHaveAttribute("data-platform", "web");
-				await expect(root).toHaveAttribute("data-shell", device.shell);
-				await expect(root).toHaveAttribute("data-input", "touch");
-				// Touch targets: the title bar's buttons are at least 44 px.
-				const smallest = await page.locator("header button").evaluateAll(buttons =>
-					Math.min(
-						...buttons
-							.map(button => button.getBoundingClientRect())
-							.filter(box => box.width > 0 && box.height > 0)
-							.map(box => Math.min(box.width, box.height)),
-					),
-				);
-				expect(smallest).toBeGreaterThanOrEqual(44);
-				// The composer's field never zooms iOS: 16 px or more.
-				const fontSize = await page
-					.locator("textarea")
-					.first()
-					.evaluate(field => Number.parseFloat(getComputedStyle(field).fontSize));
-				expect(fontSize).toBeGreaterThanOrEqual(16);
-				expect(
-					await page.evaluate(() => window.__harness?.unhandled.filter(key => key.startsWith("runtime:"))),
-				).toEqual([]);
-				await page.context().close();
-			});
-
-			test("the sidebar is a drawer on a phone and a portrait tablet, docked on a landscape tablet", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				if (!drawerMode) {
-					await expect(page.locator(".omp-session-sidebar")).toBeVisible();
-					await expect(menuButton(page)).toHaveCount(0);
-					await expect(drawer(page)).toHaveCount(0);
-					await page.context().close();
-					return;
-				}
-				await expect(drawer(page)).toHaveCount(0);
-				await menuButton(page).click();
-				await expect(drawer(page).locator(".omp-session-sidebar")).toBeVisible();
-				// The system back gesture closes it instead of leaving the page.
-				const url = page.url();
-				await page.goBack();
-				await expect(drawer(page)).toHaveCount(0);
-				expect(page.url()).toBe(url);
-				// The scrim closes it too, and choosing another session does.
-				await menuButton(page).click();
-				await expect(drawer(page)).toBeVisible();
-				await drawer(page).click({ position: { x: device.shell === "phone" ? 380 : 800, y: 300 } });
-				await expect(drawer(page)).toHaveCount(0);
-				await menuButton(page).click();
-				await drawer(page).getByText("Add dark mode to the settings page").first().click();
-				await expect(drawer(page)).toHaveCount(0);
-				await expect(page.locator("[data-titlebar-session-name]")).toContainText("Add dark mode");
-				await page.context().close();
-			});
-
-			test("the side panel is a full-screen sheet with a tab bar, a right sheet, or docked", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				await panelButton(page).click();
-				if (device.shell === "phone") {
-					const sheet = page.locator('[data-sheet-placement="full"] [data-sheet-panel]');
-					await expect(sheet).toBeVisible();
-					await expect(page.locator("[data-panel-tabbar] button")).toHaveCount(5);
-					const box = await settledBox(sheet);
-					const viewport = page.viewportSize();
-					expect(box.width).toBeCloseTo(viewport?.width ?? 0, 0);
-					expect(box.height).toBeCloseTo(viewport?.height ?? 0, 0);
-					// The handle pulls it away.
-					const handle = sheet.locator("[data-sheet-handle]");
-					const grip = await settledBox(handle);
-					if (!grip) throw new Error("no sheet handle");
-					await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-					await page.mouse.down();
-					await page.mouse.move(grip.x + grip.width / 2, grip.y + 220, { steps: 6 });
-					await page.mouse.up();
-					await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
-				} else if (device.shell === "tablet-portrait") {
-					const sheet = page.locator('[data-sheet-placement="right"] [data-sheet-panel]');
-					await expect(sheet).toBeVisible();
-					const box = await settledBox(sheet);
-					expect(box?.width).toBeLessThanOrEqual(560);
-					expect(box?.width).toBeGreaterThan(400);
-				} else {
-					await expect(page.locator('aside[data-docked="docked"]')).toBeVisible();
-					await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
-				}
-				await page.context().close();
-			});
-
-			test("the work board is a chip and a sheet where it cannot dock", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				const chip = page.locator("[data-work-chip]");
-				if (!drawerMode) {
-					await expect(chip).toHaveCount(0);
-					await page.context().close();
-					return;
-				}
-				await expect(chip).toBeVisible();
-				await chip.click();
-				const sheet = page.locator('[data-sheet-placement="bottom"] [data-sheet-panel]');
-				await expect(sheet).toBeVisible();
-				await expect(sheet.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
-				await page.goBack();
-				await expect(sheet).toHaveCount(0);
-				await page.context().close();
-			});
-
-			test("dialogs are bottom sheets on a phone and centered elsewhere", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				if (drawerMode) await menuButton(page).click();
-				await page.locator("[data-command-center-entry]").click();
-				const dialog = page.locator('[role="dialog"]').first();
-				await expect(dialog).toBeVisible();
-				const box = await settledBox(dialog);
-				const viewport = page.viewportSize();
-				if (!box || !viewport) throw new Error("no geometry");
-				if (device.shell === "phone") {
-					await expect(dialog).toHaveAttribute("data-presentation", "sheet");
-					expect(box.width).toBe(viewport.width);
-					expect(Math.round(box.y + box.height)).toBe(viewport.height);
-					await expect(dialog.locator("[data-sheet-handle]")).toBeVisible();
-				} else {
-					await expect(dialog).not.toHaveAttribute("data-presentation", "sheet");
-					expect(box.width).toBeLessThan(viewport.width);
-					expect(box.y + box.height).toBeLessThan(viewport.height);
-				}
-				// Back closes the dialog on the web shell.
-				await page.goBack();
-				await expect(page.locator('[role="dialog"]')).toHaveCount(0);
-				await page.context().close();
-			});
-
-			test("a session row's rename and delete collapse into one ⋯ button that opens the action sheet", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				if (drawerMode) await menuButton(page).click();
-				const sidebar = page.locator(".omp-session-sidebar");
-				const current = sidebar.locator('[data-session-path][data-active="true"]').first();
-				await expect(current).toBeVisible();
-				// The open row would otherwise show rename and delete for good (touch has no hover to hide them).
-				await expect(current.locator("[data-sidebar-row-menu]")).toHaveCount(1);
-				await expect(
-					sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
-				).toHaveCount(0);
-				await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
-				await current.locator("[data-sidebar-row-menu]").click();
-				const menu = page.locator("[data-action-sheet] [role='menu']");
-				await expect(menu).toBeVisible({ timeout: 3000 });
-				await expect(menu.getByRole("menuitem", { name: "Rename session" })).toBeVisible();
-				await page.keyboard.press("Escape");
-				await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
-				await page.context().close();
-			});
-
-			test("a long press opens an action sheet, and a long press on a button shows its tooltip without a click", async () => {
-				const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-				if (drawerMode) await menuButton(page).click();
-				const row = page.locator(".omp-session-sidebar").getByText("Add dark mode to the settings").first();
-				await touchDown(row);
-				await expect(page.locator("[data-action-sheet] [role='menu']")).toBeVisible({ timeout: 3000 });
-				await touchUp(row);
-				await page.keyboard.press("Escape");
-				await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
-				if (drawerMode) await page.goBack().catch(() => {});
-
-				if (drawerMode) await expect(drawer(page)).toHaveCount(0);
-				const button = panelButton(page);
-				await touchDown(button);
-				await expect(page.getByRole("tooltip").filter({ hasText: /Side panel|사이드 패널/ })).toBeVisible({
-					timeout: 3000,
-				});
-				await touchUp(button);
-				// The click that ends the long press is swallowed: the panel stays shut.
-				await button.dispatchEvent("click");
-				await page.waitForTimeout(400);
-				await expect(
-					page.locator('[data-sheet-placement="full"], [data-sheet-placement="right"], aside[data-docked]'),
-				).toHaveCount(0);
-				await page.context().close();
-			});
-
-			for (const theme of ["light", "dark"] as const) {
-				for (const lang of ["en", "ko"] as const) {
-					test(`captures: ${theme} ${lang}`, async () => {
-						test.skip(!captures, "OMP_GUI_MOBILE_SHELL=<dir> writes the captures");
-						const page = await openHarness(browser, device.name, { theme, lang });
-						const tag = `${engine.name}-${device.name.replace(/ /g, "-")}-${theme}-${lang}`;
-						await capture(page, "session", tag);
-						if (drawerMode) {
-							await menuButton(page).click();
-							await capture(page, "drawer", tag);
-							await page.goBack();
-							await expect(drawer(page)).toHaveCount(0);
-							await page.locator("[data-work-chip]").click();
-							await capture(page, "board", tag);
-							await page.goBack();
-						}
-						await panelButton(page).click();
-						await capture(page, "panel", tag);
-						await page.context().close();
-					});
-				}
-			}
+		test.beforeAll(async () => {
+			browser = await engine.type.launch();
 		});
-	}
+		test.afterAll(async () => {
+			await browser.close();
+		});
+
+		test("the page is in the shell mode its size gives, with touch input", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			const root = page.locator("html");
+			await expect(root).toHaveAttribute("data-platform", "web");
+			await expect(root).toHaveAttribute("data-shell", device.shell);
+			await expect(root).toHaveAttribute("data-input", "touch");
+			// Touch targets: the title bar's buttons are at least 44 px.
+			const smallest = await page.locator("header button").evaluateAll(buttons =>
+				Math.min(
+					...buttons
+						.map(button => button.getBoundingClientRect())
+						.filter(box => box.width > 0 && box.height > 0)
+						.map(box => Math.min(box.width, box.height)),
+				),
+			);
+			expect(smallest).toBeGreaterThanOrEqual(44);
+			// The composer's field never zooms iOS: 16 px or more.
+			const fontSize = await page
+				.locator("textarea")
+				.first()
+				.evaluate(field => Number.parseFloat(getComputedStyle(field).fontSize));
+			expect(fontSize).toBeGreaterThanOrEqual(16);
+			expect(
+				await page.evaluate(() => window.__harness?.unhandled.filter(key => key.startsWith("runtime:"))),
+			).toEqual([]);
+			await page.context().close();
+		});
+
+		test("the sidebar is a drawer on a phone and a portrait tablet, docked on a landscape tablet", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			if (!drawerMode) {
+				await expect(page.locator(".omp-session-sidebar")).toBeVisible();
+				await expect(menuButton(page)).toHaveCount(0);
+				await expect(drawer(page)).toHaveCount(0);
+				await page.context().close();
+				return;
+			}
+			await expect(drawer(page)).toHaveCount(0);
+			await menuButton(page).click();
+			await expect(drawer(page).locator(".omp-session-sidebar")).toBeVisible();
+			// The system back gesture closes it instead of leaving the page.
+			const url = page.url();
+			await page.goBack();
+			await expect(drawer(page)).toHaveCount(0);
+			expect(page.url()).toBe(url);
+			// The scrim closes it too, and choosing another session does.
+			await menuButton(page).click();
+			await expect(drawer(page)).toBeVisible();
+			await drawer(page).click({ position: { x: device.shell === "phone" ? 380 : 800, y: 300 } });
+			await expect(drawer(page)).toHaveCount(0);
+			await menuButton(page).click();
+			await drawer(page).getByText("Add dark mode to the settings page").first().click();
+			await expect(drawer(page)).toHaveCount(0);
+			await expect(page.locator("[data-titlebar-session-name]")).toContainText("Add dark mode");
+			await page.context().close();
+		});
+
+		test("the side panel is a full-screen sheet with a tab bar, a right sheet, or docked", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			await panelButton(page).click();
+			if (device.shell === "phone") {
+				const sheet = page.locator('[data-sheet-placement="full"] [data-sheet-panel]');
+				await expect(sheet).toBeVisible();
+				await expect(page.locator("[data-panel-tabbar] button")).toHaveCount(5);
+				const box = await settledBox(sheet);
+				const viewport = page.viewportSize();
+				expect(box.width).toBeCloseTo(viewport?.width ?? 0, 0);
+				expect(box.height).toBeCloseTo(viewport?.height ?? 0, 0);
+				// The handle pulls it away.
+				const handle = sheet.locator("[data-sheet-handle]");
+				const grip = await settledBox(handle);
+				if (!grip) throw new Error("no sheet handle");
+				await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+				await page.mouse.down();
+				await page.mouse.move(grip.x + grip.width / 2, grip.y + 220, { steps: 6 });
+				await page.mouse.up();
+				await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
+			} else if (device.shell === "tablet-portrait") {
+				const sheet = page.locator('[data-sheet-placement="right"] [data-sheet-panel]');
+				await expect(sheet).toBeVisible();
+				const box = await settledBox(sheet);
+				expect(box?.width).toBeLessThanOrEqual(560);
+				expect(box?.width).toBeGreaterThan(400);
+			} else {
+				await expect(page.locator('aside[data-docked="docked"]')).toBeVisible();
+				await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
+			}
+			await page.context().close();
+		});
+
+		test("the work board is a chip and a sheet where it cannot dock", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			const chip = page.locator("[data-work-chip]");
+			if (!drawerMode) {
+				await expect(chip).toHaveCount(0);
+				await page.context().close();
+				return;
+			}
+			await expect(chip).toBeVisible();
+			await chip.click();
+			const sheet = page.locator('[data-sheet-placement="bottom"] [data-sheet-panel]');
+			await expect(sheet).toBeVisible();
+			await expect(sheet.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
+			await page.goBack();
+			await expect(sheet).toHaveCount(0);
+			await page.context().close();
+		});
+
+		test("dialogs are bottom sheets on a phone and centered elsewhere", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			if (drawerMode) await menuButton(page).click();
+			await page.locator("[data-command-center-entry]").click();
+			const dialog = page.locator('[role="dialog"]').first();
+			await expect(dialog).toBeVisible();
+			const box = await settledBox(dialog);
+			const viewport = page.viewportSize();
+			if (!box || !viewport) throw new Error("no geometry");
+			if (device.shell === "phone") {
+				await expect(dialog).toHaveAttribute("data-presentation", "sheet");
+				expect(box.width).toBe(viewport.width);
+				expect(Math.round(box.y + box.height)).toBe(viewport.height);
+				await expect(dialog.locator("[data-sheet-handle]")).toBeVisible();
+			} else {
+				await expect(dialog).not.toHaveAttribute("data-presentation", "sheet");
+				expect(box.width).toBeLessThan(viewport.width);
+				expect(box.y + box.height).toBeLessThan(viewport.height);
+			}
+			// Back closes the dialog on the web shell.
+			await page.goBack();
+			await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+			await page.context().close();
+		});
+
+		test("a session row's rename and delete collapse into one ⋯ button that opens the action sheet", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			if (drawerMode) await menuButton(page).click();
+			const sidebar = page.locator(".omp-session-sidebar");
+			const current = sidebar.locator('[data-session-path][data-active="true"]').first();
+			await expect(current).toBeVisible();
+			// The open row would otherwise show rename and delete for good (touch has no hover to hide them).
+			await expect(current.locator("[data-sidebar-row-menu]")).toHaveCount(1);
+			await expect(
+				sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
+			).toHaveCount(0);
+			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
+			await current.locator("[data-sidebar-row-menu]").click();
+			const menu = page.locator("[data-action-sheet] [role='menu']");
+			await expect(menu).toBeVisible({ timeout: 3000 });
+			await expect(menu.getByRole("menuitem", { name: "Rename session" })).toBeVisible();
+			await page.keyboard.press("Escape");
+			await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+			await page.context().close();
+		});
+
+		test("a long press opens an action sheet, and a long press on a button shows its tooltip without a click", async () => {
+			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			if (drawerMode) await menuButton(page).click();
+			const row = page.locator(".omp-session-sidebar").getByText("Add dark mode to the settings").first();
+			await touchDown(row);
+			await expect(page.locator("[data-action-sheet] [role='menu']")).toBeVisible({ timeout: 3000 });
+			await touchUp(row);
+			await page.keyboard.press("Escape");
+			await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+			if (drawerMode) await page.goBack().catch(() => {});
+
+			if (drawerMode) await expect(drawer(page)).toHaveCount(0);
+			const button = panelButton(page);
+			await touchDown(button);
+			await expect(page.getByRole("tooltip").filter({ hasText: /Side panel|사이드 패널/ })).toBeVisible({
+				timeout: 3000,
+			});
+			await touchUp(button);
+			// The click that ends the long press is swallowed: the panel stays shut.
+			await button.dispatchEvent("click");
+			await page.waitForTimeout(400);
+			await expect(
+				page.locator('[data-sheet-placement="full"], [data-sheet-placement="right"], aside[data-docked]'),
+			).toHaveCount(0);
+			await page.context().close();
+		});
+
+		for (const theme of ["light", "dark"] as const) {
+			for (const lang of ["en", "ko"] as const) {
+				test(`captures: ${theme} ${lang}`, async () => {
+					test.skip(!captures, "OMP_GUI_MOBILE_SHELL=<dir> writes the captures");
+					const page = await openHarness(browser, device.name, { theme, lang });
+					const tag = `${engine.name}-${device.name.replace(/ /g, "-")}-${theme}-${lang}`;
+					await capture(page, "session", tag);
+					if (drawerMode) {
+						await menuButton(page).click();
+						await capture(page, "drawer", tag);
+						await page.goBack();
+						await expect(drawer(page)).toHaveCount(0);
+						await page.locator("[data-work-chip]").click();
+						await capture(page, "board", tag);
+						await page.goBack();
+					}
+					await panelButton(page).click();
+					await capture(page, "panel", tag);
+					await page.context().close();
+				});
+			}
+		}
+	});
 }

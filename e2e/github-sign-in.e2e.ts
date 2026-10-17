@@ -17,14 +17,14 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { seedFakeGh, writeFakeGh } from "../src/main/github-auth/test-fake-gh";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
 	["ko", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`GitHub sign-in from the resumed first run (${language} ${theme})`, async () => {
 		test.skip(process.platform === "win32", "the fake gh is a shebang script; PATH lookup wants gh.exe on Windows");
 		test.setTimeout(120_000);

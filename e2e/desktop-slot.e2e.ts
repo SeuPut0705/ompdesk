@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { exitApp, launchApp, readRecords, variants } from "./harness";
 
 // The desktop slot (src/main/desktop-slot.ts): one session at a time drives the computer's desktop, the others
 // wait in order. The fake omp stands in for the bridge's slot module: `fixture desktop acting` is an eval run that
@@ -108,7 +108,7 @@ async function slotSequence(): Promise<string[]> {
 		);
 }
 
-for (const language of ["en", "ko"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
 	test(`two sessions ask for the screen at once: one holds, one waits and takes over on release (${language})`, async () => {
 		await launch(language);
 		const text = TEXT[language];

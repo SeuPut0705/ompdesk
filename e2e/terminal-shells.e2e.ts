@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, variants } from "./harness";
 
 // Terminal panel: a second shell from the + menu (C103), the default shell
 // setting (C104) and the expand toggle (C106), on stock's PTY through the
@@ -11,10 +11,10 @@ import { exitApp, fixtureOmp } from "./harness";
 
 test.skip(process.platform === "win32", "the shells this spec picks are macOS paths");
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`terminal shells, default shell setting and expand (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const ko = language === "ko";

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, openDestination } from "./harness";
+import { exitApp, fixtureOmp, openDestination, variants } from "./harness";
 import { resize } from "./shell-capture";
 
 // Agents › GitHub (C94–C99) on the fake omp with a stand-in `gh` that records
@@ -147,10 +147,10 @@ async function launch(
 	return { app, page };
 }
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`Agents › GitHub: issues, Actions, releases, notifications, repositories (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const seeded = await seed(`${language}-${theme}`);

@@ -20,7 +20,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { capture, exitApp, fixtureOmp, launchApp } from "./harness";
+import { capture, exitApp, fixtureOmp, launchApp, variants } from "./harness";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -237,8 +237,8 @@ async function report(launched: Launched, label: string, extra: Record<string, n
 	await test.info().attach("timing.json", { body });
 }
 
-for (const language of ["en", "ko"] as const) {
-	for (const theme of ["light", "dark"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
+	for (const theme of variants(["light", "dark"] as const)) {
 		test(`first-run: no errors while omp is missing or installing; the provider step follows (${language} ${theme})`, async () => {
 			test.setTimeout(120_000);
 			const launched = await launch(`${language}-${theme}`, language, theme, "installing");

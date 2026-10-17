@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, variants } from "./harness";
 
 // Files panel writes and live state on the fake omp: git marks (C39), new file
 // and folder (C34), rename (C35), Move to Trash with confirm (C36; main's
@@ -65,10 +65,10 @@ const LABELS = {
 	},
 } as const;
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`Files panel: git marks, create, rename, trash, drag to composer, disk watch (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const label = LABELS[language];

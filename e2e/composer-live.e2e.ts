@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -85,9 +85,9 @@ async function softwareMarked(app: ElectronApplication, page: Page): Promise<boo
 		.catch(() => false);
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
-		test(`${language === "en" && theme === "light" ? "@smoke " : ""}the composer shows work in progress: turn, background agents, a waiting question (${language} ${theme})`, async () => {
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
+		test(`the composer shows work in progress: turn, background agents, a waiting question (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];
 			const { app, page, root } = await launch(language, theme);
@@ -182,45 +182,54 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.getByRole("tooltip")).toHaveCount(0);
 				await capture("background");
 
-				// The cost, while the cue runs and with it off.
-				await page.waitForTimeout(1000);
-				const on = await cpu(app, 4000);
-				await page.evaluate(() =>
-					document.querySelector(".omp-composer-live")?.setAttribute("data-composer-live", "turn"),
-				);
-				const strong = await cpu(app, 4000);
-				let bare = strong;
-				if (software) {
-					// Hidden, not removed: React still owns the node and unmounts it later.
-					await page.evaluate(() => {
-						const cue = document.querySelector<HTMLElement>(".omp-composer-live");
-						if (cue) cue.style.display = "none";
-					});
-					bare = await cpu(app, 4000);
+				// The cost, while the cue runs and with it off: 16 s of sampling, so it runs with the other
+				// performance measurements (OMP_GUI_PERFORMANCE=1), not in every run.
+				const measure = process.env.OMP_GUI_PERFORMANCE === "1";
+				let on = { renderer: 0, gpu: 0 };
+				let strong = on;
+				let bare = on;
+				if (measure) {
+					await page.waitForTimeout(1000);
+					on = await cpu(app, 4000);
+					await page.evaluate(() =>
+						document.querySelector(".omp-composer-live")?.setAttribute("data-composer-live", "turn"),
+					);
+					strong = await cpu(app, 4000);
+					bare = strong;
+					if (software) {
+						// Hidden, not removed: React still owns the node and unmounts it later.
+						await page.evaluate(() => {
+							const cue = document.querySelector<HTMLElement>(".omp-composer-live");
+							if (cue) cue.style.display = "none";
+						});
+						bare = await cpu(app, 4000);
+					}
 				}
 				for (const id of ["sa-explore", "sa-nested"]) await fixture(page, `fixture:subagents:finish:${id}`);
 				await expect(live).toHaveCount(0);
-				await page.waitForTimeout(1000);
-				const off = await cpu(app, 4000);
-				console.log(
-					`composer-live cpu ${language}-${theme} ${JSON.stringify({ off, background: on, turn: strong })}`,
-				);
-				// Measured here: +0.4 % renderer, +1.4 % GPU of one core; a repainting animation costs several times that.
-				// Only meaningful with GPU compositing: a GPU-less runner (Windows CI) composites in software, where
-				// any animation costs the "GPU" process real CPU.
-				// `software` was read above, from the app's own signal.
-				// A hosted runner's virtual GPU costs more per frame than a real one: 4.8 to 5.6 % there.
-				const gpuBudget = process.env.GITHUB_ACTIONS ? 8 : 4;
-				if (!software) {
-					expect(strong.gpu - off.gpu).toBeLessThan(gpuBudget);
-					expect(strong.renderer - off.renderer).toBeLessThan(process.env.GITHUB_ACTIONS ? 4 : 2);
-				} else {
-					// Software compositing (a GPU-less runner): the cue is the still form, never an animation. The agents
-					// and the turn cost what they cost there (`off` has none running), so compare with the cue removed.
-					await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
-					// A runner without a GPU is busy and noisy (a few % either way).
-					expect(strong.gpu - bare.gpu).toBeLessThan(5);
-					expect(strong.renderer - bare.renderer).toBeLessThan(5);
+				if (software) await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
+				if (measure) {
+					await page.waitForTimeout(1000);
+					const off = await cpu(app, 4000);
+					console.log(
+						`composer-live cpu ${language}-${theme} ${JSON.stringify({ off, background: on, turn: strong })}`,
+					);
+					// Measured here: +0.4 % renderer, +1.4 % GPU of one core; a repainting animation costs several times that.
+					// Only meaningful with GPU compositing: a GPU-less runner (Windows CI) composites in software, where
+					// any animation costs the "GPU" process real CPU.
+					// `software` was read above, from the app's own signal.
+					// A hosted runner's virtual GPU costs more per frame than a real one: 4.8 to 5.6 % there.
+					const gpuBudget = process.env.GITHUB_ACTIONS ? 8 : 4;
+					if (!software) {
+						expect(strong.gpu - off.gpu).toBeLessThan(gpuBudget);
+						expect(strong.renderer - off.renderer).toBeLessThan(process.env.GITHUB_ACTIONS ? 4 : 2);
+					} else {
+						// Software compositing (a GPU-less runner): the cue is the still form, never an animation. The agents
+						// and the turn cost what they cost there (`off` has none running), so compare with the cue removed.
+						// A runner without a GPU is busy and noisy (a few % either way).
+						expect(strong.gpu - bare.gpu).toBeLessThan(5);
+						expect(strong.renderer - bare.renderer).toBeLessThan(5);
+					}
 				}
 
 				// A question waiting on the user wins over a running turn.
@@ -278,7 +287,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 	}
 });
 
-test("software compositing draws the cue still and the cost stays flat", async () => {
+test("software compositing draws the cue still (and, measured, the cost stays flat)", async () => {
 	test.setTimeout(120_000);
 	// `--disable-gpu` is the same switch the crash fallback honours (main/gpu-fallback.ts): Chromium composites in software.
 	const { app, page, root } = await launch("en", "light", ["--disable-gpu"]);
@@ -304,15 +313,18 @@ test("software compositing draws the cue still and the cost stays flat", async (
 		);
 		expect(running).toBe(0);
 		await expect(live).toHaveCSS("opacity", "0.9");
-		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent.
-		await page.waitForTimeout(1000);
-		const withCue = await cpu(app, 4000);
-		await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
-		await page.waitForTimeout(1000);
-		const without = await cpu(app, 4000);
-		console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);
-		expect(withCue.gpu - without.gpu).toBeLessThan(2);
-		expect(withCue.renderer - without.renderer).toBeLessThan(2);
+		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent
+		// (10 s of sampling; with the other performance measurements, OMP_GUI_PERFORMANCE=1).
+		if (process.env.OMP_GUI_PERFORMANCE === "1") {
+			await page.waitForTimeout(1000);
+			const withCue = await cpu(app, 4000);
+			await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
+			await page.waitForTimeout(1000);
+			const without = await cpu(app, 4000);
+			console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);
+			expect(withCue.gpu - without.gpu).toBeLessThan(2);
+			expect(withCue.renderer - without.renderer).toBeLessThan(2);
+		}
 	} finally {
 		await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

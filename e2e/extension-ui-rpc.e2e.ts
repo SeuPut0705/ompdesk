@@ -15,7 +15,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, readRecords } from "./harness";
+import { capture, exitApp, launchApp, readRecords, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -100,8 +100,8 @@ async function submit(page: Page, text: string): Promise<void> {
 	await composer.press("Enter");
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`extension UI and stock RPC paths (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];

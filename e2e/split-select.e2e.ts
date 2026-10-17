@@ -16,7 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 const NAMES = ["Alpha", "Beta", "Gamma", "Delta"] as const;
 const OVERVIEW = { en: "Tab overview", ko: "탭 개요" } as const;
@@ -189,7 +189,7 @@ async function selectedRows(page: Page, titles: readonly string[]) {
 	return selected;
 }
 
-for (const [language, theme] of RUNS) {
+for (const [language, theme] of variants(RUNS)) {
 	test(`${language === "en" && theme === "light" ? "@smoke " : ""}a split's sessions are all selected; outside picks are solo; members restore it, across a relaunch (${language}-${theme})`, async () => {
 		test.setTimeout(240_000);
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-split-select-")));
@@ -346,7 +346,7 @@ async function composerFit(page: Page) {
 	);
 }
 
-for (const [language, theme] of RUNS) {
+for (const [language, theme] of variants(RUNS)) {
 	test(`a true 2x2 split: all four sessions selected, composers fit, normal and narrow (${language}-${theme})`, async () => {
 		test.setTimeout(240_000);
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-split-2x2-")));

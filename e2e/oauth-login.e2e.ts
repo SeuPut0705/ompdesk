@@ -18,7 +18,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, readRecords } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, readRecords, variants } from "./harness";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -117,12 +117,12 @@ async function finishInBrowser(launchUrl: string, query: Record<string, string>)
 	return (await fetch(callback)).status;
 }
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
 	["ko", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`browser sign-in finishes through the callback; the code paste stays a fallback (${language} ${theme})`, async () => {
 		test.setTimeout(120_000);
 		const { app, page, record, errors, root } = await launch(language, theme);

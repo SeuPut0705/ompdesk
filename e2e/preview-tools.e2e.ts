@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 // Preview page tools: a bare host in the address bar, console problems, zoom,
 // responsive frames, a refused download, Save as PDF, crash recovery and tabs.
@@ -47,10 +47,10 @@ const LABELS = {
 	},
 } as const;
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`preview page tools: address, problems, zoom, frames, download, PDF, crash, tabs (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const label = LABELS[language];

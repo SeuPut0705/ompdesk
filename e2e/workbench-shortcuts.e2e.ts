@@ -10,15 +10,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 import { resize } from "./shell-capture";
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
 	["ko", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`tab jumps, reopen, quick open and transcript search (${language} ${theme})`, async () => {
 		test.setTimeout(120_000);
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-workbench-${language}-${theme}-`));

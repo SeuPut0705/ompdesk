@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -75,7 +75,7 @@ async function capture(page: Page, name: string): Promise<void> {
 	}
 }
 
-for (const [language, theme] of RUNS) {
+for (const [language, theme] of variants(RUNS)) {
 	test(`the model picker is dense: focused search, one-line rows, bounded height, keys (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const page = await launch(language, theme, { width: 1280, height: 860 });

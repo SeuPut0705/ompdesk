@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 import { resize } from "./shell-capture";
 
 const TEXT = {
@@ -18,12 +18,12 @@ const TEXT = {
 	ko: { archived: "보관함 (1)", done: "완료", stopped: "중단됨", newSchedule: "새 예약", create: "만들기" },
 } as const;
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
 	["ko", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`archive a session and run a schedule (${language} ${theme})`, async () => {
 		test.setTimeout(120_000);
 		const text = TEXT[language];

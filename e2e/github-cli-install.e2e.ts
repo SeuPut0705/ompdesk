@@ -21,7 +21,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { seedFakeGh, writeFakeGh } from "../src/main/github-auth/test-fake-gh";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, variants } from "./harness";
 
 /** gh attempt 1 fails offline; attempt 2 copies the fake gh into the managed tools dir. Other items never run here. */
 const INSTALLER = `
@@ -76,7 +76,7 @@ function pathWithoutGh(): string {
 		.join(path.delimiter);
 }
 
-for (const language of ["en", "ko"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
 	test(`connecting GitHub installs the missing GitHub CLI, then signs in (${language})`, async () => {
 		test.skip(process.platform === "win32", "the fake gh and the stand-in login shell are shebang scripts");
 		test.setTimeout(120_000);

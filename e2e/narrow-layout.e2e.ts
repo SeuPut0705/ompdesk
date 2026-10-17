@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
-import { exitApp, launchApp, openDestination, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, openDestination, pressShortcutUntilVisible, variants } from "./harness";
 
 // At the smallest window OMPdesk allows (800×640, sidebar open) the settings
 // nav labels read in full and no settings section or settings tab scrolls
@@ -13,7 +13,8 @@ import { exitApp, launchApp, openDestination, pressShortcutUntilVisible } from "
 /** Width by which a scroll container's content exceeds its box (0 = fits). */
 const sideways = (scroller: Locator) => scroller.evaluate(element => element.scrollWidth - element.clientWidth);
 
-for (const language of ["en", "ko"] as const)
+// Korean labels are the widest, so Korean is the variant the default run keeps.
+for (const language of variants(["en", "ko"] as const, language => language === "ko"))
 	test(`settings fit the smallest window (${language})`, async () => {
 		test.setTimeout(180_000);
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-narrow-layout-"));

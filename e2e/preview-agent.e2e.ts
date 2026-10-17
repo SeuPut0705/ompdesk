@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 // Agent browsing in the Preview panel, end to end on stock's own pieces: the
 // fake omp's bridge starts stock's relay server (tools/browser/relay/server.ts
@@ -42,10 +42,10 @@ interface PuppeteerModule {
 	connect(options: { browserURL: string; defaultViewport: null }): Promise<PuppeteerBrowser>;
 }
 
-for (const [language, theme] of [
+for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
-] as const) {
+] as const)) {
 	test(`the agent drives the visible preview through stock's relay and the user takes over (${language}-${theme})`, async () => {
 		const entry = puppeteerEntry;
 		test.skip(!existsSync(relayModule) || !existsSync(entry), "needs the installed omp and its puppeteer-core");

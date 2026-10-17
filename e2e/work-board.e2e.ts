@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -89,9 +89,9 @@ async function left(locator: Locator): Promise<number> {
 	return Math.round(box.x);
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
-		test(`${language === "en" && theme === "light" ? "@smoke " : ""}the work board docks in a wide pane and steps aside for a narrow one and the side panel (${language} ${theme})`, async () => {
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
+		test(`the work board docks in a wide pane and steps aside for a narrow one and the side panel (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];
 			const { app, page, root } = await launch(language, theme);
@@ -255,8 +255,8 @@ test("a split's panes are too narrow for the work board", async () => {
 	}
 });
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`the board's sections: waiting first, agents on their models, account, speed, todos, goal, jump key and folds (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const { app, page, root } = await launch(language, theme);
@@ -361,8 +361,8 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`the sidebar's usage block: one gauge line per provider with its last-used account's email, in use marked, a click opens accounts (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const { app, page, root } = await launch(language, theme);
