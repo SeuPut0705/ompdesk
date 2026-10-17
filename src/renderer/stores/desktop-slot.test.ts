@@ -65,6 +65,14 @@ describe("desktop slot store", () => {
 		expect(useDesktopSlotStore.getState().state).toEqual(FREE_SLOT);
 	});
 
+	it("keeps the free slot when the read answers something that is not a slot state (a host that does not know it)", async () => {
+		for (const data of [{}, null, "x", { holder: null }, { queue: [] }, { holder: null, queue: "no" }]) {
+			stubGetDesktopSlot(async () => ({ success: true, data }));
+			await hydrateDesktopSlot();
+			expect(useDesktopSlotStore.getState().state).toEqual(FREE_SLOT);
+		}
+	});
+
 	it("reports a tab's 1-based place in the queue", () => {
 		useDesktopSlotStore.getState().apply(busy);
 		const state = useDesktopSlotStore.getState();

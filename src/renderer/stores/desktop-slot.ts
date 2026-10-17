@@ -31,13 +31,26 @@ export const useDesktopSlotStore = create<DesktopSlotStore>()((set, get) => ({
 	reset: () => set({ state: FREE_SLOT, version: 0 }),
 }));
 
+/** Whether `value` is a slot state: a host or harness that does not know the slot answers `{}`, which must never render. */
+function isSlotState(value: unknown): value is DesktopSlotState {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"holder" in value &&
+		"queue" in value &&
+		Array.isArray(value.queue) &&
+		(value.holder === null || typeof value.holder === "object")
+	);
+}
+
 /** Boot read of the slot; a frame that lands while it is in flight wins. */
 export async function hydrateDesktopSlot(): Promise<void> {
 	const startedAt = useDesktopSlotStore.getState().version;
 	try {
 		const response = await window.omp.rpc.getDesktopSlot();
-		if (response.success)
-			useDesktopSlotStore.getState().hydrateIfCurrent(startedAt, response.data as DesktopSlotState);
+		if (response.success && isSlotState(response.data)) {
+			useDesktopSlotStore.getState().hydrateIfCurrent(startedAt, response.data);
+		}
 	} catch {
 		// Transient — the next desktop_slot_update frame carries the whole state.
 	}

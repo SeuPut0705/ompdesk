@@ -203,6 +203,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, SESSION_STATS);
 			case "get_context_inspect":
 				return respond(command, CONTEXT_INSPECT);
+			case "get_desktop_slot":
+				return respond(command, { holder: null, queue: [] });
 			case "pr_comments":
 				return respond(command, { entries: [] });
 			case "github":
