@@ -49,7 +49,10 @@
 }
 
 /* A session's state lives on its left edge (a `data-signal` on the row; never colour alone: the row's text and
-   tooltip carry the word). Inside the row's rounded shape: 2px wide, clear of the corners.
+   tooltip carry the word). The bar sits INSIDE the row's rounded box, clear of the corners, and follows the row's
+   indentation: left unpositioned (`inset-inline-start: auto`) an absolutely positioned child of this flex row
+   starts at the content edge, the padding that indents nested sessions and subagents, and the negative margin
+   pulls it just left of the icon.
    running = accent with one slow light travelling down it (a transform on one layer, nothing repaints),
    waiting = warning and error = danger, both still. */
 .omp-sidebar-session-row[data-signal]::before,
@@ -57,10 +60,16 @@
 	content: "";
 	position: absolute;
 	inset-block: var(--sc-space-1-5);
-	inset-inline-start: var(--sc-space-0-5);
+	margin-inline-start: calc(-1 * var(--sc-space-2));
 	width: 2px;
 	border-radius: var(--sc-radius-full);
 	pointer-events: none;
+}
+
+/* A subagent row's connector runs down just left of its icon: the bar sits between the two, closer to the icon. */
+.omp-sidebar-session-row[data-sidebar-subagent][data-signal]::before,
+.omp-sidebar-session-row[data-sidebar-subagent][data-signal="running"]::after {
+	margin-inline-start: calc(-1 * var(--sc-space-1));
 }
 
 .omp-sidebar-session-row[data-signal="running"]::before {

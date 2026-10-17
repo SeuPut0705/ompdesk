@@ -1232,7 +1232,8 @@ export function Sidebar() {
 					{done ? (
 						<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-success)" data-sidebar-done />
 					) : (
-						openElsewhere && (
+						openElsewhere &&
+						!signal && (
 							<span
 								className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)"
 								data-sidebar-open-tab
