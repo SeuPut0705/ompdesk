@@ -27,7 +27,7 @@ import {
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
-import { capture, exitApp } from "./harness";
+import { capture, exitApp, variants } from "./harness";
 
 const TEXT = {
 	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot" },
@@ -38,8 +38,8 @@ const RELEASE_PREFS = {
 	autopilotShip: { autoPush: false, autoRelease: { on: true, cadence: { kind: "every", n: 1 } }, remote: "origin" },
 };
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
 		test(`${language === "en" && theme === "light" ? "@smoke " : ""}cycles 1, 2, 3 follow in a new worktree tab with the chip, the board and the panel (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const profile = await makeApProfile({ language, theme, script: { cycleMs: 700 } });

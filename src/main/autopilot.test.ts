@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_OBJECTIVE,
@@ -270,14 +270,27 @@ async function commit(cwd: string, name: string): Promise<string> {
 	return gitSync(cwd, "rev-parse", "HEAD");
 }
 
+// One repository with its bare remote, built once (a dozen git processes) and copied for each test.
+let template = "";
+beforeAll(async () => {
+	template = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), "autopilot-template-")));
+	const repo = path.join(template, "main");
+	await initRepo(repo);
+	gitSync(template, "init", "-q", "--bare", "-b", "main", path.join(template, "remote.git"));
+	gitSync(repo, "remote", "add", "origin", path.join(template, "remote.git"));
+	gitSync(repo, "push", "-q", "origin", "main");
+});
+
+afterAll(async () => {
+	await fs.rm(template, { recursive: true, force: true });
+});
+
 beforeEach(async () => {
 	tmp = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), "autopilot-main-")));
+	await fs.cp(template, tmp, { recursive: true });
 	main = path.join(tmp, "main");
 	remote = path.join(tmp, "remote.git");
-	await initRepo(main);
-	gitSync(tmp, "init", "-q", "--bare", "-b", "main", remote);
-	gitSync(main, "remote", "add", "origin", remote);
-	gitSync(main, "push", "-q", "origin", "main");
+	gitSync(main, "remote", "set-url", "origin", remote);
 	world = new World();
 	notices = [];
 	polls = [];

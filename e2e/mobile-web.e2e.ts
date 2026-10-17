@@ -28,7 +28,7 @@ import { ko } from "../src/renderer/locales/ko";
 import { IPC_COMMANDS } from "../src/shared/ipc-types";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { USER_SERVE_HOST } from "./fixture/tailscale-scenario";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -281,9 +281,9 @@ async function phoneRoundTrip(
 	await expect(confirm).toHaveAttribute("aria-checked", "false");
 }
 
-for (const language of ["en", "ko"] as const)
-	for (const theme of ["light", "dark"] as const)
-		test(`${language === "en" && theme === "light" ? "@smoke " : ""}Mobile web walks from signed out to a pairing QR, a phone pairs and talks over /ws, and off removes only its own serve (${language} ${theme})`, async () => {
+for (const language of variants(["en", "ko"] as const))
+	for (const theme of variants(["light", "dark"] as const))
+		test(`${language === "en" && theme === "light" ? "@smoke " : ""}Mobile web walks from signed out to a link and QR, a phone connects on its first visit through the serve prefix and is blocked and unblocked, and off removes only its own serve (${language} ${theme})`, async () => {
 			test.skip(process.platform === "win32", "the fake Tailscale is a shebang script run by bun");
 			test.setTimeout(180_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
