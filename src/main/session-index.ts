@@ -2,9 +2,9 @@
  * Watches session JSONL changes for sidebar invalidation. Listing/classification
  * and deletion run stock storage under omp's Bun, without a live tab.
  */
-import { open, stat } from "node:fs/promises";
+import { existsSync, type FSWatcher, watch } from "node:fs";
+import { lstat, open, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { type FSWatcher, watch } from "chokidar";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
@@ -23,9 +23,25 @@ const SEARCH_READ_BYTES = 8 * 1024 * 1024;
 const SEARCH_CACHE_BYTES = 64 * 1024 * 1024;
 /** Files read concurrently during a content search (bounds FD pressure). */
 const SEARCH_BATCH = 16;
+/**
+ * Session files sit at most three segments below the root: `<project>/<id>.jsonl` and a subagent's
+ * `<project>/<session>/<id>.jsonl`. A subagent's own subagents, one level deeper, are not listed.
+ */
+const SESSION_FILE_SEGMENTS = 3;
+/** Project and session directories, whose creation, removal or rename (stock's cwd-encoding migration) moves sessions. */
+const SESSION_DIR_SEGMENTS = 2;
+/** A path is reported once it has had no event for this long: an agent appends in bursts, and one report a burst is enough. */
+const SETTLE_MS = 300;
+/** While the sessions root does not exist yet, how often to look for it. */
+const ROOT_POLL_MS = 1000;
 
 export class SessionIndex {
 	#watcher: FSWatcher | null = null;
+	#rootPoll: NodeJS.Timeout | undefined;
+	/** Paths with an unsettled event, each with its settle timer. */
+	#settling = new Map<string, NodeJS.Timeout>();
+	/** `mtime:size` each path had when it was last reported: an event that changed neither (access time) reports nothing. */
+	#reported = new Map<string, string>();
 	#textCache = new StampedLru<{ raw: string; lower: string }>(
 		SEARCH_CACHE_BYTES,
 		text => text.raw.length + text.lower.length,
@@ -36,7 +52,11 @@ export class SessionIndex {
 	#isChat: (sessionId: string) => boolean;
 	#store: StockSessionStore;
 
-	onChange: (() => void) | null = null;
+	/**
+	 * A session file, or a project or session directory, appeared, changed or vanished: called with its path once
+	 * its writes settled. Without a path, anything may have changed.
+	 */
+	onChange: ((path?: string) => void) | null = null;
 
 	constructor(
 		sessionsDir: string | undefined,
@@ -56,34 +76,53 @@ export class SessionIndex {
 	}
 
 	/**
-	 * Starts watching. Resolves on chokidar's `ready`: until then it is still listing directories, and a file made in
-	 * one between its listing and its `fs.watch` is never reported (chokidar 4 `_handleDir` lists first, watches second).
+	 * Starts watching: one recursive OS watch of the whole tree (FSEvents on macOS, ReadDirectoryChangesW on Windows).
+	 * Never a watch per directory (chokidar's way): libuv's macOS backend keeps one FSEvents stream for all of them
+	 * and recreates it, from "now", whenever a watched directory is added or removed, so each new session's artifact
+	 * directory dropped the new and removed session files of the whole tree that the old stream had not delivered
+	 * yet. The OS starts delivering a moment after this returns; nothing reads that moment, as every reader lists
+	 * the sessions when it opens.
 	 */
-	start(): Promise<void> {
-		const ready = Promise.withResolvers<void>();
-		this.#watcher = watch(this.#sessionsDir, {
-			persistent: true,
-			ignoreInitial: false,
-			depth: 2,
-			// Only `.jsonl` events reach #invalidate. A session's artifact dir holds hundreds of other files (tool
-			// output, plans), and chokidar sets up a watcher per file it keeps: on a 2.8k-file tree that was 140 ms
-			// of main-process CPU during startup. Directories always pass, so new sessions are still seen.
-			ignored: (path, stats) => stats?.isFile() === true && !path.endsWith(".jsonl"),
-			awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+	start(): void {
+		let watcher: FSWatcher;
+		try {
+			watcher = watch(this.#sessionsDir, { recursive: true }, (_event, name) => this.#observe(name));
+		} catch (error) {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") this.#awaitRoot();
+			else console.warn(`[session-index] not watching ${this.#sessionsDir}: ${error}`);
+			return;
+		}
+		watcher.on("error", error => {
+			console.warn(`[session-index] watcher stopped: ${error.message}`);
+			watcher.close();
+			if (this.#watcher === watcher) this.#watcher = null;
 		});
+		this.#watcher = watcher;
+	}
 
-		// add/change/unlink all mean the same thing here: this one file's cached
-		// view is dead. The event carries the path, so nothing else is touched.
-		this.#watcher.on("add", path => this.#invalidate(path));
-		this.#watcher.on("change", path => this.#invalidate(path));
-		this.#watcher.on("unlink", path => this.#invalidate(path));
-		this.#watcher.once("ready", () => ready.resolve());
-		return ready.promise;
+	/**
+	 * No sessions root yet (omp has saved no session): looks for it until it is made, then watches it. A poll, not a
+	 * watch of the parent, whose own FSEvents stream could start after the root was made and never report it.
+	 */
+	#awaitRoot(): void {
+		this.#rootPoll = setInterval(() => {
+			if (!existsSync(this.#sessionsDir)) return;
+			clearInterval(this.#rootPoll);
+			this.#rootPoll = undefined;
+			this.start();
+			// What omp wrote before the watch began is only seen by a fresh list.
+			this.#notifyChange();
+		}, ROOT_POLL_MS);
 	}
 
 	stop(): void {
 		this.#watcher?.close();
 		this.#watcher = null;
+		clearInterval(this.#rootPoll);
+		this.#rootPoll = undefined;
+		for (const timer of this.#settling.values()) clearTimeout(timer);
+		this.#settling.clear();
+		this.#reported.clear();
 		this.#store.stop();
 		this.#textCache.clear();
 	}
@@ -225,15 +264,55 @@ export class SessionIndex {
 	}
 
 	/**
-	 * One session file changed, appeared, or vanished: forget exactly that file's
-	 * cached view and notify. Nothing else is stat'ed — the previous handler
-	 * re-fingerprinted every session in the tree on each event, so an agent
-	 * streaming into one file walked the whole directory repeatedly.
+	 * One raw watch event. A session file at most three segments down, or a non-hidden entry at most two down (a
+	 * project or session directory appearing, vanishing or renamed; hidden entries there are stock's lock and
+	 * staging files), is reported once it settles. Anything else (tool output, plans) is not looked at.
 	 */
-	#invalidate(path: string): void {
-		if (!path.endsWith(".jsonl")) return;
-		this.#textCache.delete(path);
-		this.#notifyChange();
+	#observe(name: string | null): void {
+		if (name === null) {
+			// The OS gave up on naming what changed (a Windows buffer overflow): anything may have.
+			this.#notifyChange();
+			return;
+		}
+		const segments = name.split(/[\\/]/);
+		const base = segments[segments.length - 1];
+		const watched = base.endsWith(".jsonl")
+			? segments.length <= SESSION_FILE_SEGMENTS
+			: segments.length <= SESSION_DIR_SEGMENTS && base !== "" && !base.startsWith(".");
+		if (!watched) return;
+		const path = join(this.#sessionsDir, name);
+		clearTimeout(this.#settling.get(path));
+		this.#settling.set(
+			path,
+			setTimeout(() => {
+				this.#settling.delete(path);
+				void this.#settle(path);
+			}, SETTLE_MS),
+		);
+	}
+
+	/**
+	 * Reports a settled path unless it still has the `mtime:size` it was last reported with; a session file's
+	 * cached text goes with it. Each event names its path, so nothing else is stat'ed: an agent streaming into one
+	 * file never walks the tree.
+	 */
+	async #settle(path: string): Promise<void> {
+		const session = path.endsWith(".jsonl");
+		let signature: string | null = null;
+		try {
+			const info = await lstat(path);
+			// Beside the session files only directories move sessions; any other file there is not one.
+			if (!session && !info.isDirectory()) return;
+			signature = `${info.mtimeMs}:${info.size}`;
+		} catch {
+			/* Gone: deleted, or renamed away with the sessions in it. */
+		}
+		if (this.#watcher === null) return;
+		if (signature === null) this.#reported.delete(path);
+		else if (this.#reported.get(path) === signature) return;
+		else this.#reported.set(path, signature);
+		if (session) this.#textCache.delete(path);
+		this.#notifyChange(path);
 	}
 
 	/** Legacy GUI-only header flag; stock session-listing deliberately does not expose it.
@@ -262,7 +341,7 @@ export class SessionIndex {
 		return false;
 	}
 
-	#notifyChange(): void {
-		this.onChange?.();
+	#notifyChange(path?: string): void {
+		this.onChange?.(path);
 	}
 }

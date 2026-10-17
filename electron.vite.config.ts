@@ -11,7 +11,7 @@ import { pwaPlugin } from "./scripts/pwa-plugin";
  * that package — in this nested checkout bun hoists most deps to the monorepo root, so the
  * traversal misses them and the app dies at launch with ERR_MODULE_NOT_FOUND.
  */
-const MAIN_BUNDLED_DEPS = ["chokidar", "electron-store", "electron-updater", "web-push", "ws", "yaml", "zod"];
+const MAIN_BUNDLED_DEPS = ["electron-store", "electron-updater", "web-push", "ws", "yaml", "zod"];
 
 /**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match

@@ -48,7 +48,6 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "chart.js": "^4.4.0",
-    "chokidar": "^4.0.0",
     "date-fns": "^4.1.0",
     "diff": "^9.0.0",
     "docx-preview": "0.4.1",

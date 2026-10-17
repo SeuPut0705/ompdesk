@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
 
@@ -157,27 +157,123 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 });
 
 describe("SessionIndex watcher", () => {
-	it("reports new session files at both depths and none of the other files beside them", async () => {
+	/** Per awaited report: a real OS watcher, run beside a full gate (tsc, the build, the whole suite) on this Mac. */
+	const REPORT_MS = 10_000;
+	/** Recorded for a report without a path: anything may have changed. */
+	const ANYTHING = "(anything)";
+
+	async function sessionsRoot(): Promise<string> {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-session-watch-"));
 		tempDirs.push(dir);
+		return dir;
+	}
+
+	/** A started index on `dir` that records every path it reports. */
+	function watchSessions(dir: string) {
+		const index = new SessionIndex(dir, dir);
+		indexes.push(index);
+		const reports: string[] = [];
+		const wakers = new Set<() => void>();
+		index.onChange = changed => {
+			reports.push(changed ?? ANYTHING);
+			for (const wake of wakers) wake();
+		};
+		index.start();
+		// Resolves on the report itself; the timer is only the deadline. No fake clock: the OS watcher runs on real time.
+		const reportedWithin = (file: string, ms: number) =>
+			new Promise<boolean>(done => {
+				const finish = (value: boolean) => {
+					clearTimeout(timer);
+					wakers.delete(check);
+					done(value);
+				};
+				const check = () => {
+					if (reports.includes(file)) finish(true);
+				};
+				const timer = setTimeout(() => finish(false), ms);
+				wakers.add(check);
+				check();
+			});
+		return {
+			reports,
+			/** The OS starts delivering a moment after start() (FSEvents on macOS): a probe is rewritten until reported. */
+			async live(): Promise<void> {
+				const probe = path.join(dir, "probe.jsonl");
+				const deadline = performance.now() + REPORT_MS;
+				do await fs.appendFile(probe, "{}\n");
+				while (!(await reportedWithin(probe, 1000)) && performance.now() < deadline);
+				expect(reports).toContain(probe);
+			},
+			/** Each file is reported within REPORT_MS (one deadline for all). */
+			async reported(...files: string[]): Promise<void> {
+				await Promise.all(files.map(file => reportedWithin(file, REPORT_MS)));
+				expect(reports).toEqual(expect.arrayContaining(files));
+			},
+		};
+	}
+
+	it("reports new session files at both depths and none of the other files beside them", {
+		timeout: 3 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = await sessionsRoot();
 		const artifacts = path.join(dir, "project-x", "session-one");
 		await fs.mkdir(artifacts, { recursive: true });
 		await fs.writeFile(path.join(artifacts, "tool-output.md"), "before\n");
-		const index = new SessionIndex(dir, dir);
-		indexes.push(index);
-		let changes = 0;
-		index.onChange = () => {
-			changes += 1;
-		};
-		// Writes start once the first scan is over: a file made while chokidar still lists its directory can be missed.
-		await index.start();
-		// A real OS watcher, so the order of the writes is the signal: a change for the plan (it should get none)
-		// would land before the subagent file's and make the first count 2.
+		const watch = watchSessions(dir);
+		await watch.live();
+		// Each other file is written before a session file beside it, so a report for it would come first.
 		await fs.writeFile(path.join(artifacts, "plan.md"), "a plan\n");
 		await fs.writeFile(path.join(artifacts, "subagent.jsonl"), "{}\n");
-		await vi.waitFor(() => expect(changes).toBe(1), { timeout: 5000 });
+		await watch.reported(path.join(artifacts, "subagent.jsonl"));
 		await fs.writeFile(path.join(artifacts, "plan.md"), "a longer plan\n");
+		await fs.appendFile(path.join(artifacts, "tool-output.md"), "after\n");
 		await fs.writeFile(path.join(dir, "project-x", "session-two.jsonl"), "{}\n");
-		await vi.waitFor(() => expect(changes).toBe(2), { timeout: 5000 });
+		await watch.reported(path.join(dir, "project-x", "session-two.jsonl"));
+		expect(watch.reports.filter(file => file.endsWith(".md"))).toEqual([]);
+	});
+
+	// chokidar watched each directory on its own; on macOS every new one recreated libuv's single FSEvents stream, and
+	// about one session file in a hundred written into a new directory under load went unreported until the next write.
+	it("reports session files written the moment their project or session directory is made", {
+		timeout: 2 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = await sessionsRoot();
+		await fs.mkdir(path.join(dir, "project-x"));
+		const watch = watchSessions(dir);
+		await watch.live();
+		const files: string[] = [];
+		for (let n = 0; n < 6; n++) {
+			const project = path.join(dir, `project-${n}`);
+			const artifacts = path.join(dir, "project-x", `session-${n}`);
+			files.push(path.join(project, `session-${n}.jsonl`), path.join(artifacts, `subagent-${n}.jsonl`));
+			await fs.mkdir(project);
+			await fs.writeFile(path.join(project, `session-${n}.jsonl`), "{}\n");
+			await fs.mkdir(artifacts);
+			await fs.writeFile(path.join(artifacts, `subagent-${n}.jsonl`), "{}\n");
+		}
+		await watch.reported(...files);
+	});
+
+	it("reports a project directory renamed with its sessions in it", { timeout: 2 * REPORT_MS + 5000 }, async () => {
+		const dir = await sessionsRoot();
+		await fs.mkdir(path.join(dir, "project-old"));
+		await fs.writeFile(path.join(dir, "project-old", "session.jsonl"), "{}\n");
+		const watch = watchSessions(dir);
+		await watch.live();
+		// Stock's cwd-encoding migration moves a whole project directory: no session file event of its own.
+		await fs.rename(path.join(dir, "project-old"), path.join(dir, "project-new"));
+		await watch.reported(path.join(dir, "project-new"));
+	});
+
+	it("starts reporting once a missing sessions root is made", { timeout: 3 * REPORT_MS + 5000 }, async () => {
+		const dir = path.join(await sessionsRoot(), "sessions");
+		const watch = watchSessions(dir);
+		// omp makes the root, a project and its first session together: a fresh list has to find that one.
+		await fs.mkdir(path.join(dir, "project-x"), { recursive: true });
+		await fs.writeFile(path.join(dir, "project-x", "first.jsonl"), "{}\n");
+		await watch.reported(ANYTHING);
+		await watch.live();
+		await fs.writeFile(path.join(dir, "project-x", "second.jsonl"), "{}\n");
+		await watch.reported(path.join(dir, "project-x", "second.jsonl"));
 	});
 });
