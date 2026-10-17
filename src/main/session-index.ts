@@ -55,7 +55,12 @@ export class SessionIndex {
 		return this.#sessionsDir;
 	}
 
-	start(): void {
+	/**
+	 * Starts watching. Resolves on chokidar's `ready`: until then it is still listing directories, and a file made in
+	 * one between its listing and its `fs.watch` is never reported (chokidar 4 `_handleDir` lists first, watches second).
+	 */
+	start(): Promise<void> {
+		const ready = Promise.withResolvers<void>();
 		this.#watcher = watch(this.#sessionsDir, {
 			persistent: true,
 			ignoreInitial: false,
@@ -72,6 +77,8 @@ export class SessionIndex {
 		this.#watcher.on("add", path => this.#invalidate(path));
 		this.#watcher.on("change", path => this.#invalidate(path));
 		this.#watcher.on("unlink", path => this.#invalidate(path));
+		this.#watcher.once("ready", () => ready.resolve());
+		return ready.promise;
 	}
 
 	stop(): void {

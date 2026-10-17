@@ -169,7 +169,8 @@ describe("SessionIndex watcher", () => {
 		index.onChange = () => {
 			changes += 1;
 		};
-		index.start();
+		// Writes start once the first scan is over: a file made while chokidar still lists its directory can be missed.
+		await index.start();
 		// A real OS watcher, so the order of the writes is the signal: a change for the plan (it should get none)
 		// would land before the subagent file's and make the first count 2.
 		await fs.writeFile(path.join(artifacts, "plan.md"), "a plan\n");

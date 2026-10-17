@@ -1211,7 +1211,7 @@ app.whenReady().then(() => {
 		}
 		spawnWindow();
 	});
-	sessionIndex.start();
+	void sessionIndex.start();
 	logWatcher.start();
 	// Read before the first window restores: every tab change rewrites the store,
 	// so a later read would only see the just-restored primary window.
