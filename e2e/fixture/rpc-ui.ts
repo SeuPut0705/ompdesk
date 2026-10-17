@@ -4506,59 +4506,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// One roster subagent finishes: its terminal lifecycle frame, then the roster agrees.
-				if (line.startsWith("fixture:subagents:finish:")) {
-					const id = line.slice("fixture:subagents:finish:".length);
-					const agent = subagentRoster.find(entry => entry.id === id);
-					if (!agent) {
-						fail(`Fixture has no subagent ${id}`);
-						break;
-					}
-					agent.status = "completed";
-					agent.live = false;
-					agent.lastUpdate = Date.now();
-					writeLifecycle(agent, "completed");
-					ok();
-					break;
-				}
-				// A user `!` bash that runs until stock's `abort_bash` stops it.
-				if (line === "fixture:hold-bash") {
-					heldBash = ok;
-					break;
-				}
-				// Extension UI an rpc-ui host gets at once: status texts, a widget
-				// under the editor, a window title, an error notice, an editor in
-				// prompt style and two confirms queued behind it (the last one timed).
-				if (line === "fixture:ext-ui") {
-					const ui = (request: Record<string, unknown>) =>
-						write({ type: "extension_ui_request", id: `ext-${Date.now()}-${Math.random()}`, ...request });
-					ui({ method: "setStatus", statusKey: "b-tests", statusText: "\x1b[32m✓\x1b[39m 128 tests" });
-					ui({ method: "setStatus", statusKey: "a-index", statusText: "Indexer ready" });
-					ui({
-						method: "setWidget",
-						widgetKey: "review",
-						widgetLines: ["2 files changed since the last review"],
-						widgetPlacement: "belowEditor",
-					});
-					ui({ method: "setTitle", title: "Fixture extension title" });
-					ui({ method: "notify", message: "Fixture index failed to refresh", notifyType: "error" });
-					write({
-						type: "extension_ui_request",
-						id: "ext-editor",
-						method: "editor",
-						title: "Goal objective",
-						promptStyle: true,
-					});
-					write({
-						type: "extension_ui_request",
-						id: "ext-confirm-1",
-						method: "confirm",
-						title: "Deploy to staging?",
-						message: "The agent wants to run the staging deploy script.",
-					});
-					write({
-						type: "extension_ui_request",
-						id: "ext-confirm-2",
 				// A full subagent transcript for the side panel's Subagent view (e2e/subagent-view.e2e.ts): thinking,
 				// read/bash/edit calls, a long markdown reply with code and a wide table, and a bash still running.
 				if (line === "fixture:subagents:transcript" || line === "fixture:subagents:append") {
@@ -4727,6 +4674,59 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
+				// One roster subagent finishes: its terminal lifecycle frame, then the roster agrees.
+				if (line.startsWith("fixture:subagents:finish:")) {
+					const id = line.slice("fixture:subagents:finish:".length);
+					const agent = subagentRoster.find(entry => entry.id === id);
+					if (!agent) {
+						fail(`Fixture has no subagent ${id}`);
+						break;
+					}
+					agent.status = "completed";
+					agent.live = false;
+					agent.lastUpdate = Date.now();
+					writeLifecycle(agent, "completed");
+					ok();
+					break;
+				}
+				// A user `!` bash that runs until stock's `abort_bash` stops it.
+				if (line === "fixture:hold-bash") {
+					heldBash = ok;
+					break;
+				}
+				// Extension UI an rpc-ui host gets at once: status texts, a widget
+				// under the editor, a window title, an error notice, an editor in
+				// prompt style and two confirms queued behind it (the last one timed).
+				if (line === "fixture:ext-ui") {
+					const ui = (request: Record<string, unknown>) =>
+						write({ type: "extension_ui_request", id: `ext-${Date.now()}-${Math.random()}`, ...request });
+					ui({ method: "setStatus", statusKey: "b-tests", statusText: "\x1b[32m✓\x1b[39m 128 tests" });
+					ui({ method: "setStatus", statusKey: "a-index", statusText: "Indexer ready" });
+					ui({
+						method: "setWidget",
+						widgetKey: "review",
+						widgetLines: ["2 files changed since the last review"],
+						widgetPlacement: "belowEditor",
+					});
+					ui({ method: "setTitle", title: "Fixture extension title" });
+					ui({ method: "notify", message: "Fixture index failed to refresh", notifyType: "error" });
+					write({
+						type: "extension_ui_request",
+						id: "ext-editor",
+						method: "editor",
+						title: "Goal objective",
+						promptStyle: true,
+					});
+					write({
+						type: "extension_ui_request",
+						id: "ext-confirm-1",
+						method: "confirm",
+						title: "Deploy to staging?",
+						message: "The agent wants to run the staging deploy script.",
+					});
+					write({
+						type: "extension_ui_request",
+						id: "ext-confirm-2",
 						method: "confirm",
 						title: "Notify the team?",
 						message: "",
