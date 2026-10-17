@@ -574,9 +574,10 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	background-color: var(--sc-sidebar-row-selected);
 }
 
-/* While a split shows several sessions every one of them is selected; the pane that has focus adds a quiet edge. */
+/* While a split shows several sessions every one of them is selected; the pane that has focus adds a quiet edge
+   on the right (the left edge belongs to the row's state bar, sidebar.css `data-signal`). */
 .omp-sidebar-session-row[data-pane-focus="true"] {
-	box-shadow: inset 2px 0 0 var(--sc-border-strong);
+	box-shadow: inset -2px 0 0 var(--sc-border-strong);
 }
 
 /* A sidebar row whose session is being switched to (the transcript still shows the outgoing one). */

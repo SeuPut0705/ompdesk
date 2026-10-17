@@ -17,4 +17,25 @@ describe("ListRow", () => {
 		// A selected row shows its actions at rest, so the room is always there.
 		expect(markup({ actionCount: 3, selected: true })).toMatch(/class="[^"]*\bpr-24\b/);
 	});
+
+	it("quiet actions overlay a fade: nothing reserved, nothing shown at rest even when selected", () => {
+		const quiet = renderToStaticMarkup(
+			<ListRow
+				actionCount={3}
+				actions={<button type="button">act</button>}
+				actionsOnHover
+				meta="2m"
+				onClick={() => {}}
+				selected
+				title="Session"
+			/>,
+		);
+		expect(quiet).not.toMatch(/class="[^"]*\b(group-[a-z-]+\/row:)?pr-24\b/);
+		expect(quiet).toContain("pointer-events-none");
+		expect(quiet).not.toMatch(/absolute inset-y-0[^"]* opacity-100[ "]/);
+		expect(quiet).toContain("group-focus-within/row:pointer-events-auto");
+		expect(quiet).toContain("--row-room:6rem");
+		// The meta steps aside while they show, keeping its box (no shift).
+		expect(quiet).toContain("group-hover/row:invisible");
+	});
 });

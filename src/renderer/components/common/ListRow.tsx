@@ -30,6 +30,11 @@ export interface ListRowProps {
 	actions?: ReactNode;
 	/** How many actions show at most, so the title keeps clear of them (room for two when omitted). */
 	actionCount?: number;
+	/**
+	 * Actions show only on hover or focus-within, selected or not, and overlay the row's end on a fade (the
+	 * title keeps its full width at rest and never shifts). Meta stays until they appear.
+	 */
+	actionsOnHover?: boolean;
 	/** Always-visible control at the right edge (e.g. a disclosure); actions show to its left. */
 	trailing?: ReactNode;
 	selected?: boolean;
@@ -53,11 +58,18 @@ export interface ListRowProps {
  * the 6px edge offset. Static strings, so Tailwind finds them.
  */
 const ACTION_ROOM = [
-	{ reveal: "group-focus-within/row:pr-9 group-hover/row:pr-9", always: "pr-9" },
-	{ reveal: "group-focus-within/row:pr-14 group-hover/row:pr-14", always: "pr-14" },
-	{ reveal: "group-focus-within/row:pr-24 group-hover/row:pr-24", always: "pr-24" },
-	{ reveal: "group-focus-within/row:pr-32 group-hover/row:pr-32", always: "pr-32" },
+	{ reveal: "group-focus-within/row:pr-9 group-hover/row:pr-9", always: "pr-9", var: "[--row-room:2.25rem]" },
+	{ reveal: "group-focus-within/row:pr-14 group-hover/row:pr-14", always: "pr-14", var: "[--row-room:3.5rem]" },
+	{ reveal: "group-focus-within/row:pr-24 group-hover/row:pr-24", always: "pr-24", var: "[--row-room:6rem]" },
+	{ reveal: "group-focus-within/row:pr-32 group-hover/row:pr-32", always: "pr-32", var: "[--row-room:8rem]" },
 ] as const;
+
+/**
+ * Quiet actions: the title end fades out under the overlay instead of making room, so nothing shifts.
+ * The fade starts where the overlay's reach (`--row-room`, less the meta that hides under it) begins.
+ */
+const QUIET_FADE =
+	"group-hover/row:mask-[linear-gradient(to_right,#000_calc(100%-max(var(--row-room)-2.5rem,0.5rem)-1rem),transparent_calc(100%-max(var(--row-room)-2.5rem,0.5rem)))] group-focus-within/row:mask-[linear-gradient(to_right,#000_calc(100%-max(var(--row-room)-2.5rem,0.5rem)-1rem),transparent_calc(100%-max(var(--row-room)-2.5rem,0.5rem)))]";
 
 export function ListRow({
 	title,
@@ -66,6 +78,7 @@ export function ListRow({
 	meta,
 	actions,
 	actionCount,
+	actionsOnHover,
 	trailing,
 	selected,
 	disabled,
@@ -82,8 +95,10 @@ export function ListRow({
 		<span
 			className={cx(
 				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100",
+				actionsOnHover &&
+					"pointer-events-none group-focus-within/row:pointer-events-auto group-hover/row:pointer-events-auto",
 				trailing ? "right-full pr-0.5" : "right-1.5",
-				selected && "opacity-100",
+				selected && !actionsOnHover && "opacity-100",
 			)}
 		>
 			{actions}
@@ -109,8 +124,9 @@ export function ListRow({
 				className={cx(
 					"min-w-0 flex-1",
 					// Actions overlay the right edge; make room only while they show.
-					actions != null && room.reveal,
-					actions != null && selected && room.always,
+					actions != null && !actionsOnHover && room.reveal,
+					actions != null && !actionsOnHover && selected && room.always,
+					actions != null && actionsOnHover && cx(room.var, QUIET_FADE),
 				)}
 			>
 				{onClick ? (
@@ -137,7 +153,12 @@ export function ListRow({
 					className={cx(
 						"shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)",
 						actions
-							? cx("group-focus-within/row:hidden group-hover/row:hidden", selected && "hidden")
+							? cx(
+									actionsOnHover
+										? "group-focus-within/row:invisible group-hover/row:invisible"
+										: "group-focus-within/row:hidden group-hover/row:hidden",
+									selected && !actionsOnHover && "hidden",
+								)
 							: undefined,
 					)}
 				>

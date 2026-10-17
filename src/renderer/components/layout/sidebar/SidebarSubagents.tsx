@@ -18,7 +18,7 @@
  * the menu key) offers Stop.
  */
 
-import { Bot, ChevronRight, Pause } from "lucide-react";
+import { Bot, Pause } from "lucide-react";
 import {
 	memo,
 	type DragEvent as ReactDragEvent,
@@ -46,7 +46,7 @@ import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../store
 import { useSubagentGraphStore } from "../../../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { useUiStore } from "../../../stores/ui";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, ListRow, Spinner } from "../../common";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, ListRow } from "../../common";
 import { SubagentTranscriptSheet } from "../../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../../panels/subagent-actions";
 import {
@@ -110,16 +110,12 @@ function buildSidebarSubagentRows(
 	return rows;
 }
 
-/** Live but waiting rather than working: paused glyph instead of a spinner. */
+/** Live but waiting rather than working: paused glyph; a working agent shows the row's edge light instead of a spinner. */
 const WAITING_STATUSES: Record<string, true> = { parked: true, idle: true };
 
 function StatusGlyph({ status }: { status: string }) {
 	if (WAITING_STATUSES[status]) return <Pause aria-hidden className="text-(--sc-text-subtle)" />;
-	return (
-		<span aria-hidden className="inline-flex size-(--sc-icon-md) items-center justify-center">
-			<Spinner size="sm" />
-		</span>
-	);
+	return <Bot aria-hidden className="text-(--sc-text-subtle)" />;
 }
 
 /** Live subagents in a roster. */
@@ -254,6 +250,7 @@ const SubagentRow = memo(function SubagentRow({
 					},
 					"data-active": selected,
 					"data-sidebar-subagent": agent.id,
+					"data-signal": WAITING_STATUSES[agent.status] ? undefined : "running",
 					"data-status": agent.status,
 				}}
 				selected={selected}
@@ -296,7 +293,7 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 			<button
 				aria-expanded={expanded}
 				aria-label={label}
-				className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
+				className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) aria-expanded:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
 				data-sidebar-subagents-toggle={sessionKey}
 				onClick={() => toggleSidebarSubagents(sessionKey)}
 				onContextMenu={event => {
@@ -308,16 +305,10 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 				title={label}
 				type="button"
 			>
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"size-(--sc-icon-sm) motion-safe:transition-transform duration-(--sc-duration-fast)",
-						expanded && "rotate-90",
-					)}
-				/>
 				{/* A folded group still says its agents are at work. The pulse sits on an
 				    HTML wrapper: Chromium runs no SVG element's animation on the
-				    compositor, so on the icon it restyled and repainted every frame. */}
+				    compositor, so on the icon it restyled and repainted every frame.
+				    Compact chip: icon + count; the open state is the button's wash. */}
 				<span
 					className={cx("inline-flex", working && !expanded && "omp-pulse-dot")}
 					data-working={(working && !expanded) || undefined}

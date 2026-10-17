@@ -33,8 +33,77 @@
 	right: calc(var(--sc-control-sm) + var(--sc-space-1));
 }
 
+/* The ⋯ overlays the project's end on a fade: the title never changes width when it appears. */
 .omp-session-sidebar [data-workspace-group]:is(:hover, :focus-within) > button {
-	padding-right: var(--sc-space-8);
+	mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent calc(100% - 1.25rem));
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html .omp-sidebar-session-row[data-signal="running"]::after {
+		display: none;
+	}
+
+	html .omp-sidebar-session-row[data-signal="running"]::before {
+		opacity: 1;
+	}
+}
+
+/* A session's state lives on its left edge (a `data-signal` on the row; never colour alone: the row's text and
+   tooltip carry the word). Inside the row's rounded shape: 2px wide, clear of the corners.
+   running = accent with one slow light travelling down it (a transform on one layer, nothing repaints),
+   waiting = warning and error = danger, both still. */
+.omp-sidebar-session-row[data-signal]::before,
+.omp-sidebar-session-row[data-signal="running"]::after {
+	content: "";
+	position: absolute;
+	inset-block: var(--sc-space-1-5);
+	inset-inline-start: var(--sc-space-0-5);
+	width: 2px;
+	border-radius: var(--sc-radius-full);
+	pointer-events: none;
+}
+
+.omp-sidebar-session-row[data-signal="running"]::before {
+	background: var(--sc-accent);
+	opacity: 0.45;
+}
+
+.omp-sidebar-session-row[data-signal="waiting"]::before {
+	background: var(--sc-warning);
+}
+
+.omp-sidebar-session-row[data-signal="error"]::before {
+	background: var(--sc-danger);
+}
+
+.omp-sidebar-session-row[data-signal="running"]::after {
+	background: linear-gradient(to bottom, transparent 30%, var(--sc-accent) 50%, transparent 70%);
+	animation: omp-sidebar-edge-light 3.6s ease-in-out infinite; /* motion-ok: working signal */
+	will-change: transform;
+}
+
+@keyframes omp-sidebar-edge-light {
+	from {
+		transform: translateY(-100%);
+	}
+	to {
+		transform: translateY(100%);
+	}
+}
+
+/* Hidden window: the light rests. Reduced motion and software compositing: a still bar, no light layer. */
+.omp-session-sidebar[data-paused] .omp-sidebar-session-row[data-signal="running"]::after {
+	animation-play-state: paused;
+}
+
+html[data-gpu="software"] .omp-sidebar-session-row[data-signal="running"]::after {
+	animation: none;
+	will-change: auto;
+	display: none;
+}
+
+html[data-gpu="software"] .omp-sidebar-session-row[data-signal="running"]::before {
+	opacity: 1;
 }
 
 .omp-session-sidebar .omp-sidebar-session-row:active,

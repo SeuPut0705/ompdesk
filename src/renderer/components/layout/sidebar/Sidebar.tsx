@@ -49,7 +49,6 @@ import {
 	SquareTerminal,
 	Trash2,
 	X,
-	XCircle,
 } from "lucide-react";
 import {
 	Fragment,
@@ -61,6 +60,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import type { SessionInfo } from "../../../../shared/ipc-types";
 import { type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
@@ -407,6 +407,11 @@ function focusRovingItem(item: HTMLElement) {
 	(item.closest(".omp-sidebar-session-row") ?? item).scrollIntoView?.({ block: "nearest" });
 }
 
+function subscribeVisibility(listener: () => void): () => void {
+	document.addEventListener("visibilitychange", listener);
+	return () => document.removeEventListener("visibilitychange", listener);
+}
+
 /**
  * Sessions-first sidebar (design-spec §2.1) and the app's only session
  * navigator: Code/Work lanes, New session, a filter, sessions grouped by
@@ -468,6 +473,12 @@ export function Sidebar() {
 	// Under touch there is no hover to reveal a row's actions, so the open row would always show its rename,
 	// archive and delete buttons and the title would lose their width: one ⋯ opens the row's action sheet instead.
 	const touchInput = useShellInput() === "touch";
+	// Hidden window: the running rows' edge light rests (sidebar.css `[data-paused]`).
+	const windowVisible = useSyncExternalStore(
+		subscribeVisibility,
+		() => document.visibilityState !== "hidden",
+		() => true,
+	);
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
@@ -1203,35 +1214,38 @@ export function Sidebar() {
 				</div>
 			);
 		}
-		const leading: ReactNode = waiting ? (
-			<AlertTriangle aria-hidden className="text-(--sc-warning)" />
-		) : running ? (
-			<span aria-hidden className="inline-flex">
-				<Spinner size="sm" />
-			</span>
-		) : failed ? (
-			<XCircle aria-hidden className="text-(--sc-danger)" />
-		) : session.kind === "chat" && !done ? (
-			<MessageCircle aria-hidden data-sidebar-session-icon />
-		) : pinned && !done ? (
-			<Pin aria-label={t("sidebar.pinned")} />
-		) : forkLabel && !done ? (
-			<GitBranch aria-hidden data-sidebar-fork />
-		) : (
-			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center" data-sidebar-session-icon>
-				{done ? (
-					<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-success)" data-sidebar-done />
-				) : (
-					openElsewhere && (
-						<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" data-sidebar-open-tab />
-					)
-				)}
-			</span>
-		);
+		// The state is drawn on the row's left edge (sidebar.css `data-signal`), not as a leading glyph.
+		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
+		const leading: ReactNode =
+			session.kind === "chat" && !done ? (
+				<MessageCircle aria-hidden data-sidebar-session-icon />
+			) : pinned && !done ? (
+				<Pin aria-label={t("sidebar.pinned")} />
+			) : forkLabel && !done ? (
+				<GitBranch aria-hidden data-sidebar-fork />
+			) : (
+				<span
+					aria-hidden
+					className="flex size-(--sc-icon-md) items-center justify-center"
+					data-sidebar-session-icon
+				>
+					{done ? (
+						<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-success)" data-sidebar-done />
+					) : (
+						openElsewhere && (
+							<span
+								className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)"
+								data-sidebar-open-tab
+							/>
+						)
+					)}
+				</span>
+			);
 		const openTabId = tab?.id;
 		return (
 			<Fragment key={session.path}>
 				<ListRow
+					actionsOnHover={!touchInput}
 					actionCount={
 						touchInput ? 1 : [true, archivable, variant === "archived", deletable].filter(Boolean).length
 					}
@@ -1354,6 +1368,7 @@ export function Sidebar() {
 						"data-live": indexed ? undefined : true,
 						"data-switch-pending": switchPendingTo === session.id || undefined,
 						"data-session-kind": session.kind ?? "agent",
+						"data-signal": signal,
 						"data-session-path": session.path,
 					}}
 					selected={active}
@@ -1364,7 +1379,7 @@ export function Sidebar() {
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
 					}
-					titleText={forkLabel ? `${title}\n${forkLabel}` : title}
+					titleText={[title, forkLabel, statusLabel].filter(Boolean).join("\n")}
 					trailing={openTabId ? <SidebarSubagentsToggle sessionKey={session.path} tabId={openTabId} /> : undefined}
 				/>
 				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}
@@ -1469,7 +1484,13 @@ export function Sidebar() {
 										/>
 									)}
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
-									{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
+									{pinned && (
+										<Pin
+											aria-label={t("sidebar.pinned")}
+											className="size-3 shrink-0 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:opacity-100 group-hover/head:opacity-100"
+											data-sidebar-group-pin
+										/>
+									)}
 									{groupBusy && (
 										<span className="flex shrink-0 items-center">
 											<span aria-hidden className="inline-flex">
@@ -1525,6 +1546,7 @@ export function Sidebar() {
 			<aside
 				aria-label={t("sidebar.label")}
 				className="omp-session-sidebar relative flex h-full min-h-0 shrink-0 flex-col border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
+				data-paused={windowVisible ? undefined : ""}
 				style={{ width: sidebarWidth }}
 			>
 				{/* Traffic-light safe (global.css): on macOS the brand yields its

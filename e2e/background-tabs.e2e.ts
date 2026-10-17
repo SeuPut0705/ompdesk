@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, recordsOfType } from "./harness";
+import { capture, exitApp, launchApp, recordsOfType } from "./harness";
 
 // What a tab does while another one is in front (v0.8.0): its blocking dialogs,
 // plan proposals, run-end notifications, next-prompt suggestion and subagent
@@ -263,6 +263,37 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 		"data-subagent-depth",
 		"1",
 	);
+
+	// The run shows on the row's left edge, not as a spinner, and the title keeps the whole row: no padding is
+	// reserved for actions at rest or on hover, so the title grows past the room the old layout kept (3.5rem+).
+	const ownerRow = sidebarRow(owner);
+	const titleBox = ownerRow.locator("button[data-roving-item]").locator("xpath=..");
+	await expect(ownerRow).toHaveAttribute("data-signal", "running");
+	await expect(ownerRow).toContainText("Running");
+	await expect(ownerRow.locator(".omp-spinner, [role='status']")).toHaveCount(0);
+	await expect(titleBox).toHaveCSS("padding-right", "0px");
+	const restWidth = (await titleBox.boundingBox())?.width ?? 0;
+	const rowWidth = (await ownerRow.boundingBox())?.width ?? 0;
+	expect(restWidth).toBeGreaterThan(rowWidth * 0.4);
+	await ownerRow.hover();
+	await expect(titleBox).toHaveCSS("padding-right", "0px");
+	expect((await titleBox.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(restWidth - 0.5);
+	await page.mouse.move(0, 0);
+	for (const scheme of ["light", "dark"] as const) {
+		await page.emulateMedia({ colorScheme: scheme });
+		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+		await capture(page, `sidebar-running-${scheme}`);
+	}
+	await fixtureCommand(owner, "fixture:confirm");
+	await expect(ownerRow).toHaveAttribute("data-signal", "waiting");
+	for (const scheme of ["light", "dark"] as const) {
+		await page.emulateMedia({ colorScheme: scheme });
+		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+		await capture(page, `sidebar-waiting-${scheme}`);
+	}
+	await page.emulateMedia({ colorScheme: "light" });
+	await fixtureCommand(owner, "fixture:confirm:cancel");
+	await expect(ownerRow).toHaveAttribute("data-signal", "running");
 
 	// A finished agent leaves the list and the count right away, though the main turn keeps running.
 	const nested = page.locator('[data-sidebar-subagent="sa-nested"]');

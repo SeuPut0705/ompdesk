@@ -685,15 +685,17 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
 		expect(activeRow().textContent).not.toContain("Running");
+		expect(activeRow().getAttribute("data-signal")).toBeNull();
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
 		});
 		expect(activeRow().textContent).toContain("Running");
+		expect(activeRow().getAttribute("data-signal")).toBe("running");
 		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
-	it("spins for a saved session running in a background tab that main reports by path only", async () => {
+	it("marks a saved session running in a background tab that main reports by path only", async () => {
 		// Main learns a tab's file from get_state (sessionPath); stock omp rarely
 		// sends the session id, so a background tab often carries no sessionId.
 		installMockOmp(LIST);
@@ -717,6 +719,48 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/beta/three");
 		expect(row.textContent).toContain("Running");
 		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
+		// The state is the row's edge bar, not a spinner; the word stays for screen readers.
+		expect(row.getAttribute("data-signal")).toBe("running");
+		expect(row.querySelector('[role="status"], .omp-spinner')).toBeNull();
+		expect(row.querySelector("button")?.getAttribute("title")).toContain("Running");
+	});
+
+	it("draws a waiting ask and an error on the row's edge and names them for screen readers", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/beta",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/beta/three.jsonl",
+					awaitingInput: "input",
+					unreadDone: false,
+				},
+				{
+					id: "t2",
+					cwd: "/work/alpha",
+					status: "error",
+					kind: "agent",
+					sessionPath: "/work/alpha/one.jsonl",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+		});
+		await mount(<Sidebar />);
+
+		const waiting = rowFor("Session /work/beta/three");
+		expect(waiting.getAttribute("data-signal")).toBe("waiting");
+		expect(waiting.textContent).toContain("Needs input");
+		const failed = rowFor("Session /work/alpha/one");
+		expect(failed.getAttribute("data-signal")).toBe("error");
+		expect(failed.textContent).toContain("Failed");
+		// Idle rows carry no edge state.
+		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
 	});
 
 	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
@@ -1156,7 +1200,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(twoIndex).toBeLessThan(oneIndex);
 	});
 
-	it("session titles truncate in place and row actions are revealed, not laid out", async () => {
+	it("session titles truncate in place and row actions appear only on hover or focus within, overlaying the end", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -1166,10 +1210,35 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(title?.className).toContain("truncate");
 		const rename = row.querySelector('[aria-label="Rename session"]');
 		expect(rename).not.toBeNull();
-		// Hover/focus reveal by opacity, never display:none, so keyboard users keep them.
-		const actionsClass = (rename?.parentNode as unknown as Element | null)?.className ?? "";
-		expect(actionsClass).toContain("opacity-0");
-		expect(actionsClass).toContain("group-focus-within/row:opacity-100");
+		// Hidden at rest and out of the pointer's way, but never display:none, so keyboard users keep them.
+		const actions = (rename?.parentNode as unknown as Element | null)?.className.split(/\s+/) ?? [];
+		expect(actions).toContain("opacity-0");
+		expect(actions).toContain("pointer-events-none");
+		expect(actions).toContain("group-hover/row:opacity-100");
+		expect(actions).toContain("group-focus-within/row:opacity-100");
+		expect(actions).not.toContain("hidden");
+		// The title keeps its full width at rest and while they show: no padding is reserved for them.
+		const titleBox = (title?.parentNode as unknown as Element | null)?.className ?? "";
+		expect(titleBox).not.toMatch(/(^|\s)(group-[a-z-]+\/row:)?pr-\d+/);
+
+		// The current row does not keep them either.
+		const active = container.querySelector('[data-active="true"]') as unknown as Element | null;
+		const activeActions = active?.querySelector('[aria-label="Rename session"]')
+			?.parentNode as unknown as Element | null;
+		if (activeActions) expect(activeActions.className.split(/\s+/)).not.toContain("opacity-100");
+	});
+
+	it("a project's pin marker shows only on hover or focus within", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ pinnedGroups: ["/work/alpha"], hydrated: true });
+		await mount(<Sidebar />);
+
+		const pin = container.querySelector("[data-sidebar-group-pin]") as unknown as Element | null;
+		const classes = pin?.getAttribute("class")?.split(/\s+/) ?? [];
+		expect(classes).toContain("opacity-0");
+		expect(classes).toContain("group-hover/head:opacity-100");
+		expect(classes).toContain("group-focus-within/head:opacity-100");
 	});
 
 	it("asks before removing a session transcript, and only deletes once confirmed", async () => {

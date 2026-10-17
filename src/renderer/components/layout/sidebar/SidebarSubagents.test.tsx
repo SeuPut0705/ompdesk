@@ -223,8 +223,10 @@ describe("SidebarSubagents", () => {
 		expect(group.querySelector('[data-sidebar-subagents-connector="0"]')).not.toBeNull();
 		expect(row("c1").parentElement?.querySelector('[data-sidebar-subagents-connector="1"]')).not.toBeNull();
 		expect(row("r1").parentElement?.querySelector("[data-sidebar-subagents-connector]")).toBeNull();
-		// Status signal: spinner while working, pause while parked.
-		expect(row("r1").querySelector(".animate-spin")).not.toBeNull();
+		// Status signal: the working row's edge light (no spinner), a pause glyph while parked.
+		expect(row("r1").getAttribute("data-signal")).toBe("running");
+		expect(row("r1").querySelector(".animate-spin")).toBeNull();
+		expect(row("r2").getAttribute("data-signal")).toBeNull();
 		expect(row("r2").querySelector(".lucide-pause")).not.toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(row("r1").querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
