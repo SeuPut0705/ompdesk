@@ -81,12 +81,12 @@ test("shows each account's reset passes and spends one after confirming", async 
 	// The account's quota and passes come back refreshed: 5h free again, one pass left, nothing to spend it on.
 	await expect(home).toContainText("1 reset pass · expires");
 	await expect(home.getByRole("button", { name: "Use a reset pass for home@example.com" })).toBeDisabled();
-	// The row's gauges show both windows (the 5-hour one free again, the weekly one at 64 % used); the full names
-	// and resets are in the quota's tooltip.
+	// The row's gauges show both windows (the 5-hour one free again, the weekly one at 64 % used); the quota's tooltip
+	// lists every window the compact way the gauges name it.
 	const homeRow = settings.locator('[data-provider-account="2"]');
 	await expect(homeRow.locator('[data-window="5h"] .omp-usage-gauge-text')).toHaveText("5H0%");
 	await expect(homeRow.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText("7D64%");
-	await expect(homeRow.locator("[data-quota-updated]")).toHaveAttribute("title", /5-hour limit · 0%/);
+	await expect(homeRow.locator("[data-quota-updated]")).toHaveAttribute("title", /^5H 0%\n7D 64%/);
 	const redeems = await recordsOfType(record, "reset_pass_redeem");
 	expect(redeems).toHaveLength(1);
 	expect(redeems[0]).toMatchObject({ providerId: "anthropic", credentialId: 2, creditId: "grant-home-1" });
