@@ -4370,6 +4370,9 @@ export const en: Record<string, string> = {
 	"panel.subagent.gone": "This subagent is no longer listed",
 	"panel.subagent.goneHint": "Its session was closed or omp dropped it. Open another one from the sidebar.",
 	"panel.subagent.drop": "Drop to open {name} in the side panel",
+	"panel.subagent.openFull": "Open full transcript",
+	"panel.subagent.copy": "Copy transcript",
+	"panel.subagent.copyTask": "Task",
 	"panel.preview.external": "Open in browser",
 	"panel.preview.back": "Back",
 	"panel.preview.forward": "Forward",
@@ -4568,9 +4571,6 @@ export const en: Record<string, string> = {
 	"workBoard.review.discardTitle": "Close this session and remove its worktree and branch",
 	"workBoard.review.merged": "Merged the work of “{title}”",
 	"workBoard.review.conflictTitle": "Merge conflict",
-	"panel.subagent.openFull": "Open full transcript",
-	"panel.subagent.copy": "Copy transcript",
-	"panel.subagent.copyTask": "Task",
 	"workBoard.review.failed": "Couldn't update the review",
 	"workBoard.approve": "Allow {tool}?",
 	"workBoard.question": "A question needs your answer",
@@ -4982,7 +4982,7 @@ export const en: Record<string, string> = {
 	"updates.authRequired": "Token needed",
 	"updates.auth.label": "GitHub token (optional)",
 	"updates.auth.description":
-		"OMPdesk ships from the private SeuPut0705/ompdesk repository, so updates use your own GitHub login: GH_TOKEN, the GitHub CLI (`gh auth login`), or a token saved here, encrypted on this device.",
+		"Updates come from the public SeuPut0705/ompdesk releases and need no sign-in. A GitHub token is optional: it raises GitHub's hourly request limit and keeps updates working if the repository is ever private again. OMPdesk uses GH_TOKEN, the GitHub CLI login (`gh auth login`), or a token saved here, encrypted on this device.",
 	"updates.auth.source.env": "Using GH_TOKEN from your environment",
 	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
 	"updates.auth.source.stored": "Using the saved token",
@@ -5015,7 +5015,7 @@ export const en: Record<string, string> = {
 	"updates.host.manualHint":
 		"The update is downloaded on the host. Its installer has to be opened by someone at that computer.",
 	"updates.host.authRequired":
-		"The host computer needs its own GitHub access for updates (Settings › Updates & about there).",
+		"GitHub is asking the host computer for a token to update (Settings › Updates & about there).",
 	"updates.host.readFailed": "Couldn't read OMPdesk on the host computer.",
 	"updates.host.actionFailed": "The host computer couldn't do that",
 
@@ -6326,7 +6326,6 @@ export const en: Record<string, string> = {
 		"Restart OMPdesk on your computer to install the update? Running turns are interrupted and resume afterwards.",
 	"web.quit.confirm": "Quit OMPdesk on your computer? It can't be started again from this device.",
 	"web.notify.open": "Open",
-	"hostUi.link.opened": "Opened on this device.",
 	"web.update.available": "Update available",
 	"web.update.reload": "Reload",
 	"web.push.title": "Notifications on this device",
@@ -6340,11 +6339,13 @@ export const en: Record<string, string> = {
 	"web.push.category.completion": "Finished",
 	"web.push.category.error": "Failed",
 	"web.push.category.ask": "Needs an answer",
-	"web.push.denied": "Notifications are blocked for this site. Allow them in the browser's or the system's settings, then reload.",
+	"web.push.denied":
+		"Notifications are blocked for this site. Allow them in the browser's or the system's settings, then reload.",
 	"web.push.unsupported": "This browser can't receive notifications.",
 	"web.push.insecure": "Notifications need a secure (HTTPS) page.",
 	"web.push.hostOff": "Your computer doesn't send notifications.",
-	"web.push.needsInstall": "iPhone and iPad deliver notifications only to an app on the Home Screen. Add OMPdesk to the Home Screen first (below), then open it from there.",
+	"web.push.needsInstall":
+		"iPhone and iPad deliver notifications only to an app on the Home Screen. Add OMPdesk to the Home Screen first (below), then open it from there.",
 	"web.push.failed": "Couldn't change notifications",
 	"web.push.loadFailed": "Couldn't load the notification settings",
 	"web.install.title": "Install OMPdesk",
@@ -6357,6 +6358,7 @@ export const en: Record<string, string> = {
 	"web.install.androidTitle": "Install as an app",
 	"web.install.button": "Install",
 	"mobileWeb.step4": "iPhone and iPad only, for notifications: add the page to the Home Screen.",
+	"hostUi.link.opened": "Opened on this device.",
 	"hostUi.computerOff":
 		"Computer control is off for this device. Turn it on in OMPdesk on your computer, under Settings › Mobile web.",
 	"hostUi.failed": "That didn't work: {error}",
