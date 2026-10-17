@@ -32,7 +32,7 @@ import { createDispatcher } from ${JSON.stringify(dispatch)};
 const methods = {
 	fast: () => "ok",
 	slow: async () => {
-		await new Promise(done => setTimeout(done, 600));
+		await new Promise(done => setTimeout(done, 300));
 		writeFileSync(${JSON.stringify(path.join(dir, "slow-done"))}, "");
 		return "slow";
 	},
@@ -115,7 +115,7 @@ describe("StockHelper request timeout", () => {
 	it("never recycles the terminals worker: its PTYs outlive a timed-out request", async () => {
 		const { helper, children } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "terminals" });
 		await expect(helper.request("hang", {})).rejects.toThrow("timed out");
-		await sleep(400);
+		await sleep(250);
 		expect(gone(children[0])).toBe(false);
 		expect(children).toHaveLength(1);
 	});
@@ -123,14 +123,14 @@ describe("StockHelper request timeout", () => {
 	it("never recycles the extensions worker: a plugin upgrade may run past any request timeout", async () => {
 		const { helper, children } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "extensions" });
 		await expect(helper.request("hang", {})).rejects.toThrow("timed out");
-		await sleep(400);
+		await sleep(250);
 		expect(gone(children[0])).toBe(false);
 		expect(children).toHaveLength(1);
 	});
 
 	it("lets one request carry its own timeout, longer or shorter than the helper's default", async () => {
 		const { helper } = await helperOnWorker(100);
-		// slow takes 600 ms: the default 100 ms would cut it, an explicit 5 s does not.
+		// slow takes 300 ms: the default 100 ms would cut it, an explicit 5 s does not.
 		await expect(helper.request("slow", {}, { timeoutMs: 5000 })).resolves.toBe("slow");
 		const shortened = await helperOnWorker(5000);
 		await expect(shortened.helper.request("hang", {}, { timeoutMs: 100 })).rejects.toThrow("timed out");

@@ -234,9 +234,8 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			probe.once("error", () => resolve(false));
 			return promise;
 		};
-		// A negative claim ("no ssh ever starts", "no loop keeps running") has no event to await: it needs
-		// real wall-clock time for a stray process to show up, so fake timers cannot stand in for it.
-		const quiet = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+		// A negative claim ("no ssh ever starts", "no loop keeps running") is checked once `settled()` says no
+		// connect is in flight and every ended ssh has closed: nothing is left that could still start one.
 		const forwardCalls = async () =>
 			(await fs.readFile(path.join(fake, "calls"), "utf8").catch(() => ""))
 				.split("\n")
@@ -267,7 +266,7 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			await tools.start();
 			await tools.command({ action: "forward", target, remotePort });
 			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
-			await quiet(500);
+			await tools.settled();
 			expect(await forwardCalls()).toBe(1);
 			expect(state.forwards).toHaveLength(1);
 			// A second connect must not mark the forward stopped ("port in use" by its own ssh).
@@ -280,9 +279,10 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			const started = await tools.command({ action: "forward", target, remotePort });
 			const forward = started.forwards[0];
 			await tools.command({ action: "remove", id: forward?.id ?? "" });
-			await quiet(2_000);
+			await tools.settled();
 			expect(state.forwards).toEqual([]);
 			expect(await portOpen(forward?.localPort ?? 0)).toBe(false);
+			expect(await forwardCalls()).toBe(0);
 		}, 20_000);
 
 		it("does not start ssh when the forward is stopped while it connects", async () => {
@@ -290,17 +290,19 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			const started = await tools.command({ action: "forward", target, remotePort });
 			const forward = started.forwards[0];
 			await tools.command({ action: "stop", id: forward?.id ?? "" });
-			await quiet(2_000);
+			await tools.settled();
 			expect(state.forwards[0]?.status).toEqual({ kind: "stopped", error: null });
 			expect(await portOpen(forward?.localPort ?? 0)).toBe(false);
+			expect(await forwardCalls()).toBe(0);
 		}, 20_000);
 
 		it("dispose stops a forward that is still connecting", async () => {
 			await trustHost();
 			const started = await tools.command({ action: "forward", target, remotePort });
 			tools.dispose();
-			await quiet(2_000);
+			await tools.settled();
 			expect(await portOpen(started.forwards[0]?.localPort ?? 0)).toBe(false);
+			expect(await forwardCalls()).toBe(0);
 		}, 20_000);
 
 		it("reconnects a running forward without finding its own port busy", async () => {
@@ -320,9 +322,10 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 				tools.command({ action: "watch", target, on: false }),
 			]);
 			expect(state.watches).toEqual([]);
-			await quiet(1_500);
+			await tools.settled();
+			// The fake ssh's loop writes a listing as it starts; with every ssh closed none can follow.
 			const before = await listings();
-			await quiet(1_000);
+			await tools.settled();
 			expect(await listings()).toBe(before);
 			expect(state.watches).toEqual([]);
 		}, 20_000);

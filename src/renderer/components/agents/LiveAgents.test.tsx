@@ -259,13 +259,16 @@ describe("LiveAgents", () => {
 		expect(sheet.length).toBe(1);
 		expect(sheet[0]!.textContent).toContain(`${"x".repeat(59)}…`);
 
-		await click(queryAll('[role="dialog"] button[aria-label="Close"]')[0]!);
 		// The sheet plays its exit before unmounting.
-		await act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 400);
-			await promise;
-		});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			await click(queryAll('[role="dialog"] button[aria-label="Close"]')[0]!);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(400);
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(queryAll('[role="dialog"]').length).toBe(0);
 	});
 

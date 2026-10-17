@@ -84,7 +84,7 @@ const shownDirs = () =>
 
 /**
  * Linkedom has no native value tracking, so call the field's own controlled
- * handler (as ProvidersSection.test.tsx does), then wait out the filter's typing pause.
+ * handler (as ProvidersSection.test.tsx does), then run out the filter's typing pause on a fake clock.
  */
 async function filterBy(value: string): Promise<void> {
 	const field = document.body.querySelector("[data-remote-picker-filter]") as unknown as Record<
@@ -95,12 +95,15 @@ async function filterBy(value: string): Promise<void> {
 	field.value = value;
 	const propsKey = Object.getOwnPropertyNames(field).find(key => key.startsWith("__reactProps$"));
 	const props = propsKey ? (field[propsKey] as { onChange?: (event: object) => void } | undefined) : undefined;
-	await act(async () => props?.onChange?.({ target: field, currentTarget: field }));
-	await act(async () => {
-		const { promise, resolve } = Promise.withResolvers<void>();
-		setTimeout(resolve, 200);
-		await promise;
-	});
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => props?.onChange?.({ target: field, currentTarget: field }));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(200);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
 }
 
 afterEach(async () => {

@@ -123,13 +123,18 @@ describe("ChangelogDialog", () => {
 		await mount(<ChangelogDialog />);
 		await settle();
 		expect(document.body.textContent ?? "").toContain(firstRelease);
-		await act(async () => {
-			useUiStore.getState().closeChangelog();
-		});
 		// The modal lingers ~240ms for its exit animation before unmounting.
-		await act(async () => {
-			await new Promise(resolve => setTimeout(resolve, 300));
-		});
+		vi.useFakeTimers();
+		try {
+			await act(async () => {
+				useUiStore.getState().closeChangelog();
+			});
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(300);
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(document.body.textContent ?? "").not.toContain(firstRelease);
 	});
 });

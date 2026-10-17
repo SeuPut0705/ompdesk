@@ -187,6 +187,8 @@ export class SshTools {
 	/** Saves run one after another, so an older snapshot never lands after a newer one. */
 	#saving: Promise<void> = Promise.resolve();
 	#disposed = false;
+	/** Connects in flight and halted ssh processes that have not closed yet: what `settled()` waits for. */
+	readonly #inFlight = new Set<Promise<unknown>>();
 
 	constructor(deps: SshToolsDeps) {
 		this.#deps = deps;
@@ -214,7 +216,7 @@ export class SshTools {
 			for (const saved of data.forwards) {
 				const runtime = forwardRuntime({ ...saved, status: { kind: "stopped", error: null } }, saved.active);
 				this.#forwards.set(saved.id, runtime);
-				if (saved.active) void this.#connect(runtime);
+				if (saved.active) this.#background(this.#connect(runtime));
 			}
 			this.#changed();
 		})().catch(() => {});
@@ -249,7 +251,7 @@ export class SshTools {
 				runtime.droppedAt = null;
 				runtime.attempt = 0;
 				this.#halt(runtime);
-				void this.#connect(runtime);
+				this.#background(this.#connect(runtime));
 			} else {
 				runtime.active = false;
 				this.#halt(runtime);
@@ -294,6 +296,29 @@ export class SshTools {
 		for (const runtime of this.#forwards.values()) this.#halt(runtime);
 		for (const server of [...this.#watches.keys()]) this.#unwatch(server);
 		this.#askpass.close();
+	}
+
+	/**
+	 * Resolves once no connect or watch start is in flight and every ssh this service ended has closed. A
+	 * negative claim ("no ssh starts", "no loop keeps running") is then a fact to check, not a wait.
+	 */
+	async settled(): Promise<void> {
+		while (this.#inFlight.size > 0) await Promise.allSettled([...this.#inFlight]);
+	}
+
+	#background(work: Promise<unknown>): void {
+		this.#inFlight.add(work);
+		void work.finally(() => this.#inFlight.delete(work));
+	}
+
+	/** Ends an ssh (the supervisor stops it a moment after its stdin closes) and tracks it until it has closed. */
+	#end(child: ChildProcess): void {
+		if (child.exitCode === null && child.signalCode === null) {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			child.once("close", () => resolve());
+			this.#background(promise);
+		}
+		child.stdin?.end();
 	}
 
 	#changed(): void {
@@ -363,7 +388,7 @@ export class SshTools {
 			existing.active = true;
 			existing.droppedAt = null;
 			existing.attempt = 0;
-			if (!existing.child && !existing.timer) void this.#connect(existing);
+			if (!existing.child && !existing.timer) this.#background(this.#connect(existing));
 			await this.#save();
 			return;
 		}
@@ -380,7 +405,7 @@ export class SshTools {
 		);
 		this.#forwards.set(runtime.forward.id, runtime);
 		await this.#save();
-		void this.#connect(runtime);
+		this.#background(this.#connect(runtime));
 	}
 
 	#status(runtime: ForwardRuntime, status: SshForward["status"]): void {
@@ -395,7 +420,7 @@ export class SshTools {
 		runtime.timer = null;
 		const child = runtime.child;
 		runtime.child = null;
-		child?.stdin?.end();
+		if (child) this.#end(child);
 	}
 
 	/** Never rejects: a failure becomes the forward's stopped status. */
@@ -443,7 +468,7 @@ export class SshTools {
 			});
 			runtime.exits.add(exited);
 			if (stale()) {
-				child.stdin?.end();
+				this.#end(child);
 				return;
 			}
 			runtime.child = child;
@@ -497,7 +522,7 @@ export class SshTools {
 					attempt: runtime.attempt,
 					error: failure.message,
 				});
-				runtime.timer = setTimeout(() => void this.#connect(runtime), delay);
+				runtime.timer = setTimeout(() => this.#background(this.#connect(runtime)), delay);
 			});
 		} catch (error) {
 			if (stale()) return;
@@ -536,7 +561,7 @@ export class SshTools {
 		const { child, release } = spawned;
 		child.once("close", release);
 		if (runtime.stopped) {
-			child.stdin?.end();
+			this.#end(child);
 			return;
 		}
 		runtime.child = child;
@@ -587,7 +612,7 @@ export class SshTools {
 		if (!runtime) return;
 		runtime.stopped = true;
 		this.#watches.delete(server);
-		runtime.child?.stdin?.end();
+		if (runtime.child) this.#end(runtime.child);
 	}
 
 	/** C147: drop the target's and every hop's saved key from OMPdesk's known_hosts. */
