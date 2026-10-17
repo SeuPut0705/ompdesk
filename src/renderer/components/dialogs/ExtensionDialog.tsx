@@ -589,6 +589,7 @@ function AskDialog({
 					) : (
 						<button
 							className="text-sc-xs text-(--sc-text-muted) underline-offset-2 hover:text-(--sc-text) hover:underline"
+							data-ask-note
 							onClick={() => setNoteOpen(prev => new Set(prev).add(step))}
 							type="button"
 						>

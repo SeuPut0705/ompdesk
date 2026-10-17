@@ -575,3 +575,8 @@ html[data-input="touch"] {
 	--sc-font-xs: calc(var(--gui-font-size, 15px) * 13 / 15);
 	--sc-font-sm: calc(var(--gui-font-size, 15px) * 14 / 15);
 }
+
+/* The prompt card (an ask, an approval, a select): its answers, step tabs and "Add a note" are finger-sized. */
+html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note]) {
+	min-height: var(--sc-hit-min);
+}

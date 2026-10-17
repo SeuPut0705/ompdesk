@@ -41,3 +41,15 @@ describe("touch targets and type", () => {
 		expect(source).toMatch(/<label className="[^"]*h-\(--sc-hit-min\)[^"]*">\s*<input\s+aria-checked/);
 	});
 });
+
+describe("the prompt card on touch", () => {
+	it("lifts the answers, the step tabs and Add a note to the hit size, and each carries its hook", () => {
+		expect(
+			rule('html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note])'),
+		).toMatch(/min-height:\s*var\(--sc-hit-min\)/);
+		expect(read("../components/dialogs/PromptCard.tsx")).toContain("data-choice-list");
+		const ask = read("../components/dialogs/ExtensionDialog.tsx");
+		expect(ask).toContain("data-ask-step={index}");
+		expect(ask).toContain("data-ask-note");
+	});
+});
