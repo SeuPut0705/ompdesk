@@ -29,10 +29,10 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { Button, ConfirmDialog, EmptyState, IconButton, InlineNotice, Spinner } from "../common";
+import { Button, ConfirmDialog, EmptyState, IconButton, InlineNotice, SettingInfo, Spinner } from "../common";
 import { CustomRoleDialog, type CustomRoleFields } from "./CustomRoleDialog";
 import { ModelRoleRow, type RoleAgents } from "./ModelRoleRow";
-import { SettingInfo, SettingsSection } from "./SettingsLayout";
+import { SettingsSection } from "./SettingsLayout";
 import { modelRoleName } from "./schema-i18n";
 
 const GROUP_ORDER: readonly (RoleGroupId | "custom")[] = ["conversation", "agent", "io", "custom"];

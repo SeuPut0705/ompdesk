@@ -48,6 +48,7 @@ export { PanelErrorBoundary } from "./PanelErrorBoundary";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";
 export { ProgressBar, type ProgressBarProps, type ProgressBarTone } from "./ProgressBar";
 export { Select, type SelectOption, type SelectProps } from "./Select";
+export { INLINE_DESCRIPTION_MAX, SettingInfo, splitDescription } from "./SettingInfo";
 export { Sheet, type SheetPlacement, type SheetProps, type SheetSize } from "./Sheet";
 export { Skeleton, SkeletonRows } from "./Skeleton";
 export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner";

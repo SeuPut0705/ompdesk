@@ -132,12 +132,12 @@ export function ComposerModes() {
 			<Popover
 				anchorRef={triggerRef}
 				ariaLabel={t("input.modes.label")}
-				className="max-h-[calc(100dvh-var(--sc-space-4))] w-96 overflow-y-auto"
+				className="max-h-[min(40rem,calc(100dvh-6rem))] w-96 max-w-[calc(100vw-1rem)] overflow-y-auto"
 				onClose={close}
 				open={open}
 				placement="top-start"
 			>
-				<div className="flex flex-col gap-3 break-keep">
+				<div className="flex flex-col gap-2 break-keep">
 					<Tabs
 						activeId={tab}
 						ariaLabel={t("input.modes.label")}
@@ -156,10 +156,9 @@ export function ComposerModes() {
 						{tab === "goal" && <GoalModeConfig />}
 						{tab === "autopilot" && <AutopilotModeConfig onStarted={close} />}
 					</div>
-					<AutoModeSwitch />
-					<p className="-mx-3 -mb-1 border-t border-(--sc-divider) px-3 pt-2.5 text-sc-xs text-(--sc-text-muted)">
-						{t("modesPanel.footerNote")}
-					</p>
+					<div className="-mx-3 border-t border-(--sc-divider) px-3 pt-1.5">
+						<AutoModeSwitch />
+					</div>
 				</div>
 			</Popover>
 		</>
@@ -201,6 +200,7 @@ function PlanModeConfig() {
 			className="-mx-2"
 			data-plan-mode
 			description={t("input.modes.planDesc")}
+			infoOnly
 			disabled={pending}
 			label={t("input.modes.planToggle")}
 			onCheckedChange={next => void toggle(next)}
@@ -213,16 +213,15 @@ function AutoModeSwitch() {
 	const t = useT();
 	const [enabled, setEnabled] = useAutoModePref();
 	return (
-		<div className="flex flex-col gap-0.5">
-			<SwitchField
-				checked={enabled}
-				className="-mx-2"
-				data-auto-mode-switch
-				label={t("input.autoMode.label")}
-				onCheckedChange={setEnabled}
-			/>
-			<p className="text-sc-xs text-(--sc-text-muted)">{t("input.autoMode.desc")}</p>
-		</div>
+		<SwitchField
+			checked={enabled}
+			className="-mx-2"
+			data-auto-mode-switch
+			description={t("input.autoMode.desc")}
+			infoOnly
+			label={t("input.autoMode.label")}
+			onCheckedChange={setEnabled}
+		/>
 	);
 }
 
