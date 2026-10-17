@@ -19,9 +19,12 @@ const payload: WebPushPayload = { v: 1, kind: "completion", title: "Tab", body: 
 function vapid(): VapidKeys {
 	const ecdh = createECDH("prime256v1");
 	ecdh.generateKeys();
+	// Node drops the scalar's leading zero bytes (1 key in 256 is 31 bytes); web-push wants 32, as its own
+	// `generateVAPIDKeys` pads them.
+	const scalar = ecdh.getPrivateKey();
 	return {
 		publicKey: ecdh.getPublicKey().toString("base64url"),
-		privateKey: ecdh.getPrivateKey().toString("base64url"),
+		privateKey: Buffer.concat([Buffer.alloc(32 - scalar.length), scalar]).toString("base64url"),
 		subject: VAPID_SUBJECT,
 	};
 }
