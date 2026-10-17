@@ -122,7 +122,7 @@ let lastTurnErrored = false;
 /** Settings scopes this module put the yolo override on, so disarm clears exactly those. */
 const yoloHeld = new WeakSet<object>();
 /** After disarm stock may still restore the pre-goal tool set (on `goal drop`): re-apply the restore then. */
-let pendingToolRestore: string[] | undefined;
+let pendingToolRestore: { excluded: string[]; mounted: string[] } | undefined;
 
 function now(): number {
 	return Date.now();
@@ -250,12 +250,31 @@ async function applyTools(session: Session, role: "parent" | "child"): Promise<s
 	return removed;
 }
 
-async function restoreTools(session: Session, excluded: readonly string[]): Promise<void> {
+/** Tools presented as `xd://` devices rather than top level (stock `getMountedXdevToolNames`); [] on an omp without it. */
+function mountedTools(session: Session): string[] {
+	return typeof session.getMountedXdevToolNames === "function" ? session.getMountedXdevToolNames() : [];
+}
+
+/**
+ * The session's tool set without the run: `autopilot` off, the excluded tools back. `getEnabledToolNames` lists the
+ * `xd://` devices too, and stock's `setActiveToolsByName` keeps a device mounted only while it is mounted now, so a
+ * device taken off at arm (`debug`) would come back top level. `setActiveToolPresentation` takes the partition
+ * explicitly: what was a device at arm (`mounted`) or is one now stays one.
+ */
+async function restoreTools(session: Session, excluded: readonly string[], mounted: readonly string[]): Promise<void> {
 	const enabled = session.getEnabledToolNames();
 	const known = new Set(session.getAllToolNames());
 	const next = enabled.filter(name => name !== AUTOPILOT_TOOL);
 	for (const name of excluded) if (known.has(name) && !next.includes(name)) next.push(name);
-	await session.setActiveToolsByName(next);
+	if (typeof session.setActiveToolPresentation !== "function") {
+		await session.setActiveToolsByName(next);
+		return;
+	}
+	const devices = new Set([...mountedTools(session), ...mounted]);
+	await session.setActiveToolPresentation(
+		next,
+		next.filter(name => devices.has(name)),
+	);
 }
 
 /**
@@ -427,9 +446,9 @@ onSessionEvent((event, session) => {
 function onGoalUpdated(session: Session, event: unknown): void {
 	const goal = record(record(event).goal);
 	if (pendingToolRestore && (!goal.status || goal.status === "dropped" || goal.status === "complete")) {
-		const excluded = pendingToolRestore;
+		const { excluded, mounted } = pendingToolRestore;
 		pendingToolRestore = undefined;
-		void restoreTools(session, excluded).catch(() => {});
+		void restoreTools(session, excluded, mounted).catch(() => {});
 	}
 	const state = lastStateEntry(entriesOf(session));
 	if (goal.status === "complete" && state && (state.role ?? "parent") === "parent" && state.state !== "ended") {
@@ -704,6 +723,7 @@ async function arm(session: Session, params: AutopilotArmParams): Promise<Autopi
 	if (session.getPlanModeState()?.enabled) throw new Error("Exit plan mode first.");
 	if (!params.resume && session.getGoalModeState()?.enabled)
 		throw new Error("A goal is already active in this session.");
+	const mountedAtArm = mountedTools(session);
 	const removed = await applyTools(session, params.role);
 	approvalSetting().override(session.settings as unknown as object, "yolo");
 	yoloHeld.add(session.settings as unknown as object);
@@ -711,8 +731,10 @@ async function arm(session: Session, params: AutopilotArmParams): Promise<Autopi
 	const resumed = params.resume && previous ? previous : undefined;
 	const settings = resumed?.settings ?? mergeSettings(DEFAULT_AUTOPILOT_SETTINGS, params.settings ?? {});
 	const excludedTools = [...new Set([...(resumed?.excludedTools ?? []), ...removed])];
+	const mounted = [...new Set([...(resumed?.mountedTools ?? []), ...mountedAtArm])];
 	const patch: Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> = {
 		excludedTools,
+		mountedTools: mounted,
 		settings,
 		...(params.releaseProcedure ? { releaseProcedure: params.releaseProcedure } : {}),
 		...(params.releaseBlocked ? { releaseBlocked: params.releaseBlocked } : {}),
@@ -760,8 +782,9 @@ async function disarm(session: Session): Promise<AutopilotStatus> {
 	guardState = undefined;
 	const scope = session.settings as unknown as object;
 	if (yoloHeld.delete(scope)) approvalSetting().clearOverride(scope);
-	await restoreTools(session, state.excludedTools);
-	pendingToolRestore = [...state.excludedTools];
+	const mounted = state.mountedTools ?? [];
+	await restoreTools(session, state.excludedTools, mounted);
+	pendingToolRestore = { excluded: [...state.excludedTools], mounted: [...mounted] };
 	return publish(session);
 }
 

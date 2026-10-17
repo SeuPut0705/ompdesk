@@ -319,6 +319,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"getEnabledToolNames()",
 			"getAllToolNames()",
 			"setActiveToolsByName()",
+			"getMountedXdevToolNames()",
+			"setActiveToolPresentation()",
 			"getGoalModeState()",
 			"getPlanModeState()",
 			"getTodoPhases()",

@@ -170,6 +170,8 @@ export interface AutopilotStateEntry {
 	activeMs: number;
 	/** Tools taken off the session (`ask`) so disarm restores them. */
 	excludedTools: string[];
+	/** Tools that were `xd://` devices at arm, so disarm presents them as devices again (not top level). */
+	mountedTools?: string[];
 	/** A push or release is under way: a restart reconciles it before anything else. */
 	inFlight?: { kind: "push" | "release"; startedAt: number; sha?: string };
 	/** `parent` (default) runs cycles; a `child` is one DeskTools session of a parent's cycle: guarded, never shipping. */

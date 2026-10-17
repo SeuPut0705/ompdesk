@@ -2,39 +2,45 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { _electron as electron } from "playwright";
+import { _electron as electron, type Page } from "playwright";
 import type { AutopilotStatus } from "../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	command,
+	crash,
 	git,
 	mainTab,
+	markers,
 	refs,
 	setAutopilot,
 	startRun,
 	status,
+	survivors,
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { exitApp } from "./harness";
-import { realOmpProfile } from "./real-omp";
+import { field, realOmpProfile, spentIn } from "./real-omp";
 
-// Explicit opt-in (OMP_GUI_REAL_WORK=1): this audit spends model tokens on the user's `smol` role (two cycles, then one
-// push-level cycle) in a private disposable agent dir (config.yml and agent.db copied, 0700), a temp git repository and
-// a local bare remote. Ordinary runs never call a model. Fan-out and the release need the fake omp.
+// Explicit opt-in (OMP_GUI_REAL_WORK=1): these audits spend model tokens on the user's `smol` role in a private
+// disposable agent dir (config.yml and agent.db copied, 0700), a temp git repository and a local bare remote.
+// Ordinary runs never call a model. Fan-out and the release need the fake omp.
 //
-// What it proves on the real omp 18.x: the run opens a new worktree tab on autopilot/<date>; each turn is one cycle
-// the journal records; the protocol section and the `autopilot` tool are active (the agent begins and ends cycles);
-// the tool guard really blocks a hard-banned command the agent is asked to run; nothing reaches the remote while
-// "local only"; Stop ends the run after the cycle in flight with no further turn; no approval card ever shows. A
-// second run on the push level pushes only its own autopilot branch and leaves main alone.
+// 1. Two cycles, then one push-level cycle. What it proves on the real omp 18.x: the run opens a new worktree tab on
+//    autopilot/<date>; each turn is one cycle the journal records; the protocol section and the `autopilot` tool are
+//    active (the agent begins and ends cycles); the tool guard really blocks a hard-banned command the agent is asked
+//    to run; nothing reaches the remote while "local only"; Stop ends the run after the cycle in flight with no
+//    further turn; no approval card ever shows. A second run on the push level pushes only its own autopilot branch
+//    and leaves main alone.
+// 2. The permission lifecycle, read from the run tab's own omp: while armed, stock `tools.approvalMode` is `yolo` as
+//    a runtime override (config.yml untouched) and the active tools lack ask/eval/debug and hold `autopilot`; once a
+//    stopped run has ended, both are what a fresh session in the same folder has. The same holds for a run killed
+//    mid-cycle (SIGKILL) and resumed by the relaunch.
 const APPROVE = /^(Approve|승인)$/;
 
-test("real omp autopilot: two cycles in a new worktree, guarded, local only, then a push-level cycle", async () => {
-	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
-	test.setTimeout(2_400_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
-	await fs.mkdir(evidenceDir, { recursive: true });
-	const { profile, project, desktop, env } = await realOmpProfile();
+/** The real-omp profile with a seeded repository (a bug and a TODO for the agent), a local bare remote and prefs. */
+async function seededProfile() {
+	const real = await realOmpProfile();
+	const { profile, project, desktop } = real;
 	const remote = path.join(profile, "remote.git");
 	await fs.mkdir(remote);
 	git(remote, "init", "-q", "--bare", "-b", "main");
@@ -57,7 +63,6 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 	git(project, "commit", "-q", "-m", "seed");
 	git(project, "remote", "add", "origin", remote);
 	git(project, "push", "-q", "origin", "main");
-	const remoteBefore = refs(remote, "refs/heads");
 	// Rules files stay loaded (the protocol defers to them); the user's extensions and skills stay off.
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
@@ -68,14 +73,31 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 			launchProfiles: { [project]: { noExtensions: true, noSkills: true } },
 		}),
 	);
+	return { ...real, remote };
+}
+
+/** Launch on the profile's userData; without `project` the saved layout (the run's tab) is restored. */
+async function launch(desktop: string, env: Record<string, string>, project?: string) {
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [path.resolve("out/main/index.js"), ...(project ? [project] : []), `--user-data-dir=${desktop}`],
 		env,
 	});
+	const page = await app.firstWindow();
+	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	return { app, page };
+}
+
+test("real omp autopilot: two cycles in a new worktree, guarded, local only, then a push-level cycle", async () => {
+	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
+	test.setTimeout(2_400_000);
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	await fs.mkdir(evidenceDir, { recursive: true });
+	const { profile, project, desktop, env, remote } = await seededProfile();
+	const remoteBefore = refs(remote, "refs/heads");
+	const { app, page } = await launch(desktop, env, project);
 	const evidence: Record<string, unknown> = { remoteBefore };
 	try {
-		const page = await app.firstWindow();
-		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
 		await expect
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
 			.toMatchObject({ status: "ready" });
@@ -198,6 +220,168 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 	} finally {
 		await fs
 			.writeFile(path.join(evidenceDir, "real-autopilot.json"), JSON.stringify(evidence, null, 2))
+			.catch(() => undefined);
+		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+/** Tools an armed run never has (the bridge's `modes/autopilot.ts` EXCLUDED_TOOLS). */
+const EXCLUDED = ["ask", "eval", "debug"];
+
+interface Permissions {
+	approval: unknown;
+	layers: unknown;
+	tools: string[];
+}
+
+/** What a tab's omp holds now: the effective `tools.approvalMode` with its settings layers, and the active tools. */
+async function permissions(page: Page, tabId: string): Promise<Permissions> {
+	const settings = await command(page, tabId, { type: "get_settings", paths: ["tools.approvalMode"] });
+	const state = await command(page, tabId, { type: "get_state" });
+	const dump = field(state.data, "dumpTools");
+	return {
+		approval: field(field(settings.data, "values"), "tools.approvalMode"),
+		layers: field(field(field(settings.data, "provenance"), "tools.approvalMode"), "layers"),
+		tools: (Array.isArray(dump) ? dump.map(tool => field(tool, "name")) : [])
+			.filter((name): name is string => typeof name === "string")
+			.sort(),
+	};
+}
+
+function expectArmed(held: Permissions): void {
+	expect(held.approval).toBe("yolo");
+	expect(held.layers).toContain("runtime");
+	expect(held.tools).toContain("autopilot");
+	for (const name of EXCLUDED) expect(held.tools).not.toContain(name);
+}
+
+test("real omp autopilot: yolo and the tool set are held only while the run lives, across a SIGKILL too", async () => {
+	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
+	test.setTimeout(2_400_000);
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	await fs.mkdir(evidenceDir, { recursive: true });
+	const { profile, project, desktop, agent, env } = await seededProfile();
+	const configPath = path.join(agent, "config.yml");
+	const config = await fs.readFile(configPath, "utf8");
+	let { app, page } = await launch(desktop, env, project);
+	const evidence: Record<string, unknown> = {};
+	const tabs = () => page.evaluate(() => window.omp.tabs.list());
+	/** What a fresh session in `cwd` holds (same folder, launch profile and settings as the run's tab before arm). */
+	const baselineIn = async (cwd: string): Promise<Permissions> => {
+		const spawned = await page.evaluate(folder => window.omp.tabs.spawn({ kind: "agent", cwd: folder }), cwd);
+		const id = spawned?.tabId ?? "";
+		expect(id).not.toBe("");
+		await expect
+			.poll(async () => (await tabs()).find(tab => tab.tabId === id)?.status, { timeout: 120_000 })
+			.toBe("ready");
+		const held = await permissions(page, id);
+		await page.evaluate(tabId => window.omp.tabs.close(tabId), id);
+		return held;
+	};
+	const stopAndRestore = async (tabId: string, base: Permissions, label: string) => {
+		expect(await setAutopilot(page, tabId, { action: "stop" })).toMatchObject({ success: true });
+		const ended = await waitForStatus(page, tabId, s => s.state === "ended", `${label} ends`, 1_200_000);
+		await expect.poll(() => permissions(page, tabId), { timeout: 120_000 }).toEqual(base);
+		expect(await fs.readFile(configPath, "utf8")).toBe(config);
+		return { reason: ended.reason, cycles: ended.cycles?.length, restored: await permissions(page, tabId) };
+	};
+	try {
+		await expect
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
+			.toMatchObject({ status: "ready" });
+		const origin = await mainTab(page);
+
+		// Run 1: armed while cycle 1 runs; Stop; once ended, the run's omp is back to the fresh session's values.
+		const first = await startRun(page, origin, { maxParallel: 0 });
+		const run1 = await waitForRunTab(page);
+		await waitForStatus(page, first, s => s.now?.n === 1, "run 1 cycle 1 starts", 180_000);
+		const armed1 = await permissions(page, first);
+		expectArmed(armed1);
+		expect(await fs.readFile(configPath, "utf8")).toBe(config);
+		const base1 = await baselineIn(run1.cwd);
+		evidence.run1 = { base: base1, armed: armed1, ...(await stopAndRestore(first, base1, "run 1")) };
+
+		// Run 2: armed while cycle 1 runs, then SIGKILL; the relaunch resumes it armed; Stop; restored as in run 1.
+		const second = await startRun(page, origin, { maxParallel: 0 });
+		const run2 = (await tabs()).find(tab => tab.tabId === second);
+		const cwd = run2?.cwd ?? "";
+		const sessionPath = run2?.sessionPath ?? "";
+		expect(cwd).not.toBe(run1.cwd);
+		await waitForStatus(page, second, s => s.now?.n === 1, "run 2 cycle 1 starts", 180_000);
+		const armed2 = await permissions(page, second);
+		expectArmed(armed2);
+		const base2 = await baselineIn(cwd);
+		await expect
+			.poll(async () => (await markers(desktop)).some(marker => marker.reason === "running"), { timeout: 60_000 })
+			.toBe(true);
+		await expect
+			.poll(
+				async () =>
+					sessionPath !== "" &&
+					(await fs.readFile(path.join(desktop, "prefs.json"), "utf8")).includes(sessionPath),
+				{
+					timeout: 60_000,
+				},
+			)
+			.toBe(true);
+		await crash(app);
+		await expect
+			.poll(() => survivors(profile), { timeout: 20_000, message: "the killed app's children must end" })
+			.toEqual([]);
+		({ app, page } = await launch(desktop, env));
+		let resumedId = "";
+		await expect
+			.poll(
+				async () => {
+					resumedId = (await tabs()).find(tab => tab.cwd === cwd)?.tabId ?? "";
+					return resumedId;
+				},
+				{ timeout: 60_000, message: "the relaunch restores the run's tab" },
+			)
+			.not.toBe("");
+		await page.evaluate(id => window.omp.tabs.setActive(id), resumedId);
+		// A turn cut by the kill resumes by itself (TurnResume's marker); a kill the run saw between turns leaves it
+		// paused as app_closed, unarmed in the new omp, until Resume arms it again. Either way it must hold the run's
+		// permissions while running and give them back at the end.
+		const relaunched = await waitForStatus(
+			page,
+			resumedId,
+			s => s.state === "running" || (s.state === "paused" && s.reason === "app_closed"),
+			"run 2 is back after the kill",
+			300_000,
+		);
+		const afterRelaunch = {
+			state: relaunched.state,
+			reason: relaunched.reason,
+			held: await permissions(page, resumedId),
+		};
+		if (relaunched.state === "paused") {
+			expect(afterRelaunch.held).toEqual(base2);
+			expect(await setAutopilot(page, resumedId, { action: "resume" })).toMatchObject({ success: true });
+			await waitForStatus(page, resumedId, s => s.state === "running", "run 2 resumes", 300_000);
+		}
+		// The journal says `running` from the start; the new omp holds the run once main re-armed it (`arm` with resume).
+		await expect
+			.poll(async () => JSON.stringify((await permissions(page, resumedId)).layers), {
+				timeout: 300_000,
+				message: "the relaunched run is armed again",
+			})
+			.toContain("runtime");
+		const armed3 = await permissions(page, resumedId);
+		expectArmed(armed3);
+		expect(await fs.readFile(configPath, "utf8")).toBe(config);
+		evidence.run2 = {
+			base: base2,
+			armed: armed2,
+			afterRelaunch,
+			armedAfterResume: armed3,
+			...(await stopAndRestore(resumedId, base2, "run 2")),
+		};
+		evidence.cost = await spentIn(agent);
+	} finally {
+		await fs
+			.writeFile(path.join(evidenceDir, "real-autopilot-permissions.json"), JSON.stringify(evidence, null, 2))
 			.catch(() => undefined);
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

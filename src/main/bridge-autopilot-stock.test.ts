@@ -4,7 +4,7 @@ import * as http from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
 	type AutopilotCycleRecord,
 	type AutopilotStatus,
@@ -357,6 +357,22 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		// A tab that is no run answers inactive and arms nothing.
 		expect(await h.bridge.request<AutopilotStatus>(M.status, {})).toEqual({ active: false });
 
+		// The tool presentation before arm: top-level tools and `xd://` devices. Disarm must give back exactly this.
+		const presentation = async () => {
+			const state = (await h.send({ type: "get_state" })).data as
+				| { dumpTools?: Array<{ name: string }> }
+				| undefined;
+			const extras = await h.bridge.request<{ mounted: Array<{ name: string }> }>("composer.tool_extras", {});
+			return {
+				top: (state?.dumpTools ?? []).map(tool => tool.name).sort(),
+				devices: extras.mounted.map(tool => tool.name).sort(),
+			};
+		};
+		const before = await presentation();
+		// `debug` is an `xd://` device here: the case where restoring through `setActiveToolsByName` made it top level.
+		expect(before.devices).toContain("debug");
+		expect(before.top).not.toContain("debug");
+
 		const armed = await h.bridge.request<AutopilotStatus>(M.arm, {
 			role: "parent",
 			root: h.root,
@@ -446,6 +462,8 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 			if (!(state.data as { isStreaming?: boolean } | undefined)?.isStreaming || Date.now() > idleBy) break;
 			await new Promise(wake => setTimeout(wake, 200));
 		}
+		// The same top-level tools and the same `xd://` devices as before arm (`debug` a device again, not top level).
+		await vi.waitFor(async () => expect(await presentation()).toEqual(before), { timeout: 10_000 });
 		const promptResponse = await h.send({ type: "prompt", message: "plain question" });
 		const asked = () => provider.requests.findLast(request => request.lastUser.includes("plain question"));
 		const until = Date.now() + 20_000;
