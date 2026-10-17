@@ -2275,6 +2275,15 @@ export const ko: Record<string, string> = {
 	"updater.card.readyHint": "재시작하면 바로 적용돼요. 앱을 끌 때도 자동으로 설치돼요.",
 	"updater.card.restart": "재시작해서 업데이트",
 	"updater.card.later": "나중에",
+	"updater.card.restartNow": "지금",
+	"updater.card.autoRestart": "{seconds}초 뒤 업데이트를 설치하고 다시 시작해요",
+	"updater.card.autoRestartHint":
+		"{seconds}초 뒤 업데이트를 설치하고 다시 시작해요. 열어 둔 작업, 작성 중인 글, 화면 배치는 그대로 돌아와요. 지금 바로 다시 시작하거나, 나중에를 눌러 다음 한가한 때까지 미룰 수 있어요.",
+	"updates.appAuto": "업데이트 자동 설치",
+	"updates.appAutoDesc":
+		"업데이트를 받으면 작업 중인 탭이 없고 자리를 비운 때에 60초 알림 뒤 알아서 설치하고 다시 시작해요. 작업, 작성 중인 글, 화면 배치는 그대로예요.",
+	"updates.appAutoManual":
+		"여기서는 쓸 수 없어요. 이 사본은 스스로 교체할 수 없어요 (읽기 전용 위치 또는 App Translocation). OMPdesk를 응용 프로그램 폴더로 옮기면 켤 수 있어요.",
 	"updater.card.compactReady": "{version} 업데이트 준비됨",
 	"updater.card.compactAvailable": "{version} 업데이트 있음",
 	"updater.card.compactDownloading": "받는 중 {percent}%",
@@ -6067,7 +6076,7 @@ export const ko: Record<string, string> = {
 		"OMPdesk가 필요한 것을 알아서 설치해요. 선택 도구는 백그라운드에서 설치되고 작업을 막지 않아요.",
 	"ompUpdate.auto": "omp 자동 업데이트",
 	"ompUpdate.autoDesc":
-		"npm에 더 새로운 omp가 올라오면 백그라운드에서 설치해요. 진행 중인 세션은 그대로 이어지고, 쉬는 세션은 바로, 작업 중인 세션은 작업이 끝나면 새 omp로 다시 시작해요. OMPdesk 자체는 직접 요청할 때만 업데이트해요.",
+		"npm에 더 새로운 omp가 올라오면 백그라운드에서 설치해요. 진행 중인 세션은 그대로 이어지고, 쉬는 세션은 바로, 작업 중인 세션은 작업이 끝나면 새 omp로 다시 시작해요. OMPdesk 자체는 업데이트 자동 설치를 켠 경우에만 알아서 업데이트해요.",
 	"ompUpdate.nowLabel": "omp 버전",
 	"ompUpdate.now": "지금 업데이트",
 	"ompUpdate.nowFailed": "omp 업데이트를 시작하지 못했어요",

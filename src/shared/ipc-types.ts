@@ -276,6 +276,10 @@ export const IPC_COMMANDS = {
 	UPDATER_DOWNLOAD: "updater:download",
 	/** Apply an automatic update or reopen a downloaded manual installer */
 	UPDATER_APPLY: "updater:apply",
+	/** "Later" on the automatic-install notice: postpone to the next idle window */
+	UPDATER_POSTPONE: "updater:postpone",
+	/** How this copy installs updates (`manual` cannot install by itself) */
+	UPDATER_INSTALL_MODE: "updater:installMode",
 	/** Current updater status (replay for renderer boot) */
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
@@ -413,7 +417,8 @@ export type UpdateStatus =
 	| { state: "checking" }
 	| { state: "available"; version: string; notes?: string; mode: UpdateInstallMode }
 	| { state: "downloading"; version: string; mode: UpdateInstallMode; percent: number }
-	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
+	/** `restartAt` (epoch ms): the app installs by itself then (Install updates automatically); "later" postpones it. */
+	| { state: "downloaded"; version: string; mode: UpdateInstallMode; restartAt?: number }
 	| { state: "not-available"; version: string }
 	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
 	 * technical cause (network/updater error text) for a secondary line or tooltip. */
@@ -1612,6 +1617,10 @@ export interface OmpApi {
 		check(): Promise<UpdateStatus>;
 		download(): Promise<UpdateStatus>;
 		apply(): Promise<void>;
+		/** "Later" on the automatic-install notice. */
+		postpone(): Promise<void>;
+		/** How this copy installs updates; `manual` (read-only location) cannot auto-install. */
+		installMode(): Promise<UpdateInstallMode>;
 		getStatus(): Promise<UpdateStatus>;
 		version(): Promise<string>;
 		authInfo(): Promise<UpdateAuthInfo>;

@@ -32,6 +32,7 @@ import type { RpcDoctorCheck, RpcOmpUpdateResult, RpcPluginDoctorResult } from "
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useSecondsUntil } from "../../lib/use-seconds-until";
 import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -50,6 +51,7 @@ import {
 } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
+import { AppAutoUpdateRow } from "./AppAutoUpdateRow";
 import { OmpUpdateFailureNotice } from "./OmpUpdateRows";
 import { ProductStar } from "./ProductStar";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
@@ -265,11 +267,16 @@ export function UpdatesSection() {
 						{status.state === "downloaded" && status.mode === "manual" && (
 							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updater.manualInstructions")}</p>
 						)}
+						{status.state === "downloaded" && status.restartAt !== undefined && (
+							<AutoRestartNotice restartAt={status.restartAt} />
+						)}
 					</>
 				}
 				icon={<Package />}
 				label={t("updates.gui.name")}
 			/>
+
+			<AppAutoUpdateRow />
 
 			<UpdateAuthRow onChanged={check} />
 
@@ -302,6 +309,23 @@ export function UpdatesSection() {
 				label={t("about.repo")}
 			/>
 		</SettingsSection>
+	);
+}
+
+/** The quiet line before an automatic restart: the countdown, "Now" and "Later". Never a modal. */
+function AutoRestartNotice({ restartAt }: { restartAt: number }) {
+	const t = useT();
+	const seconds = useSecondsUntil(restartAt) ?? 0;
+	return (
+		<p className="mt-1 flex items-center gap-2 text-sc-xs text-(--sc-text-muted)" data-testid="auto-restart-notice">
+			<span>{t("updater.card.autoRestart", { seconds })}</span>
+			<Button onClick={() => void window.omp.updater.apply()} size="sm" variant="primary">
+				{t("updater.card.restartNow")}
+			</Button>
+			<Button onClick={() => void window.omp.updater.postpone()} size="sm" variant="ghost">
+				{t("updater.card.later")}
+			</Button>
+		</p>
 	);
 }
 

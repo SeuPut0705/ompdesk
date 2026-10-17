@@ -2295,6 +2295,15 @@ export const en: Record<string, string> = {
 	"updater.card.readyHint": "Restart to update now — or it installs the next time you quit.",
 	"updater.card.restart": "Restart to update",
 	"updater.card.later": "Later",
+	"updater.card.restartNow": "Now",
+	"updater.card.autoRestart": "Installing the update and restarting in {seconds}s",
+	"updater.card.autoRestartHint":
+		"OMPdesk installs the update and restarts in {seconds}s. Open work, drafts and the layout come back. Choose Now to restart right away or Later to wait for the next quiet moment.",
+	"updates.appAuto": "Install updates automatically",
+	"updates.appAutoDesc":
+		"Once an update is downloaded, OMPdesk installs it and restarts by itself when no tab is working and you are away, after a 60 s notice. Work, drafts and the layout carry over.",
+	"updates.appAutoManual":
+		"Unavailable here: this copy cannot replace itself (read-only location or App Translocation). Move OMPdesk to the Applications folder to turn it on.",
 	"updater.card.compactReady": "Update {version} ready",
 	"updater.card.compactAvailable": "Update {version} available",
 	"updater.card.compactDownloading": "Downloading {percent}%",
@@ -6094,7 +6103,7 @@ export const en: Record<string, string> = {
 		"OMPdesk installs what it needs on its own. Optional tools install in the background and never block you.",
 	"ompUpdate.auto": "Update omp automatically",
 	"ompUpdate.autoDesc":
-		"When npm publishes a newer omp, OMPdesk installs it in the background. Running sessions keep going: idle ones restart on the new omp right away, busy ones when their turn ends. OMPdesk itself only updates when you ask.",
+		"When npm publishes a newer omp, OMPdesk installs it in the background. Running sessions keep going: idle ones restart on the new omp right away, busy ones when their turn ends. OMPdesk itself updates on its own only if you turn on Install updates automatically.",
 	"ompUpdate.nowLabel": "omp version",
 	"ompUpdate.now": "Update now",
 	"ompUpdate.nowFailed": "Couldn't start the omp update",

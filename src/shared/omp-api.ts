@@ -339,6 +339,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			check: () => transport.invoke(IPC_COMMANDS.UPDATER_CHECK),
 			download: () => transport.invoke(IPC_COMMANDS.UPDATER_DOWNLOAD),
 			apply: () => transport.invoke(IPC_COMMANDS.UPDATER_APPLY),
+			postpone: () => transport.invoke(IPC_COMMANDS.UPDATER_POSTPONE),
+			installMode: () => transport.invoke(IPC_COMMANDS.UPDATER_INSTALL_MODE),
 			getStatus: () => transport.invoke(IPC_COMMANDS.UPDATER_GET_STATUS),
 			version: () => transport.invoke(IPC_COMMANDS.UPDATER_VERSION),
 			authInfo: () => transport.invoke(IPC_COMMANDS.UPDATER_AUTH_INFO),

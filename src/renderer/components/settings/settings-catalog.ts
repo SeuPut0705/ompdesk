@@ -358,6 +358,12 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "this computer setup install doctor bun git node gh omp tools 이 컴퓨터 설치 점검 도구",
 	},
 	{
+		id: "appAutoUpdate",
+		section: "updates",
+		labelKey: "updates.appAuto",
+		aliases: "ompdesk app update upgrade install restart automatically auto 자동 업데이트 설치 재시작 앱",
+	},
+	{
 		id: "ompAutoUpdate",
 		section: "updates",
 		labelKey: "ompUpdate.auto",

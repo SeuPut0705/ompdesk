@@ -32,7 +32,7 @@
 import { execFile, spawn } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, net, shell } from "electron";
+import { app, BrowserWindow, net, powerMonitor, shell } from "electron";
 import type { UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
 // Not node:fs: Electron's fs treats `app.asar` as a directory, so a recursive rm
@@ -42,6 +42,7 @@ import pkg from "electron-updater";
 import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
+import { AutoInstallScheduler } from "./app-auto-update";
 import { confirmQuit, requestQuit } from "./app-quit";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -124,6 +125,20 @@ let updateToken: string | undefined;
 let checkInFlight = false;
 /** The macOS DMG download; a second one would append to the same `.partial`. */
 const macTransfer = new SingleTransfer();
+/** Installs a downloaded update by itself at a quiet moment (Settings › Updates & about); null before `setupUpdater`. */
+let autoInstall: AutoInstallScheduler | null = null;
+/** Each tick's look at the facts; a dev run shortens the countdown with OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS. */
+const AUTO_INSTALL_TICK_MS = 1000;
+
+/** What the auto-install decision reads from the app (index.ts owns prefs and the tab pool). */
+export interface AutoInstallProbe {
+	/** Pref `appAutoUpdate`. */
+	enabled: () => boolean;
+	/** Continue interrupted work after relaunch is on. */
+	resumes: () => boolean;
+	/** A tab runs a turn or compacts, or an ask is open (this computer's tabs and the ones it hosts). */
+	busy: () => boolean;
+}
 
 function isWritable(target: string): boolean {
 	try {
@@ -408,9 +423,14 @@ function startMacDownload(
 }
 
 function broadcast(status: UpdateStatus): void {
-	current = status;
+	// A re-broadcast of the staged update (a manual re-check) keeps the countdown the notice shows.
+	const restartAt = autoInstall?.restartAt;
+	current =
+		status.state === "downloaded" && status.restartAt === undefined && restartAt !== undefined
+			? { ...status, restartAt }
+			: status;
 	for (const win of BrowserWindow.getAllWindows()) {
-		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, status);
+		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, current);
 	}
 }
 
@@ -585,8 +605,39 @@ export function restartIntoUpdate(): void {
 	if (current.mode === "automatic") autoUpdater.quitAndInstall();
 }
 
-export function setupUpdater(ipc: IpcRegistry): void {
+/** Which install path this copy runs; Settings explains why the automatic switch is unavailable in `manual`. */
+export function updateInstallMode(): UpdateInstallMode {
+	return installMode;
+}
+
+/** Pref `appAutoUpdate` changed: look at once instead of at the next tick. */
+export function appAutoUpdatePrefChanged(): void {
+	autoInstall?.tick();
+}
+
+export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
+	autoInstall = new AutoInstallScheduler({
+		now: Date.now,
+		facts: () => ({
+			enabled: probe.enabled(),
+			installable: restartableUpdate(),
+			resumes: probe.resumes(),
+			busy: probe.busy(),
+			focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
+			idleMs: powerMonitor.getSystemIdleTime() * 1000,
+		}),
+		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
+		effects: {
+			announce: () => broadcast(current),
+			withdraw: () => {
+				if (current.state === "downloaded")
+					broadcast({ state: "downloaded", version: current.version, mode: current.mode });
+			},
+			install: restartIntoUpdate,
+		},
+	});
+	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();
 	// Installs interrupted by older builds keyed the partial by process id, which
 	// nothing could ever continue — those orphans are the only debris a startup
 	// sweep can identify for sure.
@@ -687,6 +738,19 @@ export function setupUpdater(ipc: IpcRegistry): void {
 		if (!(await confirmQuit())) return;
 		restartIntoUpdate();
 	});
+	ipc.handle(IPC_COMMANDS.UPDATER_POSTPONE, () => autoInstall?.postpone());
+	ipc.handle(IPC_COMMANDS.UPDATER_INSTALL_MODE, () => installMode);
+	// Dev/test seam (unpackaged only): pretend this staged bundle was downloaded and verified, so the
+	// automatic install can be exercised without a release (relaunch mode with OMP_DEV_UPDATE_BUNDLE).
+	const devStaged = app.isPackaged ? undefined : process.env.OMP_DEV_UPDATE_STAGED;
+	if (devStaged && installMode === "relaunch" && ownBundle) {
+		stagedApp = devStaged;
+		broadcast({
+			state: "downloaded",
+			version: process.env.OMP_DEV_UPDATE_STAGED_VERSION ?? "0.0.0-dev",
+			mode: "relaunch",
+		});
+	}
 	ipc.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
 	ipc.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());
 	ipc.handle(IPC_COMMANDS.UPDATER_AUTH_INFO, () => updateAuthInfo());

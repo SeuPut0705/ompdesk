@@ -18,6 +18,7 @@ import { AlertCircle, ArrowUpCircle, CheckCircle2, Download, ExternalLink, Rotat
 import { type ReactElement, useEffect, useId } from "react";
 import type { UpdateStatus } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
+import { useSecondsUntil } from "../../../lib/use-seconds-until";
 import { useUiStore } from "../../../stores/ui";
 import { checkForUpdatesInPlace, useUpdaterStore } from "../../../stores/updater";
 import { IconButton, Spinner } from "../../common";
@@ -115,6 +116,7 @@ export function SidebarUpdateCard() {
 	const dismiss = useUpdaterStore(s => s.dismiss);
 	const manualCheck = useUpdaterStore(s => s.manualCheck);
 	const endManualCheck = useUpdaterStore(s => s.endManualCheck);
+	const secondsLeft = useSecondsUntil(status.state === "downloaded" ? status.restartAt : undefined);
 
 	// "Up to date" is news, not a state to keep on screen.
 	const upToDate = manualCheck && status.state === "not-available";
@@ -125,7 +127,23 @@ export function SidebarUpdateCard() {
 	}, [upToDate, endManualCheck]);
 
 	let row: RowModel | null = manualCheck ? manualRow(status, t, endManualCheck) : null;
-	if (!row && status.state === "downloaded") {
+	// The automatic install's notice (Settings › Updates & about › Install updates automatically): never dismissed away, "Later" postpones.
+	const countingDown = status.state === "downloaded" && status.restartAt !== undefined;
+	if (!row && status.state === "downloaded" && countingDown) {
+		row = {
+			label: t("updater.card.autoRestart", { seconds: secondsLeft ?? 0 }),
+			description: t("updater.card.autoRestartHint", { seconds: secondsLeft ?? 0 }),
+			tone: "update",
+			action: {
+				label: t("updater.card.restartNow"),
+				icon: <RotateCw />,
+				onClick: () => void window.omp.updater.apply(),
+				primary: true,
+			},
+			onClose: () => void window.omp.updater.postpone(),
+			closeLabel: t("updater.card.later"),
+		};
+	} else if (!row && status.state === "downloaded") {
 		const manual = status.mode === "manual";
 		row = {
 			label: t("updater.card.compactReady", { version: status.version }),
@@ -181,7 +199,7 @@ export function SidebarUpdateCard() {
 	}
 	if (!row) return null;
 	// A version the user put off stays hidden, unless they just asked to check.
-	if (!manualCheck && "version" in status && dismissedVersion === status.version) return null;
+	if (!countingDown && !manualCheck && "version" in status && dismissedVersion === status.version) return null;
 
 	const icon =
 		row.tone === "busy" && row.progress === undefined ? (

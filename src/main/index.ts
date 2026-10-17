@@ -38,6 +38,7 @@ import { AGENT_CONTROL_PREF } from "../shared/agent-control";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
+	APP_AUTO_UPDATE_PREF,
 	BATCH_NOTIFICATIONS_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
 	CLOSE_TO_TRAY_PREF,
@@ -111,6 +112,7 @@ import { MobileWebService } from "./tailscale/service";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
+	appAutoUpdatePrefChanged,
 	appVersion,
 	checkForUpdate,
 	downloadUpdate,
@@ -1084,6 +1086,7 @@ app.whenReady().then(() => {
 			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
+			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
 			if (key === EXTENSION_AUTO_UPDATE_PREF) extensionToolUpdater.prefChanged();
 			if (key === "themeName" || key === "theme") {
@@ -1233,7 +1236,14 @@ app.whenReady().then(() => {
 	if (process.env.OMP_GUI_HEADLESS !== "1") createTray(windowManager, spawnWindow);
 	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
-	setupUpdater(ipc);
+	setupUpdater(ipc, {
+		enabled: () => prefs.get(APP_AUTO_UPDATE_PREF) === true,
+		resumes: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
+		// Running turns, compactions and open asks, on this computer's tabs and the ones it hosts for paired devices.
+		busy: () =>
+			sidecarPool.tabInventory().some(tab => tab.inFlight) ||
+			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.running || fact.awaitingUi),
+	});
 });
 
 // macOS: re-create window on dock click

@@ -26,6 +26,9 @@ export const WORKTREE_AUTO_CLEAN_PREF = "worktreeAutoClean";
 /** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */
 export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
+/** Install a downloaded OMPdesk update and restart by itself at a quiet moment (Settings › Updates & about; default off; only `true` turns it on). */
+export const APP_AUTO_UPDATE_PREF = "appAutoUpdate";
+
 /** Retry a turn that ended in a transient error after 30 s, 2 min, 10 min (default on; only `false` turns it off). */
 export const SCHEDULED_RETRY_PREF = "scheduledRetry";
 
