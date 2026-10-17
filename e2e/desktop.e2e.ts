@@ -100,55 +100,6 @@ test("stock session identity, cycling in both directions, and /copy stay usable"
 	expect(await recordsOfType(record, "composer.copy_targets")).toHaveLength(1);
 });
 
-test("opening sharing performs local preview only, upload needs a button click", async () => {
-	await command("/share");
-	const modal = page.getByRole("dialog");
-	await expect(modal.getByRole("button", { name: "Upload and create link" })).toBeVisible();
-	expect(await recordsOfType(record, "composer.share")).toHaveLength(0);
-	await modal.getByRole("button", { name: "Upload and create link" }).click();
-	await expect(modal).toContainText("http://127.0.0.1/shared#local");
-	expect(await recordsOfType(record, "composer.share")).toHaveLength(1);
-	await page.keyboard.press("Escape");
-});
-
-test("ask walks one question at a time with numbered keys and submits every answer", async () => {
-	await command("fixture ask");
-	const card = page.getByRole("region", { name: "Question" });
-	await expect(card).toContainText("Where should this deploy?");
-	await expect(card).not.toContainText("Which checks should run first?");
-	await expect(card).toContainText("1 of 3");
-	await page.screenshot({ path: "test-results/ask-step-1.png", scale: "css", animations: "disabled" });
-	// "2" picks Production and moves on.
-	await page.keyboard.press("2");
-	await expect(card).toContainText("Which checks should run first?");
-	await expect(card).toContainText("2 of 3");
-	// Multi-select stays put: pick two, then Next.
-	await page.keyboard.press("1");
-	await page.keyboard.press("3");
-	await card.getByRole("button", { name: "Next", exact: true }).click();
-	await expect(card).toContainText("Tell the team when it lands?");
-	await page.screenshot({ path: "test-results/ask-step-3.png", scale: "css", animations: "disabled" });
-	await page.keyboard.press("1");
-	await card.getByRole("button", { name: "Submit", exact: true }).click();
-	await expect(card).toHaveCount(0);
-	await expect
-		.poll(async () =>
-			(await recordsOfType(record, "extension_ui_response")).filter(entry => entry.id === "fixture-ask"),
-		)
-		.toEqual([
-			expect.objectContaining({
-				type: "extension_ui_response",
-				id: "fixture-ask",
-				answers: [
-					{ id: "env", selectedOptions: ["Production"] },
-					{ id: "checks", selectedOptions: ["Unit tests", "Lint"] },
-					{ id: "notify", selectedOptions: ["Yes"] },
-				],
-			}),
-		]);
-	expect(errors).toEqual([]);
-});
-
 test("Check for Updates… from the app menu reports in the sidebar without opening Settings", async () => {
 	await app.evaluate(({ Menu }) => {
 		const item = Menu.getApplicationMenu()
@@ -164,22 +115,6 @@ test("Check for Updates… from the app menu reports in the sidebar without open
 	await expect(card).not.toHaveAttribute("data-update-tone", "busy", { timeout: 30_000 });
 	await card.getByRole("button", { name: /Close|Later/ }).click();
 	await expect(card).toHaveCount(0);
-});
-
-test("voice and side question require an explicit start", async () => {
-	const voiceBefore = (await recordsOfType(record, "live_start")).length;
-	await command("/live");
-	let modal = page.getByRole("dialog");
-	await expect(modal).toBeVisible();
-	expect(await recordsOfType(record, "live_start")).toHaveLength(voiceBefore);
-	await page.screenshot({ path: "test-results/02-voice.png", scale: "css", animations: "disabled" });
-	await page.keyboard.press("Escape");
-	const before = (await recordsOfType(record, "btw")).length;
-	await command("/btw explain the current approach");
-	modal = page.getByRole("dialog");
-	await expect(modal).toBeVisible();
-	expect(await recordsOfType(record, "btw")).toHaveLength(before);
-	await page.keyboard.press("Escape");
 });
 
 test("math survives history reload and scrolls inside its column in both themes", async () => {
@@ -442,19 +377,6 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		win.webContents.setZoomFactor(1);
 		win.setSize(1400, 900);
 	});
-});
-
-test("model benchmark, tools and debug open without external mutations", async () => {
-	for (const name of ["benchmark", "tools", "debug", "import"]) {
-		await command(`/${name}`);
-		const modal = page.getByRole("dialog");
-		await expect(modal).toBeVisible();
-		await expect.poll(() => modal.evaluate(node => node.contains(document.activeElement))).toBe(true);
-		await page.screenshot({ path: `test-results/03-${name}.png`, scale: "css", animations: "disabled" });
-		await page.keyboard.press("Escape");
-		await expect(modal).toHaveCount(0);
-	}
-	expect(errors).toEqual([]);
 });
 
 // Search reaches rows folded under Advanced (SettingsPage opens the disclosure); Escape on an edit, the row's

@@ -319,6 +319,69 @@ describe("ExtensionDialog ask", () => {
 		});
 	});
 
+	it("counts its steps, a digit on a middle question moves on, and a multi-select stays put until Next", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask-three",
+				method: "ask",
+				questions: [
+					{
+						id: "env",
+						question: "Where should this deploy?",
+						options: [{ label: "Staging" }, { label: "Production" }],
+					},
+					{
+						id: "checks",
+						question: "Which checks should run first?",
+						multi: true,
+						options: [{ label: "Unit tests" }, { label: "E2E" }, { label: "Lint" }],
+					},
+					{ id: "notify", question: "Tell the team when it lands?", options: [{ label: "Yes" }, { label: "No" }] },
+				],
+			}),
+		);
+		const card = () => document.querySelector("[data-prompt-card]") as unknown as TestElement & Element;
+		const press = async (key: string) => {
+			const event = new Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(event, { key });
+			await act(async () => {
+				card().dispatchEvent(event);
+			});
+			await flush();
+		};
+		expect(card().textContent).toContain(translate("extDialog.ask.step", { current: 1, total: 3 }));
+		await press("2");
+		expect(card().textContent).toContain("Which checks should run first?");
+		expect(card().textContent).toContain(translate("extDialog.ask.step", { current: 2, total: 3 }));
+		await press("1");
+		await press("3");
+		expect(card().textContent).toContain("Which checks should run first?");
+		// Next is the form's submit button on a step that is not the last (linkedom does not submit on click).
+		expect(buttonWithText(translate("extDialog.ask.next"))).toBeDefined();
+		const submitStep = async () => {
+			const form = card().querySelector("form") as unknown as TestElement;
+			await act(async () => {
+				form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+			});
+			await flush();
+		};
+		await submitStep();
+		expect(card().textContent).toContain("Tell the team when it lands?");
+		await press("1");
+		await submitStep();
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-three",
+			answers: [
+				{ id: "env", selectedOptions: ["Production"], customInput: undefined },
+				{ id: "checks", selectedOptions: ["Unit tests", "Lint"], customInput: undefined },
+				{ id: "notify", selectedOptions: ["Yes"], customInput: undefined },
+			],
+		});
+	});
+
 	it.each([
 		{
 			name: "a single-select pick",
