@@ -568,7 +568,7 @@ export interface AutopilotSetStateParams {
 	state: AutopilotState;
 	reason?: AutopilotPauseReason | AutopilotEndReason;
 	detail?: string;
-	/** `null` clears the in-flight mark. */
+	/** `null` clears the in-flight mark; a push neither replaces nor clears a release mark (`inFlightAfter`). */
 	inFlight?: AutopilotStateEntry["inFlight"] | null;
 	quotaResetAt?: number;
 }

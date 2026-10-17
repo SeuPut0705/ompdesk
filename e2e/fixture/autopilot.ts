@@ -68,6 +68,7 @@ import {
 	dueForRelease,
 	type EndReport,
 	finalizeCycle,
+	inFlightAfter,
 	initialStateEntry,
 	type JournalEntry,
 	type LiveCycle,
@@ -457,7 +458,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					policy: current.settings.ship,
 					records,
 					hasProcedure: Boolean(current.releaseProcedure),
-					inFlight: Boolean(current.inFlight),
+					releaseInFlight: current.inFlight?.kind === "release",
 					proposed: cur.proposed,
 				});
 				const result = buildBegin({
@@ -477,7 +478,9 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				cur.beganAt = now();
 				cur.area = due ? "release" : result.rotation.suggested;
 				if (guardState) guardState.due = due;
-				if (due && !current.inFlight) appendState({ inFlight: { kind: "release", startedAt: now() } }, current);
+				if (due && current.inFlight?.kind !== "release") {
+					appendState({ inFlight: { kind: "release", startedAt: now() } }, current);
+				}
 				publish();
 				return { text: result };
 			}
@@ -519,7 +522,9 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				host.appendCustom(AUTOPILOT_SHIP_REQUEST_ENTRY, request);
 				if (params.kind === "release") {
 					if (guardState) guardState.oneShotRelease = true;
-					if (!current.inFlight) appendState({ inFlight: { kind: "release", startedAt: now() } }, current);
+					if (current.inFlight?.kind !== "release") {
+						appendState({ inFlight: { kind: "release", startedAt: now() } }, current);
+					}
 				}
 				publish();
 				return { text: { accepted: true } };
@@ -864,11 +869,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				...(params.reason ? { reason: params.reason } : {}),
 				...(params.detail ? { detail: params.detail } : {}),
 				...(params.quotaResetAt ? { quotaResetAt: params.quotaResetAt } : {}),
-				...(params.inFlight === null
-					? { inFlight: undefined }
-					: params.inFlight
-						? { inFlight: params.inFlight }
-						: {}),
+				...(params.inFlight !== undefined ? { inFlight: inFlightAfter(prev.inFlight, params.inFlight) } : {}),
 			},
 			prev,
 		);

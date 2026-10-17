@@ -18,6 +18,7 @@ import {
 	recorded,
 	refs,
 	setAutopilot,
+	slowPushes,
 	startRun,
 	status,
 	waitForStatus,
@@ -180,7 +181,7 @@ test("a release after two green cycles runs the procedure, pushes HEAD to main a
 	}
 });
 
-test("a failing gate pauses the run as release_failed and leaves main alone", async () => {
+test("a failing gate pauses the run as release_failed and leaves main alone, though the last push is still going", async () => {
 	test.setTimeout(180_000);
 	const profile = await makeApProfile({
 		releaseProcedure: true,
@@ -198,6 +199,9 @@ test("a failing gate pauses the run as release_failed and leaves main alone", as
 		},
 	});
 	await writeGate(profile, 1);
+	// Each automatic push outlives the gap before the next cycle's `begin` (as a slow remote does), so the release
+	// falls due while cycle 2's push is in flight; that push once held back every release.
+	await slowPushes(profile, 1);
 	const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
 	const { app, page } = await launchAp(profile);
 	try {
@@ -214,6 +218,11 @@ test("a failing gate pauses the run as release_failed and leaves main alone", as
 			entry => entry.input && JSON.stringify(entry.input).includes("gate.sh"),
 		);
 		expect(gate).toMatchObject({ code: 1 });
+		const releaseBegin = (await agentTools(profile)).find(entry => {
+			const result = entry.result as { ship?: { due?: boolean } } | undefined;
+			return entry.op === "begin" && result?.ship?.due === true;
+		});
+		expect(releaseBegin?.result).toMatchObject({ ship: { inFlight: { kind: "push" } } });
 		expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
 		// No automatic resume: it stays paused until the user acts.
 		await page.waitForTimeout(2_000);

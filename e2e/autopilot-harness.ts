@@ -316,6 +316,13 @@ export async function writeGate(profile: ApProfile, exitCode: 0 | 1): Promise<vo
 	git(profile.project, "push", "-q", "origin", "main");
 }
 
+/** Every later `git push` from the repository (the run's worktree shares its hooks) takes at least `seconds`. */
+export async function slowPushes(profile: ApProfile, seconds: number): Promise<void> {
+	const hooks = path.resolve(profile.project, git(profile.project, "rev-parse", "--git-path", "hooks"));
+	await fs.mkdir(hooks, { recursive: true });
+	await fs.writeFile(path.join(hooks, "pre-push"), `#!/bin/sh\nsleep ${seconds}\n`, { mode: 0o755 });
+}
+
 /** Poll until the run's tab exists (the start made its worktree and opened it). */
 export async function waitForRunTab(page: Page): Promise<RunTab> {
 	let found: RunTab | null = null;

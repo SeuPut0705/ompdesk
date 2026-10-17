@@ -63,6 +63,7 @@ import {
 	dueForRelease,
 	type EndReport,
 	finalizeCycle,
+	inFlightAfter,
 	initialStateEntry,
 	isDuplicateTitle,
 	type JournalEntry,
@@ -497,7 +498,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				policy: state.settings.ship,
 				records,
 				hasProcedure: Boolean(state.releaseProcedure),
-				inFlight: Boolean(state.inFlight),
+				releaseInFlight: state.inFlight?.kind === "release",
 				proposed: current.proposed,
 			});
 			const result = buildBegin({
@@ -517,7 +518,9 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			current.beganAt = now();
 			current.area = due ? "release" : result.rotation.suggested;
 			if (guardState) guardState.due = due;
-			if (due && !state.inFlight) appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+			if (due && state.inFlight?.kind !== "release") {
+				appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+			}
 			publish(session);
 			return toolText(result);
 		}
@@ -558,7 +561,9 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			append(session, AUTOPILOT_SHIP_REQUEST_ENTRY, request);
 			if (params.kind === "release") {
 				if (guardState) guardState.oneShotRelease = true;
-				if (!state.inFlight) appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+				if (state.inFlight?.kind !== "release") {
+					appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+				}
 			}
 			publish(session);
 			return toolText(
@@ -577,14 +582,16 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			const check = proposeReleaseCheck(records, {
 				policyOn: state.settings.ship.autoRelease.on,
 				hasProcedure: Boolean(state.releaseProcedure),
-				inFlight: Boolean(state.inFlight),
+				releaseInFlight: state.inFlight?.kind === "release",
 				clean: await gitClean(state.root),
 			});
 			if (!check.ok) return toolText({ due: false, reason: check.reason });
 			current.proposed = true;
 			if (guardState) guardState.due = true;
 			current.area = "release";
-			if (!state.inFlight) appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+			if (state.inFlight?.kind !== "release") {
+				appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
+			}
 			publish(session);
 			return toolText({
 				due: true,
@@ -788,19 +795,22 @@ async function disarm(session: Session): Promise<AutopilotStatus> {
 	return publish(session);
 }
 
-function setStatePatch(params: AutopilotSetStateParams): Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> {
+function setStatePatch(
+	params: AutopilotSetStateParams,
+	prev: AutopilotStateEntry,
+): Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> {
 	return {
 		state: params.state,
 		...(params.reason ? { reason: params.reason } : {}),
 		...(params.detail ? { detail: params.detail } : {}),
 		...(params.quotaResetAt ? { quotaResetAt: params.quotaResetAt } : {}),
-		...(params.inFlight === null ? { inFlight: undefined } : params.inFlight ? { inFlight: params.inFlight } : {}),
+		...(params.inFlight !== undefined ? { inFlight: inFlightAfter(prev.inFlight, params.inFlight) } : {}),
 	};
 }
 
 function setState(session: Session, params: AutopilotSetStateParams): AutopilotStatus {
 	const prev = requireRun(session);
-	const next = appendState(session, setStatePatch(params), prev);
+	const next = appendState(session, setStatePatch(params, prev), prev);
 	if (next.state === "stopping" && prev.state !== "stopping" && session.isStreaming) {
 		hostPi?.sendMessage(
 			{ customType: "autopilot-stop", content: AUTOPILOT_STOPPING_STEER, display: true },

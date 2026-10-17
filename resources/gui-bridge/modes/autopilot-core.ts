@@ -249,16 +249,19 @@ export interface ReleaseFacts {
 	records: readonly AutopilotCycleRecord[];
 	/** The repo defines a release procedure (main detected it). */
 	hasProcedure: boolean;
-	/** A push or release is already under way. */
-	inFlight: boolean;
+	/**
+	 * A release is already under way. A push in flight does not count: main's automatic push of the last green cycle
+	 * routinely outlives the next `begin`, and a push slower than that gap would otherwise hold every release back.
+	 */
+	releaseInFlight: boolean;
 	/** The agent called `propose_release` and the bridge accepted it this cycle. */
 	proposed: boolean;
 }
 
-/** Whether `begin.ship.due` is true: auto release on, a procedure exists, nothing in flight, the last cycle green with no red streak, and the cadence reached. */
+/** Whether `begin.ship.due` is true: auto release on, a procedure exists, no release in flight, the last cycle green with no red streak, and the cadence reached. */
 export function dueForRelease(facts: ReleaseFacts): boolean {
 	const { policy, records } = facts;
-	if (!policy.autoRelease.on || !facts.hasProcedure || facts.inFlight) return false;
+	if (!policy.autoRelease.on || !facts.hasProcedure || facts.releaseInFlight) return false;
 	const last = records[records.length - 1];
 	if (last?.verify !== "green" || redStreak(records) > 0) return false;
 	const green = greenCyclesSinceRelease(records);
@@ -269,11 +272,11 @@ export function dueForRelease(facts: ReleaseFacts): boolean {
 /** `propose_release`: the preconditions the bridge verifies (the clean working tree is a fact the caller passes). */
 export function proposeReleaseCheck(
 	records: readonly AutopilotCycleRecord[],
-	facts: { policyOn: boolean; hasProcedure: boolean; inFlight: boolean; clean: boolean },
+	facts: { policyOn: boolean; hasProcedure: boolean; releaseInFlight: boolean; clean: boolean },
 ): { ok: true } | { ok: false; reason: string } {
 	if (!facts.policyOn) return { ok: false, reason: "auto release is off" };
 	if (!facts.hasProcedure) return { ok: false, reason: "the repository defines no release procedure" };
-	if (facts.inFlight) return { ok: false, reason: "a push or release is already in flight" };
+	if (facts.releaseInFlight) return { ok: false, reason: "a release is already in flight" };
 	const last = records[records.length - 1];
 	if (last?.verify !== "green") return { ok: false, reason: "the last cycle was not green" };
 	if (redStreak(records) > 0) return { ok: false, reason: "there is a red streak" };
@@ -286,6 +289,22 @@ export function proposeReleaseCheck(
 export function shipLevelOf(policy: AutopilotShipPolicy, due: boolean): AutopilotShipLevel {
 	if (policy.autoRelease.on && due) return "release";
 	return policy.autoPush ? "push" : "local";
+}
+
+type InFlightMark = NonNullable<AutopilotStateEntry["inFlight"]>;
+
+/**
+ * The in-flight mark after main's `setState` asks for `change` (`null` clears, `undefined` leaves it). Main marks
+ * only its own pushes and clears them once they settle; a release mark is the bridge's (a due `begin`, `ship release`,
+ * `propose_release`, cleared when that cycle ends), so a push that overlaps the release cycle neither replaces nor
+ * clears it.
+ */
+export function inFlightAfter(
+	prev: InFlightMark | undefined,
+	change: InFlightMark | null | undefined,
+): InFlightMark | undefined {
+	if (change === undefined || (prev?.kind === "release" && change?.kind !== "release")) return prev;
+	return change ?? undefined;
 }
 
 // ---------------------------------------------------------------------------------------------

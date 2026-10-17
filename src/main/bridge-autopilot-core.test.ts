@@ -29,6 +29,7 @@ import {
 	finalizeCycle,
 	greenCyclesSinceRelease,
 	hourlyRates,
+	inFlightAfter,
 	initialStateEntry,
 	isChurning,
 	isDuplicateTitle,
@@ -280,7 +281,7 @@ describe("releases", () => {
 		policy: policy(),
 		records,
 		hasProcedure: true,
-		inFlight: false,
+		releaseInFlight: false,
 		proposed: false,
 		...over,
 	});
@@ -296,11 +297,11 @@ describe("releases", () => {
 		expect(dueForRelease(facts(seq(GREEN, GREEN, GREEN)))).toBe(true);
 		expect(dueForRelease(facts(seq(GREEN, GREEN, GREEN, { area: "release", verify: "green" })))).toBe(false);
 	});
-	it("never due when off, without a procedure, in flight, after red, or when the last cycle is not green", () => {
+	it("never due when off, without a procedure, during a release, after red, or when the last cycle is not green", () => {
 		const three = seq(GREEN, GREEN, GREEN);
 		expect(dueForRelease(facts(three, { policy: policy({ on: false }) }))).toBe(false);
 		expect(dueForRelease(facts(three, { hasProcedure: false }))).toBe(false);
-		expect(dueForRelease(facts(three, { inFlight: true }))).toBe(false);
+		expect(dueForRelease(facts(three, { releaseInFlight: true }))).toBe(false);
 		expect(dueForRelease(facts(seq(GREEN, GREEN, GREEN, RED)))).toBe(false);
 		expect(dueForRelease(facts(seq(GREEN, GREEN, GREEN, SKIP)))).toBe(false);
 		expect(dueForRelease(facts([]))).toBe(false);
@@ -312,12 +313,15 @@ describe("releases", () => {
 		expect(dueForRelease(facts(seq(RED), { policy: agent, proposed: true }))).toBe(false);
 	});
 	it("proposeReleaseCheck: every precondition", () => {
-		const ok = { policyOn: true, hasProcedure: true, inFlight: false, clean: true };
+		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
 		const greens = seq(GREEN, GREEN);
 		expect(proposeReleaseCheck(greens, ok)).toEqual({ ok: true });
 		expect(proposeReleaseCheck(greens, { ...ok, policyOn: false })).toMatchObject({ ok: false });
 		expect(proposeReleaseCheck(greens, { ...ok, hasProcedure: false })).toMatchObject({ ok: false });
-		expect(proposeReleaseCheck(greens, { ...ok, inFlight: true })).toMatchObject({ ok: false });
+		expect(proposeReleaseCheck(greens, { ...ok, releaseInFlight: true })).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("release is already in flight"),
+		});
 		expect(proposeReleaseCheck(greens, { ...ok, clean: false })).toMatchObject({
 			ok: false,
 			reason: expect.stringContaining("clean"),
@@ -328,6 +332,17 @@ describe("releases", () => {
 			ok: false,
 			reason: expect.stringContaining("since the last release"),
 		});
+	});
+	it("inFlightAfter: main's push mark comes and goes, a release mark outlasts it", () => {
+		const push = { kind: "push" as const, startedAt: 1 };
+		const release = { kind: "release" as const, startedAt: 2 };
+		expect(inFlightAfter(undefined, push)).toEqual(push);
+		expect(inFlightAfter(push, null)).toBeUndefined();
+		expect(inFlightAfter(push, undefined)).toEqual(push);
+		expect(inFlightAfter(push, release)).toEqual(release);
+		// The last green cycle's push settling after the next `begin` made that cycle the release.
+		expect(inFlightAfter(release, push)).toEqual(release);
+		expect(inFlightAfter(release, null)).toEqual(release);
 	});
 	it("shipLevelOf: release scope only when auto release is on AND due", () => {
 		const local = shipPolicyForPreset("local");
