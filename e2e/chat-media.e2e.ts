@@ -239,11 +239,20 @@ for (const language of ["en", "ko"] as const)
 					.getByRole("button", { name: language === "en" ? "View messages" : "메시지 보기" })
 					.first()
 					.click();
-				const sheet = page.locator(".omp-subagent-media");
-				await expect(sheet.locator("img").first()).toBeVisible();
-				await expectLoadedAndIdle(sheet.locator("[data-chat-media='video'] video").first(), "video");
-				await expectLoadedAndIdle(sheet.locator("[data-chat-media='audio'] audio").first(), "audio");
-				await expect(sheet.locator("[data-chat-file='image']")).toContainText("chart.svg");
+				const sheet = page.locator("[data-sheet-panel][role='dialog']");
+				// The read's contact sheet and the clip it read sit under the collapsed work card. Players mount only
+				// near the viewport, and the sheet scrolls: bring each player's box in first.
+				const toolMedia = sheet.locator(".omp-subagent-media");
+				await expect(toolMedia.locator("img").first()).toBeVisible();
+				const clip = toolMedia.locator("[data-chat-media='video']").first();
+				await clip.scrollIntoViewIfNeeded();
+				await expectLoadedAndIdle(clip.locator("video"), "video");
+				// The files its reply names sit under the reply, as in the main transcript.
+				const replyFiles = sheet.locator(".omp-chat-media-list").last();
+				const narration = replyFiles.locator("[data-chat-media='audio']");
+				await narration.scrollIntoViewIfNeeded();
+				await expectLoadedAndIdle(narration.locator("audio"), "audio");
+				await expect(replyFiles.locator("[data-chat-file='image']")).toContainText("chart.svg");
 				await capture(page, `${language}-${theme}-subagent-sheet`);
 
 				// The project still holds what the agent wrote; the player read it, never moved it.
