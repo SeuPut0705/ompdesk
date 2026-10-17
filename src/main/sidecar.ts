@@ -5,6 +5,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
@@ -492,6 +493,13 @@ export class SidecarManager extends EventEmitter {
 		const accountRotation = this.#options.accountRotation?.();
 		const accountRotationLedger = this.#options.accountRotationLedger;
 
+		// Stock writes a new session's file at its first assistant message. A path learned before that (a restored
+		// tab, a first turn a restart cut off, an omp restart on a tab never used) opens nothing, and `--session` on
+		// it only fails ("Session not found"): the tab starts a fresh session in its folder instead.
+		if (this.#resumeSessionPath && !existsSync(this.#resumeSessionPath)) {
+			this.#resumeSessionPath = null;
+			this.#freshLaunchPending = true;
+		}
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
 		else if (this.#freshLaunchPending && bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));

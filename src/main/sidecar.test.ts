@@ -45,6 +45,7 @@ describe("SidecarManager", () => {
 			tempDir,
 			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
+		await fs.writeFile(sessionPath, "");
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		try {
@@ -165,6 +166,37 @@ describe("SidecarManager", () => {
 			await restarted;
 			const restartLaunch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
 			expect(restartLaunch).toEqual(["--mode", "rpc-ui", "-e", bridgeEntry]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("starts a fresh session in its folder when the session's file was never written", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-unwritten-"));
+		const logPath = path.join(tempDir, "argv.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+
+		// Not `fresh`: a restored tab or an omp restart, whose session got its path before stock wrote the file.
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.restart(undefined, path.join(tempDir, "never-written.jsonl"));
+			await ready;
+
+			// No `--session` on a missing file (stock exits "Session not found"), and no autoResume of another session.
+			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
+			expect(launch).toEqual([
+				"--mode",
+				"rpc-ui",
+				"--config",
+				path.join(tempDir, "fresh-launch.yml"),
+				"-e",
+				path.join(tempDir, "index.ts"),
+			]);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);
@@ -671,6 +703,7 @@ describe("SidecarManager", () => {
 				"process.stdin.resume();",
 			].join("\n"),
 		);
+		await fs.writeFile(sessionPath, "");
 
 		const reportFailure = vi.fn();
 		const statuses: SidecarStatusPayload[] = [];

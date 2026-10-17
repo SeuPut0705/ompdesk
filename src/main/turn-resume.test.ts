@@ -594,8 +594,30 @@ describe("TurnResume launch", () => {
 			{ type: "retry" },
 			{ type: "prompt", message: "list the fruits" },
 		]);
-		expect(second.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		// Sent once: the prompt left the marker before it went, the marker itself stays until the turn runs.
+		expect(second.store.read()).toMatchObject([{ tab: "restored" }]);
+		expect(second.store.read()[0]?.prompt).toBeUndefined();
 		rmSync(second.dir, { recursive: true, force: true });
+	});
+
+	it("runs a first turn whose session was never written in the fresh tab the layout restored for it, not a hidden new one", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({}) } });
+		// The layout drops a session path with no file, so its tab came back as a fresh session in the same folder.
+		h.facts.push(fact({ tabId: "elsewhere", cwd: "/elsewhere", sessionFile: undefined }));
+		h.facts.push(fact({ tabId: "restored", sessionFile: undefined }));
+		new InterruptedTurnStore(h.file).write([
+			marker({ sessionPath: join(h.dir, "never-written.jsonl"), prompt: "list the fruits" }),
+			marker({ tab: "old-2", sessionPath: join(h.dir, "never-written-2.jsonl"), prompt: "list the vegetables" }),
+		]);
+		h.resume.launch();
+		await settle();
+		// One restored tab per unwritten session: the second has none left and gets a tab opened for it.
+		expect(h.state.opened.map(entry => entry.prompt)).toEqual(["list the vegetables"]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored", "opened"]);
+		expect(h.commands.filter(cmd => cmd.type === "prompt")).toEqual([
+			{ type: "prompt", message: "list the fruits" },
+			{ type: "prompt", message: "list the vegetables" },
+		]);
 	});
 
 	it("shows the calm continuing row from launch until the turn runs, never for a reopened card", async () => {

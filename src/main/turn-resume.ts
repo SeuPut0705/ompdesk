@@ -13,10 +13,11 @@
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
  * what was running. Electron-free (the pool and the clock are injected).
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
+import { canonicalCwd } from "./canonical-cwd";
 import type { SidecarLike } from "./sidecar-types";
 
 export type ResumeReason =
@@ -643,7 +644,6 @@ export class TurnResume {
 	async #run(tabId: string, action: ResumeAction): Promise<boolean> {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
-		const unsavedPrompt = this.#pending.get(tabId)?.prompt;
 		const sidecar = this.#deps.pool.startTab(tabId);
 		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
 			this.#pending.delete(tabId);
@@ -674,8 +674,13 @@ export class TurnResume {
 		// batch (the card reopens) or the aborted reply, and does nothing for a turn that really ended.
 		const restored = action === "restore" ? await send("restore_interrupted") : undefined;
 		let started = continues(restored) || continues(await send("retry"));
-		// A new session's first turn cut off before stock wrote its file left nothing to restore: the prompt runs again.
-		if (!started && unsavedPrompt && !cancelled()) {
+		// A new session's first turn cut off before stock wrote its file left nothing to restore (its tab starts a
+		// fresh session in the same folder): the prompt runs again. It leaves the marker before it is sent, so no
+		// later continuation of this tab sends it a second time.
+		const pending = this.#pending.get(tabId);
+		const unsavedPrompt = pending?.prompt;
+		if (pending && unsavedPrompt && !started && !cancelled()) {
+			delete pending.prompt;
 			const response = await sidecar.rpcClient
 				?.command({ type: "prompt", message: unsavedPrompt })
 				.catch(() => undefined);
@@ -756,7 +761,10 @@ export class TurnResume {
 		const resumable: Array<{ tabId: string; marker: ResumeMarker; action: ResumeAction }> = [];
 		for (const marker of markers) {
 			const action = launchAction(marker);
-			const tabId = this.#deps.pool.tabForSession(marker.sessionPath, marker.peer) ?? this.#deps.openTab(marker);
+			const tabId =
+				this.#deps.pool.tabForSession(marker.sessionPath, marker.peer) ??
+				this.#unwrittenSessionTab(marker) ??
+				this.#deps.openTab(marker);
 			if (!tabId) continue;
 			resumable.push({ tabId, marker, action });
 			this.#pending.set(tabId, { ...marker, tab: tabId });
@@ -771,5 +779,29 @@ export class TurnResume {
 			else void this.#run(tabId, action);
 		}
 		if (continuing > 0) this.#deps.notify(continuing);
+	}
+
+	/**
+	 * The tab the saved layout restored for a session stock never wrote (a first turn cut off before its first
+	 * assistant message): the layout drops a missing path (tab-layout.ts), so that tab came back as a fresh
+	 * session in the same folder. It is an unclaimed local tab there with no session file yet and nothing
+	 * running; null when there is none, and `openTab` opens one (which starts fresh too, see sidecar.ts).
+	 */
+	#unwrittenSessionTab(marker: ResumeMarker): string | null {
+		if (marker.peer || existsSync(marker.sessionPath)) return null;
+		const cwd = canonicalCwd(marker.cwd);
+		const restored = this.#deps.pool
+			.resumeFacts()
+			.find(
+				fact =>
+					!fact.device &&
+					!fact.peer &&
+					fact.sessionFile === undefined &&
+					!fact.running &&
+					fact.kind === marker.kind &&
+					canonicalCwd(fact.cwd) === cwd &&
+					!this.#pending.has(fact.tabId),
+			);
+		return restored?.tabId ?? null;
 	}
 }

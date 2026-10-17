@@ -34,6 +34,12 @@ const TEXT = {
 	},
 } as const;
 
+declare global {
+	/** Main process, the setting-off quit test: the quit dialogs shown, and the answer to the one held open. */
+	var quitDialogs: Array<{ message: unknown; buttons: unknown }> | undefined;
+	var answerQuit: (() => void) | undefined;
+}
+
 interface Profile {
 	root: string;
 	desktop: string;
@@ -270,11 +276,74 @@ test("the setting off: a killed turn is not resumed and leaves no marker", async
 			timeout: 30_000,
 		});
 		expect(await markers(profile)).toEqual([]);
+		// The relaunch reopens the session the saved layout names: it must be saved before the kill.
+		await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
 		await crash(first.app);
 
 		const second = await launch(profile);
 		current = second.app;
 		await expect(second.page.getByText("fixture running").first()).toBeVisible({ timeout: 30_000 });
+		await expect(second.page.getByText("Continued after the interruption.")).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
+
+test("the setting off: a quit asks before stopping the running turn, and quitting anyway leaves nothing to continue", async () => {
+	test.setTimeout(150_000);
+	const profile = await makeProfile("en", "light");
+	let current: ElectronApplication | undefined;
+	try {
+		const first = await launch(profile);
+		current = first.app;
+		await first.page.evaluate(() => window.omp.prefs.set("resumeInterrupted", false));
+		const input = first.page.locator(".omp-composer-input").first();
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(first.page.getByRole("button", { name: "Stop", exact: true }).first()).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
+		// The quit asks only while a turn runs (`quitRisk` counts the tabs whose run is in flight).
+		await expect
+			.poll(async () => (await first.page.evaluate(() => window.omp.tabs.list())).map(tab => tab.status))
+			.toEqual(["running"]);
+
+		// The quit's dialog is recorded and held open until the test answers it "Quit anyway" (0).
+		await first.app.evaluate(({ app, dialog }) => {
+			globalThis.quitDialogs = [];
+			dialog.showMessageBox = (async (...args: unknown[]) => {
+				const options = args.at(-1);
+				if (options && typeof options === "object" && "message" in options && "buttons" in options)
+					globalThis.quitDialogs?.push({ message: options.message, buttons: options.buttons });
+				await new Promise<void>(resolve => {
+					globalThis.answerQuit = resolve;
+				});
+				return { response: 0, checkboxChecked: false };
+			}) as never;
+			setImmediate(() => app.quit());
+		});
+		await expect
+			.poll(() => first.app.evaluate(() => globalThis.quitDialogs), { timeout: 15_000 })
+			.toEqual([{ message: "Sessions are still running", buttons: ["Quit anyway", "Keep working"] }]);
+		const child = first.app.process();
+		const exited = new Promise<void>(resolve => {
+			if (child.exitCode !== null || child.signalCode !== null) resolve();
+			else child.once("exit", () => resolve());
+		});
+		// Answered on the next tick, so this evaluate returns before the app quits under it.
+		await first.app.evaluate(() => {
+			setImmediate(() => globalThis.answerQuit?.());
+		});
+		await exited;
+		current = undefined;
+		expect(await markers(profile)).toEqual([]);
+
+		const second = await launch(profile);
+		current = second.app;
+		await expect(second.page.getByText("fixture running").first()).toBeVisible({ timeout: 30_000 });
+		await expect(second.page.getByText(TEXT.en.continuing)).toHaveCount(0);
 		await expect(second.page.getByText("Continued after the interruption.")).toHaveCount(0);
 	} finally {
 		if (current) await exitApp(current);

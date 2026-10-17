@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -113,8 +113,13 @@ function summary(agent: string): string {
 		.join("\n\n");
 }
 
+/** Launches the app on `desktop`; its main-process output goes to `main.log` beside the test's other outputs. */
 async function launch(desktop: string, env: Record<string, string>): Promise<{ app: ElectronApplication; page: Page }> {
 	const app = await electron.launch({ args: [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`], env });
+	const log = createWriteStream(test.info().outputPath("main.log"), { flags: "a" });
+	log.write(`--- launch ${new Date().toISOString()}\n`);
+	app.process().stdout?.pipe(log, { end: false });
+	app.process().stderr?.pipe(log, { end: false });
 	const page = await app.firstWindow();
 	return { app, page };
 }
@@ -161,7 +166,7 @@ interface Scenario {
 	name: string;
 	prompt: string;
 	/** Starts the work instead of sending `prompt` (e.g. a goal through `set_goal`). */
-	start?: (page: Page, objective: string) => Promise<void>;
+	start?: (ctx: { page: Page; objective: string; agent: string }) => Promise<void>;
 	/** After the relaunch, with the app up: extra state read through the window. */
 	inspect?: (page: Page) => Promise<Record<string, unknown>>;
 	/** Resolves once the work to cut off is under way in the first app. */
@@ -179,7 +184,8 @@ async function run(scenario: Scenario): Promise<void> {
 		const first = await launch(desktop, env);
 		current = first.app;
 		await ready(first.page);
-		if (scenario.start) await scenario.start(first.page, scenario.prompt.replaceAll("$PROJECT", project));
+		if (scenario.start)
+			await scenario.start({ page: first.page, objective: scenario.prompt.replaceAll("$PROJECT", project), agent });
 		else {
 			const input = first.page.locator(".omp-composer-input").first();
 			await input.fill(scenario.prompt.replaceAll("$PROJECT", project));
@@ -192,6 +198,8 @@ async function run(scenario: Scenario): Promise<void> {
 		await restartForUpdate(first.app);
 		current = undefined;
 		const markersAfterQuit = await markers(desktop);
+		// The windows and tabs the relaunch restores (prefs `tabLayouts`).
+		const layoutAtQuit: unknown = JSON.parse(await fs.readFile(path.join(desktop, "prefs.json"), "utf8")).tabLayouts;
 		const before = sessionFiles(agent).map(file => ({
 			file: path.relative(agent, file.file),
 			lines: file.lines.length,
@@ -221,6 +229,7 @@ async function run(scenario: Scenario): Promise<void> {
 			{
 				markersAtQuit,
 				markersAfterQuit,
+				layoutAtQuit,
 				toast: await toastSeen,
 				continued,
 				secondsAfterQuit: Math.round((Date.now() - quitAt) / 1000),
@@ -244,20 +253,58 @@ async function run(scenario: Scenario): Promise<void> {
 
 const optIn = () => test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 
+/** The tabs after the relaunch: a continued first turn runs in the restored tab, not in a second, hidden one. */
+async function tabsAfterRelaunch(page: Page): Promise<Record<string, unknown>> {
+	const tabs = await page.evaluate(() => window.omp.tabs.list());
+	return { tabs: tabs.map(tab => ({ active: tab.active, status: tab.status, sessionPath: tab.sessionPath })) };
+}
+
+/** Mid-stream: the list is showing but not finished. */
+async function listStreaming({ page }: { page: Page }): Promise<void> {
+	await expect
+		.poll(() => page.locator(".omp-transcript-content li").count(), { timeout: 180_000, intervals: [100] })
+		.toBeGreaterThan(5);
+}
+
+const fruits = (word: string) =>
+	`Write a numbered list of 300 distinct fruits, one per line, nothing else, and after the list a final line with exactly the word ${word}.`;
+
 test("real omp update restart (a): a streaming reply", async () => {
 	optIn();
 	test.setTimeout(900_000);
 	await run({
 		name: "a-streaming",
-		prompt:
-			"Write a numbered list of 300 distinct fruits, one per line, nothing else, and after the list a final line with exactly the word STREAM-DONE.",
-		underway: async ({ page }) => {
-			// Mid-stream: the list is showing but not finished.
+		prompt: fruits("STREAM-DONE"),
+		underway: listStreaming,
+		// In the tab the layout restored: no second, hidden tab took the prompt.
+		continued: async ({ agent, page }) =>
+			replied(agent, "STREAM-DONE") && (await page.evaluate(() => window.omp.tabs.list())).length === 1,
+		inspect: tabsAfterRelaunch,
+	});
+});
+
+test("real omp update restart (a2): a streaming reply in the session's second turn", async () => {
+	optIn();
+	test.setTimeout(900_000);
+	await run({
+		name: "a2-streaming-second-turn",
+		prompt: fruits("STREAM2-DONE"),
+		start: async ({ page, objective, agent }) => {
+			const input = page.locator(".omp-composer-input").first();
+			await input.fill("Reply with exactly the word FIRST-OK and nothing else.");
+			await input.press("Enter");
+			await expect.poll(() => replied(agent, "FIRST-OK"), { timeout: 180_000 }).toBe(true);
 			await expect
-				.poll(() => page.locator(".omp-transcript-content li").count(), { timeout: 180_000, intervals: [100] })
-				.toBeGreaterThan(5);
+				.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.status, {
+					timeout: 60_000,
+				})
+				.toBe("ready");
+			await input.fill(objective);
+			await input.press("Enter");
 		},
-		continued: ({ agent }) => replied(agent, "STREAM-DONE"),
+		underway: listStreaming,
+		continued: ({ agent }) => replied(agent, "STREAM2-DONE"),
+		inspect: tabsAfterRelaunch,
 	});
 });
 
@@ -380,7 +427,7 @@ test("real omp update restart (e): an active goal", async () => {
 		name: "e-goal",
 		prompt:
 			"Append the numbers 1 to 6 to $PROJECT/goal.txt, one bash call per number, each call `sleep 8; echo N >> $PROJECT/goal.txt` with N the number, strictly one call after another. When goal.txt has all six lines, mark the goal complete.",
-		start: async (page, objective) => {
+		start: async ({ page, objective }) => {
 			expect((await page.evaluate(() => window.omp.rpc.setSetting("goal.enabled", true))).success).toBe(true);
 			const response = await page.evaluate(async goal => {
 				const tab = (await window.omp.tabs.list()).find(row => row.active);
