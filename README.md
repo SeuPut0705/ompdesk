@@ -68,7 +68,7 @@ Needs macOS on Apple Silicon or Windows 10/11 x64. omp 18.11.0 or newer is insta
 
 ## Updates
 
-OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and MCP servers update themselves while the app is open. Running work is not interrupted, and restarting for an app update asks first if tasks are running. No GitHub account or token is needed. [Details](docs/updates.md).
+OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and MCP servers update themselves while the app is open. Running work is not interrupted, and a restart for an app update continues it after relaunch. No GitHub account or token is needed. [Details](docs/updates.md).
 
 ## FAQ
 

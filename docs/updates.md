@@ -8,7 +8,7 @@ Everything updates itself. Nothing here needs an account.
 
 Use **Check for Updates…** in the app menu or **Settings › Updates & about**. On macOS, keep the app in a writable place such as the Applications folder; a restart is then all an update takes.
 
-If tasks are running when you restart, a dialog says so. With **Continue interrupted work after relaunch** on (the default), the tasks pick up on the first launch after the update.
+With **Continue interrupted work after relaunch** on (the default), restarting for an update does not ask: running tasks pick up on the first launch after the update. With it off, a dialog asks first when tasks are running.
 
 No GitHub account or token is needed: the repository is public, the app reads its GitHub releases directly, and it checks each download against the SHA-512 in the release metadata.
 
