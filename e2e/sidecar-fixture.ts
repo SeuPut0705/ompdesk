@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /// <reference types="bun" />
 import * as fs from "node:fs";
-import { runModelSetup } from "./fixture/model-setup";
 import { runPrint } from "./fixture/print";
 import { runRpcUi } from "./fixture/rpc-ui";
 import { runStats } from "./fixture/stats";
@@ -22,7 +21,6 @@ if (process.argv.includes("--version")) {
 	process.exit(0);
 }
 if (process.argv[2] === "stats") await runStats();
-else if (process.env.OMP_GUI_TEST_MODEL_SETUP === "1" && process.argv.includes("rpc")) runModelSetup();
 else if (process.argv[2] === "update" && process.argv.includes("--check")) runUpdateCheck();
 else if (process.argv[2] === "worktree" && process.argv.includes("--json")) runWorktree();
 else if (process.argv[2] === "-p") await runPrint();

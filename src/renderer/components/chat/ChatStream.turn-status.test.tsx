@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteState } from "../../../shared/ipc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -28,7 +28,7 @@ Object.assign(window, {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { ProcessGroup, STREAMING_WORK_ROW, TurnStatusRow } = await import("./ChatStream");
+const { ProcessGroup, STREAMING_WORK_ROW, TranscriptHistoryStatus, TurnStatusRow } = await import("./ChatStream");
 
 let container: HTMLElement;
 let root: Root;
@@ -187,5 +187,34 @@ describe("TurnStatusRow", () => {
 		expect(useToastStore.getState().toasts.at(-1)?.title).toBe("Couldn't cancel the wait");
 		useTabsStore.setState({ activeTabId: null, tabs: [] });
 		useRemoteStore.getState().reset();
+	});
+});
+
+describe("TranscriptHistoryStatus", () => {
+	it("says a failed page of earlier messages as an alert whose Retry loads it again", async () => {
+		const onRetry = vi.fn();
+		await mount(<TranscriptHistoryStatus error="disk read failed" loading={false} onRetry={onRetry} />);
+		const status = container.querySelector('[data-testid="transcript-history-status"]');
+		expect(status?.getAttribute("role")).toBe("alert");
+		expect(status?.textContent).toContain(translate("chat.history.failed"));
+		const retry = status?.querySelector("button");
+		if (!retry) throw new Error("no Retry");
+		await act(async () => (retry as unknown as HTMLButtonElement).click());
+		expect(onRetry).toHaveBeenCalledTimes(1);
+	});
+
+	it("is a quiet spinner while loading, and nothing at all otherwise", async () => {
+		await mount(<TranscriptHistoryStatus error={null} loading onRetry={() => {}} />);
+		const status = container.querySelector('[data-testid="transcript-history-status"]');
+		expect(status?.getAttribute("role")).toBeNull();
+		expect(status?.querySelector("button")).toBeNull();
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<TranscriptHistoryStatus error={null} loading={false} onRetry={() => {}} />
+				</I18nProvider>,
+			);
+		});
+		expect(container.querySelector('[data-testid="transcript-history-status"]')).toBeNull();
 	});
 });

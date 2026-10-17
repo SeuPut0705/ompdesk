@@ -1,33 +1,34 @@
 /**
  * Prints the e2e spec files of one shard of the full Playwright suite, for
- * release.yml's and e2e-shards.yml's matrix:
+ * e2e-shards.yml's matrix (called by ci.yml's manual `e2e=true` and by the nightly e2e workflow):
  *
  *   bunx playwright test $(bun scripts/e2e-shard.ts 2/4)
  *
  * Why not `playwright test --shard=2/4`: it cuts the ordered list of tests into
- * equal runs of *listed* tests, and the suite lists ~700 tests of which ~300
- * run. Specs that skip inside the test (the `captures:` variants of the
- * `mobile-*` specs, every `OMP_GUI_*=<dir>` audit) still count, so one shard
- * would get a run of near-free tests and another the real work. Here whole files
- * are dealt, heaviest first, to the lightest shard (LPT), by an estimated cost
- * per file: its tests that are not annotated skipped, a `captures:` test counting
- * a tenth, at `TEST_SECONDS` each, but never below the measured file times in
- * `MEASURED_SECONDS` (AGENTS.md; 16 Oct 2026, 4 workers on a 15-core Mac). The
- * costs only steer the split; every file lands in exactly one shard, so a wrong
- * estimate costs wall time, never coverage.
+ * equal runs of *listed* tests, and the suite lists ~380 tests of which ~200
+ * run. Specs that skip inside the test (the real-omp and `OMP_GUI_*=<dir>` audits)
+ * still count, so one shard would get a run of near-free tests and another the
+ * real work. Here whole files are dealt, heaviest first, to the lightest shard
+ * (LPT), by an estimated cost per file: its tests that are not annotated skipped,
+ * a `captures:` test counting a tenth, at `TEST_SECONDS` each, but never below
+ * the measured file times in `MEASURED_SECONDS` (AGENTS.md; 18 Oct 2026, the
+ * suite's summed test time per file, 4 workers on a 15-core Mac). The costs only
+ * steer the split; every file lands in exactly one shard, so a wrong estimate
+ * costs wall time, never coverage.
  */
 import { spawnSync } from "node:child_process";
 
 const TEST_SECONDS = 4;
 const CAPTURE_WEIGHT = 0.1;
-/** Slowest specs, measured (seconds of wall time with the suite running). */
+/** Slowest specs, measured (seconds of test time with the suite running). */
 const MEASURED_SECONDS: Readonly<Record<string, number>> = {
 	"deep-audit.e2e.ts": 184,
-	"remote-resume.e2e.ts": 95,
-	"a11y-audit.e2e.ts": 80,
-	"remote-flows.e2e.ts": 64,
-	"usage-resume.e2e.ts": 54,
-	"next-prompt.e2e.ts": 54,
+	"mobile-shell.e2e.ts": 45,
+	"a11y-audit.e2e.ts": 45,
+	"autopilot-ship.e2e.ts": 40,
+	"remote-resume.e2e.ts": 36,
+	"autopilot-cycles.e2e.ts": 36,
+	"real-core.e2e.ts": 22,
 };
 
 interface JsonSpec {

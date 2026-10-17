@@ -267,9 +267,11 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 	// count; 20 cycles still pass Node's 10-listener warning twice. The open tab's
 	// sidecar must show up as a new process, or the count would guard nothing; it is
 	// found by pid, because a total count also moves with short-lived children (git,
-	// helpers, an earlier test's sidecar still exiting) and can stay level.
+	// helpers, an earlier test's sidecar still exiting) and can stay level. The listener
+	// baseline is taken after the first cycle: what a first open of the dialog and of a
+	// second tab installs once for the app's life is not a leak, and it no longer depends
+	// on which earlier test happened to open them first.
 	const cycles = 20;
-	const before = await listeners();
 	const processesBefore = processes();
 	const pidsBefore = new Set(processesBefore.map(child => child.pid));
 	await cycle(async () => {
@@ -280,6 +282,7 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 			JSON.stringify(started),
 		).not.toEqual([]);
 	});
+	const before = await listeners();
 	for (let index = 1; index < cycles; index++) await cycle();
 	const after = await listeners();
 	expect(after).toBeLessThanOrEqual(before);

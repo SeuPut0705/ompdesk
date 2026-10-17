@@ -11,7 +11,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IpcModelSetupRunResult } from "../../../../shared/ipc-types";
-import type { ModelSetupPlan, ModelSetupRequest } from "../../../../shared/model-setup";
+import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "../../../../shared/model-setup";
 import type { ModelInfo, ModelRoleEntry } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
@@ -113,6 +113,7 @@ function install({ advisorEnabled = false, stored }: { advisorEnabled?: boolean;
 		return pending.promise;
 	});
 	const abort = vi.fn(async () => true);
+	const status = vi.fn<() => Promise<ModelSetupStatus>>(async () => ({ running: true }));
 	const prefsSet = vi.fn<(key: string, value: unknown) => Promise<void>>(async () => {});
 	(window as unknown as { omp?: unknown }).omp = {
 		rpc,
@@ -120,12 +121,12 @@ function install({ advisorEnabled = false, stored }: { advisorEnabled?: boolean;
 			get: vi.fn(async (key: string) => (key === MODEL_SETUP_PREFS_KEY ? stored : undefined)),
 			set: prefsSet,
 		},
-		modelSetup: { run, abort, status: vi.fn(async () => ({ running: true })) },
+		modelSetup: { run, abort, status },
 		system: { openExternal: vi.fn(async () => {}) },
 	};
 	/** Settle the pending research run. */
 	const finish = (result: IpcModelSetupRunResult) => pending.resolve(result);
-	return { rpc, run, abort, prefsSet, finish };
+	return { rpc, run, abort, prefsSet, finish, status };
 }
 
 let root: Root | undefined;
@@ -364,5 +365,37 @@ describe("ModelSetupDialog", () => {
 		expect(step()).toBe("pick");
 		expect(harness.rpc.setModelRole).not.toHaveBeenCalled();
 		expect(harness.prefsSet.mock.calls.some(([key]) => key === MODEL_SETUP_PREFS_KEY)).toBe(false);
+	});
+
+	it("shows the research run's latest tool call from its machine, polled each second", async () => {
+		const harness = install();
+		harness.status.mockResolvedValue({
+			running: true,
+			activity: { tool: "web_search", detail: "coding model leaderboard" },
+		});
+		await mount();
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			await click(button(translate("modelSetup.pick.start")));
+			const line = () => document.querySelector("[data-model-setup-activity]")?.textContent;
+			expect(line()).toBe(translate("modelSetup.research.starting"));
+			await act(async () => {
+				vi.advanceTimersByTime(1_000);
+			});
+			await act(async () => {});
+			expect(line()).toBe(translate("modelSetup.research.searching", { detail: "coding model leaderboard" }));
+		} finally {
+			vi.useRealTimers();
+		}
+		await act(async () => harness.finish({ success: false, error: "cancelled", cancelled: true }));
+	});
+
+	it("says what each role runs now beside the proposal", async () => {
+		const harness = install();
+		await mount();
+		await researchToReview(harness);
+		expect(document.querySelector('tr[data-model-setup-role="smol"]')?.textContent).toContain(
+			translate("modelSetup.review.current", { model: "Haiku" }),
+		);
 	});
 });

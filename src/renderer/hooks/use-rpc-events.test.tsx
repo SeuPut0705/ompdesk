@@ -1700,6 +1700,36 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["a", "b", "c", "d", "e"]);
 	});
 
+	it("a failed older page says so and keeps its cursor, so Retry loads it", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-fail");
+		const row = (id: string, timestamp: number): AgentMessage => ({
+			role: "user",
+			content: id,
+			timestamp,
+			entryId: id,
+		});
+		const messages = sessionRuntimeStore<MessagesStore>("t-fail", "messages")!;
+		messages.setState({ messages: [row("b", 2)], prevCursor: "p0" });
+		const original = commandForTab.getMockImplementation()!;
+		let fail = true;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			if (fail) return { type: "response", command: command.type, success: false, error: "disk read failed" };
+			return success({ messages: [row("a", 1)], totalMessages: 2 });
+		});
+		expect(await loadOlderTranscript("t-fail")).toBe(false);
+		expect(messages.getState()).toMatchObject({
+			pageError: "disk read failed",
+			isLoadingPage: false,
+			prevCursor: "p0",
+		});
+		fail = false;
+		expect(await loadOlderTranscript("t-fail")).toBe(true);
+		expect(messages.getState().pageError).toBeNull();
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["a", "b"]);
+	});
+
 	it("re-reads only the tail if a live commit changes the initial paging snapshot", async () => {
 		const { commandForTab } = installTabRoutedMockOmp();
 		seedReadyTab("t-tail-race");

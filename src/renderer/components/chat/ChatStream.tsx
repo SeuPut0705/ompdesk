@@ -925,24 +925,7 @@ function SessionTranscript() {
 						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
 					</div>
 				)}
-				{(isLoadingPage || pageError) && (
-					<div
-						data-testid="transcript-history-status"
-						role={pageError ? "alert" : undefined}
-						className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-(--sc-surface-1) py-2 text-sc-sm text-(--sc-text-muted)"
-					>
-						{isLoadingPage ? (
-							<Spinner label={t("chat.history.loading")} size="sm" />
-						) : (
-							<>
-								<span>{t("chat.history.failed")}</span>
-								<Button size="sm" onClick={() => void requestOlder()}>
-									{t("common.retry")}
-								</Button>
-							</>
-						)}
-					</div>
-				)}
+				<TranscriptHistoryStatus error={pageError} loading={isLoadingPage} onRetry={() => void requestOlder()} />
 				{status === "starting" && !firstRunOpen && rows.length === 0 && !switchPending && (
 					<Spinner className="flex justify-center py-3" />
 				)}
@@ -1662,6 +1645,38 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 		</div>
 	);
 });
+
+/** Loading earlier messages: a spinner, or the failure with Retry (an alert, so a screen reader hears it). */
+export function TranscriptHistoryStatus({
+	loading,
+	error,
+	onRetry,
+}: {
+	loading: boolean;
+	error: string | null;
+	onRetry: () => void;
+}) {
+	const t = useT();
+	if (!loading && !error) return null;
+	return (
+		<div
+			data-testid="transcript-history-status"
+			role={error ? "alert" : undefined}
+			className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-(--sc-surface-1) py-2 text-sc-sm text-(--sc-text-muted)"
+		>
+			{loading ? (
+				<Spinner label={t("chat.history.loading")} size="sm" />
+			) : (
+				<>
+					<span>{t("chat.history.failed")}</span>
+					<Button size="sm" onClick={onRetry}>
+						{t("common.retry")}
+					</Button>
+				</>
+			)}
+		</div>
+	);
+}
 
 export type { HistoryRow, Row, TimelineMarkerSeed } from "./chat-stream-utils";
 // Re-export transcript helpers for consumers/tests that import them from ChatStream.

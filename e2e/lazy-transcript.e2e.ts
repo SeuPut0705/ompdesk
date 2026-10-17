@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import type { MessagesPage } from "../src/shared/rpc-types";
 import { exitApp, launchApp } from "./harness";
 
 let app: ElectronApplication;
@@ -163,39 +162,5 @@ test("renders only the tail, anchors older pages, reaches the first turn and app
 	await input.press("Enter");
 	await expect(page.getByText("Live after older history", { exact: true })).toBeVisible();
 	await expect(page.getByText("Local fixture reply", { exact: true })).toBeVisible();
-	expect(errors).toEqual([]);
-});
-
-test("snaps tool boundaries, retries a failed page and loads an old tree leaf", async () => {
-	const tail = await page.evaluate(() =>
-		window.omp.rpc.command({ type: "get_transcript_page", fromEnd: true, limit: 101 }),
-	);
-	expect(tail.success).toBe(true);
-	const data = tail.data as MessagesPage;
-	expect(data.startIndex).toBe(1398);
-	expect(data.messages[0]?.role).toBe("user");
-	expect(data.messages).toHaveLength(102);
-	await fixture("fixture:fail-history");
-	await expect(async () => {
-		await page.locator(".omp-transcript-scroll").focus();
-		await page.keyboard.press("Home");
-		await expect(page.getByRole("alert").filter({ hasText: "Couldn't load earlier messages" })).toBeVisible({
-			timeout: 2_000,
-		});
-	}).toPass({ timeout: 20_000 });
-	await page.getByRole("button", { name: "Retry", exact: true }).click();
-	await expect(page.getByTestId("transcript-history-status")).toHaveCount(0);
-	const switched = await page.evaluate(() => window.omp.rpc.switchLeaf("entry-120"));
-	expect(switched.success).toBe(true);
-	// Reload exercises the same hydration used when the tree changes its leaf.
-	await page.reload();
-	await expect(page.getByText("Long session answer 019", { exact: true })).toBeVisible();
-	await expect(page.getByText("Long session answer 249", { exact: true })).toHaveCount(0);
-	const stale = await page.evaluate(
-		cursor => window.omp.rpc.command({ type: "get_transcript_page", cursor, limit: 101 }),
-		data.prevCursor,
-	);
-	expect(stale.success).toBe(false);
-	if (!stale.success) expect(stale.code).toBe("stale_cursor");
 	expect(errors).toEqual([]);
 });

@@ -104,7 +104,6 @@ export function runRpcUi(): void {
 	let activeLeafId: string | null = null;
 	let holdHistory = false;
 	let releaseHistory: (() => void) | undefined;
-	let failHistory = false;
 	const activeBranch = (): Entry[] => {
 		const byId = new Map(entries.map(entry => [entry.id, entry]));
 		const branch: Entry[] = [];
@@ -1524,10 +1523,6 @@ export function runRpcUi(): void {
 			const end = Math.min(messages.length, offset + limit);
 			// The bridge's own rule: a page starts at a turn, never at a steer inside one.
 			const start = params.snapToTurn === true ? transcriptTurnStart(messages, offset, end) : offset;
-			if (limit > 0 && failHistory) {
-				failHistory = false;
-				throw new Error("Fixture history page failed");
-			}
 			const result = {
 				leafId: activeLeafId,
 				total: messages.length,
@@ -4299,11 +4294,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (line === "fixture:release-history") {
 					releaseHistory?.();
 					releaseHistory = undefined;
-					ok();
-					break;
-				}
-				if (line === "fixture:fail-history") {
-					failHistory = true;
 					ok();
 					break;
 				}
