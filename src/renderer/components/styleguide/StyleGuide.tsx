@@ -698,6 +698,7 @@ export default function StyleGuide() {
 								tabs={[
 									{ id: "plan", label: "Plan" },
 									{ id: "goal", label: "Goal" },
+									{ id: "autopilot", label: "Autopilot" },
 								]}
 								variant="segmented"
 							/>

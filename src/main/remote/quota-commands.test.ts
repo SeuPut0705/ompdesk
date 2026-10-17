@@ -80,6 +80,17 @@ describe("quota command classification", () => {
 		expect(commandUsesModel(command({ type: "set_goal", objective: "  " }))).toBe(false);
 	});
 
+	it("counts an autopilot start or resume, not its stop, pause, notes, ship queue or main's own bridge calls", () => {
+		expect(commandUsesModel(command({ type: "set_autopilot", action: "start" }))).toBe(true);
+		expect(commandUsesModel(command({ type: "set_autopilot", action: "resume" }))).toBe(true);
+		for (const action of ["stop", "abort", "pause", "configure", "note", "backlog_add", "ship", "cancel_ship"]) {
+			expect(commandUsesModel(command({ type: "set_autopilot", action })), action).toBe(false);
+		}
+		for (const type of ["get_autopilot", "autopilot_branch_status", "autopilot_bridge"]) {
+			expect(commandUsesModel(command({ type })), type).toBe(false);
+		}
+	});
+
 	it("counts the prompt-suggestion requests that run the cheap model, not the state, draft and cancel commands", () => {
 		for (const type of ["complete_inline", "refresh_next_prompt"]) {
 			expect(commandUsesModel(command({ type })), type).toBe(true);

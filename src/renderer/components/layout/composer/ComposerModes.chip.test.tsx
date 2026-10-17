@@ -1,6 +1,6 @@
 /**
  * Contract tests for the composer mode chip: the chip names the active
- * session mode(s) in the accent, its popover holds Plan · Goal
+ * session mode(s) in the accent, its popover holds Plan · Goal · Autopilot
  * as segmented tabs (active ones marked), Plan toggles inline, and the
  * app-wide `openModes(tab)` request opens the popover on that tab.
  * State comes from the session store.
@@ -129,6 +129,14 @@ describe("Composer mode chip", () => {
 		expect(document.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
 	});
 
+	it("counts a paused goal as the session's goal, as goalIsActive does", async () => {
+		// Composer audit L9: the chip read only `active`, the auto-mode guard also `paused`, so the two disagreed.
+		installMockOmp();
+		useSessionStore.setState({ goal: null, goalState: { status: "paused" } });
+		await mount(<ComposerModes />);
+		expect(trigger().textContent).toBe(translate("input.modes.name.goal"));
+	});
+
 	it("stays a quiet 'Mode' chip with nothing active and toggles plan mode inline", async () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
@@ -138,7 +146,10 @@ describe("Composer mode chip", () => {
 
 		await act(async () => trigger().click());
 		await flush();
-		for (const name of ["Plan", "Goal"]) expect(tab(name)?.textContent).toBe(name);
+		const tabNames = (Array.from(document.querySelectorAll('[role="tab"]')) as unknown as TestElement[]).map(
+			element => element.textContent,
+		);
+		expect(tabNames).toEqual(["Plan", "Goal", "Autopilot"]);
 		expect(tab("Loop")).toBeUndefined();
 		expect(tab("Vibe")).toBeUndefined();
 		expect(tab("Ratchet")).toBeUndefined();

@@ -14,6 +14,11 @@ import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, Notification, screen, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import {
+	AUTOPILOT_LIMITS_PREF,
+	AUTOPILOT_NOTIFY_PREF,
+	AUTOPILOT_SHIP_PREF,
+} from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
@@ -87,6 +92,7 @@ import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-typ
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { requestQuit } from "./app-quit";
+import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
@@ -107,8 +113,8 @@ import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
-import type { SessionIndex } from "./session-index";
 import type { ScheduleService } from "./schedules";
+import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
@@ -175,6 +181,10 @@ export interface IpcDeps {
 	 * what a window that is not the host's calls it.
 	 */
 	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
+	/** Autopilot's coordinator, built in `registerIpcHandlers` (it needs the RPC dispatcher) and published here for the sidecar factory and TurnResume. */
+	autopilotRef: { current: Autopilot | null };
+	/** Whether TurnResume holds a launch marker for a tab (an autopilot run restarts through it). */
+	expectsResume: (tabId: string) => boolean;
 }
 
 /**
@@ -612,6 +622,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 		}
+		// Autopilot's coordinator answers its own commands for a local tab (src/main/autopilot.ts).
+		if ((cmd.type === "get_autopilot" || cmd.type === "set_autopilot") && !sidecar.device && issuerTabId) {
+			return autopilot.handleCommand(win, sidecar, issuerTabId, cmd as AutopilotCommand, _id);
+		}
 		// Every window that shows the tab has its own composer draft; its omp hears "empty" only when all
 		// of them are (multi-viewer). One window's report passes as it is.
 		if (issuerTabId && (cmd.type === "set_idle_compaction_draft" || cmd.type === "set_next_prompt_draft")) {
@@ -670,7 +684,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
 		// process dies before the run's end event arrives (turn-resume.ts).
-		if (issuerTabId && STOP_COMMANDS[cmd.type]) sidecarPool.noteStopped(issuerTabId);
+		if (issuerTabId && STOP_COMMANDS[cmd.type]) {
+			sidecarPool.noteStopped(issuerTabId);
+			// ■ on an autopilot run stops its running children too.
+			void autopilot.aborted(issuerTabId);
+		}
 		// The user is moving the tab to another session or branch: a scheduled retry of its old failure is off.
 		if (issuerTabId && TOUCH_COMMANDS[cmd.type]) sidecarPool.noteTouched(issuerTabId);
 		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
@@ -742,8 +760,58 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	};
 
+	const autopilot: Autopilot = new Autopilot({
+		pool: sidecarPool,
+		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
+			dispatchRpcCommand(win, sidecar, tabId, {
+				command,
+				timeoutMs,
+			} as IpcRpcCommandPayload) as Promise<RpcResponse>,
+		spawnTab: (win, payload) =>
+			spawnTabForWindow(
+				{
+					sidecarPool: deps.sidecarPool,
+					sessionIndex,
+					fallbackCwd: () => null,
+					initialCwd: deps.initialCwd,
+					defaultWorkspace: ensureDefaultWorkspace,
+					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+				},
+				win,
+				payload,
+			),
+		prefs: { get: key => prefsStore.get(key) },
+		// Batched like any tab notification (notification-batch.ts); a click opens the tab.
+		notify: (tabId, notice) => {
+			const windowId = sidecarPool.tabInventory().find(tab => tab.tabId === tabId)?.windowId;
+			if (windowId === undefined) return;
+			if (!notifyBatchedWindows.has(windowId)) {
+				const owner = windowManager.getAllWindows().find(candidate => candidate.webContents.id === windowId);
+				if (owner) {
+					notifyBatchedWindows.add(windowId);
+					owner.once("closed", () => {
+						notifyBatchedWindows.delete(windowId);
+						notificationBatcher.dropWindow(windowId);
+					});
+				}
+			}
+			notificationBatcher.notify(
+				windowId,
+				{ title: notice.title, body: notice.body, tabId, kind: notice.kind },
+				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
+			);
+		},
+		text: (key, params) => mainT(key, undefined, params),
+		expectsResume: deps.expectsResume,
+	});
+	deps.autopilotRef.current = autopilot;
+	sidecarPool.onAcquire = (tabId, sidecar) => autopilot.attachSidecar(tabId, sidecar);
+	sidecarPool.observeTabs(activity => autopilot.observeActivity(activity));
+
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
+		isStopping: callerTabId => autopilot.isStopping(callerTabId),
+		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
 		pool: sidecarPool,
 		schedules: () => deps.schedules?.() ?? null,
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
@@ -777,6 +845,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			),
 		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
 	});
+
+	// Autopilot's coordinator (src/main/autopilot.ts): the tab hooks DeskTools calls and the frames the sidecar
+	// factory hands over; index.ts reaches it through `deps.autopilotRef` (TurnResume, the factory).
+	autopilot.attachControl(agentControl.control);
 
 	ipc.handle(IPC_COMMANDS.RPC_COMMAND, async (caller, payload: IpcRpcCommandPayload) => {
 		const win = caller.win;
@@ -1278,6 +1350,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
+		}
+		if (
+			(payload.key === AUTOPILOT_SHIP_PREF ||
+				payload.key === AUTOPILOT_NOTIFY_PREF ||
+				payload.key === AUTOPILOT_LIMITS_PREF) &&
+			!validAutopilotPref(payload.key, payload.value)
+		) {
+			throw codedError("invalid_preference_key", "Invalid autopilot preference");
 		}
 		if (payload.key === ACCOUNT_ROTATION_PREF) {
 			if (!isAccountRotationMode(payload.value)) {

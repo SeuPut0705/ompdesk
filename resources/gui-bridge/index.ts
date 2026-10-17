@@ -77,6 +77,7 @@ const AREAS: readonly Area[] = [
 	{ name: "stream-metadata", features: ["streamMetadata"], load: () => import("./stream-metadata") },
 	{ name: "browser-relay", features: ["agentBrowser"], load: () => import("./browser-relay") },
 	{ name: "agent-control", features: ["agentControl"], load: () => import("./agent-control") },
+	{ name: "modes/autopilot", features: ["autopilot"], load: () => import("./modes/autopilot") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

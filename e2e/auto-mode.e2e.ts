@@ -350,11 +350,15 @@ test("Stop ends a goal the choice started; it never stays as the session's goal"
 	}
 });
 
-test("the Mode popover holds only the Plan and Goal tabs", async () => {
+test("the Mode popover holds the Plan, Goal and Autopilot tabs (no Ratchet, Vibe or Loop)", async () => {
 	const launched = await launch();
 	try {
 		await modeButton(launched.page).click();
-		await expect(launched.page.getByRole("dialog", { name: "Mode" }).getByRole("tab")).toHaveText([/^Plan/, /^Goal/]);
+		await expect(launched.page.getByRole("dialog", { name: "Mode" }).getByRole("tab")).toHaveText([
+			/^Plan/,
+			/^Goal/,
+			/^Autopilot/,
+		]);
 	} finally {
 		await finish(launched);
 	}

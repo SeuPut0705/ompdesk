@@ -1,3 +1,4 @@
+import type { AutopilotAction } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type { SessionModelOverride } from "./model-restore";
 import type {
@@ -242,6 +243,9 @@ export interface SessionRpcClient {
 	getGoal(): Promise<RpcResponse>;
 	guidedGoal(initial?: string): Promise<RpcResponse>;
 	setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
+	getAutopilot(): Promise<RpcResponse>;
+	setAutopilot(action: AutopilotAction): Promise<RpcResponse>;
+	autopilotBranchStatus(root: string, base: string, branch: string): Promise<RpcResponse>;
 	getDelegation(): Promise<RpcResponse>;
 	setDelegation(mode: DelegationMode): Promise<RpcResponse>;
 	setGoal(args: {
@@ -587,6 +591,10 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "get_transcript_page", cursor, limit, fromEnd }),
 		planApproval: (approved, option, feedback, savePath) =>
 			rpcCommand({ type: "plan_approval", approved, option, feedback, savePath }),
+		getAutopilot: () => rpcCommand({ type: "get_autopilot" }),
+		setAutopilot: action => rpcCommand({ type: "set_autopilot", ...action }),
+		autopilotBranchStatus: (root, base, branch) =>
+			rpcCommand({ type: "autopilot_branch_status", root, base, branch }),
 		getDelegation: () => rpcCommand({ type: "get_delegation" }),
 		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),

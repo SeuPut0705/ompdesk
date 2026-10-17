@@ -301,6 +301,8 @@ export interface ResumeDeps {
 	 * `goalPausedByExit`). Called once, after the restore's commands; default: the tab's `set_goal` resume.
 	 */
 	resumeGoal?: (tabId: string) => Promise<void>;
+	/** The launch continuation of a tab is over; `goalResumed` is whether it resumed a goal (Autopilot waits on this). */
+	goalSettled?: (tabId: string, goalResumed: boolean) => void;
 }
 
 /**
@@ -647,6 +649,7 @@ export class TurnResume {
 		const sidecar = this.#deps.pool.startTab(tabId);
 		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
 			this.#pending.delete(tabId);
+			this.#deps.goalSettled?.(tabId, false);
 			this.sync();
 			return false;
 		}
@@ -688,18 +691,26 @@ export class TurnResume {
 		}
 		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
 		// restored turn (the goal's continuation waits for the session to be idle).
+		let goalResumed = false;
 		if (restored?.goalPausedByExit === true && !cancelled()) {
 			try {
 				await (this.#deps.resumeGoal ?? (id => this.#resumeGoal(id)))(tabId);
 				started = true;
+				goalResumed = true;
 			} catch (error) {
 				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
 			}
 		}
+		this.#deps.goalSettled?.(tabId, goalResumed);
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
 		this.sync();
 		return started;
+	}
+
+	/** Whether a launch marker still waits for this tab's turn: its continuation runs once the tab's omp is ready. */
+	hasLaunchMarker(tabId: string): boolean {
+		return this.#pending.has(tabId);
 	}
 
 	/** Stock's own resume of the paused goal, through the tab's `set_goal` (it renews an OMPdesk time limit first). */

@@ -11,6 +11,7 @@ import {
 	refreshSessionModes,
 	refreshSessionState,
 	retryPendingTabs,
+	syncAutopilot,
 	syncGoal,
 } from "./session-hydration";
 
@@ -33,6 +34,7 @@ import {
 	type TodoPhase,
 } from "../../shared/rpc-types";
 import { messageSourceTimestamp } from "../components/chat/work/work-turn";
+import { bookAutopilotQuota } from "../lib/autopilot-quota";
 import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
@@ -41,6 +43,7 @@ import { describeTurnError, messageText, turnErrorToast } from "../lib/messages"
 import { playNotificationSound } from "../lib/notification-sound";
 import { handleAutoOpenEvents } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
+import { useAutopilotStore } from "../stores/autopilot";
 import {
 	claimsLoginRequest,
 	type ExtensionUiStore,
@@ -91,6 +94,8 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 	// Suggestion frames change nothing get_state reports.
 	next_prompt_config: true,
 	next_prompt_update: true,
+	// The Autopilot status is a feed of its own (get_autopilot), not something a get_state snapshot reports.
+	autopilot_update: true,
 };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
@@ -395,6 +400,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useUsageSignal.getState().turnEnded();
 							notifyOnAgentEnd(tabId, event);
 							toastOnAgentError(tabId, event);
+							void bookAutopilotQuota(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 							void refreshSessionState(tabId);
 							bumpVersion = true;
@@ -593,6 +599,10 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState(goalPatchFromEvent(event.goal, event.state));
 							break;
 						}
+						case "autopilot_update": {
+							useAutopilotStore.getState().apply(event.status);
+							break;
+						}
 						case "goal_time_limit_reached": {
 							useToastStore.getState().push({
 								variant: "info",
@@ -740,6 +750,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
 								await Promise.allSettled([
 									syncGoal("", activeTabCommand, () => true),
+									syncAutopilot("", activeTabCommand, () => true),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),
 									useSettingsStore.getState().syncApproval(),

@@ -23,6 +23,7 @@ import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import { parseModelRestoreFailure, type SessionModelOverride } from "../../shared/model-restore";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
+import { useAutopilotStore } from "../stores/autopilot";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useForkHandoffStore } from "../stores/fork-handoff";
@@ -41,6 +42,7 @@ import { hydrateSession, hydrateTabSession } from "./use-rpc-events";
 
 /** Clear every renderer slice owned by one session before a replacement hydrates. */
 export function resetSessionSurface(closeOverlays = true): void {
+	useAutopilotStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useComposerStore.getState().reset();
 	useToolsStore.getState().reset();

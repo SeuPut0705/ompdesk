@@ -60,6 +60,7 @@ import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/wor
 import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
+import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import { ConnectivityMonitor } from "./connectivity";
@@ -536,6 +537,8 @@ app.whenReady().then(() => {
 		setTimeout(grace.resolve, FIRST_TAB_GRACE_MS).unref();
 		return Promise.race([firstTabReady.promise, grace.promise]);
 	};
+	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
+	const autopilotRef: { current: Autopilot | null } = { current: null };
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -555,6 +558,7 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
+		autopilot: () => autopilotRef.current,
 	});
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
@@ -1004,6 +1008,12 @@ app.whenReady().then(() => {
 		notify: count => {
 			resumeNotice = count;
 		},
+		// An autopilot run is armed again before its goal resumes; the coordinator also learns when a tab's launch
+		// continuation ended without a goal to resume (no marker, or a turn that was not cut off): `paused: app_closed`.
+		resumeGoal: async tabId => {
+			await autopilotRef.current?.resumeGoal(tabId);
+		},
+		goalSettled: (tabId, goalResumed) => autopilotRef.current?.resumeSettled(tabId, goalResumed),
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
 		const count = resumeNotice;
@@ -1062,6 +1072,8 @@ app.whenReady().then(() => {
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
+		autopilotRef,
+		expectsResume: tabId => turnResume.hasLaunchMarker(tabId),
 		mediaStreams,
 		schedules: () => scheduleService,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.

@@ -4,6 +4,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 
 export type RuntimeStoreKey =
+	| "autopilot"
 	| "composer"
 	| "extensionUi"
 	| "messages"

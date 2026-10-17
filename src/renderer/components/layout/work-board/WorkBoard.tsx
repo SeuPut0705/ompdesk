@@ -27,6 +27,7 @@ import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewItems, useAgentReviewStore } from "../../../stores/agent-review";
+import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -42,6 +43,7 @@ import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
 import { Button, IconButton, Kbd } from "../../common";
+import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
@@ -471,6 +473,8 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	const goal = useSessionStore(state => state.goal);
 	const goalStatus = useSessionStore(state => state.goalState?.status);
 	const goalDetail = useGoalDetail(goal?.objective, goalStatus, turnActive);
+	const autopilot = useAutopilotStore(isLiveAutopilot);
+	const autopilotText = useAutopilotStateText();
 
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -496,7 +500,14 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	const waiting = blocking.length + (planProposal ? 1 : 0);
 	const showsLast = !turnActive && lastTurn !== null;
 	const present =
-		turnActive || waiting > 0 || running > 0 || plan !== null || goal !== null || showsLast || review.length > 0;
+		turnActive ||
+		autopilot ||
+		waiting > 0 ||
+		running > 0 ||
+		plan !== null ||
+		goal !== null ||
+		showsLast ||
+		review.length > 0;
 	const showsRunning = running > 0;
 	const showsTodos = plan !== null;
 	useLayoutEffect(() => {
@@ -557,6 +568,12 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 				) : null}
 				<AccountLimit />
 			</header>
+
+			{autopilot && (
+				<BoardSection aside={autopilotText} id="autopilot" title={t("autopilot.name")}>
+					<AutopilotBoardRows />
+				</BoardSection>
+			)}
 
 			{waiting > 0 && (
 				<BoardSection
@@ -732,7 +749,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 				</BoardSection>
 			)}
 
-			{goal && (
+			{goal && !autopilot && (
 				<BoardSection id="goal" title={t("workBoard.goal")} aside={goalNote(goalStatus, t)}>
 					<BoardRow
 						data={{ "data-board-goal": goalStatus ?? "" }}

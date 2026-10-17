@@ -10,7 +10,7 @@
  * closing it clears the request.
  */
 
-import { ChevronDown, Layers, ListChecks, Sparkles, Target, X } from "lucide-react";
+import { ChevronDown, Layers, ListChecks, PanelRight, Rocket, Sparkles, Target, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useAutoModePref } from "../../../hooks/use-auto-mode-pref";
 import { goalIsActive } from "../../../lib/auto-mode-client";
@@ -18,19 +18,23 @@ import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, Popover, SwitchField, Tabs, Tooltip } from "../../common";
+import { Button, IconButton, Popover, SwitchField, Tabs, Tooltip } from "../../common";
+import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
 import { GoalModeConfig } from "../../modes/ModeConfig";
+import { useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 
-export type ComposerModeId = "plan" | "goal";
+export type ComposerModeId = "plan" | "goal" | "autopilot";
 
 const MODE_ICONS: Record<ComposerModeId, ReactNode> = {
 	plan: <ListChecks aria-hidden />,
 	goal: <Target aria-hidden />,
+	autopilot: <Rocket aria-hidden />,
 };
 
 export function ComposerModes() {
@@ -45,14 +49,19 @@ export function ComposerModes() {
 
 	// A mode the automatic choice uses for one request is not the user's mode: the picker leaves it out (its chip shows it).
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
-	const goalActive = useSessionStore(s => (s.goalState?.status === "active" || !!s.goal) && s.autoMode !== "goal");
+	// An Autopilot run is a Goal underneath: it shows as Autopilot, never as the user's Goal.
+	const autopilotLive = useAutopilotStore(isLiveAutopilot);
+	// goalIsActive is the one definition (a paused goal is still the session's goal), as the auto-mode chip reads it.
+	const goalActive = useSessionStore(s => goalIsActive(s) && s.autoMode !== "goal") && !autopilotLive;
 	const goalStatusInFooter = useDisplayPreference("goalStatusInFooter");
+	const autopilotState = useAutopilotStateText();
 
 	const active: Record<ComposerModeId, boolean> = {
 		plan: planModeEnabled,
 		goal: goalActive,
+		autopilot: autopilotLive,
 	};
-	const modeIds: ComposerModeId[] = ["plan", "goal"];
+	const modeIds: ComposerModeId[] = ["plan", "goal", "autopilot"];
 	const shown = (Object.keys(active) as ComposerModeId[]).filter(
 		mode => active[mode] && (mode !== "goal" || goalStatusInFooter),
 	);
@@ -72,8 +81,11 @@ export function ComposerModes() {
 		if (useUiStore.getState().modesOpen) closeModes();
 	};
 
-	const label =
-		shown.length > 0 ? shown.map(mode => t(`input.modes.name.${mode}`)).join(" · ") : t("input.modes.label");
+	const modeName = (mode: ComposerModeId) =>
+		mode === "autopilot" && autopilotState
+			? `${t("input.modes.name.autopilot")} · ${autopilotState}`
+			: t(`input.modes.name.${mode}`);
+	const label = shown.length > 0 ? shown.map(modeName).join(" · ") : t("input.modes.label");
 	const first = shown[0];
 
 	return (
@@ -103,9 +115,19 @@ export function ComposerModes() {
 					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
 					variant="ghost"
 				>
-					<span className="omp-composer-control-label omp-composer-label-early max-w-48 truncate">{label}</span>
+					<span className="omp-composer-control-label omp-composer-label-early max-w-64 truncate">{label}</span>
 				</Button>
 			</Tooltip>
+			{autopilotLive && (
+				<IconButton
+					className="omp-composer-chip"
+					data-autopilot-chip-open
+					icon={<PanelRight />}
+					label={t("autopilot.chip.open")}
+					onClick={() => useUiStore.getState().openAutopilotPanel()}
+					size="sm"
+				/>
+			)}
 			<AutoModeChip />
 			<Popover
 				anchorRef={triggerRef}
@@ -132,6 +154,7 @@ export function ComposerModes() {
 					<div className="min-h-0">
 						{tab === "plan" && <PlanModeConfig />}
 						{tab === "goal" && <GoalModeConfig />}
+						{tab === "autopilot" && <AutopilotModeConfig onStarted={close} />}
 					</div>
 					<AutoModeSwitch />
 					<p className="-mx-3 -mb-1 border-t border-(--sc-divider) px-3 pt-2.5 text-sc-xs text-(--sc-text-muted)">

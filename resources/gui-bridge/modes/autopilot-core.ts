@@ -1,0 +1,759 @@
+/**
+ * Autopilot's pure rules: rotation, duplicate prevention, the cycle classification (red / no commit /
+ * no report / churn / stall), release due-ness, quote verification, the status built from the journal.
+ * No omp imports (not even types): the GUI's vitest loads this file directly
+ * (src/main/bridge-autopilot-core.test.ts); ./autopilot.ts wires it to the session.
+ */
+import {
+	AUTOPILOT_AREAS,
+	AUTOPILOT_BACKLOG_ENTRY,
+	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_NOTE_ENTRY,
+	AUTOPILOT_SHIP_REQUEST_ENTRY,
+	AUTOPILOT_STATE_ENTRY,
+	type AutopilotArea,
+	type AutopilotBacklogEvent,
+	type AutopilotBacklogItem,
+	type AutopilotBeginResult,
+	type AutopilotCycleArea,
+	type AutopilotCycleRecord,
+	type AutopilotLimits,
+	type AutopilotNote,
+	type AutopilotPauseReason,
+	type AutopilotSettings,
+	type AutopilotShipLevel,
+	type AutopilotShipPolicy,
+	type AutopilotShipRequest,
+	type AutopilotStateEntry,
+	type AutopilotStatus,
+	type AutopilotStopRequest,
+	type AutopilotToolInput,
+	CHURN_COMPACTIONS_PER_CYCLE,
+	CHURN_CYCLES_IN_A_ROW,
+	DEFAULT_AUTOPILOT_SETTINGS,
+	DUPLICATE_WINDOW,
+	isAutopilotArea,
+	MAX_PARALLEL_CHILDREN,
+	NO_COMMIT_STREAK_LIMIT,
+	NO_REPORT_STREAK_LIMIT,
+	RECENT_CYCLES,
+	RED_STREAK_LIMIT,
+} from "./autopilot-contracts";
+
+/** One session journal entry as these rules read it (the slice of omp's SessionEntry they need). */
+export interface JournalEntry {
+	type?: unknown;
+	customType?: unknown;
+	data?: unknown;
+	message?: unknown;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Titles, rotation, duplicates
+// ---------------------------------------------------------------------------------------------
+
+/** A title as the duplicate check compares it: case, punctuation and spacing ignored (Hangul kept). */
+export function normalizeTitle(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim();
+}
+
+/** The last {@link DUPLICATE_WINDOW} cycles: a repeat of one of their titles is not picked again. */
+export function isDuplicateTitle(records: readonly AutopilotCycleRecord[], title: string): boolean {
+	const wanted = normalizeTitle(title);
+	if (!wanted) return false;
+	return records
+		.slice(-DUPLICATE_WINDOW)
+		.some(record => record.area !== "unreported" && normalizeTitle(record.title) === wanted);
+}
+
+export interface Rotation {
+	suggested: AutopilotArea;
+	counts: Record<AutopilotArea, number>;
+	lastCycleOfArea: Record<AutopilotArea, number | null>;
+}
+
+/** Counts, last cycle and the area that has waited longest (never-done first; ties in {@link AUTOPILOT_AREAS} order), within `focus` (empty = all). */
+export function rotation(records: readonly AutopilotCycleRecord[], focus: readonly AutopilotArea[]): Rotation {
+	const counts = Object.fromEntries(AUTOPILOT_AREAS.map(area => [area, 0])) as Record<AutopilotArea, number>;
+	const lastCycleOfArea = Object.fromEntries(AUTOPILOT_AREAS.map(area => [area, null])) as Record<
+		AutopilotArea,
+		number | null
+	>;
+	for (const record of records) {
+		if (!isAutopilotArea(record.area)) continue;
+		counts[record.area]++;
+		lastCycleOfArea[record.area] = Math.max(lastCycleOfArea[record.area] ?? 0, record.n);
+	}
+	const candidates = focus.length > 0 ? AUTOPILOT_AREAS.filter(area => focus.includes(area)) : [...AUTOPILOT_AREAS];
+	let suggested = candidates[0] ?? AUTOPILOT_AREAS[0];
+	for (const area of candidates) {
+		const best = lastCycleOfArea[suggested];
+		const here = lastCycleOfArea[area];
+		if (best !== null && (here === null || here < best)) suggested = area;
+	}
+	return { suggested, counts, lastCycleOfArea };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cycle classification
+// ---------------------------------------------------------------------------------------------
+
+/** Red: reported red, or committed without a green verification. Skipped/unreported without a commit is neutral. */
+export function isRedCycle(record: Pick<AutopilotCycleRecord, "verify" | "commit">): boolean {
+	if (record.verify === "red") return true;
+	return Boolean(record.commit) && record.verify !== "green";
+}
+
+function isNeutralCycle(record: Pick<AutopilotCycleRecord, "verify" | "commit">): boolean {
+	return !record.commit && (record.verify === "skipped" || record.verify === "unreported");
+}
+
+/** Consecutive red cycles at the end; a green cycle ends the run of them, a neutral one (skipped, no commit) neither counts nor ends it. */
+export function redStreak(records: readonly AutopilotCycleRecord[]): number {
+	let streak = 0;
+	for (let i = records.length - 1; i >= 0; i--) {
+		const record = records[i];
+		if (isRedCycle(record)) streak++;
+		else if (!isNeutralCycle(record)) break;
+	}
+	return streak;
+}
+
+/** Consecutive cycles at the end without a commit. */
+export function noCommitStreak(records: readonly AutopilotCycleRecord[]): number {
+	let streak = 0;
+	for (let i = records.length - 1; i >= 0 && !records[i].commit; i--) streak++;
+	return streak;
+}
+
+/** Consecutive cycles at the end that ended without an `autopilot end` report. */
+export function noReportStreak(records: readonly AutopilotCycleRecord[]): number {
+	let streak = 0;
+	for (let i = records.length - 1; i >= 0 && records[i].area === "unreported"; i--) streak++;
+	return streak;
+}
+
+/** Compaction churn: this cycle compacted {@link CHURN_COMPACTIONS_PER_CYCLE}+ times, or the last {@link CHURN_CYCLES_IN_A_ROW} cycles each compacted. `records` includes this cycle. */
+export function isChurning(records: readonly AutopilotCycleRecord[]): boolean {
+	const last = records[records.length - 1];
+	if (!last) return false;
+	if (last.compactions >= CHURN_COMPACTIONS_PER_CYCLE) return true;
+	const tail = records.slice(-CHURN_CYCLES_IN_A_ROW);
+	return tail.length === CHURN_CYCLES_IN_A_ROW && tail.every(record => record.compactions > 0);
+}
+
+export interface StallFacts {
+	/** The last assistant message ended in an error. */
+	lastTurnErrored: boolean;
+	/** Plan mode is on (stock quietly stops continuing). */
+	planMode: boolean;
+	/** The todo list is non-empty and every item is blocked. */
+	todosAllBlocked: boolean;
+}
+
+export type StallVerdict = { kind: "error" } | { kind: "pause"; reason: AutopilotPauseReason };
+
+/** Why no new turn started after a terminal agent_end: plan, then an error turn (the quota/retry path), then blocked todos, then no progress. */
+export function classifyStall(facts: StallFacts): StallVerdict {
+	if (facts.planMode) return { kind: "pause", reason: "plan" };
+	if (facts.lastTurnErrored) return { kind: "error" };
+	if (facts.todosAllBlocked) return { kind: "pause", reason: "blocked" };
+	return { kind: "pause", reason: "no_progress" };
+}
+
+export interface UsageTotals {
+	tokens: number;
+	usd: number;
+}
+
+/** Which optional ceiling is used up, if any (`tokens` -> budget, `minutes` -> time, `cycles` -> cycles, `usd` -> cost). */
+export function limitReached(
+	limits: AutopilotLimits,
+	used: UsageTotals,
+	activeMs: number,
+	cyclesDone: number,
+): AutopilotPauseReason | undefined {
+	if (limits.tokens !== null && used.tokens >= limits.tokens) return "budget";
+	if (limits.minutes !== null && activeMs >= limits.minutes * 60_000) return "time";
+	if (limits.cycles !== null && cyclesDone >= limits.cycles) return "cycles";
+	if (limits.usd !== null && used.usd >= limits.usd) return "cost";
+	return undefined;
+}
+
+/** The ceilings still open, for `begin.budgetLeft` (only the ones that are on). */
+export function budgetLeft(
+	limits: AutopilotLimits,
+	used: UsageTotals,
+	activeMs: number,
+	cyclesDone: number,
+): Partial<AutopilotLimits> | undefined {
+	const left: Partial<AutopilotLimits> = {};
+	if (limits.tokens !== null) left.tokens = Math.max(0, limits.tokens - used.tokens);
+	if (limits.minutes !== null) left.minutes = Math.max(0, Math.ceil(limits.minutes - activeMs / 60_000));
+	if (limits.cycles !== null) left.cycles = Math.max(0, limits.cycles - cyclesDone);
+	if (limits.usd !== null) left.usd = Math.max(0, limits.usd - used.usd);
+	return Object.keys(left).length > 0 ? left : undefined;
+}
+
+export interface CycleEndFacts {
+	/** Every record including the one that just ended. */
+	records: readonly AutopilotCycleRecord[];
+	settings: AutopilotSettings;
+	used: UsageTotals;
+	activeMs: number;
+}
+
+/** What a finished cycle means for the run: a pause request (the stop rules, then the optional ceilings) or nothing. */
+export function decideAfterCycle(facts: CycleEndFacts): AutopilotStopRequest | undefined {
+	const { records } = facts;
+	const last = records[records.length - 1];
+	if (!last) return undefined;
+	if (last.area === "release" && last.verify === "red") return { reason: "release_failed", detail: last.title };
+	if (last.ship && last.verify === "red") return { reason: "release_failed", detail: last.ship.version };
+	if (redStreak(records) >= RED_STREAK_LIMIT)
+		return { reason: "tests_failing", detail: `${redStreak(records)} red cycles in a row` };
+	if (noReportStreak(records) >= NO_REPORT_STREAK_LIMIT)
+		return { reason: "no_report", detail: `${noReportStreak(records)} cycles ended without a report` };
+	if (isChurning(records))
+		return { reason: "context_churn", detail: `${last.compactions} compactions in cycle ${last.n}` };
+	if (noCommitStreak(records) >= NO_COMMIT_STREAK_LIMIT)
+		return { reason: "no_progress", detail: `${noCommitStreak(records)} cycles without a commit` };
+	const limit = limitReached(facts.settings.limits, facts.used, facts.activeMs, records.length);
+	return limit ? { reason: limit } : undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Releases
+// ---------------------------------------------------------------------------------------------
+
+function isReleaseCycle(record: AutopilotCycleRecord): boolean {
+	return record.area === "release" || record.ship?.kind === "release";
+}
+
+/** Green, committed cycles since the last release cycle (a release cycle that went red does not reset it). */
+export function greenCyclesSinceRelease(records: readonly AutopilotCycleRecord[]): number {
+	let count = 0;
+	for (let i = records.length - 1; i >= 0; i--) {
+		const record = records[i];
+		if (isReleaseCycle(record) && record.verify === "green") break;
+		if (!isReleaseCycle(record) && record.verify === "green" && record.commit && !record.reverted) count++;
+	}
+	return count;
+}
+
+export interface ReleaseFacts {
+	policy: AutopilotShipPolicy;
+	records: readonly AutopilotCycleRecord[];
+	/** The repo defines a release procedure (main detected it). */
+	hasProcedure: boolean;
+	/** A push or release is already under way. */
+	inFlight: boolean;
+	/** The agent called `propose_release` and the bridge accepted it this cycle. */
+	proposed: boolean;
+}
+
+/** Whether `begin.ship.due` is true: auto release on, a procedure exists, nothing in flight, the last cycle green with no red streak, and the cadence reached. */
+export function dueForRelease(facts: ReleaseFacts): boolean {
+	const { policy, records } = facts;
+	if (!policy.autoRelease.on || !facts.hasProcedure || facts.inFlight) return false;
+	const last = records[records.length - 1];
+	if (last?.verify !== "green" || redStreak(records) > 0) return false;
+	const green = greenCyclesSinceRelease(records);
+	if (policy.autoRelease.cadence.kind === "agent") return facts.proposed && green >= 1;
+	return green >= Math.max(1, policy.autoRelease.cadence.n);
+}
+
+/** `propose_release`: the preconditions the bridge verifies (the clean working tree is a fact the caller passes). */
+export function proposeReleaseCheck(
+	records: readonly AutopilotCycleRecord[],
+	facts: { policyOn: boolean; hasProcedure: boolean; inFlight: boolean; clean: boolean },
+): { ok: true } | { ok: false; reason: string } {
+	if (!facts.policyOn) return { ok: false, reason: "auto release is off" };
+	if (!facts.hasProcedure) return { ok: false, reason: "the repository defines no release procedure" };
+	if (facts.inFlight) return { ok: false, reason: "a push or release is already in flight" };
+	const last = records[records.length - 1];
+	if (last?.verify !== "green") return { ok: false, reason: "the last cycle was not green" };
+	if (redStreak(records) > 0) return { ok: false, reason: "there is a red streak" };
+	if (greenCyclesSinceRelease(records) < 1) return { ok: false, reason: "no green cycle since the last release" };
+	if (!facts.clean) return { ok: false, reason: "the working tree is not clean" };
+	return { ok: true };
+}
+
+/** The level the guard enforces: the release scope opens only when auto release is on and due. */
+export function shipLevelOf(policy: AutopilotShipPolicy, due: boolean): AutopilotShipLevel {
+	if (policy.autoRelease.on && due) return "release";
+	return policy.autoPush ? "push" : "local";
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Push now" / "release now" quotes
+// ---------------------------------------------------------------------------------------------
+
+const AGENT_WRAP = /^\s*<ompdesk-agent-message[\s>]/;
+const INTENT: Record<"push" | "release", RegExp> = {
+	push: /push|푸시|올려|업로드|upload|send it|ship/i,
+	release: /release|ship|deploy|publish|배포|릴리스|릴리즈|출시/i,
+};
+export const MIN_QUOTE_LENGTH = 3;
+
+function textOf(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map(block =>
+			typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text"
+				? String((block as { text?: unknown }).text ?? "")
+				: "",
+		)
+		.join("");
+}
+
+/** A message the user typed: role user, not synthetic, not attributed to an agent, not another session's wrapped message. */
+export function realUserText(message: unknown): string | undefined {
+	if (typeof message !== "object" || message === null) return undefined;
+	const m = message as { role?: unknown; synthetic?: unknown; attribution?: unknown; content?: unknown };
+	if (m.role !== "user" || m.synthetic === true) return undefined;
+	if (m.attribution !== undefined && m.attribution !== "user") return undefined;
+	const text = textOf(m.content);
+	return text.trim() === "" || AGENT_WRAP.test(text) ? undefined : text;
+}
+
+/** The user's real messages since the last finished cycle (what a quote may come from). */
+export function userMessagesSinceLastCycle(entries: readonly JournalEntry[]): string[] {
+	let messages: string[] = [];
+	for (const entry of entries) {
+		if (entry.type === "custom" && entry.customType === AUTOPILOT_CYCLE_ENTRY) messages = [];
+		else if (entry.type === "message") {
+			const text = realUserText(entry.message);
+			if (text !== undefined) messages.push(text);
+		}
+	}
+	return messages;
+}
+
+function squash(text: string): string {
+	return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The quote must be the user's own words (a substring of a real user message) and say what it asks for. */
+export function verifyShipQuote(
+	kind: "push" | "release",
+	quote: string,
+	userMessages: readonly string[],
+): { ok: true } | { ok: false; reason: string } {
+	const wanted = squash(quote);
+	if (wanted.length < MIN_QUOTE_LENGTH) return { ok: false, reason: "the quote is empty or too short" };
+	if (!userMessages.some(message => squash(message).includes(wanted))) {
+		return { ok: false, reason: "the quote is not in a message the user sent this turn" };
+	}
+	if (!INTENT[kind].test(wanted)) return { ok: false, reason: `the quote does not ask for a ${kind}` };
+	return { ok: true };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Settings and journal entries
+// ---------------------------------------------------------------------------------------------
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.min(max, Math.max(min, Math.round(value)))
+		: fallback;
+}
+
+function limitValue(value: unknown, previous: number | null): number | null {
+	if (value === null) return null;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : previous;
+}
+
+/** `base` with the valid parts of `patch` applied; invalid values keep the old ones. */
+export function mergeSettings(
+	base: AutopilotSettings,
+	patch: Partial<Record<keyof AutopilotSettings, unknown>> & {
+		ship?: Partial<AutopilotShipPolicy>;
+		limits?: Partial<AutopilotLimits>;
+	},
+): AutopilotSettings {
+	const focus = Array.isArray(patch.focus)
+		? [...new Set((patch.focus as unknown[]).filter(isAutopilotArea))]
+		: base.focus;
+	const ship = patch.ship ?? {};
+	const autoRelease = ship.autoRelease;
+	const cadence = autoRelease?.cadence;
+	const limits = patch.limits ?? {};
+	return {
+		focus,
+		ship: {
+			autoPush: typeof ship.autoPush === "boolean" ? ship.autoPush : base.ship.autoPush,
+			autoRelease: {
+				on: typeof autoRelease?.on === "boolean" ? autoRelease.on : base.ship.autoRelease.on,
+				cadence:
+					cadence?.kind === "agent"
+						? { kind: "agent" }
+						: cadence?.kind === "every"
+							? { kind: "every", n: clampInt(cadence.n, 1, 1000, 5) }
+							: base.ship.autoRelease.cadence,
+			},
+			remote: typeof ship.remote === "string" && ship.remote.trim() ? ship.remote.trim() : base.ship.remote,
+		},
+		limits: {
+			tokens: "tokens" in limits ? limitValue(limits.tokens, base.limits.tokens) : base.limits.tokens,
+			minutes: "minutes" in limits ? limitValue(limits.minutes, base.limits.minutes) : base.limits.minutes,
+			cycles: "cycles" in limits ? limitValue(limits.cycles, base.limits.cycles) : base.limits.cycles,
+			usd: "usd" in limits ? limitValue(limits.usd, base.limits.usd) : base.limits.usd,
+		},
+		maxParallel: clampInt(patch.maxParallel, 0, MAX_PARALLEL_CHILDREN, base.maxParallel),
+		notify:
+			patch.notify === "stops" || patch.notify === "cycles" || patch.notify === "off" ? patch.notify : base.notify,
+	};
+}
+
+/** The next state entry: `patch` over `prev`, with the active time of a running stretch added up. */
+export function nextStateEntry(
+	prev: AutopilotStateEntry,
+	patch: Partial<Omit<AutopilotStateEntry, "at" | "activeMs">>,
+	now: number,
+): AutopilotStateEntry {
+	const ran = prev.state === "running" || prev.state === "stopping" ? Math.max(0, now - prev.at) : 0;
+	const next: AutopilotStateEntry = { ...prev, ...patch, activeMs: prev.activeMs + ran, at: now };
+	// A state change drops what only made sense in the previous state.
+	if (patch.state !== undefined && patch.state !== prev.state) {
+		if (!("reason" in patch)) delete next.reason;
+		if (!("detail" in patch)) delete next.detail;
+		if (!("quotaResetAt" in patch)) delete next.quotaResetAt;
+	}
+	return next;
+}
+
+/** Verified requests not yet taken: a request entry with no later entry marking its `at` as consumed. */
+export function pendingShipRequests(entries: readonly JournalEntry[]): AutopilotShipRequest[] {
+	const all = customEntries<AutopilotShipRequest>(entries, AUTOPILOT_SHIP_REQUEST_ENTRY);
+	const taken = new Set(all.filter(entry => entry.consumedAt !== undefined).map(entry => entry.at));
+	return all.filter(entry => entry.consumedAt === undefined && !taken.has(entry.at));
+}
+
+/** The custom entries of one type, oldest first. */
+export function customEntries<T>(entries: readonly JournalEntry[], customType: string): T[] {
+	const out: T[] = [];
+	for (const entry of entries) {
+		if (
+			entry.type === "custom" &&
+			entry.customType === customType &&
+			typeof entry.data === "object" &&
+			entry.data !== null
+		) {
+			out.push(entry.data as T);
+		}
+	}
+	return out;
+}
+
+/** The last state entry: the run's current state. */
+export function lastStateEntry(entries: readonly JournalEntry[]): AutopilotStateEntry | undefined {
+	return customEntries<AutopilotStateEntry>(entries, AUTOPILOT_STATE_ENTRY).at(-1);
+}
+
+/** Every cycle record, one per cycle number: a later entry with the same `n` (an amendment, a revert mark) replaces the earlier one. */
+export function cycleRecords(entries: readonly JournalEntry[]): AutopilotCycleRecord[] {
+	const byNumber = new Map<number, AutopilotCycleRecord>();
+	for (const record of customEntries<AutopilotCycleRecord>(entries, AUTOPILOT_CYCLE_ENTRY)) {
+		if (typeof record.n === "number") byNumber.set(record.n, record);
+	}
+	return [...byNumber.values()].sort((a, b) => a.n - b.n);
+}
+
+/** The pinned backlog: add/remove/done events replayed; removed items are gone, done ones stay marked. */
+export function backlogItems(entries: readonly JournalEntry[]): AutopilotBacklogItem[] {
+	const items = new Map<string, AutopilotBacklogItem>();
+	for (const event of customEntries<AutopilotBacklogEvent>(entries, AUTOPILOT_BACKLOG_ENTRY)) {
+		if (event.op === "add" && event.text) items.set(event.id, { id: event.id, text: event.text, done: false });
+		else if (event.op === "remove") items.delete(event.id);
+		else if (event.op === "done") {
+			const item = items.get(event.id);
+			if (item) items.set(event.id, { ...item, done: true, cycle: event.cycle });
+		}
+	}
+	return [...items.values()];
+}
+
+/** Notes the next `begin` has not delivered yet: added after the last cycle's (or the cycle in flight's) begin. */
+export function pendingNotes(
+	entries: readonly JournalEntry[],
+	records: readonly AutopilotCycleRecord[],
+	liveBeginAt: number | undefined,
+): AutopilotNote[] {
+	const beganAt = Math.max(liveBeginAt ?? 0, records.at(-1)?.startedAt ?? 0);
+	return customEntries<AutopilotNote>(entries, AUTOPILOT_NOTE_ENTRY).filter(note => note.at > beganAt);
+}
+
+/** Follow-ups of the recent cycles that no later cycle's title mentions, newest first, without repeats. */
+export function openFollowups(records: readonly AutopilotCycleRecord[]): string[] {
+	const window = records.slice(-DUPLICATE_WINDOW);
+	const open: string[] = [];
+	const seen = new Set<string>();
+	for (let i = window.length - 1; i >= 0; i--) {
+		for (const followup of window[i].followups ?? []) {
+			const key = normalizeTitle(followup);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			if (window.slice(i + 1).some(later => normalizeTitle(later.title) === key)) continue;
+			open.push(followup);
+		}
+	}
+	return open;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Usage
+// ---------------------------------------------------------------------------------------------
+
+/** A cycle's own usage: the session counters at its end minus at its start (never negative: a compacted or reset counter reads as 0). */
+export function usageDelta(start: UsageTotals, end: UsageTotals): UsageTotals {
+	return { tokens: Math.max(0, end.tokens - start.tokens), usd: Math.max(0, end.usd - start.usd) };
+}
+
+export function totalsOf(records: readonly AutopilotCycleRecord[]): UsageTotals {
+	return records.reduce((sum, record) => ({ tokens: sum.tokens + record.tokens, usd: sum.usd + record.usd }), {
+		tokens: 0,
+		usd: 0,
+	});
+}
+
+/** Hourly rates from the last five cycles; absent until there are two (or when no time passed). */
+export function hourlyRates(records: readonly AutopilotCycleRecord[]): { tokensPerHour?: number; usdPerHour?: number } {
+	const window = records.slice(-5);
+	if (window.length < 2) return {};
+	const ms = window.reduce((sum, record) => sum + record.durationMs, 0);
+	if (ms <= 0) return {};
+	const used = totalsOf(window);
+	return { tokensPerHour: Math.round((used.tokens / ms) * 3_600_000), usdPerHour: (used.usd / ms) * 3_600_000 };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cycle records and results
+// ---------------------------------------------------------------------------------------------
+
+export type EndReport = Extract<AutopilotToolInput, { op: "end" }>;
+
+export interface FinalizeFacts {
+	n: number;
+	/** The cycle's `autopilot end` report, if the agent made one. */
+	report?: EndReport;
+	/** The cycle's start as recorded: when `begin` ran, else the turn's start. */
+	startedAt: number;
+	/** When the turn began (the duration is measured from it); defaults to `startedAt`. */
+	turnStartedAt?: number;
+	now: number;
+	usage: UsageTotals;
+	compactions: number;
+}
+
+/** The record journaled at the terminal agent_end: the report, or `unreported`. */
+export function finalizeCycle(facts: FinalizeFacts): AutopilotCycleRecord {
+	const { report } = facts;
+	const base = {
+		n: facts.n,
+		startedAt: facts.startedAt,
+		durationMs: Math.max(0, facts.now - (facts.turnStartedAt ?? facts.startedAt)),
+		tokens: facts.usage.tokens,
+		usd: facts.usage.usd,
+		compactions: facts.compactions,
+	};
+	if (!report) {
+		return {
+			...base,
+			area: "unreported",
+			title: "(no report)",
+			summary: "The turn ended without an autopilot end report.",
+			verify: "unreported",
+			followups: [],
+			children: [],
+		};
+	}
+	return {
+		...base,
+		area: report.area,
+		title: report.title.trim() || "(untitled)",
+		summary: report.summary.trim(),
+		verify: report.verify,
+		...(report.commit ? { commit: report.commit } : {}),
+		...(report.backlogId ? { backlogId: report.backlogId } : {}),
+		followups: (report.followups ?? []).map(text => text.trim()).filter(Boolean),
+		...(report.ship ? { ship: report.ship } : {}),
+		children: report.children ?? [],
+	};
+}
+
+/** Structural check of an `end` call (the tool schema is advisory; the model can send anything). */
+export function parseEndReport(input: Record<string, unknown>): EndReport | { error: string } {
+	const area = input.area;
+	if (typeof area !== "string" || !(isAutopilotArea(area) || area === "user" || area === "release")) {
+		return { error: `area must be one of ${[...AUTOPILOT_AREAS, "user", "release"].join(", ")}` };
+	}
+	if (typeof input.title !== "string" || !input.title.trim()) return { error: "title is required" };
+	if (typeof input.summary !== "string") return { error: "summary is required" };
+	if (input.verify !== "green" && input.verify !== "red" && input.verify !== "skipped") {
+		return { error: "verify must be green, red or skipped" };
+	}
+	const report: EndReport = {
+		op: "end",
+		area: area as AutopilotCycleArea,
+		title: input.title,
+		summary: input.summary,
+		verify: input.verify,
+	};
+	if (typeof input.commit === "string" && input.commit.trim()) report.commit = input.commit.trim();
+	if (typeof input.backlogId === "string" && input.backlogId) report.backlogId = input.backlogId;
+	if (Array.isArray(input.followups))
+		report.followups = input.followups.filter((x): x is string => typeof x === "string");
+	const ship = input.ship;
+	if (typeof ship === "object" && ship !== null && (ship as { kind?: unknown }).kind === "release") {
+		const { version, runUrl } = ship as { version?: unknown; runUrl?: unknown };
+		if (typeof version === "string" && version) {
+			report.ship = { kind: "release", version, ...(typeof runUrl === "string" && runUrl ? { runUrl } : {}) };
+		}
+	}
+	if (Array.isArray(input.children)) {
+		report.children = input.children.flatMap(child => {
+			if (typeof child !== "object" || child === null) return [];
+			const c = child as Record<string, unknown>;
+			if (typeof c.session !== "string" || typeof c.branch !== "string") return [];
+			const outcome = ["merged", "unmerged", "failed", "abandoned"].includes(String(c.outcome))
+				? (c.outcome as "merged")
+				: "unmerged";
+			return [
+				{ session: c.session, branch: c.branch, outcome, ...(typeof c.sha === "string" ? { sha: c.sha } : {}) },
+			];
+		});
+	}
+	return report;
+}
+
+export interface BeginFacts {
+	cycle: number;
+	settings: AutopilotSettings;
+	records: readonly AutopilotCycleRecord[];
+	backlog: readonly AutopilotBacklogItem[];
+	notes: readonly AutopilotNote[];
+	stopping: boolean;
+	branch: string;
+	state: AutopilotStateEntry;
+	due: boolean;
+	used: UsageTotals;
+	activeMs: number;
+}
+
+/** The `begin` result: everything the agent needs for the cycle, from the journal. */
+export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
+	const { settings, records, state } = facts;
+	const recent = records.slice(-RECENT_CYCLES).map(record => ({
+		n: record.n,
+		area: record.area,
+		title: record.title,
+		verify: record.verify,
+		commit: record.commit,
+		...(record.reverted ? { reverted: true } : {}),
+	}));
+	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
+	return {
+		cycle: facts.cycle,
+		focus: settings.focus,
+		backlog: facts.backlog.filter(item => !item.done),
+		notes: [...facts.notes],
+		rotation: rotation(records, settings.focus),
+		recent,
+		openFollowups: openFollowups(records),
+		redStreak: redStreak(records),
+		stopping: facts.stopping,
+		ship: {
+			autoPush: settings.ship.autoPush,
+			autoRelease: settings.ship.autoRelease,
+			remote: settings.ship.remote,
+			branch: facts.branch,
+			due: facts.due,
+			...(state.inFlight ? { inFlight: state.inFlight } : {}),
+			...(state.releaseProcedure ? { releaseProcedure: state.releaseProcedure } : {}),
+		},
+		...(left ? { budgetLeft: left } : {}),
+	};
+}
+
+// ---------------------------------------------------------------------------------------------
+// Status (`get_autopilot`, `autopilot_update`)
+// ---------------------------------------------------------------------------------------------
+
+export interface LiveCycle {
+	n: number;
+	area?: AutopilotCycleArea;
+	startedAt: number;
+	/** When `begin` last ran this cycle: notes added before it are delivered. */
+	beganAt?: number;
+}
+
+/** The whole status from the journal plus the cycle in flight; `active:false` when this session is no run. */
+export function buildStatus(entries: readonly JournalEntry[], now: number, live?: LiveCycle): AutopilotStatus {
+	const state = lastStateEntry(entries);
+	if (!state) return { active: false };
+	const records = cycleRecords(entries);
+	const running = state.state === "running" || state.state === "stopping";
+	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
+	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
+	return {
+		active: true,
+		role: state.role ?? "parent",
+		state: state.state,
+		...(state.reason ? { reason: state.reason } : {}),
+		...(state.detail ? { detail: state.detail } : {}),
+		run: state.run,
+		root: state.root,
+		branch: state.branch,
+		baseBranch: state.baseBranch,
+		cycle,
+		...(live ? { now: { n: live.n, ...(live.area ? { area: live.area } : {}), startedAt: live.startedAt } } : {}),
+		startedAt: state.startedAt,
+		activeMs,
+		settings: state.settings,
+		cycles: records,
+		backlog: backlogItems(entries),
+		notes: pendingNotes(entries, records, live?.beganAt),
+		ship: {
+			policy: state.settings.ship,
+			queue: [],
+			...(state.inFlight ? { inFlight: state.inFlight } : {}),
+			...(state.release ? { release: state.release } : {}),
+			...(state.releaseProcedure ? { releaseProcedure: state.releaseProcedure } : {}),
+			...(state.releaseBlocked ? { releaseBlocked: state.releaseBlocked } : {}),
+		},
+		totals: { ...totalsOf(records), ...hourlyRates(records) },
+		children: [],
+		...(state.quotaResetAt ? { quotaResetAt: state.quotaResetAt } : {}),
+	};
+}
+
+/** A fresh state entry for a run that is just starting (`arm` without `resume`). */
+export function initialStateEntry(params: {
+	run: string;
+	root: string;
+	branch: string;
+	baseBranch: string;
+	settings?: AutopilotSettings;
+	role?: "parent" | "child";
+	excludedTools: string[];
+	now: number;
+}): AutopilotStateEntry {
+	return {
+		state: "running",
+		run: params.run,
+		root: params.root,
+		branch: params.branch,
+		baseBranch: params.baseBranch,
+		settings: params.settings ?? DEFAULT_AUTOPILOT_SETTINGS,
+		startedAt: params.now,
+		activeMs: 0,
+		excludedTools: params.excludedTools,
+		...(params.role === "child" ? { role: "child" as const } : {}),
+		at: params.now,
+	};
+}

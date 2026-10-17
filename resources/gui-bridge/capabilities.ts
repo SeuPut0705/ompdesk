@@ -63,6 +63,7 @@ export const FEATURES = {
 	streamMetadata: "Stock read grouping and live token rate",
 	agentBrowser: "Agent browsing in the Preview panel (stock browser relay)",
 	agentControl: "OMPdesk control tools (confirmation cards)",
+	autopilot: "Autopilot (guarded, unattended Goal loop)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -304,6 +305,31 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	replyLanguage: {},
 	/** agent-control.ts: only the public extension context's `ui.confirm`; no internals to probe. */
 	agentControl: {},
+	/**
+	 * modes/autopilot.ts: the tool set (`ask`/`eval`/`debug` off, the `autopilot` tool on), the session-only
+	 * `tools.approvalMode` override, the cycle ledger in the journal, usage from the session stats, the todo
+	 * list for stall classification, and the extension API's zod for the tool schema.
+	 */
+	autopilot: {
+		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID", "z.object()", "z.enum()", "z.array()", "z.literal()"],
+		session: [
+			"subscribe()",
+			"settings",
+			"isStreaming",
+			"getEnabledToolNames()",
+			"getAllToolNames()",
+			"setActiveToolsByName()",
+			"getGoalModeState()",
+			"getPlanModeState()",
+			"getTodoPhases()",
+			"getSessionStats()",
+			"sessionManager.getBranch()",
+			"sessionManager.appendCustomEntry()",
+		],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+		},
+	},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
 	/** modes/user-profile.ts: the same public hook as the reply language. */

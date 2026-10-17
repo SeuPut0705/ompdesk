@@ -38,12 +38,15 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
+import { useNowTick } from "../../lib/now-tick";
+import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { isApprovalRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Kbd, TextArea } from "../common";
+import { approvalHeldBack } from "../panels/autopilot/autopilot-view";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock, useBelowEditorDock } from "./ask-dock";
 import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
@@ -855,11 +858,21 @@ export function ExtensionDialog() {
 	const arrivals = useExtensionUiStore(state => state.arrivedAt);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
+	// An Autopilot tab's approvals are answered by main's approver: the card would only flash, so it waits out a grace period.
+	const autopilot = useAutopilotStore(isLiveAutopilot);
+	const holding = autopilot && pending.some(req => isApprovalRequest(req));
+	const now = useNowTick(holding);
 
 	// A sign-in's own requests render in its login panel, never as a card here.
 	const dialogs = useMemo(
-		() => pending.filter(req => !NON_DIALOG_METHODS.has(req.method) && !Object.hasOwn(loginRequestIds, req.id)),
-		[pending, loginRequestIds],
+		() =>
+			pending.filter(
+				req =>
+					!NON_DIALOG_METHODS.has(req.method) &&
+					!Object.hasOwn(loginRequestIds, req.id) &&
+					!(autopilot && isApprovalRequest(req) && approvalHeldBack(arrivals[req.id], now)),
+			),
+		[pending, loginRequestIds, autopilot, arrivals, now],
 	);
 	const request = dialogs[0] ?? null;
 	const arrivedAt = request ? arrivals[request.id] : undefined;

@@ -10,6 +10,7 @@
  * (what was opened, what the user closed). Nothing here moves focus, and everything it does is one
  * `ui` store write the user can undo by closing the panel.
  */
+import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AUTO_OPEN_CHANGES_PREF, AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
 import type { AgentSessionEvent, RpcGitFingerprint, RpcGitStatus } from "../../shared/rpc-types";
 import type { SessionStore } from "../stores/session";
@@ -244,6 +245,26 @@ function endTurn(tabId: string): void {
 	})();
 }
 
+// ---------------------------------------------------------------------------------------------
+// Autopilot start → its screen
+// ---------------------------------------------------------------------------------------------
+
+/** Runs (`tabId:run`) whose screen was already offered: it opens once, never again after the user closes it. */
+const offeredAutopilot = new Set<string>();
+
+/**
+ * The Autopilot screen opens by itself when a run starts in the focused tab. Same guards as the other automations
+ * (the session page, nothing over unsaved Files edits or a view the user works in), once per run.
+ */
+function offerAutopilotScreen(tabId: string, status: AutopilotStatus): void {
+	if (!status.active || status.state !== "running" || !status.run) return;
+	const key = `${tabId}:${status.run}`;
+	if (offeredAutopilot.has(key) || !focusedTab(tabId)) return;
+	offeredAutopilot.add(key);
+	if (!panelYields(gate())) return;
+	openPanel(() => useUiStore.getState().openAutopilotPanel());
+}
+
 /** Feed one tab's event batch: the focused tab's dev servers and edits may open the side panel. */
 export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessionEvent[]): void {
 	install();
@@ -281,6 +302,9 @@ export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessio
 				}
 				break;
 			}
+			case "autopilot_update":
+				offerAutopilotScreen(tabId, event.status);
+				break;
 			case "agent_end":
 				if (event.isTerminal !== false) {
 					commands.delete(tabId);
@@ -296,6 +320,7 @@ export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessio
 /** Forget everything (tests). */
 export function resetPanelAutoOpen(): void {
 	offeredPreviews.clear();
+	offeredAutopilot.clear();
 	blockedChanges.clear();
 	turns.clear();
 	commands.clear();

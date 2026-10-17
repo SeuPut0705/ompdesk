@@ -33,11 +33,11 @@ export const CLOSED_FILE_VIEW: Pick<
 };
 
 /**
- * What the side panel shows: a session view, or one subagent's transcript
- * (`panelSubagent`). The subagent view stays out of `PANEL_TABS`, which feeds
- * the default-view setting and the `panel.*` shortcuts.
+ * What the side panel shows: a session view, one subagent's transcript
+ * (`panelSubagent`), or the Autopilot screen. The subagent and Autopilot views stay out of `PANEL_TABS`, which
+ * feeds the default-view setting and the `panel.*` shortcuts.
  */
-export type PanelView = PanelTab | "subagent";
+export type PanelView = PanelTab | "subagent" | "autopilot";
 export type ChangesMode = "repository" | "commits" | "current" | "timeline" | "artifacts";
 /** The subagent the side panel shows: its owning tab (whose omp writes its session) and its id. */
 export interface PanelSubagent {
@@ -102,7 +102,7 @@ export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolea
 
 export type TranscriptDetail = "compact" | "full";
 /** Composer Modes popover tabs a request can open (`openModes`). */
-export type ModesTab = "plan" | "goal";
+export type ModesTab = "plan" | "goal" | "autopilot";
 
 export interface GuiDisplayPreferences {
 	hideThinkingBlock?: boolean | null;
@@ -124,6 +124,9 @@ interface UiStore {
 	panelSubagent: PanelSubagent | null;
 	/** The Changes panel's source; kept here so another view or a narrower window (a remount) does not reset it. */
 	changesMode: ChangesMode;
+	/** A commit the Changes panel's commits view opens and scrolls to (the Autopilot timeline's sha link); the panel clears it. */
+	changesFocusCommit: string | null;
+	setChangesFocusCommit: (sha: string | null) => void;
 	setChangesMode: (mode: ChangesMode) => void;
 	previewUrl: string | null;
 	/** Local file currently shown in the Files drawer. */
@@ -249,6 +252,8 @@ interface UiStore {
 	setPanelTab: (tab: PanelTab) => void;
 	/** Show one subagent's transcript in the side panel (a dragged or menu-opened sidebar row). */
 	openSubagentPanel: (subagent: PanelSubagent) => void;
+	/** Show the Autopilot screen (the chip's "open screen", the work board card, the auto-open on start). */
+	openAutopilotPanel: () => void;
 	openPreview: (url: string) => void;
 	/** `keep` opens the file as a tab that stays; otherwise it takes (or becomes) the preview tab. */
 	openFilePreview: (path: string, options?: { line?: number; keep?: boolean }) => void;
@@ -414,6 +419,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelSubagent: null,
 	changesMode: "repository",
 	setChangesMode: changesMode => set({ changesMode }),
+	changesFocusCommit: null,
+	setChangesFocusCommit: changesFocusCommit => set({ changesFocusCommit }),
 	filePreviewPath: null,
 	filePreviewLine: null,
 	fileTabs: [],
@@ -465,6 +472,11 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	},
 	openSubagentPanel: subagent => {
 		const next = { panelSubagent: subagent, panelTab: "subagent" as const, panelVisible: true };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next });
+		else set(next);
+	},
+	openAutopilotPanel: () => {
+		const next = { panelTab: "autopilot" as const, panelVisible: true };
 		if (get().fileEditDirty) set({ pendingFileSwitch: next });
 		else set(next);
 	},

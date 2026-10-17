@@ -4,6 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useAutopilotStore } from "../../stores/autopilot";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useToastStore } from "../../stores/toast";
 import { AskDockSlot, BelowEditorDockSlot } from "./ask-dock";
@@ -546,6 +547,47 @@ describe("ExtensionDialog docked prompts", () => {
 		});
 		await flush();
 		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "approval", value: "Deny" });
+	});
+
+	it("holds an Autopilot tab's approval card back for main's approver, and shows one that waits on", async () => {
+		useAutopilotStore.getState().apply({ active: true, state: "running" });
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "held",
+				method: "select",
+				title: "Allow tool: bash\nls",
+				options: ["Approve", "Deny"],
+			}),
+		);
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
+		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["held"]);
+
+		// An approver that never answered: the card shows once the grace period has passed.
+		await act(async () => {
+			root.unmount();
+		});
+		vi.setSystemTime(new Date("2026-10-14T12:00:10Z"));
+		await mount({ withComposerDock: true });
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+		useAutopilotStore.getState().reset();
+	});
+
+	it("never holds a card back in a session that is no Autopilot run", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "shown",
+				method: "select",
+				title: "Allow tool: bash\nls",
+				options: ["Approve", "Deny"],
+			}),
+		);
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
 	});
 });
 

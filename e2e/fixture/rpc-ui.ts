@@ -31,6 +31,7 @@ import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
 import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "../work-recording";
+import { createAutopilotFake } from "./autopilot";
 import { FIXTURE_OMP_VERSION } from "./version";
 
 /** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
@@ -692,6 +693,36 @@ export function runRpcUi(): void {
 		const frame = `${JSON.stringify({ event })}\n`;
 		for (const socket of bridgeClients) socket.write(frame);
 	};
+	/** Autopilot's bridge methods, frames and Goal continuation (./autopilot.ts; `OMP_GUI_TEST_AUTOPILOT` scripts the cycles). */
+	const autopilot = createAutopilotFake({
+		write,
+		pushBridgeEvent,
+		record,
+		entries: () => entries,
+		appendCustom: (customType, data) => append({ type: "custom", customType, data }, Date.now()),
+		appendMessage,
+		isStreaming: () => isStreaming,
+		setStreaming: streaming => {
+			isStreaming = streaming;
+		},
+		endTurn,
+		getGoal: () => boardGoal,
+		setGoal: goal => {
+			boardGoal = goal;
+		},
+		takeSteers: () => {
+			const steers = lanes.steering.splice(0);
+			if (steers.length > 0) emitQueue();
+			return steers;
+		},
+		stats,
+		model,
+		setUsageLimitResetAt: at => {
+			usageLimitResetAt = at;
+		},
+		cwd: () => process.cwd(),
+	});
+	autopilot.load();
 	const emitNextPromptConfig = () => pushBridgeEvent({ type: "next_prompt_config", ...nextPromptState() });
 	/**
 	 * Automatic session titles (gui-bridge modes/auto-title.ts). Only with `OMP_GUI_TEST_AUTO_TITLE` (JSON `{latencyMs?,
@@ -1368,6 +1399,8 @@ export function runRpcUi(): void {
 		// Stock `restoreSession` (what `omp --restore` runs): a journal whose last entry is a user
 		// message with no reply was cut off mid-run; the turn goes on and answers.
 		"composer.restore_interrupted": () => {
+			const autopilotRestore = autopilot.restore();
+			if (autopilotRestore) return autopilotRestore;
 			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn.
 			const last = [...entries].reverse().find(entry => entry.type === "message");
 			const cutOff =
@@ -1976,6 +2009,7 @@ export function runRpcUi(): void {
 		}),
 		...(modelsData ? modelsPageMethods : {}),
 		...(modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1" ? resetPassMethods : {}),
+		...autopilot.bridgeMethods,
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
 	};
 	const serveBridge = (socket: net.Socket, line: string) => {
@@ -3925,6 +3959,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			// Stock answers nothing to a host tool's result; the recorded frame is what tests read.
 			case "host_tool_result":
+				autopilot.hostToolResult(command);
 				break;
 			case "set_subagent_subscription":
 				subagentSubscription = text("level");
@@ -4187,6 +4222,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ records: btwRecords });
 				break;
 			case "goal":
+				{
+					// An Autopilot run's goal (stock's continuation, ./autopilot.ts); any other goal is the fixture's board goal.
+					const autopilotGoal = autopilot.goal(command);
+					if (autopilotGoal !== undefined) {
+						ok(autopilotGoal);
+						break;
+					}
+				}
 				if (command.op === "create" && typeof command.objective === "string") {
 					boardGoal = { objective: command.objective, status: "active" };
 					write({ type: "goal_updated", goal: boardGoal, state: { enabled: true, goal: boardGoal } });
@@ -4272,6 +4315,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok();
 				break;
 			case "extension_ui_response":
+				if (autopilot.uiResponse(command)) {
+					ok();
+					break;
+				}
+				if (typeof command.id === "string" && agentCards.has(command.id)) {
+					agentCards.get(command.id)?.({ approved: command.confirmed === true });
+					agentCards.delete(command.id);
+					ok();
+					break;
+				}
 				// The sign-in's requests are not a turn's: no response frame, no agent_end.
 				if (pendingLogin && command.id === pendingLogin.urlId) break;
 				if (typeof command.id === "string" && leftoverLoginInputs.delete(command.id)) break;
@@ -5108,12 +5161,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			}
 			case "abort":
+				if (autopilot.abort(ok)) break;
 				clearInterval(streamTimer);
 				clearInterval(workStreamTimer);
 				ok();
 				if (!flow?.abort()) endTurn([]);
 				break;
 			case "prompt":
+				if (text("message") === "/retry" && autopilot.retry(data => ok(data))) break;
 				if (text("message") === "/retry") {
 					// Stock `/retry` (main's `retry` handler sends it): the failed turn runs again, here answering.
 					const failed = usageLimitResetAt !== undefined || networkFailed;
@@ -5161,6 +5216,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					);
 					break;
 				}
+				if (autopilot.childPrompt(text("message"), ok)) break;
 				prompt(text("message"), ok);
 				break;
 			case "set_session_name": {

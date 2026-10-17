@@ -116,6 +116,87 @@ export const MAIN_TEXT = {
 		ko: "“{caller}”의 에이전트가 OMPdesk가 켜져 있는 동안 {folder} 폴더에서 “{name}” 작업을 {when} 실행하도록 예약하려고 해요. 자동 승인 없이 실행돼요. 예약할까요?",
 	},
 	"agentControl.answeredBy": { en: "Answered by an agent ({by})", ko: "에이전트가 답함 ({by})" },
+	// Autopilot (src/main/autopilot.ts): notifications and the readable failures of a start.
+	"autopilot.paused.title": { en: "Autopilot paused", ko: "오토파일럿이 멈췄어요" },
+	"autopilot.ended.title": { en: "Autopilot ended", ko: "오토파일럿이 끝났어요" },
+	"autopilot.ended.body": {
+		en: "{branch}: {cycles} cycles, {commits} commits.",
+		ko: "{branch}: 사이클 {cycles}개, 커밋 {commits}개.",
+	},
+	"autopilot.reason.tests_failing": {
+		en: "Tests failed in 3 cycles in a row.",
+		ko: "테스트가 3사이클 연속 실패했어요.",
+	},
+	"autopilot.reason.no_progress": { en: "No progress for several turns.", ko: "여러 턴 동안 진전이 없어요." },
+	"autopilot.reason.blocked": { en: "Every task is blocked.", ko: "모든 작업이 막혀 있어요." },
+	"autopilot.reason.plan": { en: "Plan mode was turned on.", ko: "계획 모드가 켜졌어요." },
+	"autopilot.reason.context_churn": {
+		en: "The context keeps filling up (compaction churn).",
+		ko: "컨텍스트가 계속 차올라요(압축 반복).",
+	},
+	"autopilot.reason.no_report": { en: "Two cycles ended without a report.", ko: "두 사이클이 보고 없이 끝났어요." },
+	"autopilot.reason.push_failed": { en: "Pushing the branch failed.", ko: "브랜치를 푸시하지 못했어요." },
+	"autopilot.reason.release_failed": { en: "The release failed.", ko: "릴리스가 실패했어요." },
+	"autopilot.reason.ban_violation": {
+		en: "The agent did something the hard limits forbid ({detail}).",
+		ko: "에이전트가 금지된 작업을 했어요({detail}).",
+	},
+	"autopilot.reason.budget": { en: "The token limit was reached.", ko: "토큰 상한에 도달했어요." },
+	"autopilot.reason.time": { en: "The time limit was reached.", ko: "시간 상한에 도달했어요." },
+	"autopilot.reason.cycles": { en: "The cycle limit was reached.", ko: "사이클 상한에 도달했어요." },
+	"autopilot.reason.cost": { en: "The cost limit was reached.", ko: "비용 상한에 도달했어요." },
+	"autopilot.reason.error": {
+		en: "The model kept failing after the automatic retries.",
+		ko: "자동 재시도 뒤에도 모델 호출이 계속 실패했어요.",
+	},
+	"autopilot.reason.app_closed": {
+		en: "OMPdesk was closed; press Resume to continue.",
+		ko: "OMPdesk가 닫혀 있었어요. 이어서 하려면 재개를 누르세요.",
+	},
+	"autopilot.reason.agent_done": { en: "The agent declared the work done.", ko: "에이전트가 작업이 끝났다고 했어요." },
+	"autopilot.release.ok": { en: "Release {version} succeeded.", ko: "릴리스 {version} 성공." },
+	"autopilot.release.failed": { en: "Release {version} failed.", ko: "릴리스 {version} 실패." },
+	"autopilot.release.title": { en: "Autopilot release", ko: "오토파일럿 릴리스" },
+	"autopilot.cycle.title": { en: "Autopilot cycle {n} done", ko: "오토파일럿 사이클 {n} 완료" },
+	"autopilot.cycle.red.title": { en: "Autopilot cycle {n}: checks red", ko: "오토파일럿 사이클 {n}: 검증 실패" },
+	"autopilot.denied": {
+		en: "Denied a request that breaks a hard limit: {reason}",
+		ko: "금지된 요청을 거절했어요: {reason}",
+	},
+	"autopilot.err.notRepo": {
+		en: "Autopilot needs a git repository with at least one commit.",
+		ko: "오토파일럿은 커밋이 하나 이상 있는 git 저장소에서만 시작할 수 있어요.",
+	},
+	"autopilot.err.detached": {
+		en: "Check out a branch first: Autopilot cuts its worktree from the current branch.",
+		ko: "먼저 브랜치를 체크아웃하세요. 오토파일럿은 현재 브랜치에서 워크트리를 만들어요.",
+	},
+	"autopilot.err.planOn": {
+		en: "Turn Plan mode off before starting Autopilot.",
+		ko: "오토파일럿을 시작하기 전에 계획 모드를 끄세요.",
+	},
+	"autopilot.err.goalExists": {
+		en: "This session already has a goal. Drop it before starting Autopilot.",
+		ko: "이 세션에는 이미 목표가 있어요. 오토파일럿을 시작하기 전에 목표를 삭제하세요.",
+	},
+	"autopilot.err.running": {
+		en: "This session is already an Autopilot run.",
+		ko: "이 세션은 이미 오토파일럿 실행 중이에요.",
+	},
+	"autopilot.err.device": {
+		en: "Autopilot runs only on this computer, not on a paired device.",
+		ko: "오토파일럿은 이 컴퓨터에서만 실행돼요(페어링된 기기에서는 안 돼요).",
+	},
+	"autopilot.err.noRelease": {
+		en: "No release procedure was found in this repository's rules files (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, RELEASING.md, docs/release*).",
+		ko: "이 저장소의 규칙 파일(AGENTS.md, CLAUDE.md, CONTRIBUTING.md, RELEASING.md, docs/release*)에서 릴리스 절차를 찾지 못했어요.",
+	},
+	"autopilot.err.noRun": { en: "This session is not an Autopilot run.", ko: "이 세션은 오토파일럿 실행이 아니에요." },
+	"autopilot.err.noCommit": { en: "That cycle made no commit to revert.", ko: "되돌릴 커밋이 없는 사이클이에요." },
+	"autopilot.err.localOnly": {
+		en: "Autopilot is controlled from the OMPdesk window on this computer.",
+		ko: "오토파일럿은 이 컴퓨터의 OMPdesk 창에서만 제어해요.",
+	},
 	"menu.selectAll": { en: "Select All", ko: "전체 선택" },
 	"menu.reload": { en: "Reload", ko: "새로고침" },
 	"menu.forceReload": { en: "Force Reload", ko: "강제 새로고침" },

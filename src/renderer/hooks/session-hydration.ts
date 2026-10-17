@@ -1,4 +1,5 @@
 import type { StoreApi } from "zustand";
+import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type { NextPromptState } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type {
 	AgentMessage,
@@ -9,6 +10,7 @@ import type {
 	RpcSessionState,
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
+import { useAutopilotStore } from "../stores/autopilot";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import {
 	type ModelSelection,
@@ -246,6 +248,23 @@ export async function syncGoal(tabId: string, command: TabCommand, isCurrent: Hy
 		});
 	} catch {
 		// Transient — the next goal_updated event or hydration retries.
+	}
+}
+
+/**
+ * Fetch the tab's Autopilot run (`get_autopilot`) into its store; a session that is no run answers `{active: false}`.
+ * `autopilot_update` frames keep it current afterwards, and one that lands while this read is in flight wins.
+ */
+export async function syncAutopilot(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	const startedAt = withSessionRuntime(tabId, () => useAutopilotStore.getState().version);
+	try {
+		const res = await command({ type: "get_autopilot" });
+		if (!isCurrent() || !res.success) return;
+		const status = res.data as AutopilotStatus | undefined;
+		if (!status || typeof status.active !== "boolean") return;
+		withSessionRuntime(tabId, () => useAutopilotStore.getState().hydrateIfCurrent(startedAt, status));
+	} catch {
+		// Transient — the next autopilot_update frame or hydration retries.
 	}
 }
 
@@ -567,6 +586,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
+		syncAutopilot("", activeTabCommand, isCurrent),
 		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
 		useSettingsStore.getState().syncDisplaySettings(),
@@ -694,6 +714,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// composer chip reflects an active goal after boot/session switches,
 		// not only on goal_updated events.
 		syncGoal(tabId, runtime.command, isCurrent),
+		syncAutopilot(tabId, runtime.command, isCurrent),
 		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session

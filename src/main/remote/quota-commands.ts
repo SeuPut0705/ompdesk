@@ -61,6 +61,8 @@ export const CONDITIONAL_MODEL_COMMAND_TYPES = [
 	"plan_approval",
 	// An objective or a resume starts a goal turn; budgets, limits, pause and drop do not.
 	"set_goal",
+	// Start and resume run model turns; every other action (stop, pause, notes, ship queue) does not.
+	"set_autopilot",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that never call a model: reads, settings, git, files, queue edits, session moves. */
@@ -71,6 +73,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	// An OMPdesk control tool's confirmation card: a stock extension-UI confirm, no model.
 	"agent_control_confirm",
 	"agent_control_note",
+	"autopilot_bridge",
 	"agent_control_review",
 	"abort",
 	"abort_and_restore_queue",
@@ -119,6 +122,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_context_inspect",
 	"get_context_report",
 	"get_copy_targets",
+	"get_autopilot",
+	"autopilot_branch_status",
 	"get_delegation",
 	"get_directories",
 	"get_force_tool",
@@ -303,6 +308,8 @@ export function commandUsesModel(command: RpcCommand): boolean {
 			return command.approved === true
 				? command.option !== "save"
 				: typeof command.feedback === "string" && command.feedback.trim() !== "";
+		case "set_autopilot":
+			return command.action === "start" || command.action === "resume";
 		case "set_goal":
 			return (
 				(typeof command.objective === "string" && command.objective.trim() !== "") || command.action === "resume"

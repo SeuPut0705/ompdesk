@@ -29,6 +29,7 @@ import { errorDetail } from "../../../lib/error-detail";
 import { cx, formatAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { useUiStore } from "../../../stores/ui";
 import {
 	Button,
 	ConfirmDialog,
@@ -103,6 +104,15 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 	const [hardReset, setHardReset] = useState<RpcGitCommit | null>(null);
 	const reload = useCallback(() => setRefresh(value => value + 1), []);
 	const runner = useScmAction(rpc, reload);
+
+	// The Autopilot timeline's sha link: open that commit once the log is here (a short sha resolves against it).
+	const focusCommit = useUiStore(state => state.changesFocusCommit);
+	useEffect(() => {
+		if (!focusCommit || !log) return;
+		const match = log.commits.find(entry => entry.sha.startsWith(focusCommit));
+		setSelected(match?.sha ?? focusCommit);
+		useUiStore.getState().setChangesFocusCommit(null);
+	}, [focusCommit, log]);
 
 	// Search applies after a short pause, not per keystroke.
 	useEffect(() => {

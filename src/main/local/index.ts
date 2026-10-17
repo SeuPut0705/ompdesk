@@ -8,6 +8,7 @@ import { handlers as agentControl } from "./agent-control";
 import { handlers as agentFiles } from "./agent-files";
 import { handlers as autoMode } from "./auto-mode";
 import { handlers as autoTitle } from "./auto-title";
+import { handlers as autopilot } from "./autopilot";
 import { handlers as composer } from "./composer";
 import { handlers as extensions } from "./extensions";
 import { handlers as git } from "./git";
@@ -38,6 +39,7 @@ const LOCAL_HANDLERS = mergeHandlers({
 	agentControl,
 	autoTitle,
 	autoMode,
+	autopilot,
 	queue,
 	composer,
 	modes,

@@ -29,6 +29,7 @@ import type {
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { formatClock } from "../lib/format";
 import { I18nProvider, translate } from "../lib/i18n";
+import { useAutopilotStore } from "../stores/autopilot";
 import type { ExtensionUiStore } from "../stores/extension-ui";
 import { type MessagesStore, useMessagesStore } from "../stores/messages";
 import { type ModelStore, useModelStore } from "../stores/model";
@@ -408,6 +409,7 @@ afterEach(async () => {
 	}
 	container?.remove();
 	useTabsStore.getState().reset();
+	useAutopilotStore.getState().reset();
 	useSessionStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useModelStore.getState().reset();
@@ -1359,6 +1361,35 @@ describe("useRpcEvents mode-state sync", () => {
 		goal.resolve(success({ enabled: false }));
 		await act(async () => hydration);
 		expect(useSessionStore.getState().goal?.objective).toBe("new objective");
+	});
+
+	it("keeps the tab's Autopilot status from autopilot_update frames", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		await flush();
+		expect(useAutopilotStore.getState().status).toEqual({ active: false });
+		const status = { active: true, state: "running", cycle: 2, branch: "autopilot/2026-10-17" } as const;
+		await act(async () => emitBatch([{ type: "autopilot_update", status }]));
+		expect(useAutopilotStore.getState().status).toEqual(status);
+		expect(useAutopilotStore.getState().hydrated).toBe(true);
+	});
+
+	it("hydrates the Autopilot status from get_autopilot, and a frame that lands meanwhile wins", async () => {
+		const { omp, emitBatch } = installMockOmp();
+		const base = omp.rpc.command.getMockImplementation();
+		const old = Promise.withResolvers<RpcResponse>();
+		omp.rpc.command.mockImplementation((command: RpcCommand) =>
+			command.type === "get_autopilot" ? old.promise : (base?.(command) ?? Promise.resolve(success({}))),
+		);
+		await mount(<RpcEventsProbe />);
+		await flush();
+		const hydration = hydrateSession();
+		await act(async () =>
+			emitBatch([{ type: "autopilot_update", status: { active: true, state: "paused", reason: "user_pause" } }]),
+		);
+		old.resolve(success({ active: true, state: "running", cycle: 1 }));
+		await act(async () => hydration);
+		expect(useAutopilotStore.getState().status.state).toBe("paused");
 	});
 
 	it("hydrates project-scoped display settings into the active tab", async () => {

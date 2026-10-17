@@ -1,4 +1,5 @@
 import type { RpcCommand, RpcResponse, RpcResponseError } from "../../shared/rpc-types";
+import { createAutopilotStore } from "./autopilot";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";
 import { createMessagesStore } from "./messages";
@@ -76,6 +77,7 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	};
 
 	const runtime: SessionRuntime = { tabId, command, stores: new Map() };
+	addRuntimeStore(runtime, "autopilot", createAutopilotStore());
 	addRuntimeStore(runtime, "composer", createComposerStore());
 	addRuntimeStore(runtime, "extensionUi", createExtensionUiStore());
 	addRuntimeStore(runtime, "messages", createMessagesStore());

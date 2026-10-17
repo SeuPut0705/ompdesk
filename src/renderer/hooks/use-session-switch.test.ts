@@ -13,6 +13,7 @@ import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import type { RpcResponse, RpcSessionState } from "../../shared/rpc-types";
+import { useAutopilotStore } from "../stores/autopilot";
 import { useComposerStore } from "../stores/composer";
 import { useForkHandoffStore } from "../stores/fork-handoff";
 import { useMessagesStore } from "../stores/messages";
@@ -134,6 +135,7 @@ function seedTabs(): void {
 }
 
 function resetAll(): void {
+	useAutopilotStore.getState().reset();
 	useTabsStore.getState().reset();
 	useComposerStore.getState().reset();
 	useSessionStore.getState().reset();
@@ -175,6 +177,17 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		expect(useTodoStore.getState()).toMatchObject({ phases: [], history: [], historyHydrated: true });
 		expect(useSubagentsStore.getState().subagents.size).toBe(0);
 		expect(useSessionStore.getState().sessionId).toBe("fresh");
+	});
+
+	it("drops the old session's Autopilot run when a new session replaces it", async () => {
+		useAutopilotStore.getState().apply({ active: true, state: "running", cycle: 3 });
+		useAutopilotStore.getState().setBranchStatus({ ahead: 2, behind: 0 });
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "fresh" })));
+
+		await newSessionNow();
+
+		expect(useAutopilotStore.getState().status.active).toBe(false);
+		expect(useAutopilotStore.getState().branchStatus).toBeNull();
 	});
 
 	it("preserves the old surface when a new-session hook cancels the transition", async () => {

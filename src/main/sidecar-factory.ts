@@ -6,6 +6,7 @@
 import { join } from "node:path";
 import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { AUTOPILOT_FRAME_TYPES } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { normalizeUserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
@@ -56,6 +57,11 @@ export interface LocalSidecarDeps {
 	accountRotationLedger: string;
 	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
 	launchProfilesPref: () => unknown;
+	/**
+	 * Autopilot's coordinator (src/main/autopilot.ts), read per frame: it does not exist yet when the factory is
+	 * made. Absent or null: autopilot frames pass through untouched.
+	 */
+	autopilot?: () => AutopilotFrameSink | null;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -71,10 +77,16 @@ export type LocalSidecarFactory = (
 	origin?: PromptOriginEnv,
 ) => SidecarManager;
 
+/** What the factory hands the coordinator: the status to overlay, and the bridge's autopilot frames. */
+export interface AutopilotFrameSink {
+	overlay(sidecar: SidecarManager, frame: Record<string, unknown>): Record<string, unknown>;
+	frame(sidecar: SidecarManager, frame: Record<string, unknown>): void;
+}
+
 export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory {
 	const { bridgeDir, bridgeHealth, sessionKinds } = deps;
 	return (cwd, kind, fresh, origin) => {
-		const sc = new SidecarManager({
+		const sc: SidecarManager = new SidecarManager({
 			// The status keeps this reason (Settings, the status snapshot); localize it in the UI language.
 			// While machine setup has omp missing or installing, a half-installed omp is not even resolved.
 			omp: async () => {
@@ -126,6 +138,9 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					{ cwd: report.cwd },
 				);
 			},
+			// The coordinator adds what only main knows (children, ship queue) before a window sees the status.
+			frameTransform: (frame): Record<string, unknown> =>
+				frame.type === "autopilot_update" ? (deps.autopilot?.()?.overlay(sc, frame) ?? frame) : frame,
 		});
 		// Ready-health-check applies to every sidecar, not just the first.
 		// A failure marks the live child `error` without killing it; the manager
@@ -166,6 +181,12 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 						{ cwd },
 					),
 				);
+		});
+		// The bridge's autopilot frames (cycle end, stop request, settled) are the coordinator's to act on.
+		sc.on("frame", (frame: Record<string, unknown>) => {
+			if (typeof frame.type === "string" && (AUTOPILOT_FRAME_TYPES as readonly string[]).includes(frame.type)) {
+				deps.autopilot?.()?.frame(sc, frame);
+			}
 		});
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));

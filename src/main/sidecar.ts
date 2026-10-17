@@ -138,6 +138,10 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	goal_updated: true,
 	// The bridge's goal time limit (modes/goal.ts): the renderer toasts it, main pauses (sidecar-factory.ts).
 	goal_time_limit_reached: true,
+	// The bridge's autopilot status (modes/autopilot.ts), overlaid by main's coordinator first (`frameTransform`).
+	// Its other frames (`autopilot_cycle_end`, `autopilot_stop_requested`, `autopilot_settled`) are for main only:
+	// they leave through `frame` and reach no window.
+	autopilot_update: true,
 	// The built-in prompt suggestions (bridge modes/next-prompt.ts): candidates, and the feature's state/availability.
 	next_prompt_update: true,
 	next_prompt_config: true,
@@ -274,6 +278,11 @@ export interface SidecarOptions {
 	 * flags, and no prefs file is touched.
 	 */
 	launchProfiles?: () => unknown;
+	/**
+	 * Rewrites a frame before anything sees it (Autopilot's coordinator adds the children and the ship queue to
+	 * `autopilot_update`). Must be synchronous and return a frame of the same type.
+	 */
+	frameTransform?: (frame: Record<string, unknown>) => Record<string, unknown>;
 	/**
 	 * Persists a crash report (reason + stderr tail) for post-mortem diagnosis.
 	 * Same point-of-use injection as `proxyEnv`/`shellEnv`: the real
@@ -771,7 +780,8 @@ export class SidecarManager extends EventEmitter {
 		this.emit("beforeResponse");
 	}
 
-	#dispatchFrame(obj: Frame): void {
+	#dispatchFrame(frame: Frame): void {
+		const obj = this.#options.frameTransform?.(frame) ?? frame;
 		const type = obj.type as string;
 		if (type === "ready") {
 			this.#handleReady(obj as unknown as RpcReadyFrame);

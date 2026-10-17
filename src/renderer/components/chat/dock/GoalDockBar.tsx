@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
@@ -10,6 +11,7 @@ import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-ru
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { IconButton, Spinner } from "../../common";
+import { AutopilotDockRow } from "../../panels/autopilot/AutopilotDockRow";
 
 type GoalAction = "pause" | "resume" | "drop";
 
@@ -32,9 +34,12 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 		state.pendingRequests.some(request => isUserBlockingRequest(state, request)),
 	);
 	const planPending = usePlanApprovalStore(state => state.pending !== null);
+	const autopilot = useAutopilotStore(isLiveAutopilot);
 	const needsAnswer = questionPending || planPending;
 
 	if (!goal) return null;
+	// An Autopilot run is a Goal underneath; its own strip replaces this one (pausing or dropping here would fight it).
+	if (autopilot) return <AutopilotDockRow inline={inline} />;
 
 	const paused = goalState?.status === "paused";
 	const objective = goal.objective?.trim() || t("input.goal.label");

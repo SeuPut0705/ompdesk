@@ -149,7 +149,7 @@ export interface CommandRegistryContext {
 	openBenchmark: () => void;
 	openHandoffDialog: () => void;
 	openThemePicker: () => void;
-	openModes: (tab?: "plan" | "goal") => void;
+	openModes: (tab?: "plan" | "goal" | "autopilot") => void;
 	/** Agents page (Live · Definitions · Pull requests). */
 	openAgents: (tab?: AgentsTab) => void;
 	/** Insights page (Stats with a This session / All sessions scope · Usage). */
@@ -1302,6 +1302,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.goal.desc"),
 		category: "modes",
 		affordance: { kind: "window", open: () => ctx.openModes("goal") },
+	});
+	add({
+		name: "autopilot",
+		label: t("cmd.autopilot"),
+		description: t("cmd.autopilot.desc"),
+		category: "modes",
+		affordance: { kind: "window", open: () => ctx.openModes("autopilot") },
 	});
 	// The Modes window is the native form of TUI /modes; without this row the
 	// sidecar-advertised command merges in as a dead "TUI-only" entry.

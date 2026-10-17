@@ -154,6 +154,8 @@ export interface TabFacts {
 	awaitingConnection: boolean;
 	/** Stock's auto-retry is waiting for its next attempt: the failure is not final. */
 	retrying: boolean;
+	/** TurnResume armed a retry of the failed turn (`scheduledRetry` pref): the failure is not final either. */
+	scheduledRetry?: boolean;
 }
 
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
@@ -335,6 +337,8 @@ export class SidecarPool {
 	worktreeStartGate: ((tabId: string, winId: number, facts: TabSpawnFacts) => SidecarStartGate | null) | null = null;
 	/** A tab was released (closed, or its window closed); `exited` settles once its omp is gone. */
 	onTabReleased: ((tabId: string, exited: Promise<void>) => void) | null = null;
+	/** A tab's sidecar was created (Autopilot attaches its approval and readiness listeners). */
+	onAcquire: ((tabId: string, sidecar: SidecarLike) => void) | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
 
 	constructor(factory: SidecarFactory) {
@@ -360,6 +364,7 @@ export class SidecarPool {
 			busy: runBusy(entry.run),
 			awaitingConnection: entry.awaitingConnection === true,
 			retrying: entry.retry !== undefined,
+			scheduledRetry: entry.scheduledRetry !== undefined,
 		};
 	}
 
@@ -458,6 +463,7 @@ export class SidecarPool {
 			this.#wireLight(entry);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
+			this.onAcquire?.(tabId, sidecar);
 			// F-OWN: a spawn-with-sessionPath attaches immediately — register the
 			// owner before any duplicate attach can slip past the IPC guard. A
 			// deferred tab registers too: it owns that file the moment it exists,

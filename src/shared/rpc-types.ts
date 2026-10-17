@@ -5,6 +5,7 @@
  */
 
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type {
 	InlineCompletion,
@@ -215,6 +216,13 @@ export type RpcCommand =
 	| { id?: string; type: "get_goal" }
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
+	// Autopilot (Settings: Mode tab "Autopilot"): gui-bridge modes/autopilot.ts + main's coordinator (src/main/autopilot.ts)
+	| { id?: string; type: "get_autopilot" }
+	| ({ id?: string; type: "set_autopilot" } & AutopilotAction)
+	/** Commits the autopilot branch is ahead of / behind `base` (read-only git in the worktree). */
+	| { id?: string; type: "autopilot_branch_status"; root: string; base: string; branch: string }
+	/** Main's own calls into the bridge's autopilot module (src/main/local/autopilot.ts allow-lists the methods); never sent by a renderer. */
+	| { id?: string; type: "autopilot_bridge"; method: string; params?: unknown }
 	// Delegation strength (composer chip): gui-bridge modes/delegation.ts
 	| { id?: string; type: "get_delegation" }
 	| { id?: string; type: "set_delegation"; mode: DelegationMode }
@@ -2600,6 +2608,7 @@ export type AgentSessionEvent =
 			resolved?: string;
 	  }
 	| { type: "goal_updated"; goal: unknown; state?: unknown }
+	| { type: "autopilot_update"; status: AutopilotStatus }
 	| {
 			type: "plan_proposal";
 			planFilePath: string;

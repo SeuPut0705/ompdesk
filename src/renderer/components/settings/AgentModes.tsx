@@ -44,6 +44,13 @@ export function AgentModes() {
 						>
 							{t("settings.features.goal")}
 						</Button>
+						<Button
+							onClick={() => leaveTo(() => useUiStore.getState().openModes("autopilot"))}
+							size="sm"
+							variant="secondary"
+						>
+							{t("settings.features.autopilot")}
+						</Button>
 					</div>
 				}
 			/>
