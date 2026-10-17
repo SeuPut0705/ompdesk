@@ -122,7 +122,9 @@ import {
 	updateStatus,
 } from "./updater";
 import { IpcRegistry } from "./web/ipc-registry";
+import { WebClientWindow } from "./web/web-client-window";
 import { WebHost } from "./web/web-host";
+import { WebTabLayouts } from "./web/web-tab-layouts";
 import { WindowManager } from "./window";
 import { nativeThemeSource } from "./window-chrome";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
@@ -354,6 +356,11 @@ let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let webHost: WebHost | null = null;
+/** Paired web devices' tab layouts, by device (pref `webTabLayouts`). */
+const webTabLayouts = new WebTabLayouts({
+	get: () => prefsStore().get("webTabLayouts"),
+	set: value => prefsStore().set("webTabLayouts", value),
+});
 let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
@@ -685,7 +692,15 @@ app.whenReady().then(() => {
 		},
 	});
 	remoteDevices = devices;
-	sidecarPool.onWindowTabsChanged = () => persistTabLayouts();
+	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
+	// the tabs down, which must not read as the device closing them.
+	sidecarPool.onWindowTabsChanged = (win, layout) => {
+		if (win instanceof WebClientWindow) {
+			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
+			return;
+		}
+		persistTabLayouts();
+	};
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(record => {
@@ -1128,6 +1143,7 @@ app.whenReady().then(() => {
 	});
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
 	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
+	webHost.devices.onRevoked(deviceId => webTabLayouts.drop(deviceId));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
 	// address. The server it starts is the WebHost above. `OMP_GUI_TEST_TAILSCALE_OPEN` is a test's stand-in
@@ -1226,6 +1242,13 @@ app.whenReady().then(() => {
 	// relaunch. An argv cwd is an explicit "open this", not a restore.
 	if (!explicitStartupCwd) {
 		for (const layout of savedLayouts.slice(1)) spawnWindowWithLayout(layout);
+	}
+	// Each paired phone's or tablet's tabs come back into its window, as the host's sessions (web/web-tab-layouts.ts).
+	if (webHost) {
+		const paired = new Set(webHost.devices.list().map(device => device.deviceId));
+		for (const { deviceId, layout } of webTabLayouts.restorable(paired)) {
+			sidecarPool.restoreLayout(webHost.windows.windowFor(deviceId), layout);
+		}
 	}
 	// After the saved windows (and so their tabs) exist: go on with what the last process left running.
 	turnResume.launch();
