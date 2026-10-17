@@ -58,7 +58,17 @@ async function lookup(cwd: string): Promise<ProjectOrigin | null> {
 }
 
 /** The project `cwd` belongs to, or null when git cannot say (no repository, a missing folder, no git). */
-export function readProjectOrigin(cwd: string, now: () => number = Date.now): Promise<ProjectOrigin | null> {
+export async function readProjectOrigin(cwd: string, now: () => number = Date.now): Promise<ProjectOrigin | null> {
+	// A folder that is gone (a discarded worktree) answers null at once, whatever the cache still remembers.
+	if (
+		!(await fs.stat(cwd).then(
+			() => true,
+			() => false,
+		))
+	) {
+		cache.delete(cwd);
+		return null;
+	}
 	const cached = cache.get(cwd);
 	const stamp = now();
 	if (cached && stamp - cached.at < (cached.known ? KNOWN_TTL_MS : UNKNOWN_TTL_MS)) return cached.origin;

@@ -1997,11 +1997,11 @@ describe("Sidebar worktree groups", () => {
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
 		expect(order.indexOf(AUTOPILOT)).toBe(order.indexOf("/work/alpha") + 1);
-		expect(order.indexOf(CHILD)).toBe(order.indexOf("/work/alpha") + 2);
+		expect(order.indexOf("/work/alpha#agent")).toBe(order.indexOf("/work/alpha") + 2);
 
 		const header = (cwd: string) => container.querySelector(`[data-workspace-group="${cwd}"]`) as unknown as Element;
 		expect(header(AUTOPILOT).textContent?.trim()).toBe("Autopilot");
-		expect(header(CHILD).textContent?.trim()).toBe("Parallel work");
+		expect(header("/work/alpha#agent").textContent?.trim()).toBe("Parallel work");
 		expect(header(AUTOPILOT).getAttribute("data-worktree-group")).toBe("alpha");
 		expect(header("/work/alpha").getAttribute("data-worktree-group")).toBeNull();
 		// The folder names stay out of the sidebar; the full path is the tooltip.
@@ -2010,6 +2010,42 @@ describe("Sidebar worktree groups", () => {
 		const tooltip = header(AUTOPILOT).querySelector("button[aria-expanded]")?.getAttribute("title");
 		expect(tooltip).toContain(AUTOPILOT);
 		expect(tooltip).toContain("alpha");
+	});
+
+	it("holds the parallel children of one project in ONE group and drops a discarded one", async () => {
+		const CHILD_B = "/home/me/.omp/wt/h1/gui-agent-b7k2m1-9f8e7d6";
+		const DISCARDED = "/home/me/.omp/wt/h1/gui-agent-c3d4e5-0a1b2c3";
+		const omp = installMockOmp([
+			session("/wt/a.jsonl", CHILD, { title: "Approach A", created: "2026-02-03T00:00:00Z" }),
+			session("/wt/b.jsonl", CHILD_B, { title: "Approach B", created: "2026-02-02T00:00:00Z" }),
+			session("/wt/c.jsonl", DISCARDED, { title: "Approach C", created: "2026-02-01T00:00:00Z" }),
+			...LIST,
+		]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === CHILD || cwd === CHILD_B
+							? origin("omp/agent/x", "agent", "x")
+							: cwd === "/work/alpha"
+								? { project: "alpha", root: "/work/alpha", worktree: null }
+								: null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		await mount(<Sidebar />);
+		const groups = [...container.querySelectorAll("[data-worktree-group]")];
+		expect(groups).toHaveLength(1);
+		expect(groups[0]?.textContent?.trim()).toBe("Parallel work");
+		await fire(groups[0]?.querySelector("button[aria-expanded]") ?? null, "onClick");
+		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows.some(text => text.includes("Approach A"))).toBe(true);
+		expect(rows.some(text => text.includes("Approach B"))).toBe(true);
+		expect(rows.some(text => text.includes("Approach C"))).toBe(false);
+		expect(container.textContent).not.toContain("gui-agent");
 	});
 
 	it("names the project too when its own group is not listed", async () => {
@@ -2036,10 +2072,10 @@ describe("Sidebar worktree groups", () => {
 		expect(header?.textContent?.trim()).toBe("beta · Autopilot");
 	});
 
-	it("shows the folder without its gui-…-hash dressing while git has not answered, or cannot", async () => {
+	it("shows the folder without its gui-…-hash dressing while git has not answered", async () => {
 		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
 		(omp as unknown as Record<string, unknown>).projectOrigins = {
-			get: vi.fn(async (cwds: string[]) => Object.fromEntries(cwds.map(cwd => [cwd, null]))),
+			get: vi.fn(() => Promise.withResolvers().promise),
 		};
 		seedStores();
 		await mount(<Sidebar />);

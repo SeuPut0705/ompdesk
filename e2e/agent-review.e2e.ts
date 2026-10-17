@@ -114,7 +114,7 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	expect(made).toHaveLength(3);
 
 	// The children's folders (`gui-agent-<id>-<hash>`) never show: each group sits under the project, named by what it is.
-	await expect(page.locator("[data-worktree-group]")).toHaveCount(3, { timeout: 30_000 });
+	await expect(page.locator("[data-worktree-group]")).toHaveCount(1, { timeout: 30_000 });
 	for (const label of await page.locator("[data-worktree-group]").allTextContents())
 		expect(label.trim()).toBe("Parallel work");
 	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);

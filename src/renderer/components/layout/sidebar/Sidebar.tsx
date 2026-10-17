@@ -76,7 +76,7 @@ import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
-import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
+import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -133,7 +133,12 @@ import "../../../styles/sidebar.css";
 type SidebarSession = SessionInfo & { liveTabId?: string };
 
 interface WorkspaceGroup {
+	/** The group's id: its folder, or `<project>#agent` for the parallel children of one project. */
 	cwd: string;
+	/** Every folder whose sessions the group holds. */
+	members: string[];
+	/** Where "new session here" starts: the group's folder, or the project for a parallel group. */
+	newCwd: string;
 	name: string;
 	/** The full path (for a linked worktree also its project): the group header's tooltip. */
 	tooltip: string;
@@ -631,7 +636,10 @@ export function Sidebar() {
 		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
 		[agentSessions, defaultWorkspace],
 	);
-	const projectName = useProjectNames(useMemo(() => codeSessions.map(session => session.cwd), [codeSessions]));
+	const projectName = useProjectNames(
+		useMemo(() => codeSessions.map(session => session.cwd), [codeSessions]),
+		sessions,
+	);
 	const kindLabels = useWorktreeKindLabels();
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
@@ -648,26 +656,34 @@ export function Sidebar() {
 	// Code sessions stay grouped by project: pinned first, then the order the user
 	// dragged, with projects they never placed on top by recency.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
-		const byCwd = new Map<string, SidebarSession[]>();
+		const byKey = new Map<
+			string,
+			Omit<WorkspaceGroup, "name" | "tooltip" | "root" | "worktree"> & { shown: ProjectName }
+		>();
 		for (const session of codeSessions) {
-			const list = byCwd.get(session.cwd) ?? [];
-			list.push(session);
-			byCwd.set(session.cwd, list);
+			const shown = projectName(session.cwd);
+			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them).
+			if (shown.gone && session.liveTabId === undefined) continue;
+			// The parallel children of one project share ONE group; a run of Autopilot keeps its own.
+			const merged = shown.worktree?.worktree?.kind === "agent";
+			const key = merged ? `${shown.root}#agent` : session.cwd;
+			let entry = byKey.get(key);
+			if (!entry) {
+				entry = { cwd: key, members: [], newCwd: merged ? shown.root : session.cwd, sessions: [], shown };
+				byKey.set(key, entry);
+			}
+			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
+			entry.sessions.push(session);
 		}
-		const result: WorkspaceGroup[] = [...byCwd.entries()].map(([groupCwd, groupSessions]) => {
-			const sorted = groupSessions.toSorted(byPinThenRecency);
-			// A linked worktree reads as its project + what it is for (a child's title names it); the folder
-			// name (`gui-<name>-<hash>`) never shows. The newest session's title speaks for a parallel child.
-			const shown = projectName(groupCwd, sorted[0] ? sessionDisplayTitle(sorted[0], "") : "");
-			return {
-				cwd: groupCwd,
-				name: groupAliases[groupCwd] ?? shown.name,
-				tooltip: shown.tooltip,
-				root: shown.root,
-				worktree: shown.worktree,
-				sessions: sorted,
-			};
-		});
+		// A linked worktree reads as its project + what it is for; the folder name (`gui-<name>-<hash>`) never shows.
+		const result: WorkspaceGroup[] = [...byKey.values()].map(({ shown, ...entry }) => ({
+			...entry,
+			name: groupAliases[entry.cwd] ?? shown.name,
+			tooltip: entry.cwd === entry.newCwd || !shown.worktree ? shown.tooltip : shown.worktree.root,
+			root: shown.root,
+			worktree: shown.worktree,
+			sessions: entry.sessions.toSorted(byPinThenRecency),
+		}));
 		const ordered = orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
@@ -739,15 +755,15 @@ export function Sidebar() {
 		[localTabs],
 	);
 
-	const isCollapsed = (groupCwd: string) => {
+	const isCollapsed = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
 		// A filter shows every match.
 		if (query) return false;
-		if (groupCwd in collapsed) return collapsed[groupCwd];
+		if (group.cwd in collapsed) return collapsed[group.cwd];
 		// Default: the current project and projects with open tabs expanded, others collapsed.
-		return groupCwd !== cwd && !openTabCwds.has(groupCwd);
+		return !group.members.some(member => member === cwd || openTabCwds.has(member));
 	};
-	const toggleGroup = (groupCwd: string) => {
-		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
+	const toggleGroup = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
+		setCollapsed(prev => ({ ...prev, [group.cwd]: !isCollapsed(group) }));
 	};
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -1003,7 +1019,7 @@ export function Sidebar() {
 					tab =>
 						tab.kind !== "chat" &&
 						tab.device === undefined &&
-						(tab.cwd === group.cwd ||
+						(group.members.includes(tab.cwd) ||
 							(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
 							(tab.sessionId !== undefined && ids.has(tab.sessionId))),
 				);
@@ -1358,7 +1374,7 @@ export function Sidebar() {
 
 	const renderGroup = (group: WorkspaceGroup) => {
 		const key = `group:${group.cwd}`;
-		const groupCollapsed = isCollapsed(group.cwd);
+		const groupCollapsed = isCollapsed(group);
 		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat" && !activeTabRemote;
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
@@ -1415,7 +1431,7 @@ export function Sidebar() {
 										isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
 									)}
 									data-roving-item={key}
-									onClick={() => toggleGroup(group.cwd)}
+									onClick={() => toggleGroup(group)}
 									onFocus={() => setFocusKey(key)}
 									onKeyDown={event => {
 										if (opensMenu(event)) {
@@ -1423,10 +1439,10 @@ export function Sidebar() {
 											setGroupMenu({ anchor: anchorBelow(event.currentTarget), group });
 										} else if (event.key === "ArrowRight" && groupCollapsed) {
 											event.preventDefault();
-											toggleGroup(group.cwd);
+											toggleGroup(group);
 										} else if (event.key === "ArrowLeft" && !groupCollapsed) {
 											event.preventDefault();
-											toggleGroup(group.cwd);
+											toggleGroup(group);
 										}
 									}}
 									tabIndex={tabIndex}
@@ -1482,7 +1498,7 @@ export function Sidebar() {
 										label={t("sidebar.menu.newAgentHere")}
 										onClick={() => {
 											useUiStore.getState().closeDestination();
-											void openTab({ cwd: group.cwd });
+											void openTab({ cwd: group.newCwd });
 										}}
 										size="sm"
 										tabIndex={-1}
@@ -1840,7 +1856,7 @@ export function Sidebar() {
 									onSelect: () => {
 										setGroupMenu(null);
 										useUiStore.getState().closeDestination();
-										void openTab({ cwd: groupMenu.group.cwd });
+										void openTab({ cwd: groupMenu.group.newCwd });
 									},
 								},
 								{
@@ -1849,7 +1865,7 @@ export function Sidebar() {
 									icon: GitBranchPlus,
 									onSelect: () => {
 										setGroupMenu(null);
-										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
+										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.newCwd });
 									},
 								},
 								{

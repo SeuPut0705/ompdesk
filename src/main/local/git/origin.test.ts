@@ -81,6 +81,13 @@ describe("readProjectOrigin", () => {
 		expect(origin?.worktree).toMatchObject({ kind: "autopilot" });
 	});
 
+	it("a worktree removed while its answer is cached reads null at once", async () => {
+		const dir = linked("soon-gone", "omp/agent/soon-gone");
+		expect((await readProjectOrigin(dir))?.worktree?.kind).toBe("agent");
+		gitSync(repo, "worktree", "remove", "--force", dir);
+		expect(await readProjectOrigin(dir)).toBeNull();
+	});
+
 	it("answers a folder from the cache until its time is up", async () => {
 		let clock = 1_000;
 		const dir = linked("cached", "autopilot/cached");
