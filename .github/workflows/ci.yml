@@ -209,6 +209,12 @@ jobs:
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - run: bun run build
+      # The real terminal smoke runs stock omp's PTY natives, as release.yml's mac does.
+      - name: Install omp
+        run: |
+          bun install -g @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
       - run: bunx playwright test --grep "@smoke"
       - if: failure()
         run: bash scripts/ci-failure.sh
