@@ -1228,17 +1228,21 @@ describe("Sidebar menus and pinned ordering", () => {
 		if (activeActions) expect(activeActions.className.split(/\s+/)).not.toContain("opacity-100");
 	});
 
-	it("a project's pin marker shows only on hover or focus within", async () => {
+	it("a pinned project keeps its muted pin glyph; the ⋯ is hover/focus only and an unpinned one shows no pin", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		useSidebarPrefs.setState({ pinnedGroups: ["/work/alpha"], hydrated: true });
 		await mount(<Sidebar />);
 
-		const pin = container.querySelector("[data-sidebar-group-pin]") as unknown as Element | null;
-		const classes = pin?.getAttribute("class")?.split(/\s+/) ?? [];
-		expect(classes).toContain("opacity-0");
-		expect(classes).toContain("group-hover/head:opacity-100");
-		expect(classes).toContain("group-focus-within/head:opacity-100");
+		const pins = container.querySelectorAll("[data-sidebar-group-pin]");
+		expect(pins.length).toBe(1);
+		const classes = (pins[0] as unknown as Element).getAttribute("class")?.split(/\s+/) ?? [];
+		expect(classes).not.toContain("opacity-0");
+		const menu = container.querySelector(".omp-sidebar-project-menu") as unknown as Element | null;
+		const menuClasses = menu?.getAttribute("class")?.split(/\s+/) ?? [];
+		expect(menuClasses).toContain("opacity-0");
+		expect(menuClasses).toContain("group-hover/head:opacity-100");
+		expect(menuClasses).toContain("group-focus-within/head:opacity-100");
 	});
 
 	it("asks before removing a session transcript, and only deletes once confirmed", async () => {

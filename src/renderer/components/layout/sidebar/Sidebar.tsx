@@ -1487,7 +1487,7 @@ export function Sidebar() {
 									{pinned && (
 										<Pin
 											aria-label={t("sidebar.pinned")}
-											className="size-3 shrink-0 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:opacity-100 group-hover/head:opacity-100"
+											className="size-3 shrink-0 text-(--sc-text-subtle)"
 											data-sidebar-group-pin
 										/>
 									)}

@@ -242,9 +242,10 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 	await nameTab(owner, "Fan-out tab");
 	// The main turn keeps running while its subagents work (5d1de7d: their marks last only that long).
 	await startRun("fixture running");
-	await openTab();
+	const other = await openTab();
 	await fixtureCommand(owner, "fixture:subagents");
 	await switchTo(owner);
+	await nameTab(other, "Failed tab");
 
 	const sessionKey = `tab:${owner}`;
 	const toggle = page.locator(`[data-sidebar-subagents-toggle="${sessionKey}"]`);
@@ -294,6 +295,30 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 	await page.emulateMedia({ colorScheme: "light" });
 	await fixtureCommand(owner, "fixture:confirm:cancel");
 	await expect(ownerRow).toHaveAttribute("data-signal", "running");
+
+	// An error row: main pushes the tab's status the way a failed health check would (tab:status), and the
+	// edge turns danger-red with the word "Failed" for screen readers.
+	const failedRow = sidebarRow(other);
+	const failedTab = (await tabs()).find(tab => tab.tabId === other);
+	if (!failedTab) throw new Error("No second tab");
+	await app.evaluate(
+		({ BrowserWindow }, payload) => {
+			BrowserWindow.getAllWindows()[0]?.webContents.send("tab:status", payload);
+		},
+		{ ...failedTab, status: "error" },
+	);
+	await expect(failedRow).toHaveAttribute("data-signal", "error");
+	await expect(failedRow).toContainText("Failed");
+	for (const scheme of ["light", "dark"] as const) {
+		await page.emulateMedia({ colorScheme: scheme });
+		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+		await capture(page, `sidebar-error-${scheme}`);
+	}
+	await page.emulateMedia({ colorScheme: "light" });
+	await app.evaluate(({ BrowserWindow }, payload) => {
+		BrowserWindow.getAllWindows()[0]?.webContents.send("tab:status", payload);
+	}, failedTab);
+	await expect(failedRow).not.toHaveAttribute("data-signal", /.+/);
 
 	// A finished agent leaves the list and the count right away, though the main turn keeps running.
 	const nested = page.locator('[data-sidebar-subagent="sa-nested"]');
