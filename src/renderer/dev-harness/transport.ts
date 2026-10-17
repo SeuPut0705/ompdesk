@@ -126,6 +126,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				});
 			case "history_recent":
 				return respond(command, []);
+			case "get_ssh_hosts":
+				return respond(command, { openSshAvailable: true, hosts: [], warnings: [] });
 			case "get_available_commands":
 				return respond(command, { commands: [] });
 			case "get_subagents":
@@ -218,8 +220,27 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.MODELS_PROVIDERS_LIST:
 				return { providers: [] };
 			case IPC_COMMANDS.SETUP_GET_STATE:
-			case IPC_COMMANDS.REMOTE_GET_STATE:
 				return null;
+			case IPC_COMMANDS.REMOTE_GET_STATE:
+				return {
+					host: {
+						enabled: false,
+						name: "Studio Mac",
+						port: null,
+						addresses: [],
+						code: null,
+						expiresAt: null,
+						peers: [],
+						keepAwake: true,
+						keepingAwake: false,
+						usedBy: [],
+					},
+					hosts: [],
+				};
+			case "ssh-tools:command":
+				return { forwards: [], watches: [], graceMs: 60 * 60_000 };
+			case "ssh-tools:agent":
+				return { agent: "none", agentKeys: [], keyFiles: [], keygen: false };
 			case IPC_COMMANDS.FS_LIST:
 				return { ok: true, entries: FILE_TREE, truncated: false };
 			case IPC_COMMANDS.FS_READ: {

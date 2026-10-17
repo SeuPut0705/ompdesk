@@ -84,14 +84,14 @@ interface Look {
 
 const LIGHT_EN: Look = { theme: "light", lang: "en" };
 
-async function openHarness(browser: Browser, device: Device, look: Look): Promise<Page> {
+async function openHarness(browser: Browser, device: Device, look: Look, extra = ""): Promise<Page> {
 	const context = await browser.newContext(device.options);
 	const page = await context.newPage();
 	page.on("pageerror", error => {
 		throw error;
 	});
 	// `rail=all` pins Agents and Stats under the session list, so the drawer reaches every page.
-	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all`);
+	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all${extra}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	return page;
 }
@@ -422,15 +422,31 @@ for (const engine of ENGINES) {
 					test(`captures: ${theme} ${lang}`, async () => {
 						test.skip(!captures, "OMP_GUI_MOBILE_PAGES=<dir> writes the captures");
 						const look: Look = { theme, lang };
-						const page = await openHarness(browser, device, look);
 						const tag = tagOf(engine.name, device, look);
-						await openDestination(page, "settings");
-						await capture(page, "settings", tag);
-						await page.locator('[data-settings-section="agent"]').click();
-						await capture(page, "settings-section", tag);
-						await openDestination(page, "agents");
-						await capture(page, "agents", tag);
-						await page.context().close();
+						// A pushed settings page replaces the menu button with a back button, so each page starts fresh.
+						const fresh = async (extra = "") => openHarness(browser, device, look, extra);
+						const settings = await fresh();
+						await openDestination(settings, "settings");
+						await capture(settings, "settings", tag);
+						await settings.locator('[data-settings-section="agent"]').click();
+						await capture(settings, "settings-section", tag);
+						await settings.context().close();
+						const agents = await fresh();
+						await openDestination(agents, "agents");
+						await capture(agents, "agents", tag);
+						await agents.getByRole("tab").nth(2).click();
+						await capture(agents, "pr-center", tag);
+						await agents.context().close();
+						// The device's own push opt-in and the iOS home-screen guide (Settings › Mobile web).
+						for (const mode of ["push", "ios"] as const) {
+							const web = await fresh(`&pwa=${mode}`);
+							await openDestination(web, "settings");
+							await web.locator('[data-settings-section="connections"]').click();
+							await web.locator("[data-web-device-section]").scrollIntoViewIfNeeded();
+							await expect(web.locator("[data-web-device-section]")).toBeVisible();
+							await capture(web, `mobile-web-${mode}`, tag);
+							await web.context().close();
+						}
 					});
 				}
 			}
