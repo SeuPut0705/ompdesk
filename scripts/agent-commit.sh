@@ -114,13 +114,44 @@ check_fresh() {
 	done
 }
 
-# Divergence from origin: fail, never move HEAD, never merge, never force.
+# Origin ahead of HEAD (someone pushed from another worktree): fast-forward HEAD, bringing the paths origin
+# changed to disk and the shared index, unless one of them is dirty on disk (named, nothing moves).
+# Diverged histories fail: never move HEAD sideways, never merge, never force.
 check_origin() {
 	git fetch -q origin main
-	if ! git merge-base --is-ancestor origin/main HEAD; then
-		echo "agent-commit: origin/main has commits HEAD lacks (diverged); HEAD left untouched. Integrate them, then commit again." >&2
+	local head origin st file old new cur mode dirty=""
+	head=$(git rev-parse HEAD) origin=$(git rev-parse origin/main)
+	[ "$head" != "$origin" ] || return 0
+	git merge-base --is-ancestor origin/main HEAD && return 0
+	if ! git merge-base --is-ancestor HEAD origin/main; then
+		echo "agent-commit: HEAD and origin/main have diverged; HEAD left untouched. Integrate origin/main, then commit again." >&2
 		return 1
 	fi
+	while IFS=$'\t' read -r st file; do
+		old=$(git rev-parse -q --verify "$head:$file" || true)
+		new=$(git rev-parse -q --verify "$origin:$file" || true)
+		if [ -f "$file" ]; then cur=$(git hash-object -- "$file"); else cur=""; fi
+		[ "$cur" = "$old" ] || [ "$cur" = "$new" ] || dirty="$dirty $file"
+	done < <(git diff --no-renames --name-status "$head" "$origin")
+	if [ -n "$dirty" ]; then
+		echo "agent-commit: origin/main is ahead of HEAD and changed files that are dirty on disk:$dirty; HEAD left untouched. Commit or move your edits aside first." >&2
+		return 1
+	fi
+	git update-ref HEAD "$origin" "$head"
+	while IFS=$'\t' read -r st file; do
+		new=$(git rev-parse -q --verify "$origin:$file" || true)
+		if [ -z "$new" ]; then
+			rm -f -- "$file"
+			git update-index --force-remove -- "$file"
+			continue
+		fi
+		mkdir -p "$(dirname "$file")"
+		[ "$(git hash-object -- "$file" 2>/dev/null || true)" = "$new" ] || git cat-file blob "$new" >"$file"
+		mode=$(git ls-tree "$origin" -- "$file" | awk '{print $1}')
+		[ "$mode" != 100755 ] || chmod +x "$file"
+		git update-index --add --cacheinfo "$mode,$new,$file"
+	done < <(git diff --no-renames --name-status "$head" "$origin")
+	echo "agent-commit: fast-forwarded HEAD to origin/main ($(git rev-parse --short "$origin"))" >&2
 }
 
 [ "$push" = 0 ] || check_origin
