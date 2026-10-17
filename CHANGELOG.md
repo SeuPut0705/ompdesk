@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.35.1] - 2026-10-18
+
+오토파일럿 시작 창에서 가이드나 백로그를 입력한 뒤 시작을 눌러도 반응이 없던 문제를 고쳤어요.
+
+### 고친 것
+- 가이드·백로그 입력칸에서 포커스가 빠질 때 입력칸이 줄어들며 시트가 다시 배치되어, 마우스를 누르는 사이 시작 버튼이 밀려 클릭이 닿지 않던 것을 고쳤어요. 이제 입력한 뒤 바로 시작을 눌러도 시작돼요.
+
+### 바뀐 것
+- 오토파일럿이 사이클 끝에 낸 보고를 그대로 믿지 않고 git 변경과 그 턴의 도구 호출로 확인해요. 변경이 없는데 "끝났다"고 하거나, 검증을 돌리지 않았는데 통과했다고 하면 받아들이지 않아요.
+- 한 사이클에서 처음 낸 종료 보고가 유지돼요. 나중에 다시 낸 보고가 앞선 결과를 덮어쓰지 않아요.
+- 새 "고르기" 단계가 이번 사이클에서 맡을 항목의 이름을 남기고, 사이클을 시작할 때 힌트를 함께 전달해요.
+- 타임라인에 변경 규모, 문서만 바뀐 사이클인지, 검증 메모가 표시돼요.
+
+<!-- en -->
+
+Fixed Autopilot's Start button doing nothing after typing a guide or backlog in the start sheet.
+
+### Fixed
+- The guide and backlog box collapsed on blur, which reflowed the sheet between mouse-down and mouse-up so the click never reached Start. Typing and then pressing Start now starts the run.
+
+### Changed
+- Autopilot no longer takes a cycle's report at its word: it is checked against git and the turn's tool calls. A claim of finished work with no change, or of passing verification that never ran, is not accepted.
+- The first end report of a cycle stands; a later report cannot overwrite it.
+- A new pick step names the item the cycle works on, and the cycle's start carries hints.
+- The timeline shows the change size, whether a cycle changed docs only, and verification notes.
+
 ## [0.35.0] - 2026-10-18
 
 휴대폰을 모바일 웹에 연결하면 OMPdesk가 "A JavaScript error occurred in the main process" 오류로 멈추던 0.34.0의 문제를 고쳤어요.
