@@ -21,7 +21,13 @@ export const STAMP = path.join("out", ".build-stamp.json");
 const ROOT_INPUT =
 	/^(package\.json|bun\.lockb?|electron\.vite\.config\.[cm]?[jt]s|tsconfig.*\.json|\.gitignore|\.env(\..+)?|postcss\.config\..+|tailwind\.config\..+|\.browserslistrc)$/;
 /** The scripts `bun run build` runs. */
-const BUILD_SCRIPTS = ["scripts/build-cache.ts", "scripts/check-main-bundle.ts", "scripts/pwa-plugin.ts"];
+const BUILD_SCRIPTS = [
+	"scripts/build-cache.ts",
+	"scripts/check-main-bundle.ts",
+	"scripts/pwa-plugin.ts",
+	"scripts/ws-bundle-probe.config.ts",
+	"scripts/ws-bundle-probe.ts",
+];
 /**
  * Bundled or copied trees. Tailwind scans every file under the renderer root
  * (src/renderer, `.gitignore` respected) for class names, tests included, so

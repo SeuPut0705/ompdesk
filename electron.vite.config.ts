@@ -14,6 +14,21 @@ import { pwaPlugin } from "./scripts/pwa-plugin";
 const MAIN_BUNDLED_DEPS = ["electron-store", "electron-updater", "web-push", "ws", "yaml", "zod"];
 
 /**
+ * Optional native addons of bundled packages, switched off at build time. Vite resolves an optional peer
+ * dependency that is not installed (ws's `bufferutil` and `utf-8-validate`) to an empty object instead of a
+ * `require` that throws, so ws's `try { require("bufferutil") } catch {}` took that object for the addon and the
+ * first masked frame a paired phone sent crashed v0.34.0's main process (`bufferUtil.unmask is not a function`).
+ * ws's own documented switches make those branches dead code, so no stand-in is bundled and ws runs its pure-JS
+ * masking and Node's `buffer.isUtf8`: the code the unbundled tests run, since neither addon is installed.
+ * scripts/check-main-bundle.ts refuses any such stand-in in out/main and runs a WebSocket round trip through
+ * the bundled ws.
+ */
+const MAIN_DEFINES = {
+	"process.env.WS_NO_BUFFER_UTIL": JSON.stringify("1"),
+	"process.env.WS_NO_UTF_8_VALIDATE": JSON.stringify("1"),
+};
+
+/**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match
  * node_modules path segments; the first matching rule names the chunk. Rollup
  * also pulls a chunk's unassigned static deps into it, so a lazily imported
@@ -128,6 +143,7 @@ function woff2OnlyFonts(): Plugin {
 export default defineConfig({
 	main: {
 		esbuild: KEEP_NAMES,
+		define: MAIN_DEFINES,
 		plugins: [externalizeDepsPlugin({ exclude: MAIN_BUNDLED_DEPS })],
 		build: {
 			minify: "esbuild",

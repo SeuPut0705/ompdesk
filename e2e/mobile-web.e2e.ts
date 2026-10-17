@@ -3,19 +3,24 @@
  * (`e2e/fixture/fake-tailscale-install.ts`, never the user's own Tailscale or its serve config):
  * - the switch on a signed-out Tailscale: the sign-in step, Sign in opens Tailscale's login page, the user
  *   signing in (the scenario changes) walks it to ready with the link, the connected phone and the pairing QR;
+ * - a phone pairs with that code and talks to the built app's web server over /ws (`phoneRoundTrip`);
  * - the user's own `443 → 127.0.0.1:3010` serve handler is never touched, no `serve reset` or `funnel` ever runs,
  *   and switching off removes only OMPdesk's own handler;
  * - a tailnet with HTTPS certificates off: the guidance names the public certificate log, the button opens the
  *   admin page, and enabling HTTPS lets it continue.
  * Captures in the test output directory, light/dark × en/ko.
  */
+import { once } from "node:events";
 import * as fs from "node:fs/promises";
+import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
+import { WebSocket } from "ws";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
+import { IPC_COMMANDS } from "../src/shared/ipc-types";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { USER_SERVE_HOST } from "./fixture/tailscale-scenario";
 import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
@@ -113,9 +118,99 @@ function userHandlerIntact(tailscale: FixtureTailscale): void {
 const ownKeys = (tailscale: FixtureTailscale) =>
 	Object.keys(tailscale.scenario().serve.Web ?? {}).filter(key => !key.endsWith(":443"));
 
+/** The address `tailscale serve` publishes OMPdesk on in the fake scenario. */
+const PUBLISHED = `${USER_SERVE_HOST}:47831`;
+
+/** One request to the app's loopback web server, carrying a Host `fetch` would not send. */
+function post(
+	port: string,
+	pathname: string,
+	body: unknown,
+	headers: Record<string, string>,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+	const { promise, resolve, reject } = Promise.withResolvers<{
+		status: number;
+		headers: http.IncomingHttpHeaders;
+		body: string;
+	}>();
+	const req = http.request(
+		{
+			host: "127.0.0.1",
+			port,
+			path: pathname,
+			method: "POST",
+			headers: { ...headers, "content-type": "application/json" },
+		},
+		res => {
+			const chunks: Buffer[] = [];
+			res.on("data", chunk => chunks.push(chunk as Buffer));
+			res.on("end", () =>
+				resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString() }),
+			);
+		},
+	);
+	req.on("error", reject);
+	req.end(JSON.stringify(body));
+	return promise;
+}
+
+/**
+ * A phone pairs with the code on screen and talks to the built app's web server over /ws, sent the way
+ * `tailscale serve` hands requests on (loopback, the published Host and Origin, the Tailscale login), and the
+ * desktop approves it. Every frame a WebSocket client sends is masked: v0.34.0's main process died on the first
+ * one (`bufferUtil.unmask is not a function`, the bundler's empty stand-in for ws's optional `bufferutil`), which
+ * `src/main/web/server.test.ts` cannot see because it runs ws unbundled.
+ */
+async function phoneRoundTrip(app: ElectronApplication, page: Page, tailscale: FixtureTailscale, code: string) {
+	const target = tailscale.scenario().serve.Web?.[PUBLISHED]?.Handlers["/"]?.Proxy;
+	if (!target) throw new Error(`no serve handler for ${PUBLISHED}`);
+	const { port } = new URL(target);
+	const headers = {
+		host: PUBLISHED,
+		origin: `https://${PUBLISHED}`,
+		"tailscale-user-login": "seuput@example.com",
+		"user-agent": "E2EPhone/1.0",
+	};
+	const pairing = post(port, "/api/pair", { code, name: "E2E phone", clientInstanceId: "e2e-phone" }, headers);
+	await page.locator("[data-web-pairing-approve]").click();
+	const paired = await pairing;
+	expect(paired.status, paired.body).toBe(200);
+	const cookie = (paired.headers["set-cookie"]?.[0] ?? "").split(";")[0] ?? "";
+	const session = await post(port, "/api/session", {}, { ...headers, cookie });
+	expect(session.status, session.body).toBe(200);
+	const { ticket } = JSON.parse(session.body) as { ticket: string };
+
+	// Main records what it throws, so a crash fails this test with its stack instead of a native error dialog
+	// (Electron shows one only while no other `uncaughtException` listener exists) holding main until a timeout.
+	await app.evaluate(() => {
+		const uncaught: string[] = [];
+		Reflect.set(globalThis, "mainUncaught", uncaught);
+		process.on("uncaughtException", error => uncaught.push(String(error.stack ?? error)));
+	});
+	const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
+		headers: { ...headers, cookie },
+	});
+	try {
+		const frames: Array<{ t: string; id?: number }> = [];
+		socket.on("message", data => frames.push(JSON.parse(data.toString()) as { t: string; id?: number }));
+		// An `unexpected-response` (a refused upgrade) reaches `once` as the socket's `error`.
+		await once(socket, "open");
+		await expect.poll(() => frames[0]?.t).toBe("hello");
+		// Masked and over 32 bytes: the length at which ws unmasks through `bufferutil` when it believes it has it.
+		socket.send(JSON.stringify({ t: "inv", id: 1, ch: IPC_COMMANDS.SESSIONS_LIST, a: [{ scope: "global" }] }));
+		const answer = async () => {
+			const uncaught = await app.evaluate(() => Reflect.get(globalThis, "mainUncaught") as string[]);
+			return uncaught.length > 0 ? uncaught : frames.find(frame => frame.t === "res")?.id;
+		};
+		await expect.poll(answer, { timeout: 15_000 }).toBe(1);
+	} finally {
+		socket.terminate();
+	}
+}
+
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
-		test(`Mobile web walks from signed out to a pairing QR, and off removes only its own serve (${language} ${theme})`, async () => {
+		test(`${language === "en" && theme === "light" ? "@smoke " : ""}Mobile web walks from signed out to a pairing QR, a phone pairs and talks over /ws, and off removes only its own serve (${language} ${theme})`, async () => {
 			test.skip(process.platform === "win32", "the fake Tailscale is a shebang script run by bun");
 			test.setTimeout(180_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
@@ -156,7 +251,8 @@ for (const language of ["en", "ko"] as const)
 				// Pair a phone: the code with its countdown and a QR of the pairing page.
 				await section.getByRole("button", { name: t("mobileWeb.pair"), exact: true }).click();
 				const pairing = section.locator("[data-mobile-web-pairing]");
-				await expect(pairing.locator("[data-copyable]").first()).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+				const code = pairing.locator("[data-copyable]").first();
+				await expect(code).toHaveText(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
 				await expect(pairing.locator("[data-mobile-web-code-expiry]")).toContainText(/\d:\d\d/);
 				await expect(pairing.locator("svg[data-qr-code]")).toHaveAttribute("aria-label", t("mobileWeb.pairQr"));
 				expect(await pairing.locator("svg[data-qr-code] path").getAttribute("d")).toMatch(/^M4 4/);
@@ -167,6 +263,9 @@ for (const language of ["en", "ko"] as const)
 					path: test.info().outputPath(`mobile-web-${language}-${theme}-5-section.png`),
 				});
 				await expect(section.locator("[data-mobile-web-users]")).toContainText("seuput@example.com");
+
+				// A phone pairs with that code and talks to the built app over /ws.
+				await phoneRoundTrip(app, page, tailscale, (await code.textContent()) ?? "");
 
 				// Off removes OMPdesk's handler and nothing else.
 				await toggle.click();
