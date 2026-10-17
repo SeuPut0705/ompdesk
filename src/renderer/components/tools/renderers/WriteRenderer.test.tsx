@@ -1,8 +1,13 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
+
+// A diagram that never finishes drawing: the figure stays in its Preview/Code state. Left to mermaid, a
+// slow or fast runner decides whether the render has already failed (and the figure given way to plain
+// code) by the time the test looks.
+vi.mock("mermaid", () => ({ default: { initialize: () => undefined, render: () => new Promise(() => undefined) } }));
 
 const { document, window, Event, HTMLElement, Element, Node, MutationObserver } =
 	parseHTML("<html><body></body></html>");

@@ -15,6 +15,11 @@ import { loadHljs } from "./highlight";
 import { I18nProvider } from "./i18n";
 import { MarkdownRenderer, preloadMarkdownPipeline } from "./markdown";
 
+// A diagram that never finishes drawing: the figure stays in its Preview/Code state. Left to mermaid, a
+// slow or fast runner decides whether the render has already failed (and the figure given way to plain
+// code) by the time the test looks.
+vi.mock("mermaid", () => ({ default: { initialize: () => undefined, render: () => new Promise(() => undefined) } }));
+
 beforeAll(async () => {
 	await preloadMarkdownPipeline();
 	await loadHljs();
@@ -231,12 +236,6 @@ describe("link schemes", () => {
 describe("mermaid and wrap controls", () => {
 	it("shows a mermaid fence's source on request", async () => {
 		const view = await mount(<MarkdownRenderer content={"```mermaid\ngraph TD\n  A --> B\n```"} />);
-		// The figure is a lazy chunk; a slow runner shows its fallback first.
-		await act(async () => {
-			await vi.waitFor(() => expect(view.querySelector('[data-figure-mode-button="code"]')).not.toBeNull(), {
-				timeout: 20_000,
-			});
-		});
 		const code = view.querySelector('[data-figure-mode-button="code"]');
 		await click(code);
 		expect(view.querySelector(".omp-code-block")?.textContent).toContain("A --> B");

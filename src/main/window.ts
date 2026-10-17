@@ -144,6 +144,9 @@ export class WindowManager {
 			minWidth: MIN_WIDTH,
 			minHeight: MIN_HEIGHT,
 			show: false,
+			// e2e (OMP_GUI_HEADLESS): a hosted runner has no display, and macOS then holds a window to the
+			// default screen's size; the specs size windows to what their layout needs (setContentSize).
+			enableLargerThanScreen: process.env.OMP_GUI_HEADLESS === "1",
 			autoHideMenuBar: process.platform === "win32",
 			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, mica),
 			webPreferences: {
