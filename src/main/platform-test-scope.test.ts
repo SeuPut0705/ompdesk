@@ -1,5 +1,5 @@
 /**
- * The Windows release job (`win`) runs `bun run test:platform`, the whole
+ * The Windows release job `win-platform` runs `bun run test:platform`, the whole
  * suite minus `src/renderer/**`. Renderer code runs in Chromium and never sees
  * the host OS: navigator.platform is pinned by vitest.setup.ts and Windows
  * behaviour is tested by passing the platform explicitly (keymap "windows",
@@ -30,7 +30,7 @@ describe("Windows test scope", () => {
 		const release = parse(
 			fs.readFileSync(path.join(ROOT, ".github", "workflows", "release.yml"), "utf8"),
 		) as Workflow;
-		expect(release.jobs.win?.steps.some(step => step.run?.includes("bun run test:platform"))).toBe(true);
+		expect(release.jobs["win-platform"]?.steps.some(step => step.run?.includes("bun run test:platform"))).toBe(true);
 	});
 
 	it("keeps host-platform checks out of renderer tests", () => {

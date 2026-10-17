@@ -1,7 +1,7 @@
 # The full Playwright suite on GitHub's macOS runners, split over a matrix of
-# shards and run against the `out/` bundle another job of the same run uploaded
-# (release.yml's `build`, ci.yml's `build-out`). Called by both; it never runs
-# on its own.
+# shards and run against the `out/` bundle another job of the same run uploaded.
+# Called by e2e-nightly.yml and by ci.yml's manual `e2e=true`, each after its
+# own `build-out` job; release.yml no longer calls it. It never runs on its own.
 #
 # Sharding is scripts/e2e-shard.ts (whole spec files, dealt by estimated cost),
 # not `playwright test --shard`, which counts tests that skip inside their body
@@ -9,8 +9,8 @@
 # omp (real-core and deep-audit) and the fake omp (everything else); playwright
 # runs one worker per shard (3-core runner; playwright.config.ts).
 #
-# At most 5 macOS jobs run at once on a public repo's free tier, and the caller's
-# `mac` job needs one, so four shards plus `mac` fit in a single wave. Raise the
+# At most 5 macOS jobs run at once on a public repo's free tier, so four shards
+# fit in one wave even beside a release's `mac` and `mac-real`. Raise the
 # matrix only together with that cap. `fail-fast: false`: one run reports every
 # failing shard, and `gh run rerun <id> --failed` reruns only those.
 name: e2e-shards

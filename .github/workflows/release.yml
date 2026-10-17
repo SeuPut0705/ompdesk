@@ -13,17 +13,17 @@
 #
 # Layout: the repo is public, so hosted runners are free and every job runs on
 # one (Linux, macOS arm64, Windows). This is the whole release gate (what
-# `bun run gate` runs locally): `build` builds the app bundle (`out/`) once and
-# runs types, biome and the surface policy; `check` runs the full vitest
-# suite; `e2e` runs the FULL Playwright suite on macOS, split into shards
-# (e2e-shards.yml) against that out/; `mac` and `win` package and launch their
-# own build (@smoke, plus the real-omp suite on macOS); `publish` runs only
-# when everything but the shards passed (the shards report, they do not block). Windows packages the
-# shared out/ and runs the OS-independent tests beside it, in one job
-# (platform tests while it waits for out/, then package, then @smoke).
-# Four shards plus `mac` are the five macOS jobs a public repo may run at
-# once, so they all start together. After a flaky failure, rerun only the
-# failed jobs, shards included: `gh run rerun <id> --failed`.
+# `bun run gate` runs locally), all of it starting right after `prepare`:
+# `build` builds the app bundle (`out/`) once and uploads it; `static` runs
+# types, biome and the surface policy; `check` runs vitest as three jobs (the
+# node project, the renderer project in two shards); `win-platform` runs the
+# tests outside src/renderer on Windows; `win` and `mac` install meanwhile,
+# wait for build's out/ in this run's artifacts, package it and launch the
+# result (@smoke; the real-omp suite is `mac-real`); `publish` runs only
+# when all of them passed. The full Playwright suite is not part of a release
+# (e2e-nightly.yml runs it informationally). A failed job writes its first error
+# lines to its job summary at once (scripts/ci-failure.sh). After a flaky
+# failure, rerun only the failed jobs: `gh run rerun <id> --failed`.
 #
 # Trust: this workflow starts only from a push to main that touches
 # package.json or from a manual dispatch (write access), never from a pull
@@ -43,9 +43,13 @@ on:
         type: boolean
         default: false
 
+# A newer release push to main supersedes a release run still going (its tag
+# is then cut by the newer run); a manual dispatch queues behind a running one.
+# Failed jobs never cancel their independent siblings: `gh run rerun --failed`
+# then reruns only what failed.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
   contents: read
@@ -68,6 +72,9 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
@@ -129,23 +136,32 @@ jobs:
           path: notes/notes.md
           if-no-files-found: error
           retention-days: 1
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # The app bundle (`out/`) is the same bytes whichever OS builds it (out/
   # built on Linux, macOS and Windows diffed identical), so it is built once,
-  # early, and `win` packages that instead of building its own (about 40 s of
-  # its critical path). The OS-independent checks follow the upload, off every
-  # critical path.
+  # right after `prepare`, and `mac` and `win` package that instead of building
+  # their own (about 40 s of each critical path). Nothing else runs in this
+  # job.
   build:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
-      # Nothing here launches Electron, and `win` waits on this job's upload.
+      # Nothing here launches Electron, and `win` and `mac` wait on this job's
+      # upload, so it does nothing else: types, biome and the surface policy
+      # are `static`'s, vitest is `check`'s.
       - run: bun install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -156,19 +172,62 @@ jobs:
           path: out/
           if-no-files-found: error
           retention-days: 1
-          # A rerun after a failed check below uploads it again.
+          # A rerun of a failed job below uploads it again.
           overwrite: true
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # Types, biome and the surface policy: a blocking gate that needs no out/,
+  # so it runs beside build instead of delaying build's end.
+  static:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - run: bun run check:types
       - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-  # vitest on its own runner: the longest OS-independent check, in one run
-  # (two shards in two jobs each paid setup and install and gained nothing).
+  # vitest on three runners at once, off every other job: the node project and
+  # the renderer project in two halves (the full suite in one job took 176 s
+  # on a 2-core host; the renderer project is most of it). `publish` waits for
+  # every one of them.
   check:
-    needs: [prepare, build]
+    name: check (${{ matrix.name }})
+    needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: node
+            args: --project=node
+          - name: renderer 1/2
+            args: --project=renderer --shard=1/2
+          - name: renderer 2/2
+            args: --project=renderer --shard=2/2
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -180,25 +239,22 @@ jobs:
       # installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
-      - run: bunx vitest run
-
-  # The full Playwright suite (the e2e half of `bun run gate`), four macOS
-  # shards at once (e2e-shards.yml) against build's out/. The permissions here
-  # cap the called workflow's, and `publish` waits for every shard.
-  e2e:
-    needs: [prepare, build]
-    if: needs.prepare.outputs.release == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/e2e-shards.yml
+      - run: bunx vitest run ${{ matrix.args }}
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # Package, verify the bundle, then launch the build packaging just made:
-  # @smoke on the fake omp, and real-core against the latest published omp.
+  # @smoke on the fake omp (real-core is `mac-real`).
   mac:
-    needs: [prepare, build]
+    needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # lists this run's artifacts and jobs while `build` runs; the failure report reads the jobs
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
@@ -212,6 +268,14 @@ jobs:
       # bun it unzips; a no-op once installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # Package build's out/ (the same bytes `win` uses), not
+      # a second build: `needs: build` would start this job only after build's
+      # run is over, and `bun run package:mac` would build again (a downloaded
+      # out/ has other mtimes than build-cache.ts's stamp, so it never reuses).
+      - name: Wait for out/ from the build job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-fetch-out.sh
       # The legacy feed also needs the ZIP (and the latest-mac.yml listing it).
       # A release must be signed with the pinned certificate: an ad-hoc
       # fallback would make macOS ask every user for its privacy permissions
@@ -227,10 +291,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
-            bun run build
             bunx electron-builder --mac dmg zip --arm64 --publish never
           else
-            bun run package:mac -- --publish never
+            bunx electron-builder --mac --arm64 --publish never
           fi
       - name: Verify bundle
         run: |
@@ -258,7 +321,6 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       - run: bunx playwright test --grep "@smoke"
-      - run: bunx playwright test e2e/real-core.e2e.ts
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -288,17 +350,90 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-  # One Windows job, one checkout and install. `bun run test:platform` is
-  # vitest on every test outside src/renderer (paths, PATH lookup, cmd.exe
-  # shims, spawn, named pipes, file modes); the renderer never sees the host
-  # OS and its tests run in `check` (src/main/platform-test-scope.test.ts
-  # keeps host-platform checks out of them). It runs in the background of the
-  # step that waits for `build`'s out/, where this runner would otherwise idle
-  # (competing with electron-builder it took 132 s with one test worker, and
-  # with two, tests that wait on git missed their 1 s poll window; alone it
-  # took 62-66 s with the default workers). Then package, then the @smoke e2e
-  # on the fake omp against that package: setup takeover, split select,
+  # e2e/real-core.e2e.ts against the latest published omp, on build's out/ (it
+  # launches out/main/index.js, not the package), beside `mac`'s packaging and
+  # @smoke instead of after them (one job after the other took 1:25 more).
+  mac-real:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # lists this run's artifacts and jobs while `build` runs; the failure report reads the jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - name: Install omp
+        run: |
+          bun install -g @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      - name: Wait for out/ from the build job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-fetch-out.sh
+      - run: bunx playwright test e2e/real-core.e2e.ts
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-macos-real-core
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 3
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # `bun run test:platform` is vitest on every test outside src/renderer
+  # (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes); the
+  # renderer never sees the host OS and its tests run in `check`
+  # (src/main/platform-test-scope.test.ts keeps host-platform checks out of
+  # them). Its own Windows job: beside `win`'s packaging it took 132 s, and on
+  # the same runner after the install it ended 2 minutes after out/ arrived,
+  # holding `win` back; alone it takes about 1-2 minutes and `win` packages as
+  # soon as out/ is there.
+  win-platform:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # See `win`: bun's cache on the workspace volume; the Electron binary is
+      # needed (gpu-fallback and sidecar tests import electron).
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun run test:platform
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # Package build's out/ for Windows, then the @smoke e2e on the fake omp
+  # against that package: setup takeover, split select,
   # auto-resume after a kill and a quit, Model roles, the Changes commit, the
   # Files edit, Preview, Mica and close-to-tray, a new window's theme,
   # steering a running turn from the composer.
@@ -309,7 +444,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
-      actions: read # list this run's artifacts while `build` still runs
+      actions: read # lists this run's artifacts and jobs while `build` runs; the failure report reads the jobs
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
@@ -321,7 +456,7 @@ jobs:
       # so install never crosses volumes: 60-86 s became 28-41 s. Restoring it
       # with actions/cache measured no faster (17 s restore + 18 s install) and
       # its upload costs 42 s after every lockfile change, so it starts empty.
-      # (On Linux a cold install takes 5-10 s; a restored cache saved nothing.)
+      # (On Linux a cold install takes 3-10 s; a restored cache saved nothing.)
       - name: Put bun's cache on the workspace volume
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
@@ -329,33 +464,12 @@ jobs:
       # tests import electron, whose index.js throws without the binary.)
       - run: bun install --frozen-lockfile
       # `build` uploads out/ about when this install ends; `needs: build`
-      # would instead start this job only once build's checks are done too.
-      # The platform tests run meanwhile and are joined after the download.
-      - name: Platform tests, while waiting for out/ from the build job
+      # would instead start this job only once the build job is done too.
+      - name: Wait for out/ from the build job
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          bun run test:platform > platform-test.log 2>&1 &
-          tests=$!
-          run="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          until [ "$(gh api "$run/artifacts?name=out" --jq .total_count)" -gt 0 ]; do
-            if [ "$(gh api "$run/jobs?filter=latest" --jq '.jobs[] | select(.name == "build") | .status')" = completed ]; then
-              kill "$tests" 2>/dev/null || true
-              echo "::error::The build job ended without uploading out/."
-              exit 1
-            fi
-            sleep 3
-          done
-          gh run download "$GITHUB_RUN_ID" --name out --dir out
-          status=0
-          wait "$tests" || status=$?
-          cat platform-test.log
-          if [ "$status" -ne 0 ]; then
-            echo "::error::test:platform failed (exit $status)."
-            exit 1
-          fi
+        run: bash scripts/ci-fetch-out.sh
       # The NSIS payload is a 7z that electron-builder packs at -mx=9 whatever
       # `compression:` says (`normal` and `maximum` are both 9); that single
       # LZMA2 pass took 61 s of this job on 2 cores. Level 4 takes about 27 s
@@ -397,25 +511,36 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-  # Runs when prepare, build, check, mac (@smoke + real-core) and win (@smoke)
-  # succeeded (the job `if` keeps GitHub's implicit success(), so a failed or
-  # skipped need stops it). The sharded full e2e is deliberately NOT a need: on
-  # hosted runners it is informational until it is stable (AGENTS.md, CI);
-  # its results stay visible on the run. Local `bun run gate` is the full-suite proof.
+  # Runs when prepare, build, static, check (every vitest job), win-platform, mac (@smoke),
+  # mac-real (real-core) and win (@smoke) succeeded (the job `if` keeps GitHub's
+  # implicit success(), so a failed or skipped need stops it). The full
+  # Playwright suite is not part of a release: e2e-nightly.yml runs it
+  # informationally. The pre-flight in ci.yml and local `bun run gate` are the
+  # other proofs.
   publish:
-    needs: [prepare, build, check, mac, win]
+    needs: [prepare, build, static, check, mac, mac-real, win-platform, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read # the failure report reads this run's jobs
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: scripts/ci-failure.sh
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: ompdesk-*
@@ -459,3 +584,7 @@ jobs:
       - name: Create tag and release
         if: inputs.dry_run != true
         run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes/notes.md dist/*
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}

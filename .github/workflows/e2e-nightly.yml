@@ -1,0 +1,43 @@
+# The full Playwright suite, informational: nightly on main and on demand. It is
+# no longer part of a release (release.yml runs @smoke on mac and win and
+# real-core on mac); a failing shard here is a bug to fix, never a release block.
+# The shards need the app bundle, built once on Linux (byte-identical on every OS).
+name: e2e-nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-out:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: bun run build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: out
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+
+  e2e:
+    needs: build-out
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-shards.yml
