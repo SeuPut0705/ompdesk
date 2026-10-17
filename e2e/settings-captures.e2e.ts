@@ -12,9 +12,6 @@ const SHOTS = process.env.OMPDESK_SETTINGS_SHOTS;
 test.skip(!SHOTS, "set OMPDESK_SETTINGS_SHOTS=<dir> to capture");
 
 const SIZES = { wide: [1280, 2600], narrow: [800, 2600] } as const;
-/** `OMPDESK_SETTINGS_SECTIONS=general,appearance` keeps those sections, `OMPDESK_SETTINGS_SIZES=wide` that size. */
-const ONLY_SECTIONS = process.env.OMPDESK_SETTINGS_SECTIONS?.split(",").filter(Boolean);
-const ONLY_SIZES = process.env.OMPDESK_SETTINGS_SIZES?.split(",").filter(Boolean);
 
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
@@ -45,14 +42,10 @@ for (const language of ["en", "ko"] as const)
 					.toBe("ready");
 				const settings = page.locator("[data-settings-page]");
 				await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-				const ids = (
-					await settings
-						.locator("[data-settings-section]")
-						.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""))
-				).filter(id => !ONLY_SECTIONS || ONLY_SECTIONS.includes(id));
-				for (const [size, [width, height]] of Object.entries(SIZES).filter(
-					([name]) => !ONLY_SIZES || ONLY_SIZES.includes(name),
-				)) {
+				const ids = await settings
+					.locator("[data-settings-section]")
+					.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""));
+				for (const [size, [width, height]] of Object.entries(SIZES)) {
 					await app.evaluate(
 						({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h),
 						[width, height],

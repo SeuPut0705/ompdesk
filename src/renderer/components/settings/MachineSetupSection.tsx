@@ -9,7 +9,7 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 import type { SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
 import { useMachineSetupStore } from "../../stores/machine-setup";
-import { Badge, Button, InlineNotice, SettingInfo } from "../common";
+import { Badge, Button, InlineNotice } from "../common";
 import {
 	SETUP_DETAILED,
 	SETUP_ITEM_NAMES,
@@ -28,7 +28,7 @@ import {
 import { CliUpdateRows } from "./CliUpdateRows";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
 import { OmpUpdateRows } from "./OmpUpdateRows";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingInfo, SettingsSection } from "./SettingsLayout";
 
 function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {
 	const t = useT();

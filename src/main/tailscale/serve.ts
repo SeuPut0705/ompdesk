@@ -120,20 +120,21 @@ export function portTaken(config: ServeConfig, port: number): boolean {
 }
 
 /**
- * The URL of the single `/` proxy on `record`'s `<host>:<port>` when it is what OMPdesk published (the recorded
- * target, alone or followed by a path: the secret), else null.
+ * The URL of the single `/` proxy on `record`'s `<host>:<port>` when it is exactly what OMPdesk published: `current`
+ * (the local address plus the secret path now in force) or the bare recorded target an earlier release published (the
+ * one-time cutover). Any other path on the same local address is somebody else's handler and is never ours.
  */
-export function ownProxy(config: ServeConfig, record: ServeRecord): string | null {
+export function ownProxy(config: ServeConfig, record: ServeRecord, current: string): string | null {
 	const handlers = config.web.get(siteKey(record.host, record.port));
 	if (handlers?.size !== 1) return null;
 	const root = handlers.get("/");
 	if (root === undefined || root.other || root.proxy === null) return null;
-	return root.proxy === record.target || root.proxy.startsWith(`${record.target}/`) ? root.proxy : null;
+	return root.proxy === record.target || root.proxy === current ? root.proxy : null;
 }
 
-/** The handler on `record`'s `<host>:<port>` is what OMPdesk published. */
-export function handlerIsOurs(config: ServeConfig, record: ServeRecord): boolean {
-	return ownProxy(config, record) !== null;
+/** The handler on `record`'s `<host>:<port>` is what OMPdesk published (see `ownProxy`). */
+export function handlerIsOurs(config: ServeConfig, record: ServeRecord, current: string): boolean {
+	return ownProxy(config, record, current) !== null;
 }
 
 /** Funnel exposes `<host>:<port>`. */
@@ -159,8 +160,8 @@ export function planPublish(
 	record: ServeRecord | null,
 	first: number = MOBILE_WEB_PORT,
 ): PublishPlan {
-	if (record && record.host.toLowerCase() === host.toLowerCase() && handlerIsOurs(config, record)) {
-		return ownProxy(config, record) === target
+	if (record && record.host.toLowerCase() === host.toLowerCase() && handlerIsOurs(config, record, target)) {
+		return ownProxy(config, record, target) === target
 			? { kind: "reuse", port: record.port }
 			: { kind: "publish", port: record.port };
 	}

@@ -55,14 +55,18 @@ describe("ownership", () => {
 
 	it("is ours only for exactly one `/` proxy to the recorded target", () => {
 		const ours = config({ Web: { [`${HOST}:47831`]: proxy(TARGET) } });
-		expect(handlerIsOurs(ours, record)).toBe(true);
-		expect(handlerIsOurs(config({ Web: { [`${HOST}:47831`]: proxy("http://127.0.0.1:1") } }), record)).toBe(false);
-		expect(handlerIsOurs(config({ Web: { [`${HOST}:47832`]: proxy(TARGET) } }), record)).toBe(false);
-		expect(handlerIsOurs(config({}), record)).toBe(false);
+		expect(handlerIsOurs(ours, record, `${TARGET}/s3cr3t`)).toBe(true);
+		expect(
+			handlerIsOurs(config({ Web: { [`${HOST}:47831`]: proxy("http://127.0.0.1:1") } }), record, `${TARGET}/s3cr3t`),
+		).toBe(false);
+		expect(handlerIsOurs(config({ Web: { [`${HOST}:47832`]: proxy(TARGET) } }), record, `${TARGET}/s3cr3t`)).toBe(
+			false,
+		);
+		expect(handlerIsOurs(config({}), record, `${TARGET}/s3cr3t`)).toBe(false);
 		const extra = { Handlers: { "/": { Proxy: TARGET }, "/x": { Proxy: TARGET } } };
-		expect(handlerIsOurs(config({ Web: { [`${HOST}:47831`]: extra } }), record)).toBe(false);
+		expect(handlerIsOurs(config({ Web: { [`${HOST}:47831`]: extra } }), record, `${TARGET}/s3cr3t`)).toBe(false);
 		const path = { Handlers: { "/": { Path: "/tmp", Proxy: TARGET } } };
-		expect(handlerIsOurs(config({ Web: { [`${HOST}:47831`]: path } }), record)).toBe(false);
+		expect(handlerIsOurs(config({ Web: { [`${HOST}:47831`]: path } }), record, `${TARGET}/s3cr3t`)).toBe(false);
 	});
 
 	it("reads a record only in its exact shape", () => {
@@ -129,26 +133,42 @@ describe("planPublish", () => {
 		// An earlier OMPdesk published the bare address; a rotated secret is another path.
 		const bare = config({ TCP: { "47832": { HTTPS: true } }, Web: { [`${HOST}:47832`]: proxy(TARGET) } });
 		expect(planPublish(bare, HOST, withSecret, record)).toEqual({ kind: "publish", port: 47832 });
-		expect(planPublish(current, HOST, `${TARGET}/other`, record)).toEqual({ kind: "publish", port: 47832 });
+		// A handler under another secret is not provably ours (it could be the user's): never reused or overwritten.
+		expect(planPublish(current, HOST, `${TARGET}/other`, record)).toEqual({ kind: "publish", port: 47831 });
 	});
 
-	it("owns a handler that proxies to the recorded address alone or with a path, and nothing that merely resembles it", () => {
+	it("owns only the exact current secret target and the bare recorded target of the cutover, nothing else", () => {
 		const record = { host: HOST, port: 47832, target: TARGET };
+		const current = `${TARGET}/s3cr3t`;
 		const at = (proxyUrl: string, extra: object = {}) =>
 			config({
 				TCP: { "47832": { HTTPS: true } },
 				Web: { [`${HOST}:47832`]: { Handlers: { "/": { Proxy: proxyUrl }, ...extra } } },
 			});
-		expect(ownProxy(at(TARGET), record)).toBe(TARGET);
-		expect(ownProxy(at(`${TARGET}/s3cr3t`), record)).toBe(`${TARGET}/s3cr3t`);
-		expect(handlerIsOurs(at(`${TARGET}/s3cr3t`), record)).toBe(true);
+		expect(ownProxy(at(TARGET), record, current)).toBe(TARGET);
+		expect(ownProxy(at(current), record, current)).toBe(current);
+		expect(handlerIsOurs(at(current), record, current)).toBe(true);
+		// The user's own handler on the same local address under another path is not ours.
+		expect(ownProxy(at(`${TARGET}/other-app`), record, current)).toBeNull();
+		expect(ownProxy(at(`${TARGET}/s3cr3t/more`), record, current)).toBeNull();
+		expect(ownProxy(at(`${TARGET}/old-secret`), record, current)).toBeNull();
 		// Another local port, or a longer port number that only starts with ours, is not ours.
-		expect(ownProxy(at("http://127.0.0.1:51001"), record)).toBeNull();
-		expect(ownProxy(at("http://127.0.0.1:510000/x"), record)).toBeNull();
-		expect(ownProxy(at("http://127.0.0.1:3010"), record)).toBeNull();
+		expect(ownProxy(at("http://127.0.0.1:51001"), record, current)).toBeNull();
+		expect(ownProxy(at("http://127.0.0.1:510000/x"), record, current)).toBeNull();
+		expect(ownProxy(at("http://127.0.0.1:3010"), record, current)).toBeNull();
 		// A second handler on the port means it is not a single `/` proxy of ours.
-		expect(ownProxy(at(TARGET, { "/docs": { Proxy: "http://127.0.0.1:9" } }), record)).toBeNull();
-		expect(ownProxy(config(userOnly), record)).toBeNull();
+		expect(ownProxy(at(TARGET, { "/docs": { Proxy: "http://127.0.0.1:9" } }), record, current)).toBeNull();
+		expect(ownProxy(config(userOnly), record, current)).toBeNull();
+	});
+
+	it("leaves a handler with an unrelated path on the same address alone when planning a publish", () => {
+		const record = { host: HOST, port: 47832, target: TARGET };
+		const theirs = config({
+			TCP: { "47832": { HTTPS: true } },
+			Web: { [`${HOST}:47832`]: proxy(`${TARGET}/other-app`) },
+		});
+		// Not ours: its port is not reused, the next free one is taken.
+		expect(planPublish(theirs, HOST, `${TARGET}/s3cr3t`, record)).toEqual({ kind: "publish", port: 47831 });
 	});
 
 	it("gives up when no port in range is free", () => {

@@ -19,7 +19,10 @@ export function AutoTitleRow() {
 		<>
 			<SettingsSwitchRow
 				checked={enabled}
-				description={`${t("settings.gui.autoTitleDesc")} ${t("settings.gui.autoTitleCost")}`}
+				description={t("settings.gui.autoTitleDesc")}
+				footer={
+					<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)">{t("settings.gui.autoTitleCost")}</p>
+				}
 				icon={<Sparkles />}
 				id="setting-gui-autoTitle"
 				label={t("settings.gui.autoTitle")}
@@ -28,8 +31,13 @@ export function AutoTitleRow() {
 			<div className="pl-4" data-auto-title-evolve="true">
 				<SettingsSwitchRow
 					checked={evolve}
-					description={`${t("settings.gui.autoTitleEvolveDesc")} ${t("settings.gui.autoTitleEvolveCost")}`}
+					description={t("settings.gui.autoTitleEvolveDesc")}
 					disabled={!enabled}
+					footer={
+						<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)">
+							{t("settings.gui.autoTitleEvolveCost")}
+						</p>
+					}
 					icon={<RefreshCw />}
 					id="setting-gui-autoTitleEvolve"
 					label={t("settings.gui.autoTitleEvolve")}

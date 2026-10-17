@@ -21,19 +21,7 @@ import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
-import {
-	Badge,
-	type BadgeVariant,
-	Button,
-	InlineNotice,
-	Input,
-	type InputProps,
-	ProgressBar,
-	SettingInfo,
-	Spinner,
-	TextArea,
-} from "../common";
-import { SettingsRow } from "../settings/SettingsLayout";
+import { Badge, type BadgeVariant, Button, InlineNotice, Input, ProgressBar, Spinner, TextArea } from "../common";
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -248,28 +236,12 @@ function ModeFrame<T>({ rpc, children }: { rpc: ModeRpc<T>; children: (state: T)
 	);
 }
 
-/** One labelled number field inline with its label; the hint rides an (i) tooltip, `trailing` sits after the field. */
-function GoalNumberRow({
-	label,
-	hint,
-	trailing,
-	...input
-}: Omit<InputProps, "label" | "hint" | "type"> & { label: string; hint: string; trailing?: ReactNode }) {
-	return (
-		<SettingsRow
-			badge={<SettingInfo text={hint} />}
-			compactControl
-			control={
-				<span className="flex items-center gap-2">
-					{trailing}
-					<span className="w-28">
-						<Input aria-label={label} controlSize="sm" type="number" {...input} />
-					</span>
-				</span>
-			}
-			label={label}
-		/>
-	);
+function Description({ children }: { children: ReactNode }) {
+	return <p className="text-sc-sm text-(--sc-text-muted)">{children}</p>;
+}
+
+function FieldLabel({ children }: { children: ReactNode }) {
+	return <span className="text-sc-xs font-medium text-(--sc-text-muted)">{children}</span>;
 }
 
 /** Inline error of a failed mutation while a confirmed state is shown. */
@@ -321,43 +293,35 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 
 	return (
 		<>
-			<SettingsRow
-				badge={<SettingInfo text={t("modesPanel.goal.desc")} />}
-				compactControl
-				control={
-					<span className="flex items-center gap-1.5">
-						<Badge dot pulse={state.status === "active"} variant={goalStatusVariant(state.status)}>
-							{goalStatusLabel(t, state.status)}
-						</Badge>
-						{state.mode && <Badge variant="muted">{state.mode}</Badge>}
-					</span>
-				}
-				label={t("modesPanel.goal.statusLabel")}
+			<div className="flex flex-wrap items-center gap-2">
+				<FieldLabel>{t("modesPanel.goal.statusLabel")}</FieldLabel>
+				<Badge dot pulse={state.status === "active"} variant={goalStatusVariant(state.status)}>
+					{goalStatusLabel(t, state.status)}
+				</Badge>
+				{state.mode && <Badge variant="muted">{state.mode}</Badge>}
+			</div>
+			<TextArea
+				autoGrow
+				label={t("modesPanel.goal.objectiveLabel")}
+				onChange={event => setObjectiveDraft(event.target.value)}
+				placeholder={t("modesPanel.goal.objectivePlaceholder")}
+				rows={2}
+				value={objectiveDraft}
 			/>
-			<SettingsRow label={t("modesPanel.goal.objectiveLabel")}>
-				<TextArea
-					aria-label={t("modesPanel.goal.objectiveLabel")}
-					autoGrow
-					onChange={event => setObjectiveDraft(event.target.value)}
-					placeholder={t("modesPanel.goal.objectivePlaceholder")}
-					rows={2}
-					value={objectiveDraft}
-				/>
-				{objectiveDirty && (
-					<div className="mt-1.5 flex justify-end">
-						<Button
-							disabled={disabled}
-							onClick={() => void rpc.mutate(client => client.setGoal({ objective: trimmedObjective }))}
-							size="sm"
-							title={notConnected}
-							variant="secondary"
-						>
-							{t("modesPanel.goal.saveObjective")}
-						</Button>
-					</div>
-				)}
-			</SettingsRow>
-			<div className="flex flex-col gap-1 py-1.5" data-setting-row="true">
+			{objectiveDirty && (
+				<div className="flex justify-end">
+					<Button
+						disabled={disabled}
+						onClick={() => void rpc.mutate(client => client.setGoal({ objective: trimmedObjective }))}
+						size="sm"
+						title={notConnected}
+						variant="secondary"
+					>
+						{t("modesPanel.goal.saveObjective")}
+					</Button>
+				</div>
+			)}
+			<div className="flex flex-col gap-1.5">
 				{tokenBudget !== null ? (
 					<ProgressBar
 						label={t("modesPanel.goal.budget")}
@@ -365,10 +329,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						valueText={`${formatTokens(tokensUsed)} / ${formatTokens(tokenBudget)}`}
 					/>
 				) : (
-					<span className="text-sc-xs text-(--sc-text-muted)">
-						{t("modesPanel.goal.noBudget")} · {t("modesPanel.goal.tokensUsed")}:{" "}
-						<span className="tabular-nums text-(--sc-text)">{formatTokens(tokensUsed)}</span>
-					</span>
+					<span className="text-sc-sm text-(--sc-text-subtle)">{t("modesPanel.goal.noBudget")}</span>
 				)}
 				{timeLimitSeconds !== null ? (
 					<ProgressBar
@@ -377,21 +338,32 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						valueText={`${formatDuration(timeUsedSeconds * 1000)} / ${formatDuration(timeLimitSeconds * 1000)}`}
 					/>
 				) : (
-					<span className="text-sc-xs text-(--sc-text-muted)">
-						{t("modesPanel.goal.noTimeLimit")} · {t("modesPanel.goal.timeUsed")}:{" "}
+					<span className="text-sc-sm text-(--sc-text-subtle)">{t("modesPanel.goal.noTimeLimit")}</span>
+				)}
+				<div className="flex flex-wrap gap-x-4 gap-y-1 text-sc-sm text-(--sc-text-muted)">
+					<span>
+						{t("modesPanel.goal.tokensUsed")}:{" "}
+						<span className="tabular-nums text-(--sc-text)">{formatTokens(tokensUsed)}</span>
+					</span>
+					<span>
+						{t("modesPanel.goal.timeUsed")}:{" "}
 						<span className="tabular-nums text-(--sc-text)">{formatDuration(timeUsedSeconds * 1000)}</span>
 					</span>
-				)}
+				</div>
 			</div>
-			<GoalNumberRow
-				hint={t("modesPanel.goal.timeLimitHint")}
-				label={t("modesPanel.goal.timeLimitLabel")}
-				min={0}
-				onChange={event => setMinutesDraft(event.target.value)}
-				placeholder={t("modesPanel.goal.timeLimitPlaceholder")}
-				step={5}
-				trailing={
-					minutesDirty && (
+			<div className="flex flex-col gap-2">
+				<Input
+					hint={t("modesPanel.goal.timeLimitHint")}
+					label={t("modesPanel.goal.timeLimitLabel")}
+					min={0}
+					onChange={event => setMinutesDraft(event.target.value)}
+					placeholder={t("modesPanel.goal.timeLimitPlaceholder")}
+					step={5}
+					type="number"
+					value={minutesDraft}
+				/>
+				{minutesDirty && (
+					<div className="flex justify-end">
 						<Button
 							disabled={disabled || state.status === "complete"}
 							onClick={() =>
@@ -403,11 +375,10 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						>
 							{t("modesPanel.goal.saveTimeLimit")}
 						</Button>
-					)
-				}
-				value={minutesDraft}
-			/>
-			<div className="flex items-center justify-end gap-2 pt-1.5">
+					</div>
+				)}
+			</div>
+			<div className="flex items-center gap-2">
 				{state.status === "paused" ? (
 					<Button
 						disabled={disabled}
@@ -456,38 +427,35 @@ function GoalStartForm({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 
 	return (
 		<>
-			<SettingsRow
-				badge={<SettingInfo text={t("modesPanel.goal.desc")} />}
+			<TextArea
+				autoGrow
 				label={t("modesPanel.goal.objectiveLabel")}
-			>
-				<TextArea
-					aria-label={t("modesPanel.goal.objectiveLabel")}
-					autoGrow
-					onChange={event => setObjective(event.target.value)}
-					placeholder={t("modesPanel.goal.objectivePlaceholder")}
-					rows={2}
-					value={objective}
-				/>
-			</SettingsRow>
-			<GoalNumberRow
+				onChange={event => setObjective(event.target.value)}
+				placeholder={t("modesPanel.goal.objectivePlaceholder")}
+				rows={2}
+				value={objective}
+			/>
+			<Input
 				hint={t("modesPanel.goal.budgetHint")}
 				label={t("modesPanel.goal.budgetLabel")}
 				min={0}
 				onChange={event => setBudget(event.target.value)}
 				placeholder={t("modesPanel.goal.budgetPlaceholder")}
 				step={1000}
+				type="number"
 				value={budget}
 			/>
-			<GoalNumberRow
+			<Input
 				hint={t("modesPanel.goal.timeLimitHint")}
 				label={t("modesPanel.goal.timeLimitLabel")}
 				min={0}
 				onChange={event => setMinutes(event.target.value)}
 				placeholder={t("modesPanel.goal.timeLimitPlaceholder")}
 				step={5}
+				type="number"
 				value={minutes}
 			/>
-			<div className="flex justify-end pt-1.5">
+			<div className="flex justify-end">
 				<Button
 					disabled={!trimmed || rpc.busy || !rpc.ready}
 					loading={rpc.busy}
@@ -512,6 +480,7 @@ function GoalStartForm({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 }
 
 export function GoalModeConfig() {
+	const t = useT();
 	const rpc = useModeRpc(fetchGoal, pickGoal);
 	const syncGoal = rpc.sync;
 	useModeEvents(
@@ -526,9 +495,8 @@ export function GoalModeConfig() {
 		<ModeFrame rpc={rpc}>
 			{state => (
 				<>
-					<div className="settings-section-body">
-						{state.enabled ? <GoalEnabledView rpc={rpc} state={state} /> : <GoalStartForm rpc={rpc} />}
-					</div>
+					<Description>{t("modesPanel.goal.desc")}</Description>
+					{state.enabled ? <GoalEnabledView rpc={rpc} state={state} /> : <GoalStartForm rpc={rpc} />}
 					<MutationError error={rpc.error} />
 				</>
 			)}

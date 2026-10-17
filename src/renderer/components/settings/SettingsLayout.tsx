@@ -23,12 +23,45 @@
  * Rows use `id` (e.g. `setting-<path>`) as the search-navigation target.
  */
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import { createContext, type ReactNode, useContext, useId, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedHost } from "../../stores/remote";
-import { Banner, Button, SettingInfo, Switch, splitDescription } from "../common";
+import { Banner, Button, Switch, Tooltip } from "../common";
+
+/** A string description up to this long reads inline next to the label; longer ones sit behind an info tooltip. */
+export const INLINE_DESCRIPTION_MAX = 56;
+
+/**
+ * A description split by length: `inline` text is a short muted line, `tip` text lives behind
+ * `SettingInfo` (and stays in the DOM as screen-reader text), `note` is any other node, kept visible.
+ */
+function splitDescription(description: ReactNode): { inline?: string; tip?: string; note?: ReactNode } {
+	if (description === undefined || description === null || description === false) return {};
+	if (typeof description !== "string") return { note: description };
+	return description.length <= INLINE_DESCRIPTION_MAX ? { inline: description } : { tip: description };
+}
+
+/** The info glyph that shows a long description on hover and keyboard focus; the text stays in the DOM for screen readers. */
+export function SettingInfo({ text }: { text: string }) {
+	const t = useT();
+	return (
+		<>
+			<Tooltip content={text} describe={false}>
+				<button
+					aria-label={t("settings.rowInfo")}
+					className="inline-flex size-(--sc-icon-md) shrink-0 items-center justify-center rounded-(--sc-radius-sm) text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+					data-setting-info
+					type="button"
+				>
+					<Info aria-hidden className="size-(--sc-icon-sm)" />
+				</button>
+			</Tooltip>
+			<span className="sr-only">{text}</span>
+		</>
+	);
+}
 
 type SettingsScope = "app" | "host" | "mixed";
 const SettingsScopeContext = createContext<SettingsScope | null>(null);
@@ -174,13 +207,7 @@ export function SettingsRow({
 	const { inline, tip, note } = splitDescription(description);
 	return (
 		<div className={cx("settings-row scroll-mt-4 py-1", className)} data-setting-row="true" id={id}>
-			<div
-				className={cx(
-					"settings-field-row",
-					// A row without a control gives its whole width to the label and its content.
-					(compactControl || control === undefined) && "settings-field-row-compact",
-				)}
-			>
+			<div className={cx("settings-field-row", compactControl && "settings-field-row-compact")}>
 				<div className="flex min-h-(--sc-control-md) min-w-0 items-center gap-2">
 					{icon && (
 						<span

@@ -31,19 +31,15 @@ export function NextPromptRow() {
 		<>
 			<SettingsSwitchRow
 				checked={suggestions}
-				description={[
-					t("settings.gui.nextPromptSuggestionsDesc"),
-					t("settings.gui.nextPromptCost"),
-					state?.model && t("settings.gui.nextPromptModel", { model: state.model.model }),
-				]
-					.filter(Boolean)
-					.join(" ")}
+				description={t("settings.gui.nextPromptSuggestionsDesc")}
 				footer={
-					state?.legacyExtension && (
-						<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)" data-next-prompt-legacy="true">
-							{t("settings.gui.nextPromptLegacy")}
+					<div className="mt-1 flex flex-col gap-1 text-sc-xs break-keep text-(--sc-text-muted)">
+						<p>
+							{t("settings.gui.nextPromptCost")}
+							{state?.model && ` ${t("settings.gui.nextPromptModel", { model: state.model.model })}`}
 						</p>
-					)
+						{state?.legacyExtension && <p data-next-prompt-legacy="true">{t("settings.gui.nextPromptLegacy")}</p>}
+					</div>
 				}
 				id="setting-gui-nextPromptSuggestions"
 				icon={<Lightbulb />}

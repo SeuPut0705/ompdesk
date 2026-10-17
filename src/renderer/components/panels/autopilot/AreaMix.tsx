@@ -12,30 +12,21 @@ export function FocusChips({
 	focus,
 	onToggle,
 	disabled,
-	compact,
 }: {
 	focus: readonly AutopilotArea[];
 	onToggle: (area: AutopilotArea) => void;
 	disabled?: boolean;
-	/** Tighter chips for the Mode popover, where the seven areas wrap within two rows. */
-	compact?: boolean;
 }) {
 	const t = useT();
 	return (
-		<div
-			className={cx("flex flex-wrap", compact ? "gap-1" : "gap-1.5")}
-			data-autopilot-focus
-			role="group"
-			aria-label={t("autopilot.focus.label")}
-		>
+		<div className="flex flex-wrap gap-1.5" data-autopilot-focus role="group" aria-label={t("autopilot.focus.label")}>
 			{AUTOPILOT_AREAS.map(area => {
 				const on = focus.includes(area);
 				return (
 					<button
 						aria-pressed={on}
 						className={cx(
-							"inline-flex h-6 items-center rounded-full border text-sc-xs transition-colors disabled:opacity-50",
-							compact ? "gap-1 px-1.5" : "gap-1 px-2",
+							"inline-flex h-6 items-center gap-1 rounded-full border px-2 text-sc-xs transition-colors disabled:opacity-50",
 							on
 								? "border-(--sc-accent) bg-(--sc-accent-soft) text-(--sc-accent)"
 								: "border-(--sc-border) text-(--sc-text-secondary) hover:bg-(--sc-surface-2)",

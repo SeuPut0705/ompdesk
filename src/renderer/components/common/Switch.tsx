@@ -4,8 +4,7 @@
  *
  * - `Switch`: the bare control. Give it a name: `label` (aria-label) when no
  *   visible text names it, or wrap it in SwitchField.
- * - `SwitchField`: one dense row — label, a short description inline or a longer
- *   one behind an (i) tooltip (`SettingInfo`), and the switch at the right, the
+ * - `SwitchField`: label + optional description + switch on the right, the
  *   whole row clickable. Use it for every boolean setting row.
  * Off = outlined track (≥3:1 border) with a muted knob; on = accent track
  * with an accent-foreground knob — the state never depends on color alone.
@@ -14,7 +13,6 @@
 
 import { type ButtonHTMLAttributes, type ReactNode, useId } from "react";
 import { cx } from "../../lib/format";
-import { SettingInfo, splitDescription } from "./SettingInfo";
 
 export type SwitchSize = "sm" | "md";
 
@@ -90,67 +88,33 @@ export interface SwitchFieldProps extends Omit<SwitchProps, "label" | "aria-labe
 	description?: ReactNode;
 	/** Trailing adornment next to the label (a Badge, usually). */
 	badge?: ReactNode;
-	/** Keep even a short string description behind the (i) glyph (a narrow popover has no room for it inline). */
-	infoOnly?: boolean;
 }
 
-export function SwitchField({
-	label,
-	description,
-	badge,
-	infoOnly,
-	id,
-	className,
-	disabled,
-	...rest
-}: SwitchFieldProps) {
+export function SwitchField({ label, description, badge, id, className, disabled, ...rest }: SwitchFieldProps) {
 	const autoId = useId();
 	const switchId = id ?? autoId;
-	const { inline, tip, note } = splitDescription(description, infoOnly);
-	const descriptionId = inline !== undefined || note ? `${switchId}-description` : undefined;
-	// One dense line: label, a short clause or the (i) glyph, the switch at the right. The glyph sits outside the label
-	// so the switch's accessible name stays the label text; its own tooltip text is read from the DOM as `sr-only`.
+	const descriptionId = description ? `${switchId}-description` : undefined;
 	return (
-		<div
+		<label
 			className={cx(
-				"flex min-h-(--sc-control-md) items-center gap-2 rounded-(--sc-radius-md) px-2 py-1 hover:bg-(--sc-hover)",
-				disabled && "opacity-60 hover:bg-transparent",
+				"flex min-h-10 w-full cursor-pointer items-center justify-between gap-4 rounded-(--sc-radius-md) px-2 py-1.5 hover:bg-(--sc-hover)",
+				disabled && "cursor-not-allowed opacity-60 hover:bg-transparent",
 				className,
 			)}
-			data-switch-field
+			htmlFor={switchId}
 		>
-			<label className={cx("min-w-0 shrink", disabled ? "cursor-not-allowed" : "cursor-pointer")} htmlFor={switchId}>
-				<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-					<span className="text-sc-md font-medium text-(--sc-text)">{label}</span>
+			<span className="min-w-0">
+				<span className="flex items-center gap-2 text-sc-md font-medium text-(--sc-text)">
+					{label}
 					{badge}
-					{inline !== undefined && (
-						<span
-							className="min-w-0 truncate text-sc-xs break-keep text-(--sc-text-muted)"
-							data-setting-desc
-							id={descriptionId}
-							title={inline}
-						>
-							{inline}
-						</span>
-					)}
 				</span>
-				{note && (
-					<span className="block text-sc-xs break-words break-keep text-(--sc-text-muted)" id={descriptionId}>
-						{note}
+				{description && (
+					<span className="mt-0.5 block text-sc-sm text-(--sc-text-muted)" id={descriptionId}>
+						{description}
 					</span>
 				)}
-			</label>
-			{tip !== undefined && <SettingInfo text={tip} />}
-			{/* The empty stretch between label and switch is part of the click target, as the whole row was. */}
-			<label
-				aria-hidden
-				className={cx(
-					"min-h-(--sc-control-md) flex-1 self-stretch",
-					disabled ? "cursor-not-allowed" : "cursor-pointer",
-				)}
-				htmlFor={switchId}
-			/>
+			</span>
 			<Switch aria-describedby={descriptionId} disabled={disabled} id={switchId} {...rest} />
-		</div>
+		</label>
 	);
 }

@@ -681,7 +681,11 @@ export class MobileWebService {
 		const plan = planPublish(config, host, target, record);
 		if (plan.kind === "none") return this.#block("serve-blocked", "No free port for the page on this machine");
 		if (funnelOn(config, host, plan.port))
-			return this.#refuseFunnel(host, plan.port, handlerIsOurs(config, { host, port: plan.port, target: base }));
+			return this.#refuseFunnel(
+				host,
+				plan.port,
+				handlerIsOurs(config, { host, port: plan.port, target: base }, target),
+			);
 		if (plan.kind === "publish") {
 			this.#published = false;
 			const result = await cli.servePublish(plan.port, target);
@@ -690,7 +694,7 @@ export class MobileWebService {
 			this.#deps.prefs.set(MOBILE_WEB_PREFS.serve, next);
 			const after = await cli.serveStatus();
 			const verified = after.code === 0 ? parseServeStatus(after.stdout) : null;
-			if (!verified || ownProxy(verified, next) !== target) {
+			if (!verified || ownProxy(verified, next, target) !== target) {
 				return this.#block("serve-blocked", "Tailscale accepted the command, but the handler is not in place");
 			}
 			if (funnelOn(verified, host, plan.port)) return this.#refuseFunnel(host, plan.port, true);
@@ -753,7 +757,7 @@ export class MobileWebService {
 		const read = await cli.serveStatus();
 		const before = read.code === 0 ? parseServeStatus(read.stdout) : null;
 		if (!before) return { kind: "failed", detail: firstLine(read, "Could not read the serve configuration") };
-		if (!handlerIsOurs(before, record)) {
+		if (!handlerIsOurs(before, record, `${record.target}/${this.#deps.serveSecret()}`)) {
 			this.#deps.prefs.delete(MOBILE_WEB_PREFS.serve);
 			return { kind: "record-dropped" };
 		}

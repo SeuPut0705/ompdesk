@@ -345,8 +345,6 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		mode: "web",
 		web: "Confirmation sheet on the phone, then a reconnect after the restart",
 	},
-	[C.UPDATER_POSTPONE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.UPDATER_INSTALL_MODE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_GET_STATUS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_VERSION]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.UPDATER_AUTH_INFO]: { dir: "invoke", permission: "host-admin", mode: "pass" },

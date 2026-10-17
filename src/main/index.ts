@@ -1153,10 +1153,10 @@ app.whenReady().then(() => {
 			stop: () => host.stop(),
 			configure: address => host.server.configure(address),
 		},
+		serveSecret: () => host.serveSecret(),
 		setup,
 		locate: async () =>
 			tailscaleOs
-		serveSecret: () => host.serveSecret(),
 				? locateTailscale(
 						systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
 							readBundleId(mac, execFileExecutor),

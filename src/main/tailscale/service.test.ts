@@ -230,6 +230,42 @@ describe("MobileWebService publishing", () => {
 		expect(h.store.get(MOBILE_WEB_PREFS.serve)).toEqual({ host: HOST, port: 47831, target: TARGET });
 	});
 
+	it("neither overwrites nor removes a user's handler on the same local address under another path", async () => {
+		const theirs = { Handlers: { "/": { Proxy: `${TARGET}/other-app` } } };
+		const scenario = {
+			serve: {
+				TCP: { "443": { HTTPS: true }, "47831": { HTTPS: true } },
+				Web: { ...USER_SERVE.Web, [`${HOST}:47831`]: theirs },
+			},
+		};
+		const h = track(
+			harness({ prefs: { [MOBILE_WEB_PREFS.serve]: { host: HOST, port: 47831, target: TARGET } }, scenario }),
+		);
+		// Publishing takes the next free port; the user's handler on 47831 is exactly as it was.
+		expect(await h.enable()).toMatchObject({ phase: "ready", port: 47832 });
+		expect(h.writes()).toEqual([["serve", "--bg", "--https=47832", FULL_TARGET]]);
+		expect(h.scenario.serve.Web?.[`${HOST}:47831`]).toEqual(theirs);
+		// Turning off removes only the handler it made.
+		await h.service.request({ action: "disable" });
+		expect(h.scenario.serve.Web?.[`${HOST}:47831`]).toEqual(theirs);
+		expect(h.writes().some(args => args.includes("--https=47831"))).toBe(false);
+
+		// A stale record that points at the user's handler is dropped on turn-off, never acted on.
+		const stale = track(
+			harness({
+				prefs: {
+					[MOBILE_WEB_PREFS.enabled]: true,
+					[MOBILE_WEB_PREFS.serve]: { host: HOST, port: 47831, target: TARGET },
+				},
+				scenario,
+			}),
+		);
+		const state = await stale.service.request({ action: "disable" });
+		expect(state.phase).toBe("off");
+		expect(stale.writes()).toEqual([]);
+		expect(stale.scenario.serve.Web?.[`${HOST}:47831`]).toEqual(theirs);
+		expect(stale.store.has(MOBILE_WEB_PREFS.serve)).toBe(false);
+	});
 	it("publishes again over a handler an earlier OMPdesk made without the secret path, on the same port", async () => {
 		const h = track(
 			harness({

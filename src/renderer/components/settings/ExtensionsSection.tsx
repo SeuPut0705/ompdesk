@@ -49,7 +49,6 @@ import {
 	EmptyState,
 	ErrorDetail,
 	IconButton,
-	SettingInfo,
 	Spinner,
 	type TabItem,
 	Tabs,
@@ -59,7 +58,7 @@ import { type McpCardAction, type McpReauthPhase, McpServerCard } from "../panel
 import { McpServerWizard } from "../panels/mcp/McpServerWizard";
 import { AgentControlRow } from "./AgentControlRow";
 import { BuiltinReaRow } from "./BuiltinReaRow";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingInfo, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
 
 export type ExtensionsTab = "skills" | "mcp" | "hooks" | "contextFiles" | "commands";
