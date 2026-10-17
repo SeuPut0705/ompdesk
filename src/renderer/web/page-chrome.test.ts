@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { TrayState } from "../../shared/ipc-types";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
@@ -112,30 +112,15 @@ describe("the connection banner", () => {
 		expect(doc.getElementById("omp-web-connection")).toBeNull();
 	});
 
-	it("says so when the page is outdated or the device unpaired", () => {
+	it("says so when the device is unpaired, and shows nothing for an outdated page (it reloads itself)", () => {
 		const doc = page();
 		const { handle, set } = source("open");
 		mountConnectionBanner(handle, doc, key => key);
+		set("reconnecting");
+		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
 		set("outdated");
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.outdated");
+		expect(doc.getElementById("omp-web-connection")).toBeNull();
 		set("unpaired");
 		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.unpaired");
-	});
-
-	it("offers Reload on an outdated page when it is given the action", () => {
-		const doc = page();
-		const reload = vi.fn();
-		const { handle, set } = source("open");
-		mountConnectionBanner(handle, doc, key => key, undefined, undefined, { reload });
-		set("outdated");
-		const bar = doc.getElementById("omp-web-connection");
-		expect(bar?.firstChild?.textContent).toBe("web.connection.outdated");
-		const button = bar?.querySelector("button");
-		expect(button?.textContent).toBe("web.update.reload");
-		(button as HTMLElement).click();
-		expect(reload).toHaveBeenCalledTimes(1);
-		set("unpaired");
-		expect(bar?.querySelector("button")).toBeNull();
-		expect(bar?.textContent).toBe("web.connection.unpaired");
 	});
 });

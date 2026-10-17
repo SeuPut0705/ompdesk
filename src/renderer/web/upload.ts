@@ -17,6 +17,13 @@ export interface UploadDeps {
 	onFailure?: (file: File, failure: UploadFailure, status?: number) => void;
 }
 
+let inFlight = 0;
+
+/** Uploads on their way to the computer right now: a page reload would cut them (see `SafeMoment`). */
+export function uploadsInFlight(): number {
+	return inFlight;
+}
+
 /** POST `file` to the host; its host path. Throws on any failure. */
 export async function uploadFile(file: File, deps: UploadDeps): Promise<string> {
 	const body = new FormData();
@@ -52,6 +59,7 @@ export function createPathForFile(deps: UploadDeps): (file: File) => Promise<str
 				deps.onFailure?.(file, "too-large");
 				return "";
 			}
+			inFlight++;
 			try {
 				return await uploadFile(file, deps);
 			} catch (error) {
@@ -60,6 +68,8 @@ export function createPathForFile(deps: UploadDeps): (file: File) => Promise<str
 				// A failed upload is tried again next time.
 				known.delete(file);
 				return "";
+			} finally {
+				inFlight--;
 			}
 		})();
 		known.set(file, result);

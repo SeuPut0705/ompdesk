@@ -19,8 +19,7 @@ import { createBrowserPwa, setWebPwa } from "./pwa";
 import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
-import { purgeAndReload, UpdateWatcher } from "./sw-update";
-import { mountUpdateBanner } from "./update-banner";
+import { purgeAndReload, type SafeMoment, safeToReload, UpdateWatcher } from "./sw-update";
 import { pickFiles } from "./upload";
 import { type WsLike, WsTransport } from "./ws-transport";
 
@@ -134,28 +133,52 @@ async function bootApp(): Promise<void> {
 	});
 
 	listenNotificationClicks(payload => channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, payload));
-	mountConnectionBanner(transport, document, translate, undefined, undefined, {
-		reload: () =>
-			void purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
-				location.reload(),
-			),
-	});
+	mountConnectionBanner(transport, document, translate);
+	const purge = () =>
+		void purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
+			location.reload(),
+		);
 
 	// Push, install guidance and the update watcher, for the notification controls in Settings.
 	const pwa = createBrowserPwa({ registration, features: () => transport.features, update: null });
 	setWebPwa(pwa);
+
+	// Updates apply by themselves (sw-update.ts): at launch and whenever the page comes back to the foreground,
+	// when the composer is empty, nothing waits for an answer and no upload is on its way. `moment` exists once
+	// the app (and its stores) has loaded; until then nothing is safe.
+	let moment: SafeMoment | null = null;
+	let resumedAt = 0;
+	const RESUME_WINDOW_MS = 15_000;
+	const applyUpdate = () => {
+		if (!moment) return;
+		if (pwa.update) pwa.update.resume(moment);
+		else if (transport.state === "outdated" && safeToReload(moment)) purge();
+	};
 	void registration.then(registered => {
 		if (!registered) return;
-		pwa.update = new UpdateWatcher(registered, navigator.serviceWorker, () => location.reload());
-		mountUpdateBanner(pwa.update, document, translate);
+		const watcher = new UpdateWatcher(registered, navigator.serviceWorker, () => location.reload(), purge);
+		if (transport.state === "outdated") watcher.markOutdated();
+		pwa.update = watcher;
+		// A build that finishes installing just after the page came back is applied then, not a visit later.
+		watcher.onChange(() => {
+			if (Date.now() - resumedAt < RESUME_WINDOW_MS) applyUpdate();
+		});
+		applyUpdate();
+	});
+	transport.onState(state => {
+		if (state !== "outdated") return;
+		pwa.update?.markOutdated();
+		applyUpdate();
 	});
 
 	document.addEventListener("visibilitychange", () => {
 		const visible = document.visibilityState === "visible";
 		transport.setPresence(visible);
 		if (visible) {
+			resumedAt = Date.now();
 			transport.wake();
-			void pwa.update?.check();
+			applyUpdate();
+			void pwa.update?.check().then(applyUpdate);
 		}
 	});
 	window.addEventListener("online", () => transport.wake());
@@ -172,6 +195,25 @@ async function bootApp(): Promise<void> {
 
 	transport.start();
 	await import("../main");
+	const [{ useComposerStore }, { useExtensionUiStore }, { usePlanApprovalStore }, { uploadsInFlight }] =
+		await Promise.all([
+			import("../stores/composer"),
+			import("../stores/extension-ui"),
+			import("../stores/plan-approval"),
+			import("./upload"),
+		]);
+	moment = {
+		visible: () => document.visibilityState === "visible",
+		draftEmpty: () => {
+			const composer = useComposerStore.getState();
+			return composer.draft.trim() === "" && composer.images.length === 0;
+		},
+		askOpen: () =>
+			useExtensionUiStore.getState().pendingRequests.length > 0 || usePlanApprovalStore.getState().pending !== null,
+		uploading: () => uploadsInFlight() > 0,
+	};
+	resumedAt = Date.now();
+	applyUpdate();
 	// The host never pushes to a visible device, so banners left from when the page was hidden are closed here.
 	const { useTabsStore } = await import("../stores/tabs");
 	mountNotificationSweep({

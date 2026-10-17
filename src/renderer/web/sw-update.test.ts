@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	purgeAndReload,
 	type RegistrationLike,
+	type SafeMoment,
+	safeToReload,
 	UpdateWatcher,
 	type WorkerContainerLike,
 	type WorkerLike,
@@ -117,6 +119,104 @@ describe("UpdateWatcher", () => {
 		registration.failUpdate = true;
 		await expect(watcher.check()).resolves.toBeUndefined();
 		expect(registration.updates).toBe(2);
+	});
+});
+
+const calm: SafeMoment = { visible: () => true, draftEmpty: () => true, askOpen: () => false, uploading: () => false };
+const moment = (over: Partial<Record<keyof SafeMoment, boolean>>): SafeMoment => ({
+	visible: () => over.visible ?? true,
+	draftEmpty: () => over.draftEmpty ?? true,
+	askOpen: () => over.askOpen ?? false,
+	uploading: () => over.uploading ?? false,
+});
+
+describe("safeToReload", () => {
+	it("is only a foreground page with an empty draft, no open question and no upload", () => {
+		expect(safeToReload(calm)).toBe(true);
+		expect(safeToReload(moment({ visible: false }))).toBe(false);
+		expect(safeToReload(moment({ draftEmpty: false }))).toBe(false);
+		expect(safeToReload(moment({ askOpen: true }))).toBe(false);
+		expect(safeToReload(moment({ uploading: true }))).toBe(false);
+	});
+});
+
+describe("UpdateWatcher.resume (updates apply by themselves)", () => {
+	function waiting() {
+		const registration = new FakeRegistration();
+		const container = new FakeContainer();
+		const worker = new FakeWorker();
+		registration.waiting = worker;
+		const reload = vi.fn();
+		const purge = vi.fn();
+		return { watcher: new UpdateWatcher(registration, container, reload, purge), container, worker, reload, purge };
+	}
+
+	it("does nothing while nothing is pending", () => {
+		const reload = vi.fn();
+		const purge = vi.fn();
+		const watcher = new UpdateWatcher(new FakeRegistration(), new FakeContainer(), reload, purge);
+		expect(watcher.pending).toBe(false);
+		expect(watcher.resume(calm)).toBe(false);
+		expect(reload).not.toHaveBeenCalled();
+		expect(purge).not.toHaveBeenCalled();
+	});
+
+	it("skips waiting at a safe moment and reloads once the new worker controls the page", () => {
+		const { watcher, container, worker, reload, purge } = waiting();
+		expect(watcher.resume(calm)).toBe(true);
+		expect(worker.messages).toEqual([{ type: "skip-waiting" }]);
+		expect(reload).not.toHaveBeenCalled();
+		container.takeOver();
+		expect(reload).toHaveBeenCalledTimes(1);
+		expect(purge).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["the page is hidden", { visible: false }],
+		["the composer holds a draft", { draftEmpty: false }],
+		["an ask card is open", { askOpen: true }],
+		["an upload is in flight", { uploading: true }],
+	] as const)("waits when %s, and applies at the next safe moment", (_name, busy) => {
+		const { watcher, worker } = waiting();
+		expect(watcher.resume(moment(busy))).toBe(false);
+		expect(worker.messages).toEqual([]);
+		expect(watcher.pending).toBe(true);
+		expect(watcher.resume(calm)).toBe(true);
+		expect(worker.messages).toEqual([{ type: "skip-waiting" }]);
+	});
+
+	it("applies a build that finished installing after launch at the next resume", () => {
+		const registration = new FakeRegistration();
+		const container = new FakeContainer();
+		const watcher = new UpdateWatcher(registration, container, vi.fn());
+		expect(watcher.resume(calm)).toBe(false);
+		const worker = new FakeWorker();
+		registration.found(worker);
+		registration.waiting = worker;
+		worker.become("installed");
+		expect(watcher.pending).toBe(true);
+		expect(watcher.resume(calm)).toBe(true);
+		expect(worker.messages).toEqual([{ type: "skip-waiting" }]);
+	});
+
+	it("purges and reloads an outdated page under the same rule, with no worker waiting", () => {
+		const reload = vi.fn();
+		const purge = vi.fn();
+		const watcher = new UpdateWatcher(new FakeRegistration(), new FakeContainer(), reload, purge);
+		watcher.markOutdated();
+		expect(watcher.pending).toBe(true);
+		expect(watcher.resume(moment({ draftEmpty: false }))).toBe(false);
+		expect(purge).not.toHaveBeenCalled();
+		expect(watcher.resume(calm)).toBe(true);
+		expect(purge).toHaveBeenCalledTimes(1);
+		expect(reload).not.toHaveBeenCalled();
+	});
+
+	it("starts one reload, however many resumes follow", () => {
+		const { watcher, worker } = waiting();
+		expect(watcher.resume(calm)).toBe(true);
+		expect(watcher.resume(calm)).toBe(false);
+		expect(worker.messages).toHaveLength(1);
 	});
 });
 
