@@ -17,11 +17,16 @@ export interface SafeMoment {
 	askOpen(): boolean;
 	/** A file is still on its way to the computer. */
 	uploading(): boolean;
+	/** Unsaved edits (the Files editor, a host editor or models sheet) or a host dialog is open. */
+	editing(): boolean;
 }
 
-/** Never mid-typing: only a foreground page with an empty draft, no open question and no upload in flight. */
+/**
+ * Never mid-typing: only a foreground page with an empty draft, no open question, no upload in flight and no
+ * unsaved edit or open host dialog.
+ */
 export function safeToReload(moment: SafeMoment): boolean {
-	return moment.visible() && moment.draftEmpty() && !moment.askOpen() && !moment.uploading();
+	return moment.visible() && moment.draftEmpty() && !moment.askOpen() && !moment.uploading() && !moment.editing();
 }
 
 export interface WorkerLike {

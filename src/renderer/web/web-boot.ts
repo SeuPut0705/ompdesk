@@ -195,23 +195,7 @@ async function bootApp(): Promise<void> {
 
 	transport.start();
 	await import("../main");
-	const [{ useComposerStore }, { useExtensionUiStore }, { usePlanApprovalStore }, { uploadsInFlight }] =
-		await Promise.all([
-			import("../stores/composer"),
-			import("../stores/extension-ui"),
-			import("../stores/plan-approval"),
-			import("./upload"),
-		]);
-	moment = {
-		visible: () => document.visibilityState === "visible",
-		draftEmpty: () => {
-			const composer = useComposerStore.getState();
-			return composer.draft.trim() === "" && composer.images.length === 0;
-		},
-		askOpen: () =>
-			useExtensionUiStore.getState().pendingRequests.length > 0 || usePlanApprovalStore.getState().pending !== null,
-		uploading: () => uploadsInFlight() > 0,
-	};
+	moment = (await import("./safe-moment")).pageSafeMoment();
 	resumedAt = Date.now();
 	applyUpdate();
 	// The host never pushes to a visible device, so banners left from when the page was hidden are closed here.

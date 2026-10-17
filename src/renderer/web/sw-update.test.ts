@@ -122,12 +122,19 @@ describe("UpdateWatcher", () => {
 	});
 });
 
-const calm: SafeMoment = { visible: () => true, draftEmpty: () => true, askOpen: () => false, uploading: () => false };
+const calm: SafeMoment = {
+	visible: () => true,
+	draftEmpty: () => true,
+	askOpen: () => false,
+	uploading: () => false,
+	editing: () => false,
+};
 const moment = (over: Partial<Record<keyof SafeMoment, boolean>>): SafeMoment => ({
 	visible: () => over.visible ?? true,
 	draftEmpty: () => over.draftEmpty ?? true,
 	askOpen: () => over.askOpen ?? false,
 	uploading: () => over.uploading ?? false,
+	editing: () => over.editing ?? false,
 });
 
 describe("safeToReload", () => {
@@ -137,6 +144,7 @@ describe("safeToReload", () => {
 		expect(safeToReload(moment({ draftEmpty: false }))).toBe(false);
 		expect(safeToReload(moment({ askOpen: true }))).toBe(false);
 		expect(safeToReload(moment({ uploading: true }))).toBe(false);
+		expect(safeToReload(moment({ editing: true }))).toBe(false);
 	});
 });
 
@@ -176,6 +184,7 @@ describe("UpdateWatcher.resume (updates apply by themselves)", () => {
 		["the composer holds a draft", { draftEmpty: false }],
 		["an ask card is open", { askOpen: true }],
 		["an upload is in flight", { uploading: true }],
+		["a file or sheet holds unsaved edits", { editing: true }],
 	] as const)("waits when %s, and applies at the next safe moment", (_name, busy) => {
 		const { watcher, worker } = waiting();
 		expect(watcher.resume(moment(busy))).toBe(false);
