@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.35.0] - 2026-10-18
+
+휴대폰을 모바일 웹에 연결하면 OMPdesk가 "A JavaScript error occurred in the main process" 오류로 멈추던 0.34.0의 문제를 고쳤어요.
+
+### 고친 것
+- 연결한 휴대폰이 보낸 첫 WebSocket 메시지에서 메인 프로세스가 `bufferUtil.unmask is not a function`으로 죽던 것을 고쳤어요. 번들이 설치되지 않은 `ws`의 선택 모듈(`bufferutil`, `utf-8-validate`)을 빈 객체로 넣어서 생긴 일이라, 이제 그 경로를 빌드에서 끄고, 빌드 검사가 그런 빈 대역을 거부하고 번들된 `ws`로 실제 왕복을 돌려 봐요.
+- 새 소식 카드는 제목 표시줄 아래 한 줄로 자리를 잡아 입력창을 가리지 않아요(넓은 창, 좁은 창, 분할 화면, 사이드 패널 모두).
+
+### 바뀐 것
+- 모바일 웹은 주소만 열면 연결돼요(Tailscale 로그인). 페어링 코드 대신, 허용한 Tailscale 계정으로 로그인한 기기가 처음 열 때 바로 연결되고, 데스크톱에는 차단 버튼이 있는 알림이 떠요. 차단은 해제할 때까지 그 기기에 남고, 새 기기를 승인하는 스위치(기본 꺼짐)도 있어요. 설정에는 링크, 큰 복사 버튼, QR 하나가 보여요. 모바일 웹은 여전히 베타이고 기본으로 꺼져 있어요.
+- 업데이트를 알아서 설치할 수 있어요(설정 › 업데이트·정보 › 업데이트 자동 설치, 기본 꺼짐). 켜면 내려받은 업데이트를 조용한 때(돌고 있는 턴이나 열린 질문이 없고, 창이 모두 비활성이거나 2분 동안 입력이 없을 때)에 60초 카운트다운과 "지금 / 나중에"를 보여준 뒤 다시 시작하며 설치해요. 중단된 작업 이어가기가 켜져 있으면 30분이 지나면 그냥 진행해요.
+- 사이드바: 실행 중·대기 중·오류 상태는 행 안쪽, 자기 들여쓰기 자리의 막대로 표시하고(막대 옆에는 열린 탭 점이 없어요), 행의 동작 버튼은 마우스를 올렸을 때만 보여요. 하위 에이전트 표시는 작은 칩이 됐고, 고정한 프로젝트는 고정 표시를 계속 보여줘요.
+- 모드 메뉴가 촘촘해졌어요. 설정마다 한 줄(왼쪽 이름, 오른쪽 조작, 설명은 (i) 툴팁)이고, 계획·목표·자동 모드 스위치도 같은 밀도예요.
+- 오토파일럿은 프로젝트마다 `AUTOPILOT.md` 안내서(목표, 우선순위, 건드리지 말 경로, 완료 기준 등)를 매 사이클 시작에 읽어요. 없는 저장소에는 시작 화면에서 초안을 만들어 주고, 시작하면 오토파일럿 브랜치의 첫 커밋으로 남겨요.
+- 다시 시작하면 이어지는 작업이 조용해졌어요. "중단된 작업 N개 이어가는 중" 토스트 대신 이어지는 탭마다 차분한 줄 하나와 그 탭만 멈추는 멈춤 버튼이 있고, 보고 있던 탭부터, 그다음 분할 화면의 다른 칸, 그다음 백그라운드 탭 순서로 이어가요. 재시작이 멈춘 백그라운드 작업은 원래 명령 대신 흐린 한 줄(작업 수, 마우스를 올리면 목적)로 보이고, 에이전트는 꼭 필요한 것만 말없이 다시 돌려요.
+- 어디서나 지금의 OMPdesk 로고가 보여요: Windows 창·정보 패널·알림 아이콘, DMG 배경과 볼륨 아이콘, Windows 설치·제거 프로그램 아이콘, 푸시 배지와 알림 아이콘, 첫 화면, 업데이트·정보 화면과 새 소식 카드 머리, GitHub 미리보기 이미지. Windows에는 앱 ID(AppUserModelId)가 붙어요.
+
+<!-- en -->
+
+Connecting a phone to Mobile web no longer stops OMPdesk with "A JavaScript error occurred in the main process", which broke 0.34.0.
+
+### Fixed
+- The main process died with `bufferUtil.unmask is not a function` on the first WebSocket message a connected phone sent. The bundle carried `ws`'s optional modules (`bufferutil`, `utf-8-validate`), which are not installed, as empty objects; the build now switches that path off, and the bundle check refuses such stand-ins and runs a real round trip through the bundled `ws`.
+- The What's new card is a row under the title bar and never covers a composer (wide, narrow, split, and with the side panel open).
+
+### Changed
+- Mobile web connects when you open its address (Tailscale sign-in). No pairing code: a device signed in to an allowed Tailscale account connects on its first visit, and the desktop shows a notice with Block. A block stays on that device until Unblock, and an optional switch asks before new devices (off by default). Settings shows the link, a big Copy button and one QR. Mobile web is still beta and off by default.
+- OMPdesk can install its own updates (Settings › Updates & about › Install updates automatically, off by default). On, a downloaded update waits for a quiet moment (no running turn or open question; every window unfocused or 2 minutes without input), shows a 60-second countdown with Now and Later, then restarts into it. With Continue interrupted work on, it goes ahead after 30 minutes anyway.
+- Sidebar: running, waiting and error show as a bar inside the row at its own indent (no open-tab dot beside it), and row actions appear only on hover; the subagent marker is a compact chip; a pinned project keeps its pin glyph.
+- The Mode popover is compact: every setting is one row (label left, control right, the explanation behind an (i) tooltip), and Plan, Goal and the Auto mode switch share the density.
+- Autopilot reads a per-project `AUTOPILOT.md` guide (goals, priorities, no-touch paths, done criteria, and more) at the start of every cycle. For a repo without one the start sheet drafts it, and starting commits it as the first commit on the autopilot branch.
+- A relaunch continues work quietly: no "Continuing N interrupted tasks" toast; each resuming tab shows one calm row with a Stop for that tab only, and tabs continue in order, the one you look at first, then the other panes of its split, then background tabs. Background jobs the restart stopped show as one muted line (job count, intents on hover) instead of their commands, and the agent re-runs only what the work still needs without narrating it.
+- The current OMPdesk logo on every surface: the Windows window, About panel and notification icon, the DMG background and volume icon, the Windows installer and uninstaller icons, the push badge and notification icon, the first paint, the Updates & about header and the What's new card, and the GitHub social preview. Windows gets its AppUserModelId.
+
 ## [0.34.0] - 2026-10-17
 
 오토파일럿이 생겼어요. 자기 worktree에서 쉬지 않고 개발을 이어가고, 메인 에이전트가 OMPdesk의 다른 세션을 열고 지켜보고 합칠 수 있어요.
