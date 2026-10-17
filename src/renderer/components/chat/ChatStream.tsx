@@ -221,7 +221,7 @@ function SessionTranscript() {
 	// loader; tool-execution windows show running tool cards instead.
 	const showStatusRow =
 		awaitingConnection !== null ||
-		resuming ||
+		resuming !== null ||
 		retryInfo != null ||
 		compactionInfo != null ||
 		(isStreaming && awaitingModelSince != null && !hasStreamedContent);
@@ -1455,8 +1455,8 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 			</div>
 		);
 	}
-	// A relaunch continues this tab's interrupted work (main's turn-resume): calm, no action needed; the
-	// turn's own rows replace it once it starts.
+	// A relaunch continues this tab's interrupted work (main's turn-resume): one calm row, the only resume
+	// indicator (no toast), with the Stop the old toast offered; the turn's own rows replace it once it starts.
 	if (resuming) {
 		const resumeText = t("chat.resuming");
 		return (
@@ -1469,6 +1469,17 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 				</span>
 				<History aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 				<span className="text-(--sc-text-secondary)">{resumeText}</span>
+				<Button
+					onClick={() => {
+						window.omp.resume
+							.stop(resuming)
+							.catch((cause: unknown) => toastError({ title: t("chat.resumingStopFailed"), error: cause }));
+					}}
+					size="sm"
+					variant="ghost"
+				>
+					{t("input.abort")}
+				</Button>
 			</div>
 		);
 	}

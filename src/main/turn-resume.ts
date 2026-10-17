@@ -151,11 +151,6 @@ export const TOUCH_COMMANDS: Record<string, true> = {
 	switch_leaf: true,
 };
 
-/** Markers that count as "continuing" in the toast (a reopened card is not a continuing task). */
-export function continuingCount(markers: readonly ResumeMarker[]): number {
-	return markers.filter(marker => marker.reason !== "asking").length;
-}
-
 /**
  * A provider/transport failure rather than the model's or the account's. A
  * subset of stock's retryable-error pattern (legacy-pi-ai-shim.ts) naming the
@@ -275,6 +270,8 @@ export interface ResumePool {
 	/** The tab attached to `sessionPath`: this computer's own, or with `peer` the one it hosts for that device. */
 	tabForSession(sessionPath: string, peer?: string): string | null;
 	noteStopped(tabId: string): void;
+	/** Resume order: lower first (the focused tab, then its split's panes, then the rest); default every tab alike. */
+	resumeRank?(tabId: string): number;
 }
 
 export interface ResumeDeps {
@@ -300,8 +297,6 @@ export interface ResumeDeps {
 	 * `peer` marker the tab this computer ran for that device, waiting for it to reconnect; its tab id.
 	 */
 	openTab(marker: ResumeMarker): string | null;
-	/** "Continuing N interrupted tasks": a toast with Stop. */
-	notify(count: number): void;
 	/**
 	 * Resume a goal stock paused at startup although it was active when the last process ended (the restore's
 	 * `goalPausedByExit`). Called once, after the restore's commands; default: the tab's `set_goal` resume.
@@ -362,8 +357,6 @@ export class TurnResume {
 	readonly #judged = new WeakSet<IpcTabRunOutcome>();
 	/** Stock auto-retries already taken over (one per `auto_retry_start`). */
 	readonly #takenOver = new WeakSet<{ errorMessage: string }>();
-	/** Tabs this launch resumed, for the toast's Stop. */
-	readonly #resumed = new Set<string>();
 	/**
 	 * Per tab, bumped whenever its continuation is called off: Stop, Cancel, or a new run in its place.
 	 * A continuation captures it when it starts and sends nothing once it moved, so the call-off also
@@ -410,7 +403,6 @@ export class TurnResume {
 			this.#waiting,
 			this.#cancels,
 			this.#takenOverRuns,
-			this.#resumed,
 			this.#attempts,
 			this.#ownRetries,
 		])
@@ -751,20 +743,14 @@ export class TurnResume {
 		this.#deps.pool.setAwaitingConnection(tabId, false);
 	}
 
-	/** The toast's Stop: abort what this launch resumed, drop what still waits. */
-	async stopResumed(): Promise<void> {
-		const tabs = [...this.#resumed];
-		this.#resumed.clear();
-		await Promise.all(
-			tabs.map(async tabId => {
-				this.#deps.pool.noteStopped(tabId);
-				this.cancelWait(tabId);
-				await this.#deps.pool
-					.startTab(tabId)
-					?.rpcClient?.command({ type: "abort" })
-					.catch(() => undefined);
-			}),
-		);
+	/** The resuming row's Stop: abort what this launch resumed on the tab, drop what still waits. */
+	async stopResumed(tabId: string): Promise<void> {
+		this.#deps.pool.noteStopped(tabId);
+		this.cancelWait(tabId);
+		await this.#deps.pool
+			.startTab(tabId)
+			?.rpcClient?.command({ type: "abort" })
+			.catch(() => undefined);
 	}
 
 	/** The connectivity state changed. */
@@ -783,7 +769,7 @@ export class TurnResume {
 			this.#deps.store.write([]);
 			return;
 		}
-		const resumable: Array<{ tabId: string; marker: ResumeMarker; action: ResumeAction }> = [];
+		const resumable: Array<{ tabId: string; action: ResumeAction }> = [];
 		for (const marker of markers) {
 			const action = launchAction(marker);
 			const tabId =
@@ -791,19 +777,18 @@ export class TurnResume {
 				this.#unwrittenSessionTab(marker) ??
 				this.#deps.openTab(marker);
 			if (!tabId) continue;
-			resumable.push({ tabId, marker, action });
+			resumable.push({ tabId, action });
 			this.#pending.set(tabId, { ...marker, tab: tabId });
 		}
 		this.#previous = [...this.#pending.values()];
 		this.#deps.store.write(this.#previous);
 		this.#showResuming();
-		const continuing = continuingCount(resumable.map(item => item.marker));
-		for (const { tabId, marker, action } of resumable) {
-			if (marker.reason !== "asking") this.#resumed.add(tabId);
+		const rank = (tabId: string) => this.#deps.pool.resumeRank?.(tabId) ?? 0;
+		resumable.sort((a, b) => rank(a.tabId) - rank(b.tabId));
+		for (const { tabId, action } of resumable) {
 			if (this.#deps.network.shouldWait()) this.#hold(tabId, action);
 			else void this.#run(tabId, action);
 		}
-		if (continuing > 0) this.#deps.notify(continuing);
 	}
 
 	/**

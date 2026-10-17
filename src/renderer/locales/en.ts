@@ -2263,6 +2263,8 @@ export const en: Record<string, string> = {
 		"Show final answers and result summaries; fold reasoning and tool steps into one expandable Process row.",
 	"settings.gui.transcript.full": "Full",
 	"settings.gui.transcript.fullDesc": "Show every reasoning block and tool card.",
+	"chat.resumingStopFailed": "Couldn't stop the resumed work",
+	"chat.restartJobs": "Re-running {count} background task(s) the restart stopped",
 	"settings.gui.proxy": "HTTP proxy",
 	"settings.gui.proxyDesc":
 		"Routes the agent's provider requests (OAuth, streaming, usage) through this proxy. Leave empty to follow the macOS system proxy. Applies on agent restart — restarted for you when idle.",

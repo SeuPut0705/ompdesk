@@ -471,6 +471,46 @@ describe("MessageBubble completion events", () => {
 	});
 });
 
+describe("MessageBubble restart notice", () => {
+	const notice = (details: unknown): AgentMessage => ({
+		role: "custom",
+		customType: "ompdesk-restart-jobs",
+		content:
+			"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:\n- bg_394: Watch release CI — `gh run watch 39044075209 --exit-status`\nStart again, in the background, only the jobs the work still needs.",
+		details,
+		display: true,
+		attribution: "agent",
+		timestamp: "2026-10-17T15:25:30.000Z",
+	});
+	const render = (message: AgentMessage) =>
+		renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={message} />
+			</I18nProvider>,
+		);
+
+	it("is one small muted system line: the count and the intents on hover, never a user bubble or a command", () => {
+		const html = render(
+			notice({
+				jobs: [{ id: "bg_394", intent: "Watch release CI" }, { id: "bg_395" }],
+			}),
+		);
+		expect(html).toContain("data-restart-jobs");
+		expect(html).toContain("Re-running 2 background task(s) the restart stopped");
+		expect(html).toContain('title="Watch release CI"');
+		expect(html).not.toContain("omp-user-bubble");
+		expect(html).not.toContain("omp-user-turn");
+		expect(html).not.toContain("gh run watch");
+		expect(html).not.toContain("OMPdesk restarted");
+		expect(html).not.toContain("ompdesk-restart-jobs");
+	});
+
+	it("says one task for a notice with no details, and stays hidden when the message is not displayed", () => {
+		expect(render(notice(undefined))).toContain("Re-running 1 background task(s)");
+		expect(render({ ...notice(undefined), display: false })).toBe("");
+	});
+});
+
 describe("MessageBubble noise filtering", () => {
 	const at = "2026-08-02T12:00:00.000Z";
 

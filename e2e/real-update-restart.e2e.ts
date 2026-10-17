@@ -75,6 +75,21 @@ function callsMentioning(agent: string, needle: string): number {
 	return count;
 }
 
+/** The top-level session's assistant text after the restart notice: it should re-run what it needs without narrating. */
+function assistantTextAfterRestartNotice(agent: string): string[] {
+	const sessions = path.join(agent, "sessions");
+	return sessionFiles(agent).flatMap(file => {
+		if (path.relative(sessions, file.file).split(path.sep).length !== 2) return [];
+		const notice = file.lines.findIndex(line => line.customType === "ompdesk-restart-jobs");
+		if (notice < 0) return [];
+		return file.lines
+			.slice(notice + 1)
+			.filter(line => line.message?.role === "assistant")
+			.map(line => text(line).trim())
+			.filter(Boolean);
+	});
+}
+
 /** The top-level session (not a subagent's or the advisor's) mentions `word` after the quit's `session_exit`. */
 function parentGotAfterExit(agent: string, word: string): boolean {
 	const sessions = path.join(agent, "sessions");
@@ -163,6 +178,39 @@ async function observe(name: string, data: Record<string, unknown>, agent: strin
 	await fs.writeFile(test.info().outputPath(`${name}-transcript.txt`), summary(agent));
 }
 
+declare global {
+	interface Window {
+		/** The most `[data-resuming]` rows and interruption toasts the relaunched window showed at once. */
+		__resume?: { rows: number; toasts: number };
+	}
+}
+
+/** What the relaunched window shows of the restart: calm, one row, no toast, no bubble for the notice. */
+interface QuietUi {
+	resumingRows: number;
+	resumeToasts: number;
+	restartNotes: string[];
+	userBubbles: string[];
+	restartText: number;
+	/** Distance of the transcript from its bottom, in px. */
+	gapToBottom: number;
+}
+
+async function quietUi(page: Page): Promise<QuietUi> {
+	return page.evaluate(() => {
+		const seen = window.__resume;
+		const scroll = document.querySelector(".omp-transcript-scroll");
+		return {
+			resumingRows: seen?.rows ?? 0,
+			resumeToasts: seen?.toasts ?? 0,
+			restartNotes: [...document.querySelectorAll("[data-restart-jobs]")].map(node => node.textContent ?? ""),
+			userBubbles: [...document.querySelectorAll(".omp-user-bubble")].map(node => node.textContent ?? ""),
+			restartText: document.body.innerText.includes("OMPdesk restarted") ? 1 : 0,
+			gapToBottom: scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight : -1,
+		};
+	});
+}
+
 interface Scenario {
 	name: string;
 	prompt: string;
@@ -175,6 +223,8 @@ interface Scenario {
 	/** After the relaunch: what continued (polled until true or the timeout). */
 	continued: (ctx: { agent: string; project: string; page: Page }) => boolean | Promise<boolean>;
 	extra?: (ctx: { agent: string; project: string }) => Record<string, unknown>;
+	/** After the relaunch: what the window showed (see `quietUi`). */
+	expectUi?: (ui: QuietUi) => Promise<void> | void;
 }
 
 async function run(scenario: Scenario): Promise<void> {
@@ -208,13 +258,22 @@ async function run(scenario: Scenario): Promise<void> {
 
 		const second = await launch(desktop, env);
 		current = second.app;
-		const toastSeen = second.page
-			.getByText(/Continuing \d+ interrupted task/)
-			.waitFor({ timeout: 120_000 })
-			.then(
-				() => true,
-				() => false,
-			);
+		// The relaunch is quiet: no toast, one calm resuming row per tab, the restart's job notice one muted line.
+		await second.page.evaluate(() => {
+			const seen = { rows: 0, toasts: 0 };
+			window.__resume = seen;
+			const scan = () => {
+				seen.rows = Math.max(seen.rows, document.querySelectorAll("[data-resuming]").length);
+				seen.toasts = Math.max(
+					seen.toasts,
+					[...document.querySelectorAll("[data-toast-stack] > *")].filter(toast =>
+						/interrupted task/.test(toast.textContent ?? ""),
+					).length,
+				);
+			};
+			scan();
+			new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+		});
 		let continued = false;
 		const deadline = Date.now() + 360_000;
 		while (Date.now() < deadline) {
@@ -231,7 +290,7 @@ async function run(scenario: Scenario): Promise<void> {
 				markersAtQuit,
 				markersAfterQuit,
 				layoutAtQuit,
-				toast: await toastSeen,
+				ui: await quietUi(second.page),
 				continued,
 				secondsAfterQuit: Math.round((Date.now() - quitAt) / 1000),
 				markersAtEnd: await markers(desktop),
@@ -245,6 +304,7 @@ async function run(scenario: Scenario): Promise<void> {
 			},
 			agent,
 		);
+		await scenario.expectUi?.(await quietUi(second.page));
 		expect(continued, `${scenario.name}: what the relaunch should have continued`).toBe(true);
 	} finally {
 		if (current) await exitApp(current);
@@ -411,6 +471,14 @@ test("real omp update restart (b2): a background bash job after the turn ended",
 			await new Promise(resolve => setTimeout(resolve, 3000));
 		},
 		continued: ({ project }) => existsSync(path.join(project, "bg-done.txt")),
+		// The notice names the job to the model; the window shows one muted line, no toast, no bubble, no commands.
+		extra: ({ agent }) => ({ saidAfterNotice: assistantTextAfterRestartNotice(agent) }),
+		expectUi: ui => {
+			expect(ui.resumeToasts, "no resume toast").toBe(0);
+			expect(ui.restartNotes, "one muted line for the stopped job").toHaveLength(1);
+			expect(ui.userBubbles.join("\n"), "the notice is no user bubble").not.toContain("OMPdesk restarted");
+			expect(ui.restartText, "the notice's text is not on screen").toBe(0);
+		},
 	});
 });
 

@@ -7,7 +7,6 @@ import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import type { SidecarLike } from "./sidecar-types";
 import {
-	continuingCount,
 	deriveMarkers,
 	type GoalSettlement,
 	InterruptedTurnStore,
@@ -104,10 +103,6 @@ describe("launch rules", () => {
 		expect(launchAction(marker({ reason: "running" }))).toBe("restore");
 		expect(launchAction(marker({ reason: "network" }))).toBe("retry");
 		expect(launchAction(marker({ reason: "asking" }))).toBe("restore");
-	});
-
-	it("does not count a reopened card as a continuing task", () => {
-		expect(continuingCount([marker(), marker({ reason: "network" }), marker({ reason: "asking" })])).toBe(2);
 	});
 });
 
@@ -211,7 +206,7 @@ interface Harness {
 	awaiting: Array<[string, boolean]>;
 	commands: RpcCommand[];
 	net: { online: boolean; wake: boolean };
-	state: { enabled: boolean; frozen: boolean; notices: number[]; opened: ResumeMarker[] };
+	state: { enabled: boolean; frozen: boolean; opened: ResumeMarker[] };
 	resume: TurnResume;
 	pool: ResumePool;
 	/** Moves the tab's sidecar to another status (a spawn becoming ready, a crash). */
@@ -226,11 +221,15 @@ interface Harness {
 	prefs: { scheduledRetry: boolean };
 	/** Every `setResuming` call (the calm "continuing" row), in order. */
 	resuming: Array<[string, boolean]>;
+	/** The tabs whose process the resume started, in order. */
+	started: string[];
 }
 
 function setup(
 	options: {
 		enabled?: boolean;
+		/** Pool resume rank per tab (lower first); the pool offers none when absent. */
+		rank?: Record<string, number>;
 		online?: boolean;
 		waitAfterWake?: boolean;
 		answers?: Partial<Record<string, RpcResponse>>;
@@ -253,12 +252,12 @@ function setup(
 	const timers: Array<{ run: () => void; ms: number; cancelled: boolean }> = [];
 	const prefs = { scheduledRetry: options.scheduledRetry ?? true };
 	const resuming: Array<[string, boolean]> = [];
+	const started: string[] = [];
 	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
 		enabled: options.enabled ?? true,
 		frozen: false,
-		notices: [] as number[],
 		opened: [] as ResumeMarker[],
 	};
 	const pool: ResumePool = {
@@ -268,7 +267,11 @@ function setup(
 			const entry = facts.find(candidate => candidate.tabId === tabId);
 			if (entry) entry.awaitingConnection = value;
 		},
-		startTab: () => sidecar,
+		startTab: tabId => {
+			started.push(tabId);
+			return sidecar;
+		},
+		...(options.rank ? { resumeRank: (tabId: string) => options.rank?.[tabId] ?? 2 } : {}),
 		tabForSession: (sessionPath, peer) =>
 			facts.find(entry => entry.sessionFile === sessionPath && entry.peer === peer)?.tabId ?? null,
 		noteStopped: tabId => {
@@ -310,7 +313,6 @@ function setup(
 			facts.push(fact({ tabId: "opened", sessionFile: markerToOpen.sessionPath }));
 			return "opened";
 		},
-		notify: count => state.notices.push(count),
 		...(options.resumeGoal ? { resumeGoal: options.resumeGoal } : {}),
 		...(options.goalSettled ? { goalSettled: options.goalSettled } : {}),
 	});
@@ -331,6 +333,7 @@ function setup(
 		timers,
 		prefs,
 		resuming,
+		started,
 	};
 }
 
@@ -422,13 +425,33 @@ describe("TurnResume launch", () => {
 		await settle();
 
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
-		expect(h.state.notices).toEqual([1]);
+		expect(h.resuming).toEqual([["restored", true]]);
 		// The marker stays until the resumed turn is seen running: a second crash resumes it again.
 		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
 
 		h.facts[0] = fact({ tabId: "restored", running: true });
 		h.resume.sync();
 		expect(h.store.read()[0]).toMatchObject({ tab: "restored", reason: "running" });
+	});
+
+	it("continues the focused tab before its split's panes and the background tabs, not in marker order", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED }, rank: { focus: 0, pane: 1 } });
+		new InterruptedTurnStore(h.file).write([
+			marker({ tab: "m1", sessionPath: "/s/back.jsonl" }),
+			marker({ tab: "m2", sessionPath: "/s/pane.jsonl" }),
+			marker({ tab: "m3", sessionPath: "/s/focus.jsonl" }),
+		]);
+		h.facts.push(
+			fact({ tabId: "back", sessionFile: "/s/back.jsonl" }),
+			fact({ tabId: "pane", sessionFile: "/s/pane.jsonl" }),
+			fact({ tabId: "focus", sessionFile: "/s/focus.jsonl" }),
+		);
+
+		h.resume.launch();
+		await settle();
+
+		expect(h.started.slice(0, 3)).toEqual(["focus", "pane", "back"]);
+		expect(h.resuming.filter(([, shown]) => shown).map(([tab]) => tab)).toEqual(["back", "pane", "focus"]);
 	});
 
 	it("opens a tab for a marked session the saved layout no longer has, background tab or not", async () => {
@@ -446,7 +469,7 @@ describe("TurnResume launch", () => {
 		h.resume.launch();
 		await settle();
 		expect(h.commands).toEqual([]);
-		expect(h.state.notices).toEqual([]);
+		expect(h.resuming).toEqual([]);
 		expect(h.store.read()).toEqual([]);
 	});
 
@@ -485,7 +508,7 @@ describe("TurnResume launch", () => {
 		h.resume.launch();
 		await settle();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
-		expect(h.state.notices).toEqual([]);
+		expect(h.resuming).toEqual([]);
 	});
 
 	it("replays an ask omp closed itself when OMPdesk died: restore finds nothing, stock retry reopens it", async () => {
@@ -508,7 +531,7 @@ describe("TurnResume launch", () => {
 		await settle();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
 		expect(h.store.read().map(entry => entry.reason)).toEqual(["asking"]);
-		expect(h.state.notices).toEqual([]);
+		expect(h.resuming).toEqual([]);
 	});
 
 	it("drops a marker whose turn had nothing left to continue", async () => {
@@ -544,7 +567,7 @@ describe("TurnResume launch", () => {
 		await settle();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
 		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
-		expect(h.state.notices).toEqual([1]);
+		expect(h.resuming[0]).toEqual(["restored", true]);
 	});
 
 	it("resumes a goal stock paused at startup after the restore, once", async () => {
@@ -624,7 +647,7 @@ describe("TurnResume launch", () => {
 		new InterruptedTurnStore(h.file).write([marker()]);
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
-		await h.resume.stopResumed();
+		await h.resume.stopResumed("restored");
 		h.setStatus("ready");
 		await settle();
 		expect(settled).toEqual([["restored", "cancelled"]]);
@@ -749,7 +772,7 @@ describe("TurnResume launch", () => {
 		h.facts[0] = fact({ tabId: "restored", running: true });
 		h.resume.sync();
 
-		await h.resume.stopResumed();
+		await h.resume.stopResumed("restored");
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "abort"]);
 		h.resume.sync();
 		expect(h.store.read()).toEqual([]);
@@ -763,7 +786,7 @@ describe("TurnResume launch", () => {
 		await settle();
 		expect(h.commands).toEqual([]);
 
-		await h.resume.stopResumed();
+		await h.resume.stopResumed("restored");
 		h.setStatus("ready");
 		await settle();
 		expect(h.commands.map(cmd => cmd.type)).not.toContain("restore_interrupted");

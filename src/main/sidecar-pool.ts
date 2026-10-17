@@ -1649,6 +1649,17 @@ export class SidecarPool {
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
+	/**
+	 * Which tab a relaunch continues first: 0 the window's focused tab, 1 another pane of its split, 2 the rest, so the
+	 * work the user is looking at starts before the background tabs compete for the same spawns.
+	 */
+	resumeRank(tabId: string): number {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return 2;
+		if (this.#activeByWindow.get(entry.winId) === tabId) return 0;
+		return this.#visibleByWindow.get(entry.winId)?.has(tabId) ? 1 : 2;
+	}
+
 	/** Show (or with `undefined` clear) the tab's scheduled retry (turn-resume.ts). */
 	setScheduledRetry(tabId: string, retry: IpcScheduledRetry | undefined): void {
 		const entry = this.#byTabId.get(tabId);

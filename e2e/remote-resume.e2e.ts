@@ -3,7 +3,7 @@
  * (remote-harness.ts). The host (B) owns the turns it runs for a device (A):
  * - B killed mid-turn: B's relaunch continues the turn, and A, reconnected, shows
  *   it go on; A announces nothing (it is not A's to continue);
- * - A killed mid-turn: A's relaunch skips the turn (no "Continuing" toast) and its
+ * - A killed mid-turn: A's relaunch skips the turn (no resuming row) and its
  *   restored tab finds the turn still running on B, in the same omp;
  * - B offline: a network failure of B's omp waits for B's connection, A shows the
  *   calm waiting row, and the wait outlives A losing B: once B is back and online,
@@ -34,12 +34,6 @@ import {
 	type RemoteInstance,
 	type RemoteProfile,
 } from "./remote-harness";
-
-/** The relaunch toast (main's i18n-text.ts `resume.continuing`). */
-const CONTINUING: Record<Language, string> = {
-	en: "Continuing 1 interrupted task",
-	ko: "중단된 작업 1개를 이어서 하고 있어요",
-};
 
 test.describe.configure({ mode: "parallel" });
 
@@ -143,7 +137,7 @@ for (const language of ["en", "ko"] as const)
 					});
 					await expect(client.page.locator(`[data-remote-reconnecting="${deviceId}"]`)).toHaveCount(0);
 					// A announces nothing: the continuation is B's.
-					await expect(client.page.getByText(CONTINUING[language])).toHaveCount(0);
+					await expect(client.page.locator("[data-resuming]")).toHaveCount(0);
 					await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
 					await capture(client.page, `${language}-${theme}-host-continued`);
 				});
@@ -162,7 +156,7 @@ for (const language of ["en", "ko"] as const)
 					const a = client.page;
 					// Re-attached mid-turn: connected ("running" once the next run event arrives).
 					await expect.poll(() => remoteStatus(a, deviceId), { timeout: 60_000 }).toMatch(/^(ready|running)$/);
-					await expect(a.getByText(CONTINUING[language])).toHaveCount(0);
+					await expect(a.locator("[data-resuming]")).toHaveCount(0);
 					await expect.poll(() => markers(clientProfile)).toEqual([]);
 					// The restored tab is the running turn's, in the omp that runs it: no second omp on its session.
 					await expect(a.getByRole("button", { name: t("input.abort"), exact: true })).toBeVisible({

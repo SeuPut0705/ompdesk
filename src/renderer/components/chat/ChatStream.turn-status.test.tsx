@@ -136,6 +136,26 @@ describe("TurnStatusRow", () => {
 		useTabsStore.setState({ activeTabId: null, tabs: [] });
 	});
 
+	it("a resuming tab shows one calm row with the Stop the old toast offered, no other indicator", async () => {
+		const stop = vi.fn(async () => {});
+		Object.assign(window, { omp: { resume: { stop } } });
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [{ id: "t1", cwd: "/work", status: "ready", kind: "agent", unreadDone: false, resuming: true }],
+		});
+		await mount(<TurnStatusRow />);
+
+		expect(container.querySelectorAll("[data-resuming]")).toHaveLength(1);
+		expect(container.querySelector('[role="status"]')?.textContent).toBe("Continuing where it left off…");
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		const buttons = container.querySelectorAll("button");
+		expect(buttons).toHaveLength(1);
+		expect(buttons[0]?.textContent).toBe("Stop");
+		await act(async () => buttons[0]?.click());
+		expect(stop).toHaveBeenCalledWith("t1");
+		useTabsStore.setState({ activeTabId: null, tabs: [] });
+	});
+
 	it("a paired host's tab names the host whose connection it waits for, and a refused Cancel says so", async () => {
 		const cancelWait = vi.fn(async () => {
 			throw new Error("[remote_offline] The device running this tab is offline");

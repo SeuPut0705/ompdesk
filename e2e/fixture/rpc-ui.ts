@@ -28,7 +28,13 @@ import {
 	PROMPT_ORIGIN_ENTRY,
 	parsePromptOriginEnv,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
-import { interruptedJobs, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
+import {
+	interruptedJobs,
+	RESTART_JOBS_MESSAGE,
+	type JournalEntry as RestartJournalEntry,
+	restartJobsDetails,
+	restartJobsNotice,
+} from "../../resources/gui-bridge/restart-core";
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
@@ -1442,12 +1448,29 @@ export function runRpcUi(): void {
 			if (autopilotRestore) return autopilotRestore;
 			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn.
 			const last = [...entries].reverse().find(entry => entry.type === "message");
-			const cutOff =
-				last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
+			const lastRole = last?.type === "message" ? (last.message as AgentMessage | undefined)?.role : undefined;
+			const cutOff = (lastRole === "user" || lastRole === "toolResult") && !isStreaming;
 			// The bridge's `jobs`: background bash jobs the replaced process left unsettled (restart-core's rule).
 			const journal = entries as readonly RestartJournalEntry[];
-			const jobs = interruptedJobs(journal, performance.timeOrigin).map(job => job.id);
-			if (!cutOff) return { turn: false, subagents: [], jobs };
+			const stopped = interruptedJobs(journal, performance.timeOrigin);
+			const jobs = stopped.map(job => job.id);
+			// The bridge's hidden-from-the-model's-point-of-view follow-up: a displayed custom message the
+			// transcript shows as one muted line; with no cut-off turn it starts the turn, as stock's idle follow-up does.
+			if (stopped.length > 0) {
+				const notice: AgentMessage = {
+					role: "custom",
+					customType: RESTART_JOBS_MESSAGE,
+					content: restartJobsNotice(stopped),
+					display: true,
+					details: restartJobsDetails(stopped),
+					attribution: "agent",
+					timestamp: Date.now(),
+				};
+				appendMessage(notice);
+				write({ type: "message_start", message: notice });
+				write({ type: "message_end", message: notice });
+			}
+			if (!cutOff && stopped.length === 0) return { turn: false, subagents: [], jobs };
 			isStreaming = true;
 			write({ type: "agent_start" });
 			setTimeout(() => {
@@ -3982,6 +4005,33 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
+		} else if (message === "fixture running with job") {
+			// A turn cut off with a background bash job started and never settled: stock journals the call and a
+			// result whose `details.async` is still `running`; the turn itself keeps running (like "fixture running").
+			const call: AgentMessage = {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "bg-call-1",
+						name: "bash",
+						arguments: { i: "Watch release CI", command: "gh run watch 42 --exit-status", async: true },
+					},
+				],
+				timestamp: Date.now(),
+				stopReason: "toolUse",
+			};
+			const backgrounded: AgentMessage = {
+				role: "toolResult",
+				toolCallId: "bg-call-1",
+				toolName: "bash",
+				content: [{ type: "text", text: "Backgrounded as job bg_1" }],
+				details: { async: { state: "running", jobId: "bg_1", type: "bash" } },
+				isError: false,
+				timestamp: Date.now() + 1,
+			};
+			appendMessage(call);
+			appendMessage(backgrounded);
 		} else if (message !== "fixture running") {
 			if (message === "fixture reply actions") {
 				// Stock auto thinking names the effort it classified for this turn.

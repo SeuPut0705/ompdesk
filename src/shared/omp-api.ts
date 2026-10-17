@@ -40,7 +40,6 @@ import type {
 	IpcOpenPathResult,
 	IpcPrefsChangedPayload,
 	IpcRemotePairPayload,
-	IpcResumeNotice,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSetTabViewPayload,
@@ -349,9 +348,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 
 		resume: {
 			cancelWait: (tabId: string) => transport.invoke(IPC_COMMANDS.RESUME_CANCEL_WAIT, tabId),
-			stop: () => transport.invoke(IPC_COMMANDS.RESUME_STOP),
+			stop: (tabId: string) => transport.invoke(IPC_COMMANDS.RESUME_STOP, tabId),
 			reportOnline: (online: boolean) => transport.send(IPC_COMMANDS.CONNECTIVITY_REPORT, online),
-			takeNotice: () => transport.invoke(IPC_COMMANDS.RESUME_TAKE_NOTICE) as Promise<IpcResumeNotice | null>,
 		},
 
 		setup: {

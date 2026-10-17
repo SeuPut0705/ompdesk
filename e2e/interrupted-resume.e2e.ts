@@ -2,9 +2,10 @@
  * Turns that continue on their own, on the fake omp.
  *
  * Relaunch: a turn running when OMPdesk dies (SIGKILL, no hook runs) or quits
- * normally continues on the next launch with the same userData, announced by a
- * "Continuing N interrupted tasks" toast; a turn the user stopped does not. The
- * marker file is written on run-state transitions, so a crash leaves it behind.
+ * normally continues on the next launch with the same userData, quietly: no toast, one calm "Continuing" row per
+ * resuming tab (with Stop), the background job the restart stopped named to the agent in a muted transcript line
+ * (never a user bubble), the transcript left at the bottom of the live turn; a turn the user stopped does not
+ * continue. The marker file is written on run-state transitions, so a crash leaves it behind.
  *
  * Offline: a network error while the window is offline shows a calm waiting row
  * with Cancel instead of the failure card, and stock `retry` runs once an
@@ -24,12 +25,12 @@ type Theme = "light" | "dark";
 const TEXT = {
 	en: {
 		waiting: "Waiting for the internet connection…",
-		continuing: "Continuing 1 interrupted task",
+		notice: "Re-running 1 background task(s) the restart stopped",
 		cancel: "Cancel",
 	},
 	ko: {
 		waiting: "인터넷 연결을 기다리는 중이에요…",
-		continuing: "중단된 작업 1개를 이어서 하고 있어요",
+		notice: "재시작 때 멈춘 백그라운드 작업 1개를 다시 실행해요",
 		cancel: "취소",
 	},
 } as const;
@@ -78,14 +79,17 @@ async function makeProfile(language: Language, theme: Theme): Promise<Profile> {
  */
 async function launch(
 	profile: Profile,
-	options: { ready?: boolean } = {},
+	options: { ready?: boolean; height?: number } = {},
 ): Promise<{ app: ElectronApplication; page: Page }> {
 	const app = await electron.launch({
 		args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env: profile.env,
 	});
 	const page = await app.firstWindow();
-	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+	await app.evaluate(
+		({ BrowserWindow }, height) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, height),
+		options.height ?? 860,
+	);
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	if (options.ready === false) return { app, page };
 	await expect
@@ -124,7 +128,7 @@ async function layoutHasSession(profile: Profile): Promise<boolean> {
 /** Sends a turn that runs until stopped; resolves with its session file once the marker and the layout name it. */
 async function startLongTurn(profile: Profile, page: Page): Promise<string> {
 	const input = page.locator(".omp-composer-input").first();
-	await input.fill("fixture running");
+	await input.fill("fixture running with job");
 	await input.press("Enter");
 	await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
 	await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
@@ -207,6 +211,64 @@ async function cleanup(profile: Profile): Promise<void> {
 	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
+/** What a relaunch's window shows while the turn continues, recorded from the first frame on. */
+interface ResumeProbe {
+	/** The most `[data-resuming]` rows seen at once, and whether any was ever shown. */
+	rows: number;
+	/** Toasts that said anything about the interruption. */
+	toasts: string[];
+}
+
+declare global {
+	interface Window {
+		__resumeProbe?: ResumeProbe;
+	}
+}
+
+async function probeResume(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const probe: ResumeProbe = { rows: 0, toasts: [] };
+		window.__resumeProbe = probe;
+		const scan = () => {
+			probe.rows = Math.max(probe.rows, document.querySelectorAll("[data-resuming]").length);
+			for (const toast of document.querySelectorAll("[data-toast-stack] > *")) {
+				const text = toast.textContent ?? "";
+				if (/interrupted task|중단된 작업/.test(text) && !probe.toasts.includes(text)) probe.toasts.push(text);
+			}
+		};
+		scan();
+		new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+	});
+}
+
+/** Distance from the transcript's end to the bottom of what is scrolled to (0 = pinned to the live turn). */
+async function gapToBottom(page: Page): Promise<{ gap: number; overflow: number }> {
+	return page.locator(".omp-transcript-scroll").evaluate(node => ({
+		gap: node.scrollHeight - node.scrollTop - node.clientHeight,
+		overflow: node.scrollHeight - node.clientHeight,
+	}));
+}
+
+/**
+ * The continuation is quiet and natural: one resuming row at most at a time and no toast; the restart's
+ * background-job notice is one muted line (not a user bubble: the only user bubble is the prompt itself, and the
+ * notice's text never reaches the screen); and the transcript ends at the bottom with the answer.
+ */
+async function expectQuietContinuation(page: Page, notice: string): Promise<void> {
+	await expect(page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
+	await expect(page.locator("[data-restart-jobs]")).toHaveText(notice);
+	await expect(page.locator("[data-restart-jobs]")).toHaveCount(1);
+	await expect(page.locator(".omp-user-bubble")).toHaveText(["fixture running with job"]);
+	await expect(page.getByText("OMPdesk restarted")).toHaveCount(0);
+	await expect(page.locator("[data-resuming]")).toHaveCount(0);
+	const probe = await page.evaluate(() => window.__resumeProbe);
+	expect(probe?.rows, "the resuming row was shown").toBe(1);
+	expect(probe?.toasts, "no toast announces the resume").toEqual([]);
+	await expect
+		.poll(async () => (await gapToBottom(page)).gap, { message: "the transcript stays at the bottom" })
+		.toBeLessThanOrEqual(2);
+}
+
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
 		test(`${language === "en" && theme === "light" ? "@smoke " : ""}a turn running when OMPdesk is killed continues on the next launch (${language} ${theme})`, async () => {
@@ -224,11 +286,12 @@ for (const language of ["en", "ko"] as const)
 					.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
 					.toEqual([]);
 
-				const second = await launch(profile, { ready: false });
+				const second = await launch(profile, { ready: false, height: 420 });
 				current = second.app;
-				await expect(second.page.getByText(text.continuing)).toBeVisible({ timeout: 30_000 });
-				await capture(second.page, `${language}-${theme}-relaunch-toast`);
-				await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
+				await probeResume(second.page);
+				await expect(second.page.locator("[data-resuming]")).toHaveCount(1, { timeout: 30_000 });
+				await capture(second.page, `${language}-${theme}-relaunch-resuming`);
+				await expectQuietContinuation(second.page, text.notice);
 				// The finished turn leaves no marker behind.
 				await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
 				await expectOneSession(profile, second.page, sessionPath);
@@ -263,10 +326,10 @@ test("@smoke a normal quit asks nothing and continues the running turn on the ne
 		// Quitting must not have cleared what the turn was doing.
 		expect(await markers(profile)).toMatchObject([{ reason: "running" }]);
 
-		const second = await launch(profile, { ready: false });
+		const second = await launch(profile, { ready: false, height: 420 });
 		current = second.app;
-		await expect(second.page.getByText(TEXT.en.continuing)).toBeVisible({ timeout: 30_000 });
-		await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
+		await probeResume(second.page);
+		await expectQuietContinuation(second.page, TEXT.en.notice);
 		await expectOneSession(profile, second.page, sessionPath);
 	} finally {
 		if (current) await exitApp(current);
@@ -289,7 +352,7 @@ test("a turn the user stopped is not resumed after a crash", async () => {
 		const second = await launch(profile);
 		current = second.app;
 		await expect(second.page.getByText("fixture running").first()).toBeVisible({ timeout: 30_000 });
-		await expect(second.page.getByText(TEXT.en.continuing)).toHaveCount(0);
+		await expect(second.page.locator("[data-resuming]")).toHaveCount(0);
 		await expect(second.page.getByText("Continued after the interruption.")).toHaveCount(0);
 	} finally {
 		if (current) await exitApp(current);
@@ -379,7 +442,7 @@ test("the setting off: a quit asks before stopping the running turn, and quittin
 		const second = await launch(profile);
 		current = second.app;
 		await expect(second.page.getByText("fixture running").first()).toBeVisible({ timeout: 30_000 });
-		await expect(second.page.getByText(TEXT.en.continuing)).toHaveCount(0);
+		await expect(second.page.locator("[data-resuming]")).toHaveCount(0);
 		await expect(second.page.getByText("Continued after the interruption.")).toHaveCount(0);
 	} finally {
 		if (current) await exitApp(current);

@@ -28,6 +28,8 @@ export const RESTART_JOBS_MESSAGE = "ompdesk-restart-jobs";
 export interface InterruptedJob {
 	id: string;
 	command: string;
+	/** What the agent said the call was for (the `i` argument every stock tool call carries). */
+	intent?: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -47,14 +49,16 @@ function asyncState(details: unknown): { state: string; jobId: string; type: str
 		: undefined;
 }
 
-function toolCallCommand(entry: JournalEntry, toolCallId: string): string | undefined {
+/** The `command` and `i` (intent) arguments of tool call `toolCallId` in an assistant entry. */
+function toolCallArguments(entry: JournalEntry, toolCallId: string): { command: string; intent?: string } | undefined {
 	const content = entry.message?.role === "assistant" ? entry.message.content : undefined;
 	if (!Array.isArray(content)) return undefined;
 	for (const block of content) {
 		if (!isObject(block) || block.type !== "toolCall" || block.id !== toolCallId) continue;
-		return isObject(block.arguments) && typeof block.arguments.command === "string"
-			? block.arguments.command
-			: undefined;
+		const args = block.arguments;
+		if (!isObject(args) || typeof args.command !== "string") return undefined;
+		const intent = typeof args.i === "string" ? args.i.trim() : "";
+		return intent ? { command: args.command, intent } : { command: args.command };
 	}
 	return undefined;
 }
@@ -97,12 +101,12 @@ export function interruptedJobs(branch: readonly JournalEntry[], startedAt: numb
 		const state = asyncState(message.details);
 		if (state?.state !== "running" || state.type !== "bash") return;
 		if (branch.slice(branch.indexOf(entry) + 1).some(later => settles(later, state.jobId))) return;
-		let command: string | undefined;
-		for (let back = index - 1; back >= 0 && command === undefined; back--) {
+		let call: { command: string; intent?: string } | undefined;
+		for (let back = index - 1; back >= 0 && call === undefined; back--) {
 			const candidate = life[back];
-			if (candidate) command = toolCallCommand(candidate, message.toolCallId);
+			if (candidate) call = toolCallArguments(candidate, message.toolCallId);
 		}
-		if (command !== undefined && !jobs.some(job => job.id === state.jobId)) jobs.push({ id: state.jobId, command });
+		if (call !== undefined && !jobs.some(job => job.id === state.jobId)) jobs.push({ id: state.jobId, ...call });
 	});
 	return jobs;
 }
@@ -124,11 +128,24 @@ function journaledBefore(entry: JournalEntry, at: number): boolean {
 	return Number.isFinite(time) && time < at;
 }
 
-/** The agent's hidden follow-up: which jobs the restart stopped, and to go on. */
+/**
+ * The agent's follow-up naming the cut-off jobs. Model-facing only: the transcript shows one muted line from
+ * `restartJobsDetails` (the renderer's RestartJobsNote), never this text. `- <id>:` starts each job (`settles`
+ * reads it); the intent leads so the agent can judge whether the job's result is still needed.
+ */
 export function restartJobsNotice(jobs: readonly InterruptedJob[]): string {
 	return [
-		"OMPdesk restarted while background jobs of this session were still running. They stopped before finishing, and their results will not arrive:",
-		...jobs.map(job => `- ${job.id}: \`${job.command}\``),
-		"Run again whatever is still needed, then go on with the work.",
+		"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:",
+		...jobs.map(job => `- ${job.id}: ${job.intent ? `${job.intent} — ` : ""}\`${job.command}\``),
+		"Start again, in the background, only the jobs the work still needs; skip any whose result no longer matters. Say nothing about the restart or this notice: no recap, no apology, no question. Carry on with the task as if nothing happened.",
 	].join("\n");
+}
+
+/** What the transcript's muted line reads from the message: the jobs and their intents, never their commands. */
+export interface RestartJobsDetails {
+	jobs: Array<{ id: string; intent?: string }>;
+}
+
+export function restartJobsDetails(jobs: readonly InterruptedJob[]): RestartJobsDetails {
+	return { jobs: jobs.map(job => (job.intent ? { id: job.id, intent: job.intent } : { id: job.id })) };
 }

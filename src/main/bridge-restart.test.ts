@@ -9,17 +9,25 @@ import {
 	interruptedJobs,
 	type JournalEntry,
 	RESTART_JOBS_MESSAGE,
+	restartJobsDetails,
 	restartJobsNotice,
 } from "../../resources/gui-bridge/restart-core";
 
 const exit: JournalEntry = { type: "custom", customType: "session_exit" };
 
-function bashCall(id: string, command: string): JournalEntry {
+function bashCall(id: string, command: string, intent?: string): JournalEntry {
 	return {
 		type: "message",
 		message: {
 			role: "assistant",
-			content: [{ type: "toolCall", id, name: "bash", arguments: { command, async: true } }],
+			content: [
+				{
+					type: "toolCall",
+					id,
+					name: "bash",
+					arguments: { command, async: true, ...(intent ? { i: intent } : {}) },
+				},
+			],
 		},
 	};
 }
@@ -90,8 +98,47 @@ describe("interruptedJobs", () => {
 		expect(interruptedJobs(replaced(bashCall("c1", "x"), started("c1", "bg_1"), named), startedAt)).toEqual([]);
 	});
 
-	it("tells the agent which jobs stopped and to go on", () => {
-		expect(restartJobsNotice([{ id: "bg_1", command: "npm test" }])).toContain("- bg_1: `npm test`");
+	it("carries the intent the agent gave the call, so the agent can judge whether the job is still needed", () => {
+		const branch = replaced(bashCall("c1", "gh run watch 1", "Watch release CI"), started("c1", "bg_1"), exit);
+		expect(interruptedJobs(branch, startedAt)).toEqual([
+			{ id: "bg_1", command: "gh run watch 1", intent: "Watch release CI" },
+		]);
+		// A blank intent is no intent.
+		expect(interruptedJobs(replaced(bashCall("c1", "x", "  "), started("c1", "bg_1"), exit), startedAt)).toEqual([
+			{ id: "bg_1", command: "x" },
+		]);
+	});
+
+	it("counts a notice the new wording named as settled, so one restart never names a job twice", () => {
+		const named: JournalEntry = {
+			type: "custom_message",
+			customType: RESTART_JOBS_MESSAGE,
+			content: restartJobsNotice([{ id: "bg_7", command: "x", intent: "Watch" }]),
+		};
+		expect(interruptedJobs(replaced(bashCall("c1", "x"), started("c1", "bg_7"), named), startedAt)).toEqual([]);
+	});
+});
+
+describe("restartJobsNotice", () => {
+	it("names each stopped job with its intent first, then its command, and asks for a quiet re-run of what is needed", () => {
+		const text = restartJobsNotice([
+			{ id: "bg_1", command: "npm test" },
+			{ id: "bg_2", command: "gh run watch 1", intent: "Watch release CI" },
+		]);
+		const lines = text.split("\n");
+		expect(lines[1]).toBe("- bg_1: `npm test`");
+		expect(lines[2]).toBe("- bg_2: Watch release CI — `gh run watch 1`");
+		expect(text).toMatch(/only the jobs the work still needs/);
+		expect(text).toMatch(/Say nothing about the restart/);
+	});
+
+	it("gives the transcript only ids and intents, never a command", () => {
+		const details = restartJobsDetails([
+			{ id: "bg_1", command: "secret --token=abc" },
+			{ id: "bg_2", command: "y", intent: "Watch release CI" },
+		]);
+		expect(details).toEqual({ jobs: [{ id: "bg_1" }, { id: "bg_2", intent: "Watch release CI" }] });
+		expect(JSON.stringify(details)).not.toContain("secret");
 	});
 });
 

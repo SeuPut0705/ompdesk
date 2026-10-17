@@ -17,6 +17,7 @@ import {
 	interruptedJobs,
 	type JournalEntry,
 	RESTART_JOBS_MESSAGE,
+	restartJobsDetails,
 	restartJobsNotice,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
@@ -314,9 +315,10 @@ export const methods: BridgeMethods = {
 		 * last process was cut off in plus the subagents it ran. `turn` is false with nothing left
 		 * unfinished, while a turn runs, or without a model. Two things stock leaves behind are
 		 * reported too: `jobs`, the background bash jobs that process started and never finished
-		 * (stock restores no bash job; the agent is told in one hidden follow-up so it runs again
-		 * what is still needed), and `goalPausedByExit`, a goal that was active until that process
-		 * ended and that stock paused at startup (the host resumes it after the restore).
+		 * (stock restores no bash job; the agent is told in one follow-up, shown in the transcript as one muted
+		 * line and never as a message, so it runs again what is still needed without narrating it), and
+		 * `goalPausedByExit`, a goal that was active until that process ended and that stock paused at startup
+		 * (the host resumes it after the restore).
 		 */
 		"composer.restore_interrupted": async (_params, env) => {
 			const session = env.session() as Session;
@@ -337,7 +339,12 @@ export const methods: BridgeMethods = {
 			if (cutOff.length > 0) {
 				void session
 					.promptCustomMessage(
-						{ customType: RESTART_JOBS_MESSAGE, content: restartJobsNotice(cutOff), display: false },
+						{
+							customType: RESTART_JOBS_MESSAGE,
+							content: restartJobsNotice(cutOff),
+							display: true,
+							details: restartJobsDetails(cutOff),
+						},
 						{ streamingBehavior: "followUp" },
 					)
 					.catch((error: unknown) =>

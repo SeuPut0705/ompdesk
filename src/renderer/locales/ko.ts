@@ -2243,6 +2243,8 @@ export const ko: Record<string, string> = {
 	"settings.gui.transcript.compactDesc":
 		"최종 답변과 결과 요약을 보여주고, 사고 과정과 도구 단계는 펼칠 수 있는 '과정' 행 하나로 접어요.",
 	"settings.gui.transcript.full": "전체",
+	"chat.resumingStopFailed": "이어서 하던 작업을 멈추지 못했어요",
+	"chat.restartJobs": "재시작 때 멈춘 백그라운드 작업 {count}개를 다시 실행해요",
 	"settings.gui.transcript.fullDesc": "모든 사고 과정 블록과 도구 카드를 보여줘요.",
 	"settings.gui.proxy": "HTTP 프록시",
 	"settings.gui.proxyDesc":

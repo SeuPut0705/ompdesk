@@ -165,7 +165,7 @@ function QuotaResumeEffects() {
 	return null;
 }
 
-/** Connectivity reports and the relaunch's "Continuing N interrupted tasks" toast; its own component so tab updates never re-render App. */
+/** Connectivity reports (online/offline to main's turn-resume); its own component so tab updates never re-render App. */
 function InterruptedWorkEffects() {
 	useInterruptedWork();
 	return null;

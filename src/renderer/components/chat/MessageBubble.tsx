@@ -1,6 +1,7 @@
 import { Archive, ChevronRight, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
+import { RESTART_JOBS_MESSAGE } from "../../../../resources/gui-bridge/restart-core";
 import { parseAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
@@ -23,6 +24,7 @@ import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType, RecapCard } from "./CustomMessageCard";
 import { ReplyFiles } from "./ReplyFiles";
+import { RestartJobsNote } from "./RestartJobsNote";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
 import { TurnErrorNotice } from "./TurnErrorNotice";
@@ -341,6 +343,7 @@ export const MessageBubble = memo(function MessageBubble({
 	}
 	if (message.role === "custom" || message.role === "hookMessage") {
 		if (message.display === false) return null;
+		if (message.customType === RESTART_JOBS_MESSAGE) return <RestartJobsNote message={message} />;
 		if (message.customType === "recap") return <RecapCard message={message} />;
 		// Dedicated cards for the TUI customType set; unknown types fall through
 		// to the generic label + content bubble below.

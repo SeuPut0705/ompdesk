@@ -238,10 +238,6 @@ export const MAIN_TEXT = {
 	"restart.later": { en: "Later", ko: "나중에" },
 	"restart.now": { en: "Restart now", ko: "지금 재시작" },
 	"restart.title": { en: "Restart to finish updating", ko: "업데이트를 마치려면 재시작하세요" },
-	"resume.continuing": {
-		en: "Continuing {count} interrupted task{plural}",
-		ko: "중단된 작업 {count}개를 이어서 하고 있어요",
-	},
 	// Batched completion notifications (notification-batch.ts): "3 tasks finished · 1 needs you".
 	"batch.finished.one": { en: "{count} task finished", ko: "작업 {count}개 완료" },
 	"batch.finished.other": { en: "{count} tasks finished", ko: "작업 {count}개 완료" },
@@ -258,7 +254,6 @@ export const MAIN_TEXT = {
 	"push.hidden.completion": { en: "A task finished", ko: "작업이 끝났어요" },
 	"push.hidden.error": { en: "A task stopped with an error", ko: "작업이 오류로 중단됐어요" },
 	"push.hidden.ask": { en: "A task needs you", ko: "작업에 확인이 필요해요" },
-	"resume.stop": { en: "Stop", ko: "중단" },
 	// Status of a tab whose omp runs on a paired device that is unreachable.
 	"remote.offline": {
 		en: "The device running this session is offline. Reconnecting…",

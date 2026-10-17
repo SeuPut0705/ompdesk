@@ -12,7 +12,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MAIN_TEXT } from "../../main/i18n-text";
 import { en } from "./en";
 import { ko } from "./ko";
 
@@ -193,12 +192,6 @@ describe("ko stop wording", () => {
 			expect(ko[key], key).toContain("중단");
 			expect(ko[key], key).not.toContain("중지");
 		}
-	});
-});
-
-describe("ko stop wording in main", () => {
-	it("words the resume toast's stop like the composer's", () => {
-		expect(MAIN_TEXT["resume.stop"].ko).toBe(ko["input.abort"]);
 	});
 });
 

@@ -960,7 +960,6 @@ app.whenReady().then(() => {
 		},
 		changed: () => turnResume.connectivityChanged(),
 	});
-	let resumeNotice: number | null = null;
 	const turnResume = new TurnResume({
 		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
 		// This computer's own tabs and the ones it runs for paired devices (host-services.ts): the host
@@ -978,6 +977,7 @@ app.whenReady().then(() => {
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
 			tabForSession: (sessionPath, peer) =>
 				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
+			resumeRank: tabId => sidecarPool.resumeRank(tabId),
 			noteStopped: tabId => {
 				sidecarPool.noteStopped(tabId);
 				hostServices.noteStopped(tabId);
@@ -1009,27 +1009,13 @@ app.whenReady().then(() => {
 			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
 			return sidecar ? sidecarPool.tabForSession(marker.sessionPath) : null;
 		},
-		notify: count => {
-			resumeNotice = count;
-		},
 		// An autopilot run is armed again before its goal resumes; the coordinator also learns when a tab's launch
 		// continuation ended without resuming its goal, and then resumes the run itself (or, after the user's Stop on
-		// the toast, shows it paused: `app_closed`).
+		// the tab's resuming row, shows it paused: `app_closed`).
 		resumeGoal: async tabId => {
 			await autopilotRef.current?.resumeGoal(tabId);
 		},
 		goalSettled: (tabId, outcome) => autopilotRef.current?.resumeSettled(tabId, outcome),
-	});
-	ipc.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
-		const count = resumeNotice;
-		resumeNotice = null;
-		if (count === null) return null;
-		// Worded here, in the language main reads from prefs: the window's own language settles after it mounts.
-		return {
-			count,
-			message: mainT("resume.continuing", undefined, { count, plural: count === 1 ? "" : "s" }),
-			stop: mainT("resume.stop"),
-		};
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_caller, tabId: unknown) => {
 		if (typeof tabId !== "string") return;
@@ -1038,7 +1024,9 @@ app.whenReady().then(() => {
 		if (sidecar?.cancelHostWait) await sidecar.cancelHostWait();
 		else turnResume.cancelWait(tabId);
 	});
-	ipc.handle(IPC_COMMANDS.RESUME_STOP, () => turnResume.stopResumed());
+	ipc.handle(IPC_COMMANDS.RESUME_STOP, async (_caller, tabId: unknown) => {
+		if (typeof tabId === "string") await turnResume.stopResumed(tabId);
+	});
 	ipc.on(IPC_COMMANDS.CONNECTIVITY_REPORT, (_caller, online: unknown) => {
 		if (typeof online === "boolean") connectivity.report(online);
 	});

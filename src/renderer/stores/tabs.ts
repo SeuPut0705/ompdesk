@@ -347,12 +347,13 @@ export function useAwaitingConnection(): string | null {
 	});
 }
 
-/** Whether the calling pane's tab is being continued after a relaunch and its turn has not started yet. */
-export function useResuming(): boolean {
+/** The calling pane's tab id while a relaunch continues it and its turn has not started yet; null otherwise. */
+export function useResuming(): string | null {
 	const tabId = useRuntimeTabId();
-	return useTabsStore(
-		state => state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId))?.resuming === true,
-	);
+	return useTabsStore(state => {
+		const tab = state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId));
+		return tab?.resuming === true ? tab.id : null;
+	});
 }
 
 /** The calling pane's tab id and its scheduled retry (main re-sends the failed turn at `at`); null when none is armed. */
