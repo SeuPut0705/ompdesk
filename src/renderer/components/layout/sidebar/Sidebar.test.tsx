@@ -643,6 +643,39 @@ describe("Sidebar menus and pinned ordering", () => {
 		}
 	});
 
+	it("lists open tabs the index does not have yet newest first, as it will once it does", async () => {
+		installMockOmp(LIST);
+		useSessionStore.setState({ sessionId: "", sessionName: null, cwd: "/work/gamma", isStreaming: false });
+		const tab = (id: string, title: string) => ({
+			id,
+			cwd: "/work/gamma",
+			status: "ready" as const,
+			kind: "agent" as const,
+			sessionId: `${id}-id`,
+			sessionPath: `/work/gamma/${id}.jsonl`,
+			title,
+			unreadDone: false,
+		});
+		useTabsStore.setState({
+			tabs: [tab("a", "First"), tab("b", "Second")],
+			activeTabId: "b",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+		const livePaths = () =>
+			[...container.querySelectorAll('[data-session-group="/work/gamma"] .omp-sidebar-session-row[data-live]')].map(
+				row => row.getAttribute("data-session-path"),
+			);
+		expect(livePaths()).toEqual(["/work/gamma/b.jsonl", "/work/gamma/a.jsonl"]);
+
+		// A tab opened later goes on top, and the earlier rows keep their places.
+		await act(async () =>
+			useTabsStore.setState({ tabs: [tab("a", "First"), tab("b", "Second"), tab("c", "Third")], activeTabId: "c" }),
+		);
+		await flush();
+		expect(livePaths()).toEqual(["/work/gamma/c.jsonl", "/work/gamma/b.jsonl", "/work/gamma/a.jsonl"]);
+	});
+
 	it("offers a way out of an empty filter and keeps help in the footer's last row", async () => {
 		installMockOmp(LIST);
 		seedStores();

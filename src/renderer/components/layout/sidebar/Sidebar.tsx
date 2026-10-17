@@ -610,10 +610,18 @@ export function Sidebar() {
 	// the focused tab, the attached session's live identity. The empty start
 	// tab (`placeholder`: startup, or what a deleted session's last tab gives
 	// way to) is no session until its first run, so it has no row until then.
+	// Such a row's `created` is when this sidebar first saw the tab, kept per tab
+	// (later tabs of one render a millisecond apart): one shared "now" tied every
+	// live row, so they sorted by path, oldest first, and flipped to newest first
+	// once the index listed them.
+	const liveSince = useRef(new Map<string, string>());
 	const liveSessions = useMemo<SidebarSession[]>(() => {
 		const listedIds = new Set(listedSessions.map(session => session.id));
 		const listedPaths = new Set(listedSessions.map(session => session.path));
-		const now = new Date().toISOString();
+		const since = liveSince.current;
+		const open = new Set(localTabs.map(tab => tab.id));
+		for (const id of since.keys()) if (!open.has(id)) since.delete(id);
+		let stamp = Date.now();
 		const rows: SidebarSession[] = [];
 		for (const tab of localTabs) {
 			if (tab.placeholder === true) continue;
@@ -621,13 +629,18 @@ export function Sidebar() {
 			const id = (focused ? sessionId : "") || tab.sessionId || "";
 			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";
 			if ((id && listedIds.has(id)) || (path && listedPaths.has(path))) continue;
+			let created = since.get(tab.id);
+			if (!created) {
+				created = new Date(stamp++).toISOString();
+				since.set(tab.id, created);
+			}
 			rows.push({
 				path: path || `tab:${tab.id}`,
 				id: id || `tab:${tab.id}`,
 				title: tab.title ?? (focused ? sessionName : null),
 				cwd: tab.cwd || (focused ? cwd : ""),
-				created: now,
-				modified: now,
+				created,
+				modified: created,
 				messageCount: 0,
 				size: 0,
 				status: "unknown",
