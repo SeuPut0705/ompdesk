@@ -421,6 +421,8 @@ describe("SidebarSubagents", () => {
 		// The panel's agent reads as the selected row, and no sheet opened.
 		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
+		// Picking the action dismissed the menu.
+		expect(document.querySelectorAll('[role="menu"]').length).toBe(0);
 	});
 
 	it("the side panel's Subagent view reads the transcript through the owning tab and says when the agent is gone", async () => {
@@ -432,8 +434,11 @@ describe("SidebarSubagents", () => {
 			expect.objectContaining({ type: "get_subagent_messages", subagentId: "r1", sessionFile: "/tmp/r1.jsonl" }),
 			expect.any(Number),
 		);
-		// Running: the steer form sits under the transcript.
-		expect(document.querySelector("[data-subagent-steer]")).not.toBeNull();
+		// One-line header with the open/stop/copy icons; the transcript is the main one's editorial list.
+		expect(document.querySelector('[data-panel-subagent="r1"] .omp-subagent-header')).not.toBeNull();
+		expect(document.querySelector('[data-panel-subagent="r1"] .omp-subagent-conversation')).not.toBeNull();
+		// Running: the composer-styled steer box sits under the transcript.
+		expect(document.querySelector("[data-subagent-steer] .omp-composer-box")).not.toBeNull();
 
 		seed([]);
 		await flush();
@@ -453,6 +458,8 @@ describe("SidebarSubagents", () => {
 		expect(rowIds()).toEqual([]);
 		expect(toggle()).toBeNull();
 		expect(document.querySelector('[data-panel-subagent="r1"]')?.textContent).toContain("map the repo");
+		// Finished: no steer box.
+		expect(document.querySelector("[data-subagent-steer]")).toBeNull();
 		expect(document.body.textContent).not.toContain(translate("panel.subagent.gone"));
 	});
 

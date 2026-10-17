@@ -1,248 +1,319 @@
-import { useTabRpc } from "../../lib/tab-rpc";
-import { useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtime-context";
 /**
- * Lazily loaded subagent transcript (byte pagination), shown in the
- * transcript sheet. Loaded pages also feed the tool-call ownership registry
- * so nested spawn edges resolve progressively.
+ * One subagent's transcript, drawn by the main transcript's own components:
+ * MessageBubble turns (markdown, thinking, tool cards), the compact work card
+ * (`ProcessGroup`) or full per-message detail by the same `transcriptDetail`
+ * switch, read groups, the editorial transcript styles and its scroll
+ * behaviour (follows the live edge, "jump to latest" when the reader leaves
+ * it). It is the body of the side panel's Subagent view and of the transcript
+ * sheet.
+ *
+ * The tool cards and work card read their stores through the nearest session
+ * runtime, so the view mounts them in a runtime of its own: the owning tab's
+ * (RPC, subagent roster, settings) with the tools, messages and session
+ * stores replaced by private ones that hold only this subagent's calls. The
+ * owning tab's own run, goal and streaming text never bleed into the cards.
  */
 
-import { FileWarning, RefreshCw } from "lucide-react";
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, FileWarning, RefreshCw } from "lucide-react";
+import { memo, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { StoreApi } from "zustand/vanilla";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { errorDetail } from "../../lib/error-detail";
-import { basename, extractResultImages, resultDetails } from "../../lib/format";
+import { basename, cx, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { ReplyFiles } from "../chat/ReplyFiles";
+import { groupReadRows } from "../../lib/read-group";
+import { createMessagesStore, type MessagesStore } from "../../stores/messages";
+import { createSessionStore, type SessionStore } from "../../stores/session";
+import {
+	type RuntimeStoreKey,
+	type SessionRuntime,
+	SessionRuntimeProvider,
+	useRuntimeTabId,
+	useSessionRuntime,
+	useTabCommand,
+} from "../../stores/session-runtime-context";
+import { createToolsStore, type ToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
+import { ProcessGroup } from "../chat/ChatStream";
+import {
+	buildHistoryRowKeys,
+	buildHistoryRows,
+	type HistoryRow,
+	liveWorkTail,
+	reuseTranscriptRows,
+} from "../chat/chat-stream-utils";
+import { MessageBubble } from "../chat/MessageBubble";
 import { Banner, Button, EmptyState, Spinner } from "../common";
-import { referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
 import { ToolResultMedia } from "../tools/media/ToolMedia";
-import { registerTranscriptToolCalls } from "./subagent-graph";
+import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
+import { isLiveSubagentStatus } from "./subagent-graph";
+import { useStickToBottom } from "./use-stick-to-bottom";
+import type { SubagentTranscriptState } from "./use-subagent-transcript";
 
-function messageText(message: AgentMessage): string {
-	if (typeof message.content === "string") return message.content.trim();
-	if (!Array.isArray(message.content)) return "";
-	return message.content
-		.filter(part => part.type === "text")
-		.map(part => (part.type === "text" ? part.text : ""))
-		.join("\n")
-		.trim();
-}
-
-/** Characters of a message's text the sheet shows. */
-const TEXT_LIMIT = 1200;
 /** The main transcript's attached-picture size (MessageBubble's InlineImage). */
 const PICTURE_CLASS = "max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain";
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+interface PrivateStores {
+	tools: StoreApi<ToolsStore>;
+	messages: StoreApi<MessagesStore>;
+	session: StoreApi<SessionStore>;
+}
+
+function hydrate(stores: PrivateStores, messages: AgentMessage[], live: boolean): void {
+	stores.tools.getState().hydrateMessages(messages, { turnIsLive: live });
+	stores.messages.setState({ messages });
+}
 
 /**
- * What the main transcript shows beside a message's text, in the sheet too:
- * attached and tool-result pictures, the audio/video a tool produced or read,
- * and the files a reply names.
+ * The owning tab's runtime with this subagent's own tools, messages and session
+ * stores. The tools store reads a call's result from the transcript, so a card
+ * pairs with its result the way a reloaded main session does.
  */
-function MessageMedia({
-	message,
-	callArgs,
+function useSubagentRuntime(messages: AgentMessage[], live: boolean): SessionRuntime {
+	const parent = useSessionRuntime();
+	const fallbackTabId = useRuntimeTabId();
+	const command = useTabCommand();
+	const [stores] = useState<PrivateStores>(() => {
+		const created: PrivateStores = {
+			tools: createToolsStore(),
+			messages: createMessagesStore(),
+			session: createSessionStore(),
+		};
+		// Tool paths and media resolve against the owning session's working directory.
+		const cwd = (parent?.stores.get("session") as StoreApi<SessionStore> | undefined)?.getState().cwd;
+		if (cwd) created.session.setState({ cwd });
+		// Hydrated before the first render so no card paints without its result.
+		hydrate(created, messages, live);
+		return created;
+	});
+	const hydrated = useRef<{ messages: AgentMessage[]; live: boolean }>({ messages, live });
+	useLayoutEffect(() => {
+		if (hydrated.current.messages === messages && hydrated.current.live === live) return;
+		hydrated.current = { messages, live };
+		hydrate(stores, messages, live);
+	}, [messages, live, stores]);
+	return useMemo(() => {
+		const all = new Map<RuntimeStoreKey, StoreApi<unknown>>(parent?.stores);
+		all.set("tools", stores.tools as StoreApi<unknown>);
+		all.set("messages", stores.messages as StoreApi<unknown>);
+		all.set("session", stores.session as StoreApi<unknown>);
+		return { tabId: parent?.tabId ?? fallbackTabId ?? "", command, stores: all, recovering: parent?.recovering };
+	}, [parent, fallbackTabId, command, stores]);
+}
+
+/**
+ * What a collapsed work card hides: the pictures and the audio/video its tool
+ * calls produced or read. Open, the cards show them themselves.
+ */
+function SubagentToolMedia({
+	row,
+	results,
 }: {
-	message: AgentMessage;
-	callArgs: ReadonlyMap<string, Record<string, unknown>>;
+	row: Extract<HistoryRow, { kind: "process" }>;
+	results: ReadonlyMap<string, { call: Record<string, unknown>; result: AgentMessage }>;
 }): ReactNode {
-	const t = useT();
 	const parts: ReactNode[] = [];
-	if (message.role === "toolResult") {
-		if (message.isError) return null;
-		const mediaPath = resultDetails(message)?.mediaPath;
-		const path = typeof mediaPath === "string" ? mediaPath : "";
-		for (const image of extractResultImages(message)) {
+	for (const message of row.messages) {
+		if (!Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const found = results.get(block.id);
+			if (!found || found.result.isError) continue;
+			const mediaPath = resultDetails(found.result)?.mediaPath;
+			const path = typeof mediaPath === "string" ? mediaPath : "";
+			for (const image of extractResultImages(found.result)) {
+				parts.push(
+					<ToolImage
+						className={PICTURE_CLASS}
+						key={`${block.id}-${image.key}`}
+						label={basename(path) || undefined}
+						path={path}
+						src={image.src}
+					/>,
+				);
+			}
 			parts.push(
-				<ToolImage
-					className={PICTURE_CLASS}
-					key={image.key}
-					label={basename(path) || undefined}
-					path={path}
-					src={image.src}
+				<ToolResultMedia
+					args={found.call}
+					key={`${block.id}-media`}
+					result={found.result}
+					toolName={found.result.toolName ?? block.name}
 				/>,
 			);
-		}
-		parts.push(
-			<ToolResultMedia
-				args={callArgs.get(message.toolCallId ?? "") ?? {}}
-				key="media"
-				result={message}
-				toolName={message.toolName ?? ""}
-			/>,
-		);
-	} else if (Array.isArray(message.content)) {
-		for (const [index, part] of message.content.entries()) {
-			if (part.type !== "image") continue;
-			const src = extractResultImages(part)[0]?.src ?? null;
-			parts.push(
-				<ToolImage
-					className={PICTURE_CLASS}
-					key={`image-${index}`}
-					label={t("chat.attachedImage")}
-					path=""
-					src={src}
-				/>,
-			);
-		}
-		if (message.role === "assistant") {
-			parts.push(<ReplyFiles key="files" references={referencedFiles(messageText(message))} />);
 		}
 	}
-	return parts.length ? <div className="omp-subagent-media">{parts}</div> : null;
+	return parts.length ? (
+		<div className="omp-subagent-media ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)">{parts}</div>
+	) : null;
 }
 
-interface TranscriptState {
-	loading: boolean;
-	messages: AgentMessage[];
-	nextByte: number;
-	hasMore: boolean;
-}
-
-export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { agent: SubagentSnapshot }) {
-	const t = useT();
-	const rpc = useTabRpc();
-	const tabId = useRuntimeTabId();
-	const generation = useRef(0);
-	const [error, setError] = useState<string | null>(null);
-	const [state, setState] = useState<TranscriptState>({
-		loading: true,
-		messages: [],
-		nextByte: 0,
-		hasMore: true,
-	});
-	const loadingRef = useRef(false);
-	// Tool results name their call; its arguments say what a tts or write produced.
-	const callArgs = useMemo(() => {
-		const args = new Map<string, Record<string, unknown>>();
-		for (const message of state.messages) {
-			if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-			for (const part of message.content) if (part.type === "toolCall") args.set(part.id, part.arguments);
+/** Each call's own result, by the key its tool card uses (repeated ids pair by occurrence). */
+function pairResults(
+	messages: readonly AgentMessage[],
+): Map<string, { call: Record<string, unknown>; result: AgentMessage }> {
+	const queued = new Map<string, AgentMessage[]>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || !message.toolCallId) continue;
+		const list = queued.get(message.toolCallId);
+		if (list) list.push(message);
+		else queued.set(message.toolCallId, [message]);
+	}
+	const paired = new Map<string, { call: Record<string, unknown>; result: AgentMessage }>();
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const result = queued.get(block.id)?.shift();
+			if (result) paired.set(block.id, { call: block.arguments, result });
 		}
-		return args;
-	}, [state.messages]);
-	// `agent.status` changes arrive via prop updates after `load` has memoized —
-	// track it in a ref so a running agent keeps a refresh affordance without
-	// recreating `load` (which would re-run load(0) and duplicate messages).
-	const statusRef = useRef(agent.status);
-	useEffect(() => {
-		statusRef.current = agent.status;
-	}, [agent.status]);
+	}
+	return paired;
+}
 
-	const load = useCallback(
-		async (fromByte: number) => {
-			if (loadingRef.current) return;
-			loadingRef.current = true;
-			const version = generation.current;
-			setError(null);
-			setState(prev => ({ ...prev, loading: true }));
-			try {
-				const response = await rpc.getSubagentMessages(agent.id, agent.sessionFile, fromByte);
-				if (version !== generation.current) return;
-				if (!response.success) {
-					// Shown inline only: the sheet is what the user is looking at.
-					setError(response.error);
-					setState(prev => ({ ...prev, loading: false, hasMore: false }));
-					return;
-				}
-				const data = response.data as {
-					messages?: AgentMessage[];
-					nextByte?: number;
-					reset?: boolean;
-				};
-				const incoming = data.messages ?? [];
-				if (tabId) withSessionRuntime(tabId, () => registerTranscriptToolCalls(agent.id, incoming));
-				else registerTranscriptToolCalls(agent.id, incoming);
-				setState(prev => ({
-					loading: false,
-					messages: data.reset || fromByte === 0 ? incoming : [...prev.messages, ...incoming],
-					nextByte: data.nextByte ?? fromByte,
-					// A still-running agent keeps its load-more affordance even when
-					// caught up (0 new messages) — it doubles as the refresh button.
-					hasMore: incoming.length > 0 || statusRef.current === "started",
-				}));
-			} catch (cause) {
-				if (version === generation.current) {
-					setError(String(cause));
-					setState(previous => ({ ...previous, loading: false }));
-				}
-			} finally {
-				if (version === generation.current) loadingRef.current = false;
-			}
-		},
-		[agent.id, agent.sessionFile, rpc.getSubagentMessages, tabId],
+export const SubagentTranscript = memo(function SubagentTranscript({
+	agent,
+	transcript,
+}: {
+	agent: SubagentSnapshot;
+	transcript: SubagentTranscriptState;
+}) {
+	const t = useT();
+	const { messages, loading, error } = transcript;
+	const live = isLiveSubagentStatus(agent.status);
+	const runtime = useSubagentRuntime(messages, live);
+	const detail = useUiStore(s => s.transcriptDetail);
+	const [expanded, setExpanded] = useState<ReadonlySet<string>>(NO_KEYS);
+	const stick = useStickToBottom();
+
+	// Rebuilt rows that did not change keep their object, so the memoized row components skip them.
+	const built = useRef<ReadonlyMap<string, HistoryRow>>(new Map());
+	const { rows, keys } = useMemo(() => {
+		const rowsNow = buildHistoryRows(messages, detail, NO_KEYS);
+		const grouped = detail === "compact" ? rowsNow : (groupReadRows(rowsNow) as HistoryRow[]);
+		const rowKeys = buildHistoryRowKeys(grouped);
+		const reused = reuseTranscriptRows(built.current, grouped, rowKeys);
+		built.current = new Map(reused.map((row, index) => [rowKeys[index] ?? "", row]));
+		return { rows: reused, keys: rowKeys };
+	}, [messages, detail]);
+	const results = useMemo(() => pairResults(messages), [messages]);
+	const { liveTail, lastWorkRow } = liveWorkTail(rows, live);
+	const currentWork = liveTail ? lastWorkRow : rows.findLastIndex(row => row.kind === "process");
+
+	const setProcessExpanded = useMemo(
+		() => (key: string, open: boolean) =>
+			setExpanded(current => {
+				if (current.has(key) === open) return current;
+				const next = new Set(current);
+				if (open) next.add(key);
+				else next.delete(key);
+				return next;
+			}),
+		[],
 	);
 
-	useEffect(() => {
-		generation.current++;
-		loadingRef.current = false;
-		setState({ loading: true, messages: [], nextByte: 0, hasMore: true });
-		void load(0);
-		return () => {
-			generation.current++;
-		};
-	}, [load]);
-
-	if (state.loading && state.messages.length === 0) {
-		return <Spinner className="px-2 py-3" label={t("subagent.loadingTranscript")} size="sm" />;
-	}
-
 	return (
-		<div className="space-y-1.5 px-2 py-2">
-			{error &&
-				(state.messages.length === 0 ? (
-					<EmptyState
-						actions={
-							<Button icon={<RefreshCw />} onClick={() => void load(0)} size="sm" variant="secondary">
-								{t("common.retry")}
-							</Button>
-						}
-						description={<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>}
-						icon={<FileWarning />}
-						size="sm"
-						title={t("subagent.transcriptFailed")}
-					/>
-				) : (
-					/* Rows from the last good page stay on screen under the failure. */
-					<Banner live title={t("subagent.transcriptFailed")} variant="warning">
-						<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>
-					</Banner>
-				))}
-			{!error && state.messages.length === 0 && (
-				<div className="text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
-			)}
-			{state.messages.map((message, index) => {
-				const text = messageText(message);
-				const media = <MessageMedia callArgs={callArgs} message={message} />;
-				const hasPictures =
-					message.role === "toolResult" ||
-					(Array.isArray(message.content) && message.content.some(part => part.type === "image"));
-				if (!text && !hasPictures) return null;
-				return (
-					<div className="rounded-sm border-l-2 border-(--omp-border-muted) px-2 py-1" key={index}>
-						<div className="mb-0.5 text-omp-xxs font-semibold tracking-wider text-(--omp-dim) uppercase">
-							{message.role}
-						</div>
-						{text ? (
-							<div className="text-omp-sm leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
-								{text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT)}…` : text}
+		<SessionRuntimeProvider runtime={runtime}>
+			<div className="omp-transcript-editorial omp-subagent-conversation relative min-h-0 flex-1">
+				<div
+					aria-label={t("chat.transcript.label")}
+					className="omp-transcript-scroll absolute inset-0 overflow-y-auto overscroll-contain"
+					ref={stick.scrollerRef}
+					role="region"
+					tabIndex={0}
+					{...stick.scrollerProps}
+				>
+					<div className="py-2" ref={stick.contentRef}>
+						{loading && messages.length === 0 && (
+							<Spinner className="px-3 py-3" label={t("subagent.loadingTranscript")} size="sm" />
+						)}
+						{error &&
+							(messages.length === 0 ? (
+								<EmptyState
+									actions={
+										<Button icon={<RefreshCw />} onClick={transcript.reload} size="sm" variant="secondary">
+											{t("common.retry")}
+										</Button>
+									}
+									description={<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>}
+									icon={<FileWarning />}
+									size="sm"
+									title={t("subagent.transcriptFailed")}
+								/>
+							) : (
+								/* Rows from the last good page stay on screen under the failure. */
+								<div className="px-(--omp-editorial-inset) pb-2">
+									<Banner live title={t("subagent.transcriptFailed")} variant="warning">
+										<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>
+									</Banner>
+								</div>
+							))}
+						{!error && messages.length === 0 && (
+							<p className="px-(--omp-editorial-inset) py-3 text-sc-sm text-(--sc-text-muted)">
+								{t("subagent.noEntries")}
+							</p>
+						)}
+						{rows.map((row, index) => {
+							const key = keys[index] ?? String(index);
+							return (
+								<div
+									className="omp-transcript-row w-full"
+									data-row-key={key}
+									data-transcript-kind={row.kind}
+									key={key}
+								>
+									{row.kind === "message" ? (
+										<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+									) : row.kind === "readGroup" ? (
+										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
+									) : row.kind === "process" ? (
+										<>
+											<ProcessGroup
+												expanded={expanded.has(key)}
+												live={liveTail && index === lastWorkRow}
+												onExpandedChange={setProcessExpanded}
+												row={row}
+												rowKey={key}
+												superseded={index < currentWork}
+											/>
+											{expanded.has(key) ? null : <SubagentToolMedia results={results} row={row} />}
+										</>
+									) : null}
+								</div>
+							);
+						})}
+						{transcript.hasMore && (
+							<div className="flex justify-center px-(--omp-editorial-inset) py-2">
+								<Button
+									icon={<RefreshCw />}
+									loading={transcript.busy}
+									onClick={transcript.loadMore}
+									size="sm"
+									variant="secondary"
+								>
+									{t("subagent.loadMore")}
+								</Button>
 							</div>
-						) : null}
-						{media}
+						)}
 					</div>
-				);
-			})}
-			{state.hasMore && (
+				</div>
 				<button
-					className="flex items-center gap-1.5 text-omp-sm text-(--omp-link) transition-colors hover:brightness-125 disabled:opacity-50"
-					disabled={state.loading}
-					onClick={() => void load(state.nextByte)}
+					aria-label={t("chat.jumpToLatest")}
+					className={cx(
+						"absolute bottom-3 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-(--sc-border) bg-(--sc-elevated) px-3 text-sc-sm font-medium text-(--sc-text) shadow-(--sc-shadow-md) transition-all hover:bg-(--sc-hover)",
+						stick.pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
+					)}
+					aria-hidden={stick.pinned || undefined}
+					data-jump-to-latest
+					onClick={stick.jumpToLatest}
+					tabIndex={stick.pinned ? -1 : 0}
 					type="button"
 				>
-					{state.loading ? <Spinner size="sm" /> : <RefreshCw size={10} />}
-					{t("subagent.loadMore")}
+					<ArrowDown aria-hidden className="size-(--sc-icon-sm)" />
+					{t("chat.jumpToLatest")}
 				</button>
-			)}
-		</div>
+			</div>
+		</SessionRuntimeProvider>
 	);
 });

@@ -10,6 +10,7 @@ import "./styles/theme-dark.css";
 import "./styles/theme-light.css";
 import "./styles/components.css";
 import "./styles/work-board.css";
+import "./styles/subagent-view.css";
 import "./styles/usage-gauges.css";
 import "./styles/mobile.css";
 

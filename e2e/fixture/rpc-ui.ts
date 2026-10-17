@@ -4559,6 +4559,174 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					write({
 						type: "extension_ui_request",
 						id: "ext-confirm-2",
+				// A full subagent transcript for the side panel's Subagent view (e2e/subagent-view.e2e.ts): thinking,
+				// read/bash/edit calls, a long markdown reply with code and a wide table, and a bash still running.
+				if (line === "fixture:subagents:transcript" || line === "fixture:subagents:append") {
+					const agent = subagentRoster.find(entry => entry.id === "sa-explore");
+					if (!agent) {
+						fail("Fixture has no subagent sa-explore");
+						break;
+					}
+					let tick = 0;
+					const messages = recordedMessages.get(agent.id) ?? [];
+					if (line === "fixture:subagents:transcript") {
+						const t0 = Date.now() - 90_000;
+						const stamp = () => t0 + 1000 * tick++;
+						const call = (
+							id: string,
+							name: string,
+							args: Record<string, unknown>,
+							extra: AgentMessage["content"] = [],
+						) => ({
+							role: "assistant" as const,
+							timestamp: stamp(),
+							content: [...(extra as never[]), { type: "toolCall" as const, id, name, arguments: args }],
+						});
+						const result = (id: string, name: string, text: string, details?: Record<string, unknown>) => ({
+							role: "toolResult" as const,
+							toolCallId: id,
+							toolName: name,
+							content: [{ type: "text" as const, text }],
+							...(details ? { details } : {}),
+							isError: false,
+							timestamp: stamp(),
+						});
+						const diff = [
+							"@@ -12,4 +12,6 @@",
+							" export function loadSettings(path: string) {",
+							"-  return JSON.parse(readFileSync(path, 'utf8'));",
+							"+  const raw = readFileSync(path, 'utf8');",
+							"+  return normalizeSettings(JSON.parse(raw));",
+							" }",
+						].join("\n");
+						const longReply = [
+							"## Settings map",
+							"",
+							"The settings code lives in three layers. `loadSettings` reads the JSON file, `normalizeSettings` fills defaults, and the renderer store mirrors the result.",
+							"",
+							"```ts",
+							"export function normalizeSettings(raw: Partial<Settings>, defaults: Settings = DEFAULT_SETTINGS): Settings { return { ...defaults, ...raw, panel: { ...defaults.panel, ...raw.panel }, shortcuts: { ...defaults.shortcuts, ...raw.shortcuts } }; }",
+							"```",
+							"",
+							"| File | Role | Owner | Last touched | Notes |",
+							"| --- | --- | --- | --- | --- |",
+							"| src/main/settings.ts | reads and writes the file | main | 2026-10-12 | atomic write, 0600 |",
+							"| src/renderer/stores/settings.ts | zustand mirror | renderer | 2026-10-15 | one store per tab runtime |",
+							"| resources/gui-bridge/settings.ts | stock config bridge | bridge | 2026-10-16 | feature-detects every hook |",
+							"",
+							"1. Every write goes through `main`, never the renderer.",
+							"2. The store only mirrors; a change round-trips through `settings.set`.",
+							"3. Defaults live in one place, so a new key needs one edit.",
+							"",
+							"Next I will run the settings tests to confirm the new normalizer keeps every existing key. "
+								.repeat(6)
+								.trim(),
+						].join("\n");
+						messages.push(
+							{
+								role: "user",
+								timestamp: stamp(),
+								content: [
+									{
+										type: "text",
+										text: "Map the settings code: where settings are read, normalized and stored. Edit `loadSettings` to normalize on load and report what you found.",
+									},
+								],
+							},
+							call("se-read", "read", { path: "src/main/settings.ts" }, [
+								{
+									type: "thinking",
+									thinking:
+										"I should start from the reader. If `loadSettings` returns raw JSON the renderer may be seeing unnormalized values, so I will read it first and then look for its callers.",
+								},
+								{ type: "text", text: "I'll start by reading the settings loader." },
+							]),
+							result(
+								"se-read",
+								"read",
+								"export function loadSettings(path: string) {\n  return JSON.parse(readFileSync(path, 'utf8'));\n}\n",
+							),
+							call("se-bash", "bash", {
+								command: 'rg -n "loadSettings|normalizeSettings" src | head -20',
+								intent: "Finding settings callers",
+							}),
+							result(
+								"se-bash",
+								"bash",
+								"src/main/settings.ts:12:export function loadSettings(path: string) {\nsrc/main/index.ts:88:  const settings = loadSettings(settingsPath);\nsrc/main/ipc.ts:140:  ipcMain.handle('settings:get', () => loadSettings(settingsPath));",
+								{ exitCode: 0 },
+							),
+							call("se-edit", "edit", {
+								path: "src/main/settings.ts",
+								edits: [
+									{
+										old_text: "  return JSON.parse(readFileSync(path, 'utf8'));",
+										new_text:
+											"  const raw = readFileSync(path, 'utf8');\n  return normalizeSettings(JSON.parse(raw));",
+									},
+								],
+							}),
+							result("se-edit", "edit", "Updated src/main/settings.ts", { diff }),
+							{
+								role: "assistant",
+								timestamp: stamp(),
+								content: [
+									{
+										type: "thinking",
+										thinking:
+											"The edit is in. Now I can summarize the three layers and then verify with the settings tests.",
+									},
+									{ type: "text", text: longReply },
+								],
+							},
+							call("se-test", "bash", {
+								command: "bun test src/main/settings.test.ts",
+								intent: "Running the settings tests",
+							}),
+						);
+						recordedMessages.set(agent.id, messages);
+					} else {
+						messages.push({
+							role: "assistant",
+							timestamp: Date.now(),
+							content: [{ type: "text", text: `Tests are still running (update ${messages.length}).` }],
+						});
+					}
+					agent.lastUpdate = Date.now();
+					agent.progress = {
+						id: agent.id,
+						index: agent.index,
+						agent: agent.agent,
+						agentSource: "bundled",
+						status: "running",
+						task: "Map the settings code",
+						lastIntent: "Running the settings tests",
+						currentTool: "bash",
+						currentToolIntent: "Running the settings tests",
+						recentTools: [],
+						recentOutput: [],
+						toolCount: 3,
+						requests: 4 + messages.length,
+						tokens: 48_200 + messages.length * 40,
+						contextTokens: 61_000,
+						contextWindow: 200_000,
+						cost: 0.21,
+						durationMs: 92_000,
+						resolvedModel: "anthropic/claude-sonnet-4-5",
+					};
+					write({
+						type: "subagent_progress",
+						payload: {
+							index: agent.index,
+							agent: agent.agent,
+							agentSource: "bundled",
+							task: "Map the settings code",
+							progress: agent.progress,
+						},
+					});
+					ok();
+					break;
+				}
 						method: "confirm",
 						title: "Notify the team?",
 						message: "",

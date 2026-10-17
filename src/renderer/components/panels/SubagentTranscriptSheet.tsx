@@ -7,16 +7,17 @@
  * (RPC `steer_subagent`): the message lands in its turn as a steer.
  */
 
-import { CornerDownRight } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toast, toastError } from "../../stores/toast";
-import { Button, Sheet, TextArea } from "../common";
+import { IconButton, Sheet } from "../common";
 import { SubagentTranscript } from "./SubagentTranscript";
 import { isLiveSubagentStatus, statusMeta, subagentPrimaryLabel } from "./subagent-graph";
+import { useSubagentTranscript } from "./use-subagent-transcript";
 
 export function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
 	const t = useT();
@@ -49,33 +50,36 @@ export function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
 	};
 	return (
 		<form
-			className="flex w-full items-end gap-2"
+			className="omp-subagent-steer w-full"
 			data-subagent-steer
 			onSubmit={event => {
 				event.preventDefault();
 				void send();
 			}}
 		>
-			<TextArea
-				aria-label={t("subagent.steer.label", { name })}
-				autoGrow
-				className="max-h-40 min-w-0 flex-1"
-				disabled={sending}
-				onChange={event => setText(event.target.value)}
-				onKeyDown={onKeyDown}
-				placeholder={t("subagent.steer.placeholder")}
-				rows={1}
-				value={text}
-			/>
-			<Button
-				disabled={sending || text.trim() === ""}
-				icon={<CornerDownRight aria-hidden />}
-				size="sm"
-				type="submit"
-				variant="primary"
-			>
-				{t("subagent.steer.send")}
-			</Button>
+			{/* The composer's own box and send button, compact: one field, one round send. */}
+			<div className="omp-composer-box flex items-end gap-1.5 rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-field) py-1.5 pr-1.5 pl-3 shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)">
+				<textarea
+					aria-label={t("subagent.steer.label", { name })}
+					className="omp-composer-input min-w-0 flex-1 resize-none self-center bg-transparent text-sc-md break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none"
+					disabled={sending}
+					onChange={event => setText(event.target.value)}
+					onKeyDown={onKeyDown}
+					placeholder={t("subagent.steer.placeholder")}
+					rows={1}
+					value={text}
+				/>
+				<IconButton
+					className="omp-composer-action"
+					disabled={text.trim() === ""}
+					icon={<ArrowUp strokeWidth={2.25} />}
+					label={t("subagent.steer.send")}
+					loading={sending}
+					tooltip={false}
+					type="submit"
+					variant="primary"
+				/>
+			</div>
 		</form>
 	);
 }
@@ -85,11 +89,18 @@ export function isSteerableSubagent(agent: SubagentSnapshot): boolean {
 	return isLiveSubagentStatus(agent.status) && agent.kind !== "advisor";
 }
 
+/** The sheet's transcript: its own read of the subagent, so the sheet follows a running one too. */
+function SheetTranscript({ agent }: { agent: SubagentSnapshot }) {
+	const transcript = useSubagentTranscript(agent);
+	return <SubagentTranscript agent={agent} transcript={transcript} />;
+}
+
 export function SubagentTranscriptSheet({ agent, onClose }: { agent: SubagentSnapshot | null; onClose: () => void }) {
 	const t = useT();
 	const steerable = agent !== null && isSteerableSubagent(agent);
 	return (
 		<Sheet
+			bodyClassName="flex flex-col p-0"
 			description={agent ? `${agent.agent} · ${t(statusMeta(agent.status).labelKey)}` : undefined}
 			footer={steerable ? <SteerSubagentForm agent={agent} key={agent.id} /> : undefined}
 			onClose={onClose}
@@ -97,7 +108,7 @@ export function SubagentTranscriptSheet({ agent, onClose }: { agent: SubagentSna
 			size="lg"
 			title={agent ? subagentPrimaryLabel(agent) : ""}
 		>
-			{agent && <SubagentTranscript agent={agent} />}
+			{agent && <SheetTranscript agent={agent} key={agent.id} />}
 		</Sheet>
 	);
 }

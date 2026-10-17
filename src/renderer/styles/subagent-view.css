@@ -1,0 +1,80 @@
+/* Side panel Subagent view (panels/SubagentPanel.tsx). The transcript is the main
+   transcript's own components (MessageBubble, ProcessGroup, tool cards, markdown) inside
+   `.omp-transcript-editorial`; this file only fits them to a narrow column. */
+
+/* The editorial insets follow the panel's own width, not the workspace column's: 12 px at the
+   narrowest dock (360 px), growing with the sheet. `cqw` resolves against this container. */
+.omp-transcript-editorial.omp-subagent-conversation {
+	container-type: inline-size;
+	--omp-editorial-inset: clamp(var(--sc-space-3), 4cqw, var(--sc-space-8));
+	--omp-editorial-edge: var(--omp-editorial-inset);
+	--omp-actions-reserve: 0px;
+}
+
+/* No hover row under a turn here: copy is the header's one action for the whole transcript. */
+.omp-subagent-conversation .omp-message-actions {
+	display: none;
+}
+
+.omp-subagent-conversation .omp-transcript-row {
+	max-width: none;
+}
+
+/* The delegated assignment can be a page long; it stays a bubble, scrolling inside itself. */
+.omp-subagent-conversation .omp-user-bubble {
+	max-height: 12rem;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+/* Wide tables and long code scroll inside their own block, never the panel. */
+.omp-subagent-conversation .markdown-body {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.omp-subagent-conversation .markdown-body pre {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+.omp-subagent-conversation .markdown-body table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* Header: one line. The agent's label gives way first; the status word, then the token count,
+   give way to a dot and the clock when the panel is at its narrowest. */
+.omp-subagent-header {
+	container-type: inline-size;
+}
+
+@container (max-width: 25rem) {
+	.omp-subagent-header-status-label {
+		display: none;
+	}
+}
+
+@container (max-width: 20rem) {
+	.omp-subagent-header-tokens {
+		display: none;
+	}
+}
+
+/* Steer input: the composer's box and send button, compact. */
+.omp-subagent-steer textarea {
+	field-sizing: content;
+	min-height: 1lh;
+	max-height: 8lh;
+}
+
+/* Narrow column: body text a notch smaller than the workspace transcript's. */
+.omp-subagent-conversation .markdown-body {
+	font-size: calc(var(--gui-font-size, 15px) * 13.5 / 15);
+	line-height: 1.6;
+}
+
+.omp-subagent-conversation .omp-user-bubble {
+	font-size: var(--sc-font-md);
+}

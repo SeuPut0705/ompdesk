@@ -478,7 +478,14 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 									},
 								]
 							: []),
-					]}
+					].map(item => ({
+						...item,
+						// Picking a row action dismisses the menu (a menu that stayed open hung over the panel it opened).
+						onSelect: () => {
+							setMenu(null);
+							item.onSelect();
+						},
+					}))}
 					onClose={() => setMenu(null)}
 					x={menu.anchor.x}
 					y={menu.anchor.y}
