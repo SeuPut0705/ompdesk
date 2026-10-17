@@ -972,7 +972,9 @@ async function realEnv(
 		XDG_CONFIG_HOME: "",
 		XDG_DATA_HOME: "",
 		XDG_STATE_HOME: "",
-		XDG_CACHE_HOME: "",
+		// Bun reads an empty XDG_CACHE_HOME as a relative path and writes its
+		// transpiler cache to `bun/` in the worker's cwd, the checkout.
+		XDG_CACHE_HOME: path.join(home, ".cache"),
 		...extraEnv,
 	};
 	const script = path.join(home, "seed.ts");
