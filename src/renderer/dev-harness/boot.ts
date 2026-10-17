@@ -17,6 +17,10 @@ const query = new URLSearchParams(location.search);
 // `?rail=all` pins Agents and Stats under the session list, the way the footer shortcut toggles do.
 const prefs: Record<string, unknown> = {};
 if (query.get("rail") === "all") prefs.sidebar = { railPins: ["usage", "agents", "stats"] };
+// The app takes its theme from prefs once they load (and resolves "system" from the OS, not from localStorage),
+// so `?theme=` has to be a pref too or a dark capture paints light.
+const theme = query.get("theme");
+if (theme === "dark" || theme === "light") prefs.theme = theme;
 const { transport, harness } = createHarnessTransport(prefs);
 const api = createOmpApi(transport);
 // `fs.pathForFile` is the one member only Electron's preload can answer; a browser has no local path to give.

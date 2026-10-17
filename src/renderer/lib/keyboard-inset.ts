@@ -27,25 +27,56 @@ export function keyboardInset(
 	return Math.max(0, Math.round(covered));
 }
 
+/**
+ * Android Chrome with `interactive-widget=resizes-content` shrinks the layout viewport itself, so the visual
+ * viewport matches it and `keyboardInset` reads 0: the keyboard is the height the layout lost since it was at
+ * rest (`baselineHeight`, the tallest layout seen at this width) while a text field has focus. The focus test
+ * keeps split-screen or a window resize from counting as a keyboard; a dynamic toolbar is under the minimum.
+ */
+export function layoutKeyboardOpen(baselineHeight: number, innerHeight: number, editableFocused: boolean): boolean {
+	return editableFocused && baselineHeight - innerHeight >= KEYBOARD_MIN_PX;
+}
+
 export function startKeyboardInset(root: HTMLElement = document.documentElement): () => void {
 	const viewport = window.visualViewport;
 	if (!viewport) return () => {};
+	let baselineWidth = window.innerWidth;
+	let baselineHeight = window.innerHeight;
 	const update = () => {
+		// A new width (rotation) is a new layout: forget the old tallest height.
+		if (window.innerWidth !== baselineWidth) {
+			baselineWidth = window.innerWidth;
+			baselineHeight = window.innerHeight;
+		}
+		const active = document.activeElement;
+		const focused =
+			active instanceof HTMLElement && active.matches("input, textarea, select, [contenteditable='true']");
+		const resized = layoutKeyboardOpen(baselineHeight, window.innerHeight, focused);
+		if (!resized) baselineHeight = Math.max(baselineHeight, window.innerHeight);
 		const inset = keyboardInset(viewport, window.innerHeight);
 		root.style.setProperty("--kb-inset", `${inset}px`);
-		if (inset >= KEYBOARD_MIN_PX) root.dataset.kb = "open";
+		// The keyboard hides the home indicator / gesture bar either way: CSS drops the bottom inset.
+		if (inset >= KEYBOARD_MIN_PX || resized) root.dataset.kb = "open";
 		else delete root.dataset.kb;
 		// iOS scrolls the (fixed) page to reveal the focused field; the shell never scrolls. A zoomed page's
 		// pan is the user's own.
 		if (inset >= KEYBOARD_MIN_PX && viewport.scale <= ZOOMED_SCALE && (window.scrollY !== 0 || window.scrollX !== 0))
 			window.scrollTo(0, 0);
 	};
+	// Focus moves after its event, so a blur or focus reads `activeElement` one task later.
+	const afterFocus = () => setTimeout(update, 0);
 	update();
 	viewport.addEventListener("resize", update);
 	viewport.addEventListener("scroll", update);
+	window.addEventListener("resize", update);
+	document.addEventListener("focusin", afterFocus);
+	document.addEventListener("focusout", afterFocus);
 	return () => {
 		viewport.removeEventListener("resize", update);
 		viewport.removeEventListener("scroll", update);
+		window.removeEventListener("resize", update);
+		document.removeEventListener("focusin", afterFocus);
+		document.removeEventListener("focusout", afterFocus);
 		root.style.removeProperty("--kb-inset");
 		delete root.dataset.kb;
 	};
