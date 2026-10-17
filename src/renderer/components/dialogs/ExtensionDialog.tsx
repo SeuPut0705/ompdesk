@@ -130,9 +130,7 @@ function ExtensionSurfaces() {
 			<div
 				className={cx(
 					"pointer-events-none flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto",
-					above
-						? "mb-2"
-						: "omp-widget-float fixed bottom-9 left-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2",
+					above ? "mb-2" : "omp-widget-float fixed bottom-9 left-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2",
 				)}
 			>
 				{aboveWidgets.map(([key, lines]) => (
