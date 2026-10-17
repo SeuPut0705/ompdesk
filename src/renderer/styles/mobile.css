@@ -462,7 +462,8 @@ html[data-shell="phone"] .settings-page[data-stacked] .settings-column {
 	padding-bottom: calc(var(--sc-space-12) + var(--safe-b));
 }
 
-/* A row stacks its label and description above a full-width control; a switch row keeps the switch at the right. */
+/* A row stacks its label and description above a full-width control; a switch or one-button row (`compactControl`)
+   keeps its control at the right. */
 html[data-shell="phone"] .settings-field-row:not(.settings-field-row-compact) {
 	grid-template-columns: minmax(0, 1fr);
 	gap: var(--sc-space-2);

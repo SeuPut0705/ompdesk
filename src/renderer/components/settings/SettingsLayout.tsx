@@ -184,7 +184,7 @@ export interface SettingsRowProps {
 	children?: ReactNode;
 	/** Extra content under the row (errors, source details). */
 	footer?: ReactNode;
-	/** Boolean rows keep the control compact and right-aligned. */
+	/** Boolean rows and one-button rows keep the control compact and right-aligned (never stacked on a phone). */
 	compactControl?: boolean;
 	className?: string;
 }

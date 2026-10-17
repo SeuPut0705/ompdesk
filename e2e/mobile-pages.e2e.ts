@@ -320,6 +320,27 @@ for (const engine of ENGINES) {
 				await page.context().close();
 			});
 
+			test("the device's push opt-in keeps its Turn on button at the right of its row", async () => {
+				const page = await openHarness(browser, device, LIGHT_EN, "&pwa=push");
+				await openDestination(page, "settings");
+				await page.locator('[data-settings-section="connections"]').click();
+				const row = page.locator("#settings-web-push");
+				const button = row.locator("[data-web-push-enable]");
+				await button.scrollIntoViewIfNeeded();
+				await expect(button).toBeVisible();
+				const label = await settled(row.getByText("Notifications are off", { exact: true }));
+				const box = await button.boundingBox();
+				const rowBox = await row.boundingBox();
+				// One line: the button sits beside its label, at the right edge, sized to its text.
+				expect((box?.y ?? 0) + (box?.height ?? 0)).toBeGreaterThan(label?.y ?? 0);
+				expect(box?.y ?? 0).toBeLessThan((label?.y ?? 0) + (label?.height ?? 0));
+				expect(box?.x ?? 0).toBeGreaterThan((label?.x ?? 0) + (label?.width ?? 0));
+				expect((box?.x ?? 0) + (box?.width ?? 0)).toBeGreaterThan((rowBox?.x ?? 0) + (rowBox?.width ?? 0) - 1);
+				expect(box?.width ?? 0).toBeLessThan((rowBox?.width ?? 0) / 3);
+				expect(await smallTargets(page, "#settings-web-push")).toEqual([]);
+				await page.context().close();
+			});
+
 			test("pull requests: list, then one pull request under a back button on a phone; both side by side on a tablet", async () => {
 				const page = await openHarness(browser, device, LIGHT_EN);
 				await openDestination(page, "agents");

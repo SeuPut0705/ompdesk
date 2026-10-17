@@ -63,6 +63,7 @@ function InstallSection({ pwa }: { pwa: WebPwa }) {
 				)}
 				{guidance === "prompt" && (
 					<SettingsRow
+						compactControl
 						control={
 							<Button
 								icon={<Download />}
@@ -151,6 +152,7 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 					</Banner>
 				)}
 				<SettingsRow
+					compactControl
 					control={
 						view.subscribed ? (
 							<Button
