@@ -715,7 +715,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 							className="flex h-(--sc-control-sm) cursor-pointer items-center gap-2 text-sc-sm whitespace-nowrap text-(--sc-text-secondary)"
 							htmlFor={authOnlyId}
 						>
-							<Switch checked={authOnly} id={authOnlyId} onCheckedChange={setAuthOnly} size="sm" />
+							<Switch checked={authOnly} id={authOnlyId} onCheckedChange={setAuthOnly} />
 							{t("modelCompare.authOnly")}
 						</label>
 					</>
