@@ -1,11 +1,13 @@
 import { ChevronRight, Columns2, Rows2, X, XCircle } from "lucide-react";
 import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { worktreeLabel } from "../../../shared/project-origin";
 import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
 import { useSessionList } from "../../hooks/use-session-list";
 import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
-import { basename, cx } from "../../lib/format";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
@@ -135,6 +137,15 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	const t = useT();
 	const removePane = useTabsStore(state => state.removePane);
 	const groupAliases = useSidebarPrefs(state => state.groupAliases);
+	// A paired host's folders are not on this computer: git here cannot tell about them.
+	const projectNameOf = useProjectNames(
+		useMemo(
+			() => (tab.kind === "chat" || !tab.cwd || tab.device !== undefined ? [] : [tab.cwd]),
+			[tab.kind, tab.cwd, tab.device],
+		),
+	);
+	const kindLabels = useWorktreeKindLabels();
+	const shown = tab.kind === "chat" || !tab.cwd ? null : projectNameOf(tab.cwd);
 	const busy =
 		tab.status === "running" || tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
 	const failed = tab.status === "error" || tab.status === "exited";
@@ -149,11 +160,26 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 			) : null}
 			<span className="flex min-w-0 flex-1 items-center gap-1">
 				<span
-					title={tab.cwd}
+					title={shown?.tooltip ?? tab.cwd}
 					className="omp-titlebar-project min-w-0 max-w-48 shrink-[4] truncate text-(--sc-text-muted)"
 				>
-					{tab.kind === "chat" || !tab.cwd ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd))}
+					{shown ? (groupAliases[tab.cwd] ?? shown.worktree?.project ?? shown.name) : t("sidebar.chats")}
 				</span>
+				{shown?.worktree && (
+					<>
+						<ChevronRight
+							aria-hidden
+							className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
+						/>
+						<span
+							className="min-w-0 max-w-40 shrink-[3] truncate text-(--sc-text-muted)"
+							data-pane-worktree=""
+							title={shown.tooltip}
+						>
+							{worktreeLabel(shown.worktree, kindLabels)}
+						</span>
+					</>
+				)}
 				<ChevronRight
 					aria-hidden
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"

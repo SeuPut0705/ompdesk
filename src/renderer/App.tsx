@@ -64,6 +64,7 @@ import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
 import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
+import { useProjectNames } from "./lib/project-origin";
 import { closeActiveTab } from "./lib/tab-close";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
@@ -91,7 +92,7 @@ import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
-import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
+import { useActiveTabKind, useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
@@ -125,10 +126,20 @@ function FocusedSessionEffects() {
 	const compactDensity = useUiStore(s => s.compactDensity);
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
+	const titleCwd = useSessionStore(s => s.cwd);
+	const titleIsChat = useActiveTabKind() === "chat";
+	const titleProjectOf = useProjectNames(
+		useMemo(() => (!titleIsChat && titleCwd ? [titleCwd] : []), [titleIsChat, titleCwd]),
+	);
+	// A linked worktree says which project it belongs to (`acme-web · Autopilot`), never its folder name.
+	const titleWorktree = !titleIsChat && titleCwd ? titleProjectOf(titleCwd) : null;
+	const titleProject = titleWorktree?.worktree ? titleWorktree.name : null;
+
 	useEffect(() => {
-		const name = titleExtension ?? titleSessionName ?? "OMPdesk";
+		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
+		const name = titleProject ? `${base} — ${titleProject}` : base;
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension]);
+	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => {
 		const state: RunProgressState = !progressEnabled

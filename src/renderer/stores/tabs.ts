@@ -46,6 +46,7 @@ import type {
 	SessionKind,
 	TabStatus,
 } from "../../shared/ipc-types";
+import { pathBaseName, worktreeKindOf } from "../../shared/project-origin";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
 import {
 	attachTabSession,
@@ -290,15 +291,21 @@ async function focusTab(previousTabId: string | null, id: string, view: SplitVie
  * soon as a title arrives.
  */
 export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): string {
-	// `||` everywhere: empty-string titles (never-generated auto-title slot)
-	// fall through like null. Worktree tabs label by their worktree NAME — the
-	// cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable.
-	// Untitled chats are global: their internal process cwd must never masquerade
-	// as a selected workspace in the tab strip.
-	const untitledBase = (entry: SessionTab) =>
-		entry.kind === "chat"
-			? translate("sidebar.newSession")
-			: entry.worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
+	// `||` everywhere: empty-string titles (never-generated auto-title slot) fall through like null. A worktree
+	// tab that is an Autopilot run or a parallel child reads as its project and kind (`acme-web · Autopilot`):
+	// the cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable, and the worktree name is a date
+	// or a random slug. Untitled chats are global: their internal process cwd must never masquerade as a
+	// selected workspace in the tab strip.
+	const untitledBase = (entry: SessionTab) => {
+		if (entry.kind === "chat") return translate("sidebar.newSession");
+		const worktree = entry.worktree;
+		const kind = worktree ? worktreeKindOf(worktree.branch) : "other";
+		if (worktree && kind !== "other") {
+			const label = translate(kind === "autopilot" ? "project.worktree.autopilot" : "project.worktree.agent");
+			return `${pathBaseName(worktree.baseCwd)} · ${label}`;
+		}
+		return worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
+	};
 	const base = tab.title || untitledBase(tab);
 	if (tab.title) return base;
 	let occurrence = 0;

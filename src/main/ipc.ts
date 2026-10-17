@@ -100,6 +100,7 @@ import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
+import { readProjectOrigin } from "./local/git/origin";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
@@ -1105,6 +1106,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const win = caller.win;
 		if (!win || typeof payload?.id !== "string") return false;
 		return deps.worktreePrompts.answer(win.webContents.id, payload.id, payload.accept === true);
+	});
+
+	// Where each folder comes from (a linked worktree's main checkout and what the worktree is for), from git.
+	ipc.handle(IPC_COMMANDS.PROJECT_ORIGINS_GET, async (_caller, cwds: unknown) => {
+		const folders = Array.isArray(cwds)
+			? [...new Set(cwds.filter((cwd): cwd is string => typeof cwd === "string" && cwd !== ""))].slice(0, 200)
+			: [];
+		const origins = await Promise.all(folders.map(cwd => readProjectOrigin(cwd)));
+		return Object.fromEntries(folders.map((cwd, index) => [cwd, origins[index] ?? null]));
 	});
 
 	// Move full event forwarding to the window's active tab (listeners move,

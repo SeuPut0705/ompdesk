@@ -146,6 +146,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.GET_SESSION_OWNER]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPTS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPT_ANSWER]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.PROJECT_ORIGINS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.RESUME_TAKE_NOTICE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.RESUME_CANCEL_WAIT]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.RESUME_STOP]: { dir: "invoke", permission: "workspace", mode: "pass" },

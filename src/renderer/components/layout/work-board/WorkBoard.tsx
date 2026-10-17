@@ -25,6 +25,7 @@ import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/fo
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
+import { useProjectNames } from "../../../lib/project-origin";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewItems, useAgentReviewStore } from "../../../stores/agent-review";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
@@ -454,6 +455,10 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
 	}, [tabId]);
+	const boardCwd = useSessionStore(state => state.cwd);
+	const boardProject = useProjectNames(useMemo(() => (boardCwd ? [boardCwd] : []), [boardCwd]));
+	// Only a linked worktree gets a line: `acme-web · Autopilot` instead of its folder name.
+	const projectLine = boardCwd ? boardProject(boardCwd) : null;
 
 	const turnActive = useTodoStore(state => state.turnActive);
 	const turnStartedAt = useTodoStore(state => state.turnStartedAt);
@@ -557,6 +562,11 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 					}
 					size="sm"
 				/>
+				{projectLine?.worktree ? (
+					<span className="omp-work-board-project" data-board-project title={projectLine.tooltip}>
+						{projectLine.name}
+					</span>
+				) : null}
 				{plan ? (
 					<span className="omp-work-board-progress">
 						<SegmentBar

@@ -13,9 +13,10 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, us
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { basename, formatTimeAgo, shortenPath } from "../../lib/format";
+import { formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { useProjectNames } from "../../lib/project-origin";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
@@ -151,6 +152,9 @@ export function SessionPickerDialog() {
 		}
 		return { filtered: merged, contentOnly: only };
 	}, [sessions, query, sortMode, contentHits]);
+	const projectNameOf = useProjectNames(
+		useMemo(() => (open ? sessions.map(session => session.cwd) : []), [open, sessions]),
+	);
 
 	// Clamp the highlight when the visible list shrinks (search, reload).
 	useEffect(() => {
@@ -325,8 +329,10 @@ export function SessionPickerDialog() {
 											{title}
 										</span>
 										<span className="block truncate text-sc-xs text-(--sc-text-muted)">
-											{effectiveShowPath && session.cwd ? shortenPath(session.cwd) : basename(session.cwd)} ·{" "}
-											{t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
+											{effectiveShowPath && session.cwd
+												? shortenPath(session.cwd)
+												: projectNameOf(session.cwd, session.title).name}{" "}
+											· {t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
 											{formatTimeAgo(session.modified)}
 										</span>
 										{snippet && (

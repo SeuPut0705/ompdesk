@@ -52,6 +52,17 @@
 	color: var(--sc-text-muted);
 }
 
+/* A linked worktree's project and what it is for (`acme-web · Autopilot`); the full path is its tooltip. */
+.omp-work-board-project {
+	grid-column: 1 / -1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-subtle);
+}
+
 .omp-work-board-status {
 	grid-column: 1 / -1;
 	margin: 0;

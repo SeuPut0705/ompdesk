@@ -29,8 +29,8 @@ import {
 import { capture, exitApp } from "./harness";
 
 const TEXT = {
-	en: { running: /Cycle \d/, close: "Close side panel" },
-	ko: { running: /사이클 \d/, close: "사이드 패널 닫기" },
+	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot" },
+	ko: { running: /사이클 \d/, close: "사이드 패널 닫기", autopilot: "오토파일럿" },
 } as const;
 
 const RELEASE_PREFS = {
@@ -84,6 +84,27 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.locator("[data-board-autopilot-totals]")).toBeVisible();
 				// And the composer chip names the cycle and the area.
 				await expect(page.locator("[data-composer-modes-trigger]")).toContainText(TEXT[language].running);
+
+				// The worktree's folder (`gui-<date>-<hash>`) never shows: the project and the kind do, the path is the tooltip.
+				const project = path.basename(profile.project);
+				const worktreeName = `${project} · ${TEXT[language].autopilot}`;
+				await expect(page.locator("[data-titlebar-worktree]")).toHaveText(TEXT[language].autopilot);
+				await expect(page.locator(".omp-titlebar-project").first()).toHaveText(project);
+				await expect(page.locator("[data-board-project]")).toHaveText(worktreeName);
+				await expect(page.locator(`[data-worktree-group="${project}"]`).first()).toHaveText(
+					TEXT[language].autopilot,
+				);
+				await expect.poll(() => page.title()).toContain(worktreeName);
+				const visible = await page.locator("body").innerText();
+				expect(visible).not.toMatch(/gui-2026|gui-agent/);
+				expect(await page.title()).not.toMatch(/gui-2026|gui-agent/);
+				expect(
+					await page
+						.locator(`[data-worktree-group="${project}"]`)
+						.first()
+						.locator("button[title]")
+						.getAttribute("title"),
+				).toContain(cwd);
 				await capture(page, `${language}-${theme}-board`);
 
 				// The overrides were applied to this session only: ask is gone, approvals are yolo, config.yml is untouched.

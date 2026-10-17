@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useProjectNames } from "../../lib/project-origin";
 import { pickWorkspaceDirectory, selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -76,6 +77,9 @@ export function WorkspaceDialog({
 		}
 		return [...byCwd.values()].sort((a, b) => b.lastModified - a.lastModified);
 	}, [sessions, cwd, workspaceLastUsed]);
+	const projectNameOf = useProjectNames(
+		useMemo(() => (device === undefined ? workspaces.map(ws => ws.cwd) : []), [device, workspaces]),
+	);
 
 	/** In-place workspace switches abort the active sidecar run. New-session
 	 * intent opens an independent agent tab and does not need this guard. */
@@ -168,7 +172,7 @@ export function WorkspaceDialog({
 									<span className="min-w-0 flex-1">
 										<span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
 											<span className={cx("truncate text-sc-md font-medium text-(--sc-text)")}>
-												{ws.name}
+												{device === undefined ? projectNameOf(ws.cwd).name : ws.name}
 											</span>
 											{ws.sessionCount > 0 && (
 												<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">

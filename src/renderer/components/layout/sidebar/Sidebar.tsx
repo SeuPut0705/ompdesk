@@ -63,6 +63,7 @@ import {
 	useState,
 } from "react";
 import type { SessionInfo } from "../../../../shared/ipc-types";
+import { type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -70,11 +71,12 @@ import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { basename, copyText, cx, formatTimeAgo } from "../../../lib/format";
+import { copyText, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
+import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -133,6 +135,14 @@ type SidebarSession = SessionInfo & { liveTabId?: string };
 interface WorkspaceGroup {
 	cwd: string;
 	name: string;
+	/** The full path (for a linked worktree also its project): the group header's tooltip. */
+	tooltip: string;
+	/** The main checkout the folder belongs to (the folder itself when git says nothing else). */
+	root: string;
+	/** Set when the folder is a linked worktree: where it comes from and what it is for. */
+	worktree: ProjectOrigin | null;
+	/** A worktree group shown right under its project's group. */
+	attached?: boolean;
 	sessions: SidebarSession[];
 }
 
@@ -621,6 +631,8 @@ export function Sidebar() {
 		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
 		[agentSessions, defaultWorkspace],
 	);
+	const projectName = useProjectNames(useMemo(() => codeSessions.map(session => session.cwd), [codeSessions]));
+	const kindLabels = useWorktreeKindLabels();
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
 		() =>
@@ -642,17 +654,46 @@ export function Sidebar() {
 			list.push(session);
 			byCwd.set(session.cwd, list);
 		}
-		const result: WorkspaceGroup[] = [...byCwd.entries()].map(([groupCwd, groupSessions]) => ({
-			cwd: groupCwd,
-			name: groupAliases[groupCwd] ?? (basename(groupCwd) || groupCwd),
-			sessions: groupSessions.toSorted(byPinThenRecency),
-		}));
-		return orderProjects(result, {
+		const result: WorkspaceGroup[] = [...byCwd.entries()].map(([groupCwd, groupSessions]) => {
+			const sorted = groupSessions.toSorted(byPinThenRecency);
+			// A linked worktree reads as its project + what it is for (a child's title names it); the folder
+			// name (`gui-<name>-<hash>`) never shows. The newest session's title speaks for a parallel child.
+			const shown = projectName(groupCwd, sorted[0] ? sessionDisplayTitle(sorted[0], "") : "");
+			return {
+				cwd: groupCwd,
+				name: groupAliases[groupCwd] ?? shown.name,
+				tooltip: shown.tooltip,
+				root: shown.root,
+				worktree: shown.worktree,
+				sessions: sorted,
+			};
+		});
+		const ordered = orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
 			recency: group => Math.max(...group.sessions.map(createdAt)),
 		});
-	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency]);
+		// A worktree's group sits right under its project's group when that one is listed.
+		const mainRoots = new Set(ordered.filter(group => !group.worktree).map(group => group.root));
+		const placed = new Set<string>();
+		return ordered.flatMap(group => {
+			if (group.worktree) return mainRoots.has(group.root) ? [] : [group];
+			if (placed.has(group.root)) return [group];
+			placed.add(group.root);
+			const attached = ordered
+				.filter(other => other.worktree && other.root === group.root)
+				// Under its project the group only needs what the worktree is for; elsewhere it names the project too.
+				.map(other => ({
+					...other,
+					attached: true,
+					name:
+						groupAliases[other.cwd] ??
+						(other.worktree ? worktreeLabel(other.worktree, kindLabels) : null) ??
+						other.name,
+				}));
+			return [group, ...attached];
+		});
+	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, projectName, kindLabels]);
 	const groups = useMemo(
 		() =>
 			query
@@ -861,7 +902,7 @@ export function Sidebar() {
 			}
 			toast({
 				variant: "success",
-				message: t("sidebar.moved", { name: groupAliases[target] ?? (basename(target) || target) }),
+				message: t("sidebar.moved", { name: groupAliases[target] ?? projectName(target).name }),
 			});
 		} catch (error) {
 			toastError({ title: t("sidebar.moveFailed"), error });
@@ -1259,8 +1300,8 @@ export function Sidebar() {
 					className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 					description={
 						variant === "recent" && session.cwd ? (
-							<span data-sidebar-row-project>
-								{groupAliases[session.cwd] ?? (basename(session.cwd) || session.cwd)}
+							<span data-sidebar-row-project title={projectName(session.cwd).tooltip}>
+								{groupAliases[session.cwd] ?? projectName(session.cwd, session.title).name}
 							</span>
 						) : undefined
 					}
@@ -1329,8 +1370,12 @@ export function Sidebar() {
 				{dragHandle => (
 					<>
 						<div
-							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							className={cx(
+								"group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)",
+								group.attached && "ml-3",
+							)}
 							data-workspace-group={group.cwd}
+							data-worktree-group={group.worktree ? group.worktree.project : undefined}
 							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 							{...dragHandle}
 						>
@@ -1385,7 +1430,7 @@ export function Sidebar() {
 										}
 									}}
 									tabIndex={tabIndex}
-									title={group.cwd}
+									title={group.tooltip}
 									type="button"
 								>
 									{groupCollapsed ? (
@@ -1393,11 +1438,20 @@ export function Sidebar() {
 									) : (
 										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 									)}
-									<FolderIcon
-										aria-hidden
-										className="size-(--sc-icon-sm) shrink-0"
-										data-sidebar-workspace-icon
-									/>
+									{group.worktree ? (
+										<GitBranch
+											aria-hidden
+											className="size-(--sc-icon-sm) shrink-0"
+											data-sidebar-workspace-icon
+											data-sidebar-worktree-icon
+										/>
+									) : (
+										<FolderIcon
+											aria-hidden
+											className="size-(--sc-icon-sm) shrink-0"
+											data-sidebar-workspace-icon
+										/>
+									)}
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
 									{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
 									{groupBusy && (

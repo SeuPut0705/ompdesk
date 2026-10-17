@@ -17,17 +17,19 @@ import {
 	XCircle,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { worktreeLabel } from "../../../shared/project-origin";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
 import { isDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
-import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
+import { cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
+import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView, useRemoteStore } from "../../stores/remote";
@@ -185,7 +187,15 @@ export function TitleBar() {
 	// sidebar's feed saves a second sessions.list per change. "local" filters by
 	// the focused tab's cwd, which a split pane in another project doesn't share.
 	const { sessions } = useSessionList("global");
-	const projectName = !isChat && cwd ? (groupAliases[cwd] ?? basename(cwd)) : t("sidebar.chats");
+	// A paired host's folders are not on this computer: git here cannot tell about them.
+	const projectNameOf = useProjectNames(
+		useMemo(() => (!isChat && cwd && device === undefined ? [cwd] : []), [isChat, cwd, device]),
+	);
+	const kindLabels = useWorktreeKindLabels();
+	const shown = projectNameOf(!isChat && cwd ? cwd : "");
+	const worktreeLabelText = shown.worktree ? worktreeLabel(shown.worktree, kindLabels) : null;
+	const projectName =
+		!isChat && cwd ? (groupAliases[cwd] ?? shown.worktree?.project ?? shown.name) : t("sidebar.chats");
 
 	const [editingName, setEditingName] = useState(false);
 	const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -371,7 +381,9 @@ export function TitleBar() {
 				)}
 				<ViewersChip />
 				<Tooltip
-					content={cwd && !isChat ? `${t("titlebar.switchProject")} · ${cwd}` : t("titlebar.switchProject")}
+					content={
+						cwd && !isChat ? `${t("titlebar.switchProject")} · ${shown.tooltip}` : t("titlebar.switchProject")
+					}
 					describe={false}
 					side="bottom"
 				>
@@ -390,6 +402,24 @@ export function TitleBar() {
 					aria-hidden
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 				/>
+				{worktreeLabelText !== null && (
+					<>
+						{/* A worktree reads as its project › what it is for (the folder name never shows). */}
+						<Tooltip content={shown.tooltip} describe={false} side="bottom">
+							<span
+								className="omp-titlebar-worktree flex min-w-0 max-w-40 shrink-[3] items-center gap-1 px-1 text-sc-sm text-(--sc-text-muted)"
+								data-titlebar-worktree=""
+							>
+								<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+								<span className="truncate">{worktreeLabelText}</span>
+							</span>
+						</Tooltip>
+						<ChevronRight
+							aria-hidden
+							className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
+						/>
+					</>
+				)}
 				{editingName ? (
 					<div className="relative w-72 min-w-0">
 						<Input

@@ -109,6 +109,7 @@ import {
 	type PreviewState,
 	type PreviewVisualEvent,
 } from "./preview";
+import type { ProjectOrigin } from "./project-origin";
 import { createSessionRpcClient, timeoutForCommand } from "./rpc-client";
 import type {
 	AgentSessionEvent,
@@ -625,6 +626,11 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcWorktreePrompt[]>(IPC_EVENTS.WORKTREE_PROMPTS, callback),
 			onNotice: (callback: (notice: IpcWorktreeNotice) => void) =>
 				subscribe<IpcWorktreeNotice>(IPC_EVENTS.WORKTREE_NOTICE, callback),
+		},
+
+		projectOrigins: {
+			get: (cwds: string[]) =>
+				transport.invoke(IPC_COMMANDS.PROJECT_ORIGINS_GET, cwds) as Promise<Record<string, ProjectOrigin | null>>,
 		},
 	};
 }

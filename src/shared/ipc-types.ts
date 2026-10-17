@@ -15,6 +15,7 @@ import type { MobileWebApi } from "./mobile-web";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import type { PreviewApi } from "./preview";
+import type { ProjectOrigin } from "./project-origin";
 import type { SessionRpcClient } from "./rpc-client";
 import type {
 	AgentSessionEvent,
@@ -358,6 +359,8 @@ export const IPC_COMMANDS = {
 	WORKTREE_PROMPTS_GET: "worktree-lifecycle:prompts-get",
 	/** Answer one worktree-lifecycle question (IpcWorktreePromptAnswer). */
 	WORKTREE_PROMPT_ANSWER: "worktree-lifecycle:answer",
+	/** The project each folder belongs to, from git (`string[]` → `Record<string, ProjectOrigin | null>`). */
+	PROJECT_ORIGINS_GET: "project-origin:get",
 } as const;
 
 export type RuntimeErrorSource =
@@ -1893,5 +1896,9 @@ export interface OmpApi {
 		answer(id: string, accept: boolean): Promise<void>;
 		onPrompts(callback: (prompts: IpcWorktreePrompt[]) => void): () => void;
 		onNotice(callback: (notice: IpcWorktreeNotice) => void): () => void;
+	};
+	/** The project each folder belongs to (the main checkout a linked worktree was cut from), read from git on this computer. */
+	projectOrigins: {
+		get(cwds: string[]): Promise<Record<string, ProjectOrigin | null>>;
 	};
 }

@@ -19,6 +19,7 @@ import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useComposerStore } from "../../../stores/composer";
 import { useMessagesStore } from "../../../stores/messages";
+import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
@@ -253,6 +254,7 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useQueueStore.setState({ steering: [], followUp: [] });
 	useSidebarPrefs.getState().reset();
+	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
 	useUiStore.setState({
 		panelVisible: false,
@@ -1941,5 +1943,107 @@ describe("Sidebar with a split on screen", () => {
 		} finally {
 			useTabsStore.setState({ openTab: original.openTab, switchTab: original.switchTab });
 		}
+	});
+});
+
+describe("Sidebar worktree groups", () => {
+	const AUTOPILOT = "/home/me/.omp/wt/h1/gui-2026-10-17-1ccaba4";
+	const CHILD = "/home/me/.omp/wt/h1/gui-agent-5wxp8i-23abcde";
+	const origin = (branch: string, kind: "autopilot" | "agent", slug: string) => ({
+		project: "alpha",
+		root: "/work/alpha",
+		worktree: { kind, branch, slug },
+	});
+
+	function mountWithWorktrees(extra: Record<string, unknown> = {}) {
+		const omp = installMockOmp([
+			// The worktree sessions are the newest: by recency alone their groups would sit above alpha.
+			session("/wt/auto.jsonl", AUTOPILOT, {
+				title: "Cycle 3",
+				created: "2026-02-03T00:00:00Z",
+				modified: "2026-02-03T00:00:00Z",
+			}),
+			session("/wt/child.jsonl", CHILD, {
+				title: "Approach A",
+				created: "2026-02-02T00:00:00Z",
+				modified: "2026-02-02T00:00:00Z",
+			}),
+			...LIST,
+		]);
+		const get = vi.fn(async (cwds: string[]) =>
+			Object.fromEntries(
+				cwds.map(cwd => [
+					cwd,
+					cwd === AUTOPILOT
+						? origin("autopilot/2026-10-17", "autopilot", "2026-10-17")
+						: cwd === CHILD
+							? origin("omp/agent/agent-5wxp8i", "agent", "agent-5wxp8i")
+							: cwd === "/work/alpha"
+								? { project: "alpha", root: "/work/alpha", worktree: null }
+								: null,
+				]),
+			),
+		);
+		(omp as unknown as Record<string, unknown>).projectOrigins = { get, ...extra };
+		seedStores();
+		return get;
+	}
+
+	it("sits a worktree right under its project, labelled by what it is for", async () => {
+		mountWithWorktrees();
+		await mount(<Sidebar />);
+
+		const order = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+			(element as unknown as Element).getAttribute("data-workspace-group"),
+		);
+		expect(order.indexOf(AUTOPILOT)).toBe(order.indexOf("/work/alpha") + 1);
+		expect(order.indexOf(CHILD)).toBe(order.indexOf("/work/alpha") + 2);
+
+		const header = (cwd: string) => container.querySelector(`[data-workspace-group="${cwd}"]`) as unknown as Element;
+		expect(header(AUTOPILOT).textContent?.trim()).toBe("Autopilot");
+		expect(header(CHILD).textContent?.trim()).toBe("Parallel work");
+		expect(header(AUTOPILOT).getAttribute("data-worktree-group")).toBe("alpha");
+		expect(header("/work/alpha").getAttribute("data-worktree-group")).toBeNull();
+		// The folder names stay out of the sidebar; the full path is the tooltip.
+		expect(container.textContent).not.toContain("gui-2026");
+		expect(container.textContent).not.toContain("gui-agent");
+		const tooltip = header(AUTOPILOT).querySelector("button[aria-expanded]")?.getAttribute("title");
+		expect(tooltip).toContain(AUTOPILOT);
+		expect(tooltip).toContain("alpha");
+	});
+
+	it("names the project too when its own group is not listed", async () => {
+		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === AUTOPILOT
+							? {
+									project: "beta",
+									root: "/elsewhere/beta",
+									worktree: { kind: "autopilot", branch: "autopilot/x", slug: "x" },
+								}
+							: null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		await mount(<Sidebar />);
+		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
+		expect(header?.textContent?.trim()).toBe("beta · Autopilot");
+	});
+
+	it("shows the folder without its gui-…-hash dressing while git has not answered, or cannot", async () => {
+		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) => Object.fromEntries(cwds.map(cwd => [cwd, null]))),
+		};
+		seedStores();
+		await mount(<Sidebar />);
+		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
+		expect(header?.textContent?.trim()).toBe("2026-10-17");
 	});
 });
