@@ -3,7 +3,7 @@ import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { SubagentNode } from "../../../stores/subagents";
 import { agentConclusion, finishedHeadline, mergeRunAgents, projectPath, runSpan, runTranscript } from "./work-run";
 
-// Shapes recorded from real omp 18.10 (e2e/fixtures/real-live-work.json): a detached task
+// Shapes recorded from real omp 18.10 (the real-work-map audit): a detached task
 // returns pending progress rows; the plain-text final message arrives in an async-result.
 const spawn: AgentMessage = {
 	role: "assistant",

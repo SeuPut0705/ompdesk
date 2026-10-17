@@ -28,6 +28,17 @@ const SESSIONS = [session("a", "/code/app", 1), session("b", "/code/app", 40), s
 
 /** Pending imports, settled by the test in order. */
 let pending: Array<() => void> = [];
+const importPending = (_source: string, foreignId: string) =>
+	new Promise<RpcResponse>(resolve => {
+		pending.push(() =>
+			resolve({
+				type: "response",
+				command: "import_foreign_session",
+				success: true,
+				data: { sessionPath: `/omp/${foreignId}.jsonl`, sessionId: foreignId, cwd: "/code/app" },
+			}),
+		);
+	});
 const rpc = {
 	listForeignSessions: vi.fn(
 		async (): Promise<RpcResponse> => ({
@@ -37,19 +48,7 @@ const rpc = {
 			data: { sessions: SESSIONS },
 		}),
 	),
-	importForeignSession: vi.fn(
-		(_source: string, foreignId: string) =>
-			new Promise<RpcResponse>(resolve => {
-				pending.push(() =>
-					resolve({
-						type: "response",
-						command: "import_foreign_session",
-						success: true,
-						data: { sessionPath: `/omp/${foreignId}.jsonl`, sessionId: foreignId, cwd: "/code/app" },
-					}),
-				);
-			}),
-	),
+	importForeignSession: vi.fn(importPending),
 };
 Object.assign(window as unknown as Record<string, unknown>, { omp: { rpc } });
 
@@ -96,6 +95,7 @@ afterEach(async () => {
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	pending = [];
 	rpc.importForeignSession.mockClear();
+	rpc.importForeignSession.mockImplementation(importPending);
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.getState().reset();
 });
@@ -153,5 +153,64 @@ describe("ImportForeignDialog", () => {
 		}
 		expect(rpc.importForeignSession).toHaveBeenCalledTimes(3);
 		expect(useToastStore.getState().toasts.at(-1)?.message).toBe(translate("import.imported", { count: 3 }));
+	});
+
+	/** Session "b" fails the way a truncated transcript does; the others wait for the test. */
+	const failB = () =>
+		rpc.importForeignSession.mockImplementation((source: string, foreignId: string) =>
+			foreignId === "b"
+				? Promise.resolve({
+						type: "response",
+						command: "import_foreign_session",
+						success: false,
+						error: "The transcript ends mid-line",
+					})
+				: importPending(source, foreignId),
+		);
+	const importAll = async (count: number) => {
+		await act(async () => change(document.body.querySelector("[data-import-select-all]")));
+		const button = Array.from(document.body.querySelectorAll("button")).find(candidate =>
+			candidate.textContent?.includes(translate("import.importN", { count })),
+		);
+		await act(async () => button?.click());
+		await flush();
+	};
+	const row = (id: string) => rows().find(label => label.textContent?.includes(`Session ${id}`));
+
+	it("a failed import says why and stays selected; the imported ones are marked", async () => {
+		failB();
+		await mount();
+		await importAll(3);
+		while (pending.length > 0) {
+			await act(async () => pending.shift()?.());
+			await flush();
+		}
+		expect(document.body.textContent).toContain("The transcript ends mid-line");
+		expect(useToastStore.getState().toasts.at(-1)?.message).toBe(translate("import.imported", { count: 2 }));
+		expect(row("a")?.textContent).toContain(translate("import.done"));
+		expect(row("c")?.textContent).toContain(translate("import.done"));
+		expect(row("b")?.textContent).not.toContain(translate("import.done"));
+		expect(row("b")?.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked).toBe(true);
+		expect(row("a")?.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked).toBe(false);
+	});
+
+	it("closed mid-import, it says the rest goes on, then reports the imported and the failed by toast", async () => {
+		failB();
+		await mount();
+		await importAll(3);
+		const close = document.body.querySelector(`button[aria-label="${translate("common.close")}"]`);
+		await act(async () => (close as HTMLButtonElement | null)?.click());
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toContain(translate("import.background"));
+		// App renders the dialog from the store flag: closing unmounts it.
+		expect(useUiStore.getState().importDialogOpen).toBe(false);
+		await act(async () => root?.unmount());
+		root = null;
+		while (pending.length > 0) {
+			await act(async () => pending.shift()?.());
+			await flush();
+		}
+		const toasts = useToastStore.getState().toasts;
+		expect(toasts.map(toast => toast.message)).toContain(translate("import.imported", { count: 2 }));
+		expect(toasts.find(toast => toast.title === translate("import.failedN", { count: 1 }))).toBeDefined();
 	});
 });

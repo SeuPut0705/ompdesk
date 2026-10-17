@@ -3,15 +3,15 @@
  * `regenerate_title` and names the session "Auto N: <prompt>" the way resources/gui-bridge/modes/auto-title.ts does;
  * the real bridge logic against stock is covered by src/main/bridge-auto-title*.test.ts). Covers: the first
  * prompt names the session, a typed name is never replaced (not by later turns), the editor's auto button names it
- * again and makes it automatic so it follows the work from then on, typing stops that again, a failed request is
- * one inline sentence (never a toast), and the Settings switch is live. A paired host's tab doing the work on the
- * host is covered by the remote command routing tests in main.
+ * again and makes it automatic so it follows the work from then on, and typing stops that again. A failed request
+ * (TitleBar.test.tsx) and the live Settings switch (AutoTitleRow.test.tsx, bridge-auto-title.test.ts) are
+ * component-tested; a paired host's tab doing the work on the host is covered by the remote command routing tests.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
+import { exitApp, launchApp, recordsOfType } from "./harness";
 
 interface Launched {
 	app: ElectronApplication;
@@ -126,37 +126,6 @@ test("names the session from the first prompt, keeps a typed name, and the auto 
 		await runTurn(page, 9);
 		await expect(titleButton(page)).toHaveText("Final name");
 		expect(await recordsOfType(record, "regenerate_title")).toHaveLength(1);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("the Settings switch is live: off keeps the session untitled, on names it from the next prompt", async () => {
-	const launched = await launch({ prefs: { autoTitle: false } });
-	const { page, record } = launched;
-	try {
-		await runTurn(page, 1);
-		await expect(titleButton(page)).not.toHaveText(/^Auto /);
-		expect((await recordsOfType(record, "auto_title_set")).at(0)).toMatchObject({ enabled: false });
-
-		const settings = page.locator("[data-settings-page]");
-		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-		await settings.locator('[data-settings-section="agent"]').click();
-		const autoTitleSwitch = settings.locator("#setting-gui-autoTitle").getByRole("switch");
-		const evolveSwitch = settings.locator("#setting-gui-autoTitleEvolve").getByRole("switch");
-		await expect(autoTitleSwitch).not.toBeChecked();
-		await expect(evolveSwitch).toBeDisabled();
-		await autoTitleSwitch.click();
-		await expect(autoTitleSwitch).toBeChecked();
-		await expect(evolveSwitch).toBeEnabled();
-		await expect
-			.poll(async () => (await recordsOfType(record, "auto_title_set")).at(-1))
-			.toMatchObject({ enabled: true, evolve: true });
-		await page.keyboard.press("Escape");
-		await expect(page.locator("[data-settings-page]")).toHaveCount(0);
-
-		await runTurn(page, 2, "second prompt");
-		await expect(titleButton(page)).toHaveText("Auto 1: second prompt");
 	} finally {
 		await finish(launched);
 	}

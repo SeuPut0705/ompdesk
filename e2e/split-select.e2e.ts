@@ -318,6 +318,32 @@ for (const [language, theme] of variants(RUNS)) {
 			expect(await layout(page)).toEqual(before);
 			expect(await selectedRows(page, names)).toEqual(members);
 			await capture("4-relaunch-restored");
+
+			// 5. Every pane's composer fits: its placeholder and toolbar, wide and in a narrow window, also with a
+			// running turn's steer chip and Stop beside Send and a queue prefix badge on the draft.
+			const fits = async () => {
+				for (const fit of await composerFit(page)) {
+					expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
+					expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+				}
+			};
+			await fits();
+			await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(820, 860));
+			await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(820);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+			await fits();
+			const pane = page.locator(".omp-session-pane").first();
+			const field = pane.locator(".omp-composer-input");
+			await field.fill("fixture stream");
+			await field.press("Enter");
+			const stop = pane.getByRole("button", { name: new RegExp(`^${language === "ko" ? "중단" : "Stop"}`) });
+			await expect(stop).toBeVisible({ timeout: 30_000 });
+			await field.fill("-> then run the checks");
+			await capture("5-narrow-streaming");
+			await fits();
+			await field.fill("");
+			await stop.click();
+			await expect(stop).toHaveCount(0);
 			expect(launched.errors).toEqual([]);
 		} finally {
 			await exitApp(launched.app);
@@ -344,82 +370,4 @@ async function composerFit(page: Page) {
 			};
 		}),
 	);
-}
-
-for (const [language, theme] of variants(RUNS)) {
-	test(`a true 2x2 split: all four sessions selected, composers fit, normal and narrow (${language}-${theme})`, async () => {
-		test.setTimeout(240_000);
-		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-split-2x2-")));
-		const captures = process.env.OMP_GUI_SPLIT_SELECT_CAPTURES;
-		if (captures) await fs.mkdir(captures, { recursive: true });
-		const launched = await launch(root, language, theme);
-		const { app, page } = launched;
-		const capture = async (stage: string) => {
-			const file = `split-2x2-${stage}-${language}-${theme}.png`;
-			await page.screenshot({
-				path: captures ? path.join(captures, file) : test.info().outputPath(file),
-				animations: "disabled",
-				scale: "css",
-			});
-		};
-		try {
-			const first = (await activeTab(page)).tabId;
-			await makeSession(page, first, "Alpha");
-			await openSession(page, "Beta");
-			await openSession(page, "Gamma");
-			await openSession(page, "Delta");
-			// Alpha | Beta on top, Gamma under Alpha, Delta under Beta: the four panes form a grid.
-			// Delta is focused when the drags begin: Delta | Alpha on top, Beta under Delta, Gamma under Alpha.
-			await dragOnto(page, "Alpha", page.locator(".omp-split-workspace"), 0.92, 0.5, "right");
-			await expect(page.locator(".omp-session-pane")).toHaveCount(2);
-			await dragOnto(page, "Beta", page.locator("[data-split]").first(), 0.5, 0.92, "bottom");
-			await expect(page.locator(".omp-session-pane")).toHaveCount(3);
-			await dragOnto(page, "Gamma", page.locator("[data-split]").nth(2), 0.5, 0.92, "bottom");
-			await expect(page.locator(".omp-session-pane")).toHaveCount(4);
-			const boxes = await layout(page);
-			expect(new Set(boxes.map(pane => pane.x)).size).toBe(2);
-			expect(new Set(boxes.map(pane => pane.y)).size).toBe(2);
-			expect(await selectedRows(page, NAMES)).toEqual([...NAMES]);
-			await capture("1-wide");
-			// Wide: every placeholder fits its field.
-			for (const fit of await composerFit(page)) {
-				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
-				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
-			}
-			await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(820, 860));
-			await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(820);
-			await capture("2-narrow");
-			const narrow = await composerFit(page);
-			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-			for (const fit of narrow) {
-				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
-				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
-			}
-			// A running turn adds the steer chip and Stop beside Send: the field's own hint and the
-			// toolbar still fit a 2x2 pane at this width, with a draft that has a queue prefix badge too.
-			const pane = page.locator(".omp-session-pane").first();
-			const field = pane.locator(".omp-composer-input");
-			await field.fill("fixture stream");
-			await field.press("Enter");
-			const stop = pane.getByRole("button", { name: new RegExp(`^${language === "ko" ? "중단" : "Stop"}`) });
-			await expect(stop).toBeVisible({ timeout: 30_000 });
-			await field.fill("-> then run the checks");
-			await capture("3-narrow-streaming");
-			for (const fit of await composerFit(page)) {
-				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
-				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
-			}
-			await field.fill("");
-			await expect(field).toHaveAttribute(
-				"placeholder",
-				language === "ko" ? "추가 지시 입력…" : "Add an instruction…",
-			);
-			await stop.click();
-			await expect(stop).toHaveCount(0);
-			expect(launched.errors).toEqual([]);
-		} finally {
-			await exitApp(app);
-			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-		}
-	});
 }

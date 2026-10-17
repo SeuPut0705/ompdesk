@@ -340,10 +340,10 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		for (const theme of ["light", "dark"] as const) {
+		// Registered only with OMP_GUI_MOBILE_SHELL=<dir>: a capture asserts nothing the tests above do not.
+		for (const theme of captures ? (["light", "dark"] as const) : []) {
 			for (const lang of ["en", "ko"] as const) {
 				test(`captures: ${theme} ${lang}`, async () => {
-					test.skip(!captures, "OMP_GUI_MOBILE_SHELL=<dir> writes the captures");
 					const page = await openHarness(browser, device.name, { theme, lang });
 					const tag = `${engine.name}-${device.name.replace(/ /g, "-")}-${theme}-${lang}`;
 					await capture(page, "session", tag);

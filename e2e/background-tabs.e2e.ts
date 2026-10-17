@@ -5,11 +5,11 @@ import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
 import { capture, exitApp, launchApp, recordsOfType } from "./harness";
 
-// What a tab does while another one is in front (v0.8.0): its blocking dialogs,
-// plan proposals, run-end notifications, next-prompt suggestion and subagent
-// rows must all still reach the user. Every test drives one tab through the
-// fake omp's `fixture:*` commands while a second tab is focused, addressing the
-// background tab's own omp with `commandForTab`.
+// What a tab does while another one is in front (v0.8.0): its blocking dialogs and
+// run-end notifications must still reach the user, and its sidebar row shows the run.
+// Every test drives one tab through the fake omp's `fixture:*` commands while a second
+// tab is focused, addressing the background tab's own omp with `commandForTab`. Plan
+// cards, subagent rows and row states are component-tested (Sidebar, SidebarSubagents).
 
 interface Notification {
 	title: string;
@@ -29,22 +29,13 @@ test.beforeEach(async () => {
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
-	// @legacy-next-prompt tests drive the extension's widget, which the renderer ignores while the built-in suggestions are on.
-	const builtinNextPrompt = !test.info().tags.includes("@legacy-next-prompt");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, nextPromptSuggestions: builtinNextPrompt }),
-	);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	app = await launchApp({
 		project,
 		desktop,
 		agent,
 		profile,
-		env: {
-			OMP_GUI_TEST_RECORD: record,
-			// Tests tagged @session-files run on stock-shaped session files, so their rows come from the session index.
-			OMP_GUI_TEST_SESSION_FILES: test.info().tags.includes("@session-files") ? "1" : "",
-		},
+		env: { OMP_GUI_TEST_RECORD: record },
 	});
 	page = await app.firstWindow();
 	errors = [];
@@ -167,28 +158,6 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 	expect(errors).toEqual([]);
 });
 
-test("a plan proposed in the background shows its approval card after switching back", async () => {
-	const background = await activeTab();
-	await nameTab(background, "Planning tab");
-	await openTab();
-
-	await fixtureCommand(background, "fixture:plan");
-	// The proposal belongs to the background tab: nothing shows in front.
-	await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-
-	await switchTo(background);
-	const card = page.getByRole("region", { name: "Fixture rollout plan" });
-	await expect(card).toContainText("Ship the background tab coverage.");
-	await expect(card).toContainText("fixture-rollout.md");
-	await expect(card.getByRole("button", { name: "Approve and execute" })).toBeEnabled();
-	// Hydrate still re-syncs it from the background tab's own omp (get_plan_mode).
-	const owner = await sessionIdOf(background);
-	expect(await recordsOfType(record, "modes.get_plan_mode")).toContainEqual(
-		expect.objectContaining({ recordedBy: owner }),
-	);
-	expect(errors).toEqual([]);
-});
-
 test("a background run finishing notifies under that tab's name", async () => {
 	// Notifications only fire while the window is unfocused. Headless windows are
 	// never focused, but Playwright emulates page focus for its pages (one CDP
@@ -212,40 +181,17 @@ test("a background run finishing notifies under that tab's name", async () => {
 	expect(errors).toEqual([]);
 });
 
-test("sidebar subagent rows start collapsed, expand on click, and a finished one leaves the list at once", async () => {
+// The rows' states, subagent disclosure and order are component-tested (Sidebar, SidebarSubagents); this keeps the
+// real layout and the captures.
+test("a running row shows its run on the edge and keeps the whole title, at rest and on hover", async () => {
 	const owner = await activeTab();
 	await nameTab(owner, "Fan-out tab");
-	// The main turn keeps running while its subagents work (5d1de7d: their marks last only that long).
 	await startRun("fixture running");
-	const other = await openTab();
-	await fixtureCommand(owner, "fixture:subagents");
-	await switchTo(owner);
-	await nameTab(other, "Failed tab");
-
-	const sessionKey = `tab:${owner}`;
-	const toggle = page.locator(`[data-sidebar-subagents-toggle="${sessionKey}"]`);
-	const rows = page.locator(`[data-sidebar-subagents="${sessionKey}"] [data-sidebar-subagent]`);
-	// Two live subagents (the finished reviewer is not listed), folded away.
-	await expect(toggle).toHaveAttribute("aria-expanded", "false");
-	await expect(toggle).toHaveAccessibleName("Show subagents (2)");
-	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(0);
-
-	await toggle.click();
-	await expect(toggle).toHaveAttribute("aria-expanded", "true");
-	await expect(rows).toHaveCount(2);
-	await expect(rows.nth(0)).toHaveAttribute("data-sidebar-subagent", "sa-explore");
-	await expect(rows.nth(1)).toHaveAttribute("data-sidebar-subagent", "sa-nested");
-	await expect(page.locator('[data-sidebar-subagent="sa-nested"]').locator("xpath=..")).toHaveAttribute(
-		"data-subagent-depth",
-		"1",
-	);
-
 	// The run shows on the row's left edge, not as a spinner, and the title keeps the whole row: no padding is
 	// reserved for actions at rest or on hover, so the title grows past the room the old layout kept (3.5rem+).
 	const ownerRow = sidebarRow(owner);
 	const titleBox = ownerRow.locator("button[data-roving-item]").locator("xpath=..");
 	await expect(ownerRow).toHaveAttribute("data-signal", "running");
-	await expect(ownerRow).toContainText("Running");
 	await expect(ownerRow.locator(".omp-spinner, [role='status']")).toHaveCount(0);
 	await expect(titleBox).toHaveCSS("padding-right", "0px");
 	const restWidth = (await titleBox.boundingBox())?.width ?? 0;
@@ -269,90 +215,6 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 	}
 	await page.emulateMedia({ colorScheme: "light" });
 	await fixtureCommand(owner, "fixture:confirm:cancel");
-	await expect(ownerRow).toHaveAttribute("data-signal", "running");
-
-	// An error row: main pushes the tab's status the way a failed health check would (tab:status), and the
-	// edge turns danger-red with the word "Failed" for screen readers.
-	const failedRow = sidebarRow(other);
-	const failedTab = (await tabs()).find(tab => tab.tabId === other);
-	if (!failedTab) throw new Error("No second tab");
-	await app.evaluate(
-		({ BrowserWindow }, payload) => {
-			BrowserWindow.getAllWindows()[0]?.webContents.send("tab:status", payload);
-		},
-		{ ...failedTab, status: "error" },
-	);
-	await expect(failedRow).toHaveAttribute("data-signal", "error");
-	await expect(failedRow).toContainText("Failed");
-	for (const scheme of ["light", "dark"] as const) {
-		await page.emulateMedia({ colorScheme: scheme });
-		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
-		await capture(page, `sidebar-error-${scheme}`);
-	}
-	await page.emulateMedia({ colorScheme: "light" });
-	await app.evaluate(({ BrowserWindow }, payload) => {
-		BrowserWindow.getAllWindows()[0]?.webContents.send("tab:status", payload);
-	}, failedTab);
-	await expect(failedRow).not.toHaveAttribute("data-signal", /.+/);
-
-	// A finished agent leaves the list and the count right away, though the main turn keeps running.
-	const nested = page.locator('[data-sidebar-subagent="sa-nested"]');
-	await fixtureCommand(owner, "fixture:subagents:finish:sa-nested");
-	await expect(nested).toHaveCount(0);
-	await expect(rows).toHaveCount(1);
-	await expect(rows.first()).toHaveAttribute("data-sidebar-subagent", "sa-explore");
-	await expect(toggle).toHaveAccessibleName("Hide subagents (1)");
-
-	await fixtureCommand(owner, "fixture:subagents:finish:sa-explore");
-	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(0);
-	await expect(toggle).toHaveCount(0);
 	await fixtureCommand(owner, "fixture:finish");
-	expect(errors).toEqual([]);
-});
-
-test("a background session's sidebar row follows its run, dialogs, title, plan and subagents without a visit", {
-	tag: "@session-files",
-}, async () => {
-	const background = await activeTab();
-	await startRun("fixture running");
-	// The run wrote the session file: this row is the session index's, keyed by that file.
-	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === background)?.sessionPath).toBeTruthy();
-	const sessionPath = (await tabs()).find(tab => tab.tabId === background)?.sessionPath ?? "";
-	const row = page.locator(`[data-session-path="${sessionPath}"]`);
-	const front = await openTab();
-	await expect(row).not.toHaveAttribute("data-live", "true");
-	await expect(row).toContainText("Running");
-
-	await fixtureCommand(background, "fixture:title:Release prep");
-	await expect(row).toContainText("Release prep");
-
-	await fixtureCommand(background, "fixture:confirm");
-	await expect(row).toContainText("Needs input");
-	await fixtureCommand(background, "fixture:confirm:cancel");
-	await expect(row).not.toContainText("Needs input");
-	await expect(row).toContainText("Running");
-
-	const subagents = page.locator(`[data-sidebar-subagents-toggle="${sessionPath}"]`);
-	await fixtureCommand(background, "fixture:subagents");
-	await expect(subagents).toHaveAccessibleName("Show subagents (2)");
-	await fixtureCommand(background, "fixture:subagents:finish:sa-nested");
-	// The finished agent leaves the list and the count at once.
-	await expect(subagents).toHaveAccessibleName("Show subagents (1)");
-	await subagents.click();
-	await expect(page.locator(`[data-sidebar-subagents="${sessionPath}"] [data-sidebar-subagent]`)).toHaveCount(1);
-	await expect(page.locator(`[data-sidebar-subagent="sa-nested"]`)).toHaveCount(0);
-	await subagents.click();
-	await expect(subagents).toHaveAccessibleName("Show subagents (1)");
-
-	await fixtureCommand(background, "fixture:finish");
-	await expect(row).not.toContainText("Running");
-	await expect(row.locator("[data-sidebar-done]")).toHaveCount(1);
-
-	await fixtureCommand(background, "fixture:plan");
-	await expect(row).toContainText("Needs approval");
-	await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-
-	// Every update above reached the row while the other tab stayed in front.
-	expect(await activeTab()).toBe(front);
 	expect(errors).toEqual([]);
 });

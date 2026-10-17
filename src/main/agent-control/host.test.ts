@@ -8,8 +8,10 @@ import {
 } from "../../shared/agent-control";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import type { SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { ClientWindow } from "../web/client-window";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
+import { AgentLimits } from "./limits";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
@@ -29,6 +31,9 @@ function setup(
 		prefs?: Record<string, unknown>;
 		tabs?: Partial<IpcTabInfo>[];
 		requests?: IpcOpenExtensionRequest[];
+		schedules?: AgentControlHostDeps["schedules"];
+		memory?: unknown;
+		limits?: AgentLimits;
 	} = {},
 ) {
 	const win = window();
@@ -62,6 +67,7 @@ function setup(
 			if (command.type === "worktree_create")
 				return ok({ path: "/wt/agent-1", branch: "omp/agent/agent-1", baseCwd: "/repo" });
 			if (command.type === "agent_control_confirm") return ok({ approved: true });
+			if (command.type === "get_memory_report") return ok(options.memory);
 			return ok();
 		},
 		spawnTab: async (_win, payload) => {
@@ -73,8 +79,9 @@ function setup(
 		notify: vi.fn(),
 		deleteSession: vi.fn(async () => undefined),
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
+		schedules: options.schedules,
 	};
-	const runtime = new AgentControlRuntime(deps);
+	const runtime = new AgentControlRuntime(deps, options.limits);
 	return { runtime, win, deps, commands, spawned, tabs, activity, prefs };
 }
 
@@ -180,4 +187,69 @@ describe("AgentControlRuntime", () => {
 		for (const observer of activity) observer({ type: "released", tabId: "main0001" });
 		expect((await runtime.run(win, "main0001", T.list, {})).isError).toBe(false);
 	});
+
+	it("creates an agent's schedule through the Schedules service, lists it and cancels it", async () => {
+		let state: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
+		const requests: SchedulesRequest[] = [];
+		const service = {
+			state: () => state,
+			command: vi.fn(async (request: SchedulesRequest) => {
+				requests.push(request);
+				if (request.action === "save") {
+					const made = { ...request.draft, id: "sched-1", createdAt: "2026-10-18T00:00:00Z" };
+					state = { ...state, schedules: [...state.schedules, made], nextRuns: { "sched-1": "10:30" } };
+				}
+				if (request.action === "delete")
+					state = { ...state, schedules: state.schedules.filter(schedule => schedule.id !== request.id) };
+				return state;
+			}),
+		};
+		const { runtime, win } = setup({ schedules: () => service });
+		const created = await runtime.run(win, "main0001", T.schedule, {
+			action: "create",
+			name: "Nightly check",
+			prompt: "run the checks",
+			every_minutes: 60,
+		});
+		expect(created.isError, created.text).toBe(false);
+		expect(created.text).toContain("id sched-1; next run 10:30");
+		expect(requests[0]).toMatchObject({
+			action: "save",
+			draft: { prompt: "run the checks", cwd: "/repo", autoApprove: false, enabled: true },
+		});
+		const listed = await runtime.run(win, "main0001", T.schedule, { action: "list" });
+		expect(listed.text).toContain("[made by an agent: you can cancel it]");
+		const cancelled = await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "sched-1" });
+		expect(cancelled.isError).toBe(false);
+		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
+		expect(state.schedules).toEqual([]);
+	});
+
+	it.each([
+		{ memory: { backend: "local", capabilities: { save: true } }, saved: true },
+		{ memory: { backend: "off", capabilities: { save: true } }, saved: false },
+		{ memory: { backend: "local", capabilities: { save: false } }, saved: false },
+	])(
+		"saves a delegation lesson through stock's memory_save only when memory can save ($memory.backend, save $memory.capabilities.save)",
+		async ({ memory, saved }) => {
+			const limits = new AgentLimits();
+			limits.reserveOpens("main0001", 0, 1);
+			const { runtime, win, commands } = setup({ memory, limits });
+			const outcome = await runtime.run(win, "main0001", T.remember, { lesson: "split by package" });
+			expect(outcome.isError, outcome.text).toBe(false);
+			const saves = commands.filter(entry => entry.command.type === "memory_save").map(entry => entry.command);
+			expect(saves).toEqual(
+				saved
+					? [
+							{
+								type: "memory_save",
+								content: "OMPdesk delegation lesson: split by package",
+								context: "OMPdesk delegation",
+							},
+						]
+					: [],
+			);
+			expect(outcome.text).toMatch(saved ? /Saved to the user's memory/ : /memory is off/);
+		},
+	);
 });

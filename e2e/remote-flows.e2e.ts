@@ -429,8 +429,11 @@ for (const language of variants(["en", "ko"] as const))
 					await expect(ompRow).toContainText("18.12.0", { timeout: 30_000 });
 					await expect(ompRow).toContainText("18.13.0");
 					await expect(ompRow.getByRole("button", { name: t("updates.core.update") })).toBeVisible();
+					// B26: the host's OMPdesk, with the version the host reports (the app's own, package.json).
 					const desktopRow = settings.locator("#setting-updates-host");
-					await expect(desktopRow.locator("[data-host-desktop-version]")).not.toBeEmpty();
+					await expect(desktopRow).toContainText(t("updates.host.name"));
+					const hostVersion = JSON.parse(await fs.readFile(path.resolve("package.json"), "utf8")).version;
+					await expect(desktopRow.locator("[data-host-desktop-version]")).toContainText(hostVersion);
 					await ompRow.scrollIntoViewIfNeeded();
 					await capture(a, `${language}-${theme}-updates-host`);
 					await closeSettings();
@@ -466,6 +469,24 @@ for (const language of variants(["en", "ko"] as const))
 						tb("settings.section.general"),
 					);
 					await capture(a, `${language}-${theme}-host-appearance`);
+					await closeSettings();
+					// A local tab brings A's own back, and nothing of B's was saved.
+					const own = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === localTab.tabId);
+					await focusTab(
+						localTab.tabId,
+						a
+							.locator(
+								`[data-session-path="tab:${localTab.tabId}"], [data-session-path="${own?.sessionPath ?? ""}"]`,
+							)
+							.first(),
+					);
+					await expect.poll(scheme).toBe(theme);
+					expect(
+						JSON.parse(await fs.readFile(path.join(clientProfile.desktop, "prefs.json"), "utf8")),
+					).toMatchObject({ language, themeName: theme, useHostAppearance: true });
+					await focusTab(remoteTab, section.locator(`[data-device-session="${shared}"]`));
+					await expect.poll(scheme).toBe(hostTheme);
+					await openSection("connections");
 					await appearance.getByRole("switch").click();
 					await expect.poll(scheme).toBe(theme);
 					await closeSettings();

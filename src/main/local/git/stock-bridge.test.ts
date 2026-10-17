@@ -140,6 +140,15 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 			expect(await pathExists(created.path)).toBe(false);
 			const stock = await bridge.request<{ path: string }>("worktree_lifecycle_create");
 			await removeWorktree({ path: stock.path }, bridge, repo);
+			// The user's branch prefix replaces stock's `wt/` and keeps the timestamp; a malformed one is refused.
+			const prefixed = await bridge.request<{ path: string; branch: string }>("worktree_lifecycle_create", {
+				branchPrefix: "alice/",
+			});
+			expect(prefixed.branch).toMatch(/^alice\/\d/);
+			await removeWorktree({ path: prefixed.path }, bridge, repo);
+			await expect(bridge.request("worktree_lifecycle_create", { branchPrefix: "a b" })).rejects.toThrow(
+				"branchPrefix",
+			);
 			const legacy = path.join(root, "gui-legacy-7654321");
 			gitSync(repo, "worktree", "add", "-q", "-b", "omp/gui/legacy", legacy);
 			await removeWorktree({ path: legacy }, bridge, repo);

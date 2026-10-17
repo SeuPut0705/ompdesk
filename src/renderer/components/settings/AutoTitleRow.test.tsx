@@ -74,6 +74,10 @@ describe("AutoTitleRow", () => {
 		await mount();
 		expect(switchOf("setting-gui-autoTitleEvolve")?.hasAttribute("disabled")).toBe(true);
 		expect(switchOf("setting-gui-autoTitleEvolve")?.getAttribute("aria-checked")).toBe("true");
+		// Turned back on, the evolve switch is live again.
+		await act(async () => switchOf("setting-gui-autoTitle")?.click());
+		expect(prefs.set).toHaveBeenCalledWith("autoTitle", true);
+		expect(switchOf("setting-gui-autoTitleEvolve")?.hasAttribute("disabled")).toBe(false);
 	});
 
 	it("writes the evolve switch under its own pref", async () => {

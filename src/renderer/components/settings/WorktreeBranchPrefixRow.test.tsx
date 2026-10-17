@@ -96,5 +96,23 @@ describe("WorktreeBranchPrefixRow", () => {
 		await blur(input);
 		expect(document.body.textContent).toContain(translate("settings.worktreeBranchPrefix.invalid"));
 		expect(set).not.toHaveBeenCalled();
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+	});
+
+	it("saves on Enter, and Esc puts the stored prefix back", async () => {
+		const input = await mount();
+		const key = (name: string) => {
+			const record = input as unknown as Record<string, unknown>;
+			const props = Object.getOwnPropertyNames(record).find(prop => prop.startsWith("__reactProps$"));
+			const handlers = props ? (record[props] as { onKeyDown?: (event: object) => void }) : {};
+			return act(async () => handlers.onKeyDown?.({ key: name }));
+		};
+		await type(input, "alice/");
+		await key("Enter");
+		expect(set).toHaveBeenCalledWith("worktreeBranchPrefix", "alice/");
+		await type(input, "bob/");
+		await key("Escape");
+		expect(input.value).toBe("alice/");
+		expect(input.getAttribute("aria-invalid")).toBeNull();
 	});
 });

@@ -272,6 +272,21 @@ describe("first title", () => {
 		}
 	});
 
+	it("follows the switch live: off keeps a prompt untitled, and turned on the next prompt names the session", async () => {
+		const world = build();
+		await attach(world.session, { enabled: false, evolve: true, suppressed: false });
+		await send(world.session, { type: "message_end", message: operator("fix the login bug") });
+		await send(world.session, { type: "agent_end", isTerminal: true });
+		await flush();
+		expect(world.manager.setSessionName).not.toHaveBeenCalled();
+		// Settings turned it on: main re-attaches the session with the new switches (sidecar.syncAutoTitle).
+		await attach(world.session, { enabled: true, evolve: true, suppressed: false });
+		await send(world.session, { type: "message_end", message: operator("add a logout button") });
+		await flush();
+		expect(world.script.generate).toHaveBeenCalledTimes(1);
+		expect(world.manager.setSessionName).toHaveBeenCalledTimes(1);
+	});
+
 	it("leaves the title plain when icons are boring (no card request)", async () => {
 		const world = build({ cards: false });
 		await attach(world.session);

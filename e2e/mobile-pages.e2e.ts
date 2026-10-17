@@ -265,8 +265,8 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		test("settings rows: label above a full-width control, switches and info glyphs a finger wide", async () => {
-			const page = await openHarness(browser, device, LIGHT_EN);
+		test("settings rows: label above a full-width control, switches and info glyphs a finger wide, push opt-in on one line", async () => {
+			const page = await openHarness(browser, device, LIGHT_EN, "&pwa=push");
 			await openDestination(page, "settings");
 			await page.locator('[data-settings-section="agent"]').click();
 			await expect(page.locator("#settings-section-title")).toHaveText("Agent behavior");
@@ -322,12 +322,9 @@ for (const { engine, device } of variants(
 					expect(item.width).toBeGreaterThan(item.row - 2);
 				}
 			}
-			await page.context().close();
-		});
 
-		test("the device's push opt-in keeps its Turn on button at the right of its row", async () => {
-			const page = await openHarness(browser, device, LIGHT_EN, "&pwa=push");
-			await openDestination(page, "settings");
+			// The device's push opt-in keeps its Turn on button at the right of its row, sized to its text.
+			if (device.phone) await page.locator("[data-master-detail-back]").click();
 			await page.locator('[data-settings-section="connections"]').click();
 			const row = page.locator("#settings-web-push");
 			const button = row.locator("[data-web-push-enable]");
@@ -336,7 +333,6 @@ for (const { engine, device } of variants(
 			const label = await settled(row.getByText("Notifications are off", { exact: true }));
 			const box = await button.boundingBox();
 			const rowBox = await row.boundingBox();
-			// One line: the button sits beside its label, at the right edge, sized to its text.
 			expect((box?.y ?? 0) + (box?.height ?? 0)).toBeGreaterThan(label?.y ?? 0);
 			expect(box?.y ?? 0).toBeLessThan((label?.y ?? 0) + (label?.height ?? 0));
 			expect(box?.x ?? 0).toBeGreaterThan((label?.x ?? 0) + (label?.width ?? 0));
@@ -443,10 +439,10 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		for (const theme of ["light", "dark"] as const) {
+		// Registered only with OMP_GUI_MOBILE_PAGES=<dir>: a capture asserts nothing the tests above do not.
+		for (const theme of captures ? (["light", "dark"] as const) : []) {
 			for (const lang of ["en", "ko"] as const) {
 				test(`captures: ${theme} ${lang}`, async () => {
-					test.skip(!captures, "OMP_GUI_MOBILE_PAGES=<dir> writes the captures");
 					const look: Look = { theme, lang };
 					const tag = tagOf(engine.name, device, look);
 					// A pushed settings page replaces the menu button with a back button, so each page starts fresh.

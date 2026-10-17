@@ -106,20 +106,6 @@ test("a big change uses plan for that request only: a chip shows it, the Mode pi
 	}
 });
 
-test("a busy session is never classified: the next big change right after a turn stays in the user's mode", async () => {
-	const launched = await launch();
-	const { page, record } = launched;
-	try {
-		await send(page, "what does the settings store do?", 1);
-		await send(page, "refactor the whole settings module across all files", 2);
-		await expect(chip(page)).toHaveCount(0);
-		await expect(modeButton(page)).toContainText("Mode");
-		expect(await recordsOfType(record, "modes.set_plan_mode")).toHaveLength(0);
-	} finally {
-		await finish(launched);
-	}
-});
-
 /** The real judge answers in about a second; the composer must be empty for all of it. */
 const SLOW_CHOICE = { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "800" };
 

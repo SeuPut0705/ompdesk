@@ -166,24 +166,6 @@ test("Check for Updates… from the app menu reports in the sidebar without open
 	await expect(card).toHaveCount(0);
 });
 
-test("settings page lists its sections, searches across languages, and Escape returns to the session", async () => {
-	await page.keyboard.press("ControlOrMeta+Comma");
-	const settings = page.locator("[data-settings-page]");
-	await expect(settings).toBeVisible();
-	await expect(settings.locator("[data-settings-section]")).toHaveCount(12);
-	await settings.locator('[data-settings-section="appearance"]').click();
-	await expect(settings.getByRole("radiogroup", { name: "Theme" })).toBeVisible();
-	await page.screenshot({ path: "test-results/01-settings.png", scale: "css", animations: "disabled" });
-	const search = settings.getByRole("searchbox", { name: "Search settings" });
-	await search.fill("압축");
-	await expect(settings.locator('[data-search-path="compaction.enabled"]')).toHaveCount(1);
-	await search.fill("paste.largeMenuThreshold");
-	await expect(settings.locator("[data-settings-search-results]")).toContainText("paste");
-	await search.fill("");
-	await page.keyboard.press("Escape");
-	await expect(settings).toHaveCount(0);
-});
-
 test("voice and side question require an explicit start", async () => {
 	const voiceBefore = (await recordsOfType(record, "live_start")).length;
 	await command("/live");

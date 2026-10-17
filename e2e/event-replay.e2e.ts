@@ -3,7 +3,9 @@
  * tool frame a second time behind the next one (`OMP_GUI_TEST_REPLAY_FRAMES`), and main holds
  * each batch for 400 ms (`OMP_GUI_TEST_BATCH_INTERVAL_MS`), so transcript snapshots taken on a
  * tab switch overtake the frames they already hold. The run must still end as it ran: every
- * step settled, each command counted once, the outcome shown.
+ * step settled, each command counted once, the outcome shown, and every finished head shows its
+ * whole summary row (the inline work card's walk itself is component-tested: ExecutionGroup,
+ * WorkOutcome, LiveStepPeek).
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -45,6 +47,7 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 			page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:work-next" }), tab);
 		for (let index = 0; index < 4; index++) await advance();
 		await expect(page.locator(".omp-work-card-button")).toHaveCount(2);
+		await expect(page.locator(".omp-work-card-button").first()).toContainText("Reading source files");
 		// Away and back mid-run: the return loads a snapshot while the held batch still carries
 		// the frames it holds, and their replays follow.
 		await page.keyboard.press("ControlOrMeta+t");
@@ -63,7 +66,29 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 		await expect(page.locator(".omp-execution-group-summary").last()).toContainText("3 commands");
 		await page.locator(".omp-work-outcome summary").click();
 		await expect(page.locator(".omp-work-outcome li").filter({ hasText: "wc -l src/workspace.ts" })).toHaveCount(2);
+		await expect(page.locator('.omp-work-outcome li[data-kind="command"] [role="img"]').first()).toHaveAttribute(
+			"aria-label",
+			"Passed",
+		);
+		await expect(page.locator(".omp-work-outcome")).not.toContainText("exit 0");
 		await expect(page.getByText("Live workspace finished", { exact: true })).toHaveCount(1);
+		// At normal width no summary part (duration, counts, meter) is ellipsized or dropped.
+		await expect
+			.poll(() =>
+				page.locator(".omp-summary-line").evaluateAll(lines =>
+					lines.flatMap(line => {
+						const box = line.getBoundingClientRect();
+						return [...line.querySelectorAll(".omp-summary-part")].flatMap(part => {
+							const rect = part.getBoundingClientRect();
+							const shown = rect.top < box.bottom - 1;
+							return shown && part.scrollWidth <= part.clientWidth
+								? []
+								: [`${shown ? "cut" : "dropped"}: ${part.textContent}`];
+						});
+					}),
+				),
+			)
+			.toEqual([]);
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

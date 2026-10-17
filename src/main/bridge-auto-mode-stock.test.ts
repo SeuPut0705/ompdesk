@@ -10,7 +10,8 @@ import { describe, expect, it } from "vitest";
  * - the bridge's `autoMode` feature is available (every stock internal it needs exists);
  * - the judge the classifier asks is stock's own role chain, cheap roles first (the `smol` model, never `default`);
  * - guards answer without any model: a slash command, `!` bash, a chat-length message, a mode the user picked
- *   (plan) and a session where the user undid a decision all give "none" with their reason and latency 0;
+ *   (plan), a busy session (a turn that just ended, read from the live transcript) and a session where the user
+ *   undid a decision all give "none" with their reason and latency 0;
  * - a prompt that is classified but whose model fails answers "none" within the deadline (the prompt is never held up);
  * - the user's own rejection of a plan is remembered by plan.ts's approval path (`modes.plan_approval` rejects with
  *   no plan pending, so the flag is exercised through auto-mode-state directly).
@@ -41,6 +42,10 @@ export default function (pi) {
    session.setPlanModeState({ enabled: true, planFilePath: "local://PLAN.md" });
    out.planActive = await decide("refactor the whole settings module across all files");
    session.setPlanModeState(undefined);
+   // A turn that just ended: the session is busy, so nothing is classified (the next prompt stays in the user's mode).
+   session.agent.replaceMessages([{ role: "user", content: "fix it", timestamp: Date.now() - 1000 }, { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() }]);
+   out.busy = await decide("refactor the whole settings module across all files and add tests");
+   session.agent.replaceMessages([]);
    out.undo = await methods["modes.auto_mode_undo"]({ mode: "goal" }, env);
    out.afterUndo = await decide("keep going until all the tests pass");
    console.error("AM_PROBE=" + JSON.stringify(out));
@@ -74,6 +79,7 @@ interface Probe {
 	big: Decision;
 	bigWallMs: number;
 	planActive: Decision;
+	busy: Decision;
 	undo: { suppressed: boolean };
 	afterUndo: Decision;
 }
@@ -130,6 +136,7 @@ describe.skipIf(!existsSync(omp))("automatic mode choice on stock omp", () => {
 		expect(probe.bash).toEqual({ mode: "none", reason: "bash", latencyMs: 0 });
 		expect(probe.short).toEqual({ mode: "none", reason: "short", latencyMs: 0 });
 		expect(probe.planActive).toEqual({ mode: "none", reason: "mode_active", latencyMs: 0 });
+		expect(probe.busy).toEqual({ mode: "none", reason: "busy", latencyMs: 0 });
 		// The model behind the fake key cannot answer: none, inside the 2 s deadline (plus a little startup).
 		expect(probe.big.mode).toBe("none");
 		expect(["error", "timeout"]).toContain(probe.big.reason);

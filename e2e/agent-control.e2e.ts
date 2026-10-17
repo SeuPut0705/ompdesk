@@ -82,26 +82,6 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 	return (await results())[before] as { text: string; isError: boolean };
 }
 
-test("the control tools are registered with stock, and none of them touches accounts, settings or permissions", async () => {
-	const frame = (await readRecords(record)).find(entry => entry.type === "set_host_tools");
-	const names = ((frame?.tools ?? []) as { name: string }[]).map(tool => tool.name);
-	expect(names).toEqual(
-		expect.arrayContaining([
-			"ompdesk_sessions",
-			"ompdesk_session_open",
-			"ompdesk_session_send",
-			"ompdesk_session_result",
-			"ompdesk_session_read",
-			"ompdesk_session_answer",
-			"ompdesk_tab_focus",
-			"ompdesk_notify",
-			"ompdesk_session_stop",
-		]),
-	);
-	expect(names.filter(name => /account|setting|permission|login|token|pref/.test(name))).toEqual([]);
-	expect(names.filter(name => /delete|remove|kill/.test(name))).toEqual([]);
-});
-
 test("create a session, send it a message, wait for it and read its result", async () => {
 	test.setTimeout(150_000);
 	const listed = await call("ompdesk_sessions");

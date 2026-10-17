@@ -1,9 +1,10 @@
 /**
  * The work board on the fake omp: a wide session pane docks this session's live state in its right
  * margin — the running subagents and the todo list here — and shifts the transcript and composer
- * columns left together. It leaves when the pane gets narrow, when the side panel opens, and in a
- * split whose panes are too narrow for it. Captures in light/dark × en/ko at 1600px and the split.
- * They go to `OMP_GUI_WORK_BOARD_CAPTURES` (default: the test output directory).
+ * columns left together. It leaves when the pane gets narrow and when the side panel opens; the
+ * sidebar's usage block lists one gauge line per provider. The board's sections, ⌥B and its folds are
+ * component-tested (WorkBoard, work-board-focus). Captures go to `OMP_GUI_WORK_BOARD_CAPTURES`
+ * (default: the test output directory).
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -177,112 +178,6 @@ for (const language of variants(["en", "ko"] as const))
 					.poll(async () => (await page.evaluate(() => window.omp.prefs.get("workBoard"))) === false)
 					.toBe(true);
 				expect(errors).toEqual([]);
-			} finally {
-				await exitApp(app);
-				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-			}
-		});
-
-for (const language of variants(["en", "ko"] as const))
-	for (const theme of variants(["light", "dark"] as const))
-		test(`the board's sections: waiting first, agents on their models, account, speed, todos, goal, jump key and folds (${language} ${theme})`, async () => {
-			test.setTimeout(180_000);
-			const { app, page, root } = await launch(language, theme);
-			try {
-				await send(page, "hello");
-				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
-				await fixture(page, "fixture:board");
-				const captures = process.env.OMP_GUI_WORK_BOARD_CAPTURES;
-				if (captures) await fs.mkdir(captures, { recursive: true });
-				const shot = async (stage: string) => {
-					if (captures)
-						await page.screenshot({
-							path: path.join(captures, `work-board-${stage}-${language}-${theme}.png`),
-							animations: "disabled",
-							scale: "css",
-						});
-				};
-				const board = page.getByRole("complementary", { name: TEXT[language].board });
-				await expect(board).toBeVisible();
-
-				// Waiting on the user comes first, and the status line says what is going on.
-				await expect(board.locator("[data-board-section]").first()).toHaveAttribute(
-					"data-board-section",
-					"waiting",
-				);
-				await expect(board.locator('[data-board-waiting="board-confirm"]')).toContainText("Overwrite settings.ts?");
-				await expect(board.locator(".omp-work-board-status")).toHaveCount(0);
-				await expect(board.getByRole("status")).toHaveText(
-					language === "en" ? "1 waiting on you" : "1개가 답변을 기다려요",
-				);
-
-				// Agents carry their model's mark, step and tokens; the parked one rests.
-				const explore = board.locator('[data-board-agent="sa-explore"]');
-				await expect(explore).toContainText("Map the settings code");
-				await expect(explore).toContainText("Reading SettingsPage.tsx");
-				await expect(explore).toContainText(language === "en" ? "48.2k tokens" : "48.2k개");
-				await expect(explore.locator("[data-provider-mark]")).toBeVisible();
-
-				// Todos: progress, the finished ones folded, the dock twin stepped aside.
-				const todos = board.locator('[data-board-section="todos"]');
-				await expect(todos).toContainText("3/7");
-				await expect(todos).toContainText(language === "en" ? "3 done" : "3개 완료");
-				await expect(todos.locator('[data-todo-status="in_progress"]')).toContainText("Wire the pref");
-				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
-				await expect(page.locator("[data-workspace-island]")).toBeHidden();
-
-				// The subscription account in use: its tightest window, the rest in the tooltip, a click opens the accounts page.
-				const account = board.locator("[data-board-account]");
-				await expect(account).toContainText("work@example.com");
-				await expect(account.locator('[data-window="5h"] .omp-usage-gauge-text')).toHaveText("5H62%");
-				await expect(account.locator('[data-window="7d"] .omp-usage-gauge-text')).toHaveText("7D41%");
-				await expect(account).toHaveAttribute("title", /41%/);
-
-				// The turn's token speed (the fake omp reports 64 tok/s) sits beside its elapsed time.
-				await expect(board.locator('[data-board-section="turn"] .omp-work-board-aside')).toContainText("64 tok/s");
-
-				// The goal's budget meter comes from get_goal.
-				await expect(board.locator('[data-board-section="goal"]')).toContainText("74.0k / 200.0k");
-				await expect(board.locator('[data-board-section="goal"] [role="progressbar"]').first()).toHaveAttribute(
-					"aria-valuenow",
-					"37",
-				);
-
-				await page.waitForTimeout(800);
-				await shot("running");
-
-				// ⌥B jumps to the waiting row.
-				await page.locator("textarea").first().focus();
-				await page.keyboard.press("Alt+KeyB");
-				await expect(board.locator('[data-board-waiting="board-confirm"]')).toBeFocused();
-
-				// A fold is kept (the pref), and unfolding brings the rows back.
-				const fold = board.locator('[data-board-section="running"] button[aria-expanded]');
-				await fold.click();
-				await expect(explore).toHaveCount(0);
-				await expect
-					.poll(() => page.evaluate(() => window.omp.prefs.get("workBoardCollapsed")))
-					.toEqual({ running: true });
-				await fold.click();
-				await expect(explore).toBeVisible();
-				expect(await page.evaluate(() => window.omp.prefs.get("workBoardCollapsed"))).toEqual({});
-
-				// The turn ends: the board sums it up.
-				// Three providers report usage: the turn's end re-reads the quotas, and the board lists one row per
-				// provider with its last-used account, the tab's own provider first and marked.
-				await fixture(page, "fixture:usage-accounts:3");
-				await fixture(page, "fixture:board-end");
-				const accounts = board.locator("[data-board-account]");
-				await expect(accounts).toHaveCount(3);
-				await expect(accounts.locator(".omp-work-board-account-name .truncate")).toHaveText([
-					"me@example.com",
-					"side@example.com",
-					"codex@example.com",
-				]);
-				await expect(accounts.first()).toHaveAttribute("data-in-use", "true");
-				await expect(board.locator("[data-board-account][data-in-use]")).toHaveCount(1);
-				await expect(board.locator('[data-board-section="last"]')).toBeVisible();
-				await shot("idle");
 			} finally {
 				await exitApp(app);
 				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

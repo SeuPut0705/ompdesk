@@ -38,7 +38,6 @@ import {
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
-import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "../work-recording";
 import { createAutopilotFake } from "./autopilot";
 import { FIXTURE_OMP_VERSION } from "./version";
 
@@ -395,14 +394,11 @@ export function runRpcUi(): void {
 		dumpTools: autopilot.dumpTools() ?? [],
 		contextUsage: { tokens: 74_800, contextWindow: 128_000, percent: 58 },
 	});
-	let securityMode = "disabled";
 	/** Stock `/slow` applies to the model only with `OMP_GUI_TEST_SLOW_MODE=1` (other suites keep their Run settings). */
 	const slowModeSupported = process.env.OMP_GUI_TEST_SLOW_MODE === "1";
 	let slowModeEnabled = false;
 	/** A user `!` bash held open by `fixture:hold-bash` until `abort_bash` settles it. */
 	let heldBash: ((data: unknown) => void) | undefined;
-	/** B15: the foreign import of `claude-slow`, held until `fixture:release-import`. */
-	let heldImport: (() => void) | undefined;
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
 	let streamTick: (() => void) | undefined;
@@ -847,65 +843,15 @@ export function runRpcUi(): void {
 		clearTimeout(nextPromptTimer);
 		nextPromptTimer = setTimeout(() => emitNextPrompt(trigger), nextPromptScript.latencyMs ?? 0);
 	};
-	const securityDashboard = (): RpcSecurityDashboardResult => {
-		if (securityMode === "unavailable") throw new Error("Isolated dashboard unavailable");
-		const dashboard: RpcSecurityDashboardResult = {
-			enabled: securityMode !== "disabled",
-			modelReady: true,
-			modelLabel: "Local fixture",
-			repositoryRoot: process.cwd(),
-			scans: [],
-			operations: [],
-		};
-		if (securityMode === "disabled" || securityMode === "unscanned") return dashboard;
-		const now = new Date().toISOString();
-		const scan = {
-			id: "scan",
-			status:
-				securityMode === "failed"
-					? ("failed" as const)
-					: securityMode === "incomplete"
-						? ("partial" as const)
-						: ("completed" as const),
-			createdAt: now,
-			producer: "fixture",
-			findingCount: securityMode === "findings" ? 1 : 0,
-			target: { kind: "working_tree" as const, displayName: "Working tree" },
-		};
-		dashboard.scans = [scan];
-		dashboard.latest = {
-			scan,
-			findings:
-				securityMode === "findings"
-					? [
-							{
-								id: "f1",
-								scanId: "scan",
-								title: "Untrusted path reaches file access",
-								summary: "Isolated finding",
-								severity: "high",
-								confidence: "high",
-								disposition: "open",
-								validation: "unvalidated",
-								evidence: [],
-							},
-						]
-					: [],
-		};
-		if (securityMode === "running")
-			dashboard.operations = [
-				{
-					operationId: "op",
-					planId: "plan",
-					scanId: "scan",
-					phase: "reviewing",
-					createdAt: now,
-					updatedAt: now,
-					findingCount: 0,
-				},
-			];
-		return dashboard;
-	};
+	/** Security off and nothing scanned; the page's other states are component-tested (SecuritySection.test.tsx). */
+	const securityDashboard = (): RpcSecurityDashboardResult => ({
+		enabled: false,
+		modelReady: true,
+		modelLabel: "Local fixture",
+		repositoryRoot: process.cwd(),
+		scans: [],
+		operations: [],
+	});
 	const SCHEMA_TABS = ["context", "model", "providers", "tasks", "files", "shell", "tools", "memory", "interaction"];
 	/** `OMP_GUI_TEST_MODELS`: the catalog's long tail, signed out, as a real omp lists it. */
 	const MODELS_PAGE_PROVIDERS = [
@@ -928,17 +874,6 @@ export function runRpcUi(): void {
 		{ ...model, id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", contextWindow: 1000000 },
 	];
 	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
-	/** `ResetPasses` (src/shared/rpc-types.ts) as the bridge shapes stock's saved resets. */
-	interface FixtureResetPasses {
-		count: number;
-		usableCount: number;
-		expiresAt?: number;
-		title?: string;
-		clears: string[];
-		early: boolean;
-		creditId?: string;
-		redeemable: boolean;
-	}
 	const accountQuota: Record<
 		number,
 		{
@@ -955,7 +890,6 @@ export function runRpcUi(): void {
 				windowLabel: string;
 				resetsAt?: number;
 			}>;
-			resetPasses?: FixtureResetPasses;
 		}
 	> = {
 		1: {
@@ -979,33 +913,6 @@ export function runRpcUi(): void {
 		},
 	};
 	/**
-	 * `OMP_GUI_TEST_RESET_PASSES=1` (with OMP_GUI_TEST_MODELS): both accounts hold
-	 * saved rate-limit resets. work@ is under its limits, so its pass waits;
-	 * home@ hit its 5h limit, so one of its two passes can be spent, and
-	 * `reset_pass_redeem` clears that window the way stock's redeem does.
-	 */
-	if (modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1") {
-		const expiresAt = Date.now() + 9 * 86_400_000;
-		accountQuota[1].resetPasses = {
-			count: 1,
-			usableCount: 0,
-			expiresAt,
-			clears: ["anthropic:5h"],
-			early: false,
-			redeemable: false,
-		};
-		accountQuota[2].resetPasses = {
-			count: 2,
-			usableCount: 2,
-			expiresAt,
-			title: "One free rate limit reset",
-			clears: ["anthropic:5h"],
-			early: false,
-			creditId: "grant-home-1",
-			redeemable: true,
-		};
-	}
-	/**
 	 * `OMP_GUI_TEST_USAGE_DRIFT=1` (with OMP_GUI_TEST_MODELS): the quota moves
 	 * between reads the way a live account does. Each window names its reset,
 	 * and every usage read after the first spends 5% more of work@'s 5h window,
@@ -1026,26 +933,6 @@ export function runRpcUi(): void {
 		accountQuota[1].limits = accountQuota[1].limits.map(limit =>
 			limit.windowId === "5h" ? { ...limit, usedFraction: Math.min(1, limit.usedFraction + 0.05) } : limit,
 		);
-	};
-	const resetPassMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
-		reset_pass_redeem: params => {
-			const quota = accountQuota[Number(params.credentialId)];
-			const passes = quota?.resetPasses;
-			if (!quota || !passes?.redeemable || params.creditId !== passes.creditId) {
-				return { ok: false, code: "not_redeemable", message: "nothing was spent" };
-			}
-			quota.limits = quota.limits.map(limit =>
-				passes.clears.includes(limit.id) ? { ...limit, usedFraction: 0 } : limit,
-			);
-			quota.state = "healthy";
-			quota.remainingFraction = 1 - Math.max(...quota.limits.map(limit => limit.usedFraction));
-			delete quota.resetsAt;
-			quota.resetPasses =
-				passes.count > 1
-					? { ...passes, count: passes.count - 1, usableCount: passes.usableCount - 1, redeemable: false }
-					: undefined;
-			return { ok: true, code: "reset", message: "Reset applied.", cleared: passes.clears };
-		},
 	};
 	const modelRoles: Record<string, string | undefined> = {
 		default: "anthropic/claude-sonnet-4-5",
@@ -1095,9 +982,6 @@ export function runRpcUi(): void {
 					credentialId: account.credentialId,
 					active: account.credentialId === 1,
 					limits: accountQuota[account.credentialId].limits,
-					...(accountQuota[account.credentialId].resetPasses
-						? { resetPasses: accountQuota[account.credentialId].resetPasses }
-						: {}),
 				})),
 				session: {
 					input: 0,
@@ -1655,49 +1539,8 @@ export function runRpcUi(): void {
 		}),
 		security_dashboard: securityDashboard,
 		ssh_hosts: () => ({ hosts: [], warnings: [], openSshAvailable: true }),
-		// `OMP_GUI_TEST_FOREIGN=1` (B15): Claude Code lists four sessions in two projects, one
-		// older than 30 days; importing `claude-broken` fails, `claude-slow` waits for
-		// `fixture:release-import`, and every other one imports at once.
-		"sessions.foreign_list": params => {
-			if (process.env.OMP_GUI_TEST_FOREIGN !== "1" || params.source !== "claude") return { sessions: [] };
-			const now = Date.now();
-			const session = (id: string, cwd: string, title: string, days: number, messageCount: number) => ({
-				id,
-				path: `/home/dev/.claude/projects/${id}.jsonl`,
-				cwd,
-				title,
-				created: new Date(now - days * 86_400_000 - 3_600_000).toISOString(),
-				modified: new Date(now - days * 86_400_000).toISOString(),
-				messageCount,
-				firstMessage: `${title}, please.`,
-			});
-			return {
-				sessions: [
-					session("claude-auth", "/work/api", "Fix the login redirect", 1, 24),
-					session("claude-slow", "/work/api", "Speed up the test suite", 3, 58),
-					session("claude-broken", "/work/web", "Polish the landing page", 5, 12),
-					session("claude-old", "/work/web", "Migrate to the new router", 40, 90),
-				],
-			};
-		},
-		"sessions.foreign_import": (params, reply) => {
-			const foreignId = String(params.foreignId);
-			if (foreignId === "claude-broken") throw new Error("The transcript ends mid-line");
-			const done = () => {
-				reply({
-					sessionId: `imported-${foreignId}`,
-					sessionPath: nodePath.join(
-						process.env.PI_CODING_AGENT_DIR ?? "",
-						"sessions",
-						"imported",
-						`${foreignId}.jsonl`,
-					),
-					cwd: "/work/api",
-				});
-			};
-			if (foreignId === "claude-slow") heldImport = done;
-			else done();
-		},
+		// No Claude Code or Codex sessions to import (ImportForeignDialog.test.tsx covers the dialog).
+		"sessions.foreign_list": () => ({ sessions: [] }),
 		"sessions.transcript": (params, reply) => {
 			const messages = activeBranch()
 				.filter(entry => entry.type === "message")
@@ -2032,12 +1875,7 @@ export function runRpcUi(): void {
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
 		get_agent_definitions: () => ({ agents: [] }),
-		// `OMP_GUI_TEST_MEMORY=1`: a memory backend that can save (the control tools' delegation lessons).
-		get_memory_report: () =>
-			process.env.OMP_GUI_TEST_MEMORY === "1"
-				? { backend: "local", entryCount: 0, capabilities: { search: true, save: true, queue: false } }
-				: { backend: "none", entryCount: 0 },
-		memory_save: () => ({ saved: true }),
+		get_memory_report: () => ({ backend: "none", entryCount: 0 }),
 		model_roles: () => ({
 			roles: ROLE_META.map(meta => ({
 				...meta,
@@ -2089,7 +1927,6 @@ export function runRpcUi(): void {
 			},
 		}),
 		...(modelsData ? modelsPageMethods : {}),
-		...(modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1" ? resetPassMethods : {}),
 		...autopilot.bridgeMethods,
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
 	};
@@ -2291,43 +2128,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 	/** `fixture:work-stream`: stream the current step's output and its subagents' events until the step moves on. */
 	let streamWork: (() => void) | undefined;
 	let workStreamTimer: Timer | undefined;
-	let replayRecordedWork: (() => void) | undefined;
 	const recordedMessages = new Map<string, AgentMessage[]>();
-	const emitRecordedWork = (item: RecordedWorkFrame) => {
-		if (item.channel === "main") {
-			for (const event of item.events) {
-				if (event.type === "message_end") appendMessage(event.message);
-				write(event);
-			}
-			return;
-		}
-		const frame = item.frame;
-		if (frame.type === "subagent_lifecycle") {
-			const p = frame.payload;
-			const existing = subagentRoster.find(node => node.id === p.id);
-			const node: SubagentSnapshot = {
-				...existing,
-				id: p.id,
-				index: p.index,
-				agent: p.agent,
-				agentSource: p.agentSource,
-				status: p.status === "started" ? "running" : p.status,
-				parentToolCallId: p.parentToolCallId,
-				sessionFile: p.sessionFile,
-				lastUpdate: Date.now(),
-			};
-			if (existing) Object.assign(existing, node);
-			else subagentRoster.push(node);
-		} else if (frame.type === "subagent_progress") {
-			const node = subagentRoster.find(node => node.id === frame.payload.progress.id);
-			if (node) Object.assign(node, { status: frame.payload.progress.status, progress: frame.payload.progress });
-		} else if (frame.payload.event.type === "message_end") {
-			const messages = recordedMessages.get(frame.payload.id) ?? [];
-			messages.push(frame.payload.event.message);
-			recordedMessages.set(frame.payload.id, messages);
-		}
-		write(frame);
-	};
 	const startWorkView = (user: AgentMessage) => {
 		const screenshot = Buffer.from(
 			'<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320"><rect width="720" height="320" fill="#faf9f6"/><rect width="720" height="38" fill="#eceae5"/><circle cx="20" cy="19" r="5" fill="#b8b3a9"/><text x="44" y="24" font-family="sans-serif" font-size="12" fill="#69665e">example.com · Workspace</text><text x="48" y="94" font-family="sans-serif" font-size="28" fill="#35332e">Project overview</text><text x="48" y="124" font-family="sans-serif" font-size="14" fill="#827d73">A calm workspace for the next step.</text><rect x="48" y="158" width="288" height="110" rx="8" fill="#efede7"/><rect x="358" y="158" width="314" height="110" rx="8" fill="#efede7"/><text x="70" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Implementation</text><text x="380" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Review</text><text x="70" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Ready to continue</text><text x="380" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Reading source files</text></svg>',
@@ -3387,26 +3188,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			startSteerWork(user);
 		} else if (message === "fixture flow" || README_SCENE) {
 			startFlow(user);
-		} else if (message === "fixture real work replay") {
-			const recording = rebaseWorkRecording(
-				JSON.parse(
-					fs.readFileSync(nodePath.join(E2E_DIR, "fixtures/real-live-work.json"), "utf8"),
-				) as RecordedWorkFrame[],
-			);
-			// Held at AlphaCounter's `sleep 3 && wc -l` start (260) and its result (284).
-			const next = createWorkReplay(recording, [260, 284], emitRecordedWork, ms => {
-				const { promise, resolve } = Promise.withResolvers<void>();
-				setTimeout(resolve, ms);
-				return promise;
-			});
-			replayRecordedWork = () => {
-				// The audit captured both real yields but stopped before the main reply.
-				// Close fixture playback; never manufacture an assistant answer.
-				void next().then(finished => {
-					if (finished) endTurn([]);
-				});
-			};
-			replayRecordedWork();
 		} else if (message === "fixture desktop acting") {
 			startDesktopActing(user);
 		} else if (message === "fixture desktop done") {
@@ -4528,11 +4309,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				if (line === "fixture:replay-next") {
-					replayRecordedWork?.();
-					ok();
-					break;
-				}
 				if (line === "fixture:work-next") {
 					advanceWork?.();
 					ok();
@@ -4625,12 +4401,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						method: "cancel",
 						targetId: "fixture-confirm",
 					});
-					ok();
-					break;
-				}
-				if (line === "fixture:release-import") {
-					heldImport?.();
-					heldImport = undefined;
 					ok();
 					break;
 				}
@@ -4951,9 +4721,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// The work board's showcase: a running turn with a few steps, agents on named models, a todo list
-				// part done, a goal with a budget and a question waiting on the user. `fixture:board-end` ends the
-				// turn (the board then sums it up).
+				// The work board's showcase (`fixture:board`): a running turn with a few steps, agents on named models,
+				// a todo list part done, a goal with a budget and a question waiting on the user.
 				if (line.startsWith("fixture:usage-accounts:")) {
 					const count = Number(line.slice("fixture:usage-accounts:".length));
 					const now = Date.now();
@@ -5004,11 +4773,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							],
 						})),
 					);
-					ok();
-					break;
-				}
-				if (line === "fixture:board-end") {
-					write({ type: "agent_end", messages: [] });
 					ok();
 					break;
 				}
@@ -5191,11 +4955,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				if (line.startsWith("fixture:security:")) {
-					securityMode = line.slice("fixture:security:".length);
-					ok();
-					break;
-				}
 				ok({ output: "", exitCode: 0, cancelled: false, truncated: false });
 				break;
 			}
@@ -5358,10 +5117,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					appendMessage(answer);
 					write({ type: "message_end", message: answer });
 					endTurn([answer]);
-					break;
-				}
-				if (text("message") === "fixture uncertain") {
-					prompt(text("message"), () => fail("Isolated lost acknowledgement", "rpc_delivery_unknown"));
 					break;
 				}
 				// Stock: a prompt sent while the agent runs joins the run as the `streamingBehavior` asks (a steer, or a

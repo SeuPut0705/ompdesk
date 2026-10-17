@@ -4,12 +4,11 @@
  *   row follows the slider, a web link in a reply opens in Preview, the side
  *   panel docks left, and "keep awake while working" holds a sleep blocker
  *   while a turn runs (the switch going off releases it at once);
- * - a background tab's finished turn notifies with the reply's opening prose
- *   (no Markdown) and the chime, and a click on the banner brings that tab
- *   forward;
+ * - macOS: closing the last window hides it, the turn continues, the Dock brings it back;
  * - ⌃⇥ lists the tabs most recent first and switches on releasing ⌃, ⌘[ / ⌘]
- *   go back and forward, ⇧⌘A searches, reorders (⌘1 follows) and closes tabs;
- * - ⌥⌘ arrows and ⌥⌘] move the focus between split panes.
+ *   go back and forward, ⇧⌘A searches, reorders (⌘1 follows) and closes tabs.
+ * A background tab's finished-turn banner is background-tabs.e2e.ts's; split-pane focus
+ * keys are split-drop's and keymap.test.ts's.
  * Close-to-tray is Windows-only and headless runs have no tray; Copy Image is
  * covered by editable-context-menu.test.ts.
  * Captures: en-light and ko-dark (test output directory).
@@ -229,59 +228,6 @@ for (const [language, theme] of variants(RUNS)) {
 		expect(asideBox.x).toBeLessThan(workspaceBox.x);
 		expect(await app.evaluate(() => Reflect.get(globalThis, "__openedUrls"))).toEqual([]);
 		await capture(page, `preview-left-${language}-${theme}`);
-		expect(errors).toEqual([]);
-	});
-
-	test(`a background tab's finished turn notifies with its prose and the chime; the banner brings it forward (${language}-${theme})`, async () => {
-		const { app, page, errors } = await launch(language, theme, {
-			notifications: true,
-			notificationSound: true,
-			notificationVolume: 60,
-		});
-		// Notifications fire only while the window is unfocused (see background-tabs.e2e.ts).
-		await page.evaluate(() => {
-			document.hasFocus = () => false;
-		});
-		await countChimeNotes(page);
-		// Keep the banners in main instead of showing them; their click handlers stay real.
-		await app.evaluate(({ Notification }) => {
-			const shown: { title: string; body: string }[] = [];
-			Reflect.set(globalThis, "__readNotifications", () => shown);
-			Notification.prototype.show = function (this: InstanceType<typeof Notification>) {
-				shown.push({ title: this.title, body: this.body });
-				Reflect.set(globalThis, "__clickLastNotification", () => this.emit("click"));
-			};
-		});
-		const shown = (): Promise<{ title: string; body: string }[]> =>
-			app.evaluate(() => {
-				const read = Reflect.get(globalThis, "__readNotifications");
-				return typeof read === "function" ? read() : [];
-			});
-
-		const background = await activeTab(page);
-		await nameTab(page, background, "Release checklist run");
-		const input = page.locator("textarea").first();
-		await input.fill("fixture running");
-		await input.press("Enter");
-		await openTab(page, "Front task");
-		await expect.poll(async () => (await tabs(page)).find(tab => tab.tabId === background)?.status).toBe("running");
-		// The background turn ends on a Markdown reply (fixture `MARKDOWN_REPLY`).
-		await fixtureCommand(page, background, "fixture:finish:markdown");
-		await expect.poll(async () => (await shown()).length).toBe(1);
-		const [banner] = await shown();
-		expect(banner.title).toBe("Release checklist run");
-		expect(banner.body).toMatch(/^Release checklist\. Jump to the notes, open the plan, or write to the team\./);
-		expect(banner.body).not.toMatch(/[#[\]*`|]|\]\(/);
-		expect(banner.body.length).toBeLessThanOrEqual(160);
-		await expect.poll(() => chimeNotes(page)).toBe(2);
-
-		await app.evaluate(() => {
-			const click = Reflect.get(globalThis, "__clickLastNotification");
-			if (typeof click === "function") click();
-		});
-		await expect.poll(() => activeTab(page)).toBe(background);
-		await expect(page.locator("[data-transcript-kind]").getByText("Release checklist").first()).toBeVisible();
-		await capture(page, `notification-click-${language}-${theme}`);
 		expect(errors).toEqual([]);
 	});
 

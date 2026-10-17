@@ -11,6 +11,7 @@ import type {
 	SidecarStatus,
 	SidecarStatusPayload,
 } from "../shared/rpc-types";
+import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import type { OmpResolution } from "./omp-runtime";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
@@ -65,53 +66,64 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("configures v2 sidecars with the GUI event filter", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-filter-"));
-		const commandLog = path.join(tempDir, "commands.json");
-		const binaryPath = await writeFakeOmp(
-			tempDir,
-			`import * as fs from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\tfs.writeFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
-		);
+	it.each([
+		{ hostTools: false, extra: [] as string[] },
+		// Agent control on (agent-control/tools.ts): its tools register with stock beside OMPdesk's own.
+		{ hostTools: true, extra: AGENT_CONTROL_DEFINITIONS.map(tool => tool.name) },
+	])(
+		"configures v2 sidecars with the GUI event filter and host tools (agent control: $hostTools)",
+		async ({ hostTools, extra }) => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-filter-"));
+			const commandLog = path.join(tempDir, "commands.json");
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				`import * as fs from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\tfs.writeFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
+			);
 
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
-		try {
-			const ready = waitForReady(sidecar);
-			sidecar.start();
-			await ready;
-			await expect
-				.poll(
-					async () => {
-						try {
-							return JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
-								type: string;
-								events?: string[] | null;
-							}>;
-						} catch {
-							return [];
-						}
-					},
-					{ timeout: 5_000, interval: 25 },
-				)
-				.toHaveLength(4);
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, hostTools: () => hostTools });
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				await expect
+					.poll(
+						async () => {
+							try {
+								return JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
+									type: string;
+									events?: string[] | null;
+								}>;
+							} catch {
+								return [];
+							}
+						},
+						{ timeout: 5_000, interval: 25 },
+					)
+					.toHaveLength(4);
 
-			const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
-				type: string;
-				events?: string[] | null;
-				tools?: Array<{ name: string }>;
-			}>;
-			expect(commands.map(command => command.type)).toEqual([
-				"negotiate_protocol",
-				"set_event_filter",
-				"set_ask_dialog",
-				"set_host_tools",
-			]);
-			expect(commands[3]?.tools?.map(tool => tool.name)).toEqual(["gui_terminal_read", "gui_visualize"]);
-			expect(commands[1]?.events).toContain("message_update");
-		} finally {
-			sidecar.dispose();
-			await fs.rm(tempDir, RM_TEMP);
-		}
-	});
+				const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
+					type: string;
+					events?: string[] | null;
+					tools?: Array<{ name: string }>;
+				}>;
+				expect(commands.map(command => command.type)).toEqual([
+					"negotiate_protocol",
+					"set_event_filter",
+					"set_ask_dialog",
+					"set_host_tools",
+				]);
+				expect(commands[3]?.tools?.map(tool => tool.name)).toEqual([
+					"gui_terminal_read",
+					"gui_visualize",
+					...extra,
+				]);
+				expect(commands[1]?.events).toContain("message_update");
+			} finally {
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		},
+	);
 
 	it("spawns a chat sidecar with the same full-tool argv as an agent", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-chat-"));
