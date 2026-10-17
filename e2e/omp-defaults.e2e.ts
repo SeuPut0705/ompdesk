@@ -1,25 +1,23 @@
 /**
- * Held omp defaults and the idle recap on the fake omp (e2e/fixture/rpc-ui.ts): the fixture serves the bridge's
- * `recap_draft` and sends the `recap` custom message a real bridge's timer would
- * (`OMP_GUI_TEST_RECAP`, rules pinned in src/main/bridge-session-recap.test.ts and against stock in
- * bridge-session-recap-stock.test.ts), and reports `lsp.diagnosticsOnEdit` as the runtime override
- * OMPdesk holds (resources/gui-bridge/thinking-default-core.ts) until a Settings write releases it.
- * Covers the quiet recap card after a turn (en; ko with OMP_GUI_VARIANTS=1, captured) and Settings showing
- * `Runtime override`, then `Global` after the user's own write. The draft holding the recap back is unit-tested
- * in src/main/bridge-session-recap.test.ts.
+ * The idle recap on the fake omp (e2e/fixture/rpc-ui.ts): the fixture serves the bridge's `recap_draft` and sends
+ * the `recap` custom message a real bridge's timer would (`OMP_GUI_TEST_RECAP`, rules pinned in
+ * src/main/bridge-session-recap.test.ts and against stock in bridge-session-recap-stock.test.ts). Covers the quiet
+ * recap card after a turn (en; ko with OMP_GUI_VARIANTS=1, captured). The draft holding the recap back is
+ * unit-tested in bridge-session-recap.test.ts; a held default shown as a runtime override until the user's own
+ * write makes it Global in SchemaSettingRow.test.tsx and, against stock, bridge-omp-defaults-stock.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
+import { capture, exitApp, launchApp, variants } from "./harness";
 
 type Language = "en" | "ko";
 
 const RECAP = "You are wiring the recap card. Next: run the checks.";
 const TEXT = {
-	en: { label: "Recap", runtime: "Runtime override", global: "Global" },
-	ko: { label: "요약", runtime: "Runtime override", global: "Global" },
+	en: { label: "Recap" },
+	ko: { label: "요약" },
 } as const;
 
 interface Launched {
@@ -102,29 +100,3 @@ for (const language of variants(["en", "ko"] as const)) {
 		}
 	});
 }
-
-test("Settings reports a held default as a runtime override, and the user's own write releases it", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("en", 400);
-	try {
-		const { page } = launched;
-		const settings = page.locator("[data-settings-page]");
-		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-		await settings.getByRole("searchbox", { name: "Search settings" }).fill("lsp.diagnosticsOnEdit");
-		await settings.getByRole("button", { name: /^Diagnostics on Edit/ }).click();
-		const row = settings.locator('[id="setting-lsp.diagnosticsOnEdit"]');
-		const toggle = row.getByRole("switch");
-		await expect(toggle).toBeChecked();
-		const source = row.locator("details summary");
-		await expect(source).toContainText(TEXT.en.runtime);
-		await capture(page, "settings-runtime");
-		await toggle.click();
-		await expect(toggle).not.toBeChecked();
-		// The write replaced OMPdesk's default: the row now reports the user's own global value.
-		await expect(source).toContainText(TEXT.en.global);
-		await expect(source).not.toContainText(TEXT.en.runtime);
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
-	}
-});

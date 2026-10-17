@@ -182,26 +182,6 @@ test("voice and side question require an explicit start", async () => {
 	await page.keyboard.press("Escape");
 });
 
-test("Escape cancels a settings edit without saving its abandoned value", async () => {
-	await page.keyboard.press("ControlOrMeta+Comma");
-	const settings = page.locator("[data-settings-page]");
-	await settings.getByRole("searchbox", { name: "Search settings" }).fill("compaction.reserveTokens");
-	await settings.getByRole("button", { name: "Reserve tokens", exact: true }).click();
-	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
-	await expect(input).toHaveValue("8192");
-	const before = (await recordsOfType(record, "settings_set")).length;
-	await input.fill("12345");
-	await input.press("Escape");
-	// The first Escape discards the edit; the page stays open.
-	await expect(input).toHaveValue("8192");
-	await expect(settings).toBeVisible();
-	await page.keyboard.press("Escape");
-	await expect(settings).toHaveCount(0);
-	expect((await recordsOfType(record, "settings_set")).length).toBe(before);
-	const response = await page.evaluate(() => window.omp.rpc.getSettings(["compaction.reserveTokens"]));
-	expect(response.data).toMatchObject({ values: { "compaction.reserveTokens": 8192 } });
-});
-
 test("math survives history reload and scrolls inside its column in both themes", async () => {
 	await command("fixture math");
 	const markdown = page.locator(".markdown-body").filter({ has: page.locator(".katex-display") });
@@ -477,7 +457,9 @@ test("model benchmark, tools and debug open without external mutations", async (
 	expect(errors).toEqual([]);
 });
 
-test("settings search opens advanced controls and old refreshes cannot undo a saved edit", async () => {
+// Search reaches rows folded under Advanced (SettingsPage opens the disclosure); Escape on an edit, the row's
+// provenance and a save an older read cannot undo are SchemaSettingRow's and settings-data's component tests.
+test("settings search opens advanced controls", async () => {
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");
 	const search = settings.getByRole("searchbox", { name: "Search settings" });
@@ -487,34 +469,6 @@ test("settings search opens advanced controls and old refreshes cannot undo a sa
 	await search.fill("launchProfiles");
 	await settings.getByRole("button", { name: /^Launch profile/ }).click();
 	await expect(settings.getByPlaceholder("Leave empty to use the default system prompt")).toBeEditable();
-	await search.fill("compaction.reserveTokens");
-	await settings.getByRole("button", { name: "Reserve tokens", exact: true }).click();
-	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
-	await expect(input).toHaveValue("8192");
-	await page.evaluate(() => window.omp.rpc.prompt("fixture hold settings"));
-	const before = (await recordsOfType(record, "settings_get")).length;
-	// Main forwards every tab-scoped event wrapped in the tab's envelope, so the
-	// simulated config_update has to wear the same wire shape.
-	const activeTabId = await page.evaluate(() =>
-		window.omp.tabs.list().then(tabs => tabs.find(tab => tab.active === true)?.tabId ?? ""),
-	);
-	expect(activeTabId).toBeTruthy();
-	await app.evaluate(
-		({ BrowserWindow }, tabId) =>
-			BrowserWindow.getAllWindows()[0].webContents.send("config:update", { tabId, payload: {} }),
-		activeTabId,
-	);
-	await expect.poll(async () => (await recordsOfType(record, "settings_get")).length).toBeGreaterThan(before);
-	await input.fill("12345");
-	await input.press("Enter");
-	await expect
-		.poll(async () => await page.evaluate(() => window.omp.rpc.getSettings(["compaction.reserveTokens"])))
-		.toMatchObject({ success: true, data: { values: { "compaction.reserveTokens": 12345 } } });
-	await page.evaluate(() => window.omp.rpc.prompt("fixture release settings"));
-	await page.evaluate(() => window.omp.rpc.getState());
-	await expect(input).toHaveValue("12345");
-	await input.fill("8192");
-	await input.press("Enter");
 	await page.keyboard.press("Escape");
 });
 

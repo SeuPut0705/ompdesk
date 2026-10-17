@@ -419,8 +419,6 @@ export function runRpcUi(): void {
 		fs.mkdirSync(nodePath.dirname(proposal.planFilePath), { recursive: true });
 		fs.writeFileSync(proposal.planFilePath, proposal.planContent);
 	};
-	let holdSettings = false;
-	let releaseSettings: (() => void) | undefined;
 	/**
 	 * `OMP_GUI_TEST_LOGIN=1`: Anthropic is a signed-out OAuth provider the
 	 * providers screen can sign in to; other suites keep the one fixture provider.
@@ -458,15 +456,7 @@ export function runRpcUi(): void {
 		"theme.mode": "dark",
 		"security.enabled": false,
 		"compaction.reserveTokens": 8192,
-		"lsp.diagnosticsOnEdit": true,
 	};
-	/** Settings OMPdesk holds a default for on the real bridge (thinking-default-core.ts), still on that runtime override. */
-	const HELD_DEFAULTS: Record<string, true> = { "lsp.diagnosticsOnEdit": true };
-	const heldRuntime = new Set(Object.keys(HELD_DEFAULTS));
-	const heldProvenance = (path: string) =>
-		heldRuntime.has(path)
-			? { layers: ["runtime"] }
-			: { layers: ["global"], globalValue: values[path], globalPath: "/fixture/config.yml" };
 	// OMP_GUI_TEST_WORKTREE_LIFECYCLE=<onStart>:<onExit> sets stock's per-session
 	// worktree settings (worktree-lifecycle.e2e.ts); unset leaves them out, so no
 	// tab starts in a worktree.
@@ -1415,17 +1405,6 @@ export function runRpcUi(): void {
 					description: "Isolated numeric audit setting",
 					default: 8192,
 				},
-				// A default OMPdesk holds as a runtime override (thinking-default.ts): Settings reports it as `runtime`.
-				{
-					path: "lsp.diagnosticsOnEdit",
-					type: "boolean",
-					tab: "files",
-					group: "LSP",
-					label: "Diagnostics on Edit",
-					description: "Return LSP diagnostics after editing code files",
-					default: false,
-					provenance: heldProvenance("lsp.diagnosticsOnEdit"),
-				},
 				// A safeguard the user turned on: Settings › Permissions asks before turning it off.
 				{
 					path: "secrets.enabled",
@@ -1483,26 +1462,15 @@ export function runRpcUi(): void {
 					: []),
 			],
 		}),
-		settings_get: (params, reply) => {
-			if (holdSettings && !params.paths) {
-				holdSettings = false;
-				const snapshot = { ...values };
-				releaseSettings = () => reply({ values: snapshot, ...advisorState(snapshot) });
-				return undefined;
-			}
-			return { values, ...advisorState(values) };
-		},
+		settings_get: () => ({ values, ...advisorState(values) }),
 		settings_set: params => {
 			const path = String(params.path);
 			values[path] = params.value;
-			// A Settings write releases OMPdesk's runtime default under it (thinking-default.ts).
-			heldRuntime.delete(path);
 			emitConfigUpdate();
 			return {
 				path,
 				value: params.value,
 				savedValue: params.value,
-				...(path in HELD_DEFAULTS ? { provenance: heldProvenance(path) } : {}),
 				...(path === "advisor.enabled" ? advisorState(values) : {}),
 			};
 		},
@@ -3149,17 +3117,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		pushBridgeEvent({ type: "desktop_slot_acquire", requestId: id });
 	};
 	const prompt = (message: string, respond: () => void) => {
-		if (message === "fixture hold settings") {
-			holdSettings = true;
-			respond();
-			return;
-		}
-		if (message === "fixture release settings") {
-			releaseSettings?.();
-			releaseSettings = undefined;
-			respond();
-			return;
-		}
 		respond();
 		isStreaming = true;
 		// The new turn takes the queued input with it.

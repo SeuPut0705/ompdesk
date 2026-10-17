@@ -577,6 +577,17 @@ describe("MobileWebService phases", () => {
 		}
 	});
 
+	it("continues by itself once the tailnet turns certificates on: the next status check publishes", async () => {
+		const h = track(harness({ scenario: { httpsEnabled: false, httpsCapability: false } }));
+		expect((await h.enable()).phase).toBe("https-disabled");
+		expect(h.writes()).toEqual([]);
+		h.scenario.httpsEnabled = true;
+		h.scenario.httpsCapability = true;
+		await h.service.refresh();
+		expect(h.service.state()).toMatchObject({ phase: "ready", published: true, guideUrl: null });
+		expect(h.writes().length).toBeGreaterThan(0);
+	});
+
 	it("uses the link `tailscale serve` printed when it refuses for HTTPS, and continues once it is on", async () => {
 		const guide = "https://login.tailscale.com/f/serve?node=n123";
 		const h = track(

@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { RpcGetQueueResult } from "../../shared/rpc-types";
 import { GuiBridgeClient } from "../bridge-client";
-import { projectQueueUpdate, QueueIds } from "./queue";
+import { handlers, projectQueueUpdate, QueueIds } from "./queue";
+import type { LocalCommandContext } from "./types";
 
 const ids = (lane: { id: string }[]) => lane.map(chip => chip.id);
 
@@ -67,5 +69,88 @@ describe("projectQueueUpdate", () => {
 		const projected = projectQueueUpdate(bridge, { type: "queue_update", steering: ["a"], followUp: [] });
 		expect(projected.steering).toEqual([expect.objectContaining({ text: "a", editable: true })]);
 		expect(projectQueueUpdate(bridge, projected)).toBe(projected);
+	});
+});
+
+/** A tab's stock queue: `get_state` reads it, and stock's own remove/promote/follow_up commands change it. */
+function stockQueue(steering: string[], followUp: string[]) {
+	const lanes = { steering: [...steering], followUp: [...followUp] };
+	const sent: { type: string; [key: string]: unknown }[] = [];
+	const ctx: LocalCommandContext = {
+		cwd: "/repo",
+		omp: { bin: "omp", version: "18.11.0", run: vi.fn() },
+		send: vi.fn(async (command: { type: string; [key: string]: unknown }) => {
+			sent.push(command);
+			const text = String(command.message);
+			if (command.type === "get_state") return { queuedMessages: lanes };
+			if (command.type === "remove_queued_message") {
+				const lane = lanes[command.queue as "steering" | "followUp"];
+				const at = lane.indexOf(text);
+				if (at >= 0) lane.splice(at, 1);
+				return { removed: at >= 0 };
+			}
+			if (command.type === "promote_queued_message") {
+				const at = lanes.followUp.indexOf(text);
+				if (at >= 0) lanes.steering.push(...lanes.followUp.splice(at, 1));
+				return { promoted: at >= 0 };
+			}
+			if (command.type === "follow_up") lanes.followUp.push(text);
+			return {};
+		}) as LocalCommandContext["send"],
+		bridge: new GuiBridgeClient(""),
+	};
+	const run = (type: string, params: Record<string, unknown> = {}) => {
+		const handler = handlers[type];
+		if (!handler) throw new Error(`no handler for ${type}`);
+		return handler({ type, ...params }, ctx);
+	};
+	return { lanes, sent, run };
+}
+
+describe("queue commands", () => {
+	it("removes one queued message by its id and leaves the rest", async () => {
+		const q = stockQueue(["steer a"], ["later b", "later c"]);
+		const view = (await q.run("get_queue")) as RpcGetQueueResult;
+		const b = view.followUp.find(chip => chip.text === "later b");
+		await expect(q.run("queue_remove", { queueId: b?.id })).resolves.toEqual({ removed: true });
+		expect(q.lanes).toEqual({ steering: ["steer a"], followUp: ["later c"] });
+		await expect(q.run("queue_remove", { queueId: "nope" })).rejects.toThrow("Unknown queued message id");
+	});
+
+	it("sends a follow-up now through stock's promotion, keeping its id, to the end of the steering lane", async () => {
+		const q = stockQueue(["steer a"], ["later b", "later c"]);
+		const view = (await q.run("get_queue")) as RpcGetQueueResult;
+		const c = view.followUp.find(chip => chip.text === "later c");
+		await expect(
+			q.run("queue_move", { queueId: c?.id, toLane: "steering", toIndex: Number.MAX_SAFE_INTEGER }),
+		).resolves.toEqual({ lane: "steering", index: 1 });
+		expect(q.sent.filter(command => command.type === "promote_queued_message")).toEqual([
+			{ type: "promote_queued_message", message: "later c" },
+		]);
+		expect(q.lanes).toEqual({ steering: ["steer a", "later c"], followUp: ["later b"] });
+		const after = (await q.run("get_queue")) as RpcGetQueueResult;
+		expect(after.steering.at(-1)).toMatchObject({ id: c?.id, text: "later c" });
+	});
+
+	it("sends a steer later by re-queueing its text as a follow-up; a same-lane reorder is refused", async () => {
+		const q = stockQueue(["steer a", "steer b"], []);
+		const view = (await q.run("get_queue")) as RpcGetQueueResult;
+		const [a, b] = view.steering;
+		await expect(q.run("queue_move", { queueId: a?.id, toLane: "followUp", toIndex: 0 })).resolves.toEqual({
+			lane: "followUp",
+			index: 0,
+		});
+		expect(q.lanes).toEqual({ steering: ["steer b"], followUp: ["steer a"] });
+		// Stock's queue_update reports the new lanes (here: the next read).
+		await q.run("get_queue");
+		await expect(q.run("queue_move", { queueId: b?.id, toLane: "steering", toIndex: 0 })).resolves.toEqual({
+			lane: "steering",
+			index: 0,
+		});
+		q.lanes.steering.push("steer c");
+		await q.run("get_queue");
+		await expect(q.run("queue_move", { queueId: b?.id, toLane: "steering", toIndex: 1 })).rejects.toThrow(
+			"cannot reorder",
+		);
 	});
 });

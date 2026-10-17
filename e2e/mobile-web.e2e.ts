@@ -10,9 +10,9 @@
  *   built app's web server over /ws (`phoneRoundTrip`); Block in the notice keeps it out (old cookie, the page, a
  *   new connection) until Unblock in Settings; "Approve new devices on this computer" brings the dialog back;
  * - the user's own `443 → 127.0.0.1:3010` serve handler is never touched, no `serve reset` or `funnel` ever runs,
- *   and switching off removes only OMPdesk's own handler;
- * - a tailnet with HTTPS certificates off: the guidance names the public certificate log, the button opens the
- *   admin page, and enabling HTTPS lets it continue.
+ *   and switching off removes only OMPdesk's own handler.
+ * A tailnet with HTTPS certificates off (the guidance, the admin page, continuing once it is on) is covered by
+ * MobileWebSection.test.tsx and tailscale/service.test.ts.
  * Captures in the test output directory, light/dark × en/ko.
  */
 import { once } from "node:events";
@@ -358,40 +358,3 @@ for (const language of variants(["en", "ko"] as const))
 				await fs.rm(root, { recursive: true, force: true });
 			}
 		});
-
-test("Mobile web explains HTTPS certificates being off and continues once they are on (en light)", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a shebang script run by bun");
-	test.setTimeout(180_000);
-	const language = "en";
-	const t = (key: string) => translate(language, key);
-	const { app, page, tailscale, root, opened } = await launch(language, "light", {
-		httpsEnabled: false,
-		httpsCapability: false,
-	});
-	try {
-		const section = await openMobileWeb(page);
-		await section.locator('#settings-mobile-web-toggle [role="switch"]').click();
-		await phase(section, "https-disabled");
-		// The consent text: the device name goes into the public certificate-transparency log.
-		await expect(section.locator("[data-mobile-web-phase]")).toContainText(t("mobileWeb.phase.httpsDisabledDesc"));
-		await expect(section.locator("[data-mobile-web-admin-message]")).toContainText(t("mobileWeb.adminMessage"));
-		await capture(page, "mobile-web-en-light-https-disabled");
-
-		await section.getByRole("button", { name: t("mobileWeb.enableHttps"), exact: true }).click();
-		await expect
-			.poll(async () => (await opened()).some(url => url.startsWith("https://login.tailscale.com/")))
-			.toBe(true);
-		// Nothing was published while the tailnet refused: only the user's own handler exists.
-		expect(ownKeys(tailscale)).toEqual([]);
-
-		// The admin turned HTTPS on: Mobile web carries on without another click.
-		tailscale.update({ httpsEnabled: true, httpsCapability: true });
-		await phase(section, "ready");
-		expect(ownKeys(tailscale)).toEqual([`${USER_SERVE_HOST}:47831`]);
-		userHandlerIntact(tailscale);
-		assertNeverReset(tailscale);
-	} finally {
-		await exitApp(app);
-		await fs.rm(root, { recursive: true, force: true });
-	}
-});
