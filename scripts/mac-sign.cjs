@@ -87,7 +87,10 @@ async function sign(opts) {
 		// hosted runner: it is ephemeral, and the maintainer's own search list is never touched.
 		if (process.env.GITHUB_ACTIONS === "true") {
 			const { stdout: listed } = await run(SECURITY, ["list-keychains", "-d", "user"]);
-			searchList = listed.split("\n").map(line => line.trim().replace(/^"|"$/g, "")).filter(Boolean);
+			searchList = listed
+				.split("\n")
+				.map(line => line.trim().replace(/^"|"$/g, ""))
+				.filter(Boolean);
 			await run(SECURITY, ["list-keychains", "-d", "user", "-s", keychain, ...searchList]);
 		}
 		const optionsForFile = opts.optionsForFile;
