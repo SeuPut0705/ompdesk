@@ -906,6 +906,12 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Enable when the judge role resolves to a native TypeSafe jev model":
 		"판정 역할이 TypeSafe jev 네이티브 모델일 때 켜요",
 	"Always enable, whichever model the judge role resolves to": "판정 역할이 어떤 모델이든 항상 켜요",
+	"Never classify prompts for prewalk": "사전 탐색용으로 요청을 분류하지 않아요",
+	Suggest: "제안만",
+	"Classify each task and report the decision without arming prewalk":
+		"작업마다 분류해 결과만 알리고 사전 탐색은 켜지 않아요",
+	"For confidently front-loaded tasks, arm a handoff from the active model to the auto target; the next task starts back on the planning model":
+		"앞단 추론이 확실한 작업은 현재 모델에서 자동 대상 모델로 넘기도록 준비해요. 다음 작업은 다시 계획 모델로 시작해요",
 	"Disable the find tool": "find 도구 끄기",
 	"1 operation": "작업 1개",
 	"2 operations": "작업 2개",

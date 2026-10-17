@@ -260,6 +260,15 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"현재 모델로 시작한 뒤, 계획 프롬프트의 할 일 목록이 만들어지고 첫 편집/쓰기가 일어날 때 빠르고 저렴한 모델(기본 'smol' 역할)로 전환해요. 강한 모델이 계획을 세우고 할 일을 등록해 구현을 시작한 다음 핸드오프해요. --prewalk / --no-prewalk로 세션별로 덮어쓸 수 있어요.",
 	},
+	"prewalk.auto": {
+		label: "자동 사전 탐색",
+		description:
+			"'judge' 역할로 정해진 네이티브 판정 모델에게 새 최상위 작업마다 어려운 추론이 앞쪽에 몰려 있는지 물어요. 네이티브 판정 모델이 없으면 아무것도 분류하지 않아요. 사전 탐색 사용 설정과는 따로 동작해요.",
+	},
+	"prewalk.autoTarget": {
+		label: "자동 사전 탐색 대상",
+		description: "자동 사전 탐색이 첫 편집/쓰기 때 넘겨줄 모델이나 역할이에요(기본 '@smol').",
+	},
 	// 17.3.0에서 전역 advisor.subagents가 제거됨(task.agentAdvisor로 이전).
 	"task.agentAdvisor": {
 		label: "서브에이전트 어드바이저(에이전트별)",
