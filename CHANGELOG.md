@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.36.1] - 2026-10-18
+
+앱을 켜자마자 새 탭을 열면 단축키가 모두 먹통이 되던 문제를 고쳤어요.
+
+### 고친 것
+- 앱을 켜는 중에 ⌘T로 새 탭을 열면 탭 선택과 화면 경로가 어긋나서, 그 뒤 모든 단축키(⌘, 로 설정 열기 등)가 거부되던 것을 고쳤어요. 탭 목록을 맞추는 중에 시작된 탭 전환도 이제 화면 경로를 그대로 지켜요.
+
+<!-- en -->
+
+Opening a new tab right after launch no longer leaves every keyboard shortcut dead.
+
+### Fixed
+- Pressing ⌘T while the app was still starting up left the tab selection and the screen route out of step, so every shortcut afterwards (such as ⌘, for Settings) was refused. A tab switch that begins while the tab list is being reconciled now keeps the route state in step.
+
 ## [0.36.0] - 2026-10-18
 
 휴대폰과 태블릿에서 쓰기 편해졌고, 휴대폰 화면 아래가 가려지던 문제를 고쳤어요.
