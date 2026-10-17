@@ -450,36 +450,3 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 		await expect(page.locator(".omp-execution-group-body").first()).toBeVisible();
 	});
 });
-
-// A subagent's read screenshots reach the outcome as stock persisted them (blob
-// references in its JSONL): the row draws the stored picture and shows one whose
-// blob is gone as its file, never a broken image or a path as alt text.
-test("outcome thumbnails draw a subagent's read screenshots from stock's blob store", async () => {
-	await withLiveWorkApp(0, async page => {
-		const input = page.locator("textarea").first();
-		await input.fill("fixture subagent screenshots");
-		await input.press("Enter");
-		const row = page.locator(".omp-work-images").first();
-		const thumbnail = row.locator(".omp-work-image img");
-		await expect(thumbnail).toHaveCount(1, { timeout: 30_000 });
-		await expect(thumbnail).toHaveAttribute("alt", "home.png");
-		await expect
-			.poll(() => thumbnail.evaluate(image => (image as HTMLImageElement).naturalWidth), { timeout: 10_000 })
-			.toBeGreaterThan(0);
-		const chip = row.locator("[data-image-unavailable]");
-		await expect(chip).toHaveCount(1);
-		await expect(chip).toContainText("gone.png");
-		await expect(chip.locator("img")).toHaveCount(0);
-		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
-		if (directory) {
-			await fs.mkdir(directory, { recursive: true });
-			await page
-				.locator(".omp-execution-group")
-				.first()
-				.screenshot({
-					path: path.join(directory, "outcome-images.png"),
-					animations: "disabled",
-				});
-		}
-	});
-});

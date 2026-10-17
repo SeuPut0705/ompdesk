@@ -255,6 +255,25 @@ describe("MachineSetupView", () => {
 		expect(fake.api.retry).toHaveBeenCalledWith("omp");
 	});
 
+	it("names the connection when an install could not reach the internet, not an exit code", async () => {
+		const offline = setupState(
+			"darwin",
+			{
+				omp: {
+					phase: "failed",
+					presence: { kind: "missing" },
+					failure: { reason: "network", detail: "curl: (6) Could not resolve host: registry.npmjs.org" },
+				},
+			},
+			{ ompReady: false },
+		);
+		await mount(<MachineSetupView />, offline);
+		expect(text()).toContain(translate("machineSetup.reason.network"));
+		expect(text()).not.toContain(translate("machineSetup.reason.exit", { code: 1 }));
+		await act(async () => query('[data-testid="setup-retry"]')?.click());
+		expect(fake.api.retry).toHaveBeenCalledWith("omp");
+	});
+
 	it("reports a cancel as the user's stop, not a failure", async () => {
 		const cancelled = setupState(
 			"darwin",

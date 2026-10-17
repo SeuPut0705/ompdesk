@@ -4,14 +4,15 @@
  * (`OMP_GUI_TEST_RECAP`, rules pinned in src/main/bridge-session-recap.test.ts and against stock in
  * bridge-session-recap-stock.test.ts), and reports `lsp.diagnosticsOnEdit` as the runtime override
  * OMPdesk holds (resources/gui-bridge/thinking-default-core.ts) until a Settings write releases it.
- * Covers the quiet recap card after a turn (en/ko, captured), a composer draft holding it back until the
- * draft is cleared, and Settings showing `Runtime override`, then `Global` after the user's own write.
+ * Covers the quiet recap card after a turn (en; ko with OMP_GUI_VARIANTS=1, captured) and Settings showing
+ * `Runtime override`, then `Global` after the user's own write. The draft holding the recap back is unit-tested
+ * in src/main/bridge-session-recap.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 type Language = "en" | "ko";
 
@@ -80,7 +81,7 @@ function recapLine(page: Page): Locator {
 	return page.locator("[data-recap]");
 }
 
-for (const language of ["en", "ko"] as const) {
+for (const language of variants(["en", "ko"] as const)) {
 	test(`${language}: a quiet recap line lands after an idle turn, once, and stays in the transcript`, async () => {
 		test.setTimeout(120_000);
 		const launched = await launch(language, 400);
@@ -101,29 +102,6 @@ for (const language of ["en", "ko"] as const) {
 		}
 	});
 }
-
-test("a composer draft holds the recap back until it is cleared", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("en", 1_000);
-	try {
-		const { page } = launched;
-		const input = composer(page);
-		// The draft is typed before the turn ends: send, then type while the reply streams in.
-		await input.fill("hello there");
-		await input.press("Enter");
-		await input.fill("a half-written follow-up");
-		await expect(page.getByText("Local fixture reply")).toHaveCount(1, { timeout: 30_000 });
-		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
-		await page.waitForTimeout(2_500);
-		await expect(recapLine(page)).toHaveCount(0);
-		// Clearing the draft inside the same idle window lets it through.
-		await input.fill("");
-		await expect(recapLine(page)).toHaveCount(1, { timeout: 15_000 });
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
-	}
-});
 
 test("Settings reports a held default as a runtime override, and the user's own write releases it", async () => {
 	test.setTimeout(120_000);

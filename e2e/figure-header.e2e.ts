@@ -2,13 +2,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, variants } from "./harness";
 
 // Every figure box (mermaid, svg, code block, a write's figure in its tool card)
 // has ONE compact header row: the kind on the left, icon actions on the right,
 // no separate Preview/Code row above the box. Geometry and names are asserted in
-// both themes and languages; pictures go to OMP_GUI_FIGURE_HEADER=<dir> (also
-// into the test's output dir).
+// en light (every theme and language with OMP_GUI_VARIANTS=1); pictures go to
+// OMP_GUI_FIGURE_HEADER=<dir> (also into the test's output dir).
 
 const captures = process.env.OMP_GUI_FIGURE_HEADER;
 
@@ -50,8 +50,8 @@ async function headerOf(
 	};
 }
 
-for (const language of ["en", "ko"] as const satisfies readonly Language[]) {
-	for (const theme of ["light", "dark"] as const satisfies readonly Theme[]) {
+for (const language of variants(["en", "ko"] as const satisfies readonly Language[])) {
+	for (const theme of variants(["light", "dark"] as const satisfies readonly Theme[])) {
 		test(`figure boxes have one header row in ${language} ${theme}`, async () => {
 			test.setTimeout(180_000);
 			const names = NAMES[language];

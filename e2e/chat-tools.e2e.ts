@@ -131,21 +131,6 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 	expect(errors).toEqual([]);
 });
 
-test("stock metadata drives live token rate and read grouping", async () => {
-	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture meter" }));
-	await expect(page.locator(".omp-thinking-gauge").last()).toContainText("64 tok/s");
-	await expect(page.locator(".omp-thinking-gauge").last()).not.toContainText("tokens");
-	await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
-	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture reads" }));
-	const group = page.locator(".omp-read-group");
-	await expect(group).toHaveCount(1);
-	await expect(group.locator(".omp-tool-summary")).toHaveAttribute(
-		"title",
-		"https://example.com/leaderboard\nxd://lsp\nsrc/a.ts",
-	);
-	expect(errors).toEqual([]);
-});
-
 test("reference blocks stay readable and errors retain recovery actions", async () => {
 	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture transcript" }));
 	await expect(page.getByRole("heading", { name: "변경 사항", exact: true })).toBeVisible();

@@ -363,35 +363,6 @@ test("a turn the user stopped is not resumed after a crash", async () => {
 	}
 });
 
-test("the setting off: a killed turn is not resumed and leaves no marker", async () => {
-	test.setTimeout(150_000);
-	const profile = await makeProfile("en", "light");
-	let current: ElectronApplication | undefined;
-	try {
-		const first = await launch(profile);
-		current = first.app;
-		await first.page.evaluate(() => window.omp.prefs.set("resumeInterrupted", false));
-		const input = first.page.locator(".omp-composer-input").first();
-		await input.fill("fixture running");
-		await input.press("Enter");
-		await expect(first.page.getByRole("button", { name: "Stop", exact: true }).first()).toBeVisible({
-			timeout: 30_000,
-		});
-		expect(await markers(profile)).toEqual([]);
-		// The relaunch reopens the session the saved layout names: it must be saved before the kill.
-		await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
-		await crash(first.app);
-
-		const second = await launch(profile);
-		current = second.app;
-		await expect(second.page.getByText("fixture running").first()).toBeVisible({ timeout: 30_000 });
-		await expect(second.page.getByText("Continued after the interruption.")).toHaveCount(0);
-	} finally {
-		if (current) await exitApp(current);
-		await cleanup(profile);
-	}
-});
-
 test("the setting off: a quit asks before stopping the running turn, and quitting anyway leaves nothing to continue", async () => {
 	test.setTimeout(150_000);
 	const profile = await makeProfile("en", "light");

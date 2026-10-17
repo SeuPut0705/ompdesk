@@ -349,6 +349,38 @@ describe("PlanApprovalDialog", () => {
 		expect(document.querySelector("[data-prompt-card]")).toBeNull();
 	});
 
+	it("an approval leaves plan mode (an automatic plan ends with its plan)", async () => {
+		installMockOmp(vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true })));
+		useSessionStore.setState({ planModeEnabled: true });
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+		const execute = buttonWithText("Approve and execute");
+		if (!execute) throw new Error("missing execute button");
+		await act(async () => click(execute));
+		await flush();
+		expect(useSessionStore.getState().planModeEnabled).toBe(false);
+	});
+
+	it("a rejection leaves plan mode only when the bridge ended it (an automatic plan), never the user's own", async () => {
+		const rejected = { approved: false, dispatched: false, reason: "rejected" };
+		for (const [result, after] of [
+			[{ ...rejected, planModeEnabled: false }, false],
+			[rejected, true],
+		] as const) {
+			installMockOmp(vi.fn<PlanApprovalFn>(async () => success(result)));
+			useSessionStore.setState({ planModeEnabled: true });
+			await mount(<PlanApprovalDialog />);
+			await emit([proposal("# Plan")]);
+			const dismiss = buttonWithText("Dismiss");
+			if (!dismiss) throw new Error("missing dismiss button");
+			await act(async () => click(dismiss));
+			await flush();
+			expect(useSessionStore.getState().planModeEnabled).toBe(after);
+			await act(async () => root.unmount());
+			container.remove();
+		}
+	});
+
 	it("answers planApproval(false) on Escape", async () => {
 		const planApproval = vi.fn<PlanApprovalFn>(async () =>
 			success({ approved: false, dispatched: false, reason: "rejected" }),

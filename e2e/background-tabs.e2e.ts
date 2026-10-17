@@ -212,31 +212,6 @@ test("a background run finishing notifies under that tab's name", async () => {
 	expect(errors).toEqual([]);
 });
 
-test("a background tab's next-prompt suggestion becomes the composer placeholder and survives an edited draft", {
-	tag: "@legacy-next-prompt",
-}, async () => {
-	const suggestion = "Write the release notes next";
-	const background = await activeTab();
-	await nameTab(background, "Suggesting tab");
-	await openTab();
-	const composer = page.locator("textarea").first();
-
-	await fixtureCommand(background, `fixture:next-prompt:${suggestion}`);
-	await expect(composer).toBeVisible();
-	await expect(composer).not.toHaveAttribute("placeholder", suggestion);
-
-	await switchTo(background);
-	await expect(composer).toHaveAttribute("placeholder", suggestion);
-	await composer.fill("a draft of my own");
-	// The extension clears its widget on input; the GUI keeps the suggestion.
-	await fixtureCommand(background, "fixture:next-prompt:clear");
-	await composer.fill("");
-	await expect(composer).toHaveAttribute("placeholder", suggestion);
-	await composer.press("Tab");
-	await expect(composer).toHaveValue(suggestion);
-	expect(errors).toEqual([]);
-});
-
 test("sidebar subagent rows start collapsed, expand on click, and a finished one leaves the list at once", async () => {
 	const owner = await activeTab();
 	await nameTab(owner, "Fan-out tab");

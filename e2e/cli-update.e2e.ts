@@ -229,36 +229,3 @@ for (const language of variants(["en", "ko"] as const)) {
 		}
 	});
 }
-
-test("with the pref off nothing runs at launch; Update now checks and updates that tool", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("off", { language: "en", cliAutoUpdate: false });
-	const { page } = launched;
-	try {
-		await release(launched);
-		const settings = await openThisComputer(page);
-		await expect(settings.locator("#setting-gui-cliAutoUpdate [role='switch']")).toHaveAttribute(
-			"aria-checked",
-			"false",
-		);
-		await expect(settings.getByTestId("cli-version-claude")).toHaveText("Installed 2.0.1");
-		await expect(settings.getByTestId("cli-status-claude")).toHaveText("Not checked yet.");
-		expect(await installs(launched)).toEqual([]);
-
-		await settings.getByTestId("cli-update-now-claude").click();
-		await expect(settings.getByTestId("cli-status-claude")).toHaveText("Updated 2.0.1 → 2.1.0.", { timeout: 30_000 });
-		expect(await installs(launched)).toEqual(["cli-claude self check", "cli-claude self update"]);
-		await expect(settings.getByTestId("cli-version-claude")).toHaveText("Installed 2.1.0 · Latest 2.1.0");
-
-		// The switch writes the pref main reads.
-		await settings.locator("#setting-gui-cliAutoUpdate [role='switch']").click();
-		await expect(settings.locator("#setting-gui-cliAutoUpdate [role='switch']")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-		expect(await page.evaluate(() => window.omp.prefs.get("cliAutoUpdate"))).toBe(true);
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await close(launched);
-	}
-});

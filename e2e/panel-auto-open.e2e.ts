@@ -6,9 +6,10 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp } from "./harness";
 
-// The side panel opening by itself on the fake omp's `fixture flow` run: a dev server's address
-// opens the Preview (once per address, never over a view the user works in), and a turn that
-// edited files opens Changes at its end (never mid-stream, not after the user closed it).
+// The side panel opening by itself on the fake omp's `fixture flow` run: a turn that edited files opens
+// Changes at its end, never mid-stream, through the real event path. The rest of the rules (the dev server
+// Preview, once per address, the off switches, staying closed after the user closed it) are unit-tested in
+// src/renderer/lib/panel-auto-open.test.ts.
 test.describe.configure({ mode: "parallel" });
 
 interface Launched {
@@ -69,7 +70,6 @@ function driver(page: Page, tab: string) {
 	return { op, start };
 }
 
-const PREVIEW_ADDRESS = "Preview URL";
 const panel = (page: Page) => page.locator("aside.omp-inspector");
 
 async function withApp(prefs: Record<string, unknown>, body: (launched: Launched) => Promise<void>): Promise<void> {
@@ -83,39 +83,6 @@ async function withApp(prefs: Record<string, unknown>, body: (launched: Launched
 	}
 }
 
-test("a dev server's address opens the Preview, once per address", async () => {
-	await withApp({}, async ({ page, tab }) => {
-		const flow = driver(page, tab);
-		await expect(panel(page)).toHaveCount(0);
-		await flow.start();
-		await flow.op({ op: "call", id: "dev", name: "bash", args: { command: "npm run dev" } });
-		await flow.op({ op: "output", id: "dev", text: "VITE ready in 300 ms\n  Local: http://localhost:5173/" });
-		await expect(panel(page)).toBeVisible();
-		await expect(panel(page).getByLabel(PREVIEW_ADDRESS)).toHaveValue(/localhost:5173/);
-		// The user closes it; the same address again keeps it closed.
-		await page.getByRole("button", { name: "Close side panel" }).click();
-		await expect(panel(page)).toHaveCount(0);
-		await flow.op({ op: "output", id: "dev", text: "hmr update\n  Local: http://localhost:5173/" });
-		await page.waitForTimeout(800);
-		await expect(panel(page)).toHaveCount(0);
-		await flow.op({ op: "end", id: "dev", text: "stopped" });
-		await flow.op({ op: "reply", text: "done" });
-	});
-});
-
-test("the switch turns the dev server Preview off", async () => {
-	await withApp({ autoPreviewDevServer: false }, async ({ page, tab }) => {
-		const flow = driver(page, tab);
-		await flow.start();
-		await flow.op({ op: "call", id: "dev", name: "bash", args: { command: "npm run dev" } });
-		await flow.op({ op: "output", id: "dev", text: "  Local: http://localhost:5173/" });
-		await page.waitForTimeout(1200);
-		await expect(panel(page)).toHaveCount(0);
-		await flow.op({ op: "end", id: "dev", text: "stopped" });
-		await flow.op({ op: "reply", text: "done" });
-	});
-});
-
 test("an edit turn opens Changes at its end, not before", async () => {
 	await withApp({}, async ({ page, tab }) => {
 		const flow = driver(page, tab);
@@ -127,36 +94,5 @@ test("an edit turn opens Changes at its end, not before", async () => {
 		await flow.op({ op: "reply", text: "done" });
 		await expect(panel(page)).toBeVisible();
 		await expect(page.getByText("a.txt").first()).toBeVisible();
-	});
-});
-
-test("Changes stays closed for the session once the user closed it", async () => {
-	await withApp({}, async ({ page, tab }) => {
-		const flow = driver(page, tab);
-		await flow.start();
-		await flow.op({ op: "call", id: "e1", name: "edit", args: { path: "a.txt" } });
-		await flow.op({ op: "end", id: "e1", text: "Edited a.txt" });
-		await flow.op({ op: "reply", text: "done" });
-		await expect(panel(page)).toBeVisible();
-		await page.getByRole("button", { name: "Close side panel" }).click();
-		await expect(panel(page)).toHaveCount(0);
-		await flow.start();
-		await flow.op({ op: "call", id: "e2", name: "edit", args: { path: "a.txt" } });
-		await flow.op({ op: "end", id: "e2", text: "Edited a.txt" });
-		await flow.op({ op: "reply", text: "done again" });
-		await page.waitForTimeout(1200);
-		await expect(panel(page)).toHaveCount(0);
-	});
-});
-
-test("the switch turns the Changes view off", async () => {
-	await withApp({ autoOpenChanges: false }, async ({ page, tab }) => {
-		const flow = driver(page, tab);
-		await flow.start();
-		await flow.op({ op: "call", id: "e1", name: "edit", args: { path: "a.txt" } });
-		await flow.op({ op: "end", id: "e1", text: "Edited a.txt" });
-		await flow.op({ op: "reply", text: "done" });
-		await page.waitForTimeout(1200);
-		await expect(panel(page)).toHaveCount(0);
 	});
 });

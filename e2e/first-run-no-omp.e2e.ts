@@ -287,17 +287,6 @@ for (const language of variants(["en", "ko"] as const)) {
 	}
 }
 
-test("first-run: wizard timing, launch with omp present → provider step", async () => {
-	const launched = await launch("timing", "en", "dark", "present");
-	try {
-		await expect(launched.page.locator('[data-first-run-step="connect"]')).toBeVisible({ timeout: 30_000 });
-		await report(launched, "launch");
-		expect(await trouble(launched.page)).toEqual([]);
-	} finally {
-		await launched.close();
-	}
-});
-
 /**
  * Opt-in (`OMP_GUI_REAL_FIRST_START=1`): the real boot cost of the user's installed omp on a fresh agent
  * dir, which the fake omp cannot show (its bundle load, cold provider discovery, a virus scan).

@@ -99,39 +99,6 @@ async function pasteText(page: Page, text: string): Promise<void> {
 	}, text);
 }
 
-test("a folded paste that starts with ! is a prompt, and ↑ sends a paste's text again", async () => {
-	test.setTimeout(120_000);
-	const dirs = await profile("paste");
-	const { app, page, errors } = await launch(dirs);
-	try {
-		const input = composer(page);
-		const lines = Array.from({ length: 11 }, (_, line) => `log line ${line}`);
-		const bang = ["!echo pasted", ...lines].join("\n");
-		await pasteText(page, bang);
-		await expect(input).toHaveValue(/^\[Paste #\d+, \+12 lines\]$/);
-		await expect(page.locator("[data-composer-mode]")).toHaveCount(0);
-		await input.press("Enter");
-		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual([bang]);
-		await expect(stop(page)).toHaveCount(0, { timeout: 20_000 });
-		expect(await sentOfType(dirs.record, "bash")).toEqual([]);
-
-		const block = ["see this log:", ...lines].join("\n");
-		await pasteText(page, block);
-		await input.press("Enter");
-		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual([bang, block]);
-		await expect(stop(page)).toHaveCount(0, { timeout: 20_000 });
-		await input.click();
-		await page.keyboard.press("ArrowUp");
-		await expect(input).toHaveValue(block);
-		await input.press("Enter");
-		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual([bang, block, block]);
-		expect(errors).toEqual([]);
-	} finally {
-		await exitApp(app);
-		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
-
 test("+ › Use a skill… takes the keys; the send-mode chip lasts one run; the chip and Stop keep typing in the field", async () => {
 	test.setTimeout(120_000);
 	const dirs = await profile("focus");

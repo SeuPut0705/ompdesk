@@ -89,5 +89,7 @@ describe("ReadGroupCard running indicators", () => {
 		expect(header?.textContent).toContain("Read");
 		expect(header?.textContent).toContain("2 files");
 		expect(header?.textContent).toContain("a.ts, b.ts");
+		// The full targets are the summary's tooltip, one per line.
+		expect(header?.querySelector(".omp-tool-summary")?.getAttribute("title")).toBe("src/a.ts\nsrc/b.ts");
 	});
 });

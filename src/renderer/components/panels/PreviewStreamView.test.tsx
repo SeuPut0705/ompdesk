@@ -207,6 +207,26 @@ describe("PreviewStreamView", () => {
 		expect(sheet()).toBeNull();
 	});
 
+	it("answers a prompt with the text typed into the sheet, from Enter", async () => {
+		vi.useFakeTimers();
+		const prompt: PreviewStreamDialog = { id: 9, kind: "prompt", message: "Name?", initial: "Ada" };
+		const stream = install([{ frame: frame(1), dialogs: [prompt] }]);
+		await mount();
+		// Linkedom has no value tracking: call the field's own handlers, reading them again after each render.
+		const handlers = () => {
+			const input = document.body.querySelector("[data-preview-dialog-input]") as unknown as Record<string, unknown>;
+			const key = Object.getOwnPropertyNames(input).find(name => name.startsWith("__reactProps$"));
+			return (key ? input[key] : {}) as {
+				onChange?: (event: object) => void;
+				onKeyDown?: (event: object) => void;
+			};
+		};
+		await act(async () => handlers().onChange?.({ target: { value: "Grace" } }));
+		await act(async () => handlers().onKeyDown?.({ key: "Enter", nativeEvent: { isComposing: false } }));
+		expect(stream.answerDialog).toHaveBeenCalledWith(9, { accept: true, text: "Grace" });
+		expect(document.body.querySelector("[data-preview-dialog]")).toBeNull();
+	});
+
 	it("copies the page's selection to this device's clipboard", async () => {
 		vi.useFakeTimers();
 		const writeText = vi.fn().mockResolvedValue(undefined);

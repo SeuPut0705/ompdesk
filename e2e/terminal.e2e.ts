@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 for (const theme of variants(["light", "dark"] as const)) {
-	test(`real interactive terminal in ${theme}`, async () => {
+	test(`${theme === "light" ? "@smoke " : ""}real interactive terminal in ${theme}`, async () => {
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-terminal-"));
 		const desktop = path.join(profile, "desktop");
 		const project = path.join(profile, "project");

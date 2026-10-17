@@ -856,6 +856,13 @@ describe("ProvidersSection", () => {
 			expect(pendingIds()).toEqual([]);
 			// The user cancelled: no failure banner.
 			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+
+			// A new sign-in starts clean: it waits for the browser again.
+			pendingLogin = Promise.withResolvers<RpcResponse>();
+			login.mockReturnValueOnce(pendingLogin.promise);
+			await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
+			await act(async () => useExtensionUiStore.getState().pushRequest(openUrl));
+			expect(progress()).toBe(translate("providerList.login.waiting"));
 		});
 
 		describe("after a reload mid-sign-in", () => {
@@ -889,6 +896,19 @@ describe("ProvidersSection", () => {
 				expect(document.querySelector("[data-login-progress]")).toBeNull();
 				// Cancelling does not bring it back while main winds the login down.
 				expect(useExtensionUiStore.getState().adoptedLogin?.hidden).toBe(true);
+			});
+
+			it("a Cancel after a reload ends quietly when main's login answers cancelled: no failure, the paste cancelled once", async () => {
+				await reloadMidSignIn();
+				await act(async () => button(translate("common.cancel"))?.click());
+				await act(async () => {
+					for (const request of useExtensionUiStore
+						.getState()
+						.settleAdoptedLogin("Authorization failed: Cancelled in OMPdesk"))
+						void respondExtensionUi({ type: "extension_ui_response", id: request.id, cancelled: true });
+				});
+				expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+				expect(cancelledIds()).toEqual(["code-1"]);
 			});
 
 			it("reloads the providers when main reports the sign-in connected, and cancels the leftover paste", async () => {

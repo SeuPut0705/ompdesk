@@ -69,7 +69,7 @@ async function openRemoteSettings(page: Page): Promise<void> {
 	await expect(page.locator("[data-remote-section]")).toBeVisible();
 }
 
-test("pairs two devices, runs a prompt on the host, and shows the link drop", async () => {
+test("@smoke pairs two devices, runs a prompt on the host, and shows the link drop", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-"));
 	const discoveryBase = 48_000 + Math.floor(Math.random() * 1_000) * 2;

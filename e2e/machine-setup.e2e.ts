@@ -354,33 +354,6 @@ async function quit(launched: Launched): Promise<void> {
 	launched.server.close();
 }
 
-test("Cancel stops the download and says so; Retry installs again", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("cancel", { language: "en" });
-	const { page } = launched;
-	try {
-		const setup = page.getByTestId("machine-setup");
-		const omp = setup.locator('[data-setup-item="omp"]');
-		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
-		await expect(omp).toContainText("50%");
-		await setup.getByTestId("setup-cancel").click();
-		await expect(omp).toHaveAttribute("data-phase", "cancelled");
-		const takeover = page.getByTestId("setup-takeover");
-		await expect(takeover.locator("h1")).toHaveText("omp isn't installed yet");
-		await expect(setup).toContainText("You stopped the install");
-		await expect(setup.getByTestId("setup-cancel")).toHaveCount(0);
-		expect(await installs(launched)).toEqual([]);
-		await capture(page, "cancelled");
-		await setup.getByTestId("setup-retry").click();
-		await expect(omp).toHaveAttribute("data-phase", "running");
-		await expect(takeover.locator("h1")).toHaveText("Installing omp on this computer");
-		await expect.poll(async () => (await installs(launched)).length).toBe(1);
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await close(launched);
-	}
-});
-
 test("quitting mid-install any number of times never pauses the next launch", async () => {
 	test.setTimeout(180_000);
 	const first = await launch("quit", { language: "en" });
@@ -397,67 +370,6 @@ test("quitting mid-install any number of times never pauses the next launch", as
 		await expect(launched.page.getByTestId("setup-takeover").locator("h1")).toHaveText(
 			"Installing omp on this computer",
 		);
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await close(launched);
-	}
-});
-
-test("an offline first launch says it is the connection, and Retry installs once it is back", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch(
-		"offline",
-		{ language: "en" },
-		{ failOutput: "curl: (6) Could not resolve host: registry.npmjs.org" },
-	);
-	const { page } = launched;
-	try {
-		const setup = page.getByTestId("machine-setup");
-		const omp = setup.locator('[data-setup-item="omp"]');
-		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
-		launched.finishDownload();
-		await release(launched, 1);
-		await expect(omp).toHaveAttribute("data-phase", "failed");
-		await expect(setup).toContainText("OMPdesk couldn't reach the internet. Connect, then try again.");
-		await expect(page.getByTestId("setup-takeover").locator("h1")).toHaveText("omp isn't installed yet");
-		await capture(page, "offline");
-		await setup.getByTestId("setup-retry").click();
-		await release(launched, 2);
-		await expect
-			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 30_000 })
-			.toBe("ready");
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await close(launched);
-	}
-});
-
-test("an omp below the minimum is updated on its own, with its own heading", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("outdated", { language: "en" }, { outdated: true });
-	const { page } = launched;
-	try {
-		const setup = page.getByTestId("machine-setup");
-		const omp = setup.locator('[data-setup-item="omp"]');
-		await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
-		await expect(omp).toContainText("older than the required");
-		const heading = page.getByTestId("setup-takeover").locator("h1");
-		await expect(heading).toHaveText("Updating omp on this computer");
-		await expect(omp).toContainText("2.0 MB of 4.0 MB");
-		await capture(page, "outdated");
-		launched.finishDownload();
-		await release(launched, 1);
-		await expect(omp).toHaveAttribute("data-phase", "failed");
-		await expect(heading).toHaveText("omp needs an update");
-		await setup.getByTestId("setup-retry").click();
-		await release(launched, 2);
-		await expect
-			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 30_000 })
-			.toBe("ready");
-		expect((await installs(launched)).filter(line => line.startsWith("omp "))).toEqual([
-			"omp omp-update",
-			"omp omp-update",
-		]);
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await close(launched);

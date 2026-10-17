@@ -300,6 +300,17 @@ describe("InputArea legacy next-prompt widget", () => {
 		);
 		expect(placeholder()).toBe("legacy widget");
 	});
+
+	it("is picked up again (and Tab fills it) once the built-in is switched off after the widget arrived", async () => {
+		await mount();
+		await setBuiltin();
+		await pushWidget("legacy widget");
+		expect(placeholder()).toBe(translate("input.placeholder.idle"));
+		await act(async () => useSessionStore.setState({ nextPrompt: { ...BUILTIN, suggestions: false } }));
+		expect(placeholder()).toBe("legacy widget");
+		expect((await press({ key: "Tab" })).prevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("legacy widget");
+	});
 });
 
 describe("InputArea suggestion chips", () => {
@@ -379,6 +390,17 @@ describe("InputArea suggestion chips", () => {
 		// No third chip: Alt+3 leaves the key alone.
 		await typeInto("");
 		expect((await press({ key: "£", code: "Digit3", altKey: true })).prevented).toBe(false);
+	});
+
+	it("shows at most three chips; Alt+3 fills the fourth candidate and nothing claims Alt+4", async () => {
+		await mount();
+		await setBuiltin();
+		await suggest("Best", "Second idea", "Third idea", "Fourth idea", "Fifth idea");
+		expect(chipButtons()).toHaveLength(3);
+		expect((await press({ key: "£", code: "Digit3", altKey: true })).prevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("Fourth idea");
+		await typeInto("");
+		expect((await press({ key: "¢", code: "Digit4", altKey: true })).prevented).toBe(false);
 	});
 
 	it("vanish when typing, while streaming and when the tab is not ready", async () => {
@@ -598,6 +620,16 @@ describe("InputArea suggestion footer hint", () => {
 		expect(hint.getAttribute("role")).toBe("status");
 		expect(hint.textContent).toBe(translate("input.suggestion.unavailable.no_model"));
 		expect(hint.getAttribute("title")).toBe("smol role is unset");
+	});
+
+	it("an unavailable built-in is one quiet status line: no alert, no chips, no candidate placeholder", async () => {
+		await mount();
+		await setBuiltin();
+		await act(async () => useSessionStore.setState({ nextPromptUnavailable: { reason: "no_model" } }));
+		expect(document.querySelectorAll("[role='status'][data-next-prompt-unavailable]")).toHaveLength(1);
+		expect(document.querySelector("[role='alert']")).toBeNull();
+		expect(chipButtons()).toHaveLength(0);
+		expect(placeholder()).toBe(translate("input.placeholder.idle"));
 	});
 
 	it("is absent while the built-in is off and yields to the double-Esc hint", async () => {

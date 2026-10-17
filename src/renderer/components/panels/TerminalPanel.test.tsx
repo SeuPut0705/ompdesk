@@ -299,6 +299,12 @@ describe("TerminalPanel on a phone", () => {
 		for (let step = 0; step < 20; step++) await press('[data-terminal-font="larger"]', "click");
 		expect(container.querySelector('[data-terminal-font="reset"]')?.textContent).toBe("200%");
 		expect(terminals[0]?.options.fontSize).toBe(24);
+		expect(container.querySelector('[data-terminal-font="larger"]')?.hasAttribute("disabled")).toBe(true);
+		// The key bar's own toggle hides the bar and shows it again.
+		await press("[data-terminal-keys-toggle]", "click");
+		expect(container.querySelector("[data-terminal-keybar]")).toBeNull();
+		await press("[data-terminal-keys-toggle]", "click");
+		expect(container.querySelector("[data-terminal-keybar]")).not.toBeNull();
 	});
 
 	it("draws another viewer's size without resizing it, and takes the size back on request", async () => {

@@ -6,7 +6,7 @@ import { test } from "@playwright/test";
 import { fixtureOmp } from "./harness";
 import { deleteSessionsEndToEnd } from "./session-delete-flow";
 
-test("deleting sessions removes them from the sidebar and the disk, and a relaunch keeps them gone", async () => {
+test("@smoke deleting sessions removes them from the sidebar and the disk, and a relaunch keeps them gone", async () => {
 	test.setTimeout(180_000);
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-session-delete-")));
 	const desktop = path.join(root, "desktop");

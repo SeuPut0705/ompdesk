@@ -123,7 +123,7 @@ for (const [language, theme] of variants([
 	["ko", "light"],
 	["ko", "dark"],
 ] as const)) {
-	test(`browser sign-in finishes through the callback; the code paste stays a fallback (${language} ${theme})`, async () => {
+	test(`${language === "en" && theme === "light" ? "@smoke " : ""}browser sign-in finishes through the callback; the code paste stays a fallback (${language} ${theme})`, async () => {
 		test.setTimeout(120_000);
 		const { app, page, record, errors, root } = await launch(language, theme);
 		const shot = (name: string) =>
@@ -179,43 +179,6 @@ for (const [language, theme] of variants([
 	});
 }
 
-test("cancel ends the browser sign-in through its callback, never through the paste request", async () => {
-	test.setTimeout(120_000);
-	const { app, page, record, errors, root } = await launch("en", "light");
-	try {
-		const anthropic = await startSignIn(page, "en");
-		await anthropic.getByRole("button", { name: "Cancel", exact: true }).click();
-		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
-		// omp's callback saw the denial with the flow's state, as a provider's Deny button sends it.
-		await expect
-			.poll(async () => (await readRecords(record)).find(frame => frame.type === "login_callback"))
-			.toMatchObject({
-				path: "/callback",
-				query: { error: "access_denied", error_description: "Sign-in cancelled in OMPdesk", state: "xyz" },
-			});
-		// The login failed quietly and its paste request went with it: answered once, after the login.
-		await expect
-			.poll(async () =>
-				(await readRecords(record)).filter(
-					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
-				),
-			)
-			.toHaveLength(1);
-		await expect(page.getByText("Couldn't connect Anthropic")).toHaveCount(0);
-		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-		// A new sign-in starts cleanly afterwards.
-		await page
-			.locator("[data-settings-page]")
-			.getByRole("button", { name: "Connect Anthropic", exact: true })
-			.click();
-		await expect(anthropic.locator("[data-login-progress]")).toHaveText("Waiting for you to finish in the browser…");
-		expect(errors).toEqual([]);
-	} finally {
-		await exitApp(app);
-		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
-
 /** Reload the window mid-sign-in: main still runs `login`, so it hands the sign-in back. */
 async function reloadMidSignIn(page: Page): Promise<void> {
 	await page.reload();
@@ -261,66 +224,6 @@ test("a reload mid-sign-in leaves no chat card and the panel shows the sign-in a
 			)
 			.toHaveLength(1);
 		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-		expect(errors).toEqual([]);
-	} finally {
-		await exitApp(app);
-		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
-
-test("a reload mid-sign-in, then Cancel in the panel: the login ends through its callback and the chat stays clean", async () => {
-	test.setTimeout(120_000);
-	const { app, page, record, errors, root } = await launch("en", "light");
-	try {
-		await startSignIn(page, "en");
-		await page.keyboard.press("Escape");
-		await reloadMidSignIn(page);
-		const anthropic = await openAnthropicRow(page, "en");
-		await expect(anthropic.locator("[data-login-progress]")).toHaveText(en["providerList.login.inProgress"] ?? "");
-		await anthropic.getByRole("button", { name: "Cancel", exact: true }).click();
-		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
-		await expect
-			.poll(async () => (await readRecords(record)).find(frame => frame.type === "login_callback"))
-			.toMatchObject({ path: "/callback", query: { error: "access_denied", state: "xyz" } });
-		// `login` answered: the page that took it over answers the leftover paste, and nothing reaches the chat.
-		await expect
-			.poll(async () =>
-				(await readRecords(record)).filter(
-					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
-				),
-			)
-			.toHaveLength(1);
-		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-		await expect(page.getByText("Couldn't connect Anthropic")).toHaveCount(0);
-		expect(await page.evaluate(() => window.omp.ui.openRequests())).toEqual([]);
-		expect(errors).toEqual([]);
-	} finally {
-		await exitApp(app);
-		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
-});
-
-test("a sign-in that ends while the reloaded page has Settings closed is answered quietly, never a chat card", async () => {
-	test.setTimeout(120_000);
-	const { app, page, record, errors, root } = await launch("en", "light");
-	try {
-		const anthropic = await startSignIn(page, "en");
-		await anthropic.getByRole("button", { name: en["providerList.login.openBrowser"] }).click();
-		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(1);
-		const [launchUrl] = (await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[];
-		await page.keyboard.press("Escape");
-		await reloadMidSignIn(page);
-		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-		expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
-		await expect
-			.poll(async () =>
-				(await readRecords(record)).filter(
-					frame => frame.type === "extension_ui_response" && frame.cancelled === true,
-				),
-			)
-			.toHaveLength(1);
-		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
-		expect(await page.evaluate(() => window.omp.ui.openRequests())).toEqual([]);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

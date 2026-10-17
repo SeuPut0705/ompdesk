@@ -15,10 +15,12 @@ import {
 import { createServer, type ViteDevServer } from "vite";
 import { variants } from "./harness";
 
-// The side panels on a phone and a tablet (mobile web, design §7) in Chromium and WebKit device emulation, on
-// the dev harness (src/renderer/dev-harness): the Preview as streamed frames with touch, the soft keyboard field
-// and the page's dialogs; the Terminal's key bar, text size and size-lease banner; Changes and Files as a list
-// and then one item. OMP_GUI_MOBILE_PANELS=<dir> also writes the light/dark × en/ko captures.
+// The side panels on a phone (mobile web, design §7) in Chromium device emulation (a tablet and WebKit with
+// OMP_GUI_VARIANTS=1), on the dev harness (src/renderer/dev-harness): the Preview as streamed frames with touch
+// and the soft keyboard field; the Terminal's touch-sized key bar; Changes and Files as a list and then one item.
+// The page's dialogs, the text size, the size-lease banner and Changes polling only while on screen are
+// component-tested (PreviewStreamView, TerminalPanel, RepositoryChanges). OMP_GUI_MOBILE_PANELS=<dir> also
+// writes the light/dark × en/ko captures.
 
 const captures = process.env.OMP_GUI_MOBILE_PANELS;
 
@@ -236,37 +238,6 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		test("a dialog the page opens is a sheet the page waits on until it is answered; the selection copies", async () => {
-			const page = await openHarness(browser, device.name, LIGHT_EN);
-			await showPreview(page, device.phone);
-			await page.evaluate(() => {
-				window.__harness?.stream.dialogs.push({
-					id: 41,
-					kind: "confirm",
-					message: "Delete this row?",
-					initial: null,
-				});
-			});
-			const dialog = page.locator("[data-preview-dialog]");
-			await expect(dialog).toContainText("Delete this row?", { timeout: 10_000 });
-			await capture(page, "dialog", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
-			await page.locator("[data-preview-dialog-ok]").click();
-			await expect(dialog).toHaveCount(0);
-			await expect
-				.poll(() => page.evaluate(() => window.__harness?.stream.answers))
-				.toEqual([{ id: 41, accept: true }]);
-			await page.evaluate(() => {
-				window.__harness?.stream.dialogs.push({ id: 42, kind: "prompt", message: "Name?", initial: "Ada" });
-			});
-			await expect(page.locator("[data-preview-dialog-input]")).toHaveValue("Ada", { timeout: 10_000 });
-			await page.locator("[data-preview-dialog-input]").fill("Grace");
-			await page.locator("[data-preview-dialog-input]").press("Enter");
-			await expect
-				.poll(() => page.evaluate(() => window.__harness?.stream.answers.at(-1)))
-				.toEqual({ id: 42, accept: true, text: "Grace" });
-			await page.context().close();
-		});
-
 		test("the terminal has a key bar of touch-sized keys that write what a PTY expects, with sticky Ctrl", async () => {
 			const page = await openHarness(browser, device.name, LIGHT_EN);
 			const sheet = await showTerminal(page, device.phone);
@@ -296,46 +267,6 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		test("the text size steps from 50 to 200 percent and the key bar hides on request", async () => {
-			const page = await openHarness(browser, device.name, LIGHT_EN);
-			const sheet = await showTerminal(page, device.phone);
-			const reset = sheet.locator('[data-terminal-font="reset"]');
-			await expect(reset).toHaveText("100%");
-			await sheet.locator('[data-terminal-font="larger"]').click();
-			await expect(reset).toHaveText("110%");
-			// 110 → 50 in six steps; the last one disables the button.
-			for (let step = 0; step < 6; step++) await sheet.locator('[data-terminal-font="smaller"]').click();
-			await expect(reset).toHaveText("50%");
-			await expect(sheet.locator('[data-terminal-font="smaller"]')).toBeDisabled();
-			for (let step = 0; step < 15; step++) await sheet.locator('[data-terminal-font="larger"]').click();
-			await expect(reset).toHaveText("200%");
-			await expect(sheet.locator('[data-terminal-font="larger"]')).toBeDisabled();
-			await reset.click();
-			await expect(reset).toHaveText("100%");
-			await sheet.locator("[data-terminal-keys-toggle]").click();
-			await expect(sheet.locator("[data-terminal-keybar]")).toHaveCount(0);
-			await page.context().close();
-		});
-
-		test("when another device sizes the terminal a banner says so and fitting it here takes the size back", async () => {
-			const page = await openHarness(browser, device.name, LIGHT_EN);
-			const sheet = await showTerminal(page, device.phone);
-			await expect(sheet.locator("[data-terminal-lease]")).toHaveCount(0);
-			await page.evaluate(() => {
-				if (window.__harness) window.__harness.terminal.lease = "other";
-			});
-			const banner = sheet.locator("[data-terminal-lease]");
-			await expect(banner).toContainText("Another device is setting the size", { timeout: 10_000 });
-			await capture(page, "lease", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
-			await banner.locator("[data-terminal-lease-claim]").click();
-			await expect(banner).toHaveCount(0);
-			const claims = (await calls(page, "terminal:request"))
-				.map(args => args[1])
-				.filter(operation => operation.action === "claim");
-			expect(claims).toEqual([{ action: "claim", id: "term-1" }]);
-			await page.context().close();
-		});
-
 		test("changes are a list first, then one file's unified diff with a way back", async () => {
 			const page = await openHarness(browser, device.name, LIGHT_EN);
 			const sheet = await openView(page, device.phone, "diff");
@@ -355,29 +286,6 @@ for (const { engine, device } of variants(
 			await changes.getByRole("button", { name: "Back to changed files" }).click();
 			await expect(changes.locator(".omp-changes-body")).toHaveAttribute("data-open", "false");
 			await expect(row).toBeVisible();
-			await page.context().close();
-		});
-
-		test("the Changes panel polls git only while it is on screen", async () => {
-			const page = await openHarness(browser, device.name, LIGHT_EN);
-			const fingerprints = () =>
-				page.evaluate(
-					() =>
-						(window.__harness?.calls ?? []).filter(
-							call =>
-								call.channel === "rpc:command-for-tab" &&
-								JSON.stringify(call.args).includes("get_git_fingerprint"),
-						).length,
-				);
-			expect(await fingerprints()).toBe(0);
-			await openView(page, device.phone, "diff");
-			await expect.poll(fingerprints, { timeout: 15_000 }).toBeGreaterThan(0);
-			// Closed, the panel is gone with its timer: the count stops moving.
-			await page.keyboard.press("Escape");
-			await expect(page.locator("[data-sheet-panel]")).toHaveCount(0);
-			const settled = await fingerprints();
-			await page.waitForTimeout(3600);
-			expect(await fingerprints()).toBe(settled);
 			await page.context().close();
 		});
 

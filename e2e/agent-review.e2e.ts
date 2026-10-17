@@ -198,28 +198,3 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	// Nothing was ever pushed: the repository has no remote.
 	expect(git(project, "remote")).toBe("");
 });
-
-test("a conflicting branch is aborted and reported, and the parent stays clean", async () => {
-	test.setTimeout(180_000);
-	await call("ompdesk_session_open", { message: "attempt", worktree: true });
-	const [child] = await children();
-	expect(child).toBeDefined();
-	if (!child) return;
-	await call("ompdesk_session_result", { session: child.tabId, wait: true, timeout_seconds: 90 });
-	await fs.writeFile(path.join(child.path, "README.md"), "from the child\n");
-	git(child.path, "add", "README.md");
-	git(child.path, "commit", "-q", "-m", "child edit");
-	await fs.writeFile(path.join(project, "README.md"), "from the parent\n");
-	git(project, "add", "README.md");
-	git(project, "commit", "-q", "-m", "parent edit");
-	const head = git(project, "rev-parse", "HEAD");
-
-	await expect(reviewSection()).toBeVisible({ timeout: 30_000 });
-	await reviewSection().getByRole("button", { name: "Approve" }).click();
-	await expect(reviewSection()).toContainText("Conflict in README.md");
-	expect(git(project, "rev-parse", "HEAD")).toBe(head);
-	expect(git(project, "status", "--porcelain")).toBe("");
-	expect(await fs.readFile(path.join(project, "README.md"), "utf8")).toBe("from the parent\n");
-	// The item stays, so the person can still Review or Discard it.
-	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(1);
-});

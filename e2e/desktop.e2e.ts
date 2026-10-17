@@ -74,45 +74,6 @@ test.afterAll(async () => {
 	if (profile) await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
-test("initially closed modal receives focus and Escape closes it", async () => {
-	// /jobs is a side-panel tab now; /tools is still a modal dialog.
-	await command("/tools");
-	const modal = page.getByRole("dialog");
-	await expect(modal).toBeVisible();
-	await expect.poll(() => modal.evaluate(node => node.contains(document.activeElement))).toBe(true);
-	await page.keyboard.press("Escape");
-	await expect(modal).toHaveCount(0);
-});
-
-test("composer recalls shared history and restores its draft", async () => {
-	await command("shared history recall regression");
-	await expect
-		.poll(async () => {
-			const response = await page.evaluate(() => window.omp.rpc.historyRecent(1));
-			return response.data;
-		})
-		.toMatchObject([{ prompt: "shared history recall regression" }]);
-	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
-	const composer = page.locator("textarea").first();
-	await composer.fill("unfinished draft");
-	// ↑ inside a draft moves the caret; only from the very start does it reach history.
-	await composer.press("ArrowUp");
-	await expect(composer).toHaveValue("unfinished draft");
-	await composer.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 0));
-	await composer.press("ArrowUp");
-	await expect(composer).toHaveValue("shared history recall regression");
-	// The recall leaves the caret at position 0, so ↓ there is the caret's; from the end it walks back.
-	expect(await composer.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(0);
-	await composer.press("ArrowDown");
-	await expect(composer).toHaveValue("shared history recall regression");
-	await composer.evaluate((element: HTMLTextAreaElement) =>
-		element.setSelectionRange(element.value.length, element.value.length),
-	);
-	await composer.press("ArrowDown");
-	await expect(composer).toHaveValue("unfinished draft");
-	await composer.fill("");
-});
-
 test("stock session identity, cycling in both directions, and /copy stay usable", async () => {
 	const identity = await page.evaluate(async () => {
 		const before = await window.omp.rpc.getState();
@@ -148,40 +109,6 @@ test("opening sharing performs local preview only, upload needs a button click",
 	await expect(modal).toContainText("http://127.0.0.1/shared#local");
 	expect(await recordsOfType(record, "composer.share")).toHaveLength(1);
 	await page.keyboard.press("Escape");
-});
-
-test("a running task keeps both send and stop reachable", async () => {
-	await command("fixture running");
-	await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-	const composer = page.locator("textarea").first();
-	await composer.fill("queued instruction");
-	await page.getByRole("button", { name: "Send", exact: true }).click();
-	await expect
-		.poll(
-			async () => (await recordsOfType(record, "steer")).length + (await recordsOfType(record, "follow_up")).length,
-		)
-		.toBe(1);
-	await page.getByRole("button", { name: "Stop", exact: true }).click();
-	// Stop is the TUI's Esc: the queued input comes back into the composer instead of running later.
-	await expect(composer).toHaveValue("queued instruction");
-	expect(await recordsOfType(record, "abort_and_restore_queue")).toHaveLength(1);
-	await composer.fill("");
-	// The run ends only once agent_end lands (after main stamps its entry ids); until
-	// then a send is a steer, so the next test must start from an idle session.
-	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
-});
-
-test("long approval remains complete and Enter is neutral", async () => {
-	await command("fixture approval");
-	const modal = page.locator("[data-prompt-card]");
-	await expect(modal.locator("pre")).toContainText("critical final argument");
-	await expect.poll(() => page.evaluate(() => document.activeElement?.textContent)).not.toBe("Approve");
-	await page.keyboard.press("Escape");
-	await expect(modal).toHaveCount(0);
-	// The answer ends the fixture's turn; until agent_end lands a send is a steer,
-	// so the next test must start from an idle session.
-	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
-	expect(errors).toEqual([]);
 });
 
 test("ask walks one question at a time with numbered keys and submits every answer", async () => {
@@ -416,44 +343,6 @@ test("all named themes apply with readable primary text and no stale scheme toke
 	await fs.writeFile("test-results/theme-contrast.json", JSON.stringify(contrastValues, null, 2));
 });
 
-test("uncertain delivery preserves the draft and blocks duplicate sending until reviewed", async () => {
-	const before = (await recordsOfType(record, "prompt")).length;
-	await command("fixture uncertain");
-	const input = page.locator("textarea").first();
-	await expect(input).toHaveValue("fixture uncertain");
-	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
-	await input.press("Enter");
-	expect(await recordsOfType(record, "prompt")).toHaveLength(before + 1);
-	await page.getByRole("button", { name: "I checked; allow sending", exact: true }).click();
-	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
-	await input.fill("");
-});
-
-test("security distinguishes unavailable, disabled, unscanned, running, failed and completed scans", async () => {
-	test.setTimeout(90_000);
-	const states = {
-		disabled: "Security is off",
-		unscanned: "This project has not been scanned",
-		unavailable: "Scan status unavailable",
-		running: "Scan in progress",
-		failed: "The selected scan failed",
-		incomplete: "The selected scan did not complete",
-		clear: "No findings in this scan",
-		findings: "Untrusted path reaches file access",
-	};
-	for (const [state, expected] of Object.entries(states)) {
-		await page.evaluate(value => window.omp.rpc.bash(`fixture:security:${value}`), state);
-		await page.keyboard.press("ControlOrMeta+Comma");
-		const settings = page.locator("[data-settings-page]");
-		await settings.locator('[data-settings-section="permissions"]').click();
-		await expect(settings).toContainText(expected);
-		if (state !== "clear") await expect(settings).not.toContainText("No findings in this scan");
-		await page.screenshot({ path: `test-results/security-${state}.png`, scale: "css", animations: "disabled" });
-		await page.keyboard.press("Escape");
-		await expect(settings).toHaveCount(0);
-	}
-});
-
 test("repeated modal and task lifecycles release sidecars and document listeners", async () => {
 	test.setTimeout(120_000);
 	await page.emulateMedia({ reducedMotion: "reduce" });
@@ -647,39 +536,6 @@ test("settings search opens advanced controls and old refreshes cannot undo a sa
 	await page.keyboard.press("Escape");
 });
 
-test("a failing ipc handler cannot take the other handlers on its channel down with it", async () => {
-	// One subscriber throwing during an emit used to abort the rest, so an
-	// unrelated feature (a settings refresh, a transcript batch) silently stopped
-	// receiving its own events.
-	type Boom = { hits: number; stop?: () => void };
-	const scratch = () => page.evaluate(() => (globalThis as unknown as { __boom?: Boom }).__boom);
-	await page.evaluate(() => {
-		const boom: Boom = { hits: 0 };
-		(globalThis as unknown as { __boom: Boom }).__boom = boom;
-		const throwing = window.omp.events.onConfigUpdate(() => {
-			throw new Error("simulated handler failure");
-		});
-		const counting = window.omp.events.onConfigUpdate(() => {
-			boom.hits += 1;
-		});
-		boom.stop = () => {
-			throwing();
-			counting();
-		};
-	});
-	const activeTabId = await page.evaluate(() =>
-		window.omp.tabs.list().then(tabs => tabs.find(tab => tab.active === true)?.tabId ?? ""),
-	);
-	expect(activeTabId).toBeTruthy();
-	await app.evaluate(
-		({ BrowserWindow }, tabId) =>
-			BrowserWindow.getAllWindows()[0].webContents.send("config:update", { tabId, payload: {} }),
-		activeTabId,
-	);
-	await expect.poll(async () => (await scratch())?.hits).toBe(1);
-	await page.evaluate(() => (globalThis as unknown as { __boom?: Boom }).__boom?.stop?.());
-});
-
 test("workspace navigation cannot replace the trusted desktop with an untrusted document", async () => {
 	const documentPath = path.join(profile, "untrusted.html");
 	await fs.writeFile(documentPath, "<!doctype html><title>Untrusted document</title><h1>Untrusted document</h1>");
@@ -704,29 +560,6 @@ test("workspace navigation cannot replace the trusted desktop with an untrusted 
 	expect(page.url()).toBe(trustedUrl);
 	await page.reload();
 	await expect(page.locator("textarea").first()).toBeEditable();
-});
-
-test("launch profile updates preserve concurrent fields and workspaces through the real preferences store", async () => {
-	const result = await page.evaluate(async () => {
-		const status = await window.omp.sidecar.getStatus();
-		const cwd = status.cwd;
-		const other = `${cwd}/other.workspace`;
-		await Promise.all([
-			window.omp.prefs.updateLaunchProfile(cwd, { noRules: true }),
-			window.omp.prefs.updateLaunchProfile(cwd, { noLsp: true }),
-			window.omp.prefs.updateLaunchProfile(other, { profile: " isolated " }),
-		]);
-		const saved = (await window.omp.prefs.get("launchProfiles")) as Record<string, unknown>;
-		await window.omp.prefs.updateLaunchProfile(cwd, { noRules: false, noLsp: false });
-		const cleared = (await window.omp.prefs.get("launchProfiles")) as Record<string, unknown>;
-		return { saved: saved[cwd], other: saved[other], cleared: cleared[cwd], preserved: cleared[other] };
-	});
-	expect(result).toEqual({
-		saved: { noRules: true, noLsp: true },
-		other: { profile: "isolated" },
-		cleared: undefined,
-		preserved: { profile: "isolated" },
-	});
 });
 
 test("failed preference writes retain edits and never allow a premature restart", async () => {

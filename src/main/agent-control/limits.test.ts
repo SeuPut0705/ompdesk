@@ -18,7 +18,8 @@ describe("AgentLimits opens", () => {
 	it("caps the sessions opened in one turn and starts again on the next turn", () => {
 		const limits = new AgentLimits(clock().now);
 		limits.reserveOpens("a", 1, MAX_OPENS_PER_TURN);
-		expect(() => limits.reserveOpens("a", 1, 1)).toThrow(LimitError);
+		expect(() => limits.reserveOpens("a", 1, 1)).toThrow(/already opened 4 session\(s\); at most 4 per turn/);
+		expect(MAX_OPENS_PER_TURN).toBe(4);
 		expect(() => limits.reserveOpens("a", 2, 1)).not.toThrow();
 	});
 

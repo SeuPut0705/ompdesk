@@ -1,9 +1,9 @@
 /**
- * Autopilot's shipping on the fake omp with a local bare remote: "local only" (the agent's `git push` is blocked and
- * nothing reaches the remote), the automatic push after a green cycle (only the autopilot branch, never after a red
- * one, never `main`), release detection and the release path (a fake gate script and a fake `gh`, the run url
- * polled), a failing gate or run (paused:release_failed), "push now" in chat (a forged quote is refused), and the
- * screen's Push / PR / merge / revert queue run at the end of the turn.
+ * Autopilot's shipping on the fake omp with a local bare remote: the release path (a fake gate script and a fake
+ * `gh`, the run url polled), "push now" in chat (a forged quote is refused), and the screen's Push / PR / merge /
+ * revert queue run at the end of the turn. The push and release rules themselves (local only, push after green,
+ * no release without a procedure, a failing gate or run) are unit-tested in src/main/autopilot*.test.ts and
+ * src/main/bridge-autopilot-*.test.ts.
  */
 import { expect, test } from "@playwright/test";
 import {
@@ -16,127 +16,13 @@ import {
 	mainTab,
 	makeApProfile,
 	recorded,
-	refs,
 	setAutopilot,
-	slowPushes,
 	startRun,
 	status,
 	waitForStatus,
 	writeGate,
 } from "./autopilot-harness";
 import { exitApp } from "./harness";
-
-const PUSH_ATTEMPTS = [
-	{ tool: "bash", input: { command: "git push origin HEAD" } },
-	{ tool: "bash", input: { command: "git push origin HEAD:main" } },
-];
-
-test("local only: the agent's push is blocked, the push switch is off and the remote never changes", async () => {
-	test.setTimeout(150_000);
-	const profile = await makeApProfile({ script: { cycleMs: 300, cycle: { tools: PUSH_ATTEMPTS } } });
-	const before = refs(profile.remote, "refs/heads");
-	const { app, page } = await launchAp(profile);
-	try {
-		const tabId = await startRun(page, await mainTab(page));
-		const run = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 3, "three cycles");
-		expect(run.ship?.policy).toMatchObject({ autoPush: false, autoRelease: { on: false } });
-		const blocked = (await agentTools(profile)).filter(
-			entry => entry.tool === "bash" && typeof entry.blocked === "string",
-		);
-		expect(blocked.length).toBeGreaterThanOrEqual(6);
-		expect(refs(profile.remote, "refs/heads")).toBe(before);
-		expect(refs(profile.remote, "refs/tags")).toBe("");
-		expect(run.ship?.queue).toEqual([]);
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("auto push sends only the autopilot branch after a green cycle, never after a red one, never main", async () => {
-	test.setTimeout(180_000);
-	const profile = await makeApProfile({
-		script: {
-			cycleMs: 500,
-			verify: ["green", "red", "green"],
-			cycle: { tools: PUSH_ATTEMPTS },
-			cycles: { "3": { ms: 4_000 } },
-		},
-	});
-	const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
-	const { app, page } = await launchAp(profile);
-	try {
-		const tabId = await startRun(page, await mainTab(page), { preset: "push" });
-		const remoteBranch = async (branch: string) =>
-			git(profile.remote, "for-each-ref", "--format=%(objectname)", `refs/heads/${branch}`);
-		const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1");
-		const branch = first.branch as string;
-		expect(first.settings?.ship.autoPush).toBe(true);
-		await expect.poll(() => remoteBranch(branch), { timeout: 30_000 }).toBe(first.cycles?.[0]?.commit);
-		// Cycle 2 is red: the push of cycle 2's commit does not happen.
-		const second = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 2, "cycle 2");
-		expect(second.cycles?.[1]?.verify).toBe("red");
-		await page.waitForTimeout(800);
-		expect(await remoteBranch(branch)).toBe(first.cycles?.[0]?.commit);
-		// Cycle 3 is green: the tip moves to cycle 3's commit.
-		const third = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 3, "cycle 3");
-		await expect.poll(() => remoteBranch(branch), { timeout: 30_000 }).toBe(third.cycles?.[2]?.commit);
-		// Only autopilot refs appeared; main is where it was, and the agent's own pushes were blocked.
-		expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
-		expect(git(profile.remote, "for-each-ref", "--format=%(refname)", "refs/heads").split("\n").sort()).toEqual(
-			["refs/heads/main", `refs/heads/${branch}`].sort(),
-		);
-		expect((await status(page, tabId)).state).toBe("running");
-		expect(
-			(await agentTools(profile)).filter(entry => entry.tool === "bash" && typeof entry.blocked === "string").length,
-		).toBeGreaterThanOrEqual(4);
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("release is only offered when the repository defines a procedure", async () => {
-	test.setTimeout(120_000);
-	const without = await makeApProfile({ script: { cycleMs: 300 } });
-	const { app, page } = await launchAp(without);
-	try {
-		const tab = await mainTab(page);
-		const sheet = await status(page, tab);
-		expect(sheet.active).toBe(false);
-		expect(sheet.ship?.releaseProcedure).toBeUndefined();
-		expect(sheet.ship?.releaseBlocked).toBeTruthy();
-		const refused = await setAutopilot(page, tab, { action: "start", preset: "release" });
-		expect(refused).toMatchObject({ success: false, code: "autopilot_no_release" });
-		// Nothing was created: no second tab, no branch.
-		expect((await page.evaluate(() => window.omp.tabs.list())).length).toBe(1);
-		expect(git(without.project, "branch", "--list", "autopilot/*")).toBe("");
-		// Switching it on in a running local run is refused the same way.
-		const run = await startRun(page, tab);
-		const configure = await setAutopilot(page, run, {
-			action: "configure",
-			ship: { autoRelease: { on: true, cadence: { kind: "every", n: 5 } } },
-		});
-		expect(configure).toMatchObject({ success: false, code: "autopilot_no_release" });
-	} finally {
-		await exitApp(app);
-		await cleanupAp(without);
-	}
-
-	const withProcedure = await makeApProfile({ releaseProcedure: true, script: { cycleMs: 300 } });
-	const second = await launchAp(withProcedure);
-	try {
-		const sheet = await status(second.page, await mainTab(second.page));
-		expect(sheet.ship?.releaseProcedure).toMatchObject({
-			file: "AGENTS.md",
-			anchors: ["Change workflow", "Release"],
-		});
-		expect(sheet.ship?.releaseBlocked).toBeUndefined();
-	} finally {
-		await exitApp(second.app);
-		await cleanupAp(withProcedure);
-	}
-});
 
 const RELEASE_CYCLE = {
 	tools: [
@@ -175,84 +61,6 @@ test("a release after two green cycles runs the procedure, pushes HEAD to main a
 		expect(after.ship?.release).toMatchObject({ version: "v1.0.0", state: "success" });
 		expect(after.ship?.queue.find(item => item.kind === "release")).toMatchObject({ state: "done" });
 		expect(after.state).toBe("running");
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("a failing gate pauses the run as release_failed and leaves main alone, though the last push is still going", async () => {
-	test.setTimeout(180_000);
-	const profile = await makeApProfile({
-		releaseProcedure: true,
-		script: {
-			cycleMs: 400,
-			cycles: {
-				"3": {
-					release: {
-						tools: [{ tool: "bash", input: { command: "./scripts/gate.sh" } }],
-						version: "v1.0.0",
-						verify: "red",
-					},
-				},
-			},
-		},
-	});
-	await writeGate(profile, 1);
-	// Each automatic push outlives the gap before the next cycle's `begin` (as a slow remote does), so the release
-	// falls due while cycle 2's push is in flight; that push once held back every release.
-	await slowPushes(profile, 1);
-	const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
-	const { app, page } = await launchAp(profile);
-	try {
-		const tabId = await startRun(page, await mainTab(page), { ship: EVERY_TWO });
-		const paused = await waitForStatus(
-			page,
-			tabId,
-			s => s.state === "paused",
-			"paused after the failed gate",
-			120_000,
-		);
-		expect(paused.reason).toBe("release_failed");
-		const gate = (await agentTools(profile)).find(
-			entry => entry.input && JSON.stringify(entry.input).includes("gate.sh"),
-		);
-		expect(gate).toMatchObject({ code: 1 });
-		const releaseBegin = (await agentTools(profile)).find(entry => {
-			const result = entry.result as { ship?: { due?: boolean } } | undefined;
-			return entry.op === "begin" && result?.ship?.due === true;
-		});
-		expect(releaseBegin?.result).toMatchObject({ ship: { inFlight: { kind: "push" } } });
-		expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
-		// No automatic resume: it stays paused until the user acts.
-		await page.waitForTimeout(2_000);
-		expect((await status(page, tabId)).state).toBe("paused");
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("a failing release run (polled from the run url) pauses the run as release_failed", async () => {
-	test.setTimeout(240_000);
-	const profile = await makeApProfile({
-		releaseProcedure: true,
-		script: { cycleMs: 400, cycles: { "3": { release: RELEASE_CYCLE } } },
-	});
-	await writeGate(profile, 0);
-	await installFakeGh(profile, "failure");
-	const { app, page } = await launchAp(profile);
-	try {
-		const tabId = await startRun(page, await mainTab(page), { ship: EVERY_TWO });
-		const paused = await waitForStatus(
-			page,
-			tabId,
-			s => s.state === "paused",
-			"paused after the failed run",
-			150_000,
-		);
-		expect(paused.reason).toBe("release_failed");
-		expect(paused.ship?.release).toMatchObject({ version: "v1.0.0", state: "failure" });
 	} finally {
 		await exitApp(app);
 		await cleanupAp(profile);

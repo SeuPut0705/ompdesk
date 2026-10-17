@@ -480,6 +480,10 @@ describe("start", () => {
 		const command = { type: "set_autopilot", action: "start", preset: "release" } as const;
 		const refused = await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", command, "1");
 		expect(errorOf(refused)).toMatch(/release procedure/i);
+		expect(refused).toMatchObject({ success: false, code: "autopilot_no_release" });
+		// Nothing was created: no run tab, no autopilot branch.
+		expect(nextTab).toBe(0);
+		expect(gitSync(main, "branch", "--list", "autopilot/*")).toBe("");
 		build({ releaseProcedure: true });
 		const ok = await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", command, "2");
 		expect(ok.success).toBe(true);
@@ -608,6 +612,25 @@ describe("stop", () => {
 		const last = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1);
 		expect(last?.params).toMatchObject({ state: "paused", reason: "user_abort" });
 		expect(notices).toEqual([]);
+	});
+
+	it("the screen's ■ (set_autopilot abort) aborts the parent's turn through stock, then pauses as user_abort", async () => {
+		const { sidecar } = await start();
+		world.busy.add("ap-1");
+		const response = await autopilot.handleCommand(
+			win,
+			sidecar as unknown as SidecarLike,
+			"ap-1",
+			{ type: "set_autopilot", action: "abort" },
+			"abort-1",
+		);
+		expect(response.success).toBe(true);
+		await autopilot.idle();
+		expect(world.stock("ap-1", "abort")).toHaveLength(1);
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
+			state: "paused",
+			reason: "user_abort",
+		});
 	});
 });
 
@@ -819,6 +842,29 @@ describe("a cycle's end", () => {
 		});
 		expect(world.stock("ap-1", "set_goal").at(-1)?.params).toEqual({ action: "pause" });
 		expect(notices.at(-1)).toMatchObject({ kind: "error", title: "Autopilot paused" });
+	});
+
+	// What the guard cannot see (an obfuscated command), the audit still names: the moved ref is the detail.
+	it.each([
+		["a tag", (worktree: string) => gitSync(worktree, "tag", "stray-tag"), "refs/tags/stray-tag"],
+		[
+			"a push to another branch",
+			(worktree: string) => gitSync(worktree, "push", "-q", "origin", "HEAD:refs/heads/rogue"),
+			"refs/remotes/origin/rogue",
+		],
+	])("names %s the cycle made behind the guard's back", async (_name, act, ref) => {
+		await start();
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		await commit(worktree, "a.txt");
+		act(worktree);
+		autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+			type: "autopilot_cycle_end",
+			record: record(),
+		});
+		await autopilot.idle();
+		const paused = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params;
+		expect(paused).toMatchObject({ state: "paused", reason: "ban_violation" });
+		expect(String((paused as { detail?: unknown } | undefined)?.detail ?? "")).toContain(ref);
 	});
 
 	it("a clean cycle is not a violation, and a second cycle is judged against the first's end", async () => {
@@ -1144,6 +1190,10 @@ describe("release run", () => {
 			reason: "release_failed",
 		});
 		expect(notices.map(notice => notice.kind)).toContain("error");
+		// The status the sheet shows keeps which release failed.
+		expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({
+			release: { version: "1.2.3", state: "failure" },
+		});
 	});
 
 	it("a release without a run to watch is recorded as done", async () => {
@@ -1371,6 +1421,24 @@ describe("restart", () => {
 		});
 		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)).toHaveLength(0);
 		expect(notices).toEqual([]);
+	});
+
+	it("Resume continues a run paused as app_closed: arm again with resume, then stock's goal resume", async () => {
+		const sidecar = await relaunched("off");
+		const response = await autopilot.handleCommand(
+			win,
+			sidecar as unknown as SidecarLike,
+			"t1",
+			{ type: "set_autopilot", action: "resume" },
+			"resume-1",
+		);
+		expect(response.success).toBe(true);
+		await autopilot.idle();
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm).at(-1)?.params).toMatchObject({
+			resume: true,
+			role: "parent",
+		});
+		expect(world.stock("t1", "set_goal").map(call => call.params?.action)).toEqual(["pause", "resume"]);
 	});
 
 	it("with a marker the run waits for TurnResume, whose goal resume pauses, arms again, then resumes", async () => {

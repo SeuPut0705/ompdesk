@@ -131,28 +131,6 @@ test("names the session from the first prompt, keeps a typed name, and the auto 
 	}
 });
 
-test("a failed regeneration is one inline sentence under the field, never a toast", async () => {
-	const launched = await launch({ script: { fail: true } });
-	const { page } = launched;
-	try {
-		await runTurn(page, 1);
-		await expect(titleButton(page)).toHaveText("Auto 1: hello there");
-		await titleButton(page).click();
-		await autoButton(page).click();
-		const alert = page.locator("[data-auto-title-error]");
-		await expect(alert).toHaveText("Couldn't generate a title. Try again.");
-		await expect(alert).toHaveAttribute("role", "alert");
-		// The editor stays, the title is untouched, and no toast piled up.
-		await expect(renameField(page)).toBeVisible();
-		// The inline sentence is the only alert on the page: an error toast would be a second one.
-		await expect(page.getByRole("alert")).toHaveCount(1);
-		await renameField(page).press("Escape");
-		await expect(titleButton(page)).toHaveText("Auto 1: hello there");
-	} finally {
-		await finish(launched);
-	}
-});
-
 test("the Settings switch is live: off keeps the session untitled, on names it from the next prompt", async () => {
 	const launched = await launch({ prefs: { autoTitle: false } });
 	const { page, record } = launched;

@@ -1,24 +1,18 @@
 /**
  * A turn that ends in a transient error once stock's own retries are spent is retried by main on a
  * backoff (30 s, 2 min, 10 min; src/main/turn-resume.ts), on the fake omp. The fake answers
- * `fixture network error` with a dropped connection stock gave up on. `OMP_GUI_RETRY_DELAYS_MS`
- * replaces the waits: a long one so the countdown card can be read and cancelled, a short one so
- * the retry fires inside the test. "Retry now" is the card's own Try again (it sends the last prompt
- * again, which the fake fails the same way), so it answers with a fresh error card and a new chain.
+ * `fixture network error` with a dropped connection stock gave up on; `OMP_GUI_RETRY_DELAYS_MS` shortens
+ * the waits so the retry fires inside the test and the turn recovers. The countdown card, Cancel, Retry now
+ * and the cases that schedule nothing are unit-tested (TurnErrorNotice.test.tsx, turn-resume.test.ts).
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { capture, exitApp, fixtureOmp, variants } from "./harness";
+import { exitApp, fixtureOmp } from "./harness";
 
 type Language = "en" | "ko";
-
-const TEXT = {
-	en: { countdown: /Retrying in 0:\d\d…/, attempt: "Attempt 1 of 3", now: "Retry now", cancel: "Cancel" },
-	ko: { countdown: /0:\d\d 뒤에 다시 시도해요…/, attempt: "3번 중 1번째", now: "지금 다시 시도", cancel: "취소" },
-} as const;
 
 interface Profile {
 	root: string;
@@ -83,39 +77,6 @@ async function cleanup(profile: Profile): Promise<void> {
 	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
-for (const language of variants(["en", "ko"] as const))
-	test(`a transient failure counts down to a retry that can be cancelled (${language})`, async () => {
-		test.setTimeout(120_000);
-		const profile = await makeProfile(language, "55000,55000,55000");
-		const text = TEXT[language];
-		let current: ElectronApplication | undefined;
-		try {
-			const { app, page } = await launch(profile);
-			current = app;
-			const errors: string[] = [];
-			page.on("pageerror", error => errors.push(error.message));
-			await stockRetry(page, true);
-			await failTurn(page);
-
-			const scheduled = page.locator("[data-scheduled-retry]");
-			await expect(scheduled).toBeVisible({ timeout: 30_000 });
-			await expect(scheduled).toContainText(text.countdown);
-			await expect(scheduled).toContainText(text.attempt);
-			const card = page.locator(".omp-message-error");
-			await expect(card.getByRole("button", { name: text.now })).toBeVisible();
-			await expect(card.getByRole("button", { name: text.cancel })).toBeVisible();
-			await capture(page, `${language}-countdown`);
-
-			await card.getByRole("button", { name: text.cancel }).click();
-			await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
-			await expect(page.locator(".omp-message-error")).toBeVisible();
-			expect(errors).toEqual([]);
-		} finally {
-			if (current) await exitApp(current);
-			await cleanup(profile);
-		}
-	});
-
 test("the retry fires on its own and the turn recovers", async () => {
 	test.setTimeout(120_000);
 	const profile = await makeProfile("en", "4000,4000,4000");
@@ -128,60 +89,6 @@ test("the retry fires on its own and the turn recovers", async () => {
 		await expect(page.locator("[data-scheduled-retry]")).toBeVisible({ timeout: 30_000 });
 		await expect(page.getByText("Back online: the turn went on.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
-	} finally {
-		if (current) await exitApp(current);
-		await cleanup(profile);
-	}
-});
-
-test("Retry now runs the turn at once, drops the schedule and starts a fresh chain", async () => {
-	test.setTimeout(120_000);
-	const profile = await makeProfile("en", "90000,90000,90000");
-	let current: ElectronApplication | undefined;
-	try {
-		const { app, page } = await launch(profile);
-		current = app;
-		await stockRetry(page, true);
-		await failTurn(page);
-		await expect(page.locator("[data-scheduled-retry]")).toBeVisible({ timeout: 30_000 });
-		await page.locator(".omp-message-error").getByRole("button", { name: "Retry now" }).click();
-		// The prompt went again and failed again: a second card, and only the latest counts down, from attempt 1.
-		await expect(page.locator(".omp-message-error")).toHaveCount(2, { timeout: 30_000 });
-		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(1, { timeout: 30_000 });
-		await expect(page.locator("[data-scheduled-retry]")).toContainText("Attempt 1 of 3");
-	} finally {
-		if (current) await exitApp(current);
-		await cleanup(profile);
-	}
-});
-
-test("nothing is scheduled while stock's retry is unreadable or off, or OMPdesk's setting is off", async () => {
-	test.setTimeout(120_000);
-	// Short waits: a schedule that wrongly existed would fire (and answer) inside the 4 s the test lets pass.
-	const profile = await makeProfile("en", "1500,1500,1500");
-	let current: ElectronApplication | undefined;
-	try {
-		const { app, page } = await launch(profile);
-		current = app;
-		// The fake omp has no `retry.enabled` until it is written: unreadable means the user's choice stands.
-		await failTurn(page, 1);
-		await page.waitForTimeout(4000);
-		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
-		await expect(page.getByText("Back online: the turn went on.")).toHaveCount(0);
-
-		// Stock's own switch off.
-		await stockRetry(page, false);
-		await failTurn(page, 2);
-		await page.waitForTimeout(4000);
-		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
-
-		// Stock on, OMPdesk's setting off.
-		await stockRetry(page, true);
-		await page.evaluate(() => window.omp.prefs.set("scheduledRetry", false));
-		await failTurn(page, 3);
-		await page.waitForTimeout(4000);
-		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
-		await expect(page.getByText("Back online: the turn went on.")).toHaveCount(0);
 	} finally {
 		if (current) await exitApp(current);
 		await cleanup(profile);

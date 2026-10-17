@@ -270,6 +270,13 @@ describe("decideAfterCycle", () => {
 		expect(decideAfterCycle(facts(seq(GREEN, GREEN), { settings }))?.reason).toBe("cycles");
 		expect(decideAfterCycle(facts(seq(RED, RED, RED), { settings }))?.reason).toBe("tests_failing");
 	});
+	it("the token budget counts each cycle's record as amended with its children's usage", () => {
+		const settings: AutopilotSettings = { ...DEFAULT_AUTOPILOT_SETTINGS, limits: { ...NO_LIMITS, tokens: 2_500 } };
+		// Parent 1 000 + child 600 folded into cycle 1, then 1 000 in cycle 2: 2 600 reaches the 2 500 ceiling...
+		expect(decideAfterCycle(facts(seq({ tokens: 1_600 }, { tokens: 1_000 }), { settings }))?.reason).toBe("budget");
+		// ...which the parents alone (2 000) would not.
+		expect(decideAfterCycle(facts(seq({ tokens: 1_000 }, { tokens: 1_000 }), { settings }))).toBeUndefined();
+	});
 });
 
 describe("releases", () => {

@@ -230,26 +230,6 @@ test("after a turn the best candidate is the placeholder, the others are chips, 
 	}
 });
 
-test("a fourth candidate gives a third chip that Alt+3 fills, and nothing more", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch({
-		script: { candidates: ["Best", "Second idea", "Third idea", "Fourth idea", "Fifth idea"] },
-	});
-	try {
-		const { page } = launched;
-		const input = composer(page);
-		await runTurn(page, 1);
-		await expect(input).toHaveAttribute("placeholder", "Best");
-		await expect(chips(page)).toHaveCount(3);
-		await input.focus();
-		await page.keyboard.press("Alt+Digit3");
-		await expect(input).toHaveValue("Fourth idea");
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
-	}
-});
-
 // Reported: chips cut with "…" in the real app. A candidate is at most 40 characters in Korean (next-prompt-core);
 // two chips that long take a row each and show whole, on one line, with the full text as the tooltip.
 test("the longest Korean candidates fit their chips whole, one line each, with the text as the tooltip", async () => {
@@ -278,88 +258,6 @@ test("the longest Korean candidates fit their chips whole, one line each, with t
 			expect(fit).toEqual({ truncated: false, oneLine: true });
 		}
 		await capture(page, "chips-longest-ko");
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("inline completion: ghost text after the debounce, Tab accepts, Esc dismisses, ineligible drafts never ask, cost per minute", async () => {
-	test.setTimeout(180_000);
-	const launched = await launch();
-	try {
-		const { page, record } = launched;
-		const input = composer(page);
-		const ghost = page.locator("[data-inline-ghost]");
-		// The placeholder proves the tab's bridge reported the built-in on.
-		await runTurn(page, 1);
-		await expect(input).toHaveAttribute("placeholder", CANDIDATES[0]);
-		const inlineRequests = () => count(record, "next_prompt_inline");
-		expect(await inlineRequests()).toBe(0);
-
-		// Ineligible drafts: too short, a slash command, bash mode, several lines.
-		await input.click();
-		await page.keyboard.type("short");
-		await quiet(page);
-		await expect(ghost).toHaveCount(0);
-		await input.fill("");
-		await page.keyboard.type("/compact the whole thing please");
-		await quiet(page);
-		await expect(ghost).toHaveCount(0);
-		await input.fill("");
-		await page.keyboard.type("!ls -la the whole project");
-		await quiet(page);
-		await expect(ghost).toHaveCount(0);
-		await input.fill("");
-		await page.keyboard.type("first line of the draft");
-		await page.keyboard.press("Control+j");
-		await page.keyboard.type("second line of the draft");
-		await expect(input).toHaveValue("first line of the draft\nsecond line of the draft");
-		await quiet(page);
-		await expect(ghost).toHaveCount(0);
-		expect(await inlineRequests()).toBe(0);
-		await input.fill("");
-
-		// An eligible draft: the ghost shows after the debounce, Tab takes it.
-		await page.keyboard.type("please refactor this");
-		await expect(ghost).toBeVisible();
-		await expect(ghost.locator(".omp-inline-ghost-text")).toHaveText(GHOST);
-		await page.keyboard.press("Tab");
-		await expect(input).toHaveValue(`please refactor this${GHOST}`);
-		await expect(ghost).toHaveCount(0);
-		expect(await inlineRequests()).toBe(1);
-
-		// Esc dismisses it (and only that: no "Esc again" hint, the draft stays).
-		await input.fill("");
-		await page.keyboard.type("write the migration now");
-		await expect(ghost).toBeVisible();
-		await page.keyboard.press("Escape");
-		await expect(ghost).toHaveCount(0);
-		await expect(input).toHaveValue("write the migration now");
-		await expect(page.locator("[data-esc-hint]")).toHaveCount(0);
-		const before = await inlineRequests();
-		expect(before).toBe(2);
-
-		// One scripted minute of typing: 10 bursts, each followed by a pause longer than the debounce
-		// (the pause is the ghost appearing), i.e. one request per ~6 s of typing at most.
-		const bursts = 10;
-		const secondsPerBurst = 6;
-		for (let burst = 0; burst < bursts; burst++) {
-			await input.fill("");
-			await page.keyboard.type(`burst number ${burst} of the draft`);
-			await expect(ghost).toBeVisible();
-			await expect(ghost).toContainText(GHOST.trim());
-		}
-		const requests = (await inlineRequests()) - before;
-		expect(requests).toBeLessThanOrEqual(bursts);
-		const perMinute = requests / ((bursts * secondsPerBurst) / 60);
-		console.log(
-			`next-prompt inline cost: ${requests} requests for ${bursts} typing bursts with ${bursts} pauses (${secondsPerBurst} s each) = ${perMinute.toFixed(1)} requests/minute`,
-		);
-		test.info().annotations.push({
-			type: "inline-requests-per-minute",
-			description: `${perMinute.toFixed(1)} (${requests} requests, ${bursts} pauses)`,
-		});
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await finish(launched);
@@ -448,57 +346,6 @@ test("the Settings switches hide suggestions live, reach the tab, and persist ac
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await finish(relaunched ?? launched);
-	}
-});
-
-test("the legacy next-prompt widget is ignored while the built-in is on and used again when it is off", async () => {
-	test.setTimeout(150_000);
-	const launched = await launch({ script: { legacy: true } });
-	try {
-		const { page } = launched;
-		const input = composer(page);
-		await runTurn(page, 1);
-		await expect(input).toHaveAttribute("placeholder", CANDIDATES[0]);
-		const response = await page.evaluate(() =>
-			window.omp.rpc.command({ type: "bash", command: "fixture:next-prompt:Legacy widget suggestion" }),
-		);
-		expect(response.success).toBe(true);
-		await quiet(page, 600);
-		await expect(input).toHaveAttribute("placeholder", CANDIDATES[0]);
-
-		const settings = await openAgentSettings(page);
-		await expect(settings.locator("[data-next-prompt-legacy]")).toBeVisible();
-		await suggestionsSwitch(settings).click();
-		await expect(suggestionsSwitch(settings)).toHaveAttribute("aria-checked", "false");
-		await closeSettings(page);
-		await expect(input).toHaveAttribute("placeholder", "Legacy widget suggestion");
-		await expect(chips(page)).toHaveCount(0);
-		await input.focus();
-		await page.keyboard.press("Tab");
-		await expect(input).toHaveValue("Legacy widget suggestion");
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("with no small model the composer shows a quiet footer hint and no toast", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch({ script: { fail: "no_model" } });
-	try {
-		const { page } = launched;
-		const input = composer(page);
-		await runTurn(page, 1);
-		const hint = page.locator("[data-next-prompt-unavailable]");
-		await expect(hint).toHaveText(TEXT.en.noModel);
-		await expect(page.getByRole("status").filter({ hasText: TEXT.en.noModel })).toHaveCount(1);
-		await expect(hint).toHaveAttribute("role", "status");
-		await expect(page.getByRole("alert")).toHaveCount(0);
-		await expect(input).not.toHaveAttribute("placeholder", CANDIDATES[0]);
-		await expect(chips(page)).toHaveCount(0);
-		expect(launched.errors).toEqual([]);
-	} finally {
-		await finish(launched);
 	}
 });
 

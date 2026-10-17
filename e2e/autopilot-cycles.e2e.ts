@@ -1,11 +1,11 @@
 /**
  * Autopilot on the fake omp (`fixture/autopilot.ts`, rules imported from the bridge's own pure modules): the run's
- * cycles 1-2-3 in its new worktree tab with the chip, the work board and the panel (en/ko x light/dark captures);
- * Stop (the current cycle finishes, children's queues are emptied and their tabs closed, ended:user, one notification)
- * versus ■ (children aborted, paused:user_abort, Resume; a confirmation while a release is in flight); the approval
- * cards and the questions an unattended run never gets; the usage limit (a quota wait with an automatic booking that
- * retries after the reset). Runs start from the Mode popover's sheet (the user's own path) unless the spec needs
- * options the sheet does not offer.
+ * cycles 1-2-3 in its new worktree tab with the chip, the work board and the panel (en light; every theme and
+ * language with OMP_GUI_VARIANTS=1); Stop (the current cycle finishes, children's queues are emptied and their
+ * tabs closed, ended:user, one notification); the approval cards and the questions an unattended run never gets;
+ * the usage limit (a quota wait with an automatic booking that retries after the reset); the project guide. ■ and
+ * its release confirmation are unit-tested (autopilot.test.ts, AutopilotPanel.test.tsx). Runs start from the Mode
+ * popover's sheet (the user's own path) unless the spec needs options the sheet does not offer.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -33,10 +33,6 @@ const TEXT = {
 	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot" },
 	ko: { running: /사이클 \d/, close: "사이드 패널 닫기", autopilot: "오토파일럿" },
 } as const;
-
-const RELEASE_PREFS = {
-	autopilotShip: { autoPush: false, autoRelease: { on: true, cadence: { kind: "every", n: 1 } }, remote: "origin" },
-};
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
@@ -179,65 +175,6 @@ test("Stop lets the cycle in flight finish, empties and closes the children, end
 		// Exactly one notification for the end (stops and ends only; cycles are not announced by default).
 		const notices = await app.evaluate(() => (globalThis as { notices?: string[] }).notices ?? []);
 		expect(notices.length).toBe(1);
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("■ aborts the children too and pauses the run as user_abort; Resume starts the next cycle", async () => {
-	test.setTimeout(180_000);
-	const profile = await makeApProfile({ script: { cycleMs: 600, childMs: 30_000, cycle: { children: 2 } } });
-	const { app, page } = await launchAp(profile);
-	try {
-		const { tabId } = await startFromSheet(page, "en");
-		await waitForStatus(
-			page,
-			tabId,
-			s => (s.children?.filter(child => child.status === "running").length ?? 0) === 2,
-			"two children run",
-		);
-		await page.locator("[data-autopilot-abort]").first().click();
-		const paused = await waitForStatus(page, tabId, s => s.state === "paused", "paused after ■");
-		expect(paused.reason).toBe("user_abort");
-		// The parent and both children got an abort.
-		await expect
-			.poll(async () => (await recorded(profile, "abort")).length, { timeout: 30_000 })
-			.toBeGreaterThanOrEqual(3);
-		const cyclesAfterAbort = paused.cycles?.length ?? 0;
-		await page.waitForTimeout(1_500);
-		expect((await status(page, tabId)).cycles?.length ?? 0).toBe(cyclesAfterAbort);
-
-		// The screen offers Resume; the next cycle runs.
-		await expect(page.locator("[data-autopilot-resume]")).toBeVisible();
-		await page.locator("[data-autopilot-resume]").click();
-		await waitForStatus(page, tabId, s => s.state === "running", "running again");
-		await expect
-			.poll(async () => (await recorded(profile, "goal")).map(entry => entry.op), { timeout: 15_000 })
-			.toContain("resume");
-	} finally {
-		await exitApp(app);
-		await cleanupAp(profile);
-	}
-});
-
-test("■ during a release asks first: the ship in flight may be half done", async () => {
-	test.setTimeout(180_000);
-	const profile = await makeApProfile({
-		releaseProcedure: true,
-		prefs: RELEASE_PREFS,
-		script: { cycleMs: 400, cycles: { "2": { release: { version: "v9.9.9", holdMs: 60_000 } } } },
-	});
-	const { app, page } = await launchAp(profile);
-	try {
-		const { tabId } = await startFromSheet(page, "en");
-		await waitForStatus(page, tabId, s => s.ship?.inFlight?.kind === "release", "a release is in flight", 90_000);
-		await page.locator("[data-autopilot-abort]").first().click();
-		// The dialog names the risk and nothing was sent yet.
-		await expect(page.getByRole("dialog")).toContainText(/release/i);
-		expect((await recorded(profile, "abort")).length).toBe(0);
-		await page.keyboard.press("Escape");
-		expect((await status(page, tabId)).state).toBe("running");
 	} finally {
 		await exitApp(app);
 		await cleanupAp(profile);

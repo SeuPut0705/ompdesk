@@ -400,10 +400,12 @@ describe("TurnResume markers", () => {
 		expect(h.store.read()).toHaveLength(1);
 	});
 
-	it("writes no markers, and clears old ones, when the setting is off", () => {
-		h = setup({ enabled: false });
+	it("writes no markers, clears old ones and restores nothing, when the setting is off", async () => {
+		h = setup({ enabled: false, answers: { restore_interrupted: RESTORED } });
 		writeFileSync(h.file, JSON.stringify([marker()]));
 		h.resume.launch();
+		await settle();
+		expect(h.commands).toEqual([]);
 		expect(h.store.read()).toEqual([]);
 		h.facts.push(fact({ running: true }));
 		h.resume.sync();

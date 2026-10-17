@@ -1,24 +1,17 @@
 /**
- * Settings and session maintenance on the fake omp (regions B/D):
- * - B58: Settings › Projects & launch › Worktrees › Agent worktrees lists stock
- *   `omp worktree list --json` (fixture `OMP_GUI_TEST_AGENT_WORKTREES`) with
- *   the orphaned ones and why, "Clean up now" runs `omp worktree clear --json`
- *   and the auto-clean switch persists;
- * - B43: Settings › Models & providers › Model overrides writes one model's
- *   override to models.yml (`providers.<id>.modelOverrides`) and Reset takes it
- *   out again;
- * - B15: the Claude/Codex import dialog filters by project and time range,
- *   Select all picks the shown sessions, the batch shows "Importing n of
- *   total" and reports a failed one, and closing mid-import finishes in the
- *   background with toasts (fixture `OMP_GUI_TEST_FOREIGN`).
- * Captures: en-light and ko-dark (test output directory).
+ * The Claude/Codex import dialog on the fake omp (fixture `OMP_GUI_TEST_FOREIGN`): it filters by project and
+ * time range, Select all picks the shown sessions, the batch shows "Importing n of total" and reports a failed
+ * one, and closing mid-import finishes in the background with toasts. Captures: en-light (ko-dark with
+ * OMP_GUI_VARIANTS=1) in the test output directory. Agent worktrees and Model overrides are component-tested
+ * (AgentWorktreesRow.test.tsx, ModelOverrides.test.tsx) with their main sides (agent-worktrees.test.ts,
+ * models-config.test.ts).
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { capture, exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { capture, exitApp, fixtureOmp, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -26,11 +19,6 @@ type Theme = "light" | "dark";
 const TEXT = {
 	en: {
 		send: "Send",
-		worktreeSummary: (total: number, orphaned: number) => `Worktrees: ${total} · orphaned: ${orphaned}`,
-		cleanUp: "Clean up now",
-		removed: (count: number) => `Removed: ${count}`,
-		reset: (model: string) => `Reset ${model}`,
-		resetConfirm: "Reset",
 		importTitle: "Import external session",
 		selectAll: (count: number) => `Select all (${count})`,
 		importN: (count: number) => `Import ${count}`,
@@ -42,11 +30,6 @@ const TEXT = {
 	},
 	ko: {
 		send: "보내기",
-		worktreeSummary: (total: number, orphaned: number) => `워크트리 ${total}개 · 남은 것 ${orphaned}개`,
-		cleanUp: "지금 정리",
-		removed: (count: number) => `${count}개를 지웠어요.`,
-		reset: (model: string) => `${model} 초기화`,
-		resetConfirm: "초기화",
 		importTitle: "외부 세션 가져오기",
 		selectAll: (count: number) => `모두 선택(${count})`,
 		importN: (count: number) => `${count}개 가져오기`,
@@ -117,101 +100,8 @@ async function launch(language: Language, theme: Theme, env: Record<string, stri
 	return launched;
 }
 
-async function openSettings(page: Page, section: string): Promise<Locator> {
-	const settings = page.locator("[data-settings-page]");
-	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-	await settings.locator(`[data-settings-section="${section}"]`).click();
-	return settings;
-}
-
-for (const [language, theme] of RUNS) {
+for (const [language, theme] of variants(RUNS)) {
 	const text = TEXT[language];
-
-	test(`B58: Agent worktrees lists the orphaned ones, cleans them up and keeps the auto-clean switch (${language}-${theme})`, async () => {
-		const worktrees = path.join(os.tmpdir(), `omp-gui-agent-worktrees-${process.pid}-${language}.json`);
-		const root = path.join(os.homedir(), ".omp", "wt", "a1b2c3");
-		await fs.writeFile(
-			worktrees,
-			JSON.stringify([
-				{ path: path.join(root, "feature-login"), kind: "task-isolation", branch: "omp/feature-login" },
-				{
-					path: path.join(root, "fix-cache"),
-					kind: "task-isolation",
-					orphanReason: "Its session file is gone",
-				},
-				{ path: path.join(root, "spike-router"), kind: "pr-checkout", orphanReason: "Its branch was deleted" },
-			]),
-		);
-		try {
-			const { page, desktop, errors } = await launch(language, theme, { OMP_GUI_TEST_AGENT_WORKTREES: worktrees });
-			const settings = await openSettings(page, "workspace");
-			const row = settings.locator("#setting-agent-worktrees");
-			await row.scrollIntoViewIfNeeded();
-			await expect(row).toContainText(text.worktreeSummary(3, 2));
-			await expect(row.locator("[data-orphan]")).toHaveCount(2);
-			await expect(row.locator(`[data-orphan="${path.join(root, "fix-cache")}"]`)).toContainText(
-				"Its session file is gone",
-			);
-			await capture(page, `agent-worktrees-${language}-${theme}`);
-
-			await row.getByRole("button", { name: text.cleanUp, exact: true }).click();
-			await expect(row.locator('p[role="status"]')).toHaveText(text.removed(2));
-			await expect(row).toContainText(text.worktreeSummary(1, 0));
-			await expect(row.locator("[data-orphan]")).toHaveCount(0);
-			expect(JSON.parse(await fs.readFile(worktrees, "utf8"))).toEqual([
-				{ path: path.join(root, "feature-login"), kind: "task-isolation", branch: "omp/feature-login" },
-			]);
-			await capture(page, `agent-worktrees-cleaned-${language}-${theme}`);
-
-			await settings.locator("#setting-gui-worktreeAutoClean").getByRole("switch").click();
-			await expect
-				.poll(async () => JSON.parse(await fs.readFile(path.join(desktop, "prefs.json"), "utf8")).worktreeAutoClean)
-				.toBe(true);
-			expect(errors).toEqual([]);
-		} finally {
-			await fs.rm(worktrees, { force: true });
-		}
-	});
-
-	test(`B43: Model overrides writes one model's override to models.yml and Reset takes it out (${language}-${theme})`, async () => {
-		const { page, agent, errors } = await launch(language, theme);
-		const models = path.join(agent, "models.yml");
-		const settings = await openSettings(page, "models");
-		const section = settings.locator("#settings-models-overrides");
-		// Model overrides sit under Models & accounts' folded Advanced group (20b496a).
-		await section.locator("xpath=ancestor::details[1]/summary").click();
-		await section.scrollIntoViewIfNeeded();
-		const add = section.locator("[data-model-override-add]");
-		await expect(add).toBeEnabled();
-		await add.click();
-
-		const editor = page.locator("[data-model-override-editor]");
-		const picker = editor.locator("select[data-model-override-model]");
-		const model = (await picker.locator("option").nth(1).getAttribute("value")) ?? "";
-		expect(model).toMatch(/.+\/.+/);
-		await picker.selectOption(model);
-		await editor.locator("input[data-model-override-context]").fill("64000");
-		await capture(page, `model-override-editor-${language}-${theme}`);
-		await page.locator("[data-model-override-save]").click();
-		await expect(editor).toHaveCount(0);
-
-		const row = section.locator(`[data-model-override="${model}"]`);
-		await expect(row).toContainText("64,000");
-		const [provider, modelId] = [model.slice(0, model.indexOf("/")), model.slice(model.indexOf("/") + 1)];
-		const written = await fs.readFile(models, "utf8");
-		expect(written).toContain(`${provider}:`);
-		expect(written).toContain("modelOverrides:");
-		expect(written).toContain(modelId);
-		expect(written).toContain("contextWindow: 64000");
-		await row.scrollIntoViewIfNeeded();
-		await capture(page, `model-overrides-${language}-${theme}`);
-
-		await row.getByRole("button", { name: text.reset(model), exact: true }).click();
-		await page.getByRole("dialog").getByRole("button", { name: text.resetConfirm, exact: true }).click();
-		await expect(row).toHaveCount(0);
-		await expect.poll(async () => (await fs.readFile(models, "utf8")).includes("modelOverrides")).toBe(false);
-		expect(errors).toEqual([]);
-	});
 
 	test(`B15: import filters by project and time, imports a batch with progress and finishes in the background (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);

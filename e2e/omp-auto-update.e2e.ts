@@ -170,34 +170,6 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 	}
 });
 
-test("with the pref off nothing checks on its own; Update now still updates", async () => {
-	test.setTimeout(120_000);
-	const launched = await launch("off", { ompAutoUpdate: false });
-	try {
-		const { page } = launched;
-		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
-		await page.locator(".omp-composer-input").first().fill(DRAFT);
-		expect(await checks(launched)).toEqual([]);
-		const settings = page.locator("[data-settings-page]");
-		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-		await settings.locator('[data-settings-section="updates"]').click();
-		await expect(settings.locator("#setting-gui-ompAutoUpdate [role='switch']")).toHaveAttribute(
-			"aria-checked",
-			"false",
-		);
-		expect(await installs(launched)).toEqual([]);
-		await settings.getByTestId("omp-update-now").click();
-		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
-		await releaseInstaller(launched);
-		await expect(page.getByText("omp updated to 18.12.0")).toBeVisible({ timeout: 30_000 });
-		expect(new Set(await checks(launched))).toEqual(new Set([path.dirname(launched.omp)]));
-		await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.11.0", "18.12.0"]);
-		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
-	} finally {
-		await close(launched);
-	}
-});
-
 /** Opt-in captures (`OMP_GUI_OMP_UPDATE_CAPTURES=<dir>`): the updating row, the updated toast and Settings' omp rows. */
 const CAPTURES = process.env.OMP_GUI_OMP_UPDATE_CAPTURES ?? "";
 for (const [language, themeName] of [

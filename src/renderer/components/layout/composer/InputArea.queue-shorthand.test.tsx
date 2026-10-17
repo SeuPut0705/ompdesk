@@ -313,6 +313,17 @@ describe("InputArea queue shorthand submit", () => {
 		await pressEnter(findTextarea());
 		await flush();
 		expect(prompt).toHaveBeenCalledTimes(1);
+		// The warning says why, Send is held, and only the user's "allow sending" releases it.
+		expect(document.body.textContent).toContain(translate("input.deliveryUnknown"));
+		const send = () =>
+			document.querySelector(`button[aria-label="${translate("input.send")}"]`) as unknown as TestElement | null;
+		expect(send()?.getAttribute("disabled")).not.toBeNull();
+		const allow = buttonWithText(translate("input.allowResend"));
+		if (!allow) throw new Error("no allow-resend button");
+		await click(allow);
+		expect(useComposerStore.getState().submissionUncertain).toBe(false);
+		expect(document.body.textContent).not.toContain(translate("input.deliveryUnknown"));
+		expect(send()?.getAttribute("disabled")).toBeNull();
 	});
 
 	it("enables the platform spellcheck and autocorrect pipeline", async () => {

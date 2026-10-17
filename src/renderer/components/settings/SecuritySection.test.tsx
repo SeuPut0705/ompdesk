@@ -154,6 +154,76 @@ describe("SecuritySection with nothing found", () => {
 		expect(document.querySelector("[data-risk-gauge]")).toBeNull();
 	});
 
+	describe("says which state the project is in", () => {
+		const now = "2026-10-18T00:00:00.000Z";
+		const scan = (status: "completed" | "failed" | "partial", findingCount = 0) => ({
+			id: "scan",
+			status,
+			createdAt: now,
+			producer: "fixture",
+			findingCount,
+			target: { kind: "working_tree" as const, displayName: "Working tree" },
+		});
+		const finding = {
+			id: "f1",
+			scanId: "scan",
+			title: "Untrusted path reaches file access",
+			summary: "Isolated finding",
+			severity: "high" as const,
+			confidence: "high" as const,
+			disposition: "open" as const,
+			validation: "unvalidated" as const,
+			evidence: [],
+		};
+		const scanned = (status: "completed" | "failed" | "partial", findings: (typeof finding)[] = []) =>
+			dashboard({
+				enabled: true,
+				scans: [scan(status, findings.length)],
+				latest: { scan: scan(status, findings.length), findings },
+			});
+		const STATES: Array<[string, RpcResponse | Error, string]> = [
+			["unavailable", new Error("Isolated dashboard unavailable"), translate("security.empty.unavailable")],
+			["disabled", ok("get_security_dashboard", dashboard()), translate("security.ready.disabled")],
+			[
+				"unscanned",
+				ok("get_security_dashboard", dashboard({ enabled: true })),
+				translate("security.empty.unscanned"),
+			],
+			[
+				"running",
+				ok(
+					"get_security_dashboard",
+					dashboard({
+						enabled: true,
+						operations: [
+							{
+								operationId: "op",
+								planId: "plan",
+								scanId: "scan",
+								phase: "reviewing",
+								createdAt: now,
+								updatedAt: now,
+								findingCount: 0,
+							},
+						],
+					}),
+				),
+				translate("security.empty.running"),
+			],
+			["failed", ok("get_security_dashboard", scanned("failed")), translate("security.empty.failed")],
+			["incomplete", ok("get_security_dashboard", scanned("partial")), translate("security.empty.incomplete")],
+			["clear", ok("get_security_dashboard", scanned("completed")), translate("security.empty.title")],
+			["findings", ok("get_security_dashboard", scanned("completed", [finding])), finding.title],
+		];
+		it.each(STATES)("%s", async (state, response, expected) => {
+			if (response instanceof Error) getSecurityDashboard.mockRejectedValue(response);
+			else getSecurityDashboard.mockResolvedValue(response);
+			await mount();
+			expect(bodyText()).toContain(expected);
+			if (state !== "clear") expect(bodyText()).not.toContain(translate("security.empty.title"));
+		});
+	});
+
 	it("names the full repository path on hover where the row truncates it", async () => {
 		await mount();
 

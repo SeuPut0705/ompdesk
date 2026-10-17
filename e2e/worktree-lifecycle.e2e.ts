@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 
 // omp 18.8.6's per-session worktrees (`worktree.onStart` / `worktree.onExit`)
 // in GUI tabs, on the fake omp with the settings switched on
@@ -222,7 +222,7 @@ test.describe("worktree.onStart = ask, worktree.onExit = keep", () => {
 
 // C82: Settings › Projects & launch › Worktree branch prefix names both the worktree tab's branch
 // (⌥T dialog → worktree_create) and the session worktree's (stock wt/ gives way, the timestamp stays).
-for (const { language, theme, label } of [
+for (const { language, theme, label } of variants([
 	{
 		language: "en" as const,
 		theme: "light" as const,
@@ -233,7 +233,7 @@ for (const { language, theme, label } of [
 		theme: "dark" as const,
 		label: { field: "워크트리 브랜치 접두사", name: "이름", submit: "만들고 열기" },
 	},
-]) {
+])) {
 	test(`worktree branch prefix names worktree tab and session branches (${language}, ${theme})`, async () => {
 		await launch("create:keep", language);
 		await page.emulateMedia({ colorScheme: theme });

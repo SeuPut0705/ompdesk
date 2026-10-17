@@ -71,9 +71,9 @@ describe("followPageFocus", () => {
 	function setup() {
 		document.body.innerHTML = `
 			<aside><button id="row">Row</button></aside>
-			<div class="omp-session-pane" data-active="true">
+			<div data-session-view><div class="omp-session-pane" data-active="true">
 				<textarea id="ask"></textarea><textarea id="composer" data-composer-input></textarea>
-			</div>
+			</div></div>
 			<section id="page" tabindex="-1"><button id="inside">Back</button></section>`;
 		let active: Element = document.body;
 		Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
@@ -87,6 +87,9 @@ describe("followPageFocus", () => {
 		});
 		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: Element) {
 			active = this;
+		});
+		vi.spyOn(HTMLElement.prototype, "blur").mockImplementation(function (this: Element) {
+			if (active === this) active = document.body;
 		});
 		const byId = (id: string) => document.getElementById(id) as unknown as HTMLElement;
 		return {
@@ -104,8 +107,9 @@ describe("followPageFocus", () => {
 		const view = setup();
 		view.focusOn(view.byId("composer"));
 		useUiStore.getState().openSettings();
-		// The session view is hidden under the page: its focus drops to the body.
-		view.focusOn(document.body);
+		// The hidden session view drops focus before the page's frame: a key now (Esc) never reaches the
+		// hidden composer, which would claim it, even when the window draws no frame for a while.
+		expect(view.active()).toBe(document.body);
 		runFrames();
 		expect(view.active()).toBe(view.byId("page"));
 		// Switching pages keeps focus on the page.

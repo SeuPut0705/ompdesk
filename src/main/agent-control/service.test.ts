@@ -715,6 +715,21 @@ describe("ompdesk_session_stop", () => {
 		expect(host.sent.some(entry => entry.tabId === child && entry.command.type === "abort")).toBe(true);
 	});
 
+	it("refuses its own session and an unknown id, and stops-and-closes one it opened with no card", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		const service = control(host);
+		const own = await service.run("main0001", T.stop, { session: "main0001" });
+		expect(own.isError).toBe(true);
+		expect(own.text).toMatch(/own session/);
+		expect((await service.run("main0001", T.stop, { session: "nope9999" })).text).toMatch(/No session/);
+		await service.run("main0001", T.open, { message: "work" });
+		const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
+		const stopped = await service.run("main0001", T.stop, { session: child, close: true });
+		expect(stopped.isError).toBe(false);
+		expect(stopped.text).toContain("Stopped and closed");
+		expect(host.cards).toHaveLength(0);
+	});
+
 	it("asks the user before touching a session it did not open, and a refusal stops nothing", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001", title: "Boss" },

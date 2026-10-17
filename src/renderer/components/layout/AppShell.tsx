@@ -148,10 +148,13 @@ export function leavePageOnSessionSelect(): () => void {
 
 /**
  * Focus follows the main area. The session view is hidden, not unmounted, while
- * a page shows, so whatever had focus there (usually the composer) drops it:
- * opening a page lands focus on the page itself, and going back returns it to
- * where it was (else the active pane's composer). Focus the user already moved
- * elsewhere (a sidebar row, a dialog) is left alone. Returns the unsubscribe.
+ * a page shows, so whatever had focus there (usually the composer) drops it at
+ * once: until the page takes focus a frame later (a frame a hidden or occluded
+ * window may not draw for seconds) a key would still reach the hidden composer,
+ * whose Esc claims the keystroke the page's Esc needs. Opening a page lands
+ * focus on the page itself, and going back returns it to where it was (else the
+ * active pane's composer). Focus the user already moved elsewhere (a sidebar row,
+ * a dialog) is left alone. Returns the unsubscribe.
  */
 export function followPageFocus(page: () => HTMLElement | null): () => void {
 	let returnTo: HTMLElement | null = null;
@@ -161,6 +164,7 @@ export function followPageFocus(page: () => HTMLElement | null): () => void {
 		if (previous.destination === "session") {
 			const active = document.activeElement;
 			returnTo = active instanceof HTMLElement && active !== document.body ? active : null;
+			if (returnTo?.closest("[data-session-view]")) returnTo.blur();
 		}
 		cancelAnimationFrame(frame);
 		// After React commits the page (or reveals the session view again).

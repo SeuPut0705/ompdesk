@@ -332,6 +332,23 @@ describe("RepositoryChanges", () => {
 		}
 	});
 
+	it("stops polling once the list leaves the screen (a closed sheet unmounts it)", async () => {
+		vi.useFakeTimers();
+		try {
+			installMockOmp(async () => answer("src/a.ts"));
+			await mountWithTimers();
+			expect(vi.getTimerCount()).toBe(1);
+			await act(async () => root.unmount());
+			const calls = getGitFingerprint.mock.calls.length;
+			expect(vi.getTimerCount()).toBe(0);
+			await advance(30_000);
+			expect(getGitFingerprint.mock.calls.length).toBe(calls);
+			await mountWithTimers();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("does not reload in a loop after a failed read: it waits for the checkout to change again", async () => {
 		vi.useFakeTimers();
 		try {
