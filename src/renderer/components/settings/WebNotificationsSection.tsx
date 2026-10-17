@@ -116,8 +116,10 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 
 	if (view.availability === "needs-install") {
 		return (
-			<SettingsSection description={t("web.push.needsInstall")} title={t("web.push.title")}>
-				<div data-web-push-state="needs-install" />
+			<SettingsSection title={t("web.push.title")}>
+				<div data-web-push-state="needs-install">
+					<Banner variant="info">{t("web.push.needsInstall")}</Banner>
+				</div>
 			</SettingsSection>
 		);
 	}

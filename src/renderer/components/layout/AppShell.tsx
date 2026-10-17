@@ -14,7 +14,7 @@
  * only the side panel becomes a sheet over a scrim.
  */
 
-import { ArrowLeft, Menu, PanelLeft } from "lucide-react";
+import { ArrowLeft, Menu, PanelLeft, X } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isDrawerMode, useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
 import { activeComposerInput } from "../../lib/composer-focus";
@@ -69,8 +69,33 @@ function DestinationPage({ destination }: { destination: PageDestination }): Rea
 function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 	const t = useT();
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
-	const drawer = isDrawerMode(useShellMode());
+	const shellMode = useShellMode();
+	const drawer = isDrawerMode(shellMode);
 	const closeDestination = useUiStore(s => s.closeDestination);
+	// A phone keeps the page's own back control (MasterDetailBack) in this one row: the menu, the page's back
+	// button and title in the slot, and the way out to the session as an icon at the right.
+	if (shellMode === "phone")
+		return (
+			<div className="omp-topbar drag-region flex h-12 shrink-0 items-center gap-1 px-3">
+				{showSidebarToggle && (
+					<IconButton
+						className="no-drag"
+						icon={<Menu />}
+						label={t("titlebar.toggleSidebar")}
+						onClick={toggleSidebar}
+						shortcut={actionShortcut("sidebar.toggle")}
+					/>
+				)}
+				<div className="no-drag flex min-w-0 flex-1 items-center gap-1" data-page-topbar-slot />
+				<IconButton
+					className="no-drag"
+					icon={<X />}
+					label={t("shell.backToSession")}
+					onClick={closeDestination}
+					shortcut="⎋"
+				/>
+			</div>
+		);
 	return (
 		<div className="omp-topbar drag-region flex h-12 shrink-0 items-center gap-1 px-3">
 			{showSidebarToggle && (

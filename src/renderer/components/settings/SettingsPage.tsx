@@ -474,7 +474,11 @@ export function SettingsPage() {
 							</nav>
 						)}
 						{showDetail && stacked && (
-							<MasterDetailBack label={t("settings.title")} onBack={() => setDetailOpen(false)} />
+							<MasterDetailBack
+								label={t("settings.title")}
+								onBack={() => setDetailOpen(false)}
+								title={results ? undefined : sectionTitle}
+							/>
 						)}
 						{showDetail && (
 							<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
@@ -482,7 +486,7 @@ export function SettingsPage() {
 									{host && <SettingsDeviceBanner host={host} />}
 									<header className="mb-3">
 										<h2
-											className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+											className={`text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)${stacked && !results ? " sr-only" : ""}`}
 											id="settings-section-title"
 										>
 											{results ? t("settings.search.title") : sectionTitle}

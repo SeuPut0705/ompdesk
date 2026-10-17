@@ -5,14 +5,16 @@
  *   and the detail filling the rest. Nothing changes for an Electron window.
  * - Phone (`useShellMode() === "phone"`): a push navigation. The list fills the page; choosing a row (`open`)
  *   replaces it with the detail under a back bar, and the system back gesture (use-back-layer) does what the bar's
- *   button does, `onBack`.
+ *   button does, `onBack`. On a destination page (Settings, Agents) the bar moves up into the page's top bar
+ *   (`[data-page-topbar-slot]`, AppShell's PageTopBar), so the page has one header row, not two.
  *
- * `open` is "a row is chosen"; the caller keeps that state (a selection, a section) and clears it in `onBack`.
+ * `open` is "a row is chosen": the caller keeps that state (a selection, a section) and clears it in `onBack`.
  * Pages that lay out their own list (Settings) use `useMasterDetail` and `MasterDetailBack` directly.
  */
 
 import { ChevronLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
@@ -29,14 +31,33 @@ export function useMasterDetail(
 	return { stacked, showList: !stacked || !open, showDetail: !stacked || open };
 }
 
-/** The back button at the top of a phone's detail pane. */
-export function MasterDetailBack({ onBack, label }: { onBack: () => void; label?: string }) {
+/** The back button (and the detail's title) at the top of a phone's detail pane. */
+export function MasterDetailBack({ onBack, label, title }: { onBack: () => void; label?: string; title?: string }) {
 	const t = useT();
-	return (
-		<div className="shrink-0 border-b border-(--sc-divider) px-1 py-1" data-master-detail-back-bar>
+	const [slot, setSlot] = useState<HTMLElement | null>(null);
+	// Before paint: the page's top bar is mounted by now, so the bar never shows in the wrong place for a frame.
+	useLayoutEffect(() => {
+		setSlot(document.querySelector<HTMLElement>("[data-page-topbar-slot]"));
+	}, []);
+	const bar = (
+		<>
 			<Button data-master-detail-back icon={<ChevronLeft />} onClick={onBack} size="sm" variant="ghost">
 				{label ?? t("masterDetail.back")}
 			</Button>
+			{title && (
+				<span className="min-w-0 truncate text-sc-md font-semibold text-(--sc-text)" data-master-detail-title>
+					{title}
+				</span>
+			)}
+		</>
+	);
+	if (slot) return createPortal(bar, slot);
+	return (
+		<div
+			className="flex shrink-0 items-center gap-1 border-b border-(--sc-divider) px-1 py-1"
+			data-master-detail-back-bar
+		>
+			{bar}
 		</div>
 	);
 }

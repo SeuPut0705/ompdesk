@@ -275,6 +275,7 @@ export function SshSection() {
 			actions={creating ? undefined : addButton}
 			description={t("ssh.empty.description")}
 			icon={<Server />}
+			size="sm"
 			title={t("ssh.empty.title")}
 		/>
 	);

@@ -23,7 +23,7 @@ import {
 	type PreviewStreamPoll,
 	type PreviewStreamPollRequest,
 } from "../../shared/preview";
-import type { RpcCommand } from "../../shared/rpc-types";
+import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
 	CONTEXT_INSPECT,
@@ -80,6 +80,55 @@ interface ViewPayload {
 /** Channels whose answer the renderer iterates: an empty list, not `undefined`. */
 const EMPTY_LISTS = [IPC_COMMANDS.EXTENSION_UI_OPEN, "worktree-lifecycle:prompts-get", "ssh-tools:prompts"];
 
+/** A stock-shaped settings list (`get_settings_schema`): a few rows so a settings page shows its real layout. */
+const SETTINGS_SCHEMA: SettingsSchemaResult = {
+	tabs: [
+		{ id: "agent", label: "Agent", groups: ["Behavior"] },
+		{ id: "tools", label: "Tools", groups: ["Approvals"] },
+	],
+	entries: [
+		{
+			path: "defaultThinkingLevel",
+			type: "enum",
+			value: "auto",
+			default: "high",
+			label: "Thinking level",
+			description: "How hard the model thinks before it answers.",
+			tab: "agent",
+			group: "Behavior",
+			options: [
+				{ value: "auto", label: "Auto" },
+				{ value: "high", label: "High" },
+				{ value: "low", label: "Low" },
+			],
+		},
+		{
+			path: "compaction.enabled",
+			type: "boolean",
+			value: true,
+			default: true,
+			label: "Compact long sessions",
+			description: "Summarise older turns when the context fills up.",
+			tab: "agent",
+			group: "Behavior",
+		},
+		{
+			path: "tools.approvalMode",
+			type: "enum",
+			value: "ask",
+			default: "ask",
+			label: "Approval mode",
+			description: "When the agent asks before it runs a tool.",
+			tab: "tools",
+			group: "Approvals",
+			options: [
+				{ value: "ask", label: "Ask" },
+				{ value: "auto", label: "Auto" },
+			],
+		},
+	],
+};
+
 interface PrefsGetPayload {
 	key?: string;
 }
@@ -126,6 +175,12 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				});
 			case "history_recent":
 				return respond(command, []);
+			case "get_settings_schema":
+				return respond(command, SETTINGS_SCHEMA);
+			case "get_settings":
+				return respond(command, {
+					values: Object.fromEntries(SETTINGS_SCHEMA.entries.map(entry => [entry.path, entry.value])),
+				});
 			case "get_ssh_hosts":
 				return respond(command, { openSshAvailable: true, hosts: [], warnings: [] });
 			case "get_available_commands":
