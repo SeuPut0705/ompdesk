@@ -552,6 +552,29 @@ describe("tabs store switch", () => {
 		expect(omp.rpc.getState).toHaveBeenCalled();
 	});
 
+	it("keeps shortcuts live when a new tab opens while the boot reconcile's route is in flight", async () => {
+		omp.tabs.list.mockResolvedValue([tabInfo("t0", "/alpha")]);
+		const bootRoute = Promise.withResolvers<boolean>();
+		omp.tabs.setActive.mockReturnValueOnce(bootRoute.promise);
+		const booting = useTabsStore.getState().reconcileTabs();
+		await vi.waitFor(() => expect(omp.tabs.setActive).toHaveBeenCalledWith("t0"));
+
+		// ⌘T lands before main answers the boot route: the switch to t1 begins behind it.
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t1" });
+		const opening = useTabsStore.getState().openTab();
+		await vi.waitFor(() => expect(useTabsStore.getState().activeTabId).toBe("t1"));
+		expect(acceptsActiveTabEvents()).toBe(false);
+
+		bootRoute.resolve(true);
+		await booting;
+		await opening;
+
+		expect(omp.tabs.setActive).toHaveBeenLastCalledWith("t1");
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		// The switch settled on t1, so the keymap (which refuses chords while a route is unsettled) takes ⌘, again.
+		expect(acceptsActiveTabEvents()).toBe(true);
+	});
+
 	it("reports a failed spawn as an error toast without mutating the tab list", async () => {
 		seedTabs();
 		omp.tabs.spawn.mockResolvedValue(null);

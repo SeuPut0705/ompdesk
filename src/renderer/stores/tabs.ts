@@ -533,12 +533,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const activeTabId = get().activeTabId;
 		setFocusedSessionRuntime(activeTabId);
 		if (activeTabId) {
+			// A switch that begins while this route is in flight (⌘T during the boot reconcile, or a tab list push that
+			// raced openTab) owns the route state from then on: reconciling it here with this older pick made the
+			// switch's settle see another selection and leave every shortcut refused for good.
+			const version = switchVersion;
 			try {
 				const routed = await routeTabView(activeTabId, visibleTabIds(get()), get().split);
-				reconcileTabRoute(activeTabId, routed);
+				if (version === switchVersion) reconcileTabRoute(activeTabId, routed);
 				return routed;
 			} catch {
-				reconcileTabRoute(activeTabId, false);
+				if (version === switchVersion) reconcileTabRoute(activeTabId, false);
 				return false;
 			}
 		}
