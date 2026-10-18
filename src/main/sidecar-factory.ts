@@ -57,6 +57,8 @@ export interface LocalSidecarDeps {
 	accountRotationLedger: string;
 	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
 	launchProfilesPref: () => unknown;
+	/** Grace period a closed tab's omp gets to shut down by itself (ai-memory's session-end rides it); absent: none. */
+	gracefulStopMs?: () => number;
 	/**
 	 * Autopilot's coordinator (src/main/autopilot.ts), read per frame: it does not exist yet when the factory is
 	 * made. Absent or null: autopilot frames pass through untouched.
@@ -134,6 +136,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
 			launchProfiles: deps.launchProfilesPref,
+			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail

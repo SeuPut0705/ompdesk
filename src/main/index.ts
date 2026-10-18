@@ -595,6 +595,8 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
+		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
+		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});

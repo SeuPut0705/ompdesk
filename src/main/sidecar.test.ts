@@ -1048,4 +1048,74 @@ describe("SidecarManager", () => {
 			await fs.rm(gatedCwd, RM_TEMP);
 		}
 	}, 15_000);
+
+	describe("dispose with a grace period (stock omp emits session_shutdown only when stdin ends)", () => {
+		/** A fake omp that logs `stdin-end` and `sigterm` lines; `exitOnEnd` is whether closing stdin ends it. */
+		async function gracefulOmp(exitOnEnd: boolean) {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-grace-"));
+			const logPath = path.join(tempDir, "signals.log");
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				[
+					'import * as fs from "node:fs";',
+					`process.on("SIGTERM", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "sigterm\\n"); process.exit(0); });`,
+					`process.stdin.on("end", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "stdin-end\\n"); if (${exitOnEnd}) process.exit(0); });`,
+					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+					"process.stdin.resume();",
+					"setInterval(() => {}, 1000);",
+				].join("\n"),
+			);
+			const read = () => fs.readFile(logPath, "utf8").then(text => text.split("\n").filter(Boolean), () => [] as string[]);
+			return { tempDir, binaryPath, read };
+		}
+
+		it("closes stdin first and sends no SIGTERM to an omp that shuts down by itself", async () => {
+			const { tempDir, binaryPath, read } = await gracefulOmp(true);
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, gracefulStopMs: () => 60_000 });
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				sidecar.dispose();
+				await vi.waitFor(async () => expect(await read()).toEqual(["stdin-end"]));
+				// It exited on its own, which cleared the 60 s escalation timer: nothing keeps the test process alive.
+				expect(await read()).toEqual(["stdin-end"]);
+			} finally {
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		});
+
+		it("sends SIGTERM only after the grace period to an omp that ignores the closed stdin", async () => {
+			const { tempDir, binaryPath, read } = await gracefulOmp(false);
+			// A real, short grace period: the escalation is a timer in front of a real child's signal handler.
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, gracefulStopMs: () => 400 });
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				const disposedAt = Date.now();
+				sidecar.dispose();
+				await vi.waitFor(async () => expect(await read()).toEqual(["stdin-end", "sigterm"]));
+				expect(Date.now() - disposedAt).toBeGreaterThanOrEqual(350);
+			} finally {
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		});
+
+		it("sends SIGTERM at once when the grace period is 0 or absent", async () => {
+			for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
+				const { tempDir, binaryPath, read } = await gracefulOmp(false);
+				const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
+				try {
+					const ready = waitForReady(sidecar);
+					sidecar.start();
+					await ready;
+					sidecar.dispose();
+					await vi.waitFor(async () => expect(await read()).toEqual(["sigterm"]));
+				} finally {
+					await fs.rm(tempDir, RM_TEMP);
+				}
+			}
+		});
+	});
 });

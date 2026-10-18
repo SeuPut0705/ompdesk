@@ -278,6 +278,8 @@ export interface SidecarOptions {
 	 * flags, and no prefs file is touched.
 	 */
 	launchProfiles?: () => unknown;
+	/** How long a closed tab's omp gets to shut down on its own (stdin closed) before SIGTERM; 0 or absent: SIGTERM at once. */
+	gracefulStopMs?: () => number;
 	/**
 	 * Rewrites a frame before anything sees it (Autopilot's coordinator adds the children and the ship queue to
 	 * `autopilot_update`). Must be synchronous and return a frame of the same type.
@@ -1190,7 +1192,18 @@ export class SidecarManager extends EventEmitter {
 
 	dispose(): void {
 		this.#disposed = true;
-		this.kill();
+		const grace = this.#options.gracefulStopMs?.() ?? 0;
+		const child = this.#child;
+		if (grace > 0 && child?.stdin && child.exitCode === null && child.signalCode === null) {
+			// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its
+			// stdin ends; SIGTERM kills it before. Close stdin first and escalate after the grace period.
+			if (this.#restartTimer) clearTimeout(this.#restartTimer);
+			this.#restartTimer = null;
+			this.#cleanup();
+			child.stdin.end();
+			const timer = setTimeout(() => child.kill("SIGTERM"), grace);
+			child.once("exit", () => clearTimeout(timer));
+		} else this.kill();
 		this.removeAllListeners();
 	}
 }
