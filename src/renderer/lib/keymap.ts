@@ -425,6 +425,15 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "generation",
 	},
 	{
+		// The TUI's ⇧Tab. The GUI keeps ⇧Tab as focus navigation (it needs no modifier of ours, and the
+		// composer is a form control), so the cycle takes ⌥⇧T on both platforms (no ⌘ in it to collide).
+		id: "thinking.cycle",
+		labelKey: "hotkeys.row.thinkingCycle",
+		defaults: ["⌥⇧T"],
+		overlaySafe: false,
+		hotkeyGroup: "generation",
+	},
+	{
 		id: "model.select",
 		labelKey: "hotkeys.row.modelPicker",
 		defaults: ["⌥M"],

@@ -129,6 +129,22 @@ describe("chordFromEvent", () => {
 		expect(chordFromEvent({ key: "P", code: "KeyP", ...NO_MODS, shiftKey: true })).toBeNull();
 		expect(chordFromEvent({ key: "Control", code: "ControlLeft", ...NO_MODS, ctrlKey: true })).toBeNull();
 	});
+
+	it("leaves Shift+Tab to the browser: no chord, so focus navigation reaches the composer too", () => {
+		expect(chordFromEvent({ key: "Tab", code: "Tab", ...NO_MODS, shiftKey: true })).toBeNull();
+	});
+
+	it("cycles the thinking level on ⌥⇧T on both platforms, where the ⌥-composed key is a symbol", () => {
+		expect(chordFromEvent({ key: "ˇ", code: "KeyT", ...NO_MODS, altKey: true, shiftKey: true })).toBe("⌥⇧T");
+		for (const platform of ["mac", "windows"] as const) {
+			const map = compileKeymap(KEYMAP_ACTIONS, {}, platform);
+			expect(map.get("⌥⇧T"), platform).toBe("thinking.cycle");
+			// Beside, not instead of: the show/hide chord and the tab chords stay where they were.
+			expect(map.get(platform === "mac" ? "⌃T" : "⌥⌃T"), platform).toBe("thinking.toggle");
+		}
+		expect(actionShortcut("thinking.cycle", "windows")).toBe("Alt+Shift+T");
+		expect(actionShortcut("thinking.cycle", "mac")).toBe("⌥⇧T");
+	});
 });
 
 describe("compileKeymap", () => {

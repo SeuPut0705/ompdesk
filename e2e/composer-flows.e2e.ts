@@ -15,7 +15,11 @@
  * - `->` comes off with Backspace; ⌘Z undoes a completion and a ⌃R pick (the draft comes back);
  * - removing a picture, a file card, a queued message or cancelling the paste choice leaves typing
  *   in the field; a file pasted with text keeps the text; keys wait while the paste choice is open;
- * - the field grows again when it gets narrower.
+ * - the field grows again when it gets narrower;
+ * - Esc with a draft only arms the stop (a second Esc stops, an empty field stops at once), and a double Esc or
+ *   double Stop sends one command; Stop with queued messages and a draft keeps their order and releases nothing;
+ * - Shift+Tab is focus navigation in the composer, the thinking level cycles on ⌥⇧T;
+ * - a new tab, ⌃Tab and New session leave the next keystroke in the composer.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -382,6 +386,179 @@ test("the field fits its draft again when it gets narrower", async () => {
 		await expect
 			.poll(() => input.evaluate(el => el.scrollHeight - el.clientHeight), { timeout: 5_000 })
 			.toBeLessThanOrEqual(1);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+/** The Stop commands the fake omp received (the TUI-Esc `abort_and_restore_queue`). */
+const aborts = async (dirs: Profile) =>
+	(await readRecords(dirs.record)).filter(record => record.type === "abort_and_restore_queue").length;
+
+test("Esc with a draft only arms the stop; an empty field stops at once; a double Esc or double Stop sends one", async () => {
+	test.setTimeout(150_000);
+	const dirs = await profile("esc-stop");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		const run = async () => {
+			await input.fill("fixture running");
+			await input.press("Enter");
+			await expect(stop(page)).toBeVisible();
+			// The turn itself runs (the send-mode chip appears): before that Stop only withdraws the pending prompt.
+			await expect(page.locator("[data-send-mode]")).toBeVisible();
+		};
+
+		await run();
+		await input.fill("my unsent draft");
+		await input.press("Escape");
+		await page.waitForTimeout(400);
+		// A stray Esc never kills a turn that has a draft.
+		expect(await aborts(dirs)).toBe(0);
+		await expect(stop(page)).toBeVisible();
+		await input.press("Escape");
+		await expect(stop(page)).toHaveCount(0);
+		expect(await aborts(dirs)).toBe(1);
+		await expect(input).toHaveValue("my unsent draft");
+
+		// The first Esc is forgotten after its window: the next one arms again instead of stopping.
+		await run();
+		await input.fill("another draft");
+		await input.press("Escape");
+		await page.waitForTimeout(1_800);
+		await input.press("Escape");
+		await page.waitForTimeout(400);
+		expect(await aborts(dirs)).toBe(1);
+		await expect(stop(page)).toBeVisible();
+		// That Esc armed again; the next one inside its window stops.
+		await input.press("Escape");
+		await expect(stop(page)).toHaveCount(0);
+		expect(await aborts(dirs)).toBe(2);
+
+		// An empty field stops with the first Esc, and two Esc in one tick send one command.
+		await input.fill("");
+		await run();
+		await page.evaluate(() => {
+			for (let press = 0; press < 2; press++)
+				document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		await expect(stop(page)).toHaveCount(0);
+		await page.waitForTimeout(400);
+		expect(await aborts(dirs)).toBe(3);
+
+		// Two clicks on Stop in one tick send one command too.
+		await run();
+		await stop(page).evaluate(button => {
+			(button as HTMLElement).click();
+			(button as HTMLElement).click();
+		});
+		await expect.poll(() => aborts(dirs)).toBe(4);
+		await expect(stop(page)).toHaveCount(0);
+		await page.waitForTimeout(400);
+		expect(await aborts(dirs)).toBe(4);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("Stop with queued messages and a draft keeps them apart from the draft in order, says so once, and releases nothing", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("stop-queue");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(stop(page)).toBeVisible();
+		for (const text of ["queued one", "queued two"]) {
+			await input.fill(text);
+			await input.press("Enter");
+			await expect(input).toHaveValue("");
+		}
+		await expect(page.locator(".omp-composer-queue li")).toHaveCount(2);
+		await input.fill("my half-typed draft");
+		await stop(page).click();
+		await expect(stop(page)).toHaveCount(0);
+
+		// Queued messages first, oldest first, a blank line between each, the draft last: never one run-on message.
+		await expect(input).toHaveValue("queued one\n\nqueued two\n\nmy half-typed draft");
+		await expect(page.locator(".omp-composer-queue")).toHaveCount(0);
+		await expect(
+			page.getByText("Stop took 2 queued messages back into the composer, above your draft"),
+		).toBeVisible();
+		// Nothing was released: the stopped turn's queue is not sent on its own.
+		await page.waitForTimeout(800);
+		expect(await sentOfType(dirs.record, "prompt")).toEqual(["fixture running"]);
+		expect(await sentOfType(dirs.record, "follow_up")).toEqual([]);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("Shift+Tab moves focus back out of the composer; the thinking level cycles on ⌥⇧T from anywhere", async () => {
+	test.setTimeout(90_000);
+	const dirs = await profile("thinking-chord");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		const cycles = async () =>
+			(await readRecords(dirs.record)).filter(record => record.type === "cycle_thinking_level").length;
+		await input.focus();
+		await page.keyboard.press("Shift+Tab");
+		expect(await composerFocused(page)).toBe(false);
+		await page.waitForTimeout(300);
+		expect(await cycles()).toBe(0);
+
+		await input.focus();
+		await page.keyboard.press("Alt+Shift+KeyT");
+		await expect.poll(cycles).toBe(1);
+		await page.keyboard.press("Alt+Shift+KeyT");
+		await expect.poll(cycles).toBe(2);
+		await input.evaluate(el => (el as HTMLElement).blur());
+		await page.keyboard.press("Alt+Shift+KeyT");
+		await expect.poll(cycles).toBe(3);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("a new tab, ⌃Tab and New session put the next keystroke in the composer", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("activation-focus");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const field = () => page.locator('.omp-session-pane[data-active="true"] textarea[data-composer-input]');
+		await composer(page).fill("first tab draft");
+		await page.keyboard.press("Meta+t");
+		const tabs = () => page.evaluate(() => window.omp.tabs.list());
+		await expect.poll(async () => (await tabs()).length).toBe(2);
+		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status, { timeout: 30_000 }).toBe("ready");
+		await page.keyboard.type("second tab text");
+		await expect(field()).toHaveValue("second tab text");
+
+		// ⌃Tab from inside the composer used to leave focus on <body>: typed keys vanished.
+		await page.keyboard.press("Control+Tab");
+		await expect(field()).toHaveValue("first tab draft");
+		await expect(field()).toBeFocused();
+		await page.keyboard.type("!");
+		await expect(field()).toHaveValue(/!/);
+
+		// A sidebar button keeps focus after it is clicked; the new session's composer takes it.
+		await page
+			.getByRole("button", { name: /^New session/ })
+			.first()
+			.click();
+		await expect(field()).toBeFocused();
+		await page.keyboard.type("typed after the click");
+		await expect(field()).toHaveValue("typed after the click");
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

@@ -5,7 +5,7 @@
  * non-remappable rows from its reserved-chord table, so an action can exist
  * only with a row here, and the same chords the recorder conflict-checks
  * against are the ones on display. Unmodified keys (Enter, @, /) and the
- * shift-only ⇧Tab / Escape globals stay static; terminal-only TUI rows
+ * Esc global stay static; terminal-only TUI rows
  * (suspend, display reset, $EDITOR) are deliberately absent.
  *
  * The page search passes `query`; it filters rows by label and chord.
@@ -84,11 +84,7 @@ const HOTKEY_GROUPS: HotkeyGroup[] = [
 	{
 		id: "generation",
 		titleKey: "hotkeys.group.generation",
-		rows: [
-			{ keys: "Esc", labelKey: "hotkeys.row.abort" },
-			{ keys: "⇧Tab", labelKey: "hotkeys.row.thinkingCycle" },
-			...remapRows("generation"),
-		],
+		rows: [{ keys: "Esc", labelKey: "hotkeys.row.abort" }, ...remapRows("generation")],
 	},
 	{ id: "view", titleKey: "hotkeys.group.view", rows: remapRows("view") },
 	{ id: "session", titleKey: "hotkeys.group.session", rows: remapRows("session") },

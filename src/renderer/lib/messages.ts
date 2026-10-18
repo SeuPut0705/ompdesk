@@ -1,3 +1,4 @@
+import type { StoreApi } from "zustand/vanilla";
 import type {
 	AgentMessage,
 	ImageContent,
@@ -10,7 +11,7 @@ import type {
 } from "../../shared/rpc-types";
 import { draftKeys, saveDraft } from "../components/layout/composer/draft-persistence";
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
-import { type ComposerStore, useComposerStore } from "../stores/composer";
+import { type ComposerImage, type ComposerStore, DOUBLE_ESC_MS, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { focusedRuntimeTabId, sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
@@ -20,6 +21,7 @@ import { toast, toastError } from "../stores/toast";
 import { endAutoGoal } from "./auto-mode-client";
 import { translate } from "./i18n";
 import { promptDisplayText } from "./prompt-text";
+import { IMAGE_ONLY_CHIP } from "./queue-chip";
 import type { TabRpc } from "./tab-rpc";
 
 /**
@@ -225,9 +227,6 @@ export function turnErrorToast(
 	};
 }
 
-/** stock `queueChipText` for an image-only message; its images carry the content. */
-const IMAGE_ONLY_CHIP = "[Image]";
-
 function isRestoredEntry(value: unknown): value is RpcRestoredQueuedMessage {
 	if (typeof value !== "object" || value === null || !("text" in value) || typeof value.text !== "string")
 		return false;
@@ -248,28 +247,75 @@ function isRestoreResult(value: unknown): value is RpcAbortAndRestoreQueueResult
 }
 
 /**
- * Put the input `abort_and_restore_queue` withdrew back into the composer the
- * way the TUI's Esc does: steers then follow-ups, oldest first, joined by blank
- * lines, ahead of any draft (kept after a blank line); images join the strip.
+ * Put the input `abort_and_restore_queue` withdrew back where the user can see it. With a tray that shows
+ * `composer.restoredQueue` mounted (ComposerRestoredQueue) each message stays its own held item, apart from the
+ * draft: nothing runs until the user resumes it, edits it or removes it (the queue is paused, never auto-released).
+ * Without one it comes back the way the TUI's Esc does: steers then follow-ups, oldest first, joined by blank
+ * lines, ahead of any draft (kept after a blank line); images join the strip; one toast says so.
  */
 export function restoreAbortedQueue(composer: ComposerStore, restored: RpcAbortAndRestoreQueueResult): void {
-	const entries = [...restored.steering, ...restored.followUp];
+	const entries = [
+		...restored.steering.map(entry => ({ lane: "steering" as const, entry })),
+		...restored.followUp.map(entry => ({ lane: "followUp" as const, entry })),
+	];
 	if (entries.length === 0) return;
-	const images = entries.flatMap(entry => entry.images ?? []);
-	const queuedText = entries
-		.map(entry => (entry.text === IMAGE_ONLY_CHIP && entry.images?.length ? "" : entry.text))
-		.filter(text => text.trim())
-		.join("\n\n");
-	if (queuedText) composer.setDraft(current => [queuedText, current].filter(text => text.trim()).join("\n\n"));
-	if (images.length > 0) {
-		composer.setImages(current => [
-			...current,
-			...images.map(content => ({ content, preview: `data:${content.mimeType};base64,${content.data}` })),
-		]);
+	const toImages = (contents: ImageContent[] | undefined): ComposerImage[] =>
+		(contents ?? []).map(content => ({ content, preview: `data:${content.mimeType};base64,${content.data}` }));
+	const items = entries.map(({ lane, entry }) => ({
+		lane,
+		text: entry.text === IMAGE_ONLY_CHIP && entry.images?.length ? "" : entry.text,
+		images: toImages(entry.images),
+	}));
+	if (composer.restoredTrayMounted > 0) {
+		composer.holdRestored(items);
+	} else {
+		const queuedText = items
+			.map(item => item.text)
+			.filter(text => text.trim())
+			.join("\n\n");
+		if (queuedText) composer.setDraft(current => [queuedText, current].filter(text => text.trim()).join("\n\n"));
+		const images = items.flatMap(item => item.images);
+		if (images.length > 0) composer.setImages(current => [...current, ...images]);
 	}
 	if (restored.truncated) toast({ variant: "warning", message: translate("input.queueRestore.truncated") });
 	else if (restored.imagesDropped) {
 		toast({ variant: "warning", message: translate("input.queueRestore.imagesDropped") });
+	} else if (composer.restoredTrayMounted === 0) {
+		toast({
+			variant: "info",
+			message: translate("input.queueRestore.merged", {
+				count: items.length,
+				plural: items.length === 1 ? "" : "s",
+			}),
+		});
+	}
+}
+
+/**
+ * Resume what a Stop held: the first message starts the turn again (a follow-up behaviour, so it queues instead
+ * when another device's turn already runs), the rest queue behind it as follow-ups, in order. Each leaves the held
+ * list once omp accepted it; a refusal keeps it and the ones after it held and says why.
+ */
+export async function resumeRestoredQueue(
+	rpc: Pick<TabRpc, "prompt" | "followUp"> = window.omp.rpc,
+	tabId?: string | null,
+): Promise<void> {
+	const composer = (tabId ? sessionRuntimeStore<ComposerStore>(tabId, "composer") : null) ?? useComposerStore;
+	const held = composer.getState().restoredQueue;
+	for (const [index, item] of held.entries()) {
+		const images = item.images.length > 0 ? item.images.map(image => image.content) : undefined;
+		try {
+			const response =
+				index === 0 ? await rpc.prompt(item.text, images, "followUp") : await rpc.followUp(item.text, images);
+			if (!response.success) {
+				toastError({ title: translate("input.sendFailed"), error: response });
+				return;
+			}
+		} catch (error) {
+			toastError({ title: translate("input.sendFailed"), error });
+			return;
+		}
+		composer.getState().dropRestored(item.id);
 	}
 }
 
@@ -295,14 +341,37 @@ export async function runManualMaintenance(
 	}
 }
 
+/** A Stop's guard against a second Stop never outlives this: a lost `agent_end` must not leave the button dead. */
+const STOP_SETTLE_MS = 10_000;
+
+/** Hold `stopping` until the stopped turn has ended (or the cap), so a second click or Esc for it sends nothing. */
+function releaseStoppingWhenTurnEnds(composer: ComposerStore, session: StoreApi<SessionStore>): void {
+	if (!session.getState().isStreaming) {
+		composer.setStopping(false);
+		return;
+	}
+	let unsubscribe = () => {};
+	const done = () => {
+		unsubscribe();
+		clearTimeout(cap);
+		composer.setStopping(false);
+	};
+	const cap = setTimeout(done, STOP_SETTLE_MS);
+	unsubscribe = session.subscribe(state => {
+		if (!state.isStreaming) done();
+	});
+}
+
 /**
  * Stop the active turn the way the TUI's Esc does: stock withdraws the queued
  * user input before aborting (`abort_and_restore_queue`), so nothing queued
- * runs afterwards, and it comes back into this tab's composer. Any live retry
+ * runs afterwards, and it comes back into this tab's composer (`restoreAbortedQueue`:
+ * held apart for a tray that shows it, else merged into the draft). Any live retry
  * UI retires synchronously first. A manual /compact or handoff is cancelled
  * through `abort_maintenance` instead: stock's serial queue would hold a plain
  * abort until it finished on its own. A goal the automatic choice started ends
- * with the stopped turn (lib/auto-mode-client.ts).
+ * with the stopped turn (lib/auto-mode-client.ts). One Stop is in flight per turn
+ * (`composer.stopping`, until the turn ends): a double click or a double Esc sends one command.
  */
 export async function abortActiveTurn(
 	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry" | "abortMaintenance"> &
@@ -322,21 +391,54 @@ export async function abortActiveTurn(
 		session.setState({ compactionInfo: { ...maintenance, cancelling: true } });
 		return rpc.abortMaintenance();
 	}
-	const retrying = session.getState().retryInfo !== null;
-	if (retrying) {
-		resetRetryPending(tabId ?? undefined);
-		session.setState({ retryInfo: null, awaitingModelSince: null });
-		try {
-			await rpc.abortRetry();
-		} catch {
-			// Generic abort below also cancels retry server-side.
+	if (composer.stopping) return { type: "response", command: "abort", success: true };
+	composer.setStopping(true);
+	try {
+		const retrying = session.getState().retryInfo !== null;
+		if (retrying) {
+			resetRetryPending(tabId ?? undefined);
+			session.setState({ retryInfo: null, awaitingModelSince: null });
+			try {
+				await rpc.abortRetry();
+			} catch {
+				// Generic abort below also cancels retry server-side.
+			}
 		}
+		const response = await rpc.abortAndRestoreQueue();
+		if (!response.success) {
+			composer.setStopping(false);
+			return response;
+		}
+		if (isRestoreResult(response.data)) restoreAbortedQueue(composer, response.data);
+		// A goal the automatic choice started for one request ends when the user stops it.
+		if (rpc.autoModeEnd) await endAutoGoal(session, { autoModeEnd: rpc.autoModeEnd });
+		releaseStoppingWhenTurnEnds(composer, session);
+		return response;
+	} catch (error) {
+		composer.setStopping(false);
+		throw error;
 	}
-	const response = await rpc.abortAndRestoreQueue();
-	if (response.success && isRestoreResult(response.data)) restoreAbortedQueue(composer, response.data);
-	// A goal the automatic choice started for one request ends when the user stops it.
-	if (response.success && rpc.autoModeEnd) await endAutoGoal(session, { autoModeEnd: rpc.autoModeEnd });
-	return response;
+}
+
+/**
+ * Esc, as the window-level handler reads it. While a turn runs and the field holds a draft (text or pictures) the
+ * first Esc only arms ("Press Esc again to stop", `composer.stopArmedAt`, `DOUBLE_ESC_MS`): a stray Esc never
+ * kills a turn with an unsent draft. With an empty field, no running turn, or a second Esc inside the window, it
+ * stops the turn (`abortActiveTurn`). The Stop button never asks twice: clicking it is deliberate.
+ */
+export function stopFromEscape(now = Date.now()): "armed" | "stopping" {
+	const composer = useComposerStore.getState();
+	const running = (sessionRuntimeStore<SessionStore>(focusedRuntimeTabId(), "session") ?? useSessionStore).getState()
+		.isStreaming;
+	const holdsDraft = composer.draft.trim() !== "" || composer.images.length > 0;
+	const armed = composer.stopArmedAt !== null && now - composer.stopArmedAt < DOUBLE_ESC_MS;
+	if (running && holdsDraft && !armed) {
+		composer.armStop(now);
+		return "armed";
+	}
+	composer.disarmStop();
+	void abortActiveTurn();
+	return "stopping";
 }
 
 /** Branch from a user entry, restoring its draft and refreshing the session. */

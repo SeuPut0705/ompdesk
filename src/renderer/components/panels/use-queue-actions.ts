@@ -39,6 +39,13 @@ async function applyLaneMutation(
 	});
 }
 
+/** Remember where stock put a re-queued message (the end of its lane), for the tray to point at it. */
+function noteLanded(queueStore: StoreApi<QueueStore>, lane: QueueLane, id: string): void {
+	const items = queueStore.getState()[lane];
+	const index = items.findIndex(entry => entry.id === id);
+	if (index !== -1) queueStore.getState().noteMoved({ id, lane, position: index + 1, count: items.length });
+}
+
 async function applyCrossLaneMove(
 	queueStore: StoreApi<QueueStore>,
 	rpc: TabRpc,
@@ -47,7 +54,7 @@ async function applyCrossLaneMove(
 	t: (key: string) => string,
 ): Promise<void> {
 	const target: QueueLane = lane === "steering" ? "followUp" : "steering";
-	await optimisticWrite({
+	const settled = optimisticWrite({
 		store: queueStore,
 		mutate: state => {
 			const item = state[lane].find(entry => entry.id === id);
@@ -58,9 +65,16 @@ async function applyCrossLaneMove(
 				: { steering: [...state.steering, item], followUp: without };
 		},
 		persist: () => rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target),
-		onFailure: failure => toastError({ title: t("queuePanel.moveFailed"), error: failure }),
+		onFailure: failure => {
+			queueStore.setState({ moved: null });
+			toastError({ title: t("queuePanel.moveFailed"), error: failure });
+		},
 		resync: () => queueStore.getState().refresh(),
 	});
+	// Stock re-queues a steer as a follow-up with its text only; a follow-up promoted to a steer keeps its pictures.
+	if (lane === "steering") queueStore.getState().forgetImages(id);
+	noteLanded(queueStore, target, id);
+	await settled;
 }
 
 export interface QueueActions {
@@ -110,6 +124,9 @@ export function useQueueActions(): QueueActions {
 				"queuePanel.editFailed",
 				t,
 			);
+			// The re-queue carries the text only.
+			queueStore.getState().forgetImages(id);
+			noteLanded(queueStore, lane, id);
 		},
 		[ready, t, tabRpc.queueEdit, queueStore],
 	);

@@ -761,7 +761,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.thinking.cycle"),
 		description: t("cmd.thinking.cycle.desc"),
 		category: "model",
-		shortcut: "⇧Tab",
+		shortcut: kbd("thinking.cycle"),
 		affordance: { kind: "action", run: () => ctx.rpc.cycleThinkingLevel() },
 	});
 	add({

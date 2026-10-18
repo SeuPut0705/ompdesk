@@ -5012,7 +5012,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			case "steer":
 			case "follow_up":
-				lanes[type === "steer" ? "steering" : "followUp"].push(text("message"));
+				// Stock's `queueChipText`: a picture-only message waits as "[Image]" (the lanes carry text only).
+				lanes[type === "steer" ? "steering" : "followUp"].push(
+					text("message") || (Array.isArray(command.images) && command.images.length > 0 ? "[Image]" : ""),
+				);
 				ok();
 				emitQueue();
 				break;

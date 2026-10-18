@@ -109,6 +109,7 @@ const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
 	"plan.toggle": "plan",
 	"tools.expand": "expand-tools",
 	"thinking.toggle": "toggle-thinking-blocks",
+	"thinking.cycle": "thinking cycle",
 	"model.select": "model",
 	"agents.hub": "hub",
 	palette: null,

@@ -52,7 +52,7 @@ export async function endAutoGoal(session: StoreApi<SessionStore>, rpc: Pick<Tab
 	}
 }
 
-export async function runAutoMode(input: {
+export interface RunAutoModeInput {
 	message: string;
 	isStreaming: boolean;
 	session: StoreApi<SessionStore>;
@@ -60,8 +60,23 @@ export async function runAutoMode(input: {
 	/** A plan proposal awaits approval: a message now is a reply to that plan. */
 	planPending?: boolean;
 	readPref?: () => Promise<unknown>;
-}): Promise<AutoModeDecision | null> {
-	const { message, isStreaming, session, rpc } = input;
+	/**
+	 * The user withdrew the prompt (Stop or Esc) while the choice was being asked: the call returns at once with
+	 * no decision. The host may still answer later and has by then applied it (a plan, a goal): that late answer is
+	 * ended through `onLateDecision`.
+	 */
+	signal?: AbortSignal;
+	/** A decision that landed after `signal` aborted: the mode it started must end (default: through `autoModeEnd`). */
+	onLateDecision?: (decision: AutoModeDecision) => void;
+	/** The choice is being asked (true) or is over, answered, timed out or withdrawn (false): for the "deciding" cue. */
+	onDeciding?: (deciding: boolean) => void;
+}
+
+const ABORTED = Symbol("withdrawn");
+
+export async function runAutoMode(input: RunAutoModeInput): Promise<AutoModeDecision | null> {
+	const { message, isStreaming, session, rpc, signal } = input;
+	let deciding = false;
 	try {
 		const before = session.getState();
 		if (!isStreaming && before.autoMode === "plan" && before.planModeEnabled && !input.planPending) {
@@ -79,12 +94,31 @@ export async function runAutoMode(input: {
 			},
 			suppressed: false,
 		});
-		if (skip) return null;
+		if (skip || signal?.aborted) return null;
 		const origin = state.sessionId;
+		deciding = true;
+		input.onDeciding?.(true);
+		const request = rpc.autoModeDecide(message);
 		const response = await Promise.race([
-			rpc.autoModeDecide(message),
+			request,
 			new Promise<null>(resolve => setTimeout(() => resolve(null), CLIENT_DEADLINE_MS)),
+			new Promise<typeof ABORTED>(resolve =>
+				signal?.addEventListener("abort", () => resolve(ABORTED), { once: true }),
+			),
 		]);
+		if (response === ABORTED) {
+			// Return now; the decision, if the host still makes one, is undone when it lands.
+			void request.then(
+				late => {
+					const decision = late.success ? (late.data as AutoModeDecision | undefined) : undefined;
+					if (decision?.mode !== "plan" && decision?.mode !== "goal") return;
+					if (input.onLateDecision) input.onLateDecision(decision);
+					else void rpc.autoModeEnd(decision.mode).catch(() => {});
+				},
+				() => {},
+			);
+			return null;
+		}
 		if (!response?.success) return null;
 		const decision = response.data as AutoModeDecision | undefined;
 		if (!decision || session.getState().sessionId !== origin) return null;
@@ -100,5 +134,7 @@ export async function runAutoMode(input: {
 		return decision;
 	} catch {
 		return null;
+	} finally {
+		if (deciding) input.onDeciding?.(false);
 	}
 }

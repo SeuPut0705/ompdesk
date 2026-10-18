@@ -106,3 +106,67 @@ test("@smoke a message sent while a turn runs steers it from Enter, the Send but
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+for (const language of ["en", "ko"] as const) {
+	test(`a picture sent as a steer shows in the tray, and a picture-only steer reads in the interface language (${language})`, async () => {
+		test.setTimeout(90_000);
+		const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-steer-image-")));
+		const desktop = path.join(profile, "desktop");
+		const agent = path.join(profile, "agent");
+		const project = path.join(profile, "project");
+		await Promise.all([fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(project)]);
+		await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
+		const app = await launchApp({ project, desktop, agent, profile });
+		const page = await app.firstWindow();
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		try {
+			await page.waitForFunction(() => window.omp?.rpc != null);
+			await expect
+				.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+				.toBe("ready");
+			const input = page.locator("textarea").first();
+			await input.fill("fixture running");
+			await input.press("Enter");
+			await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
+
+			const rows = page.locator(".omp-composer-queue li");
+			const paste = async (caption: string, rowsAfter: number) => {
+				await input.focus();
+				await page.evaluate(
+					([png, text]) => {
+						const field = document.querySelector<HTMLTextAreaElement>("textarea[data-composer-input]");
+						const data = new DataTransfer();
+						data.items.add(
+							new File([Uint8Array.from(atob(png), c => c.charCodeAt(0))], "p.png", { type: "image/png" }),
+						);
+						if (text) data.setData("text/plain", text);
+						field?.dispatchEvent(
+							new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+						);
+					},
+					[PNG, caption] as const,
+				);
+				await input.press("Enter");
+				// The next send waits for this one to reach the queue (a send in flight ignores Enter).
+				await expect(rows).toHaveCount(rowsAfter);
+			};
+
+			await paste("look at this picture", 1);
+			await paste("", 2);
+			const counts = language === "en" ? "1 image" : "이미지 1개";
+			const wordOnly = language === "en" ? "[Image]" : "[이미지]";
+			// The stock queue lane carries text only; the tray still says a picture went with each steer.
+			await expect(rows.nth(0)).toContainText("look at this picture");
+			await expect(rows.nth(0).locator("[data-queue-images]")).toHaveText(counts);
+			await expect(rows.nth(1)).toContainText(wordOnly);
+			await expect(rows.nth(1).locator("[data-queue-images]")).toHaveText(counts);
+			expect(errors).toEqual([]);
+		} finally {
+			await exitApp(app);
+			await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+	});
+}

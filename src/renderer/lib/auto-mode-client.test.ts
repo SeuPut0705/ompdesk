@@ -173,6 +173,75 @@ describe("runAutoMode", () => {
 		}
 	});
 
+	it("returns at once when the prompt is withdrawn, and ends a plan the host picks afterwards", async () => {
+		const gate = Promise.withResolvers<RpcResponse>();
+		const { session, rpc, autoModeEnd } = rig(gate.promise);
+		const withdraw = new AbortController();
+		const deciding: boolean[] = [];
+		const pending = runAutoMode({
+			message: BIG,
+			isStreaming: false,
+			session,
+			rpc,
+			readPref: async () => true,
+			signal: withdraw.signal,
+			onDeciding: value => deciding.push(value),
+		});
+		await vi.waitFor(() => expect(deciding).toEqual([true]));
+		withdraw.abort();
+		// The host has not answered: Stop does not wait for it.
+		await expect(pending).resolves.toBeNull();
+		expect(deciding).toEqual([true, false]);
+		expect(session.getState()).toMatchObject({ planModeEnabled: false, autoMode: null });
+		expect(autoModeEnd).not.toHaveBeenCalled();
+
+		// The host decides anyway and has already entered plan: that mode ends when the answer lands.
+		gate.resolve(ok(planned));
+		await vi.waitFor(() => expect(autoModeEnd).toHaveBeenCalledExactlyOnceWith("plan"));
+		expect(session.getState()).toMatchObject({ planModeEnabled: false, autoMode: null });
+	});
+
+	it("hands a goal the host starts after the withdraw to onLateDecision", async () => {
+		const gate = Promise.withResolvers<RpcResponse>();
+		const { session, rpc, autoModeEnd } = rig(gate.promise);
+		const withdraw = new AbortController();
+		const late = vi.fn();
+		const pending = runAutoMode({
+			message: BIG,
+			isStreaming: false,
+			session,
+			rpc,
+			readPref: async () => true,
+			signal: withdraw.signal,
+			onLateDecision: late,
+		});
+		await vi.waitFor(() => expect(rpc.autoModeDecide).toHaveBeenCalled());
+		withdraw.abort();
+		await pending;
+		const goal: AutoModeDecision = { mode: "goal", objective: "until tests pass", latencyMs: 400 };
+		gate.resolve(ok(goal));
+		await vi.waitFor(() => expect(late).toHaveBeenCalledExactlyOnceWith(goal));
+		expect(autoModeEnd).not.toHaveBeenCalled();
+		expect(session.getState().goal).toBeNull();
+	});
+
+	it("asks nothing when the prompt was withdrawn before the choice began", async () => {
+		const { session, rpc, autoModeDecide } = rig(planned);
+		const withdraw = new AbortController();
+		withdraw.abort();
+		await expect(
+			runAutoMode({
+				message: BIG,
+				isStreaming: false,
+				session,
+				rpc,
+				readPref: async () => true,
+				signal: withdraw.signal,
+			}),
+		).resolves.toBeNull();
+		expect(autoModeDecide).not.toHaveBeenCalled();
+	});
+
 	it("ignores a decision that lands after the session changed", async () => {
 		const gate = Promise.withResolvers<RpcResponse>();
 		const { session, rpc } = rig(gate.promise);

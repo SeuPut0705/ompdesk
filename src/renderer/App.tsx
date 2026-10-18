@@ -61,12 +61,13 @@ import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
-import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
+import { restoreQueuedMessages, stopFromEscape } from "./lib/messages";
 import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { useProjectNames } from "./lib/project-origin";
 import { closeActiveTab } from "./lib/tab-close";
+import { followActivationFocus } from "./lib/tab-focus";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
@@ -483,6 +484,10 @@ export function App() {
 					void setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock"));
 					return;
 				}
+				case "thinking.cycle":
+					// ⌥⇧T — next thinking level (the TUI's ⇧Tab, which stays focus navigation in the GUI).
+					void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
+					return;
 				case "tab.new":
 					// ⌘T (⌃T on Windows) — new agent tab (type chosen at creation, immutable).
 					void useTabsStore.getState().openTab();
@@ -640,32 +645,15 @@ export function App() {
 				ui.tabOverviewOpen;
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
-				// dismiss itself (its handler ran first + preventDefault).
+				// dismiss itself (its handler ran first + preventDefault). With a draft in the
+				// field the first Esc only arms "Esc again to stop" (lib/messages.ts stopFromEscape).
 				if (
 					acceptsActiveTabEvents() &&
 					!event.defaultPrevented &&
 					!overlayOpen &&
 					!document.querySelector('[role="dialog"]')
 				)
-					void abortActiveTurn();
-				return;
-			}
-
-			// ⇧Tab — cycle thinking level (TUI app.thinking.cycle). In the TUI the
-			// binding lives in the editor, so hijack it only while a textarea (the
-			// composer) owns focus; elsewhere Shift+Tab keeps its focus-traversal
-			// role. Focus-gated and NOT remappable.
-			if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-				if (
-					acceptsActiveTabEvents() &&
-					!overlayOpen &&
-					!event.defaultPrevented &&
-					!document.querySelector('[role="dialog"]') &&
-					document.activeElement instanceof HTMLTextAreaElement
-				) {
-					event.preventDefault();
-					void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
-				}
+					stopFromEscape();
 				return;
 			}
 
@@ -691,6 +679,9 @@ export function App() {
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
 	}, [t, keymap]);
+
+	// A session activation (⌃Tab, a sidebar row, New session, ⌘T) hands the next keystroke to the composer.
+	useEffect(() => followActivationFocus(), []);
 
 	// Updater status: main-process push + boot replay, unsubscribed on unmount.
 	useEffect(() => subscribeUpdaterStatus(), []);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcAbortAndRestoreQueueResult, RpcForkFromResult, RpcSessionTreeNode } from "../../shared/rpc-types";
 import { draftKeys, loadDraft } from "../components/layout/composer/draft-persistence";
-import { type ComposerStore, useComposerStore } from "../stores/composer";
+import { type ComposerStore, DOUBLE_ESC_MS, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { sessionRuntimeStore } from "../stores/session-runtime-context";
@@ -12,8 +12,10 @@ import {
 	forkSessionFromEntryInNewTab,
 	forkSessionFromMessageInNewTab,
 	restoreQueuedMessages,
+	resumeRestoredQueue,
 	runManualMaintenance,
 	splitReaction,
+	stopFromEscape,
 } from "./messages";
 
 interface FillComposerDetail {
@@ -418,6 +420,231 @@ describe("abortActiveTurn", () => {
 		}));
 		expect(result.cancelled).toBe(false);
 		expect(useSessionStore.getState().compactionInfo).toBeNull();
+	});
+});
+
+describe("Stop with a queue", () => {
+	const image = { type: "image" as const, data: "AAAA", mimeType: "image/png" };
+
+	it("tells the reader, once, that the queue went ahead of their draft when no tray shows it", async () => {
+		const harness = installWindow([]);
+		useComposerStore.getState().setDraft("my draft");
+		harness.rpc.abortAndRestoreQueue.mockResolvedValue({
+			success: true,
+			data: { steering: [{ text: "one" }], followUp: [{ text: "two" }] },
+		});
+		await abortActiveTurn();
+		expect(useComposerStore.getState().draft).toBe("one\n\ntwo\n\nmy draft");
+		expect(useToastStore.getState().toasts.map(toast => [toast.variant, toast.message])).toEqual([
+			["info", "Stop took 2 queued messages back into the composer, above your draft"],
+		]);
+	});
+
+	it("holds each queued message apart from the draft while a tray shows them, and sends nothing", async () => {
+		const harness = installWindow([]);
+		const composer = useComposerStore.getState();
+		composer.setRestoredTrayMounted(true);
+		composer.setDraft("my half-typed draft");
+		harness.rpc.abortAndRestoreQueue.mockResolvedValue({
+			success: true,
+			data: {
+				steering: [{ text: "queued one" }],
+				followUp: [{ text: "queued two" }, { text: "[Image]", images: [image] }],
+			},
+		});
+
+		await abortActiveTurn();
+
+		const state = useComposerStore.getState();
+		expect(state.draft).toBe("my half-typed draft");
+		expect(state.images).toEqual([]);
+		expect(state.restoredQueue.map(item => [item.lane, item.text, item.images.length])).toEqual([
+			["steering", "queued one", 0],
+			["followUp", "queued two", 0],
+			["followUp", "", 1],
+		]);
+		// The queue stays paused: nothing was re-sent, and the reader is not toasted about a merge that did not happen.
+		expect(harness.rpc.steer).not.toHaveBeenCalled();
+		expect(harness.rpc.followUp).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts).toEqual([]);
+		composer.setRestoredTrayMounted(false);
+	});
+
+	it("moves a held message into the field on demand, ahead of the draft, and its pictures with it", () => {
+		const composer = useComposerStore.getState();
+		composer.setDraft("draft");
+		composer.holdRestored([
+			{ lane: "steering", text: "one", images: [] },
+			{
+				lane: "followUp",
+				text: "",
+				images: [{ content: image, preview: "data:image/png;base64,AAAA" }],
+			},
+		]);
+		const [first, second] = useComposerStore.getState().restoredQueue;
+		useComposerStore.getState().restoreHeldToDraft(second.id);
+		expect(useComposerStore.getState().draft).toBe("draft");
+		expect(useComposerStore.getState().images.map(entry => entry.content)).toEqual([image]);
+		useComposerStore.getState().restoreHeldToDraft(first.id);
+		expect(useComposerStore.getState().draft).toBe("one\n\ndraft");
+		expect(useComposerStore.getState().restoredQueue).toEqual([]);
+	});
+
+	it("resumes the held messages in order: the first starts the turn again, the rest queue behind it", async () => {
+		const composer = useComposerStore.getState();
+		composer.holdRestored([
+			{ lane: "steering", text: "one", images: [] },
+			{ lane: "followUp", text: "two", images: [] },
+			{ lane: "followUp", text: "three", images: [] },
+		]);
+		const sent: string[] = [];
+		const rpc = {
+			prompt: vi.fn(async (text: string, _images?: unknown, behavior?: string) => {
+				sent.push(`prompt:${text}:${behavior}`);
+				return { type: "response" as const, command: "prompt", success: true as const };
+			}),
+			followUp: vi.fn(async (text: string) => {
+				sent.push(`followUp:${text}`);
+				return { type: "response" as const, command: "follow_up", success: true as const };
+			}),
+		};
+		await resumeRestoredQueue(rpc);
+		expect(sent).toEqual(["prompt:one:followUp", "followUp:two", "followUp:three"]);
+		expect(useComposerStore.getState().restoredQueue).toEqual([]);
+	});
+
+	it("keeps the refused message and the ones after it held, and says so", async () => {
+		const composer = useComposerStore.getState();
+		composer.holdRestored([
+			{ lane: "steering", text: "one", images: [] },
+			{ lane: "followUp", text: "two", images: [] },
+		]);
+		const rpc = {
+			prompt: vi.fn(async () => ({ type: "response" as const, command: "prompt", success: true as const })),
+			followUp: vi.fn(async () => ({
+				type: "response" as const,
+				command: "follow_up",
+				success: false as const,
+				error: "busy",
+			})),
+		};
+		await resumeRestoredQueue(rpc);
+		expect(useComposerStore.getState().restoredQueue.map(item => item.text)).toEqual(["two"]);
+		expect(useToastStore.getState().toasts.map(toast => toast.variant)).toEqual(["error"]);
+	});
+});
+
+describe("one Stop per turn", () => {
+	it("sends one command for a double click, and takes the next Stop once the turn has ended", async () => {
+		const harness = installWindow([]);
+		useSessionStore.setState({ isStreaming: true });
+
+		await Promise.all([abortActiveTurn(), abortActiveTurn()]);
+		await abortActiveTurn();
+
+		expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1);
+		expect(useComposerStore.getState().stopping).toBe(true);
+
+		useSessionStore.setState({ isStreaming: false });
+		expect(useComposerStore.getState().stopping).toBe(false);
+		useSessionStore.setState({ isStreaming: true });
+		await abortActiveTurn();
+		expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(2);
+	});
+
+	it("lets go at once when nothing ran, and when omp refused the Stop", async () => {
+		const harness = installWindow([]);
+		await abortActiveTurn();
+		expect(useComposerStore.getState().stopping).toBe(false);
+
+		useSessionStore.setState({ isStreaming: true });
+		harness.rpc.abortAndRestoreQueue.mockResolvedValueOnce({ success: false, error: "no" } as never);
+		await abortActiveTurn();
+		expect(useComposerStore.getState().stopping).toBe(false);
+		await abortActiveTurn();
+		expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(3);
+	});
+
+	it("never keeps Stop dead when the turn's end is lost", async () => {
+		vi.useFakeTimers();
+		try {
+			installWindow([]);
+			useSessionStore.setState({ isStreaming: true });
+			await abortActiveTurn();
+			expect(useComposerStore.getState().stopping).toBe(true);
+			await vi.advanceTimersByTimeAsync(10_001);
+			expect(useComposerStore.getState().stopping).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("stopFromEscape", () => {
+	it("stops a running turn at once when the field is empty", async () => {
+		const harness = installWindow([]);
+		useSessionStore.setState({ isStreaming: true });
+		expect(stopFromEscape()).toBe("stopping");
+		await vi.waitFor(() => expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1));
+	});
+
+	it("only arms on the first Esc while the field holds a draft, and stops on the second", async () => {
+		const harness = installWindow([]);
+		useSessionStore.setState({ isStreaming: true });
+		useComposerStore.getState().setDraft("typed draft");
+
+		expect(stopFromEscape(1_000)).toBe("armed");
+		expect(harness.rpc.abortAndRestoreQueue).not.toHaveBeenCalled();
+		expect(useComposerStore.getState().stopArmedAt).toBe(1_000);
+
+		expect(stopFromEscape(1_000 + DOUBLE_ESC_MS - 1)).toBe("stopping");
+		await vi.waitFor(() => expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1));
+		expect(useComposerStore.getState().stopArmedAt).toBeNull();
+		// Stop keeps the draft where it was.
+		expect(useComposerStore.getState().draft).toBe("typed draft");
+	});
+
+	it("arms again when the second Esc comes too late, and an edit of the draft disarms", () => {
+		const harness = installWindow([]);
+		useSessionStore.setState({ isStreaming: true });
+		useComposerStore.getState().setDraft("typed draft");
+		expect(stopFromEscape(1_000)).toBe("armed");
+		expect(stopFromEscape(1_000 + DOUBLE_ESC_MS)).toBe("armed");
+		expect(harness.rpc.abortAndRestoreQueue).not.toHaveBeenCalled();
+
+		useComposerStore.getState().setDraft("typed draft!");
+		expect(useComposerStore.getState().stopArmedAt).toBeNull();
+	});
+
+	it("treats a field holding only a picture as a draft", () => {
+		installWindow([]);
+		useSessionStore.setState({ isStreaming: true });
+		useComposerStore
+			.getState()
+			.setImages([{ content: { type: "image", data: "AAAA", mimeType: "image/png" }, preview: "data:" }]);
+		expect(stopFromEscape()).toBe("armed");
+	});
+
+	it("forgets the armed Esc by itself after the window", async () => {
+		vi.useFakeTimers();
+		try {
+			installWindow([]);
+			useSessionStore.setState({ isStreaming: true });
+			useComposerStore.getState().setDraft("typed draft");
+			stopFromEscape();
+			expect(useComposerStore.getState().stopArmedAt).not.toBeNull();
+			await vi.advanceTimersByTimeAsync(DOUBLE_ESC_MS + 1);
+			expect(useComposerStore.getState().stopArmedAt).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not ask twice when no turn runs: a stray Esc with a draft still goes through to Stop", async () => {
+		const harness = installWindow([]);
+		useComposerStore.getState().setDraft("typed draft");
+		expect(stopFromEscape()).toBe("stopping");
+		await vi.waitFor(() => expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1));
 	});
 });
 

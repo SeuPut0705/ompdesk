@@ -22,6 +22,7 @@ import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { abortActiveTurn, clearSessionContext } from "../../../lib/messages";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
+import { IMAGE_ONLY_CHIP } from "../../../lib/queue-chip";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { parseSlashCommand } from "../../../lib/slash-command";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -29,6 +30,7 @@ import { type ComposerImage, type ComposerStore, useComposerStore } from "../../
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { type MessagesStore, useMessagesStore } from "../../../stores/messages";
 import { type PlanApprovalStore, usePlanApprovalStore } from "../../../stores/plan-approval";
+import { type QueueStore, useQueueStore } from "../../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { restoreTabComposer, useTabsStore } from "../../../stores/tabs";
@@ -266,6 +268,11 @@ export function useComposerSubmit({
 							if (!originStillActive()) throw new Error("Tab changed during queue dispatch");
 							const item = dispatchItems[index] ?? "";
 							const itemImages = index === 0 ? payload : undefined;
+							if (itemImages && itemImages.length > 0 && !(startImmediately && index === 0)) {
+								(sessionRuntimeStore<QueueStore>(originTabId, "queue") ?? useQueueStore)
+									.getState()
+									.expectImages(item || IMAGE_ONLY_CHIP, itemImages);
+							}
 							const isExtensionCommand = extensionCommandNames.has(parseSlashCommand(item)?.name ?? "");
 							deliveryPending = true;
 							const response =
@@ -350,6 +357,13 @@ export function useComposerSubmit({
 							(
 								sessionRuntimeStore<PlanApprovalStore>(originTabId, "planApproval") ?? usePlanApprovalStore
 							).getState().pending !== null,
+						// Stop and Esc return at once; a decision the host makes after that is ended when it lands.
+						signal: withdraw.signal,
+						onDeciding: deciding => originComposer.getState().setDecidingMode(deciding),
+						onLateDecision: late => {
+							if (late.mode === "goal") void abortActiveTurn(rpc, originTabId);
+							void rpc.autoModeEnd(late.mode === "goal" ? "goal" : "plan").catch(() => {});
+						},
 					});
 					if (!withdraw.signal.aborted) left = true;
 					else if (choice?.mode === "plan") await endAutoPlan(session, rpc);
@@ -416,6 +430,13 @@ export function useComposerSubmit({
 			setImages([]);
 			setMenu(null);
 			setSending(true);
+			// A message with pictures that joins the run shows up as a text-only queue chip: remember its pictures
+			// for the tray (the chip's id is assigned later, in main).
+			if (payload.length > 0 && (isStreaming || hostDecides) && !message.startsWith("/")) {
+				(sessionRuntimeStore<QueueStore>(originTabId, "queue") ?? useQueueStore)
+					.getState()
+					.expectImages(expandedMessage || IMAGE_ONLY_CHIP, payload);
+			}
 			const cancelSubmit = optimisticMessage
 				? () => {
 						if (left || withdraw.signal.aborted) return false;

@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse } from "../../shared/rpc-types";
+import { loadLocale, setLanguageOverride } from "../lib/i18n";
 import { routeCommands } from "../test-support/route-commands";
 import { useQueueStore } from "./queue";
 
@@ -72,5 +73,79 @@ describe("queue store", () => {
 		getQueue.mockRejectedValueOnce(new Error("sidecar down"));
 		await useQueueStore.getState().refresh();
 		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f9"]);
+	});
+});
+
+describe("pictures sent into a run", () => {
+	const image = { type: "image" as const, data: "AAAA", mimeType: "image/png" };
+
+	afterEach(() => setLanguageOverride(null));
+
+	it("shows a steer's pictures on the chip that carries its text, by id, until the chip leaves", () => {
+		const store = useQueueStore.getState();
+		store.expectImages("look at this picture", [image]);
+		store.setFromFrame({ steering: [queued("q1", "look at this picture")], followUp: [] });
+		expect(useQueueStore.getState().steering[0].images).toEqual([image]);
+
+		// A later snapshot with other chips around it keeps the pictures on the same id.
+		useQueueStore
+			.getState()
+			.setFromFrame({ steering: [queued("q1", "look at this picture"), queued("q2", "other")], followUp: [] });
+		expect(useQueueStore.getState().steering.map(entry => entry.images?.length ?? 0)).toEqual([1, 0]);
+
+		useQueueStore.getState().setFromFrame({ steering: [queued("q2", "other")], followUp: [] });
+		useQueueStore.getState().setFromFrame({ steering: [queued("q1", "look at this picture")], followUp: [] });
+		expect(useQueueStore.getState().steering[0].images).toBeUndefined();
+	});
+
+	it("gives each of two identical messages its own pictures, in order, and none to a chip it never sent", () => {
+		const store = useQueueStore.getState();
+		store.expectImages("same", [image]);
+		store.expectImages("same", [image, image]);
+		store.setFromFrame({
+			steering: [queued("a", "same"), queued("b", "same"), queued("c", "same")],
+			followUp: [],
+		});
+		expect(useQueueStore.getState().steering.map(entry => entry.images?.length ?? 0)).toEqual([1, 2, 0]);
+	});
+
+	it("drops the pictures of a message an edit re-queued with new text, and of one forgotten on purpose", () => {
+		const store = useQueueStore.getState();
+		store.expectImages("first", [image]);
+		store.expectImages("second", [image]);
+		store.setFromFrame({ steering: [queued("a", "first"), queued("b", "second")], followUp: [] });
+		store.setFromFrame({ steering: [queued("b", "second"), queued("a", "first, edited")], followUp: [] });
+		expect(useQueueStore.getState().steering.map(entry => entry.images?.length ?? 0)).toEqual([1, 0]);
+		useQueueStore.getState().forgetImages("b");
+		expect(useQueueStore.getState().steering.map(entry => entry.images?.length ?? 0)).toEqual([0, 0]);
+	});
+
+	it("gives a picture-only chip the interface language's word instead of stock's English one", async () => {
+		const store = useQueueStore.getState();
+		store.expectImages("[Image]", [image, image]);
+		const frame = {
+			steering: [{ id: "i1", text: "[Image]", editable: false, timestamp: 1 }],
+			followUp: [{ id: "i2", text: "[Image]", editable: false, timestamp: 1 }],
+		};
+		store.setFromFrame(frame);
+		expect(useQueueStore.getState().steering[0].text).toBe("[2 images]");
+		expect(useQueueStore.getState().followUp[0].text).toBe("[Image]");
+		await loadLocale("ko");
+		setLanguageOverride("ko");
+		useQueueStore.getState().setFromFrame(frame);
+		expect(useQueueStore.getState().steering[0].text).toBe("[이미지 2개]");
+		expect(useQueueStore.getState().followUp[0].text).toBe("[이미지]");
+	});
+});
+
+describe("where an edited message landed", () => {
+	afterEach(() => vi.useRealTimers());
+
+	it("exposes its place in the lane for a few seconds", () => {
+		vi.useFakeTimers();
+		useQueueStore.getState().noteMoved({ id: "a", lane: "steering", position: 3, count: 3 });
+		expect(useQueueStore.getState().moved).toEqual({ id: "a", lane: "steering", position: 3, count: 3 });
+		vi.advanceTimersByTime(4_001);
+		expect(useQueueStore.getState().moved).toBeNull();
 	});
 });
