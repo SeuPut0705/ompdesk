@@ -654,9 +654,14 @@ async function usableAgainMs(page: Page, since: number, marker: string): Promise
 		.then(() => true)
 		.catch(() => false);
 	if (!reloaded) {
-		// No reload: the socket is open again when a call answers.
+		// No reload: usable once a call answers, which needs the socket (re)opened after `since`; the 4 s spent
+		// above looking for a reload is not the page's.
 		await page.evaluate(() => window.omp.tabs.list());
-		return { ms: Date.now() - since, reloaded };
+		const reopened = await page.evaluate(() => {
+			const socket = (Reflect.get(window, "__wp") as PageProbe).ws.at(-1);
+			return socket?.open == null ? null : performance.timeOrigin + socket.open;
+		});
+		return { ms: reopened === null ? Date.now() - since : Math.max(0, Math.round(reopened - since)), reloaded };
 	}
 	await settledLoad(page);
 	const done = await page.evaluate(() => {
