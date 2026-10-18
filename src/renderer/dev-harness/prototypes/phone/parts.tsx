@@ -135,7 +135,7 @@ export function SendButton({ longPressNewline }: { longPressNewline?: boolean })
 			}}
 			onContextMenu={event => longPressNewline && event.preventDefault()}
 			onPointerCancel={clear}
-			onPointerDown={event => {
+			onPointerDown={() => {
 				// No preventDefault here: see keepFocus (a cancelled pointerdown loses the click in WebKit).
 				if (!longPressNewline || !canSend) return;
 				longFired.current = false;
@@ -338,7 +338,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
 						/>
 						<IconButton
 							{...keepFocus}
-							className="pp-thumb-remove absolute -top-2 -right-2 rounded-full! shadow-(--sc-shadow-sm) [--hit-gap-x:8px] [--hit-gap-y:8px]"
+							className="pp-thumb-remove absolute -top-2 -right-2 rounded-full! bg-(--sc-elevated)! text-(--sc-text)! shadow-(--sc-shadow-sm) [--hit-gap-x:8px] [--hit-gap-y:8px]"
 							icon={<X />}
 							label={t("input.removeAttachment", { index: index + 1 })}
 							onClick={() => onRemove(image.id)}

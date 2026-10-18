@@ -60,7 +60,14 @@ export function VariantA() {
 
 	const menu = s.text.startsWith("/") && !s.text.includes(" ");
 	const chips =
-		s.suggestions && !s.running && s.text === "" && s.images.length === 0 && visibleH >= 420 && !s.expanded && !menu;
+		s.suggestions &&
+		!more &&
+		!s.running &&
+		s.text === "" &&
+		s.images.length === 0 &&
+		visibleH >= 420 &&
+		!s.expanded &&
+		!menu;
 	const refocus = () => requestAnimationFrame(() => fieldRef.current?.focus());
 
 	return (

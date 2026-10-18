@@ -162,7 +162,7 @@ export function Segmented<T extends string>({
 				<button
 					aria-checked={option.value === value}
 					className={cx(
-						"min-w-0 flex-1 rounded-(--sc-radius-sm) px-1 leading-tight transition-colors duration-(--sc-duration-fast)",
+						"min-w-0 flex-1 rounded-(--sc-radius-sm) px-0.5 leading-tight transition-colors duration-(--sc-duration-fast)",
 						options.length > 4 ? "text-sc-sm" : "text-sc-md",
 						"min-h-11",
 						option.value === value
