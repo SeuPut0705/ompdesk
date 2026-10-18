@@ -190,6 +190,33 @@ const QueueRow = memo(function QueueRow({
 	);
 });
 
+/** The count's place inside the localised "{count} queued", so only its words can fold away. */
+const COUNT_MARK = "\u0000";
+
+/**
+ * The pill's text: "3 queued" with the words folding away in a narrow workspace (components.css, the toolbar's own
+ * width ladder) so the pill never costs the toolbar its one row; a phone and a short-lived "Edited · now last" differ.
+ */
+function PillLabel({ count, edited, phone }: { count: number; edited: boolean; phone: boolean }) {
+	const t = useT();
+	if (phone) return <span className="tabular-nums">{count}</span>;
+	if (edited)
+		return (
+			<span className="whitespace-nowrap">
+				<span className="omp-queue-pill-word">{t("composerQueue.pillEdited")}</span>
+				<span className="omp-queue-pill-count tabular-nums">{count}</span>
+			</span>
+		);
+	const [before, after] = t("composerQueue.pill", { count: COUNT_MARK }).split(COUNT_MARK);
+	return (
+		<span className="whitespace-nowrap">
+			{before && <span className="omp-queue-pill-word">{before}</span>}
+			<span className="tabular-nums">{count}</span>
+			{after && <span className="omp-queue-pill-word">{after}</span>}
+		</span>
+	);
+}
+
 /** "Steers arrive together · running tools are not interrupted": the policy of the agent's real settings (DR-18). */
 function PolicyLine() {
 	const t = useT();
@@ -253,9 +280,7 @@ export function ComposerQueuePill({ onSettled }: { onSettled: () => void }) {
 				size="sm"
 				variant={edited ? "secondary" : "ghost"}
 			>
-				<span className="whitespace-nowrap tabular-nums">
-					{phone ? total : edited ? t("composerQueue.pillEdited") : t("composerQueue.pill", { count: total })}
-				</span>
+				<PillLabel count={total} edited={edited} phone={phone} />
 			</Button>
 			<Popover
 				anchorRef={anchor}
