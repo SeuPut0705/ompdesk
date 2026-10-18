@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Composer toolbar prototypes (throwaway)</title>
+		<!-- ?theme=light|dark and ?lang=en|ko, as harness.html. Not part of the app: the lead removes this page. -->
+		<script>
+			(function () {
+				var query = new URLSearchParams(location.search);
+				var theme = query.get("theme");
+				var lang = query.get("lang");
+				if (theme === "dark" || theme === "light") localStorage.setItem("omp.themeScheme", theme);
+				if (lang === "en" || lang === "ko") localStorage.setItem("omp.lang", lang);
+			})();
+		</script>
+		<script src="./pre-paint.js"></script>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./dev-harness/prototypes/toolbar/main.tsx"></script>
+	</body>
+</html>

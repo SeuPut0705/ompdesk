@@ -1,0 +1,318 @@
+/* Toolbar prototypes (throwaway). Plain, unlayered CSS on purpose: it must beat the Tailwind utilities that the real
+   Button/IconButton carry (the production bug DR-1 is exactly a class-order tie between an accent class and the
+   Button's own variant classes), so state is painted from data attributes here. */
+
+body {
+	margin: 0;
+	background: var(--sc-bg);
+	color: var(--sc-text);
+	font-family: var(--sc-font-sans, system-ui, sans-serif);
+}
+
+.proto-sheet {
+	display: flex;
+	flex-direction: column;
+	gap: 28px;
+	padding: 28px 20px 40px;
+	width: max-content;
+	min-width: 100%;
+}
+
+.proto-variant {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.proto-variant > h3 {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sc-text-muted);
+	letter-spacing: 0.02em;
+}
+
+.proto-frame {
+	padding-top: 14px; /* headroom for the mode tag that sits on the outline (variant C) */
+}
+
+.proto-frame--base {
+	container: omp-workspace / inline-size;
+}
+
+.proto-frame--c {
+	container: composer / inline-size;
+}
+
+/* ── row geometry shared by A, B, C (same 44 px row as production: min-h-11, pr-2.5 pb-2.5 pl-2) ─────────────── */
+
+.tb-host {
+	container: tb / inline-size;
+}
+
+.tb-row {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 4px;
+	min-height: 44px;
+	padding: 0 10px 10px 8px;
+}
+
+.tb-left,
+.tb-right {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.tb-left {
+	flex: 0 0 auto;
+}
+
+.tb-right {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.tb-spacer {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+/* Reserved slots: a control that is not on screen yet keeps its box, so nothing around it moves. */
+.tb-slot {
+	display: inline-flex;
+	align-items: center;
+}
+
+.tb-slot[data-off] {
+	visibility: hidden;
+}
+
+.tb-send-pair {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: 4px;
+}
+
+/* Chips: the accent of an active mode is a data attribute, not a class that has to win a tie. */
+.tb-chip[data-active] {
+	background: var(--sc-accent-soft);
+	color: var(--sc-accent);
+}
+
+.tb-chip[data-active]:hover {
+	background: var(--sc-accent-soft);
+	color: var(--sc-accent);
+}
+
+.tb-chip[data-active] .tb-chev {
+	color: var(--sc-accent);
+	opacity: 0.7;
+}
+
+.tb-count {
+	display: none;
+	font-size: var(--sc-font-xs, 11px);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.tb-model {
+	flex: 0 1 auto;
+	min-width: 2.25rem;
+	max-width: 14rem;
+}
+
+.tb-model .tb-model-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tb-chip-glyphs {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+/* The ladder, owned by the toolbar's own width (container `tb`), never by the window: a chip's label folds when
+   the row it is in is narrower than its level. Level 1 folds first (what the icon still says), level 4 last. */
+@container tb (max-width: 860px) {
+	.tbl-1 {
+		padding-inline: 0.375rem;
+	}
+	.tbl-1 :is(.tb-label, .tb-chev) {
+		display: none;
+	}
+}
+
+@container tb (max-width: 740px) {
+	.tbl-2 {
+		padding-inline: 0.375rem;
+	}
+	.tbl-2 :is(.tb-label, .tb-chev) {
+		display: none;
+	}
+	.tbl-2 .tb-count {
+		display: inline;
+	}
+}
+
+@container tb (max-width: 620px) {
+	.tbl-3 {
+		padding-inline: 0.375rem;
+	}
+	.tbl-3 :is(.tb-label, .tb-chev) {
+		display: none;
+	}
+	.tb-ctx.tbl-3 {
+		padding-inline: 0.375rem;
+	}
+}
+
+@container tb (max-width: 500px) {
+	.tbl-4 {
+		padding-inline: 0.375rem;
+	}
+	.tbl-4 :is(.tb-label, .tb-chev, .tb-model-label) {
+		display: none;
+	}
+	.tb-row {
+		gap: 2px;
+	}
+	.tb-left,
+	.tb-right {
+		gap: 2px;
+	}
+	.tb-send-pair {
+		margin-left: 2px;
+		gap: 4px;
+	}
+}
+
+/* ── variant C: the mode is painted on the box ─────────────────────────────────────────────────────────────── */
+
+.tb-c-box:has([data-active-modes]) {
+	border-color: var(--sc-accent-border);
+	box-shadow:
+		0 0 0 1px var(--sc-accent-border),
+		var(--sc-shadow-sm);
+}
+
+.tb-c-tag {
+	position: absolute;
+	top: -11px;
+	left: 14px;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 22px;
+	max-width: calc(100% - 28px);
+	padding: 0 8px;
+	border: 1px solid var(--sc-accent-border);
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-bg);
+	color: var(--sc-accent);
+	font-size: var(--sc-font-xs, 11px);
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.tb-c-tag:hover {
+	background: var(--sc-accent-soft);
+}
+
+.tb-c-tag > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tb-c-tag > svg {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+}
+
+/* Label collapse at 440 px of the composer's width (the box, not the window). */
+@container composer (max-width: 440px) {
+	.tbc-1 {
+		padding-inline: 0.375rem;
+	}
+	.tbc-1 :is(.tb-label, .tb-chev, .tb-effort) {
+		display: none;
+	}
+	.tb-row {
+		gap: 2px;
+	}
+	.tb-left,
+	.tb-right {
+		gap: 2px;
+	}
+	.tb-send-pair {
+		margin-left: 2px;
+		gap: 4px;
+	}
+}
+
+/* Variant B/C: the effort suffix and the Run chip's status glyphs fold with the labels. */
+@container tb (max-width: 620px) {
+	.tb-effort,
+	.tb-glyphs {
+		display: none !important;
+	}
+}
+
+@container tb (max-width: 500px) {
+	.tbl-4 .tb-effort {
+		display: none !important;
+	}
+}
+
+@container composer (max-width: 440px) {
+	.tbc-1 .tb-model-label {
+		display: none;
+	}
+}
+
+.proto-sheet--single {
+	box-sizing: border-box;
+	min-height: 100vh;
+	justify-content: flex-end;
+}
+
+.tb-glyphs > svg {
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	flex-shrink: 0;
+}
+
+/* A: the Run chip's status glyphs (fast, strict approval) stay while the chip is icon-only, and fold last. */
+.tb-glyphs-a > svg {
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	flex-shrink: 0;
+}
+
+@container tb (max-width: 400px) {
+	.tb-glyphs-a {
+		display: none;
+	}
+}
+
+/* Touch: the toolbar is a single row, so its hit areas have no vertical neighbour to stop at (measured with
+   html[data-hitfix], which the capture script sets). */
+html[data-hitfix] .tb-row.omp-composer-toolbar {
+	--hit-gap-y: 16px;
+}
+
+/* Narrowest rows (A, B): a little less side padding so a fully loaded row (two modes, fast, strict approval) still sits inside the border. */
+@container tb (max-width: 400px) {
+	.tb-row {
+		padding-inline: 6px;
+	}
+}
