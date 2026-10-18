@@ -142,6 +142,7 @@ export function InputArea() {
 	useComposerDraft({
 		// While a queued message is edited the field holds it, not the draft: the saved draft stays the one it replaced.
 		text: editingQueued ? editingQueued.snapshot.draft : text,
+		imageCount: images.length,
 		runtimeTabId,
 		device: historyDevice,
 		sessionFile,
@@ -333,7 +334,11 @@ export function InputArea() {
 		send,
 	});
 	const sendDisabled =
-		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
+		!routeReady ||
+		(status !== "ready" && status !== "starting") ||
+		sending ||
+		submissionUncertain ||
+		(!text.trim() && images.length === 0);
 	// The toolbar is memoised: its handlers keep their identity while the draft changes.
 	const sendFromToolbar = useStableCallback(() => {
 		// The expanded composer collapses only once the draft went out.
@@ -368,7 +373,7 @@ export function InputArea() {
 	// What the field's placeholder says, first match wins (RA-20): a question, approval or plan waits on the user, a queued
 	// message is being edited, the suggestion the user can take, then the lane Enter sends to, then idle.
 	const placeholder =
-		status !== "ready"
+		status !== "ready" && status !== "starting"
 			? t("input.placeholder.connecting")
 			: blockedBy !== null
 				? t(COMPOSER_BLOCKED_PLACEHOLDER[blockedBy])
@@ -399,24 +404,25 @@ export function InputArea() {
 		>
 			<div className="omp-composer-shell relative w-full">
 				<AskDockSlot />
-				{pasteMenu && (
-					<PasteMenu
-						menuRef={paste.menuRef}
-						onCancel={() => {
-							paste.cancel();
-							textareaRef.current?.focus();
-						}}
-						onInline={paste.chooseInline}
-						onSaveFile={paste.chooseSaveFile}
-						onWrap={paste.chooseWrapped}
-						paste={pasteMenu}
-					/>
-				)}
 				<ComposerQueueLive />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
+					{pasteMenu && (
+						<PasteMenu
+							active={paste.active}
+							menuRef={paste.menuRef}
+							onCancel={() => {
+								paste.cancel();
+								textareaRef.current?.focus();
+							}}
+							onInline={paste.chooseInline}
+							onSaveFile={paste.chooseSaveFile}
+							onWrap={paste.chooseWrapped}
+							paste={pasteMenu}
+						/>
+					)}
 					{menu && (
 						<CompletionList
 							menu={menu}
@@ -549,6 +555,7 @@ export function InputArea() {
 
 						<ComposerToolbar
 							composerMode={composerMode?.mode}
+							composerExcluded={composerMode?.excluded}
 							dictationPhase={dictation.phase}
 							editingQueued={editingQueued !== null}
 							expanded={expanded}

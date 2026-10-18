@@ -1,6 +1,7 @@
 /**
- * The large-paste choice above the composer (use-composer-paste.ts): the paste's size and a head/tail preview,
- * then how it goes in — inline marker, wrapped attachment block, saved file — or cancel.
+ * The large-paste choice above the composer box (use-composer-paste.ts): the paste's size and a head/tail preview,
+ * then how it goes in — inline marker, wrapped attachment block, saved file — or cancel. The field keeps the caret:
+ * ←/→ (or ↑/↓, Tab) walk the four actions and Enter takes the one marked; a click elsewhere keeps the paste inline.
  */
 import type { RefObject } from "react";
 import { useT } from "../../../lib/i18n";
@@ -10,6 +11,7 @@ import type { PendingPaste } from "./use-composer-paste";
 export function PasteMenu({
 	paste,
 	menuRef,
+	active,
 	onInline,
 	onWrap,
 	onSaveFile,
@@ -17,6 +19,8 @@ export function PasteMenu({
 }: {
 	paste: PendingPaste;
 	menuRef: RefObject<HTMLDivElement | null>;
+	/** The action the keyboard is on: 0 inline, 1 wrapped, 2 file, 3 cancel. */
+	active: number;
 	onInline: () => void;
 	onWrap: () => void;
 	onSaveFile: () => void;
@@ -29,6 +33,10 @@ export function PasteMenu({
 		lines.length <= 6
 			? paste.content
 			: `${lines.slice(0, 3).join("\n")}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${lines.slice(-2).join("\n")}`;
+	const mark = (index: number) => ({
+		"data-active": index === active || undefined,
+		className: index === active ? "ring-2 ring-(--sc-accent)" : undefined,
+	});
 	return (
 		<div
 			ref={menuRef}
@@ -44,16 +52,16 @@ export function PasteMenu({
 				{preview}
 			</pre>
 			<div className="mt-3 flex flex-wrap gap-2">
-				<Button onClick={onInline} size="sm" variant="primary">
+				<Button {...mark(0)} onClick={onInline} size="sm" variant="primary">
 					{t("input.paste.inline")}
 				</Button>
-				<Button onClick={onWrap} size="sm">
+				<Button {...mark(1)} onClick={onWrap} size="sm">
 					{t("input.paste.wrap")}
 				</Button>
-				<Button onClick={onSaveFile} size="sm">
+				<Button {...mark(2)} onClick={onSaveFile} size="sm">
 					{t("input.paste.saveFile")}
 				</Button>
-				<Button onClick={onCancel} size="sm" variant="ghost">
+				<Button {...mark(3)} onClick={onCancel} size="sm" variant="ghost">
 					{t("input.paste.cancel")}
 				</Button>
 			</div>

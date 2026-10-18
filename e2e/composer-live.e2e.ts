@@ -151,12 +151,12 @@ for (const language of variants(["en", "ko"] as const))
 				if (software) expect(animated).toEqual([]);
 				else expect(animated).toEqual([{ pseudo: "::before", props: ["transform"], state: "running" }]);
 
-				// Typing steps the light out of the way; clearing the draft brings it back.
+				// Typing quiets the light to a faint trace (never gone: a turn still runs); clearing the draft brings it back.
 				const input = page.locator("textarea").first();
 				await input.fill("draft");
-				await expect(live).toHaveCSS("opacity", "0");
+				await expect(live).toHaveCSS("opacity", "0.25");
 				await input.fill("");
-				await expect(live).not.toHaveCSS("opacity", "0");
+				await expect(live).not.toHaveCSS("opacity", "0.25");
 
 				// The turn ends; no agents run: the cue leaves.
 				await fixture(page, "fixture:finish");
@@ -264,7 +264,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 					).length,
 		);
 		expect(running).toBe(0);
-		await expect(live).toHaveCSS("opacity", "0.9");
+		await expect(live).toHaveCSS("opacity", "0.4");
 		await page.emulateMedia({ reducedMotion: "no-preference" });
 		// Software compositing keeps the still form whatever the media says; hardware gets the turning light.
 		const software = await softwareMarked(app, page);
@@ -312,7 +312,7 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 					).length,
 		);
 		expect(running).toBe(0);
-		await expect(live).toHaveCSS("opacity", "0.9");
+		await expect(live).toHaveCSS("opacity", "0.4");
 		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent
 		// (10 s of sampling; with the other performance measurements, OMP_GUI_PERFORMANCE=1).
 		if (process.env.OMP_GUI_PERFORMANCE === "1") {

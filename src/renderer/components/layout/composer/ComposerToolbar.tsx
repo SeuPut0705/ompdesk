@@ -75,6 +75,8 @@ export interface ComposerToolbarProps {
 	/** The draft is a `->` / `=>` queue shorthand; `queueSplitCount` > 1 when it splits into that many messages. */
 	queued: boolean;
 	queueSplitCount: number;
+	/** The `!!` / `$$` form: kept out of the model context. */
+	composerExcluded?: boolean;
 	dictationPhase: DictationPhase;
 	onMic: () => void;
 	onStopAndSend: () => void;
@@ -107,6 +109,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	onOpenHistory,
 	onOpenSkills,
 	composerMode,
+	composerExcluded,
 	queued,
 	queueSplitCount,
 	dictationPhase,
@@ -267,7 +270,9 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
 					<span className="inline-flex">
 						<Badge variant={composerMode === "bash" ? "info" : "warning"}>
-							{composerMode === "bash" ? t("input.mode.bash.badge") : t("input.mode.python.badge")}
+							{composerMode === "bash"
+								? t(composerExcluded ? "input.mode.bash.badgeExcluded" : "input.mode.bash.badge")
+								: t(composerExcluded ? "input.mode.python.badgeExcluded" : "input.mode.python.badge")}
 						</Badge>
 					</span>
 				</Tooltip>
@@ -278,7 +283,9 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						<Badge variant="warning">
 							{queueSplitCount > 1
 								? t("input.queue.badgeSplit", { count: queueSplitCount })
-								: t("input.queue.badge")}
+								: stoppable
+									? t("input.queue.badge")
+									: t("input.queue.badgeIdle")}
 						</Badge>
 					</span>
 				</Tooltip>

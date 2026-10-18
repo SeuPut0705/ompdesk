@@ -66,7 +66,7 @@ export function useComposerKeys({
 	textareaRef: RefObject<HTMLTextAreaElement | null>;
 	placeDraft: (next: string, caret: number) => void;
 	continueListAtCaret: () => boolean;
-	paste: Pick<ComposerPaste, "pending" | "cancel" | "chooseInline">;
+	paste: Pick<ComposerPaste, "pending" | "cancel" | "activate" | "moveActive">;
 	inline: Pick<InlineCompletion, "accept" | "dismiss" | "drop">;
 	/** The runner-up suggestion chips: shown, their texts, a pick, and the handle ↓ moves focus through. */
 	chips: {
@@ -142,7 +142,21 @@ export function useComposerKeys({
 				paste.cancel();
 			} else if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
 				e.preventDefault();
-				paste.chooseInline();
+				// The action the arrows/Tab are on (the first, inline, until they move).
+				paste.activate();
+			} else if (
+				(e.key === "ArrowLeft" ||
+					e.key === "ArrowRight" ||
+					e.key === "ArrowUp" ||
+					e.key === "ArrowDown" ||
+					e.key === "Tab") &&
+				!e.ctrlKey &&
+				!e.metaKey &&
+				!e.altKey
+			) {
+				// The field keeps the caret; the menu's four actions are walked from here.
+				e.preventDefault();
+				paste.moveActive(e.key === "ArrowLeft" || e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1);
 			} else if (
 				e.key === "Enter" ||
 				e.key === "Backspace" ||

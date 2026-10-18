@@ -195,3 +195,76 @@ for (const language of variants(["en", "ko"] as const))
 				await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 			}
 		});
+
+test("typing is one undo step, Hangul composes after @ and /, Enter right after a commit acts once, a paste marker deletes whole (en light)", async () => {
+	test.setTimeout(150_000);
+	const { app, page, profile, record } = await launch("en", "light");
+	try {
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		const input = page.locator(".omp-composer-input").first();
+		const cdp = await page.context().newCDPSession(page);
+
+		// DI-1: nineteen typed characters are ONE ⌘Z.
+		await input.click();
+		await page.keyboard.type("hello world foo bar");
+		await expect(input).toHaveValue("hello world foo bar");
+		await page.keyboard.press("ControlOrMeta+z");
+		await expect(input).toHaveValue("");
+
+		// DI-21: composing ㅎ → 하 → 한 after `@` and after `/`; Enter during composition never picks or sends.
+		for (const trigger of ["@", "/"]) {
+			await input.fill("");
+			await input.focus();
+			await page.keyboard.type(trigger);
+			for (const step of ["ㅎ", "하", "한"])
+				await cdp.send("Input.imeSetComposition", { text: step, selectionStart: 1, selectionEnd: 1 });
+			// A real IME swallows this Enter (CDP's key dispatch would insert a newline), so it is dispatched as the browser reports it.
+			await input.evaluate(el =>
+				el.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key: "Enter",
+						keyCode: 229,
+						isComposing: true,
+						bubbles: true,
+						cancelable: true,
+					}),
+				),
+			);
+			expect((await recordsOfType(record, "prompt")).length).toBe(0);
+			await expect(input).toHaveValue(trigger + "한");
+			// The commit; an Enter after it (60 ms later: a person's, not the IME's) acts once.
+			await cdp.send("Input.insertText", { text: "한" });
+			await page.waitForTimeout(60);
+			await expect(input).toHaveValue(trigger + "한");
+			expect((await recordsOfType(record, "prompt")).length).toBe(0);
+		}
+		await input.fill("");
+
+		// DI-3: Backspace next to a folded paste takes the whole marker, ⌘Z brings it back whole.
+		const pasted = Array.from({ length: 14 }, (_, index) => `pasted line ${index + 1}`).join("\n");
+		await input.focus();
+		await page.evaluate(content => {
+			const field = document.querySelector<HTMLTextAreaElement>(".omp-composer-input");
+			const transfer = new DataTransfer();
+			transfer.setData("text/plain", content);
+			field?.dispatchEvent(
+				new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer }),
+			);
+		}, pasted);
+		await expect(page.locator("[data-paste-chip]")).toHaveCount(1);
+		await expect(input).toHaveValue(/^\[Paste #\d+, \+14 lines\]$/);
+		await page.keyboard.press("Backspace");
+		await expect(input).toHaveValue("");
+		await expect(page.locator("[data-paste-chip]")).toHaveCount(0);
+		await page.keyboard.press("ControlOrMeta+z");
+		await expect(input).toHaveValue(/^\[Paste #\d+, \+14 lines\]$/);
+		await expect(page.locator("[data-paste-chip]")).toHaveCount(1);
+		await input.fill("");
+
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
