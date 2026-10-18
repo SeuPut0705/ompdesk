@@ -223,8 +223,9 @@ function Assert-AiMemoryService {
 	$env:AI_MEMORY_DATA_DIR = $data
 	Start-Process -FilePath $exe | Out-Null
 	Remove-Item Env:AI_MEMORY_DATA_DIR
-	Wait-Until { @(Get-ChildItem -LiteralPath $tools -Recurse -Filter ai-memory.exe -ErrorAction SilentlyContinue).Count -gt 0 } 240 'the bundled ai-memory.exe to be staged into the tools dir'
-	$staged = (Get-ChildItem -LiteralPath $tools -Recurse -Filter ai-memory.exe | Select-Object -First 1).FullName
+	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\resources\omp-builtin\ai-memory\ai-memory.json') | ConvertFrom-Json).version
+	$staged = Join-Path $tools "$pinned\ai-memory.exe"
+	Wait-Until { Test-Path -LiteralPath $staged } 240 "the bundled ai-memory.exe to be staged as $staged"
 	Ok "staged: $staged"
 	Wait-Until { $v = (Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory' -ErrorAction SilentlyContinue).'ai-memory'; $v -and $v -like "*$staged*" } 240 "the ai-memory logon entry to run the staged copy"
 	Ok "logon entry: $((Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory').'ai-memory')"

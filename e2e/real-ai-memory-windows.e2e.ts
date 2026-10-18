@@ -169,6 +169,8 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 		await fs.rename(`${bin}.moved`, bin).catch(() => undefined);
 		cleanup();
 		if (logonEntry() !== null) execFileSync("reg", ["delete", RUN_KEY, "/v", "ai-memory", "/f"]);
-		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+		// Best effort: ai-memory's service host was started with this folder as its working directory, which Windows
+		// will not delete while it is open; the runner is thrown away anyway, and a failure here must not hide the result.
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => undefined);
 	}
 });
