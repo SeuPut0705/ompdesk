@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { makeApProfile } from "./autopilot-harness";
+import { crash, makeApProfile } from "./autopilot-harness";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
 import { exitApp, fixtureOmp } from "./harness";
@@ -96,6 +96,12 @@ async function phoneTabPaths(phone: Page): Promise<string[]> {
 	);
 }
 
+async function desktopTabs(page: Page): Promise<Array<{ tabId: string; path: string | undefined }>> {
+	return page.evaluate(async () =>
+		(await window.omp.tabs.list()).map(tab => ({ tabId: tab.tabId, path: tab.sessionPath ?? undefined })),
+	);
+}
+
 function duplicates(record: Record<string, number>): string[] {
 	return Object.entries(record).flatMap(([key, count]) => (count > 1 ? [key] : []));
 }
@@ -167,6 +173,40 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 			expect(await first.page.evaluate(p => window.omp.tabs.spawn({ sessionPath: p }), sessionPath)).toMatchObject({
 				attached: true,
 			});
+		// And the phone opens a session the desktop holds: it views the desktop's tab, no second omp on that file.
+		const spawned = await first.page.evaluate(cwd => window.omp.tabs.spawn({ cwd }), ap.project);
+		const desktopTabId = spawned?.tabId;
+		if (!desktopTabId) throw new Error("the desktop's tab was refused");
+		// A prompt sent before the tab's omp is up is refused: wait for it, then for the file the prompt writes.
+		const desktopTab = async () =>
+			(await first.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === desktopTabId);
+		await expect.poll(async () => (await desktopTab())?.status, { timeout: 60_000 }).toBe("ready");
+		expect(
+			await first.page.evaluate(
+				tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "hello from the desktop" }),
+				desktopTabId,
+			),
+		).toMatchObject({ success: true });
+		await expect
+			.poll(
+				async () => {
+					const file = (await desktopTab())?.sessionPath;
+					return file
+						? fs.access(file).then(
+								() => file,
+								() => null,
+							)
+						: null;
+				},
+				{ timeout: 60_000, message: "the desktop's own session file" },
+			)
+			.toBeTruthy();
+		const desktopPath = (await desktopTab())?.sessionPath;
+		if (!desktopPath) throw new Error("no desktop session");
+		expect(await phone.evaluate(p => window.omp.tabs.spawn({ sessionPath: p }), desktopPath)).toMatchObject({
+			tabId: desktopTabId,
+			attached: true,
+		});
 		// The link drops: the page reconnects by itself; one that missed events reloads (ws-transport's resync).
 		const reloaded = phone.waitForEvent("load", { timeout: 15_000 }).catch(() => undefined);
 		proxy.dropSockets();
@@ -178,9 +218,11 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		const reconnectedTabs = await phoneTabPaths(phone);
 		expect(new Set(reconnectedTabs).size).toBe(reconnectedTabs.length);
 
-		// The computer restarts; the open page reconnects on its own and, having missed events, loads again.
+		// The computer restarts (killed, as a crash or a power cut does: the saved layouts are what they were); the open
+		// page reconnects on its own and, having missed events, loads again. An `app.exit` would close the desktop
+		// window first, and the owner closing a tab rightly takes it from its viewers.
 		const resynced = phone.waitForEvent("load", { timeout: 180_000 });
-		await exitApp(current);
+		await crash(current);
 		current = null;
 		const second = await launch(ap.desktop, env);
 		current = second.app;
@@ -191,17 +233,27 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		const tabPaths = await phoneTabPaths(phone);
 		expect(tabPaths.length).toBeGreaterThan(0);
 		expect(new Set(tabPaths).size).toBe(tabPaths.length);
+		// The desktop session the phone viewed is back on the phone as a view of the desktop's one tab.
+		const desktopAfter = await desktopTabs(second.page);
+		const sharedTab = desktopAfter.filter(tab => tab.path === desktopPath);
+		expect(sharedTab).toHaveLength(1);
+		await expect
+			.poll(() =>
+				phone.evaluate(async () =>
+					(await window.omp.tabs.list()).map(tab => [tab.sessionPath, tab.tabId, tab.shared === true]),
+				),
+			)
+			.toContainEqual([desktopPath, sharedTab[0]?.tabId, true]);
 		await openDrawer(phone);
 		const after = await readRows(phone);
 		expect(duplicates(after.perPath)).toEqual([]);
 		expect(after.groups.filter(name => /^\d{4}-\d{2}-\d{2}/.test(name))).toEqual([]);
 		for (const child of after.childRows) expect(child).toMatchObject({ group: "Autopilot", worktreeGroup: true });
 		if (CAPTURES) await phone.screenshot({ path: path.join(CAPTURES, "after-restart.png") });
-		// The desktop took no copy of the phone's sessions.
-		const desktopPaths = await second.page.evaluate(async () =>
-			(await window.omp.tabs.list()).flatMap(tab => (tab.sessionPath ? [tab.sessionPath] : [])),
-		);
-		for (const sessionPath of tabPaths) expect(desktopPaths).not.toContain(sessionPath);
+		// The desktop took no copy of the phone's own sessions.
+		const desktopPaths = desktopAfter.map(tab => tab.path);
+		for (const sessionPath of tabPaths.filter(p => p !== desktopPath))
+			expect(desktopPaths).not.toContain(sessionPath);
 	} finally {
 		await browser?.close();
 		await proxy?.close();

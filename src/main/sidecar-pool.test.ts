@@ -1143,19 +1143,19 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(await pool.closeSessionTab("/sessions/none.jsonl")).toBe(true);
 	});
 
-	it("a restored layout skips a session another window already holds (one session, one tab)", () => {
+	it("a desktop window's restored layout skips a session another desktop window already holds (one session, one tab)", () => {
 		const { pool } = fakePool();
-		const desktop = fakeWindow(1);
-		const phone = fakeWindow(-1);
-		pool.restoreLayout(desktop.win, {
+		const first = fakeWindow(1);
+		const second = fakeWindow(2);
+		pool.restoreLayout(first.win, {
 			version: 1,
 			activeIndex: 0,
 			tabs: [{ cwd: "/a", kind: "agent", sessionPath: "/sessions/s.jsonl" }],
 		});
 		const owner = pool.sessionOwner("/sessions/s.jsonl");
-		if (!owner) throw new Error("expected the desktop to own the session");
+		if (!owner) throw new Error("expected the first window to own the session");
 
-		const restored = pool.restoreLayout(phone.win, {
+		const restored = pool.restoreLayout(second.win, {
 			version: 1,
 			activeIndex: 0,
 			tabs: [
@@ -1165,8 +1165,48 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		});
 
 		expect(restored).toBe(1);
-		expect(pool.tabsForWindow(phone.win).map(tab => tab.sessionPath)).toEqual(["/sessions/t.jsonl"]);
+		expect(pool.tabsForWindow(second.win).map(tab => tab.sessionPath)).toEqual(["/sessions/t.jsonl"]);
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual(owner);
+	});
+
+	it("a phone that viewed a desktop session views it again after a relaunch: one tab, one omp", () => {
+		// Before: the desktop holds the session, the phone views that tab and has one of its own.
+		const before = fakePool();
+		const desktop = fakeWindow(1);
+		const phone = fakeWindow(-1);
+		const saved = new Map<number, PersistedTabLayout | null>();
+		before.pool.onWindowTabsChanged = (win, layout) => saved.set(win.webContents.id, layout);
+		before.pool.acquire("/a", desktop.win, "desk", "/sessions/shared.jsonl");
+		before.pool.acquire("/b", phone.win, "own", "/sessions/phone.jsonl");
+		expect(before.pool.attachViewer(phone.win, "desk")).toBe(true);
+		// The phone's saved layout names the session it views too, and its own.
+		expect(saved.get(-1)?.tabs.map(tab => tab.sessionPath)).toEqual([
+			"/sessions/shared.jsonl",
+			"/sessions/phone.jsonl",
+		]);
+		const desktopLayout = before.pool.tabLayoutForWindow(desktop.win);
+		const phoneLayout = saved.get(-1);
+		if (!desktopLayout || !phoneLayout) throw new Error("expected both layouts");
+		expect(desktopLayout.tabs.map(tab => tab.sessionPath)).toEqual(["/sessions/shared.jsonl"]);
+
+		// Relaunch: the desktop's windows first, then the paired device's (index.ts).
+		const after = fakePool();
+		const desktop2 = fakeWindow(1);
+		const phone2 = fakeWindow(-2);
+		after.pool.restoreLayout(desktop2.win, desktopLayout);
+		const owner = after.pool.sessionOwner("/sessions/shared.jsonl");
+		if (!owner) throw new Error("expected the desktop to own the session again");
+		expect(after.pool.restoreLayout(phone2.win, phoneLayout)).toBe(2);
+
+		const phoneTabs = after.pool.tabsForWindow(phone2.win);
+		expect(phoneTabs.map(tab => [tab.sessionPath, tab.shared === true])).toEqual([
+			["/sessions/shared.jsonl", true],
+			["/sessions/phone.jsonl", false],
+		]);
+		expect(phoneTabs[0]?.tabId).toBe(owner.tabId);
+		expect(after.pool.sessionOwner("/sessions/shared.jsonl")).toEqual(owner);
+		// One sidecar per session: the desktop's and the phone's own, none for the viewed one.
+		expect(after.sidecars).toHaveLength(2);
 	});
 
 	it("carries the task an agent opened a tab for in its status and the window's tab list", () => {

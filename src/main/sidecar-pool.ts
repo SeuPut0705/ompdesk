@@ -100,7 +100,7 @@ import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 import type { ResumeFact } from "./turn-resume";
-import type { ClientWindow } from "./web/client-window";
+import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
 
 /** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
@@ -855,6 +855,7 @@ export class SidecarPool {
 			if (!viewer.win.isDestroyed()) viewer.win.removeListener("closed", viewer.onClosed);
 			this.#leaveWindowView(entry.tabId, winId, viewer.win);
 			this.#sendTabList(viewer.win);
+			if (!viewer.win.isDestroyed()) this.#notifyWindowTabsChanged(viewer.win);
 		}
 		return exited;
 	}
@@ -927,6 +928,8 @@ export class SidecarPool {
 			this.#syncFullWiring(winId);
 		}
 		this.#sendTabLists(entry);
+		// A paired device's saved layout names the tabs it views too (`tabLayoutForWindow`).
+		this.#notifyWindowTabsChanged(win);
 		return true;
 	}
 
@@ -957,6 +960,7 @@ export class SidecarPool {
 		this.#forgetSubagentLevel(entry, winId);
 		this.#sendTabLists(entry);
 		this.#sendTabList(win);
+		if (!win.isDestroyed()) this.#notifyWindowTabsChanged(win);
 	}
 
 	/** Whether another window views the tab (multi-viewer). */
@@ -1703,9 +1707,16 @@ export class SidecarPool {
 		}));
 	}
 
-	/** Serializable layout for the window, excluding transient run/status data. */
+	/**
+	 * Serializable layout for the window, excluding transient run/status data. A paired device's window also names
+	 * the stored sessions it views (another window owns them): after a relaunch it views them again (`restoreLayout`).
+	 */
 	tabLayoutForWindow(win: ClientWindow): PersistedTabLayout | null {
-		const entries = [...this.#entries].filter(entry => entry.win === win);
+		const winId = win.webContents.id;
+		const web = isWebWindow(winId);
+		const entries = [...this.#entries].filter(
+			entry => entry.win === win || (web && entry.sessionFile !== undefined && windowOf(entry, winId) === win),
+		);
 		if (entries.length === 0) return null;
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);
 		const activeIndex = Math.max(
@@ -1769,24 +1780,31 @@ export class SidecarPool {
 		const restoredTabIds: string[] = [];
 		try {
 			for (const [index, tab] of layout.tabs.entries()) {
-				// One session, one tab: a session another window already holds (a desktop window restored before a
-				// paired device's, or a layout saved twice) stays there; a second tab would put a second omp on its file.
-				if (tab.sessionPath && this.sessionOwner(tab.sessionPath, tab.device)) continue;
-				const tabId = nextSnowflake();
-				const sidecar = this.acquire(
-					tab.cwd,
-					win,
-					tabId,
-					tab.sessionPath,
-					tab.kind,
-					tab.worktree,
-					!tab.sessionPath,
-					tab.placeholder === true,
-					true,
-					tab.title,
-					tab.device,
-				);
-				if (!sidecar) continue;
+				// One session, one tab: a session another window already holds (the desktop's windows restore before a
+				// paired device's) gets no second tab, which would put a second omp on its file. A paired device's
+				// window views that tab again, as it did before (multi-viewer); a second desktop window leaves it there.
+				const owner = tab.sessionPath ? this.sessionOwner(tab.sessionPath, tab.device) : null;
+				let tabId: string | undefined;
+				if (owner) {
+					if (isWebWindow(winId) && this.attachViewer(win, owner.tabId)) tabId = owner.tabId;
+				} else {
+					const fresh = nextSnowflake();
+					const sidecar = this.acquire(
+						tab.cwd,
+						win,
+						fresh,
+						tab.sessionPath,
+						tab.kind,
+						tab.worktree,
+						!tab.sessionPath,
+						tab.placeholder === true,
+						true,
+						tab.title,
+						tab.device,
+					);
+					if (sidecar) tabId = fresh;
+				}
+				if (!tabId) continue;
 				restoredCount++;
 				restoredTabIds[index] = tabId;
 				firstRestoredTabId ??= tabId;
