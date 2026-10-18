@@ -66,6 +66,8 @@ async function makeProfile(): Promise<Profile> {
 		OMP_GUI_HEADLESS: "1",
 		OMP_GUI_TEST_LONG_SESSION: "1",
 		OMP_GUI_TEST_SESSION_FILES: "1",
+		// The real omp takes seconds to boot; what the window shows meanwhile is what the audits are about.
+		OMP_GUI_TEST_BOOT_DELAY_MS: process.env.OMP_GUI_TEST_BOOT_DELAY_MS ?? (OUT ? "1500" : "800"),
 		...tailscale.env,
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");

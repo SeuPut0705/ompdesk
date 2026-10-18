@@ -5253,6 +5253,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		}
 	};
 
+	/** `OMP_GUI_TEST_BOOT_DELAY_MS`: the real omp takes seconds to boot; the audits of what a window shows meanwhile set it. */
+	const begin = () => {
+		const delayMs = Number(process.env.OMP_GUI_TEST_BOOT_DELAY_MS) || 0;
+		if (delayMs > 0) setTimeout(startRpc, delayMs);
+		else startRpc();
+	};
 	const startRpc = () => {
 		write({
 			type: "ready",
@@ -5294,6 +5300,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		// The bridge must never be what keeps the process alive.
 		server.unref();
 		process.once("exit", () => fs.rmSync(bridgeAddress, { force: true }));
-		server.listen(bridgeAddress, startRpc);
-	} else startRpc();
+		server.listen(bridgeAddress, begin);
+	} else begin();
 }

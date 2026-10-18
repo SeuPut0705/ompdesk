@@ -22,7 +22,8 @@ class Memory {
 	}
 }
 
-const row = (path: string, title = path): SessionInfo => ({ path, title, modified: 1, size: 1 }) as SessionInfo;
+const row = (path: string, title = path): SessionInfo =>
+	({ path, title, modified: 1, size: 1 }) as unknown as SessionInfo;
 
 function install(list: () => Promise<SessionInfo[]>) {
 	vi.stubGlobal("window", {
