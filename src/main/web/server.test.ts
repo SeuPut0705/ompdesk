@@ -110,7 +110,7 @@ beforeEach(async () => {
 		userData,
 		staticRoot: () => staticRoot,
 		desktopWindows: () => [desktop()],
-		tabs: { activeTab: () => null, cwd: () => null, facts: () => null },
+		tabs: { activeTab: () => null, cwd: () => null, facts: () => null, resnapshot: () => {} },
 		openMedia: async () => new Response(null, { status: 404 }),
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
 		allowedUsers: () => allowed,
@@ -340,6 +340,23 @@ describe("static files", () => {
 		symlinkSync(join(outside, "x.js"), join(staticRoot, "assets", "out.js"));
 		expect((await raw("/assets/out.js")).status).toBe(404);
 		rmSync(outside, { recursive: true, force: true });
+	});
+
+	// v0.38.1: a phone's page, older than the computer's update, asked for a lazy chunk the new build no longer had.
+	it("after an update, serves the previous build's hashed assets by name, and nothing else from them", async () => {
+		// This launch kept its build (WebHost.start); the next one runs a new build without the old chunk.
+		await vi.waitFor(() => expect(existsSync(join(userData, "web-assets", "builds.json"))).toBe(true));
+		writeFileSync(join(staticRoot, "web.html"), `${PAGE}<!-- next build -->`);
+		rmSync(join(staticRoot, "assets", "app-abc.js"));
+		writeFileSync(join(staticRoot, "assets", "app-def.js"), "next");
+		await host.assets.retain(staticRoot);
+		const old = await raw("/assets/app-abc.js");
+		expect(old.status).toBe(200);
+		expect(old.body).toBe(SCRIPT);
+		expect(old.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+		expect((await raw("/assets/app-def.js")).body).toBe("next");
+		expect((await raw("/assets/missing.js")).status).toBe(404);
+		expect((await raw("/assets/../web-assets/builds.json")).status).not.toBe(200);
 	});
 });
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { nextUiLanguage } from "../shared/ui-language";
 import { ToastStack } from "./components/common";
@@ -37,6 +37,7 @@ import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { SshPromptDialog } from "./components/settings/SshTools";
+import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
@@ -49,7 +50,9 @@ import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
+import { startAgentAppEvents } from "./lib/agent-app";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
+import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import {
 	hydrateDisplayPreferences,
@@ -103,13 +106,13 @@ import { WebHostUi } from "./web/host-ui/WebHostUi";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
-const FeedbackDialog = lazy(() =>
+const FeedbackDialog = lazyChunk(() =>
 	import("./components/dialogs/FeedbackDialog").then(m => ({ default: m.FeedbackDialog })),
 );
-const BenchmarkDialog = lazy(() =>
+const BenchmarkDialog = lazyChunk(() =>
 	import("./components/dialogs/BenchmarkDialog").then(m => ({ default: m.BenchmarkDialog })),
 );
-const ModelSetupDialog = lazy(() =>
+const ModelSetupDialog = lazyChunk(() =>
 	import("./components/settings/model-setup/ModelSetupDialog").then(m => ({ default: m.ModelSetupDialog })),
 );
 
@@ -144,6 +147,7 @@ function FocusedSessionEffects() {
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
 	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
+	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
 		const state: RunProgressState = !progressEnabled
 			? "idle"
@@ -218,6 +222,8 @@ export function App() {
 	useRpcEvents();
 	// ⌃⇥ / tab overview order and ⌘[ ⌘] history.
 	useEffect(installTabHistory, []);
+	// A tab's last known transcript page paints as soon as the tab is listed (lib/transcript-snapshot.ts).
+	useEffect(installTranscriptSeeding, []);
 	useExtensionUi();
 	usePlanApproval();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
@@ -232,6 +238,11 @@ export function App() {
 	const feedbackOpen = useUiStore(s => s.feedbackOpen);
 	const benchmarkOpen = useUiStore(s => s.benchmarkOpen);
 	const closeBenchmark = useUiStore(s => s.closeBenchmark);
+	// Mounted from its first open on (it keeps its form and results while closed), never at start: its chunk loaded
+	// at every launch, and on a phone whose page was older than the computer's update that load crashed the page
+	// (v0.38.1, "Importing a module script failed." at Lazy under App).
+	const [benchmarkMounted, setBenchmarkMounted] = useState(false);
+	if (benchmarkOpen && !benchmarkMounted) setBenchmarkMounted(true);
 	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -926,9 +937,11 @@ export function App() {
 				<WebDeviceNotice />
 				<WebHostUi />
 				<SshPromptDialog />
-				<Suspense fallback={null}>
-					<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
-				</Suspense>
+				{benchmarkMounted ? (
+					<Suspense fallback={null}>
+						<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
+					</Suspense>
+				) : null}
 				<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
 				<ThemePickerDialog />
 				{importDialogOpen && <ImportForeignDialog />}

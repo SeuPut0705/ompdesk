@@ -10,11 +10,17 @@
  * Permission levels (Settings › Tools & extensions › OMPdesk control tools):
  *   always  list, read, send, wait, answer a question, show, notify, open sessions, stop/close/delete the sessions
  *           the caller opened.
- *   card    stopping, closing or deleting a session the caller did not open: one confirmation card each.
+ *   card    stopping, closing or deleting a session the caller did not open, creating a schedule, starting an Autopilot
+ *           run (always for ship release or the default branch), stopping a run the caller did not start: one card each.
  *   pref    `agentControlManage` lifts that card; `agentControlApprove` lets an agent approve another session's
  *           tool approval (without it the answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
  *   never   accounts, settings, permissions.
  */
+import type {
+	AutopilotShipPreset,
+	AutopilotStartOptions,
+	AutopilotStatus,
+} from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
 	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
@@ -48,11 +54,13 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
+import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type BranchFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
-import { AgentLimits, LimitError } from "./limits";
+import { AgentLimits, LimitError, PENDING_RUN } from "./limits";
 import {
 	type AnswerArgs,
 	ARGS,
+	type AutopilotArgs,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
 	READ_MAX_CHARS,
@@ -123,6 +131,27 @@ export interface ScheduleSource {
 	remove(id: string): Promise<void>;
 }
 
+export type ShipLevel = "commit" | "push" | "release";
+
+/** `ompdesk_autopilot`'s ship levels as the start sheet's presets. */
+const SHIP_PRESET: Record<ShipLevel, AutopilotShipPreset> = { commit: "local", push: "push", release: "release" };
+
+/** Autopilot's coordinator seen by `ompdesk_autopilot` (`host.ts` adapts `src/main/autopilot.ts`; absent where it is not). */
+export interface AutopilotSource {
+	/** The user's stored ship level (what a start without `ship` gets) and the default branch of the folder's repository. */
+	plan(sourceTabId: string): Promise<{ defaultShip: ShipLevel; defaultBranch: string | null }>;
+	/** `Autopilot.handleCommand` start from the source tab; the new run tab is the caller's opened session. Rejects with a readable message. */
+	start(
+		callerTabId: string,
+		sourceTabId: string,
+		options: AutopilotStartOptions,
+	): Promise<AutopilotStatus & { tabId: string }>;
+	/** A run's whole status; `active: false` for a tab that is no run. */
+	status(tabId: string): Promise<AutopilotStatus>;
+	/** End (`now` false: after the cycle in flight) or Stop now (abort and pause). */
+	stop(tabId: string, now: boolean): Promise<AutopilotStatus>;
+}
+
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
@@ -172,6 +201,8 @@ export interface AgentControlHost {
 	isStopping?(callerTabId: string): boolean;
 	/** Autopilot: awaited after the child is ready and before its first prompt; a throw closes the child and fails the open. */
 	beforeFirstPrompt?(child: OpenedChild): Promise<void>;
+	/** Autopilot's coordinator (`ompdesk_autopilot`); absent where there is none. */
+	autopilot?: AutopilotSource;
 	/** Card and label text in the person's language. */
 	text(
 		key:
@@ -183,9 +214,21 @@ export interface AgentControlHost {
 			| "mergeTitle"
 			| "mergeMessage"
 			| "scheduleTitle"
-			| "scheduleMessage",
+			| "scheduleMessage"
+			| "autopilotTitle"
+			| "autopilotMessage"
+			| "autopilotShipCommit"
+			| "autopilotShipPush"
+			| "autopilotShipRelease"
+			| "autopilotBranchNew"
+			| "autopilotBranchDefault"
+			| "appTitle"
+			| "appMessage"
+			| "appChanged",
 		params: Record<string, string>,
 	): string;
+	/** What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not available. */
+	appPorts?: Omit<AppPorts, "autopilot">;
 }
 
 export interface ToolOutcome {
@@ -243,6 +286,81 @@ function describeFrequency(frequency: ScheduleFrequency): string {
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** A path without trailing separators (a root stays as it is). */
+function trimSeparators(path: string): string {
+	const trimmed = path.replace(/[\\/]+$/, "");
+	return trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? path : trimmed;
+}
+
+/** `ompdesk_autopilot start` arguments as the start sheet's options; omitted fields keep the sheet's defaults. */
+function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: ShipLevel): AutopilotStartOptions {
+	const advanced = args.advanced ?? {};
+	const shipPolicy: NonNullable<AutopilotStartOptions["ship"]> = {
+		...(advanced.remote ? { remote: advanced.remote } : {}),
+		...(advanced.cadence !== undefined
+			? { autoRelease: { on: true, cadence: { kind: "every" as const, n: advanced.cadence } } }
+			: {}),
+	};
+	return {
+		...(args.ship ? { preset: SHIP_PRESET[ship] } : {}),
+		...(Object.keys(shipPolicy).length > 0 ? { ship: shipPolicy } : {}),
+		...(args.guide ? { guide: args.guide } : {}),
+		...(args.branch ? { branch: args.branch } : {}),
+		...(advanced.focus ? { focus: advanced.focus } : {}),
+		...(advanced.parallel !== undefined ? { maxParallel: advanced.parallel } : {}),
+		...(advanced.notify ? { notify: advanced.notify } : {}),
+		...(advanced.backlog ? { backlog: advanced.backlog } : {}),
+		...(advanced.limits ? { limits: advanced.limits } : {}),
+	};
+}
+
+/** A run's state as a short report for the agent. */
+export function describeRun(tab: Pick<ControlTab, "tabId" | "title">, status: AutopilotStatus): string {
+	const reason = status.reason ? ` (${status.reason}${status.detail ? `: ${oneLine(status.detail, 160)}` : ""})` : "";
+	const lines = [
+		`Autopilot run ${tab.tabId}${tab.title ? ` "${oneLine(tab.title, 80)}"` : ""}: ${status.state ?? "unknown"}${reason}; cycle ${status.cycle ?? 0}.`,
+	];
+	if (status.branch)
+		lines.push(
+			`branch ${status.branch}, base ${status.baseBranch ?? "?"}${status.target ? `, pushes to ${status.target}` : ""}, worktree ${status.root ?? "?"}`,
+		);
+	const policy = status.ship?.policy ?? status.settings?.ship;
+	if (policy)
+		lines.push(
+			`ship level ${policy.autoRelease.on ? "release" : policy.autoPush ? "push" : "commit"}, remote ${policy.remote}`,
+		);
+	const now = status.now;
+	lines.push(
+		now
+			? `now: cycle ${now.n}${now.area ? ` [${now.area}]` : ""}${now.title ? ` "${oneLine(now.title, 100)}"` : ""}`
+			: "now: between cycles",
+	);
+	lines.push(`red streak ${status.redStreak ?? 0}`);
+	const commit = [...(status.cycles ?? [])].reverse().find(cycle => cycle.commit && !cycle.reverted);
+	lines.push(
+		commit
+			? `last commit ${commit.commit?.slice(0, 9)} (cycle ${commit.n}, "${oneLine(commit.title, 80)}", verify ${commit.verify})`
+			: "last commit: none yet",
+	);
+	const push = [...(status.ship?.queue ?? [])].reverse().find(item => item.kind === "push");
+	lines.push(
+		push
+			? `last push ${push.state}${push.sha ? ` ${push.sha.slice(0, 9)}` : ""}${push.detail ? ` (${oneLine(push.detail, 100)})` : ""}`
+			: "last push: none yet",
+	);
+	const release = status.ship?.release;
+	lines.push(
+		release
+			? `last release ${release.version} ${release.state}${release.runUrl ? ` ${release.runUrl}` : ""}`
+			: "last release: none yet",
+	);
+	const children = (status.children ?? []).filter(child => child.status === "running").length;
+	if (children > 0) lines.push(`${children} child session(s) running`);
+	if (status.state === "paused" || status.state === "waiting_quota")
+		lines.push("It does not continue by itself: the user resumes it on the Autopilot screen.");
+	return lines.join("\n");
+}
 
 function contentText(content: AgentMessage["content"]): string {
 	if (typeof content === "string") return content;
@@ -322,9 +440,14 @@ export class AgentControl {
 	/** Files a child's last merge conflicted in, until it merges. */
 	readonly #conflicts = new Map<string, string[]>();
 
+	readonly #app: AppControl | null;
+
 	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
 		this.#host = host;
 		this.#limits = limits;
+		this.#app = host.appPorts
+			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
+			: null;
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -341,6 +464,7 @@ export class AgentControl {
 
 	/** A tab closed. */
 	released(tabId: string): void {
+		this.#app?.released(tabId);
 		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
 		this.#closing.delete(tabId);
@@ -435,7 +559,35 @@ export class AgentControl {
 			}
 			case T.schedule:
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
+			case T.autopilot:
+				return this.#autopilot(caller, tabs, ARGS[T.autopilot].parse(raw));
+			case T.appList:
+				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
+			case T.app: {
+				const args = ARGS[T.app].parse(raw);
+				try {
+					return await this.#appControl().run(caller.tabId, args.action, args.args);
+				} catch (error) {
+					if (error instanceof AppRefusal) fail(error.message);
+					throw error;
+				}
+			}
 		}
+	}
+
+	/** The app action's way into `ompdesk_autopilot`: same parse, same card, same run cap. */
+	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
+		const tabs = this.#host.tabs(callerTabId);
+		const caller = tabs?.find(tab => tab.tabId === callerTabId);
+		if (!tabs || !caller) fail("This session's tab is gone.");
+		const parsed = ARGS[T.autopilot].safeParse(raw);
+		if (!parsed.success) fail(`Invalid arguments: ${parsed.error.issues.map(issue => issue.message).join("; ")}`);
+		return this.#autopilot(caller, tabs, parsed.data);
+	}
+
+	#appControl(): AppControl {
+		if (!this.#app) fail("App actions are not available here.");
+		return this.#app;
 	}
 
 	/** An id the list printed, or a unique prefix of one; never the caller itself where `self` is passed. */
@@ -1206,6 +1358,155 @@ export class AgentControl {
 			enabled: true,
 		});
 		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
+	}
+
+	/** `ompdesk_autopilot`: start, read or stop an Autopilot run through the coordinator the Autopilot screen uses. */
+	async #autopilot(caller: ControlTab, tabs: ControlTab[], args: AutopilotArgs): Promise<string> {
+		const source = this.#host.autopilot;
+		if (!source) fail("Autopilot is not available here.");
+		if (caller.deviceName) fail("Autopilot runs on this computer; a session on a paired host cannot start one.");
+		if (args.action === "start") return this.#autopilotStart(caller, tabs, source, args);
+		const target = this.#resolve(tabs, args.session, caller, args.action === "stop" ? "stop" : "read");
+		this.#refuseHidden(target, caller);
+		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
+		if (args.action === "status") {
+			if (!own && !this.#host.manageEnabled())
+				fail(
+					`${label(target)} is not an Autopilot run you started. Reading other runs needs the user's "Let agents manage other sessions" setting.`,
+				);
+			return describeRun(target, await this.#runStatus(source, target));
+		}
+		const before = await this.#runStatus(source, target);
+		if (before.state === "ended") return `${describeRun(target, before)}\nIt has ended already.`;
+		if (!own && !this.#host.manageEnabled()) {
+			const params = { caller: caller.title || "—", target: target.title || target.tabId };
+			const approved = await this.#host.confirm(
+				caller.tabId,
+				this.#host.text("stopTitle", params),
+				this.#host.text("stopMessage", params),
+			);
+			if (!approved)
+				return `The user declined: ${label(target)} keeps running. Do not ask again unless they tell you to.`;
+		}
+		const now = args.now === true;
+		if (before.state === "stopping" && !now) return `${describeRun(target, before)}\nIt is ending already.`;
+		this.#closing.add(target.tabId);
+		try {
+			const after = await source.stop(target.tabId, now);
+			return `${describeRun(target, after)}\n${
+				now
+					? "Stopped now: the turn in flight was aborted and the run is paused (the user can resume it on the Autopilot screen)."
+					: "Ending: it finishes the cycle in flight, then closes its children and stops. It will not continue by itself."
+			}`;
+		} finally {
+			this.#closing.delete(target.tabId);
+		}
+	}
+
+	async #runStatus(source: AutopilotSource, target: ControlTab): Promise<AutopilotStatus> {
+		const status = await source.status(target.tabId);
+		if (!status.active || status.role === "child") fail(`${label(target)} is not an Autopilot run.`);
+		return status;
+	}
+
+	/** The tabs of agent-started runs whose run is over or no longer a run: they stop counting against the limit. */
+	async #endedRuns(source: AutopilotSource): Promise<Set<string>> {
+		const ended = new Set<string>();
+		await Promise.all(
+			this.#limits.runTabs().map(async tab => {
+				const status = await source.status(tab).catch(() => null);
+				if (status && (!status.active || status.state === "ended")) ended.add(tab);
+			}),
+		);
+		return ended;
+	}
+
+	async #autopilotStart(
+		caller: ControlTab,
+		tabs: ControlTab[],
+		source: AutopilotSource,
+		args: Extract<AutopilotArgs, { action: "start" }>,
+	): Promise<string> {
+		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
+		if (this.#limits.runTabs().includes(caller.tabId)) fail("An Autopilot run cannot start another run.");
+		const folder = args.folder === undefined ? trimSeparators(caller.cwd) : trimSeparators(args.folder);
+		if (!(folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder))) fail("folder must be an absolute path.");
+		const sourceTab = [caller, ...tabs]
+			.filter(tab => !tab.deviceName && !tab.hidden && trimSeparators(tab.cwd) === folder)
+			.sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"))[0];
+		if (!sourceTab)
+			fail(
+				`${folder} is not open in a session of this window on this computer. Autopilot starts from a folder one of those sessions has open: open one there first (ompdesk_session_open with folder), or use your own folder.`,
+			);
+		const plan = await source.plan(sourceTab.tabId);
+		const ship = args.ship ?? plan.defaultShip;
+		const advanced = args.advanced ?? {};
+		if (advanced.cadence !== undefined && ship !== "release")
+			fail("advanced.cadence goes with ship release (it is the release rhythm).");
+		const onDefaultBranch =
+			args.branch?.kind === "existing" &&
+			(args.branch.name === plan.defaultBranch || args.branch.name === "main" || args.branch.name === "master");
+		const opened = this.#openedBy(caller.tabId, tabs);
+		if (opened.size >= MAX_AGENT_SESSIONS)
+			fail(
+				`You have ${opened.size} sessions open that you opened (the limit is ${MAX_AGENT_SESSIONS} open at once). Close some with ompdesk_session_stop first.`,
+			);
+
+		const key = `${PENDING_RUN}${Math.random()}`;
+		const turn = this.#host.turn(caller.tabId);
+		this.#limits.reserveRun(key, await this.#endedRuns(source));
+		try {
+			this.#limits.reserveOpens(caller.tabId, turn, 1);
+		} catch (error) {
+			this.#limits.dropRun(key);
+			throw error;
+		}
+		let started: AutopilotStatus & { tabId: string };
+		try {
+			if (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch) {
+				const branch =
+					args.branch?.kind === "existing"
+						? onDefaultBranch
+							? this.#host.text("autopilotBranchDefault", { name: args.branch.name })
+							: args.branch.name
+						: (args.branch?.name ?? this.#host.text("autopilotBranchNew", {}));
+				const approved = await this.#host.confirm(
+					caller.tabId,
+					this.#host.text("autopilotTitle", {}),
+					this.#host.text("autopilotMessage", {
+						caller: caller.title || "—",
+						folder,
+						ship: this.#host.text(
+							ship === "release"
+								? "autopilotShipRelease"
+								: ship === "push"
+									? "autopilotShipPush"
+									: "autopilotShipCommit",
+							{},
+						),
+						branch,
+					}),
+				);
+				if (!approved) {
+					this.#limits.dropRun(key);
+					this.#limits.refundOpens(caller.tabId, turn, 1);
+					return "The user declined Autopilot. Do not ask again unless they tell you to.";
+				}
+			}
+			started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
+		} catch (error) {
+			this.#limits.dropRun(key);
+			this.#limits.refundOpens(caller.tabId, turn, 1);
+			if (error instanceof ToolError || error instanceof LimitError) throw error;
+			fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		this.#limits.settleRun(key, started.tabId);
+		opened.add(started.tabId);
+		return [
+			`Started Autopilot in session ${started.tabId}.`,
+			describeRun({ tabId: started.tabId, title: "" }, started),
+			`It works by itself: read it with ompdesk_autopilot {"action":"status","session":"${started.tabId}"}, end it with {"action":"stop","session":"${started.tabId}"}. Do not send it messages.`,
+		].join("\n");
 	}
 }
 

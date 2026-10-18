@@ -1,6 +1,6 @@
 ---
 name: ompdesk
-description: Use when the user asks to split work across parallel OMPdesk sessions or tabs, to see what other sessions are doing, to message, review, answer or coordinate with another session, to open a session in a given folder, model, mode or git worktree, or to be notified when work finishes.
+description: Use when the user asks to split work across parallel OMPdesk sessions or tabs, to see what other sessions are doing, to message, review, answer or coordinate with another session, to open a session in a given folder, model, mode or git worktree, to be notified when work finishes, or to change OMPdesk itself (settings, theme, side panel, models) or read its usage.
 ---
 
 # OMPdesk sessions
@@ -19,6 +19,8 @@ Each OMPdesk session is a tab in the user's window. These host tools let the mai
 - `ompdesk_session_stop` — `session`, `close`, `delete`.
 - `ompdesk_compare`, `ompdesk_merge` — worktree attempts: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — skill://ompdesk/references/schedules.md
+- `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md
+- `ompdesk_app_list`, `ompdesk_app` — change OMPdesk itself instead of asking the user to click: skill://ompdesk/references/app-control.md
 
 `session` is an id from `ompdesk_sessions`; a unique prefix is enough. Caps, confirmation cards and approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
 

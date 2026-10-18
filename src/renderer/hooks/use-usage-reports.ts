@@ -1,8 +1,10 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { UsageReport } from "../../shared/rpc-types";
+import { snapshotNs, snapshots } from "../lib/snapshot-cache";
 import { type TabRpc, useTabRpc } from "../lib/tab-rpc";
 import { readUsageReports, type UsageRead, watchUsage } from "../lib/usage-reports";
 import { useSessionStore } from "../stores/session";
+import { useTabsStore } from "../stores/tabs";
 import { TabPoll, useTabPoll, useTabPollKey } from "./use-tab-poll";
 
 /** A tab's usage as every surface showing it sees it. */
@@ -72,7 +74,49 @@ const usagePoll = new TabPoll<UsageFeed>(NO_USAGE, (rpc, publish) => {
  */
 export function useUsage<S>(select: (feed: UsageFeed) => S, active = true): S {
 	const ready = useSessionStore(s => s.status) === "ready";
-	return useTabPoll(usagePoll, ready && active, select);
+	const key = useTabPollKey();
+	const device = useTabsStore(state => state.tabs.find(tab => tab.id === key)?.device);
+	// Until the first read of this run lands, the last run's reports stand in (their age is in `windows`' reset
+	// times, which `resetText` reads against now); the read replaces them in place.
+	const seed = useMemo(() => lastKnownUsage(device), [device]);
+	const shown = useTabPoll(usagePoll, ready && active, feed =>
+		select(feed.reports === null && seed ? seededFeed(feed, seed) : feed),
+	);
+	// The reports themselves, for the snapshot write below.
+	const live = useTabPoll(usagePoll, false, feed => feed.reports);
+	useEffect(() => {
+		if (live) rememberUsage(device, live);
+	}, [live, device]);
+	return shown;
+}
+
+const USAGE_WRITE_DELAY_MS = 1500;
+const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function lastKnownUsage(device: string | undefined): UsageReport[] | null {
+	const hit = snapshots().read<UsageReport[]>("usage", snapshotNs(device), "reports");
+	return hit && Array.isArray(hit.value) ? hit.value : null;
+}
+
+/** One quiet write per device, however many surfaces show the same reports. */
+function rememberUsage(device: string | undefined, reports: UsageReport[]): void {
+	const ns = snapshotNs(device);
+	clearTimeout(writeTimers.get(ns));
+	writeTimers.set(
+		ns,
+		setTimeout(() => snapshots().write("usage", ns, "reports", reports), USAGE_WRITE_DELAY_MS),
+	);
+}
+
+const seededFeeds = new WeakMap<UsageFeed, Map<UsageReport[], UsageFeed>>();
+
+/** The feed with the seed as its reports, one object per (feed, seed) so a selector reading it stays stable. */
+function seededFeed(feed: UsageFeed, seed: UsageReport[]): UsageFeed {
+	const bySeed = seededFeeds.get(feed) ?? new Map<UsageReport[], UsageFeed>();
+	seededFeeds.set(feed, bySeed);
+	const seeded = bySeed.get(seed) ?? { ...feed, reports: seed };
+	bySeed.set(seed, seeded);
+	return seeded;
 }
 
 /** This tab's usage reports ({@link UsageFeed.reports}). */

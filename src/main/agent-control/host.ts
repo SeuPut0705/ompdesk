@@ -6,10 +6,17 @@
  * A call names its caller by tab; the window that tab belongs to is remembered per call (`bindCaller`), because a
  * wait outlives the executor's stack frame and the tab list belongs to that window.
  */
+
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
+import type {
+	AutopilotAction,
+	AutopilotShipPolicy,
+	AutopilotStatus,
+} from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
+	AGENT_CONTROL_APP,
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
@@ -26,6 +33,7 @@ import {
 	agentHiddenPaths,
 } from "../../shared/agent-control";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabWorktree } from "../../shared/ipc-types";
+import { IPC_COMMANDS } from "../../shared/ipc-types";
 import {
 	BLOCKING_UI_METHODS,
 	type ExtensionUIResponse,
@@ -40,15 +48,18 @@ import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
+import type { AppPorts } from "./app-control";
 import { branchFacts, discardWorktree, mergeBranch } from "./branches";
 import { AgentLimits } from "./limits";
 import {
 	AgentControl,
 	type AgentControlHost,
+	type AutopilotSource,
 	type ControlAsk,
 	type ControlTab,
 	type OpenedChild,
 	type ScheduleRow,
+	type ShipLevel,
 	type SpawnRequest,
 	type ToolOutcome,
 } from "./service";
@@ -92,8 +103,24 @@ export interface AgentControlHostDeps {
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
+	/** Autopilot's coordinator (`Autopilot.handleCommand`, a repository's default branch); absent where there is none. */
+	autopilot?: {
+		command: (
+			win: ClientWindow,
+			sidecar: SidecarLike,
+			tabId: string,
+			command: { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction),
+		) => Promise<RpcResponse>;
+		defaultBranch: (cwd: string, remote: string) => Promise<string | null>;
+	};
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
 	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
+	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
+	app?: {
+		invoke: (win: ClientWindow, channel: string, args: readonly unknown[]) => Promise<unknown>;
+		fire: (win: ClientWindow, channel: string, args: readonly unknown[]) => void;
+		localize: (en: string, ko: string) => string;
+	};
 }
 
 function askOf(request: ControlAsk["request"]): boolean {
@@ -144,7 +171,12 @@ export class AgentControlRuntime {
 	async run(win: ClientWindow, callerTabId: string, tool: AgentControlToolName, args: unknown): Promise<ToolOutcome> {
 		this.#windows.set(callerTabId, win);
 		const outcome = await this.control.run(callerTabId, tool, args);
-		if (tool === "ompdesk_session_open" || tool === "ompdesk_merge" || tool === "ompdesk_session_stop")
+		if (
+			tool === "ompdesk_session_open" ||
+			tool === "ompdesk_merge" ||
+			tool === "ompdesk_session_stop" ||
+			tool === "ompdesk_autopilot"
+		)
 			this.#pushReview(callerTabId);
 		return outcome;
 	}
@@ -270,6 +302,62 @@ export class AgentControlRuntime {
 		return { tabId: result.tabId, ...(worktree ? { worktree } : {}), ...(prepared ? { prepared } : {}) };
 	}
 
+	/** `Autopilot.handleCommand` for one run tab, as the Autopilot screen sends it; a failure throws its readable message. */
+	async #autopilotCommand(
+		win: ClientWindow,
+		tabId: string,
+		command: { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction),
+	): Promise<AutopilotStatus> {
+		const autopilot = this.#deps.autopilot;
+		if (!autopilot) throw new Error("Autopilot is not available here.");
+		const response = await autopilot.command(win, this.#sidecar(tabId), tabId, command);
+		if (!response.success) throw new Error(response.error ?? "Autopilot refused.");
+		return response.data as AutopilotStatus;
+	}
+
+	#autopilotSource(): AutopilotSource | undefined {
+		const deps = this.#deps;
+		const autopilot = deps.autopilot;
+		if (!autopilot) return undefined;
+		const shipPref = (): { level: ShipLevel; remote: string } => {
+			const stored = deps.prefs.get("autopilotShip") as Partial<AutopilotShipPolicy> | undefined;
+			return {
+				level: stored?.autoRelease?.on ? "release" : stored?.autoPush ? "push" : "commit",
+				remote: typeof stored?.remote === "string" && stored.remote ? stored.remote : "origin",
+			};
+		};
+		const winFor = (tabId: string): ClientWindow => {
+			const win = this.#win(tabId) ?? [...this.#windows.values()][0];
+			if (!win) throw new Error("That session's window is gone.");
+			return win;
+		};
+		return {
+			plan: async sourceTabId => {
+				const { level, remote } = shipPref();
+				const defaultBranch = await autopilot
+					.defaultBranch(this.#sidecar(sourceTabId).cwd, remote)
+					.catch(() => null);
+				return { defaultShip: level, defaultBranch };
+			},
+			start: async (callerTabId, sourceTabId, options) => {
+				const win = winFor(callerTabId);
+				const started = (await this.#autopilotCommand(win, sourceTabId, {
+					type: "set_autopilot",
+					action: "start",
+					...options,
+				})) as AutopilotStatus & { tabId: string };
+				// The run is the caller's child like a session it opened: family nesting, the review queue, stop without a card.
+				this.#windows.set(started.tabId, win);
+				this.#parents.set(started.tabId, { callerTabId });
+				deps.pool.setTabOpener(started.tabId, callerTabId);
+				return started;
+			},
+			status: tabId => this.#autopilotCommand(winFor(tabId), tabId, { type: "get_autopilot" }),
+			stop: (tabId, now) =>
+				this.#autopilotCommand(winFor(tabId), tabId, { type: "set_autopilot", action: now ? "abort" : "stop" }),
+		};
+	}
+
 	#host(): AgentControlHost {
 		const deps = this.#deps;
 		return {
@@ -306,6 +394,7 @@ export class AgentControlRuntime {
 				return deps.dispatch(win, sidecar, tabId, command, timeoutMs);
 			},
 			spawn: (callerTabId, request) => this.#spawn(callerTabId, request),
+			autopilot: this.#autopilotSource(),
 			start: tabId => void deps.pool.startTab(tabId),
 			setTask: (tabId, task) => deps.pool.setTabTask(tabId, task),
 			view: (callerTabId, event: AgentControlViewEvent) => {
@@ -316,14 +405,7 @@ export class AgentControlRuntime {
 				const win = this.#win(callerTabId);
 				if (win && !win.isDestroyed()) deps.notify(win, callerTabId, title, body);
 			},
-			confirm: async (callerTabId, title, message) => {
-				const response = await this.#hostCommand(callerTabId, {
-					type: "agent_control_confirm",
-					title: `${AGENT_CARD_PREFIX}${title}`,
-					message,
-				});
-				return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
-			},
+			confirm: (callerTabId, title, message) => this.#confirm(callerTabId, title, message),
 			answer: async (tabId, requestId, response: ExtensionUIResponse) => {
 				if (!(await deps.pool.routeSideChannel(requestId, response, tabId)))
 					throw new Error("That question is not open any more.");
@@ -376,6 +458,50 @@ export class AgentControlRuntime {
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,
 			beforeFirstPrompt: deps.beforeFirstPrompt,
 			text: deps.text,
+			appPorts: deps.app ? this.#appPorts(deps.app) : undefined,
+		};
+	}
+
+	async #confirm(callerTabId: string, title: string, message: string): Promise<boolean> {
+		const response = await this.#hostCommand(callerTabId, {
+			type: "agent_control_confirm",
+			title: `${AGENT_CARD_PREFIX}${title}`,
+			message,
+		});
+		return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
+	}
+
+	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): Omit<AppPorts, "autopilot"> {
+		const deps = this.#deps;
+		const window = (tabId: string): ClientWindow => {
+			const win = this.#win(tabId);
+			if (!win || win.isDestroyed()) throw new Error("This session's window is gone.");
+			return win;
+		};
+		return {
+			getPref: key => deps.prefs.get(key),
+			setPref: async (tabId, key, value) => {
+				await app.invoke(window(tabId), IPC_COMMANDS.PREFS_SET, [{ key, value }]);
+			},
+			rpc: (tabId, command) => this.#hostCommand(tabId, command),
+			invoke: (tabId, channel, args) => app.invoke(window(tabId), channel, args),
+			fire: (tabId, channel, args) => app.fire(window(tabId), channel, args),
+			send: (tabId, event) => {
+				const win = this.#win(tabId);
+				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_APP, event);
+			},
+			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
+			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			note: async (tabId, text) => {
+				await this.#hostCommand(tabId, { type: "agent_control_note", text });
+			},
+			text: (key, params) => deps.text(key, params),
+			localize: app.localize,
+			callerTitle: tabId => {
+				const win = this.#win(tabId);
+				const title = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId)?.title : undefined;
+				return title || "this session";
+			},
 		};
 	}
 

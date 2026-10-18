@@ -141,6 +141,13 @@ export interface PrecacheLimits {
 
 /** A shell is a few megabytes of eager chunks; anything past this stays on the network. */
 export const PRECACHE_LIMITS: PrecacheLimits = { maxBytes: 8 * 1024 * 1024, maxCount: 80 };
+/**
+ * The other hashed `/assets/` files of this build the page fetched (lazy chunks: panels, Settings, a language,
+ * mermaid…), kept as they arrive so a page older than the host's update still finds them; oldest out first.
+ */
+export const RUNTIME_LIMITS: PrecacheLimits = { maxBytes: 24 * 1024 * 1024, maxCount: 150 };
+/** How long a failed asset fetch waits before its one retry. */
+export const ASSET_RETRY_MS = 400;
 
 /** The entries, in priority order, that fit the limits (an entry that would overflow the bytes is skipped). */
 export function selectPrecache(entries: readonly PrecacheEntry[], limits: PrecacheLimits): PrecacheEntry[] {
@@ -159,6 +166,7 @@ export function selectPrecache(entries: readonly PrecacheEntry[], limits: Precac
 }
 
 const CACHE_PREFIX = "omp-shell-";
+const RUNTIME_PREFIX = "omp-assets-";
 /** The page the shell cache stands in for when the network is down. */
 export const SHELL_URL = "/";
 /** Never answered or stored by the worker: the API, the socket, blobs, uploads, the health probe. */
@@ -168,9 +176,16 @@ export function cacheNameFor(build: string): string {
 	return `${CACHE_PREFIX}${build}`;
 }
 
+export function runtimeCacheNameFor(build: string): string {
+	return `${RUNTIME_PREFIX}${build}`;
+}
+
 export interface CacheLike {
 	match(key: string): Promise<Response | undefined>;
 	put(key: string, response: Response): Promise<void>;
+	/** The stored requests, oldest first (the Cache API keeps insertion order). */
+	keys(): Promise<readonly { url: string }[]>;
+	delete(key: string): Promise<boolean>;
 }
 
 export interface CacheStorageLike {
@@ -186,6 +201,8 @@ export interface ShellDeps {
 	caches: CacheStorageLike;
 	fetch: (url: string, init?: RequestInit) => Promise<Response>;
 	origin: string;
+	/** The pause before a failed asset fetch is tried again (a timer in the worker). */
+	wait?: (ms: number) => Promise<void>;
 }
 
 const INSTALL_PARALLEL = 6;
@@ -220,12 +237,81 @@ export async function installShell(deps: ShellDeps): Promise<{ cached: number }>
 	return { cached };
 }
 
-/** Delete every shell cache but this build's. Returns the names removed. */
+/** Delete every shell and asset cache but this build's. Returns the names removed. */
 export async function pruneCaches(caches: CacheStorageLike, build: string): Promise<string[]> {
-	const keep = cacheNameFor(build);
-	const stale = (await caches.keys()).filter(name => name.startsWith(CACHE_PREFIX) && name !== keep);
+	const keep = new Set([cacheNameFor(build), runtimeCacheNameFor(build)]);
+	const stale = (await caches.keys()).filter(
+		name => (name.startsWith(CACHE_PREFIX) || name.startsWith(RUNTIME_PREFIX)) && !keep.has(name),
+	);
 	await Promise.all(stale.map(name => caches.delete(name)));
 	return stale;
+}
+
+/** Drop the oldest kept assets until the cache fits `limits` (sizes from each copy's `content-length`). */
+export async function trimRuntimeCache(cache: CacheLike, limits: PrecacheLimits): Promise<number> {
+	const keys = await cache.keys();
+	const sizes = await Promise.all(
+		keys.map(async key => Number((await cache.match(key.url))?.headers.get("content-length") ?? 0) || 0),
+	);
+	let bytes = sizes.reduce((sum, size) => sum + size, 0);
+	let count = keys.length;
+	let dropped = 0;
+	for (const [index, key] of keys.entries()) {
+		if (count <= limits.maxCount && bytes <= limits.maxBytes) break;
+		await cache.delete(key.url);
+		bytes -= sizes[index] ?? 0;
+		count--;
+		dropped++;
+	}
+	return dropped;
+}
+
+/** The same hashed file in any build's cache: names change with content, so another build's copy is this one. */
+async function matchAnyBuild(caches: CacheStorageLike, path: string): Promise<Response | undefined> {
+	for (const name of await caches.keys()) {
+		if (!name.startsWith(CACHE_PREFIX) && !name.startsWith(RUNTIME_PREFIX)) continue;
+		const hit = await (await caches.open(name)).match(path);
+		if (hit) return hit;
+	}
+	return undefined;
+}
+
+/**
+ * A hashed `/assets/` file: this build's cache first (precached, or kept when the page last fetched it), then the
+ * network, once more after `ASSET_RETRY_MS` when that failed (a phone between networks, a host mid-restart), then any
+ * other build's copy. A file fetched whole is kept for the next time (`RUNTIME_LIMITS`, oldest out first), so a
+ * page loaded before the host updated still finds the chunks it already used; the host also serves the previous
+ * builds' assets for a while (main/web/asset-archive.ts).
+ */
+async function respondWithAsset(
+	path: string,
+	url: string,
+	deps: ShellDeps,
+	waitUntil?: (promise: Promise<unknown>) => void,
+): Promise<Response> {
+	const precached = deps.precache.some(entry => entry.url === path);
+	const shell = await deps.caches.open(cacheNameFor(deps.build));
+	const kept = await deps.caches.open(runtimeCacheNameFor(deps.build));
+	const hit = (precached ? await shell.match(path) : undefined) ?? (await kept.match(path));
+	if (hit) return hit;
+	const attempt = () => deps.fetch(url).catch((error: unknown) => error);
+	let result = await attempt();
+	if (!(result instanceof Response) || !result.ok) {
+		await (deps.wait ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms))))(ASSET_RETRY_MS);
+		result = await attempt();
+	}
+	if (result instanceof Response && result.ok) {
+		if (!precached && result.status === 200 && !result.redirected) {
+			const keep = kept.put(path, result.clone()).then(() => trimRuntimeCache(kept, RUNTIME_LIMITS));
+			if (waitUntil) waitUntil(keep.catch(() => undefined));
+			else await keep.catch(() => undefined);
+		}
+		return result;
+	}
+	const elsewhere = await matchAnyBuild(deps.caches, path);
+	if (elsewhere) return elsewhere;
+	if (result instanceof Response) return result;
+	throw result;
 }
 
 export interface FetchRequestLike {
@@ -235,12 +321,12 @@ export interface FetchRequestLike {
 }
 
 /**
- * How the worker answers a request, or null to leave it to the browser: hashed `/assets/` files that were
- * precached come from the cache first; the shell page (`/`) comes from the cache at once when this build has
- * it (it names exactly the assets this build precached) while a fetch refreshes the copy in the background
- * (`waitUntil` keeps the worker alive for it), and from the network otherwise. A newer host build reaches the
- * page through its new worker (sw-update.ts), as an installed app's always did. Everything else — the API,
- * the socket, blobs, uploads, other origins, other methods — is never touched.
+ * How the worker answers a request, or null to leave it to the browser: hashed `/assets/` files through
+ * `respondWithAsset` (this build's cache, the network with one retry, kept as fetched); the shell page (`/`) comes
+ * from the cache at once when this build has it (it names exactly the assets this build precached) while a fetch
+ * refreshes the copy in the background (`waitUntil` keeps the worker alive for it), and from the network otherwise.
+ * A newer host build reaches the page through its new worker (sw-update.ts), as an installed app's always did.
+ * Everything else — the API, the socket, blobs, uploads, other origins, other methods — is never touched.
  */
 export function respondToFetch(
 	request: FetchRequestLike,
@@ -260,12 +346,7 @@ export function respondToFetch(
 		return null;
 	}
 	const name = cacheNameFor(deps.build);
-	if (path.startsWith("/assets/") && deps.precache.some(entry => entry.url === path)) {
-		return (async () => {
-			const cache = await deps.caches.open(name);
-			return (await cache.match(path)) ?? (await deps.fetch(request.url));
-		})();
-	}
+	if (path.startsWith("/assets/")) return respondWithAsset(path, request.url, deps, waitUntil);
 	if (request.mode === "navigate" && path === SHELL_URL) {
 		return (async () => {
 			const cache = await deps.caches.open(name);

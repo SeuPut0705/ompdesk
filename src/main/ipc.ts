@@ -95,6 +95,7 @@ import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
+import { readBranchFacts } from "./autopilot-branches";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { openInExternalEditor } from "./editor";
@@ -153,6 +154,11 @@ import {
 } from "./workspace-fs";
 import { searchWorkspace } from "./workspace-search";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
+
+/** The caller `ompdesk_app` hands a handler: the calling session's window, no native browser window. */
+function agentCaller(win: ClientWindow): IpcCaller {
+	return { win, browserWindow: null, sender: { id: win.webContents.id, once: () => undefined } };
+}
 
 export interface IpcDeps {
 	/** Where every handler here registers (index.ts's one table). */
@@ -846,6 +852,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		isStopping: callerTabId => autopilot.isStopping(callerTabId),
 		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
+		autopilot: {
+			command: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
+			defaultBranch: async (cwd, remote) => (await readBranchFacts(cwd, remote)).defaultBranch,
+		},
 		pool: sidecarPool,
 		schedules: () => deps.schedules?.() ?? null,
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
@@ -878,6 +888,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					: sessionIndex.deleteSession(sessionPath),
 			),
 		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
+		// `ompdesk_app` runs the app's own handlers as the calling session's window would.
+		app: {
+			invoke: (win, channel, args) => ipc.invoke(channel, agentCaller(win), args),
+			fire: (win, channel, args) => ipc.send(channel, agentCaller(win), args),
+			localize: (en, ko) => (getMainLanguage() === "ko" ? ko : en),
+		},
 	});
 
 	// Autopilot's coordinator (src/main/autopilot.ts): the tab hooks DeskTools calls and the frames the sidecar

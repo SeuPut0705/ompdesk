@@ -155,6 +155,7 @@ export function LiveStepPeek({
 	stoppedAt,
 	stepsListed = false,
 	summaryRow,
+	findings,
 	carriesContext = false,
 	todoSnapshots,
 	notes,
@@ -173,6 +174,8 @@ export function LiveStepPeek({
 	stepsListed?: boolean;
 	/** The group's summary row (counts, output meter, step-list toggle), carried in this card's head. */
 	summaryRow?: ReactNode;
+	/** A finished run's findings (failure cause, Changes), right under the head. */
+	findings?: ReactNode;
 	/** Only the transcript's live-tail group carries the session context. */
 	carriesContext?: boolean;
 	todoSnapshots?: readonly TodoSnapshot[];
@@ -677,6 +680,7 @@ export function LiveStepPeek({
 					) : null}
 				</div>
 			) : null}
+			{!nested ? findings : null}
 			{/* A silent command's stall, and how a run the reader watched ended: the head's mark and
 			    narrative state it visually, and neither is a live region. */}
 			<span className="sr-only" role="status">

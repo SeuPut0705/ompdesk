@@ -28,7 +28,9 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"background-task",
 	"startup-timing",
 	"turn-resume",
+	"ai-memory",
 	"main-thread-hang",
+	"web-reload",
 	"unknown",
 ]);
 

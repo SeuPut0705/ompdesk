@@ -51,6 +51,8 @@ export function useComposerDraft({
 	latest.current = { text, imageCount };
 	/** A session whose too-large draft was already announced. */
 	const announcedLarge = useRef<string | null>(null);
+	/** The latest draft's save: the composer leaving the screen (a crash at the root, a closed view) flushes it. */
+	const flush = useRef<(() => void) | null>(null);
 	useEffect(() => {
 		if (!draftStore || draftLoadedFor === draftStore.session || !browserStorage) return;
 		const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
@@ -66,7 +68,10 @@ export function useComposerDraft({
 	}, [draftStore, draftLoadedFor, runtimeTabId, t]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `imageCount` re-arms the pause; `save` reads the latest values
 	useEffect(() => {
-		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) return;
+		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) {
+			flush.current = null;
+			return;
+		}
 		const storage = browserStorage;
 		const save = () => {
 			const { text: current, imageCount: pictures } = latest.current;
@@ -76,6 +81,7 @@ export function useComposerDraft({
 				toast({ variant: "warning", message: t("input.draft.tooLarge") });
 			}
 		};
+		flush.current = save;
 		// A sent or cleared draft is dropped at once; typing is saved once it pauses, and before the page goes (a
 		// reload for missed events or an update may come right after an upload put its path in the draft).
 		const timer = setTimeout(save, text ? DRAFT_SAVE_MS : 0);
@@ -90,4 +96,6 @@ export function useComposerDraft({
 			document.removeEventListener("visibilitychange", onHidden);
 		};
 	}, [text, imageCount, draftStore, draftLoadedFor, t]);
+	// Unmounted with a save still pending (its timer and listeners just went): the text is kept now.
+	useEffect(() => () => flush.current?.(), []);
 }

@@ -14,9 +14,12 @@ import {
 	type PushRegistrationLike,
 	parsePushPayload,
 	pruneCaches,
+	RUNTIME_LIMITS,
 	respondToFetch,
+	runtimeCacheNameFor,
 	type ShellDeps,
 	selectPrecache,
+	trimRuntimeCache,
 	type WindowClientLike,
 } from "./sw-core";
 
@@ -201,7 +204,14 @@ class FakeCache implements CacheLike {
 		return this.store.get(key)?.clone();
 	}
 	async put(key: string, response: Response): Promise<void> {
+		this.store.delete(key);
 		this.store.set(key, response);
+	}
+	async keys(): Promise<readonly { url: string }[]> {
+		return [...this.store.keys()].map(url => ({ url }));
+	}
+	async delete(key: string): Promise<boolean> {
+		return this.store.delete(key);
 	}
 }
 
@@ -235,10 +245,13 @@ function shellDeps(overrides: Partial<ShellDeps> = {}) {
 		caches,
 		fetch: network,
 		origin: "https://mac.tail.ts.net:47831",
+		wait: async () => {},
 		...overrides,
 	};
 	return { deps, caches, network };
 }
+
+const ORIGIN = "https://mac.tail.ts.net:47831";
 
 const GET = (path: string, mode = "no-cors") => ({
 	method: "GET",
@@ -272,24 +285,76 @@ describe("shell cache", () => {
 		expect([...(caches.named.get(cacheNameFor("b1"))?.store.keys() ?? [])]).toEqual(["/assets/index-bbb.css"]);
 	});
 
-	it("deletes the caches of other builds and nothing else", async () => {
+	it("deletes the shell and asset caches of other builds and nothing else", async () => {
 		const { caches } = shellDeps();
 		await caches.open("omp-shell-old");
+		await caches.open("omp-assets-old");
 		await caches.open("omp-shell-b1");
+		await caches.open("omp-assets-b1");
 		await caches.open("someone-elses");
-		expect(await pruneCaches(caches, "b1")).toEqual(["omp-shell-old"]);
-		expect(await caches.keys()).toEqual(["omp-shell-b1", "someone-elses"]);
+		expect(await pruneCaches(caches, "b1")).toEqual(["omp-shell-old", "omp-assets-old"]);
+		expect(await caches.keys()).toEqual(["omp-shell-b1", "omp-assets-b1", "someone-elses"]);
 	});
 
-	it("answers a precached hashed asset from the cache, falling back to the network", async () => {
+	it("answers a precached hashed asset from the cache", async () => {
 		const { deps, network } = shellDeps();
 		await installShell(deps);
 		network.mockClear();
 		const hit = respondToFetch(GET("/assets/web-aaa.js"), deps);
 		expect(await (await hit)?.text()).toBe("net:/assets/web-aaa.js");
 		expect(network).not.toHaveBeenCalled();
-		const miss = respondToFetch(GET("/assets/lazy-ccc.js"), deps);
-		expect(miss).toBeNull();
+	});
+
+	// v0.38.1: a page loaded before the host updated asked for a lazy chunk the new build no longer has, and the
+	// worker had left lazy chunks to the network ("Importing a module script failed." at Lazy).
+	it("keeps every lazy chunk of its build as the page fetches it, and answers it from there after the host updated", async () => {
+		const { deps, caches, network } = shellDeps();
+		const background: Promise<unknown>[] = [];
+		const first = await respondToFetch(GET("/assets/PanelViews-ccc.js"), deps, promise => background.push(promise));
+		expect(await first?.text()).toBe(`net:${ORIGIN}/assets/PanelViews-ccc.js`);
+		await Promise.all(background);
+		expect([...(caches.named.get(runtimeCacheNameFor("b1"))?.store.keys() ?? [])]).toEqual([
+			"/assets/PanelViews-ccc.js",
+		]);
+		// The host now runs a newer build: the old chunk is gone from it.
+		network.mockResolvedValue(new Response("not found", { status: 404 }));
+		const later = await respondToFetch(GET("/assets/PanelViews-ccc.js"), deps);
+		expect(await later?.text()).toBe(`net:${ORIGIN}/assets/PanelViews-ccc.js`);
+	});
+
+	it("retries a failed asset fetch once, and never keeps an error or a partial answer", async () => {
+		const { deps, caches, network } = shellDeps();
+		network.mockRejectedValueOnce(new TypeError("Load failed"));
+		const response = await respondToFetch(GET("/assets/lazy-ddd.js"), deps);
+		expect(await response?.text()).toBe(`net:${ORIGIN}/assets/lazy-ddd.js`);
+		expect(network).toHaveBeenCalledTimes(2);
+		network.mockResolvedValue(new Response("gone", { status: 404 }));
+		const missing = await respondToFetch(GET("/assets/lazy-eee.js"), deps);
+		expect(missing?.status).toBe(404);
+		network.mockResolvedValue(new Response("part", { status: 206 }));
+		await respondToFetch(GET("/assets/media-fff.js"), deps);
+		expect([...(caches.named.get(runtimeCacheNameFor("b1"))?.store.keys() ?? [])]).toEqual(["/assets/lazy-ddd.js"]);
+	});
+
+	it("falls back to another build's copy of the same hashed file, and rejects only when nothing has it", async () => {
+		const { deps, caches, network } = shellDeps();
+		await (await caches.open(runtimeCacheNameFor("older"))).put("/assets/shared-ggg.js", new Response("kept"));
+		network.mockRejectedValue(new TypeError("Load failed"));
+		expect(await (await respondToFetch(GET("/assets/shared-ggg.js"), deps))?.text()).toBe("kept");
+		await expect(respondToFetch(GET("/assets/none-hhh.js"), deps)).rejects.toThrow("Load failed");
+	});
+
+	it("keeps the kept assets within their limits, oldest out first", async () => {
+		const cache = new FakeCache();
+		const sized = (bytes: number) => new Response("x", { headers: { "content-length": String(bytes) } });
+		await cache.put("/assets/a.js", sized(60));
+		await cache.put("/assets/b.js", sized(30));
+		await cache.put("/assets/c.js", sized(30));
+		expect(await trimRuntimeCache(cache, { maxBytes: 100, maxCount: 10 })).toBe(1);
+		expect([...cache.store.keys()]).toEqual(["/assets/b.js", "/assets/c.js"]);
+		expect(await trimRuntimeCache(cache, { maxBytes: 1000, maxCount: 1 })).toBe(1);
+		expect([...cache.store.keys()]).toEqual(["/assets/c.js"]);
+		expect(RUNTIME_LIMITS.maxBytes).toBeGreaterThan(PRECACHE_LIMITS.maxBytes);
 	});
 
 	it("serves a precached asset from the network when the cache lost it", async () => {

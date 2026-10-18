@@ -2,7 +2,8 @@
  * Skeleton — the shape of content that is still loading, so the layout does
  * not jump when it arrives. Prefer it to a Spinner wherever the final shape is
  * known (a list, a settings control); keep the Spinner for waits with no shape.
- * The shimmer stops under prefers-reduced-motion (global rule).
+ * Still: no shimmer or pulse (a loop repainted every frame it was up). It is for a first visit only; anything seen
+ * before paints from its last known state (lib/snapshot-cache.ts).
  *
  * - `Skeleton`: one hidden block; the caller sizes it with classes.
  * - `SkeletonRows`: a list placeholder (icon + text bar per row) announced
@@ -11,8 +12,8 @@
 
 import { cx } from "../../lib/format";
 
-export function Skeleton({ className }: { className?: string }) {
-	return <span aria-hidden className={cx("omp-skeleton block", className)} />;
+export function Skeleton({ className, style }: { className?: string; style?: React.CSSProperties }) {
+	return <span aria-hidden className={cx("omp-skeleton block", className)} style={style} />;
 }
 
 export function SkeletonRows({

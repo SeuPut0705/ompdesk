@@ -48,7 +48,7 @@ import type {
 	TabStatus,
 } from "../../shared/ipc-types";
 import { pathBaseName, worktreeKindOf } from "../../shared/project-origin";
-import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
+import { BLOCKING_UI_METHODS, type ExtensionUIRequest, type RpcSessionState } from "../../shared/rpc-types";
 import {
 	attachTabSession,
 	hydrateTabSession,
@@ -402,8 +402,11 @@ export interface TabsStore {
 	rememberedSplits: SplitLayout[];
 	/** Boot reconciliation with the main-process pool: the window's initial
 	 * sidecar arrives as tab 0 and must never be duplicated — entries merge by
-	 * id, preserving local flags (unreadDone, pendingSessionPath). */
-	reconcileTabs: () => Promise<boolean>;
+	 * id, preserving local flags (unreadDone, pendingSessionPath). Entries the
+	 * list doesn't name survive (a spawn reply raced it) unless `dropUnlisted`:
+	 * a web page catching up after a reconnect (web/resync-page.ts) takes the
+	 * host's list as the whole truth, since a restarted host gave its tabs new ids. */
+	reconcileTabs: (options?: { dropUnlisted?: boolean }) => Promise<boolean>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
 	 * Returns the tabId, or null when the tab cannot be opened. `kind` is immutable once
 	 * the tab's sidecar is spawned ("agent" default; "chat" = a conversation
@@ -477,7 +480,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	split: null,
 	rememberedSplits: [],
 
-	reconcileTabs: async () => {
+	reconcileTabs: async options => {
 		const listed = await window.omp.tabs.list().catch(() => null);
 		if (!listed) {
 			// Bridge down — the tab strip simply stays as it is and TAB_STATUS
@@ -487,6 +490,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A tab this window is closing is gone for it even while main still lists
 		// it (its release is in flight): reviving it would recreate its runtime.
 		const list = listed.filter(info => !isTabClosed(info.tabId));
+		const dropUnlisted = options?.dropUnlisted === true;
+		if (dropUnlisted) {
+			// Outside set(): dropping a runtime fires the focus listeners synchronously (see applyTabStatus).
+			const keep = new Set(list.map(info => info.tabId));
+			const gone = get().tabs.filter(tab => !keep.has(tab.id));
+			if (gone.length > 0) {
+				set(state => ({ tabs: state.tabs.filter(tab => keep.has(tab.id)) }));
+				for (const tab of gone) deleteSessionRuntime(tab.id);
+			}
+		}
 		// A paired web window starts with no tab (the host makes none for it, unlike a desktop window): without one the
 		// page would show a header and a spinner forever. It gets the same empty start tab a desktop window opens
 		// (no session until its first message), in the host's default workspace.
@@ -525,7 +538,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			});
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
 			// survive appended at the end.
-			const tabs = [...merged, ...leftovers.values()];
+			const tabs = dropUnlisted ? merged : [...merged, ...leftovers.values()];
 			const mainActiveTabId = list.find(info => info.active)?.tabId;
 			const activeTabId =
 				state.activeTabId && tabs.some(tab => tab.id === state.activeTabId)
@@ -1186,6 +1199,29 @@ export function endTabSignIn(tabId: string, error?: string | null): void {
 /** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. */
 export function restoreTabExtensionUiRequests(open: readonly IpcOpenExtensionRequest[]): void {
 	for (const { tabId, request, signIn } of open) pushTabExtensionUiRequest(tabId, request, signIn);
+}
+
+/**
+ * A web page catching up after a reconnect (web/resync-page.ts): `open` is everything main still waits on for this
+ * window. Shows what the page missed, and drops the cards of blocking asks (`BLOCKING_UI_METHODS`, the ones main
+ * holds) answered or withdrawn meanwhile (their `cancel` frame was among the missed events), except a sign-in's own
+ * requests, which end with the sign-in.
+ */
+export function settleTabExtensionUiRequests(open: readonly IpcOpenExtensionRequest[]): void {
+	restoreTabExtensionUiRequests(open);
+	const stillOpen = new Set(open.map(entry => entry.request.id));
+	for (const tab of useTabsStore.getState().tabs) {
+		const state = sessionRuntimeStore<ExtensionUiStore>(tab.id, "extensionUi")?.getState();
+		const stale = state?.pendingRequests.filter(
+			request =>
+				BLOCKING_UI_METHODS[request.method] === true &&
+				!stillOpen.has(request.id) &&
+				!Object.hasOwn(state.loginRequestIds, request.id),
+		);
+		if (!stale?.length) continue;
+		for (const request of stale) state?.removeRequest(request.id);
+		watchTabAwaitingInput(tab.id);
+	}
 }
 
 /** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */

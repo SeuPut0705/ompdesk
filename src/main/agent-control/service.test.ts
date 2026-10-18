@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
+	MAX_AGENT_AUTOPILOT_RUNS,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
 	MAX_OPENS_PER_TURN,
@@ -19,6 +21,7 @@ import { AgentLimits } from "./limits";
 import {
 	AgentControl,
 	type AgentControlHost,
+	type AutopilotSource,
 	type ControlAsk,
 	type ControlTab,
 	currentStep,
@@ -26,6 +29,7 @@ import {
 	renderMessage,
 	type ScheduleRow,
 	type ScheduleSource,
+	type ShipLevel,
 	type SpawnRequest,
 } from "./service";
 
@@ -159,6 +163,7 @@ class FakeHost implements AgentControlHost {
 	};
 	savedDrafts: ScheduleDraft[] = [];
 	schedules = () => this.scheduleSource;
+	autopilot: AutopilotSource | undefined;
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -1117,5 +1122,274 @@ describe("a table of several finished sessions", () => {
 		);
 		const result = await control(host).run("main0001", T.result, { sessions: ["work0002", "work0003"] });
 		expect(result.text).not.toContain("save one lesson");
+	});
+});
+
+describe("ompdesk_autopilot", () => {
+	const runStatus = (over: Partial<AutopilotStatus> = {}): AutopilotStatus => ({
+		active: true,
+		role: "parent",
+		state: "running",
+		cycle: 3,
+		branch: "autopilot/2026-10-18",
+		baseBranch: "main",
+		root: "/wt/ap",
+		now: { n: 3, area: "tests", title: "Cover the parser", startedAt: 1 },
+		redStreak: 1,
+		cycles: [
+			{ n: 1, area: "bugs", title: "Fix crash", verify: "green", commit: "abcdef1234567" },
+		] as AutopilotStatus["cycles"],
+		ship: {
+			policy: { autoPush: true, autoRelease: { on: false, cadence: { kind: "agent" } }, remote: "origin" },
+			queue: [{ id: "s1", kind: "push", state: "done", sha: "1234567890abc", at: 1 }],
+			release: { version: "1.2.3", state: "success", runUrl: "https://example.test/run/1" },
+		},
+		...over,
+	});
+
+	class Pilot implements AutopilotSource {
+		starts: { caller: string; source: string; options: AutopilotStartOptions }[] = [];
+		stops: { tab: string; now: boolean }[] = [];
+		statuses = new Map<string, AutopilotStatus>();
+		defaultShip: ShipLevel = "commit";
+		defaultBranch: string | null = "main";
+		failStart: string | null = null;
+		n = 0;
+		constructor(readonly host: FakeHost) {}
+		plan = async () => ({ defaultShip: this.defaultShip, defaultBranch: this.defaultBranch });
+		start = async (caller: string, source: string, options: AutopilotStartOptions) => {
+			if (this.failStart) throw new Error(this.failStart);
+			this.starts.push({ caller, source, options });
+			const tab = this.host.add({ tabId: `apr${++this.n}0000`, cwd: "/wt/ap", title: "Autopilot" });
+			this.statuses.set(tab.tabId, runStatus());
+			return { ...runStatus(), tabId: tab.tabId };
+		};
+		status = async (tabId: string) => this.statuses.get(tabId) ?? { active: false };
+		stop = async (tab: string, now: boolean) => {
+			this.stops.push({ tab, now });
+			const next = runStatus({ state: now ? "paused" : "stopping" });
+			this.statuses.set(tab, next);
+			return next;
+		};
+	}
+
+	function setup(...extra: Partial<FakeTab>[]) {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", cwd: "/repo" }, ...extra);
+		const pilot = new Pilot(host);
+		host.autopilot = pilot;
+		return { host, pilot, service: control(host) };
+	}
+
+	it("raises one card when manage is off and starts through the coordinator from the caller's own tab", async () => {
+		const { host, pilot, service } = setup();
+		const result = await service.run("main0001", T.autopilot, { action: "start" });
+		expect(result.isError).toBe(false);
+		expect(host.cards).toHaveLength(1);
+		expect(pilot.starts).toEqual([{ caller: "main0001", source: "main0001", options: {} }]);
+		expect(result.text).toContain("Started Autopilot in session apr10000");
+		expect(result.text).toContain("cycle 3");
+	});
+
+	it("asks nothing with manage on, but always for release and for the default branch", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		expect((await service.run("main0001", T.autopilot, { action: "start", ship: "push" })).isError).toBe(false);
+		expect(host.cards).toHaveLength(0);
+		await service.run("main0001", T.autopilot, { action: "start", ship: "release" });
+		expect(host.cards).toHaveLength(1);
+		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "trunk" } });
+		expect(host.cards).toHaveLength(1);
+		pilot.defaultBranch = "trunk";
+		const limited = control(host, new AgentLimits());
+		await limited.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "trunk" } });
+		expect(host.cards).toHaveLength(2);
+		await limited.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "main" } });
+		expect(host.cards).toHaveLength(3);
+	});
+
+	it("treats a stored release preference as release", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		pilot.defaultShip = "release";
+		await service.run("main0001", T.autopilot, { action: "start" });
+		expect(host.cards).toHaveLength(1);
+	});
+
+	it("does nothing when the user declines the card", async () => {
+		const { host, pilot, service } = setup();
+		host.cardAnswer = false;
+		const result = await service.run("main0001", T.autopilot, { action: "start" });
+		expect(result.text).toMatch(/declined/);
+		expect(pilot.starts).toHaveLength(0);
+		host.cardAnswer = true;
+		for (let i = 0; i < 2; i++)
+			expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
+	});
+
+	it("maps the parameters onto the start options and leaves omitted ones out", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		const result = await service.run("main0001", T.autopilot, {
+			action: "start",
+			guide: "# Guide",
+			ship: "release",
+			branch: { kind: "new", name: "autopilot/night" },
+			advanced: {
+				focus: ["tests", "docs"],
+				parallel: 2,
+				cadence: 4,
+				remote: "upstream",
+				notify: "cycles",
+				backlog: ["one", "two"],
+				limits: { cycles: 10, usd: 5 },
+			},
+		});
+		expect(result.isError).toBe(false);
+		expect(pilot.starts[0]?.options).toEqual({
+			preset: "release",
+			ship: { remote: "upstream", autoRelease: { on: true, cadence: { kind: "every", n: 4 } } },
+			guide: "# Guide",
+			branch: { kind: "new", name: "autopilot/night" },
+			focus: ["tests", "docs"],
+			maxParallel: 2,
+			notify: "cycles",
+			backlog: ["one", "two"],
+			limits: { cycles: 10, usd: 5 },
+		});
+		const bad = await service.run("main0001", T.autopilot, { action: "start", advanced: { cadence: 4 } });
+		expect(bad.text).toMatch(/cadence goes with ship release/);
+	});
+
+	it("starts from another local tab that has the folder open, and refuses a folder nothing has open", async () => {
+		const { host, pilot, service } = setup(
+			{ tabId: "other002", cwd: "/other" },
+			{ tabId: "remote03", cwd: "/far", deviceName: "Mac" },
+		);
+		host.manage = true;
+		await service.run("main0001", T.autopilot, { action: "start", folder: "/other/" });
+		expect(pilot.starts[0]?.source).toBe("other002");
+		const none = await service.run("main0001", T.autopilot, { action: "start", folder: "/nowhere" });
+		expect(none.isError).toBe(true);
+		expect(none.text).toMatch(/not open in a session/);
+		expect((await service.run("main0001", T.autopilot, { action: "start", folder: "/far" })).isError).toBe(true);
+		expect((await service.run("main0001", T.autopilot, { action: "start", folder: "relative" })).text).toMatch(
+			/absolute/,
+		);
+		expect(pilot.starts).toHaveLength(1);
+	});
+
+	it("keeps at most two agent-started runs live, counting a run again once it ended", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		for (let i = 0; i < MAX_AGENT_AUTOPILOT_RUNS; i++)
+			expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
+		const refused = await service.run("main0001", T.autopilot, { action: "start" });
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toMatch(/limit is 2/);
+		pilot.statuses.set("apr10000", runStatus({ state: "ended" }));
+		expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
+		expect(pilot.starts).toHaveLength(3);
+	});
+
+	it("gives a failed start back its slot and reports the readable reason", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		pilot.failStart = "This folder is not a git repository.";
+		for (let i = 0; i < 3; i++) {
+			const failed = await service.run("main0001", T.autopilot, { action: "start" });
+			expect(failed.isError).toBe(true);
+			expect(failed.text).toContain("not a git repository");
+		}
+		pilot.failStart = null;
+		expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
+	});
+
+	it("refuses a caller on a paired host, and a run that is stopping", async () => {
+		const { host, service } = setup({ tabId: "paired04", deviceName: "Mac", cwd: "/repo" });
+		const result = await service.run("paired04", T.autopilot, { action: "start" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/paired host/);
+		host.stopping.add("main0001");
+		expect((await service.run("main0001", T.autopilot, { action: "start" })).text).toMatch(/ending/);
+	});
+
+	it("shapes the status: state, cycle, current item, red streak, last commit, push and release", async () => {
+		const { host, service } = setup();
+		host.manage = true;
+		await service.run("main0001", T.autopilot, { action: "start" });
+		const status = await service.run("main0001", T.autopilot, { action: "status", session: "apr10000" });
+		expect(status.isError).toBe(false);
+		for (const part of [
+			"running; cycle 3",
+			'now: cycle 3 [tests] "Cover the parser"',
+			"red streak 1",
+			"last commit abcdef123 (cycle 1",
+			"last push done 123456789",
+			"last release 1.2.3 success https://example.test/run/1",
+			"ship level push",
+		])
+			expect(status.text).toContain(part);
+	});
+
+	it("reads a paused run's reason and refuses a session that is no run", async () => {
+		const { host, pilot, service } = setup({ tabId: "plain005", cwd: "/x" });
+		host.manage = true;
+		await service.run("main0001", T.autopilot, { action: "start" });
+		pilot.statuses.set(
+			"apr10000",
+			runStatus({ state: "paused", reason: "cycles", detail: "10 cycles done", now: undefined }),
+		);
+		const paused = await service.run("main0001", T.autopilot, { action: "status", session: "apr10000" });
+		expect(paused.text).toContain("paused (cycles: 10 cycles done)");
+		expect(paused.text).toContain("now: between cycles");
+		expect(paused.text).toContain("resumes it");
+		const plain = await service.run("main0001", T.autopilot, { action: "status", session: "plain005" });
+		expect(plain.isError).toBe(true);
+		expect(plain.text).toMatch(/not an Autopilot run/);
+	});
+
+	it("stops the end way by default and aborts with now, without a card for a run the caller started", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		await service.run("main0001", T.autopilot, { action: "start" });
+		host.manage = false;
+		const ended = await service.run("main0001", T.autopilot, { action: "stop", session: "apr10000" });
+		expect(ended.text).toContain("Ending: it finishes the cycle in flight");
+		pilot.statuses.set("apr10000", runStatus());
+		const now = await service.run("main0001", T.autopilot, { action: "stop", session: "apr10000", now: true });
+		expect(now.text).toContain("Stopped now");
+		expect(pilot.stops).toEqual([
+			{ tab: "apr10000", now: false },
+			{ tab: "apr10000", now: true },
+		]);
+		expect(host.cards).toHaveLength(0);
+	});
+
+	it("needs the manage setting to read another run and a card to stop it", async () => {
+		const { host, pilot, service } = setup({ tabId: "user0006", cwd: "/u", title: "User run" });
+		pilot.statuses.set("user0006", runStatus());
+		const read = await service.run("main0001", T.autopilot, { action: "status", session: "user0006" });
+		expect(read.isError).toBe(true);
+		expect(read.text).toMatch(/manage other sessions/);
+		host.cardAnswer = false;
+		const declined = await service.run("main0001", T.autopilot, { action: "stop", session: "user0006" });
+		expect(declined.text).toMatch(/declined/);
+		expect(pilot.stops).toHaveLength(0);
+		host.cardAnswer = true;
+		await service.run("main0001", T.autopilot, { action: "stop", session: "user0006" });
+		expect(host.cards).toHaveLength(2);
+		expect(pilot.stops).toEqual([{ tab: "user0006", now: false }]);
+		host.manage = true;
+		pilot.statuses.set("user0006", runStatus());
+		expect((await service.run("main0001", T.autopilot, { action: "status", session: "user0006" })).isError).toBe(
+			false,
+		);
+	});
+
+	it("counts the run among the sessions the caller opened (result, stop and compare see it)", async () => {
+		const { host, service } = setup();
+		host.manage = true;
+		await service.run("main0001", T.autopilot, { action: "start" });
+		expect(service.childrenOf("main0001")).toEqual(["apr10000"]);
 	});
 });

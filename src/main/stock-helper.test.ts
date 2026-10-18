@@ -105,7 +105,9 @@ describe("StockHelper request timeout", () => {
 			await expect(queued).rejects.toThrow(/timed out|restarted/);
 			await vi.waitFor(() => expect(gone(children[0])).toBe(true));
 			expect(warn).toHaveBeenCalledWith(expect.stringContaining("hung"));
-			await expect(helper.request("fast", {})).resolves.toBe("ok");
+			// A fresh worker starts here, and a request's timeout runs through its start: a cold `bun` on a
+			// Windows runner takes longer than the 150 ms this helper's hang detection runs on.
+			await expect(helper.request("fast", {}, { timeoutMs: 10_000 })).resolves.toBe("ok");
 			expect(children).toHaveLength(2);
 		} finally {
 			warn.mockRestore();

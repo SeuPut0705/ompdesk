@@ -15,8 +15,9 @@
  */
 
 import { ArrowLeft, Menu, PanelLeft, X } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ComponentType, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCompactShell, useDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
+import { lazyChunk } from "../../lib/chunk-load";
 import { activeComposerInput } from "../../lib/composer-focus";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
@@ -25,8 +26,7 @@ import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome"
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { type PageDestination, useUiStore } from "../../stores/ui";
-import { Button, IconButton, Spinner, Tooltip } from "../common";
-import type { SettingsPage as LoadedSettingsPage } from "../settings/SettingsPage";
+import { Button, IconButton, Skeleton, Tooltip } from "../common";
 import { PanelContainer, preloadPanelViews } from "./PanelContainer";
 import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 import { SplitWorkspace } from "./SplitWorkspace";
@@ -36,13 +36,47 @@ import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
 import { WhatsNewCard } from "./WhatsNewCard";
 
-const AgentsPage = lazy(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
-const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
-const SettingsPage = lazy(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
-/** Settings from the idle-time preload in AppShell, once it has loaded. */
-let preloadedSettingsPage: typeof LoadedSettingsPage | undefined;
+const AgentsPage = lazyChunk(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
+const InsightsPage = lazyChunk(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
+const SettingsPage = lazyChunk(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
+/**
+ * The pages once their chunk has loaded (the idle preload in AppShell, or the pointer reaching their button first):
+ * rendered directly, never through lazy()'s suspend and the ~300 ms Suspense throttle behind it. The same
+ * specifiers as the lazy() calls above, so each resolves to one module record.
+ */
+const loadedPages: Partial<Record<PageDestination, ComponentType>> = {};
+const PAGE_LOADERS: Record<PageDestination, () => Promise<ComponentType>> = {
+	agents: () => import("../agents/AgentsPage").then(m => m.AgentsPage),
+	insights: () => import("../insights/InsightsPage").then(m => m.InsightsPage),
+	settings: () => import("../settings/SettingsPage").then(m => m.SettingsPage),
+};
+
+/** A preload that fails is the open's to retry (lazyChunk); the chip reports a chunk that never loads. */
+function preloadPage(destination: PageDestination): Promise<void> {
+	return PAGE_LOADERS[destination]().then(
+		page => {
+			loadedPages[destination] = page;
+		},
+		() => {},
+	);
+}
+
+/** The button a pointer, a finger or the keyboard reaches for before it clicks: its page (or the panel's views) loads then. */
+function preloadForIntent(target: EventTarget | null): void {
+	const element = target instanceof Element ? target : null;
+	const destination = element
+		?.closest("[data-sidebar-destinations] [data-destination]")
+		?.getAttribute("data-destination");
+	if (destination === "agents" || destination === "insights" || destination === "settings") {
+		if (!loadedPages[destination]) void preloadPage(destination);
+		return;
+	}
+	if (element?.closest('[data-tour="panel"], [data-rail-pin]')) void preloadPanelViews();
+}
 /** How long a paired web page lets its first screen settle before the idle preloads start. */
 const WEB_PRELOAD_DELAY_MS = 5000;
+/** The longest an idle moment may take to come: every page is ready well before anyone opens one. */
+const IDLE_PRELOAD_TIMEOUT_MS = 3000;
 
 const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	agents: "destination.agents",
@@ -54,18 +88,48 @@ const PAGE_LABEL_KEY: Record<PageDestination, string> = {
  * Settings, from the preloaded module when there is one. Through lazy() the
  * first open suspends even with the chunk already loaded, and React holds the
  * revealed page back behind the fallback for its Suspense throttle (~300 ms).
- * Picked once per mount, so a preload landing while the page is open never
+ * Picked once per mount (keyed by the destination: each page is its own mount), so a preload landing while the page is open never
  * remounts it.
  */
-function SettingsDestination() {
-	const [Page] = useState(() => preloadedSettingsPage ?? SettingsPage);
-	return <Page />;
+function DestinationPage({ destination }: { destination: PageDestination }): ReactNode {
+	const [Page] = useState<ComponentType>(
+		() =>
+			loadedPages[destination] ??
+			(destination === "agents" ? AgentsPage : destination === "insights" ? InsightsPage : SettingsPage),
+	);
+	return (
+		<div className="omp-page-in flex min-h-0 flex-1 flex-col">
+			<Page />
+		</div>
+	);
 }
 
-function DestinationPage({ destination }: { destination: PageDestination }): ReactNode {
-	if (destination === "agents") return <AgentsPage />;
-	if (destination === "insights") return <InsightsPage />;
-	return <SettingsDestination />;
+/**
+ * What a page is before its chunk lands (only when the click beat every preload): its frame, still, in the
+ * page's own layout (a nav column and rows), so the page replaces it without moving anything.
+ */
+function PageFrameSkeleton() {
+	const t = useT();
+	return (
+		<div
+			aria-label={t("common.loading")}
+			className="flex min-h-0 flex-1 gap-8 px-8 py-6"
+			data-testid="page-skeleton"
+			role="status"
+		>
+			<div aria-hidden className="flex w-52 shrink-0 flex-col gap-2">
+				{[70, 56, 64, 48, 60, 52].map((width, index) => (
+					<Skeleton className="h-7" key={index} style={{ width: `${width}%` }} />
+				))}
+			</div>
+			<div aria-hidden className="flex min-w-0 max-w-2xl flex-1 flex-col gap-4">
+				<Skeleton className="h-6 w-1/3" />
+				{[92, 78, 86, 64, 80].map((width, index) => (
+					<Skeleton className="h-4" key={index} style={{ width: `${width}%` }} />
+				))}
+			</div>
+		</div>
+	);
 }
 
 /** Thin bar above a destination page: window drag area, sidebar toggle, back to the session. */
@@ -259,11 +323,9 @@ export function AppShell() {
 		const timer = setTimeout(
 			() => {
 				cancelIdle = whenIdle(() => {
-					void import("../settings/SettingsPage").then(module => {
-						preloadedSettingsPage = module.SettingsPage;
-					});
-					void preloadPanelViews();
-				}, 10_000);
+					for (const page of ["settings", "agents", "insights"] as const) void preloadPage(page);
+					void preloadPanelViews().catch(() => {});
+				}, IDLE_PRELOAD_TIMEOUT_MS);
 			},
 			document.documentElement.dataset.platform === "web" ? WEB_PRELOAD_DELAY_MS : 0,
 		);
@@ -287,7 +349,13 @@ export function AppShell() {
 	}, [onPage]);
 
 	return (
-		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebarVisible && !drawer ? "docked" : "hidden"}>
+		<div
+			className="omp-shell flex min-w-0 flex-1"
+			data-sidebar={sidebarVisible && !drawer ? "docked" : "hidden"}
+			onFocusCapture={event => preloadForIntent(event.target)}
+			onPointerOverCapture={event => preloadForIntent(event.target)}
+			onTouchStartCapture={event => preloadForIntent(event.target)}
+		>
 			{drawer
 				? drawerReady && (
 						<>
@@ -315,14 +383,8 @@ export function AppShell() {
 						tabIndex={-1}
 					>
 						<PageTopBar showSidebarToggle={!sidebarVisible} />
-						<Suspense
-							fallback={
-								<div className="flex flex-1 items-center justify-center">
-									<Spinner label={t("common.loading")} />
-								</div>
-							}
-						>
-							<DestinationPage destination={destination} />
+						<Suspense fallback={<PageFrameSkeleton />}>
+							<DestinationPage destination={destination} key={destination} />
 						</Suspense>
 					</section>
 				)}

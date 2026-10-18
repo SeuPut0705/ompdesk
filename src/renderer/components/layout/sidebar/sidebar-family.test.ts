@@ -130,7 +130,7 @@ describe("buildSubagentFamilyRows", () => {
 });
 
 describe("familyCounts", () => {
-	it("counts subagents, opened sessions, the running ones and what keeps the group open", () => {
+	it("counts subagents, opened sessions, the running ones and the ones waiting for the person", () => {
 		const roster = [
 			agent("a", 1, "running"),
 			agent("b", 2, "parked"),
@@ -141,14 +141,14 @@ describe("familyCounts", () => {
 			agents: 4,
 			sessions: 3,
 			running: 2,
-			active: 4,
+			waiting: 2,
 		});
 		// Hidden subagents count for nothing; the opened sessions stay.
 		expect(familyCounts(roster, [{ state: "idle" }], false)).toEqual({
 			agents: 0,
 			sessions: 1,
 			running: 0,
-			active: 0,
+			waiting: 0,
 		});
 	});
 });

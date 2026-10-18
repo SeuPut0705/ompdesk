@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.38.2] - 2026-10-18
+
+Mac에서 메모리(ai-memory)가 켜지지 않던 문제를 고쳤어요.
+
+### 고친 것
+- 설치한 Mac에서 서명된 ai-memory 실행 파일이 확인을 통과하지 못해 메모리가 시작되지 않던 것을 고쳤어요. 이제 OMPdesk의 서명 요건을 만족하는 파일만 받아들이고, 복사해 둔 파일은 내용이 같을 때만 믿어요.
+- 메모리가 각 단계와 실패를 기록하고, 설정에서 켜지지 않은 이유를 보여줘요.
+- Windows에서 새로 설치한 컴퓨터는 설정이 Bun을 준비할 때까지 메모리가 기다렸다가, Bun이 생기면 다시 설정해요. 첫 실행에서 메모리가 알아서 켜져요.
+- Windows에서 설정 명령이 실행 중에 컴파일하는 C# 코드 대신 Bun의 FFI로 시작돼서, 더 안정적으로 실행돼요.
+- 사이드바에서 하위 에이전트 묶음이 저절로 펼쳐지거나 접히지 않고, 기다리는 하위 에이전트만 보여요. 하위 에이전트 행은 처음 맡긴 작업의 제목을 유지해요.
+- 앱을 다시 켜서 하위 에이전트를 되살릴 때, 쉬고 있던 세션에 조용한 한 턴을 주고, 복원이 실패하면 이유를 기록해요.
+
+<!-- en -->
+
+Fixed memory (ai-memory) not starting on Mac.
+
+### Fixed
+- On an installed Mac, the signed ai-memory executable failed the verification check, so memory never started. It now accepts only a file that meets OMPdesk's signing requirement, and trusts a staged copy only when its bytes match.
+- Memory now logs each phase and failure, and Settings shows why it failed to start.
+- On a fresh Windows machine, memory waits until setup has Bun, then wires itself up again once Bun is there, so it turns on by itself on the first launch.
+- On Windows, setup commands start through Bun's FFI instead of C# code compiled at run time, so they run more reliably.
+- In the sidebar, subagent groups no longer open or fold by themselves; only a waiting child surfaces. Subagent rows keep the original assignment's title.
+- When a relaunch revives subagents, an idle session gets one quiet turn, and a failed restore logs why.
+
+## [0.38.1] - 2026-10-18
+
+휴대폰에서 사진이나 파일을 골라도 첨부되지 않던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰에서 사진이나 파일을 고르는 동안 페이지가 다시 불러와져 선택이 사라지던 것을 고쳤어요. 이제 선택 창이 열려 있는 동안에는 다시 불러오기를 기다려요.
+- Windows에서 ai-memory 서비스가 켜져 있으면 앱을 끄거나 업데이트할 때 멈추던 것을 고쳤어요.
+
+### 바뀐 것
+- 휴대폰의 + 메뉴에 "사진"(갤러리/카메라)과 "파일 첨부"가 생겼어요.
+- 이미지가 아닌 파일도 올려서 경로로 전달해요. 올리는 동안 진행 칩이 보이고, 실패하면 이유를 알려줘요.
+- 작업 막대가 시트나 가림막 없이 그 자리에서 펼쳐져서, 화면의 어떤 부분도 가리지 않아요.
+
+<!-- en -->
+
+Picking a photo or file on a phone no longer fails to attach.
+
+### Fixed
+- The page used to reload while a phone's photo or file picker was open, losing the pick. It now waits to reload while a picker is open.
+- On Windows, quitting or updating no longer hangs while ai-memory's service is running.
+
+### Changed
+- The phone's + menu now offers "Photos" (gallery/camera) and "Attach files".
+- Non-image files are uploaded and passed to the agent by path, with a progress chip and a worded error if it fails.
+- The work strip expands in place, with no sheet or scrim, so nothing is covered.
+
 ## [0.38.0] - 2026-10-18
 
 기억 기능(ai-memory)과 엔지니어링 모드(pstack)를 내장해서, 세션이 이어지고 더 꼼꼼하게 일해요.

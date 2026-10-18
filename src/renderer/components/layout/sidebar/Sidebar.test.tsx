@@ -26,6 +26,7 @@ import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
+import { resetSessionListFeeds } from "../../../stores/session-list";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -246,6 +247,7 @@ async function commitRenameInput(current: string, name: string): Promise<void> {
 }
 
 afterEach(async () => {
+	resetSessionListFeeds();
 	if (root) {
 		await act(async () => {
 			root.unmount();
@@ -262,7 +264,6 @@ afterEach(async () => {
 		expanded: new Set(),
 		hidden: new Set(),
 		present: new Set(),
-		active: new Set(),
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
@@ -1540,17 +1541,24 @@ describe("Sidebar subagents", () => {
 		await flush();
 	}
 
-	it("opens by itself while a subagent runs, with a summary chip on the session row that toggles the child rows", async () => {
+	it("stays folded while a subagent runs, with a summary chip on the session row that toggles the child rows", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
 
-		// The running subagent opened the family; the chip counts both, the finished one folds into "1 done".
+		// The running subagent does not open the family; the chip counts both and says one runs.
 		const toggle = disclosure();
 		expect(rowFor("Session /work/alpha/two").contains(toggle as unknown as Node)).toBe(true);
 		expect(toggle?.querySelector("[data-family-agents]")?.textContent).toBe("2");
 		expect(toggle?.querySelector("[data-family-running]")?.textContent).toBe("1");
-		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(subagentGroup()).toBeNull();
+		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
+
+		// The chip opens the rows without navigating away from the current session.
+		await fire(toggle, "onClick");
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
 		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
 		const next = rowFor("Session /work/alpha/two").nextElementSibling;
 		expect(next?.getAttribute("data-sidebar-subagents")).toBe(TWO);
@@ -1574,16 +1582,16 @@ describe("Sidebar subagents", () => {
 		expect(subagentGroup()).toBeNull();
 	});
 
-	it("clicking the current session row folds and unfolds its family rows", async () => {
+	it("clicking the current session row unfolds and folds its family rows", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(true);
 		await mount(<Sidebar />);
-		expect(subagentGroup()).not.toBeNull();
+		expect(subagentGroup()).toBeNull();
 
 		await fire(rowButton("Session /work/alpha/two"), "onClick");
-		expect(subagentGroup()).toBeNull();
-		await fire(rowButton("Session /work/alpha/two"), "onClick");
 		expect(subagentGroup()).not.toBeNull();
+		await fire(rowButton("Session /work/alpha/two"), "onClick");
+		expect(subagentGroup()).toBeNull();
 	});
 
 	it("ArrowLeft collapses and ArrowRight expands a session row with a family", async () => {
@@ -1599,22 +1607,27 @@ describe("Sidebar subagents", () => {
 		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
 	});
 
-	it("folds once the last subagent is done and opens again on the next fan-out", async () => {
+	it("leaves the family as the person left it when the last subagent is done and on the next fan-out", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
-		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(true);
+		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 
 		setSubagentStatus("aborted");
 		await flush();
 		expect(subagentGroup()).toBeNull();
-		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
 		expect(disclosure()?.querySelector("[data-family-running]")).toBeNull();
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 
 		setSubagentStatus("running");
 		await flush();
-		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
+		expect(subagentGroup()).toBeNull();
+
+		await fire(disclosure(), "onClick");
+		expect(subagentGroup()).not.toBeNull();
+		setSubagentStatus("aborted");
+		await flush();
 		expect(subagentGroup()).not.toBeNull();
 	});
 });
@@ -1640,7 +1653,13 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	 * lists (one named only by the message it was opened with, one by an unwrapped goal), a live worktree tab and a
 	 * plain session in the boss's own folder.
 	 */
-	function mountFamily(tabsExtra: Array<Record<string, unknown>> = []) {
+	function mountFamily({
+		tabsExtra = [],
+		open = true,
+	}: {
+		tabsExtra?: Array<Record<string, unknown>>;
+		open?: boolean;
+	} = {}) {
 		const omp = installMockOmp([
 			session("/wt/a.jsonl", WT_A, {
 				title: null,
@@ -1730,6 +1749,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			bundles: new Map(),
 		});
 		ensureTabRuntime("t1");
+		useSidebarSubagentsStore.setState({ expanded: open ? new Set([BOSS]) : new Set() });
 	}
 
 	const familyRows = () => [
@@ -1751,7 +1771,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
 		// Two of them work: the highlighted count.
 		expect(boss.querySelector("[data-family-running]")?.textContent).toBe("2");
-		// A session at work opened the family by itself, right under the boss's row.
+		// The family is open (the person opened it), right under the boss's row.
 		const group = boss.nextElementSibling;
 		expect(group?.getAttribute("data-sidebar-family")).toBe(BOSS);
 
@@ -1800,18 +1820,20 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	});
 
 	it("keeps a session whose opener is not in the list in its own group", async () => {
-		mountFamily([
-			{
-				id: "te",
-				cwd: "/work/beta",
-				status: "ready",
-				kind: "agent",
-				unreadDone: false,
-				sessionPath: "/work/beta/three.jsonl",
-				openedBy: "t-closed",
-				openedBySession: "/work/alpha/closed-boss.jsonl",
-			},
-		]);
+		mountFamily({
+			tabsExtra: [
+				{
+					id: "te",
+					cwd: "/work/beta",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/beta/three.jsonl",
+					openedBy: "t-closed",
+					openedBySession: "/work/alpha/closed-boss.jsonl",
+				},
+			],
+		});
 		await mount(<Sidebar />);
 		expect(familyRows().length).toBe(4);
 		const betaRows = [...container.querySelectorAll('[data-session-group="/work/beta"] .omp-sidebar-session-row')];
@@ -1819,19 +1841,26 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(betaRows[0]?.textContent).toContain("Session /work/beta/three");
 	});
 
-	it("folds when everything it opened is done, and the chip still counts them", async () => {
-		mountFamily();
+	it("starts folded, whatever runs, and stays as the person left it when everything it opened is done", async () => {
+		mountFamily({ open: false });
 		await mount(<Sidebar />);
+		const boss = rowFor("Session /work/alpha/two");
+		expect(boss.querySelector("[data-family-running]")?.textContent).toBe("2");
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.has(BOSS)).toBe(false);
+
+		await fire(boss.querySelector("[data-sidebar-subagents-toggle]"), "onClick");
+		expect(familyRows().length).toBe(4);
 		act(() => {
 			useTabsStore.setState(state => ({
 				tabs: state.tabs.map(tab => (tab.status === "running" ? { ...tab, status: "ready" } : tab)),
 			}));
 		});
 		await flush();
-		const boss = rowFor("Session /work/alpha/two");
 		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
 		expect(boss.querySelector("[data-family-running]")).toBeNull();
-		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+		// Opened by the person, so still open when the last one finishes.
+		expect(familyRows().length).toBe(4);
 	});
 
 	it("shows the boss's row, with its family, when only something it opened matches the filter", async () => {

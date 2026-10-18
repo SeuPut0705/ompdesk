@@ -11,6 +11,7 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { AiMemoryClient } from "./client";
+import { rootComplete } from "./root";
 import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
 import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
 import type { ServiceControl } from "./unit";
@@ -954,11 +955,13 @@ describe("AiMemoryService", () => {
 			});
 		});
 
-		it("a shipped binary that does not match the pin fails with that message and runs nothing", async () => {
+		it("Windows: a shipped binary that does not match the pin fails with that message and runs nothing", async () => {
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
-				await writeFile(join(shipped, "ai-memory"), "not the pinned build");
+				await writeFile(join(shipped, "ai-memory.exe"), "not the pinned build");
 				const { service, calls } = await make({
+					platform: "win32",
+					arch: "x64",
 					binaryOverride: null,
 					bundledDir: shipped,
 					externalProbe: async () => "0.0.1",
@@ -970,6 +973,125 @@ describe("AiMemoryService", () => {
 			} finally {
 				await rm(shipped, RM_TEMP);
 			}
+		});
+
+		it("macOS: a shipped binary re-signed with OMPdesk's certificate stages although its bytes differ from the pin", async () => {
+			// The 0.38.x macOS releases: mac-sign.cjs re-signs the nested binary after after-pack checked the pin, so its
+			// SHA-256 never matched at run time, staging failed on every launch and memory never started.
+			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+			try {
+				await writeFile(join(shipped, "ai-memory"), "the release, re-signed by the packager");
+				const checked: string[] = [];
+				const { service, calls, toolsDir, rootDir } = await make({
+					binaryOverride: null,
+					bundledDir: shipped,
+					externalProbe: async () => "0.0.1",
+					codeRequirement: async file => {
+						checked.push(file);
+						return null;
+					},
+				});
+				await service.start();
+				const staged = join(toolsDir, "ai-memory", AI_MEMORY_VERSION, "ai-memory");
+				expect(checked).toEqual([join(shipped, "ai-memory")]);
+				expect(service.state()).toMatchObject({ phase: "ready", source: "bundled", binary: staged });
+				expect(calls.every(call => call.file === staged)).toBe(true);
+				expect(await rootComplete(rootDir)).toBe(true);
+			} finally {
+				await rm(shipped, RM_TEMP);
+			}
+		});
+
+		it("macOS: a shipped binary that fails OMPdesk's signing requirement fails with codesign's reason and runs nothing", async () => {
+			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+			try {
+				await writeFile(join(shipped, "ai-memory"), "signed by someone else");
+				const { service, calls } = await make({
+					binaryOverride: null,
+					bundledDir: shipped,
+					externalProbe: async () => "0.0.1",
+					codeRequirement: async () => "test-requirement: code failed to satisfy specified code requirement(s)",
+				});
+				await service.start();
+				expect(service.state().phase).toBe("failed");
+				expect(service.state().detail).toMatch(
+					/is neither the pinned release .* nor signed with OMPdesk's certificate \(test-requirement: code failed to satisfy specified code requirement\(s\)\)\. Reinstall OMPdesk\.$/,
+				);
+				expect(calls).toEqual([]);
+			} finally {
+				await rm(shipped, RM_TEMP);
+			}
+		});
+
+		it.runIf(process.platform === "darwin")(
+			"macOS: by default the requirement is checked with the real codesign, so an unsigned shipped file is refused",
+			async () => {
+				const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+				try {
+					await writeFile(join(shipped, "ai-memory"), "not signed at all");
+					const { service, calls } = await make({
+						binaryOverride: null,
+						bundledDir: shipped,
+						externalProbe: async () => "0.0.1",
+					});
+					await service.start();
+					expect(service.state().phase).toBe("failed");
+					expect(service.state().detail).toMatch(/nor signed with OMPdesk's certificate \(.*not signed/s);
+					expect(calls).toEqual([]);
+				} finally {
+					await rm(shipped, RM_TEMP);
+				}
+			},
+		);
+	});
+
+	describe("the runtime log", () => {
+		it("logs the launch, the binary, every phase change, and a failure with the step it failed in", async () => {
+			const lines: { message: string; details: Record<string, unknown> }[] = [];
+			const { service, behavior } = await make({ log: (message, details) => lines.push({ message, details }) });
+			behavior.setup = () => ({ code: 1, output: "problem: launchd refused\n" });
+			await service.start();
+			expect(lines[0]).toEqual({
+				message: "launch",
+				details: {
+					enabled: true,
+					automatic: true,
+					platform: "darwin",
+					arch: "arm64",
+					bundledDir: null,
+					override: BIN,
+				},
+			});
+			expect(lines.find(line => line.message === "binary")?.details).toMatchObject({ source: "bundled", bin: BIN });
+			expect(lines.filter(line => line.message === "phase").map(line => line.details.phase)).toEqual([
+				"starting",
+				"starting",
+				"failed",
+			]);
+			expect(lines.find(line => line.message === "failed")?.details).toEqual({
+				step: "wire",
+				detail: "setup failed: launchd refused",
+				stack: null,
+			});
+			// The service does not log what did not change (stats, wiring): a retry that gets ready adds its own lines.
+			behavior.setup = () => ({ code: 0, output: "setup done\n" });
+			await service.retry();
+			expect(lines.at(-1)).toMatchObject({ message: "phase", details: { phase: "ready", from: "starting" } });
+		});
+
+		it("start() never rejects: an unexpected error becomes the failed phase with Try again, and is logged with its stack", async () => {
+			const lines: { message: string; details: Record<string, unknown> }[] = [];
+			const { service } = await make({
+				log: (message, details) => lines.push({ message, details }),
+				agentDir: () => {
+					throw new Error("agent dir unreadable");
+				},
+			});
+			await expect(service.start()).resolves.toBeUndefined();
+			expect(service.state()).toMatchObject({ enabled: true, phase: "failed", detail: "agent dir unreadable" });
+			const failed = lines.find(line => line.message === "failed");
+			expect(failed?.details.detail).toBe("agent dir unreadable");
+			expect(String(failed?.details.stack)).toContain("agent dir unreadable");
 		});
 	});
 
@@ -1000,11 +1122,22 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a missing root is healed by running setup and the generators again", async () => {
-			const { service, rootDir, commands } = await make();
+			// The state the service reports, not a clock: the root seen gone, then ready with it back.
+			const healed = Promise.withResolvers<void>();
+			let removed = false;
+			let sawGone = false;
+			const { service, rootDir, commands } = await make({
+				onState: snapshot => {
+					if (!removed) return;
+					if (!snapshot.wiring.app) sawGone = true;
+					else if (sawGone && snapshot.phase === "ready") healed.resolve();
+				},
+			});
 			await service.start();
+			removed = true;
 			await rm(rootDir, { recursive: true });
-			await vi.waitFor(() => expect(commands().filter(command => command === SETUP)).toHaveLength(2));
-			await vi.waitFor(() => expect(service.state()).toMatchObject({ phase: "ready", wiring: { app: true } }));
+			await healed.promise;
+			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
 		});
 
@@ -1079,6 +1212,67 @@ describe("AiMemoryService", () => {
 			clock.now += 6_000;
 			await service.refresh();
 			expect(calls()).toBeGreaterThan(afterFirst);
+		});
+	});
+
+	describe("Bun (Windows starts setup through it)", () => {
+		it("without Bun no command runs and the state says why; the setup reporting Bun wires it, once, without a Try again", async () => {
+			const bun = { present: false };
+			const phases: string[] = [];
+			const ready = Promise.withResolvers<void>();
+			const { service, commands } = await make({
+				bunPresent: async () => bun.present,
+				onState: snapshot => {
+					phases.push(snapshot.phase);
+					if (snapshot.phase === "ready") ready.resolve();
+				},
+			});
+			await service.start();
+			expect(service.state()).toMatchObject({ phase: "failed", detail: expect.stringMatching(/Waiting for Bun/) });
+			expect(commands()).toEqual([]);
+			bun.present = true;
+			// Every setup state from now on reports Bun present: only the first one runs the wiring again.
+			service.bunInstalled();
+			service.bunInstalled();
+			await ready.promise;
+			service.bunInstalled();
+			expect(service.state().phase).toBe("ready");
+			expect(phases.indexOf("failed")).toBeLessThan(phases.indexOf("ready"));
+			expect(commands().filter(command => command === PLAN)).toHaveLength(1);
+			expect(commands().filter(command => command === SETUP)).toHaveLength(1);
+		});
+
+		it("Bun still missing when it runs again waits again, and the next report runs it", async () => {
+			const bun = { present: false, asked: 0 };
+			const ready = Promise.withResolvers<void>();
+			const { service, commands } = await make({
+				bunPresent: async () => {
+					bun.asked++;
+					return bun.present;
+				},
+				onState: snapshot => {
+					if (snapshot.phase === "ready") ready.resolve();
+				},
+			});
+			await service.start();
+			// A user's Try again before the setup installed Bun: the same wait, nothing run.
+			await service.retry();
+			expect(bun.asked).toBe(2);
+			expect(service.state().phase).toBe("failed");
+			expect(commands()).toEqual([]);
+			bun.present = true;
+			service.bunInstalled();
+			await ready.promise;
+			expect(commands().filter(command => command === SETUP)).toHaveLength(1);
+		});
+
+		it("a report of Bun nobody waited for runs nothing", async () => {
+			const { service, commands } = await make({ bunPresent: async () => true });
+			await service.start();
+			const before = commands();
+			service.bunInstalled();
+			expect(service.state().phase).toBe("ready");
+			expect(commands()).toEqual(before);
 		});
 	});
 });

@@ -85,27 +85,24 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 		);
 	}
 
-	// Depth via walk-up with cycle protection; a cycle re-attaches the node to the root.
-	const depthOf = new Map<string, number>([[SESSION_ROOT_ID, 0]]);
+	// A parent cycle re-attaches the node that closes it to the root: walk up once per chain, marking as we go, so
+	// the pass stays linear on a long unbranched session (one walk per entry was quadratic).
+	const settled = new Set<string>([SESSION_ROOT_ID]);
 	for (const entry of entries) {
-		const seen = new Set<string>([entry.entryId]);
+		const path: string[] = [];
+		const onPath = new Set<string>();
 		let cursor = entry.entryId;
-		let hops = 0;
-		let cycled = false;
-		while (cursor !== SESSION_ROOT_ID) {
-			const parent = parentOf.get(cursor) ?? SESSION_ROOT_ID;
-			if (parent !== SESSION_ROOT_ID) {
-				if (seen.has(parent)) {
-					cycled = true;
-					break;
-				}
-				seen.add(parent);
+		while (!settled.has(cursor)) {
+			if (onPath.has(cursor)) {
+				// `cursor` closes a cycle: hang it off the root, which settles the whole path.
+				parentOf.set(cursor, SESSION_ROOT_ID);
+				break;
 			}
-			cursor = parent;
-			hops++;
+			onPath.add(cursor);
+			path.push(cursor);
+			cursor = parentOf.get(cursor) ?? SESSION_ROOT_ID;
 		}
-		if (cycled) parentOf.set(entry.entryId, SESSION_ROOT_ID);
-		depthOf.set(entry.entryId, cycled ? 1 : hops);
+		for (const id of path) settled.add(id);
 	}
 
 	const childrenOf = new Map<string, string[]>();
@@ -116,28 +113,37 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 		else childrenOf.set(parent, [entry.entryId]);
 	}
 
-	// Tidy columns: leaves take successive x slots; internal nodes center on children.
+	// Depth top-down, then tidy columns bottom-up: leaves take successive x slots in wire order and internal nodes
+	// centre on their children. Both passes use an explicit stack: a session thousands of entries deep is one chain,
+	// and a recursive walk ran out of call stack on it (v0.36.1, a phone's "Maximum call stack size exceeded").
+	const depthOf = new Map<string, number>([[SESSION_ROOT_ID, 0]]);
+	const order: string[] = [];
+	const pending = [SESSION_ROOT_ID];
+	while (pending.length > 0) {
+		const id = pending.pop() as string;
+		order.push(id);
+		const kids = childrenOf.get(id) ?? [];
+		const depth = (depthOf.get(id) ?? 0) + 1;
+		// Reversed, so the first child is visited first and leaves are met in wire order.
+		for (let index = kids.length - 1; index >= 0; index--) {
+			const kid = kids[index] as string;
+			depthOf.set(kid, depth);
+			pending.push(kid);
+		}
+	}
 	let leafCount = 0;
 	const slotOf = new Map<string, number>();
-	const place = (id: string): number => {
-		const kids = childrenOf.get(id) ?? [];
-		if (kids.length === 0) {
-			const slot = leafCount++;
-			slotOf.set(id, slot);
-			return slot;
-		}
-		let first = Number.POSITIVE_INFINITY;
-		let last = Number.NEGATIVE_INFINITY;
-		for (const kid of kids) {
-			const slot = place(kid);
-			first = Math.min(first, slot);
-			last = Math.max(last, slot);
-		}
-		const slot = (first + last) / 2;
-		slotOf.set(id, slot);
-		return slot;
-	};
-	place(SESSION_ROOT_ID);
+	for (const id of order) {
+		if (!childrenOf.has(id)) slotOf.set(id, leafCount++);
+	}
+	for (let index = order.length - 1; index >= 0; index--) {
+		const id = order[index] as string;
+		const kids = childrenOf.get(id);
+		if (!kids) continue;
+		const first = slotOf.get(kids[0] as string) ?? 0;
+		const last = slotOf.get(kids.at(-1) as string) ?? 0;
+		slotOf.set(id, (first + last) / 2);
+	}
 
 	const colPitch = TREE_NODE_WIDTH + TREE_GAP_X;
 	const rowPitch = TREE_NODE_HEIGHT + TREE_GAP_Y;

@@ -88,10 +88,13 @@ export function ModelPicker() {
 	const load = useCallback(
 		async (forceRefresh: boolean, failedCopy?: string): Promise<void> => {
 			const version = ++requestVersion.current;
-			setLoading(true);
+			// The list the store already holds (this session's, or the last run's snapshot) stays on screen and the
+			// read replaces it in place: the wait only shows when nothing is known yet.
+			const known = useModelStore.getState().availableModels.length > 0;
+			setLoading(!known);
 			setError(null);
 			if (!sidecarReady) {
-				setError({ message: t("modelPicker.notConnected") });
+				if (!known) setError({ message: t("modelPicker.notConnected") });
 				setLoading(false);
 				return;
 			}

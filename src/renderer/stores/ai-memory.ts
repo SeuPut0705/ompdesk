@@ -5,6 +5,9 @@
 
 import { create } from "zustand";
 import type { AiMemoryState } from "../../shared/ai-memory";
+import { lastRead, rememberRead } from "../lib/last-read";
+
+const LAST_KEY = "ai-memory";
 
 interface AiMemoryStore {
 	state: AiMemoryState | null;
@@ -15,11 +18,17 @@ interface AiMemoryStore {
 let unsubscribe: (() => void) | null = null;
 
 export const useAiMemoryStore = create<AiMemoryStore>()(set => ({
-	state: null,
+	// The last state this device saw (the page's frame and rows at once); the read below replaces it in place.
+	state: lastRead<AiMemoryState>(undefined, LAST_KEY) ?? null,
 	load: async () => {
 		try {
-			unsubscribe ??= window.omp.aiMemory.onState(state => set({ state }));
-			set({ state: await window.omp.aiMemory.getState() });
+			unsubscribe ??= window.omp.aiMemory.onState(state => {
+				rememberRead(undefined, LAST_KEY, state);
+				set({ state });
+			});
+			const state = await window.omp.aiMemory.getState();
+			rememberRead(undefined, LAST_KEY, state);
+			set({ state });
 		} catch {
 			// The views keep what they have; the next open reads again.
 		}

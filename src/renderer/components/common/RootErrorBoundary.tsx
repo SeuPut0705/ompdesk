@@ -1,6 +1,9 @@
 import { Component, type ReactNode, useEffect, useState } from "react";
 import { buildIssueUrl } from "../../../shared/feedback";
+import { isChunkLoadError, useChunkFailureStore } from "../../lib/chunk-load";
 import { translate } from "../../lib/i18n";
+import { reloadPage } from "../../lib/page-reload";
+import { webRuntime } from "../../web/runtime";
 
 interface RootErrorBoundaryProps {
 	children: ReactNode;
@@ -24,6 +27,11 @@ function reportOnGithub(error: Error): void {
 			),
 		)
 		.catch(() => {});
+}
+
+/** A chunk-load failure on a paired web page (a desktop window loads its files locally and never meets one). */
+function staleWebPage(error: unknown): boolean {
+	return webRuntime() !== null && isChunkLoadError(error);
 }
 
 interface RootErrorBoundaryState {
@@ -57,7 +65,7 @@ function RootErrorFallback({ error }: { error: Error }) {
 				<div className="mt-5 flex items-center gap-2">
 					<button
 						type="button"
-						onClick={() => window.location.reload()}
+						onClick={() => reloadPage("error-boundary")}
 						className="omp-pressable rounded-lg bg-(--omp-btn-primary-bg) px-4 py-2 text-xs font-semibold text-(--omp-btn-primary-text) hover:brightness-110"
 					>
 						{translate("appError.reload")}
@@ -82,7 +90,16 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
 		return { error: error instanceof Error ? error : new Error(String(error)) };
 	}
 
+	componentDidCatch(error: unknown): void {
+		if (staleWebPage(error)) useChunkFailureStore.setState({ failed: true, appGone: true });
+	}
+
 	render(): ReactNode {
-		return this.state.error ? <RootErrorFallback error={this.state.error} /> : this.props.children;
+		const { error } = this.state;
+		if (!error) return this.props.children;
+		// A paired page older than the computer's update lost a chunk of its build: no bug and nothing to ask the user.
+		// The page stays quiet until the update gate reloads it (web-boot.ts, lib/chunk-load.ts).
+		if (staleWebPage(error)) return <main className="h-full w-full" data-app-stale="" />;
+		return <RootErrorFallback error={error} />;
 	}
 }

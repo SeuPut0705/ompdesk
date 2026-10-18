@@ -143,7 +143,7 @@ export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number
 	const outcome = useMemo(() => {
 		const entries: WorkEvidence[] = toolCallIds.flatMap(id => {
 			const entry = selectToolEntry(tools.getState(), id);
-			return entry ? [entry] : [];
+			return entry ? [{ entry, toolCallId: id }] : [];
 		});
 		for (const agent of agents) {
 			for (const entry of subagents.getState().surfaces.get(agent.id)?.getState().finishedTools.values() ?? [])

@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../../shared/ui-language";
+import { loadChunk } from "./chunk-load";
 
 export type Locale = Record<string, string>;
 export type Lang = UiLanguage;
@@ -16,11 +17,18 @@ const LOCALE_CHUNKS: Record<Lang, () => Promise<Locale>> = {
 };
 const pendingLocales: Partial<Record<Lang, Promise<void>>> = {};
 
+/** A load that failed (twice: `loadChunk`) is forgotten, so the next use tries again instead of failing forever. */
 export function loadLocale(lang: Lang): Promise<void> {
 	if (LOCALES[lang]) return Promise.resolve();
-	pendingLocales[lang] ??= LOCALE_CHUNKS[lang]().then(locale => {
-		LOCALES[lang] = locale;
-	});
+	pendingLocales[lang] ??= loadChunk(LOCALE_CHUNKS[lang]).then(
+		locale => {
+			LOCALES[lang] = locale;
+		},
+		(error: unknown) => {
+			delete pendingLocales[lang];
+			throw error;
+		},
+	);
 	return pendingLocales[lang];
 }
 

@@ -14,6 +14,7 @@ import {
 	assignmentHeadline,
 	assignmentTitle,
 	stripTitlePrefix,
+	unwrapStockPrompt,
 } from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
@@ -107,15 +108,16 @@ export function registerTranscriptToolCalls(agentId: string, messages: AgentMess
 
 /** Human task label used consistently by the sidebar rows, the agents page, and the transcript sheet. */
 export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): string {
-	// The assignment's own `Title:` line (the person's reply language) comes first; otherwise `description` is
-	// the sidecar's tiny-model UI label. `assignment` is the
-	// complete delegated prompt and may include markdown/system scaffolding, so
-	// it belongs in the transcript rather than the compact row heading.
+	// The ORIGINAL assignment's `Title:` line (the person's reply language) comes first; otherwise `description` is
+	// the sidecar's tiny-model UI label. `assignment` is the complete delegated prompt and may include
+	// markdown/system scaffolding, so only its headline is used. `task` is a run's own message: the wrapped original
+	// on the first run and after a restart's revival (unwrapped here), but a follow-up message to an idle subagent
+	// afterwards, which is never a name: with nothing else, the row reads as its role.
+	const assignment = agent.assignment ?? unwrapStockPrompt(agent.task);
 	const raw =
-		assignmentTitle(agent.assignment) ??
+		assignmentTitle(assignment) ??
 		(agent.description ? stripTitlePrefix(agent.description) : undefined) ??
-		assignmentHeadline(agent.assignment) ??
-		assignmentHeadline(agent.task) ??
+		assignmentHeadline(assignment) ??
 		agent.agent;
 	const text = raw.trim() || agent.agent;
 	return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;

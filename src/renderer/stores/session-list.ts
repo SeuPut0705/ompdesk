@@ -19,6 +19,7 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { SessionInfo } from "../../shared/ipc-types";
+import { snapshotNs, snapshots } from "../lib/snapshot-cache";
 
 export type SessionListScope = "local" | "global";
 
@@ -41,6 +42,14 @@ export interface SessionListFeed {
 const REFRESH_DEBOUNCE_MS = 350;
 
 const INITIAL_STATE: SessionListState = { sessions: [], isLoading: true, error: null };
+/** The index is the newest rows only: the sidebar groups and pages what it shows, and the live read brings the rest. */
+const SNAPSHOT_ROWS = 150;
+const SNAPSHOT_DELAY_MS = 1500;
+
+/** The last list this device showed for the feed (the last known state: painted at once, replaced by the live read). */
+function snapshotKey(scope: SessionListScope): string {
+	return scope;
+}
 
 function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo[] {
 	const byPath = new Map(previous.map(session => [session.path, session]));
@@ -61,8 +70,23 @@ function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo
 	return changed ? next : previous;
 }
 
+/** Feeds someone shows right now (`retain`ed). */
+const heldRefreshes = new Set<() => void>();
+
 function createSessionListFeed(scope: SessionListScope, device: string | undefined): SessionListFeed {
-	const store = createStore<SessionListState>()(() => INITIAL_STATE);
+	const ns = snapshotNs(device);
+	const seeded = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey(scope))?.value;
+	const store = createStore<SessionListState>()(() =>
+		Array.isArray(seeded) && seeded.length > 0 ? { sessions: seeded, isLoading: false, error: null } : INITIAL_STATE,
+	);
+	let saveTimer: number | undefined;
+	const remember = () => {
+		window.clearTimeout(saveTimer);
+		saveTimer = window.setTimeout(
+			() => snapshots().write("sessions", ns, snapshotKey(scope), store.getState().sessions.slice(0, SNAPSHOT_ROWS)),
+			SNAPSHOT_DELAY_MS,
+		);
+	};
 	let holders = 0;
 	/** Bumped when the last holder lets go: answers to older reads are dropped. */
 	let generation = 0;
@@ -73,7 +97,8 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	let unsubscribe: (() => void) | null = null;
 
 	const refresh = (showSpinner = false): void => {
-		if (showSpinner && !loaded && !store.getState().isLoading) store.setState({ isLoading: true });
+		if (showSpinner && !loaded && !store.getState().isLoading && store.getState().sessions.length === 0)
+			store.setState({ isLoading: true });
 		if (inFlight) {
 			queued = true;
 			return;
@@ -89,6 +114,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 					const sessions = reconcile(state.sessions, list);
 					if (sessions !== state.sessions || state.isLoading || state.error !== null)
 						store.setState({ sessions, isLoading: false, error: null });
+					if (sessions !== state.sessions || !state.error) remember();
 				},
 				(cause: unknown) => {
 					// A read that never answered is not a read that found nothing — the
@@ -114,6 +140,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 				debounceTimer = window.setTimeout(() => refresh(), REFRESH_DEBOUNCE_MS);
 			});
 			refresh(true);
+			heldRefreshes.add(refresh);
 		}
 		return () => {
 			holders--;
@@ -121,12 +148,14 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 			window.clearTimeout(debounceTimer);
 			unsubscribe?.();
 			unsubscribe = null;
-			// Nobody shows the list: forget it, so the next holder loads it fresh.
+			heldRefreshes.delete(refresh);
+			// Nobody shows the list: it keeps the last rows (the next holder paints them at once) and
+			// reads again in place; answers to the read that was in flight are dropped.
 			generation++;
 			loaded = false;
 			inFlight = false;
 			queued = false;
-			store.setState(INITIAL_STATE, true);
+			if (store.getState().isLoading || store.getState().error) store.setState({ isLoading: false, error: null });
 		};
 	};
 
@@ -161,4 +190,14 @@ export function sessionListFeed(scope: SessionListScope, device?: string): Sessi
 	const feed = feeds.get(key) ?? createSessionListFeed(scope, device);
 	feeds.set(key, feed);
 	return feed;
+}
+
+/** Read every shown list again: a web page whose link dropped missed the SESSIONS_CHANGED pushes (web/resync-page.ts). */
+export function refreshHeldSessionLists(): void {
+	for (const refresh of heldRefreshes) refresh();
+}
+
+/** Tests: forget every feed, so rows kept from an earlier mount cannot leak into the next. */
+export function resetSessionListFeeds(): void {
+	feeds.clear();
 }

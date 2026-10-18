@@ -16,8 +16,10 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, win32 } from "node:path";
+import { findOnPath } from "../spawn";
+import { bunInstallDir } from "./paths";
 import type { SpawnSpec } from "./plans";
 
 export const SUPERVISOR_SPEC_ENV = "OMPDESK_SETUP_SPEC";
@@ -110,149 +112,135 @@ export function quoteWindowsArg(arg: string): string {
 }
 
 /**
- * Windows' isolated launch: PowerShell starts the command with `CreateProcess` and an explicit handle list
- * (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`), so it inherits NUL and the log file and nothing else, no window
- * (`CREATE_NO_WINDOW`), then waits and exits with its code (127 when it could not start). A plain spawn cannot do
- * this: libuv (Node's `spawn`) creates every child with `bInheritHandles`, so it inherits every inheritable handle of
- * its parent, and Electron keeps its main process's stdio inheritable — a launcher's pipes (Playwright's, a
- * script's) reach the supervisor and through it any command it starts. A descendant that outlives the app (ai-memory's
- * service host, started by `setup` with Rust's `Command`, also `bInheritHandles`) would hold them, and the app's own
- * pipes to the supervisor, open for as long as it runs.
+ * Windows' isolated launch, run by Bun (`bun -e`, `bun:ffi` calling kernel32; no compiler, no PowerShell): it starts
+ * the command with `CreateProcessW` and an explicit handle list (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`), so it inherits
+ * NUL and the log file and nothing else, with no window (`CREATE_NO_WINDOW`) and the environment it was given, then
+ * waits and exits with its code (127 when it could not start). A plain spawn cannot do this: libuv (Node's `spawn`)
+ * creates every child with `bInheritHandles`, so it inherits every inheritable handle of its parent, and Electron keeps
+ * its main process's stdio inheritable — a launcher's pipes (Playwright's, a script's) reach the supervisor as stray
+ * handles no API names, and through it any command it starts. A descendant that outlives the app (ai-memory's service
+ * host, started by `setup` with Rust's `Command`, also `bInheritHandles`) would hold them, and the app's own pipes to
+ * the supervisor, open for as long as it runs. The command comes from `OMPDESK_ISOLATED` (`{application,
+ * commandLine, log}` JSON), which the command's own environment leaves out.
  */
-const ISOLATED_LAUNCHER = [
-	"$ErrorActionPreference = 'Stop'",
-	"try {",
-	"$application = $env:OMPDESK_ISOLATED_APP",
-	"$commandLine = $env:OMPDESK_ISOLATED_COMMAND_LINE",
-	"$log = $env:OMPDESK_ISOLATED_LOG",
-	"Remove-Item -Path Env:OMPDESK_ISOLATED_APP, Env:OMPDESK_ISOLATED_COMMAND_LINE, Env:OMPDESK_ISOLATED_LOG",
-	"Add-Type -TypeDefinition @'",
-	"using System;",
-	"using System.ComponentModel;",
-	"using System.Runtime.InteropServices;",
-	"using System.Text;",
-	"public static class OmpdeskIsolatedLaunch {",
-	"	[StructLayout(LayoutKind.Sequential)]",
-	"	struct StartupInfo {",
-	"		public int cb;",
-	"		public IntPtr reserved, desktop, title;",
-	"		public int x, y, xSize, ySize, xCountChars, yCountChars, fillAttribute, flags;",
-	"		public short showWindow, reserved2Size;",
-	"		public IntPtr reserved2, stdInput, stdOutput, stdError;",
-	"	}",
-	"	[StructLayout(LayoutKind.Sequential)]",
-	"	struct StartupInfoEx { public StartupInfo startupInfo; public IntPtr attributeList; }",
-	"	[StructLayout(LayoutKind.Sequential)]",
-	"	struct ProcessInformation { public IntPtr process, thread; public int processId, threadId; }",
-	"	[StructLayout(LayoutKind.Sequential)]",
-	"	struct SecurityAttributes { public int length; public IntPtr descriptor; public int inherit; }",
-	'	[DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]',
-	"	static extern IntPtr CreateFileW(string name, uint access, uint share, ref SecurityAttributes attributes, uint disposition, uint flags, IntPtr template);",
-	'	[DllImport("kernel32.dll", SetLastError = true)]',
-	"	static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref IntPtr size);",
-	'	[DllImport("kernel32.dll", SetLastError = true)]',
-	"	static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);",
-	'	[DllImport("kernel32.dll")]',
-	"	static extern void DeleteProcThreadAttributeList(IntPtr list);",
-	'	[DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]',
-	"	static extern bool CreateProcessW(string application, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref StartupInfoEx startupInfo, out ProcessInformation information);",
-	'	[DllImport("kernel32.dll", SetLastError = true)]',
-	"	static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);",
-	'	[DllImport("kernel32.dll", SetLastError = true)]',
-	"	static extern bool GetExitCodeProcess(IntPtr process, out uint code);",
-	'	[DllImport("kernel32.dll", SetLastError = true)]',
-	"	static extern bool CloseHandle(IntPtr handle);",
-	"	static IntPtr Open(string name, uint access, uint disposition) {",
-	"		SecurityAttributes attributes = new SecurityAttributes();",
-	"		attributes.length = Marshal.SizeOf(typeof(SecurityAttributes));",
-	"		attributes.inherit = 1;",
-	"		// Shared for reading, writing and deleting: the supervisor reads and removes the log while a descendant holds it.",
-	"		IntPtr handle = CreateFileW(name, access, 7, ref attributes, disposition, 0x80, IntPtr.Zero);",
-	"		if (handle == new IntPtr(-1)) throw new Win32Exception();",
-	"		return handle;",
-	"	}",
-	"	public static int Run(string application, string commandLine, string log) {",
-	'		IntPtr input = Open("NUL", 0x80000000, 3);',
-	"		IntPtr output = Open(log, 0x40000000, 2);",
-	"		IntPtr size = IntPtr.Zero;",
-	"		InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);",
-	"		IntPtr list = Marshal.AllocHGlobal(size);",
-	"		IntPtr handles = Marshal.AllocHGlobal(2 * IntPtr.Size);",
-	"		bool initialized = false;",
-	"		try {",
-	"			if (!InitializeProcThreadAttributeList(list, 1, 0, ref size)) throw new Win32Exception();",
-	"			initialized = true;",
-	"			Marshal.WriteIntPtr(handles, 0, input);",
-	"			Marshal.WriteIntPtr(handles, IntPtr.Size, output);",
-	"			// PROC_THREAD_ATTRIBUTE_HANDLE_LIST: of every inheritable handle, the child gets these two.",
-	"			if (!UpdateProcThreadAttribute(list, 0, new IntPtr(0x20002), handles, new IntPtr(2 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception();",
-	"			StartupInfoEx info = new StartupInfoEx();",
-	"			info.startupInfo.cb = Marshal.SizeOf(typeof(StartupInfoEx));",
-	"			info.startupInfo.flags = 0x100;",
-	"			info.startupInfo.stdInput = input;",
-	"			info.startupInfo.stdOutput = output;",
-	"			info.startupInfo.stdError = output;",
-	"			info.attributeList = list;",
-	"			ProcessInformation process;",
-	"			// EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW",
-	"			if (!CreateProcessW(application, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true, 0x00080000 | 0x08000000, IntPtr.Zero, null, ref info, out process)) throw new Win32Exception();",
-	"			CloseHandle(process.thread);",
-	"			WaitForSingleObject(process.process, 0xFFFFFFFF);",
-	"			uint code;",
-	"			GetExitCodeProcess(process.process, out code);",
-	"			CloseHandle(process.process);",
-	"			return unchecked((int)code);",
-	"		} finally {",
-	"			if (initialized) DeleteProcThreadAttributeList(list);",
-	"			Marshal.FreeHGlobal(handles);",
-	"			Marshal.FreeHGlobal(list);",
-	"			CloseHandle(input);",
-	"			CloseHandle(output);",
-	"		}",
-	"	}",
-	"}",
-	"'@",
-	"$code = [OmpdeskIsolatedLaunch]::Run($application, $commandLine, $log)",
-	"} catch {",
-	"[Console]::Error.WriteLine($_.Exception.GetBaseException().Message)",
-	"exit 127",
-	"}",
-	"exit $code",
-].join("\n");
+const ISOLATED_LAUNCHER = `
+const { writeSync } = require("node:fs");
+const { dlopen, FFIType: T, ptr } = require("bun:ffi");
+const spec = JSON.parse(process.env.OMPDESK_ISOLATED);
+const kernel32 = dlopen("kernel32.dll", {
+	CreateFileW: { args: [T.ptr, T.u32, T.u32, T.ptr, T.u32, T.u32, T.ptr], returns: T.i64_fast },
+	InitializeProcThreadAttributeList: { args: [T.ptr, T.u32, T.u32, T.ptr], returns: T.i32 },
+	UpdateProcThreadAttribute: { args: [T.ptr, T.u32, T.u64, T.ptr, T.u64, T.ptr, T.ptr], returns: T.i32 },
+	DeleteProcThreadAttributeList: { args: [T.ptr], returns: T.void },
+	CreateProcessW: { args: [T.ptr, T.ptr, T.ptr, T.ptr, T.i32, T.u32, T.ptr, T.ptr, T.ptr, T.ptr], returns: T.i32 },
+	WaitForSingleObject: { args: [T.i64, T.u32], returns: T.u32 },
+	GetExitCodeProcess: { args: [T.i64, T.ptr], returns: T.i32 },
+	CloseHandle: { args: [T.i64], returns: T.i32 },
+	GetLastError: { args: [], returns: T.u32 },
+}).symbols;
+function fail(what) {
+	writeSync(2, what + " failed (Windows error " + kernel32.GetLastError() + ")\\n");
+	process.exit(127);
+}
+const wide = text => Buffer.from(text + "\\0", "utf16le");
+// SECURITY_ATTRIBUTES { nLength, lpSecurityDescriptor, bInheritHandle = TRUE }
+const inheritable = Buffer.alloc(24);
+inheritable.writeUInt32LE(24, 0);
+inheritable.writeUInt32LE(1, 16);
+function open(name, access, disposition) {
+	// Shared for reading, writing and deleting: the supervisor reads and removes the log while a descendant holds it.
+	const path = wide(name);
+	const handle = kernel32.CreateFileW(ptr(path), access, 7, ptr(inheritable), disposition, 0x80, null);
+	if (handle === -1 || handle === -1n) fail("opening " + name);
+	return BigInt(handle);
+}
+const input = open("NUL", 0x80000000, 3);
+const output = open(spec.log, 0x40000000, 2);
+const size = Buffer.alloc(8);
+kernel32.InitializeProcThreadAttributeList(null, 1, 0, ptr(size));
+const list = Buffer.alloc(Number(size.readBigUInt64LE(0)));
+if (!kernel32.InitializeProcThreadAttributeList(ptr(list), 1, 0, ptr(size))) fail("InitializeProcThreadAttributeList");
+const handles = Buffer.alloc(16);
+handles.writeBigInt64LE(input, 0);
+handles.writeBigInt64LE(output, 8);
+// PROC_THREAD_ATTRIBUTE_HANDLE_LIST: of every inheritable handle, the command gets these two.
+if (!kernel32.UpdateProcThreadAttribute(ptr(list), 0, 0x20002, ptr(handles), 16, null, null)) fail("UpdateProcThreadAttribute");
+// STARTUPINFOEXW: cb, dwFlags = STARTF_USESTDHANDLES, hStdInput, hStdOutput, hStdError, lpAttributeList.
+const startup = Buffer.alloc(112);
+startup.writeUInt32LE(112, 0);
+startup.writeUInt32LE(0x100, 60);
+startup.writeBigInt64LE(input, 80);
+startup.writeBigInt64LE(output, 88);
+startup.writeBigInt64LE(output, 96);
+startup.writeBigUInt64LE(BigInt(ptr(list)), 104);
+// The command's environment: this one without the launch spec, as a sorted UTF-16 block.
+const key = name => name.toUpperCase();
+const environment = Buffer.from(
+	Object.entries(process.env)
+		.filter(([name, value]) => name !== "OMPDESK_ISOLATED" && value !== undefined)
+		.sort(([a], [b]) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
+		.map(([name, value]) => name + "=" + value + "\\0")
+		.join("") + "\\0",
+	"utf16le",
+);
+const application = wide(spec.application);
+const commandLine = wide(spec.commandLine);
+const information = Buffer.alloc(24);
+// EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT
+const flags = 0x00080000 | 0x08000000 | 0x400;
+if (!kernel32.CreateProcessW(ptr(application), ptr(commandLine), null, null, 1, flags, ptr(environment), null, ptr(startup), ptr(information))) {
+	fail("starting " + spec.application);
+}
+kernel32.DeleteProcThreadAttributeList(ptr(list));
+kernel32.CloseHandle(input);
+kernel32.CloseHandle(output);
+const child = information.readBigInt64LE(0);
+kernel32.CloseHandle(information.readBigInt64LE(8));
+kernel32.WaitForSingleObject(child, 0xffffffff);
+const code = Buffer.alloc(4);
+kernel32.GetExitCodeProcess(child, ptr(code));
+kernel32.CloseHandle(child);
+process.exit(code.readInt32LE(0));
+`;
 
 interface Launch {
 	spec: SpawnSpec & { log?: { path: string; redirect: boolean } };
 	env: NodeJS.ProcessEnv;
 }
 
+interface LaunchOptions {
+	platform?: NodeJS.Platform;
+	log?: string;
+	/** Bun, which runs Windows' launcher; looked up on PATH, then in Bun's own install dir, when not given. */
+	bun?: string | null;
+}
+
+/** Bun on `env`'s PATH (whatever its case on Windows), else in `BUN_INSTALL` or `%USERPROFILE%\.bun`. */
+export function findBun(env: NodeJS.ProcessEnv): string | null {
+	const pathEnv = Object.entries(env).find(([name]) => name.toUpperCase() === "PATH")?.[1] ?? "";
+	const installed = win32.join(bunInstallDir(env, env.USERPROFILE || homedir()), "bin", "bun.exe");
+	return findOnPath(["bun.exe"], pathEnv, "win32", [installed]);
+}
+
 /** What the supervisor runs for an isolated `spec` (see `SpawnSpec.isolated`). */
-export function isolatedLaunch(
-	spec: SpawnSpec,
-	env: NodeJS.ProcessEnv,
-	platform: NodeJS.Platform = process.platform,
-	log = join(tmpdir(), `ompdesk-isolated-${randomUUID()}.log`),
-): Launch {
+export function isolatedLaunch(spec: SpawnSpec, env: NodeJS.ProcessEnv, options: LaunchOptions = {}): Launch {
+	const log = options.log ?? join(tmpdir(), `ompdesk-isolated-${randomUUID()}.log`);
 	// POSIX: the supervisor's spawn passes the child its stdio and nothing else (libuv closes every other descriptor on
 	// exec), so the log file in place of the supervisor's pipes is all it takes.
-	if (platform !== "win32") return { spec: { ...spec, log: { path: log, redirect: true } }, env };
+	if ((options.platform ?? process.platform) !== "win32") {
+		return { spec: { ...spec, log: { path: log, redirect: true } }, env };
+	}
+	const bun = options.bun === undefined ? findBun(env) : options.bun;
+	if (!bun)
+		throw new Error("Bun was not found: on Windows OMPdesk starts this command through it (setup installs Bun)");
 	const systemRoot = env.SystemRoot || env.SYSTEMROOT || env.windir || "C:\\Windows";
 	// A `.cmd` shim runs the way Node's `shell: true` runs it: `file` and `args` are already quoted for cmd.exe.
 	const [application, commandLine] = spec.shell
 		? [win32.join(systemRoot, "System32", "cmd.exe"), `cmd.exe /d /s /c "${[spec.file, ...spec.args].join(" ")}"`]
 		: [spec.file, [spec.file, ...spec.args].map(quoteWindowsArg).join(" ")];
 	return {
-		spec: {
-			file: win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-			args: ["-NoProfile", "-NonInteractive", "-Command", ISOLATED_LAUNCHER],
-			shell: false,
-			log: { path: log, redirect: false },
-		},
-		env: {
-			...env,
-			OMPDESK_ISOLATED_APP: application,
-			OMPDESK_ISOLATED_COMMAND_LINE: commandLine,
-			OMPDESK_ISOLATED_LOG: log,
-		},
+		spec: { file: bun, args: ["-e", ISOLATED_LAUNCHER], shell: false, log: { path: log, redirect: false } },
+		env: { ...env, OMPDESK_ISOLATED: JSON.stringify({ application, commandLine, log }) },
 	};
 }
 

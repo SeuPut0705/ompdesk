@@ -20,8 +20,9 @@ import { useProjectNames } from "../../lib/project-origin";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
+import { sessionListFeed } from "../../stores/session-list";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -69,7 +70,10 @@ export function SessionPickerDialog() {
 		setScope("global");
 		setSortMode("recent");
 		setShowPath(null);
-		setLoading(true);
+		// The sidebar's list (or the last run's snapshot of it) fills the dialog at once; the read below replaces it.
+		const known = sessionListFeed("global").store.getState().sessions.filter(sessionHasContent);
+		setSessions(known);
+		setLoading(known.length === 0);
 		setError(null);
 		setSwitching(null);
 		setActiveIndex(0);
@@ -284,7 +288,7 @@ export function SessionPickerDialog() {
 							tone="danger"
 						/>
 					) : loading ? (
-						<Spinner className="w-full justify-center py-10" label={t("sessionPicker.loading")} size="sm" />
+						<SkeletonRows className="py-3" label={t("sessionPicker.loading")} widths={[70, 52, 64, 46, 58]} />
 					) : filtered.length === 0 && !contentPending ? (
 						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{sessions.length === 0

@@ -22,13 +22,15 @@ export const STAMP = path.join("out", ".build-stamp.json");
 /** Root-level files electron-vite, Vite, Tailwind or this build read. */
 const ROOT_INPUT =
 	/^(package\.json|bun\.lockb?|electron\.vite\.config\.[cm]?[jt]s|tsconfig.*\.json|\.gitignore|\.env(\..+)?|postcss\.config\..+|tailwind\.config\..+|\.browserslistrc)$/;
-/** The scripts `bun run build` runs. */
+/** The scripts `bun run build` runs, and the script data the main bundle inlines. */
 const BUILD_SCRIPTS = [
 	"scripts/build-cache.ts",
 	"scripts/check-main-bundle.ts",
 	"scripts/pwa-plugin.ts",
 	"scripts/ws-bundle-probe.config.ts",
 	"scripts/ws-bundle-probe.ts",
+	// The pinned certificate the shipped ai-memory's requirement names (src/main/ai-memory/binary.ts).
+	"scripts/mac-signing.json",
 ];
 /**
  * Bundled or copied trees. Tailwind scans every file under the renderer root

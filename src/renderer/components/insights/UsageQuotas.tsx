@@ -21,7 +21,7 @@ import { usageLimitLabel } from "../../lib/usage-labels";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, Spinner } from "../common";
+import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, SkeletonRows } from "../common";
 import { ResetPassControl, resetPassSummary } from "../settings/providers/ResetPasses";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -215,9 +215,7 @@ export function UsageQuotas() {
 				</Banner>
 			)}
 			{loading && reports === null && (
-				<div className="flex justify-center py-12">
-					<Spinner label={t("common.loading")} />
-				</div>
+				<SkeletonRows className="py-4" label={t("common.loading")} widths={[58, 72, 44, 66]} />
 			)}
 			{reports && reports.length === 0 && !loading && (
 				<EmptyState

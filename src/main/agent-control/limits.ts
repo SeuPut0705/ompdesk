@@ -8,6 +8,7 @@
  *   sessions exchanges at most `MAX_PAIR_MESSAGES_PER_MINUTE` messages a minute, and a session never writes to itself.
  */
 import {
+	MAX_AGENT_AUTOPILOT_RUNS,
 	MAX_MESSAGES_PER_HOUR,
 	MAX_MESSAGES_PER_TURN,
 	MAX_OPENS_PER_HOUR,
@@ -15,6 +16,9 @@ import {
 	MAX_PAIR_MESSAGES_PER_MINUTE,
 	MAX_RELAY_HOPS,
 } from "../../shared/agent-control";
+
+/** Prefix of a run key that has no tab yet. */
+export const PENDING_RUN = "pending:";
 
 const HOUR_MS = 60 * 60_000;
 const MINUTE_MS = 60_000;
@@ -38,6 +42,8 @@ export class AgentLimits {
 	readonly #pairs = new Map<string, number[]>();
 	/** Session → the hops of the agent-message chain that last reached it. */
 	readonly #lineage = new Map<string, { hops: number; at: number }>();
+	/** Run tabs of the Autopilot runs agents started, and reservations (`PENDING_RUN`) while a start is under way. */
+	readonly #runs = new Set<string>();
 
 	constructor(now: () => number = Date.now) {
 		this.#now = now;
@@ -114,12 +120,41 @@ export class AgentLimits {
 		this.#lineage.set(to, { hops: hops + 1, at: now });
 	}
 
+	/** The tabs of the Autopilot runs agents started and that may still be live (a reservation counts until it settles). */
+	runTabs(): string[] {
+		return [...this.#runs].filter(key => !key.startsWith(PENDING_RUN));
+	}
+
+	/**
+	 * Reserve one agent-started Autopilot run under `key`, or throw. `ended` are run tabs whose run is over: they stop
+	 * counting. The count is global (every session of the app), not per caller.
+	 */
+	reserveRun(key: string, ended: ReadonlySet<string>): void {
+		for (const tab of ended) this.#runs.delete(tab);
+		if (this.#runs.size >= MAX_AGENT_AUTOPILOT_RUNS)
+			throw new LimitError(
+				`${this.#runs.size} Autopilot runs started by agents are still live (the limit is ${MAX_AGENT_AUTOPILOT_RUNS}). Stop one with ompdesk_autopilot {"action":"stop"} or ask the user.`,
+			);
+		this.#runs.add(key);
+	}
+
+	/** The reserved run now has its tab. */
+	settleRun(key: string, tab: string): void {
+		if (this.#runs.delete(key)) this.#runs.add(tab);
+	}
+
+	/** Give back a reservation whose start failed. */
+	dropRun(key: string): void {
+		this.#runs.delete(key);
+	}
+
 	/** A closed session leaves no state behind. */
 	forget(tab: string): void {
 		this.#lineage.delete(tab);
 		this.#turns.delete(tab);
 		this.#hourOpens.delete(tab);
 		this.#hourMessages.delete(tab);
+		this.#runs.delete(tab);
 		for (const key of this.#pairs.keys()) if (key.split("|").includes(tab)) this.#pairs.delete(key);
 	}
 }

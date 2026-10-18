@@ -31,6 +31,7 @@ function setup(
 		tabs?: Partial<IpcTabInfo>[];
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
+		autopilot?: AgentControlHostDeps["autopilot"];
 	} = {},
 ) {
 	const win = window();
@@ -79,6 +80,7 @@ function setup(
 		deleteSession: vi.fn(async () => undefined),
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
+		autopilot: options.autopilot,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, deps, commands, spawned, tabs, activity, prefs, openers };
@@ -153,6 +155,65 @@ describe("AgentControlRuntime", () => {
 		const { runtime, win, openers } = setup();
 		await runtime.run(win, "main0001", T.open, {});
 		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
+	});
+
+	it("starts Autopilot through the coordinator and records the run as the caller's child", async () => {
+		const sent: { tabId: string; command: unknown }[] = [];
+		const { runtime, win, openers, prefs } = setup({
+			tabs: [
+				{ tabId: "main0001", title: "Boss" },
+				{ tabId: "run00005", title: "Run" },
+			],
+			autopilot: {
+				command: async (_win, _sidecar, tabId, command) => {
+					sent.push({ tabId, command });
+					const data =
+						command.type === "set_autopilot" && command.action === "start"
+							? { active: true, state: "running", tabId: "run00005" }
+							: { active: true, state: "stopping" };
+					return { type: "response", success: true, data } as RpcResponse;
+				},
+				defaultBranch: async () => "trunk",
+			},
+		});
+		prefs.autopilotShip = { autoPush: true, autoRelease: { on: false }, remote: "up" };
+		prefs.agentControlManage = true;
+		const started = await runtime.run(win, "main0001", T.autopilot, { action: "start", ship: "push" });
+		expect(started.isError).toBe(false);
+		expect(sent[0]).toEqual({
+			tabId: "main0001",
+			command: { type: "set_autopilot", action: "start", preset: "push" },
+		});
+		expect(openers).toHaveBeenCalledWith("run00005", "main0001");
+		expect(runtime.parentOf("run00005")).toEqual({ callerTabId: "main0001" });
+		const stopped = await runtime.run(win, "main0001", T.autopilot, {
+			action: "stop",
+			session: "run00005",
+			now: true,
+		});
+		expect(stopped.isError).toBe(false);
+		expect(sent.at(-1)).toEqual({ tabId: "run00005", command: { type: "set_autopilot", action: "abort" } });
+	});
+
+	it("reads the stored ship level and the default branch for the card rules", async () => {
+		const { runtime, win, prefs, commands } = setup({
+			autopilot: {
+				command: async () =>
+					({ type: "response", success: true, data: { active: true, tabId: "run00005" } }) as RpcResponse,
+				defaultBranch: async (_cwd, remote) => (remote === "up" ? "trunk" : null),
+			},
+		});
+		prefs.autopilotShip = { autoPush: true, autoRelease: { on: true }, remote: "up" };
+		prefs.agentControlManage = true;
+		await runtime.run(win, "main0001", T.autopilot, { action: "start" });
+		const cards = commands.filter(entry => entry.command.type === "agent_control_confirm");
+		expect(cards).toHaveLength(1);
+		await runtime.run(win, "main0001", T.autopilot, {
+			action: "start",
+			ship: "commit",
+			branch: { kind: "existing", name: "trunk" },
+		});
+		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(2);
 	});
 
 	it("rejects a worktree base that is not HEAD or default, and a folder that does not exist", async () => {

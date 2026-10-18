@@ -1,5 +1,6 @@
 import type { AgentProgress } from "../../../../shared/rpc-types";
 import { extractResultImages, resultDetails, resultText } from "../../../lib/format";
+import { devServerUrl } from "../../../lib/panel-auto-open";
 import { asRecord } from "../../../lib/wire-value";
 import type { ToolEntry } from "../../../stores/tools";
 import { toolDiffStats } from "../../tools/diff-stats";
@@ -9,11 +10,15 @@ import { type ChatMediaKind, toolResultMedia } from "../../tools/media/chat-medi
 import { asPerFileResults } from "../../tools/renderers/EditRenderer";
 import { normalizeYieldData } from "../../tools/renderers/task-render-utils";
 import { isInterruptedError } from "./WorkStatus";
+import { checkKind } from "./work-checks";
+
+/** Enough of a check's output for its runner summary and first error line. */
+const CHECK_TEXT_MAX = 8000;
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /** A model intent that names no target ("Running requested command") yields to the command itself. */
-const GENERIC_INTENT =
+export const GENERIC_INTENT =
 	/^(?:running|run|executing|execute)\s+(?:the\s+)?(?:requested|given|provided|specified|user(?:'s)?)?\s*(?:shell\s+|bash\s+)?commands?\.?$/i;
 
 export function workNarrative(
@@ -106,7 +111,8 @@ export function agentResultSummary(row: Record<string, unknown>): string | null 
 	return typeof summary === "string" ? summary.trim().split("\n")[0] || null : null;
 }
 
-export type WorkEvidence = ToolEntry | { entry: ToolEntry; agentName: string };
+/** `toolCallId`: the card's own entry key for a main-agent call, so a finding can point at its step. */
+export type WorkEvidence = ToolEntry | { entry: ToolEntry; agentName?: string; toolCallId?: string };
 
 /** Renderer-only, narrower counterpart of stock pi-coding-agent/src/tools/shell-tokenize.ts
  * tokenizeShellSegments / extractLiteralAndChainSegments: the renderer cannot
@@ -148,6 +154,12 @@ export interface WorkCommandOutcome {
 	durationMs?: number;
 	/** What a stopped command printed before the stop, without stock's abort annotation. */
 	output?: string;
+	/** The tail of what a check (tests, build, lint) or a failed command printed, for `summarizeChecks`. */
+	text?: string;
+	/** The call's entry key (a main-agent call only). */
+	toolCallId?: string;
+	/** The address a dev server printed, when this command started one. */
+	previewUrl?: string;
 }
 
 export interface WorkFileOutcome {
@@ -222,6 +234,7 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 	})) {
 		const entry = "entry" in evidence ? evidence.entry : evidence;
 		const agentName = "entry" in evidence ? evidence.agentName : undefined;
+		const toolCallId = "entry" in evidence && !agentName ? evidence.toolCallId : undefined;
 		const fileKey = (path: string) => `${agentName ?? ""}\0${workFilePathKey(path, cwd)}`;
 		if (
 			entry.status === "running" ||
@@ -331,15 +344,29 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 						.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
 						.trim()
 				: "";
+			const failed = errored && !cut;
+			const text =
+				!cut &&
+				Array.isArray(asRecord(entry.result)?.content) &&
+				(failed || exitCode || checkKind(entry.args.command))
+					? resultText(entry.result).slice(-CHECK_TEXT_MAX)
+					: "";
+			const previewUrl =
+				failed || entry.status === "aborted" || entry.result == null
+					? null
+					: devServerUrl({ toolName: "bash", command: entry.args.command, text: resultText(entry.result) });
 			commands.push({
 				command: entry.args.command,
 				exitCode,
-				failed: errored && !cut,
+				failed,
 				...(agentName ? { agentName } : {}),
 				...(entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
+				...(text ? { text } : {}),
+				...(toolCallId ? { toolCallId } : {}),
+				...(previewUrl ? { previewUrl } : {}),
 			});
 		}
 	}

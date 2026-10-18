@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lastRead, rememberRead } from "../lib/last-read";
 import { useFocusedTabDevice } from "../stores/remote";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -39,6 +40,11 @@ function downReply(result: unknown): { message: string; stopped: boolean } | nul
  * boundary. The stats come from the focused tab's machine: a paired host's
  * own stats server when the tab runs there.
  */
+function seededStats<T>(key: string, device: string | undefined): StatsState<T> {
+	const data = lastRead<T>(device, `stats:${key}`);
+	return { key, data: data ?? null, isLoading: data === undefined, error: null, serverDown: false, updatedAt: null };
+}
+
 function useStatsResource<T>(path: string, params: Record<string, string> | undefined, expectList: boolean) {
 	const device = useFocusedTabDevice();
 	const sortedParams = Object.entries(params ?? {}).sort(([a], [b]) => a.localeCompare(b));
@@ -46,14 +52,8 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 	// biome-ignore lint/correctness/useExhaustiveDependencies: serializedParams is the semantic key for this freshly rebuilt entries array.
 	const queryParams = useMemo(() => Object.fromEntries(sortedParams), [serializedParams]);
 	const key = `${device ?? ""}|${path}:${serializedParams}`;
-	const [state, setState] = useState<StatsState<T>>({
-		key,
-		data: null,
-		isLoading: true,
-		error: null,
-		serverDown: false,
-		updatedAt: null,
-	});
+	// The last answer for this query (this run's, or the last run's snapshot) shows at once and is read again in place.
+	const [state, setState] = useState<StatsState<T>>(() => seededStats<T>(key, device));
 	const fetchRef = useRef<() => void>(() => {});
 	const refetch = useCallback(() => fetchRef.current(), []);
 
@@ -70,9 +70,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 			retryTimer = undefined;
 			if (!quiet) {
 				setState(previous =>
-					previous.key === key
-						? { ...previous, isLoading: previous.data === null }
-						: { key, data: null, isLoading: true, error: null, serverDown: false, updatedAt: null },
+					previous.key === key ? { ...previous, isLoading: previous.data === null } : seededStats<T>(key, device),
 				);
 			}
 			try {
@@ -108,6 +106,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 				if (expectList && !Array.isArray(result))
 					throw new Error(`${path} did not return a list (${result === null ? "null" : typeof result})`);
 				outageByDevice.delete(deviceKey);
+				rememberRead(device, `stats:${key}`, result);
 				if (active)
 					setState({
 						key,
@@ -139,9 +138,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 		};
 	}, [device, expectList, key, path, queryParams]);
 
-	return state.key === key
-		? { ...state, refetch }
-		: { key, data: null, isLoading: true, error: null, serverDown: false, updatedAt: null, refetch };
+	return state.key === key ? { ...state, refetch } : { ...seededStats<T>(key, device), refetch };
 }
 
 export function useStats<T>(path: string, params?: Record<string, string>) {

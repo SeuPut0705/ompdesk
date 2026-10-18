@@ -4,7 +4,7 @@
  */
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
+import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
 	AiMemoryHandoff,
 	AiMemoryPage,
@@ -414,8 +414,15 @@ export type RuntimeErrorSource =
 	| "startup-timing"
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
+	/** ai-memory's service (src/main/ai-memory/service.ts `log`): `message` is launch, binary, phase or failed. */
+	| "ai-memory"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
+	/**
+	 * A paired web page reloaded itself, or was about to (src/renderer/web/reload-reason.ts): `message` is the reason
+	 * (`update`, `outdated`, `resync-failed`, `chunk-load-failed`, `error-boundary`, …), sent on the next connect.
+	 */
+	| "web-reload"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -1648,6 +1655,8 @@ export interface OmpApi {
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
 		onAgentControlView(callback: (event: AgentControlViewEvent) => void): () => void;
+		/** What an agent's `ompdesk_app` call changed or asked the window to show (settings applied live, a panel, a toast with undo). */
+		onAgentControlApp(callback: (event: AgentAppEvent) => void): () => void;
 		/** The agent's review queue changed: every session this window's tab opened, for its work board. */
 		onAgentControlReview(callback: (event: AgentReviewEvent) => void): () => void;
 	};

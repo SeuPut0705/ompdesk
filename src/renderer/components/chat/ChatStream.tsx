@@ -37,7 +37,7 @@ import { toastError } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { BrandMark, Button, Kbd, Spinner } from "../common";
+import { BrandMark, Button, Kbd, Skeleton, Spinner } from "../common";
 import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -74,6 +74,7 @@ import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
+import { StepGroups, useMountedCount } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
@@ -132,6 +133,7 @@ function SessionTranscript() {
 	const liveMessages = useMessagesStore(s => s.liveMessages);
 	const prevCursor = useMessagesStore(s => s.prevCursor);
 	const isLoadingPage = useMessagesStore(s => s.isLoadingPage);
+	const restoredAt = useMessagesStore(s => s.restoredAt);
 	const pageError = useMessagesStore(s => s.pageError);
 	const displayMessages = useMemo(() => [...messages, ...liveMessages], [messages, liveMessages]);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
@@ -159,6 +161,11 @@ function SessionTranscript() {
 	const collapseCompacted = useDisplayPreference("collapseCompacted");
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	const switchPending = useSessionStore(s => s.switchPending);
+	// A tab that opens a session file that exists has history coming: its empty start is not "a new chat".
+	const knownSession = useTabsStore(state => {
+		const tab = state.tabs.find(entry => entry.id === tabId);
+		return Boolean(tab?.sessionPath ?? tab?.pendingSessionPath);
+	});
 	const savedView = useSessionStore(s => s.transcriptView);
 	const saveView = useSessionStore(s => s.saveTranscriptView);
 	const [restoreView] = useState(() => (savedView?.sessionId === sessionId ? savedView : null));
@@ -920,14 +927,14 @@ function SessionTranscript() {
 				tabIndex={0}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>
-				{switchPending && (
-					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
-						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
-					</div>
-				)}
-				<TranscriptHistoryStatus error={pageError} loading={isLoadingPage} onRetry={() => void requestOlder()} />
-				{status === "starting" && !firstRunOpen && rows.length === 0 && !switchPending && (
-					<Spinner className="flex justify-center py-3" />
+				<TranscriptHistoryStatus
+					error={pageError}
+					loading={isLoadingPage}
+					onRetry={() => void requestOlder()}
+					updating={restoredAt !== null || switchPending !== null}
+				/>
+				{status === "starting" && !firstRunOpen && rows.length === 0 && !switchPending && knownSession && (
+					<TranscriptSkeleton />
 				)}
 				{/* An open first-run step stays up while omp starts (right after machine setup installed it): its
 				    providers fill in when the session is ready. */}
@@ -936,41 +943,45 @@ function SessionTranscript() {
 					!isStreaming &&
 					!switchPending &&
 					firstRunActive && <FirstRunSetup />}
-				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
-					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-						<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />
-						<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
-							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
-						</h1>
-						<p className="mt-2 max-w-xl text-sc-lg text-pretty text-(--sc-text-muted)">
-							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-						</p>
-						<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
-							{starters.map(({ icon: Icon, title, prompt }) => (
-								<button
-									key={title}
-									type="button"
-									onClick={() =>
-										window.dispatchEvent(
-											new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
-										)
-									}
-									className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
-								>
-									<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-surface-2) text-(--sc-text-muted)">
-										<Icon aria-hidden className="size-(--sc-icon-md)" />
-									</span>
-									<span className="min-w-0">
-										<span className="block text-sc-md font-medium text-(--sc-text)">{title}</span>
-										<span className="omp-starter-description mt-0.5 line-clamp-2 text-sc-sm text-(--sc-text-muted)">
-											{prompt}
+				{(status !== "starting" || (!knownSession && !firstRunOpen)) &&
+					rows.length === 0 &&
+					!isStreaming &&
+					!switchPending &&
+					!firstRunActive && (
+						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
+							<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />
+							<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
+								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
+							</h1>
+							<p className="mt-2 max-w-xl text-sc-lg text-pretty text-(--sc-text-muted)">
+								{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
+							</p>
+							<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
+								{starters.map(({ icon: Icon, title, prompt }) => (
+									<button
+										key={title}
+										type="button"
+										onClick={() =>
+											window.dispatchEvent(
+												new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
+											)
+										}
+										className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
+									>
+										<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-surface-2) text-(--sc-text-muted)">
+											<Icon aria-hidden className="size-(--sc-icon-md)" />
 										</span>
-									</span>
-								</button>
-							))}
+										<span className="min-w-0">
+											<span className="block text-sc-md font-medium text-(--sc-text)">{title}</span>
+											<span className="omp-starter-description mt-0.5 line-clamp-2 text-sc-sm text-(--sc-text-muted)">
+												{prompt}
+											</span>
+										</span>
+									</button>
+								))}
+							</div>
 						</div>
-					</div>
-				)}
+					)}
 				<div
 					ref={canvasRef}
 					className="omp-transcript-canvas"
@@ -1205,7 +1216,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 						todoSnapshots={row.todoSnapshots}
 					>
 						<div className="omp-process-group">
-							<ProcessMessages messages={row.messages} />
+							{live ? <ProcessMessages messages={row.messages} /> : <StepGroups messages={row.messages} />}
 							{hasThinking || liveCards.length > 0 ? (
 								<div className="omp-process-group--live">
 									{hasThinking ? <ThinkingBlock live /> : null}
@@ -1229,34 +1240,22 @@ export const ProcessGroup = memo(function ProcessGroup({
 	);
 });
 
-/** Messages an expanded work card mounts per task (about 7 ms of render, style and layout). */
-const PROCESS_SLICE = 60;
-
 /**
- * An expanded work card's steps, mounted a slice per task after the click's
- * frame: all 490 messages of a 245-step card in one commit made a 60 ms frame.
- * Once every message is in, new ones (a live card) mount as they arrive.
+ * A live card's steps as they arrive, one bubble per message, mounted a slice per task after the
+ * click's frame (see `useMountedCount`). A finished card lines its steps up by intent instead.
  */
 function ProcessMessages({ messages }: { messages: readonly AgentMessage[] }) {
-	const [limit, setLimit] = useState(() =>
-		messages.length <= PROCESS_SLICE ? Number.POSITIVE_INFINITY : PROCESS_SLICE,
-	);
-	useEffect(() => {
-		if (limit >= messages.length) {
-			if (limit !== Number.POSITIVE_INFINITY) setLimit(Number.POSITIVE_INFINITY);
-			return;
-		}
-		const timer = setTimeout(() => setLimit(value => value + PROCESS_SLICE), 0);
-		return () => clearTimeout(timer);
-	}, [limit, messages.length]);
-	return (limit >= messages.length ? messages : messages.slice(0, limit)).map((message, index) => (
-		<MessageBubble
-			compact
-			key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
-			message={message}
-			runningIndicator="dot"
-		/>
-	));
+	const mounted = useMountedCount(messages.length);
+	return messages
+		.slice(0, mounted)
+		.map((message, index) => (
+			<MessageBubble
+				compact
+				key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
+				message={message}
+				runningIndicator="dot"
+			/>
+		));
 }
 
 /**
@@ -1646,34 +1645,78 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 	);
 });
 
-/** Loading earlier messages: a spinner, or the failure with Retry (an alert, so a screen reader hears it). */
+/**
+ * Quiet notes over the top of the transcript, never a spinner and never in the flow (nothing moves when one comes or
+ * goes): `updating` is the last known rows waiting for the live read (hidden for its first 0.7 s, so a fast read
+ * shows nothing), `loading` the older page streaming in above the viewport, and the failure with Retry (an alert, so
+ * a screen reader hears it).
+ */
 export function TranscriptHistoryStatus({
 	loading,
 	error,
 	onRetry,
+	updating = false,
 }: {
 	loading: boolean;
 	error: string | null;
 	onRetry: () => void;
+	updating?: boolean;
 }) {
 	const t = useT();
-	if (!loading && !error) return null;
+	if (!loading && !error && !updating) return null;
 	return (
 		<div
 			data-testid="transcript-history-status"
-			role={error ? "alert" : undefined}
-			className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-(--sc-surface-1) py-2 text-sc-sm text-(--sc-text-muted)"
+			role={error ? "alert" : "status"}
+			className={cx(
+				"pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 py-1.5 text-sc-xs text-(--sc-text-muted)",
+				!loading && !error && "omp-updating-hint",
+			)}
 		>
-			{loading ? (
-				<Spinner label={t("chat.history.loading")} size="sm" />
-			) : (
+			{error ? (
 				<>
 					<span>{t("chat.history.failed")}</span>
-					<Button size="sm" onClick={onRetry}>
+					<Button className="pointer-events-auto" size="sm" onClick={onRetry}>
 						{t("common.retry")}
 					</Button>
 				</>
+			) : (
+				<span className="rounded-(--sc-radius-full) bg-(--sc-surface-2) px-2.5 py-0.5">
+					{loading ? t("chat.history.loading") : t("chat.history.updating")}
+				</span>
 			)}
+		</div>
+	);
+}
+
+/**
+ * What an existing session's transcript looks like before anything of it is known (a first visit to it on this
+ * device): the same column, a prompt and a reply's lines per turn. Still; it is replaced by the rows in place.
+ */
+export function TranscriptSkeleton() {
+	const t = useT();
+	return (
+		<div
+			aria-label={t("chat.history.loading")}
+			className="mx-auto flex w-full flex-col gap-8 px-(--omp-column-pad) pt-10"
+			data-testid="transcript-skeleton"
+			role="status"
+			style={{ maxWidth: "calc(var(--omp-column-reading) + 2 * var(--omp-column-pad))" }}
+		>
+			{[
+				[34, [92, 78, 52]],
+				[48, [96, 88, 70, 38]],
+				[28, [90, 64]],
+			].map(([prompt, lines], turn) => (
+				<div aria-hidden className="flex flex-col gap-3" key={turn}>
+					<Skeleton className="ml-auto h-9 rounded-(--sc-radius-lg)" style={{ width: `${prompt}%` }} />
+					<div className="flex flex-col gap-2">
+						{(lines as number[]).map((width, line) => (
+							<Skeleton className="h-3" key={line} style={{ width: `${width}%` }} />
+						))}
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }

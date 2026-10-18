@@ -90,11 +90,19 @@ function seedHub(): void {
 			id: "a1",
 			index: 1,
 			task: "x".repeat(70),
+			assignment: "x".repeat(70),
 			kind: "sub",
 			progress: progress({ id: "a1", resolvedModel: "openai/gpt-5.2-codex", description: "editing files" }),
 		}),
-		snap({ id: "a2", index: 2, status: "parked", task: "short second task", kind: "sub" }),
-		snap({ id: "a3", index: 3, task: "advisor review", kind: "advisor" }),
+		snap({
+			id: "a2",
+			index: 2,
+			status: "parked",
+			task: "short second task",
+			assignment: "short second task",
+			kind: "sub",
+		}),
+		snap({ id: "a3", index: 3, task: "advisor review", assignment: "advisor review", kind: "advisor" }),
 	]);
 }
 
@@ -276,7 +284,18 @@ describe("LiveAgents", () => {
 		// Post-action refetch keeps the parked row (a1 is released on abort).
 		const omp = installOmpMock({
 			getSubagents: vi.fn(async () =>
-				ok({ subagents: [snap({ id: "a2", index: 2, status: "parked", task: "short second task", kind: "sub" })] }),
+				ok({
+					subagents: [
+						snap({
+							id: "a2",
+							index: 2,
+							status: "parked",
+							task: "short second task",
+							assignment: "short second task",
+							kind: "sub",
+						}),
+					],
+				}),
 			),
 		});
 		seedHub();

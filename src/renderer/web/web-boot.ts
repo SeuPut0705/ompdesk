@@ -9,6 +9,7 @@
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
 import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
+import { snapshots } from "../lib/snapshot-cache";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
@@ -18,12 +19,22 @@ import { startInstall } from "./install-ui";
 import { mountNotificationSweep } from "./notification-sweep";
 import { listenNotificationClicks, notifyPage, registerServiceWorker, requestNotificationPermission } from "./notify";
 import { createBrowserPwa, setWebPwa } from "./pwa";
+import { flushReloadReasons, noteReload, type ReloadReason } from "./reload-reason";
+import { PageResync } from "./resync";
 import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
-import { purgeAndReload, reloadWhenNothingIsLost, type SafeMoment, safeToReload, UpdateWatcher } from "./sw-update";
+import {
+	appGoneMoment,
+	purgeAndReload,
+	ResumeGate,
+	reloadWhenUnused,
+	type SafeMoment,
+	safeToReload,
+	UpdateWatcher,
+} from "./sw-update";
 import { pickFiles } from "./upload";
-import { type WsLike, WsTransport } from "./ws-transport";
+import { type ResyncCause, type WsLike, WsTransport } from "./ws-transport";
 
 /** Marks a reload the page made to pick up a newer bundle; a second one within the window shows the notice instead. */
 const RELOAD_FLAG = "omp.web.reloaded-at";
@@ -32,44 +43,62 @@ const RELOAD_LOOP_MS = 30_000;
 const INSTALL_HINT_DELAY_MS = 6000;
 const INSTALL_HINT_MS = 15_000;
 
+/** The reason of the reload in progress, kept in `localStorage` for the next connect (reload-reason.ts). */
+function noteReason(reason: ReloadReason, details?: Record<string, string | number | boolean | null>): void {
+	noteReload(localStorage, { reason, at: Date.now(), ...(details ? { details } : {}) });
+}
+
+function purge(): Promise<void> {
+	return purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
+		location.reload(),
+	);
+}
+
 async function pageStale(): Promise<void> {
-	// A cached older bundle against a newer host: drop the service worker's caches and reload once.
+	// A cached older bundle against a newer host, before the app loaded (nothing to lose yet): drop the service
+	// worker's caches and reload once.
 	const last = Number(sessionStorage.getItem(RELOAD_FLAG) ?? 0);
 	if (Date.now() - last < RELOAD_LOOP_MS) return;
 	sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-	await purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
-		location.reload(),
-	);
+	noteReason("outdated", { atBoot: true });
+	await purge();
 }
 
 async function bootApp(): Promise<void> {
 	const channels = new LocalChannels();
 	const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
-	const resyncHandlers: (() => void)[] = [];
+	const resyncListeners = new Set<() => void>();
 	// Set once the app (and its stores) has loaded; see the update rules below.
 	let moment: SafeMoment | null = null;
-	let resyncPending = false;
+	// When the page is not in use (launch, a return after ≥ 30 s away, until the first touch or key): sw-update.ts.
+	const gate = new ResumeGate();
+	// The in-place resync (resync.ts), from the app's load on; a reconnect before that only marks it wanted.
+	let resync: PageResync | null = null;
+	let resyncCause: ResyncCause | null = null;
+	let lastResort: { recheck(): void } | null = null;
+	// A chunk of this build failed to load for good (lib/chunk-load.ts): the page is outdated for the update gate.
+	let chunkStale = false;
 	const transport = new WsTransport({
 		url: wsUrl,
 		fetchTicket: () => fetchTicket({ fetch: (input, init) => fetch(input, init) }),
 		// The browser's WebSocket has the members WsLike names; its event handler types are only narrower.
 		createSocket: (url, protocols) => new WebSocket(url, protocols) as unknown as WsLike,
 		isVisible: () => document.visibilityState === "visible",
-		onOutdated: () => void pageStale(),
-		// Events were missed while the link was down: the default is to load the page again (its start-up
-		// restores tabs and open asks from the host); a sheet that can refresh in place registers a handler. The
-		// reload waits for anything only this page holds (sw-update.ts `reloadLosesNothing`): above all a file pick,
-		// whose files arrive just after the page comes back from a phone's picker, the moment this fires.
-		onResync: () => {
-			const handler = resyncHandlers.at(-1);
-			if (handler) handler();
-			else if (!moment) location.reload();
-			else if (!resyncPending) {
-				resyncPending = true;
-				reloadWhenNothingIsLost(moment, () => location.reload());
-			}
+		// Before the app loaded nothing can be lost: reload at once. After, `applyUpdate` waits for a safe moment.
+		onOutdated: () => {
+			if (!moment) void pageStale();
 		},
-		onUnpaired: () => location.replace("/pair"),
+		// Events were missed while the link was down (or the host restarted): the page reads its state again in
+		// place (resync-page.ts), never a reload while the person reads, scrolls, types or picks files.
+		onResync: cause => {
+			resyncCause = cause;
+			resync?.request();
+		},
+		onUnpaired: () => {
+			// This device is no longer allowed to see this computer's sessions: nothing of them stays in the page.
+			snapshots().clearAll();
+			location.replace("/pair");
+		},
 	});
 
 	// The worker's install fetches the shell's chunks. Registered once the app has loaded, it takes them from the
@@ -132,6 +161,18 @@ async function bootApp(): Promise<void> {
 		},
 	});
 
+	// Every reload of this page says why (reload-reason.ts). A reload asked for with a reason goes through a waiting
+	// new build when there is one, and the worker's `controllerchange` reload then carries that reason.
+	let reloadFor: ReloadReason | null = null;
+	const reloadNow = (fallback: ReloadReason, details?: Record<string, string | number | boolean | null>) => {
+		noteReason(reloadFor ?? fallback, details);
+		location.reload();
+	};
+	const purgeNow = () => {
+		noteReason(chunkStale && transport.state !== "outdated" ? "chunk-load-failed" : "outdated");
+		void purge();
+	};
+
 	window.omp = web.api;
 	setWebRuntime({
 		host: web.host,
@@ -139,49 +180,56 @@ async function bootApp(): Promise<void> {
 		onConnectionState: listener => transport.onState(listener),
 		features: () => transport.features,
 		emitMenuAction: web.emitMenuAction,
-		setResyncHandler: handler => {
-			resyncHandlers.push(handler);
+		onResynced: listener => {
+			resyncListeners.add(listener);
 			return () => {
-				const index = resyncHandlers.lastIndexOf(handler);
-				if (index >= 0) resyncHandlers.splice(index, 1);
+				resyncListeners.delete(listener);
 			};
+		},
+		reload: reason => {
+			reloadFor = reason;
+			const update = pwa.update;
+			if (update?.available) update.apply();
+			else reloadNow(reason);
 		},
 		requestNotifications: requestNotificationPermission,
 	});
 
 	listenNotificationClicks(payload => channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, payload));
 	mountConnectionBanner(transport, document, translate);
-	const purge = () =>
-		void purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
-			location.reload(),
-		);
 
 	// Push, install guidance and the update watcher, for the notification controls in Settings.
 	const pwa = createBrowserPwa({ registration, features: () => transport.features, update: null });
 	setWebPwa(pwa);
 
-	// Updates apply by themselves (sw-update.ts): at launch and whenever the page comes back to the foreground,
-	// when the composer is empty, no file pick is in progress, nothing waits for an answer and no upload is on its
-	// way. `moment` exists once the app (and its stores) has loaded; until then nothing is safe.
-	let resumedAt = 0;
-	const RESUME_WINDOW_MS = 15_000;
+	// Updates apply by themselves (sw-update.ts), only while the page is not in use: at launch, or when it comes back
+	// after being hidden at least 30 s, before the first touch or key (`gate`), and then only when the composer is
+	// empty, no file pick is in progress, nothing waits for an answer and no upload is on its way (`moment`, which
+	// exists once the app and its stores have loaded; until then nothing is safe). A page the host no longer talks to
+	// (`outdated`) is useless as it is and waits only for the safe moment.
 	const applyUpdate = () => {
 		if (!moment) return;
+		if (transport.state === "outdated") {
+			if (pwa.update) pwa.update.resume(moment);
+			else if (safeToReload(moment)) purgeNow();
+			return;
+		}
+		if (!gate.open(Date.now())) return;
 		if (pwa.update) pwa.update.resume(moment);
-		else if (transport.state === "outdated" && safeToReload(moment)) purge();
+		else if (chunkStale && safeToReload(moment)) purgeNow();
 	};
 	void registration.then(registered => {
 		if (!registered) return;
-		const watcher = new UpdateWatcher(registered, navigator.serviceWorker, () => location.reload(), purge);
-		if (transport.state === "outdated") watcher.markOutdated();
+		const watcher = new UpdateWatcher(registered, navigator.serviceWorker, () => reloadNow("update"), purgeNow);
+		if (transport.state === "outdated" || chunkStale) watcher.markOutdated();
 		pwa.update = watcher;
-		// A build that finishes installing just after the page came back is applied then, not a visit later.
-		watcher.onChange(() => {
-			if (Date.now() - resumedAt < RESUME_WINDOW_MS) applyUpdate();
-		});
+		// A build that finishes installing within the launch or return moment is applied then, not a visit later.
+		watcher.onChange(applyUpdate);
 		applyUpdate();
 	});
 	transport.onState(state => {
+		// The reasons of the reloads that led here reach the host's runtime log on each connect.
+		if (state === "open") flushReloadReasons(localStorage, report => web.api.runtime.report(report));
 		if (state !== "outdated") return;
 		pwa.update?.markOutdated();
 		applyUpdate();
@@ -190,13 +238,22 @@ async function bootApp(): Promise<void> {
 	document.addEventListener("visibilitychange", () => {
 		const visible = document.visibilityState === "visible";
 		transport.setPresence(visible);
-		if (visible) {
-			resumedAt = Date.now();
-			transport.wake();
-			applyUpdate();
-			void pwa.update?.check().then(applyUpdate);
+		if (!visible) {
+			gate.hidden(Date.now());
+			lastResort?.recheck();
+			return;
 		}
+		gate.shown(Date.now());
+		transport.wake();
+		applyUpdate();
+		lastResort?.recheck();
+		void pwa.update?.check().then(applyUpdate);
 	});
+	// The page is in use from the first touch, key or wheel on: no update or last-resort reload lands until it was
+	// away again. (A scroll alone is not counted: the transcript scrolls itself while a reply streams.)
+	for (const type of ["pointerdown", "keydown", "wheel", "touchstart"] as const) {
+		window.addEventListener(type, () => gate.used(), { capture: true, passive: true });
+	}
 	window.addEventListener("online", () => transport.wake());
 	window.addEventListener("pageshow", () => transport.wake());
 
@@ -213,8 +270,44 @@ async function bootApp(): Promise<void> {
 	await import("../main");
 	appLoaded.resolve();
 	moment = (await import("./safe-moment")).pageSafeMoment();
-	resumedAt = Date.now();
+	gate.launched(Date.now());
 	applyUpdate();
+	// A chunk that will not load marks the page outdated: it reloads through the same gate as an update, never with
+	// a prompt. When the failure took the whole app down the composer's text was saved as it unmounted, so the page
+	// reloads once hidden or at a launch/return moment (`reloadWhenUnused`) unless a picture, an unsaved edit, a pick
+	// or an upload would be lost (`appGoneMoment`).
+	const { useChunkFailureStore } = await import("../lib/chunk-load");
+	const onChunkFailure = ({ failed, appGone }: { failed: boolean; appGone: boolean }) => {
+		const current = moment;
+		if (!failed || !current) return;
+		if (!chunkStale) {
+			chunkStale = true;
+			pwa.update?.markOutdated();
+			applyUpdate();
+		}
+		if (appGone && !lastResort) lastResort = reloadWhenUnused(appGoneMoment(current), gate, purgeNow);
+	};
+	useChunkFailureStore.subscribe(onChunkFailure);
+	onChunkFailure(useChunkFailureStore.getState());
+	// Reconnects that missed events catch up in place from here on (resync.ts); a reload is the last resort, after
+	// three failed passes, and waits until nobody uses the page. Dynamic like the stores above: resync-page.ts reads
+	// them, and they must not evaluate before `window.omp` exists.
+	const { resyncPage } = await import("./resync-page");
+	resync = new PageResync({
+		run: async () => {
+			if (!(await resyncPage()) || transport.state !== "open") return false;
+			for (const listener of [...resyncListeners]) listener();
+			return true;
+		},
+		giveUp: failures => {
+			const current = moment;
+			if (!current) return;
+			lastResort = reloadWhenUnused(current, gate, () =>
+				reloadNow("resync-failed", { failures, cause: resyncCause ?? "missed-events" }),
+			);
+		},
+	});
+	if (resyncCause) resync.request();
 	// The host never pushes to a visible device, so banners left from when the page was hidden are closed here.
 	const { useTabsStore } = await import("../stores/tabs");
 	mountNotificationSweep({

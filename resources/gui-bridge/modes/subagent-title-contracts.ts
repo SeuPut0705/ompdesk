@@ -41,3 +41,18 @@ export function assignmentHeadline(text: string | undefined): string | undefined
 		.find(line => line !== "");
 	return first || undefined;
 }
+
+/**
+ * Stock wraps every assignment in `prompts/system/subagent-user-prompt.md` ("Complete assignment thoroughly:" and a
+ * blank line, then the assignment) to make a subagent's first user message, and reports that wrapped text as the
+ * run's `task`. A later run of the same subagent (a follow-up message to an idle one, or the revival after a restart
+ * that sends `session_init.task` again) reports its own message as `task` and NO `assignment`: a follow-up is plain
+ * text, a revival is the wrapped original.
+ */
+const STOCK_PROMPT_WRAPPER = /^\s*Complete assignment thoroughly:[ \t]*\n+/;
+
+/** The assignment inside stock's wrapped first message, or undefined when `task` is not that wrapped text. */
+export function unwrapStockPrompt(task: string | undefined): string | undefined {
+	const match = task ? STOCK_PROMPT_WRAPPER.exec(task) : null;
+	return match && task ? task.slice(match[0].length) || undefined : undefined;
+}

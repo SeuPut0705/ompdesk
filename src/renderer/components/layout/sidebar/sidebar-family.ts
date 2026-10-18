@@ -40,11 +40,6 @@ export function isFoldedSubagent(status: string): boolean {
 	return status === "completed" || status === "aborted" || status === "cancelled";
 }
 
-/** A state that keeps the family open: something runs, or something waits for the person. */
-export function isActiveFamilyState(state: FamilyState): boolean {
-	return state === "running" || state === "waiting";
-}
-
 export interface SubagentRowModel {
 	agent: SubagentSnapshot;
 	/** 0 = spawned by the session, 1 = spawned by a subagent (deeper clamps to 1). */
@@ -116,8 +111,8 @@ export interface FamilyCounts {
 	sessions: number;
 	/** Children at work right now. */
 	running: number;
-	/** Children at work or waiting for the person: what keeps the family open. */
-	active: number;
+	/** Children waiting for the person (an answer or approval, a stale registration): the chip's warning tint. */
+	waiting: number;
 }
 
 /** The summary the chip shows and the open/closed rule reads, for a roster and the opened sessions. */
@@ -126,10 +121,10 @@ export function familyCounts(
 	opened: readonly { state: FamilyState }[],
 	includeAgents = true,
 ): FamilyCounts {
-	const counts: FamilyCounts = { agents: 0, sessions: opened.length, running: 0, active: 0 };
+	const counts: FamilyCounts = { agents: 0, sessions: opened.length, running: 0, waiting: 0 };
 	const tally = (state: FamilyState) => {
 		if (state === "running") counts.running++;
-		if (isActiveFamilyState(state)) counts.active++;
+		if (state === "waiting") counts.waiting++;
 	};
 	if (includeAgents)
 		for (const agent of subagents) {

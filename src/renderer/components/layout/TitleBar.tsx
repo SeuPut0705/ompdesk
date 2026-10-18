@@ -62,7 +62,8 @@ import { ForkParent } from "./ForkParent";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 import { ViewersChip } from "./ViewersChip";
 
-type StatusTone = "ready" | "busy" | "attention" | "error";
+/** `pending`: the connection is coming up or back (starting, waiting, reconnecting): a still hollow dot, never a spinner. */
+type StatusTone = "ready" | "busy" | "pending" | "attention" | "error";
 
 function StatusIcon({ tone }: { tone: StatusTone }) {
 	if (tone === "busy")
@@ -71,6 +72,8 @@ function StatusIcon({ tone }: { tone: StatusTone }) {
 				<Spinner size="sm" />
 			</span>
 		);
+	if (tone === "pending")
+		return <Circle aria-hidden className="size-2 fill-transparent text-(--sc-text-muted)" strokeWidth={3} />;
 	if (tone === "attention") return <AlertTriangle aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />;
 	if (tone === "error") return <XCircle aria-hidden className="size-(--sc-icon-sm) text-(--sc-danger)" />;
 	return <Circle aria-hidden className="size-2 fill-current text-(--sc-success)" />;
@@ -312,7 +315,7 @@ export function TitleBar() {
 	const [tone, statusLabel]: [StatusTone, string] = unpaired
 		? ["error", t("remote.tab.statusRemoved")]
 		: reconnecting
-			? ["busy", t("remote.tab.statusReconnecting")]
+			? ["pending", t("remote.tab.statusReconnecting")]
 			: awaiting
 				? ["attention", t(awaiting === "approval" ? "titlebar.status.needsApproval" : "titlebar.status.needsInput")]
 				: working
@@ -320,11 +323,11 @@ export function TitleBar() {
 					: status === "ready"
 						? ["ready", t("titlebar.status.ready")]
 						: status === "starting"
-							? ["busy", t("titlebar.status.connecting")]
+							? ["pending", t("titlebar.status.connecting")]
 							: status === "waiting"
-								? ["busy", t("titlebar.status.waiting")]
+								? ["pending", t("titlebar.status.waiting")]
 								: status === "restarting"
-									? ["busy", t("titlebar.status.restarting")]
+									? ["pending", t("titlebar.status.restarting")]
 									: status === "error" || status === "exited"
 										? ["error", t(`titlebar.status.${status}`)]
 										: ["ready", t(`titlebar.status.${status}`)];

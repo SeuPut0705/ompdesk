@@ -108,7 +108,8 @@ if (query.get("host") === "1") {
 		onConnectionState: () => () => {},
 		features: () => ({ push: true, preview: true, upload: true, passkey: false }),
 		emitMenuAction: () => {},
-		setResyncHandler: () => () => {},
+		onResynced: () => () => {},
+		reload: () => location.reload(),
 		requestNotifications: async () => "default",
 	});
 	window.__hostActions = host;

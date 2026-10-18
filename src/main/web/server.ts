@@ -148,6 +148,11 @@ export interface WebServerDeps {
 	blobs: BlobStore;
 	/** The folder holding the built renderer's `web.html` and assets; null while there is none. */
 	staticRoot: () => string | null;
+	/**
+	 * Replaced builds' folders (asset-archive.ts), newest first: a hashed `/assets/` file the current build does not
+	 * have is served from them, so a page loaded before an update still loads its lazy chunks.
+	 */
+	previousBuilds?: () => readonly string[];
 	/** A device authentication failed three times within a minute; told once. */
 	onUnpairedAuth?: (info: { address: string }) => void;
 	/** Web Push: the VAPID public key a page subscribes against. */
@@ -660,7 +665,13 @@ export class WebServer {
 		}
 		if (!root) throw new HttpError(404, "not found");
 		const relative = page ? PAGE_FILE : pathname.slice(1);
-		const file = await this.#resolveFile(root, relative);
+		let file = await this.#resolveFile(root, relative);
+		if (!file && pathname.startsWith("/assets/")) {
+			for (const previous of this.#deps.previousBuilds?.() ?? []) {
+				file = await this.#resolveFile(previous, relative);
+				if (file) break;
+			}
+		}
 		if (!file) throw new HttpError(404, "not found");
 
 		const type = MIME[file.extension] ?? "application/octet-stream";

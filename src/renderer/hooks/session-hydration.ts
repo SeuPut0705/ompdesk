@@ -10,6 +10,14 @@ import type {
 	RpcSessionState,
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
+import { MODEL_WRITE_DELAY_MS, seedModelStore, writeModelSnapshot } from "../lib/model-snapshot";
+import {
+	reuseSeededRows,
+	seedTranscript,
+	TRANSCRIPT_WRITE_DELAY_MS,
+	transcriptKey,
+	writeTranscriptSnapshot,
+} from "../lib/transcript-snapshot";
 import { useAutopilotStore } from "../stores/autopilot";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import {
@@ -35,7 +43,7 @@ import { type SettingsStore, useSettingsStore } from "../stores/settings";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import { isTabClosed, useTabsStore } from "../stores/tabs";
+import { isTabClosed, type SessionTab, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
 import { type ToolsStore, useToolsStore } from "../stores/tools";
 
@@ -545,14 +553,21 @@ function commitHydration({
 		);
 	}
 
-	if (!focusUnchanged || messagesResult.status !== "fulfilled" || !messagesResult.value.success) return;
+	if (!focusUnchanged) return;
+	// The rows a snapshot seeded are a guess, not loaded history: the live page replaces them (rows with the
+	// same content keep their objects) whatever happened to the read, so the "updating" hint never outlives it.
+	const restored = messages?.getState().restoredAt != null;
+	if (messagesResult.status !== "fulfilled" || !messagesResult.value.success) {
+		if (restored) messages?.setState({ restoredAt: null });
+		return;
+	}
 	const fetched = page?.messages ?? [];
 	const current = messages?.getState().messages ?? [];
 	const merged = mergeFetchedTranscript(fetched, before.messages, current);
-	const retained = retainLoadedHistory(merged, current);
-	const prevCursor = retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
+	const retained = restored ? reuseSeededRows(merged, before.messages) : retainLoadedHistory(merged, current);
+	const prevCursor = !restored && retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
 	messages?.getState().reconcileFetched(retained);
-	messages?.setState({ prevCursor, pageError: null });
+	messages?.setState({ prevCursor, pageError: null, restoredAt: null });
 	if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === before.liveMessages) {
 		messages.getState().clearDeliveredLiveMessages();
 	}
@@ -688,16 +703,87 @@ export function supersedeTabHydration(tabId: string): void {
 	inFlightHydrations.delete(runtime);
 }
 
-async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackName?: string): Promise<void> {
-	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
-	hydrationVersions.set(runtime, version);
-	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
-	const stores: HydrationStores = {
+/** The stores a tab's runtime owns that a hydration (or a snapshot seed) writes. */
+function runtimeStores(tabId: string): HydrationStores {
+	return {
 		messages: sessionRuntimeStore<MessagesStore>(tabId, "messages"),
 		session: sessionRuntimeStore<SessionStore>(tabId, "session"),
 		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
 		model: sessionRuntimeStore<ModelStore>(tabId, "model"),
 	};
+}
+
+/** What names a tab's transcript in the snapshot cache: its file, a file it is about to open, or its id. */
+function snapshotIdentity(tab: SessionTab) {
+	return { sessionPath: tab.sessionPath ?? tab.pendingSessionPath, sessionId: tab.sessionId, device: tab.device };
+}
+
+/** The tab's last known page paints before the live read answers (a restored or re-opened session, a cold start). */
+function seedFromSnapshot(tabId: string, { messages, tools, model }: HydrationStores): void {
+	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+	if (!tab) return;
+	if (model) seedModelStore(model, tab.device, transcriptKey(snapshotIdentity(tab)));
+	if (!messages) return;
+	const rows = seedTranscript(messages, snapshotIdentity(tab));
+	// The tool cards derive from the rows: rebuilt, none of them waits for a result that is already in the rows.
+	if (rows) tools?.getState().hydrateMessages(rows, { turnIsLive: false });
+}
+
+/**
+ * Seed every tab the store lists as soon as it (or its session file) is known, not when its omp is ready: a tab
+ * a relaunch restored, a session opened from the sidebar and a web page's tabs show their last rows at once.
+ * Returns the unsubscribe.
+ */
+export function installTranscriptSeeding(): () => void {
+	const done = new Map<string, string>();
+	const run = (tabs: readonly SessionTab[]) => {
+		for (const tab of tabs) {
+			const key = transcriptKey(snapshotIdentity(tab));
+			if (!key || done.get(tab.id) === key || isTabClosed(tab.id)) continue;
+			done.set(tab.id, key);
+			ensureTabRuntime(tab.id);
+			seedFromSnapshot(tab.id, runtimeStores(tab.id));
+		}
+	};
+	run(useTabsStore.getState().tabs);
+	return useTabsStore.subscribe(state => run(state.tabs));
+}
+
+const watchedTranscripts = new WeakSet<SessionRuntime>();
+
+/** Keep the tab's snapshot following its committed rows: one idle write per quiet moment, keyed by what the tab shows then. */
+function watchTranscript(tabId: string, runtime: SessionRuntime, { messages, model }: HydrationStores): void {
+	if (!messages || watchedTranscripts.has(runtime)) return;
+	watchedTranscripts.add(runtime);
+	let modelTimer: ReturnType<typeof setTimeout> | undefined;
+	model?.subscribe((state, previous) => {
+		if (state.availableModels === previous.availableModels && state.model === previous.model) return;
+		clearTimeout(modelTimer);
+		modelTimer = setTimeout(() => {
+			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+			if (tab && sessionRuntime(tabId) === runtime)
+				writeModelSnapshot(tab.device, transcriptKey(snapshotIdentity(tab)), model.getState());
+		}, MODEL_WRITE_DELAY_MS);
+	});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	messages.subscribe((state, previous) => {
+		if (state.messages === previous.messages || state.messages.length === 0) return;
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+			if (tab && sessionRuntime(tabId) === runtime)
+				writeTranscriptSnapshot(snapshotIdentity(tab), messages.getState().messages);
+		}, TRANSCRIPT_WRITE_DELAY_MS);
+	});
+}
+
+async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackName?: string): Promise<void> {
+	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
+	hydrationVersions.set(runtime, version);
+	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
+	const stores = runtimeStores(tabId);
+	seedFromSnapshot(tabId, stores);
+	watchTranscript(tabId, runtime, stores);
 	const before = captureHydrationBaseline(stores);
 
 	const coreResult = Promise.allSettled([

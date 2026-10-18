@@ -31,10 +31,9 @@ import {
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import {
 	interruptedJobs,
-	RESTART_JOBS_MESSAGE,
 	type JournalEntry as RestartJournalEntry,
-	restartJobsDetails,
-	restartJobsNotice,
+	restartFollowUp,
+	revivedSubagents,
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
@@ -1386,7 +1385,8 @@ export function runRpcUi(): void {
 		"composer.tool_extras": () => ({ sources: {}, mounted: [] }),
 		"composer.skill_count": () => ({ skills: 0 }),
 		// Stock `restoreSession` (what `omp --restore` runs): a journal whose last entry is a user
-		// message with no reply was cut off mid-run; the turn goes on and answers.
+		// message with no reply was cut off mid-run; the turn goes on and answers. A subagent the replaced process
+		// left working in the background (`fixture background subagent`, never delivered) is revived.
 		"composer.restore_interrupted": () => {
 			const autopilotRestore = autopilot.restore();
 			if (autopilotRestore) return autopilotRestore;
@@ -1398,15 +1398,20 @@ export function runRpcUi(): void {
 			const journal = entries as readonly RestartJournalEntry[];
 			const stopped = interruptedJobs(journal, performance.timeOrigin);
 			const jobs = stopped.map(job => job.id);
-			// The bridge's hidden-from-the-model's-point-of-view follow-up: a displayed custom message the
-			// transcript shows as one muted line; with no cut-off turn it starts the turn, as stock's idle follow-up does.
-			if (stopped.length > 0) {
+			const subagents = journal.flatMap(entry => {
+				const details = entry.type === "message" ? entry.message?.details : undefined;
+				const background =
+					details && typeof details === "object" && "background" in details ? details.background : undefined;
+				return Array.isArray(background) ? background.filter(id => typeof id === "string") : [];
+			});
+			// The bridge's follow-up: a displayed custom message the transcript shows as muted lines; with no cut-off turn
+			// it starts the turn, as stock's idle follow-up does. Revived subagents are named only when the turn stays idle.
+			const followUp = restartFollowUp(stopped, cutOff ? [] : revivedSubagents(journal, subagents));
+			if (followUp) {
 				const notice: AgentMessage = {
 					role: "custom",
-					customType: RESTART_JOBS_MESSAGE,
-					content: restartJobsNotice(stopped),
+					...followUp,
 					display: true,
-					details: restartJobsDetails(stopped),
 					attribution: "agent",
 					timestamp: Date.now(),
 				};
@@ -1414,7 +1419,7 @@ export function runRpcUi(): void {
 				write({ type: "message_start", message: notice });
 				write({ type: "message_end", message: notice });
 			}
-			if (!cutOff && stopped.length === 0) return { turn: false, subagents: [], jobs };
+			if (!cutOff && !followUp) return { turn: false, subagents, jobs, followUp: false };
 			// A model that is slow to start (the relaunch's spawn and first request): the tab's "continuing" row stays
 			// up for the whole wait, so a spec observes it instead of racing a resume that finishes in a frame.
 			setTimeout(
@@ -1431,7 +1436,9 @@ export function runRpcUi(): void {
 									text:
 										stopped.length > 0
 											? `Continued after the interruption.\n\n${Array.from({ length: 30 }, (_, index) => `- Checked item ${index + 1}`).join("\n")}`
-											: "Continued after the interruption.",
+											: followUp
+												? "Watcher is still on the release build; I'll report when it is green."
+												: "Continued after the interruption.",
 								},
 							],
 							timestamp: Date.now(),
@@ -1444,9 +1451,9 @@ export function runRpcUi(): void {
 						endTurn([answer]);
 					}, 600);
 				},
-				stopped.length > 0 ? 1500 : 0,
+				followUp ? 1500 : 0,
 			);
-			return { turn: true, subagents: [], jobs };
+			return { turn: cutOff, subagents, jobs, followUp: followUp !== undefined };
 		},
 		"composer.share_preview": () => ({
 			snapshotId: "fixture",
@@ -2179,6 +2186,20 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			args: Record<string, unknown>;
 			result: { content: AgentMessage["content"]; details?: Record<string, unknown> };
 		};
+		// OMP_GUI_TEST_WORK_TYPES_FAIL=1: the run's type check fails, as stock records a non-zero exit.
+		const typesFail = process.env.OMP_GUI_TEST_WORK_TYPES_FAIL === "1";
+		// OMP_GUI_TEST_WORK_RICH=1: the card's captures show its chips and grouped steps — the search
+		// steps share one intent, the eval step becomes a test run (a Tests chip) and the last step starts a dev server (a Preview chip).
+		const workRich = process.env.OMP_GUI_TEST_WORK_RICH === "1";
+		const typesFailure: WorkFixtureStep["result"] = {
+			content: [
+				{
+					type: "text",
+					text: "$ tsc --noEmit\nsrc/workspace.ts(3,3): error TS2322: Type 'string' is not assignable to type 'boolean'.\nerror: script \"check:types\" exited with code 2",
+				},
+			],
+			details: { exitCode: 2 },
+		};
 		// The edit step's two changes, each taller than the stage: following must land on the newest
 		// one's first changed line, which neither the stage's top nor its bottom shows.
 		const readyLines = ["  ready: false,", ...Array.from({ length: 16 }, (_, i) => `  check${i + 1}: true,`)];
@@ -2204,10 +2225,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			{
 				name: "bash",
 				args: { command: "bun run check:types", intent: "Checking the workspace types" },
-				result: {
-					content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }],
-					details: { exitCode: 0 },
-				},
+				result: typesFail
+					? typesFailure
+					: {
+							content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }],
+							details: { exitCode: 0 },
+						},
 			},
 			{
 				name: "write",
@@ -2294,7 +2317,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 			{
 				name: "grep",
-				args: { pattern: "workspace", path: "src" },
+				args: { pattern: "workspace", path: "src", ...(workRich ? { intent: "Finding the workspace code" } : {}) },
 				result: {
 					content: [
 						{
@@ -2306,7 +2329,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 			{
 				name: "glob",
-				args: { pattern: "src/*.ts" },
+				args: { pattern: "src/*.ts", ...(workRich ? { intent: "Finding the workspace code" } : {}) },
 				result: { content: [{ type: "text", text: "src/workspace.ts\nsrc/app.ts" }] },
 			},
 			{
@@ -2322,6 +2345,34 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				},
 			},
 		];
+		if (workRich) {
+			steps[steps.length - 1] = {
+				name: "bash",
+				args: { command: "bun run dev", intent: "Starting the dev server" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: "$ vite\n\n  VITE v7.1.2  ready in 312 ms\n\n  ➜  Local:   http://localhost:5173/",
+						},
+					],
+					details: { exitCode: 0 },
+				},
+			};
+			steps[steps.findIndex(step => step.name === "eval")] = {
+				name: "bash",
+				args: { command: "bunx vitest run", intent: "Running the workspace tests" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: " Test Files  4 passed (4)\n      Tests  128 passed (128)\n   Duration  2.31s",
+						},
+					],
+					details: { exitCode: 0 },
+				},
+			};
+		}
 		const turn: AgentMessage[] = [user];
 		let index = -1;
 		const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
@@ -2625,15 +2676,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				return;
 			}
 			if (index !== 0) return;
-			steps[0].result = {
-				content: [
-					{
-						type: "text",
-						text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
-					},
-				],
-				details: { exitCode: 0 },
-			};
+			steps[0].result = typesFail
+				? typesFailure
+				: {
+						content: [
+							{
+								type: "text",
+								text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
+							},
+						],
+						details: { exitCode: 0 },
+					};
 			write({
 				type: "tool_execution_update",
 				toolCallId: "work-view-0",
@@ -3595,15 +3648,24 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
+			let streamed = "";
 			streamTick = () => {
 				streamChunks++;
+				// The whole message so far rides every update, as stock's `messageUpdates: "full"` filter sends it.
+				const delta = `Stream chunk ${streamChunks}.\n`;
+				streamed += delta;
+				answer.content = [
+					message === "fixture meter"
+						? { type: "thinking", thinking: streamed }
+						: { type: "text", text: streamed },
+				];
 				write({
 					type: "message_update",
 					message: answer,
 					assistantMessageEvent: {
 						type: message === "fixture meter" ? "thinking_delta" : "text_delta",
 						contentIndex: 0,
-						delta: `Stream chunk ${streamChunks}.\n`,
+						delta,
 						partial: answer,
 					},
 				});
@@ -3864,6 +3926,48 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			};
 			appendMessage(call);
 			appendMessage(backgrounded);
+		} else if (message === "fixture background subagent") {
+			// The turn spawns a subagent in the background and ends; stock's prompt_result says the session is not
+			// settled (the subagent still works), so the tab's run, and its relaunch marker, stay until it reports.
+			const call: AgentMessage = {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "spawn-call-1",
+						name: "task",
+						arguments: {
+							i: "Delegating the release watch",
+							tasks: [{ name: "Watcher", task: "Title: Watch the release build\n\nReport when it is green." }],
+						},
+					},
+				],
+				timestamp: Date.now(),
+				stopReason: "toolUse",
+			};
+			const spawned: AgentMessage = {
+				role: "toolResult",
+				toolCallId: "spawn-call-1",
+				toolName: "task",
+				content: [{ type: "text", text: "Spawned agent `Watcher` (job `Watcher`)." }],
+				details: { background: ["Watcher"] },
+				isError: false,
+				timestamp: Date.now() + 1,
+			};
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Watcher is on the release build in the background." }],
+				timestamp: Date.now() + 2,
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			for (const entry of [call, spawned, answer]) {
+				appendMessage(entry);
+				write({ type: "message_end", message: entry });
+			}
+			endTurn([user, call, spawned, answer]);
+			write({ type: "prompt_result", sessionSettled: false });
 		} else if (message !== "fixture running") {
 			if (message === "fixture reply actions") {
 				// Stock auto thinking names the effort it classified for this turn.
@@ -5183,6 +5287,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		}
 	};
 
+	/** `OMP_GUI_TEST_BOOT_DELAY_MS`: the real omp takes seconds to boot; the audits of what a window shows meanwhile set it. */
+	const begin = () => {
+		const delayMs = Number(process.env.OMP_GUI_TEST_BOOT_DELAY_MS) || 0;
+		if (delayMs > 0) setTimeout(startRpc, delayMs);
+		else startRpc();
+	};
 	const startRpc = () => {
 		write({
 			type: "ready",
@@ -5224,6 +5334,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		// The bridge must never be what keeps the process alive.
 		server.unref();
 		process.once("exit", () => fs.rmSync(bridgeAddress, { force: true }));
-		server.listen(bridgeAddress, startRpc);
-	} else startRpc();
+		server.listen(bridgeAddress, begin);
+	} else begin();
 }

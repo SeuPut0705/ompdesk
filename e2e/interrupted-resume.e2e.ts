@@ -27,11 +27,13 @@ const TEXT = {
 	en: {
 		waiting: "Waiting for the internet connection…",
 		notice: "Re-running 1 background task(s) the restart stopped",
+		subagents: "Continuing 1 background task(s) after the restart",
 		cancel: "Cancel",
 	},
 	ko: {
 		waiting: "인터넷 연결을 기다리는 중이에요…",
 		notice: "재시작 때 멈춘 백그라운드 작업 1개를 다시 실행해요",
+		subagents: "재시작 뒤 백그라운드 작업 1개를 이어서 진행해요",
 		cancel: "취소",
 	},
 } as const;
@@ -357,6 +359,50 @@ test("a turn the user stopped is not resumed after a crash", async () => {
 		await cleanup(profile);
 	}
 });
+
+for (const language of variants(["en", "ko"] as const))
+	test(`a session idle while its background subagent works gets one quiet turn after a crash (${language})`, async () => {
+		test.setTimeout(150_000);
+		const profile = await makeProfile(language, "light");
+		let current: ElectronApplication | undefined;
+		try {
+			const first = await launch(profile);
+			current = first.app;
+			const input = first.page.locator(".omp-composer-input").first();
+			await input.fill("fixture background subagent");
+			await input.press("Enter");
+			// The turn ended, but the subagent keeps the session unsettled: the marker stays.
+			await expect(first.page.getByText("Watcher is on the release build in the background.")).toBeVisible({
+				timeout: 30_000,
+			});
+			await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+			await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
+			await crash(first.app);
+			await expect
+				.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
+				.toEqual([]);
+
+			const second = await launch(profile, { ready: false });
+			current = second.app;
+			await probeResume(second.page);
+			// The revived subagent is named to the agent in one muted line, and the session takes a turn.
+			await expect(
+				second.page.getByText("Watcher is still on the release build; I'll report when it is green."),
+			).toBeVisible({ timeout: 30_000 });
+			await expect(second.page.locator("[data-restart-subagents]")).toHaveText(TEXT[language].subagents);
+			await expect(second.page.locator("[data-restart-subagents]")).toHaveCount(1);
+			await expect(second.page.locator("[data-restart-jobs]")).toHaveCount(0);
+			await expect(second.page.locator(".omp-user-bubble")).toHaveText([/^fixture background subagent/]);
+			await expect(second.page.getByText("working again")).toHaveCount(0);
+			await expect(second.page.locator("[data-resuming]")).toHaveCount(0);
+			expect((await second.page.evaluate(() => window.__resumeProbe))?.toasts).toEqual([]);
+			await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
+			await capture(second.page, `${language}-light-relaunch-subagent-note`);
+		} finally {
+			if (current) await exitApp(current);
+			await cleanup(profile);
+		}
+	});
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))

@@ -16,9 +16,10 @@ import {
 	X,
 } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
+import { lazyChunk } from "../../lib/chunk-load";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
@@ -30,7 +31,7 @@ import { ContextMenu, IconButton, MenuButton, PanelErrorBoundary, Sheet } from "
 import { PanelActionsContext } from "../panels/PanelChrome";
 import type { PanelView as LoadedPanelView, PanelViewProps } from "./PanelViews";
 
-const LazyPanelView = lazy(() => import("./PanelViews").then(module => ({ default: module.PanelView })));
+const LazyPanelView = lazyChunk(() => import("./PanelViews").then(module => ({ default: module.PanelView })));
 /** The views once their chunk has loaded: rendered directly, never through lazy()'s suspend and its ~300 ms throttle. */
 let loadedPanelView: typeof LoadedPanelView | undefined;
 

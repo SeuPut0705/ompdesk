@@ -1,9 +1,11 @@
 /**
  * What a relaunch's restore (`composer.restore_interrupted`) reads from the session journal
  * beyond stock `restoreSession`: the background bash jobs the last process started and never
- * finished, and whether a goal was still active when it ended. Pure over journal entries, so
- * the rules are unit-tested without a session (src/main/bridge-restart.test.ts).
+ * finished, the subagents the restore revived while the session's own turn stays idle, and
+ * whether a goal was still active when it ended. Pure over journal entries, so the rules are
+ * unit-tested without a session (src/main/bridge-restart.test.ts).
  */
+import { assignmentHeadline } from "./modes/subagent-title-contracts";
 
 /** The slice of a stock session entry read here. */
 export interface JournalEntry {
@@ -22,8 +24,10 @@ export interface JournalEntry {
 const SESSION_EXIT = "session_exit";
 /** Stock's follow-up carrying finished background jobs (async-job-delivery.ts `ASYNC_RESULT_MESSAGE_TYPE`). */
 const ASYNC_RESULT = "async-result";
-/** The hidden follow-up naming cut-off jobs. */
+/** The follow-up naming cut-off jobs (and any revived subagents with them). */
 export const RESTART_JOBS_MESSAGE = "ompdesk-restart-jobs";
+/** The follow-up naming only revived subagents, for a session whose own turn the restore did not continue. */
+export const RESTART_SUBAGENTS_MESSAGE = "ompdesk-restart-subagents";
 
 export interface InterruptedJob {
 	id: string;
@@ -128,24 +132,101 @@ function journaledBefore(entry: JournalEntry, at: number): boolean {
 	return Number.isFinite(time) && time < at;
 }
 
+/** A subagent stock `restoreSession` revived: its id and what it was asked to do. */
+export interface RevivedSubagent {
+	id: string;
+	/** The assignment's `Title:` line, else its first line (assignmentHeadline). */
+	intent?: string;
+}
+
+/** Longest intent a list line carries. */
+const INTENT_MAX_CHARS = 120;
+
+/** The assignment of the latest `task` call that spawned `id` (stock names a spawned agent after its `name`). */
+function assignmentOf(branch: readonly JournalEntry[], id: string): string | undefined {
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const content = branch[index]?.message?.role === "assistant" ? branch[index]?.message?.content : undefined;
+		if (!Array.isArray(content)) continue;
+		for (const block of content) {
+			if (!isObject(block) || block.type !== "toolCall" || block.name !== "task" || !isObject(block.arguments))
+				continue;
+			const tasks = block.arguments.tasks;
+			const item = Array.isArray(tasks) ? tasks.find(task => isObject(task) && task.name === id) : undefined;
+			if (isObject(item) && typeof item.task === "string") return item.task;
+		}
+	}
+	return undefined;
+}
+
+/** The revived subagents `ids` with the intent the session's journal gave each (none for one it did not spawn). */
+export function revivedSubagents(branch: readonly JournalEntry[], ids: readonly string[]): RevivedSubagent[] {
+	return ids.map(id => {
+		const headline = assignmentHeadline(assignmentOf(branch, id));
+		if (!headline) return { id };
+		return {
+			id,
+			intent: headline.length > INTENT_MAX_CHARS ? `${headline.slice(0, INTENT_MAX_CHARS - 1)}…` : headline,
+		};
+	});
+}
+
 /**
- * The agent's follow-up naming the cut-off jobs. Model-facing only: the transcript shows one muted line from
- * `restartJobsDetails` (the renderer's RestartJobsNote), never this text. `- <id>:` starts each job (`settles`
- * reads it); the intent leads so the agent can judge whether the job's result is still needed.
+ * The agent's text. Model-facing only: the transcript shows one muted line per kind from the details (the
+ * renderer's RestartNote), never this text. `- <id>` starts each list line (`settles` reads a job's `- <id>:`); the
+ * intent follows so the agent can judge whether a job's result is still needed, or what a subagent is doing.
  */
-export function restartJobsNotice(jobs: readonly InterruptedJob[]): string {
-	return [
-		"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:",
-		...jobs.map(job => `- ${job.id}: ${job.intent ? `${job.intent} — ` : ""}\`${job.command}\``),
-		"Start again, in the background, only the jobs the work still needs; skip any whose result no longer matters. Say nothing about the restart or this notice: no recap, no apology, no question. Carry on with the task as if nothing happened.",
-	].join("\n");
+function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly RevivedSubagent[]): string {
+	const lines: string[] = [];
+	if (jobs.length > 0) {
+		lines.push(
+			"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:",
+			...jobs.map(job => `- ${job.id}: ${job.intent ? `${job.intent} — ` : ""}\`${job.command}\``),
+			"Start again, in the background, only the jobs the work still needs; skip any whose result no longer matters.",
+		);
+	}
+	if (subagents.length > 0) {
+		lines.push(
+			"These background agents you started are working again; their results reach you as usual:",
+			...subagents.map(agent => `- ${agent.id}${agent.intent ? `: ${agent.intent}` : ""}`),
+			"Check on them, tell the user in a sentence or two what is still in progress, and keep supervising them as before.",
+		);
+	}
+	lines.push(
+		subagents.length > 0
+			? "Say nothing about the restart, this notice or how the work came back: no recap of it, no apology, no question."
+			: "Say nothing about the restart or this notice: no recap, no apology, no question. Carry on with the task as if nothing happened.",
+	);
+	return lines.join("\n");
 }
 
-/** What the transcript's muted line reads from the message: the jobs and their intents, never their commands. */
-export interface RestartJobsDetails {
+/** What the transcript's muted lines read from the message: ids and intents, never a job's command. */
+export interface RestartDetails {
 	jobs: Array<{ id: string; intent?: string }>;
+	subagents?: Array<{ id: string; intent?: string }>;
 }
 
-export function restartJobsDetails(jobs: readonly InterruptedJob[]): RestartJobsDetails {
-	return { jobs: jobs.map(job => (job.intent ? { id: job.id, intent: job.intent } : { id: job.id })) };
+/** The one follow-up a relaunch's restore sends the agent: a displayed custom message, shown as muted lines. */
+export interface RestartFollowUp {
+	customType: typeof RESTART_JOBS_MESSAGE | typeof RESTART_SUBAGENTS_MESSAGE;
+	content: string;
+	details: RestartDetails;
+}
+
+const listed = (items: readonly { id: string; intent?: string }[]) =>
+	items.map(item => (item.intent ? { id: item.id, intent: item.intent } : { id: item.id }));
+
+/**
+ * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, and the revived subagents
+ * of a session whose own turn did not go on (the caller passes none when it did). One message, so one turn.
+ */
+export function restartFollowUp(
+	jobs: readonly InterruptedJob[],
+	subagents: readonly RevivedSubagent[],
+): RestartFollowUp | undefined {
+	if (jobs.length === 0 && subagents.length === 0) return undefined;
+	return {
+		customType: jobs.length > 0 ? RESTART_JOBS_MESSAGE : RESTART_SUBAGENTS_MESSAGE,
+		content: restartNotice(jobs, subagents),
+		details: subagents.length > 0 ? { jobs: listed(jobs), subagents: listed(subagents) } : { jobs: listed(jobs) },
+	};
 }

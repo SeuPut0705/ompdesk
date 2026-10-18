@@ -577,7 +577,8 @@ describe("WebHostUi", () => {
 		onConnectionState: () => () => {},
 		features: () => null,
 		emitMenuAction: () => {},
-		setResyncHandler: () => () => {},
+		onResynced: () => () => {},
+		reload: () => {},
 		requestNotifications: async () => "granted" as const,
 	});
 

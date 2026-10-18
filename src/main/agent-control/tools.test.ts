@@ -47,3 +47,26 @@ describe("OMPdesk control tool definitions", () => {
 		expect(() => result.parse({ until: "all" })).toThrow();
 	});
 });
+
+describe("ompdesk_autopilot arguments", () => {
+	const args = ARGS[AGENT_CONTROL_TOOLS.autopilot];
+
+	it("parses each action and rejects another action's fields", () => {
+		expect(args.parse({ action: "start" })).toEqual({ action: "start" });
+		expect(
+			args.parse({
+				action: "start",
+				ship: "push",
+				branch: { kind: "existing", name: "dev" },
+				advanced: { parallel: 2, limits: { cycles: 3 } },
+			}),
+		).toBeTruthy();
+		expect(args.parse({ action: "stop", session: "abcd", now: true })).toMatchObject({ now: true });
+		expect(() => args.parse({ action: "status" })).toThrow();
+		expect(() => args.parse({ action: "start", session: "abcd" })).toThrow();
+		expect(() => args.parse({ action: "start", ship: "force" })).toThrow();
+		expect(() => args.parse({ action: "start", branch: { kind: "existing" } })).toThrow();
+		expect(() => args.parse({ action: "start", advanced: { parallel: 9 } })).toThrow();
+		expect(() => args.parse({ action: "start", advanced: { limits: { usd: -1 } } })).toThrow();
+	});
+});

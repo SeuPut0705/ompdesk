@@ -4,9 +4,11 @@
  * subagents store); the opened sessions come from the sidebar (`opened`, built from the tabs' provenance) and show
  * whether or not the opener's runtime exists, so a relaunched family reads the same before anything wakes.
  *
- * The parent row carries one summary chip ("🤖5 · ⑂4", the running count highlighted). The group is collapsed until a
- * child runs or waits, opens by itself then and folds when the last one is done; the person's own toggle stands in
- * between, remembered per session (`stores/sidebar-subagents`). Finished subagents fold into one "n done" row at the
+ * The parent row carries one summary chip ("🤖5 · ⑂4", the running count highlighted, a warning tint while a child waits
+ * for the person). The group is folded until the person opens it and never opens or folds by itself, whatever the
+ * children do; the toggle is remembered per session (`stores/sidebar-subagents`). The one exception is a child that
+ * waits for an answer or approval: a folded group shows that child alone as a row under the parent, the rest stays
+ * folded. Finished subagents fold into one "n done" row at the
  * end. Rows share one look (`SidebarFamilyRow`), are part of the sidebar's roving list (arrow keys) and a subagent
  * opens its live transcript against the owning tab — not a second sidecar, since the parent's omp is still writing
  * that session file. A subagent row dragged onto a session pane (`omp:subagent-drag`, SplitWorkspace) or "Open in
@@ -344,6 +346,7 @@ function FamilyChip({
 		counts.agents > 0 ? t("sidebar.family.agents", { count: counts.agents }) : "",
 		counts.sessions > 0 ? t("sidebar.family.sessions", { count: counts.sessions }) : "",
 		counts.running > 0 ? t("sidebar.family.running", { count: counts.running }) : "",
+		counts.waiting > 0 ? t("sidebar.family.waiting", { count: counts.waiting }) : "",
 	]
 		.filter(Boolean)
 		.join(", ");
@@ -354,7 +357,11 @@ function FamilyChip({
 			<button
 				aria-expanded={expanded}
 				aria-label={label}
-				className="omp-family-chip flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) aria-expanded:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
+				className={cx(
+					"omp-family-chip flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) aria-expanded:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)",
+					counts.waiting > 0 ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+				)}
+				data-family-waiting={counts.waiting > 0 ? counts.waiting : undefined}
 				data-sidebar-subagents-toggle={sessionKey}
 				onClick={() => toggleSidebarSubagents(sessionKey)}
 				onContextMenu={event => {
@@ -452,7 +459,7 @@ function FamilyGroup({
 	const t = useT();
 	const { subagents, owners, ready, rpc } = slice;
 	const model = useMemo(() => buildSubagentFamilyRows(subagents, owners), [subagents, owners]);
-	const { counts, hidden } = useFamilyCounts(sessionKey, slice, opened);
+	const { hidden } = useFamilyCounts(sessionKey, slice, opened);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
@@ -466,7 +473,15 @@ function FamilyGroup({
 	const rows = hidden ? [] : model.rows;
 	const done = hidden ? [] : model.done;
 	const total = rows.length + done.length + opened.length;
-	const active = counts.active > 0;
+	// A folded family surfaces only what waits for the person, flat, under the parent.
+	const shownRows = expanded
+		? rows
+		: rows
+				.filter(row => subagentFamilyState(row.agent.status) === "waiting")
+				.map(row => ({ ...row, depth: 0 as const }));
+	const shownOpened = expanded ? opened : opened.filter(child => child.state === "waiting");
+	const shownDone = expanded ? done : [];
+	const surfaced = !expanded && shownRows.length + shownOpened.length > 0;
 
 	// The transcript stays open when its agent finishes;
 	// sheet and menu close only when the agent leaves the roster.
@@ -481,11 +496,6 @@ function FamilyGroup({
 		useSidebarSubagentsStore.getState().setPresent(sessionKey, total > 0);
 		return () => useSidebarSubagentsStore.getState().setPresent(sessionKey, false);
 	}, [sessionKey, total]);
-
-	// Open while a child runs or waits, fold when the last one is done; the person's toggle stands in between.
-	useEffect(() => {
-		useSidebarSubagentsStore.getState().noteFamilyActive(sessionKey, active);
-	}, [sessionKey, active]);
 
 	// No child left: forget the expanded state so the next fan-out starts collapsed.
 	useEffect(() => {
@@ -530,18 +540,19 @@ function FamilyGroup({
 
 	return (
 		<>
-			{expanded && total > 0 && (
+			{((expanded && total > 0) || surfaced) && (
 				<div
 					aria-label={t("sidebar.family.group")}
 					className="relative space-y-px"
 					data-sidebar-family={sessionKey}
-					data-sidebar-subagents={sessionKey}
+					data-sidebar-subagents={expanded ? sessionKey : undefined}
+					data-sidebar-surfaced={surfaced ? sessionKey : undefined}
 					ref={groupRef}
 					role="group"
 				>
 					<Connector depth={0} nested={nested} />
-					{rows.map(row => agentRow(row.agent, row.depth))}
-					{opened.map(child =>
+					{shownRows.map(row => agentRow(row.agent, row.depth))}
+					{shownOpened.map(child =>
 						child.renaming ? (
 							<div key={child.key}>{child.renaming}</div>
 						) : (
@@ -564,16 +575,16 @@ function FamilyGroup({
 							/>
 						),
 					)}
-					{done.length > 0 && (
+					{shownDone.length > 0 && (
 						<>
 							<DoneFold
-								count={done.length}
+								count={shownDone.length}
 								nested={nested}
 								onToggle={() => setDoneOpen(open => !open)}
 								open={doneOpen}
 								sessionKey={sessionKey}
 							/>
-							{doneOpen && done.map(agent => agentRow(agent, 0))}
+							{doneOpen && shownDone.map(agent => agentRow(agent, 0))}
 						</>
 					)}
 				</div>

@@ -13,6 +13,7 @@ import {
 	isNetworkError,
 	isTransientError,
 	launchAction,
+	RESUME_COMMAND_TIMEOUT_MS,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
 	type ResumeLogDetails,
@@ -166,16 +167,23 @@ describe("InterruptedTurnStore", () => {
 	});
 });
 
-/** A tab's sidecar: records the commands main sends and answers them as scripted; `setStatus` moves it like a spawn. */
-function fakeSidecar(answers: Partial<Record<string, RpcResponse>> = {}, status = "ready") {
+/**
+ * A tab's sidecar: records the commands main sends (and the timeout each was given) and answers them as scripted;
+ * an `Error` answer rejects like the RPC client's timeout; `setStatus` moves it like a spawn.
+ */
+function fakeSidecar(answers: Partial<Record<string, RpcResponse | Error>> = {}, status = "ready") {
 	const commands: RpcCommand[] = [];
+	const timeouts: Array<[string, number | undefined]> = [];
 	const events = new EventEmitter();
 	const sidecar = Object.assign(events, {
 		status,
 		rpcClient: {
-			command: async (cmd: RpcCommand): Promise<RpcResponse> => {
+			command: async (cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 				commands.push(cmd);
-				return answers[cmd.type] ?? { type: "response", command: cmd.type, success: true, data: {} };
+				timeouts.push([cmd.type, timeoutMs]);
+				const answer = answers[cmd.type];
+				if (answer instanceof Error) throw answer;
+				return answer ?? { type: "response", command: cmd.type, success: true, data: {} };
 			},
 		},
 	});
@@ -186,6 +194,7 @@ function fakeSidecar(answers: Partial<Record<string, RpcResponse>> = {}, status 
 	return {
 		sidecar: sidecar as unknown as SidecarLike,
 		commands,
+		timeouts,
 		setStatus,
 		listeners: () => events.listenerCount("status"),
 	};
@@ -206,6 +215,8 @@ interface Harness {
 	facts: ResumeFact[];
 	awaiting: Array<[string, boolean]>;
 	commands: RpcCommand[];
+	/** The timeout each command was sent with (`undefined` = the RPC client's 8 s default). */
+	timeouts: Array<[string, number | undefined]>;
 	net: { online: boolean; wake: boolean };
 	state: { enabled: boolean; frozen: boolean; opened: ResumeMarker[] };
 	resume: TurnResume;
@@ -235,7 +246,7 @@ function setup(
 		rank?: Record<string, number>;
 		online?: boolean;
 		waitAfterWake?: boolean;
-		answers?: Partial<Record<string, RpcResponse>>;
+		answers?: Partial<Record<string, RpcResponse | Error>>;
 		/** The tab's sidecar status when the resume first looks (default ready). */
 		status?: string;
 		/** Settings pref for the scheduled retry (default on). */
@@ -257,7 +268,7 @@ function setup(
 	const resuming: Array<[string, boolean]> = [];
 	const started: string[] = [];
 	const logs: Array<[string, ResumeLogDetails]> = [];
-	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
+	const { sidecar, commands, timeouts, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
 		enabled: options.enabled ?? true,
@@ -330,6 +341,7 @@ function setup(
 		facts,
 		awaiting,
 		commands,
+		timeouts,
 		net,
 		state,
 		resume,
@@ -619,6 +631,87 @@ describe("TurnResume launch", () => {
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
 		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
 		expect(h.resuming[0]).toEqual(["restored", true]);
+	});
+
+	it("gives the restore room: stock reads every subagent transcript first, past the RPC client's 8 s default", async () => {
+		// 18 Oct 2026, v0.37.0: a session with 577 subagent transcripts (1.1 GB) answered after the 8 s default, so the
+		// reply was cut and logged `failed` while stock went on reviving the subagent.
+		h = setup({ answers: { restore_interrupted: restoreAnswer({ turn: false }) } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.timeouts).toEqual([
+			["restore_interrupted", RESUME_COMMAND_TIMEOUT_MS],
+			["retry", RESUME_COMMAND_TIMEOUT_MS],
+		]);
+		expect(RESUME_COMMAND_TIMEOUT_MS).toBeGreaterThan(8_000);
+	});
+
+	it("falls back to stock retry when the restore fails, and logs why each did not continue", async () => {
+		h = setup({
+			answers: {
+				restore_interrupted: new Error("RPC timeout (120000ms): restore_interrupted"),
+				retry: { type: "response", command: "retry", success: false, error: "Agent is busy", code: "busy" },
+			},
+		});
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
+		expect(h.logs.at(-1)).toEqual([
+			"continue",
+			{
+				tab: "restored",
+				action: "restore",
+				restored: "failed",
+				retried: false,
+				prompt: false,
+				goal: false,
+				started: false,
+				restoreError: "RPC timeout (120000ms): restore_interrupted",
+				retryError: "Agent is busy",
+				retryCode: "busy",
+			},
+		]);
+		// Nothing went on: the marker has nothing more to say.
+		expect(h.store.read()).toEqual([]);
+	});
+
+	it("lets a restore that revived subagents of an idle session go on through the bridge's one follow-up, never a retry", async () => {
+		// 18 Oct 2026, v0.38.1: the main turn had ended, six background subagents were revived and the session sat
+		// silent. The bridge now tells the agent in one follow-up (`followUp`), which is the session's turn.
+		h = setup({
+			answers: { restore_interrupted: restoreAnswer({ subagents: ["Release", "Review"], followUp: true }) },
+		});
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.logs.at(-1)).toEqual([
+			"continue",
+			{
+				tab: "restored",
+				action: "restore",
+				restored: "subagents:2",
+				retried: false,
+				prompt: false,
+				goal: false,
+				started: true,
+				followUp: true,
+			},
+		]);
+		// The marker waits for that turn; once it ran, nothing restores the tab again in this launch.
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		h.facts[0] = fact({ tabId: "restored", running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ tabId: "restored", running: false });
+		h.resume.sync();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.store.read()).toEqual([]);
 	});
 
 	it("resumes a goal stock paused at startup after the restore, once", async () => {

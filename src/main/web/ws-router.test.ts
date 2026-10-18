@@ -135,6 +135,7 @@ function rig(options: RigOptions = {}) {
 		data: `jpeg:${image.data}`,
 		mimeType: "image/jpeg",
 	}));
+	const resyncs: string[] = [];
 	let routerRef: WsRouter | null = null;
 	const windows = new WebWindows((id, channel, payload) => routerRef?.deliver(id, channel, payload));
 	const router = new WsRouter({
@@ -148,6 +149,7 @@ function rig(options: RigOptions = {}) {
 		blobs,
 		uploads,
 		toModelImage,
+		onResync: deviceId => resyncs.push(deviceId),
 		now: () => clock.now,
 		timers,
 	});
@@ -177,6 +179,7 @@ function rig(options: RigOptions = {}) {
 		toModelImage,
 		frame,
 		settle,
+		resyncs,
 		revoke: () => {
 			current = undefined;
 		},
@@ -625,6 +628,22 @@ describe("presence", () => {
 		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("y")] });
 		r.timers.flush();
 		expect(r.socket.frames("evt").at(-1)?.ch).toBe(IPC_EVENTS.EVENTS_BATCH);
+	});
+
+	it("asks for whole stream snapshots whenever a hello sends the page to resync, never on a resumed one", () => {
+		const r = rig();
+		// The first hello of a page load counts: that page holds no stream yet.
+		expect(r.resyncs).toEqual(["dev1"]);
+		r.frame({ t: "presence", visible: false });
+		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		r.frame({ t: "presence", visible: true });
+		expect(r.resyncs).toEqual(["dev1", "dev1"]);
+		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
+		r.timers.flush();
+		r.frame({ t: "ack", seq: r.socket.frames("evt").at(-1)?.seq ?? 0 });
+		r.connection.dispose();
+		r.router.attach("dev1", new FakeSocket(), r.connection.connId);
+		expect(r.resyncs).toEqual(["dev1", "dev1"]);
 	});
 
 	it("drops a stream already queued when the page hides before the batch goes out", () => {

@@ -8,6 +8,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { SettingProvenance, SettingsSchemaResult } from "../../../shared/rpc-types";
+import { useTabPollKey } from "../../hooks/use-tab-poll";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
@@ -59,18 +60,32 @@ export function useSidecarBusy(): boolean {
 	return sessionBusy || executionBusy;
 }
 
+/**
+ * The last schema and values read for each tab, held in memory only (a setting's value can be a secret the snapshot
+ * cache must never hold): Settings opened again, or switched between sections, shows its rows at once and reads
+ * in place, instead of a skeleton on every visit.
+ */
+const lastRead = new Map<
+	string,
+	{ schema: SettingsSchemaResult; values: Record<string, unknown>; advisorActive?: boolean }
+>();
+
 /** Owns the agent-settings state for one mounted Settings page. */
 export function useSettingsDataLoader(): SettingsData {
+	const tabKey = useTabPollKey();
+	const known = lastRead.get(tabKey);
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const sidecarStatus = useSessionStore(state => state.status);
 	const sidecarReady = sidecarStatus === "ready";
 	const sidecarBusy = useSidecarBusy();
-	const [loadState, setLoadState] = useState<LoadState>("loading");
+	const [loadState, setLoadState] = useState<LoadState>(known ? "ready" : "loading");
 	const [loadError, setLoadError] = useState<string | null>(null);
-	const [schema, setSchema] = useState<SettingsSchemaResult | null>(null);
-	const [values, setValues] = useState<Record<string, unknown>>({});
-	const [advisorActive, setAdvisorActive] = useState<boolean>();
+	const [schema, setSchema] = useState<SettingsSchemaResult | null>(known?.schema ?? null);
+	const [values, setValues] = useState<Record<string, unknown>>(known?.values ?? {});
+	const [advisorActive, setAdvisorActive] = useState<boolean | undefined>(known?.advisorActive);
+	const shownSchema = useRef(schema);
+	shownSchema.current = schema;
 	const [reloadToken, setReloadToken] = useState(0);
 	const settingsVersion = useRef(0);
 
@@ -96,7 +111,8 @@ export function useSettingsDataLoader(): SettingsData {
 		}
 		let cancelled = false;
 		const version = ++settingsVersion.current;
-		setLoadState("loading");
+		// Rows already shown stay (and stay editable) while the read replaces them in place.
+		if (!shownSchema.current) setLoadState("loading");
 		setLoadError(null);
 		void (async () => {
 			try {
@@ -117,14 +133,20 @@ export function useSettingsDataLoader(): SettingsData {
 				}
 				const nextValues: Record<string, unknown> = {};
 				for (const entry of result.entries) nextValues[entry.path] = entry.value;
+				let advisorFromRead: boolean | undefined;
 				if (settingsRes.success) {
 					const data = settingsRes.data as SettingsResponseData | undefined;
+					advisorFromRead = data?.advisorActive;
 					if (data?.values) Object.assign(nextValues, data.values);
 					if (typeof data?.advisorEnabled === "boolean") nextValues["advisor.enabled"] = data.advisorEnabled;
 					setAdvisorActive(data?.advisorActive);
 				}
 				setSchema(result);
-				setValues(previous => (version === settingsVersion.current ? nextValues : { ...nextValues, ...previous }));
+				setValues(previous => {
+					const merged = version === settingsVersion.current ? nextValues : { ...nextValues, ...previous };
+					lastRead.set(tabKey, { schema: result, values: merged, advisorActive: advisorFromRead });
+					return merged;
+				});
 				setLoadState("ready");
 			} catch (err) {
 				if (!cancelled) {
@@ -137,7 +159,7 @@ export function useSettingsDataLoader(): SettingsData {
 		return () => {
 			cancelled = true;
 		};
-	}, [reloadToken, sidecarReady, t, tabRpc]);
+	}, [reloadToken, sidecarReady, t, tabRpc, tabKey]);
 
 	// External edits (composer controls, TUI, another window) push config_update:
 	// refetch values only; per-row drafts win over `values`, so in-progress edits survive.

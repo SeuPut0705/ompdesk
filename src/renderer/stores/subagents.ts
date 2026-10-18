@@ -1,7 +1,8 @@
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
-import { assignmentTitle } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
+import { assignmentTitle, unwrapStockPrompt } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import { messageText } from "../lib/messages";
 import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 import { createToolsStore, type ToolsStore } from "./tools";
@@ -22,6 +23,11 @@ export interface SubagentsStore {
 	    roster plus an error is "couldn't load", never "nothing spawned". */
 	error: string | null;
 	applyFrame: (frame: SubagentFrame) => void;
+	/**
+	 * Read a row's original assignment back from its transcript's first user message when the roster carries neither the
+	 * assignment nor a label (a snapshot taken after a follow-up run, which reports no assignment). Once per id.
+	 */
+	recoverAssignment: (id: string) => Promise<void>;
 	setSnapshots: (snapshots: SubagentNode[]) => void;
 	/**
 	 * Pull the full roster over get_subagents and MERGE it. Unlike
@@ -52,9 +58,17 @@ const LIVE_STATUSES: Record<string, true> = {
 	stale: true,
 };
 
+/**
+ * A row's original assignment. Stock reports a run's own message as `task` and, for a run after the first (a follow-up
+ * to an idle subagent, the revival after a restart), no `assignment`: a revival's `task` is the wrapped original (so
+ * the assignment is read back from it), a follow-up's is not and must never become the row's label.
+ */
 function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
-	const title = assignmentTitle(snapshot.assignment);
-	const titled = title && title !== snapshot.description ? { ...snapshot, description: title } : snapshot;
+	const assignment = snapshot.assignment ?? unwrapStockPrompt(snapshot.task);
+	const withAssignment = assignment === snapshot.assignment ? snapshot : { ...snapshot, assignment };
+	const title = assignmentTitle(assignment);
+	const titled =
+		title && title !== withAssignment.description ? { ...withAssignment, description: title } : withAssignment;
 	return titled.status === "running" && titled.live === false ? { ...titled, status: "stale" } : titled;
 }
 
@@ -98,6 +112,8 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	let refreshVersion = 0;
+	// Ids whose original assignment was already looked up in the transcript: once each, found or not.
+	const recovered = new Set<string>();
 	const hydrations = new Map<
 		string,
 		{ completed: boolean; toolCount: number; pending: boolean; load: Promise<void> }
@@ -200,6 +216,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			// Copy-on-first-write: a progress frame without an id leaves the map
 			// untouched and must not trigger a re-render.
 			let subagents: Map<string, SubagentNode> | null = null;
+			let touched: string | undefined;
 
 			switch (frame.type) {
 				case "subagent_event": {
@@ -252,19 +269,18 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					const progress = frame.payload.progress;
 					if (!progress?.id) break;
 					const existing = get().subagents.get(progress.id);
+					const assignment =
+						frame.payload.assignment ?? existing?.assignment ?? unwrapStockPrompt(frame.payload.task);
 					subagents = new Map(get().subagents);
 					subagents.set(progress.id, {
 						id: progress.id,
 						index: frame.payload.index,
 						agent: frame.payload.agent,
 						agentSource: frame.payload.agentSource,
-						description:
-							assignmentTitle(frame.payload.assignment ?? existing?.assignment) ??
-							progress.description ??
-							existing?.description,
+						description: assignmentTitle(assignment) ?? progress.description ?? existing?.description,
 						status: progress.status,
 						task: frame.payload.task,
-						assignment: frame.payload.assignment ?? existing?.assignment,
+						assignment,
 						sessionFile: frame.payload.sessionFile ?? existing?.sessionFile,
 						lastUpdate: Date.now(),
 						parentToolCallId: frame.payload.parentToolCallId ?? existing?.parentToolCallId,
@@ -272,11 +288,34 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 						kind: existing?.kind ?? "sub",
 						progress,
 					});
+					touched = progress.id;
 					break;
 				}
 			}
 
 			if (subagents) set({ subagents });
+			if (touched) void get().recoverAssignment(touched);
+		},
+		recoverAssignment: async id => {
+			const node = get().subagents.get(id);
+			if (!node || node.assignment || node.description || recovered.has(id)) return;
+			recovered.add(id);
+			try {
+				let response = await command({ type: "get_subagent_messages", subagentId: id });
+				if (!response.success) response = await command({ type: "get_subagent_transcript", subagentId: id });
+				if (!response.success) return;
+				const messages = (response.data as { messages?: AgentMessage[] } | undefined)?.messages;
+				const first = messages?.find(message => message.role === "user");
+				const text = first ? messageText(first) : "";
+				const assignment = unwrapStockPrompt(text) ?? (text || undefined);
+				const latest = get().subagents.get(id);
+				if (!assignment || !latest || latest.assignment || latest.description) return;
+				set(state => ({
+					subagents: new Map(state.subagents).set(id, normalizeSnapshot({ ...latest, assignment })),
+				}));
+			} catch {
+				// Best-effort: the row keeps its role name.
+			}
 		},
 		setSnapshots: snapshots => {
 			refreshVersion++;
@@ -337,6 +376,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					return;
 				}
 				set({ subagents, error: null });
+				for (const id of subagents.keys()) void get().recoverAssignment(id);
 			} catch (cause) {
 				// Best-effort poll: frames + hydration remain authoritative. The
 				// failure is still recorded so the empty roster can name it.
@@ -347,6 +387,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 		reset: () => {
 			refreshVersion++;
 			hydrations.clear();
+			recovered.clear();
 			observedUsage.clear();
 			set({
 				subagents: new Map(),

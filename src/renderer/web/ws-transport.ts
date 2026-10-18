@@ -9,8 +9,8 @@
  *   (`wake()`: visible, online, pageshow) retries at once. The host keeps a disconnected device's window parked.
  *   A reconnect offers the last connection's id (`resume.<connId>`); the host's `hello` says `resumed` when that
  *   connection ended with every event acknowledged and no push reached the device since, and the page carries on.
- *   Otherwise events were missed (or a call the drop failed is unanswered) and the page loads its state again
- *   (`onResync`). A host that dropped stream pushes while the page was hidden sends `hello` again on its return.
+ *   Otherwise events were missed (or a call the drop failed is unanswered) and the page catches up in place
+ *   (`onResync`, with the cause). A host that dropped stream pushes while the page was hidden sends `hello` again on its return.
  * - Liveness: the host pings every 20 s; the page declares the link dead only after three silent intervals, and a
  *   tick that fires late (the phone slept) counts for nothing.
  * - Acks: the last event `seq` applied goes back, coalesced; the host resumes only a connection fully acknowledged.
@@ -32,6 +32,9 @@ export type WsConnectionState =
 	/** The host needs a newer page than this one. */
 	| "outdated"
 	| "closed";
+
+/** Why a reconnect needs the page to load its state again (`onResync`). */
+export type ResyncCause = "missed-events" | "lost-calls";
 
 /** The part of the browser `WebSocket` the transport uses. */
 export interface WsLike {
@@ -58,8 +61,12 @@ export interface WsTransportOptions {
 	isVisible?: () => boolean;
 	/** The host named a newer minimum client: the page is stale. */
 	onOutdated?: () => void;
-	/** The link came back after a drop and events may have been missed: load state again. */
-	onResync?: () => void;
+	/**
+	 * The link came back after a drop and the page must load its state again: `missed-events` when the host could not
+	 * resume the last connection (events were dropped, or it restarted), `lost-calls` when it did but a call the drop
+	 * failed is unanswered.
+	 */
+	onResync?: (cause: ResyncCause) => void;
 	/** No pairing for this browser. */
 	onUnpaired?: () => void;
 	heartbeatMs?: number;
@@ -348,7 +355,13 @@ export class WsTransport implements OmpTransport {
 		const reconnected = this.#everConnected;
 		// The host resumes a connection only when this page had every event; a call the drop failed still
 		// left something unanswered, so the page loads its state again then.
-		const resync = reconnected && (!frame.resumed || this.#lostCalls);
+		const resync: ResyncCause | null = !reconnected
+			? null
+			: !frame.resumed
+				? "missed-events"
+				: this.#lostCalls
+					? "lost-calls"
+					: null;
 		this.#lostCalls = false;
 		this.#everConnected = true;
 		this.#connId = frame.connId;
@@ -368,7 +381,7 @@ export class WsTransport implements OmpTransport {
 			this.#clearTimer(entry.timer);
 			entry.run();
 		}
-		if (resync) this.#options.onResync?.();
+		if (resync) this.#options.onResync?.(resync);
 	}
 
 	#event(seq: number, channel: string, data: unknown): void {
