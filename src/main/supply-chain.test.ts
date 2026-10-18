@@ -47,4 +47,16 @@ describe("supply chain", () => {
 		}
 		expect(new Set(uses.map(use => use.version)).size, "workflows pin different Bun versions").toBe(1);
 	});
+
+	it("every workflow's global omp install is exempt from the release hold, so CI tests the newest omp", () => {
+		let installs = 0;
+		for (const file of fs.readdirSync(WORKFLOWS).filter(name => /\.ya?ml$/.test(name))) {
+			for (const line of fs.readFileSync(path.join(WORKFLOWS, file), "utf8").split("\n")) {
+				if (!/^\s*bun install -g\b.*@oh-my-pi\/pi-coding-agent/.test(line)) continue;
+				installs++;
+				expect(line, file).toContain("--minimum-release-age 0");
+			}
+		}
+		expect(installs).toBeGreaterThan(0);
+	});
 });
