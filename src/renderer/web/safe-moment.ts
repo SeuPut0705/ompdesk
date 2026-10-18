@@ -2,6 +2,7 @@
  * What the page is doing right now, read from the app's own stores for `safeToReload` (sw-update.ts): a reload
  * never lands on anything the user made and has not finished with.
  */
+import { filePickInProgress } from "../lib/file-pick";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { usePlanApprovalStore } from "../stores/plan-approval";
@@ -17,6 +18,8 @@ export function pageSafeMoment(isVisible: () => boolean = () => document.visibil
 			const composer = useComposerStore.getState();
 			return composer.draft.trim() === "" && composer.images.length === 0;
 		},
+		attached: () => useComposerStore.getState().images.length > 0,
+		picking: filePickInProgress,
 		askOpen: () =>
 			useExtensionUiStore.getState().pendingRequests.length > 0 || usePlanApprovalStore.getState().pending !== null,
 		uploading: () => uploadsInFlight() > 0,

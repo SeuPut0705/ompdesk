@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../../../shared/rpc-types";
 import { resetSessionSurface } from "../../../hooks/use-session-switch";
+import { filePickInProgress } from "../../../lib/file-pick";
 import { clearHistoryImages, rememberHistoryImages } from "../../../lib/history-images";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../../lib/paste-blobs";
@@ -1219,6 +1220,59 @@ describe("InputArea file intake", () => {
 		await mount();
 		const input = document.querySelector('input[type="file"]');
 		expect(input?.getAttribute("accept")).toBeNull();
+	});
+
+	it("shows a chip while a file goes to the computer (a web page's upload), then mentions it where it landed", async () => {
+		await mount();
+		const upload = Promise.withResolvers<string>();
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () => upload.promise;
+		const box = document.querySelector(".omp-composer-box");
+		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
+		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
+		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files: [pdf] }, preventDefault: () => {} }));
+		await flush();
+		const chips = () => Array.from(document.querySelectorAll("[data-upload-chip]")).map(chip => chip.textContent);
+		expect(chips()).toEqual([translate("input.files.sending", { name: "report.pdf" })]);
+		await act(async () => upload.resolve("/up/dev/1/report.pdf"));
+		await flush();
+		expect(chips()).toEqual([]);
+		expect(useComposerStore.getState().draft).toBe("@/up/dev/1/report.pdf ");
+	});
+
+	it("says why a file was not sent, once, and inserts nothing for it", async () => {
+		await mount();
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () =>
+			Promise.reject(new Error("Couldn't send report.pdf to your computer."));
+		const box = document.querySelector(".omp-composer-box");
+		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
+		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
+		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files: [pdf] }, preventDefault: () => {} }));
+		await flush();
+		expect(useToastStore.getState().toasts.map(item => [item.variant, item.message])).toEqual([
+			["error", "Couldn't send report.pdf to your computer."],
+		]);
+		expect(document.querySelectorAll("[data-upload-chip]")).toHaveLength(0);
+		expect(useComposerStore.getState().draft).toBe("");
+	});
+
+	it("holds a pick from the + menu until its files have landed in the composer", async () => {
+		await mount();
+		const upload = Promise.withResolvers<string>();
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () => upload.promise;
+		const input = document.querySelector('input[type="file"]') as unknown as TestElement & { click(): void };
+		input.click = () => {};
+		await openAddMenuItem(translate("input.attach"));
+		expect(filePickInProgress()).toBe(true);
+		const { onChange } = reactProps<{ onChange: (event: object) => void }>(input);
+		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
+		await act(async () => onChange({ target: Object.assign(input, { files: [pdf], value: "" }) }));
+		await flush();
+		// The page came back from the picker and the file is still on its way: a reload now would drop it.
+		expect(filePickInProgress()).toBe(true);
+		await act(async () => upload.resolve("/up/dev/1/report.pdf"));
+		await flush();
+		expect(filePickInProgress()).toBe(false);
+		expect(useComposerStore.getState().draft).toBe("@/up/dev/1/report.pdf ");
 	});
 });
 

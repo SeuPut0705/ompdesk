@@ -4,9 +4,11 @@
  * mention that stock omp resolves at send time (`utils/file-mentions.ts`:
  * text files and folder listings are inlined, PDF/Office and other binaries
  * are named so the agent opens them with its read tool, which converts them
- * through markit). A file the tab's machine cannot reach by path (a remote
- * tab, or a clipboard blob without a path) falls back to its text, wrapped
- * like a pasted attachment; anything else is refused with a reason.
+ * through markit). A web page's path is the file's upload on the computer; an
+ * upload that failed is refused with its reason. A file the tab's machine
+ * cannot reach by path (a remote tab, or a clipboard blob without a path)
+ * falls back to its text, wrapped like a pasted attachment; anything else is
+ * refused with a reason.
  */
 
 /** Stock auto-read ceiling for a mentioned text file (`MAX_AUTO_READ_TEXT_BYTES`). */
@@ -14,7 +16,7 @@ export const MAX_INLINE_TEXT_BYTES = 5 * 1024 * 1024;
 /** Bytes sniffed for a NUL to tell text from binary (stock `isProbablyBinary` reads a head too). */
 const BINARY_SNIFF_BYTES = 8000;
 
-export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable";
+export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable" | "notSent";
 
 export interface ComposerFileIntake {
 	images: File[];
@@ -22,13 +24,17 @@ export interface ComposerFileIntake {
 	mentions: string[];
 	/** Text of files that could not be referenced by path. */
 	texts: Array<{ name: string; content: string }>;
-	rejected: Array<{ name: string; reason: ComposerFileRejection }>;
+	/** `message`: why a `notSent` file did not reach the computer, in words (the upload's error). */
+	rejected: Array<{ name: string; reason: ComposerFileRejection; message?: string }>;
 }
 
 export interface ComposerFileIntakeOptions {
 	/** Session cwd: paths inside it become relative mentions. */
 	cwd: string;
-	/** Absolute path of a dropped/picked file on this machine (a web page: its upload's path on the host); "" when it has none. */
+	/**
+	 * Absolute path of a dropped/picked file on this machine (a web page: its upload's path on the host); "" when
+	 * it has none. Rejects when the file could not be sent there (a web page's upload failed), with why.
+	 */
 	pathFor: (file: File) => string | Promise<string>;
 	/** The tab's omp runs on another device, so this machine's paths mean nothing there. */
 	remote: boolean;
@@ -75,7 +81,17 @@ export async function intakeComposerFiles(
 			intake.images.push(file);
 			continue;
 		}
-		const path = options.remote ? "" : await options.pathFor(file);
+		let path: string;
+		try {
+			path = options.remote ? "" : await options.pathFor(file);
+		} catch (error) {
+			intake.rejected.push({
+				name: file.name,
+				reason: "notSent",
+				message: error instanceof Error ? error.message : String(error),
+			});
+			continue;
+		}
 		if (path) {
 			intake.mentions.push(fileMentionFor(path, options.cwd));
 			continue;

@@ -306,33 +306,48 @@ describe("the web shim", () => {
 			expect(fetches[0]?.init?.credentials).toBe("same-origin");
 		});
 
-		it("answers an empty path and says why when the host refuses, and tries again next time", async () => {
+		it("rejects with why when the host refuses, and tries again next time", async () => {
 			const { web, log, fetchReply, fetches } = setup();
 			fetchReply.current = () => new Response("{}", { status: 413 });
 			const file = new File(["x"], "big.bin");
-			await expect(web.api.fs.pathForFile(file)).resolves.toBe("");
-			expect(log.errors).toEqual(['web.upload.refused{"name":"big.bin"}']);
+			await expect(web.api.fs.pathForFile(file)).rejects.toThrow('web.upload.refused{"name":"big.bin"}');
+			// The composer says it; the shim does not toast it a second time.
+			expect(log.errors).toEqual([]);
 			fetchReply.current = () => new Response(JSON.stringify({ path: "/up/big.bin" }));
 			await expect(web.api.fs.pathForFile(file)).resolves.toBe("/up/big.bin");
 			expect(fetches).toHaveLength(2);
 		});
 
 		it("does not upload a file over 25 MB", async () => {
-			const { web, log, fetches } = setup();
+			const { web, fetches } = setup();
 			const huge = new File(["x"], "huge.bin");
 			Object.defineProperty(huge, "size", { value: 26 * 1024 * 1024 });
-			await expect(web.api.fs.pathForFile(huge)).resolves.toBe("");
+			await expect(web.api.fs.pathForFile(huge)).rejects.toThrow('web.upload.tooLarge{"name":"huge.bin"}');
 			expect(fetches).toEqual([]);
-			expect(log.errors).toHaveLength(1);
 		});
 
 		it("says the network failed when the request throws", async () => {
-			const { web, log, fetchReply } = setup();
+			const { web, fetchReply } = setup();
 			fetchReply.current = () => {
 				throw new Error("offline");
 			};
-			await expect(web.api.fs.pathForFile(new File(["x"], "n.txt"))).resolves.toBe("");
-			expect(log.errors).toEqual(['web.upload.network{"name":"n.txt"}']);
+			await expect(web.api.fs.pathForFile(new File(["x"], "n.txt"))).rejects.toThrow(
+				'web.upload.network{"name":"n.txt"}',
+			);
+		});
+
+		it("uploads the phone files a host sheet picks, keeps the ones that landed and says why another did not", async () => {
+			const { web, answers, log, fetches, fetchReply } = setup();
+			answers.pick = [new File(["a"], "a.txt"), new File(["b"], "b.txt")];
+			fetchReply.current = () => {
+				const body = fetches.at(-1)?.init?.body as FormData;
+				const name = (body.get("file") as File).name;
+				return name === "a.txt"
+					? new Response(JSON.stringify({ path: "/up/a.txt" }))
+					: new Response("{}", { status: 500 });
+			};
+			await expect(web.host.pickPhoneFiles(undefined)).resolves.toEqual(["/up/a.txt"]);
+			expect(log.errors).toEqual(['web.upload.refused{"name":"b.txt"}']);
 		});
 
 		it("sends a prompt's pictures by upload and the prompt names the host's copies (a frame holds 1 MB)", async () => {

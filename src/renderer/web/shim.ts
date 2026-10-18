@@ -158,7 +158,15 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	async function pickPhoneFiles(filters: FileFilter[] | undefined): Promise<string[] | null> {
 		const files = await env.pickFiles(acceptFromFilters(filters));
 		if (files.length === 0) return null;
-		const paths = (await Promise.all(files.map(pathForFile))).filter(path => path.length > 0);
+		const uploaded = await Promise.all(
+			files.map(file =>
+				pathForFile(file).catch((error: Error) => {
+					env.toastError(error.message);
+					return "";
+				}),
+			),
+		);
+		const paths = uploaded.filter(path => path.length > 0);
 		return paths.length > 0 ? paths : null;
 	}
 
@@ -167,11 +175,13 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		refused: "web.upload.refused",
 		network: "web.upload.network",
 	};
-	const pathForFile = createPathForFile({
-		fetch: env.fetch,
-		base,
-		onFailure: (file, failure) => env.toastError(env.t(failureText[failure], { name: file.name })),
-	});
+	const uploadOnce = createPathForFile({ fetch: env.fetch, base });
+	/** `fs.pathForFile`: the host path of the file's upload; rejects with why it was not sent, in words. */
+	const pathForFile = (file: File): Promise<string> =>
+		uploadOnce(file).catch((error: unknown) => {
+			const failure = error instanceof UploadFailed ? error.failure : "network";
+			throw new Error(env.t(failureText[failure], { name: file.name }));
+		});
 
 	/** Why a call's picture did not reach the computer (the call is not sent then). */
 	const imageFailureText: Record<UploadFailure, string> = {

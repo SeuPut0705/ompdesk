@@ -7,6 +7,7 @@ import {
 	Ellipsis,
 	ExternalLink,
 	History,
+	ImageIcon,
 	ListPlus,
 	Maximize2,
 	Mic,
@@ -29,6 +30,7 @@ import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { FILE_DRAG_TYPE, readFileDrag } from "../../../lib/file-drag";
+import { trackFilePick } from "../../../lib/file-pick";
 import { cx } from "../../../lib/format";
 import { historyImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
@@ -73,7 +75,7 @@ import { useSettingsStore } from "../../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
@@ -301,12 +303,15 @@ export function InputArea() {
 	useEffect(() => {
 		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) return;
 		const storage = browserStorage;
-		// A sent or cleared draft is dropped at once; typing is saved once it pauses.
-		const timer = setTimeout(
-			() => saveDraft(storage, draftStore, expandPasteMarkers(text)),
-			text ? DRAFT_SAVE_MS : 0,
-		);
-		return () => clearTimeout(timer);
+		// A sent or cleared draft is dropped at once; typing is saved once it pauses, and before the page goes (a
+		// reload for missed events or an update may come right after an upload put its path in the draft).
+		const save = () => saveDraft(storage, draftStore, expandPasteMarkers(text));
+		const timer = setTimeout(save, text ? DRAFT_SAVE_MS : 0);
+		window.addEventListener("pagehide", save);
+		return () => {
+			clearTimeout(timer);
+			window.removeEventListener("pagehide", save);
+		};
 	}, [text, draftStore, draftLoadedFor]);
 
 	/** True while the composer writes its own draft into the field: the field's onChange then only mirrors it. */
@@ -401,6 +406,11 @@ export function InputArea() {
 		return () => observer.disconnect();
 	}, [expanded]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	/** Ends the file pick in flight (lib/file-pick.ts) once its files landed in the composer. */
+	const endPickRef = useRef<(() => void) | null>(null);
+	/** Files on their way to the computer (a web page's `pathForFile` uploads), shown as chips until they land. */
+	const [sendingFiles, setSendingFiles] = useState<{ id: number; name: string }[]>([]);
+	const sendingFileId = useRef(0);
 	const mountedRef = useRef(true);
 	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
 	const ownsTake = useRef(false);
@@ -1146,7 +1156,7 @@ export function InputArea() {
 				.filter(line => line !== "");
 			if (lines.some(line => !names.has(line) && !names.has(line.split(/[\\/]/).at(-1) ?? "")))
 				pasteText(pasted, true);
-			attachFiles(files);
+			void attachFiles(files);
 			return;
 		}
 		if (pasted && pasteText(pasted, false)) e.preventDefault();
@@ -1199,36 +1209,67 @@ export function InputArea() {
 	 * Picker, drop and clipboard files (composer-files.ts): images attach, other
 	 * files and folders become `@path` mentions stock reads at send time (PDF and
 	 * Office through its read tool), and a file this tab's machine cannot reach by
-	 * path goes in as its text; the rest are refused with a reason.
+	 * path goes in as its text; the rest are refused with a reason. On a web page
+	 * the path is the file's upload on the computer: a chip shows each one on its
+	 * way, and one that failed says why. Settles once everything has landed.
 	 */
-	const attachFiles = (files: readonly File[]) => {
+	const attachFiles = async (files: readonly File[]): Promise<void> => {
 		if (files.length === 0) return;
-		void intakeComposerFiles(files, {
+		const intake = await intakeComposerFiles(files, {
 			cwd,
-			pathFor: file => window.omp.fs.pathForFile(file),
+			pathFor: file => {
+				const path = window.omp.fs.pathForFile(file);
+				// This machine's own path answers at once; an upload shows its chip until it lands.
+				if (typeof path === "string") return path;
+				const id = ++sendingFileId.current;
+				setSendingFiles(previous => [...previous, { id, name: file.name }]);
+				return path.finally(() => {
+					if (mountedRef.current) setSendingFiles(previous => previous.filter(entry => entry.id !== id));
+				});
+			},
 			remote: historyDevice !== undefined,
-		}).then(async intake => {
-			if (!mountedRef.current) return;
-			const pieces = [
-				...intake.mentions,
-				...intake.texts.map(file => {
-					const blob = storePaste(fileTextAttachment(file.name, file.content));
-					return pasteMarkerText(blob.id, blob.content);
-				}),
-			];
-			if (pieces.length > 0) insertAtCaret(pieces.join(" "));
-			const reasons = {
-				empty: "input.files.empty",
-				tooLarge: "input.files.tooLarge",
-				binary: historyDevice === undefined ? "input.files.noPath" : "input.files.remoteBinary",
-				unreadable: "input.files.unreadable",
-			} as const;
-			for (const rejection of intake.rejected)
-				toast({ variant: "warning", message: t(reasons[rejection.reason], { name: rejection.name }) });
-			if (intake.images.length === 0) return;
-			const added = await Promise.all(intake.images.map(fileToImage));
-			setImages(previous => [...previous, ...added]);
 		});
+		if (!mountedRef.current) return;
+		const pieces = [
+			...intake.mentions,
+			...intake.texts.map(file => {
+				const blob = storePaste(fileTextAttachment(file.name, file.content));
+				return pasteMarkerText(blob.id, blob.content);
+			}),
+		];
+		if (pieces.length > 0) insertAtCaret(pieces.join(" "));
+		const reasons = {
+			empty: "input.files.empty",
+			tooLarge: "input.files.tooLarge",
+			binary: historyDevice === undefined ? "input.files.noPath" : "input.files.remoteBinary",
+			unreadable: "input.files.unreadable",
+		} as const;
+		for (const rejection of intake.rejected) {
+			if (rejection.reason === "notSent") toast({ variant: "error", message: rejection.message ?? rejection.name });
+			else toast({ variant: "warning", message: t(reasons[rejection.reason], { name: rejection.name }) });
+		}
+		if (intake.images.length === 0) return;
+		const read = await Promise.all(
+			intake.images.map(file =>
+				fileToImage(file).catch(() => {
+					toast({ variant: "warning", message: t("input.files.unreadable", { name: file.name }) });
+					return null;
+				}),
+			),
+		);
+		const added = read.filter(image => image !== null);
+		if (mountedRef.current && added.length > 0) setImages(previous => [...previous, ...added]);
+	};
+
+	/** Open the browser's file chooser (`accept`: what it offers; none = any file), its pick tracked until it lands. */
+	const openFilePicker = (accept?: string) => {
+		const input = fileInputRef.current;
+		if (!input) return;
+		if (accept) input.accept = accept;
+		else input.removeAttribute("accept");
+		endPickRef.current?.();
+		endPickRef.current = trackFilePick(input);
+		input.click();
 	};
 
 	// Files dropped on the composer go through attachFiles like a paste; a Files
@@ -1261,7 +1302,7 @@ export function InputArea() {
 				);
 				return;
 			}
-			attachFiles(Array.from(event.dataTransfer.files));
+			void attachFiles(Array.from(event.dataTransfer.files));
 		},
 	};
 
@@ -1545,6 +1586,20 @@ export function InputArea() {
 								))}
 							</ul>
 						)}
+						{sendingFiles.length > 0 && (
+							<ul aria-label={t("input.files.sendingList")} className="flex flex-wrap gap-1.5 px-3 pt-3">
+								{sendingFiles.map(entry => (
+									<li
+										key={entry.id}
+										className="flex h-7 max-w-full items-center gap-1.5 rounded-(--sc-radius-full) border border-(--sc-border-subtle) px-2.5 text-sc-xs text-(--sc-text-secondary)"
+										data-upload-chip=""
+									>
+										<Spinner size="sm" />
+										<span className="truncate">{t("input.files.sending", { name: entry.name })}</span>
+									</li>
+								))}
+							</ul>
+						)}
 						{draftPastes.length > 0 && (
 							<ul aria-label={t("input.paste.listLabel")} className="flex flex-wrap gap-1.5 px-3 pt-3">
 								{draftPastes.map(id => (
@@ -1714,11 +1769,24 @@ export function InputArea() {
 							<MenuButton
 								icon={<Plus />}
 								items={[
+									// A phone offers its gallery and camera only for pictures (`image/*`); any file opens its
+									// file manager, which lists no gallery.
+									...(touchInput
+										? [
+												{
+													id: "photos",
+													label: t("input.attachPhotos"),
+													description: t("input.attachPhotosDesc"),
+													icon: ImageIcon,
+													onSelect: () => openFilePicker("image/*"),
+												},
+											]
+										: []),
 									{
 										id: "attach",
 										label: t("input.attach"),
 										icon: Paperclip,
-										onSelect: () => fileInputRef.current?.click(),
+										onSelect: () => openFilePicker(),
 									},
 									{
 										id: "history",
@@ -1771,8 +1839,11 @@ export function InputArea() {
 								multiple
 								className="hidden"
 								onChange={event => {
-									attachFiles(Array.from(event.target.files ?? []));
+									const files = Array.from(event.target.files ?? []);
+									const endPick = endPickRef.current;
+									endPickRef.current = null;
 									event.target.value = "";
+									void attachFiles(files).finally(() => endPick?.());
 								}}
 							/>
 

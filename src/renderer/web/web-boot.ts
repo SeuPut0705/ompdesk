@@ -21,7 +21,7 @@ import { createBrowserPwa, setWebPwa } from "./pwa";
 import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
-import { purgeAndReload, type SafeMoment, safeToReload, UpdateWatcher } from "./sw-update";
+import { purgeAndReload, reloadWhenNothingIsLost, type SafeMoment, safeToReload, UpdateWatcher } from "./sw-update";
 import { pickFiles } from "./upload";
 import { type WsLike, WsTransport } from "./ws-transport";
 
@@ -46,6 +46,9 @@ async function bootApp(): Promise<void> {
 	const channels = new LocalChannels();
 	const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 	const resyncHandlers: (() => void)[] = [];
+	// Set once the app (and its stores) has loaded; see the update rules below.
+	let moment: SafeMoment | null = null;
+	let resyncPending = false;
 	const transport = new WsTransport({
 		url: wsUrl,
 		fetchTicket: () => fetchTicket({ fetch: (input, init) => fetch(input, init) }),
@@ -54,11 +57,17 @@ async function bootApp(): Promise<void> {
 		isVisible: () => document.visibilityState === "visible",
 		onOutdated: () => void pageStale(),
 		// Events were missed while the link was down: the default is to load the page again (its start-up
-		// restores tabs and open asks from the host); a sheet that can refresh in place registers a handler.
+		// restores tabs and open asks from the host); a sheet that can refresh in place registers a handler. The
+		// reload waits for anything only this page holds (sw-update.ts `reloadLosesNothing`): above all a file pick,
+		// whose files arrive just after the page comes back from a phone's picker, the moment this fires.
 		onResync: () => {
 			const handler = resyncHandlers.at(-1);
 			if (handler) handler();
-			else location.reload();
+			else if (!moment) location.reload();
+			else if (!resyncPending) {
+				resyncPending = true;
+				reloadWhenNothingIsLost(moment, () => location.reload());
+			}
 		},
 		onUnpaired: () => location.replace("/pair"),
 	});
@@ -152,9 +161,8 @@ async function bootApp(): Promise<void> {
 	setWebPwa(pwa);
 
 	// Updates apply by themselves (sw-update.ts): at launch and whenever the page comes back to the foreground,
-	// when the composer is empty, nothing waits for an answer and no upload is on its way. `moment` exists once
-	// the app (and its stores) has loaded; until then nothing is safe.
-	let moment: SafeMoment | null = null;
+	// when the composer is empty, no file pick is in progress, nothing waits for an answer and no upload is on its
+	// way. `moment` exists once the app (and its stores) has loaded; until then nothing is safe.
 	let resumedAt = 0;
 	const RESUME_WINDOW_MS = 15_000;
 	const applyUpdate = () => {

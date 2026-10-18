@@ -68,6 +68,24 @@ describe("intakeComposerFiles", () => {
 		expect(intake.rejected).toEqual([{ name: "spec.pdf", reason: "binary" }]);
 	});
 
+	it("refuses a file whose upload failed with why, and never inlines it instead (a web page)", async () => {
+		const notes = new File(["hello\n"], "notes.txt", { type: "text/plain" });
+		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" });
+		const intake = await intakeComposerFiles([notes, pdf], {
+			cwd: "/work",
+			remote: false,
+			pathFor: async file => {
+				if (file.name === "spec.pdf") throw new Error("Couldn't send spec.pdf to your computer.");
+				return "/up/dev/1/notes.txt";
+			},
+		});
+		expect(intake.mentions).toEqual(["@/up/dev/1/notes.txt"]);
+		expect(intake.texts).toEqual([]);
+		expect(intake.rejected).toEqual([
+			{ name: "spec.pdf", reason: "notSent", message: "Couldn't send spec.pdf to your computer." },
+		]);
+	});
+
 	it("wraps file text in a named attachment block", () => {
 		expect(fileTextAttachment('a "b".txt', "x")).toBe(`<attachment name="a 'b'.txt">\nx\n</attachment>`);
 	});

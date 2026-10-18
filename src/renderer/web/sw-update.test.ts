@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	purgeAndReload,
 	type RegistrationLike,
+	reloadWhenNothingIsLost,
 	type SafeMoment,
 	safeToReload,
 	UpdateWatcher,
@@ -125,6 +126,8 @@ describe("UpdateWatcher", () => {
 const calm: SafeMoment = {
 	visible: () => true,
 	draftEmpty: () => true,
+	attached: () => false,
+	picking: () => false,
 	askOpen: () => false,
 	uploading: () => false,
 	editing: () => false,
@@ -132,19 +135,60 @@ const calm: SafeMoment = {
 const moment = (over: Partial<Record<keyof SafeMoment, boolean>>): SafeMoment => ({
 	visible: () => over.visible ?? true,
 	draftEmpty: () => over.draftEmpty ?? true,
+	attached: () => over.attached ?? false,
+	picking: () => over.picking ?? false,
 	askOpen: () => over.askOpen ?? false,
 	uploading: () => over.uploading ?? false,
 	editing: () => over.editing ?? false,
 });
 
 describe("safeToReload", () => {
-	it("is only a foreground page with an empty draft, no open question and no upload", () => {
+	it("is only a foreground page with an empty draft, no file pick, no open question and no upload", () => {
 		expect(safeToReload(calm)).toBe(true);
 		expect(safeToReload(moment({ visible: false }))).toBe(false);
 		expect(safeToReload(moment({ draftEmpty: false }))).toBe(false);
+		expect(safeToReload(moment({ picking: true }))).toBe(false);
 		expect(safeToReload(moment({ askOpen: true }))).toBe(false);
 		expect(safeToReload(moment({ uploading: true }))).toBe(false);
 		expect(safeToReload(moment({ editing: true }))).toBe(false);
+	});
+});
+
+describe("reloadWhenNothingIsLost (the reload after missed events)", () => {
+	afterEach(() => vi.useRealTimers());
+
+	it("reloads at once a hidden page, one with typed text or an open question", () => {
+		const reload = vi.fn();
+		reloadWhenNothingIsLost(moment({ visible: false, draftEmpty: false, askOpen: true }), reload);
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		["a file pick is in progress (the page just came back from the phone's picker)", "picking"],
+		["the composer holds a picture", "attached"],
+		["an upload is on its way", "uploading"],
+		["an edit is unsaved", "editing"],
+	] as const)("waits while %s, then reloads once", (_name, key) => {
+		vi.useFakeTimers();
+		const busy = { [key]: true };
+		const reload = vi.fn();
+		reloadWhenNothingIsLost(moment(busy), reload);
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		busy[key] = false;
+		vi.advanceTimersByTime(500);
+		expect(reload).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(5000);
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("can be cancelled", () => {
+		vi.useFakeTimers();
+		const reload = vi.fn();
+		const cancel = reloadWhenNothingIsLost(moment({ picking: true }), reload);
+		cancel();
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
 	});
 });
 
@@ -184,6 +228,7 @@ describe("UpdateWatcher.resume (updates apply by themselves)", () => {
 		["the composer holds a draft", { draftEmpty: false }],
 		["an ask card is open", { askOpen: true }],
 		["an upload is in flight", { uploading: true }],
+		["a file pick is in progress", { picking: true }],
 		["a file or sheet holds unsaved edits", { editing: true }],
 	] as const)("waits when %s, and applies at the next safe moment", (_name, busy) => {
 		const { watcher, worker } = waiting();

@@ -337,6 +337,8 @@ export const en: Record<string, string> = {
 	"input.placeholder.chat": "Ask anything",
 	"tabs.kind.chat": "Chat session (no project)",
 	"input.attach": "Attach files",
+	"input.attachPhotos": "Photos",
+	"input.attachPhotosDesc": "From the gallery or the camera",
 	"input.model": "Change model",
 	"input.thinking.failed": "Couldn't change thinking level",
 	"input.thinking.unsupported": "The current model does not support reasoning.",
@@ -436,6 +438,8 @@ export const en: Record<string, string> = {
 	"input.files.remoteBinary":
 		"{name} can't be sent to the other device. A tab running elsewhere only takes images and text files.",
 	"input.files.unreadable": "Couldn't read {name}.",
+	"input.files.sending": "Sending {name} to your computer…",
+	"input.files.sendingList": "Files on their way to your computer",
 	"input.escAgainToClear": "Press Esc again to clear the draft. ↑ brings it back.",
 	"input.skills.none": "No skills are on. Turn them on in Settings › Tools & extensions.",
 	"input.skills.off": "The {name} skill isn't on, so it goes as plain text.",

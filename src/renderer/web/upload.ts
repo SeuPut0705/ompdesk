@@ -1,14 +1,15 @@
 /**
  * `window.omp.fs.pathForFile` for a phone: the browser has no local path for a picked or dropped file, so the
  * file goes to the host (`POST /upload`, multipart field `file`, 25 MB each) and the answer is the path it has
- * there, which the composer mentions like any local file. A file the host would refuse or the network loses
- * answers "" — the composer's own fallbacks (inline text, a reason) take over — and `onFailure` says why.
+ * there, which the composer mentions like any local file. A file the host refuses or the network loses rejects
+ * with `UploadFailed` (the shim words it), and the composer says the file was not sent.
  *
  * The pictures a call carries (a prompt's attached photos) take the same road: `liftInlineImages` uploads each
  * image block's bytes and leaves a `WebUploadedImage` in its place, since a frame on the socket may hold 1 MB and
  * one phone photo is often more; the host reads them back before the call runs.
  */
 import { holdsBlock, replaceBlocks, type WebUploadedImage } from "../../shared/web-protocol";
+import { trackFilePick } from "../lib/file-pick";
 import { base64ToBytes } from "./download";
 import type { FetchLike } from "./session";
 
@@ -20,7 +21,6 @@ export type UploadFailure = "too-large" | "refused" | "network";
 export interface UploadDeps {
 	fetch: FetchLike;
 	base?: string;
-	onFailure?: (file: File, failure: UploadFailure, status?: number) => void;
 }
 
 let inFlight = 0;
@@ -77,21 +77,17 @@ async function sendUpload(file: File, deps: UploadDeps): Promise<string> {
 
 /**
  * A `pathForFile` that uploads each distinct `File` once and keeps the answer: the composer asks again for the
- * same file (paste then send), and a second upload would leave a second copy on the host.
+ * same file (paste then send), and a second upload would leave a second copy on the host. A failed upload rejects
+ * with `UploadFailed` and is tried again next time.
  */
 export function createPathForFile(deps: UploadDeps): (file: File) => Promise<string> {
 	const known = new WeakMap<File, Promise<string>>();
 	return file => {
 		const cached = known.get(file);
 		if (cached) return cached;
-		const result = sendUpload(file, deps).catch((error: unknown) => {
-			const failed = error instanceof UploadFailed ? error : new UploadFailed("network");
-			deps.onFailure?.(file, failed.failure, failed.status);
-			// A failed upload is tried again next time.
-			known.delete(file);
-			return "";
-		});
+		const result = sendUpload(file, deps);
 		known.set(file, result);
+		result.catch(() => known.delete(file));
 		return result;
 	};
 }
@@ -134,20 +130,27 @@ export async function liftInlineImages(args: readonly unknown[], deps: UploadDep
 	return lifted as unknown[];
 }
 
-/** Pick files on the phone with a file input; empty when the picker was cancelled. */
+/**
+ * Pick files on the phone with a file input; empty when the picker was cancelled. The pick is tracked
+ * (lib/file-pick.ts) until it resolves, so the page is not reloaded under it.
+ */
 export function pickFiles(
 	accept: string | undefined,
 	doc: Pick<Document, "createElement"> = document,
 ): Promise<File[]> {
-	return new Promise(resolve => {
-		const input = doc.createElement("input");
-		input.type = "file";
-		input.multiple = true;
-		if (accept) input.accept = accept;
-		input.addEventListener("change", () => resolve(Array.from(input.files ?? [])));
-		input.addEventListener("cancel", () => resolve([]));
-		input.click();
+	const { promise, resolve } = Promise.withResolvers<File[]>();
+	const input = doc.createElement("input");
+	input.type = "file";
+	input.multiple = true;
+	if (accept) input.accept = accept;
+	const done = trackFilePick(input);
+	input.addEventListener("change", () => {
+		done();
+		resolve(Array.from(input.files ?? []));
 	});
+	input.addEventListener("cancel", () => resolve([]));
+	input.click();
+	return promise;
 }
 
 /** An `accept` attribute for an Electron-style filter list (`[{name, extensions: ["png"]}]`); `*` means anything. */

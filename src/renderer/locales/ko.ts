@@ -331,6 +331,8 @@ export const ko: Record<string, string> = {
 	"input.placeholder.chat": "무엇이든 물어보세요",
 	"tabs.kind.chat": "채팅 세션 (프로젝트 없음)",
 	"input.attach": "파일 첨부",
+	"input.attachPhotos": "사진",
+	"input.attachPhotosDesc": "갤러리나 카메라에서",
 	"input.model": "모델 변경",
 	"input.thinking.failed": "사고 수준을 바꾸지 못했어요",
 	"input.thinking.unsupported": "현재 모델은 사고 수준을 지원하지 않아요.",
@@ -428,6 +430,8 @@ export const ko: Record<string, string> = {
 	"input.files.remoteBinary":
 		"{name} 파일은 다른 기기로 보낼 수 없어요. 다른 기기에서 실행 중인 탭에는 이미지와 텍스트 파일만 첨부할 수 있어요.",
 	"input.files.unreadable": "{name} 파일을 읽지 못했어요.",
+	"input.files.sending": "{name} 파일을 컴퓨터로 보내는 중…",
+	"input.files.sendingList": "컴퓨터로 보내는 중인 파일",
 	"input.escAgainToClear": "Esc를 한 번 더 누르면 초안을 지워요. ↑로 다시 불러올 수 있어요.",
 	"input.skills.none": "켜진 스킬이 없어요. 설정 › 도구 및 확장에서 켤 수 있어요.",
 	"input.skills.off": "{name} 스킬이 꺼져 있어서 일반 텍스트로 보내요.",

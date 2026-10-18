@@ -1,10 +1,20 @@
 /**
- * A photo attached on the phone, end to end: the built app's real web server behind the fake `tailscale serve`
+ * Attaching on the phone, end to end: the built app's real web server behind the fake `tailscale serve`
  * (e2e/fixture/phone-serve.ts: the secret path prefix, serve's headers, the published origin), a phone page in
- * Chromium (Pixel 7) and WebKit (iPhone 14), and the fake omp recording what it was sent. The composer's file
- * input takes a camera JPEG (4032×3024, about 5 MB), a 12 MB JPEG and a HEIC; each one shows as a thumbnail,
- * goes to the computer by `POST /upload` (a socket frame holds 1 MB, which a phone photo outgrows even scaled
- * down), reaches omp as an image block of the prompt, and comes back as a picture in the sent bubble.
+ * Chromium (Pixel 7) and WebKit (iPhone 14), and the fake omp recording what it was sent.
+ *
+ * Photos: the composer's file input takes a camera JPEG (4032×3024, about 5 MB), a 12 MB JPEG and a HEIC; each one
+ * shows as a thumbnail, goes to the computer by `POST /upload` (a socket frame holds 1 MB, which a phone photo
+ * outgrows even scaled down), reaches omp as an image block of the prompt, and comes back as a picture in the sent
+ * bubble.
+ *
+ * Through the + menu as a person does it: tap +, pick Photos or Attach files, and the browser's chooser takes a
+ * photo, a PDF and a text file while the page is hidden behind it (a phone's picker is another app) and the
+ * agent's reply streams meanwhile, so the host drops those pushes and asks the page to load its state again on
+ * its return. The pick still lands: the photo as a thumbnail and an image block, the PDF and the text file
+ * uploaded with an upload chip while they go and named by their path on the computer in the prompt. A file over
+ * 25 MB is refused with a message.
+ *
  * OMP_GUI_MOBILE_ATTACH=<dir> also writes the composer and the bubble per picture.
  */
 import * as fs from "node:fs/promises";
@@ -12,7 +22,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type BrowserType, chromium, devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { fixtureTailscale } from "./fixture/fake-tailscale-install";
+import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
 import { captureTo, exitApp, fixtureOmp } from "./harness";
 
@@ -29,7 +39,17 @@ interface Picture {
 	buffer: Buffer;
 }
 
-async function makeProfile() {
+/** A private app profile: its folders, the fake Tailscale, and the file the fake omp records its frames in. */
+interface Profile {
+	root: string;
+	desktop: string;
+	project: string;
+	env: Record<string, string>;
+	tailscale: FixtureTailscale;
+	record: string;
+}
+
+async function makeProfile(): Promise<Profile> {
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-mobile-attach-")));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -108,6 +128,60 @@ function bubblePictures(phone: Page): Promise<number> {
 		.evaluateAll(images => images.filter(image => (image as HTMLImageElement).naturalWidth > 0).length);
 }
 
+interface Host {
+	app: ElectronApplication;
+	proxy: ServeProxy;
+}
+
+type Engine = (typeof ENGINES)[number];
+
+/** The app with Mobile web ready and the fake serve in front of it. */
+async function startHost(engine: Engine, profile: Profile): Promise<Host> {
+	const app = await electron.launch({
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${profile.desktop}`],
+		env: profile.env,
+	});
+	try {
+		const desk = await app.firstWindow();
+		await desk.waitForFunction(() => window.omp?.rpc != null);
+		await desk.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
+		await expect
+			.poll(() => desk.evaluate(async () => (await window.omp.mobileWeb.getState()).phase), { timeout: 60_000 })
+			.toBe("ready");
+		await expect.poll(() => serveSites(profile.tailscale).length, { timeout: 30_000 }).toBeGreaterThan(0);
+		const site = serveSites(profile.tailscale).at(-1);
+		if (!site) throw new Error("serve publishes no handler");
+		const proxy = await ServeProxy.start(site, "seuput@example.com", undefined, {
+			plainCookie: engine.name === "webkit",
+		});
+		return { app, proxy };
+	} catch (error) {
+		await exitApp(app).catch(() => undefined);
+		throw error;
+	}
+}
+
+/** The phone page with a tab of its own in the project (a web window starts with none). */
+async function openPhonePage(phone: Page, proxy: ServeProxy, project: string) {
+	await phone.goto(`${proxy.url}/`);
+	await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
+	await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+	await phone.reload();
+	await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
+}
+
+/**
+ * What the page sees while a phone's picker is in front (another app: the page is hidden) and after it (visible).
+ * The page's own visibility handler tells the host, which then drops the stream pushes a hidden page would miss.
+ */
+function setVisibility(phone: Page, state: "hidden" | "visible") {
+	return phone.evaluate(next => {
+		Object.defineProperty(document, "visibilityState", { value: next, configurable: true });
+		Object.defineProperty(document, "hidden", { value: next === "hidden", configurable: true });
+		document.dispatchEvent(new Event("visibilitychange"));
+	}, state);
+}
+
 for (const engine of ENGINES)
 	test(`A photo attached on the phone (${engine.name}) goes up through the serve prefix, omp gets it as an image and the sent bubble shows it: a camera JPEG, a 12 MB JPEG and a HEIC`, async () => {
 		test.setTimeout(240_000);
@@ -116,25 +190,7 @@ for (const engine of ENGINES)
 		let app: ElectronApplication | null = null;
 		let proxy: ServeProxy | null = null;
 		try {
-			app = await electron.launch({
-				args: [
-					path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
-					`--user-data-dir=${profile.desktop}`,
-				],
-				env: profile.env,
-			});
-			const desk = await app.firstWindow();
-			await desk.waitForFunction(() => window.omp?.rpc != null);
-			await desk.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
-			await expect
-				.poll(() => desk.evaluate(async () => (await window.omp.mobileWeb.getState()).phase), { timeout: 60_000 })
-				.toBe("ready");
-			await expect.poll(() => serveSites(profile.tailscale).length, { timeout: 30_000 }).toBeGreaterThan(0);
-			const site = serveSites(profile.tailscale).at(-1);
-			if (!site) throw new Error("serve publishes no handler");
-			proxy = await ServeProxy.start(site, "seuput@example.com", undefined, {
-				plainCookie: engine.name === "webkit",
-			});
+			({ app, proxy } = await startHost(engine, profile));
 
 			const pictures: Picture[] = [
 				{ name: "camera.jpg", mimeType: "image/jpeg", buffer: await cameraJpeg(app, 24, 92) },
@@ -152,13 +208,9 @@ for (const engine of ENGINES)
 				const url = new URL(response.url());
 				if (url.pathname === "/upload") uploads.push(`${response.request().method()} ${response.status()}`);
 			});
-			await phone.goto(`${proxy.url}/`);
 			// A web window starts with no tab of its own: open one in the project, as the phone's sidebar would.
-			await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
-			await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), profile.project);
-			await phone.reload();
+			await openPhonePage(phone, proxy, profile.project);
 			const field = phone.locator("[data-composer-input]").first();
-			await expect(field).toBeVisible({ timeout: 60_000 });
 			// A picture this browser draws is a thumbnail; one it cannot (a HEIC in Chromium) is the photo chip with its
 			// format and size (ComposerThumbnail), while the computer converts it for the model.
 			const thumbnails = phone.locator('ul[aria-label="Attached images"] li :is(img, [data-composer-photo-chip])');
@@ -225,6 +277,161 @@ for (const engine of ENGINES)
 			await browser.close();
 			await proxy?.close();
 			if (app) await exitApp(app).catch(() => undefined);
+			await fs.rm(profile.root, { recursive: true, force: true }).catch(() => undefined);
+		}
+	});
+
+/** A 2×2 PNG, small enough that the photo's journey is about the picker, not the bytes. */
+const PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4nGP8z8DwnwEJMDEgAWwAAAz7AQ1vO8DGAAAAAElFTkSuQmCC",
+	"base64",
+);
+
+/** Tap + and one of its items, as a finger does; the browser's file chooser that item opened. */
+async function choose(phone: Page, item: string) {
+	await phone.getByRole("button", { name: "Attach and more" }).tap();
+	const chooser = phone.waitForEvent("filechooser");
+	await phone.getByRole("menuitem", { name: item }).tap();
+	return chooser;
+}
+
+/** Mark this page load, so {@link reloaded} can tell when the page has loaded again. */
+function markPage(phone: Page) {
+	return phone.evaluate(() => Reflect.set(window, "attachRun", true));
+}
+
+/** The page loaded again (the state it missed while hidden) and its composer is back. */
+async function reloaded(phone: Page) {
+	await expect
+		.poll(() => phone.evaluate(() => Reflect.get(window, "attachRun") !== true).catch(() => false), {
+			timeout: 30_000,
+		})
+		.toBe(true);
+	await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
+}
+
+/** The agent answers a prompt in the page's active tab while the page is hidden: the host drops those pushes. */
+async function replyWhileHidden(phone: Page, record: string, message: string) {
+	await phone.evaluate(async text => {
+		const tab = (await window.omp.tabs.list()).find(entry => entry.active);
+		if (!tab) throw new Error("no active tab");
+		await window.omp.rpc.commandForTab(tab.tabId, { type: "prompt", message: text });
+	}, message);
+	await expect.poll(() => receivedPrompt(record, message), { timeout: 30_000 }).toBeTruthy();
+	// Its reply's stream pushes reach the host now, while the page says it is hidden.
+	await phone.waitForTimeout(500);
+}
+
+/** The host path a prompt names for `name` (`@/…/name` or `@"/…/name"`). */
+function mentionedPath(message: string | undefined, name: string): string | undefined {
+	return new RegExp(`@"?([^"\\s]*${name.replace(".", "\\.")})`).exec(message ?? "")?.[1];
+}
+
+for (const engine of ENGINES)
+	test(`Through the + menu on the phone (${engine.name}), a PDF, a text file and a photo picked while the page hides behind the picker and a reply streams all reach omp; a file over 25 MB is refused with a message`, async () => {
+		test.setTimeout(240_000);
+		const profile = await makeProfile();
+		const browser = await engine.type.launch();
+		let host: Host | null = null;
+		try {
+			host = await startHost(engine, profile);
+			const context = await browser.newContext({ ...engine.device });
+			const phone = await context.newPage();
+			await openPhonePage(phone, host.proxy, profile.project);
+			const field = phone.locator("[data-composer-input]").first();
+			const thumbnails = phone.locator('ul[aria-label="Attached images"] li');
+			// Each upload is held until its chip has been seen.
+			let gate = Promise.resolve();
+			await phone.route("**/upload", async route => {
+				await gate;
+				await route.continue();
+			});
+
+			const documents = [
+				{
+					name: "report.pdf",
+					mimeType: "application/pdf",
+					buffer: Buffer.from("%PDF-1.4\n%\u00e2\u00e3\n%%EOF\n"),
+				},
+				{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello from the phone\n") },
+			];
+			for (const [index, file] of documents.entries()) {
+				await markPage(phone);
+				const chooser = await choose(phone, "Attach files");
+				// Any file: no `accept`, so a phone offers its file manager.
+				expect(await chooser.element().getAttribute("accept")).toBeNull();
+				await setVisibility(phone, "hidden");
+				await replyWhileHidden(phone, profile.record, `busy while picking ${index}`);
+				const release = Promise.withResolvers<void>();
+				gate = release.promise;
+				await setVisibility(phone, "visible");
+				await chooser.setFiles(file);
+				const chip = phone.locator("[data-upload-chip]");
+				await expect(chip).toHaveText(new RegExp(file.name));
+				await captureTo(CAPTURES, phone, `${engine.name}-${file.name}-uploading`);
+				release.resolve();
+				await expect(chip).toHaveCount(0, { timeout: 30_000 });
+				// The file is on the computer and the draft names it there.
+				await expect(field).toHaveValue(new RegExp(`web-uploads.*${file.name.replace(".", "\\.")}`), {
+					timeout: 30_000,
+				});
+				// With the file landed the page loads the state it missed while hidden; the draft comes back with it.
+				await reloaded(phone);
+				await expect(field).toHaveValue(new RegExp(`web-uploads.*${file.name.replace(".", "\\.")}`), {
+					timeout: 30_000,
+				});
+				const message = `${(await field.inputValue()).trim()} read it`;
+				await field.fill(message);
+				await phone.keyboard.press("Enter");
+				await expect.poll(() => receivedPrompt(profile.record, message), { timeout: 60_000 }).toBeTruthy();
+				const hostPath = mentionedPath(message, file.name);
+				expect(hostPath).toContain(path.join(profile.desktop, "web-uploads"));
+				// What the agent reads at that path is the phone's file.
+				expect(await fs.readFile(hostPath ?? "")).toEqual(file.buffer);
+				await expect(field).toHaveValue("", { timeout: 30_000 });
+			}
+
+			// A photo from the gallery or the camera: `accept="image/*"` makes a phone offer those.
+			await markPage(phone);
+			const chooser = await choose(phone, "Photos");
+			expect(await chooser.element().getAttribute("accept")).toBe("image/*");
+			await setVisibility(phone, "hidden");
+			await replyWhileHidden(phone, profile.record, "busy while picking a photo");
+			await setVisibility(phone, "visible");
+			await chooser.setFiles({ name: "shot.png", mimeType: "image/png", buffer: PNG });
+			await expect(thumbnails).toHaveCount(1, { timeout: 30_000 });
+			// The picture lives only in this page: the reload waits for it to be sent.
+			await phone.waitForTimeout(1500);
+			await expect(thumbnails).toHaveCount(1);
+			expect(await phone.evaluate(() => Reflect.get(window, "attachRun"))).toBe(true);
+			await captureTo(CAPTURES, phone, `${engine.name}-picked-photo`);
+			await field.fill("look at the photo");
+			await phone.keyboard.press("Enter");
+			await expect
+				.poll(async () => (await receivedPrompt(profile.record, "look at the photo"))?.images?.length, {
+					timeout: 60_000,
+				})
+				.toBe(1);
+			await reloaded(phone);
+
+			// Over the 25 MB a file may be: refused on the phone with a message, nothing sent.
+			const uploads: string[] = [];
+			phone.on("request", request => {
+				if (new URL(request.url()).pathname === "/upload") uploads.push(request.url());
+			});
+			await expect(field).toBeVisible({ timeout: 30_000 });
+			const big = await choose(phone, "Attach files");
+			await big.setFiles({ name: "huge.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(26 << 20) });
+			await expect(phone.getByText("huge.bin is larger than 25 MB and wasn't sent to your computer.")).toBeVisible({
+				timeout: 30_000,
+			});
+			await captureTo(CAPTURES, phone, `${engine.name}-too-large`);
+			expect(uploads).toEqual([]);
+			await expect(phone.locator("[data-upload-chip]")).toHaveCount(0);
+		} finally {
+			await browser.close();
+			await host?.proxy.close();
+			if (host) await exitApp(host.app).catch(() => undefined);
 			await fs.rm(profile.root, { recursive: true, force: true }).catch(() => undefined);
 		}
 	});

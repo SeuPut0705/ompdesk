@@ -13,6 +13,10 @@ export interface SafeMoment {
 	visible(): boolean;
 	/** Nothing typed or attached in the composer: a reload would lose nothing the user made. */
 	draftEmpty(): boolean;
+	/** The composer holds pictures: only its text outlives a reload (composer/draft-persistence.ts). */
+	attached(): boolean;
+	/** A file chooser is open, or the files it handed over are still landing in the page (lib/file-pick.ts). */
+	picking(): boolean;
 	/** An ask, an approval or a sign-in waits for an answer. */
 	askOpen(): boolean;
 	/** A file is still on its way to the computer. */
@@ -22,11 +26,43 @@ export interface SafeMoment {
 }
 
 /**
- * Never mid-typing: only a foreground page with an empty draft, no open question, no upload in flight and no
- * unsaved edit or open host dialog.
+ * Never mid-typing: only a foreground page with an empty draft, no file pick in progress, no open question, no
+ * upload in flight and no unsaved edit or open host dialog.
  */
 export function safeToReload(moment: SafeMoment): boolean {
-	return moment.visible() && moment.draftEmpty() && !moment.askOpen() && !moment.uploading() && !moment.editing();
+	return (
+		moment.visible() &&
+		moment.draftEmpty() &&
+		!moment.picking() &&
+		!moment.askOpen() &&
+		!moment.uploading() &&
+		!moment.editing()
+	);
+}
+
+/**
+ * Whether a reload now would lose nothing only this page holds: no file pick in progress (a phone hides the page
+ * behind its picker, and the page's return is when the files arrive), no picture in the composer, no upload on its
+ * way, no unsaved edit or open host dialog. This is the reload after missed events (web-boot.ts `onResync`), which
+ * the page needs whether or not it is visible; typed text outlives it (draft-persistence.ts) and the host hands open
+ * questions back after it.
+ */
+export function reloadLosesNothing(moment: SafeMoment): boolean {
+	return !moment.picking() && !moment.attached() && !moment.uploading() && !moment.editing();
+}
+
+/** Reload once {@link reloadLosesNothing}, looking again every `everyMs` until then. Returns a cancel. */
+export function reloadWhenNothingIsLost(moment: SafeMoment, reload: () => void, everyMs = 500): () => void {
+	if (reloadLosesNothing(moment)) {
+		reload();
+		return () => {};
+	}
+	const timer = setInterval(() => {
+		if (!reloadLosesNothing(moment)) return;
+		clearInterval(timer);
+		reload();
+	}, everyMs);
+	return () => clearInterval(timer);
 }
 
 export interface WorkerLike {
