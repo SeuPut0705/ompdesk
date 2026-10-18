@@ -3,14 +3,42 @@
 	"name": "OMPdesk",
 	"short_name": "OMPdesk",
 	"description": "OMPdesk on your computer, from your phone or tablet.",
+	"lang": "en",
+	"dir": "ltr",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",
+	"categories": ["developer tools", "productivity"],
 	"theme_color": "#19191c",
 	"background_color": "#19191c",
 	"icons": [
 		{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
 		{ "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
 		{ "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+	],
+	"screenshots": [
+		{
+			"src": "/screenshots/narrow.png",
+			"sizes": "412x839",
+			"type": "image/png",
+			"form_factor": "narrow",
+			"label": "OMPdesk on a phone"
+		},
+		{
+			"src": "/screenshots/wide.png",
+			"sizes": "1280x800",
+			"type": "image/png",
+			"form_factor": "wide",
+			"label": "OMPdesk on a tablet or desktop"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "New session",
+			"short_name": "New session",
+			"description": "Start a new session on your computer",
+			"url": "/#/open?new=1",
+			"icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+		}
 	]
 }

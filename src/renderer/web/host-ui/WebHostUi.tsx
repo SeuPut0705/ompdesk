@@ -7,6 +7,7 @@ import { ConfirmSheet } from "./ConfirmSheet";
 import { EditorSheet } from "./EditorSheet";
 import { HostBrowserSheet } from "./HostBrowserSheet";
 import { type HostPrompt, useHostUiStore } from "./host-ui-store";
+import { InstallSheet } from "./InstallSheet";
 import { ModelsConfigSheet } from "./ModelsConfigSheet";
 import { PathActionsSheet } from "./PathActionsSheet";
 import { SaveImageSheet } from "./SaveImageSheet";
@@ -112,6 +113,8 @@ function WebHostSheets() {
 		case "quit":
 		case "update":
 			return <ConfirmSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+		case "install":
+			return <InstallSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
 	}
 }
 

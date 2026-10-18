@@ -119,7 +119,8 @@ function build(
 		push: new PushClient(env),
 		install,
 		environment,
-		guidance: () => installGuidance(environment(), install.available),
+		guidance: () =>
+			installGuidance(environment(), { promptAvailable: install.available, installed: install.installed }),
 		update: null,
 	};
 	return { pwa, asked, posts };
@@ -231,6 +232,32 @@ describe("WebNotificationsSection", () => {
 		expect(q('[data-web-install="ios-share"]')).not.toBeNull();
 		expect(q("[data-web-install-steps]")?.textContent).toContain(translate("web.install.ios2"));
 		expect(q("[data-web-push-enable]")).toBeNull();
+	});
+
+	it("gives Samsung Internet and Firefox on Android their menu steps", async () => {
+		const samsung = build({
+			install: {
+				userAgent:
+					"Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 SamsungBrowser/25.0 Mobile Safari/537.36",
+				platform: "Linux armv81",
+			},
+		});
+		await mount(<WebNotificationsSection pwa={samsung.pwa} />);
+		expect(q('[data-web-install="samsung-menu"]')).not.toBeNull();
+		expect(q("[data-web-install-steps]")?.textContent).toContain(translate("web.install.samsung2"));
+		await act(async () => {
+			roots.pop()?.unmount();
+		});
+		while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+		const firefox = build({
+			install: {
+				userAgent: "Mozilla/5.0 (Android 14; Mobile; rv:125.0) Gecko/125.0 Firefox/125.0",
+				platform: "Linux armv81",
+			},
+		});
+		await mount(<WebNotificationsSection pwa={firefox.pwa} />);
+		expect(q('[data-web-install="firefox-menu"]')).not.toBeNull();
+		expect(q("[data-web-install-steps]")?.textContent).toContain(translate("web.install.firefox2"));
 	});
 
 	it("says the app is installed when it runs standalone, and shows no install steps on desktop", async () => {

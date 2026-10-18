@@ -86,7 +86,8 @@ export function createBrowserPwa(deps: BrowserPwaDeps): WebPwa {
 		push: new PushClient(pushEnv),
 		install,
 		environment,
-		guidance: () => installGuidance(environment(), install.available),
+		guidance: () =>
+			installGuidance(environment(), { promptAvailable: install.available, installed: install.installed }),
 		update: deps.update,
 	};
 }

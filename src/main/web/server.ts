@@ -63,7 +63,7 @@ const CLOSE_GRACE_MS = 1000;
 const brotli = promisify(brotliCompress);
 
 /** The renderer's built files a browser may be handed. */
-const STATIC_DIRS = ["/assets/", "/cmaps/", "/standard_fonts/", "/wasm/", "/icons/"] as const;
+const STATIC_DIRS = ["/assets/", "/cmaps/", "/standard_fonts/", "/wasm/", "/icons/", "/screenshots/"] as const;
 const STATIC_FILES: ReadonlySet<string> = new Set([
 	"/manifest.webmanifest",
 	"/sw.js",

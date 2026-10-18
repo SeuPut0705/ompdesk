@@ -15,6 +15,7 @@ import {
 	Columns2,
 	Compass,
 	Copy,
+	Download,
 	ExternalLink,
 	Eye,
 	EyeOff,
@@ -93,6 +94,7 @@ import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../store
 import { useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
+import { startInstall, useInstallOffered } from "../../../web/install-ui";
 import {
 	Badge,
 	BrandMark,
@@ -233,7 +235,11 @@ const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { ic
 function useHelpItems(): ContextMenuItem[] {
 	const t = useT();
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	const installOffered = useInstallOffered();
 	return [
+		...(installOffered
+			? [{ id: "help-install", label: t("web.install.menu"), icon: Download, onSelect: startInstall }]
+			: []),
 		{
 			id: "help-shortcuts",
 			label: t("help.shortcuts"),

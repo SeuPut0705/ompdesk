@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { IpcOpenPathResult } from "../../../shared/ipc-types";
 import type { EditorResult, FileFilter, HostActions } from "../host-hooks";
+import type { InstallGuidance } from "../install";
 
 /** A file the agent named, to view on the phone or act on at the computer. */
 interface PathPrompt {
@@ -38,7 +39,9 @@ export type HostPrompt =
 	| { kind: "editor"; content: string; host: HostActions; resolve: (result: EditorResult) => void }
 	| { kind: "models"; host: HostActions; resolve: (result: { path: string; opened: boolean }) => void }
 	| { kind: "quit"; resolve: (confirmed: boolean) => void }
-	| { kind: "update"; resolve: (confirmed: boolean) => void };
+	| { kind: "update"; resolve: (confirmed: boolean) => void }
+	/** The menu steps for installing the page as an app (the browser has no install dialog to call). */
+	| { kind: "install"; guidance: InstallGuidance };
 
 interface HostUiStore {
 	queue: HostPrompt[];

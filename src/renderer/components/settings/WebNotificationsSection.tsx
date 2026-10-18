@@ -4,13 +4,15 @@
  * device only manages its own Web Push subscription — turn it on (the permission prompt needs this click),
  * hide the content, pick the categories, turn it off — and sees why push cannot work when it cannot (denied,
  * unsupported, not HTTPS, iOS in a Safari tab). On iOS push exists only for a page on the Home Screen, so the
- * Add to Home Screen steps show there; Chromium offers its own install prompt.
+ * Add to Home Screen steps show there; Chromium offers its own install prompt; Samsung Internet and Firefox get their menu steps.
  */
 import { Download } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { WEB_PUSH_CATEGORIES, type WebPushCategory } from "../../../shared/web-push";
 import { useT } from "../../lib/i18n";
 import { toastError } from "../../stores/toast";
+import { installStepKeys } from "../../web/install";
+import { useInstallGuidance } from "../../web/install-ui";
 import type { PushAvailability, PushViewState } from "../../web/push-client";
 import type { WebPwa } from "../../web/pwa";
 import { Banner, Button, Spinner } from "../common";
@@ -45,13 +47,10 @@ export function IosInstallSteps() {
 
 function InstallSection({ pwa }: { pwa: WebPwa }) {
 	const t = useT();
-	useSyncExternalStore(
-		listener => pwa.install.onChange(listener),
-		() => pwa.install.available,
-	);
+	const guidance = useInstallGuidance(pwa);
 	const [busy, setBusy] = useState(false);
-	const guidance = pwa.guidance();
 	if (guidance === "none") return null;
+	const steps = installStepKeys(guidance);
 	return (
 		<SettingsSection description={t("web.install.desc")} title={t("web.install.title")}>
 			<div data-web-install={guidance}>
@@ -59,6 +58,18 @@ function InstallSection({ pwa }: { pwa: WebPwa }) {
 				{guidance === "ios-share" && (
 					<SettingsRow id="settings-web-install" label={t("web.install.iosTitle")}>
 						<IosInstallSteps />
+					</SettingsRow>
+				)}
+				{(guidance === "samsung-menu" || guidance === "firefox-menu") && (
+					<SettingsRow id="settings-web-install" label={t("web.install.menu")}>
+						<ol
+							className="flex list-decimal flex-col gap-1 ps-5 text-sc-sm text-(--sc-text-secondary)"
+							data-web-install-steps
+						>
+							{steps.map(key => (
+								<li key={key}>{t(key)}</li>
+							))}
+						</ol>
 					</SettingsRow>
 				)}
 				{guidance === "prompt" && (
@@ -74,7 +85,7 @@ function InstallSection({ pwa }: { pwa: WebPwa }) {
 								}}
 								size="sm"
 							>
-								{t("web.install.button")}
+								{t("web.install.menu")}
 							</Button>
 						}
 						id="settings-web-install"

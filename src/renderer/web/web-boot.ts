@@ -13,6 +13,8 @@ import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
 import { saveBlob } from "./download";
+import { recordVisit, showInstallHintIfDue } from "./install-hint";
+import { startInstall } from "./install-ui";
 import { mountNotificationSweep } from "./notification-sweep";
 import { listenNotificationClicks, notifyPage, registerServiceWorker, requestNotificationPermission } from "./notify";
 import { createBrowserPwa, setWebPwa } from "./pwa";
@@ -26,6 +28,9 @@ import { type WsLike, WsTransport } from "./ws-transport";
 /** Marks a reload the page made to pick up a newer bundle; a second one within the window shows the notice instead. */
 const RELOAD_FLAG = "omp.web.reloaded-at";
 const RELOAD_LOOP_MS = 30_000;
+/** The install hint waits for the browser's prompt, and stays up long enough to read and act on. */
+const INSTALL_HINT_DELAY_MS = 6000;
+const INSTALL_HINT_MS = 15_000;
 
 async function pageStale(): Promise<void> {
 	// A cached older bundle against a newer host: drop the service worker's caches and reload once.
@@ -209,6 +214,25 @@ async function bootApp(): Promise<void> {
 				if (next.activeTabId && next.activeTabId !== previous.activeTabId) listener(next.activeTabId);
 			}),
 	});
+
+	// One quiet "install the app" hint from the second visit on, once the browser had time to offer its prompt.
+	recordVisit(localStorage, sessionStorage);
+	window.setTimeout(() => {
+		showInstallHintIfDue({
+			local: localStorage,
+			guidance: () => pwa.guidance(),
+			show: () => {
+				void import("../stores/toast").then(({ useToastStore }) =>
+					useToastStore.getState().push({
+						variant: "info",
+						message: translate("web.install.hint"),
+						action: { label: translate("web.install.menu"), run: startInstall },
+						durationMs: INSTALL_HINT_MS,
+					}),
+				);
+			},
+		});
+	}, INSTALL_HINT_DELAY_MS);
 }
 
 async function boot(): Promise<void> {
