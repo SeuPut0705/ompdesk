@@ -358,6 +358,22 @@ jobs:
       - run: bun run build
       - name: Sync the ai-memory binary
         run: bun run sync:ai-memory
+      # e2e/first-launch-window.e2e.ts launches dist/win-unpacked/OMPdesk.exe, the packaged app whose memory sets its
+      # real ai-memory service up (an unpacked dev run only reports), as release.yml's win job does after packaging.
+      - name: Package (unpacked)
+        run: bunx electron-builder --config electron-builder.win.yml --win --x64 --dir --publish never
+      # Sysinternals Handle: the first-launch spec lists which process holds which libuv pipe after each quit.
+      - name: Sysinternals Handle
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://download.sysinternals.com/files/Handle.zip -OutFile "$env:RUNNER_TEMP\Handle.zip"
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP\Handle.zip" -DestinationPath "$env:RUNNER_TEMP\handle"
+          $exe = Join-Path $env:RUNNER_TEMP 'handle\handle64.exe'
+          $signature = Get-AuthenticodeSignature -LiteralPath $exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*O=Microsoft Corporation*') {
+            throw "handle64.exe is not signed by Microsoft: $($signature.Status) $($signature.SignerCertificate.Subject)"
+          }
+          "OMP_GUI_HANDLE_EXE=$exe" >> $env:GITHUB_ENV
       - name: ai-memory, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path)
         run: bunx vitest run src/main/ai-memory src/main/sidecar.test.ts src/main/packaging-config.test.ts
       - name: omp update while omp runs

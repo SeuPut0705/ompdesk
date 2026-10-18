@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -146,12 +146,164 @@ async function expectDrawn({ app, page }: Launched, info: TestInfo, name: string
 	expect(renderer.colors, `${name}: the renderer drew one flat color`).toBeGreaterThan(8);
 }
 
+/** How a test ends the app: ⌘Q's teardown (`app.quit()`), or the one an update's `quitAndInstall()` runs. */
+type QuitPath = "quit" | "update";
+
+/** A Windows process as Win32_Process lists it; `created` (FILETIME) tells a reused pid apart. */
+interface WinProcess {
+	pid: number;
+	ppid: number;
+	name: string;
+	exe: string | null;
+	commandLine: string | null;
+	created: string;
+}
+
+function windowsProcesses(): WinProcess[] {
+	const script = [
+		"Get-CimInstance Win32_Process | ForEach-Object {",
+		"[pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; exe = $_.ExecutablePath;",
+		"commandLine = $_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc().ToString() } else { '' }) }",
+		"} | ConvertTo-Json -Compress",
+	].join(" ");
+	const json = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+		encoding: "utf8",
+		maxBuffer: 64 * 1024 * 1024,
+		windowsHide: true,
+	});
+	return JSON.parse(json) as WinProcess[];
+}
+
+const describeProcess = (process: WinProcess) =>
+	`${process.pid} (parent ${process.ppid}) ${process.name}: ${process.commandLine ?? process.exe ?? "?"}`;
+
+/** `root` and everything below it; a child is never older than its parent (Windows reuses pids). */
+function processTree(all: WinProcess[], root: number): WinProcess[] {
+	const tree = all.filter(process => process.pid === root);
+	for (let i = 0; i < tree.length; i++) {
+		const parent = tree[i];
+		if (!parent) continue;
+		for (const process of all) {
+			if (
+				process.ppid === parent.pid &&
+				Number(process.created) >= Number(parent.created) &&
+				!tree.includes(process)
+			) {
+				tree.push(process);
+			}
+		}
+	}
+	return tree;
+}
+
+/** ai-memory's own per-user service (`service-host`, its `--supervise` copy and the `serve` it runs). */
+const isAiMemoryService = (process: WinProcess) =>
+	/^ai-memory(\.exe)?$/i.test(process.name) && /\s(service-host|serve)(\s|$)/.test(process.commandLine ?? "");
+
+/** Every named pipe libuv made (`\Device\NamedPipe\uv\<ptr>-<creator pid>`) and who holds it (Sysinternals Handle). */
+function pipeHolders(): string | null {
+	const handle = process.env.OMP_GUI_HANDLE_EXE;
+	if (!handle) return null;
+	try {
+		const output = execFileSync(handle, ["-accepteula", "-nobanner", "-a", "NamedPipe"], {
+			encoding: "utf8",
+			maxBuffer: 64 * 1024 * 1024,
+			timeout: 120_000,
+			windowsHide: true,
+		});
+		return output
+			.split(/\r?\n/)
+			.filter(line => line.includes("\\uv\\"))
+			.join("\n");
+	} catch (error) {
+		return `handle.exe failed: ${String(error)}`;
+	}
+}
+
+/**
+ * Quit the app the way `how` says, and wait until its process is closed: Playwright (like any parent reading the
+ * app's output) waits for the app's stdio pipes to close, so a descendant that inherited them keeps it waiting.
+ * Then nothing OMPdesk started may still run — the setup supervisor (the app's own binary as Node), an `ai-memory`
+ * command it ran, omp — while ai-memory's own per-user service may, since it is designed to outlive the app.
+ */
+async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: string, info: TestInfo): Promise<void> {
+	const launcher = app.process();
+	const closed = Promise.withResolvers<"closed">();
+	launcher.once("close", () => closed.resolve("closed"));
+	const { pid: mainPid, exe } = await app.evaluate(() => ({ pid: process.pid, exe: process.execPath }));
+	const before = windowsProcesses();
+	const owned = processTree(before, mainPid).filter(process => !isAiMemoryService(process));
+	const roles = [
+		`Playwright worker ${process.pid}`,
+		`launcher ${launcher.pid ?? "?"}`,
+		`main ${mainPid}`,
+		...owned.filter(process => process.pid !== mainPid).map(process => `owned ${describeProcess(process)}`),
+		...before.filter(isAiMemoryService).map(process => `ai-memory service ${describeProcess(process)}`),
+	];
+	await fs.writeFile(info.outputPath(`processes-before-${how}.txt`), roles.join("\n"));
+	await app.evaluate(({ app, autoUpdater }, how) => {
+		// What electron-updater's quitAndInstall() does once its installer has started.
+		setImmediate(() => {
+			if (how === "update") autoUpdater.emit("before-quit-for-update");
+			app.quit();
+		});
+	}, how);
+	const timer = Promise.withResolvers<"open">();
+	const timeout = setTimeout(() => timer.resolve("open"), 30_000);
+	const outcome = await Promise.race([closed.promise, timer.promise]);
+	clearTimeout(timeout);
+	const holders = pipeHolders();
+	if (holders !== null) {
+		await fs.writeFile(info.outputPath(`pipe-holders-after-${how}.txt`), `${roles.join("\n")}\n\n${holders}`);
+		console.log(`[${how}] process roles:\n${roles.join("\n")}\n[${how}] libuv pipes and their holders:\n${holders}`);
+	}
+	if (outcome === "open") {
+		const now = windowsProcesses();
+		throw new Error(
+			`${how}: the app's process never closed (its stdio pipes stayed open) within 30 s\n${roles.join("\n")}\nnow running:\n${now
+				.filter(process => process.pid !== mainPid && /omp|ai-memory/i.test(process.name))
+				.map(describeProcess)
+				.join("\n")}`,
+		);
+	}
+	const ownedKeys = new Set(owned.map(process => `${process.pid}@${process.created}`));
+	const after = windowsProcesses();
+	const lower = (text: string | null) => (text ?? "").toLowerCase();
+	const survivors = after.filter(
+		process =>
+			ownedKeys.has(`${process.pid}@${process.created}`) ||
+			lower(process.exe) === lower(exe) ||
+			lower(process.commandLine).includes(lower(profile)) ||
+			(/^ai-memory(\.exe)?$/i.test(process.name) && !isAiMemoryService(process)),
+	);
+	expect(survivors.map(describeProcess), `${how}: processes OMPdesk started outlived it`).toEqual([]);
+}
+
+/** HKCU's logon entries: ai-memory's service is the `ai-memory` value. */
+const RUN_KEY = String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`;
+
+/**
+ * Stop the ai-memory service a test's app installed (what Settings' "off" does: its logon entry, then its processes,
+ * which run the copy staged in the tools dir), so the next launch starts its own.
+ */
+function removeAiMemoryService(): void {
+	spawnSync("reg", ["delete", RUN_KEY, "/v", "ai-memory", "/f"], { stdio: "ignore", windowsHide: true });
+	const staged = path.join(process.env.LOCALAPPDATA ?? "", "ompdesk", "tools", "ai-memory").toLowerCase();
+	for (const running of windowsProcesses()) {
+		if (!running.exe?.toLowerCase().startsWith(staged)) continue;
+		spawnSync("taskkill", ["/pid", String(running.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+	}
+}
+
 /**
  * Launch the packaged app the way the Start-menu shortcut does (no folder argument) on a fresh profile, with
- * `seed` writing into its userData first, and run `body` on it; diagnostics are saved whatever happens.
+ * `seed` writing into its userData first, and run `body` on it; diagnostics are saved whatever happens. The packaged
+ * app sets its memory up for real (the staged ai-memory.exe, its logon entry, the server): the test waits for that,
+ * then quits the app by `quit` and checks what is left running.
  */
 async function withPackagedApp(
 	seed: (userData: string) => Promise<void>,
+	quit: QuitPath,
 	body: (launched: Launched, info: TestInfo) => Promise<void>,
 ): Promise<void> {
 	const info = test.info();
@@ -171,14 +323,15 @@ async function withPackagedApp(
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(profile),
-		// The packaged app would otherwise install ai-memory's real per-user service, whose host keeps the worker's pipes open.
-		OMP_GUI_AI_MEMORY_NO_SERVICE: "1",
 	});
 	// A real launch: shown, opaque, focusable, with its tray.
 	for (const key of ["OMP_GUI_HEADLESS", "ELECTRON_RUN_AS_NODE", "ELECTRON_RENDERER_URL"]) {
 		Reflect.deleteProperty(env, key);
 	}
-
+	// ai-memory's service is global to the user: one this test's app started is stopped again at the end, so the next
+	// launch starts (and is checked with) its own; one that was already there is left alone.
+	const startsService =
+		spawnSync("reg", ["query", RUN_KEY, "/v", "ai-memory"], { stdio: "ignore", windowsHide: true }).status !== 0;
 	const mainOutput: string[] = [];
 	const consoleLines: string[] = [];
 	const consoleErrors: string[] = [];
@@ -223,8 +376,20 @@ async function withPackagedApp(
 		await body({ app, page }, info);
 
 		expect(await app.evaluate(() => Reflect.get(globalThis, "__processesGone"))).toEqual([]);
+		if (await app.evaluate(({ app }) => app.isPackaged)) {
+			// The packaged app's memory: the staged ai-memory.exe, ai-memory's own `setup` (its logon entry and its
+			// service host, which outlives the app by design) and OMPdesk's extension root.
+			const state = () => page.evaluate(() => window.omp.aiMemory.getState());
+			await expect
+				.poll(async () => (await state()).phase, { timeout: 240_000, message: "ai-memory never got ready" })
+				.toBe("ready")
+				.catch(async error => {
+					throw new Error(`${String(error)}\n${JSON.stringify(await state())}`);
+				});
+		}
 		expect(pageErrors).toEqual([]);
 		expect(consoleErrors).toEqual([]);
+		await quitAndCheck(app, quit, profile, info);
 	} finally {
 		try {
 			captureScreen(info.outputPath("desktop.png"), null);
@@ -240,16 +405,18 @@ async function withPackagedApp(
 			.cp(path.join(userData, "logs"), info.outputPath("userdata-logs"), { recursive: true })
 			.catch(() => undefined);
 		if (app) await exitApp(app);
+		if (startsService) removeAiMemoryService();
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 }
 
-test("@smoke Windows: the packaged app's first launch shows the app on screen, and maximizing it keeps it drawn", async () => {
+test("@smoke Windows: the packaged app's first launch shows the app on screen, maximizing it keeps it drawn, and a quit leaves only ai-memory's service", async () => {
 	test.skip(process.platform !== "win32", "the screen capture and the packaged build are the Windows job's");
-	test.setTimeout(90_000);
+	test.setTimeout(330_000);
 	// No prefs.json, no window-state.json: a new user's first double-click.
 	await withPackagedApp(
 		async () => undefined,
+		"quit",
 		async (launched, info) => {
 			const mica = await launched.page.evaluate(() => document.documentElement.dataset.mica);
 			expect(mica).toBe(micaSupported("win32", os.release()) ? "true" : undefined);
@@ -262,9 +429,9 @@ test("@smoke Windows: the packaged app's first launch shows the app on screen, a
 	);
 });
 
-test("@smoke Windows: a window saved maximized opens drawn on screen, not blank", async () => {
+test("@smoke Windows: a window saved maximized opens drawn on screen, not blank, and a quit for an update leaves only ai-memory's service", async () => {
 	test.skip(process.platform !== "win32", "the screen capture and the packaged build are the Windows job's");
-	test.setTimeout(90_000);
+	test.setTimeout(330_000);
 	// The geometry WindowManager saved when the user last closed a maximized window.
 	await withPackagedApp(
 		userData =>
@@ -272,6 +439,7 @@ test("@smoke Windows: a window saved maximized opens drawn on screen, not blank"
 				path.join(userData, "window-state.json"),
 				JSON.stringify({ windowState: { x: 0, y: 0, width: 1400, height: 900, isMaximized: true } }),
 			),
+		"update",
 		async (launched, info) => {
 			expect((await windowState(launched.app)).maximized).toBe(true);
 			await expectDrawn(launched, info, "saved-maximized");
