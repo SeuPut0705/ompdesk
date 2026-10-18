@@ -20,7 +20,7 @@
  * what it keeps in memory (ship queue, children, audit baseline) is only what the journal cannot hold.
  */
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	AUTOPILOT_BRANCH_PREF,
@@ -37,6 +37,7 @@ import {
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
 	type AutopilotGuideInfo,
+	type AutopilotNudgeReason,
 	type AutopilotPauseReason,
 	type AutopilotReleaseProcedure,
 	type AutopilotSettings,
@@ -90,6 +91,13 @@ const GUIDE_DRAFT_MS = 45_000;
 const ERROR_GRACE_MS = 3_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
 const QUOTA_ERROR = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota/i;
+
+function pathExists(path: string): Promise<boolean> {
+	return access(path).then(
+		() => true,
+		() => false,
+	);
+}
 
 function afterMs(run: () => void, ms: number): () => void {
 	const timer = setTimeout(run, ms);
@@ -206,7 +214,8 @@ interface Run {
 	children: Map<string, ChildState>;
 	childBranches: Set<string>;
 	stopping: boolean;
-	pushNetworkFailures: number;
+	/** The earliest time the next nudge may go out. */
+	nextNudgeAt: number;
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
@@ -225,23 +234,21 @@ interface ChildRun {
 }
 
 const REASON_TEXT: Partial<Record<AutopilotPauseReason | AutopilotEndReason, MainTextKey>> = {
-	tests_failing: "autopilot.reason.tests_failing",
-	no_progress: "autopilot.reason.no_progress",
-	blocked: "autopilot.reason.blocked",
-	plan: "autopilot.reason.plan",
-	context_churn: "autopilot.reason.context_churn",
-	no_report: "autopilot.reason.no_report",
-	push_failed: "autopilot.reason.push_failed",
-	release_failed: "autopilot.reason.release_failed",
 	ban_violation: "autopilot.reason.ban_violation",
+	repo_gone: "autopilot.reason.repo_gone",
 	budget: "autopilot.reason.budget",
 	time: "autopilot.reason.time",
 	cycles: "autopilot.reason.cycles",
 	cost: "autopilot.reason.cost",
-	error: "autopilot.reason.error",
 	app_closed: "autopilot.reason.app_closed",
 	agent_done: "autopilot.reason.agent_done",
 };
+
+/** What a nudge asks the quiet run for. */
+const NUDGE_MESSAGE = "Autopilot: no cycle is running. Call `autopilot begin` and continue with the next cycle.";
+/** The least time between two nudges of a run, and after a failed model turn. */
+const NUDGE_MS = 20_000;
+const ERROR_NUDGE_MS = 60_000;
 
 /** Pauses that are the user's own doing, or a state the screen already shows: no notification. */
 const SILENT_REASONS: ReadonlySet<string> = new Set(["user_pause", "user_abort", "app_closed", "tab_closed"]);
@@ -417,7 +424,8 @@ export class Autopilot {
 		if (!facts || facts.busy || facts.awaitingConnection || facts.retrying || facts.scheduledRetry) return;
 		const status = await this.#fetchStatus(run).catch(() => null);
 		if (status?.state !== "running") return;
-		this.#enqueue(run, () => this.#pause(run, "error", message.slice(0, 200)));
+		// A model that keeps failing after TurnResume's retries is no reason to stop: ask for the next cycle later.
+		this.#enqueue(run, () => this.#nudge(run, "error"));
 	}
 
 	/** The sidecar factory's `frameTransform` for `autopilot_update`: the status plus what only main knows. */
@@ -440,6 +448,9 @@ export class Autopilot {
 			const record = frame.record as AutopilotCycleRecord;
 			const receivedAt = this.#now();
 			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt));
+		} else if (frame.type === "autopilot_nudge") {
+			const reason = frame.reason as AutopilotNudgeReason;
+			this.#enqueue(run, () => this.#nudge(run, reason));
 		} else if (frame.type === "autopilot_stop_requested") {
 			const request = frame as unknown as AutopilotStopRequest;
 			this.#enqueue(run, () => this.#stopRequested(run, request));
@@ -565,7 +576,9 @@ export class Autopilot {
 		if (goal?.status !== undefined && !["complete", "dropped"].includes(goal.status)) {
 			throw new AutopilotError(text("autopilot.err.goalExists"), "autopilot_goal_exists");
 		}
-		const settings = startSettings(options, this.#storedSettings());
+		const stored = this.#storedSettings();
+		const remoteChosen = options.ship?.remote ?? stored.ship?.remote ?? (await this.#detectRemote(cwd));
+		const settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
 		const release = await this.#releaseFor(toplevel);
 		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
@@ -715,7 +728,7 @@ export class Autopilot {
 			childBranches: new Set(),
 			stopping: false,
 			starting: false,
-			pushNetworkFailures: 0,
+			nextNudgeAt: 0,
 			chain: Promise.resolve(),
 			refreshing: false,
 			refreshAgain: false,
@@ -976,6 +989,11 @@ export class Autopilot {
 	}
 
 	async #cycleEnd(run: Run, record: AutopilotCycleRecord, receivedAt: number): Promise<void> {
+		// The repository vanishing is one of the few stops left: nothing can be committed or audited without it.
+		if (!(await pathExists(run.root)) || !(await this.#gitText(run.root, ["rev-parse", "--git-dir"]))) {
+			await this.#pause(run, "repo_gone", run.root);
+			return;
+		}
 		await this.#closeChildren(run, record.n);
 		let requests: Array<{ kind: "push" | "release" }> = [];
 		try {
@@ -1066,14 +1084,39 @@ export class Autopilot {
 		run.configMayChange = false;
 		for (const result of results) {
 			if (result.item.kind !== "push" && result.item.kind !== "pr") continue;
-			if (result.item.state === "done") {
-				run.pushNetworkFailures = 0;
-			} else if (result.failure === "rejected") {
-				await this.#pause(run, "push_failed", result.item.detail);
-			} else if (result.failure === "network" && ++run.pushNetworkFailures >= 3) {
-				await this.#pause(run, "push_failed", result.item.detail);
-			}
+			if (result.item.state === "done") continue;
+			// A rejected or unreachable push is reported (the queue item keeps its reason, the agent gets a note) and
+			// the next cycle repairs it: merge the remote branch, never force. The run is not paused for it.
+			await this.#tellAgent(
+				run,
+				`The push of ${run.branch} failed: ${result.item.detail ?? "unknown reason"}. Autopilot never forces a push: run git fetch, merge ${run.settings.ship.remote}/${run.branch} into the branch, check again, and the next green cycle pushes it.`,
+			);
 		}
+	}
+
+	/** A note the next `begin` hands the agent (what only main saw: a failed push, a failed release run). */
+	async #tellAgent(run: Run, text: string): Promise<void> {
+		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text }).catch(error =>
+			this.#log(`note: ${String(error)}`),
+		);
+	}
+
+	/**
+	 * The run went quiet (plan mode, every todo blocked, no turn started, a failed turn nobody retries): leave plan mode and
+	 * ask for the next cycle. Never a pause; at most one ask per {@link NUDGE_MS}.
+	 */
+	async #nudge(run: Run, reason: AutopilotNudgeReason | "error"): Promise<void> {
+		const now = this.#now();
+		if (run.stopping || now < run.nextNudgeAt) return;
+		if (this.#deps.pool.tabFacts(run.tabId)?.busy) return;
+		run.nextNudgeAt = now + (reason === "error" ? ERROR_NUDGE_MS : NUDGE_MS);
+		if (reason === "plan")
+			await this.#stock(run.tabId, { type: "set_plan_mode", enabled: false }).catch(() => undefined);
+		await this.#stockResponse(run.tabId, {
+			type: "prompt",
+			message: NUDGE_MESSAGE,
+			streamingBehavior: "followUp",
+		}).catch(error => this.#log(`nudge: ${String(error)}`));
 	}
 
 	async #stopRequested(run: Run, request: AutopilotStopRequest): Promise<void> {
@@ -1262,7 +1305,13 @@ export class Autopilot {
 			title: this.#deps.text("autopilot.release.title"),
 			body: this.#deps.text(ok ? "autopilot.release.ok" : "autopilot.release.failed", { version }),
 		});
-		if (!ok) await this.#pause(run, "release_failed", `${version}: ${info.conclusion ?? "failed"}`);
+		// A failed release run is reported (notice above, the run's status) and handed to the next cycle: never a pause.
+		if (!ok) {
+			await this.#tellAgent(
+				run,
+				`The release run of ${version} failed (${info.conclusion ?? "failed"}): ${runUrl}. Read the failure, fix it and release again.`,
+			);
+		}
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -1445,6 +1494,12 @@ export class Autopilot {
 		// A tab nobody has shown yet may still be asleep.
 		if (sidecar.status === "asleep") sidecar.start();
 		return promise;
+	}
+
+	/** The remote a run ships to when nothing says: `origin`, else the only (first) remote, else `origin` anyway. */
+	async #detectRemote(cwd: string): Promise<string> {
+		const names = (await this.#gitText(cwd, ["remote"])).split("\n").filter(Boolean);
+		return names.includes("origin") ? "origin" : (names[0] ?? "origin");
 	}
 
 	async #gitText(cwd: string, args: string[]): Promise<string> {

@@ -142,10 +142,8 @@ describe("Autopilot chip", () => {
 		await mount(<ComposerModes />);
 		expect(trigger().textContent).toContain(translate("autopilot.stopping"));
 
-		await act(async () =>
-			useAutopilotStore.getState().apply({ ...running, state: "paused", reason: "tests_failing" }),
-		);
-		expect(trigger().textContent).toContain(translate("autopilot.reason.tests_failing"));
+		await act(async () => useAutopilotStore.getState().apply({ ...running, state: "paused", reason: "cycles" }));
+		expect(trigger().textContent).toContain(translate("autopilot.reason.cycles"));
 
 		await act(async () => useAutopilotStore.getState().apply({ ...running, state: "waiting_quota" }));
 		expect(trigger().textContent).toContain(translate("autopilot.state.waiting_quota"));
@@ -206,7 +204,7 @@ describe("Autopilot start sheet", () => {
 			action: "start",
 			focus: [],
 			preset: "local",
-			maxParallel: 3,
+			maxParallel: 4,
 			notify: "stops",
 			limits: { tokens: null, minutes: null, cycles: null, usd: null },
 			ship: { autoPush: false, autoRelease: { on: false }, remote: "origin" },

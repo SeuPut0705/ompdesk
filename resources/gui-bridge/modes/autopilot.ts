@@ -45,6 +45,7 @@ import {
 	type AutopilotFrame,
 	type AutopilotGuideInfo,
 	type AutopilotNote,
+	type AutopilotNudgeReason,
 	type AutopilotSetStateParams,
 	type AutopilotSettings,
 	type AutopilotShipAction,
@@ -384,6 +385,10 @@ function requestStop(request: AutopilotStopRequest): void {
 	sendFrame({ type: "autopilot_stop_requested", ...request });
 }
 
+function requestNudge(reason: AutopilotNudgeReason): void {
+	sendFrame({ type: "autopilot_nudge", reason });
+}
+
 function onAgentStart(session: Session): void {
 	agentStarts++;
 	clearStall();
@@ -436,7 +441,9 @@ function onAgentEnd(session: Session, event: unknown): void {
 	}
 	if (state.state !== "running") return;
 	if (session.getPlanModeState()?.enabled) {
-		requestStop({ reason: "plan" });
+		// Plan mode is no stop: main leaves it and asks for the next cycle.
+		requestNudge("plan");
+		scheduleStall(session);
 		return;
 	}
 	const decision = decideAfterCycle({
@@ -470,8 +477,11 @@ function scheduleStall(session: Session): void {
 					tasks.some(task => task.status === "blocked") &&
 					!tasks.some(task => task.status === "pending" || task.status === "in_progress"),
 			});
-			if (verdict.kind === "pause") requestStop({ reason: verdict.reason, detail: "no new turn started" });
-			else publish(session);
+			if (verdict.kind === "nudge") {
+				requestNudge(verdict.reason);
+				// Main throttles its answer; if no turn starts, ask again.
+				scheduleStall(session);
+			} else publish(session);
 		} catch (error) {
 			emit({ type: "notice", level: "error", message: `Autopilot stall check failed: ${errorMessage(error)}` });
 		}

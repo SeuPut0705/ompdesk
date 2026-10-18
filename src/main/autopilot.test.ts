@@ -660,7 +660,7 @@ describe("the branch a run is on", () => {
 		});
 	});
 
-	it("never forces: a remote branch that moved on stops the run with push_failed and says why", async () => {
+	it("never forces: a remote branch that moved on is reported to the agent, not a stop", async () => {
 		const { response } = await startOn({ kind: "existing", name: "feature/x" }, { preset: "push" });
 		const theirs = path.join(tmp, "theirs");
 		gitSync(tmp, "clone", "-q", remote, theirs);
@@ -672,10 +672,11 @@ describe("the branch a run is on", () => {
 		await commit(rootOf(response), "mine.txt");
 		await cycleEnd();
 		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(moved);
-		const paused = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params;
-		expect(paused).toMatchObject({ state: "paused", reason: "push_failed" });
-		expect(String(paused?.detail)).toMatch(/not a fast-forward.*never forces/);
-		expect(notices.at(-1)?.kind).toBe("error");
+		const note = String(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).at(-1)?.params?.text);
+		expect(note).toMatch(/not a fast-forward.*never forces/);
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).some(call => call.params?.state === "paused"),
+		).toBe(false);
 	});
 
 	it("merge and PR have nothing to do on the default branch itself", async () => {
@@ -867,15 +868,15 @@ describe("stop requests from the bridge", () => {
 	it("a rule's pause becomes a stock pause plus a journaled reason, with a notice by kind", async () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "tests_failing" });
+		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "repo_gone", detail: "/x" });
 		await autopilot.idle();
 		expect(world.stock("ap-1", "set_goal").at(-1)?.params).toEqual({ action: "pause" });
 		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
 			state: "paused",
-			reason: "tests_failing",
+			reason: "repo_gone",
 		});
 		expect(notices).toEqual([
-			{ kind: "error", title: "Autopilot paused", body: "Tests failed in 3 cycles in a row." },
+			{ kind: "error", title: "Autopilot paused", body: "The repository folder is gone (/x)." },
 		]);
 		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "budget" });
 		await autopilot.idle();
@@ -916,21 +917,17 @@ describe("a failed turn", () => {
 		outcome: { stopReason: "error", errorMessage: message },
 	});
 
-	it("pauses the run with error once the retries leave nothing pending", async () => {
+	it("asks for the next cycle once the retries leave nothing pending, and never pauses", async () => {
 		await start();
 		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
 		expect(afters).toHaveLength(1);
 		afters[0]?.();
 		await autopilot.idle();
-		expect(world.stock("ap-1", "set_goal").at(-1)?.params).toEqual({ action: "pause" });
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
-			state: "paused",
-			reason: "error",
-			detail: "Provider returned 500: overloaded",
-		});
-		expect(notices).toEqual([
-			{ kind: "error", title: "Autopilot paused", body: "The model kept failing after the automatic retries." },
-		]);
+		expect(world.stock("ap-1", "prompt").at(-1)?.params).toMatchObject({ streamingBehavior: "followUp" });
+		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toEqual(["create"]);
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).some(call => call.params?.state === "paused"),
+		).toBe(false);
 	});
 
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {
@@ -1029,30 +1026,20 @@ describe("a cycle's end", () => {
 		expect(gitSync(remote, "rev-parse", "refs/heads/autopilot/2026-10-17")).toBe(sha);
 	});
 
-	it("a refused push pauses the run with push_failed", async () => {
-		// Re-pointed before the start: the audit's baseline then holds it (changing git config mid-cycle is a violation).
+	it("a refused push is reported to the agent and never pauses the run", async () => {
 		gitSync(main, "remote", "set-url", "origin", path.join(tmp, "missing.git"));
 		await start({ type: "set_autopilot", action: "start", preset: "push" });
-		const worktree = path.join(tmp, "wt-2026-10-17");
-		await commit(worktree, "a.txt");
+		await commit(path.join(tmp, "wt-2026-10-17"), "a.txt");
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		// An unreachable path is a network-class failure: one is tolerated, the third pauses.
-		for (let cycle = 1; cycle <= 2; cycle++) {
+		for (let cycle = 1; cycle <= 4; cycle++) {
 			autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: cycle }) });
 			await autopilot.idle();
 		}
-		expect(
-			world
-				.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState)
-				.some(call => call.params?.reason === "push_failed"),
-		).toBe(false);
-		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 3 }) });
-		await autopilot.idle();
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
-			state: "paused",
-			reason: "push_failed",
-		});
-		expect(notices.at(-1)?.kind).toBe("error");
+		const states = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state);
+		expect(states).not.toContain("paused");
+		expect(String(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).at(-1)?.params?.text)).toMatch(
+			/push of autopilot\/2026-10-17 failed.*never forces/,
+		);
 	});
 
 	it("pauses with ban_violation when the cycle moved something it was not entitled to", async () => {
@@ -1408,17 +1395,17 @@ describe("release run", () => {
 		});
 	});
 
-	it("a failed run pauses with release_failed", async () => {
+	it("a failed run is reported and handed to the next cycle: the run is not paused", async () => {
 		await reported();
 		releaseState = { status: "completed", conclusion: "failure" };
 		polls[0]?.run();
 		await autopilot.idle();
 		await autopilot.idle();
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
-			state: "paused",
-			reason: "release_failed",
-		});
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params?.state).not.toBe("paused");
 		expect(notices.map(notice => notice.kind)).toContain("error");
+		expect(String(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).at(-1)?.params?.text)).toMatch(
+			/release run of 1\.2\.3 failed/,
+		);
 		// The status the sheet shows keeps which release failed.
 		expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({
 			release: { version: "1.2.3", state: "failure" },

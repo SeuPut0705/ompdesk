@@ -454,8 +454,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			if (!current || (current.role ?? "parent") !== "parent" || current.state !== "running") return;
 			if (goal?.status !== "active") return;
 			const verdict = classifyStall({ lastTurnErrored, planMode: false, todosAllBlocked: false });
-			if (verdict.kind === "pause") requestStop({ reason: verdict.reason, detail: "no new turn started" });
-			else publish();
+			if (verdict.kind === "nudge") {
+				frame({ type: "autopilot_nudge", reason: verdict.reason });
+				scheduleStall();
+			} else publish();
 		}, STALL_SECONDS * 1000);
 		stallTimer.unref?.();
 	}

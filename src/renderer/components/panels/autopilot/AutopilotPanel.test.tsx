@@ -295,9 +295,9 @@ describe("Autopilot screen", () => {
 
 	it("offers Resume for a paused run and no controls for an ended one", async () => {
 		installMockOmp();
-		useAutopilotStore.getState().apply({ ...status, state: "paused", reason: "tests_failing", now: undefined });
+		useAutopilotStore.getState().apply({ ...status, state: "paused", reason: "cycles", now: undefined });
 		await mount(<AutopilotPanel />);
-		expect($("[data-autopilot-reason]")?.getAttribute("data-autopilot-reason")).toBe("tests_failing");
+		expect($("[data-autopilot-reason]")?.getAttribute("data-autopilot-reason")).toBe("cycles");
 		await act(async () => $("[data-autopilot-resume]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "resume" });
 

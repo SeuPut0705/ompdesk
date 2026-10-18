@@ -33,24 +33,21 @@ export const AUTOPILOT_CHILD_ENTRY = "ompdesk.autopilot-child";
 export const AUTOPILOT_STATES = ["running", "stopping", "paused", "waiting_quota", "ended"] as const;
 export type AutopilotState = (typeof AUTOPILOT_STATES)[number];
 
-/** Why the run is paused (it can be resumed) . */
+/**
+ * Why the run is paused (it can be resumed). Only what the user asked for (Pause, Stop now, a ceiling they set, Continue
+ * interrupted work off), a banned destructive git action and the repository vanishing pause a run: a red cycle, a
+ * failed check, a rejected push, a failed release, plan mode, blocked todos or a quiet turn never do (the next cycle
+ * repairs them; see `AutopilotNudge`).
+ */
 export const AUTOPILOT_PAUSE_REASONS = [
 	"user_pause",
 	"user_abort",
-	"tests_failing",
-	"no_progress",
-	"blocked",
-	"plan",
-	"context_churn",
-	"no_report",
-	"push_failed",
-	"release_failed",
 	"ban_violation",
+	"repo_gone",
 	"budget",
 	"time",
 	"cycles",
 	"cost",
-	"error",
 	"app_closed",
 ] as const;
 export type AutopilotPauseReason = (typeof AUTOPILOT_PAUSE_REASONS)[number];
@@ -79,7 +76,7 @@ export type AutopilotShipPolicy = {
 
 export const DEFAULT_SHIP_POLICY: AutopilotShipPolicy = {
 	autoPush: false,
-	autoRelease: { on: false, cadence: { kind: "every", n: 5 } },
+	autoRelease: { on: false, cadence: { kind: "agent" } },
 	remote: "origin",
 };
 
@@ -90,7 +87,7 @@ export type AutopilotShipPreset = (typeof AUTOPILOT_SHIP_PRESETS)[number];
 export function shipPolicyForPreset(preset: AutopilotShipPreset, remote = "origin"): AutopilotShipPolicy {
 	return {
 		autoPush: preset !== "local",
-		autoRelease: { on: preset === "release", cadence: { kind: "every", n: 5 } },
+		autoRelease: { on: preset === "release", cadence: { kind: "agent" } },
 		remote,
 	};
 }
@@ -120,7 +117,8 @@ export interface AutopilotSettings {
 }
 
 export const MAX_PARALLEL_CHILDREN = 4;
-export const DEFAULT_PARALLEL_CHILDREN = 3;
+/** The agent decides how many children a cycle needs, up to {@link MAX_PARALLEL_CHILDREN}. */
+export const DEFAULT_PARALLEL_CHILDREN = MAX_PARALLEL_CHILDREN;
 
 export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
 	focus: [],
@@ -134,14 +132,8 @@ export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
 // Stop rules (thresholds; none of them is a budget)
 // ---------------------------------------------------------------------------------------------
 
-export const RED_STREAK_LIMIT = 3;
-export const NO_COMMIT_STREAK_LIMIT = 5;
-export const NO_REPORT_STREAK_LIMIT = 2;
-export const CHURN_COMPACTIONS_PER_CYCLE = 2;
-export const CHURN_CYCLES_IN_A_ROW = 3;
-/** Seconds after a terminal agent_end in which a new turn must start before the run counts as stalled. */
+/** Seconds after a terminal agent_end in which a new turn must start before the run is nudged. */
 export const STALL_SECONDS = 8;
-export const PUSH_NETWORK_FAILURE_LIMIT = 3;
 /** The same normalized title in this many recent cycles is not picked again. */
 export const DUPLICATE_WINDOW = 30;
 export const RECENT_CYCLES = 10;
@@ -454,6 +446,8 @@ export interface AutopilotStatus {
 	activeMs?: number;
 	settings?: AutopilotSettings;
 	cycles?: AutopilotCycleRecord[];
+	/** Red cycles in a row (the repair counter the timeline shows); absent at zero. The run goes on: the next cycle repairs. */
+	redStreak?: number;
 	backlog?: AutopilotBacklogItem[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;
@@ -470,7 +464,13 @@ export interface AutopilotStatus {
 /** Frame body of `autopilot_update`: the whole status (the screen is small; no diffing). */
 export type AutopilotUpdate = AutopilotStatus;
 
-/** Bridge → main frame asking for a pause (the stop rules and ceilings); main sends stock `set_goal pause`. */
+/**
+ * Bridge → main frame `autopilot_nudge`: no turn started after a cycle although the goal wants one (plan mode on, every
+ * todo blocked, a quiet turn). The run is never paused for it: main leaves plan mode and asks for the next cycle.
+ */
+export type AutopilotNudgeReason = "plan" | "blocked" | "no_progress";
+
+/** Bridge → main frame asking for a pause (a ceiling the user set) or an end; main sends stock `set_goal pause`. */
 export interface AutopilotStopRequest {
 	reason: AutopilotPauseReason | AutopilotEndReason;
 	detail?: string;
@@ -696,6 +696,7 @@ export interface AutopilotCycleAmendParams {
 export const AUTOPILOT_FRAME_TYPES = [
 	"autopilot_update",
 	"autopilot_cycle_end",
+	"autopilot_nudge",
 	"autopilot_stop_requested",
 	"autopilot_settled",
 ] as const;
@@ -705,6 +706,8 @@ export type AutopilotFrame =
 	| { type: "autopilot_update"; status: AutopilotStatus }
 	/** The terminal `agent_end` of a cycle: main audits, then runs the ShipRunner (push after green, queued items). */
 	| { type: "autopilot_cycle_end"; record: AutopilotCycleRecord }
+	/** No turn started after a cycle although the goal wants one: main asks for the next cycle (never a pause). */
+	| { type: "autopilot_nudge"; reason: AutopilotNudgeReason }
 	| ({ type: "autopilot_stop_requested" } & AutopilotStopRequest)
 	| ({ type: "autopilot_settled" } & AutopilotSettled);
 

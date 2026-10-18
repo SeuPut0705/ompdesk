@@ -123,20 +123,10 @@ export const MAIN_TEXT = {
 		en: "{branch}: {cycles} cycles, {commits} commits.",
 		ko: "{branch}: 사이클 {cycles}개, 커밋 {commits}개.",
 	},
-	"autopilot.reason.tests_failing": {
-		en: "Tests failed in 3 cycles in a row.",
-		ko: "테스트가 3사이클 연속 실패했어요.",
+	"autopilot.reason.repo_gone": {
+		en: "The repository folder is gone ({detail}).",
+		ko: "저장소 폴더가 사라졌어요({detail}).",
 	},
-	"autopilot.reason.no_progress": { en: "No progress for several turns.", ko: "여러 턴 동안 진전이 없어요." },
-	"autopilot.reason.blocked": { en: "Every task is blocked.", ko: "모든 작업이 막혀 있어요." },
-	"autopilot.reason.plan": { en: "Plan mode was turned on.", ko: "계획 모드가 켜졌어요." },
-	"autopilot.reason.context_churn": {
-		en: "The context keeps filling up (compaction churn).",
-		ko: "컨텍스트가 계속 차올라요(압축 반복).",
-	},
-	"autopilot.reason.no_report": { en: "Two cycles ended without a report.", ko: "두 사이클이 보고 없이 끝났어요." },
-	"autopilot.reason.push_failed": { en: "Pushing the branch failed.", ko: "브랜치를 푸시하지 못했어요." },
-	"autopilot.reason.release_failed": { en: "The release failed.", ko: "릴리스가 실패했어요." },
 	"autopilot.reason.ban_violation": {
 		en: "The agent did something the hard limits forbid ({detail}).",
 		ko: "에이전트가 금지된 작업을 했어요({detail}).",
@@ -145,10 +135,6 @@ export const MAIN_TEXT = {
 	"autopilot.reason.time": { en: "The time limit was reached.", ko: "시간 상한에 도달했어요." },
 	"autopilot.reason.cycles": { en: "The cycle limit was reached.", ko: "사이클 상한에 도달했어요." },
 	"autopilot.reason.cost": { en: "The cost limit was reached.", ko: "비용 상한에 도달했어요." },
-	"autopilot.reason.error": {
-		en: "The model kept failing after the automatic retries.",
-		ko: "자동 재시도 뒤에도 모델 호출이 계속 실패했어요.",
-	},
 	"autopilot.reason.app_closed": {
 		en: "OMPdesk was closed; press Resume to continue.",
 		ko: "OMPdesk가 닫혀 있었어요. 이어서 하려면 재개를 누르세요.",

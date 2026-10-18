@@ -21,6 +21,7 @@ import {
 	type AutopilotCycleRecord,
 	type AutopilotLimits,
 	type AutopilotNote,
+	type AutopilotNudgeReason,
 	type AutopilotPauseReason,
 	type AutopilotSettings,
 	type AutopilotShipLevel,
@@ -31,16 +32,11 @@ import {
 	type AutopilotStopRequest,
 	type AutopilotToolInput,
 	type AutopilotVerifyNote,
-	CHURN_COMPACTIONS_PER_CYCLE,
-	CHURN_CYCLES_IN_A_ROW,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DUPLICATE_WINDOW,
 	isAutopilotArea,
 	MAX_PARALLEL_CHILDREN,
-	NO_COMMIT_STREAK_LIMIT,
-	NO_REPORT_STREAK_LIMIT,
 	RECENT_CYCLES,
-	RED_STREAK_LIMIT,
 } from "./autopilot-contracts";
 
 /** One session journal entry as these rules read it (the slice of omp's SessionEntry they need). */
@@ -125,29 +121,6 @@ export function redStreak(records: readonly AutopilotCycleRecord[]): number {
 	return streak;
 }
 
-/** Consecutive cycles at the end without a commit. */
-export function noCommitStreak(records: readonly AutopilotCycleRecord[]): number {
-	let streak = 0;
-	for (let i = records.length - 1; i >= 0 && !records[i].commit; i--) streak++;
-	return streak;
-}
-
-/** Consecutive cycles at the end that ended without an `autopilot end` report. */
-export function noReportStreak(records: readonly AutopilotCycleRecord[]): number {
-	let streak = 0;
-	for (let i = records.length - 1; i >= 0 && records[i].area === "unreported"; i--) streak++;
-	return streak;
-}
-
-/** Compaction churn: this cycle compacted {@link CHURN_COMPACTIONS_PER_CYCLE}+ times, or the last {@link CHURN_CYCLES_IN_A_ROW} cycles each compacted. `records` includes this cycle. */
-export function isChurning(records: readonly AutopilotCycleRecord[]): boolean {
-	const last = records[records.length - 1];
-	if (!last) return false;
-	if (last.compactions >= CHURN_COMPACTIONS_PER_CYCLE) return true;
-	const tail = records.slice(-CHURN_CYCLES_IN_A_ROW);
-	return tail.length === CHURN_CYCLES_IN_A_ROW && tail.every(record => record.compactions > 0);
-}
-
 export interface StallFacts {
 	/** The last assistant message ended in an error. */
 	lastTurnErrored: boolean;
@@ -157,14 +130,14 @@ export interface StallFacts {
 	todosAllBlocked: boolean;
 }
 
-export type StallVerdict = { kind: "error" } | { kind: "pause"; reason: AutopilotPauseReason };
+/** Why no new turn started after a terminal agent_end: plan mode, a failed turn (the quota/retry path is main's) or a quiet one. */
+export type StallVerdict = { kind: "error" } | { kind: "nudge"; reason: AutopilotNudgeReason };
 
-/** Why no new turn started after a terminal agent_end: plan, then an error turn (the quota/retry path), then blocked todos, then no progress. */
+/** A quiet run is nudged to its next cycle, never paused. */
 export function classifyStall(facts: StallFacts): StallVerdict {
-	if (facts.planMode) return { kind: "pause", reason: "plan" };
+	if (facts.planMode) return { kind: "nudge", reason: "plan" };
 	if (facts.lastTurnErrored) return { kind: "error" };
-	if (facts.todosAllBlocked) return { kind: "pause", reason: "blocked" };
-	return { kind: "pause", reason: "no_progress" };
+	return { kind: "nudge", reason: facts.todosAllBlocked ? "blocked" : "no_progress" };
 }
 
 export interface UsageTotals {
@@ -209,22 +182,13 @@ export interface CycleEndFacts {
 	activeMs: number;
 }
 
-/** What a finished cycle means for the run: a pause request (the stop rules, then the optional ceilings) or nothing. */
+/**
+ * What a finished cycle means for the run: a pause request when a ceiling the user set is used up, else nothing. A red
+ * cycle, a failed check, a missing report, compaction churn or a cycle without a commit never stop the run: the next
+ * cycle repairs them (`redStreak` rides `begin` and the status as the counter).
+ */
 export function decideAfterCycle(facts: CycleEndFacts): AutopilotStopRequest | undefined {
-	const { records } = facts;
-	const last = records[records.length - 1];
-	if (!last) return undefined;
-	if (last.area === "release" && last.verify === "red") return { reason: "release_failed", detail: last.title };
-	if (last.ship && last.verify === "red") return { reason: "release_failed", detail: last.ship.version };
-	if (redStreak(records) >= RED_STREAK_LIMIT)
-		return { reason: "tests_failing", detail: `${redStreak(records)} red cycles in a row` };
-	if (noReportStreak(records) >= NO_REPORT_STREAK_LIMIT)
-		return { reason: "no_report", detail: `${noReportStreak(records)} cycles ended without a report` };
-	if (isChurning(records))
-		return { reason: "context_churn", detail: `${last.compactions} compactions in cycle ${last.n}` };
-	if (noCommitStreak(records) >= NO_COMMIT_STREAK_LIMIT)
-		return { reason: "no_progress", detail: `${noCommitStreak(records)} cycles without a commit` };
-	const limit = limitReached(facts.settings.limits, facts.used, facts.activeMs, records.length);
+	const limit = limitReached(facts.settings.limits, facts.used, facts.activeMs, facts.records.length);
 	return limit ? { reason: limit } : undefined;
 }
 
@@ -831,6 +795,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		activeMs,
 		settings: state.settings,
 		cycles: records,
+		...(redStreak(records) > 0 ? { redStreak: redStreak(records) } : {}),
 		backlog: backlogItems(entries),
 		notes: pendingNotes(entries, records, live?.beganAt),
 		ship: {

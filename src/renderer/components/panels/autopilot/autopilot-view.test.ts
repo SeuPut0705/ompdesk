@@ -221,10 +221,10 @@ describe("autopilotChip", () => {
 
 	it("shows ending, paused with its reason, and a quota wait", () => {
 		expect(autopilotChip({ ...base, state: "stopping" }, undefined)).toEqual({ kind: "stopping", cycle: 7 });
-		expect(autopilotChip({ ...base, state: "paused", reason: "tests_failing" }, undefined)).toEqual({
+		expect(autopilotChip({ ...base, state: "paused", reason: "cycles" }, undefined)).toEqual({
 			kind: "paused",
 			cycle: 7,
-			reason: "tests_failing",
+			reason: "cycles",
 		});
 		expect(autopilotChip({ ...base, state: "waiting_quota", quotaResetAt: 9_000 }, undefined)).toEqual({
 			kind: "quota",

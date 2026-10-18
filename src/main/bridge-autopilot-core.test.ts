@@ -31,7 +31,6 @@ import {
 	hourlyRates,
 	inFlightAfter,
 	initialStateEntry,
-	isChurning,
 	isDuplicateTitle,
 	isRedCycle,
 	type JournalEntry,
@@ -39,8 +38,6 @@ import {
 	limitReached,
 	mergeSettings,
 	nextStateEntry,
-	noCommitStreak,
-	noReportStreak,
 	normalizeTitle,
 	openFollowups,
 	parseEndReport,
@@ -159,39 +156,19 @@ describe("red / no-commit / no-report / churn", () => {
 	for (const [name, overs, expected] of RED_TABLE) {
 		it(`redStreak: ${name}`, () => expect(redStreak(seq(...overs))).toBe(expected));
 	}
-	it("noCommitStreak", () => {
-		expect(noCommitStreak([])).toBe(0);
-		expect(noCommitStreak(seq(GREEN, GREEN))).toBe(0);
-		expect(noCommitStreak(seq(GREEN, SKIP, RED, NOREP))).toBe(3);
-		expect(noCommitStreak(seq(SKIP, GREEN))).toBe(0);
-	});
-	it("noReportStreak", () => {
-		expect(noReportStreak(seq(GREEN, NOREP))).toBe(1);
-		expect(noReportStreak(seq(NOREP, NOREP))).toBe(2);
-		expect(noReportStreak(seq(NOREP, GREEN))).toBe(0);
-	});
-	it("churn: two compactions in one cycle, or three cycles in a row with any", () => {
-		expect(isChurning([])).toBe(false);
-		expect(isChurning(seq({ compactions: 1 }))).toBe(false);
-		expect(isChurning(seq({ compactions: 2 }))).toBe(true);
-		expect(isChurning(seq({ compactions: 1 }, { compactions: 1 }))).toBe(false);
-		expect(isChurning(seq({ compactions: 1 }, { compactions: 1 }, { compactions: 1 }))).toBe(true);
-		expect(isChurning(seq({ compactions: 1 }, { compactions: 0 }, { compactions: 1 }))).toBe(false);
-		expect(isChurning(seq({ compactions: 3 }, { compactions: 0 }))).toBe(false);
-	});
 });
 
 describe("stall classification", () => {
 	const base = { lastTurnErrored: false, planMode: false, todosAllBlocked: false };
 	const TABLE: Array<[string, Partial<typeof base>, unknown]> = [
 		[
-			"plan wins over everything",
+			"plan mode is nudged out of, whatever else is true",
 			{ planMode: true, lastTurnErrored: true, todosAllBlocked: true },
-			{ kind: "pause", reason: "plan" },
+			{ kind: "nudge", reason: "plan" },
 		],
 		["an errored turn takes the error path", { lastTurnErrored: true, todosAllBlocked: true }, { kind: "error" }],
-		["blocked todos", { todosAllBlocked: true }, { kind: "pause", reason: "blocked" }],
-		["unknown cause is no progress", {}, { kind: "pause", reason: "no_progress" }],
+		["blocked todos are nudged", { todosAllBlocked: true }, { kind: "nudge", reason: "blocked" }],
+		["a quiet turn is nudged", {}, { kind: "nudge", reason: "no_progress" }],
 	];
 	for (const [name, facts, expected] of TABLE) {
 		it(name, () => expect(classifyStall({ ...base, ...facts })).toEqual(expected));
@@ -242,33 +219,22 @@ describe("decideAfterCycle", () => {
 		expect(decideAfterCycle(facts(seq(GREEN, GREEN)))).toBeUndefined();
 		expect(decideAfterCycle(facts([]))).toBeUndefined();
 	});
-	it("three red cycles pause with tests_failing", () => {
-		expect(decideAfterCycle(facts(seq(RED, RED)))).toBeUndefined();
-		expect(decideAfterCycle(facts(seq(RED, RED, RED)))?.reason).toBe("tests_failing");
+	it("a red streak, a missing report, compaction churn, a failed release and cycles without a commit never stop the run", () => {
+		const never: Array<AutopilotCycleRecord[]> = [
+			seq(RED, RED, RED, RED, RED, RED),
+			seq(NOREP, NOREP, NOREP, NOREP),
+			seq({ compactions: 3 }, { compactions: 3 }, { compactions: 3 }),
+			seq({ area: "release", verify: "red" }),
+			seq({ ship: { kind: "release", version: "1.0.0" }, verify: "red" }),
+			seq(SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP),
+		];
+		for (const records of never) expect(decideAfterCycle(facts(records))).toBeUndefined();
 	});
-	it("two unreported cycles pause with no_report", () => {
-		expect(decideAfterCycle(facts(seq(NOREP)))).toBeUndefined();
-		expect(decideAfterCycle(facts(seq(NOREP, NOREP)))?.reason).toBe("no_report");
-	});
-	it("churn pauses with context_churn", () => {
-		expect(decideAfterCycle(facts(seq({ compactions: 2 })))?.reason).toBe("context_churn");
-	});
-	it("a failed release pauses with release_failed before the red streak rule", () => {
-		expect(decideAfterCycle(facts(seq({ area: "release", verify: "red" })))?.reason).toBe("release_failed");
-		expect(decideAfterCycle(facts(seq({ ship: { kind: "release", version: "1.0.0" }, verify: "red" })))?.reason).toBe(
-			"release_failed",
-		);
-		expect(decideAfterCycle(facts(seq({ area: "release", verify: "green" })))).toBeUndefined();
-	});
-	it("five cycles in a row without a commit pause with no_progress", () => {
-		expect(decideAfterCycle(facts(seq(SKIP, SKIP, SKIP, SKIP, SKIP)))?.reason).toBe("no_progress");
-		expect(decideAfterCycle(facts(seq(SKIP, SKIP, SKIP, SKIP)))).toBeUndefined();
-		expect(decideAfterCycle(facts(seq(SKIP, SKIP, SKIP, SKIP, GREEN)))).toBeUndefined();
-	});
-	it("optional ceilings come last", () => {
+	it("only a ceiling the user set stops it, whatever the cycles were", () => {
 		const settings: AutopilotSettings = { ...DEFAULT_AUTOPILOT_SETTINGS, limits: { ...NO_LIMITS, cycles: 2 } };
 		expect(decideAfterCycle(facts(seq(GREEN, GREEN), { settings }))?.reason).toBe("cycles");
-		expect(decideAfterCycle(facts(seq(RED, RED, RED), { settings }))?.reason).toBe("tests_failing");
+		expect(decideAfterCycle(facts(seq(RED, RED, RED), { settings }))?.reason).toBe("cycles");
+		expect(decideAfterCycle(facts(seq(RED, RED, RED, RED, RED, RED)))).toBeUndefined();
 	});
 	it("the token budget counts each cycle's record as amended with its children's usage", () => {
 		const settings: AutopilotSettings = { ...DEFAULT_AUTOPILOT_SETTINGS, limits: { ...NO_LIMITS, tokens: 2_500 } };
