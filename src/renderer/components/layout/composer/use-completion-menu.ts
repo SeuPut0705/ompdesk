@@ -16,13 +16,40 @@ import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
 import { fileMentionFor } from "./composer-files";
-import { MAX_MENTION_FILE_ITEMS, MAX_MENU_ITEMS, MENTION_SCHEMES, mentionToken } from "./input-area-utils";
+import {
+	MAX_LIST_MENU_ITEMS,
+	MAX_MENU_ITEMS,
+	MENTION_FS_MAX_ENTRIES,
+	MENTION_SCHEMES,
+	type MentionSource,
+	mentionDirOf,
+	mentionListingOf,
+	mentionToken,
+	searchMentionFiles,
+} from "./input-area-utils";
+
+/** Wait before a typed folder of a cut-off `@` listing is asked for on its own. */
+const MENTION_DIR_DEBOUNCE_MS = 150;
+/** Hangul a menu token may end in: a keyboard left in Korean types jamo, an IME is composing syllables. */
+const HANGUL = "\\u1100-\\u11ff\\u3130-\\u318f\\uac00-\\ud7a3";
+/** `/name` at a word boundary: the name, then any Hangul that follows it (see the menu's range note). */
+const SLASH_TOKEN = new RegExp(`(^|\\s)/([\\w:.-]*)([${HANGUL}]*)$`, "i");
+/** `$name`, same shape. */
+const SKILL_TOKEN = new RegExp(`(^|\\s)\\$([\\w.~/-]*)([${HANGUL}]*)$`);
 
 export interface CompletionItem {
 	value: string;
 	label: string;
 	description?: string;
 	hint?: string;
+	/** `[start, end)` UTF-16 spans of `label` the typed query matched, for the row to highlight. */
+	highlights?: [number, number][];
+}
+
+/** What a menu says under its rows: the keys that work in it, and notes on rows that are not shown. */
+export interface CompletionFooter {
+	hints: { keys: string; label: string }[];
+	notes: string[];
 }
 
 /** Completion menu state: the winning provider's items + replace range. */
@@ -32,6 +59,11 @@ export interface CompletionMenu {
 	rangeEnd: number;
 	items: CompletionItem[];
 	index: number;
+	/** Rows the provider found; more than `items.length` when its cap cut the list (the footer says so). */
+	total?: number;
+	/** The `@` file listing is incomplete (main's walk hit its entry cap): a longer typed path still finds the rest. */
+	truncated?: boolean;
+	footer?: CompletionFooter;
 }
 
 /** Same provider, range and rows: a re-derivation that changes nothing the user sees. */
@@ -40,8 +72,17 @@ export function sameCompletionMenu(a: CompletionMenu, b: CompletionMenu): boolea
 		a.source === b.source &&
 		a.rangeStart === b.rangeStart &&
 		a.rangeEnd === b.rangeEnd &&
+		a.total === b.total &&
+		a.truncated === b.truncated &&
 		a.items.length === b.items.length &&
-		a.items.every((item, index) => item.value === b.items[index]?.value && item.label === b.items[index]?.label)
+		a.items.every((item, index) => {
+			const other = b.items[index];
+			return (
+				item.value === other?.value &&
+				item.label === other.label &&
+				JSON.stringify(item.highlights) === JSON.stringify(other.highlights)
+			);
+		})
 	);
 }
 
@@ -77,6 +118,77 @@ export function midPromptSkillMatches(token: string, name: string, description =
 	return lowerName.startsWith("skill:") && `-${lowerName.slice("skill:".length)}`.includes(`-${lowerToken}`);
 }
 
+/**
+ * The `/` menu's rows for a typed name: exact name or alias first, then prefix, then substring (typing
+ * `/plan` + Enter must pick /plan, not an earlier-listed `/skill:…-plan`), each in the order stock lists
+ * its commands. An empty name keeps every command.
+ */
+export function rankSlashCommands(commands: AvailableCommand[], query: string): AvailableCommand[] {
+	const rank = (command: AvailableCommand): number => {
+		if (!query) return 0;
+		const names = [command.name, ...(command.aliases ?? [])].map(name => name.toLowerCase());
+		if (names.includes(query)) return 0;
+		if (names.some(name => name.startsWith(query))) return 1;
+		return names.some(name => name.includes(query)) ? 2 : -1;
+	};
+	return commands
+		.map((command, index) => ({ command, index, rank: rank(command) }))
+		.filter(entry => entry.rank >= 0)
+		.sort((a, b) => a.rank - b.rank || a.index - b.index)
+		.map(entry => entry.command);
+}
+
+/**
+ * The name of a slash command the draft opens with that no command (or alias) has, or null: `/zzzz` and
+ * `/zzzz more` are sent to the agent as plain prompts, so the composer says so before Enter. Null until
+ * the command list is known.
+ */
+export function unknownSlashCommand(text: string, commands: AvailableCommand[]): string | null {
+	const name = /^\/([\w:.-]+)(?=\s|$)/.exec(text)?.[1];
+	if (!name || commands.length === 0) return null;
+	const lower = name.toLowerCase();
+	const known = commands.some(
+		command => command.name.toLowerCase() === lower || command.aliases?.some(alias => alias.toLowerCase() === lower),
+	);
+	return known ? null : name;
+}
+
+/** What may follow the trigger character inside each menu's token (the trigger included in the pattern). */
+const MENU_TOKEN: Partial<Record<CompletionMenu["source"], RegExp>> = {
+	command: new RegExp(`^/[\\w:.-]*[${HANGUL}]*$`, "i"),
+	skill: new RegExp(`^\\$[\\w.~/-]*[${HANGUL}]*$`),
+	mention: /^@(?:"[^"]*|[^\s"'=]*)$/,
+	model: /^\^[^\s^]*$/,
+	"github-ref": /^#\d*$/,
+	emoji: /^:[\w+-]*$/,
+};
+
+/**
+ * Whether ←/→ at `caret` leaves the open menu's token in place: the caret lands inside it (after the
+ * trigger character, before the first character that is not part of the token), so the menu stays and is
+ * derived again for the new caret; only an arrow that steps out of the token (before `@`, onto a space)
+ * closes it. A slash command's argument menu spans the rest of its line.
+ */
+export function arrowKeepsMenu(
+	text: string,
+	menu: Pick<CompletionMenu, "source" | "rangeStart">,
+	key: "ArrowLeft" | "ArrowRight",
+	caret: number,
+): boolean {
+	// A character outside the BMP is two code units: the caret steps over both.
+	const step =
+		key === "ArrowLeft"
+			? -(caret >= 2 && /[\uDC00-\uDFFF]/.test(text.charAt(caret - 1)) ? 2 : 1)
+			: /[\uD800-\uDBFF]/.test(text.charAt(caret))
+				? 2
+				: 1;
+	const next = caret + step;
+	if (next < menu.rangeStart || next > text.length) return false;
+	const body = text.slice(menu.rangeStart, next);
+	if (menu.source === "slash-arg") return !body.includes("\n");
+	return MENU_TOKEN[menu.source]?.test(body) ?? false;
+}
+
 export function useCompletionMenu({
 	text,
 	filePaths,
@@ -98,6 +210,8 @@ export function useCompletionMenu({
 	/** Contextual argument hint under the composer (TUI ghost-text parity). */
 	const [argHint, setArgHint] = useState("");
 	const [selection, setSelection] = useState("");
+	/** Bumped when a folder listing of a cut-off `@` walk lands, so the menu is derived again with it. */
+	const [dirTick, setDirTick] = useState(0);
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el) return;
@@ -127,9 +241,24 @@ export function useCompletionMenu({
 		const cursor = el.selectionStart ?? text.length;
 		const before = text.slice(0, cursor);
 		const live = () => !cancelled && (el.selectionStart ?? text.length) === cursor;
-		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd"> | null) => {
+		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd" | "footer"> | null) => {
 			if (!live()) return;
-			setMenu(result && result.items.length > 0 ? { ...result, rangeEnd: cursor, index: 0 } : null);
+			if (!result || result.items.length === 0) {
+				setMenu(null);
+				return;
+			}
+			const notes: string[] = [];
+			const unseen = (result.total ?? 0) - result.items.length;
+			if (unseen > 0) notes.push(t("input.menu.more", { count: unseen }));
+			if (result.truncated) {
+				notes.push(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString() }));
+			}
+			const hints = [
+				{ keys: "↑↓", label: t("input.menu.hintMove") },
+				{ keys: "Tab ↵", label: t("input.menu.hintPick") },
+				{ keys: "Esc", label: t("input.menu.hintClose") },
+			];
+			setMenu({ ...result, rangeEnd: cursor, index: 0, footer: { hints, notes } });
 		};
 		setArgHint("");
 		if (el.selectionEnd !== cursor) {
@@ -179,6 +308,9 @@ export function useCompletionMenu({
 					clearTimeout(timer);
 				};
 			}
+			// No such command: the draft goes to the agent as plain text, which the hint says.
+			const unknown = unknownSlashCommand(before, commands);
+			if (unknown && cursor === text.length) setArgHint(t("input.slash.unknown", { name: `/${unknown}` }));
 		}
 
 		// 2. GitHub #ref: standalone #<positive-int> at a token boundary (no network).
@@ -212,49 +344,54 @@ export function useCompletionMenu({
 
 		// 3. Slash command NAMES at a word boundary: every command at the start of the draft, only
 		// skills after prompt text (stock's mid-prompt skill lookup), so `hello /re` opens no command menu.
-		const cmdMatch = /(^|\s)\/([\w:.-]*)$/i.exec(before);
+		// Hangul after the name (a keyboard left in Korean, or a syllable still being composed) keeps the
+		// menu open on the name typed so far; a pick replaces the Hangul too.
+		const cmdMatch = SLASH_TOKEN.exec(before);
 		if (cmdMatch) {
-			const query = (cmdMatch[2] ?? "").toLowerCase();
-			const rangeStart = cursor - query.length - 1;
+			const typed = cmdMatch[2] ?? "";
+			const query = typed.toLowerCase();
+			const rangeStart = cursor - typed.length - (cmdMatch[3] ?? "").length - 1;
 			if (before.slice(0, rangeStart).trim() !== "") {
-				const items = commands
-					.filter(
-						command =>
-							command.name.startsWith("skill:") &&
-							midPromptSkillMatches(query, command.name, command.description),
-					)
-					.slice(0, MAX_MENU_ITEMS)
-					.map(command => ({
+				const matched = commands.filter(
+					command =>
+						command.name.startsWith("skill:") && midPromptSkillMatches(query, command.name, command.description),
+				);
+				const shown = query ? matched.slice(0, MAX_LIST_MENU_ITEMS) : matched;
+				apply({
+					source: "command",
+					rangeStart,
+					items: shown.map(command => ({
 						value: `/${command.name} `,
 						label: `/${command.name}`,
 						description: command.description,
-					}));
-				apply({ source: "command", rangeStart, items });
+					})),
+					total: matched.length,
+				});
 				return () => {
 					cancelled = true;
 				};
 			}
-			// Exact name/alias first, then prefix, then substring: typing `/plan` +
-			// Enter must pick /plan, not an earlier-listed `/skill:…-plan`.
-			const rank = (command: AvailableCommand): number => {
-				const names = [command.name, ...(command.aliases ?? [])].map(name => name.toLowerCase());
-				if (!query) return 0;
-				if (names.includes(query)) return 0;
-				if (names.some(name => name.startsWith(query))) return 1;
-				if (names.some(name => name.includes(query))) return 2;
-				return -1;
-			};
-			const items = commands
-				.filter(command => rank(command) >= 0)
-				.map((command, index) => ({ command, index, rank: rank(command) }))
-				.sort((a, b) => a.rank - b.rank || a.index - b.index)
-				.slice(0, MAX_MENU_ITEMS)
-				.map(({ command }) => ({
-					value: `/${command.name} `,
-					label: `/${command.name}`,
-					description: command.description,
-				}));
-			apply({ source: "command", rangeStart, items });
+			const matched = rankSlashCommands(commands, query);
+			if (matched.length === 0 && !cmdMatch[3]) {
+				const unknown = unknownSlashCommand(before, commands);
+				if (unknown && cursor === text.length) setArgHint(t("input.slash.unknown", { name: `/${unknown}` }));
+			}
+			// With nothing typed the menu lists every command (it scrolls); a typed query keeps the best few.
+			const shown = query ? matched.slice(0, MAX_LIST_MENU_ITEMS) : matched;
+			apply({
+				source: "command",
+				rangeStart,
+				items: shown.map(command => {
+					const at = query ? command.name.toLowerCase().indexOf(query) : -1;
+					return {
+						value: `/${command.name} `,
+						label: `/${command.name}`,
+						description: command.description,
+						highlights: at >= 0 ? [[1 + at, 1 + at + query.length]] : [],
+					};
+				}),
+				total: matched.length,
+			});
 			return () => {
 				cancelled = true;
 			};
@@ -263,55 +400,86 @@ export function useCompletionMenu({
 		// 4. `$` skill palette anywhere in the draft: picks insert stock's own
 		// mid-prompt `/skill:<name>` token, which stock invokes with the
 		// surrounding prose as its arguments. No skill on → a hint, no menu.
-		const skillMatch = /(^|\s)\$([\w.~/-]*)$/.exec(before);
+		const skillMatch = SKILL_TOKEN.exec(before);
 		if (skillMatch) {
-			const query = (skillMatch[2] ?? "").toLowerCase();
+			const typed = skillMatch[2] ?? "";
+			const query = typed.toLowerCase();
 			const skills = commands.filter(command => command.name.startsWith("skill:"));
 			if (skills.length === 0 && commands.length > 0) setArgHint(t("input.skills.none"));
 			// Name prefix first, then substring; stock's list order within each.
-			const items = skills
+			const matched = skills
 				.map(command => {
 					const bare = command.name.slice("skill:".length);
-					const lower = bare.toLowerCase();
-					return { command, bare, rank: lower.startsWith(query) ? 0 : lower.includes(query) ? 1 : -1 };
+					return { command, bare, at: bare.toLowerCase().indexOf(query) };
 				})
-				.filter(skill => skill.rank >= 0)
-				.sort((a, b) => a.rank - b.rank)
-				.slice(0, MAX_MENU_ITEMS)
-				.map(({ command, bare }) => ({
+				.filter(skill => skill.at >= 0)
+				.sort((a, b) => Number(a.at > 0) - Number(b.at > 0));
+			const shown = query ? matched.slice(0, MAX_LIST_MENU_ITEMS) : matched;
+			apply({
+				source: "skill",
+				rangeStart: cursor - typed.length - (skillMatch[3] ?? "").length - 1,
+				items: shown.map(({ command, bare, at }) => ({
 					value: `/skill:${bare} `,
 					label: `$${bare}`,
 					description: command.description,
-				}));
-			apply({ source: "skill", rangeStart: cursor - query.length - 1, items });
+					highlights: query ? [[1 + at, 1 + at + query.length]] : [],
+				})),
+				total: matched.length,
+			});
 			return () => {
 				cancelled = true;
 			};
 		}
 
-		// 5. @ mention: workspace files (fuzzy) above internal URL schemes. A picked path with a space
-		// goes in quoted (`@"My Report.md"`), the form stock's mention parser reads whole.
+		// 5. @ mention: workspace files (ranked by file name, word starts, runs, Hangul initials) above
+		// internal URL schemes. A picked path with a space goes in quoted (`@"My Report.md"`), the form
+		// stock's mention parser reads whole.
 		const mention = mentionToken(before);
 		if (mention) {
 			// macOS file names may be decomposed (NFD) while typed Hangul is composed (NFC).
 			const q = mention.query.normalize("NFC");
-			const items: CompletionItem[] = [];
-			const scored: { path: string; score: number }[] = [];
-			for (const path of filePaths) {
-				const score = fuzzyScore(q, path.normalize("NFC"));
-				if (score !== null) scored.push({ path, score });
+			const listing = mentionListingOf(filePaths);
+			const sources: MentionSource[] = [
+				{ paths: filePaths, nfc: listing?.nfc ?? filePaths.map(path => path.normalize("NFC")) },
+			];
+			// A walk the entry cap cut still has every file reachable: a typed folder is listed on its own.
+			let truncated = listing?.truncated ?? false;
+			const dir = listing?.truncated ? mentionDirOf(q) : null;
+			if (listing && dir) {
+				const loaded = listing.dir(dir);
+				if (loaded) {
+					sources.push({ paths: loaded.extra, nfc: loaded.extra.map(path => path.normalize("NFC")) });
+					truncated = loaded.truncated;
+				} else {
+					timer = window.setTimeout(() => {
+						void listing.loadDir(dir).then(() => {
+							if (!cancelled) setDirTick(tick => tick + 1);
+						});
+					}, MENTION_DIR_DEBOUNCE_MS);
+				}
 			}
-			scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-			for (const { path } of scored.slice(0, MAX_MENTION_FILE_ITEMS)) {
-				items.push({ value: `${fileMentionFor(path, "")} `, label: path });
-			}
+			const { matches, total } = searchMentionFiles(q, sources);
+			const items: CompletionItem[] = matches.map(({ path, label, ranges }) => ({
+				value: `${fileMentionFor(path, "")} `,
+				label,
+				highlights: ranges,
+			}));
 			const lowerQuery = q.toLowerCase();
+			let schemes = 0;
 			for (const scheme of MENTION_SCHEMES) {
-				if (scheme.toLowerCase().includes(lowerQuery)) items.push({ value: scheme, label: scheme });
+				const at = scheme.toLowerCase().indexOf(lowerQuery);
+				if (at < 0) continue;
+				schemes++;
+				items.push({ value: scheme, label: scheme, highlights: lowerQuery ? [[at, at + lowerQuery.length]] : [] });
 			}
-			apply({ source: "mention", rangeStart: mention.start, items });
+			// No row to hang the notice on: it goes in the hint line under the field.
+			if (truncated && items.length === 0) {
+				setArgHint(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString() }));
+			}
+			apply({ source: "mention", rangeStart: mention.start, items, total: total + schemes, truncated });
 			return () => {
 				cancelled = true;
+				window.clearTimeout(timer);
 			};
 		}
 
@@ -382,6 +550,6 @@ export function useCompletionMenu({
 		return () => {
 			cancelled = true;
 		};
-	}, [text, selection, models, filePaths, commands, emojiAutocomplete, textareaRef, setMenu, t, rpc]);
+	}, [text, selection, models, filePaths, commands, emojiAutocomplete, textareaRef, setMenu, t, rpc, dirTick]);
 	return argHint;
 }

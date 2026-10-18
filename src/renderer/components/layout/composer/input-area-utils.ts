@@ -3,13 +3,17 @@
  */
 
 import type { FsTreeEntry } from "../../../../shared/ipc-types";
+import { pathMatcher } from "../../../lib/fuzzy-score";
 import type { ComposerImage } from "../../../stores/composer";
 
-const MENTION_FS_DEPTH = 8;
-const MENTION_FS_MAX_ENTRIES = 2000;
+/** How deep (the tree's own cap) and how many files one `@` listing asks main for. */
+export const MENTION_FS_DEPTH = 16;
+export const MENTION_FS_MAX_ENTRIES = 20_000;
 
-/** Cap on completion menu items. */
+/** Cap on completion menu items (the `^` model menu). */
 export const MAX_MENU_ITEMS = 8;
+/** Cap on the `/` and `$` menus once something is typed; with nothing typed they list every entry. */
+export const MAX_LIST_MENU_ITEMS = 20;
 /** Cap on fuzzy file results shown above the scheme entries in the @ menu. */
 export const MAX_MENTION_FILE_ITEMS = 20;
 /** Internal URL schemes always offered in the @ menu, below file results. */
@@ -29,6 +33,60 @@ function flattenFilePaths(entries: FsTreeEntry[], out: string[]): void {
  */
 export const MENTION_FILES_TTL_MS = 30_000;
 
+/**
+ * What a walk knows besides its paths. Main walks breadth-first, so when the entry cap cuts the walk it is
+ * the deepest files that are missing; `loadDir` reaches them: typing a longer path (`@pkg/api/`) lists that
+ * folder on its own, and the menu merges what it finds.
+ */
+export interface MentionListing {
+	/** The walk stopped at its entry cap: some files are not in the list. */
+	truncated: boolean;
+	/** NFC twin of each path, same order (macOS names may be decomposed, typed Hangul is composed). */
+	nfc: string[];
+	/** A folder's own listing, once `loadDir` has finished: files the walk missed, and whether it was cut too. */
+	dir(dir: string): { extra: string[]; truncated: boolean } | undefined;
+	/** List `dir` (workspace-relative) once; the answer is read back with `dir`. Never rejects. */
+	loadDir(dir: string): Promise<void>;
+}
+
+/** The listing behind a path list `listMentionFiles` answered with (a plain array stays what callers see). */
+const mentionListings = new WeakMap<readonly string[], MentionListing>();
+
+export function mentionListingOf(paths: readonly string[]): MentionListing | undefined {
+	return mentionListings.get(paths);
+}
+
+function describeListing(paths: string[], truncated: boolean, tabId: string | undefined): MentionListing {
+	let known: Set<string> | undefined;
+	const loaded = new Map<string, { extra: string[]; truncated: boolean }>();
+	const pending = new Map<string, Promise<void>>();
+	return {
+		truncated,
+		nfc: paths.map(path => path.normalize("NFC")),
+		dir: dir => loaded.get(dir),
+		loadDir(dir) {
+			const inflight = pending.get(dir);
+			if (inflight) return inflight;
+			const task = window.omp.fs
+				.list(dir, MENTION_FS_DEPTH, MENTION_FS_MAX_ENTRIES, tabId)
+				.then(result => {
+					const found: string[] = [];
+					if (result.ok) flattenFilePaths(result.entries, found);
+					known ??= new Set(paths);
+					const have = known;
+					loaded.set(dir, {
+						extra: found.filter(path => !have.has(path)).sort(),
+						truncated: !result.ok || !!result.truncated,
+					});
+				})
+				// A failed read is remembered as an incomplete one, so the menu never asks again in a loop.
+				.catch(() => void loaded.set(dir, { extra: [], truncated: true }));
+			pending.set(dir, task);
+			return task;
+		},
+	};
+}
+
 /** @mention file lists, cached per session cwd; inflight dedupes concurrent walks. */
 const mentionFileInflight = new Map<string, Promise<string[]>>();
 const mentionFileCache = new Map<string, { paths: string[]; at: number }>();
@@ -47,6 +105,7 @@ export function clearMentionFiles(): void {
 /**
  * The workspace's files for the `@` menu: the cached listing while it is fresh, else one walk. A failed
  * walk is never remembered (the next `@` tries again) and answers with the last good listing, if any.
+ * The walk's extra facts (cut off or not, NFC names, folder listings) sit behind {@link mentionListingOf}.
  */
 export function listMentionFiles(cwd: string, tabId?: string | null, now = Date.now()): Promise<string[]> {
 	const cached = mentionFileCache.get(cwd);
@@ -60,6 +119,7 @@ export function listMentionFiles(cwd: string, tabId?: string | null, now = Date.
 			const paths: string[] = [];
 			flattenFilePaths(result.entries, paths);
 			paths.sort();
+			mentionListings.set(paths, describeListing(paths, result.truncated === true, tabId ?? undefined));
 			mentionFileCache.set(cwd, { paths, at: now });
 			return paths;
 		})
@@ -83,6 +143,68 @@ export function mentionToken(before: string): { start: number; query: string; qu
 	const bare = /(^|\s)@([^\s"'=]*)$/.exec(before);
 	if (bare) return { start: bare.index + (bare[1] ?? "").length, query: bare[2] ?? "", quoted: false };
 	return null;
+}
+
+/**
+ * The folder a typed `@` query names (`src/ren` → `src`), the one a cut-off listing can still be asked for
+ * on its own; null for a query with no folder part, an absolute one, or one that leaves the workspace.
+ */
+export function mentionDirOf(query: string): string | null {
+	const path = query.replace(/^\.\//, "");
+	const slash = path.lastIndexOf("/");
+	if (slash <= 0) return null;
+	const dir = path.slice(0, slash);
+	return dir.split("/").some(part => part === ".." || part === "") ? null : dir;
+}
+
+/** A batch of workspace paths and their NFC twins (same order): label and match text vs the path to insert. */
+export interface MentionSource {
+	paths: readonly string[];
+	nfc: readonly string[];
+}
+
+export interface MentionMatch {
+	/** The path as it is on disk: what the mention inserts. */
+	path: string;
+	/** The NFC path the menu shows; `ranges` index this. */
+	label: string;
+	ranges: [number, number][];
+}
+
+/**
+ * The best `limit` workspace files for an `@` query, ranked by {@link pathMatcher} (file-name and word
+ * starts, runs, CamelCase humps, Hangul initial consonants; a shorter path wins a tie), and how many files
+ * matched in all. `query` is NFC.
+ */
+export function searchMentionFiles(
+	query: string,
+	sources: readonly MentionSource[],
+	limit = MAX_MENTION_FILE_ITEMS,
+): { matches: MentionMatch[]; total: number } {
+	const match = pathMatcher(query);
+	const scored: { source: number; index: number; score: number }[] = [];
+	sources.forEach((source, sourceIndex) => {
+		source.nfc.forEach((label, index) => {
+			const found = match(label, false);
+			if (found) scored.push({ source: sourceIndex, index, score: found.score });
+		});
+	});
+	const labelOf = (entry: { source: number; index: number }) => sources[entry.source]?.nfc[entry.index] ?? "";
+	scored.sort((a, b) => {
+		if (b.score !== a.score) return b.score - a.score;
+		const x = labelOf(a);
+		const y = labelOf(b);
+		return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+	});
+	const matches = scored.slice(0, limit).map(entry => {
+		const label = labelOf(entry);
+		return {
+			path: sources[entry.source]?.paths[entry.index] ?? label,
+			label,
+			ranges: match(label)?.ranges ?? [],
+		};
+	});
+	return { matches, total: scored.length };
 }
 
 /**
