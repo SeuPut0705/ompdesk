@@ -35,7 +35,7 @@ if (typeof elementPrototype.attachEvent !== "function") elementPrototype.attachE
 if (typeof elementPrototype.detachEvent !== "function") elementPrototype.detachEvent = () => {};
 
 const stylesheet = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
-const inputArea = ["./InputArea.tsx", "./ComposerToolbar.tsx"]
+const inputArea = ["./InputArea.tsx", "./ComposerToolbar.tsx", "./ComposerField.tsx"]
 	.map(path => readFileSync(new URL(path, import.meta.url), "utf8"))
 	.join("\n");
 

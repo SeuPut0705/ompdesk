@@ -4,7 +4,6 @@ import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { useDisplayPreference } from "../../../lib/display-preferences";
-import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
@@ -17,7 +16,6 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ComposerStore, useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
-import { useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
 import { useNextPromptStore } from "../../../stores/next-prompt";
 import { useSessionStore } from "../../../stores/session";
@@ -25,14 +23,14 @@ import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-ru
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Banner, Button, IconButton, Kbd } from "../../common";
+import { Banner, Button, IconButton } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerField, ComposerFieldHint } from "./ComposerField";
 import { ComposerLiveEdge } from "./ComposerLive";
 import { ComposerQueue } from "./ComposerQueue";
 import { ComposerToolbar } from "./ComposerToolbar";
-import { DictationOverlay } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { MAX_NEXT_PROMPT_CHIPS, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
@@ -377,7 +375,6 @@ export function InputArea() {
 						: t("input.placeholder.idle");
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
 	const showSuggestionHint = placeholderPrompt !== undefined && text === "";
-	const suggestionHintId = useId();
 	const menuId = useId();
 	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
 	const showSend = !stoppable || text.trim() !== "" || images.length > 0;
@@ -526,129 +523,30 @@ export function InputArea() {
 							text={text}
 							textareaRef={textareaRef}
 						/>
-						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
-							<textarea
-								ref={textareaRef}
-								data-composer-input
-								aria-activedescendant={menu ? `${menuId}-${menu.index}` : undefined}
-								aria-autocomplete={menu ? "list" : undefined}
-								aria-controls={menu ? menuId : undefined}
-								aria-describedby={showSuggestionHint ? suggestionHintId : undefined}
-								aria-label={t("input.ariaLabel")}
-								autoCapitalize="sentences"
-								autoCorrect="on"
-								spellCheck
-								value={text}
-								onChange={event => {
-									const value = event.target.value;
-									// The composer's own write (placeDraft): only mirror it.
-									if (ownEdit.current) {
-										setText(value);
-										return;
-									}
-									useInputHistoryStore.getState().resetNav();
-									setText(value);
-									// TUI parity (custom-editor.ts:1001-1007): the moment typing makes the buffer
-									// exactly the queue prefix, a newline starts the list body. Only typing does:
-									// Backspace or an undo back to `->` must leave it, or the prefix never goes.
-									const inputType = (event.nativeEvent as InputEvent | undefined)?.inputType ?? "";
-									if (
-										(value === "->" || value === "=>") &&
-										value.length > text.length &&
-										!inputType.startsWith("history")
-									) {
-										// After this input event: the newline is the composer's own edit, its own undo step.
-										queueMicrotask(() => {
-											if (textareaRef.current?.value === value) placeDraft(`${value}\n`, value.length + 1);
-										});
-										return;
-									}
-									// Emoji inline replace (TUI parity): `:name:` fires on the closing
-									// colon, emoticons fire on a trailing space/tab/newline.
-									if (emojiAutocomplete) {
-										const caret = event.target.selectionStart ?? value.length;
-										const before = value.slice(0, caret);
-										void tryEmojiInlineReplace(before).then(hit => {
-											if (!hit) return;
-											const el = textareaRef.current;
-											if (!el) return;
-											// Stale-check: the user typed on meanwhile.
-											const currentBefore = el.value.slice(0, el.selectionStart ?? el.value.length);
-											if (currentBefore !== before) return;
-											const nextText =
-												before.slice(0, before.length - hit.replaceLen) +
-												hit.insert +
-												el.value.slice(before.length);
-											placeDraft(nextText, before.length - hit.replaceLen + hit.insert.length);
-										});
-									}
-								}}
-								onKeyDown={keys.onKeyDown}
-								onClick={() => {
-									setMenu(null);
-									inline.syncCaret();
-								}}
-								onFocus={inline.onFocus}
-								onBlur={inline.onBlur}
-								onCompositionStart={inline.onCompositionStart}
-								onCompositionEnd={inline.onCompositionEnd}
-								onKeyUp={inline.syncCaret}
-								onSelect={inline.syncCaret}
-								onPaste={paste.onPaste}
-								rows={expanded ? undefined : 2}
-								placeholder={placeholder}
-								className={cx(
-									"omp-composer-input w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
-									expanded ? "min-h-0 flex-1" : "max-h-[40vh] min-h-6",
-									composerMode && "font-mono",
-									showSuggestionHint && "pr-24",
-								)}
-							/>
-							{inline.ghost !== null && (
-								<div aria-hidden className="omp-inline-ghost text-sc-lg break-keep" data-inline-ghost>
-									<span>{text}</span>
-									<span className="omp-inline-ghost-text">{inline.ghost}</span>
-									<Kbd shortcut="Tab" />
-								</div>
-							)}
-							{dictation.phase !== "idle" && (
-								<DictationOverlay
-									levels={dictation.levels}
-									phase={dictation.phase}
-									startedAt={dictation.startedAt}
-								/>
-							)}
-							{showSuggestionHint && (
-								<span
-									className="pointer-events-none absolute top-3 right-4 flex h-6 items-center gap-1.5 text-sc-xs text-(--sc-text-subtle)"
-									id={suggestionHintId}
-								>
-									<Kbd shortcut="Tab" />
-									<Kbd shortcut="→" />
-									{t("input.suggestion.accept")}
-								</span>
-							)}
-						</div>
-
-						{keys.escHint ? (
-							<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-esc-hint role="status">
-								{t("input.escAgainToClear")}
-							</div>
-						) : !menu && argHint ? (
-							<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
-						) : (
-							nextPromptView.unavailable &&
-							status === "ready" && (
-								<div
-									className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)"
-									data-next-prompt-unavailable
-									role="status"
-									title={nextPromptView.unavailable.detail}
-								>
-									{t(`input.suggestion.unavailable.${nextPromptView.unavailable.reason}`)}
-								</div>
-							)
-						)}
+						<ComposerField
+							activeOption={menu?.index}
+							dictation={dictation}
+							emojiAutocomplete={emojiAutocomplete}
+							expanded={expanded}
+							inline={inline}
+							listboxId={menuId}
+							monospace={composerMode !== null}
+							onFieldClick={() => setMenu(null)}
+							onKeyDown={keys.onKeyDown}
+							onPaste={paste.onPaste}
+							ownEdit={ownEdit}
+							placeDraft={placeDraft}
+							placeholder={placeholder}
+							setText={setText}
+							suggestionHint={showSuggestionHint}
+							text={text}
+							textareaRef={textareaRef}
+						/>
+						<ComposerFieldHint
+							argHint={menu ? "" : argHint}
+							escHint={keys.escHint}
+							unavailable={status === "ready" ? nextPromptView.unavailable : undefined}
+						/>
 
 						<ComposerToolbar
 							composerMode={composerMode?.mode}
