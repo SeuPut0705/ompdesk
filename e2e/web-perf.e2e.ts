@@ -627,11 +627,14 @@ async function warmLoad(rig: Rig, profiles?: Metrics[]): Promise<Metrics> {
 				}));
 			return { scripts, ws: wp.ws, calls: wp.calls, composer: wp.composerAt, firstRow: wp.firstRowAt };
 		});
-		if (OUT)
+		// The first load runs before any phase saved results, so the folder may not exist yet.
+		if (OUT) {
+			await fs.mkdir(OUT, { recursive: true });
 			await fs.writeFile(
 				path.join(OUT, `timeline-${rig.subject}-${rig.engine}-${profiles.length}.json`),
 				JSON.stringify(timeline, null, 1),
 			);
+		}
 	}
 	const metrics = await loadMetrics(page);
 	metrics.wireHttpBytes = rig.proxy.bytes.httpDown - bytes.httpDown;
