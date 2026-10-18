@@ -3,13 +3,15 @@
  * page asks for a hashed `/assets/` file the new host build does not have (v0.38.1: "Importing a module script
  * failed." at `Lazy`, which crashed the page to the error screen). The host keeps the previous builds' assets for a
  * while (main/web/asset-archive.ts) and the service worker keeps what it fetched (sw-core.ts), so this is rare; when
- * it still happens the page stays as it is and shows one chip ("A new version is available · Reload",
- * `NewVersionChip`), and the reload waits for the user's tap.
+ * it still happens nothing asks the user anything (updates are automatic, with no banner or button): the build is
+ * marked stale (`useChunkFailureStore`) and web-boot.ts treats the page as outdated, so the existing update gate
+ * reloads it at the next moment nobody uses it (sw-update.ts: at launch or back after ≥ 30 s away, and safe).
  *
  * - `loadChunk` retries a failed load once; the lazy views (`lazyChunk`) render nothing after a second failure
  *   instead of throwing to the error boundary.
  * - `watchChunkFailures` counts every other dynamic import that fails (Vite's `vite:preloadError`); one that a retry
- *   recovered within `RECOVERY_GRACE_MS` shows nothing.
+ *   recovered within `RECOVERY_GRACE_MS` marks nothing.
+ * - `RootErrorBoundary` marks the app itself gone (`appGone`) for a chunk error at the root.
  */
 import { type ComponentType, type LazyExoticComponent, lazy } from "react";
 import { create } from "zustand";
@@ -18,7 +20,7 @@ import { create } from "zustand";
 const CHUNK_ERROR =
 	/Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module|Unable to preload CSS|Failed to load module script/i;
 
-/** How long a failure waits for a retry of it to recover before the chip shows. */
+/** How long a failure waits for a retry of it to recover before the build counts as stale. */
 export const RECOVERY_GRACE_MS = 3000;
 
 export function isChunkLoadError(error: unknown): boolean {
@@ -26,8 +28,14 @@ export function isChunkLoadError(error: unknown): boolean {
 	return CHUNK_ERROR.test(message);
 }
 
-/** Whether a chunk of this build failed to load for good: the chip shows. */
-export const useChunkFailureStore = create<{ failed: boolean }>(() => ({ failed: false }));
+/**
+ * `failed`: a chunk of this build failed to load for good, so the page waits for the update gate to reload it.
+ * `appGone`: that failure took the whole app down (the root error boundary), so nothing on screen can be lost.
+ */
+export const useChunkFailureStore = create<{ failed: boolean; appGone: boolean }>(() => ({
+	failed: false,
+	appGone: false,
+}));
 
 let recoveredAt = 0;
 
@@ -48,7 +56,7 @@ export async function loadChunk<T>(load: () => Promise<T>, now: () => number = D
 	}
 }
 
-/** `React.lazy` through `loadChunk`; a view whose chunk will not load renders nothing (the chip says why). */
+/** `React.lazy` through `loadChunk`; a view whose chunk will not load renders nothing until the page reloads. */
 // biome-ignore lint/suspicious/noExplicitAny: React.lazy's own constraint; a component of any props is lazy-loadable.
 export function lazyChunk<T extends ComponentType<any>>(load: () => Promise<{ default: T }>): LazyExoticComponent<T> {
 	const nothing = (() => null) as unknown as T;
@@ -60,7 +68,7 @@ export function lazyChunk<T extends ComponentType<any>>(load: () => Promise<{ de
 	);
 }
 
-/** Once, at start (main.tsx): a dynamic import that failed and was not recovered shows the chip. */
+/** Once, at start (main.tsx): a dynamic import that failed and was not recovered marks the build stale. */
 export function watchChunkFailures(
 	target: Pick<Window, "addEventListener"> = window,
 	now: () => number = Date.now,

@@ -74,6 +74,8 @@ async function bootApp(): Promise<void> {
 	let resync: PageResync | null = null;
 	let resyncCause: ResyncCause | null = null;
 	let lastResort: { recheck(): void } | null = null;
+	// A chunk of this build failed to load for good (lib/chunk-load.ts): the page is outdated for the update gate.
+	let chunkStale = false;
 	const transport = new WsTransport({
 		url: wsUrl,
 		fetchTicket: () => fetchTicket({ fetch: (input, init) => fetch(input, init) }),
@@ -161,7 +163,7 @@ async function bootApp(): Promise<void> {
 		location.reload();
 	};
 	const purgeNow = () => {
-		noteReason("outdated");
+		noteReason(chunkStale && transport.state !== "outdated" ? "chunk-load-failed" : "outdated");
 		void purge();
 	};
 
@@ -206,12 +208,14 @@ async function bootApp(): Promise<void> {
 			else if (safeToReload(moment)) purgeNow();
 			return;
 		}
-		if (gate.open(Date.now())) pwa.update?.resume(moment);
+		if (!gate.open(Date.now())) return;
+		if (pwa.update) pwa.update.resume(moment);
+		else if (chunkStale && safeToReload(moment)) purgeNow();
 	};
 	void registration.then(registered => {
 		if (!registered) return;
 		const watcher = new UpdateWatcher(registered, navigator.serviceWorker, () => reloadNow("update"), purgeNow);
-		if (transport.state === "outdated") watcher.markOutdated();
+		if (transport.state === "outdated" || chunkStale) watcher.markOutdated();
 		pwa.update = watcher;
 		// A build that finishes installing within the launch or return moment is applied then, not a visit later.
 		watcher.onChange(applyUpdate);
@@ -262,6 +266,31 @@ async function bootApp(): Promise<void> {
 	moment = (await import("./safe-moment")).pageSafeMoment();
 	gate.launched(Date.now());
 	applyUpdate();
+	// A chunk that will not load marks the page outdated: it reloads through the same gate as an update, never with
+	// a prompt. When the failure took the whole app down nothing on screen can be lost, so the page reloads as soon
+	// as it is hidden or at a launch/return moment (`reloadWhenUnused`), whatever the composer store still holds.
+	const { useChunkFailureStore } = await import("../lib/chunk-load");
+	const onChunkFailure = ({ failed, appGone }: { failed: boolean; appGone: boolean }) => {
+		const current = moment;
+		if (!failed || !current) return;
+		if (!chunkStale) {
+			chunkStale = true;
+			pwa.update?.markOutdated();
+			applyUpdate();
+		}
+		if (appGone && !lastResort) {
+			const nothingOnScreen: SafeMoment = {
+				...current,
+				draftEmpty: () => true,
+				attached: () => false,
+				askOpen: () => false,
+				editing: () => false,
+			};
+			lastResort = reloadWhenUnused(nothingOnScreen, gate, purgeNow);
+		}
+	};
+	useChunkFailureStore.subscribe(onChunkFailure);
+	onChunkFailure(useChunkFailureStore.getState());
 	// Reconnects that missed events catch up in place from here on (resync.ts); a reload is the last resort, after
 	// three failed passes, and waits until nobody uses the page. Dynamic like the stores above: resync-page.ts reads
 	// them, and they must not evaluate before `window.omp` exists.

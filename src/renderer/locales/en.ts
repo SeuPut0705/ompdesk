@@ -875,11 +875,6 @@ export const en: Record<string, string> = {
 	"appError.logPath": "Runtime log: {path}",
 	"appError.reload": "Reload interface",
 	"appError.report": "Report on GitHub",
-	"appError.newVersionTitle": "A new version is available",
-	"appError.newVersionDescription":
-		"This page was loaded before the computer updated OMPdesk, and part of it is no longer there. Reload to continue; what you typed is kept.",
-	"newVersion.available": "A new version is available",
-	"newVersion.reload": "Reload",
 
 	// Deep links (omp:// protocol)
 	"deepLink.notFound": "No saved session matches this link.",

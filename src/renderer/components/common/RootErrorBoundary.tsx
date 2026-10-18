@@ -1,8 +1,9 @@
 import { Component, type ReactNode, useEffect, useState } from "react";
 import { buildIssueUrl } from "../../../shared/feedback";
-import { isChunkLoadError } from "../../lib/chunk-load";
+import { isChunkLoadError, useChunkFailureStore } from "../../lib/chunk-load";
 import { translate } from "../../lib/i18n";
 import { reloadPage } from "../../lib/page-reload";
+import { webRuntime } from "../../web/runtime";
 
 interface RootErrorBoundaryProps {
 	children: ReactNode;
@@ -28,15 +29,17 @@ function reportOnGithub(error: Error): void {
 		.catch(() => {});
 }
 
+/** A chunk-load failure on a paired web page (a desktop window loads its files locally and never meets one). */
+function staleWebPage(error: unknown): boolean {
+	return webRuntime() !== null && isChunkLoadError(error);
+}
+
 interface RootErrorBoundaryState {
 	error: Error | null;
 }
 
 function RootErrorFallback({ error }: { error: Error }) {
 	const [logPath, setLogPath] = useState<string | null>(null);
-	// A chunk of this build the server no longer has (a page older than the computer's update) is no bug to report:
-	// the screen says a new version is there, and the reload loads it.
-	const stale = isChunkLoadError(error);
 
 	useEffect(() => {
 		window.omp?.runtime
@@ -49,12 +52,8 @@ function RootErrorFallback({ error }: { error: Error }) {
 		<main className="flex h-full w-full items-center justify-center px-6 text-[var(--omp-text)]">
 			<section className="w-full max-w-xl rounded-2xl border border-[var(--omp-border)] p-6 shadow-2xl">
 				<div className="mb-4 h-1 w-12 rounded-full bg-[var(--omp-error)]" />
-				<h1 className="font-display text-lg font-semibold">
-					{translate(stale ? "appError.newVersionTitle" : "appError.title")}
-				</h1>
-				<p className="mt-2 text-sm leading-relaxed text-[var(--omp-muted)]">
-					{translate(stale ? "appError.newVersionDescription" : "appError.description")}
-				</p>
+				<h1 className="font-display text-lg font-semibold">{translate("appError.title")}</h1>
+				<p className="mt-2 text-sm leading-relaxed text-[var(--omp-muted)]">{translate("appError.description")}</p>
 				<pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] p-3 font-mono text-omp-sm leading-relaxed text-[var(--omp-error)]">
 					{error.message}
 				</pre>
@@ -69,17 +68,15 @@ function RootErrorFallback({ error }: { error: Error }) {
 						onClick={() => reloadPage("error-boundary")}
 						className="omp-pressable rounded-lg bg-(--omp-btn-primary-bg) px-4 py-2 text-xs font-semibold text-(--omp-btn-primary-text) hover:brightness-110"
 					>
-						{translate(stale ? "newVersion.reload" : "appError.reload")}
+						{translate("appError.reload")}
 					</button>
-					{stale ? null : (
-						<button
-							type="button"
-							onClick={() => reportOnGithub(error)}
-							className="omp-pressable rounded-lg border border-(--omp-border-muted) px-4 py-2 text-xs font-semibold text-(--omp-muted) hover:text-(--omp-text)"
-						>
-							{translate("appError.report")}
-						</button>
-					)}
+					<button
+						type="button"
+						onClick={() => reportOnGithub(error)}
+						className="omp-pressable rounded-lg border border-(--omp-border-muted) px-4 py-2 text-xs font-semibold text-(--omp-muted) hover:text-(--omp-text)"
+					>
+						{translate("appError.report")}
+					</button>
 				</div>
 			</section>
 		</main>
@@ -93,7 +90,16 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
 		return { error: error instanceof Error ? error : new Error(String(error)) };
 	}
 
+	componentDidCatch(error: unknown): void {
+		if (staleWebPage(error)) useChunkFailureStore.setState({ failed: true, appGone: true });
+	}
+
 	render(): ReactNode {
-		return this.state.error ? <RootErrorFallback error={this.state.error} /> : this.props.children;
+		const { error } = this.state;
+		if (!error) return this.props.children;
+		// A paired page older than the computer's update lost a chunk of its build: no bug and nothing to ask the user.
+		// The page stays quiet until the update gate reloads it (web-boot.ts, lib/chunk-load.ts).
+		if (staleWebPage(error)) return <main className="h-full w-full" data-app-stale="" />;
+		return <RootErrorFallback error={error} />;
 	}
 }

@@ -2,7 +2,6 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NewVersionChip } from "../components/common/NewVersionChip";
 import {
 	isChunkLoadError,
 	lazyChunk,
@@ -11,10 +10,6 @@ import {
 	useChunkFailureStore,
 	watchChunkFailures,
 } from "./chunk-load";
-import { I18nProvider } from "./i18n";
-
-const web = vi.hoisted(() => ({ reload: vi.fn() }));
-vi.mock("../web/runtime", () => ({ webRuntime: () => ({ reload: web.reload }) }));
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -33,7 +28,7 @@ const stale = () => new TypeError("Importing a module script failed.");
 let root: Root | null = null;
 let container: { textContent: string | null; querySelector(selector: string): { click(): void } | null };
 
-beforeEach(() => useChunkFailureStore.setState({ failed: false }));
+beforeEach(() => useChunkFailureStore.setState({ failed: false, appGone: false }));
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	root = null;
@@ -60,15 +55,15 @@ describe("isChunkLoadError", () => {
 	});
 });
 
-describe("loadChunk (a failed dynamic import retries once, then the chip shows)", () => {
-	it("retries once and recovers without the chip", async () => {
+describe("loadChunk (a failed dynamic import retries once, then the build counts as stale)", () => {
+	it("retries once and recovers without marking the build stale", async () => {
 		const load = vi.fn().mockRejectedValueOnce(stale()).mockResolvedValueOnce("module");
 		await expect(loadChunk(load)).resolves.toBe("module");
 		expect(load).toHaveBeenCalledTimes(2);
 		expect(useChunkFailureStore.getState().failed).toBe(false);
 	});
 
-	it("shows the chip after the second failure", async () => {
+	it("marks the build stale after the second failure", async () => {
 		const load = vi.fn().mockRejectedValue(stale());
 		await expect(loadChunk(load)).rejects.toThrow("Importing a module script failed.");
 		expect(load).toHaveBeenCalledTimes(2);
@@ -112,7 +107,7 @@ describe("watchChunkFailures (every other dynamic import that fails for good)", 
 		};
 	}
 
-	it("shows the chip once the grace passes without a recovery", () => {
+	it("marks the build stale once the grace passes without a recovery", () => {
 		const target = fakeWindow();
 		const timers: (() => void)[] = [];
 		// After any recovery an earlier test made (the module keeps the last one).
@@ -131,7 +126,7 @@ describe("watchChunkFailures (every other dynamic import that fails for good)", 
 		expect(RECOVERY_GRACE_MS).toBeGreaterThan(0);
 	});
 
-	it("shows nothing for a failure a retry recovered within the grace", async () => {
+	it("marks nothing for a failure a retry recovered within the grace", async () => {
 		const target = fakeWindow();
 		const timers: (() => void)[] = [];
 		let clock = 1000;
@@ -145,20 +140,5 @@ describe("watchChunkFailures (every other dynamic import that fails for good)", 
 		await loadChunk(vi.fn().mockRejectedValueOnce(stale()).mockResolvedValueOnce("ok"), () => clock);
 		timers[0]?.();
 		expect(useChunkFailureStore.getState().failed).toBe(false);
-	});
-});
-
-describe("NewVersionChip", () => {
-	it("shows only after a chunk failed for good, and its tap reloads with the reason", async () => {
-		await render(
-			<I18nProvider>
-				<NewVersionChip />
-			</I18nProvider>,
-		);
-		expect(container.textContent).toBe("");
-		await act(async () => useChunkFailureStore.setState({ failed: true }));
-		expect(container.textContent).toContain("A new version is available");
-		await act(async () => container.querySelector("[data-new-version-chip]")?.click());
-		expect(web.reload).toHaveBeenCalledWith("chunk-load-failed");
 	});
 });

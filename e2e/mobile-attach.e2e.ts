@@ -10,8 +10,8 @@
  *
  * Through the + menu as a person does it: tap +, pick Photos or Attach files, and the browser's chooser takes a
  * photo, a PDF and a text file while the page is hidden behind it (a phone's picker is another app) and the
- * agent's reply streams meanwhile, so the host drops those pushes and asks the page to load its state again on
- * its return. The pick still lands: the photo as a thumbnail and an image block, the PDF and the text file
+ * agent's reply streams meanwhile, so the host drops those pushes and the page catches up in place on its
+ * return (no reload). The pick still lands: the photo as a thumbnail and an image block, the PDF and the text file
  * uploaded with an upload chip while they go and named by their path on the computer in the prompt. A file over
  * 25 MB is refused with a message.
  *
@@ -295,19 +295,15 @@ async function choose(phone: Page, item: string) {
 	return chooser;
 }
 
-/** Mark this page load, so {@link reloaded} can tell when the page has loaded again. */
+/** Mark this page load, so {@link caughtUpInPlace} can tell the page never loaded again. */
 function markPage(phone: Page) {
 	return phone.evaluate(() => Reflect.set(window, "attachRun", true));
 }
 
-/** The page loaded again (the state it missed while hidden) and its composer is back. */
-async function reloaded(phone: Page) {
-	await expect
-		.poll(() => phone.evaluate(() => Reflect.get(window, "attachRun") !== true).catch(() => false), {
-			timeout: 30_000,
-		})
-		.toBe(true);
+/** The page caught up on what it missed while hidden in place (web/resync.ts): same page load, composer still there. */
+async function caughtUpInPlace(phone: Page) {
 	await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
+	expect(await phone.evaluate(() => Reflect.get(window, "attachRun"))).toBe(true);
 }
 
 /** The agent answers a prompt in the page's active tab while the page is hidden: the host drops those pushes. */
@@ -375,8 +371,8 @@ for (const engine of ENGINES)
 				await expect(field).toHaveValue(new RegExp(`web-uploads.*${file.name.replace(".", "\\.")}`), {
 					timeout: 30_000,
 				});
-				// With the file landed the page loads the state it missed while hidden; the draft comes back with it.
-				await reloaded(phone);
+				// The page caught up on what it missed while hidden without loading again; the draft stays.
+				await caughtUpInPlace(phone);
 				await expect(field).toHaveValue(new RegExp(`web-uploads.*${file.name.replace(".", "\\.")}`), {
 					timeout: 30_000,
 				});
@@ -412,7 +408,7 @@ for (const engine of ENGINES)
 					timeout: 60_000,
 				})
 				.toBe(1);
-			await reloaded(phone);
+			await caughtUpInPlace(phone);
 
 			// Over the 25 MB a file may be: refused on the phone with a message, nothing sent.
 			const uploads: string[] = [];

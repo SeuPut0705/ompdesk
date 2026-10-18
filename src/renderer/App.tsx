@@ -2,7 +2,6 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { nextUiLanguage } from "../shared/ui-language";
 import { ToastStack } from "./components/common";
-import { NewVersionChip } from "./components/common/NewVersionChip";
 import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
@@ -956,7 +955,6 @@ export function App() {
 			</div>
 			<SetupTakeoverHost />
 			<ToastStack />
-			<NewVersionChip />
 		</div>
 	);
 	return activeTabId ? <TabRuntimeProvider tabId={activeTabId}>{surface}</TabRuntimeProvider> : surface;

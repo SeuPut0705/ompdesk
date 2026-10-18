@@ -226,10 +226,10 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 			attached: true,
 		});
 		// The link drops: the page reconnects by itself and, having missed events, catches up in place (web/resync.ts):
-		// it never navigates.
+		// it never loads again (`domcontentloaded`: `framenavigated` also counts same-document history entries).
 		let navigations = 0;
-		phone.on("framenavigated", frame => {
-			if (frame === phone.mainFrame()) navigations++;
+		phone.on("domcontentloaded", () => {
+			navigations++;
 		});
 		proxy.dropSockets();
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });

@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OmpApi } from "../../../shared/ipc-types";
+import { useChunkFailureStore } from "../../lib/chunk-load";
 import { RootErrorBoundary } from "./RootErrorBoundary";
 
 // A paired web page reloads through its runtime, which logs the reason (web/reload-reason.ts).
@@ -74,10 +75,25 @@ describe("RootErrorBoundary", () => {
 		expect(logPath).toHaveBeenCalledOnce();
 	});
 
-	it("says a new version is there for a chunk the server no longer has, with no bug report", async () => {
+	it("stays quiet on a web page for a chunk the server no longer has: no prompt, the build marked stale for the update gate", async () => {
+		web.on = true;
+		useChunkFailureStore.setState({ failed: false, appGone: false });
 		await mount(<StaleChunk />);
-		expect(container.textContent).toContain("A new version is available");
-		expect(buttons().map(button => button.textContent)).toEqual(["Reload"]);
+		expect(container.textContent).toBe("");
+		expect(buttons()).toEqual([]);
+		expect(useChunkFailureStore.getState()).toEqual({ failed: true, appGone: true });
+	});
+
+	it("shows the ordinary crash screen for a chunk error in a desktop window, which marks nothing", async () => {
+		web.on = false;
+		useChunkFailureStore.setState({ failed: false, appGone: false });
+		try {
+			await mount(<StaleChunk />);
+			expect(container.textContent).toContain("Reload interface");
+			expect(useChunkFailureStore.getState().failed).toBe(false);
+		} finally {
+			web.on = true;
+		}
 	});
 
 	it("reloads a web page through its runtime, so the reason reaches the host's log", async () => {
