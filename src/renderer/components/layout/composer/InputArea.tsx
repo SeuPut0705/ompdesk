@@ -1,38 +1,33 @@
-import { ExternalLink, Minimize2, Paperclip } from "lucide-react";
+import { Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
-import { useNextPrompt } from "../../../hooks/use-next-prompt";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
-import { formatShortcut } from "../../../lib/keymap";
 import { abortActiveTurn } from "../../../lib/messages";
-import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
-import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ComposerStore, useComposerStore } from "../../../stores/composer";
-import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
 import { useMessagesStore } from "../../../stores/messages";
 import { useNextPromptStore } from "../../../stores/next-prompt";
 import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
-import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Banner, Button, IconButton } from "../../common";
+import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
 import { ComposerLiveEdge } from "./ComposerLive";
 import { ComposerQueue } from "./ComposerQueue";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
-import { MAX_NEXT_PROMPT_CHIPS, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
+import { NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { useComposerAttach } from "./use-composer-attach";
@@ -46,6 +41,7 @@ import { useComposerKeys } from "./use-composer-keys";
 import { useComposerMenu } from "./use-composer-menu";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
+import { useComposerSuggestions } from "./use-composer-suggestions";
 import { useStableCallback } from "./use-stable-callback";
 
 type SendMode = "prompt" | "steer" | "followUp";
@@ -74,39 +70,14 @@ export function InputArea() {
 	const openSettings = useUiStore(s => s.openSettings);
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
-	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer
-	 * accepts it. Remembered per session (stores/next-prompt.ts) so a deleted draft or a
-	 * session switch brings it back until a submit or a new run makes it stale. */
-	const nextPromptLines = useExtensionUiStore(s => s.widgetPanels[NEXT_PROMPT_WIDGET]);
 	const sessionFile = useSessionStore(s => s.sessionFile);
-	const nextPromptKey = sessionFile || sessionId || undefined;
-	const nextPromptView = useNextPrompt();
-	/** The built-in's best candidate (or, while it is off, the legacy widget's entry): already empty unless ready and idle. */
-	const nextPrompt = nextPromptView.best;
-	/** Touch (no Tab, →, ↓, Alt+N, Esc): the best candidate is the FIRST CHIP, never the placeholder, so one
-	 * text is never shown twice; no inline ghost requests at all (the phone keyboard has its own suggestions
-	 * and IME composition dominates). A tap on a chip fills the field, a long press offers "send now". */
 	const touchInput = useShellInput() === "touch";
-	const placeholderPrompt = touchInput ? undefined : nextPrompt;
-	const chipList = useMemo(
-		() =>
-			touchInput
-				? [...(nextPrompt === undefined ? [] : [nextPrompt]), ...nextPromptView.chips].slice(
-						0,
-						MAX_NEXT_PROMPT_CHIPS,
-					)
-				: nextPromptView.chips,
-		[touchInput, nextPrompt, nextPromptView.chips],
-	);
-	// The legacy widget feeds the memory only while the built-in is off: with it on, a recorded
-	// widget would overwrite the built-in's entry.
-	useEffect(() => {
-		if (nextPromptKey && !nextPromptView.builtin)
-			useNextPromptStore.getState().recordWidget(nextPromptKey, nextPromptLines);
-	}, [nextPromptKey, nextPromptLines, nextPromptView.builtin]);
-	useEffect(() => {
-		if (isStreaming) useNextPromptStore.getState().clear(nextPromptKey);
-	}, [isStreaming, nextPromptKey]);
+	const {
+		view: nextPromptView,
+		key: nextPromptKey,
+		placeholderPrompt,
+		chips: chipList,
+	} = useComposerSuggestions({ isStreaming, sessionFile, sessionId, touchInput });
 
 	// Draft lives in the composer store (not local state) so session-tab
 	// switches snapshot/restore it per tab. Value + updater-form setter are
@@ -149,7 +120,6 @@ export function InputArea() {
 	const stoppable = isStreaming || submitPending;
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-	const [externalBusy, setExternalBusy] = useState(false);
 	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
@@ -291,28 +261,7 @@ export function InputArea() {
 		[textareaRef],
 	);
 
-	/** Round-trip the draft (paste markers resolved) through the user's $VISUAL/$EDITOR. */
-	const openExternalEditor = async () => {
-		if (externalBusy) return;
-		setExternalBusy(true);
-		const draft = text;
-		try {
-			const response = await window.omp.editor.openExternal(expandPasteMarkers(draft));
-			if (!mountedRef.current) return;
-			if (!response.ok) {
-				if (response.unavailable) toast({ variant: "info", message: t("editor.externalUnavailable") });
-				else toastError({ title: t("editor.externalFailed"), error: response });
-				return;
-			}
-			// null text = the editor exited non-zero; keep the draft as it was.
-			if (response.text === null) return;
-			// The written-back text is fully inline: consume the draft's paste blobs.
-			dropReferencedPastes(draft);
-			placeDraft(response.text, response.text.length);
-		} finally {
-			if (mountedRef.current) setExternalBusy(false);
-		}
-	};
+	const externalEditor = useExternalEditor({ text, placeDraft, mountedRef });
 
 	const keys = useComposerKeys({
 		rpc,
@@ -475,30 +424,7 @@ export function InputArea() {
 							</div>
 						)}
 						{expanded && (
-							<div className="flex items-center gap-2 border-b border-(--sc-divider) py-1.5 pr-2 pl-4">
-								<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-secondary)">
-									{t("editor.title")}
-								</span>
-								<span className="text-sc-xs text-(--sc-text-muted) max-sm:hidden">
-									{t("input.expanded.hint", { send: formatShortcut("⌘↵") })}
-								</span>
-								<Button
-									icon={<ExternalLink aria-hidden />}
-									loading={externalBusy}
-									onClick={() => void openExternalEditor()}
-									size="sm"
-									variant="ghost"
-								>
-									{externalBusy ? t("editor.externalBusy") : t("editor.external")}
-								</Button>
-								<IconButton
-									icon={<Minimize2 />}
-									label={t("input.expanded.collapse")}
-									onClick={() => toggleExpanded(false)}
-									shortcut="⌃G"
-									size="sm"
-								/>
-							</div>
+							<ComposerExpandedHeader editor={externalEditor} onCollapse={() => toggleExpanded(false)} />
 						)}
 						{submissionUncertain && (
 							<Banner
