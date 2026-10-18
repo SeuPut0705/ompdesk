@@ -1,5 +1,77 @@
 # Changelog
 
+## [0.37.0] - 2026-10-18
+
+휴대폰과 태블릿에서 훨씬 촘촘하고 빠르게 쓸 수 있게 됐고, 테마가 새로 바뀌었어요.
+
+### 휴대폰·태블릿
+- 화면이 데스크톱 밀도로 촘촘해졌어요. 글자와 간격이 줄고, 입력창은 한 줄로 줄어 모델·모드 선택은 ⋯ 뒤로 들어갔어요. 작업 상태는 머리글 아래 띠로 보이고, 눌러야 하는 영역은 눈에 보이는 크기와 상관없이 44px를 지켜요.
+- 휴대폰에서 고른 사진은 소켓 대신 `/upload`로 컴퓨터에 전달돼요. 큰 사진도 메시지가 끊기지 않고, HEIC/HEIF는 모델이 읽을 수 있게 변환돼요. 브라우저가 그리지 못하는 사진은 형식과 크기를 적은 칩으로 보여요.
+- 터치에서는 프롬프트 제안이 한 줄 칩으로 나와요. 누르면 채워지고, 길게 누르면 바로 보내요.
+- 웹 페이지를 앱처럼 설치할 수 있어요(도움말 메뉴, 설정, 두 번째 방문 때 한 번 안내). 화면 회전 잠금도 그대로 지켜져요.
+- 테마·글자 크기·레이아웃은 기기마다 따로 저장돼서, 폰에서 바꿔도 컴퓨터가 바뀌지 않아요.
+- 컴퓨터의 세션을 보고 있던 휴대폰은 앱이 재시작된 뒤에도 그 세션을 다시 봐요.
+- 웹 화면을 더 빨리 열고 다시 이어요. 화면을 놓친 게 없으면 돌아와도 새로 고침하지 않고, 첫 화면의 JavaScript가 줄었고, 사용하는 언어만 불러와요.
+- 도움말 메뉴에서 시트를 열고 사이드바를 닫으면 about:blank로 이동하던 것, 탭이 없는 웹 창이 계속 로딩만 보이던 것을 고쳤어요.
+
+### 오토파일럿
+- 내보내기 단계를 커밋 / 푸시 / 배포로 고를 수 있고, 커밋하고 푸시할 브랜치와 대상을 직접 골라요. 다른 워크트리가 쓰는 브랜치는 작업 브랜치를 거쳐 푸시해요.
+- 시작 시트는 안내, 내보내기, 브랜치, 시작만 보이고 나머지는 고급 아래에 있어요.
+- 이제 멈추지 않아요. 빨간 사이클, 거절된 푸시, 실패한 배포, 계획 모드, 조용한 턴은 멈추지 않고 스스로 고쳐요.
+
+### 테마
+- 서로 확실히 다른 테마 10개가 생겼어요. 시스템을 고르면 밝은 테마와 어두운 테마를 한 쌍으로 따라가요.
+
+### 사이드바
+- 세션이 연 하위 에이전트와 세션이 한 가족으로 묶여 보이고, 시간 표기가 하나로 통일됐어요. 좁은 사이드바에서는 요약 칩이 실행 중 표시만 남겨요.
+- 분기한 세션은 행과 제목 표시줄에 ⑂ 와 ← 부모 이름으로 어디서 왔는지 보여줘요.
+- 오토파일럿 실행의 하위 세션이 실행 행 아래 작업 이름과 함께 모여요.
+
+### 안정성
+- 한글 입력 중 Enter로 글자를 확정하면 전송 등 다른 동작이 실행되던 것을 고쳤어요.
+- 메인 스레드가 멈추면 감지해서 다음 실행 때 알려주고, 30초 넘게 끝나지 않는 종료·업데이트 설치는 강제로 끝내요.
+- 설정에서 진단 보고서를 복사할 수 있어요(버전, 기기 구성, 최근 로그 일부. 미리 보고, 아무것도 업로드하지 않아요).
+- 앱이 스스로 업데이트하는 때가 조용해졌어요.
+
+### 기타
+- 새 워크트리를 만들 때 `.worktreeinclude`에 적은 파일을 복사하고 `.ompdesk/worktree-setup`을 실행해요.
+
+<!-- en -->
+
+You can use OMPdesk much more compactly and quickly on a phone or tablet, and the themes are new.
+
+### Phone and tablet
+- The UI is denser, at desktop density: smaller type and gaps, a one-row composer with the model and mode pickers behind ⋯, and a work strip under the header. Tap targets stay 44 px regardless of the visible size.
+- Photos picked on the phone reach the computer through `/upload` instead of the socket, so large pictures no longer get lost, and HEIC/HEIF is converted so the model can read it. A picture the browser cannot draw shows as a chip with its format and size.
+- On touch, prompt suggestions are one row of chips: tap to fill, long press to send.
+- You can install the web page as an app (Help menu, Settings, one quiet hint on the second visit), and the system rotation lock is respected.
+- Theme, text size and layout are saved per device, so changing them on the phone does not change the computer.
+- A phone that was viewing a desktop session views it again after the app restarts.
+- The web page loads and reconnects faster: coming back no longer reloads when nothing was missed, the first-screen JavaScript is smaller, and only the language in use is loaded.
+- Fixed the Help menu's sheet-then-drawer sequence navigating to about:blank, and a tab-less web window showing only a spinner.
+
+### Autopilot
+- Shipping has Commit / Push / Release levels, and you pick the branch to commit on and the target to push to. A branch another worktree holds is pushed through a work branch.
+- The start sheet shows only guide, shipping, branch and Start; the rest is under Advanced.
+- No more soft stops: red cycles, rejected pushes, failed releases, plan mode and quiet turns are repaired instead of pausing the run.
+
+### Themes
+- Ten clearly distinct themes. System pairs a light theme with a dark one and follows the OS.
+
+### Sidebar
+- A session's subagents and the sessions it opened show together as one family, with one age format; a narrow sidebar shrinks the summary chip to its running pill.
+- A fork shows where it came from on its row and in the title bar (⑂ and ← parent).
+- An Autopilot run's children sit under the run's row with their task.
+
+### Stability
+- Enter that commits a Korean (IME) composition no longer fires send or other handlers.
+- A hung main thread is detected and reported on the next launch, and a quit or update install that wedges for 30 seconds is force-exited.
+- Settings can copy a diagnostics report (versions, machine setup, recent log lines), previewed first, nothing uploaded.
+- Automatic updates are quieter.
+
+### Other
+- New worktrees get the files listed in `.worktreeinclude` copied in and run `.ompdesk/worktree-setup`.
+
 ## [0.36.1] - 2026-10-18
 
 앱을 켜자마자 새 탭을 열면 단축키가 모두 먹통이 되던 문제를 고쳤어요.
