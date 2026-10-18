@@ -85,7 +85,7 @@ export function useComposerSubmit({
 			const historyText = expandPasteMarkers(message);
 			rememberHistoryImages(historyText, images);
 			if (!routeReady || !runtimeTabId) return;
-			if (status !== "ready") {
+			if (status !== "ready" && status !== "starting") {
 				toast({ variant: "warning", message: t("input.agentConnecting") });
 				return;
 			}
