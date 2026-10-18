@@ -202,7 +202,8 @@ export function useCompletionMenu({
 	commands: AvailableCommand[];
 	emojiAutocomplete: boolean;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-	setMenu: (menu: CompletionMenu | null) => void;
+	/** `empty`: the menu closed because its trigger found no row (not because the caret left the token). */
+	setMenu: (menu: CompletionMenu | null, empty?: boolean) => void;
 }) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -244,7 +245,9 @@ export function useCompletionMenu({
 		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd" | "footer"> | null) => {
 			if (!live()) return;
 			if (!result || result.items.length === 0) {
-				setMenu(null);
+				// A trigger that found nothing says so (the hint line, and the status the field's listbox is
+				// announced by) instead of closing without a word.
+				setMenu(null, result !== null);
 				return;
 			}
 			const notes: string[] = [];

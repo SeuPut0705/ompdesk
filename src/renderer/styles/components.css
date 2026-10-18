@@ -3228,6 +3228,12 @@ button.omp-file-chip-name:hover {
 	overflow: hidden;
 }
 
+/* The row keeps its height while the draft is typed (the transcript above never changes size on the first
+   keystroke); its chips only step out of sight and out of the tab order. */
+.omp-next-chips[data-away] {
+	visibility: hidden;
+}
+
 .omp-next-chip {
 	display: inline-flex;
 	align-items: center;

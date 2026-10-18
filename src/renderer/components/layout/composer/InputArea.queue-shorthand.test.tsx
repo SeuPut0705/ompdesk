@@ -2136,10 +2136,10 @@ describe("InputArea composer audit", () => {
 		// Typing opens it again.
 		await typeDraft("/ret");
 		expect(options()).toContain("/retry");
+		// ← that stays inside the token keeps the menu open (DI-20): only an arrow that steps out closes it.
 		await pressKey({ key: "ArrowLeft" });
 		await caretMoved(3);
-		await caretMoved(4);
-		expect(options()).toEqual([]);
+		expect(options()).toContain("/retry");
 	});
 
 	it("M3: Backspace from `->` + newline leaves `->`; only typing adds the newline", async () => {

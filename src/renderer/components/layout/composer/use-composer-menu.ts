@@ -20,6 +20,8 @@ export interface ComposerMenu {
 	insert: (item: CompletionItem) => void;
 	/** Contextual argument hint (TUI ghost-text parity), from stock for builtins; empty for none. */
 	argHint: string;
+	/** A trigger (`/`, `@`, `$`, `:`) is typed and found no row: the menu is closed, and the status says so. */
+	empty: boolean;
 }
 
 export function useComposerMenu({
@@ -49,8 +51,9 @@ export function useComposerMenu({
 	 */
 	const dismissedMenu = useRef<{ source: CompletionMenu["source"]; rangeStart: number; draft: string } | null>(null);
 	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
+	const [empty, setEmpty] = useState(false);
 	const publishMenu = useCallback(
-		(next: CompletionMenu | null) => {
+		(next: CompletionMenu | null, foundNothing = false) => {
 			const dismissed = dismissedMenu.current;
 			if (dismissed && textareaRef.current?.value !== dismissed.draft) dismissedMenu.current = null;
 			const shown =
@@ -58,6 +61,7 @@ export function useComposerMenu({
 					? null
 					: next;
 			setMenu(current => (current && shown && sameCompletionMenu(current, shown) ? current : shown));
+			setEmpty(foundNothing && shown === null);
 		},
 		[textareaRef],
 	);
@@ -120,5 +124,5 @@ export function useComposerMenu({
 		[text, menu, placeDraft, textareaRef],
 	);
 
-	return { menu, setMenu, dismiss, insert, argHint };
+	return { menu, setMenu, dismiss, insert, argHint, empty };
 }

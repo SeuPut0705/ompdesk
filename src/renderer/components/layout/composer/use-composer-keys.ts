@@ -14,15 +14,15 @@ import { dropReferencedPastes, releasePaste, widenToPasteMarkers } from "../../.
 import type { TabRpc } from "../../../lib/tab-rpc";
 import type { ComposerImage } from "../../../stores/composer";
 import { useUiStore } from "../../../stores/ui";
+import { listboxTarget } from "./listbox-nav";
 import { chipIndexForCode, type NextPromptChipsHandle } from "./NextPromptChips";
 import { plannedDeletion } from "./paste-marker-edit";
 import { lastAttachmentStop } from "./strip-roving";
+import { arrowKeepsMenu } from "./use-completion-menu";
 import type { ComposerHistory } from "./use-composer-history";
 import type { ComposerMenu } from "./use-composer-menu";
 import type { ComposerPaste } from "./use-composer-paste";
 
-/** Rows PageUp/PageDown move through the completion menu. */
-const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
 const MODIFIER_KEYS = ["Shift", "Control", "Alt", "Meta", "CapsLock"];
@@ -220,37 +220,26 @@ export function useComposerKeys({
 			return;
 		}
 		if (menu && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-			menuHandle.dismiss();
+			// An arrow that stays inside the token keeps the menu (it is derived again for the new caret);
+			// one that steps out of it, or extends a selection, closes it.
+			const el = textareaRef.current;
+			const stays =
+				plainKey &&
+				el &&
+				el.selectionStart === el.selectionEnd &&
+				arrowKeepsMenu(el.value, menu, e.key, el.selectionStart);
+			if (!stays) menuHandle.dismiss();
 			return;
 		}
 		// The menu takes plain keys only: Shift+Enter still adds a line, ⌘↵ still sends, Shift+Tab
 		// and Shift+arrows keep their own meaning.
 		if (menu && plainKey) {
-			const count = menu.items.length;
-			// Home/End jump to the ends, PageUp/PageDown move a page; the caret stays put.
-			const paged =
-				e.key === "Home"
-					? 0
-					: e.key === "End"
-						? count - 1
-						: e.key === "PageUp"
-							? Math.max(0, menu.index - MENU_PAGE)
-							: e.key === "PageDown"
-								? Math.min(count - 1, menu.index + MENU_PAGE)
-								: undefined;
-			if (paged !== undefined) {
+			// ↑/↓ (wrapping), Home/End and PageUp/PageDown are the history search's keys too (listbox-nav.ts);
+			// the caret stays put.
+			const target = listboxTarget(e.key, menu.index, menu.items.length);
+			if (target !== null) {
 				e.preventDefault();
-				setMenu({ ...menu, index: Math.max(0, paged) });
-				return;
-			}
-			if (e.key === "ArrowDown") {
-				e.preventDefault();
-				setMenu({ ...menu, index: (menu.index + 1) % Math.max(1, count) });
-				return;
-			}
-			if (e.key === "ArrowUp") {
-				e.preventDefault();
-				setMenu({ ...menu, index: (menu.index - 1 + Math.max(1, count)) % Math.max(1, count) });
+				setMenu({ ...menu, index: target });
 				return;
 			}
 			if (e.key === "Tab" || e.key === "Enter") {

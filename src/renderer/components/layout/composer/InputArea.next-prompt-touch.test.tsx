@@ -93,7 +93,11 @@ function findTextarea(): TestElement {
 	return textarea;
 }
 
-const chipButtons = () => Array.from(document.querySelectorAll("[data-next-chip]")) as unknown as TestElement[];
+/** The chips a person can see: the row keeps its place while typing (`data-away`), its chips hidden. */
+const chipButtons = () =>
+	Array.from(
+		document.querySelectorAll(".omp-next-chips:not([data-away]) [data-next-chip]"),
+	) as unknown as TestElement[];
 const sendNowButton = () => document.querySelector("[data-next-chip-send]") as unknown as TestElement | null;
 const placeholder = () => findTextarea().getAttribute("placeholder");
 
@@ -245,7 +249,7 @@ describe("InputArea prompt suggestions on touch", () => {
 
 	it("hides the row while typing and with no suggestions", async () => {
 		await mount();
-		expect(document.querySelector(".omp-next-chips")).toBeNull();
+		expect(document.querySelector(".omp-next-chips:not([data-away])")).toBeNull();
 		await suggest("only best");
 		expect(chipButtons()).toHaveLength(1);
 		await typeInto("a");

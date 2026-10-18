@@ -37,6 +37,11 @@ interface NextPromptChipsProps {
 	touch?: boolean;
 	/** Touch "send now" (the chip's text goes out unedited). */
 	onSend?(text: string): void;
+	/**
+	 * The draft is not empty (or a menu is open): the row keeps its place but is hidden and inert, so typing the first
+	 * character never changes the transcript's height (the row used to unmount: the viewport grew by its 36 px).
+	 */
+	away?: boolean;
 }
 
 /**
@@ -45,7 +50,15 @@ interface NextPromptChipsProps {
  * the composer, Esc/↑ hand focus back. Each chip truncates to a max width; its
  * full text is the title and the accessible name.
  */
-export function NextPromptChips({ chips, onPick, onReturn, handleRef, touch = false, onSend }: NextPromptChipsProps) {
+export function NextPromptChips({
+	chips,
+	onPick,
+	onReturn,
+	handleRef,
+	touch = false,
+	onSend,
+	away = false,
+}: NextPromptChipsProps) {
 	const t = useT();
 	const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 	const [active, setActive] = useState(0);
@@ -115,7 +128,15 @@ export function NextPromptChips({ chips, onPick, onReturn, handleRef, touch = fa
 
 	if (visible.length === 0) return null;
 	return (
-		<div aria-label={t("input.chips.label")} className="omp-next-chips" data-touch={touch || undefined} role="group">
+		<div
+			aria-hidden={away || undefined}
+			aria-label={t("input.chips.label")}
+			className="omp-next-chips"
+			data-away={away || undefined}
+			data-touch={touch || undefined}
+			inert={away || undefined}
+			role="group"
+		>
 			{visible.map((text, index) => (
 				<Fragment key={`${index}:${text}`}>
 					<button

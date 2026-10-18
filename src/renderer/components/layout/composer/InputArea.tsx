@@ -20,7 +20,7 @@ import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
-import { CompletionList } from "./CompletionList";
+import { CompletionList, CompletionStatus } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
@@ -109,6 +109,7 @@ export function InputArea() {
 		dismiss: dismissMenu,
 		insert: insertCompletion,
 		argHint,
+		empty: menuEmpty,
 	} = useComposerMenu({ text, textareaRef, placeDraft, commands, emojiAutocomplete, cwd, routeReady, runtimeTabId });
 	const sending = useComposerStore(state => state.sending);
 	const setSending = useComposerStore(state => state.setSending);
@@ -155,7 +156,9 @@ export function InputArea() {
 	const pasteMenu = paste.pending;
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
-	const chipsShown = chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
+	/** The suggestion row's place is kept while a draft is typed (its chips hide): the transcript never resizes on a keystroke. */
+	const chipRow = chipList.length > 0 && status === "ready" && !isStreaming;
+	const chipsShown = chipRow && text === "" && !menu && !pasteMenu;
 	const pickChip = useCallback(
 		(chip: string) => {
 			textareaRef.current?.focus();
@@ -372,7 +375,15 @@ export function InputArea() {
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
-					{menu && <CompletionList menu={menu} menuId={menuId} onPick={insertCompletion} />}
+					{menu && (
+						<CompletionList
+							menu={menu}
+							menuId={menuId}
+							onHover={index => setMenu({ ...menu, index })}
+							onPick={insertCompletion}
+						/>
+					)}
+					<CompletionStatus count={menu?.items.length ?? 0} empty={menuEmpty} />
 
 					<ComposerPickers
 						closeHistory={() => setHistorySearchOpen(false)}
@@ -386,8 +397,9 @@ export function InputArea() {
 						skillsOpen={skillPickerOpen}
 						textareaRef={textareaRef}
 					/>
-					{chipsShown && (
+					{chipRow && (
 						<NextPromptChips
+							away={!chipsShown}
 							chips={chipList}
 							handleRef={chipsRef}
 							onPick={pickChip}

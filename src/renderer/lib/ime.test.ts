@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isImeKeyEvent } from "./ime";
+import { isImeKeyEvent, noteCompositionEnd, POST_COMPOSITION_MS } from "./ime";
 
 /**
  * Contract: while an IME owns the keystroke, no picker, composer, or dialog may
@@ -37,5 +37,29 @@ describe("isImeKeyEvent", () => {
 		// Escape there traps the user in the overlay.
 		expect(isImeKeyEvent(reactEvent({ key: "Escape" }))).toBe(false);
 		expect(isImeKeyEvent(reactEvent({ key: "Escape", isComposing: true }))).toBe(true);
+	});
+});
+
+describe("Safari's order: compositionend before the committing Enter", () => {
+	const enterAt = (timeStamp: number) => ({
+		key: "Enter",
+		keyCode: 13,
+		nativeEvent: { isComposing: false, timeStamp },
+	});
+
+	it("ignores the Enter that follows a compositionend within a moment, once, and no later Enter", () => {
+		noteCompositionEnd({ timeStamp: 1000 });
+		expect(isImeKeyEvent(enterAt(1000 + POST_COMPOSITION_MS - 1))).toBe(true);
+		expect(isImeKeyEvent(enterAt(1000 + POST_COMPOSITION_MS + 1))).toBe(false);
+		// An Enter before the composition ended (Chromium's order) is the isComposing path, not this one.
+		expect(isImeKeyEvent(enterAt(990))).toBe(false);
+	});
+
+	it("never takes another key, and does nothing for an event without a clock", () => {
+		noteCompositionEnd({ timeStamp: 2000 });
+		expect(isImeKeyEvent({ key: "a", keyCode: 65, nativeEvent: { isComposing: false, timeStamp: 2001 } })).toBe(
+			false,
+		);
+		expect(isImeKeyEvent({ key: "Enter", keyCode: 13, nativeEvent: { isComposing: false } })).toBe(false);
 	});
 });

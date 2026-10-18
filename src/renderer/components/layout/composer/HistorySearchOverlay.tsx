@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cx, escapeRegExp, formatTimeAgo, shortenPath } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
+import { chordFromEvent } from "../../../lib/keymap";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import type { InputHistoryEntry } from "../../../stores/input-history";
 import { useInputHistoryStore } from "../../../stores/input-history";
@@ -11,6 +12,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
 import { Kbd, Spinner, Tabs } from "../../common";
+import { listboxTarget } from "./listbox-nav";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI
@@ -120,24 +122,22 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (isImeKeyEvent(event)) return;
-		if (event.key === "ArrowDown") {
-			event.preventDefault();
-			setIndex(current => Math.min(current + 1, Math.max(0, results.length - 1)));
-			return;
-		}
-		if (event.key === "ArrowUp") {
-			event.preventDefault();
-			setIndex(current => Math.max(0, current - 1));
-			return;
-		}
 		if (event.key === "Enter") {
 			event.preventDefault();
 			pick(results[selected]);
 			return;
 		}
-		if (event.key === "Escape") {
+		// ⌃R toggles the overlay from its own field too, as it does from the composer's.
+		if (event.key === "Escape" || chordFromEvent(event) === "⌃R") {
 			event.preventDefault();
 			onClose();
+			return;
+		}
+		// ↑/↓ (wrapping), Home/End and PageUp/PageDown: the completion menu's keys (listbox-nav.ts).
+		const target = listboxTarget(event.key, selected, results.length);
+		if (target !== null) {
+			event.preventDefault();
+			setIndex(target);
 		}
 	};
 
