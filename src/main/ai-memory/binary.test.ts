@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { RM_TEMP } from "../test-fake-omp";
 import {
+	codeSignatureProblem,
 	externalCandidates,
 	newerExternal,
 	type PinnedAsset,
@@ -122,6 +123,45 @@ describe("stageBinary", () => {
 		await writeFile(source, "tampered");
 		await expect(stageBinary({ source, asset: ASSET, toolsDir })).resolves.toBe(staged);
 	});
+
+	describe("macOS, where packaging re-signed the shipped file", () => {
+		const SIGNED = "#!/bin/sh\necho ai-memory fake, re-signed by the packager\n";
+
+		it("stages a validly signed binary although its bytes differ from the pin", async () => {
+			await writeFile(source, SIGNED);
+			const checked: string[] = [];
+			const signature = async (file: string) => {
+				checked.push(file);
+				return null;
+			};
+			const staged = await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			expect(staged).toBe(stagedBinaryPath(toolsDir, ASSET));
+			expect(await readFile(staged, "utf8")).toBe(SIGNED);
+			expect(checked).toEqual([source]);
+			// The next launch reuses the byte-identical copy without asking codesign again.
+			await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			expect(checked).toEqual([source]);
+		});
+
+		it("stages again when the shipped file changed (an update re-signed it)", async () => {
+			const signature = async () => null;
+			await writeFile(source, SIGNED);
+			await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			await writeFile(source, `${SIGNED}# signed again\n`);
+			const staged = await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			expect(await readFile(staged, "utf8")).toBe(`${SIGNED}# signed again\n`);
+		});
+
+		it("refuses a binary whose signature does not hold, and stages nothing", async () => {
+			await writeFile(source, "tampered");
+			await expect(
+				stageBinary({ source, asset: ASSET, toolsDir, signature: async () => "invalid signature" }),
+			).rejects.toThrow(
+				"The bundled ai-memory's code signature does not hold (invalid signature). Reinstall OMPdesk.",
+			);
+			expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(AI_MEMORY_VERSION);
+		});
+	});
 });
 
 describe("pruneStaged", () => {
@@ -138,6 +178,13 @@ describe("pruneStaged", () => {
 
 	it("does nothing when nothing was ever staged", async () => {
 		await expect(pruneStaged(toolsDir)).resolves.toBeUndefined();
+	});
+});
+
+describe.runIf(process.platform === "darwin")("codeSignatureProblem", () => {
+	it("accepts a signed binary and names why an unsigned file is refused", async () => {
+		expect(await codeSignatureProblem("/usr/bin/true")).toBeNull();
+		expect(await codeSignatureProblem(source)).toMatch(/not signed/);
 	});
 });
 

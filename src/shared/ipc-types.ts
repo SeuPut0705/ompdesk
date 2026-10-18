@@ -414,6 +414,8 @@ export type RuntimeErrorSource =
 	| "startup-timing"
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
+	/** ai-memory's service (src/main/ai-memory/service.ts `log`): `message` is launch, binary, phase or failed. */
+	| "ai-memory"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
 	| "unknown";

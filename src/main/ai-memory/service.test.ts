@@ -11,6 +11,7 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { AiMemoryClient } from "./client";
+import { rootComplete } from "./root";
 import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
 import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
 import type { ServiceControl } from "./unit";
@@ -954,11 +955,13 @@ describe("AiMemoryService", () => {
 			});
 		});
 
-		it("a shipped binary that does not match the pin fails with that message and runs nothing", async () => {
+		it("Windows: a shipped binary that does not match the pin fails with that message and runs nothing", async () => {
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
-				await writeFile(join(shipped, "ai-memory"), "not the pinned build");
+				await writeFile(join(shipped, "ai-memory.exe"), "not the pinned build");
 				const { service, calls } = await make({
+					platform: "win32",
+					arch: "x64",
 					binaryOverride: null,
 					bundledDir: shipped,
 					externalProbe: async () => "0.0.1",
@@ -970,6 +973,105 @@ describe("AiMemoryService", () => {
 			} finally {
 				await rm(shipped, RM_TEMP);
 			}
+		});
+
+		it("macOS: the packaged app re-signed the shipped binary, so a valid signature stages it although its bytes differ from the pin", async () => {
+			// The 0.38.x macOS releases: mac-sign.cjs re-signs the nested binary after after-pack checked the pin, so its
+			// SHA-256 never matched at run time, staging failed on every launch and memory never started.
+			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+			try {
+				await writeFile(join(shipped, "ai-memory"), "the release, re-signed by the packager");
+				const checked: string[] = [];
+				const { service, calls, toolsDir, rootDir } = await make({
+					binaryOverride: null,
+					bundledDir: shipped,
+					externalProbe: async () => "0.0.1",
+					codeSignature: async file => {
+						checked.push(file);
+						return null;
+					},
+				});
+				await service.start();
+				const staged = join(toolsDir, "ai-memory", AI_MEMORY_VERSION, "ai-memory");
+				expect(checked).toEqual([join(shipped, "ai-memory")]);
+				expect(service.state()).toMatchObject({ phase: "ready", source: "bundled", binary: staged });
+				expect(calls.every(call => call.file === staged)).toBe(true);
+				expect(await rootComplete(rootDir)).toBe(true);
+			} finally {
+				await rm(shipped, RM_TEMP);
+			}
+		});
+
+		it("macOS: a shipped binary whose code signature does not hold fails with codesign's reason and runs nothing", async () => {
+			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+			try {
+				await writeFile(join(shipped, "ai-memory"), "torn");
+				const { service, calls } = await make({
+					binaryOverride: null,
+					bundledDir: shipped,
+					externalProbe: async () => "0.0.1",
+					codeSignature: async () => "invalid signature (code or signature have been modified)",
+				});
+				await service.start();
+				expect(service.state()).toMatchObject({
+					phase: "failed",
+					detail:
+						"The bundled ai-memory's code signature does not hold (invalid signature (code or signature have been modified)). Reinstall OMPdesk.",
+				});
+				expect(calls).toEqual([]);
+			} finally {
+				await rm(shipped, RM_TEMP);
+			}
+		});
+	});
+
+	describe("the runtime log", () => {
+		it("logs the launch, the binary, every phase change, and a failure with the step it failed in", async () => {
+			const lines: { message: string; details: Record<string, unknown> }[] = [];
+			const { service, behavior } = await make({ log: (message, details) => lines.push({ message, details }) });
+			behavior.setup = () => ({ code: 1, output: "problem: launchd refused\n" });
+			await service.start();
+			expect(lines[0]).toEqual({
+				message: "launch",
+				details: {
+					enabled: true,
+					automatic: true,
+					platform: "darwin",
+					arch: "arm64",
+					bundledDir: null,
+					override: BIN,
+				},
+			});
+			expect(lines.find(line => line.message === "binary")?.details).toMatchObject({ source: "bundled", bin: BIN });
+			expect(lines.filter(line => line.message === "phase").map(line => line.details.phase)).toEqual([
+				"starting",
+				"starting",
+				"failed",
+			]);
+			expect(lines.find(line => line.message === "failed")?.details).toEqual({
+				step: "wire",
+				detail: "setup failed: launchd refused",
+				stack: null,
+			});
+			// The service does not log what did not change (stats, wiring): a retry that gets ready adds its own lines.
+			behavior.setup = () => ({ code: 0, output: "setup done\n" });
+			await service.retry();
+			expect(lines.at(-1)).toMatchObject({ message: "phase", details: { phase: "ready", from: "starting" } });
+		});
+
+		it("start() never rejects: an unexpected error becomes the failed phase with Try again, and is logged with its stack", async () => {
+			const lines: { message: string; details: Record<string, unknown> }[] = [];
+			const { service } = await make({
+				log: (message, details) => lines.push({ message, details }),
+				agentDir: () => {
+					throw new Error("agent dir unreadable");
+				},
+			});
+			await expect(service.start()).resolves.toBeUndefined();
+			expect(service.state()).toMatchObject({ enabled: true, phase: "failed", detail: "agent dir unreadable" });
+			const failed = lines.find(line => line.message === "failed");
+			expect(failed?.details.detail).toBe("agent dir unreadable");
+			expect(String(failed?.details.stack)).toContain("agent dir unreadable");
 		});
 	});
 

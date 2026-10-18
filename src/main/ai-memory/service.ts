@@ -40,6 +40,7 @@ import { SetupRunner } from "../setup/runner";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import {
 	type AiMemoryPlatform,
+	codeSignatureProblem,
 	type ExternalInstall,
 	newerExternal,
 	type PinnedAsset,
@@ -110,6 +111,14 @@ export interface AiMemoryServiceDeps {
 	 * machine-setup item a fresh machine may not have yet. Absent: nothing to wait for (macOS).
 	 */
 	bunPresent?: () => Promise<boolean>;
+	/**
+	 * One line of `<userData>/logs/gui-runtime.jsonl` (source `ai-memory`): `launch` once per start, `binary` when the
+	 * binary in use is known, `phase` on every change of phase, step or detail, `failed` for each failure (the step it
+	 * failed in, the message, the stack of an unexpected error).
+	 */
+	log?: (message: AiMemoryLogMessage, details: AiMemoryLogDetails) => void;
+	/** macOS: the shipped binary's code-signature check (`codeSignatureProblem`); tests put a fake here. */
+	codeSignature?: (file: string) => Promise<string | null>;
 	runner?: SetupRunner;
 	client?: AiMemoryClient;
 	externalProbe?: (bin: string) => Promise<string | null>;
@@ -117,6 +126,9 @@ export interface AiMemoryServiceDeps {
 	healthWaitMs?: number;
 	now?: () => number;
 }
+
+export type AiMemoryLogMessage = "launch" | "binary" | "phase" | "failed";
+export type AiMemoryLogDetails = Record<string, string | number | boolean | null>;
 
 interface Resolved {
 	bin: string;
@@ -229,29 +241,47 @@ export class AiMemoryService {
 		);
 	}
 
-	/** Detect, then (when on) stage and wire. Resolves when the first pass ended. */
+	/**
+	 * Detect, then (when on) stage and wire. Resolves when the first pass ended; never rejects: a failure is the
+	 * `failed` phase (Settings shows it with Try again) and a `failed` log line.
+	 */
 	async start(): Promise<void> {
-		this.#patch({ enabled: this.#deps.enabled(), wiring: await this.#wiring() });
-		if (!this.#platformOk) {
-			this.#patch({ phase: "unsupported", detail: "ai-memory has no build for this platform." });
-			return;
+		const { platform, arch, automatic, bundledDir, binaryOverride } = this.#deps;
+		const enabled = this.#deps.enabled();
+		this.#deps.log?.("launch", {
+			enabled,
+			automatic,
+			platform,
+			arch,
+			bundledDir,
+			override: binaryOverride ?? null,
+		});
+		this.#patch({ enabled });
+		try {
+			this.#patch({ wiring: await this.#wiring() });
+			if (!this.#platformOk) {
+				this.#patch({ phase: "unsupported", detail: "ai-memory has no build for this platform." });
+				return;
+			}
+			if (!automatic) {
+				this.#patch({
+					phase: enabled ? "unsupported" : "off",
+					detail: enabled
+						? "An unpackaged build does not change this machine. Set OMP_GUI_AI_MEMORY_BIN to run ai-memory."
+						: null,
+				});
+				return;
+			}
+			if (!enabled) {
+				this.#patch({ phase: "off", detail: null });
+				return;
+			}
+			this.#patch({ phase: "starting", step: "stage" });
+			await this.#deps.beforeStart?.();
+			await this.#enqueue(() => this.#enable());
+		} catch (error) {
+			this.#fail(error);
 		}
-		if (!this.#deps.automatic) {
-			this.#patch({
-				phase: this.#state.enabled ? "unsupported" : "off",
-				detail: this.#state.enabled
-					? "An unpackaged build does not change this machine. Set OMP_GUI_AI_MEMORY_BIN to run ai-memory."
-					: null,
-			});
-			return;
-		}
-		if (!this.#state.enabled) {
-			this.#patch({ phase: "off", detail: null });
-			return;
-		}
-		this.#patch({ phase: "starting", step: "stage" });
-		await this.#deps.beforeStart?.();
-		await this.#enqueue(() => this.#enable());
 	}
 
 	/** The Settings switch. Persists first, then wires or unwires; progress arrives through `onState`. */
@@ -399,9 +429,14 @@ export class AiMemoryService {
 	}
 
 	#patch(patch: Partial<AiMemoryState>): void {
+		const before = this.#state;
 		this.#state = { ...this.#state, ...patch };
 		const { serverUrl } = this.#state;
 		if (serverUrl && !patch.webUrl) this.#state.webUrl = `${serverUrl}/web`;
+		const { phase, step, detail } = this.#state;
+		if (phase !== before.phase || step !== before.step || detail !== before.detail) {
+			this.#deps.log?.("phase", { phase, step, detail, from: before.phase, fromStep: before.step });
+		}
 		this.#deps.onState(this.state());
 	}
 
@@ -411,6 +446,11 @@ export class AiMemoryService {
 
 	#fail(error: unknown): void {
 		const detail = error instanceof Error ? error.message : String(error);
+		this.#deps.log?.("failed", {
+			step: this.#state.step,
+			detail,
+			stack: error instanceof Error && !(error instanceof StepError) ? (error.stack ?? null) : null,
+		});
 		this.#patch({ phase: "failed", step: null, detail });
 		this.#stopPolling();
 	}
@@ -480,7 +520,15 @@ export class AiMemoryService {
 
 	async #stage(asset: PinnedAsset, source: string): Promise<string> {
 		try {
-			return await stageBinary({ source, asset, toolsDir: this.#deps.toolsDir });
+			return await stageBinary({
+				source,
+				asset,
+				toolsDir: this.#deps.toolsDir,
+				// The packaged macOS app re-signed the shipped file, so its bytes are not the pin's (binary.ts).
+				...(this.#deps.platform === "darwin"
+					? { signature: this.#deps.codeSignature ?? codeSignatureProblem }
+					: {}),
+			});
 		} catch (error) {
 			throw new StepError(error instanceof Error ? error.message : String(error));
 		}
@@ -580,6 +628,7 @@ export class AiMemoryService {
 			const resolved = await this.#resolve();
 			this.#resolved = resolved;
 			this.#patch({ source: resolved.source, version: resolved.version, binary: resolved.bin });
+			this.#deps.log?.("binary", { source: resolved.source, version: resolved.version, bin: resolved.bin });
 			this.#step("wire");
 			// The plan tells the data directory (platform default or AI_MEMORY_DATA_DIR) without touching anything.
 			const plan = await this.#run(resolved.bin, ["setup", "--plan", "--json", "--agent", "omp"]);
@@ -785,7 +834,17 @@ export class AiMemoryService {
 
 	#startPolling(): void {
 		if (this.#timer || this.#disposed) return;
-		this.#timer = setInterval(() => void this.#check(true).catch(() => undefined), this.#deps.pollMs ?? POLL_MS);
+		this.#timer = setInterval(
+			() =>
+				void this.#check(true).catch((error: unknown) =>
+					this.#deps.log?.("failed", {
+						step: "poll",
+						detail: error instanceof Error ? error.message : String(error),
+						stack: error instanceof Error ? (error.stack ?? null) : null,
+					}),
+				),
+			this.#deps.pollMs ?? POLL_MS,
+		);
 		this.#timer.unref();
 	}
 

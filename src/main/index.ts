@@ -993,6 +993,7 @@ app.whenReady().then(() => {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);
 			}
 		},
+		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	aiMemoryService = aiMemory;
 	registerAiMemoryIpc(ipc, aiMemory, {
@@ -1001,7 +1002,15 @@ app.whenReady().then(() => {
 		readClipboard: () => clipboard.readText(),
 		writeClipboard: text => clipboard.writeText(text),
 	});
-	void aiMemory.start().catch(() => undefined);
+	// start() turns every failure into the `failed` phase and a log line; anything escaping it is logged too.
+	void aiMemory.start().catch(error =>
+		writeRuntimeLog({
+			source: "ai-memory",
+			message: "failed",
+			stack: error instanceof Error ? error.stack : undefined,
+			details: { detail: error instanceof Error ? error.message : String(error) },
+		}),
+	);
 	void setup
 		.start()
 		.catch(() => undefined)
