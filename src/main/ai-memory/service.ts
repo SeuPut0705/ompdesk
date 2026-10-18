@@ -161,6 +161,12 @@ function tail(output: string, lines = 4): string {
 		.join(" ¶ ");
 }
 
+/**
+ * Lines of `uninstall`'s dry run that name no other client: the managed skills (shared by every agent) and ai-memory's
+ * own service (launchd unit, systemd unit, the Windows logon entry), which is the very thing OMPdesk may stop.
+ */
+const NOT_A_CLIENT = /\(managed Agent Skill\)|logon entry|\bservice\b|launchd|systemd|HKCU|CurrentVersion\\Run/i;
+
 /** A step failed; `message` is what Settings shows. */
 class StepError extends Error {}
 
@@ -631,7 +637,7 @@ export class AiMemoryService {
 		if (!listing.ok) return true;
 		return listing.output
 			.split(/\r?\n/)
-			.some(line => /^\s*would (delete|remove)\b/.test(line) && !line.includes("(managed Agent Skill)"));
+			.some(line => /^\s*would (delete|remove)\b/.test(line) && !NOT_A_CLIENT.test(line));
 	}
 
 	/** Stop OMPdesk's own service (never one it did not start) and wait for the server to go. */

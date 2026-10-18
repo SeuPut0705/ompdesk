@@ -621,6 +621,17 @@ describe("AiMemoryService", () => {
 			expect(unit.removed).toBe(1);
 		});
 
+		it("ai-memory's own service in the dry run (a Windows logon entry, a launchd unit) is not another client", async () => {
+			const { service, behavior, unit } = await make();
+			behavior.others = [
+				"would delete the Windows logon entry HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\ai-memory",
+				"would remove the launchd service com.github.akitaonrails.ai-memory",
+			];
+			await service.start();
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(1);
+		});
+
 		it("the server keeps running when the list of other clients cannot be read", async () => {
 			const { service, behavior, unit } = await make();
 			await service.start();
