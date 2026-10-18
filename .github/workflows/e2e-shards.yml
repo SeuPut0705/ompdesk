@@ -52,7 +52,8 @@ jobs:
       # The runner is ephemeral: real-core and deep-audit run the real omp.
       - name: Install omp
         run: |
-          bun install -g @oh-my-pi/pi-coding-agent
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       # mobile-*.e2e.ts drive the web build in Playwright's own browsers, which a fresh runner lacks.

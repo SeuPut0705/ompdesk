@@ -317,7 +317,8 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
         run: |
-          bun install -g @oh-my-pi/pi-coding-agent
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       - run: bunx playwright test --grep "@smoke"
@@ -376,7 +377,8 @@ jobs:
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - name: Install omp
         run: |
-          bun install -g @oh-my-pi/pi-coding-agent
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       - name: Wait for out/ from the build job
