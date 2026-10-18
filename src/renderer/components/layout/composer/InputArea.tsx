@@ -38,14 +38,6 @@ import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import {
-	cancelVoiceRecording,
-	evaluateSttSubmitTrigger,
-	METER_BARS,
-	readSttSubmitTrigger,
-	recordAndTranscribe,
-	stopVoiceRecording,
-} from "../../../lib/voice";
 import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
@@ -69,7 +61,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
-import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
+import { DictationOverlay } from "./DictationOverlay";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { fitFieldHeight } from "./field-height";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
@@ -85,6 +77,7 @@ import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerAttach } from "./use-composer-attach";
+import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
 
@@ -226,12 +219,6 @@ export function InputArea() {
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-	const [dictation, setDictation] = useState<DictationPhase>("idle");
-	const [dictationLevels, setDictationLevels] = useState<readonly number[]>(() => Array(METER_BARS).fill(0));
-	const [dictationStartedAt, setDictationStartedAt] = useState<number | null>(null);
-	/** "Stop and send": submit the draft once the take is transcribed into it. */
-	const sendAfterDictationRef = useRef(false);
-	const recording = dictation !== "idle";
 	/** The draft's pictures while ↑/↓ shows history entries (restored on the way back). */
 	const navDraftImages = useRef<ComposerImage[]>([]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
@@ -385,9 +372,6 @@ export function InputArea() {
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, [expanded]);
-	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
-	const ownsTake = useRef(false);
-
 	// New and empty sessions start with the caret in the composer, unless
 	// something else (a dialog, another field) already holds focus. The end of
 	// first-run setup counts as a new start: its button unmounted with focus on it.
@@ -399,13 +383,10 @@ export function InputArea() {
 		textareaRef.current?.focus();
 	}, [routeReady, focusedPane, isEmptySession, sessionId, settingUp]);
 
-	// This composer's in-flight dictation is cancelled (never transcribed) if it unmounts; the
-	// recording slot is app-wide, and closing one split pane must not end another pane's take.
 	useEffect(() => {
 		mountedRef.current = true;
 		return () => {
 			mountedRef.current = false;
-			if (ownsTake.current) cancelVoiceRecording();
 		};
 	}, []);
 
@@ -637,88 +618,8 @@ export function InputArea() {
 		sendRef.current = send;
 	}, [send]);
 
-	// Mic dictation (stt.enabled): click starts capture, click again (or Enter)
-	// stops and transcribes, Esc discards; the transcript inserts at the
-	// textarea caret. The send button's "Stop and send" and the
-	// stt.submitTrigger setting submit the utterance (TUI parity).
-	const handleMicClick = useCallback(() => {
-		if (recording) {
-			if (dictation === "starting") cancelVoiceRecording();
-			else stopVoiceRecording();
-			return;
-		}
-		setDictation("starting");
-		ownsTake.current = true;
-		sendAfterDictationRef.current = false;
-		void recordAndTranscribe({
-			onRecording: () => {
-				if (!mountedRef.current) return;
-				setDictationStartedAt(Date.now());
-				setDictation("recording");
-			},
-			onLevels: levels => {
-				if (mountedRef.current) setDictationLevels(levels);
-			},
-			onTranscribing: () => {
-				if (mountedRef.current) setDictation("transcribing");
-			},
-		}).then(async result => {
-			ownsTake.current = false;
-			if (!mountedRef.current) return;
-			const sendAfter = sendAfterDictationRef.current;
-			sendAfterDictationRef.current = false;
-			setDictation("idle");
-			setDictationStartedAt(null);
-			setDictationLevels(Array(METER_BARS).fill(0));
-			if ("error" in result) {
-				if (result.error) toastError({ title: t("voice.mic.failed"), error: result });
-				return;
-			}
-			const utterance = result.text.trim();
-			const trigger = await readSttSubmitTrigger();
-			const evaluation = evaluateSttSubmitTrigger(utterance, trigger);
-			const insert = (
-				evaluation.trimTrailing > 0 ? utterance.slice(0, utterance.length - evaluation.trimTrailing) : utterance
-			).trimEnd();
-			if (!mountedRef.current) return;
-			if (!insert) {
-				// Nothing heard: "Stop and send" still sends what the draft already holds.
-				if (sendAfter && textareaRef.current?.value.trim()) sendRef.current();
-				return;
-			}
-			// Read the live DOM value/caret: the user may have typed mid-recording.
-			const el = textareaRef.current;
-			const current = el?.value ?? "";
-			const start = el?.selectionStart ?? current.length;
-			const end = el?.selectionEnd ?? start;
-			const before = current.slice(0, start);
-			const after = current.slice(end);
-			const prefix = before.length > 0 && !before.endsWith(" ") ? " " : "";
-			const suffix = after.length === 0 ? " " : "";
-			const insertedText = `${prefix}${insert}${suffix}`;
-			const next = `${before}${insertedText}${after}`;
-			el?.focus();
-			placeDraft(next, start + insertedText.length);
-			if (evaluation.submit || sendAfter) sendRef.current(next);
-		});
-	}, [recording, dictation, t, placeDraft]);
-
-	// While the mic is open, Enter ends the take (transcribe and insert) and Esc
-	// discards it, before any other key handler (the composer's, App's abort).
-	useEffect(() => {
-		if (dictation !== "starting" && dictation !== "recording") return;
-		const onKey = (event: globalThis.KeyboardEvent) => {
-			if (isImeKeyEvent(event)) return;
-			const finish = event.key === "Enter" && !event.shiftKey && dictation === "recording";
-			if (event.key !== "Escape" && !finish) return;
-			event.preventDefault();
-			event.stopImmediatePropagation();
-			if (finish) stopVoiceRecording();
-			else cancelVoiceRecording();
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [dictation]);
+	const dictation = useComposerDictation({ textareaRef, placeDraft, sendRef, mountedRef });
+	const recording = dictation.phase !== "idle";
 
 	/**
 	 * Expanded composer (TUI app.editor.external parity, GUI-native form): ⌃G
@@ -1281,8 +1182,12 @@ export function InputArea() {
 									<Kbd shortcut="Tab" />
 								</div>
 							)}
-							{dictation !== "idle" && (
-								<DictationOverlay levels={dictationLevels} phase={dictation} startedAt={dictationStartedAt} />
+							{dictation.phase !== "idle" && (
+								<DictationOverlay
+									levels={dictation.levels}
+									phase={dictation.phase}
+									startedAt={dictation.startedAt}
+								/>
 							)}
 							{showSuggestionHint && (
 								<span
@@ -1451,7 +1356,7 @@ export function InputArea() {
 										)}
 										icon={recording ? <Square className="omp-pulse-dot" fill="currentColor" /> : <Mic />}
 										label={recording ? t("voice.mic.stop") : t("voice.mic.start")}
-										onClick={handleMicClick}
+										onClick={dictation.toggle}
 										size="sm"
 									/>
 								)}
@@ -1495,17 +1400,14 @@ export function InputArea() {
 											variant={showSend ? "secondary" : "primary"}
 										/>
 									)}
-									{dictation === "recording" ? (
+									{dictation.phase === "recording" ? (
 										<IconButton
 											className="omp-composer-action"
 											data-dictation-send
 											disabled={!routeReady}
 											icon={<ArrowUp strokeWidth={2.25} />}
 											label={t("voice.dictation.stopAndSend")}
-											onClick={() => {
-												sendAfterDictationRef.current = true;
-												stopVoiceRecording();
-											}}
+											onClick={dictation.stopAndSend}
 											variant="primary"
 										/>
 									) : (
