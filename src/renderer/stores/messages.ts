@@ -21,6 +21,11 @@ export interface MessagesStore {
 	prevCursor: string | undefined;
 	pageError: string | null;
 	isLoadingPage: boolean;
+	/**
+	 * When the rows shown were written (ms) by a previous run's snapshot (`lib/transcript-snapshot.ts`), until the
+	 * live page replaces them: the transcript shows a quiet "updating" hint and the older-history load waits.
+	 */
+	restoredAt: number | null;
 	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
 	turnMeter: TurnMeter;
 	/**
@@ -69,6 +74,7 @@ const initialState = {
 	prevCursor: undefined as string | undefined,
 	pageError: null as string | null,
 	isLoadingPage: false,
+	restoredAt: null as number | null,
 	turnMeter: EMPTY_TURN_METER,
 	ownSends: [] as string[],
 	readTargets: new Map() as ReadonlyMap<string, ReadGroupTarget | null>,

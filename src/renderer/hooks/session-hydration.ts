@@ -10,6 +10,12 @@ import type {
 	RpcSessionState,
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
+import {
+	reuseSeededRows,
+	seedTranscript,
+	TRANSCRIPT_WRITE_DELAY_MS,
+	writeTranscriptSnapshot,
+} from "../lib/transcript-snapshot";
 import { useAutopilotStore } from "../stores/autopilot";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import {
@@ -545,14 +551,21 @@ function commitHydration({
 		);
 	}
 
-	if (!focusUnchanged || messagesResult.status !== "fulfilled" || !messagesResult.value.success) return;
+	if (!focusUnchanged) return;
+	// The rows a snapshot seeded are a guess, not loaded history: the live page replaces them (rows with the
+	// same content keep their objects) whatever happened to the read, so the "updating" hint never outlives it.
+	const restored = messages?.getState().restoredAt != null;
+	if (messagesResult.status !== "fulfilled" || !messagesResult.value.success) {
+		if (restored) messages?.setState({ restoredAt: null });
+		return;
+	}
 	const fetched = page?.messages ?? [];
 	const current = messages?.getState().messages ?? [];
 	const merged = mergeFetchedTranscript(fetched, before.messages, current);
-	const retained = retainLoadedHistory(merged, current);
-	const prevCursor = retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
+	const retained = restored ? reuseSeededRows(merged, before.messages) : retainLoadedHistory(merged, current);
+	const prevCursor = !restored && retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
 	messages?.getState().reconcileFetched(retained);
-	messages?.setState({ prevCursor, pageError: null });
+	messages?.setState({ prevCursor, pageError: null, restoredAt: null });
 	if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === before.liveMessages) {
 		messages.getState().clearDeliveredLiveMessages();
 	}
@@ -688,6 +701,33 @@ export function supersedeTabHydration(tabId: string): void {
 	inFlightHydrations.delete(runtime);
 }
 
+/** The tab's last known page paints before the live read answers (a restored or re-opened session, a cold start). */
+function seedFromSnapshot(tabId: string, { messages, tools }: HydrationStores): void {
+	if (!messages) return;
+	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+	if (!tab) return;
+	const rows = seedTranscript(messages, tab);
+	// The tool cards derive from the rows: rebuilt, none of them waits for a result that is already in the rows.
+	if (rows) tools?.getState().hydrateMessages(rows, { turnIsLive: false });
+}
+
+const watchedTranscripts = new WeakSet<SessionRuntime>();
+
+/** Keep the tab's snapshot following its committed rows: one idle write per quiet moment, keyed by what the tab shows then. */
+function watchTranscript(tabId: string, runtime: SessionRuntime, { messages }: HydrationStores): void {
+	if (!messages || watchedTranscripts.has(runtime)) return;
+	watchedTranscripts.add(runtime);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	messages.subscribe((state, previous) => {
+		if (state.messages === previous.messages || state.messages.length === 0) return;
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+			if (tab && sessionRuntime(tabId) === runtime) writeTranscriptSnapshot(tab, messages.getState().messages);
+		}, TRANSCRIPT_WRITE_DELAY_MS);
+	});
+}
+
 async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackName?: string): Promise<void> {
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
@@ -698,6 +738,8 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
 		model: sessionRuntimeStore<ModelStore>(tabId, "model"),
 	};
+	seedFromSnapshot(tabId, stores);
+	watchTranscript(tabId, runtime, stores);
 	const before = captureHydrationBaseline(stores);
 
 	const coreResult = Promise.allSettled([
