@@ -26,6 +26,7 @@ import {
 	FolderSearch,
 	GitBranch,
 	GitBranchPlus,
+	GitFork,
 	History,
 	Info,
 	Keyboard,
@@ -78,6 +79,7 @@ import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
+import { sessionForkOrigin } from "../../../lib/session-fork";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -117,6 +119,7 @@ import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../comm
 import { SwapText } from "../../common/SwapText";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
+import { ForkParent } from "../ForkParent";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
@@ -1229,12 +1232,7 @@ export function Sidebar() {
 							? t("sidebar.row.open")
 							: null);
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
-		const parent = session.parentSessionPath ? sessionsByPathOrId.get(session.parentSessionPath) : undefined;
-		const forkLabel = session.parentSessionPath
-			? parent
-				? t("sidebar.row.forkedFrom", { name: sessionDisplayTitle(parent, t("sidebar.untitled")) })
-				: t("sidebar.row.fork")
-			: null;
+		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
 		const deletable = indexed && !busy;
@@ -1280,8 +1278,8 @@ export function Sidebar() {
 				<MessageCircle aria-hidden data-sidebar-session-icon />
 			) : pinned && !done ? (
 				<Pin aria-label={t("sidebar.pinned")} />
-			) : forkLabel && !done ? (
-				<GitBranch aria-hidden data-sidebar-fork />
+			) : fork && !done ? (
+				<GitFork aria-hidden data-sidebar-fork />
 			) : (
 				<span
 					aria-hidden
@@ -1441,11 +1439,12 @@ export function Sidebar() {
 					title={
 						<>
 							<SwapText scope={session.path}>{title}</SwapText>
-							{forkLabel && <span className="sr-only">, {forkLabel}</span>}
+							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
+							{fork && <span className="sr-only">, {fork.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
 					}
-					titleText={[title, forkLabel, statusLabel].filter(Boolean).join("\n")}
+					titleText={[title, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
 					trailing={openTabId ? <SidebarSubagentsToggle sessionKey={session.path} tabId={openTabId} /> : undefined}
 				/>
 				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}

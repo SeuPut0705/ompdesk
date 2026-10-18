@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteState } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
+import { formatTimeAgo } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
 import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
@@ -267,6 +268,41 @@ describe("TitleBar", () => {
 		const name = document.querySelector("[data-titlebar-session-name]");
 		expect(name?.textContent).toContain("Build the Tally app");
 		expect(container.textContent).not.toContain(translate("sidebar.newSession"));
+	});
+
+	it("says where a forked session came from, so it never reads as a second copy of the original", async () => {
+		const row = {
+			cwd: "/tmp/project",
+			created: "2026-01-01T00:00:00Z",
+			modified: "2026-01-01T00:00:00Z",
+			messageCount: 3,
+			size: 10,
+			status: "complete",
+			firstMessage: "hello",
+		};
+		sessions.list.mockResolvedValue([
+			{ ...row, path: "/tmp/project/parent.jsonl", id: "parent", title: "Recommended prompts" },
+			{
+				...row,
+				path: "/tmp/project/fork.jsonl",
+				id: "session-1",
+				title: "Recommended prompts",
+				parentSessionPath: "/tmp/project/parent.jsonl",
+			},
+		] as never);
+		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project", sessionName: null });
+		await mount();
+		await act(async () => new Promise<void>(resolve => setTimeout(resolve, 0)));
+		const origin = document.querySelector("[data-titlebar-fork]");
+		expect(origin?.textContent).toContain(translate("session.fork.from", { name: "Recommended prompts" }));
+		expect(origin?.querySelector("svg")).not.toBeNull();
+		expect(origin?.getAttribute("aria-label")).toBe(
+			translate("session.fork.tooltip", { name: "Recommended prompts", time: formatTimeAgo(row.created) }),
+		);
+
+		// The original itself carries no such mark.
+		await act(async () => useSessionStore.setState({ sessionId: "parent" }));
+		expect(document.querySelector("[data-titlebar-fork]")).toBeNull();
 	});
 
 	it("claims the Escape that cancels a rename, so the same keystroke cannot abort the turn", async () => {

@@ -18,6 +18,7 @@ import { wrapAgentMessage } from "../../../../shared/agent-control";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
+import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useComposerStore } from "../../../stores/composer";
 import { useMessagesStore } from "../../../stores/messages";
@@ -1432,12 +1433,26 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(fork.getAttribute("data-session-path")).toBe("/work/alpha/fork.jsonl");
 		expect(fork.querySelector("[data-sidebar-fork]")).not.toBeNull();
 		expect(parent.querySelector("[data-sidebar-fork]")).toBeNull();
-		const forkedFrom = translate("sidebar.row.forkedFrom", { name: "Refactor the parser" });
-		expect(fork.querySelector("button")?.getAttribute("title")).toBe(`Refactor the parser\n${forkedFrom}`);
-		expect(fork.textContent).toContain(forkedFrom);
+		// Seen at a glance, not only on hover: the row says where it came from, muted after its title.
+		expect(fork.querySelector("[data-fork-parent]")?.textContent).toBe(
+			translate("session.fork.from", { name: "Refactor the parser" }),
+		);
+		expect(parent.querySelector("[data-fork-parent]")).toBeNull();
+		const tooltip = (created: string, name?: string) =>
+			name
+				? translate("session.fork.tooltip", { name, time: formatTimeAgo(created) })
+				: translate("session.fork.tooltipNoParent", { time: formatTimeAgo(created) });
+		expect(fork.querySelector("button")?.getAttribute("title")).toBe(
+			`Refactor the parser\n${tooltip("2026-01-01T00:00:00Z", "Refactor the parser")}`,
+		);
+		// Screen readers hear it in words.
+		expect(fork.textContent).toContain(translate("sidebar.row.forkedFrom", { name: "Refactor the parser" }));
 		expect(parent.querySelector("button")?.getAttribute("title")).toBe("Refactor the parser");
-		expect(rowButton("Moved").getAttribute("title")).toBe(`Moved\n${forkedFrom}`);
-		expect(rowButton("Orphan").getAttribute("title")).toBe(`Orphan\n${translate("sidebar.row.fork")}`);
+		expect(rowButton("Moved").getAttribute("title")).toBe(
+			`Moved\n${tooltip("2026-01-01T00:00:00Z", "Refactor the parser")}`,
+		);
+		expect(rowButton("Orphan").getAttribute("title")).toBe(`Orphan\n${tooltip("2026-01-01T00:00:00Z")}`);
+		expect(rowFor("Orphan").querySelector("[data-fork-parent]")).toBeNull();
 	});
 });
 

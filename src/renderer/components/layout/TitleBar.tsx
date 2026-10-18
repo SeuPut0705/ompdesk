@@ -5,6 +5,7 @@ import {
 	Circle,
 	FolderOpen,
 	GitBranch,
+	GitFork,
 	Info,
 	ListTree,
 	Menu,
@@ -17,6 +18,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { SessionInfo } from "../../../shared/ipc-types";
 import { worktreeLabel } from "../../../shared/project-origin";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAutoTitle } from "../../hooks/use-auto-title";
@@ -30,6 +32,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
 import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
+import { sessionForkOrigin } from "../../lib/session-fork";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView, useRemoteStore } from "../../stores/remote";
@@ -55,6 +58,7 @@ import { AutoTitleButton } from "../common/AutoTitleButton";
 import { SwapText } from "../common/SwapText";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
+import { ForkParent } from "./ForkParent";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 import { ViewersChip } from "./ViewersChip";
 
@@ -250,6 +254,16 @@ export function TitleBar() {
 	}, [sessionId, statsTrigger, status, tabRpc.getSessionStats, tabId, isCompacting]);
 
 	const current = sessions.find(s => s.id === sessionId);
+	// A fork says where it came from beside its name (stock's `parentSession`), like its sidebar row.
+	const sessionsByPathOrId = useMemo(() => {
+		const index = new Map<string, SessionInfo>();
+		for (const session of sessions) {
+			index.set(session.path, session);
+			index.set(session.id, session);
+		}
+		return index;
+	}, [sessions]);
+	const fork = current ? sessionForkOrigin(current, sessionsByPathOrId) : null;
 	const displayName = useCurrentSessionTitle();
 	const visibleStats = stats?.sessionId === sessionId ? stats : null;
 	const cost = visibleStats ? (visibleStats.history?.cost ?? visibleStats.cost) : null;
@@ -474,6 +488,20 @@ export function TitleBar() {
 								{displayName}
 							</SwapText>
 						</Button>
+					</Tooltip>
+				)}
+				{fork && !editingName && (
+					<Tooltip content={fork.tooltip} describe={false} side="bottom">
+						<span
+							aria-label={fork.tooltip}
+							className="flex min-w-0 max-w-64 shrink items-center text-(--sc-text-subtle) [&>svg]:size-(--sc-icon-sm) [&>svg]:shrink-0"
+							data-titlebar-fork=""
+							role="note"
+							tabIndex={-1}
+						>
+							<GitFork aria-hidden />
+							{fork.parentTitle && <ForkParent name={fork.parentTitle} />}
+						</span>
 					</Tooltip>
 				)}
 			</nav>
