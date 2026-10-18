@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.38.0] - 2026-10-18
+
+기억 기능(ai-memory)과 엔지니어링 모드(pstack)를 내장해서, 세션이 이어지고 더 꼼꼼하게 일해요.
+
+### 기억 (ai-memory)
+- 기억 기능 ai-memory([akitaonrails/ai-memory](https://github.com/akitaonrails/ai-memory), MIT)가 앱에 내장돼 기본으로 켜져요. 따로 설치하지 않아요.
+- 같은 폴더의 다음 세션이 이전 세션의 인수인계(handoff)를 이어받아요. 검색은 전문 검색이라 모델 호출이 전혀 없고, 모델이나 임베딩을 내려받지도 않아요.
+- 설정 › 메모리에서 켜고 끄고, 저장된 내용을 콘솔에서 보고, 모든 기억을 지울 수 있어요. 옆 패널의 메모리 보기는 최근 페이지와 인수인계를 읽기 전용으로 보여줘요.
+- 끄면 OMPdesk만 영향을 받아요. OMPdesk가 띄우는 omp에만 연결되고, 다른 에이전트나 터미널의 omp 설정은 건드리지 않아요. 터미널의 omp에서도 쓰고 싶다면 선택 버튼 "터미널 omp에서도 사용"을 눌러요.
+- 탭을 닫을 때 세션이 정상적으로 끝나서 인수인계가 만들어져요.
+- omp 기본 메모리 설정(메모리 백엔드와 그 행들, 메모리 모델 역할, `ompdesk_remember`)은 없어졌어요. ai-memory가 대신해요.
+- 앱이 약 15 MB 커져요.
+- 개인정보: 모든 것이 이 컴퓨터에만 남아요(로컬 서버, 텔레메트리 없음). OMPdesk가 실행하는 omp 세션의 입력한 프롬프트, 도구 호출과 결과, 세션의 시작과 끝을 기록하고, 어시스턴트의 답변은 기록하지 않아요. API 키·토큰·비공개 키·URL 속 비밀번호는 저장 전에 최선을 다해 지우지만 "내 비밀번호는 …" 같은 글은 알아보지 못해요. 프로젝트의 `.ai-memory.toml`로 파일을 기록에서 뺄 수 있어요.
+
+### 엔지니어링 모드 (pstack)
+- [pstack](https://github.com/cursor/plugins/tree/main/pstack)(MIT, Lauren Tan)이 내장돼 기본으로 켜져요. 플레이북과 원칙을 담고 있어서, 사소하지 않은 요청이면 에이전트가 맞는 플레이북을 먼저 읽고 단계를 할 일로 옮겨 일해요.
+- 세션마다 프롬프트에 약 7k 토큰이 더해져요(프롬프트 캐시됨). 하위 에이전트, 계획 모드, 프로젝트 없는 채팅에는 들어가지 않아요.
+- 설정 › 에이전트 동작 › 스마트 자동화의 스위치로 끌 수 있어요.
+
+### 안정성
+- Windows에서 탭을 닫을 때 omp와 그 하위 프로세스가 모두 끝나요(`taskkill /T`). Windows 패키징 검사도 바로잡았어요.
+
+<!-- en -->
+
+ai-memory and the pstack engineering mode are built in, so sessions carry on from each other and the agent works more carefully.
+
+### Memory (ai-memory)
+- ai-memory ([akitaonrails/ai-memory](https://github.com/akitaonrails/ai-memory), MIT) is built into the app and on by default. There is nothing to install.
+- The next session in the same folder picks up the previous session's handoff. Search is full-text, so it makes zero model calls and downloads no model or embeddings.
+- Turn it on or off, open the console, and delete all memory in Settings › Memory. The side panel's Memory view shows recent pages and handoffs, read-only.
+- Turning it off only affects OMPdesk: memory is wired only into the omp that OMPdesk starts, and no other agent's or the terminal omp's setup is touched. An optional "Also use in the terminal omp" button wires the terminal omp too.
+- Closing a tab ends the session gracefully, so the handoff is written.
+- The stock omp memory settings (the memory backend and its rows, the memory model role, `ompdesk_remember`) are removed; ai-memory replaces them.
+- The app is about 15 MB bigger.
+- Privacy: everything stays on this computer (a local server, no telemetry). It records the prompts you type, the tool calls with their arguments and results, and each session's start and end for the omp sessions OMPdesk runs; the assistant's replies are not recorded. API keys, tokens, private keys and passwords in URLs are stripped before storage on a best-effort basis, but free text like "my password is …" is not detected. A project's `.ai-memory.toml` can keep files out of capture.
+
+### Engineering mode (pstack)
+- [pstack](https://github.com/cursor/plugins/tree/main/pstack) (MIT, Lauren Tan) is built in and on by default. It carries playbooks and principles: for anything non-trivial the agent reads the matching playbook first and copies its steps into its todo list.
+- It adds about 7k tokens to a session's prompt (prompt-cached). Subagents, Plan mode and a chat without a project don't get it.
+- Switch it off in Settings › Agent behavior › Smart automation.
+
+### Stability
+- On Windows, closing a tab now ends omp and all its child processes (`taskkill /T`). The Windows packaging check is fixed too.
+
 ## [0.37.0] - 2026-10-18
 
 휴대폰과 태블릿에서 훨씬 촘촘하고 빠르게 쓸 수 있게 됐고, 테마가 새로 바뀌었어요.
