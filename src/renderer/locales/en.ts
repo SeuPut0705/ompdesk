@@ -2316,6 +2316,9 @@ export const en: Record<string, string> = {
 	"settings.display.showProgress": "Show progress on the app icon",
 	"settings.display.emojiAutocomplete": "Complete emoji names",
 	"settings.display.pasteMenuThreshold": "Large-paste menu threshold (lines; 0 disables)",
+	"settings.display.mobileEnterSends": "Enter sends on touch keyboards",
+	"settings.display.mobileEnterSends.desc":
+		"Off: Enter adds a line and the Send button sends. A physical keyboard always sends with Enter.",
 	"settings.gui.compactDensity": "Compact message spacing",
 	"settings.gui.compactDensityDesc": "Less space between messages; text size stays the same.",
 	"settings.gui.colorBlindMode": "Color-blind-friendly colors",

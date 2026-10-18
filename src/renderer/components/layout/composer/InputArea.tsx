@@ -32,6 +32,7 @@ import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { FILE_DRAG_TYPE, readFileDrag } from "../../../lib/file-drag";
 import { trackFilePick } from "../../../lib/file-pick";
 import { cx } from "../../../lib/format";
+import { composerEnterNewline, noteHardwareKey } from "../../../lib/hardware-keyboard";
 import { historyImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
@@ -181,6 +182,9 @@ export function InputArea() {
 	 * text is never shown twice; no inline ghost requests at all (the phone keyboard has its own suggestions
 	 * and IME composition dominates). A tap on a chip fills the field, a long press offers "send now". */
 	const touchInput = useShellInput() === "touch";
+	/** "Enter sends on mobile": a touch device's Enter sends instead of adding a line. */
+	const enterSends = useUiStore(s => s.displayPreferences.mobileEnterSends === true);
+	const enterNewline = composerEnterNewline(touchInput, enterSends);
 	const placeholderPrompt = touchInput ? undefined : nextPrompt;
 	const chipList = useMemo(
 		() =>
@@ -904,6 +908,9 @@ export function InputArea() {
 		// window is open, Enter and friends belong to the IME — committing the
 		// composition must never send the message.
 		if (isImeKeyEvent(e)) return;
+		// A key only a physical keyboard makes: a tablet with one attached sends on Enter like a desktop.
+		noteHardwareKey(e);
+		const softEnterNewline = composerEnterNewline(touchInput, enterSends);
 		// Pending paste choice: Enter takes the first form (inline), Esc cancels it. Keys that would edit
 		// the field under the menu wait: the paste has no place in the draft until it has its form.
 		if (pasteMenu) {
@@ -1119,13 +1126,15 @@ export function InputArea() {
 			!e.ctrlKey &&
 			!e.metaKey &&
 			!e.altKey &&
-			(e.shiftKey || expanded) &&
+			(e.shiftKey || expanded || softEnterNewline) &&
 			continueListAtCaret()
 		) {
 			e.preventDefault();
 			return;
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
+			// Soft keyboard: Enter is the return key. The chords (⌘↵, the follow-up chord) are a physical keyboard's and still send.
+			if (softEnterNewline && !e.metaKey && !e.ctrlKey && !e.altKey) return;
 			// The follow-up chord (⌃↵ on macOS, ⌥↵ on Windows) sends as a follow-up, queueing
 			// behind the current yield (TUI app.message.followUp); idle sessions start
 			// immediately either way. Every other Enter sends in the chip's mode, so the
@@ -1647,9 +1656,10 @@ export function InputArea() {
 								aria-controls={menu ? menuId : undefined}
 								aria-describedby={showSuggestionHint ? suggestionHintId : undefined}
 								aria-label={t("input.ariaLabel")}
-								autoCapitalize="sentences"
-								autoCorrect="on"
-								spellCheck
+								autoCapitalize={composerMode ? "off" : "sentences"}
+								autoCorrect={composerMode ? "off" : "on"}
+								spellCheck={!composerMode}
+								enterKeyHint={enterNewline ? "enter" : undefined}
 								value={text}
 								onChange={event => {
 									const value = event.target.value;
