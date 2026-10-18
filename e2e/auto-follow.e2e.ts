@@ -324,3 +324,91 @@ test("viewport resizes from the dock and composer never stop a pinned transcript
 		expect(errors).toEqual([]);
 	});
 });
+
+// Typing a draft line by line (the field re-fitted on every keystroke, the composer one line taller per
+// Shift+Enter) must keep a pinned transcript's last row above the composer in every painted frame. The
+// field's height fit used to collapse the composer for its measuring layout; the transcript grew into
+// that space, Chromium clamped its scroll offset to the larger viewport, and the restored height never
+// gave it back: past the third line the last reply sat under the composer (DI-2).
+test("a draft growing line by line keeps a pinned transcript's last row above the composer in every frame", async () => {
+	test.setTimeout(150_000);
+	await withFollowApp(async (app, page) => {
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+		const { input, gap, viewport, jumpOffered, scrollUp } = followProbe(page);
+		await expect(input).toBeVisible({ timeout: 60_000 });
+		for (let turn = 0; turn < 3; turn++) {
+			await input.fill(`seed message number ${turn} `.repeat(6));
+			await input.press("Enter");
+			await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+		}
+		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
+		await input.click();
+
+		// Every painted frame: after its layout and resize observers (a ResizeObserver made in the frame's
+		// animation callback reports after every earlier one), the distance from the bottom and how far the
+		// last row reaches past the composer's top edge.
+		await page.evaluate(() => {
+			const scroller = document.querySelector<HTMLElement>(".omp-transcript-scroll");
+			const box = document.querySelector<HTMLElement>(".omp-composer-box");
+			if (!scroller || !box) throw new Error("no transcript or composer");
+			const frames: string[] = [];
+			Object.assign(window, { __followFrames: frames });
+			const sample = () => {
+				const probe = new ResizeObserver(() => {
+					probe.disconnect();
+					const rows = scroller.querySelectorAll<HTMLElement>("[data-index]");
+					const last = [...rows].reduce<HTMLElement | null>(
+						(found, row) => (found && Number(found.dataset.index) > Number(row.dataset.index) ? found : row),
+						null,
+					);
+					const under = last
+						? Math.round(last.getBoundingClientRect().bottom - box.getBoundingClientRect().top)
+						: 0;
+					frames.push(`${scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight}/${under}`);
+					requestAnimationFrame(sample);
+				});
+				probe.observe(scroller);
+			};
+			requestAnimationFrame(sample);
+		});
+		const takeFrames = () =>
+			page.evaluate(() => {
+				const frames = (window as Window & { __followFrames?: string[] }).__followFrames ?? [];
+				return frames.splice(0);
+			});
+
+		const before = await viewport();
+		await takeFrames();
+		for (let line = 0; line < 10; line++) {
+			await page.keyboard.type(`draft line ${line + 1}`);
+			await page.keyboard.press("Shift+Enter");
+			await page.waitForTimeout(250);
+			const frames = await takeFrames();
+			expect(frames.length, `line ${line + 1}: frames sampled`).toBeGreaterThan(0);
+			for (const frame of frames) {
+				const [distance, under] = frame.split("/").map(Number);
+				const trace = `line ${line + 1}, distance/under per frame: ${frames.join(" ")}`;
+				expect(distance, trace).toBeLessThan(SETTLED_EDGE_PX);
+				expect(under, trace).toBeLessThanOrEqual(0);
+			}
+		}
+		// The composer really grew into the transcript, and the view never let go of the tail.
+		expect(await viewport()).toBeLessThan(before - 150);
+		expect(await jumpOffered()).toBe(false);
+
+		// A reader who scrolled up still owns the viewport while the draft grows.
+		await scrollUp();
+		const held = await gap();
+		for (let line = 0; line < 3; line++) {
+			await page.keyboard.type(`more ${line + 1}`);
+			await page.keyboard.press("Shift+Enter");
+		}
+		await page.waitForTimeout(300);
+		expect(await jumpOffered()).toBe(true);
+		expect(await gap()).toBeGreaterThan(LIVE_EDGE_PX);
+		expect(Math.abs((await gap()) - held)).toBeLessThan(400);
+		expect(errors).toEqual([]);
+	});
+});
