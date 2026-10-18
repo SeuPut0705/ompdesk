@@ -229,7 +229,7 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		section: "agent",
 		labelKey: "settings.gui.autopilotShip",
 		aliases:
-			"autopilot ship shipping push release local only default preset overnight unattended 오토파일럿 배포 푸시 릴리스 로컬만 기본 프리셋 무인",
+			"autopilot ship shipping commit push release local only default preset overnight unattended 오토파일럿 내보내기 커밋 배포 푸시 릴리스 로컬만 기본 프리셋 무인",
 	},
 	{
 		id: "autopilotNotify",
