@@ -1,7 +1,8 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { RootErrorBoundary } from "./components/common/RootErrorBoundary";
+import { lazyChunk, watchChunkFailures } from "./lib/chunk-load";
 import { getCurrentLanguage, I18nProvider, loadLocale } from "./lib/i18n";
 import { installGlobalRuntimeErrorHandlers, reportRuntimeError } from "./lib/runtime-errors";
 import "./styles/global.css";
@@ -15,9 +16,10 @@ import "./styles/usage-gauges.css";
 import "./styles/mobile.css";
 
 /** Internal design review page: OMP_GUI_STYLEGUIDE=1 opens the window at this hash. */
-const StyleGuide = lazy(() => import("./components/styleguide/StyleGuide"));
+const StyleGuide = lazyChunk(() => import("./components/styleguide/StyleGuide"));
 
 installGlobalRuntimeErrorHandlers();
+watchChunkFailures();
 
 const container = document.getElementById("root");
 if (!container) {

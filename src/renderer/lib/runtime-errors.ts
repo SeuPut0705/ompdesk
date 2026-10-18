@@ -40,10 +40,15 @@ export function installGlobalRuntimeErrorHandlers(): void {
 	globalHandlersInstalled = true;
 
 	window.addEventListener("error", event => {
+		// A muted error ("Script error.", no file, no line, no error object) came from a script the browser counts as
+		// cross-origin: every script of ours is same-origin and CORS-fetched (`crossorigin` on each tag), so it is a
+		// script the browser or an extension injected; the user agent says which browser.
+		const muted = !event.error && !event.filename && !event.lineno;
 		reportRuntimeError("window-error", event.error ?? event.message, {
 			url: event.filename || window.location.href,
 			line: event.lineno || undefined,
 			column: event.colno || undefined,
+			...(muted ? { details: { muted: true, userAgent: navigator.userAgent } } : {}),
 		});
 	});
 

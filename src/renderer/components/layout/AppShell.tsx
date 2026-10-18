@@ -15,8 +15,9 @@
  */
 
 import { ArrowLeft, Menu, PanelLeft, X } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCompactShell, useDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
+import { lazyChunk } from "../../lib/chunk-load";
 import { activeComposerInput } from "../../lib/composer-focus";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
@@ -36,9 +37,9 @@ import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
 import { WhatsNewCard } from "./WhatsNewCard";
 
-const AgentsPage = lazy(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
-const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
-const SettingsPage = lazy(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
+const AgentsPage = lazyChunk(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
+const InsightsPage = lazyChunk(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
+const SettingsPage = lazyChunk(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 /** Settings from the idle-time preload in AppShell, once it has loaded. */
 let preloadedSettingsPage: typeof LoadedSettingsPage | undefined;
 /** How long a paired web page lets its first screen settle before the idle preloads start. */
@@ -259,10 +260,14 @@ export function AppShell() {
 		const timer = setTimeout(
 			() => {
 				cancelIdle = whenIdle(() => {
-					void import("../settings/SettingsPage").then(module => {
-						preloadedSettingsPage = module.SettingsPage;
-					});
-					void preloadPanelViews();
+					// A preload that fails is the open's to retry (lazyChunk); the chip reports one that never loads.
+					void import("../settings/SettingsPage").then(
+						module => {
+							preloadedSettingsPage = module.SettingsPage;
+						},
+						() => {},
+					);
+					void preloadPanelViews().catch(() => {});
 				}, 10_000);
 			},
 			document.documentElement.dataset.platform === "web" ? WEB_PRELOAD_DELAY_MS : 0,

@@ -418,6 +418,11 @@ export type RuntimeErrorSource =
 	| "ai-memory"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
+	/**
+	 * A paired web page reloaded itself, or was about to (src/renderer/web/reload-reason.ts): `message` is the reason
+	 * (`update`, `outdated`, `resync-failed`, `chunk-load-failed`, `error-boundary`, …), sent on the next connect.
+	 */
+	| "web-reload"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

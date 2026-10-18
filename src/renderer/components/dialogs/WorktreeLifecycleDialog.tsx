@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import type { IpcWorktreeNotice, IpcWorktreePrompt } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
+import { webRuntime } from "../../web/runtime";
 import { Button, ConfirmDialog, Modal } from "../common";
 
 function noticeMessage(
@@ -38,10 +39,14 @@ export function WorktreeLifecycleDialog() {
 		const api = window.omp.worktreeLifecycle;
 		let live = true;
 		const offPrompts = api.onPrompts(next => setPrompts(next));
-		// Questions opened before this renderer subscribed (a reload) still need an answer.
-		void api.prompts().then(open => {
-			if (live) setPrompts(open);
-		});
+		// Questions opened before this renderer subscribed (a reload), or while a web page's link was down, still
+		// need an answer.
+		const read = () =>
+			void api.prompts().then(open => {
+				if (live) setPrompts(open);
+			});
+		read();
+		const offResynced = webRuntime()?.onResynced(read);
 		const offNotice = api.onNotice(notice =>
 			toast({ variant: notice.kind.startsWith("kept-") ? "warning" : "error", message: noticeMessage(notice, t) }),
 		);
@@ -49,6 +54,7 @@ export function WorktreeLifecycleDialog() {
 			live = false;
 			offPrompts();
 			offNotice();
+			offResynced?.();
 		};
 	}, [t]);
 

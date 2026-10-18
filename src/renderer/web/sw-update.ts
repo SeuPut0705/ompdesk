@@ -1,11 +1,57 @@
 /**
  * Updating the page, by itself. A new build installs its service worker next to the running one and waits; the
- * page learns of it here and, at a safe moment (`SafeMoment`), tells the waiting worker to take over
- * (`skip-waiting`) and reloads once the new worker controls the page. A host that needs a newer page than the
- * cached one (`hello.minClient`, the transport's `outdated`) takes the other path under the same rule: drop
- * the worker and its caches and load from the network. There is no banner and no button: the page comes back
- * to the foreground, or launches, and either nothing is pending or the new build is already there.
+ * page learns of it here and, at a moment the page is not in use (`ResumeGate`: the launch, or a return after
+ * being hidden at least `RESUME_AFTER_HIDDEN_MS`, until the first touch or key) that is also safe (`SafeMoment`),
+ * tells the waiting worker to take over (`skip-waiting`) and reloads once the new worker controls the page. A host
+ * that needs a newer page than the cached one (`hello.minClient`, the transport's `outdated`) takes the other path
+ * under the safe-moment rule only (that page can no longer talk to the host): drop the worker and its caches and
+ * load from the network. There is no banner and no button: the page comes back to the foreground, or launches,
+ * and either nothing is pending or the new build is already there.
  */
+
+/** A page hidden this long and shown again is a new visit: the moment an update may land on it. */
+export const RESUME_AFTER_HIDDEN_MS = 30_000;
+/** How long such a moment (or the launch) lasts: a worker that finishes installing within it still applies. */
+export const RESUME_WINDOW_MS = 15_000;
+
+/**
+ * Whether the page is in use. It is not right after it launched or came back after being hidden at least
+ * {@link RESUME_AFTER_HIDDEN_MS}, until the user touches, types or wheels (`used`) or {@link RESUME_WINDOW_MS}
+ * pass: the person is reading, scrolling or typing from then on, and nothing reloads under them.
+ */
+export class ResumeGate {
+	#openedAt: number | null = null;
+	#hiddenAt: number | null = null;
+
+	/** The app has loaded: the first moment. */
+	launched(now: number): void {
+		this.#openedAt = now;
+	}
+
+	hidden(now: number): void {
+		this.#hiddenAt ??= now;
+		this.#openedAt = null;
+	}
+
+	/** The page is visible again; true when it was away long enough to open a new moment. */
+	shown(now: number): boolean {
+		const away = this.#hiddenAt === null ? 0 : now - this.#hiddenAt;
+		this.#hiddenAt = null;
+		if (away < RESUME_AFTER_HIDDEN_MS) return false;
+		this.#openedAt = now;
+		return true;
+	}
+
+	/** A touch, a key or a wheel: the page is in use until the next moment. */
+	used(): void {
+		this.#openedAt = null;
+	}
+
+	/** Within a launch or return moment, before any use. */
+	open(now: number): boolean {
+		return this.#openedAt !== null && now - this.#openedAt < RESUME_WINDOW_MS;
+	}
+}
 
 /** What the page is doing right now; every reading is live. */
 export interface SafeMoment {
@@ -43,26 +89,43 @@ export function safeToReload(moment: SafeMoment): boolean {
 /**
  * Whether a reload now would lose nothing only this page holds: no file pick in progress (a phone hides the page
  * behind its picker, and the page's return is when the files arrive), no picture in the composer, no upload on its
- * way, no unsaved edit or open host dialog. This is the reload after missed events (web-boot.ts `onResync`), which
- * the page needs whether or not it is visible; typed text outlives it (draft-persistence.ts) and the host hands open
- * questions back after it.
+ * way, no unsaved edit or open host dialog. Typed text outlives a reload (draft-persistence.ts) and the host hands
+ * open questions back after it.
  */
 export function reloadLosesNothing(moment: SafeMoment): boolean {
 	return !moment.picking() && !moment.attached() && !moment.uploading() && !moment.editing();
 }
 
-/** Reload once {@link reloadLosesNothing}, looking again every `everyMs` until then. Returns a cancel. */
-export function reloadWhenNothingIsLost(moment: SafeMoment, reload: () => void, everyMs = 500): () => void {
-	if (reloadLosesNothing(moment)) {
-		reload();
-		return () => {};
-	}
-	const timer = setInterval(() => {
-		if (!reloadLosesNothing(moment)) return;
+/**
+ * The last resort after missed events (web-boot.ts: the in-place resync kept failing): reload once nobody uses the
+ * page and it would lose nothing — while it is hidden, or at a launch or return moment ({@link ResumeGate}) that is
+ * also {@link safeToReload}; never mid-scroll, mid-read, mid-typing or mid-pick. Looks again every `everyMs` and
+ * on `recheck` (the page's visibility changes). Returns a cancel.
+ */
+export function reloadWhenUnused(
+	moment: SafeMoment,
+	gate: Pick<ResumeGate, "open">,
+	reload: () => void,
+	options: { now?: () => number; everyMs?: number } = {},
+): { recheck: () => void; cancel: () => void } {
+	const now = options.now ?? Date.now;
+	let done = false;
+	const quiet = () => reloadLosesNothing(moment) && (!moment.visible() || (gate.open(now()) && safeToReload(moment)));
+	const recheck = () => {
+		if (done || !quiet()) return;
+		done = true;
 		clearInterval(timer);
 		reload();
-	}, everyMs);
-	return () => clearInterval(timer);
+	};
+	const timer = setInterval(recheck, options.everyMs ?? 500);
+	recheck();
+	return {
+		recheck,
+		cancel: () => {
+			done = true;
+			clearInterval(timer);
+		},
+	};
 }
 
 export interface WorkerLike {

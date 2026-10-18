@@ -5,6 +5,7 @@
  */
 import type { WebFeatures } from "../../shared/web-protocol";
 import type { HostActions } from "./host-hooks";
+import type { ReloadReason } from "./reload-reason";
 import type { WsConnectionState } from "./ws-transport";
 
 export interface WebRuntime {
@@ -15,8 +16,16 @@ export interface WebRuntime {
 	features(): WebFeatures | null;
 	/** Raise a native-menu action on the page (the More sheet and the command palette). */
 	emitMenuAction(action: string, payload?: Record<string, unknown>): void;
-	/** Replace the default resync (a page reload) after a reconnect that missed events; returns the undo. */
-	setResyncHandler(handler: () => void): () => void;
+	/**
+	 * After a reconnect that missed events the page catches up in place (resync-page.ts); a view holding a snapshot
+	 * of its own (one the missed pushes would have replaced) reads it again here. Returns the unsubscribe.
+	 */
+	onResynced(listener: () => void): () => void;
+	/**
+	 * Load the page again, saying why in the host's runtime log (reload-reason.ts): a new build's waiting worker takes
+	 * over first, so the reload lands on the new build.
+	 */
+	reload(reason: ReloadReason): void;
 	/** Show or request notification permission, for the Settings page of a device. */
 	requestNotifications(): Promise<NotificationPermission | "unsupported">;
 }

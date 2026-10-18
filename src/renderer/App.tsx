@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { nextUiLanguage } from "../shared/ui-language";
 import { ToastStack } from "./components/common";
+import { NewVersionChip } from "./components/common/NewVersionChip";
 import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
@@ -50,6 +51,7 @@ import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch"
 import { useTraySync } from "./hooks/use-tray-sync";
 import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
+import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import {
 	hydrateDisplayPreferences,
@@ -102,13 +104,13 @@ import { WebHostUi } from "./web/host-ui/WebHostUi";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
-const FeedbackDialog = lazy(() =>
+const FeedbackDialog = lazyChunk(() =>
 	import("./components/dialogs/FeedbackDialog").then(m => ({ default: m.FeedbackDialog })),
 );
-const BenchmarkDialog = lazy(() =>
+const BenchmarkDialog = lazyChunk(() =>
 	import("./components/dialogs/BenchmarkDialog").then(m => ({ default: m.BenchmarkDialog })),
 );
-const ModelSetupDialog = lazy(() =>
+const ModelSetupDialog = lazyChunk(() =>
 	import("./components/settings/model-setup/ModelSetupDialog").then(m => ({ default: m.ModelSetupDialog })),
 );
 
@@ -231,6 +233,11 @@ export function App() {
 	const feedbackOpen = useUiStore(s => s.feedbackOpen);
 	const benchmarkOpen = useUiStore(s => s.benchmarkOpen);
 	const closeBenchmark = useUiStore(s => s.closeBenchmark);
+	// Mounted from its first open on (it keeps its form and results while closed), never at start: its chunk loaded
+	// at every launch, and on a phone whose page was older than the computer's update that load crashed the page
+	// (v0.38.1, "Importing a module script failed." at Lazy under App).
+	const [benchmarkMounted, setBenchmarkMounted] = useState(false);
+	if (benchmarkOpen && !benchmarkMounted) setBenchmarkMounted(true);
 	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -935,9 +942,11 @@ export function App() {
 				<WebDeviceNotice />
 				<WebHostUi />
 				<SshPromptDialog />
-				<Suspense fallback={null}>
-					<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
-				</Suspense>
+				{benchmarkMounted ? (
+					<Suspense fallback={null}>
+						<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
+					</Suspense>
+				) : null}
 				<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
 				<ThemePickerDialog />
 				{importDialogOpen && <ImportForeignDialog />}
@@ -945,6 +954,7 @@ export function App() {
 			</div>
 			<SetupTakeoverHost />
 			<ToastStack />
+			<NewVersionChip />
 		</div>
 	);
 	return activeTabId ? <TabRuntimeProvider tabId={activeTabId}>{surface}</TabRuntimeProvider> : surface;

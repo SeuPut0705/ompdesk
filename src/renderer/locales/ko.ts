@@ -861,6 +861,11 @@ export const ko: Record<string, string> = {
 	"appError.logPath": "런타임 로그: {path}",
 	"appError.reload": "인터페이스 다시 불러오기",
 	"appError.report": "GitHub에 신고",
+	"appError.newVersionTitle": "새 버전이 있어요",
+	"appError.newVersionDescription":
+		"컴퓨터가 OMPdesk를 업데이트하기 전에 연 페이지라서 일부를 더 불러올 수 없어요. 새로고침하면 이어서 쓸 수 있고, 입력한 내용은 남아 있어요.",
+	"newVersion.available": "새 버전이 있어요",
+	"newVersion.reload": "새로고침",
 
 	// Deep links (omp:// protocol)
 	"deepLink.notFound": "이 링크와 일치하는 저장된 세션이 없어요.",

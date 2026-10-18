@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	purgeAndReload,
+	RESUME_AFTER_HIDDEN_MS,
+	RESUME_WINDOW_MS,
 	type RegistrationLike,
-	reloadWhenNothingIsLost,
+	ResumeGate,
+	reloadWhenUnused,
 	type SafeMoment,
 	safeToReload,
 	UpdateWatcher,
@@ -154,12 +157,73 @@ describe("safeToReload", () => {
 	});
 });
 
-describe("reloadWhenNothingIsLost (the reload after missed events)", () => {
-	afterEach(() => vi.useRealTimers());
+describe("ResumeGate (an update or last-resort reload lands only while the page is not in use)", () => {
+	it("opens at launch and closes at the first touch or key", () => {
+		const gate = new ResumeGate();
+		expect(gate.open(0)).toBe(false);
+		gate.launched(1000);
+		expect(gate.open(1000)).toBe(true);
+		gate.used();
+		expect(gate.open(1001)).toBe(false);
+	});
 
-	it("reloads at once a hidden page, one with typed text or an open question", () => {
+	it("lasts the resume window only", () => {
+		const gate = new ResumeGate();
+		gate.launched(0);
+		expect(gate.open(RESUME_WINDOW_MS - 1)).toBe(true);
+		expect(gate.open(RESUME_WINDOW_MS)).toBe(false);
+	});
+
+	it("opens again on a return after at least 30 s hidden, never after a quick glance away", () => {
+		const gate = new ResumeGate();
+		gate.launched(0);
+		gate.used();
+		gate.hidden(1000);
+		expect(gate.shown(1000 + RESUME_AFTER_HIDDEN_MS - 1)).toBe(false);
+		expect(gate.open(1000 + RESUME_AFTER_HIDDEN_MS)).toBe(false);
+		gate.hidden(100_000);
+		expect(gate.shown(100_000 + RESUME_AFTER_HIDDEN_MS)).toBe(true);
+		expect(gate.open(100_000 + RESUME_AFTER_HIDDEN_MS + 10)).toBe(true);
+	});
+
+	it("is closed while hidden, and a second hide keeps the first hide's time", () => {
+		const gate = new ResumeGate();
+		gate.launched(0);
+		gate.hidden(10);
+		expect(gate.open(11)).toBe(false);
+		gate.hidden(25_000);
+		expect(gate.shown(10 + RESUME_AFTER_HIDDEN_MS)).toBe(true);
+	});
+});
+
+describe("reloadWhenUnused (the last resort after the in-place resync kept failing)", () => {
+	afterEach(() => vi.useRealTimers());
+	const openGate = { open: () => true };
+	const closedGate = { open: () => false };
+
+	it("reloads at once a hidden page, even with typed text or an open question", () => {
 		const reload = vi.fn();
-		reloadWhenNothingIsLost(moment({ visible: false, draftEmpty: false, askOpen: true }), reload);
+		reloadWhenUnused(moment({ visible: false, draftEmpty: false, askOpen: true }), closedGate, reload);
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("never reloads a visible page in use (read, scrolled or typed in since its last moment)", () => {
+		vi.useFakeTimers();
+		const reload = vi.fn();
+		reloadWhenUnused(calm, closedGate, reload);
+		vi.advanceTimersByTime(60_000);
+		expect(reload).not.toHaveBeenCalled();
+	});
+
+	it("reloads a visible page at a launch or return moment only when nothing is typed or open", () => {
+		vi.useFakeTimers();
+		const typed = { draftEmpty: false };
+		const reload = vi.fn();
+		reloadWhenUnused(moment(typed), openGate, reload);
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		typed.draftEmpty = true;
+		vi.advanceTimersByTime(500);
 		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
@@ -168,11 +232,11 @@ describe("reloadWhenNothingIsLost (the reload after missed events)", () => {
 		["the composer holds a picture", "attached"],
 		["an upload is on its way", "uploading"],
 		["an edit is unsaved", "editing"],
-	] as const)("waits while %s, then reloads once", (_name, key) => {
+	] as const)("waits even while hidden when %s, then reloads once", (_name, key) => {
 		vi.useFakeTimers();
-		const busy = { [key]: true };
+		const busy = { visible: false, [key]: true };
 		const reload = vi.fn();
-		reloadWhenNothingIsLost(moment(busy), reload);
+		reloadWhenUnused(moment(busy), closedGate, reload);
 		vi.advanceTimersByTime(5000);
 		expect(reload).not.toHaveBeenCalled();
 		busy[key] = false;
@@ -182,13 +246,18 @@ describe("reloadWhenNothingIsLost (the reload after missed events)", () => {
 		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
-	it("can be cancelled", () => {
+	it("looks again when asked (the page's visibility changed) and can be cancelled", () => {
 		vi.useFakeTimers();
+		const page = { visible: true };
 		const reload = vi.fn();
-		const cancel = reloadWhenNothingIsLost(moment({ picking: true }), reload);
-		cancel();
+		const pending = reloadWhenUnused(moment(page), closedGate, reload, { everyMs: 60_000 });
+		page.visible = false;
+		pending.recheck();
+		expect(reload).toHaveBeenCalledTimes(1);
+		const other = vi.fn();
+		reloadWhenUnused(moment({ picking: true }), closedGate, other).cancel();
 		vi.advanceTimersByTime(5000);
-		expect(reload).not.toHaveBeenCalled();
+		expect(other).not.toHaveBeenCalled();
 	});
 });
 

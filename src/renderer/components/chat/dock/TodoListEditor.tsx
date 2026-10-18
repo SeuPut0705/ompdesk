@@ -1,6 +1,7 @@
 import { AlertTriangle, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import type { TodoPhase } from "../../../../shared/rpc-types";
+import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { type OptimisticTarget, optimisticWrite } from "../../../lib/optimistic";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -18,7 +19,7 @@ function todoPayload(phases: UiTodoPhase[]): TodoPhase[] {
 	}));
 }
 
-const TodoSortableList = lazy(() => import("./TodoSortableList").then(m => ({ default: m.TodoSortableList })));
+const TodoSortableList = lazyChunk(() => import("./TodoSortableList").then(m => ({ default: m.TodoSortableList })));
 
 /** The session's todo counts in one phrase ("1 running · 3 pending"). */
 export function useTodoTaskSummary(): string {

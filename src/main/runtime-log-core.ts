@@ -30,6 +30,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"turn-resume",
 	"ai-memory",
 	"main-thread-hang",
+	"web-reload",
 	"unknown",
 ]);
 

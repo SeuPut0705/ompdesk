@@ -61,6 +61,9 @@ function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo
 	return changed ? next : previous;
 }
 
+/** Feeds someone shows right now (`retain`ed). */
+const heldRefreshes = new Set<() => void>();
+
 function createSessionListFeed(scope: SessionListScope, device: string | undefined): SessionListFeed {
 	const store = createStore<SessionListState>()(() => INITIAL_STATE);
 	let holders = 0;
@@ -114,6 +117,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 				debounceTimer = window.setTimeout(() => refresh(), REFRESH_DEBOUNCE_MS);
 			});
 			refresh(true);
+			heldRefreshes.add(refresh);
 		}
 		return () => {
 			holders--;
@@ -121,6 +125,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 			window.clearTimeout(debounceTimer);
 			unsubscribe?.();
 			unsubscribe = null;
+			heldRefreshes.delete(refresh);
 			// Nobody shows the list: forget it, so the next holder loads it fresh.
 			generation++;
 			loaded = false;
@@ -161,4 +166,9 @@ export function sessionListFeed(scope: SessionListScope, device?: string): Sessi
 	const feed = feeds.get(key) ?? createSessionListFeed(scope, device);
 	feeds.set(key, feed);
 	return feed;
+}
+
+/** Read every shown list again: a web page whose link dropped missed the SESSIONS_CHANGED pushes (web/resync-page.ts). */
+export function refreshHeldSessionLists(): void {
+	for (const refresh of heldRefreshes) refresh();
 }

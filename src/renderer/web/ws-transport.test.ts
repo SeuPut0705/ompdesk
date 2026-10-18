@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { WebClientFrame, WebServerFrame } from "../../shared/web-protocol";
 import { UnpairedError } from "./session";
-import { type WsConnectionState, type WsLike, WsTransport, type WsTransportOptions } from "./ws-transport";
+import {
+	type ResyncCause,
+	type WsConnectionState,
+	type WsLike,
+	WsTransport,
+	type WsTransportOptions,
+} from "./ws-transport";
 
 class FakeSocket implements WsLike {
 	readyState = 1;
@@ -95,7 +101,7 @@ const settle = async () => {
 function setup(overrides: Partial<WsTransportOptions> = {}) {
 	const clock = new Clock();
 	const sockets: FakeSocket[] = [];
-	const log = { resync: 0, outdated: 0, unpaired: 0, tickets: 0 };
+	const log = { resync: 0, causes: [] as ResyncCause[], outdated: 0, unpaired: 0, tickets: 0 };
 	const transport = new WsTransport({
 		url: "wss://mac.tail.ts.net:47831/ws",
 		fetchTicket: async () => `t${++log.tickets}`,
@@ -110,7 +116,10 @@ function setup(overrides: Partial<WsTransportOptions> = {}) {
 		now: () => clock.now,
 		random: () => 0.5,
 		isVisible: () => true,
-		onResync: () => log.resync++,
+		onResync: cause => {
+			log.resync++;
+			log.causes.push(cause);
+		},
 		onOutdated: () => log.outdated++,
 		onUnpaired: () => log.unpaired++,
 		...overrides,
@@ -263,6 +272,7 @@ describe("WsTransport", () => {
 		await settle();
 		last().serve(HELLO(true));
 		expect(log.resync).toBe(1);
+		expect(log.causes).toEqual(["missed-events"]);
 	});
 
 	it("offers the last connection's id on a reconnect, and resyncs a resumed link that failed a call", async () => {
@@ -291,6 +301,7 @@ describe("WsTransport", () => {
 		await settle();
 		last().serve(HELLO(true));
 		expect(log.resync).toBe(1);
+		expect(log.causes).toEqual(["lost-calls"]);
 	});
 
 	it("fails calls in flight when the link drops, and sends later ones after the reconnect", async () => {

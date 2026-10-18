@@ -31,6 +31,7 @@ import { PeerQuota } from "../remote/peer-quota";
 import type { TabActivity, TabFacts } from "../sidecar-pool";
 import { stockHelperRequest } from "../stock-helper";
 import type { TailnetPeer } from "../tailscale/whois";
+import { AssetArchive } from "./asset-archive";
 import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
 import { WebBlocks } from "./blocks-store";
@@ -119,6 +120,9 @@ export class WebHost {
 	readonly sender: PushSender;
 	readonly notifier: WebPushNotifier;
 	readonly #serveSecret: ServeSecretStore;
+	/** The previous builds' assets the server still serves (asset-archive.ts); filled once per launch at `start`. */
+	readonly assets: AssetArchive;
+	#archiving: Promise<void> | null = null;
 	#sweeper: ReturnType<typeof setInterval> | undefined;
 
 	constructor(deps: WebHostDeps) {
@@ -138,6 +142,7 @@ export class WebHost {
 		this.uploads = new UploadStore({ root: join(deps.userData, "web-uploads"), now });
 		this.blocks = new WebBlocks(deps.userData, now);
 		this.#serveSecret = new ServeSecretStore(deps.userData);
+		this.assets = new AssetArchive(join(deps.userData, "web-assets"), now);
 		this.confirmations = new PairingConfirmations({
 			notify: request => this.#toDesktop(WEB_PAIRING_REQUEST, request),
 			now,
@@ -202,6 +207,7 @@ export class WebHost {
 			uploads: this.uploads,
 			blobs: this.blobs,
 			staticRoot: deps.staticRoot,
+			previousBuilds: () => this.assets.roots(),
 			onUnpairedAuth: deps.onUnpairedAuth,
 			push: { publicKey: () => this.vapid.keys().publicKey },
 			now,
@@ -223,6 +229,12 @@ export class WebHost {
 		this.#sweeper ??= setInterval(() => void this.uploads.sweep().catch(() => 0), UPLOAD_SWEEP_MS);
 		this.#sweeper.unref();
 		void this.uploads.sweep().catch(() => 0);
+		const root = this.#deps.staticRoot();
+		if (root) {
+			this.#archiving ??= this.assets
+				.retain(root)
+				.catch(error => this.#deps.log?.(`web assets: keeping this build's assets failed: ${String(error)}`));
+		}
 		return started;
 	}
 

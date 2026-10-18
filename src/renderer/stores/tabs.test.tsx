@@ -59,6 +59,7 @@ import {
 	restoreTabComposer,
 	restoreTabExtensionUiRequests,
 	type SessionTab,
+	settleTabExtensionUiRequests,
 	settleTabPlanApproval,
 	tabChipLabel,
 	tabDisplayTitle,
@@ -1487,6 +1488,33 @@ describe("tabs store background tab signals", () => {
 		pushTabExtensionUiRequest("t1", ask);
 		expect(pending()).toEqual(["ask-t1"]);
 		expect(tabOf("t1")?.awaitingInput).toBe("input");
+	});
+
+	// A web page catching up in place after its link dropped (web/resync-page.ts): the `cancel` of an ask answered
+	// on another device meanwhile was among the missed events.
+	it("settles the asks after a reconnect: missed ones appear, answered ones go, a status stays", () => {
+		seedTabs();
+		const pending = (tabId: string) =>
+			sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")
+				?.getState()
+				.pendingRequests.map(request => request.id);
+		const answered: ExtensionUIRequest = { type: "extension_ui_request", id: "old", method: "ask", questions: [] };
+		const missed: ExtensionUIRequest = { type: "extension_ui_request", id: "new", method: "ask", questions: [] };
+		pushTabExtensionUiRequest("t1", answered);
+		expect(tabOf("t1")?.awaitingInput).toBe("input");
+		settleTabExtensionUiRequests([{ tabId: "t2", request: missed }]);
+		expect(pending("t1")).toEqual([]);
+		expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+		expect(pending("t2")).toEqual(["new"]);
+	});
+
+	it("takes the host's list as the whole truth after a reconnect: a restarted host's old tab ids go", async () => {
+		seedTabs("t1");
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("n0", "/alpha"), active: true }, tabInfo("n1", "/beta")]);
+		await useTabsStore.getState().reconcileTabs({ dropUnlisted: true });
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["n0", "n1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("n0");
+		expect(sessionRuntime("t1")).toBeNull();
 	});
 
 	describe("a provider sign-in's requests, restored", () => {
