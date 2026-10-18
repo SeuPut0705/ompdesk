@@ -282,9 +282,9 @@ describe("ContextUsagePopover", () => {
 		});
 		const reopened = document.querySelector("#omp-context-usage-popover")?.querySelector("button");
 		expect(document.activeElement).toBe(reopened);
-		const escape = new Event("keydown", { bubbles: true, cancelable: true });
-		Object.defineProperty(escape, "key", { value: "Escape" });
-		await act(async () => document.dispatchEvent(escape));
+		const escapeKey = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(escapeKey, "key", { value: "Escape" });
+		await act(async () => document.dispatchEvent(escapeKey));
 		expect(document.activeElement).toBe(trigger);
 		next.remove();
 	});
