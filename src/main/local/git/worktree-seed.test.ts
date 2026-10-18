@@ -70,7 +70,8 @@ describe("seedWorktree", () => {
 		expect(await fs.readFile(path.join(target, ".env"), "utf8")).toBe("A=1\n");
 		expect(await fs.readFile(path.join(target, ".env.local"), "utf8")).toBe("B=2\n");
 		expect(await fs.readFile(path.join(target, "secrets", "key"), "utf8")).toBe("k\n");
-		expect(await fs.readFile(path.join(target, "tracked.txt"), "utf8")).toBe("from git\n");
+		// The checkout git made, whatever line ending core.autocrlf gave it (Windows runners check out CRLF).
+		expect((await fs.readFile(path.join(target, "tracked.txt"), "utf8")).replace(/\r\n/g, "\n")).toBe("from git\n");
 		expect(report?.copied).toBe(3);
 		expect(report?.skipped).toEqual(
 			expect.arrayContaining([
