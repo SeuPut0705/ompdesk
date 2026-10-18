@@ -58,7 +58,7 @@ export function TerminalKeyBar({
 	};
 	return (
 		<div
-			className="flex min-w-0 shrink-0 items-center gap-1 border-t border-(--sc-divider) bg-(--sc-surface-1) px-2 py-1"
+			className="flex min-w-0 shrink-0 items-center gap-1 border-t border-(--sc-divider) bg-(--sc-surface-1) px-2"
 			role="toolbar"
 			aria-label={t("panel.terminal.keys")}
 			data-terminal-keybar
@@ -94,7 +94,8 @@ export function TerminalKeyBar({
 					A+
 				</button>
 			</div>
-			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+			{/* The scroller clips its keys' hit areas to its own box: it takes the bar's padding, so a key's reach fills the bar. */}
+			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
 				{TERMINAL_KEYS.map(key => (
 					<button
 						aria-label={key.aria ? t(key.aria) : undefined}

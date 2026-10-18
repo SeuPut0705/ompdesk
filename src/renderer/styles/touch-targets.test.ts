@@ -127,3 +127,26 @@ describe("a session's family rows (sidebar subagents and opened sessions)", () =
 		expect(row).not.toContain("description");
 	});
 });
+
+describe("hit areas that fill the room they have", () => {
+	it("leaves a compact settings row unbounded: its 44 px reach ends at the row's own edge", () => {
+		// The 36 px field row between 4 px paddings is a 44 px pitch; only a stacked row (glyph over control) is bounded.
+		expect(rule('html[data-shell="phone"] .settings-content :is([data-setting-row], .settings-field-row)')).toMatch(
+			/--hit-gap-y:\s*8px/,
+		);
+		expect(rule('html[data-shell="phone"] .settings-content .settings-field-row-compact')).toMatch(
+			/--hit-gap-y:\s*initial/,
+		);
+		expect(rule('html[data-shell="phone"]')).toMatch(/--sc-row-touch:\s*36px/);
+		expect(read("../components/settings/SettingsLayout.tsx")).toContain('"settings-row scroll-mt-4 py-1"');
+	});
+
+	it("lets a terminal key reach through the bar's padding, which its scroller holds so the reach is not clipped", () => {
+		const bound = rule("html[data-shell] [data-terminal-keybar]");
+		expect(bound).toMatch(/--hit-gap-x:\s*4px/);
+		expect(bound).toMatch(/--hit-gap-y:\s*8px/);
+		const bar = read("../components/panels/TerminalKeyBar.tsx");
+		expect(bar).toContain('bg-(--sc-surface-1) px-2"');
+		expect(bar).toContain("overflow-x-auto py-1");
+	});
+});

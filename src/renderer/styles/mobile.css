@@ -914,11 +914,18 @@ html[data-shell] .omp-composer-send-cluster {
 	gap: 8px;
 }
 
-/* The terminal's key bar sits right above the panel tab bar; the side panel's own toolbars, rows and the live work
-   card hold neighbours 4 px apart. */
-html[data-shell] :is([data-terminal-keybar], [data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
+/* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart. */
+html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
+}
+
+/* The terminal's key bar: keys 4 px apart in one row, the bar's 4 px padding above and below them, the panel tab bar
+   under it on a phone (whose buttons reach 2 px up). A key's reach fills the bar, down to the tab buttons' hit area;
+   with the panel's 4 px bound it stopped 2 px short and left a strip under every key that no tap reached. */
+html[data-shell] [data-terminal-keybar] {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 8px;
 }
 
 /* Inline code in prose keeps to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */
@@ -990,8 +997,16 @@ html[data-shell="phone"] .settings-nav {
 	gap: var(--sc-space-1-5);
 }
 
+/* A stacked row holds its label's info glyph 8 px above its control: bound the reach to half of that. */
 html[data-shell="phone"] .settings-content :is([data-setting-row], .settings-field-row) {
 	--hit-gap-y: 8px;
+}
+
+/* A compact row (a switch or one button beside its label) centres its controls in a 36 px line between the row's
+   4 px paddings, so a 44 px reach ends at the row's own edge and no bound is needed; the 8 px one left a switch a
+   32 px target with 12 px between it and the next row's switch that no tap reached. */
+html[data-shell="phone"] .settings-content .settings-field-row-compact {
+	--hit-gap-y: initial;
 }
 
 /* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home
