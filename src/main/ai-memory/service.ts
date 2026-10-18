@@ -105,6 +105,11 @@ export interface AiMemoryServiceDeps {
 	onState: (state: AiMemoryState) => void;
 	/** Wait for something before the first wiring (the first tab boots before ai-memory competes with it). */
 	beforeStart?: () => Promise<void>;
+	/**
+	 * Windows: `setup` runs isolated, which starts it through Bun (`setup/supervisor.ts isolatedLaunch`), and Bun is a
+	 * machine-setup item a fresh machine may not have yet. Absent: nothing to wait for (macOS).
+	 */
+	bunPresent?: () => Promise<boolean>;
 	runner?: SetupRunner;
 	client?: AiMemoryClient;
 	externalProbe?: (bin: string) => Promise<string | null>;
@@ -185,6 +190,8 @@ export class AiMemoryService {
 	#downPolls = 0;
 	#lastRewire = 0;
 	#statsAt = 0;
+	/** A wiring pass found no Bun: the setup's Bun arriving (`bunInstalled`) runs it again, once. */
+	#awaitingBun = false;
 
 	constructor(deps: AiMemoryServiceDeps) {
 		this.#deps = deps;
@@ -261,6 +268,16 @@ export class AiMemoryService {
 		if (!this.#state.enabled || !this.#platformOk || !this.#deps.automatic) return Promise.resolve();
 		this.#patch({ phase: "starting", step: "stage", detail: null });
 		return this.#enqueue(() => this.#enable());
+	}
+
+	/**
+	 * The machine setup reports Bun present (called on every such setup state). A wiring pass that stopped for want of
+	 * Bun runs again, once; otherwise nothing happens.
+	 */
+	bunInstalled(): void {
+		if (!this.#awaitingBun) return;
+		this.#awaitingBun = false;
+		void this.retry();
 	}
 
 	/** Erase everything ai-memory remembers (wiki, database, raw events, token); wire it again when memory is on. */
@@ -554,6 +571,11 @@ export class AiMemoryService {
 
 	async #enable(): Promise<void> {
 		try {
+			this.#awaitingBun = false;
+			if (this.#deps.bunPresent && !(await this.#deps.bunPresent())) {
+				this.#awaitingBun = true;
+				throw new StepError("Waiting for Bun: memory sets itself up as soon as the setup has installed it.");
+			}
 			this.#step("stage");
 			const resolved = await this.#resolve();
 			this.#resolved = resolved;

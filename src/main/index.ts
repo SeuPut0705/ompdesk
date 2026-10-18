@@ -112,6 +112,7 @@ import { SessionKindStore } from "./session-kinds";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
+import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -795,6 +796,10 @@ app.whenReady().then(() => {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.SETUP_STATE, state);
 			}
 			mobileWebService?.onSetupState(state);
+			// ai-memory's wiring waits for Bun on Windows: it runs again (once) when the setup reports Bun present.
+			if (state.items.some(item => item.id === "bun" && item.presence?.kind === "present")) {
+				aiMemoryService?.bunInstalled();
+			}
 			if (state.items.some(item => item.presence !== null)) markStartup("setup-detected");
 			// omp just became usable: local tabs that waited for it start now (tabs on paired hosts are theirs),
 			// and a session list refused meanwhile is read again.
@@ -978,6 +983,11 @@ app.whenReady().then(() => {
 		...(aiMemoryUnitPidFile ? { unit: pidFileControl(aiMemoryUnitPidFile) } : {}),
 		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()) }),
 		beforeStart: afterFirstTab,
+		// Windows starts `setup` through Bun; on a fresh machine the setup may still be installing it, and the setup's
+		// state (its `onState` above) runs the wiring again once Bun is there.
+		...(platform === "win32"
+			? { bunPresent: async () => findBun({ ...process.env, ...(await shellSpawnEnv()) }) !== null }
+			: {}),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);

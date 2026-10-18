@@ -1092,4 +1092,65 @@ describe("AiMemoryService", () => {
 			expect(calls()).toBeGreaterThan(afterFirst);
 		});
 	});
+
+	describe("Bun (Windows starts setup through it)", () => {
+		it("without Bun no command runs and the state says why; the setup reporting Bun wires it, once, without a Try again", async () => {
+			const bun = { present: false };
+			const phases: string[] = [];
+			const ready = Promise.withResolvers<void>();
+			const { service, commands } = await make({
+				bunPresent: async () => bun.present,
+				onState: snapshot => {
+					phases.push(snapshot.phase);
+					if (snapshot.phase === "ready") ready.resolve();
+				},
+			});
+			await service.start();
+			expect(service.state()).toMatchObject({ phase: "failed", detail: expect.stringMatching(/Waiting for Bun/) });
+			expect(commands()).toEqual([]);
+			bun.present = true;
+			// Every setup state from now on reports Bun present: only the first one runs the wiring again.
+			service.bunInstalled();
+			service.bunInstalled();
+			await ready.promise;
+			service.bunInstalled();
+			expect(service.state().phase).toBe("ready");
+			expect(phases.indexOf("failed")).toBeLessThan(phases.indexOf("ready"));
+			expect(commands().filter(command => command === PLAN)).toHaveLength(1);
+			expect(commands().filter(command => command === SETUP)).toHaveLength(1);
+		});
+
+		it("Bun still missing when it runs again waits again, and the next report runs it", async () => {
+			const bun = { present: false, asked: 0 };
+			const ready = Promise.withResolvers<void>();
+			const { service, commands } = await make({
+				bunPresent: async () => {
+					bun.asked++;
+					return bun.present;
+				},
+				onState: snapshot => {
+					if (snapshot.phase === "ready") ready.resolve();
+				},
+			});
+			await service.start();
+			// A user's Try again before the setup installed Bun: the same wait, nothing run.
+			await service.retry();
+			expect(bun.asked).toBe(2);
+			expect(service.state().phase).toBe("failed");
+			expect(commands()).toEqual([]);
+			bun.present = true;
+			service.bunInstalled();
+			await ready.promise;
+			expect(commands().filter(command => command === SETUP)).toHaveLength(1);
+		});
+
+		it("a report of Bun nobody waited for runs nothing", async () => {
+			const { service, commands } = await make({ bunPresent: async () => true });
+			await service.start();
+			const before = commands();
+			service.bunInstalled();
+			expect(service.state().phase).toBe("ready");
+			expect(commands()).toEqual(before);
+		});
+	});
 });

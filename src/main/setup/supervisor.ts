@@ -216,7 +216,7 @@ interface LaunchOptions {
 }
 
 /** Bun on `env`'s PATH (whatever its case on Windows), else in `BUN_INSTALL` or `%USERPROFILE%\.bun`. */
-function findBun(env: NodeJS.ProcessEnv): string | null {
+export function findBun(env: NodeJS.ProcessEnv): string | null {
 	const pathEnv = Object.entries(env).find(([name]) => name.toUpperCase() === "PATH")?.[1] ?? "";
 	const installed = win32.join(bunInstallDir(env, env.USERPROFILE || homedir()), "bin", "bun.exe");
 	return findOnPath(["bun.exe"], pathEnv, "win32", [installed]);
