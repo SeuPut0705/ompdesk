@@ -369,7 +369,7 @@ html[data-shell="phone"] .omp-composer-send-cluster {
 	color: var(--sc-text);
 }
 
-/* ── Work board: a chip above the composer, the board itself in a sheet ─────────────────────────────────── */
+/* ── Work board: a strip under the header that expands in place into the board ────────────────────────────── */
 .omp-work-chip {
 	display: flex;
 	width: min(100% - 2 * var(--omp-column-pad, var(--sc-space-3)), var(--omp-column-reading, 48rem));
@@ -398,9 +398,105 @@ html[data-shell="phone"] .omp-composer-send-cluster {
 	white-space: nowrap;
 }
 
-.omp-work-chip-sheet .omp-work-board {
+/* The expanded strip: an inline panel under it, over the top of the transcript. No scrim, no backdrop: what is
+   below stays visible and tappable (a tap outside only collapses it). It moves only by height and the chevron by
+   transform; reduced motion and software compositing make both instant. */
+.omp-work-strip {
+	position: relative;
+	z-index: var(--sc-z-sticky);
+	flex-shrink: 0;
+}
+
+.omp-work-chip-chevron {
+	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-work-chip[data-open] .omp-work-chip-chevron {
+	transform: rotate(180deg);
+}
+
+.omp-work-strip-panel {
+	position: absolute;
+	inset-inline: 0;
+	top: 100%;
+	display: flex;
+	width: min(100% - 2 * var(--omp-column-pad, var(--sc-space-3)), var(--omp-column-reading, 48rem));
+	max-height: 50dvh;
+	flex-direction: column;
+	margin-inline: auto;
+	overflow: hidden;
+	border: var(--sc-hairline) solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-lg);
+	background: var(--sc-elevated);
+	box-shadow: var(--sc-shadow-md);
+	animation: omp-strip-in var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-work-strip-panel[data-leaving] {
+	pointer-events: none;
+	animation: omp-strip-out var(--sc-duration-fast) var(--sc-ease-standard) both;
+}
+
+.omp-work-strip-body {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding-inline: var(--sc-space-3);
+}
+
+.omp-work-strip-body .omp-work-board {
 	max-height: none;
-	padding-block: var(--sc-space-3);
+	overflow: visible;
+	padding-block: var(--sc-space-2);
+}
+
+/* The swipe-up grip: a short bar in a 16 px strip, never taller than its own box. */
+.omp-work-strip-grip {
+	position: relative;
+	height: 16px;
+	flex-shrink: 0;
+	touch-action: none;
+}
+
+.omp-work-strip-grip::after {
+	content: "";
+	position: absolute;
+	inset: 6px calc(50% - 16px);
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-border);
+}
+
+@keyframes omp-strip-in {
+	from {
+		max-height: 0;
+	}
+	to {
+		max-height: 50dvh;
+	}
+}
+
+@keyframes omp-strip-out {
+	from {
+		max-height: 50dvh;
+	}
+	to {
+		max-height: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-work-strip-panel,
+	.omp-work-strip-panel[data-leaving] {
+		animation: none;
+	}
+}
+
+html[data-gpu="software"] .omp-work-strip-panel,
+html[data-gpu="software"] .omp-work-strip-panel[data-leaving],
+html[data-gpu="software"] .omp-work-chip-chevron {
+	animation: none;
+	transition: none;
 }
 
 /* A menu or popover shown inside the action sheet: the sheet is the surface, so the inner one is bare. */
@@ -436,9 +532,9 @@ html[data-shell="phone"] kbd {
 	display: none;
 }
 
-/* The board names and hides itself in its own header; in the sheet the sheet's header does both. */
-.omp-work-chip-sheet .omp-work-board-name,
-.omp-work-chip-sheet .omp-work-board-hide {
+/* The board names and hides itself in its own header; under the strip the strip names it and a pref toggle has no place. */
+.omp-work-strip-panel .omp-work-board-name,
+.omp-work-strip-panel .omp-work-board-hide {
 	display: none;
 }
 
@@ -651,12 +747,17 @@ html[data-shell="phone"] [data-dock-card] > div:first-child > button {
 /* The work strip: one ≤ 28 px line under the header (the chip moves above the transcript), carrying the run state,
    the plan's progress with the current task and what runs; the dock's todo card and island say the same, so they
    give way. A waiting ask or approval keeps its own card by the composer. */
-html[data-shell] .omp-work-chip {
+html[data-shell] .omp-work-strip {
 	order: -1;
 }
 
-html[data-shell] .omp-session-pane:has(.omp-work-chip) :is([data-dock-card="todo"], [data-workspace-island]) {
+html[data-shell] .omp-session-pane:has(.omp-work-strip) :is([data-dock-card="todo"], [data-workspace-island]) {
 	display: none;
+}
+
+html[data-shell="phone"] .omp-work-strip-panel {
+	width: calc(100% - 2 * var(--omp-column-pad, var(--sc-space-3)) - var(--omp-scrollbar-size, 0px));
+	margin-left: var(--omp-column-pad, var(--sc-space-3));
 }
 
 html[data-shell="phone"] .omp-work-chip {
@@ -889,7 +990,7 @@ html[data-shell] [data-dock-card] > div:first-child {
 	--hit-gap-y: 4px;
 }
 
-html[data-shell] .omp-work-chip {
+html[data-shell] .omp-work-strip {
 	--hit-gap-x: 0px;
 	--hit-gap-y: 0px;
 }

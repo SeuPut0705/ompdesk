@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
@@ -7,10 +7,19 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+// The back gesture itself is lib/back-layer's (its own test); here only what a layer's close does to the strip.
+const backLayer = vi.hoisted(() => ({ close: null as (() => void) | null }));
+vi.mock("../../../hooks/use-back-layer", () => ({
+	useBackLayer: (open: boolean, onClose: () => void) => {
+		backLayer.close = open ? onClose : null;
+	},
+}));
+
+const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
+	Element,
 	Event,
 	HTMLElement,
 	Node,
@@ -25,7 +34,7 @@ const { WorkBoardChip } = await import("./WorkBoardChip");
 let container: HTMLElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(children: ReactNode = null): Promise<void> {
 	useTabsStore.setState({
 		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
 		activeTabId: "t1",
@@ -34,7 +43,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<WorkBoardChip>{null}</WorkBoardChip>
+				<WorkBoardChip>{children}</WorkBoardChip>
 			</I18nProvider>,
 		);
 	});
@@ -82,5 +91,77 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(strip?.querySelector('[data-count="jobs"]')).toBeNull();
 		// The live region still carries the spoken label.
 		expect(strip?.querySelector('[role="status"] .sr-only')?.textContent).toBe("1 of 3 done");
+	});
+
+	describe("expanding in place", () => {
+		const rowTaps = vi.fn();
+		async function mountPlan(): Promise<void> {
+			useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
+			await mount(
+				<ul>
+					<li>
+						<button className="omp-work-board-row" onClick={rowTaps} type="button">
+							row
+						</button>
+					</li>
+				</ul>,
+			);
+		}
+		const strip = () => container.querySelector<HTMLElement>("[data-work-chip]");
+		// A closing panel stays mounted for its 160 ms height transition, flagged `data-leaving` and inert.
+		const panel = () => {
+			const found = container.querySelector("[data-work-strip-panel]");
+			return found?.hasAttribute("data-leaving") ? null : found;
+		};
+		const click = async (element: Element | null | undefined) => {
+			await act(async () => {
+				(element as HTMLElement | null | undefined)?.click();
+			});
+		};
+
+		it("starts collapsed, expands on a tap and collapses on the next, with no scrim or sheet", async () => {
+			await mountPlan();
+			expect(panel()).toBeNull();
+			expect(strip()?.getAttribute("aria-expanded")).toBe("false");
+			await click(strip());
+			expect(strip()?.getAttribute("aria-expanded")).toBe("true");
+			expect(panel()).not.toBeNull();
+			// Inline under the strip: the panel is inside the strip's own wrapper, and nothing dims the screen.
+			expect(container.querySelector("[data-work-strip]")?.contains(panel())).toBe(true);
+			expect(document.querySelector("[data-sheet-placement], [data-sheet-overlay], [data-scrim]")).toBeNull();
+			expect(document.querySelector('[role="dialog"], [aria-modal="true"]')).toBeNull();
+			await click(strip());
+			expect(strip()?.getAttribute("aria-expanded")).toBe("false");
+			// It leaves the DOM once its exit transition is over.
+			await act(async () => {
+				await new Promise(resolve => setTimeout(resolve, 220));
+			});
+			expect(container.querySelector("[data-work-strip-panel]")).toBeNull();
+		});
+
+		it("collapses on a row tap after the row acted, but not on a fold toggle", async () => {
+			rowTaps.mockClear();
+			await mountPlan();
+			await click(strip());
+			await click(container.querySelector("button.omp-work-board-row"));
+			expect(rowTaps).toHaveBeenCalledOnce();
+			expect(panel()).toBeNull();
+		});
+
+		it("collapses on a tap outside, and on the back gesture's layer", async () => {
+			await mountPlan();
+			await click(strip());
+			await act(async () => {
+				document.body.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+			});
+			expect(panel()).toBeNull();
+			await click(strip());
+			expect(panel()).not.toBeNull();
+			expect(backLayer.close).not.toBeNull();
+			await act(async () => {
+				backLayer.close?.();
+			});
+			expect(panel()).toBeNull();
+		});
 	});
 });

@@ -306,7 +306,7 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
-		test("the work board is a chip and a sheet where it cannot dock", async () => {
+		test("the work board is a strip that expands in place where it cannot dock", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
 			const chip = page.locator("[data-work-chip]");
 			if (device.shell === "tablet-landscape") {
@@ -326,12 +326,44 @@ for (const { engine, device } of variants(
 			const composerBox = await page.locator(".omp-composer-box").boundingBox();
 			const viewport = page.viewportSize();
 			expect((viewport?.height ?? 0) - ((composerBox?.y ?? 0) + (composerBox?.height ?? 0))).toBeLessThan(24);
+			// A tap expands the strip itself into the board, under the header: no sheet, no scrim, and the transcript
+			// stays visible and takes taps right below the panel.
+			const panel = page.locator("[data-work-strip-panel]");
+			await expect(panel).toHaveCount(0);
 			await chip.click();
-			const sheet = page.locator('[data-sheet-placement="bottom"] [data-sheet-panel]');
-			await expect(sheet).toBeVisible();
-			await expect(sheet.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
+			await expect(chip).toHaveAttribute("aria-expanded", "true");
+			await expect(panel).toBeVisible();
+			await expect(panel.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
+			await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
+			const panelBox = await settledBox(panel);
+			const headerBottom = (headerBox?.y ?? 0) + (headerBox?.height ?? 0);
+			expect(panelBox.y).toBeGreaterThanOrEqual(headerBottom);
+			expect(panelBox.height).toBeLessThanOrEqual((viewport?.height ?? 0) * 0.5 + 1);
+			const transcript = page.locator("[data-transcript-kind]");
+			await expect(transcript.first()).toBeVisible();
+			// Below the panel the hit test lands on the transcript's own content, not on a backdrop.
+			const below = await page.evaluate(
+				y => {
+					const x = window.innerWidth / 2;
+					const hit = document.elementFromPoint(x, y);
+					return { inPanel: !!hit?.closest("[data-work-strip]"), inPane: !!hit?.closest(".omp-session-pane") };
+				},
+				panelBox.y + panelBox.height + 6,
+			);
+			expect(below).toEqual({ inPanel: false, inPane: true });
+			// Tapping the strip again collapses it.
+			await chip.click();
+			await expect(panel).toHaveCount(0);
+			await expect(chip).toHaveAttribute("aria-expanded", "false");
+			// A tap on the transcript (outside) collapses it too, and still reaches the transcript.
+			await chip.click();
+			await expect(panel).toBeVisible();
+			await page.mouse.click((viewport?.width ?? 0) / 2, panelBox.y + panelBox.height + 6);
+			await expect(panel).toHaveCount(0);
+			await chip.click();
+			await expect(panel).toBeVisible();
 			await page.goBack();
-			await expect(sheet).toHaveCount(0);
+			await expect(panel).toHaveCount(0);
 			await page.context().close();
 		});
 
@@ -509,8 +541,10 @@ for (const { engine, device } of variants(
 					}
 					if (device.shell !== "tablet-landscape") {
 						await page.locator("[data-work-chip]").click();
+						await expect(page.locator("[data-work-strip-panel]")).toBeVisible();
 						await capture(page, "board", tag);
 						await page.goBack();
+						await expect(page.locator("[data-work-strip-panel]")).toHaveCount(0);
 					}
 					await panelButton(page).click();
 					await capture(page, "panel", tag);
