@@ -69,7 +69,7 @@ it("says the server is down within seconds, keeps that across sections, and fill
 	Object.assign(window, { omp: { stats: { fetch } }, setTimeout, clearTimeout, setInterval, clearInterval });
 
 	const first = await mount();
-	expect(first.textContent).toContain(en["stats.loading"]);
+	expect(first.querySelector(`[aria-label="${en["stats.loading"]}"]`)).not.toBeNull();
 	await advance(10_000);
 	expect(first.textContent).toContain(en["stats.serverDown"]);
 

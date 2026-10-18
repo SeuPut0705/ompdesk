@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse } from "../../shared/rpc-types";
+import { rememberRead, resetLastReadForTest } from "../lib/last-read";
 import { usePrCenterStore } from "./pr-center";
 import { useTabsStore } from "./tabs";
 
@@ -79,6 +80,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	resetLastReadForTest();
 });
 
 describe("pr-center store", () => {
@@ -136,5 +138,43 @@ describe("pr-center store", () => {
 		await usePrCenterStore.getState().probe();
 		await usePrCenterStore.getState().checkout(42);
 		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+	});
+});
+
+describe("pr-center: the last read paints at once", () => {
+	const scope = { device: undefined, cwd: "/work/widgets" };
+
+	it("enter() seeds the repo and the list of that folder, and not another folder's", () => {
+		rememberRead(undefined, "pr:repo:/work/widgets", REPO, false);
+		rememberRead(undefined, "pr:list:/work/widgets:open:all", [LIST_ITEM], false);
+		usePrCenterStore.getState().enter(scope);
+		expect(usePrCenterStore.getState().repo).toEqual(REPO);
+		expect(usePrCenterStore.getState().list).toEqual([LIST_ITEM]);
+
+		usePrCenterStore.getState().enter({ device: undefined, cwd: "/work/other" });
+		expect(usePrCenterStore.getState().repo).toBeNull();
+		expect(usePrCenterStore.getState().list).toEqual([]);
+		usePrCenterStore.getState().enter({ device: "host-b", cwd: "/work/widgets" });
+		expect(usePrCenterStore.getState().repo).toBeNull();
+	});
+
+	it("select() shows a PR seen before while it reads again, and a slower answer for another PR never replaces it", async () => {
+		const omp = installMockOmp();
+		usePrCenterStore.getState().enter(scope);
+		await usePrCenterStore.getState().probe();
+		await usePrCenterStore.getState().select(42);
+		expect(usePrCenterStore.getState().detail?.number).toBe(42);
+
+		const slow = Promise.withResolvers<RpcResponse>();
+		omp.rpc.prGet.mockReturnValueOnce(slow.promise as never);
+		const reading = usePrCenterStore.getState().select(42);
+		expect(usePrCenterStore.getState().detail?.number).toBe(42);
+		expect(usePrCenterStore.getState().detailLoading).toBe(true);
+		omp.rpc.prGet.mockResolvedValueOnce(ok({ number: 43, title: "Other", files: [], checks: [] }) as never);
+		await usePrCenterStore.getState().select(43);
+		slow.resolve(ok({ number: 42, title: "late" }));
+		await reading;
+		expect(usePrCenterStore.getState().selected).toBe(43);
+		expect(usePrCenterStore.getState().detail?.number).toBe(43);
 	});
 });

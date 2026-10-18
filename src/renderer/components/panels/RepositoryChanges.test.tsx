@@ -13,6 +13,11 @@ import type { RpcGitChanges } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { RepositoryChanges } from "./RepositoryChanges";
 
+// What the panel last read of this checkout (lib/last-read.ts): a test seeds it; nothing is written back, so the
+// polling tests below count only the panel's own timers.
+const lastReads = vi.hoisted(() => ({ value: undefined as unknown }));
+vi.mock("../../lib/last-read", () => ({ lastRead: () => lastReads.value, rememberRead: () => {} }));
+
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
@@ -106,6 +111,7 @@ function refreshButton(): TestElement {
 }
 
 afterEach(async () => {
+	lastReads.value = undefined;
 	if (root) {
 		await act(async () => {
 			root.unmount();
@@ -115,6 +121,14 @@ afterEach(async () => {
 });
 
 describe("RepositoryChanges", () => {
+	it("paints the last list of this checkout at the first frame, before the read answers", async () => {
+		lastReads.value = changes("src/seeded.ts");
+		installMockOmp(() => new Promise(() => {}));
+		await mount();
+		expect(bodyText()).toContain("seeded.ts");
+		expect(queryAll("[data-skeleton-row]")).toHaveLength(0);
+	});
+
 	it("opens a file with counts and navigation, hides git metadata, and returns to the list", async () => {
 		const data = changes("src/a.ts", "src/b.ts");
 		data.files[0] = { path: "src/a.ts", status: "M", added: 1, removed: 1 };

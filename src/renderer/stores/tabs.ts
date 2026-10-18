@@ -84,7 +84,8 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
-import { ensureTabRuntime, installTabReadyGate, READY_WAIT_CAP_MS, replaceTabRuntime } from "./tab-runtime";
+import { installTabReadyGate, READY_WAIT_CAP_MS } from "./tab-ready-gate";
+import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
 import { useUiStore } from "./ui";
 

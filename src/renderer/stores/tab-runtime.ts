@@ -18,6 +18,7 @@ import {
 import { createSettingsStore } from "./settings";
 import { createSubagentGraphStore } from "./subagent-graph";
 import { createSubagentsStore, type SubagentsStore } from "./subagents";
+import { tabReady } from "./tab-ready-gate";
 import { createTodoStore } from "./todo";
 import { createToolsStore } from "./tools";
 
@@ -32,22 +33,6 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
 	"switch_leaf",
 	"clear_context",
 ]);
-
-/** The longest a command waits for a starting omp before it goes out anyway (and fails the way it always did). */
-const READY_WAIT_CAP_MS = 120_000;
-
-/**
- * Resolves once the tab's omp has finished starting (immediately when it has); the tab list owns the status, so
- * tabs.ts installs it. A command sent while its tab is still starting waits behind it, unseen: a new session opens
- * with a usable composer and the first message goes out when the omp is ready (AGENTS.md › No loading screens).
- */
-let tabReady: (tabId: string) => Promise<void> | null = () => null;
-
-export function installTabReadyGate(gate: (tabId: string) => Promise<void> | null): void {
-	tabReady = gate;
-}
-
-export { READY_WAIT_CAP_MS };
 
 function replacedSessionResponse(command: RpcCommand): RpcResponseError {
 	return {
@@ -71,12 +56,16 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 		) {
 			rpcCommand = { ...rpcCommand, level: "events" };
 		}
-		await tabReady(tabId);
-		if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
 		const changesSession = SESSION_CHANGING_COMMANDS.has(rpcCommand.type);
 		if (changesSession) generation++;
 		const requestGeneration = generation;
 		const origin = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+		// A tab whose omp is still starting holds the command back (tab-ready-gate.ts); one that is not goes out now.
+		const starting = tabReady(tabId);
+		if (starting) {
+			await starting;
+			if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
+		}
 		const response = await window.omp.rpc.commandForTab(tabId, rpcCommand, timeoutMs);
 		// Session metadata can retire this runtime before its own lifecycle ACK.
 		// Preserve the execution outcome; callers guard any subsequent UI writes.

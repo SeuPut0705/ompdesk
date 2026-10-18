@@ -251,8 +251,9 @@ async function newSession(page: Page): Promise<{ composerMs: number; sentMs: num
 	const composerMs = Date.now() - started;
 	const sending = Date.now();
 	await input.press("Enter");
+	// A row of the transcript, not the draft still sitting in the field: the message was taken as sent.
 	const sent = await page
-		.getByText("first message in a new session", { exact: true })
+		.locator('[data-transcript-kind="message"]', { hasText: "first message in a new session" })
 		.first()
 		.waitFor({ state: "visible", timeout: 3000 })
 		.then(
@@ -343,7 +344,9 @@ test.describe("no loading screens: more surfaces", () => {
 				warmReading.bootShift,
 				`the boot skeleton and the layout that replaced it are not the same boxes (px): ${warmReading.bootDetail}`,
 			).not.toBeNull();
-			expect(warmReading.bootShift as number, `boot vs React rects: ${warmReading.bootDetail}`).toBeLessThanOrEqual(2);
+			expect(warmReading.bootShift as number, `boot vs React rects: ${warmReading.bootDetail}`).toBeLessThanOrEqual(
+				2,
+			);
 			// From the tab snapshot: the title and the open session's row are in the first React frames.
 			expect(warmReading.titleAt, "no tab was named at the first frame").not.toBeNull();
 			expect((warmReading.titleAt as number) - (warmReading.shellAt as number)).toBeLessThan(120);
@@ -368,6 +371,22 @@ test.describe("no loading screens: more surfaces", () => {
 		try {
 			const opened = await newSession(warm.page);
 			expect(opened.sentMs, "the message was not shown as sent").not.toBeNull();
+			// And it reached the omp once that was ready: the session file of the new tab holds it.
+			await expect
+				.poll(
+					async () => {
+						const dir = path.join(profile.root, "agent", "sessions");
+						const files = await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]);
+						for (const file of files) {
+							if (!String(file).endsWith(".jsonl")) continue;
+							const text = await fs.readFile(path.join(dir, String(file)), "utf8").catch(() => "");
+							if (text.includes("first message in a new session")) return true;
+						}
+						return false;
+					},
+					{ timeout: 20_000 },
+				)
+				.toBe(true);
 			expect(opened.composerMs, "the composer was slow to be usable").toBeLessThan(1200);
 			spinnerFree(opened.reading, "new session");
 			await expect(warm.page.getByText(/still connecting/i)).toHaveCount(0);
@@ -444,7 +463,12 @@ test.describe("no loading screens: phone page", () => {
 		web.proxy.setLink(LINK);
 		await page.reload();
 		await settled(page, true);
-		spinnerFree(await readLoading(page), "warm phone load");
+		const reading = await readLoading(page);
+		spinnerFree(reading, "warm phone load");
+		// The boot skeleton is the layout the page's first render replaces (a phone: no sidebar, a short bar, one-row composer).
+		expect(reading.bootAt, "the boot skeleton never painted").not.toBeNull();
+		expect(reading.bootShift, `boot vs React rects: ${reading.bootDetail}`).not.toBeNull();
+		expect(reading.bootShift as number, `boot vs React rects: ${reading.bootDetail}`).toBeLessThanOrEqual(2);
 	});
 });
 
