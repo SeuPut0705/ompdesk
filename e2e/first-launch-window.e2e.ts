@@ -346,6 +346,8 @@ async function withPackagedApp(
 	const consoleErrors: string[] = [];
 	const pageErrors: string[] = [];
 	let app: ElectronApplication | null = null;
+	// Playwright's handle on a closed app has no process any more: the test's own quit leaves nothing to exit.
+	let closed = false;
 	try {
 		const launchedApp = await electron.launch({
 			...(executable ? { executablePath: executable } : {}),
@@ -356,6 +358,9 @@ async function withPackagedApp(
 			env,
 		});
 		app = launchedApp;
+		app.process().once("close", () => {
+			closed = true;
+		});
 		app.process().stdout?.on("data", chunk => mainOutput.push(String(chunk)));
 		app.process().stderr?.on("data", chunk => mainOutput.push(String(chunk)));
 		await app.evaluate(({ app, BrowserWindow }) => {
@@ -413,7 +418,7 @@ async function withPackagedApp(
 		await fs
 			.cp(path.join(userData, "logs"), info.outputPath("userdata-logs"), { recursive: true })
 			.catch(() => undefined);
-		if (app) await exitApp(app);
+		if (app && !closed) await exitApp(app);
 		if (startsService) removeAiMemoryService();
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
