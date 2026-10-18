@@ -12,7 +12,7 @@ import { formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useAiMemoryStore } from "../../stores/ai-memory";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Button, ConfirmDialog, CopyButton, InlineNotice, Spinner } from "../common";
+import { Badge, Button, ConfirmDialog, CopyButton, InlineNotice, SkeletonRows, Spinner } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 type Action = "toggle" | "retry" | "purge" | "console" | "password" | "reveal" | "terminal";
@@ -52,7 +52,7 @@ export function AiMemorySection() {
 	if (!state) {
 		return (
 			<SettingsSection id="settings-memory" title={t("aiMemory.title")}>
-				<Spinner className="w-full justify-center py-6" label={t("common.loading")} />
+				<SkeletonRows label={t("common.loading")} widths={[60, 74, 46]} />
 			</SettingsSection>
 		);
 	}

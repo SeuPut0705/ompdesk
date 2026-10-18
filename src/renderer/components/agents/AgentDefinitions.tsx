@@ -54,7 +54,7 @@ import {
 	MenuButton,
 	SearchField,
 	Select,
-	Spinner,
+	SkeletonRows,
 	Switch,
 	Tabs,
 } from "../common";
@@ -635,9 +635,7 @@ export function AgentDefinitions() {
 
 			{!loadedState ? (
 				rpc.loading || (!rpc.error && rpc.ready) ? (
-					<div className="flex justify-center py-12">
-						<Spinner label={t("common.loading")} />
-					</div>
+					<SkeletonRows className="py-4" label={t("common.loading")} widths={[52, 68, 44, 60, 50]} />
 				) : (
 					<EmptyState
 						actions={

@@ -1026,3 +1026,9 @@ html[data-platform="darwin"] .omp-sidebar-search {
 .settings-embedded-panel.settings-plugin-detail-open {
 	min-height: min(65dvh, 640px);
 }
+
+/* Software compositing draws every frame on the CPU: a wait that has to show at all shows still (the arc stays,
+   nothing turns). */
+html[data-gpu="software"] .animate-spin {
+	animation: none;
+}
