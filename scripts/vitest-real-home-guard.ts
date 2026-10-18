@@ -126,8 +126,12 @@ function guard(
 	label: string,
 ): void {
 	const descriptor = Object.getOwnPropertyDescriptor(api, name);
-	const original: unknown = descriptor?.value;
-	if (!descriptor || typeof original !== "function") return;
+	const found: unknown = descriptor?.value;
+	if (!descriptor || typeof found !== "function") return;
+	const original: (this: unknown, ...args: unknown[]) => unknown = found as (
+		this: unknown,
+		...args: unknown[]
+	) => unknown;
 	const isOpen = name === "open" || name === "openSync";
 	function guarded(this: unknown, ...args: unknown[]): unknown {
 		try {
