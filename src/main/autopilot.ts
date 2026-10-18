@@ -3,7 +3,9 @@
  * ledger in the session journal and enforces the protocol inside the agent (modes/autopilot.ts); this class
  * does what only main can:
  *
- * - start: preflight, a new worktree + `autopilot/<date>` branch as a new tab, arm the bridge, then stock
+ * - start: preflight, a new worktree as a new tab on the branch the user picked (a new `autopilot/<date>` by default;
+ *   an existing local or remote branch, refused when another worktree has it; the default branch only when picked),
+ *   arm the bridge, then stock
  *   `set_goal create` (the arm comes first: stock keeps the tool set at that moment for pause/resume);
  * - stop: pause the goal, tell the bridge `stopping`, empty the children's queues, and when the last turn has
  *   settled close the children, drop the goal and disarm. ■ aborts the running children too;
@@ -21,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
 	AUTOPILOT_GUIDE_FILE,
@@ -28,6 +31,8 @@ import {
 	type AutopilotAction,
 	type AutopilotArea,
 	type AutopilotArmParams,
+	type AutopilotBranchChoice,
+	type AutopilotBranchEntry,
 	type AutopilotChildLive,
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
@@ -47,15 +52,25 @@ import {
 	type ShipQueueItem,
 	shipPolicyForPreset,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import {
+	branchProblem,
+	branchSlug,
+	parseChoice,
+	runIdFor,
+	validBranchPref,
+	worktreeModeFor,
+} from "../shared/autopilot-branch";
 import { autopilotLogTitle, formatAutopilotLog } from "../shared/autopilot-log";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult } from "../shared/ipc-types";
 import type { ExtensionUIResponse, RpcCommand, RpcResponse, RpcWorktreeCreateResult } from "../shared/rpc-types";
 import { type ApproverRun, AutopilotApprover } from "./autopilot-approver";
 import { type AuditScope, type AuditSnapshot, type AuditViolation, auditCycle, takeSnapshot } from "./autopilot-audit";
+import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
 import { ShipRunner, type ShipTarget } from "./autopilot-ship";
 import type { MainTextKey } from "./i18n-text";
 import { ghText, gitRaw, resolveBin } from "./local/git/exec";
 import { prCreate } from "./local/git/pr";
+import type { WorktreeBranchSource } from "./local/git/worktree";
 import { detectReleaseProcedure } from "./release-detect";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
@@ -295,6 +310,7 @@ export function validAutopilotPref(key: string, value: unknown): boolean {
 			return limit === null || (typeof limit === "number" && Number.isFinite(limit) && limit > 0);
 		});
 	}
+	if (key === AUTOPILOT_BRANCH_PREF) return validBranchPref(value);
 	if (key !== "autopilotShip") return false;
 	const release = record.autoRelease as { on?: unknown; cadence?: { kind?: unknown; n?: unknown } } | null | undefined;
 	const cadence = release?.cadence;
@@ -540,8 +556,8 @@ export class Autopilot {
 		if (!toplevel || !(await this.#gitText(cwd, ["rev-parse", "--verify", "-q", "HEAD"]))) {
 			throw new AutopilotError(text("autopilot.err.notRepo"), "autopilot_not_repo");
 		}
-		const baseBranch = await this.#gitText(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-		if (!baseBranch) throw new AutopilotError(text("autopilot.err.detached"), "autopilot_detached");
+		const checkoutBranch = await this.#gitText(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
+		if (!checkoutBranch) throw new AutopilotError(text("autopilot.err.detached"), "autopilot_detached");
 		const plan = await this.#stock<{ enabled?: boolean }>(tabId, { type: "get_plan_mode" }).catch(() => null);
 		if (plan?.enabled === true) throw new AutopilotError(text("autopilot.err.planOn"), "autopilot_plan_on");
 		const goal = await this.#stock<{ status?: string }>(tabId, { type: "get_goal" }).catch(() => null);
@@ -555,16 +571,33 @@ export class Autopilot {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
 		}
 
+		// The branch is checked now, from git's own state: the sheet's list may be old.
+		const date = this.#deps.today?.() ?? localDate(new Date());
+		const choice: AutopilotBranchChoice | null =
+			options.branch === undefined ? { kind: "new" } : parseChoice(options.branch);
+		if (!choice) {
+			throw new AutopilotError(text("autopilot.err.branchInvalid", { branch: "" }), "autopilot_branch_invalid");
+		}
+		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
+		this.#refuseBranch(choice, entries);
+		const mode = worktreeModeFor(choice, entries);
+		const source: WorktreeBranchSource | null =
+			choice.kind === "existing"
+				? { name: choice.name, mode, ...(mode === "remote" ? { remote: settings.ship.remote } : {}) }
+				: choice.name
+					? { name: choice.name, mode }
+					: null;
 		const created = await this.#deps.dispatch(
 			win,
 			sidecar,
 			tabId,
 			{
 				type: "worktree_create",
-				name: this.#deps.today?.() ?? localDate(new Date()),
+				name: source ? branchSlug(source.name, date) : date,
 				baseCwd: cwd,
 				baseRef: "HEAD",
 				branchPrefix: "autopilot/",
+				...(source ? { branch: source } : {}),
 			},
 			WORKTREE_MS,
 		);
@@ -573,7 +606,9 @@ export class Autopilot {
 		if (typeof options.guide === "string" && options.guide.trim()) {
 			await this.#commitGuide(made.path, options.guide);
 		}
-		const runId = made.branch.startsWith("autopilot/") ? made.branch.slice("autopilot/".length) : made.branch;
+		// The run's own base: the folder's branch, or, on the default branch itself, that branch (a release pushes it).
+		const baseBranch = made.branch === defaultBranch ? made.branch : checkoutBranch;
+		const runId = runIdFor(made.branch, date);
 		const spawned = await this.#deps.spawnTab(win, {
 			cwd: made.path,
 			worktree: { name: runId, branch: made.branch, baseCwd: made.baseCwd, path: made.path },
@@ -914,6 +949,9 @@ export class Autopilot {
 				streamingBehavior: "followUp",
 			});
 			return;
+		}
+		if ((kind === "merge" || kind === "pr") && run.branch === run.baseBranch) {
+			throw new AutopilotError(this.#deps.text("autopilot.err.onBase"), "autopilot_on_base");
 		}
 		if (kind === "revert") {
 			const cycle = (run.status?.cycles ?? []).find(entry => entry.n === action.cycle);
@@ -1458,10 +1496,19 @@ export class Autopilot {
 		return typeof info.exists === "boolean" && typeof info.text === "string" ? (info as AutopilotGuideInfo) : null;
 	}
 
-	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the guide. */
+	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the guide, the branches. */
 	async #idleStatus(sidecar: SidecarLike, tabId: string, draft: boolean): Promise<AutopilotStatus> {
 		const release = await this.#releaseFor(sidecar.cwd);
 		const guide = await this.#guideFor(tabId, sidecar.cwd, draft);
+		const toplevel = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
+		const branches = toplevel
+			? await readBranchInfo(sidecar.cwd, {
+					toplevel,
+					remote: this.#storedPolicy().remote,
+					date: this.#deps.today?.() ?? localDate(new Date()),
+					pref: this.#deps.prefs.get(AUTOPILOT_BRANCH_PREF),
+				}).catch(() => null)
+			: null;
 		return {
 			active: false,
 			ship: {
@@ -1471,7 +1518,29 @@ export class Autopilot {
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
 			},
 			...(guide ? { guide } : {}),
+			...(branches ? { branches } : {}),
 		};
+	}
+
+	/** Throws the reason a run cannot take `choice` (git's own state, read at the start). */
+	#refuseBranch(choice: AutopilotBranchChoice, entries: readonly AutopilotBranchEntry[]): void {
+		const problem = branchProblem(choice, entries);
+		if (!problem) return;
+		const text = this.#deps.text;
+		const branch = choice.kind === "new" ? (choice.name ?? "") : choice.name;
+		if (problem.code === "checked_out") {
+			throw new AutopilotError(
+				text("autopilot.err.branchCheckedOut", { branch, path: problem.path }),
+				"autopilot_branch_checked_out",
+			);
+		}
+		if (problem.code === "exists") {
+			throw new AutopilotError(text("autopilot.err.branchExists", { branch }), "autopilot_branch_exists");
+		}
+		if (problem.code === "invalid_name") {
+			throw new AutopilotError(text("autopilot.err.branchInvalid", { branch }), "autopilot_branch_invalid");
+		}
+		throw new AutopilotError(text("autopilot.err.branchMissing", { branch }), "autopilot_branch_missing");
 	}
 
 	/** The checkout the worktree was cut from: the first entry of `git worktree list` (the primary one). */

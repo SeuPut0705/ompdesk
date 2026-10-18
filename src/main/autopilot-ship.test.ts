@@ -190,6 +190,74 @@ describe("push", () => {
 		expect(remoteTip(`refs/heads/${branch}`)).toBe(theirs);
 	});
 
+	it("says why a moved-on remote branch stopped the push: not a fast-forward, never forced", async () => {
+		await commit(work, "a.txt");
+		const other = path.join(tmp, "other");
+		gitSync(tmp, "clone", "-q", remote, other);
+		gitSync(other, "config", "user.email", "t@example.com");
+		gitSync(other, "config", "user.name", "T");
+		gitSync(other, "checkout", "-q", "-b", branch);
+		await commit(other, "theirs.txt");
+		gitSync(other, "push", "-q", "origin", branch);
+		const ship = runner();
+		ship.enqueue({ kind: "push" });
+		const [result] = await ship.drain(target());
+		expect(result?.item.detail).toMatch(
+			new RegExp(
+				`origin/${branch} has commits this run lacks \\(not a fast-forward\\); Autopilot never forces a push`,
+			),
+		);
+	});
+
+	describe("on a branch the user picked", () => {
+		const picked = "feature/x";
+		let pickedWork = "";
+
+		beforeEach(() => {
+			gitSync(main, "branch", picked);
+			gitSync(main, "push", "-q", "origin", picked);
+			pickedWork = path.join(tmp, "picked");
+			gitSync(main, "worktree", "add", "-q", pickedWork, picked);
+		});
+
+		it("pushes it under the same name, journals that ref and leaves main and autopilot/ branches alone", async () => {
+			const sha = await commit(pickedWork, "a.txt");
+			const mainTip = remoteTip("refs/heads/main");
+			const ship = runner();
+			ship.enqueue({ kind: "push" });
+			const [result] = await ship.drain(target({ root: pickedWork, branch: picked }));
+			expect(result?.failure).toBeUndefined();
+			expect(remoteTip(`refs/heads/${picked}`)).toBe(sha);
+			expect(remoteTip("refs/heads/main")).toBe(mainTip);
+			expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+			expect(actions).toEqual([{ kind: "push", refs: [`refs/remotes/origin/${picked}`], sha }]);
+		});
+
+		it("pushes the default branch itself when that is the run's branch, fast-forward only", async () => {
+			gitSync(main, "switch", "-q", "-c", "dev");
+			const onMain = path.join(tmp, "on-main");
+			gitSync(main, "worktree", "add", "-q", onMain, "main");
+			const sha = await commit(onMain, "a.txt");
+			const ship = runner();
+			ship.enqueue({ kind: "push" });
+			const [result] = await ship.drain(target({ root: onMain, branch: "main" }));
+			expect(result?.failure).toBeUndefined();
+			expect(remoteTip("refs/heads/main")).toBe(sha);
+			// The remote moved on meanwhile (somebody else's push): a second push is refused, never forced.
+			const other = path.join(tmp, "other");
+			gitSync(tmp, "clone", "-q", remote, other);
+			gitSync(other, "config", "user.email", "t@example.com");
+			gitSync(other, "config", "user.name", "T");
+			const theirs = await commit(other, "theirs.txt");
+			gitSync(other, "push", "-q", "origin", "main");
+			await commit(onMain, "b.txt");
+			ship.enqueue({ kind: "push" });
+			const [second] = await ship.drain(target({ root: onMain, branch: "main" }));
+			expect(second).toMatchObject({ failure: "rejected", item: { state: "failed" } });
+			expect(remoteTip("refs/heads/main")).toBe(theirs);
+		});
+	});
+
 	it("reports an unreachable remote as a network failure", async () => {
 		await commit(work, "a.txt");
 		gitSync(main, "remote", "set-url", "origin", path.join(tmp, "no-such-dir.git"));

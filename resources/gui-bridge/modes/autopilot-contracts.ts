@@ -397,6 +397,44 @@ export interface AutopilotTotals {
 	usdPerHour?: number;
 }
 
+/**
+ * Where a run commits and pushes. `new` cuts `name` (default `autopilot/<date>`) off the folder's HEAD; `existing`
+ * checks out a local branch, or tracks the remote one when there is no local branch (`remote`). The default branch
+ * (`main`) is just an existing branch the user picked, with a warning on the sheet.
+ */
+export type AutopilotBranchChoice =
+	| { kind: "new"; name?: string }
+	| { kind: "existing"; name: string; remote?: string };
+
+/** One row of the sheet's branch picker. */
+export interface AutopilotBranchEntry {
+	name: string;
+	/** A local branch of that name exists. */
+	local: boolean;
+	/** The ship remote has a branch of that name. */
+	remote: boolean;
+	/** The repository's default branch. */
+	default: boolean;
+	/** Checked out in the user's own folder. */
+	current: boolean;
+	/** The worktree that already has it checked out (a run cannot take it); absent when free. */
+	checkedOutAt?: string;
+}
+
+/** What the start sheet's branch picker needs of a repository. */
+export interface AutopilotBranchInfo {
+	/** The repository's top level; the key of the remembered choice. */
+	repo: string;
+	/** The ship remote the remote-only branches come from. */
+	remote: string;
+	defaultBranch: string | null;
+	/** The name a new branch gets unless the user edits it (`autopilot/<date>`, free of clashes). */
+	suggested: string;
+	branches: AutopilotBranchEntry[];
+	/** The choice remembered for this repository, when it is still usable. */
+	last?: AutopilotBranchChoice;
+}
+
 export interface AutopilotStatus {
 	/** False: this session is not an autopilot run (the other fields are absent). */
 	active: boolean;
@@ -421,6 +459,8 @@ export interface AutopilotStatus {
 	ship?: AutopilotShipState;
 	/** A session that is no run: the repo's guide, or a draft of one (`ship` stays what the sheet needs). */
 	guide?: AutopilotGuideInfo;
+	/** A session that is no run: the branches the sheet's picker offers (this folder's repository). */
+	branches?: AutopilotBranchInfo;
 	totals?: AutopilotTotals;
 	children?: AutopilotChildLive[];
 	/** Waiting for the account quota until this time (ms). */
@@ -457,6 +497,8 @@ export type AutopilotStartOptions = {
 	backlog?: string[];
 	/** The guide text to commit as the autopilot branch's first commit when the new worktree's AUTOPILOT.md differs (or is missing). */
 	guide?: string;
+	/** Where the run commits and pushes; absent: a new `autopilot/<date>` branch. */
+	branch?: AutopilotBranchChoice;
 };
 
 export type AutopilotAction =
@@ -558,6 +600,11 @@ export function isAutopilotArea(value: unknown): value is AutopilotArea {
 export const AUTOPILOT_SHIP_PREF = "autopilotShip";
 export const AUTOPILOT_NOTIFY_PREF = "autopilotNotify";
 export const AUTOPILOT_LIMITS_PREF = "autopilotLimits";
+/**
+ * The last branch choice per repository, `{ [repo top level]: AutopilotBranchChoice }`. Not part of `autopilotShip`:
+ * the branch is per run, this only prefills the next sheet.
+ */
+export const AUTOPILOT_BRANCH_PREF = "autopilotBranch";
 
 // ---------------------------------------------------------------------------------------------
 // Bridge protocol (main <-> bridge; owned by the bridge slice, mirrored by the fake omp)

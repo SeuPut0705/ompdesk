@@ -16,7 +16,7 @@ import {
 	prReview,
 } from "./git/pr";
 import * as scm from "./git/scm";
-import { createWorktree, removeWorktree } from "./git/worktree";
+import { createWorktree, removeWorktree, worktreeBranchSource } from "./git/worktree";
 import type { LocalHandler } from "./types";
 
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
@@ -35,6 +35,7 @@ export const handlers: Record<string, LocalHandler> = {
 				baseCwd: str(command.baseCwd),
 				baseRef: command.baseRef === "default" ? "default" : "HEAD",
 				branchPrefix: str(command.branchPrefix),
+				branch: worktreeBranchSource(command.branch),
 			},
 			ctx.bridge,
 		),

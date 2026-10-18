@@ -241,7 +241,14 @@ export class ShipRunner {
 			{ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `remote.${remote}.pushurl`, GIT_CONFIG_VALUE_0: url },
 			PUSH_TIMEOUT_MS,
 		);
-		if (pushed.code !== 0) throw new ShipFailure(brief(pushed.stderr), classifyPushFailure(pushed.stderr));
+		if (pushed.code !== 0) {
+			const moved = /non-fast-forward|fetch first|stale info|\(already exists\)/i.test(pushed.stderr);
+			// A push is never forced: a remote branch that moved on stops the run, and the reason says so.
+			const why = moved
+				? `${remote}/${branch} has commits this run lacks (not a fast-forward); Autopilot never forces a push. ${brief(pushed.stderr)}`
+				: brief(pushed.stderr);
+			throw new ShipFailure(why.length > 400 ? `${why.slice(0, 397)}...` : why, classifyPushFailure(pushed.stderr));
+		}
 		const upstream = await this.#git(root, ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
 		if (upstream.code !== 0) {
 			await this.#git(root, ["branch", `--set-upstream-to=${remote}/${branch}`, branch]);

@@ -189,3 +189,64 @@ describe("auditCycle", () => {
 		expect(await audit(before)).toEqual([]);
 	});
 });
+
+describe("auditCycle on a branch the user picked", () => {
+	const picked = "feature/x";
+	let picked_work = "";
+
+	beforeEach(() => {
+		gitSync(main, "branch", picked);
+		picked_work = path.join(tmp, "picked");
+		gitSync(main, "worktree", "add", "-q", picked_work, picked);
+	});
+
+	const auditPicked = async (before: AuditSnapshot, over: Partial<AuditScope> = {}) =>
+		auditCycle(picked_work, before, await takeSnapshot(picked_work, main), scope({ branch: picked, ...over }));
+
+	it("passes commits on the chosen branch, whatever its name", async () => {
+		const before = await takeSnapshot(picked_work, main);
+		await commit(picked_work, "a.txt");
+		expect(await auditPicked(before)).toEqual([]);
+	});
+
+	it("the `autopilot/` prefix no longer buys anything: a branch under it that is not the chosen one is a violation", async () => {
+		const before = await takeSnapshot(picked_work, main);
+		gitSync(picked_work, "branch", "autopilot/sneaky");
+		expect((await auditPicked(before)).map(v => v.detail)).toEqual(["refs/heads/autopilot/sneaky created"]);
+	});
+
+	it("catches a push of the chosen branch the ShipRunner did not journal, and allows the journaled one", async () => {
+		const before = await takeSnapshot(picked_work, main);
+		await commit(picked_work, "a.txt");
+		gitSync(picked_work, "push", "-q", "origin", `HEAD:refs/heads/${picked}`);
+		expect((await auditPicked(before)).map(v => v.detail)).toEqual([`refs/remotes/origin/${picked} created`]);
+		expect(await auditPicked(before, { expectedRefs: [`refs/remotes/origin/${picked}`] })).toEqual([]);
+	});
+
+	it("catches a reset or amend of the chosen branch and its deletion", async () => {
+		await commit(picked_work, "a.txt");
+		const before = await takeSnapshot(picked_work, main);
+		gitSync(picked_work, "reset", "-q", "--hard", "HEAD~1");
+		expect((await auditPicked(before)).map(v => v.kind)).toEqual(["history"]);
+		const another = await takeSnapshot(picked_work, main);
+		gitSync(picked_work, "switch", "-q", "--detach");
+		gitSync(main, "branch", "-D", picked);
+		expect((await auditPicked(another)).map(v => v.kind)).toContain("history");
+	});
+
+	it("on the default branch the audit still lets only the journaled push move the remote main", async () => {
+		gitSync(main, "switch", "-q", "-c", "dev");
+		gitSync(picked_work, "switch", "-q", "--detach");
+		const dir = path.join(tmp, "on-main");
+		gitSync(main, "worktree", "add", "-q", dir, "main");
+		const before = await takeSnapshot(dir, main);
+		await commit(dir, "a.txt");
+		gitSync(dir, "push", "-q", "origin", "HEAD:refs/heads/main");
+		const after = await takeSnapshot(dir, main);
+		const own = scope({ branch: "main" });
+		expect((await auditCycle(dir, before, after, own)).map(v => v.detail)).toEqual([
+			"refs/remotes/origin/main moved",
+		]);
+		expect(await auditCycle(dir, before, after, { ...own, expectedRefs: ["refs/remotes/origin/main"] })).toEqual([]);
+	});
+});

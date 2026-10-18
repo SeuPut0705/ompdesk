@@ -15,6 +15,7 @@ import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import {
+	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_LIMITS_PREF,
 	AUTOPILOT_NOTIFY_PREF,
 	AUTOPILOT_SHIP_PREF,
@@ -1407,6 +1408,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (
 			(payload.key === AUTOPILOT_SHIP_PREF ||
 				payload.key === AUTOPILOT_NOTIFY_PREF ||
+				payload.key === AUTOPILOT_BRANCH_PREF ||
 				payload.key === AUTOPILOT_LIMITS_PREF) &&
 			!validAutopilotPref(payload.key, payload.value)
 		) {

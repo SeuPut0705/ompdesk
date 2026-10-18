@@ -1,7 +1,9 @@
 /**
  * Autopilot's shipping on the fake omp with a local bare remote: the release path (a fake gate script and a fake
  * `gh`, the run url polled), "push now" in chat (a forged quote is refused), and the screen's Push / PR / merge /
- * revert queue run at the end of the turn. The push and release rules themselves (local only, push after green,
+ * revert queue run at the end of the turn, and the branch a run is on (an existing branch pushed to the local bare
+ * remote with main untouched; the sheet offering main only once the folder is off it, with its warning; captures of
+ * the sheet with OMP_GUI_AUTOPILOT_CAPTURES). The push and release rules themselves (local only, push after green,
  * no release without a procedure, a failing gate or run) are unit-tested in src/main/autopilot*.test.ts and
  * src/main/bridge-autopilot-*.test.ts.
  */
@@ -22,7 +24,7 @@ import {
 	waitForStatus,
 	writeGate,
 } from "./autopilot-harness";
-import { exitApp } from "./harness";
+import { captureTo, exitApp } from "./harness";
 
 const RELEASE_CYCLE = {
 	tools: [
@@ -183,3 +185,131 @@ test("the screen's Push, PR, merge and revert queue up during a turn and run in 
 		await cleanupAp(profile);
 	}
 });
+
+test("a run on an existing branch commits there and Push moves that branch of the local bare remote, never main", async () => {
+	test.setTimeout(180_000);
+	const profile = await makeApProfile({ script: { cycleMs: 2_000 } });
+	git(profile.project, "branch", "feature/x");
+	git(profile.project, "push", "-q", "origin", "feature/x");
+	const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
+	const featureBefore = git(profile.remote, "rev-parse", "refs/heads/feature/x");
+	const { app, page } = await launchAp(profile);
+	try {
+		const tabId = await startRun(page, await mainTab(page), {
+			preset: "push",
+			branch: { kind: "existing", name: "feature/x" },
+		});
+		const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1 done", 90_000);
+		expect(first.branch).toBe("feature/x");
+		const commit = first.cycles?.[0]?.commit;
+		expect(commit).toBeTruthy();
+		await expect
+			.poll(() => git(profile.remote, "rev-parse", "refs/heads/feature/x"), { timeout: 30_000 })
+			.toBe(commit);
+		expect(commit).not.toBe(featureBefore);
+		// Same name upstream, the cycle's commit on top of where the branch was; main did not move.
+		expect(git(profile.remote, "log", "--format=%s", `${featureBefore}..feature/x`)).toContain("autopilot: cycle 1");
+		expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
+		expect(git(profile.remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+		// The user's own folder stayed on main and no autopilot/ branch exists anywhere.
+		expect(git(profile.project, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+		expect(git(profile.project, "branch", "--list", "autopilot/*")).toBe("");
+		expect(git(profile.project, "rev-parse", "main")).toBe(mainBefore);
+		const pushes = (await agentTools(profile)).filter(entry => entry.error !== undefined);
+		expect(pushes).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await cleanupAp(profile);
+	}
+});
+
+const SHEET = {
+	en: {
+		tab: /^Autopilot/,
+		inUse: /in use in project/,
+		warning: "Commits go straight to main; Push goes to main.",
+	},
+	ko: {
+		tab: /^오토파일럿/,
+		inUse: /project에서 사용 중/,
+		warning: "커밋이 main에 바로 쌓이고, 푸시는 main에 해요",
+	},
+} as const;
+
+for (const language of ["en", "ko"] as const)
+	test(`the sheet offers main only once the folder is off it, warns in one line, and Push pushes to main (${language})`, async () => {
+		test.setTimeout(240_000);
+		const profile = await makeApProfile({
+			language,
+			script: { cycleMs: 2_000 },
+			prefs: {
+				autopilotShip: {
+					autoPush: true,
+					autoRelease: { on: false, cadence: { kind: "every", n: 5 } },
+					remote: "origin",
+				},
+			},
+		});
+		git(profile.project, "branch", "feature/x");
+		git(profile.project, "push", "-q", "origin", "feature/x");
+		const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
+		const captures = process.env.OMP_GUI_AUTOPILOT_CAPTURES;
+		const { app, page } = await launchAp(profile);
+		const text = SHEET[language];
+		const openSheet = async () => {
+			await page.locator("[data-composer-modes-trigger]").click();
+			await page.getByRole("tab", { name: text.tab }).click();
+			await expect(page.locator("[data-autopilot-sheet]")).toBeVisible();
+		};
+		try {
+			await openSheet();
+			const branch = page.locator("[data-autopilot-branch] select");
+			const mainOption = branch.locator('option[value="branch:main"]');
+			// The default is listed first, but the user's own folder is on it: another worktree has it.
+			await expect(branch).toHaveValue("new");
+			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveValue(/^autopilot\/\d{4}-\d{2}-\d{2}$/);
+			await expect(mainOption).toHaveAttribute("disabled", "");
+			await expect(mainOption).toHaveText(text.inUse);
+			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveCount(0);
+			await captureTo(captures, page, `autopilot-branch-sheet-${language}-light`);
+
+			// The user moves their folder off main: the sheet reads git again when it opens.
+			await page.keyboard.press("Escape");
+			await expect(page.locator("[data-autopilot-sheet]")).toHaveCount(0);
+			git(profile.project, "switch", "-q", "-c", "dev");
+			await openSheet();
+			await expect(branch.locator('option[value="branch:main"]')).not.toHaveAttribute("disabled", "");
+			await branch.selectOption("branch:main");
+			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveText(text.warning);
+			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveCount(0);
+			await captureTo(captures, page, `autopilot-branch-main-warning-${language}-light`);
+
+			await page.locator("[data-autopilot-start]").click();
+			let tabId = "";
+			await expect
+				.poll(
+					async () => {
+						const tabs = await page.evaluate(() => window.omp.tabs.list());
+						tabId = tabs.find(tab => tab.worktree?.branch === "main")?.tabId ?? "";
+						return tabId;
+					},
+					{ timeout: 60_000, message: "the run's tab opens on main" },
+				)
+				.not.toBe("");
+			const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1 done", 90_000);
+			expect(first.branch).toBe("main");
+			const commit = first.cycles?.[0]?.commit;
+			expect(commit).toBeTruthy();
+			// Push pushed main itself, fast-forward.
+			await expect.poll(() => git(profile.remote, "rev-parse", "refs/heads/main"), { timeout: 30_000 }).toBe(commit);
+			expect(git(profile.remote, "log", "--format=%s", `${mainBefore}..main`)).toContain("autopilot: cycle 1");
+			expect(git(profile.remote, "rev-parse", "refs/heads/feature/x")).toBe(
+				git(profile.project, "rev-parse", "feature/x"),
+			);
+			expect(git(profile.project, "rev-parse", "--abbrev-ref", "HEAD")).toBe("dev");
+			expect(git(profile.project, "branch", "--list", "autopilot/*")).toBe("");
+		} finally {
+			await exitApp(app);
+			await cleanupAp(profile);
+		}
+	});

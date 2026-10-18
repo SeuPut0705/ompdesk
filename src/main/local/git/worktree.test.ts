@@ -90,6 +90,55 @@ describe("removeWorktree", () => {
 			code: "invalid_name",
 		});
 	});
+	it("checks out the exact branch the caller names: a new one, an existing local one, a remote one it then tracks", async () => {
+		await initRepo(outside);
+		const bare = path.join(scratch, "remote.git");
+		gitSync(scratch, "init", "-q", "--bare", bare);
+		gitSync(outside, "remote", "add", "origin", bare);
+		gitSync(outside, "push", "-q", "origin", "main");
+		gitSync(outside, "branch", "feature/local");
+		gitSync(outside, "branch", "feature/remote");
+		gitSync(outside, "push", "-q", "origin", "feature/remote");
+		gitSync(outside, "branch", "-D", "feature/remote");
+
+		const fresh = await createWorktree(outside, { name: "mine", branch: { name: "work/mine", mode: "new" } }, bridge);
+		expect(fresh.branch).toBe("work/mine");
+		expect(gitSync(fresh.path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("work/mine");
+		expect(gitSync(fresh.path, "rev-parse", "HEAD")).toBe(gitSync(outside, "rev-parse", "main"));
+
+		const local = await createWorktree(
+			outside,
+			{ name: "local", branch: { name: "feature/local", mode: "local" } },
+			bridge,
+		);
+		expect(local.branch).toBe("feature/local");
+		expect(gitSync(local.path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("feature/local");
+
+		const remote = await createWorktree(
+			outside,
+			{ name: "remote", branch: { name: "feature/remote", mode: "remote", remote: "origin" } },
+			bridge,
+		);
+		expect(remote.branch).toBe("feature/remote");
+		expect(gitSync(remote.path, "rev-parse", "--abbrev-ref", "feature/remote@{upstream}")).toBe(
+			"origin/feature/remote",
+		);
+	});
+	it("never renames a named branch: a taken, checked-out, missing or invalid name fails and leaves nothing behind", async () => {
+		await initRepo(outside);
+		const input = (branch: { name: string; mode: "new" | "local" | "remote"; remote?: string }) =>
+			createWorktree(outside, { name: "x", branch }, bridge);
+		await expect(input({ name: "main", mode: "new" })).rejects.toThrow(/already exists/);
+		// `main` is checked out in the user's own folder.
+		await expect(input({ name: "main", mode: "local" })).rejects.toThrow(
+			/already checked out|already used by worktree/,
+		);
+		await expect(input({ name: "ghost", mode: "local" })).rejects.toThrow(/does not exist/);
+		await expect(input({ name: "ghost", mode: "remote", remote: "origin" })).rejects.toThrow(/does not exist/);
+		await expect(input({ name: "bad name", mode: "new" })).rejects.toMatchObject({ code: "invalid_name" });
+		expect(gitSync(outside, "branch", "--list")).toBe("* main");
+		expect(gitSync(outside, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
+	});
 	it("refuses a primary checkout under the root and a linked checkout subdirectory", async () => {
 		const primary = path.join(root, "user-clone");
 		await initRepo(primary);

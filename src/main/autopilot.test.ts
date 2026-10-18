@@ -7,6 +7,7 @@ import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotArmParams,
+	type AutopilotBranchChoice,
 	type AutopilotCycleRecord,
 	type AutopilotStatus,
 	DEFAULT_SHIP_POLICY,
@@ -23,6 +24,7 @@ import {
 } from "./autopilot";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepo } from "./local/git/test-repos";
+import { createWorktree } from "./local/git/worktree";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
@@ -176,7 +178,9 @@ function text(key: MainTextKey, params?: Record<string, string | number>): strin
 	);
 }
 
-function build(over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuation } = {}): void {
+function build(
+	over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuation; prefs?: Record<string, unknown> } = {},
+): void {
 	const pool: AutopilotPool = {
 		sidecarOf: tab => (world.sidecars.get(tab) as unknown as SidecarLike | undefined) ?? null,
 		tabFacts: tab =>
@@ -197,6 +201,20 @@ function build(over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuati
 		pool,
 		dispatch: async (_win, _sidecar, _tab, command) => {
 			if (command.type !== "worktree_create") throw new Error("unexpected dispatch");
+			if (command.branch) {
+				// A branch the caller names goes through the real `worktree_create`.
+				const bridge = { request: async <T>() => ({ root: path.join(tmp, "wts"), hash: "abc1234" }) as T };
+				try {
+					const made = await createWorktree(
+						main,
+						{ name: command.name, baseCwd: main, branch: command.branch },
+						bridge,
+					);
+					return { type: "response", success: true, data: made } as RpcResponse;
+				} catch (error) {
+					return { type: "response", success: false, error: String(error) } as RpcResponse;
+				}
+			}
 			// Like the real `worktree_create`: a taken name gets `-2`, `-3`, ...
 			let name: string = command.name;
 			for (let suffix = 2; gitSync(main, "branch", "--list", `autopilot/${name}`) !== ""; suffix++) {
@@ -213,7 +231,7 @@ function build(over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuati
 			autopilot.attachSidecar(tabId, sidecar as unknown as SidecarLike);
 			return { tabId };
 		},
-		prefs: { get: () => undefined },
+		prefs: { get: key => over.prefs?.[key] },
 		notify: (_tab, notice) => {
 			notices.push(notice);
 		},
@@ -513,6 +531,217 @@ describe("start", () => {
 		expect((await autopilot.status(sidecar as unknown as SidecarLike, "m")).ship?.releaseBlocked).toMatch(
 			/release procedure/i,
 		);
+	});
+});
+
+describe("the branch a run is on", () => {
+	const startOn = (branch: AutopilotBranchChoice, extra: { preset?: "push" } = {}) =>
+		start({ type: "set_autopilot", action: "start", branch, ...extra });
+	const rootOf = (response: RpcResponse) => dataOf<AutopilotStatus>(response).root ?? "";
+	const refusal = (response: RpcResponse) => ({
+		error: errorOf(response),
+		code: "code" in response ? response.code : undefined,
+	});
+	const armed = () => world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params;
+	async function cycleEnd(n = 1): Promise<void> {
+		autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+			type: "autopilot_cycle_end",
+			record: record({ n }),
+		});
+		await autopilot.idle();
+	}
+
+	beforeEach(() => {
+		gitSync(main, "branch", "feature/x");
+		gitSync(main, "push", "-q", "origin", "feature/x");
+		// On the remote only: pushed, then deleted locally.
+		gitSync(main, "branch", "remote-only");
+		gitSync(main, "push", "-q", "origin", "remote-only");
+		gitSync(main, "branch", "-D", "remote-only");
+	});
+
+	it("checks an existing local branch out in the new worktree and commits there; nothing is named autopilot/", async () => {
+		const { response } = await startOn({ kind: "existing", name: "feature/x" });
+		expect(response.success).toBe(true);
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({
+			active: true,
+			branch: "feature/x",
+			baseBranch: "main",
+			run: "2026-10-17",
+		});
+		expect(gitSync(rootOf(response), "rev-parse", "--abbrev-ref", "HEAD")).toBe("feature/x");
+		expect(armed()).toMatchObject({ role: "parent", branch: "feature/x", baseBranch: "main", run: "2026-10-17" });
+		expect(gitSync(main, "branch", "--list", "autopilot/*")).toBe("");
+		expect(gitSync(main, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+	});
+
+	it("tracks a branch that is only on the remote", async () => {
+		const { response } = await startOn({ kind: "existing", name: "remote-only" });
+		expect(response.success).toBe(true);
+		const root = rootOf(response);
+		expect(gitSync(root, "rev-parse", "--abbrev-ref", "HEAD")).toBe("remote-only");
+		expect(gitSync(root, "rev-parse", "--abbrev-ref", "remote-only@{upstream}")).toBe("origin/remote-only");
+		expect(armed()).toMatchObject({ branch: "remote-only" });
+	});
+
+	it("a new branch takes the name the user typed, exactly", async () => {
+		const { response } = await startOn({ kind: "new", name: "work/mine" });
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({ branch: "work/mine", run: "2026-10-17" });
+		expect(gitSync(rootOf(response), "rev-parse", "--abbrev-ref", "HEAD")).toBe("work/mine");
+		expect(gitSync(main, "rev-parse", "work/mine")).toBe(gitSync(main, "rev-parse", "main"));
+	});
+
+	it("a name under autopilot/ keeps the run id the children are named from", async () => {
+		const { response } = await startOn({ kind: "new", name: "autopilot/night-shift" });
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({ branch: "autopilot/night-shift", run: "night-shift" });
+	});
+
+	it("refuses the branch the user's own folder is on, naming the folder, and creates nothing", async () => {
+		const { response } = await startOn({ kind: "existing", name: "main" });
+		expect(refusal(response)).toMatchObject({ code: "autopilot_branch_checked_out" });
+		expect(errorOf(response)).toContain("main is already checked out in ");
+		expect(errorOf(response)).toContain(main);
+		expect(nextTab).toBe(0);
+		expect(world.calls.some(call => call.name === AUTOPILOT_BRIDGE_METHODS.arm)).toBe(false);
+	});
+
+	it("refuses a branch another worktree has checked out (a run's, a child's, any)", async () => {
+		const other = path.join(tmp, "elsewhere");
+		gitSync(main, "worktree", "add", "-q", other, "feature/x");
+		const { response } = await startOn({ kind: "existing", name: "feature/x" });
+		expect(refusal(response)).toMatchObject({ code: "autopilot_branch_checked_out" });
+		expect(errorOf(response)).toContain(other);
+		expect(nextTab).toBe(0);
+	});
+
+	it("refuses a branch that is gone, a new name that is taken and one git would not accept", async () => {
+		const missing = (await startOn({ kind: "existing", name: "ghost" })).response;
+		expect(refusal(missing)).toMatchObject({ code: "autopilot_branch_missing" });
+		const taken = (await startOn({ kind: "new", name: "feature/x" })).response;
+		expect(refusal(taken)).toMatchObject({ code: "autopilot_branch_exists" });
+		const invalid = (await startOn({ kind: "new", name: "bad name" })).response;
+		expect(refusal(invalid)).toMatchObject({ code: "autopilot_branch_invalid" });
+		const garbage = (await startOn({ kind: "bogus" } as unknown as AutopilotBranchChoice)).response;
+		expect(refusal(garbage)).toMatchObject({ code: "autopilot_branch_invalid" });
+		expect(nextTab).toBe(0);
+	});
+
+	it("the default branch is allowed once the user's folder is off it: the run commits on it, Push pushes to it", async () => {
+		gitSync(main, "switch", "-q", "-c", "dev");
+		const { response } = await startOn({ kind: "existing", name: "main" }, { preset: "push" });
+		expect(response.success).toBe(true);
+		// A run on the default branch has itself as its base (a release pushes it).
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({ branch: "main", baseBranch: "main" });
+		const root = rootOf(response);
+		const sha = await commit(root, "a.txt");
+		await cycleEnd();
+		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.shipAction)[0]?.params).toEqual({
+			kind: "push",
+			refs: ["refs/remotes/origin/main"],
+			sha,
+		});
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params?.state).toBe("running");
+		// The user's own folder was not touched.
+		expect(gitSync(main, "rev-parse", "--abbrev-ref", "HEAD")).toBe("dev");
+	});
+
+	it("Push goes to the chosen branch under the same name and never to main", async () => {
+		const { response } = await startOn({ kind: "existing", name: "feature/x" }, { preset: "push" });
+		const sha = await commit(rootOf(response), "a.txt");
+		const mainBefore = gitSync(remote, "rev-parse", "refs/heads/main");
+		await cycleEnd();
+		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(sha);
+		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.shipAction)[0]?.params).toEqual({
+			kind: "push",
+			refs: ["refs/remotes/origin/feature/x"],
+			sha,
+		});
+	});
+
+	it("never forces: a remote branch that moved on stops the run with push_failed and says why", async () => {
+		const { response } = await startOn({ kind: "existing", name: "feature/x" }, { preset: "push" });
+		const theirs = path.join(tmp, "theirs");
+		gitSync(tmp, "clone", "-q", remote, theirs);
+		gitSync(theirs, "config", "user.email", "t@example.com");
+		gitSync(theirs, "config", "user.name", "T");
+		gitSync(theirs, "switch", "-q", "feature/x");
+		const moved = await commit(theirs, "theirs.txt");
+		gitSync(theirs, "push", "-q", "origin", "feature/x");
+		await commit(rootOf(response), "mine.txt");
+		await cycleEnd();
+		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(moved);
+		const paused = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params;
+		expect(paused).toMatchObject({ state: "paused", reason: "push_failed" });
+		expect(String(paused?.detail)).toMatch(/not a fast-forward.*never forces/);
+		expect(notices.at(-1)?.kind).toBe("error");
+	});
+
+	it("merge and PR have nothing to do on the default branch itself", async () => {
+		gitSync(main, "switch", "-q", "-c", "dev");
+		await startOn({ kind: "existing", name: "main" });
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		for (const kind of ["merge", "pr"] as const) {
+			const refused = await autopilot.handleCommand(
+				win,
+				sidecar,
+				"ap-1",
+				{ type: "set_autopilot", action: "ship", kind },
+				"9",
+			);
+			expect(refusal(refused)).toMatchObject({ code: "autopilot_on_base" });
+		}
+	});
+
+	it("a cycle's audit judges the chosen branch: its own commits pass, another branch moving is a violation", async () => {
+		const { response } = await startOn({ kind: "existing", name: "feature/x" });
+		const root = rootOf(response);
+		await commit(root, "a.txt");
+		await cycleEnd(1);
+		expect(
+			world
+				.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState)
+				.some(call => call.params?.reason === "ban_violation"),
+		).toBe(false);
+		// An `autopilot/` branch is no longer trusted just for its prefix.
+		gitSync(root, "branch", "autopilot/sneaky");
+		await cycleEnd(2);
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
+			state: "paused",
+			reason: "ban_violation",
+		});
+	});
+
+	it("gives the sheet the branches, the suggestion and the choice remembered for this repository", async () => {
+		build({
+			prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" }, "/other": { kind: "new" } } },
+		});
+		const sidecar = world.addTab("m", main);
+		const status = dataOf<AutopilotStatus>(
+			await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", { type: "get_autopilot" }, "1"),
+		);
+		expect(status.branches).toMatchObject({
+			repo: main,
+			remote: "origin",
+			defaultBranch: "main",
+			suggested: "autopilot/2026-10-17",
+			last: { kind: "existing", name: "feature/x" },
+		});
+		const byName = Object.fromEntries((status.branches?.branches ?? []).map(entry => [entry.name, entry]));
+		expect(byName.main).toMatchObject({ default: true, current: true, checkedOutAt: main });
+		expect(byName["feature/x"]).toMatchObject({ local: true, remote: true });
+		expect(byName["remote-only"]).toMatchObject({ local: false, remote: true });
+		// The branch is per run: the ship defaults carry none.
+		expect(Object.keys(status.ship?.policy ?? {}).sort()).toEqual(["autoPush", "autoRelease", "remote"]);
+	});
+
+	it("validAutopilotPref accepts the remembered choices per repository and nothing else", () => {
+		expect(
+			validAutopilotPref("autopilotBranch", { "/r": { kind: "existing", name: "dev" }, "/s": { kind: "new" } }),
+		).toBe(true);
+		expect(validAutopilotPref("autopilotBranch", { "/r": { kind: "existing" } })).toBe(false);
+		expect(validAutopilotPref("autopilotBranch", "dev")).toBe(false);
 	});
 });
 
@@ -1355,7 +1584,7 @@ describe("approval cards", () => {
 
 describe("restart", () => {
 	/** A process that came up with the run `running` in the journal and stock's goal paused. */
-	async function relaunched(relaunch: RelaunchContinuation): Promise<FakeSidecar> {
+	async function relaunched(relaunch: RelaunchContinuation, branch = "autopilot/2026-10-17"): Promise<FakeSidecar> {
 		build({ relaunch });
 		const sidecar = world.addTab("t1", path.join(tmp, "wt-restart"));
 		world.statuses.set("t1", {
@@ -1364,14 +1593,22 @@ describe("restart", () => {
 			role: "parent",
 			run: "2026-10-17",
 			root: path.join(tmp, "wt-restart"),
-			branch: "autopilot/2026-10-17",
+			branch,
 			baseBranch: "main",
 			cycle: 3,
 			settings: startSettings({}, {}),
 			cycles: [],
 			ship: { policy: DEFAULT_SHIP_POLICY, queue: [] },
 		});
-		gitSync(main, "worktree", "add", "-q", "-b", "autopilot/2026-10-17", path.join(tmp, "wt-restart"));
+		const exists = gitSync(main, "branch", "--list", branch) !== "";
+		gitSync(
+			main,
+			"worktree",
+			"add",
+			"-q",
+			...(exists ? [] : ["-b"]),
+			...(exists ? [path.join(tmp, "wt-restart"), branch] : [branch, path.join(tmp, "wt-restart")]),
+		);
 		autopilot.attachSidecar("t1", sidecar as unknown as SidecarLike);
 		sidecar.emit("status", { status: "ready" });
 		await autopilot.idle();
@@ -1398,6 +1635,25 @@ describe("restart", () => {
 			role: "parent",
 		});
 	}
+
+	it("a run on a branch the user picked goes on on that branch: the journal's branch is what is armed and pushed to", async () => {
+		gitSync(main, "branch", "feature/x");
+		gitSync(main, "push", "-q", "origin", "feature/x");
+		const sidecar = await relaunched("now", "feature/x");
+		expectContinued();
+		expect(world.bridgeCalls("t1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({
+			branch: "feature/x",
+			root: path.join(tmp, "wt-restart"),
+			baseBranch: "main",
+		});
+		// The adopted run pushes that branch, not an `autopilot/` one.
+		const sha = await commit(path.join(tmp, "wt-restart"), "after-restart.txt");
+		world.requests.push({ kind: "push", quote: "push now", cycle: 4, at: 1 });
+		autopilot.frame(sidecar as unknown as SidecarLike, { type: "autopilot_cycle_end", record: record({ n: 4 }) });
+		await autopilot.idle();
+		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(sha);
+		expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+	});
 
 	it("without a launch marker (a kill between turns) the run goes on at once", async () => {
 		await relaunched("now");

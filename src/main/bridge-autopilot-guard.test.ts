@@ -392,6 +392,64 @@ describe("autopilot guard: ship scope", () => {
 	});
 });
 
+describe("autopilot guard: a branch the user picked", () => {
+	// The run's branch may be any existing branch, `main` included: nothing the guard allows depends on its name.
+	for (const branch of ["feature/x", "main", "autopilot/2026-10-18"]) {
+		it(`the agent's own pushes of ${branch} stay blocked outside the release scope`, () => {
+			for (const command of [
+				`git push origin ${branch}`,
+				`git push origin HEAD:${branch}`,
+				`git push -u origin ${branch}`,
+			]) {
+				for (const shipLevel of ["local", "push"] as const) {
+					expect(bash(command, { shipLevel, defaultBranch: "main" }).block, `${shipLevel}: ${command}`).toBe(true);
+				}
+				expect(bash(command, { shipLevel: "local", role: "child" }).block, `child: ${command}`).toBe(true);
+			}
+		});
+
+		it(`destructive git stays banned on ${branch}: force push, reset --hard, deleting or moving it, rewriting it`, () => {
+			const destructive = [
+				`git push --force origin ${branch}`,
+				`git push -f origin HEAD:${branch}`,
+				`git push --force-with-lease origin ${branch}`,
+				`git push origin +${branch}`,
+				`git push origin +HEAD:${branch}`,
+				`git push --delete origin ${branch}`,
+				`git push origin :${branch}`,
+				`git branch -D ${branch}`,
+				`git branch -d ${branch}`,
+				`git branch -f ${branch} HEAD~3`,
+				`git branch -m ${branch} other`,
+				`git reset --hard origin/${branch}`,
+				`git reset --hard HEAD~1`,
+				`git update-ref refs/heads/${branch} HEAD~1`,
+				`git rebase ${branch}`,
+				`git commit --amend --no-edit`,
+			];
+			for (const command of destructive) {
+				for (const shipLevel of LEVELS) {
+					for (const oneShotRelease of [false, true]) {
+						const decision = bash(command, { shipLevel, oneShotRelease, defaultBranch: "main" });
+						expect(decision.block, `${shipLevel}/${oneShotRelease}: ${command}`).toBe(true);
+					}
+				}
+			}
+		});
+	}
+
+	it("committing, merging and reading history on the chosen branch is as free as before", () => {
+		for (const command of [
+			"git commit -m x",
+			"git merge --no-ff feature/x",
+			"git log --oneline main..HEAD",
+			"git revert --no-edit abc123",
+		]) {
+			expect(bash(command, { defaultBranch: "main" }), command).toEqual({ block: false });
+		}
+	});
+});
+
 describe("autopilot guard: allowed", () => {
 	for (const command of ALWAYS_ALLOWED) {
 		const label = command.replace(/\n/g, "\\n") || "(empty)";

@@ -69,9 +69,71 @@ export async function stockWorktreeLocation(
 	return location;
 }
 
+/** The branch a worktree gets when the caller names it (`RpcCommand` `worktree_create.branch`), or undefined when malformed. */
+export type WorktreeBranchSource = { name: string; mode: "new" | "local" | "remote"; remote?: string };
+
+export function worktreeBranchSource(value: unknown): WorktreeBranchSource | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { name, mode, remote } = value as Record<string, unknown>;
+	if (typeof name !== "string" || !name || (mode !== "new" && mode !== "local" && mode !== "remote")) return undefined;
+	if (mode === "remote" && (typeof remote !== "string" || !remote || remote.startsWith("-"))) return undefined;
+	return { name, mode, ...(typeof remote === "string" && remote ? { remote } : {}) };
+}
+
+/** `git check-ref-format --branch`: the name is one git accepts for a branch (and not an option). */
+async function validBranchName(cwd: string, name: string): Promise<boolean> {
+	if (name.startsWith("-")) return false;
+	return (await gitRaw(cwd, ["check-ref-format", "--branch", name])).code === 0;
+}
+
+/** Where a branch named by the caller is checked out: a new, a local or a remote-tracking one. */
+async function addNamedWorktree(
+	primary: string,
+	baseCwd: string,
+	target: string,
+	source: WorktreeBranchSource,
+): Promise<void> {
+	const { name } = source;
+	if (!(await validBranchName(primary, name))) {
+		throw new LocalCommandError(`"${name}" is not a valid branch name.`, "invalid_name");
+	}
+	const exists = await branchExists(primary, name);
+	if (source.mode === "new") {
+		if (exists) throw new LocalCommandError(`The branch ${name} already exists.`, "worktree_create_failed");
+		await git(baseCwd, ["branch", "--no-track", name, "HEAD"]);
+		try {
+			await git(primary, ["worktree", "add", target, name], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
+		} catch (error) {
+			await gitRaw(primary, ["branch", "-D", name]).catch(() => undefined);
+			throw error;
+		}
+		return;
+	}
+	if (source.mode === "local") {
+		if (!exists) throw new LocalCommandError(`The branch ${name} does not exist.`, "worktree_create_failed");
+		await git(primary, ["worktree", "add", target, name], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
+		return;
+	}
+	if (exists) throw new LocalCommandError(`The branch ${name} already exists locally.`, "worktree_create_failed");
+	const upstream = `${source.remote}/${name}`;
+	const tracked = await gitRaw(primary, ["show-ref", "--verify", "--quiet", `refs/remotes/${upstream}`]);
+	if (tracked.code !== 0) {
+		throw new LocalCommandError(`The remote branch ${upstream} does not exist.`, "worktree_create_failed");
+	}
+	await git(primary, ["worktree", "add", "--track", "-b", name, target, upstream], {
+		timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+	});
+}
+
 export async function createWorktree(
 	sessionCwd: string,
-	input: { name: string; baseCwd?: string; baseRef?: "HEAD" | "default"; branchPrefix?: string },
+	input: {
+		name: string;
+		baseCwd?: string;
+		baseRef?: "HEAD" | "default";
+		branchPrefix?: string;
+		branch?: WorktreeBranchSource;
+	},
 	bridge: Pick<BridgeClient, "request">,
 ): Promise<RpcWorktreeCreateResult> {
 	const slug = worktreeSlug(input.name);
@@ -94,6 +156,21 @@ export async function createWorktree(
 	return withRepoLock(primary, async () => {
 		for (let suffix = 1; suffix <= MAX_SUFFIX; suffix++) {
 			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root, branchPrefix);
+			if (input.branch) {
+				// The branch name is the caller's: only the folder takes a suffix.
+				if (await pathTaken(candidate.path)) continue;
+				try {
+					await fs.mkdir(path.dirname(candidate.path), { recursive: true });
+					await addNamedWorktree(primary, baseCwd, candidate.path, input.branch);
+				} catch (error) {
+					if (error instanceof LocalCommandError) throw error;
+					throw new LocalCommandError(
+						`Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
+						"worktree_create_failed",
+					);
+				}
+				return { path: candidate.path, branch: input.branch.name, baseCwd: primary };
+			}
 			// A half-created dir (no .git yet) still makes `git worktree add` fail with "exists".
 			if ((await pathTaken(candidate.path)) || (await branchExists(primary, candidate.branch))) continue;
 			try {
