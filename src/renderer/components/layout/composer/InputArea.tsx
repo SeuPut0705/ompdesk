@@ -16,7 +16,6 @@ import { useNextPromptStore } from "../../../stores/next-prompt";
 import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
-import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
@@ -24,12 +23,11 @@ import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
 import { ComposerLiveEdge } from "./ComposerLive";
+import { ComposerPickers } from "./ComposerPickers";
 import { ComposerQueue } from "./ComposerQueue";
 import { ComposerToolbar } from "./ComposerToolbar";
-import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
-import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { useComposerAttach } from "./use-composer-attach";
 import { useComposerCommands } from "./use-composer-commands";
 import { useComposerDictation } from "./use-composer-dictation";
@@ -67,7 +65,6 @@ export function InputArea() {
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
-	const openSettings = useUiStore(s => s.openSettings);
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	const sessionFile = useSessionStore(s => s.sessionFile);
@@ -357,45 +354,18 @@ export function InputArea() {
 				<div className="omp-composer-anchor relative">
 					{menu && <CompletionList menu={menu} menuId={menuId} onPick={insertCompletion} />}
 
-					{historySearchOpen && (
-						<HistorySearchOverlay
-							cwd={cwd}
-							onSelect={prompt => {
-								setHistorySearchOpen(false);
-								textareaRef.current?.focus();
-								// A pick replaces the draft the way ↑ does.
-								history.pick(prompt, text);
-							}}
-							onClose={() => {
-								setHistorySearchOpen(false);
-								requestAnimationFrame(() => textareaRef.current?.focus());
-							}}
-						/>
-					)}
-					{skillPickerOpen && (
-						<SkillPickerOverlay
-							skills={commands
-								.filter(command => command.name.startsWith("skill:"))
-								.map(command => ({
-									name: command.name.slice("skill:".length),
-									description: command.description ?? "",
-								}))
-								.sort((a, b) => a.name.localeCompare(b.name))}
-							onClose={() => {
-								setSkillPickerOpen(false);
-								requestAnimationFrame(() => textareaRef.current?.focus());
-							}}
-							onManage={() => {
-								setSkillPickerOpen(false);
-								openSettings("tools:skills");
-							}}
-							onSelect={name => {
-								setSkillPickerOpen(false);
-								textareaRef.current?.focus();
-								insertAtCaret(`/skill:${name}`);
-							}}
-						/>
-					)}
+					<ComposerPickers
+						closeHistory={() => setHistorySearchOpen(false)}
+						closeSkills={() => setSkillPickerOpen(false)}
+						commands={commands}
+						cwd={cwd}
+						historyOpen={historySearchOpen}
+						// A pick replaces the draft the way ↑ does.
+						onPickHistory={prompt => history.pick(prompt, text)}
+						onPickSkill={name => insertAtCaret(`/skill:${name}`)}
+						skillsOpen={skillPickerOpen}
+						textareaRef={textareaRef}
+					/>
 					{chipsShown && (
 						<NextPromptChips
 							chips={chipList}
