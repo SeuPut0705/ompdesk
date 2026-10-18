@@ -80,7 +80,6 @@ const RPC_TIER: Record<string, Tier | ((command: RpcCommand) => Tier)> = {
 	login: "sensitive",
 	marketplace_action: command =>
 		command.type === "marketplace_action" && command.action === "install" ? "sensitive" : "never",
-	memory_clear: "sensitive",
 };
 
 /** The tier an RPC command needs. A command another command carries, or one not listed, is `never`. */

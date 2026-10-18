@@ -190,6 +190,13 @@ export const SETTINGS: readonly Setting[] = [
 		"이모지 자동 완성",
 	),
 	pref(
+		"mobileEnterSends",
+		"displayPreferences.mobileEnterSends",
+		"appearance",
+		"Enter sends on a touch keyboard",
+		"터치 키보드에서 Enter로 전송",
+	),
+	pref(
 		"pasteMenuThreshold",
 		"displayPreferences.pasteMenuThreshold",
 		"appearance",
@@ -298,6 +305,7 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	railPins: { never: "the person's own sidebar layout" },
 	githubAccount: { covered: "accounts.github_sign_in" },
 	machineSetup: { never: "machine setup installs tools by itself; there is nothing to set" },
+	pstack: { never: "the engineering-mode pack changes the prompt and skills every session runs with" },
 	agentControl: { never: "this switch gates the agent's own power over the app" },
 	ssh: { never: "SSH hosts and keys are credentials and network reach" },
 	remote: { never: "pairing another computer is the person's decision" },

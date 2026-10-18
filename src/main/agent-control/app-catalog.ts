@@ -69,6 +69,7 @@ const SETTINGS_SECTIONS = [
 	"keyboard",
 	"models",
 	"agent",
+	"memory",
 	"tools",
 	"permissions",
 	"workspace",
@@ -524,7 +525,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		args: NO_ARGS,
 		tier: "sensitive",
 		run: async ctx => {
-			await ctx.rpc({ type: "memory_clear" });
+			await ctx.invoke(C.AI_MEMORY_PURGE);
 			return { text: "Memory erased.", change: { en: "Memory", ko: "메모리", value: "erased" } };
 		},
 	},
