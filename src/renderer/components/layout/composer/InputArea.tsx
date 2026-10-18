@@ -132,6 +132,7 @@ export function InputArea() {
 		empty: isEmptySession,
 	});
 
+	/** False once the composer unmounted: uploads, dictation and the $EDITOR round trip check it before writing. */
 	const mountedRef = useRef(true);
 	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
 		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
