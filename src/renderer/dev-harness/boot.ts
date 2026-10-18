@@ -6,9 +6,11 @@
 
 import { createOmpApi } from "../../shared/omp-api";
 import { migrateThemeName, schemeOfTheme } from "../../shared/theme-names";
+import type { HostActions } from "../web/host-hooks";
 import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
+import { setWebRuntime } from "../web/runtime";
 import { createHarnessTransport } from "./transport";
 
 document.documentElement.dataset.platform = "web";
@@ -65,6 +67,53 @@ if (pwaMode === "ios" || pwaMode === "push") {
 	});
 }
 
+// `?host=1` gives the page a web runtime with a fake host, so `<WebHostUi />` mounts and the audit can put the host
+// sheets (path actions, folder browser, editor, save image, models file, quit, update, install steps) on screen.
+// Off by default: a runtime changes the connection banner and the device Settings of the harness.
+if (query.get("host") === "1") {
+	const listing = {
+		path: "/Users/dev/projects",
+		parent: "/Users/dev",
+		home: "/Users/dev",
+		entries: [
+			{ name: "ompdesk", path: "/Users/dev/projects/ompdesk", directory: true, size: null },
+			{
+				name: "a-folder-with-a-very-long-name-that-has-to-truncate",
+				path: "/Users/dev/projects/long",
+				directory: true,
+				size: null,
+			},
+			{ name: "notes.md", path: "/Users/dev/projects/notes.md", directory: false, size: 2048 },
+		],
+		truncated: false,
+	};
+	const done = { path: "/Users/dev/.omp/agent/models.yml", opened: true };
+	const host: HostActions = {
+		openExternalOnComputer: async () => {},
+		openPathOnComputer: async () => ({ ok: true }),
+		revealPathOnComputer: async () => ({ ok: true }),
+		editOnComputer: async () => ({ ok: true, unavailable: false, text: null }),
+		openModelsConfigOnComputer: async () => done,
+		listDirs: async () => listing,
+		saveToHost: async () => ({ ok: true, path: "/Users/dev/projects/image.png" }),
+		modelsConfigRead: async () => ({ ...done, text: "providers: {}\n", exists: true, stamp: "1" }),
+		modelsConfigWrite: async () => ({ ok: true, stamp: "2" }),
+		downloadToPhone: async () => ({ ok: true }),
+		saveBytesToPhone: async () => ({ saved: true }),
+		pickPhoneFiles: async () => null,
+	};
+	setWebRuntime({
+		host,
+		connectionState: () => "open",
+		onConnectionState: () => () => {},
+		features: () => ({ push: true, preview: true, upload: true, passkey: false }),
+		emitMenuAction: () => {},
+		setResyncHandler: () => () => {},
+		requestNotifications: async () => "default",
+	});
+	window.__hostActions = host;
+}
+
 // Dynamic: the renderer reads `window.omp` as it evaluates, and a static import would run it before the lines above.
 await import("../main");
 
@@ -85,6 +134,8 @@ const [
 	mobileWeb,
 	remote,
 	nextPrompt,
+	hostUi,
+	updater,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -100,6 +151,8 @@ const [
 	import("../stores/mobile-web").then(module => module.useMobileWebStore),
 	import("../stores/remote").then(module => module.useRemoteStore),
 	import("../stores/next-prompt").then(module => module.useNextPromptStore),
+	import("../web/host-ui/host-ui-store").then(module => module.useHostUiStore),
+	import("../stores/updater").then(module => module.useUpdaterStore),
 ]);
 window.__stores = {
 	ui,
@@ -116,7 +169,16 @@ window.__stores = {
 	mobileWeb,
 	remote,
 	nextPrompt,
+	hostUi,
+	updater,
 };
+
+declare global {
+	interface Window {
+		/** The fake host of `?host=1`, for the audit's host sheets. */
+		__hostActions?: HostActions;
+	}
+}
 
 interface StoreHandle {
 	getState(): unknown;

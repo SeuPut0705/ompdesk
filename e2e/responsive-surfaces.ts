@@ -20,6 +20,16 @@ export interface Surface {
 	settle?: number;
 	/** Measure the density figures (chrome share, gutter) too. */
 	density?: boolean;
+	/** Whether the surface exists at this look (a phone folds some controls behind ⋯); skipped otherwise. */
+	when?: (look: Look) => boolean;
+}
+
+/** Put one extension-UI request (a card) in front of the focused session. */
+async function request(page: Page, payload: Record<string, unknown>): Promise<void> {
+	await page.evaluate(request => {
+		const store = window.__stores?.extensionUi?.getState() as { pushRequest(value: unknown): void } | undefined;
+		store?.pushRequest({ type: "extension_ui_request", ...request });
+	}, payload);
 }
 
 /** Call a ui-store action by name. */
@@ -33,6 +43,19 @@ async function ui(page: Page, action: string, ...args: unknown[]): Promise<void>
 		},
 		{ action, args },
 	);
+}
+
+/** Put a prompt of the web host's sheet layer (`?host=1` pages) in front of the person. */
+async function hostPrompt(page: Page, prompt: Record<string, unknown>): Promise<void> {
+	await page.evaluate(prompt => {
+		const store = window.__stores?.hostUi?.getState() as { push(value: unknown): void } | undefined;
+		store?.push({ ...prompt, host: window.__hostActions, resolve: () => {} });
+	}, prompt);
+}
+
+/** Set the updater's status, as main's `updater:status` push does. */
+async function updater(page: Page, status: Record<string, unknown>): Promise<void> {
+	await page.evaluate(status => window.__stores?.updater?.setState({ status }), status);
 }
 
 const isPhone = (look: Look): boolean => look.width < 600;
@@ -324,6 +347,269 @@ export const SURFACES: readonly Surface[] = [
 		},
 		settle: 600,
 	},
+	{
+		id: "composer-run-settings",
+		area: "A",
+		title: "Run settings popover (thinking, approval); on a phone it lives behind the composer's ⋯",
+		when: look => look.width >= 600,
+		open: page => page.locator("[data-run-settings-trigger]").first().click(),
+	},
+	{
+		id: "composer-context-usage",
+		area: "A",
+		title: "Context usage popover; on a phone it lives behind the composer's ⋯",
+		when: look => look.width >= 600,
+		open: page => page.locator(".omp-context-usage-trigger").first().click(),
+	},
+	{
+		id: "composer-delegation",
+		area: "A",
+		title: "Delegation strength popover; on a phone it lives behind the composer's ⋯",
+		when: look => look.width >= 600,
+		open: page => page.locator("[data-delegation-trigger]").first().click(),
+	},
+	{
+		id: "composer-more-sheet",
+		area: "A",
+		title: "A phone's composer ⋯ sheet (mode, model, run settings, context)",
+		when: look => look.width < 600,
+		open: page => page.locator(".omp-composer-toolbar > button").nth(1).click(),
+	},
+	{
+		id: "composer-attach-menu",
+		area: "A",
+		title: "Attach and more menu",
+		open: page => page.locator(".omp-composer-toolbar > button").first().click(),
+	},
+	{
+		id: "sidebar-row-menu",
+		area: "A",
+		title: "A session row's action menu",
+		open: async (page, look) => {
+			await openDrawer(page, look);
+			await page.locator("[data-sidebar-row-menu]").first().click();
+		},
+	},
+	{
+		id: "card-ask",
+		area: "A",
+		title: "Ask card: a question with options, a multi-select and a recommendation",
+		open: page =>
+			request(page, {
+				id: "audit-ask",
+				method: "ask",
+				questions: [
+					{
+						id: "q1",
+						header: "Where should the fix go?",
+						question:
+							"The flaky row can be fixed in the test, in the component, or in both places. Which do you prefer?",
+						options: [
+							{
+								label: "In the test only",
+								description: "Wait for the row before asserting; no product change.",
+							},
+							{ label: "In the component", description: "Paint the rows synchronously on mount." },
+							{ label: "Both", description: "Belt and braces, at the cost of a larger diff." },
+						],
+						recommended: 0,
+					},
+					{
+						id: "q2",
+						question: "Which checks should run afterwards?",
+						multi: true,
+						options: [{ label: "Unit tests" }, { label: "Type check" }, { label: "Biome" }],
+					},
+				],
+			}),
+	},
+	{
+		id: "card-approval",
+		area: "A",
+		title: "Tool approval card with a long command",
+		open: page =>
+			request(page, {
+				id: "audit-approval",
+				method: "select",
+				title: "Allow tool: bash\nbunx vitest run src/renderer/components/layout/sidebar src/renderer/components/layout/composer --repeat 10 --reporter=verbose",
+				options: ["Approve", "Deny"],
+			}),
+	},
+	{
+		id: "card-input",
+		area: "A",
+		title: "Input and confirm cards",
+		open: async page => {
+			await request(page, {
+				id: "audit-input",
+				method: "input",
+				title: "What should the branch be called?",
+				placeholder: "feature/short-name",
+			});
+			await request(page, {
+				id: "audit-confirm",
+				method: "confirm",
+				title: "Overwrite the file?",
+				message: "src/renderer/components/layout/sidebar/Sidebar.tsx already exists.",
+			});
+		},
+	},
+	{
+		id: "dialog-plan-approval",
+		area: "B",
+		title: "Plan approval dialog",
+		open: page =>
+			page.evaluate(() => {
+				const store = window.__stores?.planApproval?.getState() as
+					| { showProposal(proposal: unknown): void }
+					| undefined;
+				store?.showProposal({
+					planFilePath: "/Users/dev/projects/ompdesk/.omp/plans/fix-flaky-sidebar.md",
+					title: "Fix the flaky sidebar test",
+					planContent: `# Plan\n\n1. Reproduce the flake with \`--repeat 10\`\n2. Wait for the row to mount before asserting\n3. Run the suite ten times\n\n| Step | Owner |\n| --- | --- |\n| Reproduce | agent |\n| Fix | agent |\n\n\`\`\`ts\nawait waitFor(() => expect(rowFor("Session /work/alpha/mine")).toBeTruthy());\n\`\`\``,
+					options: ["execute", "compact", "keep_context", "save"],
+				});
+			}),
+		settle: 700,
+	},
+	{
+		id: "dialog-schedule-new",
+		area: "B",
+		title: "Settings › Schedules › New schedule dialog",
+		open: async page => {
+			await openSettings(page, "schedules");
+			await page.locator("[data-schedule-new]").first().click();
+		},
+		settle: 700,
+	},
+	{
+		id: "dialog-remote-connect",
+		area: "B",
+		title: "Settings › Connections › Connect to a device dialog",
+		open: async page => {
+			await openSettings(page, "connections");
+			await page.locator("[data-remote-connect]").first().click();
+		},
+		settle: 700,
+	},
+	{
+		id: "settings-mobile-web-devices",
+		area: "B",
+		title: "Settings › Connections scrolled to Mobile web's devices and the device's push row",
+		query: "&pwa=push",
+		open: async page => {
+			await openSettings(page, "connections");
+			await page.locator("[data-web-device-section]").first().scrollIntoViewIfNeeded();
+		},
+		settle: 700,
+	},
+	{
+		id: "card-whats-new",
+		area: "B",
+		title: "What's new card in the composer's corner",
+		open: page => ui(page, "showWhatsNewCard", "0.36.1", "0.35.0"),
+	},
+	{
+		id: "banner-update-error",
+		area: "B",
+		title: "Update banner: the updater failed",
+		open: page =>
+			updater(page, {
+				state: "error",
+				message: "Could not reach the update server. Check the connection and try again.",
+				detail: "getaddrinfo ENOTFOUND github.com",
+			}),
+	},
+	{
+		id: "banner-update-ready",
+		area: "B",
+		title: "Update banner: an update is downloaded",
+		open: page => updater(page, { state: "downloaded", version: "0.37.0", mode: "relaunch" }),
+	},
+	{
+		id: "host-path-actions",
+		area: "B",
+		title: "Host sheet: a file the agent named (open / reveal / download)",
+		query: "&host=1",
+		open: page =>
+			hostPrompt(page, {
+				kind: "openPath",
+				path: "/Users/dev/projects/ompdesk/src/renderer/components/layout/sidebar/Sidebar.tsx",
+			}),
+	},
+	{
+		id: "host-browser-folder",
+		area: "B",
+		title: "Host sheet: the computer's folder browser",
+		query: "&host=1",
+		open: page =>
+			hostPrompt(page, {
+				kind: "browse",
+				mode: "folder",
+				title: "Open a project folder",
+				defaultPath: "/Users/dev/projects",
+			}),
+		settle: 700,
+	},
+	{
+		id: "host-browser-file",
+		area: "B",
+		title: "Host sheet: the computer's file browser",
+		query: "&host=1",
+		open: page =>
+			hostPrompt(page, { kind: "browse", mode: "file", title: "Attach a file", defaultPath: "/Users/dev/projects" }),
+		settle: 700,
+	},
+	{
+		id: "host-editor",
+		area: "B",
+		title: "Host sheet: edit on the computer",
+		query: "&host=1",
+		open: page =>
+			hostPrompt(page, {
+				kind: "editor",
+				content: "A long line of text to edit on the computer, past the width of a phone screen.\nSecond line.",
+			}),
+	},
+	{
+		id: "host-save-image",
+		area: "B",
+		title: "Host sheet: save an image (phone or computer)",
+		query: "&host=1",
+		open: page =>
+			hostPrompt(page, { kind: "saveImage", name: "diagram.png", mime: "image/png", base64: "iVBORw0KGgo=" }),
+	},
+	{
+		id: "host-models-config",
+		area: "B",
+		title: "Host sheet: the agent's models file",
+		query: "&host=1",
+		open: page => hostPrompt(page, { kind: "models" }),
+		settle: 700,
+	},
+	{
+		id: "host-quit",
+		area: "B",
+		title: "Host sheet: quit confirmation",
+		query: "&host=1",
+		open: page => hostPrompt(page, { kind: "quit" }),
+	},
+	{
+		id: "host-update",
+		area: "B",
+		title: "Host sheet: update confirmation",
+		query: "&host=1",
+		open: page => hostPrompt(page, { kind: "update" }),
+	},
+	...(["ios-share", "prompt", "samsung-menu", "firefox-menu"] as const).map(
+		(guidance): Surface => ({
+			id: `host-install-${guidance}`,
+			area: "B",
+			title: `PWA install sheet (${guidance})`,
+			query: "&host=1",
+			open: page => hostPrompt(page, { kind: "install", guidance }),
+		}),
+	),
 ];
 
 export function surfacesFor(filter: { area?: string; only?: RegExp }): Surface[] {

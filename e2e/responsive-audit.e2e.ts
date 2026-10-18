@@ -90,6 +90,7 @@ if (dir) {
 				let page = await openLook(browser, look, { origin, query });
 				let reload = false;
 				for (const surface of group) {
+					if (surface.when && !surface.when(look)) continue;
 					if (reload || !(await resetPage(page))) {
 						await page.context().close();
 						page = await openLook(browser, look, { origin, query });

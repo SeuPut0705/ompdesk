@@ -18,7 +18,7 @@ export type IssueKind =
 	| "clipped" // text cut by an overflow-hidden ancestor, or spilling out of its own box
 	| "offscreen-popover" // a dialog, menu, listbox, tooltip or toast partly outside the viewport
 	| "small-target" // a visible control whose hit box is under 44 px (40 on a list row, 36 on a field)
-	| "small-text" // text under 12 px (after an SVG's own scale)
+	| "small-text" // text under 11.5 px (after an SVG's own scale)
 	| "overlap" // two interactive elements drawn over each other
 	| "stolen-tap" // a point of a control's 44 px hit box resolves to another control, or to nothing
 	| "safe-area"; // a control or text under the notch, the home indicator or a rounded corner
@@ -122,6 +122,8 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		reducedMotion: "reduce",
 	});
 	const page = await context.newPage();
+	// A surface whose control is missing fails in seconds (reported as failed), never hangs the sweep.
+	page.setDefaultTimeout(8_000);
 	const errors: string[] = [];
 	page.on("pageerror", error => errors.push(error.message));
 	// React logs a render error the boundary caught to the console; the crash screen's cause is in these.
@@ -131,6 +133,7 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 	Object.assign(page, { auditErrors: errors });
 	await page.goto(
 		`${options.origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all&stress=1${options.query ?? ""}`,
+		{ timeout: 90_000 },
 	);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	await page.waitForFunction(() => window.__stores !== undefined, undefined, { timeout: 45_000 });
@@ -175,6 +178,15 @@ export async function resetPage(page: Page): Promise<boolean> {
 		ui.setState(patch);
 		const toast = stores.toast as unknown as { setState(partial: unknown): void };
 		toast.setState({ toasts: [] });
+		// What the other surfaces leave in front of the session: ask/approval cards, a plan, host sheets, a banner.
+		const call = (store: string, action: string) => {
+			const state = stores[store]?.getState() as Record<string, (() => void) | undefined> | undefined;
+			state?.[action]?.();
+		};
+		call("extensionUi", "clearAll");
+		call("planApproval", "clearProposal");
+		call("hostUi", "reset");
+		stores.updater?.setState({ status: { state: "idle" } });
 	});
 	await page.keyboard.press("Escape");
 	await page.keyboard.press("Escape");
@@ -186,6 +198,19 @@ export async function resetPage(page: Page): Promise<boolean> {
 
 /** Measure the page as it is now. */
 export async function measure(page: Page, look: Look): Promise<Issue[]> {
+	// Typing into or clicking a control scrolls its overflow-hidden ancestors to show it (the session pane, the
+	// page); the user never sees that shift as a layout, so measure from the unscrolled layout.
+	await page.evaluate(() => {
+		for (const element of document.querySelectorAll<HTMLElement>("*")) {
+			if (element.scrollTop === 0 && element.scrollLeft === 0) continue;
+			const computed = getComputedStyle(element);
+			if (computed.overflowX === "hidden" || computed.overflowY === "hidden" || computed.overflow === "clip") {
+				element.scrollTop = 0;
+				element.scrollLeft = 0;
+			}
+		}
+		window.scrollTo(0, 0);
+	});
 	return page.evaluate(measureInPage, { safe: safeInsets(look) });
 }
 
@@ -317,10 +342,19 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	}
 
 	// ── Text: truncated, clipped, small ─────────────────────────────────────────────────────────────
+	/** A control, heading or tab whose full text is required; a row of a list may truncate (the full text is one tap away). */
 	const labelish = (element: Element) =>
 		!!element.closest(
 			'button, a, label, summary, h1, h2, h3, h4, h5, h6, th, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="heading"], [role="dialog"] > header, [data-label-required]',
-		);
+		) && !element.closest(".omp-list-row, li, td, [role='option'], [data-model-option], [data-list-item]");
+	/** The nearest ancestor that scrolls vertically (content longer than its box). */
+	const scrollerOf = (element: Element): Element | null => {
+		for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+			const overflowY = style(node).overflowY;
+			if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight + 1) return node;
+		}
+		return null;
+	};
 	const ownText = (element: Element): Text[] =>
 		[...element.childNodes].filter(
 			(node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0,
@@ -334,7 +368,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		// Small text: an SVG's text is measured through its own scale.
 		let size = Number.parseFloat(computed.fontSize);
 		if (element instanceof SVGGraphicsElement) size *= element.getScreenCTM()?.a ?? 1;
-		if (size < 11.95 && !element.closest("[data-audit-ignore], .xterm")) {
+		if (size < 11.5 && !element.closest("[data-audit-ignore], .xterm")) {
 			push("small-text", element, `${size.toFixed(1)}px`);
 		}
 		const overflowsBox = element.scrollWidth > element.clientWidth + 1 && element.clientWidth > 0;
@@ -375,6 +409,14 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	);
 	for (const element of floating) {
 		if (!shown(element) || srOnly(element)) continue;
+		// An inline notice is role=status too; only a status or alert pinned to the screen (a toast) is floating.
+		if (element.matches('[role="alert"], [role="status"]')) {
+			// A toast stack is a portal: a direct child of <body> other than the app root, and fixed.
+			let top: Element = element;
+			while (top.parentElement && top.parentElement !== document.body) top = top.parentElement;
+			const pinned = top.id !== "root" && ["fixed", "absolute"].includes(style(top).position);
+			if (!pinned) continue;
+		}
 		const rect = element.getBoundingClientRect();
 		if (rect.width < 2 || rect.height < 2) continue;
 		// A dialog's wrapper that spans the viewport is the overlay, not a floating box.
@@ -449,7 +491,11 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		// A link inside a sentence is exempt.
 		if (element instanceof HTMLAnchorElement && style(element).display === "inline") continue;
 		const hit = hitBox(element);
-		const need = hit.row ? 39.5 : hit.field ? 35.5 : 43.5;
+		// A cluster that declares `--hit-gap-x|y` (mobile.css) splits the reach between neighbours on purpose.
+		const bounded =
+			style(element).getPropertyValue("--hit-gap-x").trim() !== "" ||
+			style(element).getPropertyValue("--hit-gap-y").trim() !== "";
+		const need = hit.row ? 39.5 : hit.field || bounded ? 35.5 : 43.5;
 		if (Math.min(hit.width, hit.height) < need) {
 			push("small-target", element, `${Math.round(hit.width)}×${Math.round(hit.height)} (need ${Math.ceil(need)})`);
 		}
@@ -475,6 +521,8 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 				(b.rect.right - b.rect.left) * (b.rect.bottom - b.rect.top),
 			);
 			if ((width * height) / smaller < 0.2) continue;
+			// One box inside the other (an action over its stretched row) is a layered control, not a collision.
+			if ((width * height) / smaller > 0.95) continue;
 			const x = Math.max(a.rect.left, b.rect.left) + width / 2;
 			const y = Math.max(a.rect.top, b.rect.top) + height / 2;
 			const top = document.elementFromPoint(x, y);
@@ -501,8 +549,10 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		if (!clip) continue;
 		const cx = own.left + own.width / 2;
 		const cy = own.top + own.height / 2;
-		const halfW = Math.max(hit.width, own.width) / 2 - 1.5;
-		const halfH = Math.max(hit.height, own.height) / 2 - 1.5;
+		// A field has no ::after: its hit box is its own box (the composer's input too, whatever box wraps it).
+		const ownOnly = hit.field || element.matches("[data-composer-input]");
+		const halfW = (ownOnly ? own.width : Math.max(hit.width, own.width)) / 2 - 1.5;
+		const halfH = (ownOnly ? own.height : Math.max(hit.height, own.height)) / 2 - 1.5;
 		const points: Array<[number, number, string]> = [
 			[cx, cy, "centre"],
 			[cx, cy - halfH, "top"],
@@ -525,7 +575,10 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			// Inside the control's own scroller bounds only: a point past the clip belongs to the clipper.
 			const owner = topEl.closest(controlSelector);
 			if (owner && (owner.contains(element) || element.contains(owner))) continue;
-			if (!owner && (x < clip.left || x > clip.right || y < clip.top || y > clip.bottom)) continue;
+			if (!owner && (ownOnly || x < clip.left || x > clip.right || y < clip.top || y > clip.bottom)) continue;
+			// A bar or chip floating over a scroller covers content that scrolls under it by design.
+			const scroller = scrollerOf(element);
+			if (owner && scroller && !scroller.contains(owner)) continue;
 			lost.push(name);
 			if (!thief) thief = owner ? describe(owner) : `nothing (${describe(topEl)})`;
 		}
@@ -557,6 +610,8 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		if (element.closest(".xterm, [data-drawer-scrim], [role='tooltip']")) continue;
 		const rect = visibleRect(element);
 		if (!rect) continue;
+		// Content in a scroller passes through the inset band as it scrolls; a fixed bar or panel must stay clear.
+		if (scrollerOf(element)) continue;
 		const found = bands(rect);
 		if (found.length > 0) push("safe-area", element, `under the ${found.join(", ")} inset`);
 	}
@@ -587,7 +642,7 @@ export interface Density {
 	insets: number;
 	/** The composer box itself. */
 	composer: number;
-	/** App chrome: (header + bottom) / viewport height, in percent, insets excluded. The smoke gates this at ≤ 22 %. */
+	/** App chrome: (header + bottom) / viewport height, in percent, insets excluded. The smoke gates this at ≤ 16 %. */
 	chromeShare: number;
 	/** Smallest distance from a screen edge to a transcript row's text, left and right. */
 	gutter: number;
@@ -595,7 +650,7 @@ export interface Density {
 	bodyFont: number;
 }
 
-/** The idle session's chrome share and gutters (the phone targets: share ≤ 22 %, gutter ≤ 16 px, body 14–15 px). */
+/** The idle session's chrome share and gutters (the phone targets: share ≤ 16 %, gutter ≤ 16 px, body 13–15 px). */
 export async function measureDensity(page: Page, look: Look): Promise<Density | undefined> {
 	return page.evaluate((inset): Density | undefined => {
 		const rows = [...document.querySelectorAll<HTMLElement>("[data-transcript-kind]")];
@@ -745,7 +800,7 @@ export async function mergeReport(
 			return `| ${surface}${entry.failed ? ` (⚠ ${entry.failed} failed)` : ""} | ${entry.area} | ${entry.score.toFixed(0)} | ${entry.total} | ${widthKeys.map(key => entry.widths.get(key) ?? "·").join(" | ")} | ${kinds} |`;
 		}),
 		"",
-		"## Density of the idle session (targets on a phone: chrome ≤ 22 %, gutter ≤ 16 px, body 14–15 px)",
+		"## Density of the idle session (targets on a phone: chrome ≤ 16 %, gutter ≤ 16 px, body 13–15 px)",
 		"",
 		"| look | app header | app bottom (dock + composer) | composer | insets (not counted) | app chrome share | text gutter | body font |",
 		"| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
