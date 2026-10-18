@@ -862,6 +862,11 @@ html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode] .omp-compos
 	display: inline;
 }
 
+html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode] {
+	height: 28px;
+	padding-inline: var(--sc-space-2);
+}
+
 /* The expanded composer is a column (the grid above is for the idle row): header, the field fills, then the footer
    row with + at the left and Send at the right. */
 html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box {
@@ -1091,6 +1096,14 @@ html[data-input="touch"] .omp-next-chips[data-touch] .omp-next-chip-send {
 	border-color: var(--sc-accent);
 	background: var(--sc-accent);
 	color: var(--sc-accent-fg);
+}
+
+/* The composer's pickers (slash/@/emoji menu, history search, skills): option rows are 44 px, not the desktop's 28. They
+   sit flush, so no row's hit area grows past its own row. */
+html[data-input="touch"] .omp-composer-anchor [role="option"] {
+	min-height: var(--sc-row-action);
+	align-items: center;
+	--hit-gap-y: 0px;
 }
 
 /* Attached pictures on touch: ONE row of 56 px thumbnails that scrolls sideways (never wrapping: twenty pictures were

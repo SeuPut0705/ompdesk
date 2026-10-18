@@ -27,7 +27,7 @@ function subscribe(onChange: () => void): () => void {
 
 function snapshot(): boolean {
 	const visible = window.visualViewport?.height || window.innerHeight || Number.POSITIVE_INFINITY;
-	return statusRowFits(document.documentElement.dataset.kb === "open", visible);
+	return statusRowFits(document.documentElement.getAttribute("data-kb") === "open", visible);
 }
 
 export function useStatusRowRoom(): boolean {

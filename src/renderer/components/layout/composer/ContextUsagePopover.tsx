@@ -256,6 +256,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 				aria-expanded={open}
 				aria-haspopup="dialog"
 				aria-label={triggerLabel}
+				data-chip={chip ? "context" : undefined}
 				className={cx(
 					chip
 						? "omp-status-chip"

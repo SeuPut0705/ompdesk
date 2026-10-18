@@ -85,7 +85,9 @@ async function openPhone(lang: Lang, theme: "light" | "dark" = "light"): Promise
 	return page;
 }
 
-const row = (page: Page): Locator => page.locator(".omp-next-chips");
+/** The suggestions share the status chip row's one scroller (`.omp-next-chips` is `display: contents` there). */
+const row = (page: Page): Locator => page.locator("[data-status-row]");
+const suggestionGroup = (page: Page): Locator => page.locator(".omp-next-chips");
 const chips = (page: Page): Locator => page.locator("[data-next-chip]");
 const field = (page: Page): Locator => page.locator("textarea").first();
 const draft = (page: Page): Promise<string> =>
@@ -107,14 +109,28 @@ for (const lang of variants<Lang>(["en", "ko"], () => true)) {
 				await expect(chips(page)).toHaveText([...CANDIDATES[lang]]);
 				await expect(field(page)).not.toHaveAttribute("placeholder", CANDIDATES[lang][0]);
 				await expect(page.locator(".omp-next-chips kbd")).toHaveCount(0);
+				// The row is the status chip row: 44 px, one scroller; the live chips come first, then the divider, then
+				// the suggestions (the same row, so the idle chrome stays one row).
 				const box = await row(page).boundingBox();
-				expect(box?.height).toBeLessThanOrEqual(32);
-				const overflow = await row(page).evaluate(element => getComputedStyle(element).overflowX);
-				expect(overflow).toBe("auto");
-				// One row: every chip shares a top edge, even when they do not all fit.
-				const tops = await chips(page).evaluateAll(items =>
-					items.map(item => Math.round(item.getBoundingClientRect().top)),
+				expect(box?.height).toBe(44);
+				await expect(row(page)).toHaveCSS("overflow-x", "auto");
+				expect(await suggestionGroup(page).evaluate(element => getComputedStyle(element).display)).toBe("contents");
+				const order = await row(page).evaluate(element =>
+					Array.from(element.children).map(child =>
+						child.hasAttribute("data-status-divider")
+							? "divider"
+							: child.classList.contains("omp-next-chips")
+								? "suggestions"
+								: (child.getAttribute("data-chip") ??
+									child.querySelector("[data-chip]")?.getAttribute("data-chip") ??
+									"?"),
+					),
 				);
+				expect(order).toEqual(["model", "plan", "run", "context", "divider", "suggestions"]);
+				// One row: every chip shares a top edge, even when they do not all fit.
+				const tops = await row(page)
+					.locator("[data-chip], [data-next-chip]")
+					.evaluateAll(items => items.map(item => Math.round(item.getBoundingClientRect().top)));
 				expect(new Set(tops).size).toBe(1);
 				const heights = await chips(page).evaluateAll(items =>
 					items.map(item => item.getBoundingClientRect().height),

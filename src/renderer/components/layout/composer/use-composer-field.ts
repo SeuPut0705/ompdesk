@@ -102,21 +102,32 @@ export function useComposerField({
 	};
 
 	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
-	// it shows the short prompt instead of a hint cut mid-glyph. A new width also rewraps the draft, so the
-	// field's height is fitted again (a side panel opening made the draft scroll inside a too-short field).
+	// it shows the short prompt instead of a hint cut mid-glyph. A new width also rewraps the draft, and a new pane
+	// or visible height (a phone rotated back, the keyboard gone) moves the ceiling it may grow to, so the field's
+	// height is fitted again (a side panel opening made the draft scroll inside a too-short field).
 	const [fieldNarrow, setFieldNarrow] = useState(false);
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el || typeof ResizeObserver === "undefined") return;
+		const pane = el.closest<HTMLElement>(".omp-session-pane");
 		let width = el.clientWidth;
+		let paneHeight = pane?.clientHeight ?? 0;
 		const observer = new ResizeObserver(() => {
 			setFieldNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_FIELD_PX);
-			if (el.clientWidth === width) return;
+			const nextPaneHeight = pane?.clientHeight ?? 0;
+			if (el.clientWidth === width && nextPaneHeight === paneHeight) return;
 			width = el.clientWidth;
+			paneHeight = nextPaneHeight;
 			fitFieldHeight(el, expanded);
 		});
 		observer.observe(el);
-		return () => observer.disconnect();
+		if (pane) observer.observe(pane);
+		const refit = () => fitFieldHeight(el, expanded);
+		window.visualViewport?.addEventListener("resize", refit);
+		return () => {
+			observer.disconnect();
+			window.visualViewport?.removeEventListener("resize", refit);
+		};
 	}, [expanded]);
 
 	useEffect(() => {

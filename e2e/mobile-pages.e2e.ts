@@ -432,9 +432,8 @@ for (const { engine, device } of variants(
 
 		test("the model picker is a full-height sheet with its search pinned on a phone", async () => {
 			const page = await openHarness(browser, device, LIGHT_EN);
-			// A phone's composer is one row: the model chip waits behind "Mode, model and more".
-			if (device.phone) await page.getByRole("button", { name: "Mode, model and more" }).click();
-			await page.locator("[data-model-chip]").click();
+			// A phone's model chip is in the status row above the composer.
+			await page.locator(device.phone ? "[data-chip=model]" : "[data-model-chip]").click();
 			const dialog = page.getByRole("dialog");
 			const search = dialog.getByRole("searchbox", { name: "Search models" });
 			await expect(search).toBeVisible();
