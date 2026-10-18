@@ -14,7 +14,8 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { formatShortcut, onEscape } from "../../lib/keymap";
 import { type QueueLane, useQueuedMessages } from "../../stores/queue";
-import { Badge, Button, EmptyState, IconButton, TextArea } from "../common";
+import { Button, EmptyState, IconButton, TextArea } from "../common";
+import { QueueLaneHeading } from "../layout/composer/queue-lane";
 import { PANEL_ROW_SURFACE } from "./PanelChrome";
 import { useQueueActions } from "./use-queue-actions";
 
@@ -43,6 +44,7 @@ const QueuedRow = memo(function QueuedRow({
 	// Stock promotes only follow-ups (promote_queued_message), so "Send now" is a follow-up action.
 	const moveLabel = lane === "followUp" ? t("composerQueue.sendNow") : t("composerQueue.sendLater");
 	const MoveIcon = lane === "followUp" ? CornerDownRight : ListPlus;
+	const LaneIcon = lane === "steering" ? CornerDownRight : ListPlus;
 	useEffect(() => {
 		if (!editing) setDraft(item.text);
 	}, [editing, item.text]);
@@ -97,6 +99,7 @@ const QueuedRow = memo(function QueuedRow({
 				</div>
 			) : (
 				<>
+					<LaneIcon aria-hidden className="mt-1.5 size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 					<span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-sc-sm leading-(--sc-leading-normal) text-(--sc-text)">
 						{item.text || "…"}
 					</span>
@@ -149,11 +152,10 @@ function LaneSection({
 	const t = useT();
 	return (
 		<section className="mb-3">
-			<div className="flex items-center gap-1.5 px-2 py-1.5">
-				<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-muted)">
-					{t(lane === "steering" ? "queuePanel.lane.steering" : "queuePanel.lane.followUp")}
-				</span>
-				<Badge variant="muted">{items.length}</Badge>
+			<div className="flex items-center gap-1.5 py-1">
+				<div className="min-w-0 flex-1">
+					<QueueLaneHeading count={items.length} lane={lane} />
+				</div>
 				{items.length > 0 && (
 					<Button
 						icon={<ListX />}

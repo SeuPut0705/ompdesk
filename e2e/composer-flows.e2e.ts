@@ -351,18 +351,21 @@ test("removing an attachment, a card or a queued message, or cancelling a paste,
 		await expect(stop(page)).toBeVisible();
 		await input.fill("queued one");
 		await input.press("Enter");
-		const tray = page.locator(".omp-composer-queue");
-		await expect(tray.locator("li")).toHaveCount(1);
-		await tray.locator("li").first().hover();
-		await tray.getByRole("button", { name: "Edit" }).click();
-		const editor = page.getByLabel("Queued message text");
-		await editor.fill("queued edited");
-		await editor.press("Enter");
-		await expect(editor).toHaveCount(0);
+		const pill = page.locator("[data-queue-pill]");
+		await expect(pill).toContainText("1 queued");
+		await pill.click();
+		await page.getByRole("button", { name: "Edit: queued one" }).click();
+		// The field itself edits the queued message; Enter saves it.
+		await expect(input).toHaveValue("queued one");
+		await input.fill("queued edited");
+		await input.press("Enter");
+		await expect(page.locator("[data-queue-edit-banner]")).toHaveCount(0);
 		expect(await composerFocused(page)).toBe(true);
-		await tray.locator("li").first().hover();
-		await tray.getByRole("button", { name: "Remove", exact: true }).click();
-		await expect(tray).toHaveCount(0);
+		await page.waitForTimeout(800);
+		await pill.click();
+		await page.getByRole("button", { name: "More actions: queued edited" }).click();
+		await page.getByRole("menuitem", { name: "Remove" }).click();
+		await expect(pill).toHaveCount(0);
 		expect(await composerFocused(page)).toBe(true);
 		await stop(page).click();
 		await expect(stop(page)).toHaveCount(0);
@@ -465,7 +468,7 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 	}
 });
 
-test("Stop with queued messages and a draft keeps them apart from the draft in order, says so once, and releases nothing", async () => {
+test("Stop with queued messages pauses the queue: separate chips in one row, the draft untouched, nothing sent until Resume", async () => {
 	test.setTimeout(120_000);
 	const dirs = await profile("stop-queue");
 	const { app, page, errors } = await launch(dirs);
@@ -479,21 +482,77 @@ test("Stop with queued messages and a draft keeps them apart from the draft in o
 			await input.press("Enter");
 			await expect(input).toHaveValue("");
 		}
-		await expect(page.locator(".omp-composer-queue li")).toHaveCount(2);
+		await expect(page.locator("[data-queue-pill]")).toContainText("2 queued");
 		await input.fill("my half-typed draft");
 		await stop(page).click();
 		await expect(stop(page)).toHaveCount(0);
 
-		// Queued messages first, oldest first, a blank line between each, the draft last: never one run-on message.
-		await expect(input).toHaveValue("queued one\n\nqueued two\n\nmy half-typed draft");
-		await expect(page.locator(".omp-composer-queue")).toHaveCount(0);
-		await expect(
-			page.getByText("Stop took 2 queued messages back into the composer, above your draft"),
-		).toBeVisible();
+		// The draft stays the user's own; the queued messages come back as their own chips, oldest first.
+		await expect(input).toHaveValue("my half-typed draft");
+		const paused = page.locator("[data-restored-queue]");
+		await expect(paused).toBeVisible();
+		await expect(paused).toContainText("Queue paused because you stopped");
+		await expect(paused.locator("[data-restored-item]")).toHaveText([/queued one$/, /queued two$/]);
+		expect(Math.round((await paused.boundingBox())?.height ?? 0)).toBe(36);
+		await expect(page.locator("[data-queue-pill]")).toHaveCount(0);
+		await expect(page.locator("[data-composer-live]")).toContainText(
+			"Stopped. 2 queued messages are back, nothing will send until you resume",
+		);
 		// Nothing was released: the stopped turn's queue is not sent on its own.
 		await page.waitForTimeout(800);
 		expect(await sentOfType(dirs.record, "prompt")).toEqual(["fixture running"]);
 		expect(await sentOfType(dirs.record, "follow_up")).toEqual([]);
+
+		// Resume sends them in order through stock's calls: the first starts the turn again, the rest queue behind it.
+		await page.mouse.move(0, 0);
+		await paused.getByRole("button", { name: "Resume" }).click();
+		await expect(paused).toHaveCount(0);
+		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual(["fixture running", "queued one"]);
+		await expect.poll(() => sentOfType(dirs.record, "follow_up")).toEqual(["queued two"]);
+		await expect(input).toHaveValue("my half-typed draft");
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("Discard and a chip's × drop restored messages; a chip's text puts it in the field; Esc arms the stop with a hint", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("stop-queue-discard");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		const input = composer(page);
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(stop(page)).toBeVisible();
+		for (const text of ["queued one", "queued two", "queued three"]) {
+			await input.fill(text);
+			await input.press("Enter");
+			await expect(input).toHaveValue("");
+		}
+		await stop(page).click();
+		const paused = page.locator("[data-restored-queue]");
+		await expect(paused.locator("[data-restored-item]")).toHaveCount(3);
+		await paused.getByRole("button", { name: "Remove restored message: queued two" }).click();
+		await expect(paused.locator("[data-restored-item]")).toHaveText([/queued one$/, /queued three$/]);
+		await paused.getByRole("button", { name: "Put in the field: queued three" }).click();
+		await expect(input).toHaveValue("queued three");
+		await paused.getByRole("button", { name: "Discard all restored messages" }).click();
+		await expect(paused).toHaveCount(0);
+		expect(await sentOfType(dirs.record, "follow_up")).toEqual([]);
+
+		// Esc with a draft while a turn runs only arms the stop, and the field says so; typing disarms it.
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(stop(page)).toBeVisible();
+		await expect(page.locator("[data-send-mode]")).toBeVisible();
+		await input.fill("an unsent draft");
+		await input.press("Escape");
+		await expect(page.locator("[data-stop-hint]")).toHaveText("Press Esc again to stop the turn. Your draft stays.");
+		await input.press("x");
+		await expect(page.locator("[data-stop-hint]")).toHaveCount(0);
+		expect(await aborts(dirs)).toBe(1);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

@@ -343,14 +343,14 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 								variant="primary"
 							/>
 						) : (
-							<ComposerSend label={editingQueued ? t("input.send.saveEdit") : sendTip} shortcut={sendChord}>
+							<ComposerSend label={editingQueued ? t("composerQueue.editSave") : sendTip} shortcut={sendChord}>
 								<IconButton
 									className="omp-composer-action"
 									data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
 									data-send-editing={editingQueued || undefined}
 									disabled={sendDisabled || !showSend}
 									icon={editingQueued ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
-									label={editingQueued ? t("input.send.saveEdit") : t("input.send")}
+									label={editingQueued ? t("composerQueue.editSave") : t("input.send")}
 									onClick={onSend}
 									tooltip={false}
 									variant={showSend ? "primary" : "secondary"}

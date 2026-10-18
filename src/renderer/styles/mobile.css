@@ -877,7 +877,7 @@ html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > .omp-comp
 }
 
 html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > :not(:first-child, .omp-composer-more, .omp-composer-send-cluster, input),
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) .omp-composer-send-cluster > :not(:last-child) {
+html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) .omp-composer-send-cluster > :not(:last-child, [data-queue-pill]) {
 	display: none;
 }
 
@@ -1033,6 +1033,23 @@ html[data-shell] .omp-titlebar > div {
 
 html[data-shell] .omp-composer-send-cluster {
 	gap: 8px;
+}
+
+/* A phone's field is 119 px wide with a lane chip, a queue pill, Stop and Send in the cluster: while messages wait the
+   pill's number says how many and the lane chip steps aside (Send's name still carries the lane). */
+html[data-shell="phone"] .omp-composer-send-cluster:has([data-queue-pill]) [data-send-mode] {
+	display: none;
+}
+
+/* Paused after Stop is ONE 36 px row on a phone: the sentence yields to the restored chips (its icon, the section's
+   name and the live message still say it), and the chips and Resume / Discard keep 8 px between them for the hit reach. */
+html[data-shell="phone"] .omp-restored-queue [data-restored-note] > span {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart. */

@@ -40,10 +40,10 @@ async function applyLaneMutation(
 }
 
 /** Remember where stock put a re-queued message (the end of its lane), for the tray to point at it. */
-function noteLanded(queueStore: StoreApi<QueueStore>, lane: QueueLane, id: string): void {
+function noteLanded(queueStore: StoreApi<QueueStore>, lane: QueueLane, id: string, kind: "edit" | "lane"): void {
 	const items = queueStore.getState()[lane];
 	const index = items.findIndex(entry => entry.id === id);
-	if (index !== -1) queueStore.getState().noteMoved({ id, lane, position: index + 1, count: items.length });
+	if (index !== -1) queueStore.getState().noteMoved({ id, lane, position: index + 1, count: items.length, kind });
 }
 
 async function applyCrossLaneMove(
@@ -73,7 +73,7 @@ async function applyCrossLaneMove(
 	});
 	// Stock re-queues a steer as a follow-up with its text only; a follow-up promoted to a steer keeps its pictures.
 	if (lane === "steering") queueStore.getState().forgetImages(id);
-	noteLanded(queueStore, target, id);
+	noteLanded(queueStore, target, id, "lane");
 	await settled;
 }
 
@@ -126,7 +126,7 @@ export function useQueueActions(): QueueActions {
 			);
 			// The re-queue carries the text only.
 			queueStore.getState().forgetImages(id);
-			noteLanded(queueStore, lane, id);
+			noteLanded(queueStore, lane, id, "edit");
 		},
 		[ready, t, tabRpc.queueEdit, queueStore],
 	);

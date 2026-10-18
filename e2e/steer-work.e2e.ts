@@ -80,9 +80,11 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		// The composer steers the running turn; stock queues it until the loop takes it.
 		await input.fill(STEER);
 		await input.press("Enter");
-		await expect(page.locator(".omp-composer-queue")).toContainText(STEER);
+		await expect(page.locator("[data-queue-pill]")).toContainText("1 queued");
+		await page.locator("[data-queue-pill]").click();
+		await expect(page.locator("[data-queue-popover]")).toContainText(STEER);
 		await fixture("fixture:steer-next");
-		await expect(page.locator(".omp-composer-queue")).toHaveCount(0);
+		await expect(page.locator("[data-queue-pill]")).toHaveCount(0);
 		await expectOneCard(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]:not([data-nested="true"])')).toHaveCount(1);
 		await capture("live");

@@ -53,6 +53,7 @@ export function useComposerKeys({
 	runActive,
 	touchInput,
 	enterSends,
+	queueEdit,
 	send,
 }: {
 	rpc: TabRpc;
@@ -89,6 +90,8 @@ export function useComposerKeys({
 	touchInput: boolean;
 	/** The "Enter sends on mobile" setting: a touch device's Enter sends like the desktop's. */
 	enterSends: boolean;
+	/** A queued message is being edited in the field: Esc cancels the edit (`cancel`), ↑ does not recall history. Null when none is. */
+	queueEdit: { cancel: () => void } | null;
 }): ComposerKeys {
 	const { menu, setMenu } = menuHandle;
 	/** First Esc of a double-Esc, and whether its "Esc again" hint shows. */
@@ -242,6 +245,14 @@ export function useComposerKeys({
 			toggleExpanded();
 			return;
 		}
+		// Edit queued: Esc puts the previous draft back (the IME guard above ran first).
+		if (queueEdit && e.key === "Escape" && plainKey) {
+			// Claim the key: the app-wide Escape would abort a running turn.
+			e.preventDefault();
+			e.stopPropagation();
+			queueEdit.cancel();
+			return;
+		}
 		if (expanded && e.key === "Escape") {
 			// Claim the key: the app-wide Escape would abort a running turn.
 			e.preventDefault();
@@ -308,6 +319,7 @@ export function useComposerKeys({
 		// next press in the same direction satisfies the same rule; turning around takes one caret move.
 		if (
 			!expanded &&
+			!queueEdit &&
 			(e.key === "ArrowUp" || e.key === "ArrowDown") &&
 			!e.ctrlKey &&
 			!e.metaKey &&

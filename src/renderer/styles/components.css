@@ -3381,6 +3381,27 @@ button.omp-file-chip-name:hover {
 	}
 }
 
+/* The queue pill ("3 queued", ComposerQueue.tsx) is the number alone below this workspace width: it must never cost
+   the toolbar its one row. The "Edited · now last" moment keeps the number visible there. */
+.omp-queue-pill-count {
+	display: none;
+}
+
+@container omp-workspace (max-width: 1100px) {
+	.omp-queue-pill-word {
+		display: none;
+	}
+
+	.omp-queue-pill-count {
+		display: inline;
+	}
+
+	/* The lane chip is its icon alone while messages wait (its name, Send's name and the pill carry the rest). */
+	.omp-composer-send-cluster:has([data-queue-pill]) [data-send-mode] .omp-composer-control-label {
+		display: none;
+	}
+}
+
 /* Toolbar controls sit inside the composer's own focus treatment: a ring
    flush with the control reads as one focus, not a ring inside a ring. */
 .omp-composer-toolbar :focus-visible {

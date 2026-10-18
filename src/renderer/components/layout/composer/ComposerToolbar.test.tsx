@@ -239,7 +239,7 @@ describe("editing a queued message", () => {
 
 		await render({ stoppable: true, showSend: true, editingQueued: true });
 		expect(slot("send").querySelector("button")).toBe(send);
-		expect(send.getAttribute("aria-label")).toBe(translate("input.send.saveEdit"));
+		expect(send.getAttribute("aria-label")).toBe(translate("composerQueue.editSave"));
 		expect(send.querySelector("svg")?.getAttribute("class")).toContain("lucide-check");
 		expect(slot("steer").hasAttribute("data-off")).toBe(true);
 		expect(slot("steer").hasAttribute("inert")).toBe(true);
