@@ -13,7 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { variants } from "./harness";
+import { hitSizes, variants } from "./harness";
 
 // The mobile shell (design §6) in Chromium and WebKit device emulation, on the dev harness: the renderer in a
 // browser over a fixture transport (src/renderer/dev-harness), served by Vite from vite.harness.config.ts. Each
@@ -226,16 +226,11 @@ for (const { engine, device } of variants(
 			await expect(root).toHaveAttribute("data-platform", "web");
 			await expect(root).toHaveAttribute("data-shell", device.shell);
 			await expect(root).toHaveAttribute("data-input", "touch");
-			// Touch targets: the title bar's buttons are at least 44 px.
-			const smallest = await page.locator("header button").evaluateAll(buttons =>
-				Math.min(
-					...buttons
-						.map(button => button.getBoundingClientRect())
-						.filter(box => box.width > 0 && box.height > 0)
-						.map(box => Math.min(box.width, box.height)),
-				),
-			);
-			expect(smallest).toBeGreaterThanOrEqual(44);
+			// Touch targets: the title bar's buttons are dense to look at (the icon ones 36 px or less across) and
+			// reach 44 px through their invisible hit area.
+			const bar = await hitSizes(page.locator("header button"));
+			expect(Math.min(...bar.map(({ hit }) => Math.min(hit.width, hit.height)))).toBeGreaterThanOrEqual(44);
+			expect(Math.min(...bar.map(({ visual }) => Math.min(visual.width, visual.height)))).toBeLessThanOrEqual(36);
 			// The composer's field never zooms iOS: 16 px or more.
 			const fontSize = await page
 				.locator("textarea")
@@ -364,13 +359,14 @@ for (const { engine, device } of variants(
 			await expect(
 				sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
 			).toHaveCount(0);
-			// Every row carries one (a finger has no hover), as a 44 px target that leaves the title its width.
+			// Every row carries one (a finger has no hover): a small glyph with a 44 px hit area that leaves the title its width.
 			const menus = sidebar.locator("[data-sidebar-row-menu]");
 			expect(await menus.count()).toBe(
 				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
 			);
-			for (const box of await menus.evaluateAll(buttons => buttons.map(b => b.getBoundingClientRect().toJSON()))) {
-				expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+			for (const { visual, hit } of await hitSizes(menus)) {
+				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(44);
+				expect(Math.max(visual.width, visual.height)).toBeLessThanOrEqual(36);
 			}
 			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
 			await current.locator("[data-sidebar-row-menu]").click();

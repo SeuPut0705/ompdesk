@@ -13,7 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { variants } from "./harness";
+import { hitSizes, variants } from "./harness";
 
 // Settings, the centers and the model picker on a phone and a portrait tablet (mobile web, design §6/§9 W-F) in
 // Chromium and WebKit device emulation, on the dev harness (src/renderer/dev-harness): a phone pushes Settings'
@@ -165,7 +165,11 @@ async function overflow(page: Page, root: string): Promise<{ document: number; o
 	}, root);
 }
 
-/** Controls inside `root` that are on screen yet smaller than a finger (44 px each way). */
+/**
+ * Controls inside `root` that are on screen yet a finger cannot hit: a button, switch, tab or summary reaches 44 px
+ * through its invisible ::after (mobile.css, `--sc-touch-target`), a list row is the target of its stretched link
+ * (a dense 40 px row), and a field, which has no ::after, is drawn at least 36 px high.
+ */
 async function smallTargets(page: Page, root: string): Promise<string[]> {
 	return page.evaluate(selector => {
 		const small: string[] = [];
@@ -175,15 +179,19 @@ async function smallTargets(page: Page, root: string): Promise<string[]> {
 				'button, [role="button"], [role="switch"], [role="tab"], [role="option"], select, input:not([type="hidden"], [type="checkbox"], [type="radio"]), summary',
 			);
 		for (const element of controls ?? []) {
-			// A list row's button spreads over the whole row (an ::after), so the row is the target.
-			const box = (element.closest(".omp-list-row") ?? element).getBoundingClientRect();
-			if (box.width === 0 || box.height === 0 || element.closest("[inert], [aria-hidden='true']")) continue;
-			if (box.bottom < 0 || box.top > window.innerHeight) continue;
-			if (Math.min(box.width, box.height) < 43.5) {
+			const row = element.closest(".omp-list-row") ?? (element.matches('[role="option"]') ? element : null);
+			const field = element instanceof HTMLInputElement || element instanceof HTMLSelectElement;
+			const own = (row ?? element).getBoundingClientRect();
+			if (own.width === 0 || own.height === 0 || element.closest("[inert], [aria-hidden='true']")) continue;
+			if (own.bottom < 0 || own.top > window.innerHeight) continue;
+			const after = getComputedStyle(element, "::after");
+			const reach = !row && !field && after.content !== "none" && after.position === "absolute";
+			const width = Math.max(own.width, reach ? Number.parseFloat(after.width) : 0);
+			const height = Math.max(own.height, reach ? Number.parseFloat(after.height) : 0);
+			const need = row ? 39.5 : field ? 35.5 : 43.5;
+			if (Math.min(width, height) < need) {
 				const label = element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 30) ?? "";
-				small.push(
-					`${element.tagName.toLowerCase()} "${label}" ${Math.round(box.width)}×${Math.round(box.height)}`,
-				);
+				small.push(`${element.tagName.toLowerCase()} "${label}" ${Math.round(width)}×${Math.round(height)}`);
 			}
 		}
 		return small;
@@ -272,14 +280,13 @@ for (const { engine, device } of variants(
 			await expect(page.locator("#settings-section-title")).toHaveText("Agent behavior");
 			const switches = page.locator(".settings-content [role='switch']");
 			await expect(switches.first()).toBeVisible({ timeout: 15_000 });
-			for (const box of await switches.evaluateAll(nodes =>
-				nodes
-					.map(node => node.getBoundingClientRect())
-					.filter(rect => rect.width > 0)
-					.map(rect => ({ width: rect.width, height: rect.height })),
-			)) {
-				expect(box.width).toBeGreaterThanOrEqual(43.5);
-				expect(box.height).toBeGreaterThanOrEqual(43.5);
+			// A switch is drawn small (a 32 × 28 button around an 18 px track) and hit at 44 × 44 through its ::after.
+			const found = await hitSizes(switches);
+			expect(found.length).toBeGreaterThan(0);
+			for (const { visual, hit } of found) {
+				expect(hit.width).toBeGreaterThanOrEqual(43.5);
+				expect(hit.height).toBeGreaterThanOrEqual(43.5);
+				expect(visual.height).toBeLessThanOrEqual(32);
 			}
 			// "Advanced" stays folded until it is opened.
 			const advanced = page.locator("[data-settings-advanced]").first();
@@ -287,8 +294,10 @@ for (const { engine, device } of variants(
 			// A long description sits behind an info glyph that opens on a tap.
 			const info = page.locator(".settings-content [data-setting-info]").first();
 			if ((await info.count()) > 0) {
-				const box = await info.boundingBox();
-				expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(43.5);
+				// A small glyph with a finger-sized hit area.
+				const [glyph] = await hitSizes(info);
+				expect(Math.min(glyph?.hit.width ?? 0, glyph?.hit.height ?? 0)).toBeGreaterThanOrEqual(43.5);
+				expect(Math.max(glyph?.visual.width ?? 99, glyph?.visual.height ?? 99)).toBeLessThanOrEqual(32);
 				await info.tap();
 				await expect(page.getByRole("tooltip")).toBeVisible();
 			}
@@ -411,11 +420,13 @@ for (const { engine, device } of variants(
 				// Full height: the sheet runs from just under the status bar to the bottom edge.
 				expect(panel?.height ?? 0).toBeGreaterThan(viewport.height * 0.85);
 				expect((panel?.y ?? 0) + (panel?.height ?? 0)).toBeGreaterThanOrEqual(viewport.height - 1);
-				// Rows are 56 px.
+				// Rows are 44 px: a picker row is one big target, not a small control.
 				for (const box of await options.evaluateAll(nodes =>
 					nodes.map(node => node.getBoundingClientRect().height).filter(height => height > 0),
-				))
-					expect(box).toBeGreaterThanOrEqual(55.5);
+				)) {
+					expect(box).toBeGreaterThanOrEqual(43.5);
+					expect(box).toBeLessThanOrEqual(48);
+				}
 				// The search stays where it is while the list scrolls.
 				const before = await settled(search);
 				await dialog.getByRole("listbox").evaluate(list => {
@@ -424,10 +435,11 @@ for (const { engine, device } of variants(
 				const after = await search.boundingBox();
 				expect(after?.y).toBe(before?.y);
 			} else {
+				// A dense row (40 px) on a tablet.
 				for (const box of await options.evaluateAll(nodes =>
 					nodes.map(node => node.getBoundingClientRect().height).filter(height => height > 0),
 				))
-					expect(box).toBeGreaterThanOrEqual(43.5);
+					expect(box).toBeGreaterThanOrEqual(39.5);
 			}
 			expect(await smallTargets(page, '[role="dialog"]')).toEqual([]);
 			await capture(page, "model-picker", tagOf(engine.name, device, LIGHT_EN));

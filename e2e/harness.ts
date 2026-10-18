@@ -259,3 +259,36 @@ export async function exitApp(app: ElectronApplication): Promise<void> {
 	}
 	await exited.promise;
 }
+
+/** What a drawn box and a finger each reach, in CSS px. */
+export interface HitSize {
+	label: string;
+	visual: { width: number; height: number };
+	hit: { width: number; height: number };
+}
+
+/**
+ * The mobile shell keeps controls small and gives each an invisible `::after` that reaches `--sc-touch-target`
+ * (mobile.css): every visible match's drawn box next to the larger of it and that pseudo-element (a stretched row
+ * link's `::after` covers its row), so a test can pin "dense to look at, 44 px to hit".
+ */
+export async function hitSizes(locator: Locator): Promise<HitSize[]> {
+	return locator.evaluateAll(nodes =>
+		nodes.flatMap(node => {
+			const box = node.getBoundingClientRect();
+			if (box.width === 0 || box.height === 0) return [];
+			const after = getComputedStyle(node, "::after");
+			const reach = after.content !== "none" && after.position === "absolute";
+			return [
+				{
+					label: node.getAttribute("aria-label") ?? node.textContent?.trim().slice(0, 30) ?? node.tagName,
+					visual: { width: box.width, height: box.height },
+					hit: {
+						width: Math.max(box.width, reach ? Number.parseFloat(after.width) : 0),
+						height: Math.max(box.height, reach ? Number.parseFloat(after.height) : 0),
+					},
+				},
+			];
+		}),
+	);
+}

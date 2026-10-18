@@ -13,7 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { variants } from "./harness";
+import { hitSizes, variants } from "./harness";
 
 // The side panels on a phone (mobile web, design §7) in Chromium device emulation (a tablet and WebKit with
 // OMP_GUI_VARIANTS=1), on the dev harness (src/renderer/dev-harness): the Preview as streamed frames with touch
@@ -243,10 +243,10 @@ for (const { engine, device } of variants(
 			const sheet = await showTerminal(page, device.phone);
 			const bar = sheet.locator("[data-terminal-keybar]");
 			await expect(bar).toBeVisible();
-			const smallest = await bar
-				.locator("[data-terminal-key]")
-				.evaluateAll(keys => Math.min(...keys.map(key => key.getBoundingClientRect().height)));
-			expect(smallest).toBeGreaterThanOrEqual(44);
+			// Keys are drawn at the control size and reach 44 px down through their hit area.
+			const keys = await hitSizes(bar.locator("[data-terminal-key]"));
+			expect(keys.length).toBeGreaterThan(0);
+			expect(Math.min(...keys.map(({ hit }) => hit.height))).toBeGreaterThanOrEqual(44);
 			await bar.locator('[data-terminal-key="esc"]').dispatchEvent("pointerdown");
 			await bar.locator('[data-terminal-key="ctrl"]').dispatchEvent("pointerdown");
 			await expect(bar.locator('[data-terminal-key="ctrl"]')).toHaveAttribute("aria-pressed", "true");

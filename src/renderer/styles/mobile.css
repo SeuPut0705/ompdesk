@@ -119,26 +119,35 @@ html[data-shell] [role="button"] {
 }
 
 
-/* Buttons on the bars a thumb works: at least the control size across as well as down (icon buttons already are). */
-html[data-input="touch"] :is(.omp-topbar, .omp-panel-topbar, .omp-composer-toolbar, .omp-pane-switcher) button {
-	min-width: var(--sc-control-md);
-	min-height: var(--sc-control-md);
-}
-/* ── Touch ergonomics: 44 px targets, 16 px fields (iOS zooms into anything smaller) ───────────────────── */
+/* ── Touch ergonomics: dense rows, a finger-sized hit token, 16 px fields (iOS zooms into anything smaller) ─ */
+/* Sizes stay the desktop's (--sc-control-*, --sc-icon-*, --sc-font-* are not overridden); only the rows a thumb
+   taps one after another grow to `--sc-row-touch`, and the hit area (end of this file) reaches 44 px. */
 html[data-input="touch"] {
-	--sc-control-sm: 44px;
-	--sc-control-md: 44px;
-	--sc-control-lg: 48px;
-	--sc-hit-min: 44px;
+	--sc-touch-target: 44px;
+	--sc-row-touch: 40px;
+	--sc-row-action: 44px;
 }
 
 html[data-input="touch"] :is(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea, select) {
 	font-size: 16px;
 }
 
+/* A field cannot carry the hit area (a replaced element has no ::after), so it is the one control drawn taller:
+   36 px, still under a row. */
+html[data-input="touch"] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"]), select) {
+	min-height: 36px;
+}
+
 html[data-input="touch"] :is([role="menuitem"], [role="menuitemcheckbox"], [role="option"], [role="treeitem"]),
-html[data-input="touch"] :is(.omp-session-sidebar [data-session-row], .omp-list-row) {
-	min-height: 48px;
+html[data-input="touch"]
+	:is(
+		.omp-session-sidebar [data-session-row],
+		.omp-session-sidebar [data-workspace-group],
+		.omp-session-sidebar [data-destination],
+		.omp-list-row,
+		.settings-field-row
+	) {
+	min-height: var(--sc-row-touch);
 }
 
 /* ── Dialogs on a phone are bottom sheets ───────────────────────────────────────────────────────────────── */
@@ -209,7 +218,7 @@ html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-ch
 }
 
 .omp-action-sheet [data-menu-item] {
-	min-height: 48px;
+	min-height: var(--sc-row-action);
 	font-size: var(--sc-font-lg);
 }
 
@@ -250,6 +259,11 @@ html[data-shell] .omp-topbar {
 	padding-top: var(--safe-t);
 }
 
+/* A phone's bar is one dense line (the desktop's is 48 px). */
+html[data-shell="phone"] .omp-topbar {
+	height: 40px;
+}
+
 html[data-shell="phone"] .omp-titlebar {
 	gap: 0;
 	padding-inline: var(--sc-space-1);
@@ -282,7 +296,7 @@ html[data-shell="phone"] .omp-titlebar-status {
 	display: flex;
 	flex: 1 1 0;
 	min-width: 0;
-	min-height: 52px;
+	min-height: var(--sc-row-action, 44px);
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
@@ -292,8 +306,8 @@ html[data-shell="phone"] .omp-titlebar-status {
 }
 
 .omp-panel-tabbar > button svg {
-	width: 20px;
-	height: 20px;
+	width: 18px;
+	height: 18px;
 }
 
 .omp-panel-tabbar > button[aria-current="page"] {
@@ -358,7 +372,7 @@ html[data-shell="phone"] .omp-composer-send-cluster {
 .omp-work-chip {
 	display: flex;
 	width: min(100% - 2 * var(--omp-column-pad, var(--sc-space-3)), var(--omp-column-reading, 48rem));
-	min-height: 44px;
+	min-height: 36px;
 	align-items: center;
 	gap: var(--sc-space-2);
 	margin: 0 auto var(--sc-space-1);
@@ -479,18 +493,8 @@ html[data-shell="phone"] [data-setting-desc] {
 	white-space: normal;
 }
 
-/* A switch (a settings row, the Mode popover, a dialog) is 28–32 px wide: widen its hit area to a finger; the info glyph gets a finger-sized box that leaves the
-   row's layout alone (negative margin). */
-html[data-input="touch"] [role="switch"] {
-	min-width: 44px;
-	justify-content: center;
-}
-
-html[data-input="touch"] [data-setting-info] {
-	min-width: 44px;
-	min-height: 44px;
-	margin: calc((var(--sc-icon-md) - 44px) / 2);
-}
+/* A switch (a settings row, the Mode popover, a dialog), the info glyph and the form checkboxes keep their small
+   look; the touch block at the end gives each a finger-sized hit area. */
 
 /* Tab rows (center pages, filters) scroll sideways instead of pushing the page wider than the screen. */
 html[data-shell="phone"] [role="tablist"] {
@@ -505,7 +509,7 @@ html[data-shell="phone"] [role="tablist"]::-webkit-scrollbar {
 
 /* The model picker's rows (the sheet itself is full height through the dialog size rule above). */
 html[data-shell="phone"] [data-model-option] {
-	min-height: 56px;
+	min-height: 44px;
 }
 
 /* ── Safe-area audit (browser tab, installed PWA, keyboard open/closed, landscape) ────────────────────────── */
@@ -553,30 +557,45 @@ html[data-shell] .omp-widget-float {
 	bottom: calc(var(--kb-inset) + 2.25rem + var(--safe-b));
 }
 
-/* ── Touch: small controls get a finger-sized box, small type steps up one point ───────────────────────── */
-/* The work chips, the work board's rows and fold and a form's checkbox label are the ones the type/size tokens
-   above do not reach (own heights in components.css, work-board.css and the markup). */
-html[data-input="touch"] .omp-live-work-chip {
-	min-width: var(--sc-hit-min);
-	height: var(--sc-hit-min);
+/* ── Touch: a finger-sized hit area that is never a visible size ───────────────────────────────────────── */
+/* Controls keep their desktop size (28/32/36 px, 16 px icons, the 11–15 px type steps); what a thumb needs is an
+   invisible ::after that reaches `--sc-touch-target` across and down (nothing when the control is already that
+   big). It lives in the base layer, so an element that styles its own ::after (a stretched row link, a badge)
+   or is positioned by a utility keeps that, and an element with `after:`/`before:` utilities is left alone. */
+@layer base {
+	html[data-input="touch"]
+		:is(
+			button,
+			[role="button"],
+			[role="switch"],
+			[role="tab"],
+			[role="checkbox"],
+			summary,
+			[data-setting-info],
+			label:has(> input:is([type="checkbox"], [type="radio"]))
+		):not([class*="after:"], [class*="before:"]) {
+		position: relative;
+	}
+
+	html[data-input="touch"]
+		:is(
+			button,
+			[role="button"],
+			[role="switch"],
+			[role="tab"],
+			[role="checkbox"],
+			summary,
+			[data-setting-info],
+			label:has(> input:is([type="checkbox"], [type="radio"]))
+		):not([class*="after:"], [class*="before:"])::after {
+		content: "";
+		position: absolute;
+		inset-block: min(0px, calc((100% - var(--sc-touch-target)) / 2));
+		inset-inline: min(0px, calc((100% - var(--sc-touch-target)) / 2));
+	}
 }
 
-html[data-input="touch"] :is(.omp-work-board-fold, button.omp-work-board-row) {
-	min-height: var(--sc-hit-min);
-}
-
-html[data-input="touch"] label:has(> input:is([type="checkbox"], [type="radio"])) {
-	min-height: var(--sc-hit-min);
-}
-
-/* Captions, meta and secondary text read 13–14 px, never 11–12: the body steps (md 14, lg 15) stay as they are. */
-html[data-input="touch"] {
-	--sc-font-2xs: calc(var(--gui-font-size, 15px) * 12 / 15);
-	--sc-font-xs: calc(var(--gui-font-size, 15px) * 13 / 15);
-	--sc-font-sm: calc(var(--gui-font-size, 15px) * 14 / 15);
-}
-
-/* The prompt card (an ask, an approval, a select): its answers, step tabs and "Add a note" are finger-sized. */
+/* The prompt card (an ask, an approval, a select): its answers and step tabs are one dense row each. */
 html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note]) {
-	min-height: var(--sc-hit-min);
+	min-height: var(--sc-row-touch);
 }

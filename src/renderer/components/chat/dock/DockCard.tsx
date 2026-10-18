@@ -90,7 +90,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 					aria-describedby={showPeek ? peekId : undefined}
 					aria-expanded={expanded}
 					aria-label={expanded ? t("dock.collapse") : t("dock.expand")}
-					className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent) [html[data-input=touch]_&]:min-h-(--sc-hit-min)"
+					className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
 					onClick={toggle}
 					type="button"
 				>
