@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { RootErrorBoundary } from "./components/common/RootErrorBoundary";
 import { lazyChunk, watchChunkFailures } from "./lib/chunk-load";
 import { getCurrentLanguage, I18nProvider, loadLocale } from "./lib/i18n";
@@ -20,6 +21,9 @@ const StyleGuide = lazyChunk(() => import("./components/styleguide/StyleGuide"))
 
 installGlobalRuntimeErrorHandlers();
 watchChunkFailures();
+// A tab's last known transcript page paints as soon as the tab is known (lib/transcript-snapshot.ts): the tabs of
+// the last run (lib/tab-snapshot.ts) are in the store before the first render, so their rows are too.
+installTranscriptSeeding();
 
 const container = document.getElementById("root");
 if (!container) {

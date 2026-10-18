@@ -2562,3 +2562,85 @@ describe("a web window with no tab", () => {
 		expect(omp.tabs.spawn).not.toHaveBeenCalled();
 	});
 });
+
+describe("tabs of the last run (the tab snapshot)", () => {
+	const ghost = (id: string, extra: Partial<SessionTab> = {}): SessionTab => ({
+		id,
+		cwd: "/p",
+		kind: "agent",
+		status: "starting",
+		unreadDone: false,
+		ghost: true,
+		...extra,
+	});
+
+	it("adopts each ghost into the real tab of its session: same place, same selection, no ghost left", async () => {
+		useTabsStore.setState({
+			tabs: [
+				ghost("old-a", { sessionPath: "/s/a.jsonl", title: "Alpha" }),
+				ghost("old-b", { sessionPath: "/s/b.jsonl", title: "Beta" }),
+				ghost("old-gone", { sessionPath: "/s/gone.jsonl" }),
+			],
+			activeTabId: "old-b",
+		});
+		ensureTabRuntime("old-b");
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("new-a", "/p"), sessionPath: "/s/a.jsonl" },
+			{ ...tabInfo("new-b", "/p"), sessionPath: "/s/b.jsonl" },
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		const state = useTabsStore.getState();
+		expect(state.tabs.map(tab => tab.id)).toEqual(["new-a", "new-b"]);
+		expect(state.tabs.some(tab => tab.ghost)).toBe(false);
+		expect(state.tabs.map(tab => tab.title)).toEqual(["Alpha", "Beta"]);
+		expect(state.activeTabId).toBe("new-b");
+		expect(sessionRuntime("old-b")).toBeNull();
+	});
+
+	it("takes the next blank ghost for a tab with no session yet, and falls back to main's active tab", async () => {
+		useTabsStore.setState({ tabs: [ghost("old-blank")], activeTabId: "old-blank" });
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("new-1", "/p"), active: true }]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["new-1"]);
+		expect(useTabsStore.getState().activeTabId).toBe("new-1");
+	});
+
+	it("drops the ghosts when main lists none of them, and never switches to or closes a ghost", async () => {
+		useTabsStore.setState({ tabs: [ghost("g1"), ghost("g2")], activeTabId: "g1" });
+		await useTabsStore.getState().switchTab("g2");
+		await useTabsStore.getState().closeTab("g2");
+		expect(useTabsStore.getState().activeTabId).toBe("g1");
+		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+
+		omp.tabs.list.mockResolvedValue([tabInfo("live", "/q")]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["live"]);
+	});
+});
+
+describe("a command for a starting tab", () => {
+	it("waits invisibly for ready and then goes out; a tab that failed releases it", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t-start", cwd: "/p", kind: "agent", status: "starting", unreadDone: false }],
+			activeTabId: "t-start",
+		});
+		const runtime = ensureTabRuntime("t-start");
+		const commandForTab = vi.fn(async () => ok({}));
+		(window as unknown as { omp: { rpc: { commandForTab: typeof commandForTab } } }).omp.rpc.commandForTab = commandForTab;
+
+		const sent = runtime.command({ type: "get_state" });
+		await Promise.resolve();
+		expect(commandForTab).not.toHaveBeenCalled();
+
+		useTabsStore.setState({
+			tabs: [{ id: "t-start", cwd: "/p", kind: "agent", status: "ready", unreadDone: false }],
+		});
+		await sent;
+		expect(commandForTab).toHaveBeenCalledTimes(1);
+	});
+});

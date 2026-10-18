@@ -33,6 +33,22 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
 	"clear_context",
 ]);
 
+/** The longest a command waits for a starting omp before it goes out anyway (and fails the way it always did). */
+const READY_WAIT_CAP_MS = 120_000;
+
+/**
+ * Resolves once the tab's omp has finished starting (immediately when it has); the tab list owns the status, so
+ * tabs.ts installs it. A command sent while its tab is still starting waits behind it, unseen: a new session opens
+ * with a usable composer and the first message goes out when the omp is ready (AGENTS.md › No loading screens).
+ */
+let tabReady: (tabId: string) => Promise<void> | null = () => null;
+
+export function installTabReadyGate(gate: (tabId: string) => Promise<void> | null): void {
+	tabReady = gate;
+}
+
+export { READY_WAIT_CAP_MS };
+
 function replacedSessionResponse(command: RpcCommand): RpcResponseError {
 	return {
 		type: "response",
@@ -55,6 +71,8 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 		) {
 			rpcCommand = { ...rpcCommand, level: "events" };
 		}
+		await tabReady(tabId);
+		if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
 		const changesSession = SESSION_CHANGING_COMMANDS.has(rpcCommand.type);
 		if (changesSession) generation++;
 		const requestGeneration = generation;
