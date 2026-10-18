@@ -499,7 +499,13 @@ export function RunControlsSheet({
 				<span className="min-w-0 flex-1 text-right text-sc-lg font-medium tabular-nums text-(--sc-text)">
 					{s.context} %
 				</span>
-				<Button {...keepFocus} onClick={() => act("compact")} size="sm" variant="secondary">
+				<Button
+					{...keepFocus}
+					className="[--hit-gap-y:16px]"
+					onClick={() => act("compact")}
+					size="sm"
+					variant="secondary"
+				>
 					{t("contextUsage.compact")}
 				</Button>
 			</div>
