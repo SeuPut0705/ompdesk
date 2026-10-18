@@ -65,12 +65,32 @@ function topLevelRule(selector: string): string {
 }
 
 describe("narrow composer toolbar", () => {
-	it("gives the model chip a glyph that shows only once its name is hidden", () => {
-		expect(inputArea).toMatch(/data-model-chip[\s\S]{0,400}omp-composer-model-icon/);
-		expect(topLevelRule(".omp-composer-model-icon")).toContain("display: none");
-		const narrow = containerBlocks("omp-workspace (max-width: 560px)");
-		expect(narrow).toContain(".omp-composer-model-label");
-		expect(narrow).toMatch(/\.omp-composer-model-icon\s*\{[^}]*display:\s*block/);
+	it("keeps the model chip's glyph and folds its name last, by the toolbar's own width", () => {
+		expect(inputArea).toMatch(/data-model-chip[\s\S]{0,600}<Cpu/);
+		const narrow = containerBlocks("omp-toolbar (max-width: 500px)");
+		expect(narrow).toMatch(/\.omp-composer-fold-4[^{]*\.omp-composer-model-label/);
+		// The toolbar is its own container: nothing about it hangs on the workspace's width any more.
+		expect(topLevelRule(".omp-composer-box:has(> .omp-composer-toolbar)")).toContain("container: omp-toolbar");
+		for (const query of ["omp-workspace (max-width: 760px)", "omp-workspace (max-width: 560px)"])
+			expect(containerBlocks(query)).not.toContain(".omp-composer");
+	});
+
+	it("folds the labels in four levels by the toolbar's width: steer, run chip, glyphs and effort, model name", () => {
+		expect(containerBlocks("omp-toolbar (max-width: 860px)")).toContain(".omp-composer-fold-1");
+		expect(containerBlocks("omp-toolbar (max-width: 740px)")).toContain(".omp-composer-fold-2");
+		expect(containerBlocks("omp-toolbar (max-width: 620px)")).toMatch(
+			/\.omp-composer-glyphs[\s\S]*\.omp-composer-effort/,
+		);
+		expect(containerBlocks("omp-toolbar (max-width: 500px)")).toContain(".omp-composer-fold-4");
+	});
+
+	it("paints an active chip by data-active, never by a utility class", () => {
+		expect(stylesheet).toMatch(
+			/\.omp-composer-chip\[data-active\][\s\S]{0,120}background:\s*var\(--sc-accent-soft\)/,
+		);
+		expect(inputArea + readFileSync(new URL("./RunChip.tsx", import.meta.url), "utf8")).not.toContain(
+			"bg-(--sc-accent-soft)",
+		);
 	});
 
 	it("keeps an empty composer's placeholder on one clipped line", () => {

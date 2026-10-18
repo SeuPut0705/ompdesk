@@ -501,8 +501,11 @@ describe("InputArea queue shorthand submit", () => {
 		const autoModeEnd = vi.fn(async () => ok({}));
 		Reflect.set(window.omp.rpc, "autoModeDecide", autoModeDecide);
 		Reflect.set(window.omp.rpc, "autoModeEnd", autoModeEnd);
+		// The Stop slot is always in the toolbar: off, it is inert and hidden.
 		const stop = () =>
-			document.querySelector(`button[aria-label="${translate("input.abort")}"]`) as unknown as TestElement | null;
+			document.querySelector(
+				`[data-slot="stop"]:not([data-off]) button[aria-label="${translate("input.abort")}"]`,
+			) as unknown as TestElement | null;
 		const request = "refactor the whole settings module across all files";
 		await typeInto(findTextarea(), request);
 		await pressEnter(findTextarea());
@@ -1076,12 +1079,17 @@ describe("InputArea next-prompt suggestion", () => {
 		expect(placeholder()).not.toBe(SUGGESTION);
 	});
 
-	it("puts Stop in the send slot while a turn streams with nothing typed", async () => {
+	it("shows Stop (primary) beside a disabled Send while a turn streams with nothing typed, and neither moves", async () => {
 		await mount();
-		expect(document.querySelector('button[aria-label="Send"]')).toBeNull();
-		expect(document.querySelector('button[aria-label="Stop"]')).not.toBeNull();
+		const stop = () => document.querySelector('[data-slot="stop"]');
+		const send = () => document.querySelector('button[aria-label="Send"]') as unknown as HTMLButtonElement | null;
+		// The slots are always rendered; a typed draft changes only what is enabled.
+		expect(stop()?.hasAttribute("data-off")).toBe(false);
+		expect(send()?.disabled).toBe(true);
+		expect(send()?.className).not.toContain("bg-(--sc-accent)");
 		await typeInto(findTextarea(), "steer this");
-		expect(document.querySelector('button[aria-label="Send"]')).not.toBeNull();
+		expect(send()?.disabled).toBe(false);
+		expect(stop()?.hasAttribute("data-off")).toBe(false);
 		expect(document.querySelector('button[aria-label="Stop"]')).not.toBeNull();
 	});
 });
@@ -1571,29 +1579,31 @@ describe("InputArea run settings and modes", () => {
 		await act(async () => props.onChange?.({ target: { value }, currentTarget: { value } }));
 	}
 
-	it("keeps one calm toolbar at every width: model name, mode chip, run settings", async () => {
+	it("keeps one calm toolbar at every width: the model and its effort, the Run chip", async () => {
 		useModelStore.setState({ model: { provider: "acme", id: "acme-opus-5", name: "Acme Opus 5" } });
 		for (const width of [1200, 600, 380]) {
 			setWindowWidth(width);
 			await mount();
 			const model = document.querySelector("button[data-model-chip]") as unknown as TestElement | null;
-			// The chip shows the display name; the id stays in its tooltip.
-			expect(model?.textContent).toBe("Acme Opus 5");
-			expect(document.querySelector("button[data-composer-modes-trigger]")).not.toBeNull();
+			// The chip shows the display name and the effort (`Model · Thinking`); the id stays in its tooltip.
+			expect(model?.textContent).toBe(`Acme Opus 5· ${translate("input.thinking.name.high")}`);
+			expect(model?.getAttribute("aria-label" as never)).toContain(translate("input.thinking.name.high"));
+			expect(document.querySelectorAll("button[data-composer-modes-trigger]").length).toBe(0);
 			const runSettings = document.querySelector("button[data-run-settings-trigger]");
-			expect(runSettings?.textContent).toContain(translate("input.thinking.name.high"));
+			expect(runSettings?.textContent).toContain(translate("input.runSettings.title"));
+			expect(runSettings?.getAttribute("aria-label" as never)).toContain(translate("input.thinking.name.high"));
 			await act(async () => root.unmount());
 			container.remove();
 		}
 		await mount();
 	});
 
-	it("names the effort auto picked for the latest turn on the run settings chip", async () => {
+	it("names the effort auto picked for the latest turn on the model chip", async () => {
+		useModelStore.setState({ model: { provider: "acme", id: "acme-opus-5", name: "Acme Opus 5" } });
 		await mount();
-		const chip = () => document.querySelector("button[data-run-settings-trigger]")?.textContent;
+		const chip = () => document.querySelector("button[data-model-chip]")?.textContent;
 		await act(async () => useModelStore.setState({ thinkingConfigured: "auto" }));
-		expect(chip()).toContain(translate("input.thinking.name.auto"));
-		expect(chip()).not.toContain("·");
+		expect(chip()).toContain(`· ${translate("input.thinking.name.auto")}`);
 		await act(async () => useModelStore.setState({ thinkingAutoResolved: "xhigh" }));
 		expect(chip()).toContain(
 			translate("input.thinking.autoResolved", { level: translate("input.thinking.name.xhigh") }),
@@ -1645,7 +1655,7 @@ describe("InputArea run settings and modes", () => {
 		await flush();
 
 		expect(findTextarea().getAttribute("placeholder")).toBe(translate("input.placeholder.chat"));
-		expect(document.querySelector("button[data-composer-modes-trigger]")).not.toBeNull();
+		expect(document.querySelector("button[data-run-settings-trigger]")).not.toBeNull();
 		await openRunSettings();
 		await choose("select[data-approval-mode]", "always-ask");
 		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
@@ -1683,10 +1693,10 @@ describe("InputArea run settings and modes", () => {
 		);
 	});
 
-	it("toggles plan mode from the mode chip, separate from run settings", async () => {
+	it("toggles plan mode from the Run chip's Mode section", async () => {
 		await mount();
-		const modes = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;
-		if (!modes) throw new Error("mode chip missing");
+		const modes = document.querySelector("button[data-run-settings-trigger]") as unknown as TestElement | null;
+		if (!modes) throw new Error("Run chip missing");
 		await click(modes);
 		await flush();
 

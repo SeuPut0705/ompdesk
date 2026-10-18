@@ -20,7 +20,18 @@ import { useAutopilotStore } from "../../../stores/autopilot";
 import { useQuotaResumeStore } from "../../../stores/quota-resume";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
-import { ComposerModes } from "./ComposerModes";
+import { ComposerModeExtras } from "./ComposerModes";
+import { RunChip } from "./RunChip";
+
+/** The Run chip with its conditional extras (Autopilot's "open screen" button), as the toolbar renders them. */
+function ComposerModes() {
+	return (
+		<>
+			<RunChip />
+			<ComposerModeExtras />
+		</>
+	);
+}
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -103,8 +114,8 @@ afterEach(async () => {
 });
 
 function trigger(): TestElement {
-	const button = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;
-	if (!button) throw new Error("mode chip missing");
+	const button = document.querySelector("button[data-run-settings-trigger]") as unknown as TestElement | null;
+	if (!button) throw new Error("Run chip missing");
 	return button;
 }
 
@@ -173,14 +184,14 @@ describe("Autopilot chip", () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
 		expect($("button[data-autopilot-chip-open]")).toBeNull();
-		expect(trigger().textContent).toBe(translate("input.modes.label"));
+		expect(trigger().textContent).toBe(translate("input.runSettings.title"));
 	});
 
 	it("an ended run shows no chip", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ active: true, state: "ended", reason: "user" });
 		await mount(<ComposerModes />);
-		expect(trigger().textContent).toBe(translate("input.modes.label"));
+		expect(trigger().textContent).toBe(translate("input.runSettings.title"));
 	});
 });
 

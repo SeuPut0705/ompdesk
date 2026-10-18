@@ -1,9 +1,8 @@
 /**
- * Composer delegation chip: reads the tab's strength from the gui-bridge
- * (`get_delegation`), shows its name (only an icon for "your settings"),
- * switches the live tab through `set_delegation`, remembers the choice for new
- * tabs (prefs `delegationMode`), and stays out of the composer on an omp that
- * cannot hold a strength.
+ * Delegation in the Run popover: reads the tab's strength from the gui-bridge (`get_delegation`), shows a glyph on
+ * the Run chip while it is not "your settings" (and spells it in the chip's name), switches the live tab through
+ * `set_delegation`, remembers the choice for new tabs (prefs `delegationMode`), and leaves the section out on an
+ * omp that cannot hold a strength.
  */
 
 import { parseHTML } from "linkedom";
@@ -36,10 +35,17 @@ const setDelegation: Mock<(mode: string) => Promise<RpcResponse>> = vi.fn(async 
 	return ok("set_delegation", { mode });
 });
 const prefs = { get: vi.fn(async () => undefined), set: vi.fn(async (_key: string, _value: unknown) => {}) };
-Object.assign(window as unknown as Record<string, unknown>, { omp: { rpc: { getDelegation, setDelegation }, prefs } });
+const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
+Object.assign(window as unknown as Record<string, unknown>, {
+	omp: {
+		rpc: { getDelegation, setDelegation, getSettings: vi.fn(async () => ok("get_settings", { values: {} })) },
+		prefs,
+		events,
+	},
+});
 
 const { createRoot } = await import("react-dom/client");
-const { DelegationControl } = await import("./DelegationControl");
+const { RunChip } = await import("./RunChip");
 
 let container: HTMLElement;
 let root: Root;
@@ -51,7 +57,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<DelegationControl />
+				<RunChip />
 			</I18nProvider>,
 		);
 	});
@@ -61,8 +67,11 @@ async function mount(): Promise<void> {
 }
 
 function trigger(): HTMLButtonElement | null {
-	return container.querySelector("[data-delegation-trigger]") as unknown as HTMLButtonElement | null;
+	return container.querySelector("[data-run-settings-trigger]") as unknown as HTMLButtonElement | null;
 }
+
+const glyph = () => container.querySelector("[data-delegation]");
+const section = () => document.querySelector("[data-delegation-section]");
 
 function option(mode: string): HTMLButtonElement {
 	const element = document.querySelector(`[data-delegation-option="${mode}"]`);
@@ -73,22 +82,28 @@ function option(mode: string): HTMLButtonElement {
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
+	document.body.innerHTML = "";
 	held = "default";
-	getDelegation.mockClear();
+	getDelegation.mockReset();
+	getDelegation.mockImplementation(async () => ok("get_delegation", { mode: held }));
 	setDelegation.mockClear();
 	prefs.set.mockClear();
 	useSessionStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 });
 
-describe("DelegationControl", () => {
+describe("Delegation in the Run popover", () => {
 	it("shows the tab's held strength and lists every strength with what it does", async () => {
 		held = "collaborative";
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
 		expect(getDelegation).toHaveBeenCalled();
-		expect(trigger()?.textContent).toContain(translate("input.delegation.mode.collaborative"));
+		expect(trigger()?.getAttribute("aria-label")).toContain(
+			`${translate("input.delegation.title")}: ${translate("input.delegation.mode.collaborative")}`,
+		);
+		expect(glyph()?.getAttribute("data-delegation")).toBe("collaborative");
 		await act(async () => trigger()?.click());
+		expect(section()).not.toBeNull();
 		for (const mode of DELEGATION_MODES) {
 			expect(option(mode).textContent).toContain(translate(`input.delegation.mode.${mode}`));
 			expect(option(mode).textContent).toContain(translate(`input.delegation.desc.${mode}`));
@@ -97,21 +112,23 @@ describe("DelegationControl", () => {
 		expect(option("swarm").getAttribute("aria-checked")).toBe("false");
 	});
 
-	it("names only the icon for your own settings", async () => {
+	it("draws no glyph for your own settings, but names it", async () => {
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
-		expect(trigger()?.textContent).not.toContain(translate("input.delegation.mode.default"));
+		expect(glyph()).toBeNull();
 		expect(trigger()?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.default"));
 	});
 
-	it("switches the live tab and remembers the choice for new tabs", async () => {
+	it("switches the live tab, keeps the popover open and remembers the choice for new tabs", async () => {
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
 		await act(async () => trigger()?.click());
 		await act(async () => option("solo").click());
 		expect(setDelegation).toHaveBeenCalledWith("solo");
 		expect(prefs.set).toHaveBeenCalledWith("delegationMode", "solo");
-		expect(trigger()?.textContent).toContain(translate("input.delegation.mode.solo"));
+		expect(glyph()?.getAttribute("data-delegation")).toBe("solo");
+		expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
+		expect(option("solo").getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("keeps the old strength and reports a refused switch", async () => {
@@ -126,12 +143,13 @@ describe("DelegationControl", () => {
 		await act(async () => trigger()?.click());
 		await act(async () => option("swarm").click());
 		expect(prefs.set).not.toHaveBeenCalled();
-		expect(trigger()?.textContent).not.toContain(translate("input.delegation.mode.swarm"));
+		expect(glyph()).toBeNull();
 		expect(useToastStore.getState().toasts.length).toBeGreaterThan(0);
 	});
 
-	it("stays out of the composer when the omp cannot report a strength", async () => {
-		getDelegation.mockResolvedValueOnce({
+	it("has no Delegation section when the omp cannot report a strength", async () => {
+		// Every read says so: the popover re-reads on each open.
+		getDelegation.mockResolvedValue({
 			type: "response",
 			command: "get_delegation",
 			success: false,
@@ -139,7 +157,11 @@ describe("DelegationControl", () => {
 		});
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
-		expect(trigger()).toBeNull();
+		expect(trigger()?.getAttribute("aria-label")).not.toContain(translate("input.delegation.title"));
+		await act(async () => trigger()?.click());
+		expect(section()).toBeNull();
+		// The rest of the popover is there.
+		expect(document.querySelector("[data-composer-modes-section]")).not.toBeNull();
 	});
 
 	it("keeps the chip focusable while a switch is in flight, so focus is not lost", async () => {

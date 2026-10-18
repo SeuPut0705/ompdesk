@@ -1,8 +1,7 @@
 /**
- * Contract tests for the composer mode chip: the chip names the active
- * session mode(s) in the accent, its popover holds Plan · Goal · Autopilot
- * as segmented tabs (active ones marked), Plan toggles inline, and the
- * app-wide `openModes(tab)` request opens the popover on that tab.
+ * Contract tests for the Run chip's Mode section: the chip names the active session mode(s) and paints
+ * itself accent through `data-active`, its popover holds Plan · Goal · Autopilot as segmented tabs (active
+ * ones marked), Plan toggles inline, and the app-wide `openModes(tab)` request opens the popover on that tab.
  * State comes from the session store.
  */
 
@@ -14,7 +13,7 @@ import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
-import { ComposerModes } from "./ComposerModes";
+import { RunChip } from "./RunChip";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -93,9 +92,16 @@ afterEach(async () => {
 });
 
 function trigger(): TestElement {
-	const button = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;
-	if (!button) throw new Error("mode chip missing");
+	const button = document.querySelector("button[data-run-settings-trigger]") as unknown as TestElement | null;
+	if (!button) throw new Error("Run chip missing");
 	return button;
+}
+
+/** The chip's visible words (the label span), without its count badge and glyphs. */
+function chipText(): string | null | undefined {
+	return (trigger() as unknown as { querySelector: (s: string) => TestElement | null }).querySelector(
+		".omp-composer-control-label",
+	)?.textContent;
 }
 
 function tab(name: string): TestElement | undefined {
@@ -111,12 +117,15 @@ describe("Composer mode chip", () => {
 			goal: { objective: "Ship the activity dock" },
 			goalState: { status: "active" },
 		});
-		await mount(<ComposerModes />);
+		await mount(<RunChip />);
 
-		const modes = (["plan", "goal"] as const).map(mode => translate(`input.modes.name.${mode}`)).join(" · ");
-		expect(trigger().textContent).toBe(modes);
-		expect(trigger().getAttribute("aria-label")).toBe(translate("input.modes.activeTitle", { modes }));
-		expect(trigger().className).toContain("bg-(--sc-accent-soft)");
+		const summary = (["plan", "goal"] as const).map(mode => translate(`input.modes.tab.${mode}`)).join(" · ");
+		const named = (["plan", "goal"] as const).map(mode => translate(`input.modes.name.${mode}`)).join(" · ");
+		expect(chipText()).toBe(summary);
+		expect(trigger().getAttribute("aria-label")).toContain(named);
+		// Accent is a data attribute with a CSS rule, never a utility class that has to win a tie (DR-1).
+		expect(trigger().getAttribute("data-active")).toBe("");
+		expect(trigger().className).not.toContain("bg-(--sc-accent-soft)");
 
 		await act(async () => trigger().click());
 		await flush();
@@ -133,16 +142,16 @@ describe("Composer mode chip", () => {
 		// Composer audit L9: the chip read only `active`, the auto-mode guard also `paused`, so the two disagreed.
 		installMockOmp();
 		useSessionStore.setState({ goal: null, goalState: { status: "paused" } });
-		await mount(<ComposerModes />);
-		expect(trigger().textContent).toBe(translate("input.modes.name.goal"));
+		await mount(<RunChip />);
+		expect(chipText()).toBe(translate("input.modes.tab.goal"));
 	});
 
-	it("stays a quiet 'Mode' chip with nothing active and toggles plan mode inline", async () => {
+	it("stays a quiet 'Run settings' chip with nothing active and toggles plan mode inline", async () => {
 		installMockOmp();
-		await mount(<ComposerModes />);
+		await mount(<RunChip />);
 
-		expect(trigger().textContent).toBe("Mode");
-		expect(trigger().className).not.toContain("bg-(--sc-accent-soft)");
+		expect(chipText()).toBe(translate("input.runSettings.title"));
+		expect(trigger().getAttribute("data-active")).toBeNull();
 
 		await act(async () => trigger().click());
 		await flush();
@@ -165,7 +174,7 @@ describe("Composer mode chip", () => {
 
 	it("answers openModes(tab) by opening the popover on that mode, and clears the request on close", async () => {
 		installMockOmp();
-		await mount(<ComposerModes />);
+		await mount(<RunChip />);
 
 		await act(async () => useUiStore.getState().openModes("goal"));
 		await flush();

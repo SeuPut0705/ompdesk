@@ -1,29 +1,17 @@
 /**
- * Composer Run settings (design-spec §2.2 / §7 "실행 설정"): one trigger and
- * one Popover for everything that tunes HOW the next turns run — thinking
- * level, fast mode, tool approval, and the lower-frequency behavior toggles
- * (auto-compaction, auto-retry, prewalk, steering and interrupt policy).
- * Session MODES (plan / goal) are a separate control
- * (`ComposerModes`); model roles live in Settings › Models.
+ * The Run chip popover's run-behavior sections (design-spec §2.2 / §7 "실행 설정"): everything that tunes HOW the
+ * next turns run — the speed switches (fast, ultrafast, slow) and the lower-frequency behavior toggles
+ * (auto-compaction, auto-retry, prewalk, steering and interrupt policy) under "Advanced", then Model roles.
+ * Thinking level, tool approval, delegation and the session MODES are sections of their own
+ * (`ThinkingControl`, `ApprovalControl`, `DelegationField`, `ComposerModes`); `RunChip` stacks them all.
+ * `useRunSummary` is what the chip and the model chip say about the current run state.
  *
- * The trigger always shows the thinking level and adds an icon for any
- * non-default state (fast on, stricter tool approval), so nothing that
- * changes behavior hides behind the popover. Every field applies on change;
- * nothing nests another overlay — granting full access closes the popover
- * first and then confirms in a Dialog.
+ * Every field applies on change; nothing nests another overlay — granting full access closes the popover first and
+ * then confirms in a Dialog (`RunChip`).
  */
 
-import {
-	ArrowUpRight,
-	Brain,
-	ChevronDown,
-	ChevronRight,
-	ShieldCheck,
-	SlidersHorizontal,
-	Snail,
-	Zap,
-} from "lucide-react";
-import { useRef, useState } from "react";
+import { ArrowUpRight, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
 import type { RpcResponse, RpcSessionState } from "../../../../shared/rpc-types";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -34,12 +22,32 @@ import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-ru
 import { type SettingsStore, useSettingsStore } from "../../../stores/settings";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, Popover, SwitchField, Tooltip } from "../../common";
-import { ApprovalModeField, FullAccessConfirmDialog } from "./ApprovalControl";
+import { Badge, Button, SwitchField } from "../../common";
 import { ContextSizeField } from "./ContextSizeField";
-import { ThinkingLevelField, useThinkingSelector } from "./ThinkingControl";
+import { useThinkingSelector } from "./ThinkingControl";
 
 type ToggleKind = "settings" | "prewalk";
+
+/** The thinking level as the composer names it: Auto names the effort it picked once stock has classified a turn. */
+export function useThinkingName(): string {
+	const t = useT();
+	const thinking = useThinkingSelector();
+	const autoResolved = useModelStore(s => s.thinkingAutoResolved);
+	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
+	if (!supportsThinking) return t("input.thinking.name.off");
+	return thinking === "auto" && autoResolved
+		? t("input.thinking.autoResolved", { level: t(`input.thinking.name.${autoResolved}`) })
+		: t(`input.thinking.name.${thinking}`);
+}
+
+/** The speed tiers that are on: what the Run chip shows as a glyph and spells in its name. */
+export function useSpeedState() {
+	return {
+		fast: useModelStore(s => s.fastModeEnabled),
+		ultrafast: useModelStore(s => s.ultrafastEnabled),
+		slow: useModelStore(s => s.slowModeEnabled),
+	};
+}
 
 /**
  * Run one session-toggle RPC and fold the authoritative state back into the
@@ -80,88 +88,9 @@ function useSessionToggle() {
 	return { pending, run };
 }
 
-export function RunSettings() {
+/** Fast, Ultrafast and Slow mode switches (each only where the model offers the tier). */
+export function SpeedFields() {
 	const t = useT();
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [open, setOpen] = useState(false);
-	const [confirmFullAccess, setConfirmFullAccess] = useState(false);
-	const thinking = useThinkingSelector();
-	const autoResolved = useModelStore(s => s.thinkingAutoResolved);
-	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
-	const fastEnabled = useModelStore(s => s.fastModeEnabled);
-	const ultrafastEnabled = useModelStore(s => s.ultrafastEnabled);
-	const slowEnabled = useModelStore(s => s.slowModeEnabled);
-	const approvalMode = useSettingsStore(s => s.approvalMode);
-	const strictApproval = approvalMode !== "yolo";
-
-	// Auto names the effort it picked for the latest turn once stock has classified one.
-	const thinkingName = !supportsThinking
-		? t("input.thinking.name.off")
-		: thinking === "auto" && autoResolved
-			? t("input.thinking.autoResolved", { level: t(`input.thinking.name.${autoResolved}`) })
-			: t(`input.thinking.name.${thinking}`);
-	const summary = [
-		t("input.runSettings.summaryThinking", { level: thinkingName }),
-		ultrafastEnabled ? t("input.ultrafast.on") : fastEnabled ? t("input.fast.on") : null,
-		slowEnabled ? t("input.slow.on") : null,
-		t("input.approval.title", { mode: t(`input.approval.${approvalMode}`) }),
-	]
-		.filter(Boolean)
-		.join(", ");
-
-	return (
-		<>
-			<Tooltip content={t("input.runSettings.title")} describe={false}>
-				<Button
-					aria-expanded={open}
-					aria-haspopup="dialog"
-					aria-label={`${t("input.runSettings.title")}: ${summary}`}
-					className="omp-composer-chip"
-					data-run-settings-trigger
-					icon={<Brain aria-hidden />}
-					onClick={() => setOpen(value => !value)}
-					ref={triggerRef}
-					size="sm"
-					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
-					variant="ghost"
-				>
-					<span className="omp-composer-control-label">{thinkingName}</span>
-					{fastEnabled && (
-						<Zap
-							aria-hidden
-							className="text-(--sc-accent)"
-							data-speed={ultrafastEnabled ? "ultrafast" : "fast"}
-							fill={ultrafastEnabled ? "currentColor" : "none"}
-						/>
-					)}
-					{slowEnabled && <Snail aria-hidden className="text-(--sc-text-muted)" />}
-					{strictApproval && <ShieldCheck aria-hidden className="text-(--sc-text-muted)" />}
-				</Button>
-			</Tooltip>
-			<Popover
-				anchorRef={triggerRef}
-				ariaLabel={t("input.runSettings.title")}
-				className="max-h-[calc(100dvh-var(--sc-space-4))] w-80 overflow-y-auto"
-				onClose={() => setOpen(false)}
-				open={open}
-				placement="top-start"
-			>
-				<RunSettingsPanel
-					onClose={() => setOpen(false)}
-					onRequestFullAccess={() => {
-						setOpen(false);
-						setConfirmFullAccess(true);
-					}}
-				/>
-			</Popover>
-			<FullAccessConfirmDialog onClose={() => setConfirmFullAccess(false)} open={confirmFullAccess} />
-		</>
-	);
-}
-
-function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => void; onRequestFullAccess: () => void }) {
-	const t = useT();
-	const rpc = useTabRpc();
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
 	const fastActive = useModelStore(s => s.fastModeActive);
 	const toggleFastMode = useModelStore(s => s.toggleFastMode);
@@ -172,6 +101,52 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const slowScope = useModelStore(s => s.slowModeScope);
 	const toggleSlowMode = useModelStore(s => s.toggleSlowMode);
+	return (
+		<>
+			<SwitchField
+				badge={
+					fastEnabled && !fastActive ? <Badge variant="muted">{t("input.runSettings.fastInactive")}</Badge> : null
+				}
+				checked={fastEnabled}
+				className="-mx-2"
+				data-fast-mode
+				description={t("input.runSettings.fastDesc")}
+				label={t("input.runSettings.fast")}
+				onCheckedChange={() => void toggleFastMode()}
+				size="sm"
+			/>
+			{ultrafastSupported && (
+				<SwitchField
+					checked={ultrafastEnabled}
+					className="-mx-2"
+					data-ultrafast-mode
+					description={t("input.runSettings.ultrafastDesc")}
+					label={t("input.runSettings.ultrafast")}
+					onCheckedChange={() => void toggleUltrafastMode()}
+					size="sm"
+				/>
+			)}
+			{slowSupported && (
+				<SwitchField
+					checked={slowEnabled}
+					className="-mx-2"
+					data-slow-mode
+					description={t(
+						slowScope === "global" ? "input.runSettings.slowDescGlobal" : "input.runSettings.slowDescSession",
+					)}
+					label={t("input.runSettings.slow")}
+					onCheckedChange={() => void toggleSlowMode()}
+					size="sm"
+				/>
+			)}
+		</>
+	);
+}
+
+/** The collapsed "Advanced" behavior toggles and the Model roles link (closes the popover on the way out). */
+export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
+	const t = useT();
+	const rpc = useTabRpc();
 	const autoCompaction = useSettingsStore(s => s.autoCompaction);
 	const autoRetry = useSettingsStore(s => s.autoRetry);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
@@ -189,51 +164,8 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 	const advancedLabel = (key: string) => <span className="text-sc-sm font-normal">{t(key)}</span>;
 
 	return (
-		<div aria-busy={pending} className="flex flex-col break-keep">
-			<h2 className="pb-3 text-sc-sm font-semibold text-(--sc-text)">{t("input.runSettings.title")}</h2>
-			<div className="flex flex-col gap-3">
-				<ThinkingLevelField />
-				<SwitchField
-					badge={
-						fastEnabled && !fastActive ? (
-							<Badge variant="muted">{t("input.runSettings.fastInactive")}</Badge>
-						) : null
-					}
-					checked={fastEnabled}
-					className="-mx-2"
-					data-fast-mode
-					description={t("input.runSettings.fastDesc")}
-					label={t("input.runSettings.fast")}
-					onCheckedChange={() => void toggleFastMode()}
-					size="sm"
-				/>
-				{ultrafastSupported && (
-					<SwitchField
-						checked={ultrafastEnabled}
-						className="-mx-2"
-						data-ultrafast-mode
-						description={t("input.runSettings.ultrafastDesc")}
-						label={t("input.runSettings.ultrafast")}
-						onCheckedChange={() => void toggleUltrafastMode()}
-						size="sm"
-					/>
-				)}
-				{slowSupported && (
-					<SwitchField
-						checked={slowEnabled}
-						className="-mx-2"
-						data-slow-mode
-						description={t(
-							slowScope === "global" ? "input.runSettings.slowDescGlobal" : "input.runSettings.slowDescSession",
-						)}
-						label={t("input.runSettings.slow")}
-						onCheckedChange={() => void toggleSlowMode()}
-						size="sm"
-					/>
-				)}
-				<ApprovalModeField onRequestFullAccess={onRequestFullAccess} />
-			</div>
-			<div className="-mx-3 mt-3 border-t border-(--sc-divider) px-1 pt-1">
+		<>
+			<div aria-busy={pending} className="-mx-3 border-t border-(--sc-divider) px-1 pt-1">
 				<Button
 					aria-expanded={advancedOpen}
 					className="w-full justify-start"
@@ -309,6 +241,6 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 					{t("input.runSettings.modelRoles")}
 				</Button>
 			</div>
-		</div>
+		</>
 	);
 }

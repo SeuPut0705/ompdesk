@@ -1,52 +1,55 @@
 /**
- * Composer mode chip (design-spec §2.2): the one place for session MODES —
- * Plan and Goal — each with its inline config in a
- * Popover. Run behavior (thinking, approval, toggles) lives in `RunSettings`;
- * model roles in Settings › Models.
+ * The session MODES of the composer's one Run chip (`RunChip`): Plan, Goal and Autopilot, each with its inline
+ * config, plus the automatic Plan/Goal choice switch. This file owns the Mode section of the Run popover
+ * (`ModesSection`), what the chip says about the modes (`useComposerModes`: accent = active mode), and the two
+ * conditional chips that sit beside the Run chip while they apply (`ComposerModeExtras`: Autopilot's "open
+ * screen" button and the auto mode's "This request" chip). Run behavior (thinking, approval, toggles) is in
+ * `RunSettings`; model roles live in Settings › Models.
  *
- * The chip names the active mode(s) in the accent (accent = "active mode"),
- * or reads "모드" when none is on. `useUiStore.openModes(tab)` — palette
- * commands, the goal dock, Settings › Features — opens this popover on that mode in the focused pane;
- * closing it clears the request.
+ * `useUiStore.openModes(tab)` — palette commands, the goal dock, Settings › Features — opens the Run popover on
+ * that mode in the focused pane (`RunChip` answers it); closing it clears the request.
  */
 
-import { ChevronDown, Layers, ListChecks, PanelRight, Rocket, Sparkles, Target, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ListChecks, PanelRight, Rocket, Sparkles, Target, X } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useAutoModePref } from "../../../hooks/use-auto-mode-pref";
 import { goalIsActive } from "../../../lib/auto-mode-client";
 import { useDisplayPreference } from "../../../lib/display-preferences";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, IconButton, Popover, SwitchField, Tabs, Tooltip } from "../../common";
+import { Button, IconButton, SwitchField, Tabs, Tooltip } from "../../common";
 import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
 import { GoalModeConfig } from "../../modes/ModeConfig";
 import { useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 
 export type ComposerModeId = "plan" | "goal" | "autopilot";
 
-const MODE_ICONS: Record<ComposerModeId, ReactNode> = {
+export const MODE_IDS: readonly ComposerModeId[] = ["plan", "goal", "autopilot"];
+
+export const MODE_ICONS: Record<ComposerModeId, ReactNode> = {
 	plan: <ListChecks aria-hidden />,
 	goal: <Target aria-hidden />,
 	autopilot: <Rocket aria-hidden />,
 };
 
-export function ComposerModes() {
-	const t = useT();
-	const tabId = useRuntimeTabId();
-	const activeTabId = useTabsStore(s => s.activeTabId);
-	// openModes() is app-wide; only the focused pane's composer answers it.
-	const focusedPane = tabId === null || tabId === activeTabId;
-	const requested = useUiStore(s => s.modesOpen) && focusedPane;
-	const requestedTab = useUiStore(s => s.modesTab);
-	const closeModes = useUiStore(s => s.closeModes);
+export interface ComposerModesView {
+	active: Record<ComposerModeId, boolean>;
+	/** The modes the chip names, in tab order (a Goal hidden from the footer by its preference is left out). */
+	shown: ComposerModeId[];
+	/** The chip's text for the shown modes ("Plan · Goal"); `null` with none. */
+	summary: string | null;
+	/** The shown modes spelled for the chip's accessible name ("Plan mode · Goal mode"); `null` with none. */
+	fullName: string | null;
+}
 
+/** What the composer says about the session's modes; the Run chip paints and names itself from it. */
+export function useComposerModes(): ComposerModesView {
+	const t = useT();
 	// A mode the automatic choice uses for one request is not the user's mode: the picker leaves it out (its chip shows it).
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
 	// An Autopilot run is a Goal underneath: it shows as Autopilot, never as the user's Goal.
@@ -61,63 +64,76 @@ export function ComposerModes() {
 		goal: goalActive,
 		autopilot: autopilotLive,
 	};
-	const modeIds: ComposerModeId[] = ["plan", "goal", "autopilot"];
-	const shown = (Object.keys(active) as ComposerModeId[]).filter(
-		mode => active[mode] && (mode !== "goal" || goalStatusInFooter),
-	);
-
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [open, setOpen] = useState(false);
-	const [tab, setTab] = useState<ComposerModeId>("plan");
-
-	useEffect(() => {
-		if (!requested) return;
-		setTab(requestedTab);
-		setOpen(true);
-	}, [requested, requestedTab]);
-
-	const close = () => {
-		setOpen(false);
-		if (useUiStore.getState().modesOpen) closeModes();
-	};
-
-	const modeName = (mode: ComposerModeId) =>
+	const shown = MODE_IDS.filter(mode => active[mode] && (mode !== "goal" || goalStatusInFooter));
+	const named = (mode: ComposerModeId, key: "tab" | "name") =>
 		mode === "autopilot" && autopilotState
-			? `${t("input.modes.name.autopilot")} · ${autopilotState}`
-			: t(`input.modes.name.${mode}`);
-	const label = shown.length > 0 ? shown.map(modeName).join(" · ") : t("input.modes.label");
-	const first = shown[0];
+			? `${t(`input.modes.${key}.autopilot`)} · ${autopilotState}`
+			: t(`input.modes.${key}.${mode}`);
+	return {
+		active,
+		shown,
+		summary: shown.length > 0 ? shown.map(mode => named(mode, "tab")).join(" · ") : null,
+		fullName: shown.length > 0 ? shown.map(mode => named(mode, "name")).join(" · ") : null,
+	};
+}
 
+/**
+ * The popover's Mode section: one tab per mode and the selected mode's config, then the automatic-choice switch.
+ * `tab` is controlled so `openModes(tab)` and the chip's first-active-mode default can pick it.
+ */
+export function ModesSection({
+	active,
+	tab,
+	onTabChange,
+	onClose,
+}: {
+	active: Record<ComposerModeId, boolean>;
+	tab: ComposerModeId;
+	onTabChange: (tab: ComposerModeId) => void;
+	/** Closes the Run popover (Autopilot's Start leaves it). */
+	onClose: () => void;
+}) {
+	const t = useT();
+	return (
+		<section
+			aria-label={t("input.modes.label")}
+			className="flex flex-col gap-2 break-keep"
+			data-composer-modes-section
+		>
+			<h3 className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
+				{t("input.modes.label")}
+			</h3>
+			<Tabs
+				activeId={tab}
+				ariaLabel={t("input.modes.label")}
+				className="w-full *:flex-1 *:justify-center"
+				compact
+				onChange={id => onTabChange(id as ComposerModeId)}
+				tabs={MODE_IDS.map(mode => ({
+					id: mode,
+					label: t(`input.modes.tab.${mode}`),
+					badge: active[mode] ? t("modesPanel.on") : undefined,
+				}))}
+				variant="segmented"
+			/>
+			<div className="min-h-0">
+				{tab === "plan" && <PlanModeConfig />}
+				{tab === "goal" && <GoalModeConfig />}
+				{tab === "autopilot" && <AutopilotModeConfig onStarted={onClose} />}
+			</div>
+			<div className="-mx-3 border-t border-(--sc-divider) px-3 pt-1.5">
+				<AutoModeSwitch />
+			</div>
+		</section>
+	);
+}
+
+/** Autopilot's "open screen" button and the auto-mode "This request" chip: extra buttons beside the Run chip. */
+export function ComposerModeExtras() {
+	const t = useT();
+	const autopilotLive = useAutopilotStore(isLiveAutopilot);
 	return (
 		<>
-			<Tooltip content={t("input.modes.title")} describe={false}>
-				<Button
-					aria-expanded={open}
-					aria-haspopup="dialog"
-					aria-label={shown.length > 0 ? t("input.modes.activeTitle", { modes: label }) : t("input.modes.title")}
-					className={cx(
-						"omp-composer-chip",
-						shown.length > 0 &&
-							"bg-(--sc-accent-soft) text-(--sc-accent) hover:bg-(--sc-accent-soft) hover:text-(--sc-accent)",
-					)}
-					data-composer-modes-trigger
-					icon={first ? MODE_ICONS[first] : <Layers aria-hidden />}
-					onClick={() => {
-						if (open) {
-							close();
-							return;
-						}
-						setTab(first ?? "plan");
-						setOpen(true);
-					}}
-					ref={triggerRef}
-					size="sm"
-					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
-					variant="ghost"
-				>
-					<span className="omp-composer-control-label omp-composer-label-early max-w-64 truncate">{label}</span>
-				</Button>
-			</Tooltip>
 			{autopilotLive && (
 				<IconButton
 					className="omp-composer-chip"
@@ -129,38 +145,6 @@ export function ComposerModes() {
 				/>
 			)}
 			<AutoModeChip />
-			<Popover
-				anchorRef={triggerRef}
-				ariaLabel={t("input.modes.label")}
-				className="max-h-[min(40rem,calc(100dvh-6rem))] w-96 max-w-[calc(100vw-1rem)] overflow-y-auto"
-				onClose={close}
-				open={open}
-				placement="top-start"
-			>
-				<div className="flex flex-col gap-2 break-keep">
-					<Tabs
-						activeId={tab}
-						ariaLabel={t("input.modes.label")}
-						className="w-full *:flex-1 *:justify-center"
-						compact
-						onChange={id => setTab(id as ComposerModeId)}
-						tabs={modeIds.map(mode => ({
-							id: mode,
-							label: t(`input.modes.tab.${mode}`),
-							badge: active[mode] ? t("modesPanel.on") : undefined,
-						}))}
-						variant="segmented"
-					/>
-					<div className="min-h-0">
-						{tab === "plan" && <PlanModeConfig />}
-						{tab === "goal" && <GoalModeConfig />}
-						{tab === "autopilot" && <AutopilotModeConfig onStarted={close} />}
-					</div>
-					<div className="-mx-3 border-t border-(--sc-divider) px-3 pt-1.5">
-						<AutoModeSwitch />
-					</div>
-				</div>
-			</Popover>
 		</>
 	);
 }
@@ -267,7 +251,7 @@ function AutoModeChip() {
 	return (
 		<Tooltip content={t("input.autoMode.undoTitle")}>
 			<Button
-				className="omp-composer-chip"
+				className="omp-composer-chip omp-composer-fold-1"
 				data-auto-mode-chip
 				disabled={pending}
 				icon={<Sparkles aria-hidden />}
@@ -276,9 +260,7 @@ function AutoModeChip() {
 				trailingIcon={<X aria-hidden className="text-(--sc-text-subtle)" />}
 				variant="ghost"
 			>
-				<span className="omp-composer-control-label omp-composer-label-early">
-					{t(`input.autoMode.chip.${auto}`)}
-				</span>
+				<span className="omp-composer-control-label">{t(`input.autoMode.chip.${auto}`)}</span>
 			</Button>
 		</Tooltip>
 	);

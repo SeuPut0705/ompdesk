@@ -59,9 +59,12 @@ export function ComposerLiveEdge(): ReactElement | null {
 /** Wraps the Send button: its tooltip and ring tell that background work runs and a send starts at once. */
 export function ComposerSend({
 	label,
+	shortcut,
 	children,
 }: {
 	label: string;
+	/** macOS-spelled chord shown after the tooltip text. */
+	shortcut?: string;
 	children: ComponentProps<typeof Tooltip>["children"];
 }): ReactNode {
 	const t = useT();
@@ -69,7 +72,9 @@ export function ComposerSend({
 	const live = state === "background";
 	return (
 		<span className="omp-composer-send-live" data-composer-live={live ? "background" : undefined}>
-			<Tooltip content={live ? t("input.live.background", { count: background }) : label}>{children}</Tooltip>
+			<Tooltip content={live ? t("input.live.background", { count: background }) : label} shortcut={shortcut}>
+				{children}
+			</Tooltip>
 		</span>
 	);
 }

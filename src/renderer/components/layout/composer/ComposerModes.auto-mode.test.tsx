@@ -1,5 +1,5 @@
 /**
- * The automatic mode choice in the composer: the Mode popover's "Auto mode" switch (pref `autoMode`, default on,
+ * The automatic mode choice in the composer: the Run popover's "Auto mode" switch (pref `autoMode`, default on,
  * with its one muted line saying it covers Plan and Goal only), the "This request: Plan" chip with its one-click undo,
  * and the Mode picker, which never shows a mode used for one request.
  */
@@ -12,7 +12,18 @@ import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
-import { ComposerModes } from "./ComposerModes";
+import { ComposerModeExtras } from "./ComposerModes";
+import { RunChip } from "./RunChip";
+
+/** The Run chip with its conditional extras (the "This request" chip), as the toolbar renders them. */
+function ComposerModes() {
+	return (
+		<>
+			<RunChip />
+			<ComposerModeExtras />
+		</>
+	);
+}
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -91,7 +102,11 @@ afterEach(async () => {
 });
 
 const chip = () => document.querySelector("[data-auto-mode-chip]") as unknown as TestElement | null;
-const trigger = () => document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement;
+const trigger = () => document.querySelector("button[data-run-settings-trigger]") as unknown as TestElement;
+const chipLabel = () =>
+	(trigger() as unknown as { querySelector: (selector: string) => TestElement | null }).querySelector(
+		".omp-composer-control-label",
+	)?.textContent;
 const autoSwitch = () => document.querySelector("[data-auto-mode-switch]") as unknown as TestElement | null;
 
 async function openPopover(): Promise<void> {
@@ -164,8 +179,8 @@ describe("the Mode picker and a mode used for one request", () => {
 		installMockOmp();
 		useSessionStore.setState({ planModeEnabled: true, autoMode: "plan" });
 		await mount(<ComposerModes />);
-		expect(trigger().textContent).toContain(translate("input.modes.label"));
-		expect(trigger().textContent).not.toContain(translate("input.modes.name.plan"));
+		expect(trigger().getAttribute("data-active")).toBeNull();
+		expect(chipLabel()).toBe(translate("input.runSettings.title"));
 		await openPopover();
 		expect(planSwitch()?.getAttribute("aria-checked")).toBe("false");
 		await act(async () => root.unmount());
@@ -173,14 +188,15 @@ describe("the Mode picker and a mode used for one request", () => {
 		useSessionStore.getState().reset();
 		useSessionStore.setState({ goal: { objective: "ship it" }, goalState: { status: "active" }, autoMode: "goal" });
 		await mount(<ComposerModes />);
-		expect(trigger().textContent).toContain(translate("input.modes.label"));
+		expect(trigger().getAttribute("data-active")).toBeNull();
 	});
 
 	it("shows the user's own plan mode as before", async () => {
 		installMockOmp();
 		useSessionStore.setState({ planModeEnabled: true, autoMode: null });
 		await mount(<ComposerModes />);
-		expect(trigger().textContent).toContain(translate("input.modes.name.plan"));
+		expect(trigger().getAttribute("data-active")).toBe("");
+		expect(chipLabel()).toBe(translate("input.modes.tab.plan"));
 		expect(chip()).toBeNull();
 	});
 
@@ -195,7 +211,7 @@ describe("the Mode picker and a mode used for one request", () => {
 		expect(setPlanMode).toHaveBeenCalledWith(true);
 		expect(useSessionStore.getState()).toMatchObject({ planModeEnabled: true, autoMode: null });
 		expect(chip()).toBeNull();
-		expect(trigger().textContent).toContain(translate("input.modes.name.plan"));
+		expect(trigger().getAttribute("data-active")).toBe("");
 	});
 
 	it("goes away by itself when the mode ends another way", async () => {

@@ -14,7 +14,7 @@ import type { RpcCommand, RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useSettingsStore } from "../../../stores/settings";
 import { useToastStore } from "../../../stores/toast";
-import { RunSettings } from "./RunSettings";
+import { RunChip } from "./RunChip";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -45,7 +45,11 @@ const command = vi.fn(
 			: { type: "response", command: req.type, success: true, data: { provenance: {} } },
 );
 
-Object.assign(window as unknown as Record<string, unknown>, { omp: { rpc: { command } } });
+// The popover also hosts the Mode section (prefs, sidecar events), which mounts with it.
+const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
+Object.assign(window as unknown as Record<string, unknown>, {
+	omp: { rpc: { command }, prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) }, events },
+});
 
 const roots: Root[] = [];
 
@@ -57,7 +61,7 @@ async function mountControl(mode: "yolo" | "write" | "always-ask"): Promise<void
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<RunSettings />
+				<RunChip />
 			</I18nProvider>,
 		);
 	});

@@ -12,6 +12,7 @@
 
 import { useId } from "react";
 import { type RpcThinkingLevelState, THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../../shared/rpc-types";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ModelStore, useModelStore } from "../../../stores/model";
@@ -37,7 +38,8 @@ export function useThinkingSelector(): ThinkingSelector {
 	return configured ?? thinkingLevel ?? "off";
 }
 
-export function ThinkingLevelField() {
+/** `select`: the labelled Select of the Run popover; `segmented`: one radio row (the model picker's effort row). */
+export function ThinkingLevelField({ variant = "select" }: { variant?: "select" | "segmented" }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -88,6 +90,54 @@ export function ThinkingLevelField() {
 			});
 	};
 
+	const options = thinkingOptions(available);
+	if (variant === "segmented") {
+		return (
+			<div className="flex flex-col gap-1.5" data-thinking-level>
+				<span className="text-sc-sm font-medium text-(--sc-text)" id={`${hintId}-label`}>
+					{t("input.runSettings.thinking")}
+				</span>
+				<div
+					aria-labelledby={`${hintId}-label`}
+					className="flex w-full items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"
+					onKeyDown={event => {
+						if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+						event.preventDefault();
+						const step = event.key === "ArrowRight" ? 1 : -1;
+						const next = options[(options.indexOf(current) + step + options.length) % options.length];
+						if (!next) return;
+						select(next);
+						event.currentTarget.querySelector<HTMLElement>(`[data-thinking-option="${next}"]`)?.focus();
+					}}
+					role="radiogroup"
+				>
+					{options.map(option => (
+						<button
+							aria-checked={option === current}
+							className={cx(
+								"h-(--sc-hit-min) min-w-0 flex-1 truncate rounded-(--sc-radius-sm) px-1.5 text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast)",
+								option === current
+									? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"
+									: "text-(--sc-text-muted) hover:text-(--sc-text)",
+							)}
+							data-thinking-option={option}
+							key={option}
+							onClick={() => select(option)}
+							role="radio"
+							tabIndex={option === current ? 0 : -1}
+							type="button"
+						>
+							{t(`input.thinking.name.${option}`)}
+						</button>
+					))}
+				</div>
+				<span className="text-sc-xs text-(--sc-text-muted)" id={hintId}>
+					{t(`input.thinking.level.${current}`)}
+				</span>
+			</div>
+		);
+	}
+
 	return (
 		<Select
 			aria-describedby={hintId}
@@ -96,7 +146,7 @@ export function ThinkingLevelField() {
 			hint={<span id={hintId}>{t(`input.thinking.level.${current}`)}</span>}
 			label={t("input.runSettings.thinking")}
 			onChange={event => select(event.target.value as ThinkingSelector)}
-			options={thinkingOptions(available).map(option => ({
+			options={options.map(option => ({
 				value: option,
 				label: t(`input.thinking.name.${option}`),
 			}))}
