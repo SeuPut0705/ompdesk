@@ -166,13 +166,23 @@ export function ComposerField({
 	);
 }
 
-/** The one-line hint under the field: "Esc again to clear", else the command's argument hint, else why suggestions are off. */
+/**
+ * The one-line hint under the field, first match wins: "Esc again to clear", "Esc again to stop the turn" (the first Esc of
+ * a stop with a draft), "Deciding how to run this…" (the automatic mode choice), the command's argument hint, why
+ * suggestions are off.
+ */
 export function ComposerFieldHint({
 	escHint,
+	stopArmed,
+	deciding,
 	argHint,
 	unavailable,
 }: {
 	escHint: boolean;
+	/** The first Esc of "Esc again to stop" waits for its second (`composer.stopArmedAt`). */
+	stopArmed: boolean;
+	/** The automatic mode choice runs for the prompt just sent (`composer.decidingMode`). */
+	deciding: boolean;
 	/** Shown only while no completion menu is open (empty: none). */
 	argHint: string;
 	/** Prompt suggestions are on but cannot run (only while the session is ready). */
@@ -183,6 +193,18 @@ export function ComposerFieldHint({
 		return (
 			<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-esc-hint role="status">
 				{t("input.escAgainToClear")}
+			</div>
+		);
+	if (stopArmed)
+		return (
+			<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-stop-hint role="status">
+				{t("input.escAgainToStop")}
+			</div>
+		);
+	if (deciding)
+		return (
+			<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-deciding-hint role="status">
+				{t("input.deciding")}
 			</div>
 		);
 	if (argHint) return <div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>;

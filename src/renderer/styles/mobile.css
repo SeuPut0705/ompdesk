@@ -1029,6 +1029,17 @@ html[data-shell] .omp-composer-send-cluster {
 	gap: 8px;
 }
 
+/* Paused after Stop is ONE 36 px row on a phone: the sentence yields to the restored chips (its icon, the section's
+   name and the live message still say it), and the chips and Resume / Discard keep 8 px between them for the hit reach. */
+html[data-shell="phone"] .omp-restored-queue [data-restored-note] > span {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 /* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart. */
 html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
 	--hit-gap-x: 4px;

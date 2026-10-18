@@ -2,6 +2,7 @@ import { Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { COMPOSER_BLOCKED_PLACEHOLDER, useComposerBlockedBy } from "../../../lib/composer-blocked";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { composerEnterNewline } from "../../../lib/hardware-keyboard";
@@ -26,7 +27,9 @@ import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHea
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
 import { ComposerLiveEdge } from "./ComposerLive";
 import { ComposerPickers } from "./ComposerPickers";
-import { ComposerQueue } from "./ComposerQueue";
+import { ComposerQueueLive, ComposerQueuePill } from "./ComposerQueue";
+import { ComposerEditBanner, useComposerQueueEdit } from "./ComposerQueueEdit";
+import { ComposerRestoredQueue } from "./ComposerRestoredQueue";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
@@ -88,6 +91,8 @@ export function InputArea() {
 	const setText = useComposerStore(s => s.setDraft);
 	const images = useComposerStore(s => s.images);
 	const setImages = useComposerStore(s => s.setImages);
+	/** A queued message is being edited in the field (ComposerQueueEdit.tsx): the saved draft is the one it replaced. */
+	const editingQueued = useComposerStore(s => s.editingQueued);
 	const [mode, setMode] = useState<SendMode>("prompt");
 	// The chip says how messages join the run on screen: a Follow-up picked there lasts until that run
 	// ends, and the next run starts as Steer again (the chip is hidden between runs, so a choice that
@@ -128,7 +133,8 @@ export function InputArea() {
 	// The unsent draft outlives a reload and a relaunch (draft-persistence.ts): the session's saved
 	// text comes back into an empty field once the session is known, and every change is saved.
 	useComposerDraft({
-		text,
+		// While a queued message is edited the field holds it, not the draft: the saved draft stays the one it replaced.
+		text: editingQueued ? editingQueued.snapshot.draft : text,
 		runtimeTabId,
 		device: historyDevice,
 		sessionFile,
@@ -208,6 +214,19 @@ export function InputArea() {
 
 	useComposerEvents({ runtimeTabId, textareaRef, setText, setImages, placeDraft });
 
+	const queueEdit = useComposerQueueEdit();
+	const blockedBy = useComposerBlockedBy();
+	const deciding = useComposerStore(state => state.decidingMode);
+	const stopArmed = useComposerStore(state => state.stopArmedAt !== null);
+	/** The suggestion shows as the placeholder only while nothing more urgent owns it. */
+	const shownPrompt = blockedBy === null && queueEdit.editing === null ? placeholderPrompt : undefined;
+	const focusField = useCallback(() => textareaRef.current?.focus(), [textareaRef]);
+	/** Cancel or Esc: the draft and pictures the edit took over come back exactly, and typing goes on in the field. */
+	const cancelQueueEdit = useCallback(() => {
+		queueEdit.cancel();
+		textareaRef.current?.focus();
+	}, [queueEdit.cancel, textareaRef]);
+	const queueSlot = useMemo(() => <ComposerQueuePill onSettled={focusField} />, [focusField]);
 	const dispatchSend = useComposerSubmit({
 		text,
 		images,
@@ -231,6 +250,8 @@ export function InputArea() {
 	const send = useCallback(
 		(overrideText?: string, forceMode?: SendMode): boolean => {
 			const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
+			// Edit queued: Send saves the message back into the queue instead of sending the field.
+			if (composer.getState().editingQueued) return queueEdit.save(composer.getState().draft);
 			const hadContent = (overrideText ?? composer.getState().draft).trim() !== "" || images.length > 0;
 			dispatchSend(overrideText, forceMode);
 			const after = composer.getState();
@@ -238,7 +259,7 @@ export function InputArea() {
 			if (sent) useNextPromptStore.getState().clear(nextPromptKey);
 			return sent;
 		},
-		[dispatchSend, runtimeTabId, images.length, nextPromptKey],
+		[dispatchSend, queueEdit.save, runtimeTabId, images.length, nextPromptKey],
 	);
 	/** Touch long press on a suggestion chip, "send now": the chip's text goes out as it is. */
 	const sendChip = useCallback((chip: string) => void send(chip), [send]);
@@ -277,7 +298,7 @@ export function InputArea() {
 		paste,
 		inline,
 		chips: { shown: chipsShown, list: chipList, pick: pickChip, ref: chipsRef },
-		placeholderPrompt,
+		placeholderPrompt: shownPrompt,
 		acceptSuggestion: nextPromptView.accepted,
 		menu: { menu, setMenu, dismiss: dismissMenu, insert: insertCompletion },
 		history,
@@ -288,6 +309,7 @@ export function InputArea() {
 		runActive: isStreaming || submitPending || manualMaintenance,
 		touchInput,
 		enterSends,
+		queueEdit: queueEdit.editing ? { cancel: cancelQueueEdit } : null,
 		send,
 	});
 	const sendDisabled =
@@ -315,23 +337,29 @@ export function InputArea() {
 	const openHistorySearch = useCallback(() => setHistorySearchOpen(true), []);
 	const openSkillPicker = useCallback(() => setSkillPickerOpen(true), []);
 	const toggleExpandedFromMenu = useCallback(() => toggleExpanded(), [toggleExpanded]);
+	// What the field's placeholder says, first match wins (RA-20): a question, approval or plan waits on the user, a queued
+	// message is being edited, the suggestion the user can take, then the lane Enter sends to, then idle.
 	const placeholder =
 		status !== "ready"
 			? t("input.placeholder.connecting")
-			: placeholderPrompt !== undefined
-				? placeholderPrompt
-				: isStreaming
-					? mode === "followUp"
-						? t("input.placeholder.followUp")
-						: t("input.placeholder.streaming")
-					: isChat || fieldNarrow
-						? t("input.placeholder.chat")
-						: t("input.placeholder.idle");
+			: blockedBy !== null
+				? t(COMPOSER_BLOCKED_PLACEHOLDER[blockedBy])
+				: queueEdit.editing
+					? t("composerQueue.editPlaceholder")
+					: shownPrompt !== undefined
+						? shownPrompt
+						: isStreaming
+							? mode === "followUp"
+								? t("input.placeholder.followUp")
+								: t("input.placeholder.streaming")
+							: isChat || fieldNarrow
+								? t("input.placeholder.chat")
+								: t("input.placeholder.idle");
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
-	const showSuggestionHint = placeholderPrompt !== undefined && text === "";
+	const showSuggestionHint = shownPrompt !== undefined && text === "";
 	const menuId = useId();
 	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
-	const showSend = !stoppable || text.trim() !== "" || images.length > 0;
+	const showSend = !stoppable || text.trim() !== "" || images.length > 0 || queueEdit.editing !== null;
 
 	return (
 		<div
@@ -355,7 +383,7 @@ export function InputArea() {
 						paste={pasteMenu}
 					/>
 				)}
-				<ComposerQueue onSettled={() => textareaRef.current?.focus()} />
+				<ComposerQueueLive />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
@@ -418,6 +446,8 @@ export function InputArea() {
 								{t("input.deliveryUnknown")}
 							</Banner>
 						)}
+						<ComposerEditBanner onCancel={cancelQueueEdit} />
+						<ComposerRestoredQueue onSettled={focusField} />
 						<ComposerAttachments
 							images={images}
 							placeDraft={placeDraft}
@@ -449,7 +479,9 @@ export function InputArea() {
 						/>
 						<ComposerFieldHint
 							argHint={menu ? "" : argHint}
+							deciding={deciding}
 							escHint={keys.escHint}
+							stopArmed={stopArmed}
 							unavailable={status === "ready" ? nextPromptView.unavailable : undefined}
 						/>
 
@@ -471,6 +503,7 @@ export function InputArea() {
 							onToggleSendMode={toggleSendMode}
 							queueSplitCount={queueSplitCount}
 							queued={queueBody !== undefined}
+							queueSlot={queueSlot}
 							routeReady={routeReady}
 							sendDisabled={sendDisabled}
 							showSend={showSend}

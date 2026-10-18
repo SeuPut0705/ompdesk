@@ -6,6 +6,7 @@
  */
 import {
 	ArrowUp,
+	Check,
 	ChevronDown,
 	CornerDownRight,
 	Cpu,
@@ -22,11 +23,12 @@ import {
 	Square,
 	Target,
 } from "lucide-react";
-import { type ChangeEvent, memo, type RefObject, useState } from "react";
+import { type ChangeEvent, memo, type ReactNode, type RefObject, useState } from "react";
 import { useShellMode } from "../../../hooks/use-shell-mode";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import type { ComposerInputMode } from "../../../lib/input-modes";
+import { useComposerStore } from "../../../stores/composer";
 import { useFirstRunStore } from "../../../stores/first-run";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
@@ -71,6 +73,8 @@ export interface ComposerToolbarProps {
 	sendDisabled: boolean;
 	onStop: () => void;
 	onSend: () => void;
+	/** The queue pill (ComposerQueuePill): sits in the send cluster before Stop; renders nothing while nothing is queued. */
+	queueSlot: ReactNode;
 }
 
 export const ComposerToolbar = memo(function ComposerToolbar({
@@ -96,7 +100,10 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	sendDisabled,
 	onStop,
 	onSend,
+	queueSlot,
 }: ComposerToolbarProps) {
+	const editing = useComposerStore(s => s.editingQueued !== null);
+	const stopping = useComposerStore(s => s.stopping);
 	const t = useT();
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const model = useModelStore(s => s.model);
@@ -244,7 +251,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						size="sm"
 					/>
 				)}
-				{isStreaming && (
+				{isStreaming && !editing && (
 					<Tooltip content={t("input.sendModeHint")}>
 						<Button
 							aria-label={t("input.sendModeLabel", { mode: modeLabel })}
@@ -260,6 +267,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						</Button>
 					</Tooltip>
 				)}
+				{queueSlot}
 				{/* The turn's primary actions: a round Send that turns into Stop while a
 				    turn runs with nothing to send; with a draft, Stop steps back beside it. */}
 				<div className="ml-1 flex items-center gap-1.5">
@@ -268,7 +276,8 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 							className="omp-composer-action"
 							disabled={!routeReady}
 							icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
-							label={t("input.abort")}
+							label={stopping ? t("composerQueue.stopping") : t("input.abort")}
+							loading={stopping}
 							onClick={onStop}
 							shortcut="Esc"
 							variant={showSend ? "secondary" : "primary"}
@@ -286,12 +295,12 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						/>
 					) : (
 						showSend && (
-							<ComposerSend label={t("input.send")}>
+							<ComposerSend label={editing ? t("composerQueue.editSave") : t("input.send")}>
 								<IconButton
 									className="omp-composer-action"
 									disabled={sendDisabled}
-									icon={<ArrowUp strokeWidth={2.25} />}
-									label={t("input.send")}
+									icon={editing ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
+									label={editing ? t("composerQueue.editSave") : t("input.send")}
 									onClick={onSend}
 									tooltip={false}
 									variant="primary"

@@ -128,13 +128,13 @@ describe("pictures sent into a run", () => {
 			followUp: [{ id: "i2", text: "[Image]", editable: false, timestamp: 1 }],
 		};
 		store.setFromFrame(frame);
-		expect(useQueueStore.getState().steering[0].text).toBe("[2 images]");
-		expect(useQueueStore.getState().followUp[0].text).toBe("[Image]");
+		expect(useQueueStore.getState().steering[0].text).toBe("Image only · 2");
+		expect(useQueueStore.getState().followUp[0].text).toBe("Image only");
 		await loadLocale("ko");
 		setLanguageOverride("ko");
 		useQueueStore.getState().setFromFrame(frame);
-		expect(useQueueStore.getState().steering[0].text).toBe("[이미지 2개]");
-		expect(useQueueStore.getState().followUp[0].text).toBe("[이미지]");
+		expect(useQueueStore.getState().steering[0].text).toBe("이미지만 · 2");
+		expect(useQueueStore.getState().followUp[0].text).toBe("이미지만");
 	});
 });
 
@@ -143,8 +143,14 @@ describe("where an edited message landed", () => {
 
 	it("exposes its place in the lane for a few seconds", () => {
 		vi.useFakeTimers();
-		useQueueStore.getState().noteMoved({ id: "a", lane: "steering", position: 3, count: 3 });
-		expect(useQueueStore.getState().moved).toEqual({ id: "a", lane: "steering", position: 3, count: 3 });
+		useQueueStore.getState().noteMoved({ id: "a", lane: "steering", position: 3, count: 3, kind: "edit" });
+		expect(useQueueStore.getState().moved).toEqual({
+			id: "a",
+			lane: "steering",
+			position: 3,
+			count: 3,
+			kind: "edit",
+		});
 		vi.advanceTimersByTime(4_001);
 		expect(useQueueStore.getState().moved).toBeNull();
 	});

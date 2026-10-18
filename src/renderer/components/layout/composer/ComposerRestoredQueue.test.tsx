@@ -1,6 +1,6 @@
 /**
  * ComposerRestoredQueue: what a Stop withdrew from the queue, held apart from the draft. Mounting it is what makes
- * Stop keep the messages here; Resume sends them in order, "Put in the field" edits one, and nothing runs by itself.
+ * Stop keep the messages here; Resume sends them in order, a chip's text puts one in the field, and nothing runs by itself.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -22,6 +22,7 @@ globals.IS_REACT_ACT_ENVIRONMENT = true;
 
 interface TestElement {
 	textContent: string | null;
+	querySelectorAll(selector: string): ArrayLike<unknown>;
 	remove(): void;
 	dispatchEvent(event: object): boolean;
 }
@@ -104,11 +105,13 @@ describe("ComposerRestoredQueue", () => {
 			]);
 		});
 		const section = document.querySelector("section[data-restored-queue]") as unknown as TestElement;
-		expect(section.textContent).toContain("Queue paused because you stopped2");
-		const rows = Array.from(document.querySelectorAll("li")) as unknown as TestElement[];
+		expect(section.textContent).toContain("Queue paused because you stopped");
+		// One row: the sentence, the chips and Resume / Discard share it.
+		expect(section.querySelectorAll("[data-restored-resume]")).toHaveLength(1);
+		const rows = Array.from(document.querySelectorAll("[data-restored-item]")) as unknown as TestElement[];
 		expect(rows.map(row => row.textContent)).toEqual([
 			expect.stringContaining("queued one"),
-			expect.stringContaining("[Image]"),
+			expect.stringContaining("Image only"),
 		]);
 	});
 
@@ -136,8 +139,7 @@ describe("ComposerRestoredQueue", () => {
 				{ lane: "followUp", text: "two", images: [] },
 			]);
 		});
-		const second = document.querySelectorAll("li")[1];
-		await click(button("Put in the field", second as unknown as ParentNode));
+		await click(button("Put in the field: two"));
 		expect(useComposerStore.getState().draft).toBe("two\n\nmy draft");
 		expect(useComposerStore.getState().restoredQueue.map(item => item.text)).toEqual(["one"]);
 		expect(prompt).not.toHaveBeenCalled();
@@ -152,9 +154,9 @@ describe("ComposerRestoredQueue", () => {
 				{ lane: "followUp", text: "two", images: [] },
 			]);
 		});
-		await click(button("Remove", document.querySelectorAll("li")[0] as unknown as ParentNode));
+		await click(button("Remove restored message: one"));
 		expect(useComposerStore.getState().restoredQueue.map(item => item.text)).toEqual(["two"]);
-		await click(button("Discard all"));
+		await click(button("Discard all restored messages"));
 		expect(useComposerStore.getState().restoredQueue).toEqual([]);
 		expect(container.textContent).toBe("");
 		expect(prompt).not.toHaveBeenCalled();

@@ -23,6 +23,8 @@ export interface QueueMoved {
 	/** 1-based place in the lane, and the lane's length: "now 3 of 3". */
 	position: number;
 	count: number;
+	/** What re-queued it: an edit, or a switch of lane. */
+	kind: "edit" | "lane";
 }
 
 /** A sent message's pictures wait here for the chip that stock's queue will show for it (its id is assigned in main). */
