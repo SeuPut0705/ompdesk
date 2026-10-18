@@ -1,0 +1,18 @@
+{
+	"version": "3.1.1",
+	"repository": "akitaonrails/ai-memory",
+	"assets": {
+		"darwin-arm64": {
+			"archive": "ai-memory-macos-aarch64.tar.gz",
+			"archiveSha256": "0915de5b4ee59250d13c619801a9d0244d6b3a96e6e95c0f2a0eba645f0ee9d4",
+			"binary": "ai-memory",
+			"binarySha256": "55d66c3664e9aa33ed37d0ce9524cdbe1d5e4c2224e956f15697ce08c2a37559"
+		},
+		"win32-x64": {
+			"archive": "ai-memory-windows-x86_64.zip",
+			"archiveSha256": "26a295fd3268adc5774168c4b01d462c554d65deaa9cda59eba5d592c160ab4f",
+			"binary": "ai-memory.exe",
+			"binarySha256": "c2ba1391a763e3d68e2b1cb10677f428934d1f54ddf066103c6a9dbea372dc11"
+		}
+	}
+}
