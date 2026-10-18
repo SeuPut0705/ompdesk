@@ -772,6 +772,7 @@ export const en: Record<string, string> = {
 	"input.runChip.chords": "Plan {plan} · Cycle thinking {thinking}",
 	"input.send.tipSteer": "Steer now · {chord} queues for after",
 	"input.send.tipFollowUp": "Queue for after the turn",
+	"input.send.saveEdit": "Save changes",
 	"workspaces.title": "Projects",
 	"workspaces.newSessionTitle": "Choose a project for the new session",
 	"workspaces.add": "Add project…",

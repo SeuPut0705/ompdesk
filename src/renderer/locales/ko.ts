@@ -759,6 +759,7 @@ export const ko: Record<string, string> = {
 	"input.runChip.chords": "계획 {plan} · 사고 수준 순환 {thinking}",
 	"input.send.tipSteer": "지금 추가 지시 · {chord} 턴 끝난 뒤 보내기",
 	"input.send.tipFollowUp": "턴이 끝난 뒤 보내기",
+	"input.send.saveEdit": "변경 저장",
 	"workspaces.title": "프로젝트",
 	"workspaces.newSessionTitle": "새 세션 — 프로젝트 선택",
 	"workspaces.add": "프로젝트 추가…",

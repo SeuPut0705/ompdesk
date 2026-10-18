@@ -9,6 +9,7 @@
  */
 import {
 	ArrowUp,
+	Check,
 	ChevronDown,
 	CornerDownRight,
 	Cpu,
@@ -78,6 +79,8 @@ export interface ComposerToolbarProps {
 	onSend: () => void;
 	/** The queue pill (QueueImpl): rendered before Stop; `null` when nothing is queued, so it reserves no width. */
 	queueSlot?: ReactNode;
+	/** A queued message is being edited: Send saves it (a check) and the lane chip steps aside (QueueImpl). */
+	editingQueued?: boolean;
 }
 
 export const ComposerToolbar = memo(function ComposerToolbar({
@@ -104,6 +107,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	onStop,
 	onSend,
 	queueSlot,
+	editingQueued = false,
 }: ComposerToolbarProps) {
 	const t = useT();
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -289,9 +293,9 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 				    starting or ending moves nothing. The steer/follow-up chip first, then Stop (left) and Send (right). */}
 				<span
 					className="omp-composer-slot"
-					data-off={isStreaming ? undefined : ""}
+					data-off={isStreaming && !editingQueued ? undefined : ""}
 					data-slot="steer"
-					inert={!isStreaming}
+					inert={!isStreaming || editingQueued}
 				>
 					<Tooltip content={t("input.sendModeHint")} shortcut={followUp ? undefined : composerFollowUpChord()}>
 						<Button
@@ -339,13 +343,14 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 								variant="primary"
 							/>
 						) : (
-							<ComposerSend label={sendTip} shortcut={sendChord}>
+							<ComposerSend label={editingQueued ? t("input.send.saveEdit") : sendTip} shortcut={sendChord}>
 								<IconButton
 									className="omp-composer-action"
 									data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
+									data-send-editing={editingQueued || undefined}
 									disabled={sendDisabled || !showSend}
-									icon={<ArrowUp strokeWidth={2.25} />}
-									label={t("input.send")}
+									icon={editingQueued ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
+									label={editingQueued ? t("input.send.saveEdit") : t("input.send")}
 									onClick={onSend}
 									tooltip={false}
 									variant={showSend ? "primary" : "secondary"}

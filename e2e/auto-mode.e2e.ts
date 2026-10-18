@@ -80,11 +80,11 @@ test("a big change uses plan for that request only: a chip shows it, the Mode pi
 	try {
 		await send(page, "what does the settings store do?", 1);
 		await expect(chip(page)).toHaveCount(0);
-		await expect(modeButton(page)).toContainText("Mode");
+		await expect(modeButton(page)).toContainText("Run settings");
 
 		await send(page, "refactor the whole settings module across all files", 2);
 		await expect(chip(page)).toHaveText("This request: Plan");
-		await expect(modeButton(page)).toContainText("Mode");
+		await expect(modeButton(page)).toContainText("Run settings");
 		await expect(modeButton(page)).not.toContainText("Plan");
 		await modeButton(page).click();
 		// The popover's own Plan switch (the plan dock card above the composer has its own exit switch).

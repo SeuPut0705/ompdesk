@@ -367,7 +367,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "Delegation strength popover; on a phone it lives behind the composer's ⋯",
 		when: look => look.width >= 600,
-		open: page => page.locator("[data-delegation-trigger]").first().click(),
+		open: page => page.locator("[data-run-settings-trigger]").first().click(),
 	},
 	{
 		id: "composer-more-sheet",

@@ -44,7 +44,8 @@ for (const [language, theme] of variants([
 			await expect
 				.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status)
 				.toBe("ready");
-			const chip = page.locator("[data-delegation-trigger]");
+			// Delegation is a section of the Run popover now (one chip for mode, thinking, approval, delegation).
+			const chip = page.locator("[data-run-settings-trigger]");
 			await expect(chip).toBeVisible();
 			await chip.click();
 			const options = page.locator("[data-delegation-option]");
@@ -54,7 +55,8 @@ for (const [language, theme] of variants([
 			await page.locator('[data-delegation-option="swarm"]').click();
 			await expect.poll(sets).toEqual(["swarm"]);
 			await expect.poll(() => page.evaluate(() => window.omp.prefs.get("delegationMode"))).toBe("swarm");
-			await expect(chip).toContainText(language === "en" ? "Swarm" : "스웜");
+			// The Run popover stays open after a pick; the chip's name carries the strength.
+			await expect(chip).toHaveAttribute("aria-label", language === "en" ? /Swarm/ : /스웜/);
 			await shot("swarm");
 
 			// A restarted omp starts on the remembered strength (spawn env), with no set call.
@@ -62,6 +64,8 @@ for (const [language, theme] of variants([
 			await expect
 				.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status)
 				.toBe("ready");
+			await page.keyboard.press("Escape");
+			await expect(options).toHaveCount(0);
 			await chip.click();
 			await expect(page.locator('[data-delegation-option="swarm"]')).toHaveAttribute("aria-checked", "true");
 			expect(await sets()).toEqual(["swarm"]);
@@ -70,6 +74,7 @@ for (const [language, theme] of variants([
 
 			if (language === "en" && theme === "light") {
 				await resize(app, 560, 760);
+				await page.keyboard.press("Escape");
 				await chip.click();
 				await expect(options).toHaveCount(5);
 				await shot("narrow");

@@ -106,9 +106,7 @@ for (const language of variants(["en", "ko"] as const))
 				await input.press("Enter");
 				const reply = page.locator(".omp-transcript-content .markdown-body").filter({ hasText: "0.118%" });
 				await expect(reply).toBeVisible({ timeout: 30_000 });
-				await expect(page.locator("[data-run-settings-trigger] .omp-composer-control-label")).toHaveText(
-					text.autoHigh,
-				);
+				await expect(page.locator("[data-model-chip] .omp-composer-effort")).toHaveText(`· ${text.autoHigh}`);
 
 				// CJK: the bold survives glued Korean; the bare URL stops before it.
 				await expect(reply.locator("strong", { hasText: "0.118%" })).toHaveCount(1);

@@ -228,3 +228,20 @@ describe("dictation button", () => {
 		expect(mic.querySelector("svg")?.getAttribute("class")).toContain("lucide-mic-off");
 	});
 });
+
+describe("editing a queued message", () => {
+	it("turns Send into a check named Save changes, in the same slot, and steps the lane chip aside", async () => {
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await render({ stoppable: true, showSend: true });
+		const send = slot("send").querySelector("button") as unknown as HTMLElement;
+		expect(send.getAttribute("aria-label")).toBe(translate("input.send"));
+		expect(slot("steer").hasAttribute("data-off")).toBe(false);
+
+		await render({ stoppable: true, showSend: true, editingQueued: true });
+		expect(slot("send").querySelector("button")).toBe(send);
+		expect(send.getAttribute("aria-label")).toBe(translate("input.send.saveEdit"));
+		expect(send.querySelector("svg")?.getAttribute("class")).toContain("lucide-check");
+		expect(slot("steer").hasAttribute("data-off")).toBe(true);
+		expect(slot("steer").hasAttribute("inert")).toBe(true);
+	});
+});
