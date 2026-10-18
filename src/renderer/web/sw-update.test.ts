@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	appGoneMoment,
 	purgeAndReload,
 	RESUME_AFTER_HIDDEN_MS,
 	RESUME_WINDOW_MS,
@@ -380,5 +381,41 @@ describe("purgeAndReload", () => {
 			),
 		).resolves.toBeUndefined();
 		expect(reload).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("appGoneMoment (a chunk error took the whole app down: the root boundary's stale page)", () => {
+	afterEach(() => vi.useRealTimers());
+	const openGate = { open: () => true };
+
+	it("lets the saved text go but never a picture or an unsaved edit, hidden or at a return moment", () => {
+		vi.useFakeTimers();
+		const page = { visible: false, draftEmpty: false, attached: true, editing: true };
+		const reload = vi.fn();
+		reloadWhenUnused(appGoneMoment(moment(page)), openGate, reload);
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		page.visible = true;
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		page.attached = false;
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		page.editing = false;
+		vi.advanceTimersByTime(500);
+		// The typed text alone (saved when the composer unmounted) no longer holds the page.
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("still waits for an open question at a visible return moment", () => {
+		vi.useFakeTimers();
+		const page = { askOpen: true };
+		const reload = vi.fn();
+		reloadWhenUnused(appGoneMoment(moment(page)), openGate, reload);
+		vi.advanceTimersByTime(5000);
+		expect(reload).not.toHaveBeenCalled();
+		page.askOpen = false;
+		vi.advanceTimersByTime(500);
+		expect(reload).toHaveBeenCalledTimes(1);
 	});
 });

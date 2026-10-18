@@ -25,6 +25,7 @@ import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
 import {
+	appGoneMoment,
 	purgeAndReload,
 	ResumeGate,
 	reloadWhenUnused,
@@ -272,8 +273,9 @@ async function bootApp(): Promise<void> {
 	gate.launched(Date.now());
 	applyUpdate();
 	// A chunk that will not load marks the page outdated: it reloads through the same gate as an update, never with
-	// a prompt. When the failure took the whole app down nothing on screen can be lost, so the page reloads as soon
-	// as it is hidden or at a launch/return moment (`reloadWhenUnused`), whatever the composer store still holds.
+	// a prompt. When the failure took the whole app down the composer's text was saved as it unmounted, so the page
+	// reloads once hidden or at a launch/return moment (`reloadWhenUnused`) unless a picture, an unsaved edit, a pick
+	// or an upload would be lost (`appGoneMoment`).
 	const { useChunkFailureStore } = await import("../lib/chunk-load");
 	const onChunkFailure = ({ failed, appGone }: { failed: boolean; appGone: boolean }) => {
 		const current = moment;
@@ -283,16 +285,7 @@ async function bootApp(): Promise<void> {
 			pwa.update?.markOutdated();
 			applyUpdate();
 		}
-		if (appGone && !lastResort) {
-			const nothingOnScreen: SafeMoment = {
-				...current,
-				draftEmpty: () => true,
-				attached: () => false,
-				askOpen: () => false,
-				editing: () => false,
-			};
-			lastResort = reloadWhenUnused(nothingOnScreen, gate, purgeNow);
-		}
+		if (appGone && !lastResort) lastResort = reloadWhenUnused(appGoneMoment(current), gate, purgeNow);
 	};
 	useChunkFailureStore.subscribe(onChunkFailure);
 	onChunkFailure(useChunkFailureStore.getState());

@@ -304,12 +304,18 @@ export function InputArea() {
 		}
 		setDraftLoadedFor(draftStore.session);
 	}, [draftStore, draftLoadedFor, runtimeTabId]);
+	/** The latest draft's save; the composer leaving the screen (a crash at the root, a closed view) flushes it. */
+	const flushDraft = useRef<(() => void) | null>(null);
 	useEffect(() => {
-		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) return;
+		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) {
+			flushDraft.current = null;
+			return;
+		}
 		const storage = browserStorage;
 		// A sent or cleared draft is dropped at once; typing is saved once it pauses, and before the page goes (a
 		// reload for missed events or an update may come right after an upload put its path in the draft).
 		const save = () => saveDraft(storage, draftStore, expandPasteMarkers(text));
+		flushDraft.current = save;
 		const timer = setTimeout(save, text ? DRAFT_SAVE_MS : 0);
 		window.addEventListener("pagehide", save);
 		return () => {
@@ -317,6 +323,8 @@ export function InputArea() {
 			window.removeEventListener("pagehide", save);
 		};
 	}, [text, draftStore, draftLoadedFor]);
+	// Unmounted with a save still pending (its timer and pagehide listener just went): the text is kept now.
+	useEffect(() => () => flushDraft.current?.(), []);
 
 	/** True while the composer writes its own draft into the field: the field's onChange then only mirrors it. */
 	const ownEdit = useRef(false);

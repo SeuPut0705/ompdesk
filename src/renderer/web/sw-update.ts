@@ -128,6 +128,16 @@ export function reloadWhenUnused(
 	};
 }
 
+/**
+ * The page's moment once a chunk error took the whole app down (the root error boundary, lib/chunk-load.ts `appGone`):
+ * the composer's typed text no longer holds the page, since the composer saved it when it unmounted
+ * (composer/draft-persistence.ts). Everything else still does: pictures are never saved, nor an unsaved edit, a pick
+ * or an upload, so a page holding one stays as it is rather than lose it.
+ */
+export function appGoneMoment(moment: SafeMoment): SafeMoment {
+	return { ...moment, draftEmpty: () => true };
+}
+
 export interface WorkerLike {
 	state: string;
 	postMessage(message: unknown): void;
