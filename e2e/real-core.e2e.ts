@@ -313,7 +313,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await expect(themes).toBeVisible();
 		await page.screenshot({ path: "test-results/05-packaged-ko.png", scale: "css", animations: "disabled" });
 		const backgrounds: string[] = [];
-		for (const theme of ["포슬린", "그래파이트"]) {
+		for (const theme of ["OMPdesk 라이트", "OMPdesk 다크"]) {
 			await themes.getByRole("radio", { name: theme }).click();
 			await expect(themes.getByRole("radio", { name: theme })).toHaveAttribute("aria-checked", "true");
 			backgrounds.push(
@@ -350,8 +350,8 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const freshSettings = page.locator("[data-settings-page]");
 		await freshSettings.locator('[data-settings-section="appearance"]').click();
 		const freshThemes = freshSettings.getByRole("radiogroup", { name: "테마" });
-		await freshThemes.getByRole("radio", { name: "포슬린" }).click();
-		await expect(freshThemes.getByRole("radio", { name: "포슬린" })).toHaveAttribute("aria-checked", "true");
+		await freshThemes.getByRole("radio", { name: "OMPdesk 라이트" }).click();
+		await expect(freshThemes.getByRole("radio", { name: "OMPdesk 라이트" })).toHaveAttribute("aria-checked", "true");
 		const chosenBackground = await page.evaluate(() =>
 			getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary"),
 		);
@@ -359,9 +359,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const chosenFont = await font.inputValue();
 		for (const value of [chosenFont === "16" ? "17" : "16", chosenFont]) {
 			await font.selectOption(value);
+			// applyFontSize scales by --phone-type-scale, which only a phone sets (1 here).
 			await expect
 				.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--gui-font-size")))
-				.toBe(`${value}px`);
+				.toBe(`calc(${value}px * var(--phone-type-scale, 1))`);
 		}
 		await page.keyboard.press("Escape");
 		await app.evaluate(() => Reflect.get(globalThis, "releaseAuditPrefs")());
@@ -375,7 +376,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 			await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary")),
 		).toBe(chosenBackground);
 		expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--gui-font-size"))).toBe(
-			`${chosenFont}px`,
+			`calc(${chosenFont}px * var(--phone-type-scale, 1))`,
 		);
 		expect(errors).toEqual([]);
 	} finally {
