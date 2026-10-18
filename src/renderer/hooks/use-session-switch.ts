@@ -50,7 +50,10 @@ export function resetSessionSurface(closeOverlays = true): void {
 	useSubagentGraphStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useTodoStore.getState().reset();
+	// The catalog is the machine's, not the session's: the picker keeps its list through a new session.
+	const { availableModels, providers, discoveryStates, catalogGeneration } = useModelStore.getState();
 	useModelStore.getState().reset();
+	useModelStore.setState({ availableModels, providers, discoveryStates, catalogGeneration });
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useExtensionUiStore.getState().clearAll();
 	usePlanApprovalStore.getState().clearProposal();
