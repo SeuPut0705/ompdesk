@@ -498,16 +498,10 @@ export function runRpcUi(): void {
 		if (process.env.OMP_GUI_TEST_RECORD)
 			fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify({ ...frame, recordedBy: sessionId })}\n`);
 	};
-	// `OMP_GUI_TEST_RECORD_AGENT_FILE=<path under the agent dir>`: whether that file existed when this omp started
-	// (ai-memory's generated extension, which stock omp would discover from there).
-	const watchedAgentFile = process.env.OMP_GUI_TEST_RECORD_AGENT_FILE;
 	record({
 		type: "launch",
 		argv: process.argv.slice(2),
 		cwd: process.cwd(),
-		...(watchedAgentFile && process.env.PI_CODING_AGENT_DIR
-			? { agentFile: fs.existsSync(nodePath.join(process.env.PI_CODING_AGENT_DIR, watchedAgentFile)) }
-			: {}),
 	});
 
 	/**

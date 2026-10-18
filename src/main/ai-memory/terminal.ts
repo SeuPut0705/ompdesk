@@ -49,7 +49,7 @@ function isAiMemoryEntry(entry: unknown): entry is { command?: unknown; url?: un
 
 async function generatedExtension(file: string): Promise<boolean> {
 	const text = await readFile(file, "utf8").catch(() => null);
-	return text !== null && text.startsWith(GENERATED_HEADER);
+	return text?.startsWith(GENERATED_HEADER) === true;
 }
 
 export async function readTerminalWiring(agentDir: string): Promise<TerminalWiring> {

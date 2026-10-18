@@ -148,4 +148,35 @@ describe("localSidecarFactory", () => {
 		expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "pstack")] : []);
 		expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: flag });
 	});
+
+	it("hands every spawn ai-memory's extension root while memory is on, read at each spawn (tabs and hosted tabs alike)", async () => {
+		let args: string[] = ["-e", "/ud/ai-memory/omp-ext"];
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => false,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+			aiMemoryExtensionArgs: async () => args,
+		});
+
+		create("/w/alpha", "agent", false);
+		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+		for (const options of created) {
+			expect((await options.builtinMcp?.())?.args).toEqual(["-e", "/ud/ai-memory/omp-ext"]);
+			args = [];
+			expect((await options.builtinMcp?.())?.args).toEqual([]);
+			args = ["-e", "/ud/ai-memory/omp-ext"];
+		}
+	});
 });

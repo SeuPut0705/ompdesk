@@ -6,6 +6,9 @@
  *     const memory = await fixtureAiMemory(profile);
  *     const app = await launchApp({ ..., env: { ...memory.env, HOME: home } });
  *     expect(memory.invocations()).toContain("setup --yes --agent omp");
+ *
+ * The fake's "service" is a pid file under the test's HOME; point the app's `OMP_GUI_AI_MEMORY_UNIT_PIDFILE` at
+ * `<HOME>/.fake-ai-memory/server.pid` (the specs do) so turning memory off can stop it the way the OS service would be.
  */
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -44,19 +47,21 @@ export async function fixtureAiMemory(dir: string): Promise<FixtureAiMemory> {
 		"",
 	].join("\n");
 	const script = join(root, "ai-memory.ts");
-	let bin = script;
+	await writeFile(script, source);
+	// The launcher is named like the real binary (`ai-memory`, `ai-memory.cmd`): OMPdesk recognises its MCP entries by
+	// that name.
+	let bin = join(root, "ai-memory");
 	if (process.platform !== "win32") {
-		await writeFile(script, `#!/usr/bin/env bun\n${source}`);
-		await chmod(script, 0o755);
+		await writeFile(bin, `#!/bin/sh\nexec bun "${script}" "$@"\n`);
+		await chmod(bin, 0o755);
 	} else {
-		await writeFile(script, source);
 		bin = join(root, "ai-memory.cmd");
 		await writeFile(bin, `@bun "${script}" %*\r\n`);
 	}
 	return {
 		bin,
 		logPath,
-		env: { OMP_GUI_AI_MEMORY_BIN: bin, FAKE_AI_MEMORY_LOG: logPath },
+		env: { OMP_GUI_AI_MEMORY_BIN: bin, FAKE_AI_MEMORY_BIN: bin, FAKE_AI_MEMORY_LOG: logPath },
 		invocations: async () => (await readLines(logPath)).map(call => (call.argv as string[]).join(" ")),
 		requests: async () => (await readLines(`${logPath}.requests`)) as { path: string; authorized: boolean }[],
 	};
