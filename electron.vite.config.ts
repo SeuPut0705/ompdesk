@@ -148,7 +148,11 @@ export default defineConfig({
 		build: {
 			minify: "esbuild",
 			rollupOptions: {
-				input: { index: resolve(__dirname, "src/main/index.ts") },
+				// hang-watchdog-worker is the main-thread hang watchdog's worker thread (src/main/hang-watchdog.ts).
+				input: {
+					index: resolve(__dirname, "src/main/index.ts"),
+					"hang-watchdog-worker": resolve(__dirname, "src/main/hang-watchdog-worker.ts"),
+				},
 				// original-fs: Electron's asar-unaware fs (updater.ts); a runtime builtin, never a package.
 				external: ["electron", "original-fs"],
 			},

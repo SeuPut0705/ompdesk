@@ -388,6 +388,8 @@ export type RuntimeErrorSource =
 	| "startup-timing"
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
+	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
+	| "main-thread-hang"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

@@ -74,6 +74,7 @@ import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
+import { installHangWatchdog, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
@@ -523,6 +524,11 @@ function spawnWindow(
 app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	markStartup("app-ready");
+	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
+	if (gotLock) {
+		reportPreviousHang();
+		installHangWatchdog();
+	}
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
 	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
