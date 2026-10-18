@@ -19,11 +19,10 @@ import {
 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
+import type { ImageContent } from "../../../../shared/rpc-types";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
 import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
-import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { cx } from "../../../lib/format";
@@ -43,7 +42,7 @@ import { useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
 import { useNextPromptStore } from "../../../stores/next-prompt";
-import { type SessionStore, useSessionStore } from "../../../stores/session";
+import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSettingsStore } from "../../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
@@ -61,7 +60,6 @@ import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
-import { cachedMentionFiles, listMentionFiles, mentionToken } from "./input-area-utils";
 import {
 	chipIndexForCode,
 	MAX_NEXT_PROMPT_CHIPS,
@@ -71,18 +69,18 @@ import {
 import { PasteMenu } from "./PasteMenu";
 import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
-import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerAttach } from "./use-composer-attach";
+import { useComposerCommands } from "./use-composer-commands";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerDraft } from "./use-composer-draft";
 import { useComposerField } from "./use-composer-field";
 import { useComposerHistory } from "./use-composer-history";
+import { useComposerMenu } from "./use-composer-menu";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
-const MENTION_FS_DEBOUNCE_MS = 150;
 /** Rows PageUp/PageDown move through the completion menu. */
 const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
@@ -165,7 +163,6 @@ export function InputArea() {
 	useEffect(() => {
 		if (!isStreaming) setMode("prompt");
 	}, [isStreaming]);
-	const [menu, setMenu] = useState<CompletionMenu | null>(null);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
 	const [expanded, setExpanded] = useState(false);
 	const { textareaRef, ownEdit, placeDraft, continueListAtCaret, insertAtCaret, fieldNarrow } = useComposerField({
@@ -173,34 +170,14 @@ export function InputArea() {
 		setText,
 		expanded,
 	});
-	/**
-	 * A menu the user closed (Esc, ←/→, a click): the same token's menu stays closed while the draft is
-	 * unchanged, so moving the caret back into the token does not bring it back; any edit lifts it.
-	 */
-	const dismissedMenu = useRef<{ source: CompletionMenu["source"]; rangeStart: number; draft: string } | null>(null);
-	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
-	const publishMenu = useCallback(
-		(next: CompletionMenu | null) => {
-			const dismissed = dismissedMenu.current;
-			if (dismissed && textareaRef.current?.value !== dismissed.draft) dismissedMenu.current = null;
-			const shown =
-				dismissedMenu.current?.source === next?.source && dismissedMenu.current?.rangeStart === next?.rangeStart
-					? null
-					: next;
-			setMenu(current => (current && shown && sameCompletionMenu(current, shown) ? current : shown));
-		},
-		[textareaRef],
-	);
-	const dismissMenu = () => {
-		if (menu)
-			dismissedMenu.current = {
-				source: menu.source,
-				rangeStart: menu.rangeStart,
-				draft: textareaRef.current?.value ?? text,
-			};
-		setMenu(null);
-	};
-	const [commands, setCommands] = useState<AvailableCommand[]>([]);
+	const commands = useComposerCommands({ rpc, status, sessionId, runtimeTabId });
+	const {
+		menu,
+		setMenu,
+		dismiss: dismissMenu,
+		insert: insertCompletion,
+		argHint,
+	} = useComposerMenu({ text, textareaRef, placeDraft, commands, emojiAutocomplete, cwd, routeReady, runtimeTabId });
 	const sending = useComposerStore(state => state.sending);
 	const setSending = useComposerStore(state => state.setSending);
 	const submissionUncertain = useComposerStore(state => state.submissionUncertain);
@@ -211,7 +188,6 @@ export function InputArea() {
 	const manualMaintenance = useSessionStore(s => s.compactionInfo?.reason === "manual");
 	/** Something Stop and Esc can end: the run, or a prompt not yet sent. */
 	const stoppable = isStreaming || submitPending;
-	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
 	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
@@ -327,65 +303,6 @@ export function InputArea() {
 		return items.length > 1 ? items.length : 0;
 	}, [queueBody]);
 
-	// Keep slash commands current across sidecar startup and extension reloads.
-	useEffect(() => {
-		let cancelled = false;
-		const unsubscribe = window.omp.events.onTabCommandsUpdate((next, tabId) => {
-			if (!cancelled && tabId === runtimeTabId) setCommands(withGuiCommands(next));
-		});
-		const load = () => {
-			if (status !== "ready" || !runtimeTabId) return;
-			void rpc.getAvailableCommands().then(res => {
-				if (
-					cancelled ||
-					sessionRuntimeStore<SessionStore>(runtimeTabId, "session")?.getState().sessionId !== sessionId ||
-					!res.success
-				)
-					return;
-				const data = res.data as { commands?: AvailableCommand[] } | undefined;
-				setCommands(withGuiCommands(data?.commands ?? []));
-			});
-		};
-		load();
-		return () => {
-			cancelled = true;
-			unsubscribe();
-		};
-	}, [status, sessionId, runtimeTabId, rpc]);
-
-	// Contextual argument hint (TUI ghost-text parity), from stock for builtins.
-	// Rendered as a dim row under the textarea — an inline-after-cursor ghost
-	// needs pixel-aligned overlay metrics that break with auto-grow/IME (same
-	// tradeoff as the queue highlight).
-	const argHint = useCompletionMenu({
-		text,
-		filePaths,
-		commands,
-		emojiAutocomplete,
-		textareaRef,
-		setMenu: publishMenu,
-	});
-
-	// The `@` menu's files: the last listing of this cwd at once, and while an `@` token is typed a
-	// fresh one (debounced, so a fleeting "@" walks nothing; listMentionFiles walks again only once
-	// its listing is old, so files the agent created show up).
-	useEffect(() => {
-		setFilePaths(cachedMentionFiles(cwd) ?? []);
-	}, [cwd]);
-	useEffect(() => {
-		if (!routeReady) return;
-		const el = textareaRef.current;
-		if (!mentionToken(text.slice(0, el?.selectionStart ?? text.length))) return;
-		const key = cwd;
-		const timer = setTimeout(() => {
-			void listMentionFiles(key, runtimeTabId).then(paths => {
-				const session = sessionRuntimeStore<SessionStore>(runtimeTabId, "session") ?? useSessionStore;
-				if (session.getState().cwd === key) setFilePaths(paths);
-			});
-		}, MENTION_FS_DEBOUNCE_MS);
-		return () => clearTimeout(timer);
-	}, [text, cwd, routeReady, runtimeTabId, textareaRef]);
-
 	useEffect(() => {
 		const onInsertMention = (event: Event) => {
 			const detail = (event as CustomEvent<{ path?: string; tabId?: string }>).detail;
@@ -448,23 +365,6 @@ export function InputArea() {
 		window.addEventListener("omp:fill-composer", fillComposer);
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
 	}, [placeDraft, setImages, runtimeTabId, textareaRef]);
-
-	const insertCompletion = useCallback(
-		(item: CompletionItem) => {
-			const el = textareaRef.current;
-			if (!el || !menu) return;
-			const pos = el.selectionStart ?? text.length;
-			if (pos !== menu.rangeEnd) {
-				setMenu(null);
-				return;
-			}
-			const replaced = `${text.slice(0, menu.rangeStart)}${item.value}${text.slice(pos)}`;
-			el.focus();
-			placeDraft(replaced, menu.rangeStart + item.value.length);
-			setMenu(null);
-		},
-		[text, menu, placeDraft, textareaRef],
-	);
 
 	const dispatchSend = useComposerSubmit({
 		text,
