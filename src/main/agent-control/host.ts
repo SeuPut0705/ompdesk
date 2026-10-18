@@ -96,12 +96,6 @@ export interface AgentControlHostDeps {
 	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
 }
 
-/** The parts of `get_memory_report` the lesson needs. */
-interface MemoryReportFacts {
-	backend?: string;
-	capabilities?: { save?: boolean };
-}
-
 function askOf(request: ControlAsk["request"]): boolean {
 	return BLOCKING_UI_METHODS[request.method] === true && !isSignInRequest(request);
 }
@@ -377,19 +371,6 @@ export class AgentControlRuntime {
 						await service.command({ action: "delete", id });
 					},
 				};
-			},
-			memoryOn: async callerTabId => {
-				const response = await this.#hostCommand(callerTabId, { type: "get_memory_report" });
-				const report = response.success ? (response.data as MemoryReportFacts | undefined) : undefined;
-				return report?.capabilities?.save === true && report.backend !== "off";
-			},
-			saveMemory: async (callerTabId, content) => {
-				const response = await this.#hostCommand(callerTabId, {
-					type: "memory_save",
-					content,
-					context: "OMPdesk delegation",
-				});
-				if (!response.success) throw new Error(response.error ?? "Memory could not save the lesson.");
 			},
 			observe: listener => deps.pool.observeTabs(() => listener()),
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,

@@ -39,9 +39,11 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	keyboard: "keyboard shortcuts hotkeys keymap",
 	models: "models providers login logout api key model roles compare benchmark thinking retry",
 	permissions: "permissions security approval secrets scan",
-	agent: "agent behavior plan goal loop ttsr advisor memory compaction retry speech",
+	agent: "agent behavior plan goal loop ttsr advisor compaction retry speech",
 	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
 	workspace: "workspace project folders directories dirs worktrees launch profile system prompt",
+	memory:
+		"memory ai-memory remember sessions handoff wiki console password privacy delete purge recorded 메모리 기억 핸드오프 개인정보 삭제",
 	schedules: "schedules scheduled runs timer cron daily interval omp -p print 예약 실행",
 	connections: "ssh remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
 	updates: "updates version upgrade omp update about this computer setup doctor",

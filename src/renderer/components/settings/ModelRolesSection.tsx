@@ -15,6 +15,7 @@ import { Plus, RefreshCw, Tags } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	BUILTIN_ROLE_IDS,
+	HIDDEN_ROLE_IDS,
 	modelRoleRefs,
 	PRESET_ROLES,
 	type RoleGroupId,
@@ -120,7 +121,7 @@ export function ModelRolesSection() {
 		refreshProviders().catch(() => undefined);
 	}, [sidecarReady, loadAgents, refreshProviders]);
 
-	const visible = useMemo(() => roles.filter(role => !role.hidden), [roles]);
+	const visible = useMemo(() => roles.filter(role => !role.hidden && !HIDDEN_ROLE_IDS.includes(role.id)), [roles]);
 	const nameOf = useCallback(
 		(entry: ModelRoleEntry) => {
 			if (entry.builtin ?? BUILTIN_ROLE_IDS.includes(entry.id)) return modelRoleName(lang, entry.name);

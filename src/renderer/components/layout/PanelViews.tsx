@@ -4,12 +4,12 @@
  * neither downloads nor parses the terminal, preview, changes and files views before its first screen.
  */
 import type { PanelSubagent, PanelView as PanelViewId } from "../../stores/ui";
+import { AiMemoryPanel } from "../panels/AiMemoryPanel";
 import { AutopilotPanel } from "../panels/autopilot/AutopilotPanel";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
 import { LogPanel } from "../panels/LogPanel";
-import { MemoryPanel } from "../panels/MemoryPanel";
 import { PlanPanel } from "../panels/PlanPanel";
 import { PreviewPanel } from "../panels/PreviewPanel";
 import { QueuePanel } from "../panels/QueuePanel";
@@ -33,7 +33,7 @@ export function PanelView({ panelTab, subagent }: PanelViewProps) {
 			{panelTab === "logs" && <LogPanel />}
 			{panelTab === "queue" && <QueuePanel />}
 			{panelTab === "tree" && <SessionTreePanel />}
-			{panelTab === "memory" && <MemoryPanel />}
+			{panelTab === "memory" && <AiMemoryPanel />}
 			{panelTab === "jobs" && <JobsPanel />}
 			{panelTab === "subagent" && <SubagentPanel subagent={subagent} />}
 			{panelTab === "autopilot" && <AutopilotPanel />}

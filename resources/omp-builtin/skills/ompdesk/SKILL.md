@@ -18,7 +18,7 @@ Each OMPdesk session is a tab in the user's window. These host tools let the mai
 - `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`.
 - `ompdesk_session_stop` — `session`, `close`, `delete`.
 - `ompdesk_compare`, `ompdesk_merge` — worktree attempts: skill://ompdesk/references/worktrees-review.md
-- `ompdesk_schedule`, `ompdesk_remember` — skill://ompdesk/references/schedules.md
+- `ompdesk_schedule` — skill://ompdesk/references/schedules.md
 
 `session` is an id from `ompdesk_sessions`; a unique prefix is enough. Caps, confirmation cards and approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
 
@@ -28,7 +28,7 @@ Open one for work that is independent and long, the user may want to watch or st
 
 ## Done means
 
-You open sessions to get a result the user can use. The work is done when each child's observable acceptance holds by its own report (commands run, their result), you compared and settled the results, and you told the user what each session produced, what conflicts, and what is left. Merging, closing your children and saving a lesson are part of finishing.
+You open sessions to get a result the user can use. The work is done when each child's observable acceptance holds by its own report (commands run, their result), you compared and settled the results, and you told the user what each session produced, what conflicts, and what is left. Merging and closing your children are part of finishing.
 
 ## Brief template
 

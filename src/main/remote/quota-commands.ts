@@ -48,9 +48,6 @@ export const MODEL_COMMAND_TYPES = [
 	"regenerate_session_title",
 	// The automatic mode choice (bridge modes/auto-mode.ts): one cheap judge request on the host per typed prompt.
 	"auto_mode_decide",
-	// Stock `MemoryBackend.enqueue` (`/memory enqueue`): consolidation runs a model (mnemopi's fact extraction, the
-	// hindsight server, the local backend's next consolidation pass).
-	"memory_enqueue",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that call a model only for some arguments; `commandUsesModel` decides. */
@@ -145,7 +142,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_login_providers",
 	"get_marketplaces",
 	"get_mcp_servers",
-	"get_memory_report",
 	"get_model_role_metadata",
 	"get_model_roles",
 	"get_next_prompt",
@@ -211,10 +207,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"mcp_reauth",
 	"mcp_reauth_cancel",
 	"mcp_test",
-	"memory_clear",
-	"memory_queue",
-	"memory_save",
-	"memory_search",
 	"move_session",
 	"negotiate_protocol",
 	"new_session",

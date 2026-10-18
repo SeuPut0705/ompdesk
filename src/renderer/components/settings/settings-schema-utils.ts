@@ -16,9 +16,6 @@ import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
  */
 const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Record<string, unknown>) => boolean }> = {
 	advisorEnabled: { parent: "advisor.enabled", visible: values => values["advisor.enabled"] === true },
-	hindsightActive: { parent: "memory.backend", visible: values => values["memory.backend"] === "hindsight" },
-	mnemopiActive: { parent: "memory.backend", visible: values => values["memory.backend"] === "mnemopi" },
-	autolearnActive: { parent: "autolearn.enabled", visible: values => values["autolearn.enabled"] === true },
 	autoThinkingActive: {
 		parent: "defaultThinkingLevel",
 		visible: values => values.defaultThinkingLevel === "auto",
@@ -72,8 +69,15 @@ const TERMINAL_DISPLAY_SETTINGS = new Set([
 	"statusLine.segmentOptions",
 ]);
 
-export function isSettingSupportedInGui(entry: { path?: string; tuiOnly?: boolean }): boolean {
-	return entry.tuiOnly !== true && !TERMINAL_DISPLAY_SETTINGS.has(entry.path ?? "");
+/**
+ * Stock's own memory backends (`memory.backend`, `memories.*`, mnemopi, hindsight, sharpshooter, autolearn: the
+ * schema's `memory` tab) are not offered: ai-memory is OMPdesk's memory (Settings › Memory (ai-memory)).
+ */
+const STOCK_MEMORY_PATH = /^(memory|memories|mnemopi|hindsight|sharpshooter|autolearn)\./;
+
+export function isSettingSupportedInGui(entry: { path?: string; tab?: string; tuiOnly?: boolean }): boolean {
+	if (entry.tuiOnly === true || TERMINAL_DISPLAY_SETTINGS.has(entry.path ?? "")) return false;
+	return entry.tab !== "memory" && !STOCK_MEMORY_PATH.test(entry.path ?? "");
 }
 
 export function isSettingVisibleInGui(entry: SettingEntry, values: Record<string, unknown>): boolean {

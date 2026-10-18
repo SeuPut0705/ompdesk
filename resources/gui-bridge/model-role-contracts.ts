@@ -23,14 +23,21 @@
 
 export type RoleGroupId = "conversation" | "agent" | "io";
 
-/** Stock's 15 built-in roles, grouped by purpose, in display order. */
+/**
+ * Stock's built-in roles OMPdesk does not list: `memory` belongs to stock's own memory backends, which OMPdesk
+ * replaced with ai-memory (no LLM involved). Stock keeps the role; Settings and the model setup just skip it.
+ */
+export const HIDDEN_ROLE_IDS: readonly string[] = ["memory"];
+
+/** Stock's built-in roles OMPdesk lists, grouped by purpose, in display order. */
 export const ROLE_GROUPS: readonly { id: RoleGroupId; roles: readonly string[] }[] = [
 	{ id: "conversation", roles: ["default", "slow", "smol", "plan"] },
-	{ id: "agent", roles: ["task", "advisor", "commit", "memory", "tiny"] },
+	{ id: "agent", roles: ["task", "advisor", "commit", "tiny"] },
 	{ id: "io", roles: ["vision", "image", "web", "speech", "dictation", "judge"] },
 ];
 
-export const BUILTIN_ROLE_IDS: readonly string[] = ROLE_GROUPS.flatMap(group => group.roles);
+/** Every stock built-in role: the listed ones in display order, then the hidden ones. */
+export const BUILTIN_ROLE_IDS: readonly string[] = [...ROLE_GROUPS.flatMap(group => group.roles), ...HIDDEN_ROLE_IDS];
 
 /**
  * The group a role is listed under. A built-in this table does not know (a

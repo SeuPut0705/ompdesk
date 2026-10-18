@@ -139,7 +139,7 @@ export class AiMemoryClient {
 			pages: num(row.page_count),
 			lastUpdated: str(row.last_updated) || null,
 		}));
-		return projects.sort((a, b) => (a.lastUpdated ?? "") < (b.lastUpdated ?? "") ? 1 : -1);
+		return projects.sort((a, b) => ((a.lastUpdated ?? "") < (b.lastUpdated ?? "") ? 1 : -1));
 	}
 
 	async search(query: string, project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]> {
@@ -198,7 +198,10 @@ export class AiMemoryClient {
 				}));
 			}),
 		);
-		return lists.flat().sort(byNewest).slice(0, LIST_LIMIT * 2);
+		return lists
+			.flat()
+			.sort(byNewest)
+			.slice(0, LIST_LIMIT * 2);
 	}
 
 	async page(ref: AiMemoryProjectRef & { path: string }): Promise<AiMemoryPage> {

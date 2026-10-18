@@ -82,6 +82,7 @@ export const SETTINGS_SECTIONS = [
 	"keyboard",
 	"models",
 	"agent",
+	"memory",
 	"tools",
 	"permissions",
 	"workspace",

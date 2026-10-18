@@ -29,7 +29,17 @@ export function registerAiMemoryIpc(
 	ipc: IpcRegistry,
 	service: Pick<
 		AiMemoryService,
-		"state" | "refresh" | "setEnabled" | "retry" | "purge" | "projects" | "search" | "recent" | "handoffs" | "readPage" | "token"
+		| "state"
+		| "refresh"
+		| "setEnabled"
+		| "retry"
+		| "purge"
+		| "projects"
+		| "search"
+		| "recent"
+		| "handoffs"
+		| "readPage"
+		| "token"
 	>,
 	deps: AiMemoryIpcDeps,
 ): void {

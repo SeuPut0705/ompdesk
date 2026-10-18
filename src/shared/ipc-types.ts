@@ -3,6 +3,8 @@
  * Type-safe contract for the contextBridge API.
  */
 
+import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
+import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
 	AiMemoryHandoff,
 	AiMemoryPage,
@@ -11,8 +13,6 @@ import type {
 	AiMemoryProjectRef,
 	AiMemoryState,
 } from "./ai-memory";
-import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { ExtensionUpdateState } from "./extension-update";

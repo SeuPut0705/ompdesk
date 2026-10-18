@@ -609,8 +609,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"model",
 			"modelRegistry",
 			"settings.getModelRole()",
-			"settings.getAgentDir()",
-			"refreshBaseSystemPrompt()",
 			"sessionManager.getCwd()",
 		],
 		modules: {
@@ -622,10 +620,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/blob-store`]: ["BlobStore()", "BlobStore.prototype.get()", "parseBlobRef()"],
 			[`${AGENT}/task/agents`]: ["AgentParsingError"],
 			[UTILS]: ["parseFrontmatter()", "getBlobsDir()"],
-			// The resolved backend's hooks (`buildDeveloperInstructions(agentDir, cwd, settings,
-			// session?)` since omp 18.11.0, `status`, `save`, …) live on a runtime object the probe
-			// cannot reach, and an argument order is not probe-checkable: MIN_OMP_VERSION pins them.
-			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],
 			[`${AGENT}/registry/agent-lifecycle`]: [
 				"AgentLifecycleManager.global()",
 				"AgentLifecycleManager.prototype.ensureLive()",

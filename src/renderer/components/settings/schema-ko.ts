@@ -676,6 +676,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"완료된 응답, 사고 과정, 도구 호출에 대해 judge 모델 역할에 각 `question` 규칙을 물어보고, yes이면 규칙을 경고로 주입해요.",
 	},
 
+<<<<<<< HEAD
 	// ── memory ──────────────────────────────────────────────────────────────
 	"memory.backend": {
 		label: "메모리 백엔드",
@@ -790,6 +791,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"세션 시작 시 메모리 뱅크에 아직 없는 내장 멘탈 모델(project-conventions, project-decisions, user-preferences)을 만들어요.",
 	},
 
+=======
+>>>>>>> da6ca0bc (feat(ai-memory): Settings section and side-panel view replace stock memory; stock memory rows, bridge methods, ompdesk_remember and the sidecar extension arg removed; fresh installs opt out of local embeddings)
 	// ── files ───────────────────────────────────────────────────────────────
 	"edit.mode": { label: "편집 모드", description: "편집 도구 변형 선택(replace, patch, hashline, apply_patch)" },
 	"edit.fuzzyMatch": { label: "퍼지 매칭", description: "공백 차이에 대해 신뢰도 높은 퍼지 매칭 허용" },
@@ -1429,165 +1432,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"branchSummary.reserveTokens": {
 		label: "브랜치 요약 예약 토큰",
 		description: "브랜치 요약 생성용으로 남겨둘 컨텍스트 토큰 수(기본 16384)",
-	},
-	// 로컬 메모리 파이프라인
-	"memories.enabled": {
-		label: "로컬 메모리(레거시 스위치)",
-		description:
-			"레거시 로컬 메모리 스위치로, 하위 호환 마이그레이션용으로만 남아 있어요. 대신 memory.backend를 쓰세요",
-	},
-	"memories.maxRolloutsPerStartup": {
-		label: "시작당 추출 상한",
-		description: "한 번 시작할 때 실행할 최대 메모리 추출(rollout) 배치 수(기본 64)",
-	},
-	"memories.maxRolloutAgeDays": {
-		label: "추출 세션 최대 기간",
-		description: "메모리 추출에 포함할 세션의 최대 나이(일, 기본 30)",
-	},
-	"memories.minRolloutIdleHours": {
-		label: "추출 세션 유휴 시간",
-		description: "세션이 최소 이 시간 동안 유휴 상태여야 메모리 추출에 포함돼요(기본 12)",
-	},
-	"memories.threadScanLimit": {
-		label: "스레드 스캔 상한",
-		description: "시작 시 메모리 추출 후보로 스캔할 세션 스레드 수 상한(기본 300)",
-	},
-	"memories.maxRawMemoriesForGlobal": {
-		label: "전역 통합 원시 메모리 상한",
-		description: "전역 통합을 시작하기 전 허용하는 원시 메모리 개수 상한(기본 200)",
-	},
-	"memories.stage1Concurrency": {
-		label: "1단계 동시 실행 수",
-		description: "1단계(스레드별 추출)의 동시 실행 수(기본 8)",
-	},
-	"memories.stage1LeaseSeconds": {
-		label: "1단계 임대 시간",
-		description: "1단계 추출 실행의 임대 시간(초, 기본 120)",
-	},
-	"memories.stage1RetryDelaySeconds": {
-		label: "1단계 재시도 지연",
-		description: "1단계 실패 실행의 재시도 지연(초, 기본 120)",
-	},
-	"memories.phase2LeaseSeconds": {
-		label: "2단계 임대 시간",
-		description: "2단계(전역 통합) 실행의 임대 시간(초, 기본 180)",
-	},
-	"memories.phase2RetryDelaySeconds": {
-		label: "2단계 재시도 지연",
-		description: "2단계 실패 후 재시도 지연(초, 기본 180)",
-	},
-	"memories.phase2HeartbeatSeconds": {
-		label: "2단계 하트비트 간격",
-		description: "2단계 실행 중 하트비트 간격(초, 기본 30)",
-	},
-	"memories.rolloutPayloadPercent": {
-		label: "추출 페이로드 컨텍스트 비율",
-		description: "추출 배치 하나의 입력이 모델 컨텍스트 창에서 차지할 수 있는 비율(기본 0.7)",
-	},
-	"memories.phase1InputTokenLimit": {
-		label: "1단계 입력 토큰 상한",
-		description: "1단계 스레드별 입력 토큰 상한(기본 4000)",
-	},
-	"memories.fallbackTokenLimit": {
-		label: "대체 토큰 상한",
-		description: "모델 컨텍스트 창을 알 수 없을 때 쓰는 대체 토큰 상한(기본 16000)",
-	},
-	"memories.summaryInjectionTokenLimit": {
-		label: "메모리 요약 주입 상한",
-		description: "세션에 주입할 메모리 요약 토큰 상한(기본 5000)",
-	},
-	"autolearn.minToolCalls": {
-		label: "자동 학습 최소 도구 호출 수",
-		description: "세션의 도구 호출이 이 수에 이르러야 자동 학습 정리가 실행돼요(기본 5)",
-	},
-	// Mnemopi
-	"mnemopi.retainEveryNTurns": {
-		label: "Mnemopi 보존 간격",
-		description: "몇 턴마다 트랜스크립트를 보존할지(기본 4)",
-	},
-	"mnemopi.recallLimit": {
-		label: "Mnemopi 회상 개수 상한",
-		description: "회상할 때마다 반환할 메모리 개수 상한(기본 8)",
-	},
-	"mnemopi.recallContextTurns": {
-		label: "Mnemopi 회상 컨텍스트 턴 수",
-		description: "회상 쿼리를 만들 때 포함할 최근 턴 수(기본 3)",
-	},
-	"mnemopi.recallMaxQueryChars": {
-		label: "Mnemopi 회상 쿼리 길이 상한",
-		description: "회상 쿼리의 최대 문자 수(기본 4000)",
-	},
-	"mnemopi.injectionTokenLimit": {
-		label: "Mnemopi 주입 토큰 상한",
-		description: "프롬프트에 주입할 회상 메모리 토큰 상한(기본 5000)",
-	},
-	"mnemopi.debug": { label: "Mnemopi 디버그 로그", description: "Mnemopi 메모리 백엔드의 디버그 로그를 출력해요" },
-	// Hindsight
-	"hindsight.bankIdPrefix": {
-		label: "Hindsight 메모리 뱅크 ID 접두사",
-		description: "자동 생성되는 메모리 뱅크 ID에 이 접두사를 붙여요",
-	},
-	"hindsight.bankMission": {
-		label: "Hindsight 성찰 미션",
-		description: "메모리 뱅크를 만들 때 기록할 성찰 미션(reflect mission)으로, 뱅크의 성찰 방향을 이끌어요",
-	},
-	"hindsight.retainMission": {
-		label: "Hindsight 보존 미션",
-		description:
-			"메모리 뱅크를 만들 때 기록할 보존 미션(retain mission)으로, 트랜스크립트에서 어떤 메모리를 추출할지 이끌어요",
-	},
-	"hindsight.retainEveryNTurns": {
-		label: "Hindsight 보존 간격",
-		description: "몇 턴마다 트랜스크립트를 보존할지(기본 3)",
-	},
-	"hindsight.retainOverlapTurns": {
-		label: "Hindsight 보존 겹침 턴 수",
-		description: "경계에서 컨텍스트를 잃지 않도록 인접 보존 블록 사이에 겹치는 턴 수(기본 2)",
-	},
-	"hindsight.retainContext": {
-		label: "Hindsight 보존 컨텍스트 태그",
-		description: "보존 문서에 붙는 컨텍스트 태그(기본 omp)",
-	},
-	"hindsight.recallBudget": { label: "Hindsight 회상 예산", description: "회상 깊이 단계: low, mid, high(기본 mid)" },
-	"hindsight.recallMaxTokens": {
-		label: "Hindsight 회상 토큰 상한",
-		description: "주입할 회상 메모리의 최대 토큰 수(기본 1024)",
-	},
-	"hindsight.recallContextTurns": {
-		label: "Hindsight 회상 컨텍스트 턴 수",
-		description: "회상 쿼리를 만들 때 포함할 최근 턴 수(기본 1)",
-	},
-	"hindsight.recallMaxQueryChars": {
-		label: "Hindsight 회상 쿼리 길이 상한",
-		description: "회상 쿼리의 최대 문자 수(기본 800)",
-	},
-	"hindsight.recallTypes": {
-		label: "Hindsight 회상 유형",
-		description: "회상에 참여할 메모리 유형(기본 world와 experience)",
-	},
-	"hindsight.debug": {
-		label: "Hindsight 디버그 로그",
-		description: "Hindsight 메모리 백엔드의 디버그 로그를 출력해요",
-	},
-	"hindsight.requestTimeoutMs": {
-		label: "Hindsight 요청 타임아웃",
-		description: "Hindsight 일반 요청 타임아웃(밀리초, 기본 30000)",
-	},
-	"hindsight.reflectTimeoutMs": {
-		label: "Hindsight 성찰 타임아웃",
-		description: "Hindsight 성찰 요청 타임아웃(밀리초, 기본 120000)",
-	},
-	"hindsight.recallTimeoutMs": {
-		label: "Hindsight 회상 타임아웃",
-		description: "Hindsight 회상 요청 타임아웃(밀리초, 기본 30000)",
-	},
-	"hindsight.retainTimeoutMs": {
-		label: "Hindsight 보존 타임아웃",
-		description: "Hindsight 보존 요청 타임아웃(밀리초, 기본 60000)",
-	},
-	"hindsight.mentalModelMaxRenderChars": {
-		label: "Hindsight 멘탈 모델 렌더링 상한",
-		description: "멘탈 모델을 지시문에 렌더링할 때의 최대 문자 수(기본 16000)",
 	},
 	// Shell과 도구
 	"bashInterceptor.patterns": {

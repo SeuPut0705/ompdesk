@@ -8,7 +8,6 @@ import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
-import { MemoryReportSection } from "./PluginsSection";
 import { ScheduledRetryRow } from "./ScheduledRetryRow";
 import { SchemaField } from "./SchemaField";
 import { SettingsAdvanced, SettingsSection } from "./SettingsLayout";
@@ -79,8 +78,6 @@ export function AgentSection() {
 			<SettingsSection id="settings-agent-context" title={t("settings.agent.context")}>
 				<SchemaField path="compaction.enabled" />
 				<CompactionLimitsSection />
-				<SchemaField path="memory.backend" />
-				<MemoryReportSection />
 			</SettingsSection>
 			{AGENT_GROUPS.some(({ group }) => stockGroups[group]) && (
 				<SettingsAdvanced>

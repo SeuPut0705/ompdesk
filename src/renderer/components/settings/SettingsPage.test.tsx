@@ -10,6 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { en } from "../../locales/en";
+import { ko } from "../../locales/ko";
 import { useUiStore } from "../../stores/ui";
 import { GeneralSection } from "./GeneralSection";
 import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
@@ -19,6 +21,7 @@ import {
 	CURATED_SCHEMA_ROWS,
 	CUSTOM_SCHEMA_EDITORS,
 	resolveSettingsTarget,
+	SETTINGS_NAV,
 	SETTINGS_SECTION_IDS,
 	schemaSettingsOwner,
 } from "./settings-catalog";
@@ -93,6 +96,54 @@ describe("resolveSettingsTarget", () => {
 		expect(resolveSettingsTarget("context")).toEqual({ section: "general" });
 		expect(resolveSettingsTarget("providers")).toEqual({ section: "general" });
 		expect(resolveSettingsTarget("nonsense")).toEqual({ section: "general" });
+	});
+});
+
+describe("Settings › Memory (ai-memory)", () => {
+	const STOCK_MEMORY_ROWS = [
+		["memory.backend", "memory"],
+		["memories.enabled", "memory"],
+		["mnemopi.bank", "memory"],
+		["hindsight.apiUrl", "memory"],
+		["sharpshooter.model", "memory"],
+		["autolearn.enabled", "memory"],
+	] as const;
+	const stockEntries = STOCK_MEMORY_ROWS.map(([path, tab]) =>
+		entry({ path, tab, group: "Memory", label: `Stock ${path}`, type: "string" }),
+	);
+
+	it("is one section under Agent, named in English and Korean, and deep-linkable", () => {
+		const agent = SETTINGS_NAV.find(group => group.id === "agent");
+		expect(agent?.items).toContain("memory");
+		expect(SETTINGS_SECTION_IDS).toContain("memory");
+		expect(resolveSettingsTarget("memory")).toEqual({ section: "memory", sub: undefined });
+		expect(en["settings.section.memory"]).toBe("Memory (ai-memory)");
+		expect(ko["settings.section.memory"]).toBe("메모리 (ai-memory)");
+	});
+
+	it("lists no stock memory row in any section, Advanced included", () => {
+		expect(stockEntries.filter(item => isSettingVisibleInGui(item, {}))).toEqual([]);
+		const html = renderToStaticMarkup(
+			withData(
+				stockEntries,
+				{},
+				SETTINGS_SECTION_IDS.map(section => <OwnedSchemaSettings key={section} section={section} />),
+			),
+		);
+		for (const item of stockEntries) expect(html).not.toContain(item.label ?? "?");
+	});
+
+	it("is found by search as a section, while a stock memory row is not", () => {
+		const results = searchSettings({
+			query: "memory",
+			t: key => translate(key),
+			entries: stockEntries,
+			values: {},
+			schemaTabLabel: id => id,
+			schemaLabel: item => item.label ?? item.path,
+		});
+		expect(results.some(result => result.target === "memory")).toBe(true);
+		expect(results.filter(result => result.path !== undefined)).toEqual([]);
 	});
 });
 

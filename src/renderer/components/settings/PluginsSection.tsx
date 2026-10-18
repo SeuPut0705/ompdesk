@@ -1,7 +1,7 @@
 /**
  * Settings › Plugins & resources: one section with underline tabs over the
- * session's installed plugins, configured marketplaces, prompt templates, and
- * memory backend report. The page owns the active tab and the single search
+ * session's installed plugins, configured marketplaces and prompt templates.
+ * The page owns the active tab and the single search
  * field (`query`, empty = no filter). Each tab lazy-loads its RPC on first
  * view and caches until refreshed.
  *
@@ -10,15 +10,14 @@
  * clicking a row opens the plugin detail Sheet (features + settings editor,
  * see panels/inventory/PluginDetailSheet). The Marketplaces tab manages
  * sources and catalog installs via marketplace_action (see
- * panels/inventory/MarketplacesSection). Templates and memory stay read-only
+ * panels/inventory/MarketplacesSection). Templates stay read-only
  * (no set_* RPC exists for them).
  */
 
-import { ChevronDown, ChevronRight, FileText, PackageOpen, RefreshCw, Search, Store } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, FileText, PackageOpen, RefreshCw, Search, Store } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	RpcMarketplacesResult,
-	RpcMemoryReport,
 	RpcPluginInfo,
 	RpcPluginsResult,
 	RpcPromptTemplateInfo,
@@ -28,7 +27,6 @@ import type {
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { MarkdownRenderer } from "../../lib/markdown";
 import {
 	capturePluginActivationOrigin,
 	handlePluginActivation,
@@ -61,7 +59,7 @@ export type PluginsTab = "plugins" | "marketplaces" | "templates";
 export interface PluginsSectionProps {
 	tab: PluginsTab;
 	onTabChange: (tab: PluginsTab) => void;
-	/** Page search; empty string = no filter. Memory has no list to filter. */
+	/** Page search; empty string = no filter. */
 	query: string;
 }
 
@@ -548,161 +546,6 @@ function TemplatesTab({
 				}
 			</ResourceGate>
 		</TabPanel>
-	);
-}
-
-// ============================================================================
-// Memory tab
-// ============================================================================
-
-/** Status chips, counts and details of the active backend (also the side panel's Memory view). */
-export function MemoryStatus({ report }: { report: RpcMemoryReport }) {
-	const t = useT();
-	const status = report.status;
-	if (!status) return null;
-	const counts: Array<[string, number]> = [];
-	if (status.workingCount !== undefined) counts.push([t("invPanel.memory.working"), status.workingCount]);
-	if (status.episodicCount !== undefined) counts.push([t("invPanel.memory.episodic"), status.episodicCount]);
-	if (status.tripleCount !== undefined) counts.push([t("invPanel.memory.triples"), status.tripleCount]);
-	const details: Array<[string, string]> = [];
-	if (status.scope) details.push([t("invPanel.memory.scope"), status.scope]);
-	if (status.retainBank) details.push([t("invPanel.memory.retainBank"), status.retainBank]);
-	if (status.recallBanks && status.recallBanks.length > 0)
-		details.push([t("invPanel.memory.recallBanks"), status.recallBanks.join(", ")]);
-	if (status.database) details.push([t("invPanel.memory.database"), status.database]);
-	if (status.lastMemory) details.push([t("invPanel.memory.lastMemory"), status.lastMemory]);
-	if (status.lastRecall !== undefined)
-		details.push([
-			t("invPanel.memory.lastRecall"),
-			status.lastRecall ? t("invPanel.memory.yes") : t("invPanel.memory.no"),
-		]);
-	if (status.message) details.push([t("invPanel.memory.message"), status.message]);
-	return (
-		<div className="flex flex-col gap-3">
-			<div className="flex flex-wrap items-center gap-1.5">
-				<Badge dot variant={status.active ? "success" : "error"}>
-					{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
-				</Badge>
-				<Badge dot={status.writable} variant={status.writable ? "success" : "muted"}>
-					{t("invPanel.memory.writable")}: {t(status.writable ? "invPanel.memory.yes" : "invPanel.memory.no")}
-				</Badge>
-				<Badge dot={status.searchable} variant={status.searchable ? "info" : "muted"}>
-					{t("invPanel.memory.searchable")}: {t(status.searchable ? "invPanel.memory.yes" : "invPanel.memory.no")}
-				</Badge>
-			</div>
-			{counts.length > 0 && (
-				<div className="flex flex-wrap gap-x-4 gap-y-1 text-sc-sm text-(--sc-text-muted)">
-					{counts.map(([label, value]) => (
-						<span key={label}>
-							{label}: <span className="tabular-nums text-(--sc-text)">{value}</span>
-						</span>
-					))}
-				</div>
-			)}
-			{details.length > 0 && (
-				<dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sc-sm">
-					{details.map(([label, value]) => (
-						<Fragment key={label}>
-							<dt className="text-(--sc-text-muted)">{label}</dt>
-							<dd className="break-words text-(--sc-text)">{value}</dd>
-						</Fragment>
-					))}
-				</dl>
-			)}
-			{status.error && (
-				<Banner title={t("invPanel.memory.statusError")} variant="danger">
-					<ErrorDetail error={status.error} />
-				</Banner>
-			)}
-		</div>
-	);
-}
-
-function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryReport>; visible: boolean }) {
-	const t = useT();
-	const [statsOpen, setStatsOpen] = useState(false);
-	useAutoLoad(resource, visible);
-	const report = resource.data;
-	// A backend the user turned off is a setting, not a failure: "Memory backend: Off" says it all,
-	// without a red "inactive", no/no capability chips or stock's English "Memory backend is off.".
-	const off = report?.backend === "off";
-	return (
-		<TabPanel
-			description={
-				<span className="font-medium text-(--sc-text)">
-					{report
-						? t("invPanel.memory.backend", { backend: off ? t("invPanel.memory.off") : report.backend })
-						: t("invPanel.tabs.memory")}
-					{report?.entryCount !== undefined && (
-						<span className="ml-2 font-normal tabular-nums text-(--sc-text-muted)">
-							{t("invPanel.memory.entries", { count: report.entryCount })}
-						</span>
-					)}
-				</span>
-			}
-			// A backend with nothing to show says so in one line; "read-only" would describe nothing.
-			footer={
-				report && !off && (report.status || report.stats || report.diagnosis) ? t("invPanel.readonlyNote") : null
-			}
-			label={t("invPanel.tabs.memory")}
-			resource={resource}
-			visible={visible}
-		>
-			<ResourceGate resource={resource}>
-				{data =>
-					off ? null : (
-						<div className="flex flex-col gap-5">
-							<MemoryStatus report={data} />
-							{data.stats && (
-								<section>
-									<Button
-										aria-expanded={statsOpen}
-										icon={statsOpen ? <ChevronDown /> : <ChevronRight />}
-										onClick={() => setStatsOpen(open => !open)}
-										size="sm"
-										variant="ghost"
-									>
-										{t("invPanel.memory.stats")}
-									</Button>
-									{statsOpen && (
-										<pre className="mt-2 max-h-64 overflow-auto rounded-(--sc-radius-md) bg-(--sc-surface-1) px-3 py-2 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)">
-											{data.stats}
-										</pre>
-									)}
-								</section>
-							)}
-							{data.diagnosis && (
-								<section>
-									<h3 className="mb-1.5 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
-										{t("invPanel.memory.diagnosis")}
-									</h3>
-									<div className="text-sc-md text-(--sc-text-secondary)">
-										<MarkdownRenderer content={data.diagnosis} />
-									</div>
-								</section>
-							)}
-							{!data.status && !data.stats && !data.diagnosis && (
-								// Nothing to show is one quiet line, not an empty-state card under a settings row.
-								<p className="text-sc-sm text-(--sc-text-muted)" data-memory-bare>
-									{t("invPanel.memory.bare")}
-								</p>
-							)}
-						</div>
-					)
-				}
-			</ResourceGate>
-		</TabPanel>
-	);
-}
-
-export function MemoryReportSection() {
-	const tabRpc = useTabRpc();
-	const memory = useRpcResource<RpcMemoryReport>(() => tabRpc.getMemoryReport());
-	return (
-		// Same vertical rhythm as the settings rows around it.
-		<div className="settings-row py-2" id="settings-agent-memory-report">
-			<MemoryTab resource={memory} visible />
-		</div>
 	);
 }
 

@@ -27,7 +27,6 @@ import {
 	type AgentReviewResult,
 	agentTaskTitle,
 	isApprovalSelect,
-	LESSON_MAX_CHARS,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
@@ -167,10 +166,6 @@ export interface AgentControlHost {
 	discardWorktree(worktree: WorktreeRef): Promise<void>;
 	/** The Schedules service (Settings › Schedules), or null where there is none. */
 	schedules(): ScheduleSource | null;
-	/** Whether the user's memory backend can save (stock `get_memory_report`; off = no backend or no save hook). */
-	memoryOn(callerTabId: string): Promise<boolean>;
-	/** Append a note to stock's memory (`memory_save` through the bridge). */
-	saveMemory(callerTabId: string, content: string): Promise<void>;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -440,8 +435,6 @@ export class AgentControl {
 			}
 			case T.schedule:
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
-			case T.remember:
-				return this.#remember(caller, ARGS[T.remember].parse(raw).lesson);
 		}
 	}
 
@@ -826,11 +819,7 @@ export class AgentControl {
 					args.wait && timedOut && !ready
 						? `Still running after waiting ${seconds} s (${done}/${summaries.length} finished).\n`
 						: "";
-				const remind =
-					table && ready && summaries.length > 1
-						? "\nIf the user has memory on and this split taught you something, save one lesson with ompdesk_remember."
-						: "";
-				return `${note}${summaries.map(summary => summary.text).join("\n\n")}${remind}`;
+				return `${note}${summaries.map(summary => summary.text).join("\n\n")}`;
 			}
 			await this.#nextChange(Math.min(POLL_MS, deadline - Date.now()));
 		}
@@ -1217,17 +1206,6 @@ export class AgentControl {
 			enabled: true,
 		});
 		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
-	}
-
-	/** `ompdesk_remember`: one short lesson about an orchestration, appended to stock's memory when the user has it on. */
-	async #remember(caller: ControlTab, lesson: string): Promise<string> {
-		if (this.#limits.opensWithinHour(caller.tabId) === 0)
-			fail("Save a lesson after you orchestrated sessions: you opened none in the last hour.");
-		if (!(await this.#host.memoryOn(caller.tabId)))
-			return "The user's memory is off (Settings › Memory), so nothing was saved. Do not try again.";
-		this.#limits.reserveLesson(caller.tabId);
-		await this.#host.saveMemory(caller.tabId, `OMPdesk delegation lesson: ${oneLine(lesson, LESSON_MAX_CHARS)}`);
-		return "Saved to the user's memory.";
 	}
 }
 

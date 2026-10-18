@@ -14,7 +14,7 @@ import { resetTabRoute } from "../../lib/tab-routing";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { filterMarketplaces, filterPlugins, filterTemplates, shortenSource } from "../panels/inventory-utils";
-import { MemoryReportSection, PluginsSection } from "./PluginsSection";
+import { PluginsSection } from "./PluginsSection";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -189,79 +189,5 @@ describe("PluginsSection", () => {
 			browse.dispatchEvent(click);
 		});
 		expect(onTabChange).toHaveBeenCalledWith("marketplaces");
-	});
-
-	it("names the memory backend and says a bare one has nothing to show in one quiet line", async () => {
-		const getMemoryReport = vi.fn(async () => ({ success: true as const, data: { backend: "none", entryCount: 0 } }));
-		(window as unknown as { omp: { rpc: { getMemoryReport: typeof getMemoryReport } } }).omp = {
-			rpc: { getMemoryReport },
-		};
-		useSessionStore.setState({ status: "ready", cwd: "/repo" });
-		useTabsStore.setState({
-			activeTabId: "tab-1",
-			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
-			bundles: new Map(),
-		});
-		resetTabRoute();
-		container = document.createElement("div") as unknown as TestElement;
-		document.body.appendChild(container as never);
-		root = createRoot(container as unknown as Element);
-		await act(async () => {
-			root?.render(
-				<I18nProvider>
-					<MemoryReportSection />
-				</I18nProvider>,
-			);
-		});
-		await flush();
-
-		const text = document.body.textContent ?? "";
-		expect(text).toContain("Memory backend: none");
-		expect(document.querySelector("[data-memory-bare]")?.textContent).toBe(
-			"This backend exposes no status, stats, or diagnosis.",
-		);
-		// No promise of a future update in the UI.
-		expect(text).not.toContain("future update");
-		// Nothing shown, so no "read-only" note under it.
-		expect(text).not.toContain("Read-only: shows what omp found.");
-	});
-
-	it("shows a backend the user turned off as one neutral Off line, without stock's English status", async () => {
-		const getMemoryReport = vi.fn(async () => ({
-			success: true as const,
-			data: {
-				backend: "off",
-				status: { active: false, writable: false, searchable: false, message: "Memory backend is off." },
-			},
-		}));
-		(window as unknown as { omp: { rpc: { getMemoryReport: typeof getMemoryReport } } }).omp = {
-			rpc: { getMemoryReport },
-		};
-		useSessionStore.setState({ status: "ready", cwd: "/repo" });
-		useTabsStore.setState({
-			activeTabId: "tab-1",
-			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
-			bundles: new Map(),
-		});
-		resetTabRoute();
-		container = document.createElement("div") as unknown as TestElement;
-		document.body.appendChild(container as never);
-		root = createRoot(container as unknown as Element);
-		await act(async () => {
-			root?.render(
-				<I18nProvider>
-					<MemoryReportSection />
-				</I18nProvider>,
-			);
-		});
-		await flush();
-
-		const text = document.body.textContent ?? "";
-		expect(text).toContain("Memory backend: Off");
-		// Off says it all: no red "inactive", no writable/searchable chips, no stock message, no read-only note.
-		expect(text).not.toContain("inactive");
-		expect(text).not.toContain("writable");
-		expect(text).not.toContain("Memory backend is off.");
-		expect(text).not.toContain("Read-only: shows what omp found.");
 	});
 });

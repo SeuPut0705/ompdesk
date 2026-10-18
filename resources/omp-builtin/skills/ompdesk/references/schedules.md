@@ -1,4 +1,4 @@
-# Schedules and lessons
+# Schedules
 
 ## `ompdesk_schedule`
 
@@ -9,6 +9,6 @@ Puts a prompt on OMPdesk's Schedules service: a fresh print-mode session started
 
 Use it for recurring orchestration ("every morning, review the open PRs"), not for work that can run now.
 
-## `ompdesk_remember`
+## Keeping something durable
 
-`lesson`: one note (at most 600 characters) to the user's memory after an orchestration you ran: what split worked, what collided, what to do differently. It needs the user's memory on and a session you opened in the last hour, and allows 3 per hour. No secrets, no copy of another session's answer.
+To keep a lesson or decision for later sessions, use ai-memory's own tools (see its `ai-memory-durable-pages` skill); OMPdesk has no tool for it.

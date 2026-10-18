@@ -11,7 +11,6 @@ import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/r
 import type { SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { ClientWindow } from "../web/client-window";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
-import { AgentLimits } from "./limits";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
@@ -32,8 +31,6 @@ function setup(
 		tabs?: Partial<IpcTabInfo>[];
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
-		memory?: unknown;
-		limits?: AgentLimits;
 	} = {},
 ) {
 	const win = window();
@@ -70,7 +67,6 @@ function setup(
 			if (command.type === "worktree_create")
 				return ok({ path: "/wt/agent-1", branch: "omp/agent/agent-1", baseCwd: "/repo" });
 			if (command.type === "agent_control_confirm") return ok({ approved: true });
-			if (command.type === "get_memory_report") return ok(options.memory);
 			return ok();
 		},
 		spawnTab: async (_win, payload) => {
@@ -84,7 +80,7 @@ function setup(
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
 	};
-	const runtime = new AgentControlRuntime(deps, options.limits);
+	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, deps, commands, spawned, tabs, activity, prefs, openers };
 }
 
@@ -233,32 +229,4 @@ describe("AgentControlRuntime", () => {
 		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
 		expect(state.schedules).toEqual([]);
 	});
-
-	it.each([
-		{ memory: { backend: "local", capabilities: { save: true } }, saved: true },
-		{ memory: { backend: "off", capabilities: { save: true } }, saved: false },
-		{ memory: { backend: "local", capabilities: { save: false } }, saved: false },
-	])(
-		"saves a delegation lesson through stock's memory_save only when memory can save ($memory.backend, save $memory.capabilities.save)",
-		async ({ memory, saved }) => {
-			const limits = new AgentLimits();
-			limits.reserveOpens("main0001", 0, 1);
-			const { runtime, win, commands } = setup({ memory, limits });
-			const outcome = await runtime.run(win, "main0001", T.remember, { lesson: "split by package" });
-			expect(outcome.isError, outcome.text).toBe(false);
-			const saves = commands.filter(entry => entry.command.type === "memory_save").map(entry => entry.command);
-			expect(saves).toEqual(
-				saved
-					? [
-							{
-								type: "memory_save",
-								content: "OMPdesk delegation lesson: split by package",
-								context: "OMPdesk delegation",
-							},
-						]
-					: [],
-			);
-			expect(outcome.text).toMatch(saved ? /Saved to the user's memory/ : /memory is off/);
-		},
-	);
 });

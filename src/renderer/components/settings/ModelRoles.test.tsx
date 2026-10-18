@@ -10,7 +10,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BUILTIN_ROLE_IDS, PRESET_ROLES } from "../../../../resources/gui-bridge/model-role-contracts";
+import { BUILTIN_ROLE_IDS, PRESET_ROLES, ROLE_GROUPS } from "../../../../resources/gui-bridge/model-role-contracts";
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates";
 import type { ModelRoleEntry, ProviderInfo } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
@@ -64,6 +64,7 @@ const ROLES: ModelRoleEntry[] = [
 		candidates: [{ provider: "openai", id: "dalle", name: "DALL·E", kind: "image" }],
 		effective: { model: "openai/dalle", name: "DALL·E", source: "fallback" },
 	}),
+	role("memory", "Memory"),
 	role("tiny", "Tiny", {
 		effective: { model: "openai/gpt", name: "GPT", source: "fallback", via: "smol" },
 	}),
@@ -192,10 +193,12 @@ describe("Model roles grouped by purpose", () => {
 			element.id.replace("model-role-", ""),
 		);
 		expect(order.slice(0, 9)).toEqual(["default", "slow", "smol", "plan", "task", "tiny", "image", "review", "mine"]);
+		// Stock keeps the memory role; OMPdesk does not list it (ai-memory replaced stock's memory backends).
+		expect(order).not.toContain("memory");
 	});
 
 	it("has a localized when-used line for every built-in and preset role in English and Korean", () => {
-		for (const id of [...BUILTIN_ROLE_IDS, ...PRESET_ROLES.map(preset => preset.id)]) {
+		for (const id of [...ROLE_GROUPS.flatMap(group => group.roles), ...PRESET_ROLES.map(preset => preset.id)]) {
 			for (const [lang, messages] of [
 				["en", en],
 				["ko", ko],
@@ -206,7 +209,7 @@ describe("Model roles grouped by purpose", () => {
 			}
 		}
 		// Every built-in names what an empty role falls back to; presets share one sentence.
-		for (const id of BUILTIN_ROLE_IDS)
+		for (const id of ROLE_GROUPS.flatMap(group => group.roles))
 			expect((en as Record<string, string>)[`modelRoles.fallback.${id}`], id).toBeTruthy();
 	});
 

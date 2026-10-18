@@ -67,7 +67,6 @@ export const AGENT_CONTROL_TOOLS = {
 	compare: "ompdesk_compare",
 	merge: "ompdesk_merge",
 	schedule: "ompdesk_schedule",
-	remember: "ompdesk_remember",
 } as const;
 
 export type AgentControlToolName = (typeof AGENT_CONTROL_TOOLS)[keyof typeof AGENT_CONTROL_TOOLS];
@@ -96,9 +95,6 @@ export const MAX_AGENT_SCHEDULES = 5;
 export const AGENT_SCHEDULE_MIN_INTERVAL_MINUTES = 30;
 /** Schedules an agent creates start with this, so the person sees whose they are in Settings › Schedules and only these may be cancelled by an agent. */
 export const AGENT_SCHEDULE_PREFIX = "[agent] ";
-/** Delegation lessons an agent may save to memory (`ompdesk_remember`): per rolling hour, and their length. */
-export const MAX_LESSONS_PER_HOUR = 3;
-export const LESSON_MAX_CHARS = 600;
 
 /** How a session is shown in the calling session's window. */
 export type AgentControlPlacement = "focus" | "split-right" | "split-down";

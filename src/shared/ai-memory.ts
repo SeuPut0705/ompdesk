@@ -12,8 +12,10 @@ export const AI_MEMORY_PREF = "aiMemory";
 /** The version the app ships (the pin file is the only place it is written). */
 export const AI_MEMORY_VERSION: string = pin.version;
 /** The pin file's per-platform assets, keyed `<process.platform>-<process.arch>`. */
-export const AI_MEMORY_ASSETS: Record<string, { archive: string; archiveSha256: string; binary: string; binarySha256: string }> =
-	pin.assets;
+export const AI_MEMORY_ASSETS: Record<
+	string,
+	{ archive: string; archiveSha256: string; binary: string; binarySha256: string }
+> = pin.assets;
 
 export function aiMemoryEnabled(value: unknown): boolean {
 	return value !== false;

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
-	MAX_LESSONS_PER_HOUR,
 	MAX_OPENS_PER_TURN,
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
@@ -160,12 +159,6 @@ class FakeHost implements AgentControlHost {
 	};
 	savedDrafts: ScheduleDraft[] = [];
 	schedules = () => this.scheduleSource;
-	memoryEnabled = true;
-	lessons: string[] = [];
-	memoryOn = async () => this.memoryEnabled;
-	saveMemory = async (_caller: string, content: string) => {
-		this.lessons.push(content);
-	};
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -1115,45 +1108,14 @@ describe("ompdesk_schedule", () => {
 	});
 });
 
-describe("ompdesk_remember", () => {
-	const lesson = "Splitting by folder worked; two sessions editing one file collided.";
-
-	it("saves one lesson to memory after an orchestration, only when memory is on", async () => {
-		const host = new FakeHost({ tabId: "main0001" });
-		const service = control(host);
-		expect((await service.run("main0001", T.remember, { lesson })).text).toMatch(/orchestrated sessions/);
-		await service.run("main0001", T.open, { message: "part" });
-		host.memoryEnabled = false;
-		const off = await service.run("main0001", T.remember, { lesson });
-		expect(off.isError).toBe(false);
-		expect(off.text).toContain("memory is off");
-		expect(host.lessons).toEqual([]);
-		host.memoryEnabled = true;
-		expect((await service.run("main0001", T.remember, { lesson })).text).toContain("Saved to the user's memory");
-		expect(host.lessons).toEqual([`OMPdesk delegation lesson: ${lesson}`]);
-	});
-
-	it("caps lessons per hour and refuses too short or too long ones", async () => {
-		const host = new FakeHost({ tabId: "main0001" });
-		const service = control(host);
-		await service.run("main0001", T.open, { message: "part" });
-		for (let i = 0; i < MAX_LESSONS_PER_HOUR; i++)
-			expect((await service.run("main0001", T.remember, { lesson })).isError).toBe(false);
-		expect((await service.run("main0001", T.remember, { lesson })).text).toMatch(/at most 3/);
-		expect((await service.run("main0001", T.remember, { lesson: "short" })).text).toMatch(/Invalid arguments/);
-		expect((await service.run("main0001", T.remember, { lesson: "x".repeat(601) })).text).toMatch(
-			/Invalid arguments/,
-		);
-		expect(host.lessons).toHaveLength(MAX_LESSONS_PER_HOUR);
-	});
-
-	it("a table of several finished sessions reminds the agent to save a lesson", async () => {
+describe("a table of several finished sessions", () => {
+	it("is only the table: ai-memory's own tools keep lessons, not an OMPdesk tool", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
 			{ tabId: "work0002", last: "a" },
 			{ tabId: "work0003", last: "b" },
 		);
 		const result = await control(host).run("main0001", T.result, { sessions: ["work0002", "work0003"] });
-		expect(result.text).toContain("ompdesk_remember");
+		expect(result.text).not.toContain("save one lesson");
 	});
 });

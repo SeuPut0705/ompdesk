@@ -8,7 +8,6 @@
  *   sessions exchanges at most `MAX_PAIR_MESSAGES_PER_MINUTE` messages a minute, and a session never writes to itself.
  */
 import {
-	MAX_LESSONS_PER_HOUR,
 	MAX_MESSAGES_PER_HOUR,
 	MAX_MESSAGES_PER_TURN,
 	MAX_OPENS_PER_HOUR,
@@ -39,8 +38,6 @@ export class AgentLimits {
 	readonly #pairs = new Map<string, number[]>();
 	/** Session → the hops of the agent-message chain that last reached it. */
 	readonly #lineage = new Map<string, { hops: number; at: number }>();
-	/** caller → stamps of the lessons it saved to memory. */
-	readonly #lessons = new Map<string, number[]>();
 
 	constructor(now: () => number = Date.now) {
 		this.#now = now;
@@ -117,28 +114,12 @@ export class AgentLimits {
 		this.#lineage.set(to, { hops: hops + 1, at: now });
 	}
 
-	/** Sessions `caller` opened in the last hour (a lesson is about an orchestration it ran). */
-	opensWithinHour(caller: string): number {
-		return within(this.#hourOpens.get(caller) ?? [], this.#now(), HOUR_MS).length;
-	}
-
-	/** Reserve one saved lesson, or throw. */
-	reserveLesson(caller: string): void {
-		const now = this.#now();
-		const recent = within(this.#lessons.get(caller) ?? [], now, HOUR_MS);
-		if (recent.length >= MAX_LESSONS_PER_HOUR)
-			throw new LimitError(`You saved ${recent.length} lessons in the last hour; at most ${MAX_LESSONS_PER_HOUR}.`);
-		recent.push(now);
-		this.#lessons.set(caller, recent);
-	}
-
 	/** A closed session leaves no state behind. */
 	forget(tab: string): void {
 		this.#lineage.delete(tab);
 		this.#turns.delete(tab);
 		this.#hourOpens.delete(tab);
 		this.#hourMessages.delete(tab);
-		this.#lessons.delete(tab);
 		for (const key of this.#pairs.keys()) if (key.split("|").includes(tab)) this.#pairs.delete(key);
 	}
 }

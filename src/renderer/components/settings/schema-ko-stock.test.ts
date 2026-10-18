@@ -6,12 +6,14 @@ import { describe, expect, it } from "vitest";
 import { modelRoleName } from "./schema-i18n";
 import { KO_GROUP_TITLES, KO_SETTINGS } from "./schema-ko";
 import { KO_SCHEMA_OPTION_TEXT } from "./schema-option-ko";
+import { isSettingSupportedInGui } from "./settings-schema-utils";
 
 const stock = join(homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/config/all-settings.ts");
 interface StockText {
 	id: string;
 	label: string;
 	description?: string;
+	tab?: string;
 	group?: string;
 	options: { label: string; description?: string }[];
 }
@@ -32,6 +34,7 @@ import { orderedSettings } from ${JSON.stringify(stock)};
 import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(output)}, JSON.stringify(orderedSettings().map(setting => ({
  id: setting.id,
+ tab: typeof setting.ui?.tab === "string" ? setting.ui.tab : undefined,
  label: typeof setting.ui?.label === "string" ? setting.ui.label : setting.id,
  description: typeof setting.ui?.description === "string" ? setting.ui.description : undefined,
  group: typeof setting.ui?.group === "string" ? setting.ui.group : undefined,
@@ -45,6 +48,8 @@ writeFileSync(${JSON.stringify(output)}, JSON.stringify(orderedSettings().map(se
 			const entries: StockText[] = JSON.parse(readFileSync(output, "utf8"));
 			const missing: string[] = [];
 			for (const entry of entries) {
+				// Settings the GUI never lists (terminal-only rows, stock's memory backends) need no Korean text.
+				if (!isSettingSupportedInGui({ path: entry.id, tab: entry.tab })) continue;
 				if (!KO_SETTINGS[entry.id]?.label) missing.push(`${entry.id}: label (${entry.label})`);
 				if (entry.description && !KO_SETTINGS[entry.id]?.description) missing.push(`${entry.id}: description`);
 				if (entry.group && !KO_GROUP_TITLES[entry.group]) missing.push(`group: ${entry.group}`);

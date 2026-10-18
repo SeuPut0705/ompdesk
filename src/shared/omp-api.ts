@@ -3,6 +3,14 @@
  * paired web device's page one over its WebSocket. Every channel, payload and wrapper is the same either way;
  * only `fs.pathForFile` (a dropped file's local path) stays with the preload, because only Electron knows it.
  */
+
+import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
+import {
+	AGENT_CONTROL_REVIEW,
+	AGENT_CONTROL_VIEW,
+	type AgentControlViewEvent,
+	type AgentReviewEvent,
+} from "./agent-control";
 import type {
 	AiMemoryHandoff,
 	AiMemoryPage,
@@ -11,13 +19,6 @@ import type {
 	AiMemoryProjectRef,
 	AiMemoryState,
 } from "./ai-memory";
-import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import {
-	AGENT_CONTROL_REVIEW,
-	AGENT_CONTROL_VIEW,
-	type AgentControlViewEvent,
-	type AgentReviewEvent,
-} from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { ExtensionUpdateState } from "./extension-update";

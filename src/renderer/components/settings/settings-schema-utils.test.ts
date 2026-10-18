@@ -24,12 +24,11 @@ const gated = (condition: string): SettingEntry => ({
 /** Stock gates that read the host or a config layer, never a setting value: the GUI keeps them visible. */
 const HOST_GATES = ["macOS", "hasImageProtocol", "nativeRendering", "contextFilesExtraNotProject"];
 
+/** Gates of stock's own memory settings, which OMPdesk does not list (ai-memory replaced them), so it has no rule for them. */
+const UNLISTED_GATES = ["hindsightActive", "mnemopiActive", "autolearnActive"];
 /** Each settings-backed gate with the value combinations that flip it. */
 const CASES: Record<string, Record<string, unknown>[]> = {
 	advisorEnabled: [{ "advisor.enabled": true }, { "advisor.enabled": false }],
-	hindsightActive: [{ "memory.backend": "hindsight" }, { "memory.backend": "mnemopi" }, { "memory.backend": "off" }],
-	mnemopiActive: [{ "memory.backend": "mnemopi" }, { "memory.backend": "hindsight" }, { "memory.backend": "local" }],
-	autolearnActive: [{ "autolearn.enabled": true }, { "autolearn.enabled": false }],
 	autoThinkingActive: [{ defaultThinkingLevel: "auto" }, { defaultThinkingLevel: "high" }],
 	usageAwareFallbackEnabled: [{ "retry.usageAwareFallback": true }, { "retry.usageAwareFallback": false }],
 	planModeEnabled: [{ "plan.enabled": true }, { "plan.enabled": false }],
@@ -96,7 +95,9 @@ describe.skipIf(!stockAvailable)("settings condition gates against installed sto
 	});
 
 	it("covers every stock condition as a settings-backed gate or a host gate", () => {
-		expect(stock.names.filter(name => !HOST_GATES.includes(name)).sort()).toEqual(Object.keys(CASES).sort());
+		expect(stock.names.filter(name => !HOST_GATES.includes(name) && !UNLISTED_GATES.includes(name)).sort()).toEqual(
+			Object.keys(CASES).sort(),
+		);
 	});
 
 	it.each(Object.keys(CASES))("evaluates %s like stock", name => {

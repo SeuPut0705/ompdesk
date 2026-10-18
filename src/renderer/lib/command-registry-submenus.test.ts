@@ -109,9 +109,6 @@ describe("nativized command affordances", () => {
 		["marketplace discover", "window"],
 		["plugins enable", "action"],
 		["plugins disable", "action"],
-		["memory view", "window"],
-		["memory stats", "window"],
-		["memory diagnose", "window"],
 	] as const)("%s is %s, never prompt", (name, kind) => {
 		const affordance = affordanceOf(name);
 		expect(affordance.kind).toBe(kind);
@@ -128,8 +125,6 @@ describe("nativized command affordances", () => {
 		"mcp help",
 		"marketplace help",
 		"plugins list",
-		"memory clear",
-		"memory enqueue",
 		"ssh help",
 	] as const)("%s stays prompt per contract non-goals", name => {
 		expect(affordanceOf(name).kind).toBe("prompt");
@@ -220,14 +215,12 @@ describe("nativized action wiring", () => {
 		expect(openSettings).toHaveBeenCalledWith(route);
 	});
 
-	it("memory panel and memory view open the side panel's Memory view", () => {
-		for (const name of ["memory panel", "memory view"]) {
-			useUiStore.setState({ panelTab: "diff", panelVisible: false });
-			const affordance = wired(name);
-			if (affordance.kind !== "window") throw new Error("expected window");
-			affordance.open();
-			expect(useUiStore.getState()).toMatchObject({ panelTab: "memory", panelVisible: true });
-		}
+	it("memory opens the side panel's Memory view", () => {
+		useUiStore.setState({ panelTab: "diff", panelVisible: false });
+		const affordance = wired("memory");
+		if (affordance.kind !== "window") throw new Error("expected window");
+		affordance.open();
+		expect(useUiStore.getState()).toMatchObject({ panelTab: "memory", panelVisible: true });
 		expect(openSettings).not.toHaveBeenCalled();
 	});
 

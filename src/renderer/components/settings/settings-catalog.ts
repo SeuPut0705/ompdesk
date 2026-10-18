@@ -12,6 +12,7 @@ export const SETTINGS_SECTION_IDS = [
 	"keyboard",
 	"models",
 	"agent",
+	"memory",
 	"tools",
 	"permissions",
 	"workspace",
@@ -30,7 +31,7 @@ export interface SettingsNavGroup {
 /** Left sub-nav: flat, always fully visible, grouped by who the setting is for. */
 export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
 	{ id: "app", items: ["general", "appearance", "keyboard"] },
-	{ id: "agent", items: ["models", "agent", "tools", "permissions", "workspace", "schedules"] },
+	{ id: "agent", items: ["models", "agent", "memory", "tools", "permissions", "workspace", "schedules"] },
 	{ id: "system", items: ["connections", "updates", "advanced"] },
 ];
 
@@ -50,6 +51,8 @@ export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> 
 	workspace: "host",
 	// Runs this computer's omp: a paired host's tab never moves them.
 	schedules: "app",
+	// ai-memory runs on this computer for every omp OMPdesk starts here: a paired host's tab never moves it.
+	memory: "app",
 	connections: "mixed",
 	updates: "mixed",
 	advanced: "host",
@@ -91,7 +94,6 @@ export const CURATED_SCHEMA_ROWS: Readonly<Record<string, SettingsSectionId>> = 
 	"goal.enabled": "agent",
 	"ttsr.enabled": "agent",
 	"advisor.enabled": "agent",
-	"memory.backend": "agent",
 };
 
 /** Structured settings are edited only by their dedicated editor. */
@@ -115,12 +117,7 @@ export function schemaSettingsOwner(entry: { path: string; tab?: string; group?:
 	if (/^(tools\.approval|secrets\.|security\.)/.test(path)) return "permissions";
 	if (/^(workspace|git|worktree)\./.test(path)) return "workspace";
 	if (/^(update|power)\./.test(path)) return "updates";
-	if (
-		/^(retry|advisor|plan|goal|ttsr|memory|autolearn|mnemopi|hindsight|sharpshooter|compaction|prewalk|vision|prompt|task)\./.test(
-			path,
-		)
-	)
-		return "agent";
+	if (/^(retry|advisor|plan|goal|ttsr|compaction|prewalk|vision|prompt|task)\./.test(path)) return "agent";
 	if (path === "disabledExtensions") return "tools";
 	if (entry.tab === "interaction") {
 		if (entry.group === "Approvals") return "permissions";
@@ -143,7 +140,6 @@ export function schemaSettingsOwner(entry: { path: string; tab?: string; group?:
 			return "agent";
 		case "interaction":
 		case "context":
-		case "memory":
 		case "tasks":
 			return "agent";
 		case "files":
@@ -159,12 +155,7 @@ export type AgentSettingsGroup = "messages" | "modes" | "context" | "io";
 /** Agent's four groups are shared by composition and search breadcrumbs. */
 export function agentSettingsGroup(entry: { path: string; tab?: string; group?: string }): AgentSettingsGroup {
 	if (/^(advisor|plan|goal|ttsr|task)\./.test(entry.path) || entry.tab === "tasks") return "modes";
-	if (
-		/^(compaction|memory|autolearn|mnemopi|hindsight|sharpshooter)\./.test(entry.path) ||
-		entry.tab === "context" ||
-		entry.tab === "memory"
-	)
-		return "context";
+	if (entry.path.startsWith("compaction.") || entry.tab === "context") return "context";
 	if (entry.tab === "interaction" || entry.tab === "appearance") return "io";
 	return "messages";
 }

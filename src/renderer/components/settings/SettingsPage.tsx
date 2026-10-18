@@ -17,6 +17,7 @@
 import {
 	Blocks,
 	Bot,
+	Brain,
 	CalendarClock,
 	FolderOpen,
 	HardDriveDownload,
@@ -52,6 +53,7 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
 import { AgentWorktreesRows } from "./AgentWorktreesRow";
+import { AiMemorySection } from "./AiMemorySection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
@@ -97,6 +99,7 @@ const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	agent: Sparkles,
 	tools: Blocks,
 	workspace: FolderOpen,
+	memory: Brain,
 	schedules: CalendarClock,
 	connections: MonitorSmartphone,
 	updates: HardDriveDownload,
@@ -347,6 +350,8 @@ export function SettingsPage() {
 						</AdvancedSchemaSettings>
 					</>
 				);
+			case "memory":
+				return <AiMemorySection />;
 			case "schedules":
 				return <SchedulesSection />;
 			case "connections":

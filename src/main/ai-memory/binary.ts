@@ -115,10 +115,7 @@ export function probeVersion(bin: string, env: NodeJS.ProcessEnv = process.env):
 export function externalCandidates(platform: AiMemoryPlatform, home: string, env: NodeJS.ProcessEnv): string[] {
 	if (platform === "win32") {
 		const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
-		return [
-			join(local, "Programs", "ai-memory", "ai-memory.exe"),
-			join(local, "ai-memory", "ai-memory.exe"),
-		];
+		return [join(local, "Programs", "ai-memory", "ai-memory.exe"), join(local, "ai-memory", "ai-memory.exe")];
 	}
 	return [join(home, ".local", "bin", "ai-memory"), "/opt/homebrew/bin/ai-memory", "/usr/local/bin/ai-memory"];
 }
@@ -146,7 +143,13 @@ export async function newerExternal(options: {
 	const onPath = findOnPath([executableName("ai-memory", platform)], pathEnv, platform, [], exclude);
 	if (onPath) found.add(onPath);
 	for (const candidate of externalCandidates(platform, home, env)) {
-		if (!exclude.includes(candidate) && (await stat(candidate).then(info => info.isFile(), () => false))) {
+		if (
+			!exclude.includes(candidate) &&
+			(await stat(candidate).then(
+				info => info.isFile(),
+				() => false,
+			))
+		) {
 			found.add(candidate);
 		}
 	}

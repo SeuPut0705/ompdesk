@@ -8,10 +8,8 @@ import { z } from "zod";
 import {
 	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
 	AGENT_SCHEDULE_PREFIX,
-	LESSON_MAX_CHARS,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
-	MAX_LESSONS_PER_HOUR,
 	MAX_OPENS_PER_TURN,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
@@ -291,17 +289,6 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		},
 	},
 	{
-		name: T.remember,
-		label: "Save a delegation lesson",
-		description: `After you orchestrated sessions (you opened some this hour), save one short lesson (at most ${LESSON_MAX_CHARS} characters) to the user's memory: what split worked, what to avoid next time. Only when the user has memory on; at most ${MAX_LESSONS_PER_HOUR} per hour. See skill://ompdesk.`,
-		parameters: {
-			type: "object",
-			properties: { lesson: { type: "string" } },
-			required: ["lesson"],
-			additionalProperties: false,
-		},
-	},
-	{
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
@@ -456,7 +443,6 @@ export const ARGS = {
 				if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
 			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
 		}),
-	[T.remember]: z.object({ lesson: z.string().trim().min(10).max(LESSON_MAX_CHARS) }).strict(),
 } as const;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;

@@ -88,7 +88,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/mcp/oauth-discovery": () => import("@oh-my-pi/pi-coding-agent/mcp/oauth-discovery"),
 	"@oh-my-pi/pi-coding-agent/mcp/oauth-flow": () => import("@oh-my-pi/pi-coding-agent/mcp/oauth-flow"),
 	"@oh-my-pi/pi-coding-agent/mcp/settings": () => import("@oh-my-pi/pi-coding-agent/mcp/settings"),
-	"@oh-my-pi/pi-coding-agent/memory-backend/resolve": () => import("@oh-my-pi/pi-coding-agent/memory-backend/resolve"),
 	"@oh-my-pi/pi-coding-agent/modes/agents-hub-deps": () => import("@oh-my-pi/pi-coding-agent/modes/agents-hub-deps"),
 	"@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller": () =>
 		import("@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller"),

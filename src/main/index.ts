@@ -7,9 +7,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir, release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
-	clipboard,
 	app,
 	BrowserWindow,
+	clipboard,
 	globalShortcut,
 	ipcMain,
 	nativeImage,
@@ -36,8 +36,8 @@ import {
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF } from "../shared/agent-control";
-import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { AI_MEMORY_PREF, aiMemoryEnabled } from "../shared/ai-memory";
+import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
@@ -61,13 +61,14 @@ import { SCHEDULES_STATE } from "../shared/schedules";
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
+import { agentDir } from "./agent-paths";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
+import { registerAiMemoryIpc } from "./ai-memory/ipc";
+import { AiMemoryService } from "./ai-memory/service";
 import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
-import { agentDir } from "./agent-paths";
-import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
@@ -104,7 +105,6 @@ import { SessionKindStore } from "./session-kinds";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
-import { AiMemoryService } from "./ai-memory/service";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -595,7 +595,6 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
-		aiMemoryExtensionArgs: () => aiMemoryService?.extensionArgs() ?? [],
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});

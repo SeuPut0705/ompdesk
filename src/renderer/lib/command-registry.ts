@@ -1211,24 +1211,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.memory"),
 		description: t("cmd.memory.desc"),
 		category: "extensions",
-		affordance: {
-			kind: "submenu",
-			items: [
-				{
-					name: "memory panel",
-					label: t("cmd.memory.panel"),
-					description: t("cmd.memory.panel.desc"),
-					category: "extensions",
-					affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("memory") },
-				},
-				// The side panel's Memory view shows `/memory view`; stats/diagnose stay in Settings › Agent.
-				subWindow("memory view", () => useUiStore.getState().setPanelTab("memory")),
-				subWindow("memory stats", () => ctx.openSettings("agent:memory-report")),
-				subWindow("memory diagnose", () => ctx.openSettings("agent:memory-report")),
-				{ ...sub("memory clear", "/memory clear"), guard: "destructive" },
-				sub("memory enqueue", "/memory enqueue"),
-			],
-		},
+		// ai-memory's panel; stock's `/memory` subcommands (they mutate stock's own backends) are not offered.
+		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("memory") },
 	});
 	add({
 		name: "security",

@@ -493,7 +493,17 @@ export function runRpcUi(): void {
 		if (process.env.OMP_GUI_TEST_RECORD)
 			fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify({ ...frame, recordedBy: sessionId })}\n`);
 	};
-	record({ type: "launch", argv: process.argv.slice(2), cwd: process.cwd() });
+	// `OMP_GUI_TEST_RECORD_AGENT_FILE=<path under the agent dir>`: whether that file existed when this omp started
+	// (ai-memory's generated extension, which stock omp would discover from there).
+	const watchedAgentFile = process.env.OMP_GUI_TEST_RECORD_AGENT_FILE;
+	record({
+		type: "launch",
+		argv: process.argv.slice(2),
+		cwd: process.cwd(),
+		...(watchedAgentFile && process.env.PI_CODING_AGENT_DIR
+			? { agentFile: fs.existsSync(nodePath.join(process.env.PI_CODING_AGENT_DIR, watchedAgentFile)) }
+			: {}),
+	});
 
 	/**
 	 * `OMP_GUI_TEST_RECAP={"text": "...", "delayMs": 300}` stands in for the bridge's idle recap (resources/gui-bridge/
@@ -1853,7 +1863,6 @@ export function runRpcUi(): void {
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
 		get_agent_definitions: () => ({ agents: [] }),
-		get_memory_report: () => ({ backend: "none", entryCount: 0 }),
 		model_roles: () => ({
 			roles: ROLE_META.map(meta => ({
 				...meta,

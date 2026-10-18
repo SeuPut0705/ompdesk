@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	BUILTIN_ROLE_IDS,
 	customRoleIdError,
+	HIDDEN_ROLE_IDS,
 	modelRoleRefs,
 	PRESET_ROLES,
 	ROLE_GROUPS,
@@ -10,12 +11,13 @@ import {
 } from "../../resources/gui-bridge/model-role-contracts";
 
 describe("role groups", () => {
-	it("hold stock's 15 built-in roles exactly once, grouped by purpose", () => {
+	it("list 14 of stock's 15 built-in roles by purpose and hide the memory role (ai-memory replaced stock's backends)", () => {
 		expect(ROLE_GROUPS.map(group => [group.id, group.roles])).toEqual([
 			["conversation", ["default", "slow", "smol", "plan"]],
-			["agent", ["task", "advisor", "commit", "memory", "tiny"]],
+			["agent", ["task", "advisor", "commit", "tiny"]],
 			["io", ["vision", "image", "web", "speech", "dictation", "judge"]],
 		]);
+		expect(HIDDEN_ROLE_IDS).toEqual(["memory"]);
 		expect(BUILTIN_ROLE_IDS).toHaveLength(15);
 		expect(new Set(BUILTIN_ROLE_IDS).size).toBe(15);
 	});

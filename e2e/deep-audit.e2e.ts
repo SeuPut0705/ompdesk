@@ -206,9 +206,6 @@ function isUnsafeString(entry: SettingEntry): boolean {
 function conditionGate(condition: string | undefined): Array<{ path: string; value: unknown }> {
 	const gates: Record<string, Array<{ path: string; value: unknown }>> = {
 		advisorEnabled: [{ path: "advisor.enabled", value: true }],
-		hindsightActive: [{ path: "memory.backend", value: "hindsight" }],
-		mnemopiActive: [{ path: "memory.backend", value: "mnemopi" }],
-		autolearnActive: [{ path: "autolearn.enabled", value: true }],
 		autoThinkingActive: [{ path: "defaultThinkingLevel", value: "auto" }],
 		usageAwareFallbackEnabled: [{ path: "retry.usageAwareFallback", value: true }],
 		planModeEnabled: [{ path: "plan.enabled", value: true }],

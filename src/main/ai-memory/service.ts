@@ -12,10 +12,12 @@
  *   on    `setup --yes --agent omp`   data dir + token, the user service, the MCP entry, the generated omp
  *                                     extension and the skills, then ai-memory's own self-check
  *   off   `uninstall --apply --yes`   hooks, MCP entry, skills and the service; the data stays
- *   purge `uninstall --apply --yes --purge-data`, then `on` again when memory is on
- * Defaults stay ai-memory's: no LLM or embedding provider (zero-LLM path), the single-user cross-project profile.
+ *   purge `uninstall --apply --yes`, then the wiki/db/raw folders are deleted (server stopped), then `on` again when
+ *         memory is on
+ * Defaults stay ai-memory's: no LLM or cloud embedding provider (zero-LLM path; its small local embedding model is
+ * fetched once), the single-user cross-project profile.
  */
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -42,6 +44,7 @@ import {
 	stagedBinaryPath,
 } from "./binary";
 import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
+import { withoutLocalEmbeddings } from "./config";
 
 const POLL_MS = 60_000;
 const HEALTH_WAIT_MS = 30_000;
@@ -50,6 +53,8 @@ const HEALTH_STEP_MS = 500;
 const REWIRE_AFTER_POLLS = 2;
 const REWIRE_COOLDOWN_MS = 10 * 60_000;
 const OUTPUT_TAIL = 16 * 1024;
+/** The folders `ai-memory reset` wipes; everything else in the data directory (config, token, models) stays. */
+const DATA_FOLDERS = ["wiki", "db", "raw"] as const;
 const STATS_MAX_AGE_MS = 5_000;
 
 /** The files ai-memory's omp installer writes under omp's agent dir. */
@@ -103,7 +108,9 @@ export function parseProblems(output: string): string[] {
 }
 
 /** `setup --plan --json`'s document (a log line may precede it). */
-export function parsePlan(output: string): { dataDir: string | null; configPath: string | null } | null {
+export function parsePlan(
+	output: string,
+): { dataDir: string | null; configPath: string | null; fresh: boolean } | null {
 	const start = output.search(/^\{/m);
 	const end = output.lastIndexOf("}");
 	if (start < 0 || end < start) return null;
@@ -112,6 +119,7 @@ export function parsePlan(output: string): { dataDir: string | null; configPath:
 		return {
 			dataDir: typeof plan.data_dir === "string" ? plan.data_dir : null,
 			configPath: typeof plan.config_path === "string" ? plan.config_path : null,
+			fresh: plan.fresh === true,
 		};
 	} catch {
 		return null;
@@ -176,7 +184,10 @@ export class AiMemoryService {
 	}
 
 	get #platformOk(): boolean {
-		return this.#deps.platform !== "other" && (!!this.#deps.binaryOverride || pinnedAsset(this.#deps.platform, this.#deps.arch) !== null);
+		return (
+			this.#deps.platform !== "other" &&
+			(!!this.#deps.binaryOverride || pinnedAsset(this.#deps.platform, this.#deps.arch) !== null)
+		);
 	}
 
 	/** Detect, then (when on) stage and wire. Resolves when the first pass ended. */
@@ -276,13 +287,6 @@ export class AiMemoryService {
 		return this.#client.token();
 	}
 
-	/** `-e <the generated omp extension>` while memory is on and wired (a launch profile that disables extensions). */
-	extensionArgs(): string[] {
-		const { enabled, phase, wiring } = this.#state;
-		if (!enabled || phase === "off" || phase === "unsupported" || !wiring.extension) return [];
-		return ["-e", join(this.#deps.agentDir(), EXTENSION_FILE)];
-	}
-
 	dispose(): void {
 		this.#disposed = true;
 		clearInterval(this.#timer ?? undefined);
@@ -324,7 +328,9 @@ export class AiMemoryService {
 		);
 		let mcp = false;
 		try {
-			const config = JSON.parse(await readFile(join(dir, MCP_FILE), "utf8")) as { mcpServers?: Record<string, unknown> };
+			const config = JSON.parse(await readFile(join(dir, MCP_FILE), "utf8")) as {
+				mcpServers?: Record<string, unknown>;
+			};
 			mcp = !!config.mcpServers && "ai-memory" in config.mcpServers;
 		} catch {
 			mcp = false;
@@ -336,7 +342,12 @@ export class AiMemoryService {
 		const { platform, arch, toolsDir, bundledDir, binaryOverride, home } = this.#deps;
 		const env = await this.#deps.spawnEnv();
 		if (binaryOverride) {
-			return { bin: binaryOverride, version: await probeVersion(binaryOverride, env), source: "bundled", staged: false };
+			return {
+				bin: binaryOverride,
+				version: await probeVersion(binaryOverride, env),
+				source: "bundled",
+				staged: false,
+			};
 		}
 		if (platform === "other") throw new StepError("ai-memory has no build for this platform.");
 		const asset = pinnedAsset(platform, arch);
@@ -389,7 +400,8 @@ export class AiMemoryService {
 	async #enable(): Promise<void> {
 		try {
 			this.#step("stage");
-			const resolved = (this.#resolved = await this.#resolve());
+			const resolved = await this.#resolve();
+			this.#resolved = resolved;
 			this.#patch({ source: resolved.source, version: resolved.version, binary: resolved.bin });
 			this.#step("wire");
 			// The plan tells the data directory (platform default or AI_MEMORY_DATA_DIR) without touching anything.
@@ -397,6 +409,17 @@ export class AiMemoryService {
 			if (plan.cancelled) return;
 			const facts = parsePlan(plan.output);
 			if (facts?.dataDir) this.#patch({ dataDir: facts.dataDir });
+			// A fresh data dir: ai-memory's own `init` writes the config (and token) first, and the one setting OMPdesk
+			// changes goes in before the service starts, so the embedding model is never fetched. An existing config
+			// (a user's, or an earlier OMPdesk run) is left exactly as it is.
+			if (facts?.fresh && facts.configPath) {
+				const init = await this.#run(resolved.bin, ["init"]);
+				if (init.cancelled) return;
+				if (!init.ok) throw new StepError(`init failed: ${tail(init.output) || "no output"}`);
+				const current = await readFile(facts.configPath, "utf8").catch(() => null);
+				const next = current === null ? null : withoutLocalEmbeddings(current);
+				if (next !== null) await writeFile(facts.configPath, next);
+			}
 			const args = ["setup", "--yes", "--agent", "omp", ...(this.#deps.noService ? ["--no-service"] : [])];
 			const setup = await this.#run(resolved.bin, args);
 			if (setup.cancelled) return;
@@ -418,7 +441,11 @@ export class AiMemoryService {
 			}
 			this.#step("check");
 			const up = await this.#waitHealthy();
-			this.#patch({ phase: up ? "ready" : "unreachable", step: null, detail: up ? null : "The server does not answer yet." });
+			this.#patch({
+				phase: up ? "ready" : "unreachable",
+				step: null,
+				detail: up ? null : "The server does not answer yet.",
+			});
 			this.#downPolls = 0;
 			if (up) await this.#readStats();
 			this.#startPolling();
@@ -428,18 +455,26 @@ export class AiMemoryService {
 		}
 	}
 
-	/** Off (or purge): ai-memory's own uninstall; throws when it refuses. */
+	/**
+	 * Off (or purge): ai-memory's own uninstall (hooks, MCP entry, skills, the service); throws when it fails.
+	 * A purge then wipes the data folders itself. `uninstall --purge-data` would do that too, but it refuses while any
+	 * process named `ai-memory` runs, and every live omp session has one (its `mcp-bridge`, a stdio relay that holds
+	 * no database): with sessions open it could never run. Only the server owns the database, and it is stopped.
+	 */
 	async #disable(purge: boolean): Promise<void> {
 		this.#stopPolling();
 		try {
 			this.#step(purge ? "purge" : "unwire");
-			const resolved = this.#resolved ?? (this.#resolved = await this.#resolve());
-			const args = ["uninstall", "--apply", "--yes", ...(purge ? ["--purge-data"] : [])];
-			const result = await this.#run(resolved.bin, args);
+			const resolved = this.#resolved ?? (await this.#resolve());
+			this.#resolved = resolved;
+			const result = await this.#run(resolved.bin, ["uninstall", "--apply", "--yes"]);
 			if (result.cancelled) return;
 			if (!result.ok) {
-				throw new StepError(`${purge ? "Purge" : "Turning memory off"} failed: ${tail(result.output) || "no output"}`);
+				throw new StepError(
+					`${purge ? "Purge" : "Turning memory off"} failed: ${tail(result.output) || "no output"}`,
+				);
 			}
+			if (purge) await this.#wipeData();
 			this.#patch({
 				phase: "off",
 				step: null,
@@ -451,6 +486,26 @@ export class AiMemoryService {
 			this.#fail(error);
 			throw error;
 		}
+	}
+
+	/** Empty `wiki/`, `db/` and `raw/` of the data directory (what `ai-memory reset` wipes); the config and token stay. */
+	async #wipeData(): Promise<void> {
+		const dir = this.#state.dataDir;
+		if (
+			!dir ||
+			!(await stat(join(dir, "config.toml")).then(
+				info => info.isFile(),
+				() => false,
+			))
+		) {
+			throw new StepError("ai-memory's data directory is not known, so nothing was deleted.");
+		}
+		// The server must be gone: a second server (Docker, a foreground `serve`) would still hold the database.
+		await sleep(HEALTH_STEP_MS);
+		if (await this.#client.healthy()) {
+			throw new StepError("An ai-memory server still answers, so nothing was deleted. Stop it first.");
+		}
+		for (const name of DATA_FOLDERS) await rm(join(dir, name), { recursive: true, force: true });
 	}
 
 	async #waitHealthy(): Promise<boolean> {
