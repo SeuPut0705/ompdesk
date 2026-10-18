@@ -51,11 +51,17 @@ commit_once() {
 		esac
 	done < <(GIT_INDEX_FILE="$index" git diff --cached --name-only --diff-filter=AM "$head")
 	tree=$(GIT_INDEX_FILE="$index" git write-tree)
-	changed=$(git diff --name-only "$head" "$tree" | sort -u)
+	# --no-renames: a rename detection would list only the new name and hide the deleted old path.
+	changed=$(git diff --no-renames --name-status "$head" "$tree" | sort -u)
 	[ -n "$changed" ] || { echo "agent-commit: nothing to commit" >&2; return 1; }
-	local extra
-	extra=$(comm -23 <(echo "$changed") <(echo "$allowed") || true)
-	[ -z "$extra" ] || { echo "agent-commit: would also change: $extra" >&2; return 1; }
+	local st file extra="" gone=""
+	while IFS=$'\t' read -r st file; do
+		printf '%s\n' "$allowed" | grep -qxF -- "$file" || extra="$extra $st:$file"
+		# A deletion needs explicit intent: the path is named AND absent on disk.
+		if [ "$st" = D ] && [ -e "$file" ]; then gone="$gone $file"; fi
+	done <<<"$changed"
+	[ -z "$extra" ] || { echo "agent-commit: would also change (not named / not in the patch):$extra" >&2; return 1; }
+	[ -z "$gone" ] || { echo "agent-commit: would delete files that still exist on disk:$gone; refusing (delete them first, or drop them from the patch)" >&2; return 1; }
 	new=$(git commit-tree "$tree" -p "$head" -m "$msg")
 	# Atomic: fails if HEAD moved since read-tree.
 	git update-ref HEAD "$new" "$head"
