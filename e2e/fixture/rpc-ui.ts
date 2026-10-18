@@ -2188,6 +2188,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		};
 		// OMP_GUI_TEST_WORK_TYPES_FAIL=1: the run's type check fails, as stock records a non-zero exit.
 		const typesFail = process.env.OMP_GUI_TEST_WORK_TYPES_FAIL === "1";
+		// OMP_GUI_TEST_WORK_RICH=1: the card's captures show its chips and grouped steps — the search
+		// steps share one intent, the eval step becomes a test run (a Tests chip) and the last step starts a dev server (a Preview chip).
+		const workRich = process.env.OMP_GUI_TEST_WORK_RICH === "1";
 		const typesFailure: WorkFixtureStep["result"] = {
 			content: [
 				{
@@ -2314,7 +2317,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 			{
 				name: "grep",
-				args: { pattern: "workspace", path: "src" },
+				args: { pattern: "workspace", path: "src", ...(workRich ? { intent: "Finding the workspace code" } : {}) },
 				result: {
 					content: [
 						{
@@ -2326,7 +2329,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 			{
 				name: "glob",
-				args: { pattern: "src/*.ts" },
+				args: { pattern: "src/*.ts", ...(workRich ? { intent: "Finding the workspace code" } : {}) },
 				result: { content: [{ type: "text", text: "src/workspace.ts\nsrc/app.ts" }] },
 			},
 			{
@@ -2342,6 +2345,34 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				},
 			},
 		];
+		if (workRich) {
+			steps[steps.length - 1] = {
+				name: "bash",
+				args: { command: "bun run dev", intent: "Starting the dev server" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: "$ vite\n\n  VITE v7.1.2  ready in 312 ms\n\n  ➜  Local:   http://localhost:5173/",
+						},
+					],
+					details: { exitCode: 0 },
+				},
+			};
+			steps[steps.findIndex(step => step.name === "eval")] = {
+				name: "bash",
+				args: { command: "bunx vitest run", intent: "Running the workspace tests" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: " Test Files  4 passed (4)\n      Tests  128 passed (128)\n   Duration  2.31s",
+						},
+					],
+					details: { exitCode: 0 },
+				},
+			};
+		}
 		const turn: AgentMessage[] = [user];
 		let index = -1;
 		const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };

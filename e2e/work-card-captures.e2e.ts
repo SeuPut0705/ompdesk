@@ -42,7 +42,7 @@ for (const fail of shots ? [false, true] : []) {
 				desktop,
 				agent,
 				profile,
-				env: fail ? { OMP_GUI_TEST_WORK_TYPES_FAIL: "1" } : {},
+				env: { OMP_GUI_TEST_WORK_RICH: "1", ...(fail ? { OMP_GUI_TEST_WORK_TYPES_FAIL: "1" } : {}) },
 			});
 			try {
 				const page = await app.firstWindow();
@@ -84,6 +84,25 @@ for (const fail of shots ? [false, true] : []) {
 							),
 						});
 				}
+				// The finished card opened: the wide window only, the header toggles the steps.
+				await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+				await page.waitForTimeout(400);
+				const card = page.locator(".omp-execution-group").last();
+				await card.locator(".omp-execution-group-header").first().click();
+				// Taller than the window: grow it so no sticky bar covers the card's head.
+				const opened = await card.boundingBox();
+				await app.evaluate(
+					({ BrowserWindow }, height) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, height),
+					Math.ceil((opened?.height ?? 0) + 260),
+				);
+				await card.scrollIntoViewIfNeeded();
+				await page.waitForTimeout(400);
+				await card.screenshot({
+					path: path.join(
+						shots ?? "",
+						`${label}-${fail ? "fail" : "pass"}-wide-expanded-${look.language}-${look.theme}.png`,
+					),
+				});
 			} finally {
 				await exitApp(app);
 				await fs.rm(profile, { recursive: true, force: true });
