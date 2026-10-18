@@ -234,7 +234,7 @@ for (const engine of ENGINES)
 				}
 				await captureTo(CAPTURES, phone, `${engine.name}-${picture.name}-composer`);
 				await field.fill(message);
-				await phone.keyboard.press("Enter");
+				await phone.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 
 				// omp got the prompt with the picture as an image block, whatever the frame limit.
 				await expect.poll(() => receivedPrompt(profile.record, message), { timeout: 60_000 }).toBeTruthy();
@@ -264,7 +264,7 @@ for (const engine of ENGINES)
 				.setInputFiles([camera, big].filter(p => p !== undefined));
 			await expect(thumbnails).toHaveCount(2, { timeout: 30_000 });
 			await field.fill(both);
-			await phone.keyboard.press("Enter");
+			await phone.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 			await expect
 				.poll(async () => (await receivedPrompt(profile.record, both))?.images?.length, { timeout: 60_000 })
 				.toBe(2);
@@ -382,7 +382,7 @@ for (const engine of ENGINES)
 				});
 				const message = `${(await field.inputValue()).trim()} read it`;
 				await field.fill(message);
-				await phone.keyboard.press("Enter");
+				await phone.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 				await expect.poll(() => receivedPrompt(profile.record, message), { timeout: 60_000 }).toBeTruthy();
 				const hostPath = mentionedPath(message, file.name);
 				expect(hostPath).toContain(path.join(profile.desktop, "web-uploads"));
@@ -406,7 +406,7 @@ for (const engine of ENGINES)
 			expect(await phone.evaluate(() => Reflect.get(window, "attachRun"))).toBe(true);
 			await captureTo(CAPTURES, phone, `${engine.name}-picked-photo`);
 			await field.fill("look at the photo");
-			await phone.keyboard.press("Enter");
+			await phone.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 			await expect
 				.poll(async () => (await receivedPrompt(profile.record, "look at the photo"))?.images?.length, {
 					timeout: 60_000,

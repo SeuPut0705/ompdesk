@@ -694,7 +694,8 @@ async function setHidden(page: Page, hidden: boolean): Promise<void> {
 async function sendPrompt(page: Page, text: string): Promise<void> {
 	const field = page.locator("[data-composer-input]").first();
 	await field.fill(text);
-	await field.press("Enter");
+	// A phone's Enter is a newline: the Send button sends.
+	await page.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 }
 
 async function stopStream(rig: Rig, tabId: string): Promise<void> {
