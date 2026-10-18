@@ -171,6 +171,8 @@ async function withPackagedApp(
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(profile),
+		// The packaged app would otherwise install ai-memory's real per-user service, whose host keeps the worker's pipes open.
+		OMP_GUI_AI_MEMORY_NO_SERVICE: "1",
 	});
 	// A real launch: shown, opaque, focusable, with its tray.
 	for (const key of ["OMP_GUI_HEADLESS", "ELECTRON_RUN_AS_NODE", "ELECTRON_RENDERER_URL"]) {
