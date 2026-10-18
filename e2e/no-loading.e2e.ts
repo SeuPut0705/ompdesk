@@ -13,6 +13,7 @@
  * `after=<cwd>`), OMP_GUI_LOADING_RUNS the repeats per scenario (default 3). The phone runs on Chromium as a
  * Moto G-class phone (4× CPU throttle) over the web-perf link (150 ms round trip, 9 Mbit/s down).
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -20,7 +21,7 @@ import { type Browser, type BrowserContext, chromium, devices, expect, type Page
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { type LinkProfile, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible } from "./harness";
 import { LOADING_PROBE, type LoadingReading, readLoading } from "./loading-probe";
 
 const OUT = process.env.OMP_GUI_LOADING_PERF;
@@ -50,6 +51,16 @@ async function makeProfile(): Promise<Profile> {
 	const desktop = path.join(root, "desktop");
 	const agent = path.join(root, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	// A checkout with a history and a change, so Changes, Commit history and Files have something to read.
+	const git = (...args: string[]) => execFileSync("git", args, { cwd: project, stdio: "ignore" });
+	git("init", "-q", "-b", "main");
+	git("config", "user.email", "loading@example.com");
+	git("config", "user.name", "Loading");
+	git("config", "commit.gpgsign", "false");
+	await fs.writeFile(path.join(project, "README.md"), "# Project\n");
+	git("add", ".");
+	git("commit", "-qm", "feat: seed the project");
+	await fs.writeFile(path.join(project, "README.md"), "# Project\n\nChanged.\n");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ language: "en", themeName: "light", firstRunComplete: true, lastProject: project }),
@@ -152,6 +163,106 @@ async function openSecondTab(page: Page, project: string): Promise<void> {
 	await page.waitForTimeout(1000);
 }
 
+/** The surfaces that fetch on open, each opened twice (the second time is a warm one), and how to open them. */
+const SURFACES: Array<{ name: string; open: (page: Page) => Promise<void> }> = [
+	{
+		name: "pull requests",
+		open: async page => {
+			await openDestination(page, "agents");
+			await page.getByRole("tab", { name: "Pull requests" }).click();
+		},
+	},
+	{
+		name: "github",
+		open: async page => {
+			await openDestination(page, "agents");
+			await page.getByRole("tab", { name: "GitHub", exact: true }).click();
+		},
+	},
+	{ name: "terminal", open: page => panelView(page, "Terminal") },
+	{ name: "changes", open: page => panelView(page, "Changes") },
+	{
+		name: "commit history",
+		open: async page => {
+			await panelView(page, "Changes");
+			await page.locator("aside[data-docked]").getByRole("combobox", { name: "Changes" }).selectOption("commits");
+		},
+	},
+	{ name: "preview", open: page => panelView(page, "Preview") },
+	{ name: "files", open: page => panelView(page, "Files") },
+	{
+		name: "quick open",
+		open: async page => {
+			await page.keyboard.press("ControlOrMeta+p");
+		},
+	},
+];
+
+/** The side panel, open on one of its views (the view buttons lead its header). */
+async function panelView(page: Page, view: string): Promise<void> {
+	const aside = page.locator("aside[data-docked]");
+	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
+	await aside.locator(".omp-panel-topbar").getByRole("button", { name: view, exact: true }).click();
+}
+
+/** Leave whatever a surface opened: a dialog closes, a page goes back to the session. */
+async function leaveSurface(page: Page): Promise<void> {
+	await page.keyboard.press("Escape");
+	await page.waitForTimeout(250);
+}
+
+/** Open each surface twice, watching every frame: no spinner, no empty window, no layout shift. */
+async function watchSurfaces(page: Page): Promise<Record<string, LoadingReading>> {
+	const readings: Record<string, LoadingReading> = {};
+	for (const surface of SURFACES) {
+		for (const round of ["first", "again"]) {
+			await page.evaluate(() => window.__nl?.reset());
+			await surface.open(page);
+			await page.waitForTimeout(1300);
+			readings[`${surface.name} (${round})`] = await readLoading(page);
+			await leaveSurface(page);
+		}
+	}
+	return readings;
+}
+
+/** ⌘T, then type and send at once, long before the omp is ready: the composer is the first thing there. */
+async function newSession(page: Page): Promise<{ composerMs: number; sentMs: number | null; reading: LoadingReading }> {
+	const before = await page.evaluate(async () => (await window.omp.tabs.list()).map(tab => tab.tabId));
+	await page.evaluate(() => window.__nl?.reset());
+	const started = Date.now();
+	await page.keyboard.press("ControlOrMeta+t");
+	const input = page.locator('section[data-active="true"][data-tab-id] [data-composer-input]').first();
+	await expect
+		.poll(
+			async () =>
+				page.evaluate(() => document.querySelector('section[data-active="true"]')?.getAttribute("data-tab-id")),
+			{
+				timeout: 15_000,
+			},
+		)
+		.not.toBeNull();
+	await expect(input).toBeVisible({ timeout: 15_000 });
+	const tabId = await page.evaluate(() =>
+		document.querySelector('section[data-active="true"]')?.getAttribute("data-tab-id"),
+	);
+	expect(before).not.toContain(tabId);
+	await input.fill("first message in a new session");
+	const composerMs = Date.now() - started;
+	const sending = Date.now();
+	await input.press("Enter");
+	const sent = await page
+		.getByText("first message in a new session", { exact: true })
+		.first()
+		.waitFor({ state: "visible", timeout: 3000 })
+		.then(
+			() => Date.now() - sending,
+			() => null,
+		);
+	await page.waitForTimeout(500);
+	return { composerMs, sentMs: sent, reading: await readLoading(page) };
+}
+
 /** Cold start (writes what the next launch paints from), then the warm start that is measured. */
 async function warmStart(
 	subjectRoot: string,
@@ -204,6 +315,62 @@ test.describe("no loading screens: desktop", () => {
 			const switched = await readLoading(warm.page);
 			spinnerFree(switched, "tab switch");
 			expect(switched.transcriptEmptyFrames, "a tab with rows was empty for a frame").toBe(0);
+		} finally {
+			await exitApp(warm.app);
+		}
+	});
+});
+
+test.describe("no loading screens: more surfaces", () => {
+	test.skip(Boolean(OUT), "the perf run measures instead");
+	let profile: Profile;
+	test.beforeEach(async () => {
+		profile = await makeProfile();
+	});
+	test.afterEach(async () => {
+		await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	});
+
+	test("the first frame is the real layout, and the tab strip and selection are there with it", async () => {
+		const { warm, warmReading } = await warmStart(SUBJECTS[0]?.root ?? process.cwd(), profile);
+		try {
+			expect(warmReading.bootAt, "the boot skeleton never painted").not.toBeNull();
+			expect(warmReading.shellAt, "the React layout never painted").not.toBeNull();
+			expect(warmReading.bootAt as number, "the boot skeleton came after the app").toBeLessThanOrEqual(
+				warmReading.shellAt as number,
+			);
+			expect(
+				warmReading.bootShift,
+				"the boot skeleton and the layout that replaced it are not the same boxes (px)",
+			).not.toBeNull();
+			expect(warmReading.bootShift as number).toBeLessThanOrEqual(2);
+			// From the tab snapshot: the title and the open session's row are in the first React frames.
+			expect(warmReading.titleAt, "no tab was named at the first frame").not.toBeNull();
+			expect((warmReading.titleAt as number) - (warmReading.shellAt as number)).toBeLessThan(120);
+			expect(warmReading.selectedAt, "no session was marked open in the sidebar").not.toBeNull();
+			expect((warmReading.selectedAt as number) - (warmReading.shellAt as number)).toBeLessThan(250);
+		} finally {
+			await exitApp(warm.app);
+		}
+	});
+
+	test("the pull-request and GitHub centers, Changes, history, Files, Terminal, Preview and Quick open never spin", async () => {
+		const { warm } = await warmStart(SUBJECTS[0]?.root ?? process.cwd(), profile);
+		try {
+			for (const [name, reading] of Object.entries(await watchSurfaces(warm.page))) spinnerFree(reading, name);
+		} finally {
+			await exitApp(warm.app);
+		}
+	});
+
+	test("a new session opens with a usable composer, and a message sent at once waits for the omp unseen", async () => {
+		const { warm } = await warmStart(SUBJECTS[0]?.root ?? process.cwd(), profile);
+		try {
+			const opened = await newSession(warm.page);
+			expect(opened.sentMs, "the message was not shown as sent").not.toBeNull();
+			expect(opened.composerMs, "the composer was slow to be usable").toBeLessThan(1200);
+			spinnerFree(opened.reading, "new session");
+			await expect(warm.page.getByText(/still connecting/i)).toHaveCount(0);
 		} finally {
 			await exitApp(warm.app);
 		}
@@ -300,7 +467,11 @@ function numbers(reading: LoadingReading, launched?: { spawnedAt: number }): Num
 		at === null || !launched ? null : reading.timeOrigin + at - launched.spawnedAt;
 	return {
 		fcpMs: round(reading.fcp),
+		bootMs: round(reading.bootAt),
+		bootShiftPx: round(reading.bootShift),
 		shellMs: round(reading.shellAt),
+		titleMs: round(reading.titleAt),
+		selectedMs: round(reading.selectedAt),
 		composerMs: round(reading.composerAt),
 		composerResponsiveMs: round(reading.composerResponsiveAt),
 		firstRowMs: round(reading.rowAt),
@@ -379,8 +550,14 @@ async function save(results: Results): Promise<void> {
 	const scenarios = [...new Set(Object.values(results).flatMap(subject => Object.keys(subject)))];
 	// A tab switch or a reconnect starts no page: what it reads is the waits, the shift and the empty frames.
 	const stateKeys = ["cls", "spinnerMs", "skeletonMs", "blankFrames", "transcriptEmptyFrames"];
+	const surfaceKeys = ["spinnerMs", "skeletonMs", "cls", "blankFrames"];
+	const newSessionKeys = ["composerUsableMs", "sentShownMs", "spinnerMs", "cls", "blankFrames"];
 	const loadKeys = [
+		"bootMs",
+		"bootShiftPx",
 		"shellMs",
+		"titleMs",
+		"selectedMs",
 		"composerResponsiveMs",
 		"firstRowMs",
 		"spawnToShellMs",
@@ -397,7 +574,13 @@ async function save(results: Results): Promise<void> {
 		"",
 	];
 	for (const scenario of scenarios) {
-		const keys = /switch|reconnect/.test(scenario) ? stateKeys : loadKeys;
+		const keys = /surfaces/.test(scenario)
+			? surfaceKeys
+			: /new session/.test(scenario)
+				? newSessionKeys
+				: /switch|reconnect/.test(scenario)
+					? stateKeys
+					: loadKeys;
 		lines.push(
 			`## ${scenario}`,
 			"",
@@ -419,7 +602,13 @@ test.describe("loading perf (opt-in)", () => {
 
 	for (const subject of SUBJECTS)
 		test(`desktop: ${subject.name}`, async () => {
-			const scenarios: Record<string, Numbers[]> = { "cold start": [], "warm start": [], "tab switch": [] };
+			const scenarios: Record<string, Numbers[]> = {
+				"cold start": [],
+				"warm start": [],
+				"tab switch": [],
+				surfaces: [],
+				"new session": [],
+			};
 			for (let run = 0; run < RUNS; run++) {
 				const profile = await makeProfile();
 				try {
@@ -472,6 +661,25 @@ test.describe("loading perf (opt-in)", () => {
 					if (switchFrames)
 						await composeStrip(await switchFrames, path.join(stripBase, "desktop-switch.png"), browser);
 					await browser.close();
+					// Every surface that fetches on open, twice: the waits and the shift added over all of them.
+					const readings = Object.values(await watchSurfaces(warm.page));
+					scenarios.surfaces?.push({
+						spinnerMs: round(readings.reduce((sum, reading) => sum + reading.spinnerMs, 0)),
+						skeletonMs: round(readings.reduce((sum, reading) => sum + reading.skeletonMs, 0)),
+						cls: round(Math.max(...readings.map(reading => reading.cls))),
+						blankFrames: readings.reduce((sum, reading) => sum + reading.blankFrames, 0),
+					});
+					// A new session: how soon the composer is usable and a message sent at once is shown as sent.
+					const opened = await newSession(warm.page);
+					scenarios["new session"]?.push({
+						composerUsableMs: opened.composerMs,
+						sentShownMs: opened.sentMs,
+						...Object.fromEntries(
+							Object.entries(numbers(opened.reading)).filter(([key]) =>
+								["spinnerMs", "cls", "blankFrames"].includes(key),
+							),
+						),
+					});
 					await exitApp(warm.app);
 				} finally {
 					await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
