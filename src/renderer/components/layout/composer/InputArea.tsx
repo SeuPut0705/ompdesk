@@ -19,7 +19,7 @@ import {
 	Target,
 	X,
 } from "lucide-react";
-import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
+import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { removeFileMention } from "../../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
@@ -29,8 +29,6 @@ import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
 import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
-import { FILE_DRAG_TYPE, readFileDrag } from "../../../lib/file-drag";
-import { trackFilePick } from "../../../lib/file-pick";
 import { cx } from "../../../lib/format";
 import { historyImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
@@ -83,13 +81,13 @@ import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ComposerThumbnail } from "./ComposerThumbnail";
 import { ContextUsagePopover } from "./ContextUsagePopover";
-import { fileMentionFor, fileTextAttachment, intakeComposerFiles } from "./composer-files";
+import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { DraftFileCards } from "./DraftFileCards";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
-import { cachedMentionFiles, editFieldText, fileToImage, listMentionFiles, mentionToken } from "./input-area-utils";
+import { cachedMentionFiles, editFieldText, listMentionFiles, mentionToken } from "./input-area-utils";
 import {
 	chipIndexForCode,
 	MAX_NEXT_PROMPT_CHIPS,
@@ -100,6 +98,7 @@ import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
+import { useComposerAttach } from "./use-composer-attach";
 import { useComposerSubmit } from "./use-composer-submit";
 
 type SendMode = "prompt" | "steer" | "followUp";
@@ -277,7 +276,6 @@ export function InputArea() {
 	const phone = useShellMode() === "phone";
 	const [moreOpen, setMoreOpen] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
-	const [dragActive, setDragActive] = useState(false);
 	/** First Esc of a double-Esc, and whether its "Esc again" hint shows. */
 	const escArmedAt = useRef<number | null>(null);
 	const [escHint, setEscHint] = useState(false);
@@ -406,12 +404,6 @@ export function InputArea() {
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, [expanded]);
-	const fileInputRef = useRef<HTMLInputElement>(null);
-	/** Ends the file pick in flight (lib/file-pick.ts) once its files landed in the composer. */
-	const endPickRef = useRef<(() => void) | null>(null);
-	/** Files on their way to the computer (a web page's `pathForFile` uploads), shown as chips until they land. */
-	const [sendingFiles, setSendingFiles] = useState<{ id: number; name: string }[]>([]);
-	const sendingFileId = useRef(0);
 	const mountedRef = useRef(true);
 	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
 	const ownsTake = useRef(false);
@@ -1206,106 +1198,8 @@ export function InputArea() {
 		placeDraft(`${before}${inserted}${after}`, start + inserted.length);
 	};
 
-	/**
-	 * Picker, drop and clipboard files (composer-files.ts): images attach, other
-	 * files and folders become `@path` mentions stock reads at send time (PDF and
-	 * Office through its read tool), and a file this tab's machine cannot reach by
-	 * path goes in as its text; the rest are refused with a reason. On a web page
-	 * the path is the file's upload on the computer: a chip shows each one on its
-	 * way, and one that failed says why. Settles once everything has landed.
-	 */
-	const attachFiles = async (files: readonly File[]): Promise<void> => {
-		if (files.length === 0) return;
-		const intake = await intakeComposerFiles(files, {
-			cwd,
-			pathFor: file => {
-				const path = window.omp.fs.pathForFile(file);
-				// This machine's own path answers at once; an upload shows its chip until it lands.
-				if (typeof path === "string") return path;
-				const id = ++sendingFileId.current;
-				setSendingFiles(previous => [...previous, { id, name: file.name }]);
-				return path.finally(() => {
-					if (mountedRef.current) setSendingFiles(previous => previous.filter(entry => entry.id !== id));
-				});
-			},
-			remote: historyDevice !== undefined,
-		});
-		if (!mountedRef.current) return;
-		const pieces = [
-			...intake.mentions,
-			...intake.texts.map(file => {
-				const blob = storePaste(fileTextAttachment(file.name, file.content));
-				return pasteMarkerText(blob.id, blob.content);
-			}),
-		];
-		if (pieces.length > 0) insertAtCaret(pieces.join(" "));
-		const reasons = {
-			empty: "input.files.empty",
-			tooLarge: "input.files.tooLarge",
-			binary: historyDevice === undefined ? "input.files.noPath" : "input.files.remoteBinary",
-			unreadable: "input.files.unreadable",
-		} as const;
-		for (const rejection of intake.rejected) {
-			if (rejection.reason === "notSent") toast({ variant: "error", message: rejection.message ?? rejection.name });
-			else toast({ variant: "warning", message: t(reasons[rejection.reason], { name: rejection.name }) });
-		}
-		if (intake.images.length === 0) return;
-		const read = await Promise.all(
-			intake.images.map(file =>
-				fileToImage(file).catch(() => {
-					toast({ variant: "warning", message: t("input.files.unreadable", { name: file.name }) });
-					return null;
-				}),
-			),
-		);
-		const added = read.filter(image => image !== null);
-		if (mountedRef.current && added.length > 0) setImages(previous => [...previous, ...added]);
-	};
-
-	/** Open the browser's file chooser (`accept`: what it offers; none = any file), its pick tracked until it lands. */
-	const openFilePicker = (accept?: string) => {
-		const input = fileInputRef.current;
-		if (!input) return;
-		if (accept) input.accept = accept;
-		else input.removeAttribute("accept");
-		endPickRef.current?.();
-		endPickRef.current = trackFilePick(input);
-		input.click();
-	};
-
-	// Files dropped on the composer go through attachFiles like a paste; a Files
-	// tree row becomes an @mention (C42); anything else keeps the browser
-	// default (text drops insert into the field).
-	const draggingFiles = (event: DragEvent<HTMLElement>) => {
-		const types = Array.from(event.dataTransfer.types);
-		return types.includes("Files") || types.includes(FILE_DRAG_TYPE);
-	};
-	const dropProps = {
-		onDragEnter: (event: DragEvent<HTMLDivElement>) => {
-			if (draggingFiles(event)) setDragActive(true);
-		},
-		onDragOver: (event: DragEvent<HTMLDivElement>) => {
-			if (!draggingFiles(event)) return;
-			event.preventDefault();
-			event.dataTransfer.dropEffect = "copy";
-		},
-		onDragLeave: (event: DragEvent<HTMLDivElement>) => {
-			if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
-		},
-		onDrop: (event: DragEvent<HTMLDivElement>) => {
-			setDragActive(false);
-			if (!draggingFiles(event)) return;
-			event.preventDefault();
-			const row = readFileDrag(event.dataTransfer);
-			if (row) {
-				window.dispatchEvent(
-					new CustomEvent("omp:insert-mention", { detail: { path: row.path, tabId: runtimeTabId } }),
-				);
-				return;
-			}
-			void attachFiles(Array.from(event.dataTransfer.files));
-		},
-	};
+	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
+		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
 
 	const sendDisabled =
 		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
@@ -1784,19 +1678,7 @@ export function InputArea() {
 									size="sm"
 								/>
 							)}
-							<input
-								ref={fileInputRef}
-								type="file"
-								multiple
-								className="hidden"
-								onChange={event => {
-									const files = Array.from(event.target.files ?? []);
-									const endPick = endPickRef.current;
-									endPickRef.current = null;
-									event.target.value = "";
-									void attachFiles(files).finally(() => endPick?.());
-								}}
-							/>
+							<input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
 
 							<ComposerModes />
 							<RunSettings />
