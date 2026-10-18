@@ -96,7 +96,8 @@ async function mount(entries: [string, ToolEntry][], live = false) {
 	await act(async () => root?.render(<Card ids={entries.map(([id]) => id)} live={live} />));
 }
 
-const chip = (name: string) => container.querySelector(`[data-work-finding="${name}"]`) as unknown as HTMLElement | null;
+const chip = (name: string) =>
+	container.querySelector(`[data-work-finding="${name}"]`) as unknown as HTMLElement | null;
 const click = (element: HTMLElement | null) =>
 	act(async () => element?.dispatchEvent(new Event("click", { bubbles: true }) as never));
 const body = () => container.querySelector(".omp-execution-group-body");
