@@ -163,6 +163,11 @@ export const en: Record<string, string> = {
 	"worktree.baseDefault": "Repository default branch",
 	"worktree.submit": "Create & open",
 	"worktree.failed": "Couldn't create the worktree.",
+	"worktree.seedCopied": "Copied {count} local file(s) from .worktreeinclude",
+	"worktree.seedCopiedSkipped": "Copied {count} local file(s) from .worktreeinclude, skipped {skipped}",
+	"worktree.setupOk": "Worktree setup finished",
+	"worktree.setupFailed": "Worktree setup failed; the worktree is ready",
+	"worktree.setupTimedOut": "Worktree setup timed out; the worktree is ready",
 	"worktree.notARepo": "This folder isn't a Git repository.",
 	"worktree.invalidName": "Use only letters, digits and dashes in the name.",
 

@@ -1063,11 +1063,34 @@ export interface RpcGitStatus {
 	untracked: number;
 }
 
+/** What `.worktreeinclude` copied into a new worktree (`src/main/local/git/worktree-seed.ts`). */
+export interface WorktreeSeedReport {
+	copied: number;
+	bytes: number;
+	/** Matches left out: `not_ignored` (tracked or not ignored), `budget`, `symlink_outside`, `exists`, a refused pattern. */
+	skipped: { path: string; reason: string }[];
+}
+
+/** The repository's `.ompdesk/worktree-setup` run in a new worktree; a failure never undoes the worktree. */
+export interface WorktreeSetupReport {
+	script: string;
+	ok: boolean;
+	exitCode: number | null;
+	timedOut: boolean;
+	durationMs: number;
+	logPath: string;
+	outputTail: string;
+}
+
 /** Result of worktree_create: the materialized worktree + its new branch + the repo it forked from. */
 export interface RpcWorktreeCreateResult {
 	path: string;
 	branch: string;
 	baseCwd: string;
+	/** Present when the repo has a `.worktreeinclude`. */
+	seed?: WorktreeSeedReport;
+	/** Present when the repo has a `.ompdesk/worktree-setup`. */
+	setup?: WorktreeSetupReport;
 }
 
 /** pr_repo: gh availability + the session cwd's GitHub repo, or the typed reason it's unusable. */

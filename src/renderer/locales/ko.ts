@@ -159,6 +159,11 @@ export const ko: Record<string, string> = {
 	"worktree.baseDefault": "저장소 기본 브랜치",
 	"worktree.submit": "만들고 열기",
 	"worktree.failed": "워크트리를 만들지 못했어요.",
+	"worktree.seedCopied": ".worktreeinclude의 로컬 파일 {count}개를 복사했어요",
+	"worktree.seedCopiedSkipped": ".worktreeinclude의 로컬 파일 {count}개를 복사하고 {skipped}개는 건너뛰었어요",
+	"worktree.setupOk": "워크트리 준비 스크립트가 끝났어요",
+	"worktree.setupFailed": "워크트리 준비 스크립트가 실패했어요. 워크트리는 쓸 수 있어요",
+	"worktree.setupTimedOut": "워크트리 준비 스크립트가 시간 안에 끝나지 않았어요. 워크트리는 쓸 수 있어요",
 	"worktree.notARepo": "이 폴더는 Git 저장소가 아니에요.",
 	"worktree.invalidName": "이름에는 영문자, 숫자, 대시만 사용하세요.",
 

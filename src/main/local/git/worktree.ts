@@ -15,6 +15,7 @@ import { type BridgeClient, LocalCommandError } from "../types";
 import { getGitStatus, primaryRoot, repoRoot } from "./changes";
 import { DEFAULT_TIMEOUT_MS, git, gitRaw, withRepoLock } from "./exec";
 import { guiWorktreeCandidate, isInside, worktreeSlug } from "./parse";
+import { prepareWorktree, WORKTREE_PREPARE_BUDGET_MS } from "./worktree-seed";
 
 const MAX_SUFFIX = 100;
 /** `git worktree add` checks out the whole tree: minutes on a large repository. */
@@ -28,8 +29,9 @@ const WORKTREE_REMOVE_TIMEOUT_MS = 120_000;
  */
 export const WORKTREE_COMMAND_BUDGETS_MS = {
 	// Repo root, primary root, default branch, branch probe, `git branch`, the
-	// branch rollback when `worktree add` fails, and `worktree add` itself.
-	worktree_create: 6 * DEFAULT_TIMEOUT_MS + WORKTREE_ADD_TIMEOUT_MS,
+	// branch rollback when `worktree add` fails, `worktree add` itself, then
+	// seeding and the setup hook (`worktree-seed.ts`).
+	worktree_create: 6 * DEFAULT_TIMEOUT_MS + WORKTREE_ADD_TIMEOUT_MS + WORKTREE_PREPARE_BUDGET_MS,
 	// Repo root, primary root, status, prune, and `worktree remove` itself.
 	worktree_remove: 4 * DEFAULT_TIMEOUT_MS + WORKTREE_REMOVE_TIMEOUT_MS,
 } as const;
@@ -165,7 +167,7 @@ export async function createWorktree(
 	const startPoint = input.baseRef === "default" ? ((await defaultBranchRef(primary)) ?? "HEAD") : "HEAD";
 	const location = await stockWorktreeLocation(bridge, primary);
 
-	return withRepoLock(primary, async () => {
+	const made = await withRepoLock(primary, async (): Promise<RpcWorktreeCreateResult> => {
 		for (let suffix = 1; suffix <= MAX_SUFFIX; suffix++) {
 			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root, branchPrefix);
 			if (input.branch) {
@@ -203,6 +205,7 @@ export async function createWorktree(
 		}
 		throw new LocalCommandError(`No available worktree name after ${MAX_SUFFIX} attempts`, "worktree_create_failed");
 	});
+	return { ...made, ...(await prepareWorktree(primary, made.path)) };
 }
 
 /**

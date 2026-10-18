@@ -325,7 +325,7 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	// Git/gh commands main runs itself: at least main's own answer budget
 	// (src/main/local/git/{worktree,pr}.ts), or the renderer reports a failure
 	// while the worktree, checkout, or PR still lands.
-	worktree_create: 660_000,
+	worktree_create: 960_000,
 	worktree_remove: 360_000,
 	pr_repo: 120_000,
 	pr_list: 180_000,

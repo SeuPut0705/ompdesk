@@ -20,6 +20,7 @@ import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
+import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, InlineNotice, Input, Modal } from "../common";
 
@@ -32,6 +33,36 @@ function slugify(name: string): string {
 		.replace(/[^a-z0-9-]/g, "")
 		.replace(/-{2,}/g, "-")
 		.replace(/^-+|-+$/g, "");
+}
+
+/** One toast for what `.worktreeinclude` copied and how `.ompdesk/worktree-setup` went; nothing when neither ran. */
+export function announcePreparation(
+	result: RpcWorktreeCreateResult,
+	t: (key: string, params?: Record<string, string | number>) => string,
+): void {
+	const { seed, setup } = result;
+	if (!seed && !setup) return;
+	const lines: string[] = [];
+	if (seed) {
+		lines.push(
+			seed.skipped.length
+				? t("worktree.seedCopiedSkipped", { count: seed.copied, skipped: seed.skipped.length })
+				: t("worktree.seedCopied", { count: seed.copied }),
+		);
+	}
+	if (setup)
+		lines.push(
+			setup.ok ? t("worktree.setupOk") : t(setup.timedOut ? "worktree.setupTimedOut" : "worktree.setupFailed"),
+		);
+	const detail = [
+		...(seed?.skipped.map(item => `${item.path}: ${item.reason}`) ?? []),
+		...(setup && !setup.ok ? [setup.logPath, setup.outputTail] : []),
+	].join("\n");
+	toast({
+		variant: setup && !setup.ok ? "warning" : "info",
+		message: lines.join(" · "),
+		...(detail ? { detail } : {}),
+	});
 }
 
 export function WorktreeDialog() {
@@ -103,6 +134,7 @@ export function WorktreeDialog() {
 				}
 				result = response.data as RpcWorktreeCreateResult;
 				setCreated(result);
+				announcePreparation(result, t);
 			}
 			const tabId = await useTabsStore.getState().openTab({
 				cwd: result.path,

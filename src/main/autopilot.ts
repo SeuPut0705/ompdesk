@@ -86,7 +86,7 @@ const RELEASE_CACHE_MS = 60_000;
 /** The most a sheet-provided guide may weigh when it is committed (the file may exceed what `begin` passes on). */
 const GUIDE_COMMIT_MAX_BYTES = 256 * 1024;
 const GIT_MS = 30_000;
-const WORKTREE_MS = 660_000;
+const WORKTREE_MS = 960_000;
 /** A guide draft is one model request (the bridge gives it 20 s, plus reading the repo): longer than the default 8 s RPC wait. */
 const GUIDE_DRAFT_MS = 45_000;
 /** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */

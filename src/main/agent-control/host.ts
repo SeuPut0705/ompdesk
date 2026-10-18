@@ -35,6 +35,7 @@ import {
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
 import type { Schedule, SchedulesState } from "../../shared/schedules";
+import { describePreparation } from "../local/git/worktree-seed";
 import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
@@ -225,12 +226,16 @@ export class AgentControlRuntime {
 		return target;
 	}
 
-	async #spawn(callerTabId: string, request: SpawnRequest): Promise<{ tabId: string; worktree?: IpcTabWorktree }> {
+	async #spawn(
+		callerTabId: string,
+		request: SpawnRequest,
+	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }> {
 		const win = this.#win(callerTabId);
 		if (!win) throw new Error("This session's window is gone.");
 		const caller = this.#sidecar(callerTabId);
 		const cwd = await this.#folder(caller, request.folder);
 		let worktree: IpcTabWorktree | undefined;
+		let prepared: string | null = null;
 		if (request.worktree) {
 			const base = request.worktree.base;
 			if (base !== undefined && base !== "HEAD" && base !== "default")
@@ -250,11 +255,12 @@ export class AgentControlRuntime {
 					baseRef: base === "default" ? "default" : "HEAD",
 					branchPrefix,
 				},
-				660_000,
+				960_000,
 			);
 			if (!response.success) throw new Error(`Creating the worktree failed: ${response.error ?? "unknown error"}`);
 			const made = response.data as RpcWorktreeCreateResult;
 			worktree = { name, branch: made.branch, baseCwd: made.baseCwd, path: made.path };
+			prepared = describePreparation(made);
 		}
 		const result = await this.#deps.spawnTab(win, {
 			cwd: worktree?.path ?? cwd,
@@ -264,7 +270,7 @@ export class AgentControlRuntime {
 		if (!result?.tabId) throw new Error("The new session could not be started.");
 		this.#windows.set(result.tabId, win);
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
-		return { tabId: result.tabId, ...(worktree ? { worktree } : {}) };
+		return { tabId: result.tabId, ...(worktree ? { worktree } : {}), ...(prepared ? { prepared } : {}) };
 	}
 
 	#host(): AgentControlHost {

@@ -137,8 +137,14 @@ export interface AgentControlHost {
 	tabs(callerTabId: string): ControlTab[] | null;
 	/** A command through the GUI's RPC dispatcher for `tabId` (local handlers, host link, quota). */
 	command(tabId: string, command: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
-	/** Spawn a fresh tab in the caller's window on the caller's machine. Throws a readable error. */
-	spawn(callerTabId: string, request: SpawnRequest): Promise<{ tabId: string; worktree?: IpcTabWorktree }>;
+	/**
+	 * Spawn a fresh tab in the caller's window on the caller's machine. Throws a readable error. `prepared`: what
+	 * `.worktreeinclude` and `.ompdesk/worktree-setup` did in a new worktree (`describePreparation`).
+	 */
+	spawn(
+		callerTabId: string,
+		request: SpawnRequest,
+	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }>;
 	/** Start a tab that has no process yet (a restored, not yet shown tab). */
 	start(tabId: string): void;
 	/** What an opened session works on (`agentTaskTitle` of its first message): its row shows it until it has a title. */
@@ -640,8 +646,9 @@ export class AgentControl {
 		const worktreeArg = args.worktree === true ? {} : args.worktree === false ? undefined : args.worktree;
 		let tabId: string;
 		let worktree: IpcTabWorktree | undefined;
+		let prepared: string | undefined;
 		try {
-			({ tabId, worktree } = await this.#host.spawn(caller.tabId, {
+			({ tabId, worktree, prepared } = await this.#host.spawn(caller.tabId, {
 				folder: args.folder,
 				worktree: worktreeArg,
 				...(tag ? { tag } : {}),
@@ -678,6 +685,7 @@ export class AgentControl {
 				notes.push("plan mode");
 			}
 			if (worktree) notes.push(`worktree ${worktree.branch}`);
+			if (prepared) notes.push(prepared);
 			await this.#host.beforeFirstPrompt?.({
 				tabId,
 				callerTabId: caller.tabId,
