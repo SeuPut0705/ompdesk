@@ -5,10 +5,11 @@
  * - The link drops while a reply streams: the page reconnects and catches up in place (web/resync.ts), with no new
  *   page load, and the reply goes on to its end in the same transcript.
  * - The computer updates to another build while the page stays open on the old one, with a draft in the composer.
- *   Opening a view the page never loaded (Agents, a lazy chunk the new build no longer has) is served from the old
- *   build's assets the host kept (main/web/asset-archive.ts); the page does not reload and the draft is still there.
- * - A view whose chunk nobody has any more (Stats, gone from the new build and from the kept assets) stays empty with
- *   no prompt of any kind (updates are automatic: no banner, no button) and no reload while the page is in use; the
+ *   Opening a view the page never loaded (the feedback dialog, a lazy chunk nothing preloads, which the new build no
+ *   longer has) is served from the old build's assets the host kept (main/web/asset-archive.ts); the page does not
+ *   reload and the draft is still there.
+ * - A view whose chunk nobody has any more (the model setup dialog, gone from the new build and from the kept assets)
+ *   stays empty with no prompt of any kind (updates are automatic: no banner, no button) and no reload while the page is in use; the
  *   page is outdated now, and once it comes back after ≥ 30 s hidden with nothing to lose it reloads by itself, its
  *   reason `chunk-load-failed` in the host's runtime log (lib/chunk-load.ts, web-boot.ts, sw-update.ts).
  *
@@ -53,20 +54,21 @@ async function mobileWebReady(page: Page): Promise<void> {
 
 /**
  * A second build beside the first, as an update brings one: the same app with a changed `web.html` (another build
- * id) and without the Agents and Stats views' chunks, whose names a real build changes with their contents.
+ * id) and without the feedback and model setup dialogs' chunks, whose names a real build changes with their contents.
+ * Both are lazy views nothing preloads (the pages and the side panel's views are fetched once the page idles).
  */
-async function makeBuildB(): Promise<{ out: string; agentsChunk: string; statsChunk: string }> {
+async function makeBuildB(): Promise<{ out: string; keptChunk: string; goneChunk: string }> {
 	const out = await fs.mkdtemp(path.join(path.dirname(BUILD_A), "out-e2e-"));
 	await fs.cp(BUILD_A, out, { recursive: true });
 	const assets = path.join(out, "renderer", "assets");
 	const names = await fs.readdir(assets);
-	const agentsChunk = names.find(name => /^AgentsPage-.*\.js$/.test(name));
-	const statsChunk = names.find(name => /^InsightsPage-.*\.js$/.test(name));
-	if (!agentsChunk || !statsChunk) throw new Error("no AgentsPage or InsightsPage chunk in the build");
-	await Promise.all([fs.rm(path.join(assets, agentsChunk)), fs.rm(path.join(assets, statsChunk))]);
+	const keptChunk = names.find(name => /^FeedbackDialog-.*\.js$/.test(name));
+	const goneChunk = names.find(name => /^ModelSetupDialog-.*\.js$/.test(name));
+	if (!keptChunk || !goneChunk) throw new Error("no FeedbackDialog or ModelSetupDialog chunk in the build");
+	await Promise.all([fs.rm(path.join(assets, keptChunk)), fs.rm(path.join(assets, goneChunk))]);
 	const html = path.join(out, "renderer", "web.html");
 	await fs.writeFile(html, `${await fs.readFile(html, "utf8")}\n<!-- e2e build B -->\n`);
-	return { out, agentsChunk, statsChunk };
+	return { out, keptChunk, goneChunk };
 }
 
 /** The page's visibility as the browser reports it (a phone switching apps), with its `visibilitychange`. */
@@ -79,6 +81,8 @@ function setVisibility(phone: Page, state: "hidden" | "visible") {
 }
 
 /** A line the fake omp takes on stdin (`fixture:*`), sent as the tab's `bash` command. */
+test.use({ actionTimeout: 30_000 });
+
 async function fixture(phone: Page, tabId: string, line: string) {
 	return phone.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
 		tabId,
@@ -102,8 +106,6 @@ for (const engine of ENGINES)
 				themeName: "light",
 				firstRunComplete: true,
 				lastProject: project,
-				// The sidebar's Stats entry, so the phone can open the Stats view.
-				sidebar: { railPins: ["stats"] },
 			}),
 		);
 		const tailscale = await fixtureTailscale(root, { backendState: "Running" });
@@ -164,7 +166,9 @@ for (const engine of ENGINES)
 
 			// (b) A reply streams; the link drops under it.
 			await field.fill("fixture stream");
-			await phone.getByRole("button", { name: /^(Send|보내기)$/ }).click();
+			const send = phone.getByRole("button", { name: /^(Send|보내기)$/ });
+			await expect(send).toBeEnabled({ timeout: 60_000 });
+			await send.click();
 			await expect(phone.getByText("Stream chunk 3.", { exact: false }).first()).toBeVisible({ timeout: 60_000 });
 			const progress = (await fixture(phone, tabId, "fixture:progress")).data;
 			proxy.dropSockets();
@@ -199,35 +203,49 @@ for (const engine of ENGINES)
 				.toBeGreaterThan(0);
 			await expect(field).toHaveValue("a draft that must outlive the update", { timeout: 30_000 });
 
-			// Agents was never loaded: its chunk comes from build A's assets the host kept, build B has none.
-			const agentsChunk = phone.waitForResponse(response => response.url().endsWith(`/assets/${b.agentsChunk}`));
-			await phone.locator("body").press("Alt+a");
-			const served = await agentsChunk;
-			expect(served.status()).toBe(200);
-			await expect(phone.getByRole("tablist").first()).toBeVisible({ timeout: 30_000 });
-			await phone.getByRole("button", { name: "Back to session" }).click();
+			// The feedback dialog was never loaded: its chunk comes from build A's assets the host kept, build B has none.
+			const keptServed = phone.waitForResponse(response => response.url().endsWith(`/assets/${b.keptChunk}`), {
+				timeout: 30_000,
+			});
+			await phone.getByRole("button", { name: "Open menu" }).click();
+			await phone.getByRole("button", { name: "Help" }).click();
+			// On touch the help menu is a sheet of rows.
+			await phone.getByText("Send feedback", { exact: true }).click();
+			expect((await keptServed).status()).toBe(200);
+			await expect(phone.getByRole("dialog", { name: "Send feedback" })).toBeVisible({ timeout: 30_000 });
+			await phone.keyboard.press("Escape");
+			await expect(phone.getByRole("dialog", { name: "Send feedback" })).toHaveCount(0);
+			// The drawer it was opened from is still there: the system back gesture closes it (a same-page entry).
+			await phone.goBack();
+			await expect(phone.locator("[data-drawer]")).toHaveCount(0);
 			await expect(field).toBeVisible({ timeout: 30_000 });
 			await expect(field).toHaveValue("a draft that must outlive the update");
 			expect(loads).toBe(0);
 			expect(await phone.evaluate(() => Reflect.get(window, "noReloadRun"))).toBe(true);
 
-			// Stats: its chunk is in neither build B nor the kept assets (the worker never fetched it either).
+			// The model setup dialog: its chunk is in neither build B nor the kept assets (nor the worker's cache).
 			for (const entry of await fs
 				.readdir(path.join(desktop, "web-assets"), { withFileTypes: true })
 				.catch(() => []))
 				if (entry.isDirectory())
-					await fs.rm(path.join(desktop, "web-assets", entry.name, "assets", b.statsChunk), { force: true });
-			const statsTries: number[] = [];
+					await fs.rm(path.join(desktop, "web-assets", entry.name, "assets", b.goneChunk), { force: true });
+			const goneTries: number[] = [];
 			phone.on("response", response => {
-				if (response.url().endsWith(`/assets/${b.statsChunk}`)) statsTries.push(response.status());
+				if (response.url().endsWith(`/assets/${b.goneChunk}`)) goneTries.push(response.status());
 			});
 			await phone.getByRole("button", { name: "Open menu" }).click();
-			await phone.locator('[data-destination="insights"]').click();
+			await phone.locator('[data-destination="settings"]').click();
+			await phone.locator('[data-settings-section="models"]').click();
+			// The button waits for the tab's omp, which the relaunched host is still starting.
+			const setup = phone.locator("#settings-models-setup").getByRole("button", { name: "Set up automatically" });
+			await expect(setup).toBeEnabled({ timeout: 90_000 });
+			await setup.click();
 			// Refused (the worker retries behind the page, and a browser keeps a failed module import, so the page sees
-			// one answer); the view stays empty and nothing asks the user anything.
-			await expect.poll(() => statsTries.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
-			expect(statsTries.every(status => status === 404)).toBe(true);
+			// one answer); the dialog stays away and nothing asks the user anything.
+			await expect.poll(() => goneTries.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+			expect(goneTries.every(status => status === 404)).toBe(true);
 			await phone.waitForTimeout(4000);
+			await expect(phone.getByRole("dialog")).toHaveCount(0);
 			await expect(phone.getByText(/new version|새 버전/i)).toHaveCount(0);
 			await expect(phone.getByRole("button", { name: /^(Reload|새로고침)$/ })).toHaveCount(0);
 			expect(loads).toBe(0);

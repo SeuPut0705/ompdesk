@@ -291,7 +291,10 @@ export const createMessagesStore = () =>
 						// never saw this message's message_start (another message's buffer goes),
 						// a page that lost its link missed deltas in the middle (a snapshot longer
 						// than the buffer fills the gap; it can only grow). The snapshot already
-						// holds this update's delta, so the buffers are seeded from it instead.
+						// holds this update's delta, so the buffers are seeded from it instead, and
+						// a snapshot of this message no longer than the buffer (a replayed frame) was
+						// consumed already: its delta is not added again. A snapshot without text
+						// carries nothing to compare, and its delta is applied as usual.
 						if (partial.role === "assistant" && Array.isArray(partial.content)) {
 							let text = "";
 							let thinking = "";
@@ -306,6 +309,7 @@ export const createMessagesStore = () =>
 								streamingThinking = thinking;
 								break;
 							}
+							if (text.length + thinking.length > 0) break;
 						}
 						if (update.type === "text_delta") streamingText += update.delta;
 						else if (update.type === "thinking_delta") streamingThinking += update.delta;

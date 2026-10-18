@@ -253,18 +253,27 @@ export class UpdateWatcher {
 	}
 }
 
-/** Unregister the workers, delete every cache and load the page from the network. */
+/** How long the purge's cleanup may take before the page reloads anyway (WebKit has left a cache delete unsettled). */
+export const PURGE_CLEANUP_MS = 3000;
+
+/**
+ * Unregister the workers, delete every cache and load the page from the network. The cleanup is bounded by
+ * `cleanupMs`: a cleanup that fails or never settles must not keep the page on a build that no longer works (the
+ * worker is unregistered first, so the reload reaches the network even when a cache is left behind).
+ */
 export async function purgeAndReload(
 	container: Pick<WorkerContainerLike, "getRegistrations"> | undefined,
 	cacheStorage: CacheStorageApi | undefined,
 	reload: () => void,
+	cleanupMs = PURGE_CLEANUP_MS,
 ): Promise<void> {
-	try {
+	const cleanup = (async () => {
 		const registrations = (await container?.getRegistrations?.()) ?? [];
 		await Promise.all(registrations.map(registration => registration.unregister()));
 		if (cacheStorage) await Promise.all((await cacheStorage.keys()).map(name => cacheStorage.delete(name)));
-	} catch {
-		// A blocked cleanup must not stop the reload the user asked for.
-	}
+	})().catch(() => undefined);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([cleanup, new Promise<void>(resolve => (timer = setTimeout(resolve, cleanupMs)))]);
+	clearTimeout(timer);
 	reload();
 }

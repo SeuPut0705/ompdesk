@@ -1517,6 +1517,18 @@ describe("tabs store background tab signals", () => {
 		expect(sessionRuntime("t1")).toBeNull();
 	});
 
+	it("gives a tab it learns only from the list the list's status (its TAB_STATUS went by before the page knew it)", async () => {
+		seedTabs("t1");
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("n0", "/alpha"), active: true },
+			tabInfo("n1", "/beta", "running"),
+		]);
+		await useTabsStore.getState().reconcileTabs({ dropUnlisted: true });
+		const session = (id: string) => sessionRuntimeStore<SessionStore>(id, "session")?.getState();
+		expect(session("n0")).toMatchObject({ status: "ready", cwd: "/alpha", isStreaming: false });
+		expect(session("n1")).toMatchObject({ status: "ready", cwd: "/beta", isStreaming: true });
+	});
+
 	describe("a provider sign-in's requests, restored", () => {
 		const paste: ExtensionUIRequest = {
 			type: "extension_ui_request",

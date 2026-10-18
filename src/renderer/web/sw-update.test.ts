@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	appGoneMoment,
+	PURGE_CLEANUP_MS,
 	purgeAndReload,
 	RESUME_AFTER_HIDDEN_MS,
 	RESUME_WINDOW_MS,
@@ -381,6 +382,27 @@ describe("purgeAndReload", () => {
 			),
 		).resolves.toBeUndefined();
 		expect(reload).toHaveBeenCalledTimes(2);
+	});
+
+	it("reloads after its cleanup budget when a cache delete never settles", async () => {
+		vi.useFakeTimers();
+		try {
+			const reload = vi.fn();
+			const unregister = vi.fn(async () => true);
+			const pending = purgeAndReload(
+				{ getRegistrations: async () => [{ unregister }] },
+				{ keys: async () => ["omp-assets-a"], delete: () => new Promise<boolean>(() => {}) },
+				reload,
+			);
+			await vi.advanceTimersByTimeAsync(PURGE_CLEANUP_MS - 1);
+			expect(unregister).toHaveBeenCalledTimes(1);
+			expect(reload).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			await pending;
+			expect(reload).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

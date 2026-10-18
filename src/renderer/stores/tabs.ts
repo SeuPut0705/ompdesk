@@ -542,12 +542,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A web page keeps its own done marks across reloads (lib/unread-marks.ts); the desktop's live in memory.
 		const savedMarks = webRuntime() ? readUnreadMarks() : null;
 		const ghosts = get().tabs.filter(tab => tab.ghost);
+		/** Tabs whose runtime this reconcile created or replaced: they hold no status yet (see below). */
+		const fresh: IpcTabInfo[] = [];
 		set(state => {
 			const leftovers = new Map(state.tabs.filter(tab => !tab.ghost).map(tab => [tab.id, tab]));
 			const unclaimed = state.tabs.filter(tab => tab.ghost);
 			const adopted = new Map<string, string>();
 			const merged: SessionTab[] = list.map(info => {
 				let existing = leftovers.get(info.tabId);
+				// No runtime of this id held a status before (an adopted ghost's runtime is the ghost's, not this one).
+				const newRuntime = existing === undefined;
 				leftovers.delete(info.tabId);
 				if (!existing) {
 					// The ghost of this session becomes the real tab: same place in the strip, same selection.
@@ -562,6 +566,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				if (sessionChanged) {
 					replaceTabRuntime(info.tabId);
 				}
+				if (newRuntime || sessionChanged) fresh.push(info);
 				ensureTabRuntime(info.tabId);
 				const tab: SessionTab = {
 					...projectSessionTab(info, existing, sessionChanged, false),
@@ -608,6 +613,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		});
 		// A ghost is gone by now, adopted or not: its runtime (the seeded transcript) goes with it.
 		for (const ghost of ghosts) if (!get().tabs.some(tab => tab.id === ghost.id)) deleteSessionRuntime(ghost.id);
+		// A runtime made here missed the TAB_STATUS that told its status (a paired page that resyncs after the host
+		// restarted learns the new tab ids only from this list, after their `ready` went by): the list's status is it.
+		for (const info of fresh) {
+			const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
+			if (!session) continue;
+			session.getState().setStatus(info.status === "running" ? "ready" : info.status, info.cwd);
+			session.setState({ isStreaming: info.status === "running" });
+		}
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
 		setFocusedSessionRuntime(activeTabId);

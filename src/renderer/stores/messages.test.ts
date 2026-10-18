@@ -173,6 +173,31 @@ describe("attaching to a message already streaming", () => {
 		store.getState().applyEvents([partialUpdate(5, "One. Two. Three. ", "Three. ")]);
 		expect(store.getState().streamingText).toBe("One. Two. Three. ");
 	});
+
+	it("does not add the delta of a snapshot it already holds (a replayed frame, equal or older)", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([partialUpdate(5, "Hello", "lo")]);
+		store.getState().applyEvents([partialUpdate(5, "Hello", "lo")]);
+		expect(store.getState().streamingText).toBe("Hello");
+		store.getState().applyEvents([partialUpdate(5, "Hell", "l")]);
+		expect(store.getState().streamingText).toBe("Hello");
+		// A slim delta of the same message after it still streams on.
+		const slim: AgentMessage = { role: "assistant", timestamp: 5 };
+		store.getState().applyEvents([
+			{
+				type: "message_update",
+				message: slim,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "!", partial: slim },
+			},
+		]);
+		expect(store.getState().streamingText).toBe("Hello!");
+	});
+
+	it("applies the delta of an update whose snapshot holds no text yet", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_start", message: streamingMessage }, delta("a"), delta("b")]);
+		expect(store.getState().streamingText).toBe("ab");
+	});
 });
 
 describe("committed transcript ownership", () => {
