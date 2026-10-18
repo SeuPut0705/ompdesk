@@ -5018,6 +5018,16 @@ export const en: Record<string, string> = {
 	"about.starred": "Starred",
 	"about.openRepo": "Open on GitHub",
 	"about.starFailed": "Couldn't star the repository",
+	"about.diagnostics": "Copy diagnostics",
+	"about.diagnosticsDesc":
+		"Versions, machine setup and the latest runtime log lines, with tokens, emails, network addresses and your user folder hidden. Nothing is uploaded; you paste it where you choose.",
+	"about.diagnosticsShow": "Preview",
+	"about.diagnosticsHide": "Hide",
+	"about.diagnosticsLoading": "Collecting diagnostics…",
+	"about.diagnosticsFailed": "Couldn't collect diagnostics",
+	"about.diagnosticsPreviewLabel": "Diagnostics text to copy",
+	"about.diagnosticsCopy": "Copy",
+	"about.diagnosticsCopied": "Copied",
 	"updates.core.hostDescription":
 		"The omp CLI installed on {device}, which runs every session this device opens there.",
 	"updates.core.checkFailed": "Couldn't check the omp version. Try again.",

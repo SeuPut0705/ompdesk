@@ -4,7 +4,7 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
 	app,
@@ -69,6 +69,7 @@ import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import type { DesktopSlotHost } from "./desktop-slot-host";
+import { registerDiagnosticsIpc } from "./diagnostics";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
@@ -92,7 +93,7 @@ import { lastWindowCloseAction } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
-import { writeRuntimeLog } from "./runtime-log";
+import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, registerSchedulesIpc, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
@@ -100,7 +101,7 @@ import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
-import { localSidecarFactory } from "./sidecar-factory";
+import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { markStartup } from "./startup-timing";
 import { StatsClient } from "./stats-client";
@@ -801,6 +802,22 @@ app.whenReady().then(() => {
 	});
 	setupService = setup;
 	registerSetupIpc(ipc, setup);
+	registerDiagnosticsIpc(ipc, {
+		system: () => ({
+			appVersion: appVersion(),
+			packaged: app.isPackaged,
+			electron: process.versions.electron ?? "?",
+			chrome: process.versions.chrome ?? "?",
+			node: process.versions.node ?? "?",
+			platform: process.platform,
+			arch: process.arch,
+			osRelease: release(),
+			osVersion: process.getSystemVersion(),
+			language: deviceLanguage() ?? null,
+		}),
+		setupState: () => setup.state(),
+		runtimeLogPath,
+	});
 	// omp keeps itself current (src/main/omp-updater.ts): a packaged app checks on its own; a test
 	// launch only with a fake installer and OMP_GUI_TEST_OMP_UPDATES=1 (the fake omp's `update --check`
 	// answers). OMPdesk's own update stays manual. It starts once machine setup's first pass has detected omp.

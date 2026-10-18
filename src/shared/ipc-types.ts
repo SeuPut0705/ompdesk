@@ -146,6 +146,8 @@ export const IPC_COMMANDS = {
 	/** Absolute path to the main-process crash log */
 	RUNTIME_LOG_PATH: "runtime:log-path",
 	RUNTIME_LOG_TAIL: "runtime:log-tail",
+	/** The redacted diagnostics report of this computer (src/main/diagnostics.ts); nothing is uploaded. */
+	DIAGNOSTICS_BUILD: "diagnostics:build",
 	/** A renderer launch timing mark (`RENDERER_STARTUP_MARKS`), stamped on main's clock. */
 	RUNTIME_STARTUP_MARK: "runtime:startup-mark",
 	LOG_SNAPSHOT: "log:snapshot",
@@ -1557,6 +1559,8 @@ export interface OmpApi {
 		logSnapshot(): Promise<LogBatch>;
 		/** Last `maxLines` runtime-error lines for the feedback dialog's opt-in diagnostics. */
 		logTail(maxLines: number): Promise<string[]>;
+		/** The redacted diagnostics text Settings › Updates & about previews and copies: versions, machine setup, last runtime-log lines. */
+		diagnostics(): Promise<string>;
 		/** Records a launch timing mark once (src/shared/startup-timing.ts). */
 		startupMark(mark: StartupMark): void;
 	};

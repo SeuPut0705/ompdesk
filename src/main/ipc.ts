@@ -117,6 +117,7 @@ import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import { tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, renameSession } from "./session-mutations";
@@ -489,19 +490,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// block. Tail-read so a large log doesn't have to be parsed end to end.
 	ipc.handle(IPC_COMMANDS.RUNTIME_LOG_TAIL, async (_caller, maxLines: unknown) => {
 		const limit = typeof maxLines === "number" && maxLines > 0 ? Math.min(Math.floor(maxLines), 50) : 20;
-		try {
-			const stat = await fsp.stat(runtimeLogPath());
-			const fd = await fsp.open(runtimeLogPath(), "r");
-			try {
-				const size = Math.min(stat.size, 256 * 1024);
-				const { bytesRead, buffer } = await fd.read(Buffer.alloc(size), 0, size, stat.size - size);
-				return buffer.subarray(0, bytesRead).toString("utf8").split("\n").filter(Boolean).slice(-limit);
-			} finally {
-				await fd.close();
-			}
-		} catch {
-			return [];
-		}
+		return tailLogLines(runtimeLogPath(), limit);
 	});
 	ipc.handle(IPC_COMMANDS.LOG_SNAPSHOT, () => logWatcher.getSnapshot());
 

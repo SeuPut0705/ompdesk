@@ -251,6 +251,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			logPath: () => transport.invoke(IPC_COMMANDS.RUNTIME_LOG_PATH) as Promise<string>,
 			logSnapshot: () => transport.invoke(IPC_COMMANDS.LOG_SNAPSHOT) as Promise<LogBatch>,
 			logTail: (maxLines: number) => transport.invoke(IPC_COMMANDS.RUNTIME_LOG_TAIL, maxLines) as Promise<string[]>,
+			diagnostics: () => transport.invoke(IPC_COMMANDS.DIAGNOSTICS_BUILD) as Promise<string>,
 			startupMark: mark => transport.send(IPC_COMMANDS.RUNTIME_STARTUP_MARK, mark),
 		},
 		// Fire-and-forget: the guard may show a modal, and the renderer has nothing

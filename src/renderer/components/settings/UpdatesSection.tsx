@@ -52,6 +52,7 @@ import {
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
 import { AppAutoUpdateRow } from "./AppAutoUpdateRow";
+import { DiagnosticsRow } from "./DiagnosticsRow";
 import { OmpUpdateFailureNotice } from "./OmpUpdateRows";
 import { ProductStar } from "./ProductStar";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
@@ -300,6 +301,8 @@ export function UpdatesSection() {
 			)}
 
 			<PluginDoctorRow />
+
+			<DiagnosticsRow />
 
 			<SettingsRow
 				control={<ProductStar />}

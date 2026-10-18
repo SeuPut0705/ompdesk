@@ -118,3 +118,25 @@ export function appendRuntimeLogAtPath(filePath: string, report: unknown, contex
 		// A crash logger must never trigger a second failure path.
 	}
 }
+
+/**
+ * The last `maxLines` complete lines of a log, read from its end (`maxBytes` at most), so a large log
+ * is never parsed end to end. A read that starts mid-line drops that first fragment; a missing file is `[]`.
+ */
+export async function tailLogLines(filePath: string, maxLines: number, maxBytes = 256 * 1024): Promise<string[]> {
+	try {
+		const handle = await fs.promises.open(filePath, "r");
+		try {
+			const { size } = await handle.stat();
+			const length = Math.min(size, maxBytes);
+			const { bytesRead, buffer } = await handle.read(Buffer.alloc(length), 0, length, size - length);
+			const lines = buffer.subarray(0, bytesRead).toString("utf8").split("\n");
+			if (size > length) lines.shift();
+			return lines.filter(Boolean).slice(-maxLines);
+		} finally {
+			await handle.close();
+		}
+	} catch {
+		return [];
+	}
+}

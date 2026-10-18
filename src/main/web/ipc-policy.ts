@@ -109,6 +109,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.RUNTIME_ERROR_REPORT]: { dir: "send", permission: "workspace", mode: "pass" },
 	[C.RUNTIME_LOG_PATH]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.RUNTIME_LOG_TAIL]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.DIAGNOSTICS_BUILD]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.RUNTIME_STARTUP_MARK]: { dir: "send", permission: "workspace", mode: "pass" },
 	[C.LOG_SNAPSHOT]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.APP_QUIT]: {
