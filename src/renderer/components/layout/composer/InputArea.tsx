@@ -86,6 +86,7 @@ import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { DraftFileCards } from "./DraftFileCards";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
+import { fitFieldHeight } from "./field-height";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { cachedMentionFiles, editFieldText, listMentionFiles, mentionToken } from "./input-area-utils";
 import {
@@ -121,21 +122,6 @@ const browserStorage: Storage | undefined = (() => {
 
 /** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
 const NARROW_FIELD_PX = 290;
-
-/**
- * Grow the field to fit its text, up to ~40% of the pane (one line while empty); the expanded composer
- * fills the pane instead, its height is CSS's.
- */
-function fitFieldHeight(el: HTMLTextAreaElement, expanded: boolean): void {
-	if (expanded) {
-		el.style.height = "";
-		return;
-	}
-	el.style.height = "0px";
-	const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
-	const maxHeight = el.value.length === 0 ? 24 : paneHeight * 0.4;
-	el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-}
 
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
