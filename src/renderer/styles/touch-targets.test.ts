@@ -161,18 +161,18 @@ describe("the phone composer", () => {
 		expect(read("../components/layout/composer/ComposerToolbar.tsx")).not.toMatch(/moreOpen|omp-composer-more/);
 	});
 
-	it("draws +, Send and Stop at 28 px and reaches 44 (16 px of hit gap each way)", () => {
+	it("draws +, Send and Stop at 28 px and reaches 44 (18 px of hit gap each way: the reach starts inside the 1 px border)", () => {
 		const gap = rule('html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster)');
-		expect(gap).toMatch(/--hit-gap-x:\s*16px/);
-		expect(gap).toMatch(/--hit-gap-y:\s*16px/);
+		expect(gap).toMatch(/--hit-gap-x:\s*18px/);
+		expect(gap).toMatch(/--hit-gap-y:\s*18px/);
 		expect(rule('html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode]')).toMatch(/height:\s*28px/);
 	});
 
-	it("puts one 44 px status chip row above the box: 28 px chips, a 16 px vertical reach, one sideways scroller", () => {
+	it("puts one 44 px status chip row above the box: 28 px chips, an 18 px vertical reach, one sideways scroller", () => {
 		const status = rule('html[data-shell="phone"] .omp-status-row');
 		expect(status).toMatch(/height:\s*44px/);
 		expect(status).toMatch(/overflow-x:\s*auto/);
-		expect(status).toMatch(/--hit-gap-y:\s*16px/);
+		expect(status).toMatch(/--hit-gap-y:\s*18px/);
 		expect(rule('html[data-shell="phone"] .omp-status-chip')).toMatch(/height:\s*28px/);
 		// The suggestions share that scroller: their own row dissolves.
 		expect(rule('html[data-shell="phone"] .omp-next-chips[data-touch][data-bare]')).toMatch(/display:\s*contents/);

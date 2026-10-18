@@ -136,6 +136,7 @@ const [
 	nextPrompt,
 	hostUi,
 	updater,
+	settings,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -153,6 +154,7 @@ const [
 	import("../stores/next-prompt").then(module => module.useNextPromptStore),
 	import("../web/host-ui/host-ui-store").then(module => module.useHostUiStore),
 	import("../stores/updater").then(module => module.useUpdaterStore),
+	import("../stores/settings").then(module => module.useSettingsStore),
 ]);
 window.__stores = {
 	ui,
@@ -171,6 +173,7 @@ window.__stores = {
 	nextPrompt,
 	hostUi,
 	updater,
+	settings,
 };
 
 declare global {
