@@ -642,7 +642,7 @@ export interface Density {
 	insets: number;
 	/** The composer box itself. */
 	composer: number;
-	/** App chrome: (header + bottom) / viewport height, in percent, insets excluded. The smoke gates this at ≤ 16 %. */
+	/** App chrome: (header + bottom) / viewport height, in percent, insets excluded. The smoke gates this at ≤ 22 % (AGENTS.md phone budget; the status chip row is part of it). */
 	chromeShare: number;
 	/** Smallest distance from a screen edge to a transcript row's text, left and right. */
 	gutter: number;
@@ -650,7 +650,7 @@ export interface Density {
 	bodyFont: number;
 }
 
-/** The idle session's chrome share and gutters (the phone targets: share ≤ 16 %, gutter ≤ 16 px, body 13–15 px). */
+/** The idle session's chrome share and gutters (the phone targets: share ≤ 22 %, gutter ≤ 16 px, body 13–15 px). */
 export async function measureDensity(page: Page, look: Look): Promise<Density | undefined> {
 	return page.evaluate((inset): Density | undefined => {
 		const rows = [...document.querySelectorAll<HTMLElement>("[data-transcript-kind]")];
@@ -800,7 +800,7 @@ export async function mergeReport(
 			return `| ${surface}${entry.failed ? ` (⚠ ${entry.failed} failed)` : ""} | ${entry.area} | ${entry.score.toFixed(0)} | ${entry.total} | ${widthKeys.map(key => entry.widths.get(key) ?? "·").join(" | ")} | ${kinds} |`;
 		}),
 		"",
-		"## Density of the idle session (targets on a phone: chrome ≤ 16 %, gutter ≤ 16 px, body 13–15 px)",
+		"## Density of the idle session (targets on a phone: chrome ≤ 22 %, gutter ≤ 16 px, body 13–15 px)",
 		"",
 		"| look | app header | app bottom (dock + composer) | composer | insets (not counted) | app chrome share | text gutter | body font |",
 		"| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",

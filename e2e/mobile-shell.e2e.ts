@@ -309,7 +309,7 @@ for (const { engine, device } of variants(
 
 		test("the work board is a strip that expands in place where it cannot dock", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-			const chip = page.locator("[data-work-chip]");
+			const chip = page.locator('[data-work-chip=""]');
 			if (device.shell === "tablet-landscape") {
 				await expect(chip).toHaveCount(0);
 				await page.context().close();
@@ -622,7 +622,7 @@ for (const { engine, device } of variants(
 						await expect(drawer(page)).toHaveCount(0);
 					}
 					if (device.shell !== "tablet-landscape") {
-						await page.locator("[data-work-chip]").click();
+						await page.locator('[data-work-chip=""]').click();
 						await expect(page.locator("[data-work-strip-panel]")).toBeVisible();
 						await capture(page, "board", tag);
 						await page.goBack();

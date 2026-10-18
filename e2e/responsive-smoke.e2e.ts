@@ -33,8 +33,12 @@ const KEY_SURFACES = [
 /** What the smoke refuses; the matrix also counts the softer kinds (targets, text size, truncation). */
 const HARD = new Set(["overflow-page", "overflow-el", "offscreen-popover"]);
 
-/** The phone's app chrome budget at rest, percent of the screen height (header + dock + composer). */
-const CHROME_SHARE_MAX = 16;
+/**
+ * The phone's app chrome budget at rest, percent of the screen height (header + work chip + dock + composer + the
+ * status chip row above it): AGENTS.md's 22 % budget; 21.0 % measured at 390x844. It was 16 % before the status
+ * row put the live run state (model, plan, approval, context) on screen without opening anything.
+ */
+const CHROME_SHARE_MAX = 22;
 
 let server: ViteDevServer | undefined;
 let origin = "";
