@@ -225,10 +225,13 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 			tabId: desktopTabId,
 			attached: true,
 		});
-		// The link drops: the page reconnects by itself; one that missed events reloads (ws-transport's resync).
-		const reloaded = phone.waitForEvent("load", { timeout: 15_000 }).catch(() => undefined);
+		// The link drops: the page reconnects by itself and, having missed events, catches up in place (web/resync.ts):
+		// it never navigates.
+		let navigations = 0;
+		phone.on("framenavigated", frame => {
+			if (frame === phone.mainFrame()) navigations++;
+		});
 		proxy.dropSockets();
-		await reloaded;
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
 		await openDrawer(phone);
 		expect(duplicates((await readRows(phone)).perPath)).toEqual([]);
@@ -237,16 +240,21 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		expect(new Set(reconnectedTabs).size).toBe(reconnectedTabs.length);
 
 		// The computer restarts (killed, as a crash or a power cut does: the saved layouts are what they were); the open
-		// page reconnects on its own and, having missed events, loads again. An `app.exit` would close the desktop
-		// window first, and the owner closing a tab rightly takes it from its viewers.
-		const resynced = phone.waitForEvent("load", { timeout: 180_000 });
+		// page reconnects on its own and, having missed events, reads the restarted host's tabs again in place. An
+		// `app.exit` would close the desktop window first, and the owner closing a tab rightly takes it from its viewers.
 		await crash(current);
 		current = null;
 		const second = await launch(ap.desktop, env);
 		current = second.app;
 		await mobileWebReady(second.page);
 		proxy.retarget(serveSites(tailscale).at(-1) ?? site);
-		await resynced;
+		// The relaunched host answers the page again (its reconnect's resync then reads the new tab ids in place).
+		await expect
+			.poll(() => phone.evaluate(async () => (await window.omp.tabs.list()).length).catch(() => 0), {
+				timeout: 180_000,
+			})
+			.toBeGreaterThan(0);
+		expect(navigations).toBe(0);
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
 		const tabPaths = await phoneTabPaths(phone);
 		expect(tabPaths.length).toBeGreaterThan(0);
