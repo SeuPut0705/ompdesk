@@ -18,6 +18,7 @@ import {
 	CLOSE_REVOKED,
 	CLOSE_TOO_BIG,
 	coalesceEvents,
+	convertsForModel,
 	EVENT_BATCH_MS,
 	HEARTBEAT_MAX_MISSES,
 	HEARTBEAT_MS,
@@ -127,6 +128,12 @@ function rig(options: RigOptions = {}) {
 			return bytes;
 		}),
 	};
+	/** Stock's conversion, faked: the picture comes back as a JPEG. */
+	const toModelImage = vi.fn(async (image: { data: string; mimeType: string }) => ({
+		type: "image" as const,
+		data: `jpeg:${image.data}`,
+		mimeType: "image/jpeg",
+	}));
 	let routerRef: WsRouter | null = null;
 	const windows = new WebWindows((id, channel, payload) => routerRef?.deliver(id, channel, payload));
 	const router = new WsRouter({
@@ -139,6 +146,7 @@ function rig(options: RigOptions = {}) {
 		activeTab: () => "tab-active",
 		blobs,
 		uploads,
+		toModelImage,
 		now: () => clock.now,
 		timers,
 	});
@@ -165,6 +173,7 @@ function rig(options: RigOptions = {}) {
 		blobs,
 		uploaded,
 		uploads,
+		toModelImage,
 		frame,
 		settle,
 		revoke: () => {
@@ -277,6 +286,50 @@ describe("hello and calls", () => {
 		await settle();
 		expect(callers.map(call => call.args)).toEqual([[inline], [{ message: "x" }]]);
 		expect(uploads.take).not.toHaveBeenCalled();
+	});
+
+	it("converts a HEIC or HEIF picture with stock's image path whatever its size, and leaves model formats alone", async () => {
+		const { frame, socket, callers, uploaded, toModelImage } = rig();
+		uploaded.set("/up/dev1/a/image.heic", Buffer.from("HEIC"));
+		uploaded.set("/up/dev1/b/image.jpeg", Buffer.from("JPEG"));
+		const images = [
+			{ type: "image", mimeType: "image/heic", upload: "/up/dev1/a/image.heic" },
+			{ type: "image", mimeType: "image/jpeg", upload: "/up/dev1/b/image.jpeg" },
+		];
+		frame({ t: "inv", id: 6, ch: IPC_COMMANDS.RPC_COMMAND_FOR_TAB, a: [{ command: { type: "prompt", images } }] });
+		await vi.waitFor(() => expect(socket.frames("res")).toHaveLength(1));
+		expect(callers[0]?.args).toEqual([
+			{
+				command: {
+					type: "prompt",
+					images: [
+						{ type: "image", mimeType: "image/jpeg", data: `jpeg:${Buffer.from("HEIC").toString("base64")}` },
+						{ type: "image", mimeType: "image/jpeg", data: Buffer.from("JPEG").toString("base64") },
+					],
+				},
+			},
+		]);
+		expect(toModelImage).toHaveBeenCalledOnce();
+		// A picture stock cannot convert fails the call; nothing raw reaches the model.
+		toModelImage.mockRejectedValueOnce(new Error("undecodable"));
+		uploaded.set("/up/dev1/c/image.heif", Buffer.from("HEIF"));
+		const heif = [{ type: "image", mimeType: "image/heif", upload: "/up/dev1/c/image.heif" }];
+		frame({
+			t: "inv",
+			id: 7,
+			ch: IPC_COMMANDS.RPC_COMMAND_FOR_TAB,
+			a: [{ command: { type: "prompt", images: heif } }],
+		});
+		await vi.waitFor(() => expect(socket.frames("res")).toHaveLength(2));
+		expect(callers).toHaveLength(1);
+		expect(socket.frames("res")[1]).toMatchObject({ id: 7, ok: false, e: { code: "unsupported_image" } });
+	});
+
+	it("tells the formats models refuse from the ones they take", () => {
+		for (const mime of ["image/heic", "image/heif", "image/HEIC", "image/heic-sequence", "image/heif-sequence"])
+			expect(convertsForModel(mime)).toBe(true);
+		for (const mime of ["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "text/plain"])
+			expect(convertsForModel(mime)).toBe(false);
 	});
 
 	it("answers ping with pong and ignores ack", () => {

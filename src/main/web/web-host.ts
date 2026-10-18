@@ -29,6 +29,7 @@ import { WEB_PERMISSIONS, type WebFeatures } from "../../shared/web-protocol";
 import { readModelsText, writeModelsText } from "../models-config";
 import { PeerQuota } from "../remote/peer-quota";
 import type { TabActivity, TabFacts } from "../sidecar-pool";
+import { stockHelperRequest } from "../stock-helper";
 import type { TailnetPeer } from "../tailscale/whois";
 import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
@@ -45,7 +46,7 @@ import { UploadStore } from "./uploads";
 import { VapidStore } from "./vapid-store";
 import { WebClientWindow, WebWindows } from "./web-client-window";
 import { WebPushNotifier } from "./web-push-notifier";
-import { CLOSE_REVOKED, WsRouter } from "./ws-router";
+import { CLOSE_REVOKED, type InlineImage, WsRouter } from "./ws-router";
 
 /** How often old uploads are looked for. */
 const UPLOAD_SWEEP_MS = 60 * 60_000;
@@ -163,6 +164,7 @@ export class WebHost {
 			blobs: this.blobs,
 			mediaOpen: deps.openMedia,
 			uploads: this.uploads,
+			toModelImage: image => stockHelperRequest<InlineImage>("image.toModel", image),
 			onConnectionsChanged: () => this.devices.notifyChanged(),
 			now,
 		});

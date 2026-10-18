@@ -10,6 +10,7 @@
 import { createInterface } from "node:readline";
 import { methods as accounts } from "./accounts";
 import { createDispatcher, type HelperMethods } from "./dispatch";
+import { methods as images } from "./images";
 import { methods as models } from "./models";
 import { methods as search } from "./search";
 import { methods as sessions } from "./sessions";
@@ -21,7 +22,7 @@ const methods: HelperMethods = terminalWorker
 	? terminals
 	: worker === "extensions"
 		? (await import("./extensions")).methods
-		: { ...sessions, ...models, ...search, ...accounts };
+		: { ...sessions, ...models, ...search, ...accounts, ...images };
 const input = createInterface({ input: process.stdin });
 if (terminalWorker) process.on("exit", disposeTerminals);
 input.on("close", () => {

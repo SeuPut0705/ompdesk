@@ -153,6 +153,8 @@ export interface WsRouterDeps {
 	mediaOpen?: (url: string, range: string | undefined) => Promise<Response>;
 	/** The device's uploads: a picture a call names by upload (`WebUploadedImage`) is read back into the call. */
 	uploads: Pick<UploadStore, "take">;
+	/** A picture in a format models refuse made model-safe (stock's image path in the stock helper, `image.toModel`). */
+	toModelImage: (image: InlineImage) => Promise<InlineImage>;
 	/** A device's connection count changed (the settings list shows who is connected). */
 	onConnectionsChanged?: (deviceId: string) => void;
 	now?: () => number;
@@ -293,6 +295,18 @@ function webError(error: unknown): WebInvokeError {
 
 function forbidden(message: string): Error {
 	return codedError("web_forbidden", message);
+}
+
+/** An image block with its bytes inline, as a call carries it to the registry. */
+export interface InlineImage {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+
+/** Whether a picture's format is one models refuse and a phone camera makes (HEIC/HEIF, an iPhone's default). */
+export function convertsForModel(mimeType: string): boolean {
+	return /^image\/hei[cf](-sequence)?$/i.test(mimeType.trim());
 }
 
 /** The command and the tab a model-using RPC payload names, for the quota. */
@@ -757,22 +771,25 @@ export class WsConnection {
 
 	/**
 	 * The call with each picture the page sent by upload (`WebUploadedImage`) back as an inline image block, its
-	 * upload consumed. A path outside this device's uploads, or one already gone, fails the call.
+	 * upload consumed; a format models refuse (`convertsForModel`) comes back converted. A path outside this
+	 * device's uploads, or one already gone, fails the call, and so does a picture that cannot be converted.
 	 */
 	async #landUploads(args: readonly unknown[]): Promise<unknown[]> {
-		const { uploads } = this.#router.deps;
-		try {
-			const landed = await replaceBlocks(args, isWebUploadedImage, async ({ upload, ...block }) => {
-				const bytes = await uploads.take(this.deviceId, upload);
-				return { ...block, data: bytes.toString("base64") };
+		const { uploads, toModelImage } = this.#router.deps;
+		const landed = await replaceBlocks(args, isWebUploadedImage, async ({ upload, ...block }) => {
+			const bytes = await uploads.take(this.deviceId, upload).catch(() => {
+				throw codedError(
+					"file_not_found",
+					"A picture this message names is no longer on the computer; attach it again",
+				);
 			});
-			return landed as unknown[];
-		} catch {
-			throw codedError(
-				"file_not_found",
-				"A picture this message names is no longer on the computer; attach it again",
-			);
-		}
+			const image = { ...block, data: bytes.toString("base64") };
+			if (!convertsForModel(block.mimeType)) return image;
+			return toModelImage(image).catch(() => {
+				throw codedError("unsupported_image", "This picture could not be converted for the model");
+			});
+		});
+		return landed as unknown[];
 	}
 
 	/** `FS_MEDIA_RELEASE` names the `/blob` URL the page holds; the handler knows the `omp-media://` one. */

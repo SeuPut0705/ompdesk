@@ -26,6 +26,7 @@ export async function fixtureOmp(dir: string): Promise<string> {
 				"./session/session-storage": "./session-store.ts",
 				"./session/session-loader": "./session-store.ts",
 				"./config/models-config-schema": "./models-config.ts",
+				"./utils/image-resize": "./image-convert.ts",
 			},
 		}),
 	);
@@ -33,6 +34,8 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	await writeFile(path.join(root, "session-store.ts"), `export * from ${JSON.stringify(store)};\n`);
 	const config = pathToFileURL(path.resolve("e2e/models-config-fixture.ts")).href;
 	await writeFile(path.join(root, "models-config.ts"), `export * from ${JSON.stringify(config)};\n`);
+	const images = pathToFileURL(path.resolve("e2e/image-convert-fixture.ts")).href;
+	await writeFile(path.join(root, "image-convert.ts"), `export * from ${JSON.stringify(images)};\n`);
 	const catalog = path.join(path.dirname(root), "pi-catalog");
 	await mkdir(catalog, { recursive: true });
 	await writeFile(
@@ -51,10 +54,11 @@ export async function fixtureOmp(dir: string): Promise<string> {
 		JSON.stringify({
 			name: "@oh-my-pi/pi-tui",
 			type: "module",
-			exports: { "./chat/transcript-entry": "./transcript-entry.ts" },
+			exports: { "./chat/transcript-entry": "./transcript-entry.ts", "./chat/image-loading": "./image-convert.ts" },
 		}),
 	);
 	await writeFile(path.join(tui, "transcript-entry.ts"), `export * from ${JSON.stringify(store)};\n`);
+	await writeFile(path.join(tui, "image-convert.ts"), `export * from ${JSON.stringify(images)};\n`);
 	return bin;
 }
 

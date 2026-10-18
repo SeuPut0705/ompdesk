@@ -176,6 +176,7 @@ async function main() {
 		features: () => ({ push: false, preview: true, upload: false, passkey: false }),
 		blobs: new BlobStore(),
 		uploads: { take: () => Promise.reject(new Error("this host takes no uploads")) },
+		toModelImage: () => Promise.reject(new Error("this host converts no pictures")),
 	});
 
 	// The fake client: the frames the router writes, and calls it makes as `inv` / `snd` frames.
