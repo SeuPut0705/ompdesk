@@ -137,6 +137,7 @@ export function InputArea() {
 	useComposerDraft({
 		// While a queued message is edited the field holds it, not the draft: the saved draft stays the one it replaced.
 		text: editingQueued ? editingQueued.snapshot.draft : text,
+		imageCount: images.length,
 		runtimeTabId,
 		device: historyDevice,
 		sessionFile,
@@ -393,24 +394,25 @@ export function InputArea() {
 		>
 			<div className="omp-composer-shell relative w-full">
 				<AskDockSlot />
-				{pasteMenu && (
-					<PasteMenu
-						menuRef={paste.menuRef}
-						onCancel={() => {
-							paste.cancel();
-							textareaRef.current?.focus();
-						}}
-						onInline={paste.chooseInline}
-						onSaveFile={paste.chooseSaveFile}
-						onWrap={paste.chooseWrapped}
-						paste={pasteMenu}
-					/>
-				)}
 				<ComposerQueueLive />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
+					{pasteMenu && (
+						<PasteMenu
+							active={paste.active}
+							menuRef={paste.menuRef}
+							onCancel={() => {
+								paste.cancel();
+								textareaRef.current?.focus();
+							}}
+							onInline={paste.chooseInline}
+							onSaveFile={paste.chooseSaveFile}
+							onWrap={paste.chooseWrapped}
+							paste={pasteMenu}
+						/>
+					)}
 					{menu && (
 						<CompletionList
 							menu={menu}
@@ -520,6 +522,7 @@ export function InputArea() {
 
 						<ComposerToolbar
 							composerMode={composerMode?.mode}
+							composerExcluded={composerMode?.excluded}
 							dictationPhase={dictation.phase}
 							editingQueued={editingQueued !== null}
 							expanded={expanded}

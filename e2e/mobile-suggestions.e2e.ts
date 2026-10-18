@@ -131,8 +131,8 @@ for (const lang of variants<Lang>(["en", "ko"], () => true)) {
 			try {
 				await chips(page).nth(1).tap();
 				await expect.poll(() => draft(page)).toBe(CANDIDATES[lang][1]);
-				await expect(chips(page)).toHaveCount(0);
-				await expect(row(page)).toHaveCount(0);
+				await expect(chips(page).first()).toBeHidden();
+				await expect(row(page)).toHaveAttribute("data-away", "true");
 				const caret = await field(page).evaluate(element => (element as HTMLTextAreaElement).selectionStart);
 				expect(caret).toBe(CANDIDATES[lang][1].length);
 				expect(await unhandled(page)).not.toContain("rpc:prompt");
@@ -153,7 +153,7 @@ for (const lang of variants<Lang>(["en", "ko"], () => true)) {
 				await page.locator("header").first().dispatchEvent("pointerdown");
 				await expect(sendNow).toHaveCount(0);
 				await field(page).fill("a");
-				await expect(row(page)).toHaveCount(0);
+				await expect(row(page)).toHaveAttribute("data-away", "true");
 			} finally {
 				await page.context().close();
 			}
