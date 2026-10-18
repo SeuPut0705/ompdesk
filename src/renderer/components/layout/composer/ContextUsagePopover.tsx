@@ -1,5 +1,14 @@
 import { ArrowUpRight, BarChart3, GitFork, Minimize2, RotateCw } from "lucide-react";
-import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type FocusEvent,
+	type ReactElement,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../../shared/rpc-types";
 import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
@@ -14,6 +23,8 @@ import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, Spinner } from "../../common";
 import { popoverTabStops, tabOutOfPopover } from "../../common/popover-focus";
+import { ComposerSheet } from "./ComposerSheet";
+import { keepFocus } from "./keep-focus";
 
 interface AnchorPosition {
 	bottom?: number;
@@ -43,7 +54,9 @@ function approximateTokens(tokens: number): string {
  * opens it; an Enter/Space open moves focus into the breakdown, Tab past its last control closes it and goes on to
  * the next toolbar control, Escape closes it and returns to the ring.
  */
-export function ContextUsagePopover() {
+export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "chip" }) {
+	/** The phone's status-row chip: the breakdown is a bottom sheet (no floating card, no hover), the trigger a chip. */
+	const chip = variant === "chip";
 	const t = useT();
 	const rpc = useTabRpc();
 	const contextUsage = useSessionStore(state => state.contextUsage);
@@ -125,7 +138,7 @@ export function ContextUsagePopover() {
 	};
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open || chip) return;
 		const onViewportChange = () => updateAnchor();
 		const onPointerDown = (event: PointerEvent) => {
 			const target = event.target as Node | null;
@@ -149,7 +162,7 @@ export function ContextUsagePopover() {
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown);
 		};
-	}, [dismiss, open, updateAnchor]);
+	}, [chip, dismiss, open, updateAnchor]);
 
 	const [attempt, setAttempt] = useState(0);
 
@@ -222,24 +235,46 @@ export function ContextUsagePopover() {
 		? { bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: anchor.width }
 		: undefined;
 
+	const frame = (panel: ReactElement) =>
+		chip ? (
+			<ComposerSheet label={t("contextUsage.title")} onClose={dismiss} open={open}>
+				{panel}
+			</ComposerSheet>
+		) : (
+			createPortal(panel, document.body)
+		);
+
 	return (
-		<div className="relative shrink-0" onMouseEnter={reveal} onMouseLeave={scheduleClose}>
+		<div
+			className="relative shrink-0"
+			onMouseEnter={chip ? undefined : reveal}
+			onMouseLeave={chip ? undefined : scheduleClose}
+		>
 			<button
+				{...(chip ? keepFocus : {})}
 				aria-controls={mounted ? "omp-context-usage-popover" : undefined}
 				aria-expanded={open}
 				aria-haspopup="dialog"
 				aria-label={triggerLabel}
 				className={cx(
-					"omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center justify-center rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
-					open
-						? "bg-(--sc-selected) text-(--sc-text)"
-						: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
+					chip
+						? "omp-status-chip"
+						: "omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center justify-center rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
+					!chip &&
+						(open
+							? "bg-(--sc-selected) text-(--sc-text)"
+							: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"),
 				)}
 				data-context-ring={
 					ringPercent === null ? "unknown" : ringPercent >= 95 ? "danger" : ringPercent >= 80 ? "warning" : "ok"
 				}
-				onBlur={closeOnFocusOut}
+				onBlur={chip ? undefined : closeOnFocusOut}
 				onClick={event => {
+					if (chip) {
+						if (open) dismiss();
+						else reveal();
+						return;
+					}
 					if (open && pinned) {
 						dismiss();
 						return;
@@ -252,32 +287,37 @@ export function ContextUsagePopover() {
 				ref={buttonRef}
 				type="button"
 			>
-				<ContextRing percent={ringPercent} />
+				{chip ? (
+					<span className="tabular-nums">{ringPercent === null ? "—" : `${Math.round(ringPercent)} %`}</span>
+				) : (
+					<ContextRing percent={ringPercent} />
+				)}
 			</button>
 
-			{mounted &&
-				anchor &&
-				createPortal(
+			{(chip ? open : mounted && anchor) &&
+				frame(
 					<div
 						aria-hidden={closing || undefined}
-						aria-label={t("contextUsage.title")}
+						aria-label={chip ? undefined : t("contextUsage.title")}
 						className={cx(
-							"fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-4 pt-4 pb-2 break-keep text-(--sc-text) shadow-(--sc-shadow-md)",
-							closing ? "omp-scale-out pointer-events-none" : "omp-pop-in",
+							chip
+								? "px-3 pt-1 pb-1 break-keep text-(--sc-text)"
+								: "fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-4 pt-4 pb-2 break-keep text-(--sc-text) shadow-(--sc-shadow-md)",
+							!chip && (closing ? "omp-scale-out pointer-events-none" : "omp-pop-in"),
 						)}
 						id="omp-context-usage-popover"
 						inert={closing}
-						onBlur={closeOnFocusOut}
-						onFocus={cancelScheduledClose}
+						onBlur={chip ? undefined : closeOnFocusOut}
+						onFocus={chip ? undefined : cancelScheduledClose}
 						onKeyDown={event => {
 							const panel = popoverRef.current;
 							if (panel && tabOutOfPopover(event, panel, buttonRef.current)) dismiss();
 						}}
-						onMouseEnter={cancelScheduledClose}
-						onMouseLeave={scheduleClose}
+						onMouseEnter={chip ? undefined : cancelScheduledClose}
+						onMouseLeave={chip ? undefined : scheduleClose}
 						ref={popoverRef}
-						role={pinned ? "dialog" : "group"}
-						style={popoverStyle}
+						role={chip ? undefined : pinned ? "dialog" : "group"}
+						style={chip ? undefined : popoverStyle}
 					>
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-sc-md font-medium text-(--sc-text)">
@@ -373,8 +413,15 @@ export function ContextUsagePopover() {
 							</div>
 						)}
 						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
-						<div className="-mx-4 mt-3 flex flex-wrap gap-1 border-t border-(--sc-divider) px-2 pt-2">
+						<div
+							className={
+								chip
+									? "-mx-1 mt-3 flex flex-col gap-0.5 border-t border-(--sc-divider) pt-2"
+									: "-mx-4 mt-3 flex flex-wrap gap-1 border-t border-(--sc-divider) px-2 pt-2"
+							}
+						>
 							<Button
+								className={chip ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
 								disabled={compacting || !sidecarReady}
 								icon={<Minimize2 aria-hidden className="text-(--sc-text-muted)" />}
 								loading={compacting}
@@ -385,6 +432,7 @@ export function ContextUsagePopover() {
 								{t("contextUsage.compact")}
 							</Button>
 							<Button
+								className={chip ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
 								disabled={compacting || !sidecarReady}
 								icon={<GitFork aria-hidden className="text-(--sc-text-muted)" />}
 								onClick={() => {
@@ -397,7 +445,7 @@ export function ContextUsagePopover() {
 								{t("contextUsage.handoff")}
 							</Button>
 							<Button
-								className="w-full justify-start"
+								className={cx("w-full justify-start", chip && "min-h-(--sc-row-action)")}
 								icon={<BarChart3 aria-hidden className="text-(--sc-text-muted)" />}
 								onClick={() => {
 									dismiss();
@@ -411,7 +459,6 @@ export function ContextUsagePopover() {
 							</Button>
 						</div>
 					</div>,
-					document.body,
 				)}
 		</div>
 	);

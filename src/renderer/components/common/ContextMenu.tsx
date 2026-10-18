@@ -74,6 +74,8 @@ interface ContextMenuProps {
 	ariaLabel?: string;
 	side?: MenuSide;
 	onClose: () => void;
+	/** A touch sheet that must not take focus from the control it came from (the composer's field keeps the keyboard). */
+	keepFocus?: boolean;
 }
 
 /** Menu panel visuals. */
@@ -150,6 +152,7 @@ export function ContextMenu({
 	align = "start",
 	side = "below",
 	ariaLabel,
+	keepFocus = false,
 	onClose,
 }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -228,10 +231,11 @@ export function ContextMenu({
 		};
 	}, []);
 
-	// Focus the active item whenever the menu opens or the index moves.
+	// Focus the active item whenever the menu opens or the index moves (a `keepFocus` sheet leaves focus where it is).
 	useEffect(() => {
+		if (keepFocus) return;
 		menuRef.current?.querySelectorAll<HTMLButtonElement>("[data-menu-item]")[activeIndex]?.focus();
-	}, [activeIndex]);
+	}, [activeIndex, keepFocus]);
 
 	const step = (delta: number) => {
 		setActiveIndex(current => {
@@ -291,7 +295,12 @@ export function ContextMenu({
 	// A finger opened it (long press, ⋯): a bottom action sheet with 48 px rows, not a popover at the fingertip.
 	if (sheet) {
 		return createPortal(
-			<div className="omp-action-sheet-overlay omp-fade-in" data-action-sheet="" role="presentation">
+			<div
+				className="omp-action-sheet-overlay omp-fade-in"
+				data-action-sheet=""
+				onMouseDown={keepFocus ? event => event.preventDefault() : undefined}
+				role="presentation"
+			>
 				<div
 					aria-label={ariaLabel}
 					className="omp-action-sheet omp-sheet-in-bottom"
@@ -351,6 +360,8 @@ export interface MenuButtonProps {
 	/** `above` opens over the trigger (capped at 60vh) when it fits; `below` is the default. */
 	side?: MenuSide;
 	disabled?: boolean;
+	/** The trigger and its sheet keep focus where it is (touch): see ContextMenu `keepFocus`. */
+	keepFocus?: boolean;
 	className?: string;
 }
 
@@ -368,6 +379,7 @@ export function MenuButton({
 	align = "start",
 	side = "below",
 	disabled,
+	keepFocus = false,
 	className,
 }: MenuButtonProps) {
 	const [anchor, setAnchor] = useState<(ContextMenuAnchor & { above: number }) | null>(null);
@@ -380,6 +392,7 @@ export function MenuButton({
 		"aria-haspopup": "menu" as const,
 		className,
 		disabled,
+		onMouseDown: keepFocus ? (event: { preventDefault: () => void }) => event.preventDefault() : undefined,
 		onPointerDown: () => {
 			swallowClickRef.current = open;
 		},
@@ -415,6 +428,7 @@ export function MenuButton({
 						},
 					}))}
 					onClose={() => setAnchor(null)}
+					keepFocus={keepFocus}
 					x={anchor.x}
 					y={anchor.y}
 				/>

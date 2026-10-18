@@ -68,6 +68,7 @@ const baseProps: ComposerToolbarProps = {
 	sendDisabled: false,
 	onStop: () => {},
 	onSend: () => {},
+	onOpenRunSheet: () => {},
 };
 
 async function render(props: Partial<ComposerToolbarProps> = {}): Promise<void> {

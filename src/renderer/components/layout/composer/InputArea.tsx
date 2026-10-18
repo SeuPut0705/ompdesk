@@ -1,7 +1,7 @@
 import { Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
-import { useShellInput } from "../../../hooks/use-shell-mode";
+import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
 import type { ComposerWindowAction } from "../../../lib/composer-actions";
 import { COMPOSER_BLOCKED_PLACEHOLDER, useComposerBlockedBy } from "../../../lib/composer-blocked";
 import { useDisplayPreference } from "../../../lib/display-preferences";
@@ -31,6 +31,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { ComposerQueueLive, ComposerQueuePill } from "./ComposerQueue";
 import { ComposerEditBanner, useComposerQueueEdit } from "./ComposerQueueEdit";
 import { ComposerRestoredQueue } from "./ComposerRestoredQueue";
+import { ComposerStatusRow } from "./ComposerStatusRow";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
@@ -75,6 +76,8 @@ export function InputArea() {
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	const sessionFile = useSessionStore(s => s.sessionFile);
 	const touchInput = useShellInput() === "touch";
+	/** A phone gets the status chip row above the box (model, Plan, Run, context + suggestions) and `[+] [field] [Send]`. */
+	const phone = useShellMode() === "phone";
 	/** "Enter sends on mobile": a touch device's Enter sends instead of adding a line. */
 	const enterSends = useUiStore(state => state.displayPreferences.mobileEnterSends === true);
 	const enterNewline = composerEnterNewline(touchInput, enterSends);
@@ -129,6 +132,8 @@ export function InputArea() {
 	const stoppable = isStreaming || submitPending;
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+	/** The phone's Run sheet (Tool approval, Delegation): opened by the Run chip or the + sheet's rows. */
+	const [runSheetOpen, setRunSheetOpen] = useState(false);
 	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
@@ -351,6 +356,7 @@ export function InputArea() {
 	const filesPicked = useStableCallback(onFilesPicked);
 	const openHistorySearch = useCallback(() => setHistorySearchOpen(true), []);
 	const openSkillPicker = useCallback(() => setSkillPickerOpen(true), []);
+	const openRunSheet = useCallback(() => setRunSheetOpen(true), []);
 	const toggleExpandedFromMenu = useCallback(() => toggleExpanded(), [toggleExpanded]);
 	// The palette's History / Expand / Attach rows reach this composer through one window event.
 	const onPaletteAction = useStableCallback((action: ComposerWindowAction) => {
@@ -433,16 +439,39 @@ export function InputArea() {
 						skillsOpen={skillPickerOpen}
 						textareaRef={textareaRef}
 					/>
-					{chipRow && (
-						<NextPromptChips
-							away={!chipsShown}
-							chips={chipList}
-							handleRef={chipsRef}
-							onPick={pickChip}
-							onSend={touchInput ? sendChip : undefined}
-							touch={touchInput}
-							onReturn={() => textareaRef.current?.focus()}
+					{phone ? (
+						<ComposerStatusRow
+							onRunOpenChange={setRunSheetOpen}
+							runOpen={runSheetOpen}
+							shown={!expanded}
+							trailing={
+								chipRow ? (
+									<NextPromptChips
+										away={!chipsShown}
+										bare
+										chips={chipList}
+										handleRef={chipsRef}
+										onPick={pickChip}
+										onReturn={() => textareaRef.current?.focus()}
+										onSend={touchInput ? sendChip : undefined}
+										touch={touchInput}
+									/>
+								) : undefined
+							}
+							trailingAway={!chipsShown}
 						/>
+					) : (
+						chipRow && (
+							<NextPromptChips
+								away={!chipsShown}
+								chips={chipList}
+								handleRef={chipsRef}
+								onPick={pickChip}
+								onSend={touchInput ? sendChip : undefined}
+								touch={touchInput}
+								onReturn={() => textareaRef.current?.focus()}
+							/>
+						)
 					)}
 					{/* Focus and drag paint live in components.css (.omp-composer-box): the
 					    field state follows the TEXT field, not any focused descendant, so a
@@ -530,6 +559,7 @@ export function InputArea() {
 							onOpenFilePicker={openFilePicker}
 							onOpenHistory={openHistorySearch}
 							onOpenSkills={openSkillPicker}
+							onOpenRunSheet={openRunSheet}
 							onSend={sendFromToolbar}
 							onStop={stopFromToolbar}
 							onStopAndSend={dictation.stopAndSend}
