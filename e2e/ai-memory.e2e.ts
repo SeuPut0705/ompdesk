@@ -21,8 +21,8 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import type { AiMemoryPhase } from "../src/shared/ai-memory";
-import { exitApp, launchApp, pressShortcutUntilVisible, readRecords } from "./harness";
 import { type FixtureAiMemory, fixtureAiMemory } from "./fixture/fake-ai-memory-install";
+import { exitApp, launchApp, pressShortcutUntilVisible, readRecords } from "./harness";
 
 const PLAN = "setup --plan --json --agent omp";
 const SETUP = "setup --yes --agent omp";
@@ -164,7 +164,9 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 			// The status reads went out with the bearer token.
 			const requests = await rig.memory.requests();
 			expect(requests.some(request => request.path === "/admin/status" && request.authorized)).toBe(true);
-			expect(requests.filter(request => request.path !== "/healthz").every(request => request.authorized)).toBe(true);
+			expect(requests.filter(request => request.path !== "/healthz").every(request => request.authorized)).toBe(
+				true,
+			);
 			expect(await serverPid(rig)).not.toBeNull();
 		});
 
@@ -178,7 +180,10 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 			const fresh = (await tabs()).find(tab => tab.tabId !== startup?.tabId);
 			if (!fresh) throw new Error("No new tab");
 			await expect.poll(async () => (await tabs()).find(tab => tab.tabId === fresh.tabId)?.status).toBe("ready");
-			const response = await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), fresh.tabId);
+			const response = await page.evaluate(
+				id => window.omp.rpc.commandForTab(id, { type: "get_state" }),
+				fresh.tabId,
+			);
 			const sessionId = (response.data as { sessionId?: string } | undefined)?.sessionId;
 			const launches = (await readRecords(rig.record)).filter(
 				entry => entry.type === "launch" && entry.recordedBy === sessionId,
@@ -197,7 +202,9 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 			await expect(panel.locator("[data-ai-memory-header]")).toContainText(/4 pages · 2 sessions · 17 observations/);
 			await expect(panel.locator("[data-ai-memory-recent]")).toContainText("Session: fix the cache");
 			await expect(panel.locator("[data-ai-memory-recent]")).toContainText("Use SQLite for the cache");
-			await expect(panel.locator("[data-ai-memory-handoffs]")).toContainText("Cache fix half done; next: add the eviction test.");
+			await expect(panel.locator("[data-ai-memory-handoffs]")).toContainText(
+				"Cache fix half done; next: add the eviction test.",
+			);
 			await panel.locator("[data-ai-memory-search] input").fill("sqlite");
 			await panel.locator("[data-ai-memory-search] input").press("Enter");
 			const results = panel.locator("[data-ai-memory-results]");
@@ -225,9 +232,9 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 			// Every Settings section: no stock memory backend rows (memory.backend, mnemopi, hindsight).
 			const ids: string[] = [];
 			let text = "";
-			const sectionNames = await settings.locator("[data-settings-section]").evaluateAll(nodes =>
-				nodes.map(node => node.getAttribute("data-settings-section") ?? ""),
-			);
+			const sectionNames = await settings
+				.locator("[data-settings-section]")
+				.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""));
 			for (const name of sectionNames) {
 				await settings.locator(`[data-settings-section="${name}"]`).click();
 				ids.push(...(await settings.locator("[id^='setting-']").evaluateAll(nodes => nodes.map(node => node.id))));
@@ -245,7 +252,9 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 				await fs.mkdir(path.join(dataDir, folder), { recursive: true });
 				await fs.writeFile(path.join(dataDir, folder, "page"), "remembered");
 			}
-			const del = settings.locator("#settings-memory").getByRole("button", { name: "Delete all memory", exact: true });
+			const del = settings
+				.locator("#settings-memory")
+				.getByRole("button", { name: "Delete all memory", exact: true });
 			await del.click();
 			const dialog = page.getByRole("dialog");
 			await expect(dialog).toContainText("Delete all memory?");
@@ -277,7 +286,11 @@ test("ai-memory wires omp with its own installer, shows one memory section, and 
 			await expect(settings.locator("#setting-aiMemory [role='switch']")).toHaveAttribute("aria-checked", "false");
 			await phaseIs(page, "off");
 			expect(await commands(rig)).toEqual([PLAN, INIT, SETUP, UNINSTALL, PLAN, SETUP, UNINSTALL]);
-			expect(await state(page)).toMatchObject({ enabled: false, wiring: { extension: false, mcp: false }, stats: null });
+			expect(await state(page)).toMatchObject({
+				enabled: false,
+				wiring: { extension: false, mcp: false },
+				stats: null,
+			});
 			expect(existsSync(path.join(rig.agent, EXTENSION))).toBe(false);
 			const mcp = JSON.parse(await fs.readFile(path.join(rig.agent, "mcp.json"), "utf8"));
 			expect(mcp.mcpServers["ai-memory"]).toBeUndefined();

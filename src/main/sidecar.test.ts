@@ -1065,7 +1065,11 @@ describe("SidecarManager", () => {
 					"setInterval(() => {}, 1000);",
 				].join("\n"),
 			);
-			const read = () => fs.readFile(logPath, "utf8").then(text => text.split("\n").filter(Boolean), () => [] as string[]);
+			const read = () =>
+				fs.readFile(logPath, "utf8").then(
+					text => text.split("\n").filter(Boolean),
+					() => [] as string[],
+				);
 			return { tempDir, binaryPath, read };
 		}
 

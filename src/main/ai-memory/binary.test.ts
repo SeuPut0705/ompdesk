@@ -8,8 +8,8 @@ import { RM_TEMP } from "../test-fake-omp";
 import {
 	externalCandidates,
 	newerExternal,
-	parseAiMemoryVersion,
 	type PinnedAsset,
+	parseAiMemoryVersion,
 	pinnedAsset,
 	pruneStaged,
 	stageBinary,
@@ -56,7 +56,9 @@ describe("the pin file", () => {
 	});
 
 	it("reads its version from the pin json itself", async () => {
-		const pin = JSON.parse(await readFile(join(process.cwd(), "resources/omp-builtin/ai-memory/ai-memory.json"), "utf8"));
+		const pin = JSON.parse(
+			await readFile(join(process.cwd(), "resources/omp-builtin/ai-memory/ai-memory.json"), "utf8"),
+		);
 		expect(pin.version).toBe(AI_MEMORY_VERSION);
 		expect(pin.assets).toEqual(AI_MEMORY_ASSETS);
 	});
@@ -207,19 +209,24 @@ describe("newerExternal", () => {
 		expect(found).toEqual({ bin, version: NEWER });
 	});
 
-	it.skipIf(process.platform === "win32")("ignores an equal, an older, an unparsable and a missing install", async () => {
-		const home = join(root, "home");
-		const equal = await install(join(root, "equal"));
-		const older = await install(join(root, "older"));
-		const garbled = await install(join(root, "garbled"));
-		const path = [join(root, "equal"), join(root, "older"), join(root, "garbled"), join(root, "absent")].join(delimiter);
-		const found = await run({
-			home,
-			path,
-			versions: { [equal]: AI_MEMORY_VERSION, [older]: "0.0.1", [garbled]: null },
-		});
-		expect(found).toBeNull();
-	});
+	it.skipIf(process.platform === "win32")(
+		"ignores an equal, an older, an unparsable and a missing install",
+		async () => {
+			const home = join(root, "home");
+			const equal = await install(join(root, "equal"));
+			const older = await install(join(root, "older"));
+			const garbled = await install(join(root, "garbled"));
+			const path = [join(root, "equal"), join(root, "older"), join(root, "garbled"), join(root, "absent")].join(
+				delimiter,
+			);
+			const found = await run({
+				home,
+				path,
+				versions: { [equal]: AI_MEMORY_VERSION, [older]: "0.0.1", [garbled]: null },
+			});
+			expect(found).toBeNull();
+		},
+	);
 
 	it("is null when no ai-memory exists anywhere", async () => {
 		expect(await run({ home: join(root, "home"), versions: {} })).toBeNull();

@@ -11,7 +11,14 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { AiMemoryClient } from "./client";
-import { AiMemoryService, type AiMemoryServiceDeps, EXTENSION_FILE, MCP_FILE, parsePlan, parseProblems } from "./service";
+import {
+	AiMemoryService,
+	type AiMemoryServiceDeps,
+	EXTENSION_FILE,
+	MCP_FILE,
+	parsePlan,
+	parseProblems,
+} from "./service";
 
 const BIN = "/fake/bin/ai-memory";
 const SERVER = "http://127.0.0.1:50123";
@@ -206,7 +213,22 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		...overrides,
 	});
 	const commands = () => calls.map(call => call.args.join(" "));
-	return { root, agentDir, dataDir, home, toolsDir, calls, commands, behavior, health, state, states, persistEnabled, clock, service };
+	return {
+		root,
+		agentDir,
+		dataDir,
+		home,
+		toolsDir,
+		calls,
+		commands,
+		behavior,
+		health,
+		state,
+		states,
+		persistEnabled,
+		clock,
+		service,
+	};
 }
 
 type GateResult = Result | typeof HANG | "spawn-error";
@@ -227,10 +249,9 @@ describe("AiMemoryService", () => {
 
 	describe("pure parsers", () => {
 		it("parseProblems reads only `problem:` lines", () => {
-			expect(parseProblems("ok\n  problem: self-check: healthz did not answer\r\nINFO x\nproblem: config: bad\n")).toEqual([
-				"self-check: healthz did not answer",
-				"config: bad",
-			]);
+			expect(
+				parseProblems("ok\n  problem: self-check: healthz did not answer\r\nINFO x\nproblem: config: bad\n"),
+			).toEqual(["self-check: healthz did not answer", "config: bad"]);
 			expect(parseProblems("nothing")).toEqual([]);
 		});
 
@@ -438,7 +459,11 @@ describe("AiMemoryService", () => {
 			await service.setEnabled(false);
 			await service.setEnabled(true);
 			expect(commands()).toEqual([PLAN, INIT, SETUP, "uninstall --apply --yes", PLAN, SETUP]);
-			expect(service.state()).toMatchObject({ enabled: true, phase: "ready", wiring: { extension: true, mcp: true } });
+			expect(service.state()).toMatchObject({
+				enabled: true,
+				phase: "ready",
+				wiring: { extension: true, mcp: true },
+			});
 		});
 
 		it("a stored `false` at launch starts off and runs no command", async () => {
@@ -453,8 +478,13 @@ describe("AiMemoryService", () => {
 			const { service, behavior } = await make();
 			await service.start();
 			behavior.uninstall = () => ({ code: 1, output: "could not stop the service\n" });
-			await expect(service.setEnabled(false)).rejects.toThrow("Turning memory off failed: could not stop the service");
-			expect(service.state()).toMatchObject({ phase: "failed", detail: "Turning memory off failed: could not stop the service" });
+			await expect(service.setEnabled(false)).rejects.toThrow(
+				"Turning memory off failed: could not stop the service",
+			);
+			expect(service.state()).toMatchObject({
+				phase: "failed",
+				detail: "Turning memory off failed: could not stop the service",
+			});
 		});
 
 		async function seedData(dataDir: string): Promise<void> {
@@ -531,7 +561,10 @@ describe("AiMemoryService", () => {
 			] as const) {
 				const { service, commands } = await make({ platform, arch, binaryOverride: null });
 				await service.start();
-				expect(service.state()).toMatchObject({ phase: "unsupported", detail: "ai-memory has no build for this platform." });
+				expect(service.state()).toMatchObject({
+					phase: "unsupported",
+					detail: "ai-memory has no build for this platform.",
+				});
 				expect(commands()).toEqual([]);
 				service.dispose();
 				await rm(w?.root ?? "", RM_TEMP);
@@ -634,7 +667,9 @@ describe("AiMemoryService", () => {
 			await service.start();
 			await rm(join(agentDir, EXTENSION_FILE));
 			await vi.waitFor(() => expect(commands().filter(command => command === SETUP)).toHaveLength(2));
-			await vi.waitFor(() => expect(service.state()).toMatchObject({ phase: "ready", wiring: { extension: true, mcp: true } }));
+			await vi.waitFor(() =>
+				expect(service.state()).toMatchObject({ phase: "ready", wiring: { extension: true, mcp: true } }),
+			);
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
 		});
 

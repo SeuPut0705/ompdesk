@@ -1570,7 +1570,7 @@ export const ko: Record<string, string> = {
 		"API 키, 베어러 토큰, 개인 키, URL 속 비밀번호 같은 자격 증명은 저장하기 전에 가능한 한 제거해요. “내 비밀번호는 …”처럼 글 속에 적은 것은 찾아내지 못해요.",
 	"aiMemory.privacy.replies": "어시스턴트의 답변은 기록하지 않아요.",
 	"aiMemory.privacy.ignore":
-		"파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml 파일을 두고 [capture] 섹션의 ignore_paths에 경로를 적어요(예: [\"**/.env*\"]). 파일과 셸 도구 활동에만 적용되며, 캡처가 허용 목록 모드가 아니면 프롬프트는 항상 기록돼요.",
+		'파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml 파일을 두고 [capture] 섹션의 ignore_paths에 경로를 적어요(예: ["**/.env*"]). 파일과 셸 도구 활동에만 적용되며, 캡처가 허용 목록 모드가 아니면 프롬프트는 항상 기록돼요.',
 	"aiMemory.privacy.off":
 		"메모리를 끄면 훅, MCP 항목, 스킬이 제거되고 서버가 멈춰요. 데이터는 여기서 삭제하기 전까지 남아요.",
 	"aiMemoryPanel.loadFailed": "메모리를 읽지 못했어요",

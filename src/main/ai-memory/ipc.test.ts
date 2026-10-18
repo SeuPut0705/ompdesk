@@ -187,7 +187,14 @@ describe("ai-memory IPC", () => {
 
 		it("read-page needs a project and a non-empty path, and passes only those fields", async () => {
 			const { service, call } = setup();
-			for (const bad of [undefined, null, PROJECT, { ...PROJECT, path: "" }, { ...PROJECT, path: 3 }, { workspace: "w", path: "a.md" }]) {
+			for (const bad of [
+				undefined,
+				null,
+				PROJECT,
+				{ ...PROJECT, path: "" },
+				{ ...PROJECT, path: 3 },
+				{ workspace: "w", path: "a.md" },
+			]) {
 				await expect(call(IPC_COMMANDS.AI_MEMORY_READ_PAGE, bad)).rejects.toThrow(/Invalid (page|project)/);
 			}
 			await call(IPC_COMMANDS.AI_MEMORY_READ_PAGE, { ...PROJECT, path: "sessions/a.md", extra: "dropped" });

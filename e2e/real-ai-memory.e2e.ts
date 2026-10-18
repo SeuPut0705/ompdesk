@@ -2,9 +2,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
-import type { ElectronApplication } from "playwright";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp } from "./harness";
 import { field, realOmpProfile, spentIn } from "./real-omp";
 
@@ -88,7 +88,13 @@ async function dataFiles(dir: string): Promise<{ file: string; text: string }[]>
 	const out: { file: string; text: string }[] = [];
 	for (const name of names) {
 		const file = path.join(dir, name);
-		if (!(await fs.stat(file).then(info => info.isFile(), () => false))) continue;
+		if (
+			!(await fs.stat(file).then(
+				info => info.isFile(),
+				() => false,
+			))
+		)
+			continue;
 		out.push({ file: name, text: (await fs.readFile(file)).toString("latin1") });
 	}
 	return out;
@@ -98,7 +104,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit: set OMP_GUI_REAL_WORK=1");
 	test.skip(process.platform !== "darwin", "The real-binary run drives macOS's launchd service");
 	const bin = realBinary();
-	test.skip(!bin, "No real ai-memory binary: run `bun run sync:ai-memory` or extract the release to /tmp/aim/rel/ai-memory");
+	test.skip(
+		!bin,
+		"No real ai-memory binary: run `bun run sync:ai-memory` or extract the release to /tmp/aim/rel/ai-memory",
+	);
 	test.skip(labelLoaded(), `launchd label ${LABEL} is already loaded (the user's own ai-memory): not touching it`);
 	test.skip(await portBusy(), `port ${PORT} is already in use (the user's own ai-memory server): not touching it`);
 	if (!bin) return;
@@ -136,7 +145,13 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		return current.page;
 	};
 	const launchReady = async (): Promise<void> => {
-		const app = await launchApp({ project: real.project, desktop: real.desktop, agent: real.agent, profile: real.profile, env });
+		const app = await launchApp({
+			project: real.project,
+			desktop: real.desktop,
+			agent: real.agent,
+			profile: real.profile,
+			env,
+		});
 		const page = await app.firstWindow();
 		current = { app, page };
 		await page.waitForFunction(() => window.omp?.rpc != null);
@@ -164,7 +179,9 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 			}).toPass({ timeout: 30_000 });
 			const fresh = (await tabs()).find(tab => !before.has(tab.tabId));
 			if (!fresh) throw new Error("No new tab");
-			await expect.poll(async () => (await tabs()).find(tab => tab.tabId === fresh.tabId)?.status, { timeout: 90_000 }).toBe("ready");
+			await expect
+				.poll(async () => (await tabs()).find(tab => tab.tabId === fresh.tabId)?.status, { timeout: 90_000 })
+				.toBe("ready");
 			return fresh.tabId;
 		};
 
@@ -177,7 +194,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 			`Remember this codename for later: ${codename}. ` +
 			`(For your information only, do not repeat them: my key is ${SECRET_KEY} and ${SECRET_PASSWORD}.) ` +
 			"Answer with exactly the word PONG.";
-		await win().evaluate(([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }), [first, firstPrompt] as const);
+		await win().evaluate(([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }), [
+			first,
+			firstPrompt,
+		] as const);
 		await expect
 			.poll(async () => repliedWith(await sessionLines(real.agent, firstId), "PONG"), { timeout: 240_000 })
 			.toBe(true);
@@ -191,29 +211,39 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		try {
 			await expect
 				.poll(
-					async () => (await win().evaluate(() => window.omp.aiMemory.handoffs())).some(handoff => handoff.state === "open"),
+					async () =>
+						(await win().evaluate(() => window.omp.aiMemory.handoffs())).some(
+							handoff => handoff.state === "open",
+						),
 					{ timeout: 120_000 },
 				)
 				.toBe(true);
 		} catch (error) {
 			// What the server holds when no handoff appeared: did the session reach it at all?
-			report.diagnostic = await win().evaluate(async code => ({
-				state: await window.omp.aiMemory.getState(),
-				projects: await window.omp.aiMemory.projects().catch(String),
-				handoffs: await window.omp.aiMemory.handoffs().catch(String),
-				recent: await window.omp.aiMemory.recent().catch(String),
-				search: await window.omp.aiMemory.search(code).catch(String),
-			}), codename);
+			report.diagnostic = await win().evaluate(
+				async code => ({
+					state: await window.omp.aiMemory.getState(),
+					projects: await window.omp.aiMemory.projects().catch(String),
+					handoffs: await window.omp.aiMemory.handoffs().catch(String),
+					recent: await window.omp.aiMemory.recent().catch(String),
+					search: await window.omp.aiMemory.search(code).catch(String),
+				}),
+				codename,
+			);
 			throw error;
 		}
 		const handoffs = await win().evaluate(() => window.omp.aiMemory.handoffs());
-		report.handoffs = handoffs.map(handoff => ({ state: handoff.state, agent: handoff.agent, summary: handoff.summary.slice(0, 200) }));
+		report.handoffs = handoffs.map(handoff => ({
+			state: handoff.state,
+			agent: handoff.agent,
+			summary: handoff.summary.slice(0, 200),
+		}));
 
 		// Session 2, the same folder: asked for the codename, it answers it from the handoff.
-		await win().evaluate(
-			([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }),
-			[second, "What was the codename I asked you to remember earlier? Answer with only the codename."] as const,
-		);
+		await win().evaluate(([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }), [
+			second,
+			"What was the codename I asked you to remember earlier? Answer with only the codename.",
+		] as const);
 		await expect
 			.poll(async () => repliedWith(await sessionLines(real.agent, secondId), codename), { timeout: 240_000 })
 			.toBe(true);
@@ -224,7 +254,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		// Proof of the capture + handoff path through the real extension, not only the model's answer: the injected
 		// custom message carries the first session's text.
 		expect(injected.some(line => JSON.stringify(line).includes(codename))).toBe(true);
-		const injectedMessage = injected.find(line => field(line, "customType") === HANDOFF_TYPE || field(field(line, "message"), "customType") === HANDOFF_TYPE);
+		const injectedMessage = injected.find(
+			line =>
+				field(line, "customType") === HANDOFF_TYPE || field(field(line, "message"), "customType") === HANDOFF_TYPE,
+		);
 		report.injectedType = injectedMessage ? "custom message" : "other line carrying the type";
 
 		// The fake secrets: nothing stored may hold them verbatim (the whole data dir, and the server's own search).
@@ -240,7 +273,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		const stored = (await searched(codename)).includes(codename);
 		report.scrubbed = {
 			"sk- key": keyLeaks.length === 0 && !searchKey ? "scrubbed" : { files: keyLeaks, search: searchKey },
-			"password=…": passwordLeaks.length === 0 && !searchPassword ? "scrubbed" : { files: passwordLeaks, search: searchPassword },
+			"password=…":
+				passwordLeaks.length === 0 && !searchPassword
+					? "scrubbed"
+					: { files: passwordLeaks, search: searchPassword },
 			codenameStoredAndSearchable: stored,
 		};
 		expect(keyLeaks, "the sk- key is stored verbatim").toEqual([]);
@@ -258,7 +294,9 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 				// Memory off through the app: the uninstall removes the service.
 				await running.page.evaluate(() => window.omp.aiMemory.setEnabled(false)).catch(() => undefined);
 				await expect
-					.poll(async () => (await running.page.evaluate(() => window.omp.aiMemory.getState())).phase, { timeout: 120_000 })
+					.poll(async () => (await running.page.evaluate(() => window.omp.aiMemory.getState())).phase, {
+						timeout: 120_000,
+					})
 					.toBe("off")
 					.catch(() => undefined);
 				await exitApp(running.app);
@@ -266,7 +304,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		} finally {
 			// Whatever happened above: ai-memory's own uninstall with the private HOME, then the label must be gone.
 			const result = uninstall();
-			report.uninstall = { status: result.status, tail: (result.stdout + result.stderr).trim().split("\n").slice(-3) };
+			report.uninstall = {
+				status: result.status,
+				tail: (result.stdout + result.stderr).trim().split("\n").slice(-3),
+			};
 			report.labelGone = !labelLoaded();
 			await fs.writeFile(REPORT, JSON.stringify(report, null, 2)).catch(() => undefined);
 			console.log(`real-ai-memory ${JSON.stringify(report)}`);

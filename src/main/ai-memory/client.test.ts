@@ -36,7 +36,10 @@ describe("AiMemoryClient", () => {
 	let routes: Record<string, () => Response>;
 	let client: AiMemoryClient;
 
-	const json = (body: unknown, status = 200) => () => Response.json(body, { status });
+	const json =
+		(body: unknown, status = 200) =>
+		() =>
+			Response.json(body, { status });
 
 	beforeEach(async () => {
 		dataDir = await mkdtemp(join(tmpdir(), "ai-memory-client-"));
@@ -86,7 +89,13 @@ describe("AiMemoryClient", () => {
 			counts: { pages_latest: 7, sessions: 3, observations: 120 },
 			storage: { database_bytes: 4096 },
 		});
-		expect(await client.status()).toEqual({ version: "3.1.1", pages: 7, sessions: 3, observations: 120, diskBytes: 4096 });
+		expect(await client.status()).toEqual({
+			version: "3.1.1",
+			pages: 7,
+			sessions: 3,
+			observations: 120,
+			diskBytes: 4096,
+		});
 		expect(calls[0]).toEqual({ url: `${URL_BASE}/admin/status`, authorization: "Bearer secret-token" });
 	});
 
@@ -188,7 +197,9 @@ describe("AiMemoryClient", () => {
 			{ workspace_name: "w", project_name: "ok", page_count: 1, last_updated: "2026-01-02T00:00:00Z" },
 			{ workspace_name: "w", project_name: "bad", page_count: 1, last_updated: "2026-01-01T00:00:00Z" },
 		]);
-		routes["/api/v1/workspaces/w/projects/ok/recent"] = json([{ path: "a.md", title: "A", updated_at: "2026-01-02T00:00:00Z" }]);
+		routes["/api/v1/workspaces/w/projects/ok/recent"] = json([
+			{ path: "a.md", title: "A", updated_at: "2026-01-02T00:00:00Z" },
+		]);
 		routes["/api/v1/workspaces/w/projects/bad/recent"] = json({}, 500);
 		expect((await client.recentEverywhere()).map(page => page.title)).toEqual(["A"]);
 	});

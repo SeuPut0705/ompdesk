@@ -1587,7 +1587,7 @@ export const en: Record<string, string> = {
 		"Credentials such as API keys, bearer tokens, private keys and passwords in URLs are stripped before storage, on a best-effort basis: free text like “my password is …” is not detected.",
 	"aiMemory.privacy.replies": "The assistant's replies are not recorded.",
 	"aiMemory.privacy.ignore":
-		"To keep files out of capture, put a .ai-memory.toml in the project with a [capture] section that lists ignore_paths (for example [\"**/.env*\"]). That covers file and shell tool activity only; prompts are always recorded unless capture runs in allowlist mode.",
+		'To keep files out of capture, put a .ai-memory.toml in the project with a [capture] section that lists ignore_paths (for example ["**/.env*"]). That covers file and shell tool activity only; prompts are always recorded unless capture runs in allowlist mode.',
 	"aiMemory.privacy.off":
 		"Turning memory off removes the hooks, the MCP entry and the skills and stops the server. The data stays until you delete it here.",
 	"aiMemoryPanel.loadFailed": "Couldn't read memory",
