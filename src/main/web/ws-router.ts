@@ -2,9 +2,10 @@
  * The web client's side of the wire (web-protocol.ts): one `WsConnection` per open socket, owned by the
  * `WsRouter`. Frames from a page become calls on the one `IpcRegistry` (`invoke` for `inv`, `send` for `snd`)
  * with the device's `WebClientWindow` as the caller, after the channel policy (ipc-policy.ts) and the device's
- * grants have said yes; the model-use quota counts model commands first. Pushes the pool makes to that window
- * come back as `evt` frames, batched every 75 ms with a reply's streaming deltas merged, and stop while the
- * page reports itself hidden. The socket itself (`RouterSocket`) is whatever `ws` hands the server, or a fake.
+ * grants have said yes; the model-use quota counts model commands first, and a picture the page sent by upload
+ * (`WebUploadedImage`) is read back into the call. Pushes the pool makes to that window come back as `evt`
+ * frames, batched every 75 ms with a reply's streaming deltas merged, and stop while the page reports itself
+ * hidden. The socket itself (`RouterSocket`) is whatever `ws` hands the server, or a fake.
  */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -13,6 +14,9 @@ import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import { WEB_DEVICE_CONNECTED, WEB_DEVICES_CHANGED, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import {
+	holdsBlock,
+	isWebUploadedImage,
+	replaceBlocks,
 	WEB_PROTOCOL_VERSION,
 	type WebClientFrame,
 	type WebFeatures,
@@ -27,6 +31,7 @@ import type { WebDevice, WebDevices } from "./devices-store";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 import type { IpcCaller } from "./ipc-registry";
 import { ConcurrencyLimiter, TokenBucket } from "./rate-limit";
+import type { UploadStore } from "./uploads";
 import type { WebClientWindow, WebWindows } from "./web-client-window";
 
 /** Files up to this size ride in the reply as base64; bigger ones are fetched over `/blob`. */
@@ -146,6 +151,8 @@ export interface WsRouterDeps {
 	blobs: Pick<BlobStore, "addBytes" | "addMedia" | "mediaUrl" | "release">;
 	/** Opens an `omp-media://` stream for a range (MediaStreams.handle); without it a stream answer passes unchanged. */
 	mediaOpen?: (url: string, range: string | undefined) => Promise<Response>;
+	/** The device's uploads: a picture a call names by upload (`WebUploadedImage`) is read back into the call. */
+	uploads: Pick<UploadStore, "take">;
 	/** A device's connection count changed (the settings list shows who is connected). */
 	onConnectionsChanged?: (deviceId: string) => void;
 	now?: () => number;
@@ -613,11 +620,13 @@ export class WsConnection {
 		const release = HEAVY_CHANNELS.has(channel) ? this.#acquireHeavy() : null;
 		const refund = dir === "invoke" ? this.#meter(channel, args, win) : null;
 		try {
+			// Synchronous unless a picture came by upload, so plain calls keep their order and timing.
+			const landed = holdsBlock(args, isWebUploadedImage) ? await this.#landUploads(args) : args;
 			if (dir === "send") {
-				registry.send(channel, caller, this.#translate(channel, args));
+				registry.send(channel, caller, this.#translate(channel, landed));
 				return undefined;
 			}
-			const result = await registry.invoke(channel, caller, args);
+			const result = await registry.invoke(channel, caller, landed);
 			if (refund && refused(result)) refund();
 			return this.#shape(channel, args, result);
 		} catch (error) {
@@ -744,6 +753,26 @@ export class WsConnection {
 		const url = result.url;
 		const open = (range: string | undefined): Promise<Response> => mediaOpen(url, range);
 		return { ...result, url: blobs.addMedia(this.deviceId, { url, mime: result.mime, size, open }) };
+	}
+
+	/**
+	 * The call with each picture the page sent by upload (`WebUploadedImage`) back as an inline image block, its
+	 * upload consumed. A path outside this device's uploads, or one already gone, fails the call.
+	 */
+	async #landUploads(args: readonly unknown[]): Promise<unknown[]> {
+		const { uploads } = this.#router.deps;
+		try {
+			const landed = await replaceBlocks(args, isWebUploadedImage, async ({ upload, ...block }) => {
+				const bytes = await uploads.take(this.deviceId, upload);
+				return { ...block, data: bytes.toString("base64") };
+			});
+			return landed as unknown[];
+		} catch {
+			throw codedError(
+				"file_not_found",
+				"A picture this message names is no longer on the computer; attach it again",
+			);
+		}
 	}
 
 	/** `FS_MEDIA_RELEASE` names the `/blob` URL the page holds; the handler knows the `omp-media://` one. */

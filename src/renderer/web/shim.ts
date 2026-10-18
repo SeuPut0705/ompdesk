@@ -32,7 +32,14 @@ import {
 	webHostHooks,
 } from "./host-hooks";
 import type { FetchLike } from "./session";
-import { acceptFromFilters, createPathForFile, type UploadFailure } from "./upload";
+import {
+	acceptFromFilters,
+	createPathForFile,
+	holdsInlineImage,
+	liftInlineImages,
+	UploadFailed,
+	type UploadFailure,
+} from "./upload";
 
 const C = IPC_COMMANDS;
 const E = IPC_EVENTS;
@@ -164,6 +171,21 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		onFailure: (file, failure) => env.toastError(env.t(failureText[failure], { name: file.name })),
 	});
 
+	/** Why a call's picture did not reach the computer (the call is not sent then). */
+	const imageFailureText: Record<UploadFailure, string> = {
+		"too-large": "web.upload.imageTooLarge",
+		refused: "web.upload.imageRefused",
+		network: "web.upload.imageNetwork",
+	};
+	/** `args` with their inline pictures uploaded first (upload.ts `liftInlineImages`); rejects with the reason. */
+	async function withImagesUploaded(args: unknown[]): Promise<unknown[]> {
+		try {
+			return await liftInlineImages(args, { fetch: env.fetch, base });
+		} catch (error) {
+			throw new Error(env.t(imageFailureText[error instanceof UploadFailed ? error.failure : "network"]));
+		}
+	}
+
 	const invokeOverrides: Record<string, (...args: unknown[]) => Promise<unknown>> = {
 		[C.SYSTEM_OPEN_EXTERNAL]: async (url: unknown) => {
 			if (typeof url !== "string") throw new Error("A link is required");
@@ -292,12 +314,22 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	const shimTransport: OmpTransport = {
 		invoke: <T>(channel: string, ...args: unknown[]) => {
 			const override = invokeOverrides[channel];
-			return (override ? override(...args) : transport.invoke(channel, ...args)) as Promise<T>;
+			if (override) return override(...args) as Promise<T>;
+			// A photo is larger than a frame may be: it goes by upload, and the call names the host's copy.
+			if (holdsInlineImage(args)) {
+				return withImagesUploaded(args).then(lifted => transport.invoke<T>(channel, ...lifted));
+			}
+			return transport.invoke<T>(channel, ...args);
 		},
 		send: (channel, ...args) => {
 			const override = sendOverrides[channel];
 			if (override) override(...args);
-			else transport.send(channel, ...args);
+			else if (holdsInlineImage(args)) {
+				void withImagesUploaded(args).then(
+					lifted => transport.send(channel, ...lifted),
+					(error: Error) => env.toastError(error.message),
+				);
+			} else transport.send(channel, ...args);
 		},
 		on: (channel, listener) =>
 			pageChannels.includes(channel) ? env.channels.on(channel, listener) : transport.on(channel, listener),

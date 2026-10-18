@@ -162,6 +162,7 @@ export class WebHost {
 			activeTab: win => deps.tabs.activeTab(win),
 			blobs: this.blobs,
 			mediaOpen: deps.openMedia,
+			uploads: this.uploads,
 			onConnectionsChanged: () => this.devices.notifyChanged(),
 			now,
 		});

@@ -3,10 +3,10 @@
  * Stored at `<userData>/web-uploads/<deviceId>/<uuid>/<name>` (dirs 0700, files 0600), at most 25 MiB each and
  * 200 MiB per device in any 24 hours, and deleted 24 hours after arriving. The caller learns the host path.
  * Revoking a device deletes its folder. The upload counts as the day's use while the file still exists, so the
- * cap needs no ledger and survives a restart.
+ * cap needs no ledger and survives a restart. A picture a call names (`take`) is read and deleted at once.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { basename, join, resolve, sep } from "node:path";
 
@@ -107,6 +107,24 @@ export class UploadStore {
 			if (left > 0) this.#pending.set(deviceId, left);
 			else this.#pending.delete(deviceId);
 		}
+	}
+
+	/**
+	 * The bytes of `file`, an upload of this device that a call names (a prompt's photo: web-protocol.ts
+	 * `WebUploadedImage`), and the upload is gone, its bytes now ride the call. 404 when it is not this device's or
+	 * no longer there.
+	 */
+	async take(deviceId: string, file: string): Promise<Buffer> {
+		const target = resolve(file);
+		const folder = join(this.#root, deviceId);
+		// Exactly `<root>/<device>/<uuid>/<name>`, the shape `receive` makes.
+		const relative = target.startsWith(folder + sep) ? target.slice(folder.length + 1).split(sep) : [];
+		if (relative.length !== 2) throw new UploadError(404, "no such upload");
+		const bytes = await readFile(target).catch(() => {
+			throw new UploadError(404, "no such upload");
+		});
+		await rm(join(folder, relative[0] as string), { recursive: true, force: true });
+		return bytes;
 	}
 
 	/** Delete uploads older than the TTL; returns how many files went. */

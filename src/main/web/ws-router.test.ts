@@ -117,6 +117,16 @@ function rig(options: RigOptions = {}) {
 		record: vi.fn(),
 	};
 	const blobs = new BlobStore();
+	/** This device's uploads by host path; `take` hands one over once. */
+	const uploaded = new Map<string, Buffer>();
+	const uploads = {
+		take: vi.fn(async (deviceId: string, file: string) => {
+			const bytes = deviceId === "dev1" ? uploaded.get(file) : undefined;
+			if (!bytes) throw new Error("no such upload");
+			uploaded.delete(file);
+			return bytes;
+		}),
+	};
 	let routerRef: WsRouter | null = null;
 	const windows = new WebWindows((id, channel, payload) => routerRef?.deliver(id, channel, payload));
 	const router = new WsRouter({
@@ -128,6 +138,7 @@ function rig(options: RigOptions = {}) {
 		features: () => ({ push: false, preview: false, upload: true, passkey: false }),
 		activeTab: () => "tab-active",
 		blobs,
+		uploads,
 		now: () => clock.now,
 		timers,
 	});
@@ -152,6 +163,8 @@ function rig(options: RigOptions = {}) {
 		callers,
 		windows,
 		blobs,
+		uploaded,
+		uploads,
 		frame,
 		settle,
 		revoke: () => {
@@ -222,6 +235,48 @@ describe("hello and calls", () => {
 			},
 			{ t: "res", id: 2, ok: false, e: { message: "plain" } },
 		]);
+	});
+
+	it("reads a picture the page sent by upload back into the call before it runs, and the upload is gone", async () => {
+		const { frame, socket, callers, uploaded, uploads } = rig();
+		uploaded.set("/up/dev1/a/image.jpeg", Buffer.from("JPEG"));
+		const prompt = (images: unknown[]) => ({
+			tabId: "t1",
+			command: { type: "prompt", message: "look", images },
+		});
+		frame({
+			t: "inv",
+			id: 3,
+			ch: IPC_COMMANDS.RPC_COMMAND_FOR_TAB,
+			a: [prompt([{ type: "image", mimeType: "image/jpeg", upload: "/up/dev1/a/image.jpeg" }])],
+		});
+		await vi.waitFor(() => expect(socket.frames("res")).toMatchObject([{ id: 3, ok: true }]));
+		expect(callers[0]?.args).toEqual([prompt([{ type: "image", mimeType: "image/jpeg", data: "SlBFRw==" }])]);
+		expect(uploaded.size).toBe(0);
+		// A picture already taken (or never this device's) fails the call, and nothing runs.
+		frame({
+			t: "inv",
+			id: 4,
+			ch: IPC_COMMANDS.RPC_COMMAND_FOR_TAB,
+			a: [prompt([{ type: "image", mimeType: "image/jpeg", upload: "/up/dev1/a/image.jpeg" }])],
+		});
+		await vi.waitFor(() => expect(socket.frames("res")).toHaveLength(2));
+		expect(callers).toHaveLength(1);
+		expect(socket.frames("res")[1]).toMatchObject({ id: 4, ok: false, e: { code: "file_not_found" } });
+		expect(uploads.take).toHaveBeenCalledWith("dev1", "/up/dev1/a/image.jpeg");
+	});
+
+	it("passes inline pictures and calls without pictures on unchanged, without touching the uploads", async () => {
+		const { frame, settle, callers, uploads } = rig();
+		const inline = {
+			tabId: "t1",
+			command: { type: "prompt", message: "x", images: [{ type: "image", mimeType: "image/png", data: "AA==" }] },
+		};
+		frame({ t: "inv", id: 5, ch: IPC_COMMANDS.RPC_COMMAND_FOR_TAB, a: [inline] });
+		frame({ t: "snd", ch: IPC_COMMANDS.RUNTIME_ERROR_REPORT, a: [{ message: "x" }] });
+		await settle();
+		expect(callers.map(call => call.args)).toEqual([[inline], [{ message: "x" }]]);
+		expect(uploads.take).not.toHaveBeenCalled();
 	});
 
 	it("answers ping with pong and ignores ack", () => {

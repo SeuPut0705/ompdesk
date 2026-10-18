@@ -112,4 +112,18 @@ describe("UploadStore", () => {
 		expect(existsSync(join(root, "dev1"))).toBe(false);
 		mkdirSync(join(root, "dev1"), { recursive: true });
 	});
+
+	it("hands a call its device's upload once and deletes it; another device's or a made-up path is refused", async () => {
+		const uploads = store();
+		const stored = await uploads.receive("dev1", await request("image.jpeg", new Uint8Array([7, 8, 9])));
+		await expect(uploads.take("dev2", stored.path)).rejects.toMatchObject({ status: 404 });
+		expect(existsSync(stored.path)).toBe(true);
+		expect([...(await uploads.take("dev1", stored.path))]).toEqual([7, 8, 9]);
+		expect(existsSync(join(stored.path, ".."))).toBe(false);
+		await expect(uploads.take("dev1", stored.path)).rejects.toMatchObject({ status: 404 });
+		await expect(uploads.take("dev1", join(root, "dev1"))).rejects.toMatchObject({ status: 404 });
+		await expect(uploads.take("dev1", join(root, "dev1", "..", "dev2", "x", "y"))).rejects.toMatchObject({
+			status: 404,
+		});
+	});
 });

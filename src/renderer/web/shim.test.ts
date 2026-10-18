@@ -334,6 +334,62 @@ describe("the web shim", () => {
 			await expect(web.api.fs.pathForFile(new File(["x"], "n.txt"))).resolves.toBe("");
 			expect(log.errors).toEqual(['web.upload.network{"name":"n.txt"}']);
 		});
+
+		it("sends a prompt's pictures by upload and the prompt names the host's copies (a frame holds 1 MB)", async () => {
+			const { web, invoked, fetches, fetchReply } = setup();
+			let answered = 0;
+			fetchReply.current = () => new Response(JSON.stringify({ path: `/up/${++answered}/image.jpeg` }));
+			const jpeg = { type: "image" as const, mimeType: "image/jpeg", data: bytes("JPEG bytes") };
+			const png = { type: "image" as const, mimeType: "image/png", data: bytes("PNG") };
+			await web.api.rpc.commandForTab("t1", { type: "prompt", message: "look", images: [jpeg, png] });
+			expect(fetches.map(f => f.url)).toEqual(["/upload", "/upload"]);
+			const sent = await Promise.all(
+				fetches.map(async f => {
+					const body = f.init?.body;
+					if (!(body instanceof FormData)) throw new Error("not a form");
+					const file = body.get("file");
+					if (!(file instanceof File)) throw new Error("no file field");
+					return { name: file.name, type: file.type, text: await file.text() };
+				}),
+			);
+			expect(sent).toEqual([
+				{ name: "image.jpeg", type: "image/jpeg", text: "JPEG bytes" },
+				{ name: "image.png", type: "image/png", text: "PNG" },
+			]);
+			expect(invoked.at(-1)).toEqual({
+				channel: C.RPC_COMMAND_FOR_TAB,
+				args: [
+					{
+						tabId: "t1",
+						command: {
+							type: "prompt",
+							message: "look",
+							images: [
+								{ type: "image", mimeType: "image/jpeg", upload: "/up/1/image.jpeg" },
+								{ type: "image", mimeType: "image/png", upload: "/up/2/image.jpeg" },
+							],
+						},
+					},
+				],
+			});
+		});
+
+		it("does not send a prompt whose picture the computer refused, and says why", async () => {
+			const { web, invoked, fetchReply } = setup();
+			fetchReply.current = () => new Response("{}", { status: 429 });
+			const image = { type: "image" as const, mimeType: "image/jpeg", data: bytes("x") };
+			await expect(
+				web.api.rpc.commandForTab("t1", { type: "prompt", message: "look", images: [image] }),
+			).rejects.toThrow("web.upload.imageRefused");
+			expect(invoked).toEqual([]);
+		});
+
+		it("leaves a call without pictures as it is, uploading nothing", async () => {
+			const { web, invoked, fetches } = setup();
+			await web.api.rpc.commandForTab("t1", { type: "prompt", message: "plain" });
+			expect(fetches).toEqual([]);
+			expect(invoked.at(-1)?.args).toEqual([{ tabId: "t1", command: { type: "prompt", message: "plain" } }]);
+		});
 	});
 
 	describe("notifications and chrome", () => {

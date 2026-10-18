@@ -37,7 +37,12 @@ import {
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
-import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../../src/shared/rpc-types";
+import type {
+	AgentMessage,
+	ImageContent,
+	RpcSecurityDashboardResult,
+	SubagentSnapshot,
+} from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
 import { FIXTURE_OMP_VERSION } from "./version";
@@ -3120,7 +3125,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		});
 		pushBridgeEvent({ type: "desktop_slot_acquire", requestId: id });
 	};
-	const prompt = (message: string, respond: () => void) => {
+	const prompt = (message: string, respond: () => void, images: ImageContent[] = []) => {
 		respond();
 		isStreaming = true;
 		// The new turn takes the queued input with it.
@@ -3130,7 +3135,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			emitQueue();
 		}
 		const sentAt = Date.now();
-		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: sentAt };
+		// As stock `#promptWithMessage`: the text, then the prompt's pictures.
+		const user: AgentMessage = {
+			role: "user",
+			content: [{ type: "text", text: message }, ...images],
+			timestamp: sentAt,
+		};
 		appendMessage(user);
 		noteTitlePrompt(message);
 		// A85 (resources/gui-bridge/prompt-origin.ts): an omp a host runs for a paired device journals that device per prompt.
@@ -5091,7 +5101,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					break;
 				}
 				if (autopilot.childPrompt(text("message"), ok)) break;
-				prompt(text("message"), ok);
+				prompt(text("message"), ok, Array.isArray(command.images) ? (command.images as ImageContent[]) : []);
 				break;
 			case "set_session_name": {
 				// Stock RPC `set_session_name` is the person's own rename: the title is manual from now on.

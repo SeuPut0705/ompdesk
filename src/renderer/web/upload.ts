@@ -3,7 +3,13 @@
  * file goes to the host (`POST /upload`, multipart field `file`, 25 MB each) and the answer is the path it has
  * there, which the composer mentions like any local file. A file the host would refuse or the network loses
  * answers "" — the composer's own fallbacks (inline text, a reason) take over — and `onFailure` says why.
+ *
+ * The pictures a call carries (a prompt's attached photos) take the same road: `liftInlineImages` uploads each
+ * image block's bytes and leaves a `WebUploadedImage` in its place, since a frame on the socket may hold 1 MB and
+ * one phone photo is often more; the host reads them back before the call runs.
  */
+import { holdsBlock, replaceBlocks, type WebUploadedImage } from "../../shared/web-protocol";
+import { base64ToBytes } from "./download";
 import type { FetchLike } from "./session";
 
 /** The host's per-file limit (design §5.4). */
@@ -45,6 +51,30 @@ class UploadRefused extends Error {
 	}
 }
 
+/** An upload that did not land: why, and the host's status for a refusal. */
+export class UploadFailed extends Error {
+	readonly failure: UploadFailure;
+	readonly status: number | undefined;
+	constructor(failure: UploadFailure, status?: number) {
+		super(`Upload failed (${failure}${status === undefined ? "" : ` ${status}`})`);
+		this.failure = failure;
+		this.status = status;
+	}
+}
+
+/** `uploadFile` within the size limit, counted in {@link uploadsInFlight}; throws `UploadFailed`. */
+async function sendUpload(file: File, deps: UploadDeps): Promise<string> {
+	if (file.size > UPLOAD_MAX_BYTES) throw new UploadFailed("too-large");
+	inFlight++;
+	try {
+		return await uploadFile(file, deps);
+	} catch (error) {
+		throw error instanceof UploadRefused ? new UploadFailed("refused", error.status) : new UploadFailed("network");
+	} finally {
+		inFlight--;
+	}
+}
+
 /**
  * A `pathForFile` that uploads each distinct `File` once and keeps the answer: the composer asks again for the
  * same file (paste then send), and a second upload would leave a second copy on the host.
@@ -54,27 +84,54 @@ export function createPathForFile(deps: UploadDeps): (file: File) => Promise<str
 	return file => {
 		const cached = known.get(file);
 		if (cached) return cached;
-		const result = (async () => {
-			if (file.size > UPLOAD_MAX_BYTES) {
-				deps.onFailure?.(file, "too-large");
-				return "";
-			}
-			inFlight++;
-			try {
-				return await uploadFile(file, deps);
-			} catch (error) {
-				if (error instanceof UploadRefused) deps.onFailure?.(file, "refused", error.status);
-				else deps.onFailure?.(file, "network");
-				// A failed upload is tried again next time.
-				known.delete(file);
-				return "";
-			} finally {
-				inFlight--;
-			}
-		})();
+		const result = sendUpload(file, deps).catch((error: unknown) => {
+			const failed = error instanceof UploadFailed ? error : new UploadFailed("network");
+			deps.onFailure?.(file, failed.failure, failed.status);
+			// A failed upload is tried again next time.
+			known.delete(file);
+			return "";
+		});
 		known.set(file, result);
 		return result;
 	};
+}
+
+/** An image block with its bytes inline (`ImageContent`: base64 `data` and its `mimeType`). */
+interface InlineImage {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+
+function isInlineImage(value: unknown): value is InlineImage {
+	if (typeof value !== "object" || value === null) return false;
+	const block = value as Record<string, unknown>;
+	return block.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string";
+}
+
+/** Whether a call's arguments carry an image block with inline bytes anywhere. */
+export function holdsInlineImage(args: readonly unknown[]): boolean {
+	return holdsBlock(args, isInlineImage);
+}
+
+/** A file name for an upload of `mimeType` bytes (`image/jpeg` → `image.jpeg`). */
+function imageFileName(mimeType: string): string {
+	const subtype = /^image\/([a-z0-9.+-]+)$/i.exec(mimeType)?.[1]?.replace(/\+.*$/, "");
+	return subtype ? `image.${subtype.toLowerCase()}` : "image";
+}
+
+/**
+ * `args` with every inline image block's bytes uploaded to the host and the block replaced by a
+ * `WebUploadedImage` naming the host's copy; everything else is kept. Rejects with the first `UploadFailed`.
+ */
+export async function liftInlineImages(args: readonly unknown[], deps: UploadDeps): Promise<unknown[]> {
+	const lifted = await replaceBlocks(args, isInlineImage, async ({ data, ...block }): Promise<WebUploadedImage> => {
+		const file = new File([base64ToBytes(data) as Uint8Array<ArrayBuffer>], imageFileName(block.mimeType), {
+			type: block.mimeType,
+		});
+		return { ...block, upload: await sendUpload(file, deps) };
+	});
+	return lifted as unknown[];
 }
 
 /** Pick files on the phone with a file input; empty when the picker was cancelled. */
