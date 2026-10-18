@@ -1,0 +1,6 @@
+[install]
+# Supply chain: a new dependency version resolves only once it has been public for 3 days
+# (seconds), so a hijacked or yanked-within-hours release never reaches a fresh install.
+# Versions already pinned in bun.lock are untouched. A package that must be taken sooner is
+# listed in minimumReleaseAgeExcludes (none today). Pinned by src/main/supply-chain.test.ts.
+minimumReleaseAge = 259200
