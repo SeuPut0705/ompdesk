@@ -27,7 +27,6 @@ import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { cx } from "../../../lib/format";
-import { historyImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { parseComposerMode } from "../../../lib/input-modes";
@@ -38,10 +37,10 @@ import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "../../../stores/composer";
+import { type ComposerStore, prependToDraft, useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
-import { type InputHistoryContext, useInputHistoryStore } from "../../../stores/input-history";
+import { useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
 import { useNextPromptStore } from "../../../stores/next-prompt";
@@ -78,6 +77,7 @@ import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useComple
 import { useComposerAttach } from "./use-composer-attach";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerDraft } from "./use-composer-draft";
+import { useComposerHistory } from "./use-composer-history";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
 
@@ -208,8 +208,6 @@ export function InputArea() {
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-	/** The draft's pictures while ↑/↓ shows history entries (restored on the way back). */
-	const navDraftImages = useRef<ComposerImage[]>([]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
 	const [expanded, setExpanded] = useState(false);
 	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
@@ -383,10 +381,16 @@ export function InputArea() {
 		else if (action === "rewind") useUiStore.getState().openBranchPicker();
 	};
 
-	// Refresh from this tab's omp machine when its bridge is ready.
-	useEffect(() => {
-		if (status === "ready") void useInputHistoryStore.getState().hydrate(rpc, historyDevice);
-	}, [rpc, status, historyDevice]);
+	const history = useComposerHistory({
+		rpc,
+		ready: status === "ready",
+		cwd,
+		owner: `${runtimeTabId}:${sessionId}`,
+		device: historyDevice,
+		images,
+		setImages,
+		placeDraft,
+	});
 
 	// `!` → bash / `$` → python composer mode (TUI parity): drives the toolbar
 	// badge and reroutes sending. Detected from the prefix alone so the badge
@@ -625,32 +629,6 @@ export function InputArea() {
 		}
 	};
 
-	const historyContext = (): InputHistoryContext => ({
-		cwd,
-		owner: `${runtimeTabId}:${sessionId}`,
-		device: historyDevice,
-	});
-	/** ↑/↓ (or a ⌃R pick) is showing history entries for this composer, the draft waiting in the stash. */
-	const browsingHistory = (context: InputHistoryContext) => {
-		const history = useInputHistoryStore.getState();
-		return (
-			history.navIndex !== -1 &&
-			history.navContext?.owner === context.owner &&
-			history.navContext?.cwd === context.cwd &&
-			history.navContext?.device === context.device
-		);
-	};
-	/**
-	 * Show a history entry the history store moved to: the draft's own pictures step aside while
-	 * browsing and come back with it, an entry brings the pictures it was sent with.
-	 */
-	const showRecalled = (recalled: string, wasBrowsing: boolean, caret: number) => {
-		if (!wasBrowsing) navDraftImages.current = images;
-		const backToDraft = useInputHistoryStore.getState().navIndex === -1;
-		setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
-		placeDraft(recalled, caret);
-	};
-
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// IME composition (Chinese/Japanese/Korean input): while the candidate
 		// window is open, Enter and friends belong to the IME — committing the
@@ -821,7 +799,7 @@ export function InputArea() {
 					setEscHint(true);
 					return;
 				}
-				useInputHistoryStore.getState().record(expandPasteMarkers(text), cwd, rpc, historyDevice);
+				history.record(text);
 				dropReferencedPastes(text);
 				// One native edit: Cmd/Ctrl+Z brings the cleared text back.
 				placeDraft("", 0);
@@ -845,24 +823,9 @@ export function InputArea() {
 			!e.shiftKey
 		) {
 			const el = textareaRef.current;
-			if (el) {
-				const caretStart = el.selectionStart ?? 0;
-				const caretEnd = el.selectionEnd ?? caretStart;
-				const history = useInputHistoryStore.getState();
-				const context = historyContext();
-				const older = e.key === "ArrowUp";
-				const wasBrowsing = browsingHistory(context);
-				const recalled =
-					older && caretEnd === 0
-						? history.prev(text, context)
-						: !older && caretStart === text.length
-							? history.next(context)
-							: undefined;
-				if (recalled !== undefined) {
-					e.preventDefault();
-					showRecalled(recalled, wasBrowsing, older ? 0 : recalled.length);
-					return;
-				}
+			if (el && history.recallAdjacent(e.key === "ArrowUp", el, text)) {
+				e.preventDefault();
+				return;
 			}
 		}
 		// Line-adding keys (Shift+Enter, plain Enter while expanded) continue a markdown list.
@@ -953,13 +916,8 @@ export function InputArea() {
 							onSelect={prompt => {
 								setHistorySearchOpen(false);
 								textareaRef.current?.focus();
-								// A pick replaces the draft the way ↑ does: the draft and its pictures wait in the
-								// history's stash (↓ brings them back), and Cmd/Ctrl+Z restores the text.
-								const context = historyContext();
-								const wasBrowsing = browsingHistory(context);
-								if (useInputHistoryStore.getState().recall(prompt, text, context))
-									showRecalled(prompt, wasBrowsing, prompt.length);
-								else placeDraft(prompt, prompt.length);
+								// A pick replaces the draft the way ↑ does.
+								history.pick(prompt, text);
 							}}
 							onClose={() => {
 								setHistorySearchOpen(false);
