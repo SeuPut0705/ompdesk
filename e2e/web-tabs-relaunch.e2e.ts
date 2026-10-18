@@ -17,6 +17,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { WebSocket } from "ws";
 import type { IpcSpawnTabResult, IpcTabInfo } from "../src/shared/ipc-types";
 import { IPC_COMMANDS } from "../src/shared/ipc-types";
+import type { RpcResponse } from "../src/shared/rpc-types";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { exitApp, fixtureOmp } from "./harness";
 
@@ -279,10 +280,19 @@ for (const how of ["quit", "SIGKILL"] as const)
 			const spawned = await phone.call<IpcSpawnTabResult>(IPC_COMMANDS.SPAWN_TAB, { cwd: profile.project });
 			if (!spawned.tabId) throw new Error(`the phone's tab was refused: ${JSON.stringify(spawned)}`);
 			const tabId = spawned.tabId;
-			await phone.call(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, {
+			// SPAWN_TAB answers as soon as the tab exists; its omp is still starting and refuses a prompt
+			// (`sidecar_not_ready`) until it is up, as the phone's composer waits for.
+			await expect
+				.poll(async () => (await phone?.tabs())?.find(tab => tab.tabId === tabId)?.status, {
+					timeout: 60_000,
+					message: "the phone's tab is ready",
+				})
+				.toBe("ready");
+			const prompted = await phone.call<RpcResponse>(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, {
 				tabId,
 				command: { type: "prompt", message: "hello from the phone" },
 			});
+			expect(prompted.success, prompted.success ? "" : prompted.error).toBe(true);
 			await expect
 				.poll(async () => (await phone?.tabs())?.find(tab => tab.tabId === tabId)?.sessionPath ?? "", {
 					timeout: 60_000,
