@@ -6,15 +6,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
+import { AI_MEMORY_REQUIREMENT } from "../src/main/ai-memory/binary";
 import { AI_MEMORY_VERSION } from "../src/shared/ai-memory";
 import { exitApp, fixtureOmp } from "./harness";
 
 // A new macOS user's first launch of the PACKAGED app (dist/mac-arm64, from `bun run package:mac -- --publish never`;
 // OMP_GUI_E2E_APP points at another OMPdesk binary, e.g. /Applications/OMPdesk.app/Contents/MacOS/OMPdesk) sets its
-// memory up by itself with the shipped, re-signed ai-memory: the staged copy in `<userData>/tools`, ai-memory's own
-// launchd service, the app-owned extension root, `ready`, and the `ai-memory` lines of gui-runtime.jsonl. The 0.38.x
-// macOS releases never got there: packaging re-signs the nested binary after after-pack checked it against the pin, and
-// staging compared the signed bytes with the pin, failed on every launch, and logged nothing.
+// memory up by itself with the shipped ai-memory, re-signed with OMPdesk's pinned certificate: the staged copy in
+// `<userData>/tools`, ai-memory's own launchd service, the app-owned extension root, `ready`, and the `ai-memory` lines
+// of gui-runtime.jsonl. The 0.38.x macOS releases never got there: packaging re-signs the nested binary after
+// after-pack checked it against the pin, and staging compared the signed bytes with the pin, failed on every launch,
+// and logged nothing. A package signed ad-hoc (no certificate: a release dry run from a branch) is skipped: its
+// binary is neither the pin's bytes nor OMPdesk's signature, so the app refuses it by design.
 //
 // It runs in a private HOME (ai-memory's data, its plist and the shared skills land there) and a private userData. The
 // launchd label is global to the logged-in user, so the test runs only when that label and ai-memory's port are free,
@@ -43,6 +46,13 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 	test.skip(!existsSync(executable), "No packaged app: run `bun run package:mac -- --publish never` first");
 	test.skip(labelLoaded(), `launchd label ${LABEL} is already loaded (the user's own ai-memory): not touching it`);
 	test.skip(await portBusy(), `port ${PORT} is already in use (the user's own ai-memory server): not touching it`);
+	const shipped = path.join(path.dirname(path.dirname(executable)), "Resources", "ai-memory-bin", "ai-memory");
+	test.skip(
+		spawnSync("/usr/bin/codesign", ["--verify", "--strict", "-R", `=${AI_MEMORY_REQUIREMENT}`, shipped], {
+			stdio: "ignore",
+		}).status !== 0,
+		"The package is not signed with OMPdesk's certificate (ad-hoc): its ai-memory is refused by design",
+	);
 	test.setTimeout(330_000);
 	const info = test.info();
 	const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-packaged-ai-memory-")));
@@ -105,7 +115,6 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 		);
 		expect(settled).toMatchObject({ enabled: true, source: "bundled", binary: staged, version: AI_MEMORY_VERSION });
 		// The staged copy is the shipped file, byte for byte (re-signed by the packager, so not the pin's bytes).
-		const shipped = path.join(path.dirname(path.dirname(executable)), "Resources", "ai-memory-bin", "ai-memory");
 		expect(Buffer.compare(await fs.readFile(staged), await fs.readFile(shipped))).toBe(0);
 		// The app-owned extension root every spawned omp loads with `-e`.
 		for (const entry of ["index.ts", ".mcp.json", "skills"]) expect(existsSync(path.join(rootDir, entry))).toBe(true);

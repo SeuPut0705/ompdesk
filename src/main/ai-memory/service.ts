@@ -39,8 +39,9 @@ import type { SetupPlatform } from "../../shared/setup";
 import { SetupRunner } from "../setup/runner";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import {
+	AI_MEMORY_REQUIREMENT,
 	type AiMemoryPlatform,
-	codeSignatureProblem,
+	codeRequirementProblem,
 	type ExternalInstall,
 	newerExternal,
 	type PinnedAsset,
@@ -117,8 +118,8 @@ export interface AiMemoryServiceDeps {
 	 * failed in, the message, the stack of an unexpected error).
 	 */
 	log?: (message: AiMemoryLogMessage, details: AiMemoryLogDetails) => void;
-	/** macOS: the shipped binary's code-signature check (`codeSignatureProblem`); tests put a fake here. */
-	codeSignature?: (file: string) => Promise<string | null>;
+	/** macOS: the shipped binary's check against `AI_MEMORY_REQUIREMENT` (`codeRequirementProblem`); tests fake it. */
+	codeRequirement?: (file: string) => Promise<string | null>;
 	runner?: SetupRunner;
 	client?: AiMemoryClient;
 	externalProbe?: (bin: string) => Promise<string | null>;
@@ -524,9 +525,12 @@ export class AiMemoryService {
 				source,
 				asset,
 				toolsDir: this.#deps.toolsDir,
-				// The packaged macOS app re-signed the shipped file, so its bytes are not the pin's (binary.ts).
+				// A packaged macOS release re-signed the shipped file with OMPdesk's certificate (binary.ts).
 				...(this.#deps.platform === "darwin"
-					? { signature: this.#deps.codeSignature ?? codeSignatureProblem }
+					? {
+							requirement:
+								this.#deps.codeRequirement ?? (file => codeRequirementProblem(file, AI_MEMORY_REQUIREMENT)),
+						}
 					: {}),
 			});
 		} catch (error) {

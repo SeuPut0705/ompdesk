@@ -975,7 +975,7 @@ describe("AiMemoryService", () => {
 			}
 		});
 
-		it("macOS: the packaged app re-signed the shipped binary, so a valid signature stages it although its bytes differ from the pin", async () => {
+		it("macOS: a shipped binary re-signed with OMPdesk's certificate stages although its bytes differ from the pin", async () => {
 			// The 0.38.x macOS releases: mac-sign.cjs re-signs the nested binary after after-pack checked the pin, so its
 			// SHA-256 never matched at run time, staging failed on every launch and memory never started.
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
@@ -986,7 +986,7 @@ describe("AiMemoryService", () => {
 					binaryOverride: null,
 					bundledDir: shipped,
 					externalProbe: async () => "0.0.1",
-					codeSignature: async file => {
+					codeRequirement: async file => {
 						checked.push(file);
 						return null;
 					},
@@ -1002,27 +1002,47 @@ describe("AiMemoryService", () => {
 			}
 		});
 
-		it("macOS: a shipped binary whose code signature does not hold fails with codesign's reason and runs nothing", async () => {
+		it("macOS: a shipped binary that fails OMPdesk's signing requirement fails with codesign's reason and runs nothing", async () => {
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
-				await writeFile(join(shipped, "ai-memory"), "torn");
+				await writeFile(join(shipped, "ai-memory"), "signed by someone else");
 				const { service, calls } = await make({
 					binaryOverride: null,
 					bundledDir: shipped,
 					externalProbe: async () => "0.0.1",
-					codeSignature: async () => "invalid signature (code or signature have been modified)",
+					codeRequirement: async () => "test-requirement: code failed to satisfy specified code requirement(s)",
 				});
 				await service.start();
-				expect(service.state()).toMatchObject({
-					phase: "failed",
-					detail:
-						"The bundled ai-memory's code signature does not hold (invalid signature (code or signature have been modified)). Reinstall OMPdesk.",
-				});
+				expect(service.state().phase).toBe("failed");
+				expect(service.state().detail).toMatch(
+					/is neither the pinned release .* nor signed with OMPdesk's certificate \(test-requirement: code failed to satisfy specified code requirement\(s\)\)\. Reinstall OMPdesk\.$/,
+				);
 				expect(calls).toEqual([]);
 			} finally {
 				await rm(shipped, RM_TEMP);
 			}
 		});
+
+		it.runIf(process.platform === "darwin")(
+			"macOS: by default the requirement is checked with the real codesign, so an unsigned shipped file is refused",
+			async () => {
+				const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+				try {
+					await writeFile(join(shipped, "ai-memory"), "not signed at all");
+					const { service, calls } = await make({
+						binaryOverride: null,
+						bundledDir: shipped,
+						externalProbe: async () => "0.0.1",
+					});
+					await service.start();
+					expect(service.state().phase).toBe("failed");
+					expect(service.state().detail).toMatch(/nor signed with OMPdesk's certificate \(.*not signed/s);
+					expect(calls).toEqual([]);
+				} finally {
+					await rm(shipped, RM_TEMP);
+				}
+			},
+		);
 	});
 
 	describe("the runtime log", () => {

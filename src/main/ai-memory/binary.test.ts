@@ -1,18 +1,23 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { RM_TEMP } from "../test-fake-omp";
 import {
-	codeSignatureProblem,
+	AI_MEMORY_REQUIREMENT,
+	codeRequirementProblem,
 	externalCandidates,
 	newerExternal,
 	type PinnedAsset,
 	parseAiMemoryVersion,
 	pinnedAsset,
 	pruneStaged,
+	sha256File,
 	stageBinary,
 	stagedBinaryPath,
 	stagingRoot,
@@ -124,42 +129,65 @@ describe("stageBinary", () => {
 		await expect(stageBinary({ source, asset: ASSET, toolsDir })).resolves.toBe(staged);
 	});
 
-	describe("macOS, where packaging re-signed the shipped file", () => {
+	describe("macOS, where packaging re-signed the shipped file with OMPdesk's certificate", () => {
 		const SIGNED = "#!/bin/sh\necho ai-memory fake, re-signed by the packager\n";
 
-		it("stages a validly signed binary although its bytes differ from the pin", async () => {
+		it("stages a binary that satisfies the requirement although its bytes differ from the pin, checking it every launch", async () => {
 			await writeFile(source, SIGNED);
 			const checked: string[] = [];
-			const signature = async (file: string) => {
+			const requirement = async (file: string) => {
 				checked.push(file);
 				return null;
 			};
-			const staged = await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			const staged = await stageBinary({ source, asset: ASSET, toolsDir, requirement });
 			expect(staged).toBe(stagedBinaryPath(toolsDir, ASSET));
 			expect(await readFile(staged, "utf8")).toBe(SIGNED);
-			expect(checked).toEqual([source]);
-			// The next launch reuses the byte-identical copy without asking codesign again.
-			await stageBinary({ source, asset: ASSET, toolsDir, signature });
-			expect(checked).toEqual([source]);
+			// The next launch verifies the shipped file again and reuses the byte-identical copy.
+			await stageBinary({ source, asset: ASSET, toolsDir, requirement });
+			expect(checked).toEqual([source, source]);
+		});
+
+		it("never trusts a staged copy by itself: one that differs from the verified shipped file is replaced", async () => {
+			await writeFile(source, SIGNED);
+			const dest = stagedBinaryPath(toolsDir, ASSET);
+			await mkdir(join(dest, ".."), { recursive: true });
+			await writeFile(dest, "#!/bin/sh\necho planted, validly signed by someone else\n");
+			const staged = await stageBinary({ source, asset: ASSET, toolsDir, requirement: async () => null });
+			expect(await readFile(staged, "utf8")).toBe(SIGNED);
 		});
 
 		it("stages again when the shipped file changed (an update re-signed it)", async () => {
-			const signature = async () => null;
+			const requirement = async () => null;
 			await writeFile(source, SIGNED);
-			await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			await stageBinary({ source, asset: ASSET, toolsDir, requirement });
 			await writeFile(source, `${SIGNED}# signed again\n`);
-			const staged = await stageBinary({ source, asset: ASSET, toolsDir, signature });
+			const staged = await stageBinary({ source, asset: ASSET, toolsDir, requirement });
 			expect(await readFile(staged, "utf8")).toBe(`${SIGNED}# signed again\n`);
 		});
 
-		it("refuses a binary whose signature does not hold, and stages nothing", async () => {
+		it("refuses a binary that is neither the pin's bytes nor satisfies the requirement, and stages nothing", async () => {
 			await writeFile(source, "tampered");
 			await expect(
-				stageBinary({ source, asset: ASSET, toolsDir, signature: async () => "invalid signature" }),
+				stageBinary({ source, asset: ASSET, toolsDir, requirement: async () => "failed to satisfy" }),
 			).rejects.toThrow(
-				"The bundled ai-memory's code signature does not hold (invalid signature). Reinstall OMPdesk.",
+				`The bundled ai-memory is neither the pinned release (expected ${ASSET.binarySha256}, got ${sha("tampered")}) nor signed with OMPdesk's certificate (failed to satisfy). Reinstall OMPdesk.`,
 			);
 			expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(AI_MEMORY_VERSION);
+		});
+
+		it("the pin's own bytes (a dev build's synced copy) stage by hash, without asking codesign", async () => {
+			const checked: string[] = [];
+			const staged = await stageBinary({
+				source,
+				asset: ASSET,
+				toolsDir,
+				requirement: async file => {
+					checked.push(file);
+					return "not signed by OMPdesk";
+				},
+			});
+			expect(await readFile(staged, "utf8")).toBe(CONTENT);
+			expect(checked).toEqual([]);
 		});
 	});
 });
@@ -181,11 +209,48 @@ describe("pruneStaged", () => {
 	});
 });
 
-describe.runIf(process.platform === "darwin")("codeSignatureProblem", () => {
-	it("accepts a signed binary and names why an unsigned file is refused", async () => {
-		expect(await codeSignatureProblem("/usr/bin/true")).toBeNull();
-		expect(await codeSignatureProblem(source)).toMatch(/not signed/);
+describe.runIf(process.platform === "darwin")("the macOS signing requirement, with the real codesign", () => {
+	const check = (file: string) => codeRequirementProblem(file, AI_MEMORY_REQUIREMENT);
+	/** A copy of `file` named `ai-memory` (codesign's identifier) and signed ad-hoc: valid, but nobody's certificate. */
+	const adHocCopy = async (file: string) => {
+		const copy = join(root, "adhoc", "ai-memory");
+		await mkdir(join(root, "adhoc"), { recursive: true });
+		await copyFile(file, copy);
+		execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", copy], { stdio: "ignore" });
+		return copy;
+	};
+
+	it("names the binary's identifier and the certificate mac-sign.cjs pins", () => {
+		expect(AI_MEMORY_REQUIREMENT).toBe(
+			`identifier "ai-memory" and certificate root = H"${macSigning.certificateSha1}"`,
+		);
 	});
+
+	it("rejects any other valid signature: a system binary, an ad-hoc copy named ai-memory, an unsigned file", async () => {
+		expect(execFileSync("/usr/bin/codesign", ["--verify", "--strict", "/usr/bin/true"]).length).toBe(0);
+		expect(await check("/usr/bin/true")).toMatch(/failed to satisfy/);
+		const adHoc = await adHocCopy("/usr/bin/true");
+		expect(execFileSync("/usr/bin/codesign", ["--verify", "--strict", adHoc]).length).toBe(0);
+		expect(await check(adHoc)).toMatch(/failed to satisfy/);
+		expect(await check(source)).toMatch(/not signed/);
+	});
+
+	const release = join(process.cwd(), "resources", "ai-memory-bin", "darwin-arm64", "ai-memory");
+	const pinned = AI_MEMORY_ASSETS["darwin-arm64"];
+	it.runIf(existsSync(release) && pinned)(
+		"the real release (`bun run sync:ai-memory`) stages by its pin; an ad-hoc re-signed copy of it is refused",
+		async () => {
+			if (!pinned) return;
+			const staged = await stageBinary({ source: release, asset: pinned, toolsDir, requirement: check });
+			expect(await sha256File(staged)).toBe(pinned.binarySha256);
+			await rm(toolsDir, RM_TEMP);
+			await expect(
+				stageBinary({ source: await adHocCopy(release), asset: pinned, toolsDir, requirement: check }),
+			).rejects.toThrow(
+				/neither the pinned release .* nor signed with OMPdesk's certificate \(.*failed to satisfy/s,
+			);
+		},
+	);
 });
 
 describe("parseAiMemoryVersion", () => {

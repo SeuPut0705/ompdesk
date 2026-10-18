@@ -5,8 +5,8 @@
  * inside the app: the launchd unit, the Windows logon entry and omp's MCP entry all record the binary's absolute path,
  * and the app's own folder is the wrong home for that (a Windows update replaces the install folder while the server
  * still holds its .exe open; a macOS app can be moved or run from a disk image). `stageBinary` therefore verifies the
- * shipped file (Windows: against the pin; macOS: its code signature, see `codeSignatureProblem`) and copies it once
- * into the managed tools dir as `<tools>/ai-memory/<version>/`. A new app version stages a new directory, so
+ * shipped file (its bytes are the pin's, or on macOS its signature satisfies OMPdesk's `AI_MEMORY_REQUIREMENT`) and
+ * copies it once into the managed tools dir as `<tools>/ai-memory/<version>/`. A new app version stages a new directory, so
  * ai-memory's own `setup` sees a changed unit path and restarts the service on the new binary; the old directory is
  * removed afterwards.
  *
@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { compareVersions } from "../../shared/version";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -53,51 +54,61 @@ export function stagedBinaryPath(toolsDir: string, asset: PinnedAsset, version =
 }
 
 /**
- * macOS: why `file`'s code signature does not hold (`codesign --verify --strict`), or null when it does. Packaging
- * re-signs the shipped binary with the app's certificate (`scripts/mac-sign.cjs`, ad-hoc without one), so its bytes
- * are no longer the release's and only `scripts/after-pack.cjs`, before signing, can hold them to the pin; afterwards
- * the signature is what covers every page of it.
+ * macOS: the designated requirement of the shipped binary in a release. Packaging re-signs it (`scripts/mac-sign.cjs`
+ * through `@electron/osx-sign`) after `scripts/after-pack.cjs` held its bytes to the pin, so its bytes are no longer
+ * the release's; what names it afterwards is this requirement: codesign identifies an unbundled Mach-O by its file
+ * name, and every release is signed with OMPdesk's pinned certificate (`scripts/mac-signing.json`). Any other
+ * signature, ad-hoc or not (`/usr/bin/true`, a re-signed copy), fails it.
  */
-export function codeSignatureProblem(file: string): Promise<string | null> {
+export const AI_MEMORY_REQUIREMENT = `identifier "ai-memory" and certificate root = H"${macSigning.certificateSha1}"`;
+
+/**
+ * macOS: why `file` does not carry a valid signature that satisfies `requirement`
+ * (`codesign --verify --strict -R=<requirement>`), or null when it does.
+ */
+export function codeRequirementProblem(file: string, requirement: string): Promise<string | null> {
 	const { promise, resolve } = Promise.withResolvers<string | null>();
-	execFile("/usr/bin/codesign", ["--verify", "--strict", file], { timeout: 60_000 }, (error, _stdout, stderr) => {
-		resolve(error ? String(stderr).trim() || error.message : null);
-	});
+	execFile(
+		"/usr/bin/codesign",
+		["--verify", "--strict", "-R", `=${requirement}`, file],
+		{ timeout: 60_000 },
+		(error, _stdout, stderr) => resolve(error ? String(stderr).trim() || error.message : null),
+	);
 	return promise;
 }
 
 /**
  * Verify the shipped binary and copy it into `<tools>/ai-memory/<version>/` (atomically: a temp directory renamed
- * into place). Returns the staged path. Without `signature` the shipped file must match the pin (Windows ships it as
- * released), and a staged copy that matches the pin is reused without reading the shipped file. With `signature`
- * (macOS, where packaging re-signed it) the shipped file must carry a valid signature, and a staged copy is reused
- * while it is byte-identical to the shipped file. A staged copy that fails its check (a torn copy, tampering, another
- * app version's signature) is replaced.
+ * into place). Returns the staged path. The shipped file is accepted when its bytes are the pin's (Windows ships the
+ * release unsigned; a dev build's `resources/ai-memory-bin` copy) or, with `requirement` (macOS), when its signature
+ * satisfies it (a release re-signed with OMPdesk's certificate). A staged copy is trusted only by bytes: it is reused
+ * when it is the pin's (without reading the shipped file) or byte-identical to the shipped file just verified, and
+ * replaced otherwise (a torn copy, tampering, another app version's signature).
  */
 export async function stageBinary(options: {
 	source: string;
 	asset: PinnedAsset;
 	toolsDir: string;
-	/** Why the shipped file's code signature does not hold, or null (`codeSignatureProblem`). */
-	signature?: (file: string) => Promise<string | null>;
+	/** Why the shipped file fails OMPdesk's signing requirement, or null (`codeRequirementProblem`). */
+	requirement?: (file: string) => Promise<string | null>;
 }): Promise<string> {
-	const { source, asset, toolsDir, signature } = options;
+	const { source, asset, toolsDir, requirement } = options;
 	const dest = stagedBinaryPath(toolsDir, asset);
 	const staged = await sha256File(dest).catch(() => null);
-	if (!signature && staged === asset.binarySha256) return dest;
+	if (staged === asset.binarySha256) return dest;
 	const actual = await sha256File(source).catch(() => null);
 	if (actual === null) throw new Error(`The bundled ai-memory is missing (${source}). Reinstall OMPdesk.`);
-	if (signature) {
-		if (staged === actual) return dest;
-		const problem = await signature(source);
+	if (actual !== asset.binarySha256) {
+		const pinned = `expected ${asset.binarySha256}, got ${actual}`;
+		if (!requirement) throw new Error(`The bundled ai-memory does not match its pin (${pinned}). Reinstall OMPdesk.`);
+		const problem = await requirement(source);
 		if (problem !== null) {
-			throw new Error(`The bundled ai-memory's code signature does not hold (${problem}). Reinstall OMPdesk.`);
+			throw new Error(
+				`The bundled ai-memory is neither the pinned release (${pinned}) nor signed with OMPdesk's certificate (${problem}). Reinstall OMPdesk.`,
+			);
 		}
-	} else if (actual !== asset.binarySha256) {
-		throw new Error(
-			`The bundled ai-memory does not match its pin (expected ${asset.binarySha256}, got ${actual}). Reinstall OMPdesk.`,
-		);
 	}
+	if (staged === actual) return dest;
 	const root = stagingRoot(toolsDir);
 	const temp = join(root, `.stage-${process.pid}-${Date.now()}`);
 	await mkdir(temp, { recursive: true });
