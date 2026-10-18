@@ -69,13 +69,13 @@ html[data-shell="phone"] .omp-composer-box[data-pp="a"] > .pp-more-row {
 
 /* ── Chip rows (A's second row, C's row above the box): one line, sideways, a fade where more waits ─────── */
 .pp-chiprow {
-	height: 32px;
-	padding-block: 2px;
+	height: 44px;
+	padding-block: 8px;
 	scrollbar-width: none;
 	overscroll-behavior-x: contain;
 	-webkit-overflow-scrolling: touch;
 	--hit-gap-x: 8px;
-	--hit-gap-y: 4px;
+	--hit-gap-y: 16px;
 }
 
 .pp-chiprow::-webkit-scrollbar,

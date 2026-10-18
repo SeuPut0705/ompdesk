@@ -180,7 +180,6 @@ export function ApprovalSegments({ done }: { done?: () => void }) {
 				done?.();
 			}}
 			options={APPROVALS.map(mode => ({ value: mode, label: t(`input.approval.${mode}`) }))}
-			tall
 			value={s.approval}
 		/>
 	);

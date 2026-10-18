@@ -7,9 +7,12 @@ import { useBackLayer } from "../../../hooks/use-back-layer";
 import { cx } from "../../../lib/format";
 import { isImeKeyEvent } from "../../../lib/ime";
 
-/** A press that must not move focus: the composer's field keeps the caret and the soft keyboard. */
+/**
+ * A press that must not move focus: the composer's field keeps the caret and the soft keyboard. `mousedown` only:
+ * preventDefault on `pointerdown` also cancels the click in WebKit (measured, Playwright iPhone 15), so every control
+ * would be dead on iOS. Chromium and WebKit both skip the focus move when the synthesized mousedown is cancelled.
+ */
 export const keepFocus = {
-	onPointerDown: (event: { preventDefault: () => void }) => event.preventDefault(),
 	onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault(),
 };
 
@@ -140,13 +143,11 @@ export function Segmented<T extends string>({
 	options,
 	value,
 	onChange,
-	tall,
 }: {
 	label: string;
 	options: readonly { value: T; label: string }[];
 	value: T;
 	onChange: (value: T) => void;
-	tall?: boolean;
 }) {
 	const id = useId();
 	return (
@@ -163,7 +164,7 @@ export function Segmented<T extends string>({
 					className={cx(
 						"min-w-0 flex-1 rounded-(--sc-radius-sm) px-1 leading-tight transition-colors duration-(--sc-duration-fast)",
 						options.length > 4 ? "text-sc-sm" : "text-sc-md",
-						tall ? "min-h-10" : "min-h-9",
+						"min-h-11",
 						option.value === value
 							? "bg-(--sc-elevated) font-medium text-(--sc-text) shadow-(--sc-shadow-sm)"
 							: "text-(--sc-text-muted) hover:text-(--sc-text)",

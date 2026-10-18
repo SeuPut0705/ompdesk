@@ -136,7 +136,7 @@ export function SendButton({ longPressNewline }: { longPressNewline?: boolean })
 			onContextMenu={event => longPressNewline && event.preventDefault()}
 			onPointerCancel={clear}
 			onPointerDown={event => {
-				event.preventDefault();
+				// No preventDefault here: see keepFocus (a cancelled pointerdown loses the click in WebKit).
 				if (!longPressNewline || !canSend) return;
 				longFired.current = false;
 				timer.current = window.setTimeout(() => {
