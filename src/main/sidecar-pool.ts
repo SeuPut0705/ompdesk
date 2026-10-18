@@ -1526,6 +1526,19 @@ export class SidecarPool {
 		return this.#activeByWindow.get(win.webContents.id) ?? null;
 	}
 
+	/**
+	 * The window missed pushes (a paired page that could not resume its connection, or whose stream was dropped
+	 * while hidden): the next `message_update` of each of its tabs goes out whole again, so a reply that streams on
+	 * carries the text the page missed instead of deltas glued after a gap.
+	 */
+	resnapshotWindow(win: ClientWindow): void {
+		const winId = win.webContents.id;
+		for (const entry of this.#entries) {
+			const shown = entry.full?.windows.get(winId);
+			if (shown) shown.slim = createMessageUpdateSlimmer();
+		}
+	}
+
 	/** The window's tabs in acquisition order (GET_TABS boot reconciliation). */
 	tabsForWindow(win: ClientWindow): IpcTabInfo[] {
 		const tabs: IpcTabInfo[] = [];

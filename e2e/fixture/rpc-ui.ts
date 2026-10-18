@@ -3617,15 +3617,24 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
+			let streamed = "";
 			streamTick = () => {
 				streamChunks++;
+				// The whole message so far rides every update, as stock's `messageUpdates: "full"` filter sends it.
+				const delta = `Stream chunk ${streamChunks}.\n`;
+				streamed += delta;
+				answer.content = [
+					message === "fixture meter"
+						? { type: "thinking", thinking: streamed }
+						: { type: "text", text: streamed },
+				];
 				write({
 					type: "message_update",
 					message: answer,
 					assistantMessageEvent: {
 						type: message === "fixture meter" ? "thinking_delta" : "text_delta",
 						contentIndex: 0,
-						delta: `Stream chunk ${streamChunks}.\n`,
+						delta,
 						partial: answer,
 					},
 				});

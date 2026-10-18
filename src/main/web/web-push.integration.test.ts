@@ -178,7 +178,7 @@ beforeEach(async () => {
 		userData,
 		staticRoot: () => staticRoot,
 		desktopWindows: () => [desktop],
-		tabs: { activeTab: () => null, cwd: () => null, facts: tabId => pool.tabFacts(tabId) },
+		tabs: { activeTab: () => null, cwd: () => null, facts: tabId => pool.tabFacts(tabId), resnapshot: () => {} },
 		openMedia: async () => new Response(null, { status: 404 }),
 		shell: { openPath: async () => {}, reveal: () => {}, openExternal: async () => {} },
 		allowedUsers: () => ["me@example.com"],

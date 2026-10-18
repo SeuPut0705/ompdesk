@@ -1242,6 +1242,7 @@ app.whenReady().then(() => {
 				return target && !target.device ? target.sidecar.cwd : null;
 			},
 			facts: tabId => sidecarPool.tabFacts(tabId),
+			resnapshot: win => sidecarPool.resnapshotWindow(win),
 		},
 		openMedia: (url, range) => mediaStreams.handle(new Request(url, range ? { headers: { range } } : undefined)),
 		shell: {

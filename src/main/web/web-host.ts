@@ -65,6 +65,8 @@ export interface WebHostDeps {
 		cwd(win: ClientWindow, tabId: string | undefined): string | null;
 		/** A live tab's facts (`SidecarPool.tabFacts`), for what a push says; null once the tab is gone. */
 		facts(tabId: string): TabFacts | null;
+		/** The window missed pushes: its tabs' next streamed update carries the whole message (`SidecarPool.resnapshotWindow`). */
+		resnapshot(win: ClientWindow): void;
 	};
 	/** `MediaStreams.handle`: answers a range request for an `omp-media://` stream. */
 	openMedia: (url: string, range: string | undefined) => Promise<Response>;
@@ -171,6 +173,7 @@ export class WebHost {
 			uploads: this.uploads,
 			toModelImage: image => stockHelperRequest<InlineImage>("image.toModel", image),
 			onConnectionsChanged: () => this.devices.notifyChanged(),
+			onResync: deviceId => deps.tabs.resnapshot(this.windows.windowFor(deviceId)),
 			now,
 		});
 		this.notifier = new WebPushNotifier({

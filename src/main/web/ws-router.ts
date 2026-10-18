@@ -160,6 +160,8 @@ export interface WsRouterDeps {
 	toModelImage: (image: InlineImage) => Promise<InlineImage>;
 	/** A device's connection count changed (the settings list shows who is connected). */
 	onConnectionsChanged?: (deviceId: string) => void;
+	/** The device's page got a hello it must resync from (`resumed: false`): it missed pushes. */
+	onResync?: (deviceId: string) => void;
 	now?: () => number;
 	timers?: Timers;
 }
@@ -602,6 +604,7 @@ export class WsConnection {
 	}
 
 	#sendHello(resumed: boolean): void {
+		if (!resumed) this.#router.deps.onResync?.(this.deviceId);
 		this.#write({
 			t: "hello",
 			protocol: WEB_PROTOCOL_VERSION,

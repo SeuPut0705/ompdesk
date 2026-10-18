@@ -279,24 +279,27 @@ export const createMessagesStore = () =>
 					case "message_update": {
 						const update = event.assistantMessageEvent;
 						const partial = event.message;
-						// A tab that sat in the background never saw this message's
-						// message_start (its frames are not forwarded), so the first
-						// update it gets opens the stream — or replaces the shell of a
-						// message that ended meanwhile. The snapshot already holds this
-						// update's delta, so seed the buffers from it instead.
-						if (
-							partial.role === "assistant" &&
-							Array.isArray(partial.content) &&
-							(streamingMessage === null || streamingMessage.timestamp !== partial.timestamp)
-						) {
-							streamingMessage = { ...partial, content: [] };
-							streamingText = "";
-							streamingThinking = "";
+						// An update that carries the whole message (main sends one first to each
+						// window, and again after a paired page missed pushes: sidecar-pool
+						// `resnapshotWindow`) is the truth so far: a tab that sat in the background
+						// never saw this message's message_start (another message's buffer goes),
+						// a page that lost its link missed deltas in the middle (a snapshot longer
+						// than the buffer fills the gap; it can only grow). The snapshot already
+						// holds this update's delta, so the buffers are seeded from it instead.
+						if (partial.role === "assistant" && Array.isArray(partial.content)) {
+							let text = "";
+							let thinking = "";
 							for (const block of partial.content) {
-								if (block.type === "text") streamingText += block.text;
-								else if (block.type === "thinking") streamingThinking += block.thinking;
+								if (block.type === "text") text += block.text;
+								else if (block.type === "thinking") thinking += block.thinking;
 							}
-							break;
+							const other = streamingMessage === null || streamingMessage.timestamp !== partial.timestamp;
+							if (other || text.length + thinking.length > streamingText.length + streamingThinking.length) {
+								streamingMessage = { ...partial, content: [] };
+								streamingText = text;
+								streamingThinking = thinking;
+								break;
+							}
 						}
 						if (update.type === "text_delta") streamingText += update.delta;
 						else if (update.type === "thinking_delta") streamingThinking += update.delta;

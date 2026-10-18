@@ -165,6 +165,14 @@ describe("attaching to a message already streaming", () => {
 		store.getState().applyEvents([partialUpdate(5, "New", "New")]);
 		expect(store.getState()).toMatchObject({ streamingMessage: { timestamp: 5 }, streamingText: "New" });
 	});
+
+	it("takes a whole snapshot of the message it streams over a buffer that missed deltas (a page that lost its link)", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([partialUpdate(5, "One. ", "One. ")]);
+		// Deltas in the middle never arrived; main then sends the message whole again (resnapshotWindow).
+		store.getState().applyEvents([partialUpdate(5, "One. Two. Three. ", "Three. ")]);
+		expect(store.getState().streamingText).toBe("One. Two. Three. ");
+	});
 });
 
 describe("committed transcript ownership", () => {
