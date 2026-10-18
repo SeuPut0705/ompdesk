@@ -256,6 +256,8 @@ describe("shell cache", () => {
 			"/assets/web-aaa.js",
 		]);
 		expect(network).toHaveBeenCalledWith("/", expect.objectContaining({ cache: "reload" }));
+		// The hashed assets the page just loaded come out of the HTTP cache, not a second download.
+		expect(network).toHaveBeenCalledWith("/assets/web-aaa.js", expect.objectContaining({ cache: "default" }));
 	});
 
 	it("skips a file that fails or answers an error, without failing the install", async () => {
@@ -297,16 +299,23 @@ describe("shell cache", () => {
 		expect(network).toHaveBeenCalledTimes(1);
 	});
 
-	it("loads the shell network-first, stores it, and falls back to it offline", async () => {
+	it("loads an uncached shell from the network and stores it, then serves it at once and refreshes it behind", async () => {
 		const { deps, caches, network } = shellDeps();
-		const online = await respondToFetch(GET("/", "navigate"), deps);
-		expect(await online?.text()).toBe("net:https://mac.tail.ts.net:47831/");
-		expect(await caches.named.get(cacheNameFor("b1"))?.store.get("/")?.clone().text()).toBe(
-			"net:https://mac.tail.ts.net:47831/",
-		);
+		const first = await respondToFetch(GET("/", "navigate"), deps);
+		expect(await first?.text()).toBe("net:https://mac.tail.ts.net:47831/");
+		const stored = () => caches.named.get(cacheNameFor("b1"))?.store.get("/")?.clone().text();
+		expect(await stored()).toBe("net:https://mac.tail.ts.net:47831/");
+		network.mockResolvedValue(new Response("newer shell"));
+		const background: Promise<unknown>[] = [];
+		const cached = await respondToFetch(GET("/", "navigate"), deps, promise => background.push(promise));
+		expect(await cached?.text()).toBe("net:https://mac.tail.ts.net:47831/");
+		await Promise.all(background);
+		expect(await stored()).toBe("newer shell");
+		// Offline, the copy still answers and the failed refresh is swallowed.
 		network.mockRejectedValue(new TypeError("offline"));
-		const offline = await respondToFetch(GET("/", "navigate"), deps);
-		expect(await offline?.text()).toBe("net:https://mac.tail.ts.net:47831/");
+		const offline = await respondToFetch(GET("/", "navigate"), deps, promise => background.push(promise));
+		expect(await offline?.text()).toBe("newer shell");
+		await Promise.all(background);
 	});
 
 	it("rejects an offline shell load when nothing is cached", async () => {

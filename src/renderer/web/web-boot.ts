@@ -63,7 +63,10 @@ async function bootApp(): Promise<void> {
 		onUnpaired: () => location.replace("/pair"),
 	});
 
-	const registration = registerServiceWorker();
+	// The worker's install fetches the shell's chunks. Registered once the app has loaded, it takes them from the
+	// HTTP cache the page just filled, instead of downloading them a second time beside the page's own loads.
+	const appLoaded = Promise.withResolvers<void>();
+	const registration = appLoaded.promise.then(() => registerServiceWorker());
 	const openTarget = parseOpenHash(location.hash);
 	let pendingSessionPath = openTarget?.kind === "session-path" ? openTarget.sessionPath : null;
 
@@ -200,6 +203,7 @@ async function bootApp(): Promise<void> {
 
 	transport.start();
 	await import("../main");
+	appLoaded.resolve();
 	moment = (await import("./safe-moment")).pageSafeMoment();
 	resumedAt = Date.now();
 	applyUpdate();

@@ -190,7 +190,11 @@ export interface ShellDeps {
 
 const INSTALL_PARALLEL = 6;
 
-/** Fill this build's cache: the shell page and the eager assets. Best effort: one that fails is skipped. */
+/**
+ * Fill this build's cache: the shell page and the eager assets. Best effort: one that fails is skipped. The page
+ * revalidates (`reload`); the `/assets/` files are content-hashed and immutable, so the copy the page itself just
+ * loaded into the HTTP cache is the same file and is taken from there instead of downloading the shell twice.
+ */
 export async function installShell(deps: ShellDeps): Promise<{ cached: number }> {
 	const cache = await deps.caches.open(cacheNameFor(deps.build));
 	const urls = [SHELL_URL, ...deps.precache.map(entry => entry.url)];
@@ -199,7 +203,10 @@ export async function installShell(deps: ShellDeps): Promise<{ cached: number }>
 		await Promise.all(
 			urls.slice(start, start + INSTALL_PARALLEL).map(async url => {
 				try {
-					const response = await deps.fetch(url, { cache: "reload", credentials: "same-origin" });
+					const response = await deps.fetch(url, {
+						cache: url === SHELL_URL ? "reload" : "default",
+						credentials: "same-origin",
+					});
 					// The shell of an unpaired browser is a redirect or an error: not worth keeping.
 					if (!response.ok || response.redirected) return;
 					await cache.put(url, response);
@@ -229,10 +236,17 @@ export interface FetchRequestLike {
 
 /**
  * How the worker answers a request, or null to leave it to the browser: hashed `/assets/` files that were
- * precached come from the cache first; the shell page (`/`) is network-first and falls back to the cache.
- * Everything else — the API, the socket, blobs, uploads, other origins, other methods — is never touched.
+ * precached come from the cache first; the shell page (`/`) comes from the cache at once when this build has
+ * it (it names exactly the assets this build precached) while a fetch refreshes the copy in the background
+ * (`waitUntil` keeps the worker alive for it), and from the network otherwise. A newer host build reaches the
+ * page through its new worker (sw-update.ts), as an installed app's always did. Everything else — the API,
+ * the socket, blobs, uploads, other origins, other methods — is never touched.
  */
-export function respondToFetch(request: FetchRequestLike, deps: ShellDeps): Promise<Response> | null {
+export function respondToFetch(
+	request: FetchRequestLike,
+	deps: ShellDeps,
+	waitUntil?: (promise: Promise<unknown>) => void,
+): Promise<Response> | null {
 	if (request.method !== "GET") return null;
 	let url: URL;
 	try {
@@ -255,15 +269,15 @@ export function respondToFetch(request: FetchRequestLike, deps: ShellDeps): Prom
 	if (request.mode === "navigate" && path === SHELL_URL) {
 		return (async () => {
 			const cache = await deps.caches.open(name);
-			try {
-				const response = await deps.fetch(request.url);
+			const refresh = deps.fetch(request.url).then(async response => {
 				if (response.ok && !response.redirected) await cache.put(SHELL_URL, response.clone());
 				return response;
-			} catch (error) {
-				const cached = await cache.match(SHELL_URL);
-				if (cached) return cached;
-				throw error;
-			}
+			});
+			const cached = await cache.match(SHELL_URL);
+			if (!cached) return refresh;
+			const settled = refresh.catch(() => undefined);
+			waitUntil?.(settled);
+			return cached;
 		})();
 	}
 	return null;

@@ -43,10 +43,12 @@ interface WorkerScope {
 	): void;
 	addEventListener(
 		type: "fetch",
-		listener: (event: {
-			request: { method: string; url: string; mode: string };
-			respondWith(response: Promise<Response>): void;
-		}) => void,
+		listener: (
+			event: WaitableEvent & {
+				request: { method: string; url: string; mode: string };
+				respondWith(response: Promise<Response>): void;
+			},
+		) => void,
 	): void;
 	addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
 }
@@ -77,7 +79,7 @@ scope.addEventListener("notificationclick", event => {
 });
 
 scope.addEventListener("fetch", event => {
-	const response = respondToFetch(event.request, shell());
+	const response = respondToFetch(event.request, shell(), promise => event.waitUntil(promise));
 	if (response) event.respondWith(response);
 });
 
