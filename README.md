@@ -32,6 +32,7 @@
 - **Stock omp, nothing forked.** It runs the omp installed on your computer, with the same settings, logins and sessions as your terminal.
 - **Many sessions in parallel.** Split view, git worktrees, and agents that fan work out, compare it and merge the winner.
 - **Keep working from anywhere.** Autopilot keeps going, a restart picks tasks back up, and your phone can steer a run.
+- **Engineering playbooks built in.** Every conversation starts from pstack's bug-fix, feature and verification playbooks, translated for omp (includes [pstack](https://github.com/cursor/plugins/tree/main/pstack) by Lauren Tan, MIT). Trivial questions still get a plain answer, and Settings › Agent behavior turns it off.
 
 ## Features
 

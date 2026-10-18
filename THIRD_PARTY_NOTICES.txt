@@ -7111,6 +7111,38 @@ SOFTWARE.
 
 ------------------------------------------------------------------------------
 
+pstack engineering skills (https://github.com/cursor/plugins/tree/main/pstack)
+Copyright (c) 2026 Lauren Tan, licensed under the MIT License. Skills, playbooks and agent text copied from
+pstack 0.15.26 (cursor/plugins commit 0b8e952052d482ee6de06deebf14d590d77b1b34) into resources/omp-builtin/pstack/ by
+scripts/sync-pstack.ts. Changes: Cursor and Claude tool, agent and model names are replaced by omp and
+OMPdesk ones, tdd and teach are renamed pstack-tdd and pstack-teach, and the Cursor-only parts (setup-pstack,
+poteto-help, make-bot-ui, Bugbot triage, the orchestrate playbook, the watch-pr and orch tools) are left out.
+The license text is also in resources/omp-builtin/pstack/UPSTREAM-LICENSE.
+
+MIT License
+
+Copyright (c) 2026 Lauren Tan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+------------------------------------------------------------------------------
+
 AI provider brand symbols of @lobehub/icons (@lobehub/icons-static-svg 1.95.1,
 https://github.com/lobehub/lobe-icons), Copyright (c) 2023 LobeHub, licensed under the MIT
 License (LICENSES/MIT-lobe-icons.txt). The monochrome SVG files are copied unmodified into

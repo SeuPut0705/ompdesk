@@ -188,6 +188,11 @@ function vendoredSections(): string {
 	const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8").replace(/\r\n?/g, "\n").trim();
 	const aiMemoryLicense = read("LICENSES/ai-memory-LICENSE");
 	const reaLicense = read("resources/omp-builtin/rea/skills/reverse-engineer-anything/LICENSE");
+	const pstackLicense = read("LICENSES/MIT-pstack.txt");
+	const pstackPin = JSON.parse(read("resources/omp-builtin/pstack/pstack-config.json")) as {
+		commit: string;
+		version: string;
+	};
 	const lobeLicense = read("LICENSES/MIT-lobe-icons.txt");
 	return [
 		[
@@ -223,6 +228,17 @@ function vendoredSections(): string {
 			'for one added "OMPdesk built-in" section in SKILL.md.',
 			"",
 			reaLicense,
+		].join("\n"),
+		[
+			"pstack engineering skills (https://github.com/cursor/plugins/tree/main/pstack)",
+			`Copyright (c) 2026 Lauren Tan, licensed under the MIT License. Skills, playbooks and agent text copied from`,
+			`pstack ${pstackPin.version} (cursor/plugins commit ${pstackPin.commit}) into resources/omp-builtin/pstack/ by`,
+			"scripts/sync-pstack.ts. Changes: Cursor and Claude tool, agent and model names are replaced by omp and",
+			"OMPdesk ones, tdd and teach are renamed pstack-tdd and pstack-teach, and the Cursor-only parts (setup-pstack,",
+			"poteto-help, make-bot-ui, Bugbot triage, the orchestrate playbook, the watch-pr and orch tools) are left out.",
+			"The license text is also in resources/omp-builtin/pstack/UPSTREAM-LICENSE.",
+			"",
+			pstackLicense,
 		].join("\n"),
 		[
 			"AI provider brand symbols of @lobehub/icons (@lobehub/icons-static-svg 1.95.1,",
