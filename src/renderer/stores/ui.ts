@@ -471,7 +471,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setPanelTab: tab => {
 		const next = { panelTab: tab, panelVisible: true };
 		if (get().fileEditDirty && tab !== get().panelTab) set({ pendingFileSwitch: next });
-		else if (get().panelVisible && tab !== get().panelTab) transitionView(() => set(next));
 		else set(next);
 	},
 	openSubagentPanel: subagent => {

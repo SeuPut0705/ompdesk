@@ -1678,7 +1678,7 @@ export function TranscriptHistoryStatus({
 	return (
 		<div
 			data-testid="transcript-history-status"
-			role={error ? "alert" : undefined}
+			role={error ? "alert" : "status"}
 			className={cx(
 				"pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 py-1.5 text-sc-xs text-(--sc-text-muted)",
 				!loading && !error && "omp-updating-hint",
