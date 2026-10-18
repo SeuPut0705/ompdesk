@@ -377,9 +377,10 @@ for (const { engine, device } of variants(
 				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
 			);
 			for (const { visual, hit } of await hitSizes(menus)) {
-				// Rows are flush: a row's ⋯ keeps its own box rather than covering the neighbouring row.
-				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(24);
-				expect(Math.max(visual.width, visual.height)).toBeLessThanOrEqual(36);
+				// Rows are flush: a row's ⋯ owns a slot of the row's height (36) × 44 px, growing sideways only.
+				expect(hit.width).toBeGreaterThanOrEqual(43.5);
+				expect(hit.height).toBeGreaterThanOrEqual(35.5);
+				expect(Math.max(visual.width, visual.height)).toBeLessThanOrEqual(44);
 			}
 			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
 			await current.locator("[data-sidebar-row-menu]").click();

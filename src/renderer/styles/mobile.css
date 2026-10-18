@@ -1135,3 +1135,35 @@ html[data-shell="phone"] .settings-content .omp-list-row > span.min-w-0.flex-1 >
 	white-space: normal;
 	overflow-wrap: anywhere;
 }
+
+/* Sidebar row actions (⋯, new session here): the rows are flush vertically but have room beside the title, so each
+   action owns a real layout slot of the row height (36 px) × 44 px width at the row's end, so its hit area covers
+   nothing else. List rows count the whole row, not an isolated 44 × 44 control. */
+/* Every other sidebar control is a flush 36 px box (a list row counts its whole row height). */
+html[data-shell]
+	.omp-session-sidebar
+	:is(
+		[data-sidebar-row-menu],
+		[data-sidebar-group-new],
+		[data-device-group-new],
+		[data-sidebar-device-add],
+		.omp-sidebar-header button,
+		.omp-sidebar-controls button,
+		[data-sidebar-destinations] button,
+		[data-device-state] > div > button
+	) {
+	min-width: 36px;
+	min-height: 36px;
+	--hit-gap-x: 0px;
+	--hit-gap-y: 0px;
+}
+
+html[data-shell] .omp-session-sidebar [data-sidebar-row-menu][data-sidebar-row-menu][data-sidebar-row-menu] {
+	min-width: 44px;
+}
+
+/* The project row's hover-only ⋯ shares its end with "new session here": that button takes the row's height but keeps
+   its width, so the two never cover each other. */
+html[data-shell] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-group-new] {
+	min-width: 0;
+}
