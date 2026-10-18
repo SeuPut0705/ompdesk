@@ -120,7 +120,8 @@ describe("bun scripts/build-lock.ts", () => {
 	});
 
 	it("warns once about a non-gate hold past the limit and says how to split it", () => {
-		const result = locked(["--kind", "playwright", "--", "node", "-e", "setTimeout(() => {}, 900)"], {
+		// `shell: true` on Windows hands cmd.exe the words unquoted: no spaces or `>` inside the script.
+		const result = locked(["--kind", "playwright", "--", "node", "-e", "setTimeout(Function.prototype,900)"], {
 			OMPDESK_LOCK_MAX_HOLD_MS: "100",
 			OMPDESK_LOCK_HEARTBEAT_MS: "50",
 		});

@@ -142,7 +142,8 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 			.map(name => path.join(rel, name));
 		const ignored = await ignoredAmong(state.root, entries);
 		for (const entry of entries) {
-			if (!ignored.has(entry)) {
+			// git names a path with `/` on every platform; `entry` is native.
+			if (!ignored.has(entry.replace(/\\/g, "/"))) {
 				state.skipped.push({ path: entry, reason: "not_ignored" });
 				continue;
 			}

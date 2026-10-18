@@ -320,7 +320,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	await fs.rm(tmp, { recursive: true, force: true });
+	// A ship's git child can still hold the folder for a moment on Windows (EBUSY).
+	await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 describe("pure helpers", () => {

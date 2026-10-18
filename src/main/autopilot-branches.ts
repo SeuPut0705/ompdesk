@@ -3,6 +3,7 @@
  * the ship remote's branches, which worktree has which branch checked out and the default branch. The rules over
  * these facts are pure (`src/shared/autopilot-branch.ts`).
  */
+import * as path from "node:path";
 import type { AutopilotBranchEntry, AutopilotBranchInfo } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	type BranchFacts,
@@ -45,7 +46,16 @@ export async function readBranchFacts(cwd: string, remote: string): Promise<Bran
 	return {
 		locals,
 		remotes: remoteNames,
-		worktrees: worktrees?.code === 0 ? parseWorktreeBranches(worktrees.stdout.toString("utf8")) : {},
+		// git prints `C:/x` on Windows; the picker names the folders as native paths.
+		worktrees:
+			worktrees?.code === 0
+				? Object.fromEntries(
+						Object.entries(parseWorktreeBranches(worktrees.stdout.toString("utf8"))).map(([branch, folder]) => [
+							branch,
+							path.resolve(folder),
+						]),
+					)
+				: {},
 		current: current[0] ?? null,
 		defaultBranch: pickDefaultBranch(remoteDefault, [...locals, ...remoteNames]),
 	};

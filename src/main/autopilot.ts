@@ -21,7 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
@@ -1577,7 +1577,9 @@ export class Autopilot {
 	async #idleStatus(sidecar: SidecarLike, tabId: string, draft: boolean): Promise<AutopilotStatus> {
 		const release = await this.#releaseFor(sidecar.cwd);
 		const guide = await this.#guideFor(tabId, sidecar.cwd, draft);
-		const toplevel = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
+		// git prints `C:/x` on Windows; the sheet's key and the folders the picker names are native paths.
+		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
+		const toplevel = topText ? resolve(topText) : topText;
 		const branches = toplevel
 			? await readBranchInfo(sidecar.cwd, {
 					toplevel,

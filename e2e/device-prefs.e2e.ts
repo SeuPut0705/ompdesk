@@ -127,7 +127,7 @@ const savedHostTheme = async (profile: Profile) =>
 	(JSON.parse(await fs.readFile(path.join(profile.desktop, "prefs.json"), "utf8")) as { themeName?: string })
 		.themeName;
 
-test("@smoke The phone sets dark while the computer stays light, across a reload and a relaunch; the computer's theme never moves the phone", async () => {
+test("The phone sets dark while the computer stays light, across a reload and a relaunch; the computer's theme never moves the phone", async () => {
 	test.setTimeout(400_000);
 	const profile = await makeProfile();
 	let current: ElectronApplication | null = null;

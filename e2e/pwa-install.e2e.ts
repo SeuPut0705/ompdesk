@@ -127,7 +127,7 @@ interface Manifest {
 	shortcuts?: { name: string; url: string }[];
 }
 
-test("@smoke The page is installable: manifest, worker, no installability errors, the install item calls prompt(), a silent first launch", async () => {
+test("The page is installable: manifest, worker, no installability errors, the install item calls prompt(), a silent first launch", async () => {
 	test.setTimeout(600_000);
 	const profile = await makeProfile();
 	let app: ElectronApplication | null = null;
