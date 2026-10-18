@@ -6346,6 +6346,7 @@ export const ko: Record<string, string> = {
 	"web.upload.tooLarge": "{name} 파일이 25 MB보다 커서 컴퓨터로 보내지 않았어요.",
 	"web.upload.refused": "컴퓨터가 {name} 파일을 받지 않았어요.",
 	"web.upload.network": "{name} 파일을 컴퓨터로 보내지 못했어요.",
+	"input.attachmentPhoto": "{format} 사진",
 	"web.upload.imageTooLarge": "사진이 25 MB보다 커서 메시지를 보내지 않았어요.",
 	"web.upload.imageRefused": "컴퓨터가 사진을 받지 않아서 메시지를 보내지 않았어요.",
 	"web.upload.imageNetwork": "사진을 컴퓨터로 보내지 못해서 메시지를 보내지 않았어요.",

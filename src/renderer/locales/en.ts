@@ -396,6 +396,7 @@ export const en: Record<string, string> = {
 	"input.sendFailed": "Message not sent",
 	"input.refreshFailed": "Transcript not refreshed",
 	"input.attachmentAlt": "Attached image {index}",
+	"input.attachmentPhoto": "{format} photo",
 	"input.removeAttachment": "Remove image {index}",
 	"input.attachments": "Attached images",
 	"input.paste.listLabel": "Pasted text",

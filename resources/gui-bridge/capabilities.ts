@@ -65,6 +65,7 @@ export const FEATURES = {
 	agentControl: "OMPdesk control tools (confirmation cards)",
 	autopilot: "Autopilot (guarded, unattended Goal loop)",
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
+	phoneImages: "HEIC photos from a phone converted for the model",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -1092,6 +1093,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			"@oh-my-pi/pi-ai/oauth": ["getOAuthCredentialProvider()"],
 			[`${AGENT}/slash-commands/helpers/reset-usage`]: ["toResetUsageAccounts()", "describeRedeemOutcome()"],
+		},
+	},
+	phoneImages: {
+		// stock-helper/images.ts `image.toModel`: a phone's HEIC/HEIF made model-safe with stock's image path.
+		session: [],
+		modules: {
+			"@oh-my-pi/pi-tui/chat/image-loading": ["ensureSupportedImageInput()"],
+			[`${AGENT}/utils/image-resize`]: ["resizeImage()"],
 		},
 	},
 };

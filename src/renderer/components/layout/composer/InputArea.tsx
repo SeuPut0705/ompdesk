@@ -76,6 +76,7 @@ import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
+import { ComposerThumbnail } from "./ComposerThumbnail";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileMentionFor, fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
@@ -1486,7 +1487,9 @@ export function InputArea() {
 							<ul aria-label={t("input.attachments")} className="flex flex-wrap gap-2.5 px-3 pt-3">
 								{images.map((image, index) => (
 									<li key={index} className="relative">
-										<ZoomableImage
+										<ComposerThumbnail
+											data={image.content.data}
+											mimeType={image.content.mimeType}
 											src={image.preview}
 											alt={t("input.attachmentAlt", { index: index + 1 })}
 											className="size-14 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) object-cover"
