@@ -1,6 +1,7 @@
 /**
- * Vitest setup: a write under the developer's real omp or OMPdesk state fails the test instead of
- * landing on disk. Wired from `vitest.setup.ts`, so every test file in both projects runs behind it.
+ * Vitest setup: a write anywhere under the developer's real home fails the test instead of landing
+ * on disk, except inside this checkout and the OS temp folder. Wired from `vitest.setup.ts`, so every
+ * test file in both projects runs behind it.
  *
  * Why: the app's writers resolve `~` at write time, so a unit test that reaches one without a temp
  * HOME edits the real `~/.omp` (auth, config, sessions) of whoever runs `check:changed` — often an
@@ -15,8 +16,8 @@
  */
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { userInfo } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { tmpdir, userInfo } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 
@@ -25,7 +26,7 @@ export const ALLOW_REAL_HOME_ENV = "OMP_GUI_ALLOW_REAL_HOME";
 export interface RealHomeGuardState {
 	/** Protected folders, normalized and ending in a separator. */
 	roots: string[];
-	/** Folders inside a protected root that are not state: the agent worktrees the repo itself may live in. */
+	/** Folders inside a protected root a test may write: this checkout and the OS temp folder. */
 	exempt: string[];
 	/** Stacks of the writes refused since the last `afterEach`. */
 	violations: string[];
@@ -54,21 +55,17 @@ function realHomes(): string[] {
 	return homes;
 }
 
-/** Where omp and OMPdesk keep state for the real user, on macOS and Windows alike. */
+/** The real home, whole: `~/.omp`, `~/.ssh`, `~/Documents` and OMPdesk's userData alike. */
 export function protectedRoots(): string[] {
-	const roots = realHomes().flatMap(home => [
-		join(home, ".omp"),
-		join(home, ".pi"),
-		join(home, ".config", "omp"),
-		join(home, "Library", "Application Support", "ompdesk"),
-		join(home, "AppData", "Roaming", "ompdesk"),
-	]);
+	const roots = [...realHomes()];
 	if (process.env.APPDATA) roots.push(join(process.env.APPDATA, "ompdesk"));
 	return [...new Set(roots.map(normalize))];
 }
 
-function exemptRoots(): string[] {
-	return [...new Set(realHomes().map(home => normalize(join(home, ".omp", "wt"))))];
+/** This checkout only (never every `~/.omp/wt` worktree), and the temp folder (under the home on Windows). */
+export function exemptRoots(): string[] {
+	const checkout = dirname(dirname(fileURLToPath(import.meta.url)));
+	return [...new Set([checkout, tmpdir()].map(normalize))];
 }
 
 function targetPath(target: unknown): string | null {

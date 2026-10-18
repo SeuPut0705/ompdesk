@@ -1,6 +1,6 @@
 /**
- * The setup-file guard (vitest-real-home-guard.ts): a write under the developer's real omp or OMPdesk
- * state throws, whatever HOME a test fakes, and a temp dir stays writable.
+ * The setup-file guard (vitest-real-home-guard.ts): a write anywhere under the developer's real home
+ * throws, whatever HOME a test fakes, while this checkout and the temp dir stay writable.
  *
  * The probes sit in a directory that does not exist (`__ompdesk_guard_probe__/…`, no `recursive`), so a
  * missing guard shows up as an ENOENT instead of a file landing in the real home.
@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import { appendFile, copyFile, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type {} from "./vitest-real-home-guard";
@@ -27,6 +27,9 @@ const PROTECTED: Array<[string, string]> = [
 	["~/.config/omp", probe(".config", "omp")],
 	["~/Library/Application Support/ompdesk", probe("Library", "Application Support", "ompdesk")],
 	["%APPDATA%\\ompdesk", probe("AppData", "Roaming", "ompdesk")],
+	["~/Documents", probe("Documents")],
+	["~/.ssh", probe(".ssh")],
+	["another worktree under ~/.omp/wt", probe(".omp", "wt", "some-other-worktree")],
 ];
 
 const savedHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -99,14 +102,14 @@ describe("real-home write guard", () => {
 		}
 	});
 
-	it("does not mistake a sibling of a protected folder for it", async () => {
-		await expect(writeFile(join(realHome, ".omp-sibling", "__ompdesk_guard_probe__", "f"), "x")).rejects.toThrow(
-			/ENOENT/,
-		);
-	});
-
-	it("leaves the agent worktrees under ~/.omp/wt alone (the repo itself may live there)", async () => {
-		await expect(writeFile(probe(".omp", "wt"), "x")).rejects.toThrow(/ENOENT/);
+	it("leaves this checkout writable", async () => {
+		const dir = fs.mkdtempSync(join(dirname(THIS_FILE), "..", "node_modules", ".ompdesk-guard-"));
+		try {
+			await writeFile(join(dir, "f"), "ok");
+			expect(fs.readFileSync(join(dir, "f"), "utf8")).toBe("ok");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("records a refused write even when the caller swallows the error, for afterEach to fail on", async () => {
