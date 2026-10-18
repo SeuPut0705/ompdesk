@@ -368,7 +368,7 @@ function firstCycle(inTurn: number): Step {
 }
 
 describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
-	it("arms, guards, finalizes cycles, stops on two unreported ones and disarms", async () => {
+	it("arms, guards, finalizes cycles, keeps going through unreported ones and disarms", async () => {
 		const provider = await startProvider(createScript());
 		cleanups.push(() => provider.close());
 		const h = await startOmp(provider);
@@ -453,9 +453,11 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		expect(existsSync(join(h.root, "..", "outside.txt"))).toBe(false);
 
 		// Continuation turns carry the same section byte for byte (the prompt cache holds).
-		await h.waitFrame(frame => frame.type === "autopilot_stop_requested");
-		const stop = h.frames.find(frame => frame.type === "autopilot_stop_requested");
-		expect(stop).toMatchObject({ reason: "no_report" });
+		// Two unreported cycles in a row no longer stop the run: the third cycle ends and nobody asked for a pause.
+		await h.waitFrame(
+			frame => frame.type === "autopilot_cycle_end" && (frame.record as { n?: number } | undefined)?.n === 3,
+		);
+		expect(h.frames.some(frame => frame.type === "autopilot_stop_requested")).toBe(false);
 		const systems = provider.requests
 			.filter(request => request.system.includes("<autopilot>"))
 			.map(request => request.system);
@@ -469,8 +471,8 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 
 		// Main pauses the goal and journals it; the run can be disarmed after the goal is dropped.
 		await h.send({ type: "goal", op: "pause" });
-		const paused = await h.bridge.request<AutopilotStatus>(M.setState, { state: "paused", reason: "no_report" });
-		expect(paused).toMatchObject({ state: "paused", reason: "no_report" });
+		const paused = await h.bridge.request<AutopilotStatus>(M.setState, { state: "paused", reason: "user_pause" });
+		expect(paused).toMatchObject({ state: "paused", reason: "user_pause" });
 		await h.send({ type: "goal", op: "drop" });
 		const ended = await h.bridge.request<AutopilotStatus>(M.disarm, {});
 		expect(ended.state).toBe("ended");

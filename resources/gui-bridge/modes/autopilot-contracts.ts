@@ -156,6 +156,8 @@ export interface AutopilotStateEntry {
 	branch: string;
 	/** The branch the worktree was cut from (the "main" ahead/behind is measured against). */
 	baseBranch: string;
+	/** The branch Push pushes to (`HEAD:<target>`, fast-forward only) when it differs from `branch`. */
+	target?: string;
 	settings: AutopilotSettings;
 	startedAt: number;
 	/** Milliseconds the run was active (paused time excluded) at this entry. */
@@ -439,6 +441,7 @@ export interface AutopilotStatus {
 	root?: string;
 	branch?: string;
 	baseBranch?: string;
+	target?: string;
 	cycle?: number;
 	/** The cycle in flight, set by `begin` and cleared by the cycle's record. */
 	now?: { n: number; area?: AutopilotCycleArea; title?: string; startedAt: number };
@@ -645,6 +648,8 @@ export interface AutopilotArmParams {
 	run: string;
 	branch: string;
 	baseBranch: string;
+	/** The branch Push pushes to when it is not `branch` itself (the run works on its own branch off a target another worktree holds). */
+	target?: string;
 	settings: AutopilotSettings;
 	/** Child: the opening parent tab. */
 	parentTab?: string;

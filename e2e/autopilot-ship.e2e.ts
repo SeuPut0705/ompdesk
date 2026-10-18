@@ -226,18 +226,18 @@ test("a run on an existing branch commits there and Push moves that branch of th
 const SHEET = {
 	en: {
 		tab: /^Autopilot/,
-		inUse: /in use in project/,
+		via: /^autopilot\/\d{4}-\d{2}-\d{2} → push to main$/,
 		warning: "Commits go straight to main; Push goes to main.",
 	},
 	ko: {
 		tab: /^오토파일럿/,
-		inUse: /project에서 사용 중/,
+		via: /^작업 브랜치 autopilot\/\d{4}-\d{2}-\d{2} → 푸시 대상 main$/,
 		warning: "커밋이 main에 바로 쌓이고, 푸시는 main에 해요",
 	},
 } as const;
 
 for (const language of ["en", "ko"] as const)
-	test(`the sheet offers main only once the folder is off it, warns in one line, and Push pushes to main (${language})`, async () => {
+	test(`target = main while the user's folder is on main: the run works on its own branch, the remote main moves, the folder is untouched (${language})`, async () => {
 		test.setTimeout(240_000);
 		const profile = await makeApProfile({
 			language,
@@ -265,22 +265,15 @@ for (const language of ["en", "ko"] as const)
 			await openSheet();
 			const branch = page.locator("[data-autopilot-branch] select");
 			const mainOption = branch.locator('option[value="branch:main"]');
-			// The default is listed first, but the user's own folder is on it: another worktree has it.
 			await expect(branch).toHaveValue("new");
 			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveValue(/^autopilot\/\d{4}-\d{2}-\d{2}$/);
-			await expect(mainOption).toHaveAttribute("disabled", "");
-			await expect(mainOption).toHaveText(text.inUse);
+			// The user's own folder is on main, and main is still selectable: the run works on its own branch off it.
+			await expect(mainOption).not.toHaveAttribute("disabled", "");
 			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveCount(0);
 			await captureTo(captures, page, `autopilot-branch-sheet-${language}-light`);
-
-			// The user moves their folder off main: the sheet reads git again when it opens.
-			await page.keyboard.press("Escape");
-			await expect(page.locator("[data-autopilot-sheet]")).toHaveCount(0);
-			git(profile.project, "switch", "-q", "-c", "dev");
-			await openSheet();
-			await expect(branch.locator('option[value="branch:main"]')).not.toHaveAttribute("disabled", "");
 			await branch.selectOption("branch:main");
 			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveText(text.warning);
+			await expect(page.locator("[data-autopilot-branch-via]")).toHaveText(text.via);
 			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveCount(0);
 			await captureTo(captures, page, `autopilot-branch-main-warning-${language}-light`);
 
@@ -290,24 +283,26 @@ for (const language of ["en", "ko"] as const)
 				.poll(
 					async () => {
 						const tabs = await page.evaluate(() => window.omp.tabs.list());
-						tabId = tabs.find(tab => tab.worktree?.branch === "main")?.tabId ?? "";
+						tabId = tabs.find(tab => tab.worktree?.branch.startsWith("autopilot/"))?.tabId ?? "";
 						return tabId;
 					},
-					{ timeout: 60_000, message: "the run's tab opens on main" },
+					{ timeout: 60_000, message: "the run's tab opens on its own branch" },
 				)
 				.not.toBe("");
 			const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1 done", 90_000);
-			expect(first.branch).toBe("main");
+			expect(first.target).toBe("main");
 			const commit = first.cycles?.[0]?.commit;
 			expect(commit).toBeTruthy();
-			// Push pushed main itself, fast-forward.
+			// Push pushed HEAD:main, fast-forward: the remote main moved to the cycle's commit.
 			await expect.poll(() => git(profile.remote, "rev-parse", "refs/heads/main"), { timeout: 30_000 }).toBe(commit);
 			expect(git(profile.remote, "log", "--format=%s", `${mainBefore}..main`)).toContain("autopilot: cycle 1");
 			expect(git(profile.remote, "rev-parse", "refs/heads/feature/x")).toBe(
 				git(profile.project, "rev-parse", "feature/x"),
 			);
-			expect(git(profile.project, "rev-parse", "--abbrev-ref", "HEAD")).toBe("dev");
-			expect(git(profile.project, "branch", "--list", "autopilot/*")).toBe("");
+			// The user's folder is untouched: still on main, local main not moved, a clean working tree.
+			expect(git(profile.project, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+			expect(git(profile.project, "rev-parse", "main")).toBe(mainBefore);
+			expect(git(profile.project, "status", "--porcelain")).toBe("");
 		} finally {
 			await exitApp(app);
 			await cleanupAp(profile);

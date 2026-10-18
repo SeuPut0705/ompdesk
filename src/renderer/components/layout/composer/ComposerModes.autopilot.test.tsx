@@ -434,28 +434,30 @@ describe("Autopilot start sheet", () => {
 			expect($("button[data-autopilot-start]")?.disabled).toBe(false);
 		});
 
-		it("lists the repo's branches, the default first, greys the ones another worktree has and says where", async () => {
+		it("lists the repo's branches, the default first, none greyed: a branch another worktree holds says it goes via a work branch", async () => {
 			installMockOmp();
 			seed(branches());
 			await mount(<ComposerModes />);
 			await openSheet();
 			const options = [...document.querySelectorAll("[data-autopilot-branch] option")];
+			const via = translate("autopilot.branch.viaWork");
 			expect(options.map(option => option.textContent)).toEqual([
 				translate("autopilot.branch.new"),
 				`main · ${translate("autopilot.branch.default")}`,
-				`dev · ${translate("autopilot.branch.inUse", { folder: "app" })}`,
+				`dev · ${via}`,
 				"feature/login",
 				`hotfix · ${translate("autopilot.branch.remoteOnly")}`,
-				`release/1 · ${translate("autopilot.branch.inUse", { folder: "gui-release-1" })}`,
+				`release/1 · ${via}`,
 			]);
-			expect(options.map(option => option.getAttribute("disabled") !== null)).toEqual([
-				false,
-				false,
-				true,
-				false,
-				false,
-				true,
-			]);
+			expect(options.some(option => option.getAttribute("disabled") !== null)).toBe(false);
+			// The line "work branch → push target" shows only for a target another worktree holds.
+			expect($("[data-autopilot-branch-via]")).toBeNull();
+			await choose("branch:release/1");
+			expect($("[data-autopilot-branch-via]")?.textContent).toBe(
+				translate("autopilot.branch.viaLine", { work: "autopilot/2026-10-18", target: "release/1" }),
+			);
+			await choose("branch:feature/login");
+			expect($("[data-autopilot-branch-via]")).toBeNull();
 		});
 
 		it("sends an existing branch, remembers it per repository and shows no warning for it", async () => {
@@ -515,11 +517,14 @@ describe("Autopilot start sheet", () => {
 			await act(async () => root.unmount());
 			document.body.innerHTML = "";
 			useAutopilotStore.getState().reset();
-			// `dev` is the user's own branch now: another worktree has it.
+			// `dev` is held by the user's own folder: still usable, as a target reached through a work branch.
 			seed(branches({ last: { kind: "existing", name: "dev" } }));
 			await mount(<ComposerModes />);
 			await openSheet();
-			expect(select().value).toBe("new");
+			expect(select().value).toBe("branch:dev");
+			expect($("[data-autopilot-branch-via]")?.textContent).toBe(
+				translate("autopilot.branch.viaLine", { work: "autopilot/2026-10-18", target: "dev" }),
+			);
 		});
 
 		it("reads the list again when the sheet opens: the status the tab hydrated with may be old", async () => {

@@ -376,7 +376,7 @@ export type RpcCommand =
 			 * the folder's HEAD, `local` checks out an existing local branch, `remote` tracks `<remote>/<name>`. Never
 			 * renamed with a suffix; a name that cannot be used fails.
 			 */
-			branch?: { name: string; mode: "new" | "local" | "remote"; remote?: string };
+			branch?: { name: string; mode: "new" | "local" | "remote"; remote?: string; from?: string };
 	  }
 	| { id?: string; type: "worktree_remove"; path: string; force?: boolean }
 	// omp's `worktree.onStart` / `worktree.onExit` as the live session resolves them (omp 18.8.6+).

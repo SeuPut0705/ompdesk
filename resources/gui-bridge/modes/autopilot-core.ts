@@ -780,6 +780,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		root: state.root,
 		branch: state.branch,
 		baseBranch: state.baseBranch,
+		...(state.target ? { target: state.target } : {}),
 		cycle,
 		...(live
 			? {
@@ -818,6 +819,7 @@ export function initialStateEntry(params: {
 	root: string;
 	branch: string;
 	baseBranch: string;
+	target?: string;
 	settings?: AutopilotSettings;
 	role?: "parent" | "child";
 	excludedTools: string[];
@@ -829,6 +831,7 @@ export function initialStateEntry(params: {
 		root: params.root,
 		branch: params.branch,
 		baseBranch: params.baseBranch,
+		...(params.target ? { target: params.target } : {}),
 		settings: params.settings ?? DEFAULT_AUTOPILOT_SETTINGS,
 		startedAt: params.now,
 		activeMs: 0,

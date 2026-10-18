@@ -633,7 +633,8 @@ export const en: Record<string, string> = {
 	"autopilot.branch.name": "Branch name",
 	"autopilot.branch.default": "default",
 	"autopilot.branch.remoteOnly": "remote",
-	"autopilot.branch.inUse": "in use in {folder}",
+	"autopilot.branch.viaWork": "via a work branch",
+	"autopilot.branch.viaLine": "{work} → push to {target}",
 	"autopilot.branch.invalid": "Not a valid git branch name.",
 	"autopilot.branch.exists": "That branch exists: pick it from the list.",
 	"autopilot.branch.hintNew":

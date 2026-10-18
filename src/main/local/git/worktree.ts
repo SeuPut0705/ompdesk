@@ -70,14 +70,26 @@ export async function stockWorktreeLocation(
 }
 
 /** The branch a worktree gets when the caller names it (`RpcCommand` `worktree_create.branch`), or undefined when malformed. */
-export type WorktreeBranchSource = { name: string; mode: "new" | "local" | "remote"; remote?: string };
+export type WorktreeBranchSource = {
+	name: string;
+	mode: "new" | "local" | "remote";
+	remote?: string;
+	/** `new` only: the ref the branch starts at (default the folder's HEAD). */
+	from?: string;
+};
 
 export function worktreeBranchSource(value: unknown): WorktreeBranchSource | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
-	const { name, mode, remote } = value as Record<string, unknown>;
+	const { name, mode, remote, from } = value as Record<string, unknown>;
 	if (typeof name !== "string" || !name || (mode !== "new" && mode !== "local" && mode !== "remote")) return undefined;
 	if (mode === "remote" && (typeof remote !== "string" || !remote || remote.startsWith("-"))) return undefined;
-	return { name, mode, ...(typeof remote === "string" && remote ? { remote } : {}) };
+	if (from !== undefined && (typeof from !== "string" || !from || from.startsWith("-"))) return undefined;
+	return {
+		name,
+		mode,
+		...(typeof remote === "string" && remote ? { remote } : {}),
+		...(typeof from === "string" ? { from } : {}),
+	};
 }
 
 /** `git check-ref-format --branch`: the name is one git accepts for a branch (and not an option). */
@@ -100,7 +112,7 @@ async function addNamedWorktree(
 	const exists = await branchExists(primary, name);
 	if (source.mode === "new") {
 		if (exists) throw new LocalCommandError(`The branch ${name} already exists.`, "worktree_create_failed");
-		await git(baseCwd, ["branch", "--no-track", name, "HEAD"]);
+		await git(baseCwd, ["branch", "--no-track", name, source.from ?? "HEAD"]);
 		try {
 			await git(primary, ["worktree", "add", target, name], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
 		} catch (error) {

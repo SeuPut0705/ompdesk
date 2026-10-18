@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { branchProblem } from "../shared/autopilot-branch";
+import { branchProblem, viaWorkBranch } from "../shared/autopilot-branch";
 import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
 import { gitSync, initRepo } from "./local/git/test-repos";
 
@@ -50,17 +50,21 @@ describe("the repository's branches as the picker sees them", () => {
 		expect(entries).toHaveLength(5);
 	});
 
-	it("refuses the branch the user's folder is on and one a run's worktree holds, but not a free one", async () => {
+	it("reports where a branch is checked out (the user's folder, a run's worktree) and leaves a free one unmarked", async () => {
 		gitSync(main, "branch", "free");
 		gitSync(main, "branch", "held");
 		gitSync(main, "worktree", "add", "-q", path.join(tmp, "wt-held"), "held");
 		const { entries } = await readBranchEntries(main, "origin");
-		expect(branchProblem({ kind: "existing", name: "main" }, entries)).toEqual({ code: "checked_out", path: main });
-		expect(branchProblem({ kind: "existing", name: "held" }, entries)).toEqual({
-			code: "checked_out",
-			path: path.join(tmp, "wt-held"),
-		});
-		expect(branchProblem({ kind: "existing", name: "free" }, entries)).toBeNull();
+		const at = (name: string) => entries.find(entry => entry.name === name)?.checkedOutAt;
+		expect(at("main")).toBe(main);
+		expect(at("held")).toBe(path.join(tmp, "wt-held"));
+		expect(at("free")).toBeUndefined();
+		// None of them is refused: a branch held elsewhere is a push target (`viaWorkBranch`).
+		for (const name of ["main", "held", "free"]) {
+			expect(branchProblem({ kind: "existing", name }, entries)).toBeNull();
+		}
+		expect(viaWorkBranch({ kind: "existing", name: "main" }, entries)).toBe("main");
+		expect(viaWorkBranch({ kind: "existing", name: "free" }, entries)).toBeNull();
 	});
 
 	it("allows the default branch once the folder has moved off it", async () => {

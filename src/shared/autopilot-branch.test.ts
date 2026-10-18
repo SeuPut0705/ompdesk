@@ -13,6 +13,7 @@ import {
 	runIdFor,
 	suggestBranchName,
 	validBranchPref,
+	viaWorkBranch,
 	worktreeModeFor,
 } from "./autopilot-branch";
 
@@ -69,15 +70,13 @@ describe("the picker list", () => {
 describe("what a run may take", () => {
 	const entries = branchEntries(facts);
 
-	it("refuses a branch another worktree has checked out, naming the folder", () => {
-		expect(branchProblem({ kind: "existing", name: "dev" }, entries)).toEqual({
-			code: "checked_out",
-			path: "/work/app",
-		});
-		expect(branchProblem({ kind: "existing", name: "release/1" }, entries)).toEqual({
-			code: "checked_out",
-			path: "/wt/gui-r",
-		});
+	it("takes a branch another worktree has checked out as a push target reached through a work branch", () => {
+		expect(branchProblem({ kind: "existing", name: "dev" }, entries)).toBeNull();
+		expect(viaWorkBranch({ kind: "existing", name: "dev" }, entries)).toBe("dev");
+		expect(viaWorkBranch({ kind: "existing", name: "release/1" }, entries)).toBe("release/1");
+		expect(viaWorkBranch({ kind: "existing", name: "feature/login" }, entries)).toBeNull();
+		expect(viaWorkBranch({ kind: "new" }, entries)).toBeNull();
+		expect(worktreeModeFor({ kind: "existing", name: "dev" }, entries)).toBe("new");
 	});
 
 	it("takes a free local branch, a remote-only branch and the default branch when it is free", () => {
@@ -167,8 +166,8 @@ describe("the choice remembered per repository", () => {
 			kind: "existing",
 			name: "feature/login",
 		});
-		// Checked out elsewhere now, or deleted since: back to the default.
-		expect(initialChoice({ kind: "existing", name: "dev" }, entries)).toEqual({ kind: "new" });
+		// Deleted since: back to the default. A branch another worktree holds is still a usable target.
+		expect(initialChoice({ kind: "existing", name: "dev" }, entries)).toEqual({ kind: "existing", name: "dev" });
 		expect(initialChoice({ kind: "existing", name: "gone" }, entries)).toEqual({ kind: "new" });
 		expect(initialChoice({ kind: "new", name: "dev" }, entries)).toEqual({ kind: "new" });
 		expect(initialChoice({ kind: "new", name: "mine" }, entries)).toEqual({ kind: "new", name: "mine" });

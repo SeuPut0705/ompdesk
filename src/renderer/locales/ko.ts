@@ -621,7 +621,8 @@ export const ko: Record<string, string> = {
 	"autopilot.branch.name": "브랜치 이름",
 	"autopilot.branch.default": "기본",
 	"autopilot.branch.remoteOnly": "원격",
-	"autopilot.branch.inUse": "{folder}에서 사용 중",
+	"autopilot.branch.viaWork": "작업 브랜치 경유",
+	"autopilot.branch.viaLine": "작업 브랜치 {work} → 푸시 대상 {target}",
 	"autopilot.branch.invalid": "git 브랜치 이름으로 쓸 수 없어요.",
 	"autopilot.branch.exists": "이미 있는 브랜치예요. 목록에서 고르세요.",
 	"autopilot.branch.hintNew":

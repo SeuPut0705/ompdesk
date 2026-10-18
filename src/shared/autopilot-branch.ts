@@ -85,14 +85,9 @@ export function suggestBranchName(date: string, taken: ReadonlySet<string>): str
 	return name;
 }
 
-export type BranchProblem =
-	| { code: "invalid_name" }
-	| { code: "exists" }
-	| { code: "missing" }
-	/** Another worktree (the user's own folder, or a run's) has it checked out. */
-	| { code: "checked_out"; path: string };
+export type BranchProblem = { code: "invalid_name" } | { code: "exists" } | { code: "missing" };
 
-/** Why the run cannot take `choice`, or null. The sheet greys the row, main refuses the start. */
+/** Why the run cannot take `choice`, or null (a branch another worktree holds is no problem: see `viaWorkBranch`). */
 export function branchProblem(
 	choice: AutopilotBranchChoice,
 	entries: readonly AutopilotBranchEntry[],
@@ -103,8 +98,7 @@ export function branchProblem(
 		return entries.some(entry => entry.name === choice.name) ? { code: "exists" } : null;
 	}
 	const entry = entries.find(item => item.name === choice.name);
-	if (!entry || (!entry.local && !entry.remote)) return { code: "missing" };
-	return entry.checkedOutAt ? { code: "checked_out", path: entry.checkedOutAt } : null;
+	return !entry || (!entry.local && !entry.remote) ? { code: "missing" } : null;
 }
 
 /** Whether a run on this branch commits straight onto the default branch (the sheet warns; Push then pushes to it). */
@@ -115,12 +109,22 @@ export function isDefaultBranchChoice(
 	return choice.kind === "existing" && entries.some(entry => entry.default && entry.name === choice.name);
 }
 
+/**
+ * The branch Push pushes to when the run cannot work on it itself: another worktree (usually the user's own folder on
+ * `main`) has it checked out, so the run works on its own branch cut from it and pushes `HEAD:<target>`.
+ */
+export function viaWorkBranch(choice: AutopilotBranchChoice, entries: readonly AutopilotBranchEntry[]): string | null {
+	if (choice.kind !== "existing") return null;
+	const entry = entries.find(item => item.name === choice.name);
+	return entry?.checkedOutAt ? entry.name : null;
+}
+
 /** How `worktree_create` makes the checkout for `choice`: a new branch, a local one, or one tracking the remote. */
 export function worktreeModeFor(
 	choice: AutopilotBranchChoice,
 	entries: readonly AutopilotBranchEntry[],
 ): "new" | "local" | "remote" {
-	if (choice.kind === "new") return "new";
+	if (choice.kind === "new" || viaWorkBranch(choice, entries)) return "new";
 	return entries.find(entry => entry.name === choice.name)?.local ? "local" : "remote";
 }
 

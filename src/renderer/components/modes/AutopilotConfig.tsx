@@ -29,7 +29,7 @@ import {
 	MAX_PARALLEL_CHILDREN,
 	shipPolicyForPreset,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
-import { branchProblem, initialChoice, isDefaultBranchChoice } from "../../../shared/autopilot-branch";
+import { branchProblem, initialChoice, isDefaultBranchChoice, viaWorkBranch } from "../../../shared/autopilot-branch";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -71,10 +71,7 @@ function branchLabel(
 	const notes: string[] = [];
 	if (entry.default) notes.push(t("autopilot.branch.default"));
 	if (!entry.local) notes.push(t("autopilot.branch.remoteOnly"));
-	if (entry.checkedOutAt) {
-		const folder = entry.checkedOutAt.split(/[\\/]/).filter(Boolean).at(-1) ?? entry.checkedOutAt;
-		notes.push(t("autopilot.branch.inUse", { folder }));
-	}
+	if (entry.checkedOutAt) notes.push(t("autopilot.branch.viaWork"));
 	return notes.length > 0 ? `${entry.name} · ${notes.join(" · ")}` : entry.name;
 }
 
@@ -410,6 +407,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 				: null
 		: null;
 	const onDefaultBranch = branches ? isDefaultBranchChoice(choice, branches.branches) : false;
+	const viaTarget = branches ? viaWorkBranch(choice, branches.branches) !== null : false;
 	const start = async () => {
 		const base = shipPolicyForPreset(preset, cleanRemote);
 		const items = backlog
@@ -550,7 +548,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 											...branches.branches.map(entry => ({
 												value: `${EXISTING_PREFIX}${entry.name}`,
 												label: branchLabel(entry, t),
-												disabled: entry.checkedOutAt !== undefined,
 											})),
 										]}
 										value={branchSel}
@@ -584,6 +581,16 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 							>
 								<TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								<span>{t("autopilot.branch.defaultWarning", { branch: pickedBranch })}</span>
+							</span>
+						)}
+						{viaTarget && (
+							<span
+								className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-text-muted)"
+								data-autopilot-branch-via
+							>
+								<span className="truncate">
+									{t("autopilot.branch.viaLine", { work: branches.suggested, target: pickedBranch })}
+								</span>
 							</span>
 						)}
 					</>

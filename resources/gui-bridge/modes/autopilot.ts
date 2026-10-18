@@ -913,6 +913,7 @@ async function arm(session: Session, params: AutopilotArmParams): Promise<Autopi
 				root: params.root,
 				branch: params.branch,
 				baseBranch: params.baseBranch,
+				...(params.target ? { target: params.target } : {}),
 				settings,
 				role: params.role,
 				excludedTools,

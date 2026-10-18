@@ -871,6 +871,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					root: params.root,
 					branch: params.branch,
 					baseBranch: params.baseBranch,
+					...(params.target ? { target: params.target } : {}),
 					settings,
 					role: params.role,
 					excludedTools: patch.excludedTools ?? [],

@@ -102,6 +102,7 @@ class World {
 					root: arm.root,
 					branch: arm.branch,
 					baseBranch: arm.baseBranch,
+					...(arm.target ? { target: arm.target } : {}),
 					cycle: current?.cycle ?? 0,
 					settings: arm.settings,
 					cycles: current?.cycles ?? [],
@@ -596,22 +597,57 @@ describe("the branch a run is on", () => {
 		expect(dataOf<AutopilotStatus>(response)).toMatchObject({ branch: "autopilot/night-shift", run: "night-shift" });
 	});
 
-	it("refuses the branch the user's own folder is on, naming the folder, and creates nothing", async () => {
-		const { response } = await startOn({ kind: "existing", name: "main" });
-		expect(refusal(response)).toMatchObject({ code: "autopilot_branch_checked_out" });
-		expect(errorOf(response)).toContain("main is already checked out in ");
-		expect(errorOf(response)).toContain(main);
-		expect(nextTab).toBe(0);
-		expect(world.calls.some(call => call.name === AUTOPILOT_BRIDGE_METHODS.arm)).toBe(false);
+	it("main while the user's own folder is on it: the run works on its own branch cut from main, Push goes to HEAD:main and the folder is untouched", async () => {
+		await fs.writeFile(path.join(main, "mine.txt"), "user work");
+		const mainBefore = gitSync(main, "rev-parse", "main");
+		const { response } = await startOn({ kind: "existing", name: "main" }, { preset: "push" });
+		expect(response.success).toBe(true);
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({
+			branch: "autopilot/2026-10-17",
+			target: "main",
+			baseBranch: "main",
+		});
+		expect(armed()).toMatchObject({ branch: "autopilot/2026-10-17", target: "main" });
+		const sha = await commit(rootOf(response), "a.txt");
+		await cycleEnd();
+		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
+		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.shipAction)[0]?.params).toEqual({
+			kind: "push",
+			refs: ["refs/remotes/origin/main"],
+			sha,
+		});
+		// The user's folder: still on main, local main not moved, their file there, nothing else changed.
+		expect(gitSync(main, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+		expect(gitSync(main, "rev-parse", "main")).toBe(mainBefore);
+		expect(await fs.readFile(path.join(main, "mine.txt"), "utf8")).toBe("user work");
+		expect(gitSync(main, "status", "--porcelain")).toBe("?? mine.txt");
 	});
 
-	it("refuses a branch another worktree has checked out (a run's, a child's, any)", async () => {
+	it("any branch another worktree holds is a target too: the run works beside it and pushes to it, never forced", async () => {
 		const other = path.join(tmp, "elsewhere");
 		gitSync(main, "worktree", "add", "-q", other, "feature/x");
-		const { response } = await startOn({ kind: "existing", name: "feature/x" });
-		expect(refusal(response)).toMatchObject({ code: "autopilot_branch_checked_out" });
-		expect(errorOf(response)).toContain(other);
-		expect(nextTab).toBe(0);
+		const { response } = await startOn({ kind: "existing", name: "feature/x" }, { preset: "push" });
+		expect(dataOf<AutopilotStatus>(response)).toMatchObject({ branch: "autopilot/2026-10-17", target: "feature/x" });
+		const sha = await commit(rootOf(response), "a.txt");
+		await cycleEnd();
+		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(sha);
+		// The remote target moves on elsewhere: the next push is rejected, reported to the agent, not forced, not a stop.
+		const theirs = path.join(tmp, "theirs2");
+		gitSync(tmp, "clone", "-q", remote, theirs);
+		gitSync(theirs, "config", "user.email", "t@example.com");
+		gitSync(theirs, "config", "user.name", "T");
+		gitSync(theirs, "switch", "-q", "feature/x");
+		const moved = await commit(theirs, "theirs.txt");
+		gitSync(theirs, "push", "-q", "origin", "feature/x");
+		await commit(rootOf(response), "b.txt");
+		await cycleEnd(2);
+		expect(gitSync(remote, "rev-parse", "refs/heads/feature/x")).toBe(moved);
+		expect(String(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).at(-1)?.params?.text)).toMatch(
+			/origin\/feature\/x has commits this run lacks.*never forces/,
+		);
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).some(call => call.params?.state === "paused"),
+		).toBe(false);
 	});
 
 	it("refuses a branch that is gone, a new name that is taken and one git would not accept", async () => {

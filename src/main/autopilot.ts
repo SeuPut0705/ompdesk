@@ -58,7 +58,9 @@ import {
 	branchSlug,
 	parseChoice,
 	runIdFor,
+	suggestBranchName,
 	validBranchPref,
+	viaWorkBranch,
 	worktreeModeFor,
 } from "../shared/autopilot-branch";
 import { autopilotLogTitle, formatAutopilotLog } from "../shared/autopilot-log";
@@ -199,6 +201,8 @@ interface Run {
 	baseBranch: string;
 	/** The user's default checkout of the repository (where a merge lands). */
 	checkoutRoot: string;
+	/** Where Push pushes (`HEAD:<target>`) when the run works on a branch of its own off a target another worktree holds. */
+	target?: string;
 	settings: AutopilotSettings;
 	status: AutopilotStatus | null;
 	ship: ShipRunner;
@@ -593,9 +597,17 @@ export class Autopilot {
 		}
 		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
 		this.#refuseBranch(choice, entries);
+		const target = viaWorkBranch(choice, entries);
 		const mode = worktreeModeFor(choice, entries);
-		const source: WorktreeBranchSource | null =
-			choice.kind === "existing"
+		const taken = new Set(entries.map(entry => entry.name));
+		// A target another worktree holds (main in the user's folder): work on a branch of our own cut from it.
+		const source: WorktreeBranchSource | null = target
+			? {
+					name: suggestBranchName(date, taken),
+					mode: "new",
+					from: entries.find(entry => entry.name === target)?.local ? target : `${settings.ship.remote}/${target}`,
+				}
+			: choice.kind === "existing"
 				? { name: choice.name, mode, ...(mode === "remote" ? { remote: settings.ship.remote } : {}) }
 				: choice.name
 					? { name: choice.name, mode }
@@ -620,7 +632,7 @@ export class Autopilot {
 			await this.#commitGuide(made.path, options.guide);
 		}
 		// The run's own base: the folder's branch, or, on the default branch itself, that branch (a release pushes it).
-		const baseBranch = made.branch === defaultBranch ? made.branch : checkoutBranch;
+		const baseBranch = (target ?? made.branch) === defaultBranch ? (target ?? made.branch) : checkoutBranch;
 		const runId = runIdFor(made.branch, date);
 		const spawned = await this.#deps.spawnTab(win, {
 			cwd: made.path,
@@ -633,6 +645,7 @@ export class Autopilot {
 			root: made.path,
 			branch: made.branch,
 			baseBranch,
+			...(target ? { target } : {}),
 			checkoutRoot: made.baseCwd,
 			settings,
 			release,
@@ -646,6 +659,7 @@ export class Autopilot {
 				run: runId,
 				branch: made.branch,
 				baseBranch,
+				...(target ? { target } : {}),
 				settings,
 				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
@@ -681,6 +695,7 @@ export class Autopilot {
 			branch: string;
 			baseBranch: string;
 			checkoutRoot: string;
+			target?: string;
 			settings: AutopilotSettings;
 			release: { procedure: AutopilotReleaseProcedure | null; blocked?: string };
 		},
@@ -692,6 +707,7 @@ export class Autopilot {
 			root: info.root,
 			branch: info.branch,
 			baseBranch: info.baseBranch,
+			...(info.target ? { target: info.target } : {}),
 			checkoutRoot: info.checkoutRoot,
 			settings: info.settings,
 			status: null,
@@ -755,6 +771,7 @@ export class Autopilot {
 			run: status.run ?? status.branch,
 			root: status.root,
 			branch: status.branch,
+			...(status.target ? { target: status.target } : {}),
 			baseBranch: status.baseBranch ?? "main",
 			checkoutRoot,
 			settings: status.settings,
@@ -825,6 +842,7 @@ export class Autopilot {
 			run: run.run,
 			branch: run.branch,
 			baseBranch: run.baseBranch,
+			...(run.target ? { target: run.target } : {}),
 			settings,
 			resume,
 			...(procedure.procedure ? { releaseProcedure: procedure.procedure } : {}),
@@ -1072,6 +1090,7 @@ export class Autopilot {
 			root: run.root,
 			checkoutRoot: run.checkoutRoot,
 			branch: run.branch,
+			...(run.target ? { pushTo: run.target } : {}),
 			baseBranch: run.baseBranch,
 			remote: run.settings.ship.remote,
 		};
@@ -1583,12 +1602,6 @@ export class Autopilot {
 		if (!problem) return;
 		const text = this.#deps.text;
 		const branch = choice.kind === "new" ? (choice.name ?? "") : choice.name;
-		if (problem.code === "checked_out") {
-			throw new AutopilotError(
-				text("autopilot.err.branchCheckedOut", { branch, path: problem.path }),
-				"autopilot_branch_checked_out",
-			);
-		}
 		if (problem.code === "exists") {
 			throw new AutopilotError(text("autopilot.err.branchExists", { branch }), "autopilot_branch_exists");
 		}
