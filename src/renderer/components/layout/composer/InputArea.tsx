@@ -2,6 +2,7 @@ import { Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import type { ComposerWindowAction } from "../../../lib/composer-actions";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { composerEnterNewline } from "../../../lib/hardware-keyboard";
@@ -34,7 +35,7 @@ import { useComposerAttach } from "./use-composer-attach";
 import { useComposerCommands } from "./use-composer-commands";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerDraft } from "./use-composer-draft";
-import { useComposerEvents } from "./use-composer-events";
+import { useComposerActionEvents, useComposerEvents } from "./use-composer-events";
 import { useComposerField } from "./use-composer-field";
 import { useComposerHistory } from "./use-composer-history";
 import { useComposerKeys } from "./use-composer-keys";
@@ -315,6 +316,13 @@ export function InputArea() {
 	const openHistorySearch = useCallback(() => setHistorySearchOpen(true), []);
 	const openSkillPicker = useCallback(() => setSkillPickerOpen(true), []);
 	const toggleExpandedFromMenu = useCallback(() => toggleExpanded(), [toggleExpanded]);
+	// The palette's History / Expand / Attach rows reach this composer through one window event.
+	const onPaletteAction = useStableCallback((action: ComposerWindowAction) => {
+		if (action === "history") openHistorySearch();
+		else if (action === "expand") toggleExpandedFromMenu();
+		else openFilePicker();
+	});
+	useComposerActionEvents(runtimeTabId, onPaletteAction);
 	const placeholder =
 		status !== "ready"
 			? t("input.placeholder.connecting")

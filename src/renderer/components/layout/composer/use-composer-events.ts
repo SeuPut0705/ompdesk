@@ -1,10 +1,16 @@
 /**
- * Window events other surfaces fill the composer through, each for one tab (`tabId`, else the active tab):
+ * Window events other surfaces fill or drive the composer through, each for one tab (`tabId`, else the active tab):
  * `omp:insert-mention` appends an `@path` mention (the Files tree, a drop), `omp:fill-composer` places a text
- * and pictures (starter cards, history recall, a dequeue restore, the editor dialog).
+ * and pictures (starter cards, history recall, a dequeue restore, the editor dialog), `omp:composer-action` runs
+ * History / Expand / Attach (the command palette).
  */
 import { type RefObject, useEffect } from "react";
 import type { ImageContent } from "../../../../shared/rpc-types";
+import {
+	COMPOSER_ACTION_EVENT,
+	type ComposerActionDetail,
+	type ComposerWindowAction,
+} from "../../../lib/composer-actions";
 import { dropReferencedPastes } from "../../../lib/paste-blobs";
 import { type ComposerImage, type ComposerStore, prependToDraft } from "../../../stores/composer";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
@@ -86,4 +92,20 @@ export function useComposerEvents({
 		window.addEventListener("omp:fill-composer", fillComposer);
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
 	}, [placeDraft, setImages, runtimeTabId, textareaRef]);
+}
+
+/** The palette's History, Expand and Attach rows (`lib/composer-actions.ts`), answered by this tab's composer. */
+export function useComposerActionEvents(
+	runtimeTabId: string | null,
+	onAction: (action: ComposerWindowAction) => void,
+): void {
+	useEffect(() => {
+		const handle = (event: Event) => {
+			const detail = (event as CustomEvent<ComposerActionDetail>).detail;
+			if ((detail?.tabId ?? useTabsStore.getState().activeTabId) !== runtimeTabId) return;
+			onAction(detail.action);
+		};
+		window.addEventListener(COMPOSER_ACTION_EVENT, handle);
+		return () => window.removeEventListener(COMPOSER_ACTION_EVENT, handle);
+	}, [runtimeTabId, onAction]);
 }

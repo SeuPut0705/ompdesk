@@ -229,3 +229,37 @@ describe("one-shot action wiring", () => {
 		expect(lastToast()?.variant).toBe("warning");
 	});
 });
+
+describe("composer rows in the palette", () => {
+	const menu = () => buildCommandMenu(ctx);
+	const row = (name: string) => menu().find(item => item.name === name);
+
+	it("History, Expand and Attach ask the focused composer through one window event, with their chords", async () => {
+		for (const [name, chord] of [
+			["history", "⌃R"],
+			["expand", "⌃G"],
+			["attach", undefined],
+		] as const) {
+			dispatchMock.mockClear();
+			const item = row(name);
+			expect(item?.shortcut, name).toBe(chord);
+			if (item?.affordance.kind !== "action") throw new Error(`${name}: expected action`);
+			await item.affordance.run();
+			const event = dispatchMock.mock.calls[0]?.[0] as CustomEvent<{ action: string }>;
+			expect(event.type).toBe("omp:composer-action");
+			expect(event.detail.action).toBe(name);
+		}
+	});
+
+	it("Stop shows Esc and Run settings opens the Run popover; Modes names Autopilot", () => {
+		expect(row("stop")?.shortcut).toBe("Esc");
+		expect(row("stop")?.affordance.kind).toBe("action");
+		const opened: unknown[] = [];
+		const withModes = buildCommandMenu({ ...ctx, openModes: (...args) => void opened.push(args) });
+		const run = withModes.find(item => item.name === "run");
+		if (run?.affordance.kind !== "window") throw new Error("expected window");
+		run.affordance.open();
+		expect(opened).toEqual([[]]);
+		expect(row("modes")?.description).toContain(translate("input.modes.tab.autopilot"));
+	});
+});

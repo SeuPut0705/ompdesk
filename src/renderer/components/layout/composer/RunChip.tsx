@@ -88,7 +88,6 @@ export function RunChip() {
 					</>
 				}
 				describe={false}
-				shortcut={actionKbd("thinking.toggle", keymapOverrides)}
 			>
 				<Button
 					aria-busy={delegation.pending || undefined}

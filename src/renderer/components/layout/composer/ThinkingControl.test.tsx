@@ -142,6 +142,39 @@ describe("ThinkingLevelField", () => {
 		expect(useModelStore.getState().thinkingLevel).toBe("high");
 	});
 
+	it("renders the same choices as one radio row (the model picker's effort row) with arrows moving the choice", async () => {
+		installMockOmp();
+		useModelStore.setState({
+			thinkingLevel: "medium",
+			thinkingConfigured: "medium",
+			availableThinkingLevels: ["low", "medium", "high"],
+		});
+		await mount(<ThinkingLevelField variant="segmented" />);
+
+		const radios = Array.from(document.querySelectorAll("[role=radio]")) as unknown as TestElement[];
+		expect(radios.map(radio => radio.textContent)).toEqual(["Off", "Auto", "Low", "Medium", "High"]);
+		expect(radios.map(radio => (radio as unknown as Element).getAttribute("aria-checked"))).toEqual([
+			"false",
+			"false",
+			"false",
+			"true",
+			"false",
+		]);
+		expect(container.textContent).toContain(translate("input.thinking.level.medium"));
+
+		// One tab stop: the chosen one. A click sends the explicit value; ArrowRight moves to the next.
+		await act(async () => (radios[4] as unknown as { click(): void }).click());
+		await flush();
+		expect(setThinkingLevelMock).toHaveBeenCalledWith("high");
+		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+		const group = document.querySelector("[role=radiogroup]") as unknown as Element;
+		const arrow = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(arrow, "key", { value: "ArrowLeft" });
+		await act(async () => group.dispatchEvent(arrow));
+		await flush();
+		expect(setThinkingLevelMock).toHaveBeenLastCalledWith("medium");
+	});
+
 	it("shows the effective clamped level returned by the sidecar", async () => {
 		installMockOmp();
 		setThinkingLevelMock.mockResolvedValue({

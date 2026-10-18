@@ -33,6 +33,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
+import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
@@ -58,6 +59,7 @@ export function ModelPicker() {
 	const availableModels = useModelStore(state => state.availableModels);
 	const catalogProviders = useModelStore(state => state.providers);
 	const current = useModelStore(state => state.model);
+	const supportsThinking = useModelStore(state => state.availableThinkingLevels.length > 0);
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	// Live session usage: models whose window is smaller render with an
 	// over-context warning and compact-first on pick (TUI markOverContext parity).
@@ -511,6 +513,13 @@ export function ModelPicker() {
 						})
 					)}
 				</div>
+				{/* Model and effort in one place: the segmented thinking row for the model in use (two taps from the
+				    model chip). Picking a model closes the dialog, so the row is for the current one. */}
+				{supportsThinking && (
+					<div className="border-t border-(--sc-divider) px-3 py-2" data-model-picker-thinking>
+						<ThinkingLevelField variant="segmented" />
+					</div>
+				)}
 				<div
 					className="flex items-center gap-3 border-t border-(--sc-divider) px-2 py-1 text-sc-2xs text-(--sc-text-muted)"
 					title={t("modelPicker.defaultHint")}

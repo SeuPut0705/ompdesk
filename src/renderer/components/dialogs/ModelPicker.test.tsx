@@ -24,12 +24,14 @@ if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scro
 const ok = (data: unknown) => ({ type: "response", command: "x", success: true, data });
 let recent: unknown = { selectors: ["openai/gpt-5", "gone/model", "anthropic/claude"] };
 const setModel = vi.fn(async () => ok({}));
+const setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
 Reflect.set(window, "omp", {
 	rpc: {
 		getLoginProviders: vi.fn(async () => ok({ providers: [] })),
 		getRecentModels: vi.fn(async () => ok(recent)),
 		getSettings: vi.fn(async () => ok({ values: {} })),
 		setModel,
+		setThinkingLevel,
 	},
 	events: { onConfigUpdate: vi.fn(() => () => {}) },
 });
@@ -149,5 +151,33 @@ describe("ModelPicker compact layout", () => {
 			fresh.onKeyDown({ key: "Enter", preventDefault() {}, nativeEvent: { isComposing: false, keyCode: 13 } }),
 		);
 		expect(setModel).toHaveBeenCalledWith("openai", "gpt-mini");
+	});
+});
+
+describe("ModelPicker thinking row", () => {
+	const radios = () => Array.from(document.querySelectorAll("[data-model-picker-thinking] [role=radio]"));
+
+	it("offers the segmented effort row for a model that reasons: model and effort in one place", async () => {
+		useModelStore.setState({
+			availableThinkingLevels: ["low", "medium", "high"],
+			thinkingLevel: "medium",
+			thinkingConfigured: "medium",
+		});
+		await mount();
+		expect(radios().map(radio => radio.textContent)).toEqual(["Off", "Auto", "Low", "Medium", "High"]);
+		const checked = radios().filter(radio => radio.getAttribute("aria-checked") === "true");
+		expect(checked.map(radio => radio.textContent)).toEqual(["Medium"]);
+
+		await act(async () => (radios()[4] as unknown as { click(): void }).click());
+		expect(setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(useModelStore.getState().thinkingConfigured).toBe("high");
+		// The effort pick is not a model pick: the dialog stays and no model switched.
+		expect(setModel).not.toHaveBeenCalled();
+	});
+
+	it("leaves the row out for a model that does not reason", async () => {
+		useModelStore.setState({ availableThinkingLevels: [] });
+		await mount();
+		expect(document.querySelector("[data-model-picker-thinking]")).toBeNull();
 	});
 });

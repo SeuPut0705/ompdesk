@@ -174,12 +174,21 @@ describe("the cue beside a draft", () => {
 		return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
 	};
 
-	it("steps out of the way whenever the field holds a draft, focused or not, Send ring included", () => {
-		// AGENTS.md: the cue steps out of the way while the field holds a draft. The border light only
-		// did while the field was focused, and the Send ring never did.
-		expect(rule(".omp-composer-box[data-composer-draft] .omp-composer-live")).toContain("opacity: 0");
+	it("quiets to a faint trace beside a draft, focused or not, and steps the Send ring out of the way", () => {
+		// AGENTS.md: the cue steps back while the field holds a draft (DR-19: not gone: a faint trace stays).
+		expect(rule(".omp-composer-box[data-composer-draft] .omp-composer-live")).toMatch(/opacity: 0\.2\d?;/);
 		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
 		expect(ring).toContain("opacity: 0");
 		expect(ring).toContain("animation: none");
+	});
+
+	it("takes a still 1px line at ~40% under reduced motion, not a permanent ring", () => {
+		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-composer-live {"));
+		const reduced = block.slice(0, block.indexOf("\n}\n"));
+		expect(reduced).toMatch(/\.omp-composer-live \{\s*opacity: 0\.4;/);
+		expect(reduced).toContain("height: 1px");
+		expect(reduced).toContain("inset: 0 0 auto 0");
+		expect(reduced).toContain("animation: none");
+		expect(reduced).not.toContain("70%");
 	});
 });

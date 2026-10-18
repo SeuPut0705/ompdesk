@@ -37,12 +37,14 @@ import { useTodoStore } from "../stores/todo";
 import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
 import { checkForUpdatesInPlace } from "../stores/updater";
 import type { CommandGuard } from "./command-search";
+import { requestComposerAction } from "./composer-actions";
 import { readDisplayPreference, saveGuiPreference, setDisplayPreference } from "./display-preferences";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
 import { actionKbd, type KeymapActionId, type KeymapOverrides } from "./keymap";
 import {
+	abortActiveTurn,
 	clearSessionContext,
 	restoreQueuedMessages,
 	retryLastTurn as retryLastTurnShared,
@@ -728,6 +730,39 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			run: () => restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })),
 		},
 	});
+	// The composer's own actions, which had chords or buttons but no palette row. Stop is the toolbar's Stop (Esc);
+	// History, Expand and Attach are answered by the focused composer (`lib/composer-actions.ts`).
+	add({
+		name: "stop",
+		label: t("cmd.stop"),
+		description: t("cmd.stop.desc"),
+		category: "session",
+		shortcut: "Esc",
+		affordance: { kind: "action", run: () => abortActiveTurn() },
+	});
+	add({
+		name: "history",
+		label: t("cmd.history"),
+		description: t("cmd.history.desc"),
+		category: "session",
+		shortcut: "⌃R",
+		affordance: { kind: "action", run: () => requestComposerAction("history") },
+	});
+	add({
+		name: "expand",
+		label: t("cmd.expand"),
+		description: t("cmd.expand.desc"),
+		category: "session",
+		shortcut: "⌃G",
+		affordance: { kind: "action", run: () => requestComposerAction("expand") },
+	});
+	add({
+		name: "attach",
+		label: t("cmd.attach"),
+		description: t("cmd.attach.desc"),
+		category: "session",
+		affordance: { kind: "action", run: () => requestComposerAction("attach") },
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// MODEL
@@ -1301,6 +1336,15 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.modes"),
 		description: t("cmd.modes.desc"),
 		category: "modes",
+		affordance: { kind: "window", open: () => ctx.openModes() },
+	});
+	// Run settings is the Run chip's popover: Mode, Thinking, Tool approval, Delegation, Fast mode, Advanced.
+	add({
+		name: "run",
+		label: t("cmd.run"),
+		description: t("cmd.run.desc"),
+		category: "modes",
+		aliases: ["run-settings", "approval", "delegation"],
 		affordance: { kind: "window", open: () => ctx.openModes() },
 	});
 
