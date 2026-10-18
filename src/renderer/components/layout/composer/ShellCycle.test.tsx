@@ -35,7 +35,9 @@ if (typeof elementPrototype.attachEvent !== "function") elementPrototype.attachE
 if (typeof elementPrototype.detachEvent !== "function") elementPrototype.detachEvent = () => {};
 
 const stylesheet = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
-const inputArea = readFileSync(new URL("./InputArea.tsx", import.meta.url), "utf8");
+const inputArea = ["./InputArea.tsx", "./ComposerToolbar.tsx"]
+	.map(path => readFileSync(new URL(path, import.meta.url), "utf8"))
+	.join("\n");
 
 /** Bodies of every `@container <query> { … }` block, braces balanced. */
 function containerBlocks(query: string): string {

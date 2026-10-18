@@ -1,0 +1,306 @@
+/**
+ * The composer's toolbar row: + (attach, photos, history, expand, goal, skills), ⋯ on a phone, the mode, run
+ * and delegation controls, the `!`/`$` and queue badges, then the model chip, context, mic, the steer/follow-up
+ * chip and the Stop/Send cluster. Memoised: its props are scalars and stable callbacks, so a keystroke in the
+ * field re-renders it only when what it shows changes (Send enabling, a badge appearing).
+ */
+import {
+	ArrowUp,
+	ChevronDown,
+	CornerDownRight,
+	Cpu,
+	Ellipsis,
+	History,
+	ImageIcon,
+	ListPlus,
+	Maximize2,
+	Mic,
+	Minimize2,
+	Paperclip,
+	Plus,
+	Sparkles,
+	Square,
+	Target,
+} from "lucide-react";
+import { type ChangeEvent, memo, type RefObject, useState } from "react";
+import { useShellMode } from "../../../hooks/use-shell-mode";
+import { cx } from "../../../lib/format";
+import { useT } from "../../../lib/i18n";
+import type { ComposerInputMode } from "../../../lib/input-modes";
+import { useFirstRunStore } from "../../../stores/first-run";
+import { useModelStore } from "../../../stores/model";
+import { useSessionStore } from "../../../stores/session";
+import { useSettingsStore } from "../../../stores/settings";
+import { useUiStore } from "../../../stores/ui";
+import { Badge, Button, IconButton, MenuButton, Tooltip } from "../../common";
+import { ComposerSend } from "./ComposerLive";
+import { ComposerModes } from "./ComposerModes";
+import { ContextUsagePopover } from "./ContextUsagePopover";
+import { DelegationControl } from "./DelegationControl";
+import type { DictationPhase } from "./DictationOverlay";
+import { RunSettings } from "./RunSettings";
+
+export interface ComposerToolbarProps {
+	/** The tab's route exists: without it the row is inert and busy. */
+	routeReady: boolean;
+	/** Touch input: the + menu also offers Photos. */
+	touchInput: boolean;
+	expanded: boolean;
+	onToggleExpanded: () => void;
+	/** Open the file chooser (`accept`: what it offers; none = any file). */
+	onOpenFilePicker: (accept?: string) => void;
+	fileInputRef: RefObject<HTMLInputElement | null>;
+	onFilesPicked: (event: ChangeEvent<HTMLInputElement>) => void;
+	onOpenHistory: () => void;
+	onOpenSkills: () => void;
+	/** The draft's `!` (bash) / `$` (python) mode, if any. */
+	composerMode: ComposerInputMode | undefined;
+	/** The draft is a `->` / `=>` queue shorthand; `queueSplitCount` > 1 when it splits into that many messages. */
+	queued: boolean;
+	queueSplitCount: number;
+	dictationPhase: DictationPhase;
+	onMic: () => void;
+	onStopAndSend: () => void;
+	/** The steer/follow-up chip says Follow-up. */
+	followUp: boolean;
+	onToggleSendMode: () => void;
+	/** Something Stop ends: the run, or a prompt not yet sent. */
+	stoppable: boolean;
+	/** Send shows (else Stop takes its slot). */
+	showSend: boolean;
+	sendDisabled: boolean;
+	onStop: () => void;
+	onSend: () => void;
+}
+
+export const ComposerToolbar = memo(function ComposerToolbar({
+	routeReady,
+	touchInput,
+	expanded,
+	onToggleExpanded,
+	onOpenFilePicker,
+	fileInputRef,
+	onFilesPicked,
+	onOpenHistory,
+	onOpenSkills,
+	composerMode,
+	queued,
+	queueSplitCount,
+	dictationPhase,
+	onMic,
+	onStopAndSend,
+	followUp,
+	onToggleSendMode,
+	stoppable,
+	showSend,
+	sendDisabled,
+	onStop,
+	onSend,
+}: ComposerToolbarProps) {
+	const t = useT();
+	const isStreaming = useSessionStore(s => s.isStreaming);
+	const model = useModelStore(s => s.model);
+	const settingUp = useFirstRunStore(s => s.phase !== "idle");
+	const openModelPicker = useUiStore(s => s.openModelPicker);
+	const openModes = useUiStore(s => s.openModes);
+	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
+	const sttEnabled = useSettingsStore(s => s.sttEnabled);
+	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
+	const phone = useShellMode() === "phone";
+	const [moreOpen, setMoreOpen] = useState(false);
+	const recording = dictationPhase !== "idle";
+	const modeLabel = followUp ? t("input.followUp") : t("input.steer");
+	// While first-run setup runs, the live model is whatever omp fell back to
+	// (e.g. a tiny on-device model); show the neutral prompt instead.
+	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
+
+	return (
+		<div
+			aria-busy={!routeReady}
+			aria-label={t("input.toolbar")}
+			className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
+			data-more-open={moreOpen || undefined}
+			inert={!routeReady}
+			role="toolbar"
+		>
+			<MenuButton
+				icon={<Plus />}
+				items={[
+					// A phone offers its gallery and camera only for pictures (`image/*`); any file opens its
+					// file manager, which lists no gallery.
+					...(touchInput
+						? [
+								{
+									id: "photos",
+									label: t("input.attachPhotos"),
+									description: t("input.attachPhotosDesc"),
+									icon: ImageIcon,
+									onSelect: () => onOpenFilePicker("image/*"),
+								},
+							]
+						: []),
+					{
+						id: "attach",
+						label: t("input.attach"),
+						icon: Paperclip,
+						onSelect: () => onOpenFilePicker(),
+					},
+					{
+						id: "history",
+						label: t("input.history.title"),
+						description: t("input.history.menuDesc"),
+						icon: History,
+						shortcut: "⌃R",
+						onSelect: onOpenHistory,
+					},
+					{
+						id: "expand",
+						label: expanded ? t("input.expanded.collapse") : t("input.expanded.open"),
+						icon: expanded ? Minimize2 : Maximize2,
+						shortcut: "⌃G",
+						onSelect: onToggleExpanded,
+					},
+					{
+						id: "goal",
+						label: t("input.addMenu.goal"),
+						description: t("input.addMenu.goalDesc"),
+						icon: Target,
+						separatorBefore: true,
+						onSelect: () => openModes("goal"),
+					},
+					{
+						id: "skills",
+						label: t("input.addMenu.skills"),
+						icon: Sparkles,
+						separatorBefore: true,
+						onSelect: onOpenSkills,
+					},
+				]}
+				label={t("input.addMenu")}
+				side="above"
+				size="sm"
+			/>
+			{phone && (
+				<IconButton
+					aria-expanded={moreOpen}
+					className="omp-composer-more"
+					icon={<Ellipsis />}
+					label={t("input.moreControls")}
+					onClick={() => setMoreOpen(open => !open)}
+					size="sm"
+				/>
+			)}
+			<input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
+
+			<ComposerModes />
+			<RunSettings />
+			<DelegationControl />
+
+			{composerMode && (
+				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
+					<span className="inline-flex">
+						<Badge variant={composerMode === "bash" ? "info" : "warning"}>
+							{composerMode === "bash" ? t("input.mode.bash.badge") : t("input.mode.python.badge")}
+						</Badge>
+					</span>
+				</Tooltip>
+			)}
+			{queued && (
+				<Tooltip content={t("input.queue.title")}>
+					<span className="inline-flex">
+						<Badge variant="warning">
+							{queueSplitCount > 1
+								? t("input.queue.badgeSplit", { count: queueSplitCount })
+								: t("input.queue.badge")}
+						</Badge>
+					</span>
+				</Tooltip>
+			)}
+
+			<div className="flex-1" />
+
+			<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1">
+				<Tooltip content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}>
+					<Button
+						aria-label={t("input.modelLabel", { model: modelLabel })}
+						className="omp-composer-chip min-w-0 max-w-56"
+						data-model-chip
+						icon={<Cpu aria-hidden className="omp-composer-model-icon" />}
+						onClick={() => openModelPicker()}
+						size="sm"
+						trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
+						variant="ghost"
+					>
+						<span className="omp-composer-model-label truncate">{modelLabel}</span>
+					</Button>
+				</Tooltip>
+				{!settingUp && <ContextUsagePopover />}
+				{sttEnabled && (
+					<IconButton
+						className={cx(recording && "bg-(--sc-danger-soft) text-(--sc-danger) hover:text-(--sc-danger)")}
+						icon={recording ? <Square className="omp-pulse-dot" fill="currentColor" /> : <Mic />}
+						label={recording ? t("voice.mic.stop") : t("voice.mic.start")}
+						onClick={onMic}
+						size="sm"
+					/>
+				)}
+				{isStreaming && (
+					<Tooltip content={t("input.sendModeHint")}>
+						<Button
+							aria-label={t("input.sendModeLabel", { mode: modeLabel })}
+							className="omp-composer-chip"
+							data-send-mode={followUp ? "followUp" : "steer"}
+							disabled={!routeReady}
+							icon={followUp ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
+							onClick={onToggleSendMode}
+							size="sm"
+							variant="ghost"
+						>
+							<span className="omp-composer-control-label omp-composer-label-early">{modeLabel}</span>
+						</Button>
+					</Tooltip>
+				)}
+				{/* The turn's primary actions: a round Send that turns into Stop while a
+				    turn runs with nothing to send; with a draft, Stop steps back beside it. */}
+				<div className="ml-1 flex items-center gap-1.5">
+					{stoppable && (
+						<IconButton
+							className="omp-composer-action"
+							disabled={!routeReady}
+							icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
+							label={t("input.abort")}
+							onClick={onStop}
+							shortcut="Esc"
+							variant={showSend ? "secondary" : "primary"}
+						/>
+					)}
+					{dictationPhase === "recording" ? (
+						<IconButton
+							className="omp-composer-action"
+							data-dictation-send
+							disabled={!routeReady}
+							icon={<ArrowUp strokeWidth={2.25} />}
+							label={t("voice.dictation.stopAndSend")}
+							onClick={onStopAndSend}
+							variant="primary"
+						/>
+					) : (
+						showSend && (
+							<ComposerSend label={t("input.send")}>
+								<IconButton
+									className="omp-composer-action"
+									disabled={sendDisabled}
+									icon={<ArrowUp strokeWidth={2.25} />}
+									label={t("input.send")}
+									onClick={onSend}
+									tooltip={false}
+									variant="primary"
+								/>
+							</ComposerSend>
+						)
+					)}
+				</div>
+			</div>
+		</div>
+	);
+});

@@ -1,26 +1,8 @@
-import {
-	ArrowUp,
-	ChevronDown,
-	CornerDownRight,
-	Cpu,
-	Ellipsis,
-	ExternalLink,
-	History,
-	ImageIcon,
-	ListPlus,
-	Maximize2,
-	Mic,
-	Minimize2,
-	Paperclip,
-	Plus,
-	Sparkles,
-	Square,
-	Target,
-} from "lucide-react";
+import { ExternalLink, Minimize2, Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
-import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
+import { useShellInput } from "../../../hooks/use-shell-mode";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
 import { cx } from "../../../lib/format";
@@ -37,28 +19,23 @@ import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
-import { useModelStore } from "../../../stores/model";
 import { useNextPromptStore } from "../../../stores/next-prompt";
 import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { useSettingsStore } from "../../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../../common";
+import { Banner, Button, IconButton, Kbd } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
-import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
-import { ComposerModes } from "./ComposerModes";
+import { ComposerLiveEdge } from "./ComposerLive";
 import { ComposerQueue } from "./ComposerQueue";
-import { ContextUsagePopover } from "./ContextUsagePopover";
-import { DelegationControl } from "./DelegationControl";
+import { ComposerToolbar } from "./ComposerToolbar";
 import { DictationOverlay } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { MAX_NEXT_PROMPT_CHIPS, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
-import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { useComposerAttach } from "./use-composer-attach";
 import { useComposerCommands } from "./use-composer-commands";
@@ -71,6 +48,7 @@ import { useComposerKeys } from "./use-composer-keys";
 import { useComposerMenu } from "./use-composer-menu";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
+import { useStableCallback } from "./use-stable-callback";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
@@ -94,13 +72,8 @@ export function InputArea() {
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
-	const model = useModelStore(s => s.model);
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
-	const openModelPicker = useUiStore(s => s.openModelPicker);
-	const openModes = useUiStore(s => s.openModes);
 	const openSettings = useUiStore(s => s.openSettings);
-	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
-	const sttEnabled = useSettingsStore(s => s.sttEnabled);
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer
@@ -178,9 +151,6 @@ export function InputArea() {
 	const stoppable = isStreaming || submitPending;
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
-	const phone = useShellMode() === "phone";
-	const [moreOpen, setMoreOpen] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
 	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
@@ -308,7 +278,6 @@ export function InputArea() {
 	}, [send]);
 
 	const dictation = useComposerDictation({ textareaRef, placeDraft, sendRef, mountedRef });
-	const recording = dictation.phase !== "idle";
 
 	/**
 	 * Expanded composer (TUI app.editor.external parity, GUI-native form): ⌃G
@@ -316,10 +285,13 @@ export function InputArea() {
 	 * long drafts — the same field, so completion, paste markers, IME and
 	 * history keep working. Enter adds a line there; ⌘↵ sends; Esc collapses.
 	 */
-	const toggleExpanded = (next?: boolean) => {
-		setExpanded(current => next ?? !current);
-		requestAnimationFrame(() => textareaRef.current?.focus());
-	};
+	const toggleExpanded = useCallback(
+		(next?: boolean) => {
+			setExpanded(current => next ?? !current);
+			requestAnimationFrame(() => textareaRef.current?.focus());
+		},
+		[textareaRef],
+	);
 
 	/** Round-trip the draft (paste markers resolved) through the user's $VISUAL/$EDITOR. */
 	const openExternalEditor = async () => {
@@ -366,13 +338,31 @@ export function InputArea() {
 		runActive: isStreaming || submitPending || manualMaintenance,
 		send,
 	});
-	const modeLabel = mode === "followUp" ? t("input.followUp") : t("input.steer");
-
 	const sendDisabled =
 		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
-	// While first-run setup runs, the live model is whatever omp fell back to
-	// (e.g. a tiny on-device model); show the neutral prompt instead.
-	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
+	// The toolbar is memoised: its handlers keep their identity while the draft changes.
+	const sendFromToolbar = useStableCallback(() => {
+		// The expanded composer collapses only once the draft went out.
+		if (send() && expanded) setExpanded(false);
+		// The button disables itself once the draft clears; a disabled
+		// focused control swallows keystrokes (⌘, and friends), so keep
+		// typing focus in the composer like Enter does.
+		textareaRef.current?.focus();
+	});
+	const stopFromToolbar = useStableCallback(() => {
+		void abortActiveTurn(rpc, runtimeTabId);
+		// The button leaves with the run: typing goes on in the field, never on <body>.
+		textareaRef.current?.focus();
+	});
+	const toggleSendMode = useCallback(() => {
+		setMode(current => (current === "followUp" ? "steer" : "followUp"));
+		// The choice is for the message being typed: typing goes on in the field.
+		textareaRef.current?.focus();
+	}, [textareaRef]);
+	const filesPicked = useStableCallback(onFilesPicked);
+	const openHistorySearch = useCallback(() => setHistorySearchOpen(true), []);
+	const openSkillPicker = useCallback(() => setSkillPickerOpen(true), []);
+	const toggleExpandedFromMenu = useCallback(() => toggleExpanded(), [toggleExpanded]);
 	const placeholder =
 		status !== "ready"
 			? t("input.placeholder.connecting")
@@ -660,220 +650,30 @@ export function InputArea() {
 							)
 						)}
 
-						<div
-							aria-busy={!routeReady}
-							aria-label={t("input.toolbar")}
-							className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
-							data-more-open={moreOpen || undefined}
-							inert={!routeReady}
-							role="toolbar"
-						>
-							<MenuButton
-								icon={<Plus />}
-								items={[
-									// A phone offers its gallery and camera only for pictures (`image/*`); any file opens its
-									// file manager, which lists no gallery.
-									...(touchInput
-										? [
-												{
-													id: "photos",
-													label: t("input.attachPhotos"),
-													description: t("input.attachPhotosDesc"),
-													icon: ImageIcon,
-													onSelect: () => openFilePicker("image/*"),
-												},
-											]
-										: []),
-									{
-										id: "attach",
-										label: t("input.attach"),
-										icon: Paperclip,
-										onSelect: () => openFilePicker(),
-									},
-									{
-										id: "history",
-										label: t("input.history.title"),
-										description: t("input.history.menuDesc"),
-										icon: History,
-										shortcut: "⌃R",
-										onSelect: () => setHistorySearchOpen(true),
-									},
-									{
-										id: "expand",
-										label: expanded ? t("input.expanded.collapse") : t("input.expanded.open"),
-										icon: expanded ? Minimize2 : Maximize2,
-										shortcut: "⌃G",
-										onSelect: () => toggleExpanded(),
-									},
-									{
-										id: "goal",
-										label: t("input.addMenu.goal"),
-										description: t("input.addMenu.goalDesc"),
-										icon: Target,
-										separatorBefore: true,
-										onSelect: () => openModes("goal"),
-									},
-									{
-										id: "skills",
-										label: t("input.addMenu.skills"),
-										icon: Sparkles,
-										separatorBefore: true,
-										onSelect: () => setSkillPickerOpen(true),
-									},
-								]}
-								label={t("input.addMenu")}
-								side="above"
-								size="sm"
-							/>
-							{phone && (
-								<IconButton
-									aria-expanded={moreOpen}
-									className="omp-composer-more"
-									icon={<Ellipsis />}
-									label={t("input.moreControls")}
-									onClick={() => setMoreOpen(open => !open)}
-									size="sm"
-								/>
-							)}
-							<input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
-
-							<ComposerModes />
-							<RunSettings />
-							<DelegationControl />
-
-							{composerMode && (
-								<Tooltip
-									content={
-										composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")
-									}
-								>
-									<span className="inline-flex">
-										<Badge variant={composerMode.mode === "bash" ? "info" : "warning"}>
-											{composerMode.mode === "bash"
-												? t("input.mode.bash.badge")
-												: t("input.mode.python.badge")}
-										</Badge>
-									</span>
-								</Tooltip>
-							)}
-							{queueBody !== undefined && (
-								<Tooltip content={t("input.queue.title")}>
-									<span className="inline-flex">
-										<Badge variant="warning">
-											{queueSplitCount > 1
-												? t("input.queue.badgeSplit", { count: queueSplitCount })
-												: t("input.queue.badge")}
-										</Badge>
-									</span>
-								</Tooltip>
-							)}
-
-							<div className="flex-1" />
-
-							<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1">
-								<Tooltip content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}>
-									<Button
-										aria-label={t("input.modelLabel", { model: modelLabel })}
-										className="omp-composer-chip min-w-0 max-w-56"
-										data-model-chip
-										icon={<Cpu aria-hidden className="omp-composer-model-icon" />}
-										onClick={() => openModelPicker()}
-										size="sm"
-										trailingIcon={
-											<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />
-										}
-										variant="ghost"
-									>
-										<span className="omp-composer-model-label truncate">{modelLabel}</span>
-									</Button>
-								</Tooltip>
-								{!settingUp && <ContextUsagePopover />}
-								{sttEnabled && (
-									<IconButton
-										className={cx(
-											recording && "bg-(--sc-danger-soft) text-(--sc-danger) hover:text-(--sc-danger)",
-										)}
-										icon={recording ? <Square className="omp-pulse-dot" fill="currentColor" /> : <Mic />}
-										label={recording ? t("voice.mic.stop") : t("voice.mic.start")}
-										onClick={dictation.toggle}
-										size="sm"
-									/>
-								)}
-								{isStreaming && (
-									<Tooltip content={t("input.sendModeHint")}>
-										<Button
-											aria-label={t("input.sendModeLabel", { mode: modeLabel })}
-											className="omp-composer-chip"
-											data-send-mode={mode === "followUp" ? "followUp" : "steer"}
-											disabled={!routeReady}
-											icon={mode === "followUp" ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
-											onClick={() => {
-												setMode(current => (current === "followUp" ? "steer" : "followUp"));
-												// The choice is for the message being typed: typing goes on in the field.
-												textareaRef.current?.focus();
-											}}
-											size="sm"
-											variant="ghost"
-										>
-											<span className="omp-composer-control-label omp-composer-label-early">
-												{modeLabel}
-											</span>
-										</Button>
-									</Tooltip>
-								)}
-								{/* The turn's primary actions: a round Send that turns into Stop while a
-								    turn runs with nothing to send; with a draft, Stop steps back beside it. */}
-								<div className="ml-1 flex items-center gap-1.5">
-									{stoppable && (
-										<IconButton
-											className="omp-composer-action"
-											disabled={!routeReady}
-											icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
-											label={t("input.abort")}
-											onClick={() => {
-												void abortActiveTurn(rpc, runtimeTabId);
-												// The button leaves with the run: typing goes on in the field, never on <body>.
-												textareaRef.current?.focus();
-											}}
-											shortcut="Esc"
-											variant={showSend ? "secondary" : "primary"}
-										/>
-									)}
-									{dictation.phase === "recording" ? (
-										<IconButton
-											className="omp-composer-action"
-											data-dictation-send
-											disabled={!routeReady}
-											icon={<ArrowUp strokeWidth={2.25} />}
-											label={t("voice.dictation.stopAndSend")}
-											onClick={dictation.stopAndSend}
-											variant="primary"
-										/>
-									) : (
-										showSend && (
-											<ComposerSend label={t("input.send")}>
-												<IconButton
-													className="omp-composer-action"
-													disabled={sendDisabled}
-													icon={<ArrowUp strokeWidth={2.25} />}
-													label={t("input.send")}
-													onClick={() => {
-														// The expanded composer collapses only once the draft went out.
-														if (send() && expanded) setExpanded(false);
-														// The button disables itself once the draft clears; a disabled
-														// focused control swallows keystrokes (⌘, and friends), so keep
-														// typing focus in the composer like Enter does.
-														textareaRef.current?.focus();
-													}}
-													tooltip={false}
-													variant="primary"
-												/>
-											</ComposerSend>
-										)
-									)}
-								</div>
-							</div>
-						</div>
+						<ComposerToolbar
+							composerMode={composerMode?.mode}
+							dictationPhase={dictation.phase}
+							expanded={expanded}
+							fileInputRef={fileInputRef}
+							followUp={mode === "followUp"}
+							onFilesPicked={filesPicked}
+							onMic={dictation.toggle}
+							onOpenFilePicker={openFilePicker}
+							onOpenHistory={openHistorySearch}
+							onOpenSkills={openSkillPicker}
+							onSend={sendFromToolbar}
+							onStop={stopFromToolbar}
+							onStopAndSend={dictation.stopAndSend}
+							onToggleExpanded={toggleExpandedFromMenu}
+							onToggleSendMode={toggleSendMode}
+							queueSplitCount={queueSplitCount}
+							queued={queueBody !== undefined}
+							routeReady={routeReady}
+							sendDisabled={sendDisabled}
+							showSend={showSend}
+							stoppable={stoppable}
+							touchInput={touchInput}
+						/>
 					</div>
 				</div>
 				<BelowEditorDockSlot />
