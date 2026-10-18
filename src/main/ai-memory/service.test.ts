@@ -129,6 +129,14 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		const child = new FakeChild();
 		calls.push({ file: spec.file, args: spec.args, cwd, shell: spec.shell, env });
 		setImmediate(async () => {
+			try {
+				await respond();
+			} catch {
+				// The test's folder is gone (teardown while a background heal was still writing): the command fails.
+				child.finish(1, "");
+			}
+		});
+		const respond = async (): Promise<void> => {
 			const gated = await behavior.gate?.(spec.args);
 			if (gated === HANG) return;
 			if (gated === "spawn-error") {
@@ -194,7 +202,7 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 						};
 			}
 			child.finish(result.code, result.output ?? "");
-		});
+		};
 		return child;
 	};
 
