@@ -614,13 +614,13 @@ html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data
    steps, and the 44 px hit area stays an invisible ::after. Fields stay 16 px (iOS zooms into anything smaller). */
 html[data-shell="phone"] {
 	--phone-type-scale: 0.8667;
-	--sc-font-xs: 11.5px;
+	--sc-font-xs: 12px;
 	--sc-font-sm: 12px;
 	--sc-control-sm: 24px;
 	--sc-control-md: 28px;
 	--sc-control-lg: 32px;
 	--sc-hit-min: 24px;
-	--sc-font-2xs: 11.5px;
+	--sc-font-2xs: 12px;
 	--sc-icon-lg: 16px;
 	--sc-row-touch: 36px;
 	--sc-row-action: 44px;
@@ -915,7 +915,7 @@ html[data-shell] :is([data-terminal-keybar], [data-sheet-panel]:has(.omp-panel-t
 
 /* Inline code in prose keeps to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */
 html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :not(pre) > code {
-	font-size: max(11.5px, 0.88em);
+	font-size: max(12px, 0.88em);
 }
 
 /* Safe areas: a side or full-screen sheet (the side panel) and a docked sidebar (portrait tablet) clear the notch and

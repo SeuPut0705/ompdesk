@@ -34,7 +34,7 @@ describe("touch targets and type", () => {
 		expect(phone).toMatch(/--sc-control-lg:\s*32px/);
 		expect(phone).toMatch(/--phone-type-scale:\s*0\.8667/);
 		expect(read("../lib/theme.ts")).toContain("var(--phone-type-scale, 1)");
-		expect(phone).toMatch(/--sc-font-xs:\s*11\.5px/);
+		expect(phone).toMatch(/--sc-font-xs:\s*12px/);
 		expect(css).toMatch(/html\[data-input="touch"\] :is\(input:[^{]*\{\s*font-size:\s*16px/);
 	});
 
