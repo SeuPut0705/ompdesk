@@ -335,7 +335,7 @@ for (const engine of ENGINES)
 			const phone = await context.newPage();
 			await openPhonePage(phone, host.proxy, profile.project);
 			const field = phone.locator("[data-composer-input]").first();
-			const thumbnails = phone.locator('ul[aria-label="Attached images"] li');
+			const thumbnails = phone.locator('ul[aria-label="Attached images"] li[data-strip-item]');
 			// Each upload is held until its chip has been seen.
 			let gate = Promise.resolve();
 			await phone.route("**/upload", async route => {

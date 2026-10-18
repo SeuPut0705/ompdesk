@@ -10,5 +10,5 @@ export const SIDEBAR_WIDTH = { min: 220, max: 420, default: 248 } as const;
 /** localStorage mirror of the `sidebarWidth` pref: prefs arrive over IPC, this is readable before the first paint. */
 export const SIDEBAR_WIDTH_STORAGE_KEY = "omp.sidebarWidth";
 
-/** The idle composer box: 1px border, the input line and the toolbar (measured against the React box by e2e/no-loading.e2e.ts); the phone's one row is shorter. */
-export const COMPOSER_BOX_PX = { desktop: 92, phone: 43 } as const;
+/** The idle composer box: 1px border, the input line and the toolbar (measured against the React box by e2e/no-loading.e2e.ts); the phone's one row (+, the field, Send at its 44 px reach) is shorter. */
+export const COMPOSER_BOX_PX = { desktop: 92, phone: 51 } as const;
