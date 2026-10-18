@@ -35,6 +35,10 @@ describe("testCounts", () => {
 		expect(testCounts("Tests:       2 failed, 40 passed, 42 total")).toEqual({ passed: 40, failed: 2 }));
 	it("reads bun test", () => expect(testCounts(" 31 pass\n 0 fail\n")).toEqual({ passed: 31 }));
 	it("reads cargo", () => expect(testCounts("test result: ok. 7 passed; 0 failed; 0 ignored")).toEqual({ passed: 7 }));
+	it("does not take a number off the previous line (go's `want 4\\nFAIL`)", () =>
+		expect(
+			testCounts("--- FAIL: TestAdd (0.00s)\n    add_test.go:9: got 3, want 4\nFAIL\nFAIL\texample.com/m\t0.002s"),
+		).toEqual({}));
 	it("reads pytest", () =>
 		expect(testCounts("==== 1 failed, 9 passed in 0.31s ====")).toEqual({ passed: 9, failed: 1 }));
 });
@@ -50,6 +54,23 @@ describe("firstErrorLine", () => {
 		expect(firstErrorLine("\u001b[31m FAIL \u001b[0m src/x.test.ts > adds\n Tests  1 failed (3)")).toBe(
 			"FAIL  src/x.test.ts > adds",
 		));
+	it("names biome's ✖ diagnostic, not its summary", () =>
+		expect(
+			firstErrorLine(
+				"src/a.ts:3:7 lint/style/useConst ━━━━━━\n\n  ✖ This let is only assigned once.\n\nFound 1 error.",
+			),
+		).toBe("✖ This let is only assigned once."));
+	it.each([
+		"Wall time: 12.50 seconds",
+		"[Showing lines 1-50 of 1000. Read artifact://7 for full output]",
+		"[raw output: artifact://7]",
+		"[Some lines truncated to 768 bytes. Use artifact://7:raw:3-3 to read line 3 whole]",
+		"[Command aborted]",
+	])("never takes stock's notice %s as the cause", notice =>
+		expect(firstErrorLine(`compiling…\nout of memory\n\n${notice}\n\nCommand exited with code 2`)).toBe(
+			"out of memory",
+		),
+	);
 	it("falls back to the last line", () => expect(firstErrorLine("building…\nout of memory")).toBe("out of memory"));
 	it("is undefined for empty output", () => expect(firstErrorLine("\n\n")).toBeUndefined());
 });

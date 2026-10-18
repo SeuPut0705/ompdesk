@@ -61,8 +61,8 @@ export function checkKind(command: string): CheckKind | undefined {
 	return kinds.size === 1 ? [...kinds][0] : undefined;
 }
 
-const TEST_PASSED = /(\d+)\s+(?:tests?\s+)?pass(?:ed|ing)?\b/gi;
-const TEST_FAILED = /(\d+)\s+(?:tests?\s+)?fail(?:ed|ures?|ing)?\b/gi;
+const TEST_PASSED = /(\d+)[ \t]+(?:tests?[ \t]+)?pass(?:ed|ing)?\b/gi;
+const TEST_FAILED = /(\d+)[ \t]+(?:tests?[ \t]+)?fail(?:ed|ures?|ing)?\b/gi;
 
 function lastCount(text: string, pattern: RegExp): number | undefined {
 	let value: number | undefined;
@@ -77,10 +77,10 @@ export function testCounts(output: string): { passed?: number; failed?: number }
 	return { ...(passed !== undefined ? { passed } : {}), ...(failed ? { failed } : {}) };
 }
 
-const ERROR_LINE = /(?:\berror\b|\bfailed\b|\bfail\b|✕|✗|×|\bexception\b|\bpanic\b|cannot |not found|\bTS\d{4}\b)/i;
+const ERROR_LINE = /(?:\berror\b|\bfailed\b|\bfail\b|[✕✖✗✘×❌]|\bexception\b|\bpanic\b|cannot |not found|\bTS\d{4}\b)/i;
 // Runner chrome that names failure without saying what failed.
 const NOISE_LINE =
-	/^(?:[-=─━\s]+|\d+\s+(?:tests?\s+)?fail(?:ed|ures?)?.*|test files?.*|tests?\s*:.*|error: script ".*" exited.*|exit (?:code|status) \d+|command exited with code \d+|npm err!\s*$)$/i;
+	/^(?:[-=─━\s]+|\d+\s+(?:tests?\s+)?fail(?:ed|ures?)?.*|test files?.*|tests?\s*:.*|error: script ".*" exited.*|exit (?:code|status) \d+|command exited with code \d+|npm err!\s*$|wall time: .*|\[raw output: .*|\[showing .*|\[some lines truncated .*|\[command (?:aborted|cancelled)\])$/i;
 const ERROR_LINE_MAX = 140;
 
 /** The first line of a failed command's output that says what went wrong, else its last line. */
