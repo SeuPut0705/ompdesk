@@ -62,10 +62,15 @@ export function protectedRoots(): string[] {
 	return [...new Set(roots.map(normalize))];
 }
 
-/** This checkout only (never every `~/.omp/wt` worktree), and the temp folder (under the home on Windows). */
+/**
+ * This checkout only (never every `~/.omp/wt` worktree), and the temp folder (under the home on Windows) as named and
+ * as its real path: a Windows runner's TEMP is the 8.3 short `C:\Users\RUNNER~1\…`, while a test's `realpath` of a
+ * `mkdtemp` folder gives the long `C:\Users\runneradmin\…`.
+ */
 export function exemptRoots(): string[] {
 	const checkout = dirname(dirname(fileURLToPath(import.meta.url)));
-	return [...new Set([checkout, tmpdir()].map(normalize))];
+	const temp = tmpdir();
+	return [...new Set([checkout, temp, fs.realpathSync.native(temp)].map(normalize))];
 }
 
 function targetPath(target: unknown): string | null {

@@ -102,6 +102,16 @@ describe("real-home write guard", () => {
 		}
 	});
 
+	it("leaves the temp dir writable by its real path too (a Windows runner's TEMP is an 8.3 short name)", async () => {
+		const dir = fs.realpathSync.native(fs.mkdtempSync(join(tmpdir(), "ompdesk-guard-real-")));
+		try {
+			await mkdir(join(dir, "bin"));
+			await writeFile(join(dir, "bin", "file"), "ok");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("leaves this checkout writable", async () => {
 		const dir = fs.mkdtempSync(join(dirname(THIS_FILE), "..", "node_modules", ".ompdesk-guard-"));
 		try {
