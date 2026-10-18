@@ -77,6 +77,7 @@ import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
+import { CompletionList } from "./CompletionList";
 import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
@@ -1327,12 +1328,6 @@ export function InputArea() {
 	const showSuggestionHint = placeholderPrompt !== undefined && text === "";
 	const suggestionHintId = useId();
 	const menuId = useId();
-	const menuIndex = menu?.index;
-	// Home/End/PageDown/↓ can land on a row below the listbox's fold.
-	useEffect(() => {
-		if (menuIndex === undefined) return;
-		document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
-	}, [menuId, menuIndex]);
 	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
 	const showSend = !stoppable || text.trim() !== "" || images.length > 0;
 
@@ -1395,51 +1390,7 @@ export function InputArea() {
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
-					{menu && (
-						<div
-							aria-label={t("input.completion.label")}
-							className="absolute bottom-full left-0 z-(--sc-z-popover) mb-2 max-h-[60vh] w-[min(440px,100%)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)"
-							id={menuId}
-							role="listbox"
-						>
-							{menu.items.map((item, index) => (
-								<button
-									aria-selected={index === menu.index}
-									id={`${menuId}-${index}`}
-									key={`${menu.source}:${item.label}`}
-									type="button"
-									role="option"
-									onMouseDown={event => {
-										event.preventDefault();
-										insertCompletion(item);
-									}}
-									title={
-										item.description
-											? `${item.label}\n${item.description.replace(/\s+/g, " ").trim()}`
-											: undefined
-									}
-									className={cx(
-										"flex min-h-(--sc-control-md) w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
-										index === menu.index ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-									)}
-								>
-									<span className="shrink-0 font-mono text-sc-md font-medium text-(--sc-text)">
-										{item.label}
-									</span>
-									{item.description && (
-										<span className="min-w-0 truncate text-sc-sm text-(--sc-text-muted)">
-											{item.description}
-										</span>
-									)}
-									{item.hint && (
-										<span className="ml-auto shrink-0 font-mono text-sc-xs text-(--sc-text-subtle)">
-											{item.hint}
-										</span>
-									)}
-								</button>
-							))}
-						</div>
-					)}
+					{menu && <CompletionList menu={menu} menuId={menuId} onPick={insertCompletion} />}
 
 					{historySearchOpen && (
 						<HistorySearchOverlay
