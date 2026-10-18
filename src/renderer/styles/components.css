@@ -3195,6 +3195,13 @@ button.omp-file-chip-name:hover {
 	display: none;
 }
 
+/* A very long draft is set in the system face: the bundled Inter Variable is shaped again for the whole text on
+   every keystroke (30k characters: ~16 ms of text layout per key against ~6 ms for a system face, measured). */
+.omp-composer-input[data-long] {
+	font-family: "Apple SD Gothic Neo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	font-feature-settings: normal;
+}
+
 /* An empty composer is one line tall: a placeholder longer than the pane
    stays on that line, clipped, instead of wrapping under a scrollbar. */
 .omp-composer-input:placeholder-shown {

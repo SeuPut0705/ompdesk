@@ -130,6 +130,7 @@ export function InputArea() {
 	// text comes back into an empty field once the session is known, and every change is saved.
 	useComposerDraft({
 		text,
+		imageCount: images.length,
 		runtimeTabId,
 		device: historyDevice,
 		sessionFile,
@@ -357,24 +358,25 @@ export function InputArea() {
 		>
 			<div className="omp-composer-shell relative w-full">
 				<AskDockSlot />
-				{pasteMenu && (
-					<PasteMenu
-						menuRef={paste.menuRef}
-						onCancel={() => {
-							paste.cancel();
-							textareaRef.current?.focus();
-						}}
-						onInline={paste.chooseInline}
-						onSaveFile={paste.chooseSaveFile}
-						onWrap={paste.chooseWrapped}
-						paste={pasteMenu}
-					/>
-				)}
 				<ComposerQueue onSettled={() => textareaRef.current?.focus()} />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
+					{pasteMenu && (
+						<PasteMenu
+							active={paste.active}
+							menuRef={paste.menuRef}
+							onCancel={() => {
+								paste.cancel();
+								textareaRef.current?.focus();
+							}}
+							onInline={paste.chooseInline}
+							onSaveFile={paste.chooseSaveFile}
+							onWrap={paste.chooseWrapped}
+							paste={pasteMenu}
+						/>
+					)}
 					{menu && (
 						<CompletionList
 							menu={menu}

@@ -14,6 +14,8 @@
 
 const STORAGE_KEY = "omp.composerDrafts";
 const MAX_DRAFTS = 50;
+/** A draft longer than this is not kept across a reload (one 200k-character draft was a 400 KB rewrite per pause). */
+export const MAX_DRAFT_CHARS = 100_000;
 
 export interface DraftOwner {
 	/** Paired host's deviceId; absent = this machine. */
@@ -33,8 +35,9 @@ export interface DraftKeys {
 interface SavedDraft {
 	text: string;
 	at: number;
-	/** A folder draft's session: its own save or send replaces or drops it. */
 	session?: string;
+	/** Pictures the draft held when it was filed (not kept). */
+	images?: number;
 }
 
 /** Where a draft is filed; undefined until the session is known. */
@@ -58,7 +61,13 @@ function readAll(storage: Storage): Record<string, SavedDraft> {
 			if (!("text" in value) || typeof value.text !== "string" || !("at" in value) || typeof value.at !== "number")
 				continue;
 			const session = "session" in value && typeof value.session === "string" ? value.session : undefined;
-			drafts[key] = { text: value.text, at: value.at, ...(session === undefined ? {} : { session }) };
+			const images = "images" in value && typeof value.images === "number" ? value.images : 0;
+			drafts[key] = {
+				text: value.text,
+				at: value.at,
+				...(session === undefined ? {} : { session }),
+				...(images > 0 ? { images } : {}),
+			};
 		}
 		return drafts;
 	} catch {
@@ -78,16 +87,43 @@ function writeAll(storage: Storage, drafts: Record<string, SavedDraft>): void {
 	}
 }
 
-/** File `text` under its keys; an empty text drops them. A session's earlier folder draft goes either way. */
-export function saveDraft(storage: Storage, keys: DraftKeys, text: string, now = Date.now()): void {
+/**
+ * File `text` under its keys; an empty text drops them. A session's earlier folder draft goes either way.
+ * `images`: how many pictures the draft held (they are not kept; the next restore says so). A text past
+ * {@link MAX_DRAFT_CHARS} is not kept ("tooLarge": the caller says so once). Nothing is written when the
+ * draft is what is already filed (a pagehide and a visibilitychange flush the same text twice).
+ */
+export function saveDraft(
+	storage: Storage,
+	keys: DraftKeys,
+	text: string,
+	now = Date.now(),
+	images = 0,
+): "saved" | "cleared" | "tooLarge" {
 	const drafts = readAll(storage);
+	const current = drafts[keys.session];
+	if (text.length > MAX_DRAFT_CHARS) {
+		// The earlier, smaller draft is stale now; keep nothing rather than an old text under a new one.
+		if (current) {
+			delete drafts[keys.session];
+			writeAll(storage, drafts);
+		}
+		return "tooLarge";
+	}
+	if (text.trim() && current && current.text === text && (current.images ?? 0) === images) return "saved";
 	for (const [key, saved] of Object.entries(drafts)) if (saved.session === keys.session) delete drafts[key];
 	delete drafts[keys.session];
 	if (text.trim()) {
-		drafts[keys.session] = { text, at: now };
+		drafts[keys.session] = { text, at: now, ...(images > 0 ? { images } : {}) };
 		if (keys.folder !== undefined) drafts[keys.folder] = { text, at: now, session: keys.session };
 	}
 	writeAll(storage, drafts);
+	return text.trim() ? "saved" : "cleared";
+}
+
+/** How many pictures the session's filed draft held (they did not survive the reload). */
+export function draftImagesLost(storage: Storage, keys: DraftKeys): number {
+	return readAll(storage)[keys.session]?.images ?? 0;
 }
 
 /**

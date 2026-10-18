@@ -17,6 +17,9 @@ import { DictationOverlay } from "./DictationOverlay";
 import { FIELD_SIZING_SUPPORTED } from "./field-height";
 import type { ComposerDictation } from "./use-composer-dictation";
 
+/** Past this many characters the field sets its text in the system face (see components.css `data-long`). */
+const LONG_DRAFT_CHARS = 8000;
+
 export function ComposerField({
 	textareaRef,
 	ownEdit,
@@ -147,6 +150,7 @@ export function ComposerField({
 				onPaste={onPaste}
 				rows={expanded ? undefined : 2}
 				data-sizing={sized ? "content" : undefined}
+				data-long={text.length > LONG_DRAFT_CHARS || undefined}
 				placeholder={placeholder}
 				className={cx(
 					"omp-composer-input w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
