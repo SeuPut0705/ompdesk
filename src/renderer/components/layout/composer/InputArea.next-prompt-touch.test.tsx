@@ -16,11 +16,12 @@ import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { InputArea } from "./InputArea";
 
-/** The input the shell reports; the other next-prompt tests run with no web shell (mouse). */
-const input = vi.hoisted(() => ({ current: "touch" as "touch" | null }));
+/** The input and the shell mode the shell reports; the other next-prompt tests run with no web shell (mouse). */
+const input = vi.hoisted(() => ({ current: "touch" as "touch" | null, mode: null as "phone" | null }));
 vi.mock("../../../hooks/use-shell-mode", async importOriginal => ({
 	...(await importOriginal<typeof ShellMode>()),
 	useShellInput: () => input.current,
+	useShellMode: () => input.mode,
 }));
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -189,6 +190,7 @@ async function mount(): Promise<void> {
 
 beforeEach(() => {
 	input.current = "touch";
+	input.mode = null;
 });
 
 afterEach(async () => {
@@ -254,6 +256,33 @@ describe("InputArea prompt suggestions on touch", () => {
 		expect(chipButtons()).toHaveLength(1);
 		await typeInto("a");
 		expect(chipButtons()).toHaveLength(0);
+	});
+
+	it("on a phone the chips join the status chip row after its divider, and typing hides them but keeps the divider", async () => {
+		input.mode = "phone";
+		await mount();
+		await suggest("best one", "second option");
+		const statusRow = document.querySelector("[data-status-row]") as unknown as TestElement | null;
+		expect(statusRow).not.toBeNull();
+		expect(statusRow?.querySelector(".omp-next-chips[data-bare]")).not.toBeNull();
+		expect(chipButtons().map(button => button.textContent)).toEqual(["best one", "second option"]);
+		const divider = statusRow?.querySelector("[data-status-divider]");
+		expect(divider?.getAttribute("data-away")).toBeNull();
+		await typeInto("a");
+		expect(chipButtons()).toHaveLength(0);
+		expect(statusRow?.querySelector("[data-status-divider]")?.getAttribute("data-away")).toBe("true");
+		// Tapping a chip still fills the field and sends nothing.
+		await typeInto("");
+		await fire("onClick", chipButtons()[1]);
+		expect(useComposerStore.getState().draft).toBe("second option");
+		expect(prompt).not.toHaveBeenCalled();
+	});
+
+	it("has no status chip row off the phone shell", async () => {
+		await mount();
+		await suggest("best one", "second option");
+		expect(document.querySelector("[data-status-row]")).toBeNull();
+		expect(document.querySelector(".omp-next-chips")?.getAttribute("data-bare")).toBeNull();
 	});
 
 	it("makes no inline completion request: the keyboard's own suggestions and the IME own the draft", async () => {

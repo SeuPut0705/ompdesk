@@ -6,7 +6,7 @@
  */
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { fitFieldHeight } from "./field-height";
+import { fieldCeiling, fitFieldHeight } from "./field-height";
 
 const PANE = 800;
 const BOX_PADDING = 16;
@@ -87,5 +87,20 @@ describe("fitFieldHeight", () => {
 		expect(field.style.height).toBe("");
 		expect(box.style.minHeight).toBe("");
 		expect(reads).toEqual([]);
+	});
+});
+
+describe("fieldCeiling", () => {
+	it("is 40 % of the pane while the screen has room", () => {
+		expect(fieldCeiling(800, 844)).toBe(320);
+		expect(fieldCeiling(1000, 1200)).toBe(400);
+	});
+
+	it("never leaves less than 120 px of the visible screen (a phone with its keyboard up)", () => {
+		// 508 px visible, a 500 px pane: 40 % would be 200, the visible room allows 388.
+		expect(fieldCeiling(500, 508)).toBe(200);
+		// 240 px visible (landscape with a keyboard): the field may take 120 of it.
+		expect(fieldCeiling(300, 240)).toBe(120);
+		expect(fieldCeiling(300, 100)).toBe(0);
 	});
 });

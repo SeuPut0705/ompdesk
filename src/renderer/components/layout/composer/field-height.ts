@@ -4,22 +4,45 @@ export const FIELD_SIZING_SUPPORTED =
 
 /** Share of the session pane the field may grow to before it scrolls inside. */
 const MAX_PANE_SHARE = 0.4;
+/** Room the rest of the screen keeps while the field grows (header, one transcript line, the row of controls). */
+const KEEP_VISIBLE_PX = 120;
+
+/**
+ * The tallest the field grows before it scrolls inside: 40 % of the pane, and never so tall that less than
+ * {@link KEEP_VISIBLE_PX} of the visible screen stays for the rest (a phone with its keyboard up shows ~500 px).
+ */
+export function fieldCeiling(paneHeight: number, visibleHeight: number): number {
+	return Math.max(0, Math.min(paneHeight * MAX_PANE_SHARE, visibleHeight - KEEP_VISIBLE_PX));
+}
+
+/** What the screen shows right now: the visual viewport (keyboard, zoom) where there is one. */
+export function visibleScreenHeight(): number {
+	if (typeof window === "undefined") return Number.POSITIVE_INFINITY;
+	return window.visualViewport?.height || window.innerHeight;
+}
 
 /**
  * Where `field-sizing: content` is supported the field's height is CSS's (`.omp-composer-input[data-sizing]`), and
- * only its ceiling follows the pane: `--omp-field-max` is set from the pane's own resize, never read per keystroke
- * (the 0px measure of {@link fitFieldHeight} forced a layout of the whole draft on every key: 16 ms at 30k
- * characters). Returns the observer's cleanup; a browser without the property keeps {@link fitFieldHeight}.
+ * only its ceiling follows the pane and the visible height: `--omp-field-max` is set from the pane's own resize and
+ * the visual viewport's, never read per keystroke (the 0px measure of {@link fitFieldHeight} forced a layout of the
+ * whole draft on every key: 16 ms at 30k characters). Returns the observer's cleanup; a browser without the property
+ * keeps {@link fitFieldHeight}.
  */
 export function observeFieldCeiling(el: HTMLTextAreaElement): () => void {
 	const pane = el.closest<HTMLElement>(".omp-session-pane");
 	if (!pane || typeof ResizeObserver === "undefined") return () => {};
-	const apply = () => el.style.setProperty("--omp-field-max", `${Math.round(pane.clientHeight * MAX_PANE_SHARE)}px`);
+	const apply = () =>
+		el.style.setProperty(
+			"--omp-field-max",
+			`${Math.round(fieldCeiling(pane.clientHeight, visibleScreenHeight()))}px`,
+		);
 	apply();
 	const observer = new ResizeObserver(apply);
 	observer.observe(pane);
+	window.visualViewport?.addEventListener("resize", apply);
 	return () => {
 		observer.disconnect();
+		window.visualViewport?.removeEventListener("resize", apply);
 		el.style.removeProperty("--omp-field-max");
 	};
 }
@@ -44,7 +67,7 @@ export function fitFieldHeight(el: HTMLTextAreaElement, expanded: boolean): void
 	if (box) box.style.minHeight = `${box.getBoundingClientRect().height}px`;
 	el.style.height = "0px";
 	const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
-	const maxHeight = el.value.length === 0 ? 24 : paneHeight * 0.4;
+	const maxHeight = el.value.length === 0 ? 24 : fieldCeiling(paneHeight, visibleScreenHeight());
 	el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	if (box) box.style.minHeight = heldMinHeight;
 }

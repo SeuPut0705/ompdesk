@@ -1,11 +1,18 @@
 /**
- * The composer's toolbar row: + (attach, photos, history, expand, goal, skills), ⋯ on a phone, the Run chip (modes,
- * thinking, approval, delegation) and its conditional extras, the `!`/`$` and queue badges, then the send cluster:
- * the model chip (`Model · Thinking`), the context ring, mic, and the Steer/Follow-up chip, Stop and Send in
- * RESERVED slots. A slot never unmounts: while off it is `inert` and `visibility: hidden`, so a turn starting or
- * ending, or a draft appearing, moves nothing (Stop left, Send right). Label levels fold by the toolbar's own
- * width (components.css `omp-toolbar` container), never by the window's. Memoised: its props are scalars and
- * stable callbacks, so a keystroke in the field re-renders it only when what it shows changes.
+ * The composer's toolbar row: + (attach, photos, history, expand, goal, skills; on a phone with the chip row hidden
+ * also Model / Mode / Tool approval / Delegation), the Run chip (modes, thinking, approval, delegation) and its
+ * conditional extras, the `!`/`$` and queue badges, then the send cluster: the model chip (`Model · Thinking`), the
+ * context ring, mic, and the Steer/Follow-up chip, Stop and Send in RESERVED slots. A slot never unmounts: while off it
+ * is `inert` and `visibility: hidden`, so a turn starting or ending, or a draft appearing, moves nothing (Stop left,
+ * Send right). Label levels fold by the toolbar's own width (components.css `omp-toolbar` container), never by the
+ * window's.
+ *
+ * On a phone the row is `[+] [field] [Send | mic]` (mobile.css): the model chip, context ring, Run chip and mode extras
+ * leave the toolbar for the status chip row above the box (`ComposerStatusRow`; the Run chip stays mounted, hidden, as
+ * the owner of the Run settings sheet that `openModes` and the + sheet's Mode row open), and the empty Send slot is the
+ * mic while dictation is on. Touch controls keep focus in the field (`keepFocus`: a cancelled `mousedown`, never
+ * `pointerdown`). Memoised: its props are scalars and stable callbacks, so a keystroke in the field re-renders it only
+ * when what it shows changes.
  */
 import {
 	ArrowUp,
@@ -13,21 +20,23 @@ import {
 	ChevronDown,
 	CornerDownRight,
 	Cpu,
-	Ellipsis,
 	History,
 	ImageIcon,
+	ListChecks,
 	ListPlus,
 	Maximize2,
 	Mic,
 	MicOff,
 	Minimize2,
+	Network,
 	Paperclip,
 	Plus,
+	Shield,
 	Sparkles,
 	Square,
 	Target,
 } from "lucide-react";
-import { type ChangeEvent, memo, type ReactNode, type RefObject, useState } from "react";
+import { type ChangeEvent, memo, type ReactNode, type RefObject } from "react";
 import { useShellMode } from "../../../hooks/use-shell-mode";
 import { useT } from "../../../lib/i18n";
 import type { ComposerInputMode } from "../../../lib/input-modes";
@@ -38,13 +47,15 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, IconButton, MenuButton, Tooltip } from "../../common";
+import { Badge, Button, type ContextMenuItem, IconButton, MenuButton, Tooltip } from "../../common";
 import { ComposerSend } from "./ComposerLive";
-import { ComposerModeExtras } from "./ComposerModes";
+import { ComposerModeExtras, useComposerModes } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import type { DictationPhase } from "./DictationOverlay";
+import { keepFocus } from "./keep-focus";
 import { RunChip } from "./RunChip";
 import { useThinkingName } from "./RunSettings";
+import { useStatusRowRoom } from "./use-status-row-room";
 
 /** Settings row of the stock `stt.enabled` switch; the + menu's Dictation item opens it while dictation is off (stock owns the setting, nothing here writes it). */
 const STT_SETTING_TARGET = "agent:setting-stt.enabled";
@@ -86,6 +97,8 @@ export interface ComposerToolbarProps {
 	queueSlot?: ReactNode;
 	/** A queued message is being edited: Send saves it (a check) and the lane chip steps aside (QueueImpl). */
 	editingQueued?: boolean;
+	/** Phone: open the Run sheet (Tool approval, Delegation) from the + sheet while the chip row is hidden. */
+	onOpenRunSheet: () => void;
 }
 
 export const ComposerToolbar = memo(function ComposerToolbar({
@@ -114,6 +127,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	onSend,
 	queueSlot,
 	editingQueued = false,
+	onOpenRunSheet,
 }: ComposerToolbarProps) {
 	const t = useT();
 	const isStreaming = useSessionStore(s => s.isStreaming);
@@ -123,9 +137,14 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	const openModes = useUiStore(s => s.openModes);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
-	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
+	/** Phone: model, mode, approval, delegation and context live in the status chip row above the box. */
 	const phone = useShellMode() === "phone";
-	const [moreOpen, setMoreOpen] = useState(false);
+	/** The chip row has no room (keyboard up, or under 420 px visible): the + sheet carries its settings. */
+	const rowRoom = useStatusRowRoom();
+	const approvalMode = useSettingsStore(s => s.approvalMode);
+	const modes = useComposerModes();
+	/** Touch presses keep focus in the field: a tap on a control never closes the soft keyboard. */
+	const hold = touchInput ? keepFocus : undefined;
 	const recording = dictationPhase !== "idle";
 	const modeLabel = followUp ? t("input.followUp") : t("input.steer");
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
@@ -141,17 +160,53 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 			? t("input.send.tipFollowUp")
 			: t("input.send.tipSteer", { chord: formatShortcut(composerFollowUpChord()) });
 	const sendChord = isStreaming || touchInput ? undefined : "↵";
+	/** Dictation: the desktop button, or on a phone the Send slot's mic while the field is empty (1 tap). */
+	const micAtOldSpot = sttEnabled && (!phone || recording);
+	const micInSlot = phone && sttEnabled && !recording && sendDisabled && !editingQueued;
+	const runRows: ContextMenuItem[] =
+		phone && !rowRoom
+			? [
+					{
+						id: "run-model",
+						label: t("input.model"),
+						hint: model && !settingUp ? `${modelLabel} · ${thinkingName}` : modelLabel,
+						icon: Cpu,
+						separatorBefore: true,
+						onSelect: () => openModelPicker(),
+					},
+					{
+						id: "run-mode",
+						label: t("input.modes.label"),
+						hint: modes.summary ?? undefined,
+						icon: ListChecks,
+						onSelect: () => openModes(),
+					},
+					{
+						id: "run-approval",
+						label: t("input.runSettings.approval"),
+						hint: t(`input.approval.${approvalMode}`),
+						icon: Shield,
+						onSelect: onOpenRunSheet,
+					},
+					{
+						id: "run-delegation",
+						label: t("input.delegation.title"),
+						icon: Network,
+						onSelect: onOpenRunSheet,
+					},
+				]
+			: [];
 
 	return (
 		<div
 			aria-busy={!routeReady}
 			aria-label={t("input.toolbar")}
 			className="omp-composer-toolbar flex min-h-11 flex-nowrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
-			data-more-open={moreOpen || undefined}
 			inert={!routeReady}
 			role="toolbar"
 		>
 			<MenuButton
+				keepFocus={touchInput}
 				icon={<Plus />}
 				items={[
 					// A phone offers its gallery and camera only for pictures (`image/*`); any file opens its
@@ -214,25 +269,16 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						separatorBefore: true,
 						onSelect: onOpenSkills,
 					},
+					...runRows,
 				]}
 				label={t("input.addMenu")}
 				side="above"
-				size="sm"
+				size={phone ? "md" : "sm"}
 			/>
-			{phone && (
-				<IconButton
-					aria-expanded={moreOpen}
-					className="omp-composer-more"
-					icon={<Ellipsis />}
-					label={t("input.moreControls")}
-					onClick={() => setMoreOpen(open => !open)}
-					size="sm"
-				/>
-			)}
 			<input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
 
 			<RunChip />
-			<ComposerModeExtras />
+			{!phone && <ComposerModeExtras />}
 
 			{composerMode && (
 				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
@@ -262,35 +308,38 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 			<div className="flex-1" />
 
 			<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1">
-				<Tooltip
-					content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}
-					shortcut={actionKbd("model.select", keymapOverrides)}
-				>
-					<Button
-						aria-label={
-							model && !settingUp
-								? t("input.modelLabelThinking", { model: modelLabel, level: thinkingName })
-								: t("input.modelLabel", { model: modelLabel })
-						}
-						className="omp-composer-chip omp-composer-fold-4 min-w-0 max-w-64"
-						data-model-chip
-						icon={<Cpu aria-hidden />}
-						onClick={() => openModelPicker()}
-						size="sm"
-						trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
-						variant="ghost"
+				{!phone && (
+					<Tooltip
+						content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}
+						shortcut={actionKbd("model.select", keymapOverrides)}
 					>
-						<span className="omp-composer-model-label truncate">{modelLabel}</span>
-						{model && !settingUp && (
-							<span className="omp-composer-effort shrink-0 font-normal text-(--sc-text-muted)">
-								· {thinkingName}
-							</span>
-						)}
-					</Button>
-				</Tooltip>
-				{!settingUp && <ContextUsagePopover />}
-				{sttEnabled && (
+						<Button
+							aria-label={
+								model && !settingUp
+									? t("input.modelLabelThinking", { model: modelLabel, level: thinkingName })
+									: t("input.modelLabel", { model: modelLabel })
+							}
+							className="omp-composer-chip omp-composer-fold-4 min-w-0 max-w-64"
+							data-model-chip
+							icon={<Cpu aria-hidden />}
+							onClick={() => openModelPicker()}
+							size="sm"
+							trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
+							variant="ghost"
+						>
+							<span className="omp-composer-model-label truncate">{modelLabel}</span>
+							{model && !settingUp && (
+								<span className="omp-composer-effort shrink-0 font-normal text-(--sc-text-muted)">
+									· {thinkingName}
+								</span>
+							)}
+						</Button>
+					</Tooltip>
+				)}
+				{!settingUp && !phone && <ContextUsagePopover />}
+				{micAtOldSpot && (
 					<IconButton
+						{...hold}
 						className="omp-composer-mic"
 						data-recording={recording ? "" : undefined}
 						icon={
@@ -320,6 +369,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 				>
 					<Tooltip content={t("input.sendModeHint")} shortcut={followUp ? undefined : composerFollowUpChord()}>
 						<Button
+							{...hold}
 							aria-label={t("input.sendModeLabel", { mode: modeLabel })}
 							className="omp-composer-chip omp-composer-fold-1"
 							data-send-mode={followUp ? "followUp" : "steer"}
@@ -342,6 +392,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						inert={!stoppable}
 					>
 						<IconButton
+							{...hold}
 							className="omp-composer-action"
 							disabled={!routeReady}
 							icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
@@ -353,8 +404,19 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						/>
 					</span>
 					<span className="omp-composer-slot" data-slot="send">
-						{dictationPhase === "recording" ? (
+						{micInSlot ? (
 							<IconButton
+								{...hold}
+								className="omp-composer-action omp-composer-mic"
+								disabled={!routeReady}
+								icon={<Mic />}
+								label={t("voice.mic.start")}
+								onClick={onMic}
+								variant="secondary"
+							/>
+						) : dictationPhase === "recording" ? (
+							<IconButton
+								{...hold}
 								className="omp-composer-action"
 								data-dictation-send
 								disabled={!routeReady}
@@ -366,6 +428,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						) : (
 							<ComposerSend label={editingQueued ? t("composerQueue.editSave") : sendTip} shortcut={sendChord}>
 								<IconButton
+									{...hold}
 									className="omp-composer-action"
 									data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
 									data-send-editing={editingQueued || undefined}

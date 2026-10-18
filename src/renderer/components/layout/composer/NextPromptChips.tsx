@@ -42,6 +42,8 @@ interface NextPromptChipsProps {
 	 * character never changes the transcript's height (the row used to unmount: the viewport grew by its 36 px).
 	 */
 	away?: boolean;
+	/** Touch: no row of its own (`display: contents`): the chips join the status chip row's one scroller. */
+	bare?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export function NextPromptChips({
 	touch = false,
 	onSend,
 	away = false,
+	bare = false,
 }: NextPromptChipsProps) {
 	const t = useT();
 	const buttons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -133,6 +136,7 @@ export function NextPromptChips({
 			aria-label={t("input.chips.label")}
 			className="omp-next-chips"
 			data-away={away || undefined}
+			data-bare={bare || undefined}
 			data-touch={touch || undefined}
 			inert={away || undefined}
 			role="group"
@@ -157,6 +161,7 @@ export function NextPromptChips({
 								: undefined
 						}
 						onFocus={() => setActive(index)}
+						onMouseDown={touch ? event => event.preventDefault() : undefined}
 						onKeyDown={event => onKeyDown(event, index)}
 						ref={element => {
 							buttons.current[index] = element;

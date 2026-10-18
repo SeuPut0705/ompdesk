@@ -112,7 +112,7 @@ export function DelegationField({ mode, onPick }: { mode: DelegationMode; onPick
 					<button
 						aria-checked={option === mode}
 						className={cx(
-							"flex w-full items-start gap-2 rounded-(--sc-radius-md) px-2 py-1 text-left hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover)",
+							"flex min-h-(--sc-row-action) w-full items-start gap-2 rounded-(--sc-radius-md) px-2 py-1 text-left hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover)",
 							option === mode && "bg-(--sc-selected)",
 						)}
 						data-delegation-option={option}

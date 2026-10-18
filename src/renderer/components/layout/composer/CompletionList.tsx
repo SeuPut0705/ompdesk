@@ -4,7 +4,8 @@
  * that work and notes on rows that are not shown. The field keeps focus; a row is taken on mouse down, and the
  * pointer moves the highlight like the history search's (one highlight, never a hover beside a selection).
  */
-import { memo, useEffect } from "react";
+import { memo, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { currentShellMode, useShellInput } from "../../../hooks/use-shell-mode";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { Kbd } from "../../common";
@@ -36,6 +37,36 @@ function HighlightedLabel({ label, ranges }: { label: string; ranges: readonly [
 	);
 }
 
+/**
+ * The room above the composer for the menu (a web shell only): from the anchor's top up to the pane's top, less a 16 px
+ * margin, re-measured when the pane, the window or the visual viewport (the soft keyboard) resizes. The menu's own
+ * `60vh` ceiling reached past the header when the keyboard left 190 px. `null` keeps the CSS ceiling.
+ */
+function useMenuRoom(menuRef: RefObject<HTMLElement | null>): number | null {
+	const [room, setRoom] = useState<number | null>(null);
+	useLayoutEffect(() => {
+		const menu = menuRef.current;
+		const anchor = menu?.parentElement;
+		if (!menu || !anchor || currentShellMode() === null) return;
+		const pane = menu.closest<HTMLElement>(".omp-session-pane");
+		const measure = () => {
+			const floor = pane?.getBoundingClientRect().top ?? 0;
+			setRoom(Math.max(0, Math.floor(anchor.getBoundingClientRect().top - floor - 16)));
+		};
+		measure();
+		window.addEventListener("resize", measure);
+		window.visualViewport?.addEventListener("resize", measure);
+		const observer = typeof ResizeObserver === "function" && pane ? new ResizeObserver(measure) : null;
+		if (pane) observer?.observe(pane);
+		return () => {
+			window.removeEventListener("resize", measure);
+			window.visualViewport?.removeEventListener("resize", measure);
+			observer?.disconnect();
+		};
+	}, [menuRef]);
+	return room;
+}
+
 export const CompletionList = memo(function CompletionList({
 	menu,
 	menuId,
@@ -56,10 +87,16 @@ export const CompletionList = memo(function CompletionList({
 		document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
 	}, [menuId, menuIndex]);
 	const footer = menu.footer;
+	/** Key hints are for a hardware keyboard: a touch screen (phone or tablet) shows the notes only. */
+	const touch = useShellInput() === "touch";
+	const ref = useRef<HTMLDivElement>(null);
+	const room = useMenuRoom(ref);
 	return (
 		<div
 			className="absolute bottom-full left-0 z-(--sc-z-popover) mb-2 flex max-h-[60vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
 			data-completion-menu={menu.source}
+			ref={ref}
+			style={room === null ? undefined : { maxHeight: room }}
 		>
 			<div
 				aria-label={t("input.completion.label")}
@@ -104,7 +141,7 @@ export const CompletionList = memo(function CompletionList({
 					</button>
 				))}
 			</div>
-			{footer && (
+			{footer && (!touch || footer.notes.length > 0) && (
 				<div
 					className="shrink-0 border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)"
 					data-menu-footer
@@ -114,16 +151,18 @@ export const CompletionList = memo(function CompletionList({
 							{note}
 						</div>
 					))}
-					<div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-						{footer.hints.map(hint => (
-							<span className="flex items-center gap-1.5" key={hint.keys}>
-								{hint.keys.split(" ").map(key => (
-									<Kbd key={key} shortcut={key} />
-								))}
-								{hint.label}
-							</span>
-						))}
-					</div>
+					{!touch && (
+						<div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+							{footer.hints.map(hint => (
+								<span className="flex items-center gap-1.5" key={hint.keys}>
+									{hint.keys.split(" ").map(key => (
+										<Kbd key={key} shortcut={key} />
+									))}
+									{hint.label}
+								</span>
+							))}
+						</div>
+					)}
 				</div>
 			)}
 		</div>

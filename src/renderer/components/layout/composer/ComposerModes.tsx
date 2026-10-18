@@ -149,13 +149,15 @@ export function ComposerModeExtras() {
 	);
 }
 
-/** Plan mode has no config beyond on/off: the agent plans, then asks for approval. */
-function PlanModeConfig() {
+/**
+ * The user's plan mode and its switch (`set_plan_mode`): the Mode popover's Plan switch and the phone's Plan chip
+ * are the same toggle. On only for the user's own plan mode, never for one the automatic choice uses for one request.
+ */
+export function usePlanToggle(): { enabled: boolean; pending: boolean; toggle: (next: boolean) => Promise<void> } {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
-	// On only for the user's own plan mode, never for one the automatic choice uses for a single request.
-	const planModeEnabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
+	const enabled = useSessionStore(s => s.planModeEnabled && s.autoMode !== "plan");
 	const [pending, setPending] = useState(false);
 
 	const toggle = async (next: boolean) => {
@@ -177,6 +179,13 @@ function PlanModeConfig() {
 			setPending(false);
 		}
 	};
+	return { enabled, pending, toggle };
+}
+
+/** Plan mode has no config beyond on/off: the agent plans, then asks for approval. */
+function PlanModeConfig() {
+	const t = useT();
+	const { enabled: planModeEnabled, pending, toggle } = usePlanToggle();
 
 	return (
 		<SwitchField

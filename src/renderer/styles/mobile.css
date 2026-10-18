@@ -126,6 +126,8 @@ html[data-input="touch"] {
 	--sc-touch-target: 44px;
 	--sc-row-touch: 40px;
 	--sc-row-action: 44px;
+	/* A touch screen's scrollbars are overlays: the 9 px a desktop reserves made the column 12 / 21 px. */
+	--omp-scrollbar-size: 0px;
 }
 
 html[data-input="touch"] :is(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea, select) {
@@ -318,27 +320,6 @@ html[data-shell="phone"] .omp-titlebar-status {
 /* ── Composer: pinned above the keyboard (body's inset), clear of the home indicator, chips on one line ────── */
 html[data-shell] .omp-composer-region.pb-3 {
 	padding-bottom: calc(var(--spacing, 0.25rem) * 3 + var(--safe-b));
-}
-
-html[data-shell="phone"] .omp-composer-toolbar {
-	flex-wrap: nowrap;
-	overflow-x: auto;
-	scrollbar-width: none;
-}
-
-html[data-shell="phone"] .omp-composer-toolbar::-webkit-scrollbar {
-	display: none;
-}
-
-html[data-shell="phone"] .omp-composer-toolbar > * {
-	flex-shrink: 0;
-}
-
-html[data-shell="phone"] .omp-composer-send-cluster {
-	position: sticky;
-	right: 0;
-	margin-left: auto;
-	background: var(--sc-elevated);
 }
 
 /* The reserved slots of the desktop toolbar (steer chip, Stop) hold no room in a phone's row while off; the
@@ -838,11 +819,12 @@ html[data-shell="phone"] .omp-composer-toolbar {
 	padding: 0 var(--sc-space-1-5) var(--sc-space-0-5) var(--sc-space-1);
 }
 
-/* Idle composer = one row (the box becomes a grid): attach and ⋯ at the left, the field, Send at the right. The
-   mode, thinking, model and context controls wait behind ⋯, which opens them as a second row (data-more-open). */
+/* Idle composer = one row (the box becomes a grid): + at the left, the field, Send at the right (the mic while the
+   field is empty and dictation is on). Model, Plan, tool approval and context live in the status chip row above the
+   box (.omp-status-row); the toolbar's own copies of them, the Run chip and the badges are hidden here. */
 html[data-shell="phone"] .omp-composer-box {
 	display: grid;
-	grid-template-columns: auto auto minmax(0, 1fr) auto;
+	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: end;
 }
 
@@ -854,36 +836,160 @@ html[data-shell="phone"] .omp-composer-box > * {
 html[data-shell="phone"] .omp-composer-box > div:has(> [data-composer-input]) {
 	grid-column: auto;
 	order: 1;
-	padding: var(--sc-space-1-5) var(--sc-space-1);
+	padding: 10px var(--sc-space-1);
 }
 
-html[data-shell="phone"] .omp-composer-box > .omp-composer-toolbar:not([data-more-open]) {
+html[data-shell="phone"] .omp-composer-box > .omp-composer-toolbar {
 	display: contents;
 }
 
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > :is(button, [role="button"], span):first-child {
+html[data-shell="phone"] .omp-composer-toolbar > :is(button, [role="button"], span):first-child {
 	order: 0;
-	margin: 0 0 var(--sc-space-1-5) var(--sc-space-1-5);
+	margin: 0 0 8px 6px;
 }
 
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > .omp-composer-more {
-	order: 0;
-	margin: 0 0 var(--sc-space-1-5);
-}
-
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > .omp-composer-send-cluster {
+html[data-shell="phone"] .omp-composer-toolbar > .omp-composer-send-cluster {
 	order: 2;
-	margin: 0 var(--sc-space-1-5) var(--sc-space-1-5) 0;
+	margin: 0 6px 6px 0;
 }
 
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) > :not(:first-child, .omp-composer-more, .omp-composer-send-cluster, input),
-html[data-shell="phone"] .omp-composer-toolbar:not([data-more-open]) .omp-composer-send-cluster > :not(:last-child, [data-queue-pill]) {
+html[data-shell="phone"] .omp-composer-toolbar > :not(:first-child, .omp-composer-send-cluster, input) {
 	display: none;
 }
 
-html[data-shell="phone"] .omp-composer-toolbar[data-more-open] {
-	grid-column: 1 / -1;
-	order: 3;
+/* The lane chip is a text chip beside Stop and Send on a phone (the desktop's width ladder folds it to an icon). */
+html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode] .omp-composer-control-label {
+	display: inline;
+}
+
+html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode] {
+	height: 28px;
+	padding-inline: var(--sc-space-2);
+}
+
+/* Stop, Send and the queue pill sit 8 px apart (the desktop ladder narrows it to 4): each one's reach ends where its
+   neighbour's drawn box begins. */
+html[data-shell="phone"] .omp-composer-send-cluster .omp-composer-actions {
+	margin-left: 0;
+	gap: var(--sc-space-2);
+}
+
+/* The expanded composer is a column (the grid above is for the idle row): header, the field fills, then the footer
+   row with + at the left and Send at the right. */
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+}
+
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box > * {
+	order: 0;
+}
+
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box > div:has(> [data-composer-input]) {
+	order: 1;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 8px 12px;
+}
+
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box > .omp-composer-toolbar {
+	display: flex;
+	order: 2;
+	align-items: center;
+	padding: 0 0 6px;
+}
+
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-toolbar > .omp-composer-send-cluster {
+	order: 0;
+	margin: 0 6px 0 auto;
+}
+
+html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-toolbar > :is(button, [role="button"], span):first-child {
+	margin: 0 0 0 6px;
+}
+
+/* ── Status chip row (phone): live run state above the box, then the prompt suggestions, one scroller ──────── */
+html[data-shell="phone"] .omp-status-row {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-2);
+	height: 44px;
+	margin-bottom: var(--sc-space-1);
+	padding-block: 8px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	--hit-gap-x: 8px;
+	--hit-gap-y: 18px;
+}
+
+html[data-shell="phone"] .omp-status-row::-webkit-scrollbar {
+	display: none;
+}
+
+/* A fade where more waits: at the end, at the start, or both. */
+html[data-shell="phone"] .omp-status-row[data-edge-end]:not([data-edge-start]) {
+	mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+}
+
+html[data-shell="phone"] .omp-status-row[data-edge-start]:not([data-edge-end]) {
+	mask-image: linear-gradient(to left, black calc(100% - 28px), transparent);
+}
+
+html[data-shell="phone"] .omp-status-row[data-edge-start][data-edge-end] {
+	mask-image: linear-gradient(to right, transparent, black 28px, black calc(100% - 28px), transparent);
+}
+
+html[data-shell="phone"] .omp-status-chip {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: var(--sc-space-1);
+	height: 28px;
+	max-width: 70vw;
+	padding-inline: 10px;
+	border: 1px solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-surface-1);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-sm);
+	white-space: nowrap;
+}
+
+html[data-shell="phone"] .omp-status-chip > svg {
+	flex: 0 0 auto;
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+}
+
+html[data-shell="phone"] .omp-status-chip:is([data-active], [aria-pressed="true"]) {
+	border-color: var(--sc-accent);
+	background: var(--sc-accent-soft);
+	color: var(--sc-accent);
+}
+
+html[data-shell="phone"] .omp-status-chip[data-approval="yolo"] {
+	border-color: var(--sc-warning);
+}
+
+html[data-shell="phone"] .omp-status-divider {
+	flex: 0 0 1px;
+	height: 16px;
+	background: var(--sc-divider);
+}
+
+html[data-shell="phone"] .omp-status-divider[data-away] {
+	visibility: hidden;
+}
+
+/* The suggestion chips join the status row's scroller instead of drawing a row of their own. */
+html[data-shell="phone"] .omp-next-chips[data-touch][data-bare] {
+	display: contents;
+	--hit-gap-x: 8px;
+	--hit-gap-y: 18px;
 }
 
 /* Transcript rhythm on a phone: a turn boundary is 24 px, not the desktop's 42; prompts hug their replies. The action
@@ -956,6 +1062,14 @@ html[data-shell] .omp-composer-toolbar {
 	--hit-gap-y: 8px;
 }
 
+/* The phone's box row: + and the send cluster draw 28 px and reach 44. The ::after is positioned against the padding
+   box (26 px inside a 1 px border), so 18 px of gap each way is what makes 44; the 8 px between Stop and Send is the
+   gap the reaches share. Nothing but the field's padding is next to them otherwise. */
+html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster) {
+	--hit-gap-x: 18px;
+	--hit-gap-y: 18px;
+}
+
 /* Prompt suggestions on touch: ONE row above the composer, scrolling sideways (never wrapping, so the chrome
    budget is a single 32 px row, and nothing at all with no suggestions). Chips are 28 px high; the global
    44 px hit reach is cut to the row's own height by --hit-gap-y (an overflow container clips it anyway). */
@@ -990,6 +1104,14 @@ html[data-input="touch"] .omp-next-chips[data-touch] .omp-next-chip-send {
 	border-color: var(--sc-accent);
 	background: var(--sc-accent);
 	color: var(--sc-accent-fg);
+}
+
+/* The composer's pickers (slash/@/emoji menu, history search, skills): option rows are 44 px, not the desktop's 28. They
+   sit flush, so no row's hit area grows past its own row. */
+html[data-input="touch"] .omp-composer-anchor [role="option"] {
+	min-height: var(--sc-row-action);
+	align-items: center;
+	--hit-gap-y: 0px;
 }
 
 /* Attached pictures on touch: ONE row of 56 px thumbnails that scrolls sideways (never wrapping: twenty pictures were

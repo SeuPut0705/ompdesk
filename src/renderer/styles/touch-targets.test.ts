@@ -150,3 +150,47 @@ describe("hit areas that fill the room they have", () => {
 		expect(bar).toContain("overflow-x-auto py-1");
 	});
 });
+
+describe("the phone composer", () => {
+	it("is one row [+] [field] [Send | mic]: no ⋯ toggle and none of the rules that only served it", () => {
+		expect(css).not.toContain("data-more-open");
+		expect(css).not.toContain("omp-composer-more");
+		expect(rule('html[data-shell="phone"] .omp-composer-box')).toMatch(
+			/grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
+		);
+		expect(read("../components/layout/composer/ComposerToolbar.tsx")).not.toMatch(/moreOpen|omp-composer-more/);
+	});
+
+	it("draws +, Send and Stop at 28 px and reaches 44 (18 px of hit gap each way: the reach starts inside the 1 px border)", () => {
+		const gap = rule('html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster)');
+		expect(gap).toMatch(/--hit-gap-x:\s*18px/);
+		expect(gap).toMatch(/--hit-gap-y:\s*18px/);
+		expect(rule('html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode]')).toMatch(/height:\s*28px/);
+	});
+
+	it("puts one 44 px status chip row above the box: 28 px chips, an 18 px vertical reach, one sideways scroller", () => {
+		const status = rule('html[data-shell="phone"] .omp-status-row');
+		expect(status).toMatch(/height:\s*44px/);
+		expect(status).toMatch(/overflow-x:\s*auto/);
+		expect(status).toMatch(/--hit-gap-y:\s*18px/);
+		expect(rule('html[data-shell="phone"] .omp-status-chip')).toMatch(/height:\s*28px/);
+		// The suggestions share that scroller: their own row dissolves.
+		expect(rule('html[data-shell="phone"] .omp-next-chips[data-touch][data-bare]')).toMatch(/display:\s*contents/);
+	});
+
+	it("makes the expanded composer a column, the touch gutter symmetric and the pickers' option rows 44 px", () => {
+		expect(rule('html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box')).toMatch(
+			/flex-direction:\s*column/,
+		);
+		expect(touchRoot).toMatch(/--omp-scrollbar-size:\s*0px/);
+		expect(rule('html[data-input="touch"] .omp-composer-anchor [role="option"]')).toMatch(
+			/min-height:\s*var\(--sc-row-action\)/,
+		);
+	});
+
+	it("gives the sheets' own rows the 44 px action height", () => {
+		expect(read("../components/layout/composer/ApprovalControl.tsx")).toContain("min-h-(--sc-row-action)");
+		expect(read("../components/layout/composer/DelegationField.tsx")).toContain("min-h-(--sc-row-action)");
+		expect(read("../components/layout/composer/ContextUsagePopover.tsx")).toContain("min-h-(--sc-row-action)");
+	});
+});
