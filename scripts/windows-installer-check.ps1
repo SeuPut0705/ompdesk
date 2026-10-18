@@ -6,7 +6,11 @@ on windows-latest (`gh workflow run ci.yml -f installer_check=true`).
   -Mode silent  `setup /S`: per-user install in %LOCALAPPDATA%\Programs\ompdesk,
                 Start-menu and desktop shortcuts to it, one HKCU uninstall
                 entry and none in HKLM; the installed app opens its window
-                (renderer page over CDP); the uninstaller removes all of it.
+                (renderer page over CDP); the installed app, started the way a user
+                starts it, stages the bundled ai-memory.exe into
+                %LOCALAPPDATA%\ompdesk\tools, sets its logon entry and server
+                up and writes nothing to ~\.omp (Assert-AiMemoryService); the
+                uninstaller removes all of it while that server runs.
   -Mode ui      What a double-click runs (no arguments): it must finish on its
                 own with no page or question (a one-click window with a
                 progress bar, no Next/Install/Browse button), install the same
@@ -205,6 +209,47 @@ function Assert-Launches {
 	Stop-App
 }
 
+$aiMemoryRun = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+
+# The packaged app's own memory: the bundled ai-memory.exe is copied into the tools dir (never run from the install
+# folder, which an update or the uninstaller replaces while the server runs), ai-memory's own `setup` writes its logon
+# entry for THAT copy and starts the server, OMPdesk's extension root is generated, and omp's own agent dir and the
+# shared skills folder get nothing. Not headless: that is what turns the app's automatic memory on.
+function Assert-AiMemoryService {
+	$temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+	$data = Join-Path $temp 'ompdesk-ai-memory-data'
+	$tools = Join-Path $env:LOCALAPPDATA 'ompdesk\tools\ai-memory'
+	$root = Join-Path $env:APPDATA 'ompdesk\ai-memory\omp-ext'
+	$env:AI_MEMORY_DATA_DIR = $data
+	Start-Process -FilePath $exe | Out-Null
+	Remove-Item Env:AI_MEMORY_DATA_DIR
+	Wait-Until { @(Get-ChildItem -LiteralPath $tools -Recurse -Filter ai-memory.exe -ErrorAction SilentlyContinue).Count -gt 0 } 240 'the bundled ai-memory.exe to be staged into the tools dir'
+	$staged = (Get-ChildItem -LiteralPath $tools -Recurse -Filter ai-memory.exe | Select-Object -First 1).FullName
+	Ok "staged: $staged"
+	Wait-Until { $v = (Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory' -ErrorAction SilentlyContinue).'ai-memory'; $v -and $v -like "*$staged*" } 240 "the ai-memory logon entry to run the staged copy"
+	Ok "logon entry: $((Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory').'ai-memory')"
+	Wait-Until { try { (Invoke-WebRequest -Uri 'http://127.0.0.1:49374/healthz' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 } catch { $false } } 240 'the ai-memory server to answer'
+	Ok 'the ai-memory server answers /healthz'
+	Wait-Until { (Test-Path -LiteralPath (Join-Path $root 'index.ts')) -and (Test-Path -LiteralPath (Join-Path $root '.mcp.json')) -and (Test-Path -LiteralPath (Join-Path $root 'skills')) } 240 "OMPdesk's extension root"
+	Ok "extension root generated: $root"
+	$omp = Join-Path $HOME '.omp\agent'
+	if (Test-Path -LiteralPath (Join-Path $omp 'extensions\ai-memory-omp.ts')) { Fail "ai-memory's extension was written to $omp" }
+	if ((Test-Path -LiteralPath (Join-Path $omp 'mcp.json')) -and ((Get-Content -Raw -LiteralPath (Join-Path $omp 'mcp.json')) -match 'ai-memory')) { Fail "ai-memory's MCP entry was written to $omp" }
+	if (@(Get-ChildItem -LiteralPath (Join-Path $HOME '.agents\skills') -Filter 'ai-memory-*' -ErrorAction SilentlyContinue).Count -ne 0) { Fail 'the shared ~\.agents\skills holds ai-memory skills OMPdesk should have taken back' }
+	Ok 'nothing was written to ~\.omp or the shared skills folder'
+	Stop-App
+	Get-Process ai-memory -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$tools*" } | ForEach-Object { Write-Host "     still running: $($_.Id) $($_.Path)" }
+	if (-not (Get-Process ai-memory -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$tools*" })) { Fail 'the ai-memory server stopped with the app: it is ai-memory''s own service and must outlive OMPdesk' }
+	Ok 'the server keeps running without OMPdesk (its own logon service)'
+	$script:aiMemoryTools = $tools
+}
+
+# Leave the runner as found: the logon entry, the server and the staged copy.
+function Remove-AiMemoryService {
+	Remove-ItemProperty -Path $aiMemoryRun -Name 'ai-memory' -ErrorAction SilentlyContinue
+	Get-Process ai-memory -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$script:aiMemoryTools*" } | Stop-Process -Force
+}
+
 function Uninstall-PerUser($Entry) {
 	$parts = $Entry.QuietUninstallString -split '"', 3
 	Start-Process -FilePath $parts[1] -ArgumentList $parts[2].Trim() | Out-Null
@@ -229,7 +274,13 @@ switch ($Mode) {
 		Invoke-SilentSetup $Setup @('/S')
 		$entry = Assert-PerUserInstall
 		Assert-Launches
-		Uninstall-PerUser $entry
+		Assert-AiMemoryService
+		try {
+			# The staged ai-memory.exe is running from the tools dir, not the install folder: the uninstaller must not care.
+			Uninstall-PerUser $entry
+		} finally {
+			Remove-AiMemoryService
+		}
 	}
 	'ui' {
 		Add-Type -TypeDefinition $setupWindowsSource

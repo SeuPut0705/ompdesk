@@ -343,6 +343,8 @@ jobs:
       OMP_GUI_SPLIT_SELECT_CAPTURES: captures/split-select
       OMP_GUI_SCM_CAPTURES: captures/source-control
       OMP_GUI_PREVIEW_SCREENSHOTS: captures/preview
+      # e2e/real-ai-memory-windows.e2e.ts: the real ai-memory.exe and its HKCU logon entry on this (throwaway) runner.
+      OMP_GUI_REAL_AI_MEMORY_SERVICE: "1"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -354,6 +356,10 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Sync the ai-memory binary
+        run: bun run sync:ai-memory
+      - name: ai-memory unit tests on Windows (staging, paths, the logon entry)
+        run: bunx vitest run src/main/ai-memory
       - name: omp update while omp runs
         run: bun scripts/omp-update-lock-check.ts
       - name: Playwright e2e
