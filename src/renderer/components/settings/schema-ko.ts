@@ -686,6 +686,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Sharpshooter 모델",
 		description: "프로젝트 결정을 추출하고 병합할 모델 선택자. 비워 두면 smol 역할을 사용해요",
 	},
+	"sharpshooter.minPromptLength": {
+		label: "Sharpshooter 최소 프롬프트 길이",
+		description: "프로젝트 결정을 추출할 프롬프트의 최소 글자 수예요. 이보다 짧은 프롬프트는 건너뛰어요",
+	},
 	"sharpshooter.intervalMinutes": {
 		label: "Sharpshooter 병합 간격",
 		description: "대기 중인 프로젝트 결정을 백그라운드에서 병합하는 간격(분)",
@@ -1805,6 +1809,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"advisor.evictStaleResults": {
 		label: "어드바이저 오래된 결과 제거",
 		description: "각 검토 전에 이전 검토의 read/grep/glob 출력을 짧은 자리 표시자로 바꿔요. 최신 검토는 유지해요.",
+	},
+	"advisor.continueSeverity": {
+		label: "어드바이저 이어가기 심각도",
+		description:
+			"에이전트가 최종 답변으로 끝난 뒤 다시 깨우는 어드바이저 노트의 최소 심각도예요. 그보다 낮은 노트는 대화 끝에 카드로 남고 다음 메시지와 함께 에이전트에게 전달돼요.",
 	},
 	"browser.freezeOnTurnEnd": {
 		label: "턴 종료 시 브라우저 탭 고정",
