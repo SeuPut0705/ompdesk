@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
-import { type ExecFile, LAUNCHD_LABEL, launchdControl, logonControl, pidFileControl, runEntryCommand } from "./unit";
+import {
+	commandProgram,
+	type ExecFile,
+	LAUNCHD_LABEL,
+	launchdControl,
+	logonControl,
+	pidFileControl,
+	runEntryCommand,
+} from "./unit";
 
 let root: string;
 beforeEach(async () => {
@@ -77,6 +85,27 @@ describe("logonControl", () => {
 			'"C:\\x\\ai-memory.exe" service-host --data-dir "D"',
 		);
 		expect(runEntryCommand("ERROR: The system was unable to find the specified registry key or value.")).toBeNull();
+	});
+
+	it("takes the program out of a command line, quoted or not", () => {
+		expect(commandProgram('"C:\\Program Files\\x\\ai-memory.exe" --data-dir "D" service-host')).toBe(
+			"C:\\Program Files\\x\\ai-memory.exe",
+		);
+		expect(commandProgram("C:\\x\\ai-memory.exe service-host")).toBe("C:\\x\\ai-memory.exe");
+	});
+
+	it("a command line that runs the exact binary in use (not a folder of the staged ones) is OMPdesk's", async () => {
+		const bin = String.raw`C:\Temp\bin\ai-memory.exe`;
+		const { exec } = recorder(() => ({
+			code: 0,
+			stdout: query(`"${bin}" --data-dir "C:\\d" --config "C:\\d\\config.toml" service-host`),
+		}));
+		const control = logonControl({ owned: () => [staged, bin], dataDir: () => null, exec });
+		expect(await control.inspect()).toEqual({ installed: true, ours: true });
+		expect(await logonControl({ owned: () => [staged], dataDir: () => null, exec }).inspect()).toEqual({
+			installed: true,
+			ours: false,
+		});
 	});
 
 	it("absent: not installed; a command in the staged folder (any case or slash) is OMPdesk's; another is not", async () => {

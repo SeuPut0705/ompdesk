@@ -75,6 +75,12 @@ export interface LogonOptions {
 	exec?: ExecFile;
 }
 
+/** The program of a command line: the quoted first token, else the text up to the first space. */
+export function commandProgram(commandLine: string): string {
+	const quoted = /^\s*"([^"]*)"/.exec(commandLine);
+	return quoted?.[1] ?? commandLine.trim().split(/\s+/)[0] ?? "";
+}
+
 /** The entry's command line from `reg query` (`    ai-memory    REG_SZ    "C:\…\ai-memory.exe" service-host`). */
 export function runEntryCommand(output: string): string | null {
 	const line = output.split(/\r?\n/).find(row => /^\s*ai-memory\s+REG_(EXPAND_)?SZ\s/i.test(row));
@@ -88,7 +94,7 @@ export function logonControl(options: LogonOptions): ServiceControl {
 			const result = await exec("reg", ["query", RUN_KEY, "/v", RUN_VALUE]);
 			const command = result.code === 0 ? runEntryCommand(result.stdout) : null;
 			if (command === null) return { installed: false, ours: false };
-			return { installed: true, ours: options.owned().some(path => withinPath(command.replace(/^"/, ""), path)) };
+			return { installed: true, ours: options.owned().some(path => withinPath(commandProgram(command), path)) };
 		},
 		async remove() {
 			await exec("reg", ["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]);
