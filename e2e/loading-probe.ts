@@ -24,7 +24,7 @@ export const LOADING_PROBE = `(() => {
 	if (window.__nl) return;
 	const now = () => performance.now();
 	const nl = (window.__nl = {
-		fcp: null, lcp: null, bootAt: null, shellAt: null, splashUntil: null, titleAt: null, selectedAt: null, bootShift: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
+		fcp: null, lcp: null, bootAt: null, shellAt: null, splashUntil: null, titleAt: null, selectedAt: null, bootShift: null, bootDetail: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
 		cls: 0, shifts: [], spinnerMs: 0, spinnerFrames: 0, spinnerFirstAt: null, skeletonMs: 0, skeletonFrames: 0,
 		blankFrames: 0, transcriptEmptyFrames: 0, frames: 0, samples: [], spinners: [],
 	});
@@ -77,7 +77,7 @@ export const LOADING_PROBE = `(() => {
 			if (reactRects[1] && reactRects[2]) {
 				let worst = 0;
 				GEOMETRY.forEach((_, i) => { const a = bootRects[i], b = reactRects[i]; if (a && b) for (let k = 0; k < 4; k++) worst = Math.max(worst, Math.abs(a[k] - b[k])); else if (!!a !== !!b) worst = Math.max(worst, 999); });
-				nl.bootShift = Math.round(worst * 100) / 100;
+				nl.bootShift = Math.round(worst * 100) / 100; nl.bootDetail = JSON.stringify({ boot: bootRects, react: reactRects });
 			}
 		}
 		if (!splash && nl.splashUntil === null && nl.frames > 1 && root && root.childElementCount > 0) nl.splashUntil = t;
@@ -111,6 +111,8 @@ export interface LoadingReading {
 	titleAt: number | null;
 	selectedAt: number | null;
 	bootShift: number | null;
+	/** The rects behind `bootShift` (boot, then React), for a failing audit. */
+	bootDetail: string | null;
 	composerAt: number | null;
 	composerResponsiveAt: number | null;
 	rowAt: number | null;

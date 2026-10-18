@@ -341,9 +341,9 @@ test.describe("no loading screens: more surfaces", () => {
 			);
 			expect(
 				warmReading.bootShift,
-				"the boot skeleton and the layout that replaced it are not the same boxes (px)",
+				`the boot skeleton and the layout that replaced it are not the same boxes (px): ${warmReading.bootDetail}`,
 			).not.toBeNull();
-			expect(warmReading.bootShift as number).toBeLessThanOrEqual(2);
+			expect(warmReading.bootShift as number, `boot vs React rects: ${warmReading.bootDetail}`).toBeLessThanOrEqual(2);
 			// From the tab snapshot: the title and the open session's row are in the first React frames.
 			expect(warmReading.titleAt, "no tab was named at the first frame").not.toBeNull();
 			expect((warmReading.titleAt as number) - (warmReading.shellAt as number)).toBeLessThan(120);

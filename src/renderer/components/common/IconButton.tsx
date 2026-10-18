@@ -6,9 +6,9 @@
  * scale — sm 28px (dense rows, dialog close), md 32px (toolbars, default),
  * lg 36px — with icons at 14 / 16 / 20px; the icon's own size is overridden.
  * `pressed` makes it a toggle (aria-pressed). `loading` swaps the icon for a
- * Spinner in the icon's place (same box, so nothing shifts), marks the button
+ * still ring in the icon's place (same box, so nothing shifts), marks the button
  * busy and disables it — the one way a refresh or row action shows it is
- * running. Defaults to the ghost variant;
+ * running. It never turns: most refreshes start by themselves when a panel opens. Defaults to the ghost variant;
  * use `primary` only for the single main action of a surface (send).
  */
 
@@ -75,7 +75,7 @@ export function IconButton({
 			type={type ?? "button"}
 			{...rest}
 		>
-			{loading ? <Spinner inheritColor size="sm" spin /> : icon}
+			{loading ? <Spinner inheritColor size="sm" /> : icon}
 		</button>
 	);
 	if (!tooltip) return button;

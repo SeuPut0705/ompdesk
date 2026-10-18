@@ -890,9 +890,13 @@ export function Sidebar() {
 			),
 		);
 	};
+	// The tab's file names its row before the session store has an id (a tab restored from the tab snapshot, a start
+	// whose omp is not ready): the selection is on the first frame, not after the first read.
 	const isCurrentSession = (session: SidebarSession) =>
 		!activeTabRemote &&
-		(session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId));
+		(session.id === sessionId ||
+			(session.liveTabId !== undefined && session.liveTabId === activeTabId) ||
+			(activeTab?.sessionPath !== undefined && activeTab.sessionPath === session.path));
 	// Main reports a tab's file (get_state → sessionPath) reliably; the session id
 	// only arrives with stock's rare session_info_update, so match the path first.
 	const tabForSession = (session: SidebarSession) =>
