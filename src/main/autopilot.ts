@@ -981,9 +981,12 @@ export class Autopilot {
 			});
 			return;
 		}
-		if ((kind === "merge" || kind === "pr") && run.branch === run.baseBranch) {
-			throw new AutopilotError(this.#deps.text("autopilot.err.onBase"), "autopilot_on_base");
-		}
+		// Merge lands the run's own branch on the base; a PR is opened from the branch Push moves (the target, when there is one).
+		const nothingToShip =
+			kind === "merge"
+				? run.branch === run.baseBranch
+				: kind === "pr" && (run.target ?? run.branch) === run.baseBranch;
+		if (nothingToShip) throw new AutopilotError(this.#deps.text("autopilot.err.onBase"), "autopilot_on_base");
 		if (kind === "revert") {
 			const cycle = (run.status?.cycles ?? []).find(entry => entry.n === action.cycle);
 			if (!cycle?.commit) throw new AutopilotError(this.#deps.text("autopilot.err.noCommit"), "autopilot_no_commit");

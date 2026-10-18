@@ -278,6 +278,29 @@ describe("Autopilot screen", () => {
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "cancel_ship", id: "q1" });
 	});
 
+	it("says how many red cycles ran in a row from two on, muted, and nothing below that", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({ ...status, redStreak: 1 });
+		await mount(<AutopilotPanel />);
+		expect($("[data-autopilot-red-streak]")).toBeNull();
+		await act(async () => useAutopilotStore.getState().apply({ ...status, redStreak: 3 }));
+		expect($("[data-autopilot-red-streak]")?.textContent).toBe(translate("autopilot.redStreak", { n: 3 }));
+		expect($("[data-autopilot-red-streak]")?.getAttribute("class")).toContain("text-(--sc-text-muted)");
+		await act(async () => useAutopilotStore.getState().apply({ ...status }));
+		expect($("[data-autopilot-red-streak]")).toBeNull();
+	});
+
+	it("disables Create PR with the reason when the push target is the base branch, and keeps it for a feature target", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({ ...status, target: "main" });
+		await mount(<AutopilotPanel />);
+		expect($("[data-ship-button='pr']")?.disabled).toBe(true);
+		expect($("[data-ship-button='pr']")?.getAttribute("title")).toBe(
+			translate("autopilot.ship.prOnBase", { base: "main" }),
+		);
+		await act(async () => useAutopilotStore.getState().apply({ ...status, target: "feature/x" }));
+		expect($("[data-ship-button='pr']")?.disabled).toBeFalsy();
+	});
 	it("asks before stopping a push or release that is under way", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({

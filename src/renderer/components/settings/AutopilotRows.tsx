@@ -2,6 +2,7 @@
  * Settings › Agent behavior › Smart automation: the Autopilot defaults the start sheet opens with. The sheet reads them
  * (prefs `autopilotShip`, `autopilotNotify`, `autopilotLimits`) and sends its own values, so a change here only moves
  * what the next start proposes; a run keeps the settings it began with (its screen changes them while it runs).
+ * Only the 내보내기 default and the notifications show; the ceilings (everything off) are under Advanced.
  * Everything defaults to the cautious side: local only, every ceiling off, notifications on stops.
  */
 
@@ -24,7 +25,7 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { Input, Select } from "../common";
 import { limitsFromText, presetOfPolicy } from "../panels/autopilot/autopilot-view";
-import { SettingsRow } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow } from "./SettingsLayout";
 
 /** A stored pref read once; `undefined` until it lands. */
 function useStoredPref(key: string): unknown {
@@ -163,5 +164,21 @@ export function AutopilotLimitsRow() {
 				))}
 			</div>
 		</SettingsRow>
+	);
+}
+
+/**
+ * The Autopilot rows of Smart automation: the 내보내기 default and the notifications are the whole visible part; the
+ * ceilings (off by default) sit under the section's one Advanced disclosure.
+ */
+export function AutopilotSettingsRows() {
+	return (
+		<>
+			<AutopilotShipRow />
+			<AutopilotNotifyRow />
+			<SettingsAdvanced>
+				<AutopilotLimitsRow />
+			</SettingsAdvanced>
+		</>
 	);
 }

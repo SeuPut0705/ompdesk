@@ -2,7 +2,7 @@ import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { AutoModeRow } from "./AutoModeRow";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
-import { AutopilotLimitsRow, AutopilotNotifyRow, AutopilotShipRow } from "./AutopilotRows";
+import { AutopilotSettingsRows } from "./AutopilotRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
@@ -71,9 +71,7 @@ export function AgentSection() {
 				<BatchNotificationsRow />
 				<ScheduledRetryRow />
 				<AutoModeRow />
-				<AutopilotShipRow />
-				<AutopilotNotifyRow />
-				<AutopilotLimitsRow />
+				<AutopilotSettingsRows />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

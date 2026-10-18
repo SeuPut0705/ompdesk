@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { AutopilotLimitsRow, AutopilotNotifyRow, AutopilotShipRow } from "./AutopilotRows";
+import { AutopilotLimitsRow, AutopilotNotifyRow, AutopilotSettingsRows, AutopilotShipRow } from "./AutopilotRows";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -128,5 +128,24 @@ describe("Autopilot settings rows", () => {
 		await act(async () => reactProps(tokens).onChange?.({ target: tokens, currentTarget: tokens }));
 		await act(async () => reactProps(tokens).onBlur?.());
 		expect(prefs.set).toHaveBeenLastCalledWith("autopilotLimits", undefined);
+	});
+
+	it("shows only the export default and the notifications; the ceilings sit in one closed Advanced", async () => {
+		root = createRoot(document.body as unknown as globalThis.Element);
+		await act(async () =>
+			root?.render(
+				<I18nProvider>
+					<AutopilotSettingsRows />
+				</I18nProvider>,
+			),
+		);
+		await act(async () => {});
+		const advanced = document.querySelectorAll("[data-settings-advanced]");
+		expect(advanced).toHaveLength(1);
+		expect(advanced[0]?.getAttribute("open")).toBeNull();
+		const rows = Array.from(document.querySelectorAll("[data-setting-row]")) as unknown as Element[];
+		const visible = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.id);
+		expect(visible).toEqual(["setting-gui-autopilotShip", "setting-gui-autopilotNotify"]);
+		expect(advanced[0]?.querySelector("#setting-gui-autopilotLimits")).not.toBeNull();
 	});
 });

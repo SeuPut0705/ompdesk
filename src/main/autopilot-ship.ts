@@ -264,14 +264,22 @@ export class ShipRunner {
 		return { pushed: true };
 	}
 
+	/**
+	 * The PR's head is the branch Push moves: the run's own, or the target it works toward (`pushTo`), the only branch
+	 * Autopilot ever pushes. The work branch is not pushed for it. A head that is the base has nothing to compare.
+	 */
 	async #pr(target: ShipTarget, item: ShipQueueItem): Promise<Pick<ShipResult, "pushed">> {
-		const { root, branch, remote, baseBranch } = target;
+		const { root, remote, baseBranch } = target;
+		const head = target.pushTo ?? target.branch;
+		if (head === baseBranch) {
+			throw new ShipFailure(`${head} is the base branch: there is nothing to open a pull request for.`);
+		}
 		const sha = await this.#text(root, ["rev-parse", "HEAD"]);
-		const tracked = await this.#git(root, ["rev-parse", "--verify", "-q", `refs/remotes/${remote}/${branch}`]);
+		const tracked = await this.#git(root, ["rev-parse", "--verify", "-q", `refs/remotes/${remote}/${head}`]);
 		const onRemote = tracked.code === 0 && tracked.stdout.toString("utf8").trim() === sha;
 		if (!onRemote) await this.#pushPinned(target, item);
 		const { title, body } = await this.#deps.prText();
-		const created = await this.#deps.prCreate(root, { title, body, base: baseBranch, head: branch, draft: true });
+		const created = await this.#deps.prCreate(root, { title, body, base: baseBranch, head, draft: true });
 		item.url = created.url;
 		item.detail = `#${created.number}`;
 		return onRemote ? {} : { pushed: true };

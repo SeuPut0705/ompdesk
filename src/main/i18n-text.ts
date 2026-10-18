@@ -165,10 +165,6 @@ export const MAIN_TEXT = {
 		en: "Check out a branch first: Autopilot cuts its worktree from the current branch.",
 		ko: "먼저 브랜치를 체크아웃하세요. 오토파일럿은 현재 브랜치에서 워크트리를 만들어요.",
 	},
-	"autopilot.err.branchCheckedOut": {
-		en: "{branch} is already checked out in {path}. A run needs its branch to itself: switch that folder to another branch, or pick another branch.",
-		ko: "이미 {path}에 체크아웃된 브랜치예요: {branch}. 실행은 브랜치를 혼자 써야 해요. 그 폴더를 다른 브랜치로 바꾸거나 다른 브랜치를 고르세요.",
-	},
 	"autopilot.err.branchExists": {
 		en: "A branch named {branch} already exists. Pick it from the list, or name the new branch differently.",
 		ko: "{branch}라는 브랜치가 이미 있어요. 목록에서 고르거나 새 브랜치 이름을 바꾸세요.",
@@ -182,8 +178,8 @@ export const MAIN_TEXT = {
 		ko: "{branch} 브랜치가 (더 이상) 없어요. 다른 브랜치를 고르세요.",
 	},
 	"autopilot.err.onBase": {
-		en: "This run is on the default branch itself: there is nothing to merge or open a pull request for.",
-		ko: "이 실행은 기본 브랜치 자체에서 돌고 있어요. 병합하거나 PR을 열 것이 없어요.",
+		en: "This run works on or pushes to the default branch itself: there is nothing to merge or open a pull request for.",
+		ko: "이 실행은 기본 브랜치에서 돌거나 기본 브랜치로 푸시해요. 병합하거나 PR을 열 것이 없어요.",
 	},
 	"autopilot.err.planOn": {
 		en: "Turn Plan mode off before starting Autopilot.",

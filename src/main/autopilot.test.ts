@@ -650,6 +650,27 @@ describe("the branch a run is on", () => {
 		).toBe(false);
 	});
 
+	it("a PR is opened from the push target, so a target that is the base branch has none to open (merge still has work to land)", async () => {
+		const toBase = await startOn({ kind: "existing", name: "main" }, { preset: "push" });
+		expect(dataOf<AutopilotStatus>(toBase.response)).toMatchObject({
+			branch: "autopilot/2026-10-17",
+			target: "main",
+		});
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		const pr = (id: string) =>
+			autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "ship", kind: "pr" }, id);
+		expect(refusal(await pr("8"))).toMatchObject({ code: "autopilot_on_base" });
+		// Merge still has work to land: the run's own branch is not the base.
+		const merged = await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "ship", kind: "merge" },
+			"9",
+		);
+		expect(merged.success).toBe(true);
+	});
+
 	it("refuses a branch that is gone, a new name that is taken and one git would not accept", async () => {
 		const missing = (await startOn({ kind: "existing", name: "ghost" })).response;
 		expect(refusal(missing)).toMatchObject({ code: "autopilot_branch_missing" });

@@ -207,8 +207,10 @@ describe("Autopilot start sheet", () => {
 			maxParallel: 4,
 			notify: "stops",
 			limits: { tokens: null, minutes: null, cycles: null, usd: null },
-			ship: { autoPush: false, autoRelease: { on: false }, remote: "origin" },
+			ship: { autoPush: false, autoRelease: { on: false, cadence: { kind: "agent" } } },
 		});
+		// The remote is auto: nothing is sent unless the user typed one.
+		expect(action?.action === "start" ? action.ship : null).not.toHaveProperty("remote");
 	});
 
 	it("is one dense row per setting: no paragraphs, a short warning line, the details behind (i) glyphs", async () => {
@@ -226,7 +228,95 @@ describe("Autopilot start sheet", () => {
 			translate("autopilot.ship.noProcedure"),
 		);
 		expect(document.body.textContent).not.toContain("Changes apply to the current session immediately.");
-		expect($("[data-autopilot-limits]")?.getAttribute("open")).toBeNull();
+		expect($("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
+	});
+
+	it("shows only the guide, Shipping, the Branch row and Start with Advanced closed; the rest sits in that one disclosure", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({
+			active: false,
+			guide: { exists: true, text: "# Ours\n" },
+			branches: {
+				repo: "/work/app",
+				remote: "origin",
+				defaultBranch: "main",
+				suggested: "autopilot/2026-10-18",
+				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
+			},
+		});
+		await mount(<ComposerModes />);
+		await openSheet();
+		const sheet = $("[data-autopilot-sheet]") as unknown as Element;
+		const advanced = sheet.querySelectorAll("[data-settings-advanced]");
+		expect(advanced).toHaveLength(1);
+		expect(advanced[0]?.getAttribute("open")).toBeNull();
+		const rows = [...sheet.querySelectorAll("[data-setting-row]")];
+		const outside = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
+		const inside = rows.filter(row => row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
+		const has = (list: string[], key: string) => list.some(text => text.includes(translate(key)));
+		for (const key of ["autopilot.sheet.guide", "autopilot.sheet.ship", "autopilot.sheet.branch"]) {
+			expect(has(outside, key), key).toBe(true);
+		}
+		for (const key of [
+			"autopilot.sheet.focus",
+			"autopilot.sheet.parallel",
+			"autopilot.sheet.notify",
+			"autopilot.sheet.backlog",
+			"autopilot.sheet.limits",
+		]) {
+			expect(has(outside, key), `${key} outside`).toBe(false);
+			expect(has(inside, key), `${key} inside`).toBe(true);
+		}
+		expect($("button[data-autopilot-start]")).not.toBeNull();
+	});
+
+	it("opens Advanced on the defaults: all areas, the agent decides the parallel sessions, notify on stops, remote auto, no ceilings", async () => {
+		installMockOmp();
+		await mount(<ComposerModes />);
+		await openSheet();
+		const parallel = $(
+			"select[aria-label='" + translate("autopilot.sheet.parallel") + "']",
+		) as unknown as HTMLSelectElement;
+		expect(parallel.value).toBe("4");
+		const labels = [...document.querySelectorAll("[data-autopilot-sheet] option")].map(option => option.textContent);
+		expect(labels).toContain(translate("autopilot.sheet.parallelAuto", { n: 4 }));
+		const notify = $(
+			"select[aria-label='" + translate("autopilot.sheet.notify") + "']",
+		) as unknown as HTMLSelectElement;
+		expect(notify.value).toBe("stops");
+		expect(document.querySelectorAll("[data-autopilot-limits] input[type='number']")).toHaveLength(4);
+		for (const input of document.querySelectorAll("[data-autopilot-limits] input"))
+			expect((input as unknown as HTMLInputElement).value).toBe("");
+	});
+
+	it("changes no layout on blur: the guide box and the Branch name keep their rows and the sheet its row count", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({
+			active: false,
+			guide: { exists: true, text: "# Ours\n" },
+			branches: {
+				repo: "/work/app",
+				remote: "origin",
+				defaultBranch: "main",
+				suggested: "autopilot/2026-10-18",
+				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
+			},
+		});
+		await mount(<ComposerModes />);
+		await openSheet();
+		const sheet = $("[data-autopilot-sheet]") as unknown as Element;
+		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
+		const name = $("input[data-autopilot-branch-name]") as unknown as HTMLInputElement;
+		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
+		const before = { rows: box.getAttribute("rows"), count: sheet.querySelectorAll("[data-setting-row]").length };
+		for (const field of [box, name]) {
+			await act(async () =>
+				handlersOf(field as unknown as HTMLTextAreaElement).onBlur?.({ target: field, currentTarget: field }),
+			);
+		}
+		expect(box.getAttribute("rows")).toBe(before.rows);
+		expect(sheet.querySelectorAll("[data-setting-row]")).toHaveLength(before.count);
+		expect(sheet.querySelector("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
 	it("says why it cannot start and keeps Start disabled: no repository, Plan on, an existing Goal", async () => {

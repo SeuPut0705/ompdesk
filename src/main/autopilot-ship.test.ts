@@ -282,6 +282,38 @@ describe("pr", () => {
 		]);
 		expect(ship.queue()[0]).toMatchObject({ url: "https://github.com/o/r/pull/7" });
 	});
+
+	describe("on a run with a separate push target", () => {
+		const dest = "feature/x";
+
+		beforeEach(() => {
+			gitSync(main, "branch", dest);
+			gitSync(main, "push", "-q", "origin", dest);
+		});
+
+		it("pushes the work to the push target first (never the work branch) and opens the PR from the target", async () => {
+			const sha = await commit(work, "a.txt");
+			const ship = runner();
+			ship.enqueue({ kind: "pr" });
+			const results = await ship.drain(target({ pushTo: dest }));
+			expect(results.map(result => result.item.state)).toEqual(["done"]);
+			expect(remoteTip(`refs/heads/${dest}`)).toBe(sha);
+			expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+			expect(prs).toMatchObject([{ base: "main", head: dest, draft: true }]);
+		});
+
+		it("refuses when the push target is the base branch: head and base would be the same branch", async () => {
+			await commit(work, "a.txt");
+			const mainTip = remoteTip("refs/heads/main");
+			const ship = runner();
+			ship.enqueue({ kind: "pr" });
+			const [result] = await ship.drain(target({ pushTo: "main" }));
+			expect(result).toMatchObject({ item: { state: "failed" } });
+			expect(result?.item.detail).toMatch(/base branch/);
+			expect(remoteTip("refs/heads/main")).toBe(mainTip);
+			expect(prs).toEqual([]);
+		});
+	});
 });
 
 describe("merge", () => {

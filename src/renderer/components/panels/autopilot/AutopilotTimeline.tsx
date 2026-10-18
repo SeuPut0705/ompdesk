@@ -135,6 +135,7 @@ export function AutopilotTimeline() {
 	const cycles = useAutopilotStore(s => s.status.cycles);
 	const now = useAutopilotStore(s => s.status.now);
 	const branch = useAutopilotStore(s => s.status.branch);
+	const redStreak = useAutopilotStore(s => s.status.redStreak);
 	const { run, pending } = useAutopilotActions();
 	const [all, setAll] = useState(false);
 	const [reverting, setReverting] = useState<AutopilotCycleRecord | null>(null);
@@ -152,6 +153,11 @@ export function AutopilotTimeline() {
 					/>
 				)}
 			</h3>
+			{redStreak !== undefined && redStreak >= 2 && (
+				<p className="text-sc-xs text-(--sc-text-muted)" data-autopilot-red-streak={redStreak}>
+					{t("autopilot.redStreak", { n: redStreak })}
+				</p>
+			)}
 			{now && (
 				<div className="flex min-w-0 items-center gap-2 py-1.5 text-sc-sm" data-autopilot-cycle-live={now.n}>
 					<span className="w-5 shrink-0 text-right text-sc-xs text-(--sc-text-muted) tabular-nums">{now.n}</span>

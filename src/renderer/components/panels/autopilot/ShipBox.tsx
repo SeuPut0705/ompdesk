@@ -73,6 +73,10 @@ export function ShipBox() {
 	const ship = useAutopilotStore(s => s.status.ship);
 	const ahead = useAutopilotStore(s => s.branchStatus?.ahead);
 	const base = useAutopilotStore(s => s.status.baseBranch);
+	const branch = useAutopilotStore(s => s.status.branch);
+	const pushTarget = useAutopilotStore(s => s.status.target);
+	// A PR is opened from the branch Push moves (the target, when there is one); the base has nothing to compare with itself.
+	const prOff = base !== undefined && (pushTarget ?? branch) === base;
 	const { run, pending } = useAutopilotActions();
 	const [merging, setMerging] = useState(false);
 	const [mergeCommit, setMergeCommit] = useState(false);
@@ -113,9 +117,11 @@ export function ShipBox() {
 				</Button>
 				<Button
 					data-ship-button="pr"
+					disabled={prOff}
 					icon={<GitPullRequest aria-hidden />}
 					onClick={() => void run({ action: "ship", kind: "pr" })}
 					size="sm"
+					title={prOff ? t("autopilot.ship.prOnBase", { base: base ?? "main" }) : undefined}
 					variant="secondary"
 				>
 					{t("autopilot.ship.pr")}

@@ -5,7 +5,7 @@
  * approved, so this sheet is where the user consents to that (it replaces the full-access confirmation).
  */
 
-import { ChevronRight, CircleCheck, PanelRight, Rocket, TriangleAlert } from "lucide-react";
+import { CircleCheck, PanelRight, Rocket, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
@@ -54,7 +54,7 @@ import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
 import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
 import { limitsFromText, presetOfPolicy, startBlock } from "../panels/autopilot/autopilot-view";
 import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
-import { SettingsRow } from "../settings/SettingsLayout";
+import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
 const PARALLEL_CHOICES = Array.from({ length: MAX_PARALLEL_CHILDREN + 1 }, (_, n) => n);
 const EVERY_CHOICES = [3, 5, 10];
@@ -297,7 +297,8 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const [focus, setFocus] = useState<AutopilotArea[]>([]);
 	const [preset, setPreset] = useState<AutopilotShipPreset>("local");
 	const [cadence, setCadence] = useState<AutopilotReleaseCadence>(DEFAULT_AUTOPILOT_SETTINGS.ship.autoRelease.cadence);
-	const [remoteName, setRemoteName] = useState("origin");
+	// Empty: the remote is detected (the sheet's placeholder shows which), so `ship.remote` is sent only when typed.
+	const [remoteName, setRemoteName] = useState("");
 	const [parallel, setParallel] = useState(DEFAULT_AUTOPILOT_SETTINGS.maxParallel);
 	const [limits, setLimits] = useState({ tokens: "", minutes: "", cycles: "", usd: "" });
 	const [notify, setNotify] = useState<AutopilotNotifyMode>(DEFAULT_AUTOPILOT_SETTINGS.notify);
@@ -338,7 +339,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 		if (defaults.policy) {
 			setPreset(presetOfPolicy(defaults.policy));
 			setCadence(defaults.policy.autoRelease.cadence);
-			setRemoteName(defaults.policy.remote);
 		}
 		if (defaults.notify) setNotify(defaults.notify);
 		if (defaults.limits) setLimits(defaults.limits);
@@ -381,7 +381,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const procedure = detected?.releaseProcedure;
 	const releaseUnavailable = !procedure || detected?.releaseBlocked !== undefined;
 	const releaseChosen = preset === "release";
-	const cleanRemote = remoteName.trim() || "origin";
+	const typedRemote = remoteName.trim();
 	const everyChoices =
 		cadence.kind === "every" && !EVERY_CHOICES.includes(cadence.n)
 			? [...EVERY_CHOICES, cadence.n].sort((a, b) => a - b)
@@ -409,7 +409,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const onDefaultBranch = branches ? isDefaultBranchChoice(choice, branches.branches) : false;
 	const viaTarget = branches ? viaWorkBranch(choice, branches.branches) !== null : false;
 	const start = async () => {
-		const base = shipPolicyForPreset(preset, cleanRemote);
+		const base = shipPolicyForPreset(preset);
 		const items = backlog
 			.split("\n")
 			.map(line => line.trim())
@@ -418,7 +418,11 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			action: "start",
 			focus,
 			preset,
-			ship: { ...base, autoRelease: { ...base.autoRelease, cadence } },
+			ship: {
+				autoPush: base.autoPush,
+				autoRelease: { ...base.autoRelease, cadence },
+				...(typedRemote ? { remote: typedRemote } : {}),
+			},
 			limits: limitsFromText(limits),
 			maxParallel: parallel,
 			notify,
@@ -436,17 +440,21 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 
 			<fieldset className="settings-section-body min-w-0" disabled={block !== null}>
 				<SettingsRow
-					badge={<SettingInfo text={t("autopilot.sheet.focusHint", { count: AUTOPILOT_AREAS.length })} />}
-					label={t("autopilot.sheet.focus")}
+					badge={guideHint ? <SettingInfo text={guideHint} /> : undefined}
+					label={t("autopilot.sheet.guide")}
 				>
-					<FocusChips
-						compact
-						focus={focus}
-						onToggle={area =>
-							setFocus(current =>
-								current.includes(area) ? current.filter(item => item !== area) : [...current, area],
-							)
-						}
+					<GrowArea
+						aria-label={t("autopilot.sheet.guide")}
+						data-autopilot-guide
+						disabled={guide?.tooLarge === true}
+						focusRows={8}
+						mono
+						onChange={event => {
+							setGuideEdited(true);
+							setGuideText(event.target.value);
+						}}
+						placeholder={t("autopilot.sheet.guidePlaceholder")}
+						value={guideText}
 					/>
 				</SettingsRow>
 
@@ -484,45 +492,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 					}
 					label={t("autopilot.sheet.ship")}
 				/>
-				{releaseChosen && (
-					<SettingsRow
-						compactControl
-						control={
-							<div className="w-44">
-								<Select
-									aria-label={t("autopilot.ship.cadence")}
-									controlSize="sm"
-									onChange={event => setCadence(parseCadence(event.target.value))}
-									options={[
-										...everyChoices.map(n => ({
-											value: `every:${n}`,
-											label: t("autopilot.ship.cadenceEvery", { n }),
-										})),
-										{ value: "agent", label: t("autopilot.ship.cadenceAgent") },
-									]}
-									value={cadenceValue(cadence)}
-								/>
-							</div>
-						}
-						label={t("autopilot.ship.cadence")}
-					/>
-				)}
-				{preset !== "local" && (
-					<SettingsRow
-						compactControl
-						control={
-							<div className="w-32">
-								<Input
-									aria-label={t("autopilot.sheet.remote")}
-									controlSize="sm"
-									onChange={event => setRemoteName(event.target.value)}
-									value={remoteName}
-								/>
-							</div>
-						}
-						label={t("autopilot.sheet.remote")}
-					/>
-				)}
 
 				{branches && (
 					<>
@@ -596,98 +565,134 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 					</>
 				)}
 
-				<SettingsRow
-					badge={<SettingInfo text={t("autopilot.sheet.parallelHint")} />}
-					compactControl
-					control={
-						<div className="w-16">
-							<Select
-								aria-label={t("autopilot.sheet.parallel")}
-								controlSize="sm"
-								onChange={event => setParallel(Number(event.target.value))}
-								options={PARALLEL_CHOICES.map(n => ({ value: String(n), label: String(n) }))}
-								value={String(parallel)}
-							/>
-						</div>
-					}
-					label={t("autopilot.sheet.parallel")}
-				/>
-				<SettingsRow
-					compactControl
-					control={
-						<div className="w-40">
-							<Select
-								aria-label={t("autopilot.sheet.notify")}
-								controlSize="sm"
-								onChange={event => isNotifyMode(event.target.value) && setNotify(event.target.value)}
-								options={AUTOPILOT_NOTIFY_MODES.map(mode => ({
-									value: mode,
-									label: t(`autopilot.notify.${mode}`),
-								}))}
-								value={notify}
-							/>
-						</div>
-					}
-					label={t("autopilot.sheet.notify")}
-				/>
-				<SettingsRow
-					badge={<SettingInfo text={t("autopilot.sheet.backlogHint")} />}
-					compactControl
-					control={
-						<div className="w-44">
-							<GrowArea
-								aria-label={t("autopilot.sheet.backlog")}
-								focusRows={4}
-								onChange={event => setBacklog(event.target.value)}
-								placeholder={t("autopilot.sheet.backlogPlaceholder")}
-								value={backlog}
-							/>
-						</div>
-					}
-					label={t("autopilot.sheet.backlog")}
-				/>
-				<SettingsRow
-					badge={guideHint ? <SettingInfo text={guideHint} /> : undefined}
-					label={t("autopilot.sheet.guide")}
-				>
-					<GrowArea
-						aria-label={t("autopilot.sheet.guide")}
-						data-autopilot-guide
-						disabled={guide?.tooLarge === true}
-						focusRows={8}
-						mono
-						onChange={event => {
-							setGuideEdited(true);
-							setGuideText(event.target.value);
-						}}
-						placeholder={t("autopilot.sheet.guidePlaceholder")}
-						value={guideText}
-					/>
-				</SettingsRow>
-				<details className="group py-1" data-autopilot-limits data-setting-row="true">
-					<summary className="flex min-h-(--sc-control-md) cursor-pointer list-none items-center gap-1.5 text-sc-md font-medium text-(--sc-text) hover:text-(--sc-text) [&::-webkit-details-marker]:hidden">
-						<ChevronRight
-							aria-hidden
-							className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast) group-open:rotate-90 motion-reduce:transition-none"
+				<SettingsAdvanced>
+					<SettingsRow
+						badge={<SettingInfo text={t("autopilot.sheet.focusHint", { count: AUTOPILOT_AREAS.length })} />}
+						label={t("autopilot.sheet.focus")}
+					>
+						<FocusChips
+							compact
+							focus={focus}
+							onToggle={area =>
+								setFocus(current =>
+									current.includes(area) ? current.filter(item => item !== area) : [...current, area],
+								)
+							}
 						/>
-						{t("autopilot.sheet.limits")}
-					</summary>
-					<div className="grid grid-cols-2 gap-2 pb-1">
-						<p className="col-span-2 text-sc-xs text-(--sc-text-muted)">{t("autopilot.sheet.limitsHint")}</p>
-						{(["tokens", "minutes", "cycles", "usd"] as const).map(key => (
-							<Input
-								controlSize="sm"
-								key={key}
-								label={t(`autopilot.limit.${key}`)}
-								min={0}
-								onChange={event => setLimits(current => ({ ...current, [key]: event.target.value }))}
-								placeholder={t("autopilot.limit.off")}
-								type="number"
-								value={limits[key]}
-							/>
-						))}
-					</div>
-				</details>
+					</SettingsRow>
+					<SettingsRow
+						badge={<SettingInfo text={t("autopilot.sheet.parallelHint")} />}
+						compactControl
+						control={
+							<div className="w-48">
+								<Select
+									aria-label={t("autopilot.sheet.parallel")}
+									controlSize="sm"
+									onChange={event => setParallel(Number(event.target.value))}
+									options={PARALLEL_CHOICES.map(n => ({
+										value: String(n),
+										label: n === MAX_PARALLEL_CHILDREN ? t("autopilot.sheet.parallelAuto", { n }) : String(n),
+									}))}
+									value={String(parallel)}
+								/>
+							</div>
+						}
+						label={t("autopilot.sheet.parallel")}
+					/>
+					{releaseChosen && (
+						<SettingsRow
+							compactControl
+							control={
+								<div className="w-48">
+									<Select
+										aria-label={t("autopilot.ship.cadence")}
+										controlSize="sm"
+										onChange={event => setCadence(parseCadence(event.target.value))}
+										options={[
+											{ value: "agent", label: t("autopilot.ship.cadenceAgent") },
+											...everyChoices.map(n => ({
+												value: `every:${n}`,
+												label: t("autopilot.ship.cadenceEvery", { n }),
+											})),
+										]}
+										value={cadenceValue(cadence)}
+									/>
+								</div>
+							}
+							label={t("autopilot.ship.cadence")}
+						/>
+					)}
+					{preset !== "local" && (
+						<SettingsRow
+							compactControl
+							control={
+								<div className="w-32">
+									<Input
+										aria-label={t("autopilot.sheet.remote")}
+										controlSize="sm"
+										onChange={event => setRemoteName(event.target.value)}
+										placeholder={branches?.remote ?? t("autopilot.sheet.remoteAuto")}
+										value={remoteName}
+									/>
+								</div>
+							}
+							label={t("autopilot.sheet.remote")}
+						/>
+					)}
+					<SettingsRow
+						compactControl
+						control={
+							<div className="w-40">
+								<Select
+									aria-label={t("autopilot.sheet.notify")}
+									controlSize="sm"
+									onChange={event => isNotifyMode(event.target.value) && setNotify(event.target.value)}
+									options={AUTOPILOT_NOTIFY_MODES.map(mode => ({
+										value: mode,
+										label: t(`autopilot.notify.${mode}`),
+									}))}
+									value={notify}
+								/>
+							</div>
+						}
+						label={t("autopilot.sheet.notify")}
+					/>
+					<SettingsRow
+						badge={<SettingInfo text={t("autopilot.sheet.backlogHint")} />}
+						compactControl
+						control={
+							<div className="w-44">
+								<GrowArea
+									aria-label={t("autopilot.sheet.backlog")}
+									focusRows={4}
+									onChange={event => setBacklog(event.target.value)}
+									placeholder={t("autopilot.sheet.backlogPlaceholder")}
+									value={backlog}
+								/>
+							</div>
+						}
+						label={t("autopilot.sheet.backlog")}
+					/>
+					<SettingsRow
+						badge={<SettingInfo text={t("autopilot.sheet.limitsHint")} />}
+						label={t("autopilot.sheet.limits")}
+					>
+						<div className="grid grid-cols-2 gap-2 pb-1" data-autopilot-limits>
+							{(["tokens", "minutes", "cycles", "usd"] as const).map(key => (
+								<Input
+									controlSize="sm"
+									key={key}
+									label={t(`autopilot.limit.${key}`)}
+									min={0}
+									onChange={event => setLimits(current => ({ ...current, [key]: event.target.value }))}
+									placeholder={t("autopilot.limit.off")}
+									type="number"
+									value={limits[key]}
+								/>
+							))}
+						</div>
+					</SettingsRow>
+				</SettingsAdvanced>
 			</fieldset>
 
 			<div className="flex items-center gap-2 border-t border-(--sc-divider) pt-2">
