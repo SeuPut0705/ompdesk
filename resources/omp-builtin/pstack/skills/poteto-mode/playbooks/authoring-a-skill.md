@@ -1,5 +1,7 @@
 ### Authoring or modifying a skill
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the skill's voice.**
 
 1. Use the user's skill-writing skill (`writing-great-skills`) when it is installed, else the `manage_skill` tool.

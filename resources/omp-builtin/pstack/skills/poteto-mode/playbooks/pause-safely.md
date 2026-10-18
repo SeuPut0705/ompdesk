@@ -1,5 +1,7 @@
 ### Pause safely
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own a clean stop. Leave a checkpoint a cold-start agent can resume from.** This is explicit only. On "keep going", "going to bed, keep going", or "don't stop", do not pause.
 
 1. Stop at a safe boundary. Finish the current atomic step or back out of it. Start nothing new, and cancel any nested subagents.

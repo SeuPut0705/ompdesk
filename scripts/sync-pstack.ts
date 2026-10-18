@@ -649,6 +649,8 @@ function main(): void {
 				text = text.replace(new RegExp(`^name: ${skill}$`, "m"), `name: ${renamed}`);
 			}
 			if (destRel.endsWith("/SKILL.md")) text = insertNote(text);
+			else if (/^poteto-mode\/playbooks\/(?!opening-a-pr)[a-z-]+\.md$/.test(destRel))
+				text = insertPlaybookNote(text);
 			fs.writeFileSync(dest, text);
 			fs.chmodSync(dest, fs.statSync(path.join(upstreamSkills, rel)).mode & 0o777);
 		}
@@ -708,6 +710,15 @@ function insertNote(text: string): string {
 	if (!match) throw new Error("a pack skill has no H1 heading or frontmatter");
 	const at = match.index + match[0].length;
 	return `${text.slice(0, at)}\n${note}\n${text.slice(at)}`;
+}
+
+/** Under the title of a playbook: the `todo` instruction, where the model is looking when it has just read the steps. */
+function insertPlaybookNote(text: string): string {
+	const note =
+		'> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.';
+	const newline = text.indexOf("\n");
+	if (!text.startsWith("### ") || newline < 0) throw new Error("a playbook does not start with its ### title");
+	return `${text.slice(0, newline + 1)}\n${note}\n${text.slice(newline + 1)}`;
 }
 
 /** comment-sicko only reads: restrict its tools (omp agent frontmatter) and give it model roles. */

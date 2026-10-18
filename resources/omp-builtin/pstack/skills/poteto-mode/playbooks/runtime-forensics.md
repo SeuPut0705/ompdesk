@@ -1,5 +1,7 @@
 ### Runtime forensics
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the diagnosis. Instrument the live process, don't theorize from source.** The deliverable is a cited diagnosis, not a fix.
 
 1. Capture the live signal on the matching surface via the control skill: a CPU profile for a spinning process, a heap snapshot for a leak, a CDP trace for a visual glitch. A real artifact, not a guess.

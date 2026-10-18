@@ -21,7 +21,11 @@ The playbooks and skills below were written for Cursor. Read their names this wa
 
 ## Routing gate
 
-A trivial request gets a plain answer: a greeting, a one-line question, an explanation, a translation, chat, anything you already know. No playbook, no `todo`, no principle names, no skill reads. Pick a playbook only when the request changes code, reproduces or verifies something, parallelizes, runs long, or cannot be undone. Then open the `todo` list from the playbook and work by it. Name the principles that shaped a decision only in a reply that used a playbook, and only the ones whose leaf you read. A reply that names none is fine.
+Classify the request before your first tool call.
+
+Trivial (plain answer, no playbook, no `todo`, no principle names, no skill reads): a greeting, a one-line question, an explanation, a translation, chat, anything you can answer from what you already know without touching code.
+
+Everything else is a playbook task, however small the change looks: a bug, a feature, a refactor, anything to reproduce, measure, verify, parallelize or decide about code. For a playbook task your first two tool calls are, in this order: (1) `read` the matching playbook (the Playbooks list at the end of this section prints each `skill://` path; a bug is skill://poteto-mode/playbooks/bug-fix.md), (2) `todo` with `op: "init"` and that playbook's numbered steps copied in verbatim as the first items, before any task-specific item. Starting with `bash`, `edit` or `write` instead, or reading the playbook and not opening the `todo` list, is a violation, even for a one-line fix. Then work the list. Skip a step with `skip: <reason>`, never the playbook. Name the principles that shaped a decision only in a reply that used a playbook, and only the ones whose leaf you read.
 
 ## Delegation
 

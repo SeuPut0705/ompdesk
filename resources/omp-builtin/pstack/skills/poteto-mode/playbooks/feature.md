@@ -1,5 +1,7 @@
 ### Feature
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the design. Plan, review, verify.** Delegate implementation. Stay in the lead.
 
 1. `how` over the affected subsystem.

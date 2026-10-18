@@ -1,5 +1,7 @@
 ### Eval
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the experiment design. Plan, blind, run, synthesize.**
 
 **Non-negotiables for blinding:**

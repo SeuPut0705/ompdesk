@@ -1,5 +1,7 @@
 ### Session pickup
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the resume point. Read the prior trail, don't redo it.**
 
 1. Locate the prior trail. A local transcript under the active workspace's folder in `~/.omp/agent/sessions/` (or `ompdesk_session_read`; do not glob across other workspaces' folders, that crosses workspace boundaries and reads private chats from unrelated projects), a hosted agent's URL, or a pushed branch. Read the metadata overview and last messages first, then scan back for the decision points. Parse a long transcript in a subagent and keep the reduced timeline in the main thread (the **principle-guard-the-context-window** skill). Pick each subagent's model role per the Subagents section.

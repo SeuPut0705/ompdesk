@@ -1,5 +1,7 @@
 ### Shipping
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own what lands. Verify each PR independently, land only the verified run from the root, then keep your hands off the stack.**
 
 1. **Resolve the forge, then verify each PR independently before it lands.** GitHub CLI (`gh`) is the default. If `command -v origin` succeeds and Origin can resolve the repository, use `origin pr` for every PR operation. Otherwise stay on `gh` and record the fallback. Never require Graphite (`gt`). One verifier per PR, each a `task` subagent (or an OMPdesk worktree session), runs the change the way a user would with the matching control skill (the `ego-browser` skill or the OMPdesk preview for a UI, `bash` or `debug` for a CLI), parent against head, and posts `PASS`, `PASS+NOTES`, or `FAIL` on that PR. Only a verdict from an agent that did not write the code counts, because an author checks what it meant to build. Green CI and an approving bot review are not verdicts, because neither runs the change as a user would.

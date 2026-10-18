@@ -237,7 +237,7 @@ describe("always-on section", () => {
 	it("opens with the precedence order and carries no Cursor-only term", () => {
 		expect(sections.full.indexOf("repository's rules files")).toBeGreaterThan(0);
 		expect(sections.full.indexOf("repository's rules files")).toBeLessThan(sections.full.indexOf("## Adapter"));
-		const withoutAdapter = sections.full.replace(/## Adapter[\s\S]*?(?=\n## Routing gate)/, "");
+		const withoutAdapter = sections.full.replace(/## Adapter[\s\S]*?(?=\n## Non-negotiables)/, "");
 		expect(withoutAdapter).not.toMatch(/AskQuestion|generalPurpose|\.cursor|Bugbot|pstack-models|grok-|claude-opus/);
 	});
 });

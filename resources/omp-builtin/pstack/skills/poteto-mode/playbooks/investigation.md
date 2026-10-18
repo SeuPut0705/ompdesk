@@ -1,5 +1,7 @@
 ### Investigation
 
+> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.
+
 **You own the answer. Plan, route, write.**
 
 Investigation requests are read-only. They produce a cited explanation or a recommendation, not a code change.

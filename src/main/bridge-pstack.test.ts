@@ -60,7 +60,7 @@ describe("pstackText", () => {
 
 	it("keeps the routing gate and the precedence line in the full section", () => {
 		expect(PSTACK_SECTION).toContain("## Routing gate");
-		expect(PSTACK_SECTION).toContain("A trivial request gets a plain answer");
+		expect(PSTACK_SECTION).toContain("Trivial (plain answer, no playbook");
 		expect(PSTACK_SECTION).toMatch(
 			/repository's rules files[\s\S]*then what the user asks for[\s\S]*then a skill the user invoked/,
 		);
