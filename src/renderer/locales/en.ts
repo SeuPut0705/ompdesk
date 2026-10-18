@@ -5708,6 +5708,9 @@ export const en: Record<string, string> = {
 	"settings.gui.panelDefaultDesc": "The side panel view that opens first.",
 	"settings.appearance.theme": "Theme",
 	"settings.appearance.text": "Text and spacing",
+	"settings.appearance.thisDevice": "This device",
+	"settings.appearance.thisDeviceNote":
+		"Theme, text size, layout and how conversations look are saved for this device only. Changing them here doesn't change your computer, and the other way round.",
 	"settings.gui.colorBlindModeDesc": "Uses colors that stay distinguishable with common color-vision differences.",
 	"settings.gui.fontSizeOption": "{size} px",
 	"settings.gui.fontSizeDefault": "{size} px (default)",

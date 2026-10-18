@@ -5690,6 +5690,9 @@ export const ko: Record<string, string> = {
 	"settings.gui.panelDefaultDesc": "사이드 패널을 열면 처음 보여 줄 화면이에요.",
 	"settings.appearance.theme": "테마",
 	"settings.appearance.text": "글꼴과 간격",
+	"settings.appearance.thisDevice": "이 기기",
+	"settings.appearance.thisDeviceNote":
+		"테마, 글자 크기, 화면 배치, 대화 표시 방식은 이 기기에만 저장돼요. 여기서 바꿔도 컴퓨터는 그대로이고, 컴퓨터에서 바꿔도 여기는 그대로예요.",
 	"settings.gui.colorBlindModeDesc": "색각 이상이 있어도 구분하기 쉬운 색을 써요.",
 	"settings.gui.fontSizeOption": "{size}px",
 	"settings.gui.fontSizeDefault": "{size}px (기본)",
