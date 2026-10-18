@@ -3,9 +3,10 @@
  * which sessions show their children (collapsed by default), which sessions' subagents the user hid, and a one-shot
  * request to reveal the rows under a tab's session (show the sidebar, expand, scroll, focus the first row).
  *
- * The group opens by itself while any child runs or waits and folds when the last one is done (`noteFamilyActive`);
- * between those two moments the person's own toggle stands, and it is remembered per session. In-memory UI state:
- * nothing survives a restart.
+ * A family is folded until the person opens it and NEVER opens or folds by itself: not when a child starts, runs or
+ * finishes (in a long orchestration every follow-up message is a new run). The person's own toggle is remembered per
+ * session. The only thing a folded family shows unasked is a child waiting for an answer (one row, see
+ * `SidebarSubagents`), which does not touch this state. In-memory UI state: nothing survives a restart.
  */
 import { create } from "zustand";
 import { useUiStore } from "./ui";
@@ -17,19 +18,12 @@ interface SidebarSubagentsStore {
 	hidden: ReadonlySet<string>;
 	/** Session paths that currently have family rows (their disclosures register). */
 	present: ReadonlySet<string>;
-	/** Session paths whose family had a running or waiting child the last time it was looked at. */
-	active: ReadonlySet<string>;
 	/** Pending reveal for the session currently open in `tabId`; `seq` makes repeats distinct. */
 	reveal: { tabId: string; seq: number } | null;
 	/** Expand or collapse a session's family rows (collapsing drops the entry). */
 	setExpanded: (sessionKey: string, open: boolean) => void;
 	setHidden: (sessionKey: string, hidden: boolean) => void;
 	setPresent: (sessionKey: string, present: boolean) => void;
-	/**
-	 * Report whether a family has a child at work or waiting. The edge opens (none → some) or folds (some → none) the
-	 * group; a family seen for the first time with nothing at work stays as it is.
-	 */
-	noteFamilyActive: (sessionKey: string, active: boolean) => void;
 	expandAll: () => void;
 	collapseAll: () => void;
 	showAll: () => void;
@@ -49,7 +43,6 @@ export const useSidebarSubagentsStore = create<SidebarSubagentsStore>()((set, ge
 	expanded: new Set(),
 	hidden: new Set(),
 	present: new Set(),
-	active: new Set(),
 	reveal: null,
 	setExpanded: (sessionKey, open) => {
 		const next = toggled(get().expanded, sessionKey, open);
@@ -62,12 +55,6 @@ export const useSidebarSubagentsStore = create<SidebarSubagentsStore>()((set, ge
 	setPresent: (sessionKey, present) => {
 		const next = toggled(get().present, sessionKey, present);
 		if (next) set({ present: next });
-	},
-	noteFamilyActive: (sessionKey, active) => {
-		const next = toggled(get().active, sessionKey, active);
-		if (!next) return;
-		set({ active: next });
-		get().setExpanded(sessionKey, active);
 	},
 	expandAll: () => set(state => ({ expanded: new Set(state.present) })),
 	collapseAll: () => set({ expanded: new Set() }),

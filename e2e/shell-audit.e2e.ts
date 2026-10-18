@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, fixtureOmp, openSidebarFamily, pressShortcutUntilVisible } from "./harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in visual audit of the app shell (OMP_GUI_SHELL_AUDIT=<dir>): every
@@ -330,6 +330,7 @@ for (const language of ["en", "ko"] as const)
 					first,
 				);
 				await page.waitForTimeout(500);
+				await openSidebarFamily(page);
 				await shoot("sidebar-subagents");
 
 				// Toast: the theme picker confirms a pick.

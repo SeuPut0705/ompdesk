@@ -169,8 +169,8 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 }
 
 /**
- * Show the first session's family rows (its subagents and the sessions its agent opened). The group opens by itself
- * while a child runs and folds when all are done, so the chip is pressed only when it says the rows are folded.
+ * Show the first session's family rows (its subagents and the sessions its agent opened). A family is folded until the
+ * person opens it and never opens by itself, so the chip is pressed only when it says the rows are folded.
  */
 export async function openSidebarFamily(page: Page): Promise<void> {
 	const chip = page.locator("[data-sidebar-subagents-toggle]").first();

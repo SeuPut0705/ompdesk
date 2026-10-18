@@ -843,6 +843,7 @@ export const ko: Record<string, string> = {
 	"sidebar.family.agents": "서브에이전트 {count}개",
 	"sidebar.family.sessions": "파생 세션 {count}개",
 	"sidebar.family.running": "실행 중 {count}개",
+	"sidebar.family.waiting": "답변 대기 {count}개",
 	"sidebar.family.done": "완료 {count}개",
 	"sidebar.family.kind.subagent": "서브에이전트",
 	"sidebar.family.kind.worktree": "워크트리 세션",
