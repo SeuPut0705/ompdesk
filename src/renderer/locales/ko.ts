@@ -613,7 +613,7 @@ export const ko: Record<string, string> = {
 	"autopilot.away.cycles": "사이클 {cycles}개 · 커밋 {commits}개 · 빨강 {red}개",
 	"autopilot.away.pushes": "푸시 {count}번",
 	"autopilot.away.releases": "{versions} 배포",
-	"autopilot.away.failed": "배포 단계 {count}개 실패",
+	"autopilot.away.failed": "내보내기 단계 {count}개 실패",
 	"autopilot.empty.title": "오토파일럿이 꺼져 있어요",
 	"autopilot.empty.description":
 		"오토파일럿은 프로젝트를 자기만의 워크트리에서 사이클마다 이어서 개발해요. 종료할 때까지 계속돼요.",
@@ -622,7 +622,7 @@ export const ko: Record<string, string> = {
 	"autopilot.sheet.running": "이 탭에서 오토파일럿이 실행 중이에요.",
 	"autopilot.sheet.focus": "초점",
 	"autopilot.sheet.focusHint": "고르지 않으면 {count}개 영역 전체예요. 실행 중에도 바꿀 수 있어요.",
-	"autopilot.sheet.ship": "배포",
+	"autopilot.sheet.ship": "내보내기",
 	"autopilot.sheet.remote": "리모트",
 	"autopilot.sheet.parallel": "병렬 세션",
 	"autopilot.sheet.parallelHint": "사이클마다 띄우는 자식 세션 수예요. 각자 하위 워크트리를 써요 (0 = 혼자 작업)",
