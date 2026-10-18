@@ -103,6 +103,16 @@ for (const fail of shots ? [false, true] : []) {
 						`${label}-${fail ? "fail" : "pass"}-wide-expanded-${look.language}-${look.theme}.png`,
 					),
 				});
+				// The chip opens the steps at its own call (the build under test only: a before has no chips).
+				if (!process.env.OMP_GUI_WORK_CARD_OUT) {
+					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+					await card.locator(".omp-execution-group-header").first().click();
+					await expect(card.locator(".omp-execution-group-body")).toHaveCount(0);
+					await card.locator(fail ? '[data-work-chip="error"]' : '[data-work-chip="tests"]').click();
+					const target = card.locator(".omp-tool-card").filter({ hasText: fail ? "check:types" : "vitest" });
+					await expect(target.locator("button[aria-expanded]").first()).toHaveAttribute("aria-expanded", "true");
+					await expect(target).toBeInViewport();
+				}
 			} finally {
 				await exitApp(app);
 				await fs.rm(profile, { recursive: true, force: true });
