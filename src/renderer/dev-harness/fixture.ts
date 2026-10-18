@@ -246,9 +246,108 @@ export function entriesFixture(tabId: string): Entry[] {
 	}));
 }
 
+/**
+ * `?stress=1` on the harness page appends turns that hold what overflows a narrow screen: an unbroken URL, a wide
+ * table, a very long code line, a diff, a mermaid chart and tool calls with long paths and commands. The
+ * responsive audit reads it; the default pages never carry it.
+ */
+function stressMessages(base: number): Record<string, unknown>[] {
+	const longLine = `const result = await someVeryLongFunctionName(argumentNumberOne, argumentNumberTwo, argumentNumberThree, argumentNumberFour, argumentNumberFive);`;
+	const text = [
+		"Here is the unbroken link https://example.com/a/very/long/path/that/never/breaks/and/keeps/going/and/going/forever/index.html?query=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa and an identifier `SomeExtremelyLongIdentifierNameThatHasNoSpacesAtAllAndKeepsGoingPastTheEdge`.",
+		"",
+		"| Name | Status | Duration | Owner | Notes |",
+		"| --- | --- | --- | --- | --- |",
+		"| Sidebar.test.tsx | passed | 3.1 s | frontend | The first paint is now awaited before asserting |",
+		"| Composer.test.tsx | failed | 12.4 s | frontend | Flaky when the menu opens while the field is focused |",
+		"| Settings.test.tsx | skipped | 0 s | platform | Waiting on the new section layout to land |",
+		"",
+		"```ts",
+		longLine,
+		"```",
+		"",
+		"```diff",
+		"--- a/src/renderer/components/layout/sidebar/Sidebar.test.tsx",
+		"+++ b/src/renderer/components/layout/sidebar/Sidebar.test.tsx",
+		"@@ -1,3 +1,3 @@",
+		"-const a = oldFunctionWithAVeryLongNameThatKeepsGoing(argumentNumberOne, argumentNumberTwo, argumentNumberThree);",
+		"+const a = newFunctionWithAVeryLongNameThatKeepsGoing(argumentNumberOne, argumentNumberTwo, argumentNumberThree);",
+		"```",
+		"",
+		"```mermaid",
+		"graph TD; Start[Open the sidebar] --> Check{Rows painted yet?}; Check -->|yes| Assert[Assert the row]; Check -->|no| Wait[Wait for the next frame]; Wait --> Check;",
+		"```",
+		"",
+		"1. A numbered item with a long explanation that must wrap inside the column rather than push the page sideways when it is read on a phone.",
+		"> A quoted line that also runs long enough to wrap on a narrow screen, with `inline code` in the middle of it.",
+	].join("\n");
+	return [
+		{ role: "user", content: "Show me everything that tends to overflow on a phone.", timestamp: base },
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-s1",
+					name: "edit",
+					arguments: {
+						path: "src/renderer/components/layout/sidebar/some/deeply/nested/directory/structure/WithAVeryLongComponentFileName.tsx",
+						edits: [{ old_text: "a", new_text: "b" }],
+					},
+				},
+				{
+					type: "toolCall",
+					id: "call-s2",
+					name: "bash",
+					arguments: {
+						command:
+							"bunx vitest run src/renderer/components/layout/sidebar src/renderer/components/layout/composer --repeat 10 --reporter=verbose --coverage.enabled=true",
+					},
+				},
+			],
+			stopReason: "toolUse",
+			model: MODEL.id,
+			timestamp: base + 4_000,
+		},
+		{
+			role: "toolResult",
+			toolCallId: "call-s1",
+			toolName: "edit",
+			content: [{ type: "text", text: "Updated the file." }],
+			isError: false,
+			timestamp: base + 5_000,
+		},
+		{
+			role: "toolResult",
+			toolCallId: "call-s2",
+			toolName: "bash",
+			content: [{ type: "text", text: `${longLine}\n${"x".repeat(240)}` }],
+			isError: false,
+			timestamp: base + 6_000,
+		},
+		{
+			role: "assistant",
+			content: [{ type: "text", text }],
+			stopReason: "stop",
+			model: MODEL.id,
+			timestamp: base + 10_000,
+		},
+	];
+}
+
 /** A second session's journal is short: enough for a pane that reads as a conversation. */
 export function entriesFor(tabId: string): Entry[] {
-	return tabId === "tab-1" ? entriesFixture(tabId) : entriesFixture(tabId).slice(0, 4);
+	if (tabId !== "tab-1") return entriesFixture(tabId).slice(0, 4);
+	const stress = typeof location !== "undefined" && new URLSearchParams(location.search).has("stress");
+	if (!stress) return entriesFixture(tabId);
+	const all = [...entriesFixture(tabId).map(entry => entry.message), ...stressMessages(NOW - 20 * MINUTE)];
+	return all.map((message, index) => ({
+		type: "message",
+		id: `${tabId}-entry-${index + 1}`,
+		parentId: index === 0 ? null : `${tabId}-entry-${index}`,
+		timestamp: new Date(Number(message.timestamp)).toISOString(),
+		message,
+	}));
 }
 
 export const MODELS = [

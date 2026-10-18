@@ -227,9 +227,10 @@ for (const { engine, device } of variants(
 			await expect(root).toHaveAttribute("data-shell", device.shell);
 			await expect(root).toHaveAttribute("data-input", "touch");
 			// Touch targets: the title bar's buttons are dense to look at (the icon ones 36 px or less across) and
-			// reach 44 px through their invisible hit area.
+			// reach about 40 px (the bar's height) through their invisible hit area, which stops at the midpoint to
+			// the next button so no control covers a neighbour (the icons sit 14 px apart).
 			const bar = await hitSizes(page.locator("header button"));
-			expect(Math.min(...bar.map(({ hit }) => Math.min(hit.width, hit.height)))).toBeGreaterThanOrEqual(44);
+			expect(Math.min(...bar.map(({ hit }) => Math.min(hit.width, hit.height)))).toBeGreaterThanOrEqual(38);
 			expect(Math.min(...bar.map(({ visual }) => Math.min(visual.width, visual.height)))).toBeLessThanOrEqual(36);
 			// The composer's field never zooms iOS: 16 px or more.
 			const fontSize = await page

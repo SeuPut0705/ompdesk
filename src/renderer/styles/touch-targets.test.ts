@@ -14,15 +14,28 @@ const rule = (selector: string): string => {
 const touchRoot = rule('html[data-input="touch"]');
 
 describe("touch targets and type", () => {
-	it("keeps the control, icon and type tokens at the desktop sizes on touch", () => {
-		for (const token of ["--sc-control-sm", "--sc-control-md", "--sc-control-lg", "--sc-hit-min", "--sc-icon-"]) {
-			expect(css).not.toMatch(new RegExp(`${token}[a-z]*:`));
+	it("keeps the control, icon and type tokens at the desktop sizes on touch and on a tablet", () => {
+		// Only the phone shell shrinks them (the "Phone density" block); `data-input="touch"` and a tablet never do.
+		expect(touchRoot).not.toMatch(/--sc-(control|icon|font|hit)/);
+		const sizeRule = /\n[^\n{}]*\{[^}]*--sc-(control-(sm|md|lg)|hit-min|icon-|font-(2xs|xs|sm|md|lg)):[^}]*\}/g;
+		for (const [block] of css.matchAll(sizeRule)) {
+			expect(block.trimStart().startsWith('html[data-shell="phone"] {')).toBe(true);
 		}
-		expect(css).not.toMatch(/--sc-font-(2xs|xs|sm|md|lg):/);
 		expect(read("./tokens.css")).toMatch(/--sc-control-sm: 28px;/);
 		expect(read("./tokens.css")).toMatch(/--sc-hit-min: 28px;/);
 		expect(read("./tokens.css")).toMatch(/--sc-font-xs: calc\(var\(--gui-font-size, 15px\) \* 12 \/ 15\)/);
 		expect(read("./tokens.css")).toMatch(/--sc-font-sm: calc\(var\(--gui-font-size, 15px\) \* 13 \/ 15\)/);
+	});
+
+	it("shrinks the phone's controls, type and icons in one place, with fields still 16 px", () => {
+		const phone = rule('html[data-shell="phone"]');
+		expect(phone).toMatch(/--sc-control-sm:\s*24px/);
+		expect(phone).toMatch(/--sc-control-md:\s*28px/);
+		expect(phone).toMatch(/--sc-control-lg:\s*32px/);
+		expect(phone).toMatch(/--phone-type-scale:\s*0\.9333/);
+		expect(read("../lib/theme.ts")).toContain("var(--phone-type-scale, 1)");
+		expect(phone).toMatch(/--sc-font-xs:\s*12px/);
+		expect(css).toMatch(/html\[data-input="touch"\] :is\(input:[^{]*\{\s*font-size:\s*16px/);
 	});
 
 	it("names the 44 px hit area and dense rows as tokens", () => {
@@ -37,8 +50,12 @@ describe("touch targets and type", () => {
 		expect(hit).toMatch(/\[data-setting-info\]/);
 		expect(hit).toMatch(/label:has\(> input:is\(\[type="checkbox"\], \[type="radio"\]\)\)/);
 		expect(hit).toMatch(/::after\s*\{\s*content: "";\s*position: absolute;/);
-		expect(hit).toMatch(/inset-block:\s*min\(0px, calc\(\(100% - var\(--sc-touch-target\)\) \/ 2\)\)/);
-		expect(hit).toMatch(/inset-inline:\s*min\(0px, calc\(\(100% - var\(--sc-touch-target\)\) \/ 2\)\)/);
+		expect(hit).toMatch(
+			/inset-block:\s*max\(\s*min\(0px, calc\(\(100% - var\(--sc-touch-target\)\) \/ 2\)\),\s*calc\(var\(--hit-gap-y, 200vmax\) \/ -2\)\s*\)/,
+		);
+		expect(hit).toMatch(
+			/inset-inline:\s*max\(\s*min\(0px, calc\(\(100% - var\(--sc-touch-target\)\) \/ 2\)\),\s*calc\(var\(--hit-gap-x, 200vmax\) \/ -2\)\s*\)/,
+		);
 		// It sits in the base layer so an element's own ::after or a positioning utility still wins.
 		expect(hit.startsWith("@layer base {")).toBe(true);
 	});

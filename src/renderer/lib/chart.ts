@@ -125,7 +125,8 @@ export function chartTheme() {
 /** Tick/legend font: the UI sans stack at the caption step, scaled with the user font size. */
 function chartFont(): { family: string; size: number } {
 	const style = getComputedStyle(document.documentElement);
-	const base = Number.parseFloat(style.getPropertyValue("--gui-font-size")) || 15;
+	// `--gui-font-size` holds a calc() with the phone's type scale; the body's computed size is the resolved length.
+	const base = Number.parseFloat(getComputedStyle(document.body).fontSize) || 15;
 	return {
 		family: style.getPropertyValue("--sc-font-sans").trim() || "system-ui, sans-serif",
 		size: Math.round((base * 12) / 15),

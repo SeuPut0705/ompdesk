@@ -90,11 +90,14 @@ export function applyTheme(mode: ThemeMode): void {
 }
 
 /**
- * Scale the reading and UI typography together; spacing remains a separate preference.
+ * Scale the reading and UI typography together; spacing remains a separate preference. A phone's shell
+ * (`html[data-shell="phone"]`, mobile.css) sets `--phone-type-scale` below 1, so the same preference reads denser
+ * there; everywhere else the factor is absent and the size is the preference's.
  */
 export function applyFontSize(size: number): void {
-	document.body.style.fontSize = `${size}px`;
-	document.documentElement.style.setProperty("--gui-font-size", `${size}px`);
+	const scaled = `calc(${size}px * var(--phone-type-scale, 1))`;
+	document.body.style.fontSize = scaled;
+	document.documentElement.style.setProperty("--gui-font-size", scaled);
 }
 
 /**

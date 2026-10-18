@@ -590,8 +590,16 @@ html[data-shell] .omp-widget-float {
 		):not([class*="after:"], [class*="before:"])::after {
 		content: "";
 		position: absolute;
-		inset-block: min(0px, calc((100% - var(--sc-touch-target)) / 2));
-		inset-inline: min(0px, calc((100% - var(--sc-touch-target)) / 2));
+		/* A container of close neighbours sets --hit-gap-x / --hit-gap-y to the gap between them: the reach then
+		   stops at the midpoint, so no control's hit area covers a sibling. Unset, the reach is the full 44 px. */
+		inset-block: max(
+			min(0px, calc((100% - var(--sc-touch-target)) / 2)),
+			calc(var(--hit-gap-y, 200vmax) / -2)
+		);
+		inset-inline: max(
+			min(0px, calc((100% - var(--sc-touch-target)) / 2)),
+			calc(var(--hit-gap-x, 200vmax) / -2)
+		);
 	}
 }
 
@@ -599,3 +607,170 @@ html[data-shell] .omp-widget-float {
 html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note]) {
 	min-height: var(--sc-row-touch);
 }
+
+/* ── Phone density: smaller and denser than the desktop, like a phone chat app ────────────────────────────── */
+/* A phone is read at arm's length on 390 px: type, controls, gutters and the chrome around the transcript shrink so
+   the conversation keeps the screen. Only `data-shell="phone"` (web build) gets this; a tablet keeps the desktop
+   steps, and the 44 px hit area stays an invisible ::after. Fields stay 16 px (iOS zooms into anything smaller). */
+html[data-shell="phone"] {
+	--phone-type-scale: 0.9333;
+	--sc-font-xs: 12px;
+	--sc-font-sm: 12.5px;
+	--sc-control-sm: 24px;
+	--sc-control-md: 28px;
+	--sc-control-lg: 32px;
+	--sc-hit-min: 24px;
+	--sc-font-2xs: 12px;
+	--sc-icon-lg: 18px;
+	--sc-row-touch: 36px;
+	--sc-row-action: 44px;
+}
+
+/* Transcript and composer gutters: 12 px, not the desktop's reading-column margins. */
+html[data-shell="phone"] .omp-workspace-main {
+	--omp-column-pad: var(--sc-space-3);
+}
+
+/* Dock cards (todos, plan, agents): one 32 px line each, tight to the composer. */
+html[data-shell="phone"] .omp-composer-region.pt-2 {
+	padding-top: var(--sc-space-0-5);
+}
+
+html[data-shell="phone"] [data-dock-card] > div:first-child {
+	min-height: 32px;
+	padding-block: 0;
+	padding-inline: var(--sc-space-2) var(--sc-space-1);
+}
+
+html[data-shell="phone"] [data-dock-card] > div:first-child > button {
+	min-height: 32px;
+}
+
+/* The work chip above the composer: a 28 px pill. */
+html[data-shell="phone"] .omp-work-chip {
+	width: calc(100% - 2 * var(--omp-column-pad, var(--sc-space-3)) - var(--omp-scrollbar-size, 0px));
+	min-height: 28px;
+	margin: 0 auto 0 var(--omp-column-pad, var(--sc-space-3));
+	padding-inline: 10px;
+	font-size: var(--sc-font-xs);
+}
+
+html[data-shell="phone"] [data-testid="workspace-dock"] {
+	gap: var(--sc-space-1);
+}
+
+html[data-shell="phone"] .omp-composer-shell > div.pb-2:has([data-testid="workspace-dock"]) {
+	gap: var(--sc-space-1);
+	padding-bottom: var(--sc-space-1);
+}
+
+/* Composer: a 16 px field on one short line, one 32 px icon row, 4 px under the box. */
+html[data-shell="phone"] .omp-composer-region.pb-3 {
+	padding-bottom: calc(var(--sc-space-1) + var(--safe-b));
+}
+
+html[data-shell="phone"] .omp-composer-box > div:has(> [data-composer-input]) {
+	padding: var(--sc-space-1-5) var(--sc-space-3) 0;
+}
+
+html[data-shell="phone"] .omp-composer-toolbar {
+	min-height: 32px;
+	padding: 0 var(--sc-space-1-5) var(--sc-space-0-5) var(--sc-space-1);
+}
+
+/* Transcript rhythm on a phone: a turn boundary is 24 px, not the desktop's 42; prompts hug their replies. The action
+   row (copy, branch) still has its own 24 px: the 16 px reserve plus the next turn's 8 px gap. */
+html[data-shell="phone"] .omp-transcript-editorial {
+	--omp-turn-gap: var(--sc-space-2);
+	--omp-prompt-gap: var(--sc-space-1);
+	--omp-reply-pad-top: var(--sc-space-1);
+	--omp-reply-pad-bottom: var(--sc-space-2);
+	--omp-actions-reserve: var(--sc-space-4);
+}
+
+html[data-shell="phone"] .omp-user-bubble {
+	padding: var(--sc-space-2) var(--sc-space-3);
+}
+
+/* Work cards: a 32 px head, a 28 px outcome row and strip, 10 px side padding. */
+html[data-shell="phone"] .omp-work-head {
+	--omp-work-head-line: calc(var(--sc-font-md) * var(--sc-leading-snug));
+	padding: var(--sc-space-1-5) var(--sc-space-2-5, 10px);
+	column-gap: var(--sc-space-1-5);
+}
+
+html[data-shell="phone"] .omp-work-narrative {
+	font-size: var(--sc-font-md);
+}
+
+html[data-shell="phone"] .omp-live-step {
+	margin-block: var(--sc-space-0-5) var(--sc-space-1);
+}
+
+html[data-shell="phone"] .omp-work-outcome-content > .omp-work-outcome {
+	padding-inline: var(--sc-space-2-5, 10px);
+}
+
+html[data-shell="phone"] .omp-live-work-strip {
+	min-height: var(--sc-control-md);
+	padding-inline: var(--sc-space-1-5);
+}
+
+/* Side-panel sheet on a phone: a 20 px grabber strip and a 36 px title row. */
+html[data-shell="phone"] .omp-sheet-handle {
+	height: 20px;
+}
+
+html[data-shell="phone"] .omp-panel-topbar {
+	min-height: 36px;
+}
+
+html[data-shell="phone"] .omp-panel-tabbar > button {
+	min-height: 40px;
+}
+
+/* Dense clusters: each control's 44 px hit area stops at the midpoint to its neighbour (see the hit-area rule). */
+html[data-shell] .omp-panel-topbar {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 12px;
+}
+
+/* The top bar's icons sit 14 px apart so each one's bounded hit area is ≈ 40 px square (the bar's height). */
+html[data-shell] .omp-titlebar {
+	gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+html[data-shell] .omp-composer-toolbar {
+	gap: 8px;
+	--hit-gap-x: 8px;
+	--hit-gap-y: 8px;
+}
+
+html[data-shell] [data-dock-card] > div:first-child {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 4px;
+}
+
+html[data-shell] .omp-work-chip {
+	--hit-gap-x: 0px;
+	--hit-gap-y: 4px;
+}
+
+html[data-shell] .omp-session-sidebar {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 4px;
+}
+
+/* Safe areas: a side or full-screen sheet (the side panel) and a docked sidebar (portrait tablet) clear the notch and
+   the home indicator; the drawer panel and the bottom sheet already do. */
+html[data-shell] [data-sheet-placement]:not([data-sheet-placement="bottom"]) > [data-sheet-panel] {
+	padding-top: var(--safe-t);
+}
+
+html[data-shell] .omp-session-sidebar:not(.omp-drawer .omp-session-sidebar) {
+	padding-top: var(--safe-t);
+	padding-bottom: var(--safe-b);
+}
+
