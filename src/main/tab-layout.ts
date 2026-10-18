@@ -32,6 +32,11 @@ export interface PersistedTabDescriptor {
 	 * is checked on this disk — the tab reconnects (or shows offline) on restore.
 	 */
 	device?: string;
+	/**
+	 * Session file of the session whose agent opened this tab (`ompdesk_session_open`); the sidebar nests the session
+	 * under it again after a relaunch, once the opener's tab is back. A tab id would not do: every restored tab is new.
+	 */
+	openedBy?: string;
 }
 
 export interface PersistedTabLayout {
@@ -165,6 +170,9 @@ export function sanitizePersistedTabLayout(
 		if (candidate.placeholder === true || legacyEmptyStartupChat) descriptor.placeholder = true;
 		const title = nonEmptyString(candidate.title);
 		if (title) descriptor.title = title.slice(0, MAX_PERSISTED_TITLE);
+		// A path is only a key to match against another tab's session file; it is never opened from here.
+		const openedBy = nonEmptyString(candidate.openedBy);
+		if (openedBy && openedBy !== sessionPath) descriptor.openedBy = openedBy;
 		retained.push({ descriptor, sourceIndex });
 	}
 

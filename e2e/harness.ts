@@ -169,6 +169,16 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 }
 
 /**
+ * Show the first session's family rows (its subagents and the sessions its agent opened). The group opens by itself
+ * while a child runs and folds when all are done, so the chip is pressed only when it says the rows are folded.
+ */
+export async function openSidebarFamily(page: Page): Promise<void> {
+	const chip = page.locator("[data-sidebar-subagents-toggle]").first();
+	await expect(chip).toBeVisible({ timeout: 15_000 });
+	if ((await chip.getAttribute("aria-expanded")) === "false") await chip.click();
+}
+
+/**
  * Open a sidebar destination page. The footer's Agents and Stats entries are off by default, so without them the
  * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats. Both shortcuts
  * repeat until their target shows, since one pressed while the renderer still mounts is lost.

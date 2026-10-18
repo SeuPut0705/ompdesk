@@ -1,3 +1,4 @@
+import { stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import { useT } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { useSessionStore } from "../stores/session";
@@ -16,6 +17,6 @@ export function useCurrentSessionTitle(): string {
 	const { sessions } = useSessionList("global");
 	const current = sessions.find(session => session.id === sessionId);
 	const name = sessionName?.trim();
-	if (name) return name;
+	if (name) return stripTitlePrefix(name);
 	return current ? sessionDisplayTitle(current, t("sidebar.untitled")) : t("sidebar.newSession");
 }

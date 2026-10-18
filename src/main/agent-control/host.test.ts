@@ -46,6 +46,7 @@ function setup(
 		...tab,
 	}));
 	const commands: { tabId: string; command: RpcCommand }[] = [];
+	const openers = vi.fn();
 	const spawned: IpcSpawnTabPayload[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
@@ -62,6 +63,7 @@ function setup(
 			sidecarOf: tabId => (sidecars.get(tabId) ?? { cwd: "/repo" }) as never,
 			startTab: vi.fn(() => null),
 			setTabTask: vi.fn(),
+			setTabOpener: openers,
 		},
 		dispatch: async (_win, _sidecar, tabId, command) => {
 			commands.push({ tabId, command });
@@ -83,7 +85,7 @@ function setup(
 		schedules: options.schedules,
 	};
 	const runtime = new AgentControlRuntime(deps, options.limits);
-	return { runtime, win, deps, commands, spawned, tabs, activity, prefs };
+	return { runtime, win, deps, commands, spawned, tabs, activity, prefs, openers };
 }
 
 describe("AgentControlRuntime", () => {
@@ -149,6 +151,12 @@ describe("AgentControlRuntime", () => {
 			worktree: { path: "/wt/agent-1", branch: "omp/agent/agent-1" },
 		});
 		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "main0001" });
+	});
+
+	it("records the caller as the opener of a session the tool opens", async () => {
+		const { runtime, win, openers } = setup();
+		await runtime.run(win, "main0001", T.open, {});
+		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
 	});
 
 	it("rejects a worktree base that is not HEAD or default, and a folder that does not exist", async () => {

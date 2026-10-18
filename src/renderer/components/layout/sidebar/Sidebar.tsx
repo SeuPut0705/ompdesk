@@ -123,9 +123,10 @@ import { ForkParent } from "../ForkParent";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
-import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
+import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
+import { openerOfSessions } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -708,6 +709,23 @@ export function Sidebar() {
 		}
 		return parents;
 	}, [codeSessions, localTabs, projectName]);
+	// A session another session's agent opened (`ompdesk_session_open`, a worktree or not) nests under its opener, one
+	// level in like a subagent, whatever its folder: opened-session path → the session that started the chain.
+	const familyRootOf = useMemo(() => openerOfSessions(localTabs, codeSessions), [localTabs, codeSessions]);
+	// The opener's path → what it opened, in the order it opened them.
+	const familyChildrenOf = useMemo(() => {
+		const byRoot = new Map<string, SidebarSession[]>();
+		for (const session of codeSessions) {
+			const root = familyRootOf.get(session.path);
+			if (root === undefined) continue;
+			const siblings = byRoot.get(root);
+			if (siblings) siblings.push(session);
+			else byRoot.set(root, [session]);
+		}
+		for (const siblings of byRoot.values())
+			siblings.sort((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+		return byRoot;
+	}, [codeSessions, familyRootOf]);
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
 		() =>
@@ -730,6 +748,8 @@ export function Sidebar() {
 		for (const session of codeSessions) {
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them).
 			if (projectName(session.cwd).gone && session.liveTabId === undefined) continue;
+			// A session another session's agent opened lives in that session's family, whatever its folder.
+			if (familyRootOf.has(session.path)) continue;
 			const runCwd = runParentOf.get(session.path);
 			const shown = projectName(runCwd ?? session.cwd);
 			// The parallel children of one project share ONE group; a run of Autopilot keeps its own, children included.
@@ -780,7 +800,23 @@ export function Sidebar() {
 				}));
 			return [group, ...attached];
 		});
-	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, projectName, kindLabels, runParentOf]);
+	}, [
+		codeSessions,
+		groupAliases,
+		pinnedGroups,
+		groupOrder,
+		byPinThenRecency,
+		projectName,
+		kindLabels,
+		runParentOf,
+		familyRootOf,
+	]);
+	// A session matches when it does or when something it opened does: its family shows with it.
+	const matchesFamilyFilter = useCallback(
+		(session: SidebarSession) =>
+			matchesFilter(session) || (familyChildrenOf.get(session.path) ?? []).some(child => matchesFilter(child)),
+		[matchesFilter, familyChildrenOf],
+	);
 	const groups = useMemo(
 		() =>
 			query
@@ -789,16 +825,22 @@ export function Sidebar() {
 							...group,
 							sessions: group.name.toLocaleLowerCase().includes(query)
 								? group.sessions
-								: group.sessions.filter(matchesFilter),
+								: group.sessions.filter(matchesFamilyFilter),
 						}))
 						.filter(group => group.sessions.length > 0)
 				: allGroups,
-		[allGroups, matchesFilter, query],
+		[allGroups, matchesFamilyFilter, query],
 	);
-	// Recent grouping: the Code lane as one list by last activity, project shown per row.
+	// Recent grouping: the Code lane as one list by last activity, project shown per row. A session another one
+	// opened is in that one's family, not a row of its own.
 	const recentCodeSessions = useMemo(
-		() => (grouping === "recent" ? codeSessions.filter(matchesFilter).toSorted(byPinThenRecency) : []),
-		[grouping, codeSessions, matchesFilter, byPinThenRecency],
+		() =>
+			grouping === "recent"
+				? codeSessions
+						.filter(session => !familyRootOf.has(session.path) && matchesFamilyFilter(session))
+						.toSorted(byPinThenRecency)
+				: [],
+		[grouping, codeSessions, familyRootOf, matchesFamilyFilter, byPinThenRecency],
 	);
 	// Archived sessions of this lane that no tab holds, newest first.
 	const archivedRows = sessions
@@ -1021,7 +1063,7 @@ export function Sidebar() {
 	};
 
 	const startRename = (session: SessionInfo) => {
-		setRenameDraft(session.title || session.firstMessage || "");
+		setRenameDraft(sessionDisplayTitle(session, ""));
 		setRenamingSessionPath(session.path);
 	};
 	const commitRename = (session: SessionInfo, value = renameDraft) => {
@@ -1195,17 +1237,14 @@ export function Sidebar() {
 		if (target) focusRovingItem(target);
 	});
 
-	/** `archived`: a row of the Archived section; `recent`: a row of the flat recent list, which names its project. */
-	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
-		const key = `session:${session.path}`;
+	/** What a session row says about the session's run: one computation for a row and for a child of its family. */
+	const sessionRowState = (session: SidebarSession) => {
 		const isCurrent = isCurrentSession(session);
 		const tab = tabForSession(session);
 		// Every pane of the split on screen reads as selected; the focused one adds a cue (data-pane-focus).
 		const inVisibleSplit = !isCurrent && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (isCurrent || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
-		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
-		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		const tabSignal = sessionTabSignal(session);
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
 		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
@@ -1231,6 +1270,130 @@ export function Sidebar() {
 						: openElsewhere
 							? t("sidebar.row.open")
 							: null);
+		return {
+			isCurrent,
+			tab,
+			active,
+			indexed,
+			waiting,
+			running,
+			failed,
+			done,
+			openElsewhere,
+			busy,
+			waitingLabel,
+			statusLabel,
+		};
+	};
+	const renderRenameField = (session: SidebarSession, key: string, tabId: string | undefined, indent: string) => (
+		<div className={cx("omp-sidebar-session-rename grid content-center py-0.5 pr-1", indent)} key={session.path}>
+			<SidebarRenameField
+				onCancel={() => {
+					refocusRow.current = { key };
+					setRenamingSessionPath(null);
+				}}
+				onChange={setRenameDraft}
+				onCommit={(value, via) => {
+					if (via === "enter") refocusRow.current = { key };
+					commitRename(session, value);
+				}}
+				onGenerated={title => {
+					// The omp saved it: show it in the owning tab's title bar and close the field.
+					const store = sessionRuntimeStore<SessionStore>(tabId ?? null, "session");
+					if (store?.getState().sessionId === session.id) store.setState({ sessionName: title });
+					setRenamingSessionPath(null);
+					refocusRow.current = { key };
+				}}
+				tabId={tabId}
+				value={renameDraft}
+			/>
+		</div>
+	);
+	/** One session its agent opened, as a one-line child under the session that opened it. */
+	const familyChildFor = (child: SidebarSession, nested: boolean): FamilyOpened => {
+		const key = `session:${child.path}`;
+		const row = sessionRowState(child);
+		const origin = projectName(child.cwd);
+		const title = sessionDisplayTitle(child, row.indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const openTabId = row.tab?.id;
+		const deletable = row.indexed && !row.busy;
+		return {
+			key: child.path,
+			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
+			state: row.waiting ? "waiting" : row.running ? "running" : row.failed ? "failed" : row.done ? "done" : null,
+			stateLabel: row.statusLabel ?? "",
+			title,
+			age: row.indexed ? formatTimeAgo(child.modified) : undefined,
+			// The one line has no room for the status in words or the folder: they are the tooltip.
+			tooltip: [title, row.statusLabel, origin.tooltip].filter(Boolean).join("\n"),
+			selected: row.active,
+			onOpen: () => openSession(child),
+			renaming:
+				renamingSessionPath === child.path
+					? renderRenameField(child, key, openTabId, nested ? "pl-11" : "pl-6.5")
+					: undefined,
+			buttonProps: {
+				tabIndex: -1,
+				"data-roving-item": key,
+				onFocus: () => setFocusKey(key),
+				onKeyDown: event => {
+					if (opensMenu(event)) {
+						event.preventDefault();
+						setSessionMenu({ anchor: anchorBelow(event.currentTarget), session: child });
+					} else if (event.key === "F2" && row.indexed) {
+						event.preventDefault();
+						startRename(child);
+					} else if (event.key === "Delete" && deletable) {
+						event.preventDefault();
+						setPendingDelete({ kind: "session", session: child });
+					}
+				},
+			},
+			rowProps: {
+				draggable: openTabId !== undefined && !row.isCurrent,
+				onDragStart: event => {
+					if (!openTabId) return;
+					event.dataTransfer.effectAllowed = "move";
+					hideNativeDragImage(event.dataTransfer);
+					window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
+				},
+				onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
+				onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session: child }),
+				"data-active": row.active,
+				"data-current": row.isCurrent || undefined,
+				"data-live": row.indexed ? undefined : true,
+				"data-session-kind": child.kind ?? "agent",
+				"data-session-path": child.path,
+				"data-sidebar-opened-session": true,
+				"data-signal": row.waiting ? "waiting" : row.running ? "running" : row.failed ? "error" : undefined,
+			},
+		};
+	};
+
+	/** `archived`: a row of the Archived section; `recent`: a row of the flat recent list, which names its project. */
+	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
+		const key = `session:${session.path}`;
+		const {
+			isCurrent,
+			tab,
+			active,
+			indexed,
+			waiting,
+			running,
+			failed,
+			done,
+			openElsewhere,
+			busy,
+			waitingLabel,
+			statusLabel,
+		} = sessionRowState(session);
+		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
+		const runChild = nested && variant === undefined && runParentOf.has(session.path);
+		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
+		const opened =
+			variant === "archived"
+				? []
+				: (familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child, nested));
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
@@ -1239,38 +1402,8 @@ export function Sidebar() {
 		// Archiving hides a stored session no tab holds (an open tab always keeps its row).
 		const archivable = indexed && tab === undefined && variant !== "archived";
 		const tabIndex = -1;
-		if (renamingSessionPath === session.path) {
-			return (
-				<div
-					className={cx(
-						"omp-sidebar-session-rename grid content-center py-0.5 pr-1",
-						nested ? "omp-sidebar-session-rename-nested" : "pl-1",
-					)}
-					key={session.path}
-				>
-					<SidebarRenameField
-						onCancel={() => {
-							refocusRow.current = { key };
-							setRenamingSessionPath(null);
-						}}
-						onChange={setRenameDraft}
-						onCommit={(value, via) => {
-							if (via === "enter") refocusRow.current = { key };
-							commitRename(session, value);
-						}}
-						onGenerated={title => {
-							// The omp saved it: show it in the owning tab's title bar and close the field.
-							const store = sessionRuntimeStore<SessionStore>(tab?.id ?? null, "session");
-							if (store?.getState().sessionId === session.id) store.setState({ sessionName: title });
-							setRenamingSessionPath(null);
-							refocusRow.current = { key };
-						}}
-						tabId={tab?.id}
-						value={renameDraft}
-					/>
-				</div>
-			);
-		}
+		if (renamingSessionPath === session.path)
+			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
 		// The state is drawn on the row's left edge (sidebar.css `data-signal`), not as a leading glyph.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const leading: ReactNode =
@@ -1376,7 +1509,7 @@ export function Sidebar() {
 							} else if (
 								(event.key === "ArrowRight" || event.key === "ArrowLeft") &&
 								openTabId &&
-								sidebarSubagentCount(openTabId) > 0
+								sidebarSubagentCount(openTabId) + opened.length > 0
 							) {
 								const open = event.key === "ArrowRight";
 								const subagents = useSidebarSubagentsStore.getState();
@@ -1411,8 +1544,9 @@ export function Sidebar() {
 						) : undefined
 					}
 					onClick={() => {
-						// Clicking the session already in view folds/unfolds its subagent rows.
-						if (active && openTabId && sidebarSubagentCount(openTabId) > 0) toggleSidebarSubagents(session.path);
+						// Clicking the session already in view folds/unfolds its family rows.
+						if (active && openTabId && sidebarSubagentCount(openTabId) + opened.length > 0)
+							toggleSidebarSubagents(session.path);
 						openSession(session);
 					}}
 					rowProps={{
@@ -1445,9 +1579,15 @@ export function Sidebar() {
 						</>
 					}
 					titleText={[title, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
-					trailing={openTabId ? <SidebarSubagentsToggle sessionKey={session.path} tabId={openTabId} /> : undefined}
+					trailing={
+						openTabId ? (
+							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId} />
+						) : undefined
+					}
 				/>
-				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}
+				{openTabId && (
+					<SidebarSubagents nested={nested} opened={opened} sessionKey={session.path} tabId={openTabId} />
+				)}
 			</Fragment>
 		);
 	};
@@ -1459,7 +1599,11 @@ export function Sidebar() {
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
 		// A collapsed project still says when something inside it is working.
-		const groupBusy = groupCollapsed && group.sessions.some(isSessionBusy);
+		const groupBusy =
+			groupCollapsed &&
+			group.sessions.some(
+				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
+			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>

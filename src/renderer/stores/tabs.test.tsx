@@ -1861,6 +1861,11 @@ describe("tabChipLabel (F-HYDRATE)", () => {
 		expect(tabChipLabel({ ...child, title: "Named by stock" }, [child])).toBe("Named by stock");
 	});
 
+	it("never shows the Title: label of a task in a tab's name", () => {
+		expect(tabChipLabel(chip("t0", "/wt/x", "Title: 안내 문구 점검"), [])).toBe("안내 문구 점검");
+		expect(tabChipLabel({ ...chip("t1", "/wt/y"), task: "Title: Fix it" }, [])).toBe("Fix it");
+	});
+
 	it("uses indexed session content instead of a cwd fallback on every tab surface", () => {
 		const tab = chip("t0", "/work/Infron");
 		expect(tabDisplayTitle(tab, [tab], { title: null, firstMessage: "Review the MySQL migration" }, "Untitled")).toBe(

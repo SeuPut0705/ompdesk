@@ -36,4 +36,21 @@ describe("a session another session's agent opened (ompdesk_session_open, an Aut
 		);
 		expect(sessionDisplayTitle({ title: "Named by stock", firstMessage: titled }, "Untitled")).toBe("Named by stock");
 	});
+
+	it("never shows the Title: label: a long title line, an unwrapped goal, or a stored title that kept it", () => {
+		const long = `Title: ${"긴 제목 ".repeat(40)}\nBody.`;
+		const wrapped = sessionDisplayTitle({ title: null, firstMessage: wrapAgentMessage(long, "Run") }, "Untitled");
+		expect(wrapped.startsWith("긴 제목")).toBe(true);
+		expect(wrapped).not.toContain("Title:");
+
+		// A goal's objective is not wrapped: the listing's first message is the bare text.
+		expect(
+			sessionDisplayTitle({ title: null, firstMessage: "Title: OMPdesk 사이드바 묶음\nDetails." }, "Untitled"),
+		).toBe("OMPdesk 사이드바 묶음");
+		expect(sessionDisplayTitle({ title: "Title: 안내 문구", firstMessage: "x" }, "Untitled")).toBe("안내 문구");
+		// A person's own prompt is left alone.
+		expect(sessionDisplayTitle({ title: null, firstMessage: "Fix the Title: bar" }, "Untitled")).toBe(
+			"Fix the Title: bar",
+		);
+	});
 });

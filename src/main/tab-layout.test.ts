@@ -74,6 +74,24 @@ describe("persisted tab layout", () => {
 		expect(layout?.tabs[1]?.title).toBeUndefined();
 	});
 
+	it("keeps the opener's session file a tab was opened from, and drops anything that is not one", () => {
+		const layout = sanitizePersistedTabLayout(
+			{
+				version: 1,
+				activeIndex: 0,
+				tabs: [
+					{ cwd: "/a", kind: "agent", sessionPath: "/s/a.jsonl", openedBy: "/s/boss.jsonl" },
+					{ cwd: "/b", kind: "agent", openedBy: 7 },
+					{ cwd: "/c", kind: "agent", openedBy: "  " },
+					{ cwd: "/d", kind: "agent", sessionPath: "/s/d.jsonl", openedBy: "/s/d.jsonl" },
+				],
+			},
+			pathChecks(["/a", "/b", "/c", "/d"], ["/s/a.jsonl", "/s/d.jsonl"]),
+		);
+
+		expect(layout?.tabs.map(tab => tab.openedBy)).toEqual(["/s/boss.jsonl", undefined, undefined, undefined]);
+	});
+
 	it("remaps and clamps a restored two-pane layout after invalid tabs are dropped", () => {
 		const value = {
 			version: 1,

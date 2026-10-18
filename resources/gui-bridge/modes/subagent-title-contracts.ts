@@ -18,3 +18,26 @@ export function assignmentTitle(assignment: string | undefined): string | undefi
 	const title = assignment ? TITLE_LINE.exec(assignment)?.[1] : undefined;
 	return title && title.length <= TITLE_MAX_CHARS ? title : undefined;
 }
+
+const TITLE_PREFIX = /^\s*Title:[ \t]*/i;
+
+/** `text` without a leading `Title:` label (the label is a protocol line, never part of a name). */
+export function stripTitlePrefix(text: string): string {
+	return text.replace(TITLE_PREFIX, "");
+}
+
+/**
+ * What a task message is about, for one line of a list: its `Title:` line, else its first non-empty line with any
+ * `Title:` label removed (a title line longer than `TITLE_MAX_CHARS` is not a title line, but its words still are
+ * the task). Undefined for an empty message.
+ */
+export function assignmentHeadline(text: string | undefined): string | undefined {
+	if (!text) return undefined;
+	const title = assignmentTitle(text);
+	if (title) return title;
+	const first = text
+		.split("\n")
+		.map(line => stripTitlePrefix(line).trim())
+		.find(line => line !== "");
+	return first || undefined;
+}

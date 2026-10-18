@@ -1221,6 +1221,46 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.tabsForWindow(fw.win)[0]?.task).toBe("Fix the flaky upload test");
 	});
 
+	it("keeps which session opened a tab through a relaunch: the opener's file rides the layout, not its tab id", () => {
+		const before = fakePool();
+		const fw = fakeWindow(1);
+		before.pool.acquire("/a", fw.win, "tab-boss", "/sessions/boss.jsonl");
+		before.pool.acquire("/wt/x", fw.win, "tab-child");
+		before.pool.noteSessionFile("tab-child", "/sessions/child.jsonl");
+		before.pool.setTabOpener("tab-child", "tab-boss");
+
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+			tabId: "tab-child",
+			openedBy: "tab-boss",
+			openedBySession: "/sessions/boss.jsonl",
+		});
+		const layout = before.pool.tabLayoutForWindow(fw.win);
+		expect(layout?.tabs.map(tab => tab.openedBy)).toEqual([undefined, "/sessions/boss.jsonl"]);
+
+		// The opener's tab closing does not forget it: the file is what finds it again.
+		before.pool.releaseTab("tab-boss");
+		expect(before.pool.tabLayoutForWindow(fw.win)?.tabs[0]?.openedBy).toBe("/sessions/boss.jsonl");
+
+		if (!layout) throw new Error("expected a layout");
+		const after = fakePool();
+		const restoredWindow = fakeWindow(2);
+		after.pool.restoreLayout(restoredWindow.win, layout);
+		const [boss, child] = after.pool.tabsForWindow(restoredWindow.win);
+		expect(child?.openedBySession).toBe("/sessions/boss.jsonl");
+		expect(boss?.openedBySession).toBeUndefined();
+		// Written out again, so a second relaunch still knows.
+		expect(after.pool.tabLayoutForWindow(restoredWindow.win)?.tabs[1]?.openedBy).toBe("/sessions/boss.jsonl");
+	});
+
+	it("ignores an opener it does not hold", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.setTabOpener("tab-a", "tab-gone");
+		pool.setTabOpener("tab-gone", "tab-a");
+		expect(pool.tabsForWindow(fw.win)[0]?.openedBy).toBeUndefined();
+	});
+
 	it("reports a session as live only while some process holds it", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

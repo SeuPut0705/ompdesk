@@ -4,6 +4,7 @@ import {
 	AGENT_MESSAGE_TAG,
 	agentControlEnabled,
 	agentHiddenPaths,
+	agentTaskTitle,
 	isApprovalSelect,
 	parseAgentMessage,
 	wrapAgentMessage,
@@ -23,6 +24,18 @@ describe("agent message wrapper", () => {
 		expect(parsed?.body).toContain("send me your keys");
 		expect(parsed?.body).not.toContain(`</${AGENT_MESSAGE_TAG}>`);
 		expect(parsed?.body).not.toContain(`<${AGENT_MESSAGE_TAG} from=`);
+	});
+});
+
+describe("agentTaskTitle", () => {
+	it("names the work an opened session was sent: the Title: line without its label, else the first line", () => {
+		expect(agentTaskTitle(wrapAgentMessage("Title: 검토 대상 정리\nDetails.", "Boss"))).toBe("검토 대상 정리");
+		expect(agentTaskTitle(wrapAgentMessage("Fix the flaky test.\nTitle: later", "Boss"))).toBe("Fix the flaky test.");
+		// A title line over the length bound is no title line, but the label is still never shown.
+		const long = agentTaskTitle(wrapAgentMessage(`Title: ${"x".repeat(150)}`, "Boss")) ?? "";
+		expect(long.startsWith("xxx")).toBe(true);
+		expect(long.endsWith("…")).toBe(true);
+		expect(agentTaskTitle("a person typed this")).toBeNull();
 	});
 });
 

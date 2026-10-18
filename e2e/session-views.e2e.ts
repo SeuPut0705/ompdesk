@@ -21,7 +21,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { capture, exitApp, launchApp, openDestination, variants } from "./harness";
+import { capture, exitApp, launchApp, openDestination, openSidebarFamily, variants } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
 
 type Language = "en" | "ko";
@@ -168,7 +168,7 @@ for (const language of variants(["en", "ko"] as const))
 
 				// ── A subagent in the side panel (drag, then the row menu) ──────
 				await fixture(page, "fixture:subagents");
-				await page.locator("[data-sidebar-subagents-toggle]").first().click();
+				await openSidebarFamily(page);
 				const explore = page.locator('[data-sidebar-subagent="sa-explore"]');
 				const pane = page.locator(".omp-session-pane").first();
 				const from = await explore.boundingBox();

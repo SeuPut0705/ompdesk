@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { capture, captureTo, exitApp, launchApp, variants } from "./harness";
+import { capture, captureTo, exitApp, launchApp, openSidebarFamily, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -112,7 +112,7 @@ for (const language of variants(["en", "ko"] as const))
 					page.on("pageerror", error => errors.push(error.message));
 					await fixture(page, "fixture:subagents");
 					await fixture(page, "fixture:subagents:transcript");
-					await page.locator("[data-sidebar-subagents-toggle]").first().click();
+					await openSidebarFamily(page);
 					await page.locator('[data-sidebar-subagent="sa-explore"]').click({ button: "right" });
 					await page.getByRole("menuitem", { name: text.openInPanel }).click();
 					await expect(page.getByRole("menu")).toHaveCount(0);

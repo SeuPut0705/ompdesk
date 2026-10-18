@@ -144,6 +144,7 @@ html[data-input="touch"]
 		.omp-session-sidebar [data-session-row],
 		.omp-session-sidebar [data-workspace-group],
 		.omp-session-sidebar [data-destination],
+		.omp-session-sidebar .omp-family-row,
 		.omp-list-row,
 		.settings-field-row
 	) {
@@ -895,6 +896,13 @@ html[data-shell] .omp-work-chip {
 html[data-shell] .omp-session-sidebar {
 	--hit-gap-x: 14px;
 	--hit-gap-y: 14px;
+}
+
+/* A session's family rows are stacked 1 px apart and the chip sits inside its parent row: no hit area may grow past
+   its own row (the global 44 px reach would cover the neighbour). */
+html[data-shell] .omp-session-sidebar :is([data-sidebar-family], .omp-family-chip) {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 0px;
 }
 
 /* The title bar's right group and the composer's send cluster: icons spaced so the bounded hit areas stay ≈ 40 px. */

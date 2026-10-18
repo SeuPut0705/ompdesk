@@ -232,6 +232,10 @@ interface PoolEntry extends RunTracking {
 	title?: string | null;
 	/** What another session's agent opened this tab for (`agentTaskTitle` of its first message), until it has a title. */
 	task?: string;
+	/** The tab whose agent opened this one (`ompdesk_session_open`). */
+	openedBy?: string;
+	/** That opener's session file, kept once known so a relaunch finds the opener again (`PersistedTabDescriptor.openedBy`). */
+	openedBySession?: string;
 	/**
 	 * Session file this tab is attached to (F-OWN). Set at acquire when
 	 * spawned with --session and maintained from the RPC passthrough via
@@ -1693,6 +1697,20 @@ export class SidecarPool {
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
+	/**
+	 * Record that `openerTabId`'s agent opened `tabId` (`ompdesk_session_open`): the windows nest the session under
+	 * its opener, and the layout keeps the opener's session file so the family survives a relaunch.
+	 */
+	setTabOpener(tabId: string, openerTabId: string): void {
+		const entry = this.#byTabId.get(tabId);
+		const opener = this.#byTabId.get(openerTabId);
+		if (!entry || !opener || entry.openedBy === openerTabId) return;
+		entry.openedBy = openerTabId;
+		if (opener.sessionFile) entry.openedBySession = opener.sessionFile;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
+	}
+
 	/** The tab on this computer attached to `sessionPath`, if any. */
 	tabForSession(sessionPath: string): string | null {
 		return this.sessionOwner(sessionPath)?.tabId ?? null;
@@ -1748,6 +1766,10 @@ export class SidecarPool {
 				// Written even when the live title is null, so a cleared title
 				// cannot survive as a stale one until the tab is spawned again.
 				if (entry.title !== undefined) descriptor.title = entry.title ?? undefined;
+				// The opener's session file, not its tab id: a relaunch gives every tab a new id.
+				const opener = entry.openedBy ? this.#byTabId.get(entry.openedBy) : undefined;
+				if (opener?.sessionFile) entry.openedBySession = opener.sessionFile;
+				if (entry.openedBySession) descriptor.openedBy = entry.openedBySession;
 				return descriptor;
 			}),
 			...(split
@@ -1803,6 +1825,8 @@ export class SidecarPool {
 						tab.device,
 					);
 					if (sidecar) tabId = fresh;
+					const restoredEntry = this.#byTabId.get(fresh);
+					if (restoredEntry && tab.openedBy) restoredEntry.openedBySession = tab.openedBy;
 				}
 				if (!tabId) continue;
 				restoredCount++;
@@ -1887,6 +1911,8 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.task !== undefined) payload.task = entry.task;
+	if (entry.openedBy !== undefined) payload.openedBy = entry.openedBy;
+	if (entry.openedBySession !== undefined) payload.openedBySession = entry.openedBySession;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	if (entry.awaitingConnection) payload.awaitingConnection = true;

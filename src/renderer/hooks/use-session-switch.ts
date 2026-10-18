@@ -23,6 +23,7 @@ import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
 import { parseModelRestoreFailure, type SessionModelOverride } from "../../shared/model-restore";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
+import { sessionDisplayTitle } from "../lib/session-title";
 import { useAutopilotStore } from "../stores/autopilot";
 import { useComposerStore } from "../stores/composer";
 import { useExtensionUiStore } from "../stores/extension-ui";
@@ -214,8 +215,9 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 		}
 		// Keep the outgoing transcript painted until hydrate commits the next
 		// session. Events for the target sidecar are dropped while pending.
-		if (runtime) await hydrateTabSession(runtime.tabId, session.title || session.firstMessage);
-		else await hydrateSession(session.title || session.firstMessage);
+		const fallbackName = sessionDisplayTitle(session, "");
+		if (runtime) await hydrateTabSession(runtime.tabId, fallbackName);
+		else await hydrateSession(fallbackName);
 		clearPending();
 		return true;
 	} catch (error) {

@@ -33,6 +33,7 @@ export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-
 
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
+import { stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
 	IpcOpenExtensionRequest,
@@ -108,6 +109,10 @@ export interface SessionTab {
 	title?: string;
 	/** What another session's agent opened the tab for (main's `task`); stands in for the title until there is one. */
 	task?: string;
+	/** The tab whose agent opened this one with `ompdesk_session_open` (main's `openedBy`); the sidebar nests it there. */
+	openedBy?: string;
+	/** That opener's session file, which finds it again after a relaunch gave every tab a new id. */
+	openedBySession?: string;
 	/** Main-owned transcript identity, available even before session_info_update. */
 	sessionPath?: string;
 	sessionId?: string;
@@ -219,6 +224,8 @@ function projectSessionTab(
 		device: info.device ?? previous?.device,
 		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
 		task: info.task ?? previous?.task,
+		openedBy: info.openedBy ?? previous?.openedBy,
+		openedBySession: info.openedBySession ?? previous?.openedBySession,
 		sessionPath: info.sessionPath === undefined ? previous?.sessionPath : (info.sessionPath ?? undefined),
 		sessionId: info.sessionId ?? (sessionChanged ? undefined : previous?.sessionId),
 		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
@@ -312,7 +319,7 @@ export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): stri
 		return worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
 	};
 	const base = tab.title || tab.task || untitledBase(tab);
-	if (tab.title || tab.task) return base;
+	if (tab.title || tab.task) return stripTitlePrefix(base);
 	let occurrence = 0;
 	for (const entry of tabs) {
 		if (entry.title || entry.task) continue;

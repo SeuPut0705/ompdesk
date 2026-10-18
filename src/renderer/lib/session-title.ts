@@ -1,3 +1,4 @@
+import { assignmentHeadline, stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
 import { agentTaskTitle } from "../../shared/agent-control";
 import type { SessionInfo } from "../../shared/ipc-types";
@@ -21,9 +22,13 @@ function firstPrompt(session: Pick<SessionInfo, "firstMessage">): string {
  */
 export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstMessage">, untitled: string): string {
 	const prompt = firstPrompt(session);
-	if (prompt === NO_TEXT_PROMPT) return session.title?.trim() || translate("session.noTextPrompt");
-	// A session another session's agent opened reads as its task, not the whole first message.
-	return session.title?.trim() || agentTaskTitle(prompt) || promptDisplayText(prompt).trim() || untitled;
+	const title = stripTitlePrefix(session.title?.trim() ?? "").trim();
+	if (prompt === NO_TEXT_PROMPT) return title || translate("session.noTextPrompt");
+	// A session another session's agent opened reads as its task, not the whole first message. One that was
+	// not wrapped (a goal's objective) still names its `Title:` line, never the label.
+	const text = promptDisplayText(prompt).trim();
+	const named = stripTitlePrefix(text) === text ? text : assignmentHeadline(text);
+	return title || agentTaskTitle(prompt) || named || untitled;
 }
 
 /** True once a session has user-visible conversation content (the no-text sentinel counts). */

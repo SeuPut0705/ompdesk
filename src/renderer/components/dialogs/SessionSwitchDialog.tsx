@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { switchSessionNow } from "../../hooks/use-session-switch";
 import { useT } from "../../lib/i18n";
+import { sessionDisplayTitle } from "../../lib/session-title";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -63,7 +64,7 @@ export function SessionSwitchDialog() {
 		}
 	};
 
-	const name = session?.title || session?.firstMessage || session?.id || "";
+	const name = session ? sessionDisplayTitle(session, session.id) : "";
 
 	return (
 		<Modal

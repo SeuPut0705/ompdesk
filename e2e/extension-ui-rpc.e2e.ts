@@ -15,7 +15,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { capture, exitApp, launchApp, readRecords, variants } from "./harness";
+import { capture, exitApp, launchApp, openSidebarFamily, readRecords, variants } from "./harness";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -192,7 +192,7 @@ for (const language of variants(["en", "ko"] as const))
 				// ── Steer a running subagent from its sheet ─────────────────────
 				await fixture(page, "fixture:subagents");
 				// The session row's key moves to its file once a turn wrote one; there is a single session here.
-				await page.locator("[data-sidebar-subagents-toggle]").first().click();
+				await openSidebarFamily(page);
 				await page.locator('[data-sidebar-subagent="sa-explore"] button').first().click();
 				const steer = page.locator("[data-subagent-steer]");
 				await expect(steer).toBeVisible();

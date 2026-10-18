@@ -49,6 +49,8 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 
 interface TestElement {
 	textContent: string | null;
+	className: string;
+	firstChild: { textContent: string | null } | null;
 	remove: () => void;
 	getAttribute: (name: string) => string | null;
 	querySelector: (selector: string) => TestElement | null;
@@ -256,6 +258,13 @@ afterEach(async () => {
 	useComposerStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useQueueStore.setState({ steering: [], followUp: [] });
+	useSidebarSubagentsStore.setState({
+		expanded: new Set(),
+		hidden: new Set(),
+		present: new Set(),
+		active: new Set(),
+		reveal: null,
+	});
 	useSidebarPrefs.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
@@ -1484,7 +1493,6 @@ describe("Sidebar subagents", () => {
 		// The runtime registry notifies on a microtask: settle it inside act.
 		await act(async () => {
 			deleteSessionRuntime("t1");
-			useSidebarSubagentsStore.setState({ expanded: new Set(), reveal: null });
 		});
 	});
 
@@ -1532,29 +1540,23 @@ describe("Sidebar subagents", () => {
 		await flush();
 	}
 
-	it("starts collapsed with a live-count disclosure on the session row that toggles the child rows", async () => {
+	it("opens by itself while a subagent runs, with a summary chip on the session row that toggles the child rows", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
 
-		// Collapsed by default: no child rows, only the count on the session's own row.
-		expect(container.querySelectorAll("[data-sidebar-subagents]").length).toBe(0);
-		expect(container.querySelectorAll("[data-sidebar-subagent]").length).toBe(0);
+		// The running subagent opened the family; the chip counts both, the finished one folds into "1 done".
 		const toggle = disclosure();
 		expect(rowFor("Session /work/alpha/two").contains(toggle as unknown as Node)).toBe(true);
-		expect(toggle?.textContent).toBe("1");
-		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-		expect(toggle?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.show", { count: 1 }));
+		expect(toggle?.querySelector("[data-family-agents]")?.textContent).toBe("2");
+		expect(toggle?.querySelector("[data-family-running]")?.textContent).toBe("1");
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
 		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
-
-		// The disclosure expands without navigating away from the current session.
-		await fire(toggle, "onClick");
-		expect(useTabsStore.getState().activeTabId).toBe("t0");
-		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
 		const next = rowFor("Session /work/alpha/two").nextElementSibling;
 		expect(next?.getAttribute("data-sidebar-subagents")).toBe(TWO);
 		expect(next?.textContent).toContain("map the repo");
 		expect(next?.textContent).not.toContain("already finished");
+		expect(next?.textContent).toContain(translate("sidebar.family.done", { count: 1 }));
 		// A tree connector hangs the rows off the session.
 		expect(next?.querySelector("[data-sidebar-subagents-connector]")).not.toBeNull();
 		// The child row joins the sidebar's roving (arrow-key) list right after its session.
@@ -1565,53 +1567,286 @@ describe("Sidebar subagents", () => {
 		expect(sessionIndex).toBeGreaterThanOrEqual(0);
 		expect(roving[sessionIndex + 1]).toBe("subagent:t1:sa");
 
-		await fire(disclosure(), "onClick");
+		// The chip folds the rows without navigating away from the current session.
+		await fire(toggle, "onClick");
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
 		expect(subagentGroup()).toBeNull();
 	});
 
-	it("clicking the current session row folds and unfolds its subagent rows", async () => {
+	it("clicking the current session row folds and unfolds its family rows", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(true);
 		await mount(<Sidebar />);
-		expect(subagentGroup()).toBeNull();
+		expect(subagentGroup()).not.toBeNull();
 
+		await fire(rowButton("Session /work/alpha/two"), "onClick");
+		expect(subagentGroup()).toBeNull();
 		await fire(rowButton("Session /work/alpha/two"), "onClick");
 		expect(subagentGroup()).not.toBeNull();
-		await fire(rowButton("Session /work/alpha/two"), "onClick");
-		expect(subagentGroup()).toBeNull();
 	});
 
-	it("ArrowRight expands and ArrowLeft collapses on a session row with subagents", async () => {
+	it("ArrowLeft collapses and ArrowRight expands a session row with a family", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
 
+		await key("Session /work/alpha/two", "ArrowLeft");
+		expect(subagentGroup()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 		await key("Session /work/alpha/two", "ArrowRight");
 		expect(subagentGroup()).not.toBeNull();
 		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
-		await key("Session /work/alpha/two", "ArrowLeft");
-		expect(subagentGroup()).toBeNull();
-		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
 	});
 
-	it("drops the expanded state once the last subagent finishes", async () => {
+	it("folds once the last subagent is done and opens again on the next fan-out", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
-		await fire(disclosure(), "onClick");
-		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([TWO]);
+		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(true);
 
 		setSubagentStatus("aborted");
 		await flush();
 		expect(subagentGroup()).toBeNull();
-		expect(disclosure()).toBeNull();
-		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
+		expect(disclosure()?.querySelector("[data-family-running]")).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 
-		// The next fan-out starts collapsed again.
 		setSubagentStatus("running");
 		await flush();
-		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
-		expect(subagentGroup()).toBeNull();
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
+		expect(subagentGroup()).not.toBeNull();
+	});
+});
+
+describe("Sidebar families: the sessions an agent opened", () => {
+	const BOSS = "/work/alpha/two.jsonl";
+	const WT_A = "/home/me/.omp/wt/h1/gui-agent-aaaaaa-1111111";
+	const WT_B = "/home/me/.omp/wt/h1/gui-agent-bbbbbb-2222222";
+	const origin = (slug: string) => ({
+		project: "alpha",
+		root: "/work/alpha",
+		worktree: { kind: "agent", branch: `omp/agent/${slug}`, slug },
+	});
+
+	afterEach(async () => {
+		await act(async () => {
+			deleteSessionRuntime("t1");
+		});
+	});
+
+	/**
+	 * The screenshot's shape: a boss session in tab t1 and four sessions it opened: two worktree sessions the index
+	 * lists (one named only by the message it was opened with, one by an unwrapped goal), a live worktree tab and a
+	 * plain session in the boss's own folder.
+	 */
+	function mountFamily(tabsExtra: Array<Record<string, unknown>> = []) {
+		const omp = installMockOmp([
+			session("/wt/a.jsonl", WT_A, {
+				title: null,
+				firstMessage: wrapAgentMessage("Title: OMPdesk 사이드바 정리\nDetails follow.", "휴대폰 테스트"),
+				created: "2026-02-01T00:00:00Z",
+				modified: "2026-02-01T00:00:00Z",
+			}),
+			session("/wt/b.jsonl", WT_B, {
+				title: null,
+				firstMessage: "Title: 검토 대상 확인\nGoal text.",
+				created: "2026-02-02T00:00:00Z",
+				modified: "2026-02-02T00:00:00Z",
+			}),
+			session("/work/alpha/plain.jsonl", "/work/alpha", {
+				title: "Plain helper",
+				created: "2026-02-04T00:00:00Z",
+				modified: "2026-02-04T00:00:00Z",
+			}),
+			...LIST,
+		]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === WT_A || cwd === WT_B
+							? origin(cwd === WT_A ? "agent-aaaaaa" : "agent-bbbbbb")
+							: cwd === "/work/alpha"
+								? { project: "alpha", root: "/work/alpha", worktree: null }
+								: null,
+					]),
+				),
+			),
+		};
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{ id: "t1", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false, sessionPath: BOSS },
+				{
+					id: "ta",
+					cwd: WT_A,
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/wt/a.jsonl",
+					openedBy: "t1",
+				},
+				{
+					id: "tb",
+					cwd: WT_B,
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/wt/b.jsonl",
+					// After a relaunch the tab ids are new: the opener's session file finds it.
+					openedBy: "t-before-the-relaunch",
+					openedBySession: BOSS,
+				},
+				{
+					id: "tc",
+					cwd: "/home/me/.omp/wt/h1/gui-agent-cccccc-3333333",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					task: "Fix the flaky upload test",
+					worktree: {
+						name: "agent-cccccc",
+						branch: "omp/agent/agent-cccccc",
+						baseCwd: "/work/alpha",
+						path: "/home/me/.omp/wt/h1/gui-agent-cccccc-3333333",
+					},
+					openedBy: "t1",
+				},
+				{
+					id: "td",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/plain.jsonl",
+					openedBy: "t1",
+				},
+				...tabsExtra,
+			] as never,
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		ensureTabRuntime("t1");
+	}
+
+	const familyRows = () => [
+		...container.querySelectorAll(`[data-sidebar-family="${BOSS}"] [data-sidebar-opened-session]`),
+	];
+
+	it("nests each opened session under its opener, one line each, and drops the worktree group", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+
+		// Nobody lists them in a group of their own: not the worktrees, not the project's rows.
+		expect(container.querySelectorAll("[data-worktree-group]").length).toBe(0);
+		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
+		const sessionRows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
+		expect(sessionRows.some(row => (row.textContent ?? "").includes("Plain helper"))).toBe(false);
+		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
+
+		const boss = rowFor("Session /work/alpha/two");
+		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
+		// Two of them work: the highlighted count.
+		expect(boss.querySelector("[data-family-running]")?.textContent).toBe("2");
+		// A session at work opened the family by itself, right under the boss's row.
+		const group = boss.nextElementSibling;
+		expect(group?.getAttribute("data-sidebar-family")).toBe(BOSS);
+
+		const rows = familyRows();
+		expect(rows.length).toBe(4);
+		const titles = rows.map(row => row.querySelector("button")?.firstChild?.textContent);
+		// Oldest first: the two stored worktree sessions, the plain one, then the live tab the index has not listed.
+		// The Title: label never shows, whether the message was wrapped or not.
+		expect(titles).toEqual(["OMPdesk 사이드바 정리", "검토 대상 확인", "Plain helper", "Fix the flaky upload test"]);
+		expect(container.textContent).not.toContain("Title:");
+		for (const row of rows) {
+			// ONE line: a glyph, one button, a token and an age: the folder and the status are the tooltip.
+			expect(row.querySelectorAll("button").length).toBe(1);
+			expect(row.className).toContain("omp-family-row");
+		}
+		expect(rows.map(row => row.querySelector("[data-family-glyph]")?.getAttribute("data-family-glyph"))).toEqual([
+			"worktree",
+			"worktree",
+			"session",
+			"worktree",
+		]);
+		expect(rows[0]?.querySelector('[data-family-status="running"]')).not.toBeNull();
+		expect(rows[2]?.querySelector("[data-family-status]")).toBeNull();
+		expect(rows[0]?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.signal.running"));
+		// They join the roving list right after the boss, so arrow keys walk the family.
+		const roving = [...container.querySelectorAll("[data-roving-item]")].map(item =>
+			item.getAttribute("data-roving-item"),
+		);
+		const bossAt = roving.indexOf(`session:${BOSS}`);
+		expect(roving.slice(bossAt + 1, bossAt + 3)).toEqual(["session:/wt/a.jsonl", "session:/wt/b.jsonl"]);
+	});
+
+	it("opens an opened session in its own tab on click", async () => {
+		mountFamily();
+		const original = useTabsStore.getState().switchTab;
+		const switchTab = vi.fn(async () => {});
+		useTabsStore.setState({ switchTab });
+		try {
+			await mount(<Sidebar />);
+			const [first] = familyRows();
+			await fire(first?.querySelector("button") ?? null, "onClick");
+			expect(switchTab).toHaveBeenCalledWith("ta");
+		} finally {
+			useTabsStore.setState({ switchTab: original });
+		}
+	});
+
+	it("keeps a session whose opener is not in the list in its own group", async () => {
+		mountFamily([
+			{
+				id: "te",
+				cwd: "/work/beta",
+				status: "ready",
+				kind: "agent",
+				unreadDone: false,
+				sessionPath: "/work/beta/three.jsonl",
+				openedBy: "t-closed",
+				openedBySession: "/work/alpha/closed-boss.jsonl",
+			},
+		]);
+		await mount(<Sidebar />);
+		expect(familyRows().length).toBe(4);
+		const betaRows = [...container.querySelectorAll('[data-session-group="/work/beta"] .omp-sidebar-session-row')];
+		expect(betaRows.length).toBe(1);
+		expect(betaRows[0]?.textContent).toContain("Session /work/beta/three");
+	});
+
+	it("folds when everything it opened is done, and the chip still counts them", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		act(() => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.status === "running" ? { ...tab, status: "ready" } : tab)),
+			}));
+		});
+		await flush();
+		const boss = rowFor("Session /work/alpha/two");
+		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
+		expect(boss.querySelector("[data-family-running]")).toBeNull();
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+	});
+
+	it("shows the boss's row, with its family, when only something it opened matches the filter", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const record = field as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = record[propsKey as string] as { onChange: (event: { target: { value: string } }) => void };
+		await act(async () => props.onChange({ target: { value: "flaky upload" } }));
+		await flush();
+
+		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows.some(text => text.includes("Session /work/alpha/two"))).toBe(true);
+		expect(familyRows().length).toBe(4);
 	});
 });
 

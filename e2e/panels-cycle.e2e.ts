@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, openSidebarFamily } from "./harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in audit of the sidebar and right-panel views through interaction flows that cross
@@ -656,7 +656,7 @@ for (const [language, theme] of RUNS) {
 						id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:subagents" }),
 						active.tabId,
 					);
-					await page.locator("[data-sidebar-subagents-toggle]").first().click();
+					await openSidebarFamily(page);
 					const rows = page.locator("[data-sidebar-subagent]");
 					await expect(rows.first()).toBeVisible({ timeout: 15_000 });
 					notes.push(`subagent rows: ${await rows.count()}`);

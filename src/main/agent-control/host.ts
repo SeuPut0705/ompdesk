@@ -70,6 +70,7 @@ export interface AgentControlHostDeps {
 		| "sidecarOf"
 		| "startTab"
 		| "setTabTask"
+		| "setTabOpener"
 	>;
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -270,6 +271,8 @@ export class AgentControlRuntime {
 		if (!result?.tabId) throw new Error("The new session could not be started.");
 		this.#windows.set(result.tabId, win);
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
+		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener.
+		if (!request.tag) this.#deps.pool.setTabOpener(result.tabId, callerTabId);
 		return { tabId: result.tabId, ...(worktree ? { worktree } : {}), ...(prepared ? { prepared } : {}) };
 	}
 

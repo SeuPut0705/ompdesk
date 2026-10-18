@@ -112,3 +112,18 @@ describe("rows and bars on touch", () => {
 		expect(css).toMatch(/\[type="hidden"\]\), select\) \{\s*min-height:\s*36px/);
 	});
 });
+
+describe("a session's family rows (sidebar subagents and opened sessions)", () => {
+	it("is one 28 px line on a desktop, --sc-row-touch (36 px on a phone) under a finger, and bounds its hit areas", () => {
+		expect(read("./sidebar.css")).toMatch(/\.omp-session-sidebar \.omp-family-row \{\s*min-height:\s*28px/);
+		expect(css).toMatch(/\.omp-session-sidebar \.omp-family-row[^{]*\{\s*min-height:\s*var\(--sc-row-touch\)/);
+		expect(rule('html[data-shell="phone"]')).toMatch(/--sc-row-touch:\s*36px/);
+		const bound = rule("html[data-shell] .omp-session-sidebar :is([data-sidebar-family], .omp-family-chip)");
+		expect(bound).toMatch(/--hit-gap-x:\s*4px/);
+		expect(bound).toMatch(/--hit-gap-y:\s*0px/);
+		// The row is one flex line: no description under the title.
+		const row = read("../components/layout/sidebar/SidebarFamilyRow.tsx");
+		expect(row).toContain("flex w-full items-center");
+		expect(row).not.toContain("description");
+	});
+});

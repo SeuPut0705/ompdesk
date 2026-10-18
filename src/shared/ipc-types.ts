@@ -1274,6 +1274,10 @@ export interface IpcTabInfo {
 	title?: string | null;
 	/** What another session's agent opened the tab for (`agentTaskTitle`); shown until the session has a title. */
 	task?: string;
+	/** The tab whose agent opened this one (`ompdesk_session_open`); the sidebar nests the session under it. */
+	openedBy?: string;
+	/** The opener's session file: a relaunch gives every tab a new id, the file is what finds the opener again. */
+	openedBySession?: string;
 	/** How the tab's last finished run ended; absent while a run is in flight or before the first one ends. */
 	lastRun?: IpcTabRunOutcome;
 	/** Paired host deviceId the tab's omp runs on; absent = this device. */

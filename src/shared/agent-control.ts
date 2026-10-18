@@ -7,7 +7,7 @@
  * Dependency-free: main, the renderer and their tests import it (and the bridge's dependency-free title rule).
  */
 
-import { assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
+import { assignmentHeadline } from "../../resources/gui-bridge/modes/subagent-title-contracts";
 
 /** Prefs key; on unless stored `false`. Off: the tools are unregistered from every live local session. */
 export const AGENT_CONTROL_PREF = "agentControl";
@@ -218,12 +218,7 @@ export function agentTaskTitle(prompt: string): string | null {
 	const start = WRAPPED_START.exec(text);
 	if (!start) return null;
 	const body = text.slice(start[0].length).replace(WRAPPED_END, "");
-	const line =
-		assignmentTitle(body) ??
-		body
-			.split("\n")
-			.find(entry => entry.trim() !== "")
-			?.trim();
+	const line = assignmentHeadline(body);
 	if (!line) return null;
 	return line.length > TASK_TITLE_MAX ? `${line.slice(0, TASK_TITLE_MAX - 1)}…` : line;
 }

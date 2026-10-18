@@ -10,7 +10,11 @@
  * registry (filled in as transcripts load) for nested ones.
  */
 
-import { assignmentTitle } from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
+import {
+	assignmentHeadline,
+	assignmentTitle,
+	stripTitlePrefix,
+} from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import type { BadgeVariant } from "../common";
@@ -107,7 +111,12 @@ export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): s
 	// the sidecar's tiny-model UI label. `assignment` is the
 	// complete delegated prompt and may include markdown/system scaffolding, so
 	// it belongs in the transcript rather than the compact row heading.
-	const raw = assignmentTitle(agent.assignment) ?? agent.description ?? agent.assignment ?? agent.task ?? agent.agent;
+	const raw =
+		assignmentTitle(agent.assignment) ??
+		(agent.description ? stripTitlePrefix(agent.description) : undefined) ??
+		assignmentHeadline(agent.assignment) ??
+		assignmentHeadline(agent.task) ??
+		agent.agent;
 	const text = raw.trim() || agent.agent;
 	return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }

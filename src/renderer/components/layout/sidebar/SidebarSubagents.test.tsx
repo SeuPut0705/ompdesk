@@ -1,11 +1,9 @@
 /**
- * Sidebar subagent child rows: a session open in a tab lists only its live
- * subagents as session-style rows nested by spawn parent (max two levels),
- * collapsed behind a live-count disclosure until expanded; a subagent's row
- * disappears once it finishes and the expanded state goes with the last one;
- * closed sessions and sessions without live subagents render nothing;
- * clicking a row opens the live transcript against the owning tab; reveal
- * expands the rows and focuses the first one.
+ * A session's family in the sidebar: the subagents of a session open in a tab and the sessions its agent opened,
+ * one compact line each under the session row. One summary chip on the row (subagents · opened sessions, the running
+ * count highlighted); the group opens by itself while a child runs or waits and folds when the last one is done, the
+ * person's toggle standing in between; finished subagents fold into one "n done" row; clicking a subagent opens
+ * the live transcript against the owning tab; reveal expands the rows and focuses the first one.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -20,6 +18,7 @@ import type { SubagentGraphStore } from "../../../stores/subagent-graph";
 import type { SubagentsStore } from "../../../stores/subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
 import { useUiStore } from "../../../stores/ui";
+import type { FamilyOpened } from "./SidebarSubagents";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -51,6 +50,7 @@ interface TestElement {
 	parentElement: TestElement | null;
 	getAttribute: (name: string) => string | null;
 	querySelector: (selector: string) => TestElement | null;
+	querySelectorAll: (selector: string) => TestElement[];
 	remove: () => void;
 }
 
@@ -73,6 +73,20 @@ function seed(agents: SubagentSnapshot[], owners: Record<string, string> = {}): 
 	});
 }
 
+function opened(overrides: Partial<FamilyOpened> & { key: string }): FamilyOpened {
+	return {
+		kind: "worktree",
+		state: null,
+		stateLabel: "",
+		title: overrides.key,
+		tooltip: overrides.key,
+		selected: false,
+		onOpen: () => undefined,
+		rowProps: { "data-sidebar-opened-session": true, "data-session-path": overrides.key },
+		...overrides,
+	};
+}
+
 async function flush(): Promise<void> {
 	await act(async () => {
 		const { promise, resolve } = Promise.withResolvers<void>();
@@ -92,15 +106,17 @@ async function mount(element: ReactElement): Promise<void> {
 }
 
 /** Dispatch inside act(); linkedom's Event has a getter-only eventPhase React writes to. */
-async function click(target: TestElement | null): Promise<void> {
-	if (!target) throw new Error("click: element is null");
-	const event = new Event("click", { bubbles: true, cancelable: true });
+async function fire(target: TestElement | null, type: string): Promise<void> {
+	if (!target) throw new Error(`${type}: element is null`);
+	const event = new Event(type, { bubbles: true, cancelable: true });
 	Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
 	await act(async () => {
 		target.dispatchEvent(event);
 	});
 	await flush();
 }
+
+const click = (target: TestElement | null) => fire(target, "click");
 
 function rowIds(): (string | null)[] {
 	return Array.from(document.querySelectorAll("[data-sidebar-subagent]")).map(element =>
@@ -114,27 +130,47 @@ function row(id: string): TestElement {
 	return found;
 }
 
-/** Tree depth of a child row (0 = spawned by the session). */
+function openedRow(key: string): TestElement {
+	const found = Array.from(document.querySelectorAll("[data-sidebar-opened-session]")).find(
+		element => element.getAttribute("data-session-path") === key,
+	) as unknown as TestElement | undefined;
+	if (!found) throw new Error(`opened row not found: ${key}`);
+	return found;
+}
+
+/** Tree depth of a subagent row (0 = spawned by the session). */
 function depth(id: string): string | null | undefined {
-	return row(id).parentElement?.getAttribute("data-subagent-depth");
+	return row(id).parentElement?.parentElement?.getAttribute("data-subagent-depth");
 }
 
 function toggle(): TestElement | null {
 	return document.querySelector(`[data-sidebar-subagents-toggle="${SESSION}"]`) as unknown as TestElement | null;
 }
 
-/** Disclosure + rows, the way the sidebar mounts them for one session row. */
-function Session({ sessionKey = SESSION, tabId = TAB }: { sessionKey?: string; tabId?: string }) {
-	return (
-		<>
-			<SidebarSubagentsToggle sessionKey={sessionKey} tabId={tabId} />
-			<SidebarSubagents sessionKey={sessionKey} tabId={tabId} />
-		</>
-	);
+function groupText(): string {
+	return (document.querySelector("[data-sidebar-family]") as unknown as TestElement | null)?.textContent ?? "";
 }
 
-function expand(): void {
-	act(() => useSidebarSubagentsStore.getState().setExpanded(SESSION, true));
+function doneFold(): TestElement | null {
+	return document.querySelector(`[data-family-done="${SESSION}"]`) as unknown as TestElement | null;
+}
+
+/** Chip + rows, the way the sidebar mounts them for one session row. */
+function Session({
+	sessionKey = SESSION,
+	tabId = TAB,
+	kids = [],
+}: {
+	sessionKey?: string;
+	tabId?: string;
+	kids?: readonly FamilyOpened[];
+}) {
+	return (
+		<>
+			<SidebarSubagentsToggle opened={kids} sessionKey={sessionKey} tabId={tabId} />
+			<SidebarSubagents opened={kids} sessionKey={sessionKey} tabId={tabId} />
+		</>
+	);
 }
 
 beforeEach(() => {
@@ -162,38 +198,296 @@ afterEach(async () => {
 		expanded: new Set(),
 		hidden: new Set(),
 		present: new Set(),
+		active: new Set(),
 		reveal: null,
 	});
 	useUiStore.setState({ sidebarVisible: true, panelVisible: false, panelTab: "diff", panelSubagent: null });
 });
 
-describe("SidebarSubagents", () => {
-	it("starts collapsed behind a live-count disclosure that toggles the rows", async () => {
+describe("a session's family: the summary chip", () => {
+	it("says how many subagents and opened sessions there are, and highlights the running count", async () => {
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "r2", index: 2, status: "parked" }),
-			snap({ id: "r3", index: 3, status: "pending" }),
-			snap({ id: "old", index: 4, status: "completed" }),
+			snap({ id: "old", index: 3, status: "completed" }),
 		]);
-		await mount(<Session />);
+		const children = [
+			opened({ key: "/wt/a.jsonl", state: "running", stateLabel: "Running" }),
+			opened({ key: "/wt/b.jsonl", kind: "session", state: "done", stateLabel: "Run completed" }),
+		];
+		await mount(<Session kids={children} />);
 
-		expect(rowIds()).toEqual([]);
-		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
-		expect(toggle()?.textContent).toBe("3");
-		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-		expect(toggle()?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.show", { count: 3 }));
-
-		await click(toggle());
-		expect(rowIds()).toEqual(["r1", "r2", "r3"]);
-		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-		expect(toggle()?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.hide", { count: 3 }));
-
-		await click(toggle());
-		expect(rowIds()).toEqual([]);
-		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+		const chip = toggle();
+		expect(chip?.querySelector("[data-family-agents]")?.textContent).toBe("3");
+		expect(chip?.querySelector("[data-family-sessions]")?.textContent).toBe("2");
+		// r1 and the first opened session run: the running count is the highlighted pill.
+		const pill = chip?.querySelector("[data-family-running]");
+		expect(pill?.textContent).toBe("2");
+		expect(pill?.className).toContain("bg-(--sc-accent)");
+		expect(chip?.getAttribute("aria-label")).toBe(
+			translate("sidebar.family.hide", {
+				summary: [
+					translate("sidebar.family.agents", { count: 3 }),
+					translate("sidebar.family.sessions", { count: 2 }),
+					translate("sidebar.family.running", { count: 2 }),
+				].join(", "),
+			}),
+		);
 	});
 
-	it("renders live subagents as session-style child rows nested by spawner; closed sessions show nothing", async () => {
+	it("shows only what exists: no pill with nothing running, nothing at all without a family", async () => {
+		seed([snap({ id: "r1", status: "completed" })]);
+		await mount(<Session />);
+		expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("1");
+		expect(toggle()?.querySelector("[data-family-sessions]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).toBeNull();
+
+		seed([]);
+		await flush();
+		expect(toggle()).toBeNull();
+	});
+
+	it("shows the opened sessions of a tab that has no runtime yet (a relaunch that woke nothing)", async () => {
+		const children = [opened({ key: "/wt/a.jsonl", title: "Check the build" })];
+		await mount(<Session kids={children} sessionKey={SESSION} tabId="t-asleep" />);
+		expect(toggle()?.querySelector("[data-family-sessions]")?.textContent).toBe("1");
+		await click(toggle());
+		expect(openedRow("/wt/a.jsonl").textContent).toContain("Check the build");
+	});
+});
+
+describe("a session's family: open and closed", () => {
+	it("opens by itself while a child runs, folds when the last one is done, and starts the next fan-out open", async () => {
+		await mount(<Session kids={[opened({ key: "/wt/a.jsonl", state: "idle" })]} />);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+
+		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
+		await flush();
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+		expect(rowIds()).toEqual(["r1", "r2"]);
+
+		// One finished, one still running: stays open.
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "running" })]);
+		await flush();
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "completed" })]);
+		await flush();
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+		expect(document.querySelector("[data-sidebar-family]")).toBeNull();
+		// Still a family: the chip stays, now with nothing running.
+		expect(toggle()?.querySelector("[data-family-running]")).toBeNull();
+
+		seed([snap({ id: "r3", index: 3, status: "running" })]);
+		await flush();
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("a waiting child keeps the family open like a running one", async () => {
+		const children = [opened({ key: "/wt/a.jsonl", state: "waiting", stateLabel: "Needs approval" })];
+		await mount(<Session kids={children} />);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+		expect(openedRow("/wt/a.jsonl").querySelector('[data-family-status="waiting"]')).not.toBeNull();
+	});
+
+	it("remembers the person's own toggle between two edges, per session", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" })]);
+		await mount(
+			<>
+				<Session />
+				<Session sessionKey="/work/alpha/other.jsonl" tabId="t-asleep" />
+			</>,
+		);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+
+		await click(toggle());
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+		expect(rowIds()).toEqual([]);
+		// A progress frame that changes nothing about who runs leaves the choice alone.
+		seed([snap({ id: "r1", index: 1, status: "running", lastUpdate: Date.now() + 1000 })]);
+		await flush();
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+		// The other session has nothing: untouched.
+		expect(useSidebarSubagentsStore.getState().expanded.has("/work/alpha/other.jsonl")).toBe(false);
+
+		await click(toggle());
+		expect(rowIds()).toEqual(["r1"]);
+	});
+
+	it("the chip's menu expands, collapses, hides and shows groups", async () => {
+		seed([snap({ id: "r1", index: 1, status: "completed", progress: { tokens: 128_400, toolCount: 48 } as never })]);
+		await mount(<Session />);
+		const pick = async (label: string) => {
+			await fire(toggle(), "contextmenu");
+			const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+				node => node.textContent === label,
+			) as unknown as TestElement | undefined;
+			await click(item ?? null);
+		};
+		await pick("Expand all");
+		await click(doneFold());
+		expect(rowIds()).toEqual(["r1"]);
+		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("128.4k tokens · 48 tool calls");
+		await pick("Collapse all");
+		expect(rowIds()).toEqual([]);
+		await pick("Hide this session's subagents");
+		expect(toggle()).toBeNull();
+		act(() => useSidebarSubagentsStore.getState().showAll());
+		await flush();
+		expect(toggle()).not.toBeNull();
+	});
+
+	it("hiding the subagents leaves the sessions the agent opened", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" })]);
+		act(() => useSidebarSubagentsStore.getState().setHidden(SESSION, true));
+		await mount(<Session kids={[opened({ key: "/wt/a.jsonl", title: "Check the build" })]} />);
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-sessions]")?.textContent).toBe("1");
+		await click(toggle());
+		expect(rowIds()).toEqual([]);
+		expect(openedRow("/wt/a.jsonl")).not.toBeNull();
+	});
+
+	it("reveal shows the sidebar, expands the collapsed rows and focuses the first one", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
+		useUiStore.setState({ sidebarVisible: false });
+		await mount(<Session />);
+		// Running opens the group; the person folds it before asking to see the agents.
+		act(() => useSidebarSubagentsStore.getState().setExpanded(SESSION, false));
+		await flush();
+		expect(rowIds()).toEqual([]);
+
+		const focus = vi.spyOn(HTMLElement.prototype, "focus");
+		try {
+			act(() => revealSidebarSubagents(TAB));
+			await flush();
+			expect(useUiStore.getState().sidebarVisible).toBe(true);
+			expect(rowIds()).toEqual(["r1", "r2"]);
+			expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+			expect(focus).toHaveBeenCalledTimes(1);
+			expect(focus.mock.contexts[0]).toBe(row("r1").querySelector("button"));
+			expect(useSidebarSubagentsStore.getState().reveal).toBeNull();
+		} finally {
+			focus.mockRestore();
+		}
+	});
+});
+
+describe("a session's family: one-line rows", () => {
+	it("draws a subagent as one line: kind glyph, the title, one token and the age; the status is the tooltip", async () => {
+		seed(
+			[
+				snap({
+					id: "r1",
+					index: 1,
+					agent: "scout",
+					description: "map the repo",
+					status: "running",
+					lastUpdate: Date.now() - 635_000,
+					progress: { lastIntent: "Reading the router", resolvedModel: "claude-x" } as never,
+				}),
+				snap({ id: "r2", index: 2, description: "park me", status: "parked" }),
+			],
+			{},
+		);
+		await mount(<Session />);
+
+		const first = row("r1");
+		expect(first.className).toContain("omp-family-row");
+		// ONE line: a glyph, one button (the title), the token and the age: no description line under the title.
+		expect(first.querySelectorAll("button").length).toBe(1);
+		expect(first.querySelector('[data-family-glyph="subagent"]')).not.toBeNull();
+		expect(first.querySelector('[data-family-status="running"]')).not.toBeNull();
+		expect(first.textContent).toContain("map the repo");
+		expect(first.textContent).toContain("10m");
+		expect(first.textContent).not.toContain("Reading the router");
+		expect(first.textContent).not.toContain("scout ·");
+		const tooltip = first.querySelector("button")?.getAttribute("title") ?? "";
+		expect(tooltip).toContain("scout · map the repo");
+		expect(tooltip).toContain("10m 35s");
+		expect(tooltip).toContain("Reading the router");
+		expect(tooltip).toContain("claude-x");
+		// Paused, not working: its own token.
+		expect(row("r2").querySelector('[data-family-status="idle"]')).not.toBeNull();
+		expect(row("r1").getAttribute("data-signal")).toBe("running");
+		expect(row("r2").getAttribute("data-signal")).toBeNull();
+		// Focusable row button in the sidebar's roving list.
+		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
+		expect(formatCompactElapsed(12_000)).toBe("12s");
+		expect(formatCompactElapsed(635_000)).toBe("10m");
+		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
+	});
+
+	it("never shows the Title: label of a task, in a subagent row or an opened session's", async () => {
+		seed([
+			snap({ id: "r1", index: 1, assignment: "Title: 휴대폰 테스트 정리\nRead the tests." }),
+			snap({ id: "r2", index: 2, description: "Title: Fix the upload", status: "running" }),
+			snap({ id: "r3", index: 3, task: `Title: ${"x".repeat(130)}`, status: "running" }),
+		]);
+		await mount(<Session />);
+		expect(row("r1").textContent).toContain("휴대폰 테스트 정리");
+		expect(row("r2").textContent).toContain("Fix the upload");
+		for (const id of ["r1", "r2", "r3"]) expect(row(id).textContent).not.toContain("Title:");
+		expect(row("r3").querySelector("button")?.getAttribute("title")).not.toContain("Title:");
+	});
+
+	it("draws an opened session the same way: worktree or plain glyph, its title, the token and the age", async () => {
+		const children = [
+			opened({
+				key: "/wt/a.jsonl",
+				kind: "worktree",
+				title: "Check the build",
+				state: "running",
+				stateLabel: "Running",
+				age: "3m",
+				tooltip: "Check the build\nRunning\n/wt/a",
+			}),
+			opened({ key: "/wt/b.jsonl", kind: "session", title: "Review", state: "failed", stateLabel: "Failed" }),
+			opened({ key: "/wt/c.jsonl", kind: "session", title: "Idle one", state: null }),
+		];
+		await mount(<Session kids={children} />);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+
+		const a = openedRow("/wt/a.jsonl");
+		expect(a.className).toContain("omp-family-row");
+		expect(a.querySelectorAll("button").length).toBe(1);
+		expect(a.querySelector('[data-family-glyph="worktree"]')).not.toBeNull();
+		expect(a.querySelector('[data-family-status="running"]')).not.toBeNull();
+		expect(a.textContent).toContain("Check the build");
+		expect(a.textContent).toContain("3m");
+		expect(a.textContent).not.toContain("/wt/a");
+		expect(a.querySelector("button")?.getAttribute("title")).toContain("/wt/a");
+		expect(openedRow("/wt/b.jsonl").querySelector('[data-family-glyph="session"]')).not.toBeNull();
+		expect(openedRow("/wt/b.jsonl").querySelector('[data-family-status="failed"]')).not.toBeNull();
+		// Merely open: no token at all.
+		expect(openedRow("/wt/c.jsonl").querySelector("[data-family-status]")).toBeNull();
+	});
+
+	it("an opened session's row opens it, and the selected one reads as current", async () => {
+		const onOpen = vi.fn();
+		await mount(<Session kids={[opened({ key: "/wt/a.jsonl", state: "running", selected: true, onOpen })]} />);
+		await click(openedRow("/wt/a.jsonl").querySelector("button"));
+		expect(onOpen).toHaveBeenCalledTimes(1);
+		expect(openedRow("/wt/a.jsonl").querySelector("button")?.getAttribute("aria-current")).toBe("true");
+	});
+
+	it("lists subagents, then the opened sessions, then the 'n done' row, in one group", async () => {
+		seed([
+			snap({ id: "r1", index: 1, status: "running" }),
+			snap({ id: "d1", index: 2, status: "completed" }),
+			snap({ id: "d2", index: 3, status: "completed" }),
+		]);
+		await mount(<Session kids={[opened({ key: "/wt/a.jsonl", title: "Check the build" })]} />);
+		expect(document.querySelectorAll("[data-sidebar-family]").length).toBe(1);
+		expect(rowIds()).toEqual(["r1"]);
+		const text = groupText();
+		expect(text.indexOf("Check the build")).toBeGreaterThan(-1);
+		expect(text.indexOf("Check the build")).toBeLessThan(
+			text.indexOf(translate("sidebar.family.done", { count: 2 })),
+		);
+	});
+
+	it("nests sub-subagents one more step and keeps the tree connectors", async () => {
 		seed(
 			[
 				snap({ id: "r1", index: 1, agent: "scout", description: "map the repo", status: "running" }),
@@ -204,151 +498,61 @@ describe("SidebarSubagents", () => {
 			],
 			{ "call-x": "r2" },
 		);
-		expand();
 		await mount(
 			<>
 				<Session />
 				<Session sessionKey="/work/alpha/closed.jsonl" tabId="t-closed" />
 			</>,
 		);
-
 		expect(rowIds()).toEqual(["r1", "c1", "g1", "r2", "c2"]);
 		expect(document.querySelectorAll("[data-sidebar-subagents]").length).toBe(1);
-		expect(document.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
-		// Same row component as sessions; top-level spawns sit one step in, grandchildren clamp to two.
-		expect(row("r1").className).toContain("omp-sidebar-session-row");
 		expect([depth("r1"), depth("c1"), depth("g1"), depth("r2"), depth("c2")]).toEqual(["0", "1", "1", "0", "1"]);
-		// Tree connectors: one down the group from the session icon, one per sub-subagent row.
 		const group = document.querySelector("[data-sidebar-subagents]") as unknown as TestElement;
 		expect(group.querySelector('[data-sidebar-subagents-connector="0"]')).not.toBeNull();
 		expect(row("c1").parentElement?.querySelector('[data-sidebar-subagents-connector="1"]')).not.toBeNull();
 		expect(row("r1").parentElement?.querySelector("[data-sidebar-subagents-connector]")).toBeNull();
-		// Status signal: the working row's edge light (no spinner), a pause glyph while parked.
-		expect(row("r1").getAttribute("data-signal")).toBe("running");
-		expect(row("r1").querySelector(".animate-spin")).toBeNull();
-		expect(row("r2").getAttribute("data-signal")).toBeNull();
-		expect(row("r2").querySelector(".lucide-pause")).not.toBeNull();
-		// Focusable row button in the sidebar's roving list.
-		expect(row("r1").querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
-		// The row spends its width on the task; the role is in the tooltip.
-		expect(row("r1").textContent).toContain("map the repo");
-		expect(row("r1").textContent).not.toContain("scout ·");
-		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("scout · map the repo");
 	});
+});
 
-	it("shows compact elapsed time and keeps the full value in the tooltip", async () => {
-		// No progress sample yet: elapsed counts from the last update, 10m 35s ago.
-		seed([snap({ id: "r1", status: "running", lastUpdate: Date.now() - 635_000 })]);
-		expand();
-		await mount(<Session />);
-		expect(row("r1").textContent).toContain("10m");
-		expect(row("r1").textContent).not.toContain("10m 35s");
-		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("10m 35s");
-
-		expect(formatCompactElapsed(12_000)).toBe("12s");
-		expect(formatCompactElapsed(635_000)).toBe("10m");
-		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
-	});
-
-	it("drops a subagent the moment it completes, fails or is aborted; waiting ones stay; the expanded state goes with the last", async () => {
+describe("a session's family: finished subagents", () => {
+	it("folds finished ones into 'n done' at the end; failed and waiting ones stay rows", async () => {
 		// The main turn is still running: that must not keep finished agents listed.
 		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([
-			snap({ id: "r1", index: 1, status: "running" }),
-			snap({ id: "r2", index: 2, status: "running" }),
-			snap({ id: "r3", index: 3, status: "parked" }),
-			snap({ id: "old", index: 4, status: "completed" }),
-		]);
-		expand();
-		await mount(<Session />);
-		expect(rowIds()).toEqual(["r1", "r2", "r3"]);
-
-		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
 			snap({ id: "r2", index: 2, status: "running" }),
 			snap({ id: "r3", index: 3, status: "parked" }),
-			snap({ id: "old", index: 4, status: "completed" }),
+			snap({ id: "r4", index: 4, status: "stale" }),
+			snap({ id: "d1", index: 5, status: "completed" }),
+			snap({ id: "d2", index: 6, status: "aborted" }),
+			snap({ id: "d3", index: 7, status: "cancelled" }),
 		]);
-		await flush();
-		expect(rowIds()).toEqual(["r2", "r3"]);
-		expect(toggle()?.textContent).toBe("2");
-
-		seed([
-			snap({ id: "r1", index: 1, status: "failed" }),
-			snap({ id: "r2", index: 2, status: "aborted" }),
-			snap({ id: "r3", index: 3, status: "completed" }),
-			snap({ id: "old", index: 4, status: "completed" }),
-		]);
-		await flush();
-		expect(rowIds()).toEqual([]);
-		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
-		expect(toggle()).toBeNull();
-		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
-
-		// The next fan-out starts collapsed.
-		seed([snap({ id: "r4", index: 5, status: "running" })]);
-		await flush();
-		expect(rowIds()).toEqual([]);
-		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-		expect(toggle()?.textContent).toBe("1");
-	});
-
-	it("the disclosure menu expands, collapses, hides and shows groups", async () => {
-		seed([snap({ id: "r1", index: 1, status: "running", progress: { tokens: 128_400, toolCount: 48 } as never })]);
 		await mount(<Session />);
-		expect(toggle()?.querySelector("[data-working]")).not.toBeNull();
-		const fire = async (target: TestElement | null, type: string) => {
-			if (!target) throw new Error(`${type}: element is null`);
-			const event = new Event(type, { bubbles: true, cancelable: true });
-			Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
-			await act(async () => {
-				target.dispatchEvent(event);
-			});
-			await flush();
-		};
-		const pick = async (label: string) => {
-			await fire(toggle(), "contextmenu");
-			const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-				node => node.textContent === label,
-			) as unknown as TestElement | undefined;
-			await click(item ?? null);
-		};
-		await pick("Expand all");
-		expect(rowIds()).toEqual(["r1"]);
-		expect(row("r1").textContent).toContain("128.4k tokens · 48 tool calls");
-		await pick("Collapse all");
-		expect(rowIds()).toEqual([]);
-		await pick("Hide this session's subagents");
-		expect(toggle()).toBeNull();
-		act(() => useSidebarSubagentsStore.getState().showAll());
-		await flush();
-		expect(toggle()).not.toBeNull();
+		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4"]);
+		expect(row("r1").querySelector('[data-family-status="failed"]')).not.toBeNull();
+		expect(row("r4").querySelector('[data-family-status="waiting"]')).not.toBeNull();
+		expect(doneFold()?.textContent).toBe(translate("sidebar.family.done", { count: 3 }));
+		expect(doneFold()?.getAttribute("aria-expanded")).toBe("false");
+
+		await click(doneFold());
+		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4", "d1", "d2", "d3"]);
+		expect(row("d1").querySelector('[data-family-status="done"]')).not.toBeNull();
+		expect(doneFold()?.getAttribute("aria-expanded")).toBe("true");
+		await click(doneFold());
+		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4"]);
 	});
 
-	it("lists no finished subagent even while the main turn runs, and the badge counts only live ones", async () => {
-		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
-		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
-		await mount(<Session />);
-		expect(toggle()?.textContent).toBe("2");
-		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "running" })]);
-		await flush();
-		expect(toggle()?.textContent).toBe("1");
-		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "failed" })]);
-		await flush();
-		expect(toggle()).toBeNull();
-	});
-
-	it("keeps the transcript sheet of an opened subagent when it finishes, though its row leaves", async () => {
+	it("keeps the transcript sheet of an opened subagent when it finishes", async () => {
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
-		expand();
 		await mount(<Session />);
 		await click(row("r1").querySelector("button"));
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
 
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl", status: "completed" })]);
 		await flush();
+		// Folded behind "1 done", the sheet is still open.
 		expect(rowIds()).toEqual([]);
-		expect(toggle()).toBeNull();
+		expect(doneFold()).toBeNull();
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
 	});
 
@@ -357,15 +561,15 @@ describe("SidebarSubagents", () => {
 			snap({ id: "p", index: 1, status: "completed" }),
 			snap({ id: "c", index: 2, status: "running", parentSubagentId: "p" }),
 		]);
-		expand();
 		await mount(<Session />);
 		expect(rowIds()).toEqual(["c"]);
 		expect(depth("c")).toBe("0");
 	});
+});
 
+describe("a session's family: opening a subagent", () => {
 	it("opens the subagent's live transcript against its own tab on click", async () => {
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
-		expand();
 		await mount(<Session />);
 		await click(row("r1").querySelector("button"));
 
@@ -383,7 +587,6 @@ describe("SidebarSubagents", () => {
 
 	it("drags a row as an omp:subagent-drag and opens it in the side panel from its menu", async () => {
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
-		expand();
 		await mount(<Session />);
 		const drags: unknown[] = [];
 		const listen = (event: globalThis.Event) => drags.push((event as CustomEvent).detail);
@@ -404,12 +607,7 @@ describe("SidebarSubagents", () => {
 		expect(row("r1").getAttribute("draggable")).toBe("true");
 		expect(drags).toEqual([{ tabId: TAB, agentId: "r1", label: "map the repo" }, null]);
 
-		const contextMenu = new Event("contextmenu", { bubbles: true, cancelable: true });
-		Object.defineProperty(contextMenu, "eventPhase", { value: 0, writable: true, configurable: true });
-		await act(async () => {
-			row("r1").dispatchEvent(contextMenu);
-		});
-		await flush();
+		await fire(row("r1"), "contextmenu");
 		const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
 			node => node.textContent === "Open in side panel",
 		) as unknown as TestElement | undefined;
@@ -448,7 +646,7 @@ describe("SidebarSubagents", () => {
 		expect(document.body.textContent).toContain(translate("panel.subagent.gone"));
 	});
 
-	it("the side panel's Subagent view of an already finished subagent keeps working while its row is gone", async () => {
+	it("the side panel's Subagent view of an already finished subagent keeps working", async () => {
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl", status: "completed" })]);
 		act(() => useUiStore.getState().openSubagentPanel({ tabId: TAB, agentId: "r1" }));
 		await mount(
@@ -457,32 +655,9 @@ describe("SidebarSubagents", () => {
 				<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />
 			</>,
 		);
-		expect(rowIds()).toEqual([]);
-		expect(toggle()).toBeNull();
 		expect(document.querySelector('[data-panel-subagent="r1"]')?.textContent).toContain("map the repo");
 		// Finished: no steer box.
 		expect(document.querySelector("[data-subagent-steer]")).toBeNull();
 		expect(document.body.textContent).not.toContain(translate("panel.subagent.gone"));
-	});
-
-	it("reveal shows the sidebar, expands the collapsed rows and focuses the first one", async () => {
-		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
-		useUiStore.setState({ sidebarVisible: false });
-		await mount(<Session />);
-		expect(rowIds()).toEqual([]);
-
-		const focus = vi.spyOn(HTMLElement.prototype, "focus");
-		try {
-			act(() => revealSidebarSubagents(TAB));
-			await flush();
-			expect(useUiStore.getState().sidebarVisible).toBe(true);
-			expect(rowIds()).toEqual(["r1", "r2"]);
-			expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-			expect(focus).toHaveBeenCalledTimes(1);
-			expect(focus.mock.contexts[0]).toBe(row("r1").querySelector("button"));
-			expect(useSidebarSubagentsStore.getState().reveal).toBeNull();
-		} finally {
-			focus.mockRestore();
-		}
 	});
 });

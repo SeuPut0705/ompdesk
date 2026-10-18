@@ -1,29 +1,26 @@
 /**
- * Live subagents as child rows directly under their sidebar session row. Only
- * a session open in a tab has a roster (its runtime's subagents store);
- * closed sessions render nothing. Each group subscribes to its own tab's
- * stores, so a progress frame re-renders that group — never the whole sidebar.
+ * A session's family under its sidebar row: the subagents it spawned and the sessions its agent opened (in a worktree
+ * or not), one compact line each, one indent level. Only a session open in a tab has a subagent roster (its runtime's
+ * subagents store); the opened sessions come from the sidebar (`opened`, built from the tabs' provenance) and show
+ * whether or not the opener's runtime exists, so a relaunched family reads the same before anything wakes.
  *
- * Only live subagents (running, pending, parked/idle) are listed: a row
- * disappears as soon as its subagent reaches a terminal state. The rows are
- * collapsed by default: the session row carries a disclosure (chevron + live
- * count) and the expanded state lives per session in the sidebar-subagents
- * store until the session has no live subagents left. Expanded rows hang off
- * a tree connector under the session icon, share the session row's look
- * (ListRow), are part of the sidebar's roving list (arrow keys) and open the
- * subagent's live transcript against the owning tab — not a second sidecar,
- * since the parent's omp is still writing that session file. A row dragged
- * onto a session pane (`omp:subagent-drag`, SplitWorkspace) or "Open in side
- * panel" shows that transcript in the side panel instead. Right-click (or
- * the menu key) offers Stop.
+ * The parent row carries one summary chip ("🤖5 · ⑂4", the running count highlighted). The group is collapsed until a
+ * child runs or waits, opens by itself then and folds when the last one is done; the person's own toggle stands in
+ * between, remembered per session (`stores/sidebar-subagents`). Finished subagents fold into one "n done" row at the
+ * end. Rows share one look (`SidebarFamilyRow`), are part of the sidebar's roving list (arrow keys) and a subagent
+ * opens its live transcript against the owning tab — not a second sidecar, since the parent's omp is still writing
+ * that session file. A subagent row dragged onto a session pane (`omp:subagent-drag`, SplitWorkspace) or "Open in
+ * side panel" shows that transcript in the side panel instead. Right-click (or the menu key) offers Stop.
+ * Each group subscribes to its own tab's stores, so a progress frame re-renders that group — never the whole sidebar.
  */
 
-import { Bot, Pause } from "lucide-react";
+import { Bot, ChevronRight, GitBranch } from "lucide-react";
 import {
 	memo,
 	type DragEvent as ReactDragEvent,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -35,7 +32,7 @@ import { hideNativeDragImage } from "../../../lib/drag-image";
 import { cx, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
-import { useTabRpc } from "../../../lib/tab-rpc";
+import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
 import {
 	SessionRuntimeProvider,
@@ -46,7 +43,7 @@ import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../store
 import { useSubagentGraphStore } from "../../../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { useUiStore } from "../../../stores/ui";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, ListRow } from "../../common";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common";
 import { SubagentTranscriptSheet } from "../../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../../panels/subagent-actions";
 import {
@@ -56,73 +53,57 @@ import {
 	subagentElapsedMs,
 	subagentPrimaryLabel,
 } from "../../panels/subagent-graph";
+import { FamilyRow, type FamilyRowProps } from "./SidebarFamilyRow";
+import {
+	buildSubagentFamilyRows,
+	countLiveSubagents,
+	type FamilyCounts,
+	type FamilyState,
+	familyCounts,
+	subagentFamilyState,
+} from "./sidebar-family";
 
-interface SubagentRowModel {
-	agent: SubagentSnapshot;
-	/** 0 = spawned by the session, 1 = spawned by a subagent (deeper clamps to 1). */
-	depth: 0 | 1;
+/** A session the agent of this family's parent opened, as the sidebar prepared its row. */
+export interface FamilyOpened {
+	/** The session's path (its row key). */
+	key: string;
+	/** A session in a worktree of its own, or a plain one. */
+	kind: "worktree" | "session";
+	/** Null: merely open, no token. */
+	state: FamilyState | null;
+	stateLabel: string;
+	title: string;
+	age?: string;
+	tooltip: string;
+	selected: boolean;
+	onOpen: () => void;
+	rowProps?: FamilyRowProps["rowProps"];
+	buttonProps?: FamilyRowProps["buttonProps"];
+	/** Replaces the row while its title is being renamed. */
+	renaming?: ReactNode;
 }
 
-/**
- * Live subagents (working or waiting; never a finished, failed or aborted one)
- * as a pre-order spawn tree in spawn order. Parent: the explicit wire link, else
- * the subagent whose transcript owns the spawning `task` call; a parent that is
- * not listed, unresolved or cyclic makes the agent a top-level spawn of the session.
- */
-function buildSidebarSubagentRows(
-	subagents: ReadonlyMap<string, SubagentSnapshot>,
-	toolCallOwners: ReadonlyMap<string, string>,
-): SubagentRowModel[] {
-	const live = new Map<string, SubagentSnapshot>();
-	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) live.set(agent.id, agent);
-	const agents = [...live.values()].sort((a, b) => a.index - b.index);
-	const children = new Map<string, SubagentSnapshot[]>();
-	const roots: SubagentSnapshot[] = [];
-	for (const agent of agents) {
-		const linked = agent.parentSubagentId;
-		const owner = agent.parentToolCallId ? toolCallOwners.get(agent.parentToolCallId) : undefined;
-		const parentId =
-			linked && linked !== agent.id && live.has(linked)
-				? linked
-				: owner && owner !== agent.id && live.has(owner)
-					? owner
-					: undefined;
-		if (!parentId) {
-			roots.push(agent);
-			continue;
-		}
-		const siblings = children.get(parentId);
-		if (siblings) siblings.push(agent);
-		else children.set(parentId, [agent]);
-	}
+const NO_OPENED: readonly FamilyOpened[] = [];
+const NO_AGENTS: ReadonlyMap<string, SubagentSnapshot> = new Map();
+const NO_OWNERS: ReadonlyMap<string, string> = new Map();
 
-	const rows: SubagentRowModel[] = [];
-	const visited = new Set<string>();
-	const visit = (agent: SubagentSnapshot, level: number) => {
-		if (visited.has(agent.id)) return;
-		visited.add(agent.id);
-		rows.push({ agent, depth: level === 0 ? 0 : 1 });
-		for (const child of children.get(agent.id) ?? []) visit(child, level + 1);
-	};
-	for (const root of roots) visit(root, 0);
-	// A parent cycle leaves members unreached from any root: show them flat.
-	for (const agent of agents) visit(agent, 0);
-	return rows;
+/** What the tab's runtime tells the group; absent runtime (a tab not woken yet) tells it nothing. */
+interface AgentSlice {
+	subagents: ReadonlyMap<string, SubagentSnapshot>;
+	owners: ReadonlyMap<string, string>;
+	ready: boolean;
+	rpc: TabRpc | null;
 }
 
-/** Live but waiting rather than working: paused glyph; a working agent shows the row's edge light instead of a spinner. */
-const WAITING_STATUSES: Record<string, true> = { parked: true, idle: true };
+const DETACHED: AgentSlice = { subagents: NO_AGENTS, owners: NO_OWNERS, ready: false, rpc: null };
 
-function StatusGlyph({ status }: { status: string }) {
-	if (WAITING_STATUSES[status]) return <Pause aria-hidden className="text-(--sc-text-subtle)" />;
-	return <Bot aria-hidden className="text-(--sc-text-subtle)" />;
-}
-
-/** Live subagents in a roster. */
-function countLiveSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>): number {
-	let count = 0;
-	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) count++;
-	return count;
+/** Inside the tab's `SessionRuntimeProvider`. */
+function useAgentSlice(): AgentSlice {
+	const subagents = useSubagentsStore(s => s.subagents);
+	const owners = useSubagentGraphStore(s => s.toolCallOwners);
+	const ready = useSessionStore(s => s.status) === "ready";
+	const rpc = useTabRpc();
+	return useMemo(() => ({ subagents, owners, ready, rpc }), [subagents, owners, ready, rpc]);
 }
 
 /** Live subagents of the session open in `tabId`, read once (event handlers). */
@@ -169,7 +150,17 @@ function Connector({ nested, depth }: { nested: boolean; depth: 0 | 1 }) {
 	);
 }
 
-const SubagentRow = memo(function SubagentRow({
+function menuKey(event: ReactKeyboardEvent<HTMLButtonElement>): ContextMenuAnchor | null {
+	if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return null;
+	event.preventDefault();
+	const rect = event.currentTarget.getBoundingClientRect();
+	return {
+		x: Number.isFinite(rect.left) ? rect.left : 8,
+		y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
+	};
+}
+
+const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	agent,
 	tabId,
 	depth,
@@ -189,8 +180,10 @@ const SubagentRow = memo(function SubagentRow({
 	onMenu: (id: string, anchor: ContextMenuAnchor) => void;
 }) {
 	const t = useT();
-	const now = useNowTick(true);
+	const live = isLiveSubagentStatus(agent.status);
+	const now = useNowTick(live);
 	const elapsed = subagentElapsedMs(agent, now);
+	const state = subagentFamilyState(agent.status);
 	const statusLabel = t(statusMeta(agent.status).labelKey);
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
@@ -201,6 +194,7 @@ const SubagentRow = memo(function SubagentRow({
 		progress && (progress.tokens > 0 || progress.toolCount > 0)
 			? t("sidebar.subagents.usage", { tokens: formatTokens(progress.tokens), tools: progress.toolCount })
 			: null;
+	// The one line has no room for any of this: it is all the tooltip.
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
@@ -211,28 +205,22 @@ const SubagentRow = memo(function SubagentRow({
 		.filter(Boolean)
 		.join("\n");
 	return (
-		<div className="relative" data-subagent-depth={depth}>
-			{depth === 1 && <Connector depth={1} nested={nested} />}
-			<ListRow
+		<div data-subagent-depth={depth}>
+			<FamilyRow
+				age={elapsed !== null ? formatCompactElapsed(elapsed) : undefined}
 				buttonProps={{
 					tabIndex: -1,
 					"data-roving-item": rovingKey,
 					onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-						if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
-						event.preventDefault();
-						const rect = event.currentTarget.getBoundingClientRect();
-						onMenu(agent.id, {
-							x: Number.isFinite(rect.left) ? rect.left : 8,
-							y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
-						});
+						const anchor = menuKey(event);
+						if (anchor) onMenu(agent.id, anchor);
 					},
 				}}
-				className={cx("omp-sidebar-session-row", INDENT[nested ? "nested" : "top"][depth])}
-				description={note ?? usage ?? undefined}
-				leading={<StatusGlyph status={agent.status} />}
-				// A listed subagent is always working or waiting: its meta is the elapsed time.
-				meta={elapsed !== null ? formatCompactElapsed(elapsed) : undefined}
-				onClick={() => onOpen(agent.id)}
+				connector={depth === 1 ? <Connector depth={1} nested={nested} /> : undefined}
+				indent={INDENT[nested ? "nested" : "top"][depth]}
+				kind="subagent"
+				kindLabel={t("sidebar.family.kind.subagent")}
+				onOpen={() => onOpen(agent.id)}
 				rowProps={{
 					// Onto a session pane: opens in the side panel (SplitWorkspace takes the drop).
 					draggable: true,
@@ -250,50 +238,110 @@ const SubagentRow = memo(function SubagentRow({
 					},
 					"data-active": selected,
 					"data-sidebar-subagent": agent.id,
-					"data-signal": WAITING_STATUSES[agent.status] ? undefined : "running",
+					"data-signal": state === "running" ? "running" : undefined,
 					"data-status": agent.status,
 				}}
 				selected={selected}
-				title={
-					// Quieter than the session row. The role stays in the tooltip: in a
-					// sidebar-width row it only ever truncated to a stub ("ta…").
-					<span className="flex min-w-0 text-sc-sm text-(--sc-text-muted)">
-						<span className="min-w-0 truncate">{primary}</span>
-						<span className="sr-only">, {statusLabel}</span>
-					</span>
-				}
-				titleText={tooltip}
+				state={state}
+				stateLabel={statusLabel}
+				title={primary}
+				tooltip={tooltip}
 			/>
 		</div>
 	);
 });
 
-/**
- * Disclosure on the session row: chevron + count; toggles the child rows
- * without navigating. Right-click offers expand/collapse every session's rows,
- * hiding this session's rows, and bringing hidden ones back.
- */
-function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
+/** The "n done" row: the finished subagents behind it, one click away. */
+function DoneFold({
+	sessionKey,
+	count,
+	open,
+	nested,
+	onToggle,
+}: {
+	sessionKey: string;
+	count: number;
+	open: boolean;
+	nested: boolean;
+	onToggle: () => void;
+}) {
 	const t = useT();
-	const count = useSubagentsStore(s => countLiveSubagents(s.subagents));
-	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
+	return (
+		<button
+			aria-expanded={open}
+			className={cx(
+				"omp-family-row flex w-full items-center gap-1.5 rounded-(--sc-radius-md) pr-2.5 text-left text-sc-xs text-(--sc-text-subtle) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+				INDENT[nested ? "nested" : "top"][0],
+			)}
+			data-family-done={sessionKey}
+			data-roving-item={`family-done:${sessionKey}`}
+			onClick={onToggle}
+			tabIndex={-1}
+			type="button"
+		>
+			<ChevronRight
+				aria-hidden
+				className={cx("size-(--sc-icon-md) shrink-0 transition-transform", open && "rotate-90")}
+			/>
+			<span className="truncate">{t("sidebar.family.done", { count })}</span>
+		</button>
+	);
+}
+
+/** The family's counts as the chip and the open/closed rule read them. */
+function useFamilyCounts(
+	sessionKey: string,
+	slice: AgentSlice,
+	opened: readonly FamilyOpened[],
+): { counts: FamilyCounts; hidden: boolean } {
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
+	const counts = useMemo(
+		() =>
+			familyCounts(
+				slice.subagents.values(),
+				opened.map(child => ({ state: child.state ?? "idle" })),
+				!hidden,
+			),
+		[slice.subagents, opened, hidden],
+	);
+	return { counts, hidden };
+}
+
+/**
+ * Summary chip on the session row: the subagents, the opened sessions and, in a filled pill, how many of them run.
+ * Toggles the child rows without navigating. Right-click offers expand/collapse every session's rows, hiding this
+ * session's subagents, and bringing hidden ones back.
+ */
+function FamilyChip({
+	sessionKey,
+	slice,
+	opened,
+}: {
+	sessionKey: string;
+	slice: AgentSlice;
+	opened: readonly FamilyOpened[];
+}) {
+	const t = useT();
+	const { counts } = useFamilyCounts(sessionKey, slice, opened);
+	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
-	const working = useSubagentsStore(s => countLiveSubagents(s.subagents) > 0);
 	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);
-	useEffect(() => {
-		useSidebarSubagentsStore.getState().setPresent(sessionKey, count > 0);
-		return () => useSidebarSubagentsStore.getState().setPresent(sessionKey, false);
-	}, [sessionKey, count]);
-	if (count === 0 || hidden) return null;
-	const label = t(expanded ? "sidebar.subagents.hide" : "sidebar.subagents.show", { count });
+	if (counts.agents + counts.sessions === 0) return null;
+	const summary = [
+		counts.agents > 0 ? t("sidebar.family.agents", { count: counts.agents }) : "",
+		counts.sessions > 0 ? t("sidebar.family.sessions", { count: counts.sessions }) : "",
+		counts.running > 0 ? t("sidebar.family.running", { count: counts.running }) : "",
+	]
+		.filter(Boolean)
+		.join(", ");
+	const label = t(expanded ? "sidebar.family.hide" : "sidebar.family.show", { summary });
 	const store = useSidebarSubagentsStore.getState;
 	return (
 		<>
 			<button
 				aria-expanded={expanded}
 				aria-label={label}
-				className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) aria-expanded:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
+				className="omp-family-chip flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) aria-expanded:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
 				data-sidebar-subagents-toggle={sessionKey}
 				onClick={() => toggleSidebarSubagents(sessionKey)}
 				onContextMenu={event => {
@@ -305,17 +353,32 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 				title={label}
 				type="button"
 			>
-				{/* A folded group still says its agents are at work. The pulse sits on an
-				    HTML wrapper: Chromium runs no SVG element's animation on the
-				    compositor, so on the icon it restyled and repainted every frame.
-				    Compact chip: icon + count; the open state is the button's wash. */}
-				<span
-					className={cx("inline-flex", working && !expanded && "omp-pulse-dot")}
-					data-working={(working && !expanded) || undefined}
-				>
-					<Bot aria-hidden className="size-(--sc-icon-sm)" />
-				</span>
-				{count}
+				{counts.agents > 0 && (
+					<span className="inline-flex items-center gap-0.5" data-family-agents={counts.agents}>
+						<Bot aria-hidden className="size-(--sc-icon-sm)" />
+						{counts.agents}
+					</span>
+				)}
+				{counts.agents > 0 && counts.sessions > 0 && <span aria-hidden>·</span>}
+				{counts.sessions > 0 && (
+					<span className="inline-flex items-center gap-0.5" data-family-sessions={counts.sessions}>
+						<GitBranch aria-hidden className="size-(--sc-icon-sm)" />
+						{counts.sessions}
+					</span>
+				)}
+				{/* The running count, highlighted. A folded group still says its children are at work: the pill
+				    pulses on an HTML element (Chromium runs no SVG element's animation on the compositor). */}
+				{counts.running > 0 && (
+					<span
+						className={cx(
+							"ml-0.5 min-w-4 rounded-(--sc-radius-full) bg-(--sc-accent) px-1 text-center text-(--sc-accent-fg)",
+							!expanded && "omp-pulse-dot",
+						)}
+						data-family-running={counts.running}
+					>
+						{counts.running}
+					</span>
+				)}
 			</button>
 			{menuAt && (
 				<ContextMenu
@@ -358,23 +421,37 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 	);
 }
 
-function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKey: string; nested: boolean }) {
+function FamilyGroup({
+	tabId,
+	sessionKey,
+	nested,
+	opened,
+	slice,
+}: {
+	tabId: string;
+	sessionKey: string;
+	nested: boolean;
+	opened: readonly FamilyOpened[];
+	slice: AgentSlice;
+}) {
 	const t = useT();
-	const rpc = useTabRpc();
-	const ready = useSessionStore(s => s.status) === "ready";
-	const subagents = useSubagentsStore(s => s.subagents);
-	const toolCallOwners = useSubagentGraphStore(s => s.toolCallOwners);
-	const rows = useMemo(() => buildSidebarSubagentRows(subagents, toolCallOwners), [subagents, toolCallOwners]);
+	const { subagents, owners, ready, rpc } = slice;
+	const model = useMemo(() => buildSubagentFamilyRows(subagents, owners), [subagents, owners]);
+	const { counts, hidden } = useFamilyCounts(sessionKey, slice, opened);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
-	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
+	const [doneOpen, setDoneOpen] = useState(false);
 	// The side panel's Subagent view showing one of this tab's agents marks its row selected.
 	const panelId = useUiStore(s =>
 		s.panelVisible && s.panelTab === "subagent" && s.panelSubagent?.tabId === tabId ? s.panelSubagent.agentId : null,
 	);
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
 	const groupRef = useRef<HTMLDivElement>(null);
+	const rows = hidden ? [] : model.rows;
+	const done = hidden ? [] : model.done;
+	const total = rows.length + done.length + opened.length;
+	const active = counts.active > 0;
 
 	// The transcript stays open when its agent finishes;
 	// sheet and menu close only when the agent leaves the roster.
@@ -384,10 +461,21 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		if (viewingId !== null && !subagents.has(viewingId)) setViewingId(null);
 	}, [viewingId, subagents]);
 
-	// No rows left: forget the expanded state so the next fan-out starts collapsed.
+	// Whether the session has a family at all: "expand all" and the dock's reveal need to know.
 	useEffect(() => {
-		if (rows.length === 0 && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
-	}, [rows.length, expanded, sessionKey]);
+		useSidebarSubagentsStore.getState().setPresent(sessionKey, total > 0);
+		return () => useSidebarSubagentsStore.getState().setPresent(sessionKey, false);
+	}, [sessionKey, total]);
+
+	// Open while a child runs or waits, fold when the last one is done; the person's toggle stands in between.
+	useEffect(() => {
+		useSidebarSubagentsStore.getState().noteFamilyActive(sessionKey, active);
+	}, [sessionKey, active]);
+
+	// No child left: forget the expanded state so the next fan-out starts collapsed.
+	useEffect(() => {
+		if (total === 0 && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
+	}, [total, expanded, sessionKey]);
 
 	// Reveal (dock chip): un-hide and expand first, then focus the first row once it renders.
 	useEffect(() => {
@@ -396,7 +484,7 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 			useSidebarSubagentsStore.getState().setHidden(sessionKey, false);
 			return;
 		}
-		if (rows.length > 0 && !expanded) {
+		if (total > 0 && !expanded) {
 			useSidebarSubagentsStore.getState().setExpanded(sessionKey, true);
 			return;
 		}
@@ -404,42 +492,79 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		const first = groupRef.current?.querySelector<HTMLElement>("[data-roving-item]");
 		first?.scrollIntoView?.({ block: "nearest" });
 		first?.focus();
-	}, [reveal, tabId, rows.length, expanded, hidden, sessionKey]);
+	}, [reveal, tabId, total, expanded, hidden, sessionKey]);
 
 	const openAgent = useCallback((id: string) => setViewingId(id), []);
 	const openMenu = useCallback((id: string, anchor: ContextMenuAnchor) => setMenu({ id, anchor }), []);
 	const openInPanel = (id: string) => useUiStore.getState().openSubagentPanel({ tabId, agentId: id });
 
 	const stoppable = menuAgent !== null && isLiveSubagentStatus(menuAgent.status) && menuAgent.kind !== "advisor";
+	const agentRow = (agent: SubagentSnapshot, depth: 0 | 1) => (
+		<SubagentFamilyRow
+			agent={agent}
+			depth={depth}
+			key={agent.id}
+			nested={nested}
+			onMenu={openMenu}
+			onOpen={openAgent}
+			rovingKey={`subagent:${tabId}:${agent.id}`}
+			selected={agent.id === viewingId || agent.id === panelId}
+			tabId={tabId}
+		/>
+	);
 
 	return (
 		<>
-			{expanded && !hidden && rows.length > 0 && (
+			{expanded && total > 0 && (
 				<div
-					aria-label={t("sidebar.subagents.group")}
+					aria-label={t("sidebar.family.group")}
 					className="relative space-y-px"
+					data-sidebar-family={sessionKey}
 					data-sidebar-subagents={sessionKey}
 					ref={groupRef}
 					role="group"
 				>
 					<Connector depth={0} nested={nested} />
-					{rows.map(row => (
-						<SubagentRow
-							agent={row.agent}
-							tabId={tabId}
-							depth={row.depth}
-							key={row.agent.id}
-							nested={nested}
-							onMenu={openMenu}
-							onOpen={openAgent}
-							rovingKey={`subagent:${tabId}:${row.agent.id}`}
-							selected={row.agent.id === viewingId || row.agent.id === panelId}
-						/>
-					))}
+					{rows.map(row => agentRow(row.agent, row.depth))}
+					{opened.map(child =>
+						child.renaming ? (
+							<div key={child.key}>{child.renaming}</div>
+						) : (
+							<FamilyRow
+								age={child.age}
+								buttonProps={child.buttonProps}
+								indent={INDENT[nested ? "nested" : "top"][0]}
+								key={child.key}
+								kind={child.kind}
+								kindLabel={t(
+									child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session",
+								)}
+								onOpen={child.onOpen}
+								rowProps={child.rowProps}
+								selected={child.selected}
+								state={child.state}
+								stateLabel={child.stateLabel}
+								title={child.title}
+								tooltip={child.tooltip}
+							/>
+						),
+					)}
+					{done.length > 0 && (
+						<>
+							<DoneFold
+								count={done.length}
+								nested={nested}
+								onToggle={() => setDoneOpen(open => !open)}
+								open={doneOpen}
+								sessionKey={sessionKey}
+							/>
+							{doneOpen && done.map(agent => agentRow(agent, 0))}
+						</>
+					)}
 				</div>
 			)}
-			<SubagentTranscriptSheet agent={viewing} onClose={() => setViewingId(null)} />
-			{menu && menuAgent && (
+			{rpc && <SubagentTranscriptSheet agent={viewing} onClose={() => setViewingId(null)} />}
+			{rpc && menu && menuAgent && (
 				<ContextMenu
 					ariaLabel={t("sidebar.subagents.menu")}
 					items={[
@@ -486,48 +611,59 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 	);
 }
 
+/** The group reading the tab's runtime; only ever rendered inside that runtime's provider. */
+function AttachedGroup(props: { tabId: string; sessionKey: string; nested: boolean; opened: readonly FamilyOpened[] }) {
+	return <FamilyGroup {...props} slice={useAgentSlice()} />;
+}
+
+function AttachedChip(props: { sessionKey: string; opened: readonly FamilyOpened[] }) {
+	return <FamilyChip {...props} slice={useAgentSlice()} />;
+}
+
 /**
- * Mount point under a sidebar session row whose session is open in `tabId`.
- * Primitive props + memo: the sidebar's own re-renders don't reach the group.
+ * Mount point under a sidebar session row whose session is open in `tabId`. `opened` are the sessions its agent
+ * opened (the sidebar builds their rows); the subagents come from the tab's runtime, when it has one.
+ * Primitive props + memo: the sidebar's own re-renders reach the group only when `opened` changes.
  */
 export const SidebarSubagents = memo(function SidebarSubagents({
 	tabId,
 	sessionKey,
 	nested = false,
+	opened = NO_OPENED,
 }: {
 	tabId: string;
 	sessionKey: string;
 	nested?: boolean;
+	opened?: readonly FamilyOpened[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
-	// The tab closed: no live subagents left, so the expanded state goes too.
-	useEffect(() => {
-		if (!runtime) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
-	}, [runtime, sessionKey]);
-	if (!runtime) return null;
+	if (!runtime)
+		return <FamilyGroup nested={nested} opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId} />;
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<SubagentGroup nested={nested} sessionKey={sessionKey} tabId={tabId} />
+			<AttachedGroup nested={nested} opened={opened} sessionKey={sessionKey} tabId={tabId} />
 		</SessionRuntimeProvider>
 	);
 });
 
 /**
- * Disclosure for the session row's `trailing` slot (session open in `tabId`):
- * renders nothing while the session has no live subagents.
+ * The summary chip for the session row's `trailing` slot (session open in `tabId`): renders nothing while the
+ * session has neither subagents nor opened sessions.
  */
 export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
 	tabId,
 	sessionKey,
+	opened = NO_OPENED,
 }: {
 	tabId: string;
 	sessionKey: string;
+	opened?: readonly FamilyOpened[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
-	if (!runtime) return null;
+	if (!runtime) return <FamilyChip opened={opened} sessionKey={sessionKey} slice={DETACHED} />;
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<SubagentDisclosure sessionKey={sessionKey} />
+			<AttachedChip opened={opened} sessionKey={sessionKey} />
 		</SessionRuntimeProvider>
 	);
 });

@@ -71,10 +71,22 @@
 	pointer-events: none;
 }
 
-/* A subagent row's connector runs down just left of its icon: the bar sits between the two, closer to the icon. */
-.omp-sidebar-session-row[data-sidebar-subagent][data-signal]::before,
-.omp-sidebar-session-row[data-sidebar-subagent][data-signal="running"]::after {
-	margin-inline-start: calc(-1 * var(--sc-space-1));
+/* A session's family (subagents and the sessions its agent opened): ONE line a child, 28 px, one indent level in.
+   The status, folder and model are the row's tooltip; the glyph, title and one token + age are all it draws. On a
+   phone `mobile.css` raises it to --sc-row-touch (36 px) and bounds the hit areas with --hit-gap. */
+.omp-session-sidebar .omp-family-row {
+	min-height: 28px;
+}
+
+.omp-session-sidebar .omp-family-row:active {
+	background-color: var(--sc-pressed);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-session-sidebar .omp-family-row .omp-pulse-dot,
+	.omp-session-sidebar .omp-family-chip .omp-pulse-dot {
+		animation: none;
+	}
 }
 
 .omp-sidebar-session-row[data-signal="running"]::before {
