@@ -443,6 +443,12 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "paste.largeMenuThreshold paste 붙여넣기",
 	},
 	{
+		id: "mobileEnterSends",
+		section: "appearance",
+		labelKey: "settings.display.mobileEnterSends",
+		aliases: "mobileEnterSends enter newline touch keyboard phone 모바일 엔터 줄바꿈 키보드",
+	},
+	{
 		id: "proxy",
 		section: "general",
 		labelKey: "settings.gui.proxy",

@@ -6,6 +6,7 @@
 import {
 	Brain,
 	ClipboardPaste,
+	CornerDownLeft,
 	Eye,
 	EyeOff,
 	Gauge,
@@ -117,6 +118,7 @@ export function AppearanceSection() {
 	const workBoard = useUiStore(state => state.workBoard);
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
+	const mobileEnterSends = useUiStore(state => state.displayPreferences.mobileEnterSends === true);
 	const [pasteThresholdDraft, setPasteThresholdDraft] = useState<string | null>(null);
 	const [codeLineNumbers, setCodeLineNumbers] = useState(false);
 	const fontSizeId = useId();
@@ -284,6 +286,14 @@ export function AppearanceSection() {
 			</SettingsSection>
 			<SettingsSection title={t("settings.appearance.input")}>
 				<DisplayPreferenceRow field="emojiAutocomplete" />
+				<SettingsSwitchRow
+					checked={mobileEnterSends}
+					description={t("settings.display.mobileEnterSends.desc")}
+					icon={<CornerDownLeft />}
+					id="setting-gui-mobileEnterSends"
+					label={t("settings.display.mobileEnterSends")}
+					onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
+				/>
 				<SettingsRow
 					control={
 						<Input

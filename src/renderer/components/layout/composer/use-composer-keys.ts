@@ -7,6 +7,7 @@
 import type { KeyboardEvent, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { InlineCompletion } from "../../../hooks/use-inline-completion";
+import { composerEnterNewline, noteHardwareKey } from "../../../lib/hardware-keyboard";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { chordFromEvent, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
 import { dropReferencedPastes } from "../../../lib/paste-blobs";
@@ -50,6 +51,8 @@ export function useComposerKeys({
 	collapse,
 	toggleHistorySearch,
 	runActive,
+	touchInput,
+	enterSends,
 	send,
 }: {
 	rpc: TabRpc;
@@ -82,6 +85,10 @@ export function useComposerKeys({
 	runActive: boolean;
 	/** Send the draft (`followUp`: the follow-up lane); true when it went out. */
 	send: (overrideText?: string, forceMode?: "followUp") => boolean;
+	/** A touch input (phone, tablet): without a physical keyboard plain Enter adds a line and only Send sends. */
+	touchInput: boolean;
+	/** The "Enter sends on mobile" setting: a touch device's Enter sends like the desktop's. */
+	enterSends: boolean;
 }): ComposerKeys {
 	const { menu, setMenu } = menuHandle;
 	/** First Esc of a double-Esc, and whether its "Esc again" hint shows. */
@@ -116,6 +123,9 @@ export function useComposerKeys({
 		// window is open, Enter and friends belong to the IME — committing the
 		// composition must never send the message.
 		if (isImeKeyEvent(e)) return;
+		// A key only a physical keyboard makes: a tablet with one attached sends on Enter like a desktop.
+		noteHardwareKey(e);
+		const enterNewline = composerEnterNewline(touchInput, enterSends);
 		// Pending paste choice: Enter takes the first form (inline), Esc cancels it. Keys that would edit
 		// the field under the menu wait: the paste has no place in the draft until it has its form.
 		if (paste.pending) {
@@ -316,13 +326,15 @@ export function useComposerKeys({
 			!e.ctrlKey &&
 			!e.metaKey &&
 			!e.altKey &&
-			(e.shiftKey || expanded) &&
+			(e.shiftKey || expanded || enterNewline) &&
 			continueListAtCaret()
 		) {
 			e.preventDefault();
 			return;
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
+			// Soft keyboard: Enter is the return key. The chords (⌘↵, the follow-up chord) are a physical keyboard's and still send.
+			if (enterNewline && !e.metaKey && !e.ctrlKey && !e.altKey) return;
 			// The follow-up chord (⌃↵ on macOS, ⌥↵ on Windows) sends as a follow-up, queueing
 			// behind the current yield (TUI app.message.followUp); idle sessions start
 			// immediately either way. Every other Enter sends in the chip's mode, so the

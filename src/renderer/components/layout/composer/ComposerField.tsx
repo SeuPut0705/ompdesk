@@ -34,6 +34,7 @@ export function ComposerField({
 	expanded,
 	monospace,
 	dictation,
+	enterKeyHint,
 }: {
 	textareaRef: RefObject<HTMLTextAreaElement | null>;
 	/** True while the composer writes its own draft into the field. */
@@ -57,6 +58,8 @@ export function ComposerField({
 	/** A `!` / `$` draft: the field types in monospace. */
 	monospace: boolean;
 	dictation: Pick<ComposerDictation, "phase" | "levels" | "startedAt">;
+	/** The return key's label on a soft keyboard: "enter" where Enter adds a line, undefined where it sends. */
+	enterKeyHint?: "enter";
 }) {
 	const t = useT();
 	const suggestionHintId = useId();
@@ -71,9 +74,10 @@ export function ComposerField({
 				aria-controls={menuOpen ? listboxId : undefined}
 				aria-describedby={suggestionHint ? suggestionHintId : undefined}
 				aria-label={t("input.ariaLabel")}
-				autoCapitalize="sentences"
-				autoCorrect="on"
-				spellCheck
+				autoCapitalize={monospace ? "off" : "sentences"}
+				autoCorrect={monospace ? "off" : "on"}
+				spellCheck={!monospace}
+				enterKeyHint={enterKeyHint}
 				value={text}
 				onChange={event => {
 					const value = event.target.value;

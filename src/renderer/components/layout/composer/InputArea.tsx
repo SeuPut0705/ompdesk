@@ -4,6 +4,7 @@ import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
+import { composerEnterNewline } from "../../../lib/hardware-keyboard";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { abortActiveTurn } from "../../../lib/messages";
@@ -16,6 +17,7 @@ import { useNextPromptStore } from "../../../stores/next-prompt";
 import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
+import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
@@ -69,6 +71,9 @@ export function InputArea() {
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	const sessionFile = useSessionStore(s => s.sessionFile);
 	const touchInput = useShellInput() === "touch";
+	/** "Enter sends on mobile": a touch device's Enter sends instead of adding a line. */
+	const enterSends = useUiStore(state => state.displayPreferences.mobileEnterSends === true);
+	const enterNewline = composerEnterNewline(touchInput, enterSends);
 	const {
 		view: nextPromptView,
 		key: nextPromptKey,
@@ -281,6 +286,8 @@ export function InputArea() {
 		collapse: () => setExpanded(false),
 		toggleHistorySearch: () => setHistorySearchOpen(open => !open),
 		runActive: isStreaming || submitPending || manualMaintenance,
+		touchInput,
+		enterSends,
 		send,
 	});
 	const sendDisabled =
@@ -428,6 +435,7 @@ export function InputArea() {
 							inline={inline}
 							listboxId={menuId}
 							monospace={composerMode !== null}
+							enterKeyHint={enterNewline ? "enter" : undefined}
 							onFieldClick={() => setMenu(null)}
 							onKeyDown={keys.onKeyDown}
 							onPaste={paste.onPaste}

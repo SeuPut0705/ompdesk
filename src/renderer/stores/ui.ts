@@ -114,6 +114,8 @@ export interface GuiDisplayPreferences {
 	showProgress?: boolean | null;
 	emojiAutocomplete?: boolean | null;
 	pasteMenuThreshold?: number | null;
+	/** Touch devices only: Enter sends like on a desktop instead of adding a line (default off: only Send sends). */
+	mobileEnterSends?: boolean | null;
 }
 
 interface UiStore {

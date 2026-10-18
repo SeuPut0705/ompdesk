@@ -26,13 +26,17 @@ export const GUI_DISPLAY_LEGACY_PATHS = [
 ];
 
 /** An absent new preference reads the legacy Agent value without writing back to it. */
-export function useDisplayPreference<K extends keyof GuiDisplayPreferences>(key: K): SettingsStore[K] {
+export function useDisplayPreference<K extends keyof GuiDisplayPreferences & keyof SettingsStore>(
+	key: K,
+): SettingsStore[K] {
 	const legacy = useSettingsStore(state => state[key]);
 	const local = useUiStore(state => state.displayPreferences[key]);
 	return (local ?? legacy) as SettingsStore[K];
 }
 
-export function readDisplayPreference<K extends keyof GuiDisplayPreferences>(key: K): SettingsStore[K] {
+export function readDisplayPreference<K extends keyof GuiDisplayPreferences & keyof SettingsStore>(
+	key: K,
+): SettingsStore[K] {
 	return (useUiStore.getState().displayPreferences[key] ?? useSettingsStore.getState()[key]) as SettingsStore[K];
 }
 
@@ -41,6 +45,7 @@ export function hydrateDisplayPreferences(raw: unknown): void {
 	const values = raw as Record<string, unknown>;
 	const parsed: GuiDisplayPreferences = {};
 	for (const key of GUI_DISPLAY_BOOL_FIELDS) if (typeof values[key] === "boolean") parsed[key] = values[key];
+	if (typeof values.mobileEnterSends === "boolean") parsed.mobileEnterSends = values.mobileEnterSends;
 	if (
 		typeof values.pasteMenuThreshold === "number" &&
 		Number.isInteger(values.pasteMenuThreshold) &&

@@ -2304,6 +2304,9 @@ export const ko: Record<string, string> = {
 	"settings.display.showProgress": "앱 아이콘에 진행률 표시",
 	"settings.display.emojiAutocomplete": "이모지 이름 자동 완성",
 	"settings.display.pasteMenuThreshold": "대용량 붙여넣기 메뉴 임계값 (줄 수, 0이면 끔)",
+	"settings.display.mobileEnterSends": "모바일 키보드에서 Enter로 보내기",
+	"settings.display.mobileEnterSends.desc":
+		"끄면 Enter는 줄바꿈이고 보내기 버튼으로 보내요. 하드웨어 키보드는 항상 Enter로 보내요.",
 	"settings.gui.compactDensity": "메시지 간격 좁게",
 	"settings.gui.compactDensityDesc": "메시지 사이 간격만 줄이고 글자 크기는 그대로예요.",
 	"settings.gui.colorBlindMode": "색각 이상 친화 색상",
