@@ -82,8 +82,9 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 	// A copy of the release binary: the spec moves it at the end to prove nothing still holds it open.
 	const bin = path.join(binDir, "ai-memory.exe");
 	await fs.copyFile(shipped, bin);
-	// AI_MEMORY_HOME would also move ai-memory's Windows known-folder lookups and make its `uninstall` fail; only the data is isolated.
-	const isolation = { AI_MEMORY_DATA_DIR: dataDir, HOME: home, USERPROFILE: home };
+	// Only the data is isolated: ai-memory finds the profile through Windows' known folders, so moving HOME/USERPROFILE or
+	// setting AI_MEMORY_HOME would make OMPdesk and ai-memory disagree about where `~` is (and breaks ai-memory's uninstall).
+	const isolation = { AI_MEMORY_DATA_DIR: dataDir };
 	const cleanup = () =>
 		spawnSync(bin, ["uninstall", "--apply", "--yes"], {
 			env: { ...process.env, ...isolation, PI_CODING_AGENT_DIR: agent },
