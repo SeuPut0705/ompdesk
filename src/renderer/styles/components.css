@@ -1036,6 +1036,11 @@
 	color: var(--sc-text);
 }
 
+/* The copy button sits at the row's end, apart from the chips. */
+.omp-work-copy {
+	margin-inline-start: auto;
+}
+
 .omp-execution-group-body {
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset);
 	border-left: var(--sc-hairline) solid var(--sc-divider);
@@ -1056,7 +1061,8 @@
 }
 
 .omp-tool-body,
-.omp-read-group-body {
+.omp-read-group-body,
+.omp-step-group-body {
 	min-width: 0;
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) var(--omp-step-rule-inset, 13px);
 	border-left: var(--sc-hairline) solid var(--sc-divider);

@@ -1,5 +1,5 @@
-import { ChevronRight, CircleX, FileDiff } from "lucide-react";
-import type { ReactNode } from "react";
+import { Check, ChevronRight, CircleX, FileDiff, Globe } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { cx, formatDuration, resultText } from "../../lib/format";
@@ -9,12 +9,15 @@ import { useSessionStore } from "../../stores/session";
 import type { TodoSnapshot } from "../../stores/todo";
 import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { CopyButton } from "../common/CopyButton";
 import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
+import { revealStep, type StepReveal, StepRevealContext } from "./work/reveal-step";
 import { useRunOutcome, useRunStores } from "./work/use-work-run";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
-import { checkKind, firstErrorLine, firstFailure, summarizeChecks } from "./work/work-checks";
+import { checkKind, summarizeChecks } from "./work/work-checks";
+import { deriveFindings, workSummaryText } from "./work/work-findings";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
 import { isSkippedWork } from "./work/work-view";
@@ -80,6 +83,11 @@ export function ExecutionGroup({
 	superseded = false,
 }: ExecutionGroupProps) {
 	const t = useT();
+	const openPreview = useUiStore(state => state.openPreview);
+	const sectionRef = useRef<HTMLElement>(null);
+	// The step a finding asked to show: the opened body looks for it once it is mounted.
+	const [reveal, setReveal] = useState<StepReveal | null>(null);
+	useEffect(() => (reveal && expanded ? revealStep(sectionRef.current, reveal.key) : undefined), [reveal, expanded]);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));
 	const { tools, messages } = useRunStores();
@@ -184,28 +192,24 @@ export function ExecutionGroup({
 	// What the commands checked reads as its result ("tests passed", "build failed"); the
 	// other commands keep their count.
 	const checks = summarizeChecks(outcome.commands);
-	for (const check of checks) {
+	const checkLabels = checks.map(check => {
 		const verdict = check.passed ? "passed" : "failed";
 		const count = check.passed ? check.tests?.passed : check.tests?.failed;
-		facts.push(
-			count !== undefined
-				? t(`chat.work.check.${check.kind}.${verdict}Count`, { count })
-				: t(`chat.work.check.${check.kind}.${verdict}`),
-		);
-	}
+		return {
+			passed: check.passed,
+			label:
+				count !== undefined
+					? t(`chat.work.check.${check.kind}.${verdict}Count`, { count })
+					: t(`chat.work.check.${check.kind}.${verdict}`),
+		};
+	});
+	for (const check of checkLabels) facts.push(check.label);
 	const otherCommands = outcome.commands.filter(
 		command => command.interrupted || command.unknown || !checkKind(command.command),
 	).length;
 	if (otherCommands)
 		facts.push(t("chat.work.commandsRun", { count: otherCommands, plural: countPlural(otherCommands) }));
-	// One line naming why the run failed: the first failing check's cause, else a failed command's.
-	const failedCheck = checks.find(check => !check.passed);
-	const failure = failedCheck ? undefined : firstFailure(outcome.commands);
-	const cause =
-		state === "running"
-			? undefined
-			: (failedCheck?.cause ?? (failure?.text ? firstErrorLine(failure.text) : undefined));
-	const changed = state !== "running" && outcome.files.length > 0;
+	// The failing step, the passing test run and a dev server's address: the findings row's chips.
 	if (agents.length)
 		facts.push(t("chat.work.agentsDone", { count: agents.length, plural: countPlural(agents.length) }));
 	if (facts.length === produced) {
@@ -230,6 +234,22 @@ export function ExecutionGroup({
 		const entry = selectToolEntry(tools.getState(), id);
 		return entry ? [[id, entry] as const] : [];
 	});
+	const failedStep =
+		toolFailures > 0
+			? groupEntries.find(
+					([, entry]) =>
+						entry.status !== "aborted" &&
+						(entry.status === "error" || entry.isError) &&
+						!isInterruptedError(entry, stoppedAt),
+				)?.[0]
+			: undefined;
+	const { error, tests, previewUrl } = deriveFindings({
+		running: state === "running",
+		checks,
+		commands: outcome.commands,
+		failedStep,
+	});
+	const changed = state !== "running" && outcome.files.length > 0;
 	// The run's todo as its own todo call recorded it, so a reload shows the same row as live.
 	const todo = transcriptTodoSnapshot(groupEntries) ?? todoSnapshots?.at(-1);
 	const headline = finishedHeadline({ goal, todo });
@@ -280,20 +300,38 @@ export function ExecutionGroup({
 			/>
 		</button>
 	);
+	const show = (key?: string) => {
+		onExpandedChange(true);
+		if (key) setReveal({ key });
+	};
 	const findings =
-		cause || changed ? (
+		error || tests || changed || previewUrl ? (
 			<div className="omp-work-findings">
-				{cause ? (
+				{error ? (
 					<button
-						aria-label={`${t("chat.work.cause.open")}: ${cause}`}
+						aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
 						className="omp-work-cause"
-						data-work-cause=""
-						onClick={() => onExpandedChange(true)}
-						title={cause}
+						data-work-cause={error.cause ? "" : undefined}
+						data-work-chip="error"
+						onClick={() => show(error.toolCallId)}
+						title={error.cause ?? t("chat.work.cause.open")}
 						type="button"
 					>
 						<CircleX aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
-						<span className="truncate">{cause}</span>
+						<span className="truncate">{error.cause ?? t("chat.work.chip.error")}</span>
+					</button>
+				) : null}
+				{tests ? (
+					<button
+						className="omp-work-finding"
+						data-work-chip="tests"
+						onClick={() => show(tests.toolCallId)}
+						title={t("chat.work.chip.testsOpen")}
+						type="button"
+					>
+						<span>{t("chat.work.chip.tests")}</span>
+						<Check aria-hidden="true" className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)" />
+						{tests.count !== undefined ? <span className="tabular-nums">{tests.count}</span> : null}
 					</button>
 				) : null}
 				{changed ? (
@@ -308,11 +346,43 @@ export function ExecutionGroup({
 						<span>{t("chat.work.openChanges")}</span>
 					</button>
 				) : null}
+				{previewUrl ? (
+					<button
+						className="omp-work-finding"
+						data-work-chip="preview"
+						onClick={() => openPreview(previewUrl)}
+						title={t("chat.work.chip.previewOpen", { url: previewUrl })}
+						type="button"
+					>
+						<Globe aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
+						<span>{t("chat.work.chip.preview")}</span>
+					</button>
+				) : null}
+				<CopyButton
+					className="omp-work-copy"
+					label={t("chat.work.copySummary")}
+					text={() =>
+						workSummaryText({
+							head: [headline, [duration, ...facts].filter(Boolean).join(" · ")].filter(Boolean).join("\n"),
+							cause: error?.cause,
+							files: outcome.files,
+							checks: checkLabels,
+							previewUrl,
+							labels: {
+								cause: t("chat.work.copy.cause"),
+								changed: t("chat.work.copy.changed", { count: outcome.files.length }),
+								checks: t("chat.work.copy.checks"),
+								preview: t("chat.work.chip.preview"),
+								deleted: t("chat.work.copy.deleted"),
+							},
+						})
+					}
+				/>
 			</div>
 		) : null;
 
 	return (
-		<section className={cx("omp-execution-group", className)} data-state={state}>
+		<section className={cx("omp-execution-group", className)} data-state={state} ref={sectionRef}>
 			<LiveStepPeek
 				summaryRow={header}
 				findings={findings}
@@ -327,7 +397,11 @@ export function ExecutionGroup({
 				headline={headline}
 				runStartedAt={clock.startedAt}
 			/>
-			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
+			{expanded ? (
+				<StepRevealContext.Provider value={reveal}>
+					<div className="omp-execution-group-body">{children}</div>
+				</StepRevealContext.Provider>
+			) : null}
 		</section>
 	);
 }

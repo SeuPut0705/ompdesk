@@ -172,7 +172,12 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 	);
 
 	return (
-		<div className="omp-tool-card min-w-0" data-tool-status={status} data-tool-error={isError ? "true" : undefined}>
+		<div
+			className="omp-tool-card min-w-0"
+			data-tool-call-id={toolCallId}
+			data-tool-status={status}
+			data-tool-error={isError ? "true" : undefined}
+		>
 			<button type="button" aria-expanded={expanded} onClick={() => setExpanded(v => !v)} className={TOOL_ROW_CLASS}>
 				<ToolStatusIcon
 					kindIcon={<KindIcon />}
