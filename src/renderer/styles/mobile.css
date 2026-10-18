@@ -755,12 +755,33 @@ html[data-shell] [data-dock-card] > div:first-child {
 
 html[data-shell] .omp-work-chip {
 	--hit-gap-x: 0px;
-	--hit-gap-y: 4px;
+	--hit-gap-y: 0px;
 }
 
 html[data-shell] .omp-session-sidebar {
 	--hit-gap-x: 4px;
+	--hit-gap-y: 0px;
+}
+
+/* The title bar's right group and the composer's send cluster: icons spaced so the bounded hit areas stay ≈ 40 px. */
+html[data-shell] .omp-titlebar > div {
+	gap: 14px;
+}
+
+html[data-shell] .omp-composer-send-cluster {
+	gap: 8px;
+}
+
+/* The terminal's key bar sits right above the panel tab bar; the side panel's own toolbars, rows and the live work
+   card hold neighbours 4 px apart. */
+html[data-shell] :is([data-terminal-keybar], [data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
+	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
+}
+
+/* Inline code in prose keeps to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */
+html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :not(pre) > code {
+	font-size: max(12px, 0.88em);
 }
 
 /* Safe areas: a side or full-screen sheet (the side panel) and a docked sidebar (portrait tablet) clear the notch and
