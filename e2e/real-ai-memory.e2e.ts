@@ -12,14 +12,16 @@ import { field, realOmpProfile, spentIn } from "./real-omp";
 // (two short prompts), in a private HOME (the user's own ~/.omp, ~/.agents and ai-memory data are never read or
 // written; credentials are copied into the private agent dir by `realOmpProfile`).
 //
-// What it proves, through the real extension and server: memory wires itself (ai-memory's own installer), a first
+// What it proves, through the real extension and server: memory sets itself up (ai-memory's own installer and
+// generators fill OMPdesk's own extension root, loaded with `-e`; nothing is written to the agent dir), a first
 // omp session in a folder is captured and ends with an OPEN handoff, and the NEXT session in that folder gets that
 // handoff injected at its first prompt (an `ai-memory-handoff` custom message in its own session file carrying the
 // first session's text) and answers from it. A prompt typed with a fake secret never reaches the server's stored
 // pages/observations verbatim.
 //
 // The real binary installs a per-user launchd service whose label is global to the logged-in user, so the test runs
-// only when that label and port 49374 are free, and it always runs `uninstall --apply --yes` (with the private HOME)
+// only when that label and port 49374 are free. Turning memory off must take that service away again (OMPdesk started
+// it and nothing else uses it); as a safety net the test also runs `uninstall --apply --yes` with the private HOME
 // afterwards and checks the label is gone.
 const LABEL = "com.github.akitaonrails.ai-memory";
 const PORT = 49374;
@@ -158,7 +160,7 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		await expect
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
 			.toMatchObject({ status: "ready" });
-		// Wiring happens after the first tab booted; a session started now loads the generated extension.
+		// Setup happens after the first tab booted; a session started now loads the generated extension root.
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.aiMemory.getState())).phase, { timeout: 420_000 })
 			.toBe("ready");
@@ -166,9 +168,16 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 	try {
 		await launchReady();
 		const ready = await win().evaluate(() => window.omp.aiMemory.getState());
-		expect(ready).toMatchObject({ enabled: true, wiring: { extension: true, mcp: true } });
+		expect(ready).toMatchObject({ enabled: true, wiring: { app: true, terminal: false } });
 		expect(ready.dataDir).toBe(dataDir);
 		expect(labelLoaded()).toBe(true);
+		// OMPdesk's own root holds the extension, the MCP entry and the skills; omp's agent dir stays untouched.
+		const extRoot = path.join(real.desktop, "ai-memory", "omp-ext");
+		expect(existsSync(path.join(extRoot, "index.ts"))).toBe(true);
+		expect(existsSync(path.join(extRoot, ".mcp.json"))).toBe(true);
+		expect((await fs.readdir(path.join(extRoot, "skills"))).length).toBeGreaterThan(0);
+		expect(existsSync(path.join(real.agent, "extensions", "ai-memory-omp.ts"))).toBe(false);
+		expect(existsSync(path.join(home, ".agents", "skills", "ai-memory-retrieval"))).toBe(false);
 
 		const tabs = () => win().evaluate(() => window.omp.tabs.list());
 		const openTab = async (): Promise<string> => {
@@ -208,6 +217,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		await win().evaluate(id => window.omp.tabs.close(id), first);
 		const second = await openTab();
 		const secondId = await sessionIdOf(win(), second);
+		// The real omp read the root's `.mcp.json`: its MCP server list names ai-memory.
+		const servers = await win().evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_mcp_servers" }), second);
+		report.mcpServers = JSON.stringify(servers.data).slice(0, 300);
+		expect(JSON.stringify(servers.data)).toContain('"ai-memory"');
 		try {
 			await expect
 				.poll(
@@ -284,6 +297,17 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		expect(passwordLeaks, "the password= value is stored verbatim").toEqual([]);
 		expect(searchPassword).toBe(false);
 		report.spent = await spentIn(real.agent);
+
+		// Off: OMPdesk started the service and nothing else uses it, so it goes; the root goes with it, the data stays.
+		await win().evaluate(() => window.omp.aiMemory.setEnabled(false));
+		await expect
+			.poll(async () => (await win().evaluate(() => window.omp.aiMemory.getState())).phase, { timeout: 120_000 })
+			.toBe("off");
+		report.offStoppedService = !labelLoaded();
+		expect(labelLoaded(), "off left ai-memory's launchd service loaded").toBe(false);
+		expect(existsSync(extRoot)).toBe(false);
+		expect(existsSync(path.join(dataDir, "config.toml"))).toBe(true);
+		expect(existsSync(path.join(real.agent, "extensions", "ai-memory-omp.ts"))).toBe(false);
 	} catch (error) {
 		keep = true;
 		throw error;
@@ -291,7 +315,7 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		try {
 			const running = current as Running | null;
 			if (running) {
-				// Memory off through the app: the uninstall removes the service.
+				// Memory off through the app (a no-op when the run already turned it off).
 				await running.page.evaluate(() => window.omp.aiMemory.setEnabled(false)).catch(() => undefined);
 				await expect
 					.poll(async () => (await running.page.evaluate(() => window.omp.aiMemory.getState())).phase, {
