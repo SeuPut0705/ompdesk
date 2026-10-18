@@ -18,10 +18,11 @@ describe("safe areas", () => {
 		expect(html).toContain("interactive-widget=resizes-content");
 	});
 
-	it("installs standalone, in any orientation", () => {
-		const manifest = JSON.parse(read("../public/manifest.webmanifest")) as { display: string; orientation: string };
+	it("installs standalone and leaves rotation to the system setting", () => {
+		const manifest = JSON.parse(read("../public/manifest.webmanifest")) as { display: string; orientation?: string };
 		expect(manifest.display).toBe("standalone");
-		expect(manifest.orientation).toBe("any");
+		// "any" makes Android's WebAPK rotate with the sensor even when the user locked rotation.
+		expect(manifest.orientation).toBeUndefined();
 	});
 
 	it("sizes the app root to the body, not to 100vh (the large viewport on a phone)", () => {
