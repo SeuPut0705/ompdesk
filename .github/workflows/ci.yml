@@ -358,8 +358,8 @@ jobs:
       - run: bun run build
       - name: Sync the ai-memory binary
         run: bun run sync:ai-memory
-      - name: ai-memory unit tests on Windows (staging, paths, the logon entry)
-        run: bunx vitest run src/main/ai-memory
+      - name: ai-memory, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path)
+        run: bunx vitest run src/main/ai-memory src/main/sidecar.test.ts src/main/packaging-config.test.ts
       - name: omp update while omp runs
         run: bun scripts/omp-update-lock-check.ts
       - name: Playwright e2e
