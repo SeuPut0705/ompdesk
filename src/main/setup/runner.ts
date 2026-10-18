@@ -46,7 +46,7 @@ export class SetupRunner {
 		this.#cancelled = false;
 		let child: SupervisedChild;
 		try {
-			child = this.#spawn(spec, env, cwd);
+			child = cwd === undefined ? this.#spawn(spec, env) : this.#spawn(spec, env, cwd);
 		} catch (error) {
 			return Promise.resolve({
 				kind: "failed",
