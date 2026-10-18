@@ -230,6 +230,8 @@ interface PoolEntry extends RunTracking {
 	 * so its chip has something better than a folder name to show.
 	 */
 	title?: string | null;
+	/** What another session's agent opened this tab for (`agentTaskTitle` of its first message), until it has a title. */
+	task?: string;
 	/**
 	 * Session file this tab is attached to (F-OWN). Set at acquire when
 	 * spawned with --session and maintained from the RPC passthrough via
@@ -1679,6 +1681,14 @@ export class SidecarPool {
 		return entry.sidecar;
 	}
 
+	/** Name what another session's agent opened the tab for; its windows show it until the session has a title. */
+	setTabTask(tabId: string, task: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || entry.task === task) return;
+		entry.task = task;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+	}
+
 	/** The tab on this computer attached to `sessionPath`, if any. */
 	tabForSession(sessionPath: string): string | null {
 		return this.sessionOwner(sessionPath)?.tabId ?? null;
@@ -1759,6 +1769,9 @@ export class SidecarPool {
 		const restoredTabIds: string[] = [];
 		try {
 			for (const [index, tab] of layout.tabs.entries()) {
+				// One session, one tab: a session another window already holds (a desktop window restored before a
+				// paired device's, or a layout saved twice) stays there; a second tab would put a second omp on its file.
+				if (tab.sessionPath && this.sessionOwner(tab.sessionPath, tab.device)) continue;
 				const tabId = nextSnowflake();
 				const sidecar = this.acquire(
 					tab.cwd,
@@ -1855,6 +1868,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.run.compacting !== undefined) payload.compacting = entry.run.compacting;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
+	if (entry.task !== undefined) payload.task = entry.task;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	if (entry.awaitingConnection) payload.awaitingConnection = true;

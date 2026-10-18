@@ -1268,6 +1268,8 @@ export interface IpcTabInfo {
 	sessionId?: string;
 	/** Null explicitly clears the previous session's cached title. */
 	title?: string | null;
+	/** What another session's agent opened the tab for (`agentTaskTitle`); shown until the session has a title. */
+	task?: string;
 	/** How the tab's last finished run ended; absent while a run is in flight or before the first one ends. */
 	lastRun?: IpcTabRunOutcome;
 	/** Paired host deviceId the tab's omp runs on; absent = this device. */

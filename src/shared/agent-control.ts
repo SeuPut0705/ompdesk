@@ -4,8 +4,10 @@
  * sessions, message them, read their results, show them and notify the user. Stock registers host tools on
  * the RPC session only; subagents are separate sessions built without them, so only the main agent has them.
  *
- * Dependency-free: main, the renderer and their tests import it.
+ * Dependency-free: main, the renderer and their tests import it (and the bridge's dependency-free title rule).
  */
+
+import { assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
 
 /** Prefs key; on unless stored `false`. Off: the tools are unregistered from every live local session. */
 export const AGENT_CONTROL_PREF = "agentControl";
@@ -199,4 +201,29 @@ export function parseAgentMessage(text: string): AgentMessage | null {
 		.replaceAll("&gt;", ">")
 		.replaceAll("&amp;", "&");
 	return { from, body: match[2] ?? "" };
+}
+
+const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="[^"]*">\\n`);
+const WRAPPED_END = new RegExp(`\\n</${AGENT_MESSAGE_TAG}>$`);
+/** A task line longer than this is cut: it names a row, the transcript holds the rest. */
+const TASK_TITLE_MAX = 120;
+
+/**
+ * What a session another session's agent opened (`ompdesk_session_open`, an Autopilot child) is about, from the
+ * message it was opened with: the body's `Title:` line (`assignmentTitle`, the rule `task` assignments follow), else
+ * its first line. Null for a person's own prompt. A message cut short (a listing's first-prompt prefix) reads too.
+ */
+export function agentTaskTitle(prompt: string): string | null {
+	const text = prompt.trim();
+	const start = WRAPPED_START.exec(text);
+	if (!start) return null;
+	const body = text.slice(start[0].length).replace(WRAPPED_END, "");
+	const line =
+		assignmentTitle(body) ??
+		body
+			.split("\n")
+			.find(entry => entry.trim() !== "")
+			?.trim();
+	if (!line) return null;
+	return line.length > TASK_TITLE_MAX ? `${line.slice(0, TASK_TITLE_MAX - 1)}…` : line;
 }

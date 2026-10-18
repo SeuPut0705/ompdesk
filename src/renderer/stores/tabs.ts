@@ -106,6 +106,8 @@ export interface SessionTab {
 	device?: string;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
+	/** What another session's agent opened the tab for (main's `task`); stands in for the title until there is one. */
+	task?: string;
 	/** Main-owned transcript identity, available even before session_info_update. */
 	sessionPath?: string;
 	sessionId?: string;
@@ -216,6 +218,7 @@ function projectSessionTab(
 		worktree: info.worktree ?? previous?.worktree,
 		device: info.device ?? previous?.device,
 		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
+		task: info.task ?? previous?.task,
 		sessionPath: info.sessionPath === undefined ? previous?.sessionPath : (info.sessionPath ?? undefined),
 		sessionId: info.sessionId ?? (sessionChanged ? undefined : previous?.sessionId),
 		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
@@ -308,11 +311,11 @@ export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): stri
 		}
 		return worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
 	};
-	const base = tab.title || untitledBase(tab);
-	if (tab.title) return base;
+	const base = tab.title || tab.task || untitledBase(tab);
+	if (tab.title || tab.task) return base;
 	let occurrence = 0;
 	for (const entry of tabs) {
-		if (entry.title) continue;
+		if (entry.title || entry.task) continue;
 		if (untitledBase(entry) !== base) continue;
 		occurrence += 1;
 		if (entry.id === tab.id) break;
@@ -604,15 +607,21 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		// F-OWN belt guard: the session file is already attached to a tab, so
 		// main refused the double-attach. Owner lives in THIS window → switch
-		// to it; a foreign window's tab → focus that window (main focuses the
+		// to it (a tab main holds for this window that the list here does not
+		// show yet, e.g. one a relaunch restored while a web page loaded, is read
+		// in first); a foreign window's tab → focus that window (main focuses the
 		// owner window for an owned sessionPath instead of spawning).
 		if (result.tabId === null) {
 			const ownerTabId = result.ownerTabId ?? null;
-			if (ownerTabId && get().tabs.some(tab => tab.id === ownerTabId)) {
+			const known = () => ownerTabId !== null && get().tabs.some(tab => tab.id === ownerTabId);
+			if (ownerTabId && !known()) await get().reconcileTabs();
+			if (ownerTabId && known()) {
 				await get().switchTab(ownerTabId);
 				return ownerTabId;
 			}
-			if (args?.sessionPath) {
+			// A web page has no other window to bring forward: its "open in a new window" opens a tab here again,
+			// which main refuses again, without end.
+			if (args?.sessionPath && !webRuntime()) {
 				try {
 					await window.omp.sessions.openInNewWindow({
 						sessionPath: args.sessionPath,

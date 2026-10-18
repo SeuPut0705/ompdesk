@@ -23,6 +23,11 @@
 	padding-left: var(--sc-space-3);
 }
 
+/* An Autopilot run's child session, under the run's row: one icon step further in. */
+.omp-session-sidebar .omp-sidebar-session-nested.omp-sidebar-session-run-child {
+	padding-left: calc(var(--sc-space-3) + var(--sc-icon-md));
+}
+
 .omp-session-sidebar [data-workspace-group],
 .omp-session-sidebar [data-device-group] > div:first-child {
 	min-height: var(--sc-control-lg);

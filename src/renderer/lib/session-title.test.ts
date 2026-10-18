@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
+import { wrapAgentMessage } from "../../shared/agent-control";
 import { translate } from "./i18n";
 import { sessionDisplayTitle, sessionHasContent } from "./session-title";
 
@@ -22,5 +23,17 @@ describe("the bridge's no-text sentinel", () => {
 		expect(sessionDisplayTitle(row, "Untitled")).not.toContain("no-text");
 		expect(sessionHasContent(row)).toBe(true);
 		expect(sessionDisplayTitle({ ...row, title: "Named" }, "Untitled")).toBe("Named");
+	});
+});
+
+describe("a session another session's agent opened (ompdesk_session_open, an Autopilot child)", () => {
+	it("reads as its task until it has a title: the Title: line, else the task's first line", () => {
+		const titled = wrapAgentMessage("Title: Fix the flaky upload test\nThe test in upload.test.ts times out.", "Run");
+		expect(sessionDisplayTitle({ title: null, firstMessage: titled }, "Untitled")).toBe("Fix the flaky upload test");
+		const plain = wrapAgentMessage("Autopilot child 1 of cycle 2: one small item.\nDetails follow.", "Run");
+		expect(sessionDisplayTitle({ title: "", firstMessage: plain }, "Untitled")).toBe(
+			"Autopilot child 1 of cycle 2: one small item.",
+		);
+		expect(sessionDisplayTitle({ title: "Named by stock", firstMessage: titled }, "Untitled")).toBe("Named by stock");
 	});
 });

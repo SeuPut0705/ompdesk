@@ -25,6 +25,7 @@ import {
 	type AgentReviewItem,
 	type AgentReviewOutcome,
 	type AgentReviewResult,
+	agentTaskTitle,
 	isApprovalSelect,
 	LESSON_MAX_CHARS,
 	MAX_AGENT_SCHEDULES,
@@ -140,6 +141,8 @@ export interface AgentControlHost {
 	spawn(callerTabId: string, request: SpawnRequest): Promise<{ tabId: string; worktree?: IpcTabWorktree }>;
 	/** Start a tab that has no process yet (a restored, not yet shown tab). */
 	start(tabId: string): void;
+	/** What an opened session works on (`agentTaskTitle` of its first message): its row shows it until it has a title. */
+	setTask(tabId: string, task: string): void;
 	view(callerTabId: string, event: AgentControlViewEvent): void;
 	notify(callerTabId: string, title: string, body: string): void;
 	/** A confirmation card on the calling tab; resolves false on refusal, dismissal or failure. */
@@ -647,6 +650,9 @@ export class AgentControl {
 			opened.delete(reservation);
 		}
 		opened.add(tabId);
+		// Its row reads as the work it was opened for at once, not "New session" until stock names it.
+		const task = args.message ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
+		if (task) this.#host.setTask(tabId, task);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
 			const notes: string[] = [];

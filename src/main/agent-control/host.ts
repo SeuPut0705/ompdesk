@@ -61,7 +61,14 @@ const REVIEW_SETTLE_MS = 400;
 export interface AgentControlHostDeps {
 	pool: Pick<
 		SidecarPool,
-		"tabsForWindow" | "tabFacts" | "observeTabs" | "openRequests" | "routeSideChannel" | "sidecarOf" | "startTab"
+		| "tabsForWindow"
+		| "tabFacts"
+		| "observeTabs"
+		| "openRequests"
+		| "routeSideChannel"
+		| "sidecarOf"
+		| "startTab"
+		| "setTabTask"
 	>;
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -297,6 +304,7 @@ export class AgentControlRuntime {
 			},
 			spawn: (callerTabId, request) => this.#spawn(callerTabId, request),
 			start: tabId => void deps.pool.startTab(tabId),
+			setTask: (tabId, task) => deps.pool.setTabTask(tabId, task),
 			view: (callerTabId, event: AgentControlViewEvent) => {
 				const win = this.#win(callerTabId);
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);

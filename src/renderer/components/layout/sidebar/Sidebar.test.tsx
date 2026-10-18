@@ -14,6 +14,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { wrapAgentMessage } from "../../../../shared/agent-control";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
@@ -2188,6 +2189,85 @@ describe("Sidebar worktree groups", () => {
 		await mount(<Sidebar />);
 		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
 		expect(header?.textContent?.trim()).toBe("2026-10-17");
+	});
+
+	it("nests an Autopilot run's children under the run's row with their task, never as groups of their own", async () => {
+		const DOCS = "/home/me/.omp/wt/h1/gui-2026-10-17-c2-docs-aaaaaaa";
+		const TESTS = "/home/me/.omp/wt/h1/gui-2026-10-17-c2-tests-bbbbbbb";
+		const BUGS = "/home/me/.omp/wt/h1/gui-2026-10-17-c3-bugs-ccccccc";
+		const omp = installMockOmp([
+			session("/wt/run.jsonl", AUTOPILOT, { title: "Cycle 3", created: "2026-02-01T00:00:00Z" }),
+			// Children of cycle 2 the index lists: one stock named, one known only by the message it was opened with.
+			session("/wt/docs.jsonl", DOCS, { title: "Docs pass", created: "2026-02-03T00:00:00Z" }),
+			session("/wt/tests.jsonl", TESTS, {
+				title: null,
+				firstMessage: wrapAgentMessage("Title: Cover the upload retry\nWrite the test first.", "Cycle 3"),
+				created: "2026-02-04T00:00:00Z",
+			}),
+			...LIST,
+		]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === AUTOPILOT
+							? origin("autopilot/2026-10-17", "autopilot", "2026-10-17")
+							: cwd === DOCS
+								? origin("autopilot/2026-10-17-c2-docs", "autopilot", "2026-10-17-c2-docs")
+								: cwd === TESTS
+									? origin("autopilot/2026-10-17-c2-tests", "autopilot", "2026-10-17-c2-tests")
+									: cwd === "/work/alpha"
+										? { project: "alpha", root: "/work/alpha", worktree: null }
+										: // The cycle-3 child's worktree is still being made: git cannot tell about it yet.
+											null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		// The open cycle-3 child: no file the index lists yet, only its tab and task. `worktree_create` reports the
+		// main checkout as `baseCwd`, whichever checkout the child was cut from.
+		useTabsStore.setState({
+			tabs: [
+				...useTabsStore.getState().tabs,
+				{
+					id: "child3",
+					cwd: BUGS,
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					task: "Fix the flaky upload test",
+					worktree: {
+						name: "2026-10-17-c3-bugs",
+						branch: "autopilot/2026-10-17-c3-bugs",
+						baseCwd: "/work/alpha",
+						path: BUGS,
+					},
+				},
+			],
+		});
+		await mount(<Sidebar />);
+
+		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+			(element as unknown as Element).getAttribute("data-workspace-group"),
+		);
+		for (const child of [DOCS, TESTS, BUGS]) expect(groups).not.toContain(child);
+		expect(container.textContent).not.toMatch(/c2-docs|c2-tests|c3-bugs/);
+
+		const rows = [...container.querySelectorAll(`[data-session-group="${AUTOPILOT}"] .omp-sidebar-session-row`)].map(
+			row => ({
+				text: row.textContent ?? "",
+				child: row.getAttribute("data-session-run-child") === "true",
+			}),
+		);
+		// The run's own row first, then its children, newest first, each one step further in.
+		expect(rows.map(row => row.child)).toEqual([false, true, true, true]);
+		expect(rows[0]?.text).toContain("Cycle 3");
+		expect(rows[1]?.text).toContain("Fix the flaky upload test");
+		expect(rows[2]?.text).toContain("Cover the upload retry");
+		expect(rows[3]?.text).toContain("Docs pass");
+		expect(rows.filter(row => row.text.includes("New session"))).toEqual([]);
 	});
 });
 

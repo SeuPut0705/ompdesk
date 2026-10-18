@@ -63,7 +63,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import type { SessionInfo } from "../../../../shared/ipc-types";
-import { type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
+import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -637,7 +637,8 @@ export function Sidebar() {
 			rows.push({
 				path: path || `tab:${tab.id}`,
 				id: id || `tab:${tab.id}`,
-				title: tab.title ?? (focused ? sessionName : null),
+				// An agent-opened session reads as its task until stock names it.
+				title: tab.title || tab.task || (focused ? sessionName : null) || null,
 				cwd: tab.cwd || (focused ? cwd : ""),
 				created,
 				modified: created,
@@ -665,6 +666,39 @@ export function Sidebar() {
 		sessions,
 	);
 	const kindLabels = useWorktreeKindLabels();
+	// An Autopilot run opens a child session per item of a cycle (`autopilot/<run>-c<N>-<area>`, each in a worktree
+	// of its own): its row goes under the run's own row, never a group per child (a list of folders each holding one
+	// "New session"). Session path → the run's worktree folder. Run and child meet by the main checkout and the run's
+	// name: git's answer for the folder, or, while git cannot place a worktree being made, the tab's own binding
+	// (`worktree_create` reports the main checkout as `baseCwd`).
+	const runParentOf = useMemo(() => {
+		const runOf = (session: SidebarSession) => {
+			const origin = projectName(session.cwd).worktree;
+			const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
+			if (origin && fromGit) return { ...fromGit, key: `${origin.root}\n${fromGit.run}` };
+			const tab = localTabs.find(
+				entry =>
+					entry.id === session.liveTabId ||
+					(entry.sessionPath !== undefined && entry.sessionPath === session.path),
+			);
+			const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
+			return tab?.worktree && fromTab ? { ...fromTab, key: `${tab.worktree.baseCwd}\n${fromTab.run}` } : null;
+		};
+		const runs = new Map<string, string>();
+		const children: Array<{ path: string; key: string }> = [];
+		for (const session of codeSessions) {
+			const run = runOf(session);
+			if (!run) continue;
+			if (run.child) children.push({ path: session.path, key: run.key });
+			else runs.set(run.key, session.cwd);
+		}
+		const parents = new Map<string, string>();
+		for (const child of children) {
+			const parent = runs.get(child.key);
+			if (parent) parents.set(child.path, parent);
+		}
+		return parents;
+	}, [codeSessions, localTabs, projectName]);
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
 		() =>
@@ -685,15 +719,16 @@ export function Sidebar() {
 			Omit<WorkspaceGroup, "name" | "tooltip" | "root" | "worktree"> & { shown: ProjectName }
 		>();
 		for (const session of codeSessions) {
-			const shown = projectName(session.cwd);
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them).
-			if (shown.gone && session.liveTabId === undefined) continue;
-			// The parallel children of one project share ONE group; a run of Autopilot keeps its own.
-			const merged = shown.worktree?.worktree?.kind === "agent";
-			const key = merged ? `${shown.root}#agent` : session.cwd;
+			if (projectName(session.cwd).gone && session.liveTabId === undefined) continue;
+			const runCwd = runParentOf.get(session.path);
+			const shown = projectName(runCwd ?? session.cwd);
+			// The parallel children of one project share ONE group; a run of Autopilot keeps its own, children included.
+			const merged = runCwd === undefined && shown.worktree?.worktree?.kind === "agent";
+			const key = runCwd ?? (merged ? `${shown.root}#agent` : session.cwd);
 			let entry = byKey.get(key);
 			if (!entry) {
-				entry = { cwd: key, members: [], newCwd: merged ? shown.root : session.cwd, sessions: [], shown };
+				entry = { cwd: key, members: [], newCwd: merged ? shown.root : key, sessions: [], shown };
 				byKey.set(key, entry);
 			}
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
@@ -706,7 +741,10 @@ export function Sidebar() {
 			tooltip: entry.cwd === entry.newCwd || !shown.worktree ? shown.tooltip : shown.worktree.root,
 			root: shown.root,
 			worktree: shown.worktree,
-			sessions: entry.sessions.toSorted(byPinThenRecency),
+			// The run's own rows first, then its children (one step further in).
+			sessions: entry.sessions.toSorted(
+				(a, b) => Number(runParentOf.has(a.path)) - Number(runParentOf.has(b.path)) || byPinThenRecency(a, b),
+			),
 		}));
 		const ordered = orderProjects(result, {
 			pinned: pinnedGroups,
@@ -733,7 +771,7 @@ export function Sidebar() {
 				}));
 			return [group, ...attached];
 		});
-	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, projectName, kindLabels]);
+	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, projectName, kindLabels, runParentOf]);
 	const groups = useMemo(
 		() =>
 			query
@@ -1157,6 +1195,8 @@ export function Sidebar() {
 		const inVisibleSplit = !isCurrent && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (isCurrent || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
+		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
+		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		const tabSignal = sessionTabSignal(session);
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
 		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
@@ -1342,7 +1382,11 @@ export function Sidebar() {
 							}
 						},
 					}}
-					className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
+					className={cx(
+						"omp-sidebar-session-row",
+						nested && "omp-sidebar-session-nested",
+						runChild && "omp-sidebar-session-run-child",
+					)}
 					description={
 						variant === "recent" && session.cwd ? (
 							<span data-sidebar-row-project title={projectName(session.cwd).tooltip}>
@@ -1385,6 +1429,7 @@ export function Sidebar() {
 						"data-session-kind": session.kind ?? "agent",
 						"data-signal": signal,
 						"data-session-path": session.path,
+						"data-session-run-child": runChild || undefined,
 					}}
 					selected={active}
 					title={

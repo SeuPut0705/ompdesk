@@ -61,6 +61,7 @@ function setup(
 			routeSideChannel: vi.fn(async () => true),
 			sidecarOf: tabId => (sidecars.get(tabId) ?? { cwd: "/repo" }) as never,
 			startTab: vi.fn(() => null),
+			setTabTask: vi.fn(),
 		},
 		dispatch: async (_win, _sidecar, tabId, command) => {
 			commands.push({ tabId, command });

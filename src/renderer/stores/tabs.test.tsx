@@ -600,6 +600,27 @@ describe("tabs store switch", () => {
 		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
 	});
 
+	it("an owned refusal naming a tab of this window it has not listed yet switches to that tab, never asks for another window", async () => {
+		// A web page's open: its own window already holds the session (a tab main restored while the page loaded).
+		seedTabs();
+		const openInNewWindow = vi.fn(async () => true);
+		Object.assign(omp, { sessions: { openInNewWindow } });
+		omp.tabs.spawn.mockResolvedValue({ tabId: null, refusal: "owned", ownerTabId: "t9", ownerWinId: -1 });
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/alpha"), active: true, visible: true },
+			tabInfo("t1", "/beta"),
+			tabInfo("t2", "/gamma"),
+			{ ...tabInfo("t9", "/delta"), sessionPath: "/sessions/held.jsonl" },
+		]);
+
+		const tabId = await useTabsStore.getState().openTab({ sessionPath: "/sessions/held.jsonl" });
+
+		expect(tabId).toBe("t9");
+		expect(useTabsStore.getState().activeTabId).toBe("t9");
+		expect(openInNewWindow).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
+	});
+
 	it("fires SET_ACTIVE_TAB before hydrating from the target sidecar", async () => {
 		seedTabs();
 
@@ -1830,6 +1851,16 @@ describe("tabChipLabel (F-HYDRATE)", () => {
 		expect(tabs.map(tab => tabChipLabel(tab, tabs))).toEqual(["gui", "Release plan"]);
 	});
 
+	it("names a tab another session's agent opened by its task until it has a title", () => {
+		const child = { ...chip("t0", "/wt/gui-2026-10-17-c2-docs-aaaaaaa"), task: "Fix the flaky upload test" };
+		const sibling = { ...chip("t1", "/wt/gui-2026-10-17-c2-tests-bbbbbbb"), task: "Cover the upload retry" };
+		expect([child, sibling].map(tab => tabChipLabel(tab, [child, sibling]))).toEqual([
+			"Fix the flaky upload test",
+			"Cover the upload retry",
+		]);
+		expect(tabChipLabel({ ...child, title: "Named by stock" }, [child])).toBe("Named by stock");
+	});
+
 	it("uses indexed session content instead of a cwd fallback on every tab surface", () => {
 		const tab = chip("t0", "/work/Infron");
 		expect(tabDisplayTitle(tab, [tab], { title: null, firstMessage: "Review the MySQL migration" }, "Untitled")).toBe(
@@ -2306,6 +2337,19 @@ describe("a web page's own done marks", () => {
 			tabs: state.tabs.map(tab => (tab.id === "t2" ? { ...tab, unreadDone: true } : tab)),
 		}));
 		expect(readUnreadMarks().unread).toContain("t2");
+	});
+
+	it("an owned refusal it cannot place never opens the session again through 'open in a new window'", async () => {
+		// On a web page that call is this same openTab: main refuses again, and the page would loop for good.
+		omp.tabs.list.mockResolvedValue(list());
+		await useTabsStore.getState().reconcileTabs();
+		const openInNewWindow = vi.fn(async () => true);
+		Object.assign(omp, { sessions: { openInNewWindow } });
+		omp.tabs.spawn.mockResolvedValue({ tabId: null, refusal: "owned", ownerTabId: "elsewhere", ownerWinId: 1 });
+
+		expect(await useTabsStore.getState().openTab({ sessionPath: "/sessions/held.jsonl" })).toBe("elsewhere");
+		expect(openInNewWindow).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
 	});
 
 	it("restores a marked tab, and a tab that was running and finished while the page was away", async () => {

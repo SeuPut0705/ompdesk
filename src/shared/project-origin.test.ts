@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { autopilotChildBranch } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
+	autopilotRunOf,
 	deriveProjectOrigin,
 	type OriginFacts,
 	pathBaseName,
@@ -29,6 +31,21 @@ describe("worktreeKindOf", () => {
 		expect(worktreeKindOf("omp/agent/agent-5wxp8i")).toBe("agent");
 		expect(worktreeKindOf("omp/gui/feature")).toBe("other");
 		expect(worktreeKindOf(null)).toBe("other");
+	});
+});
+
+describe("autopilotRunOf", () => {
+	it("reads the run's own branch and its children's (the bridge's autopilotChildBranch)", () => {
+		expect(autopilotRunOf("autopilot/2026-10-17")).toEqual({ run: "2026-10-17", child: false });
+		expect(autopilotRunOf("autopilot/2026-10-17-2")).toEqual({ run: "2026-10-17-2", child: false });
+		for (const [run, cycle, area] of [
+			["2026-10-17", 2, "docs"],
+			["2026-10-17-2", 14, "Bugs & UX"],
+			["2026-10-17", 1, "!!"],
+		] as const)
+			expect(autopilotRunOf(autopilotChildBranch(run, cycle, area))).toEqual({ run, child: true });
+		expect(autopilotRunOf("omp/agent/agent-5wxp8i")).toBeNull();
+		expect(autopilotRunOf(null)).toBeNull();
 	});
 });
 

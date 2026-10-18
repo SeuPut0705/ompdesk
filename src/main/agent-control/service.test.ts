@@ -96,6 +96,10 @@ class FakeHost implements AgentControlHost {
 		const tab = this.tabsById.get(tabId);
 		if (tab) tab.status = "ready";
 	};
+	tasks = new Map<string, string>();
+	setTask = (tabId: string, task: string) => {
+		this.tasks.set(tabId, task);
+	};
 	view = (_caller: string, event: { tabId: string; how: string }) => {
 		this.views.push(event);
 		if (event.how === "close") this.tabsById.delete(event.tabId);
@@ -318,6 +322,27 @@ describe("ompdesk_session_open", () => {
 		expect(result.text).toContain("guard failed");
 		expect(failing.views.some(view => view.how === "close")).toBe(true);
 		expect(prompts(failing, [...failing.tabsById.keys()].find(id => id !== "main0001") ?? "")).toEqual([]);
+	});
+
+	it("names each opened session's task (its Title: line, else its first line) for the sidebar until it has a title", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		await control(host).run("main0001", T.open, {
+			sessions: [
+				{ message: "Title: Fix the flaky upload test\nupload.test.ts times out." },
+				{ message: "Docs pass\nmore" },
+			],
+		});
+		const [one, two] = [...host.tabsById.keys()].filter(id => id !== "main0001");
+		expect(host.tasks).toEqual(
+			new Map([
+				[one, "Fix the flaky upload test"],
+				[two, "Docs pass"],
+			]),
+		);
+		// An idle open (no message) has no task.
+		const idle = new FakeHost({ tabId: "main0001" });
+		await control(idle).run("main0001", T.open, {});
+		expect(idle.tasks.size).toBe(0);
 	});
 
 	it("starts a goal session with set_goal alone", async () => {

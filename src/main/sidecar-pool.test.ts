@@ -1143,6 +1143,44 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(await pool.closeSessionTab("/sessions/none.jsonl")).toBe(true);
 	});
 
+	it("a restored layout skips a session another window already holds (one session, one tab)", () => {
+		const { pool } = fakePool();
+		const desktop = fakeWindow(1);
+		const phone = fakeWindow(-1);
+		pool.restoreLayout(desktop.win, {
+			version: 1,
+			activeIndex: 0,
+			tabs: [{ cwd: "/a", kind: "agent", sessionPath: "/sessions/s.jsonl" }],
+		});
+		const owner = pool.sessionOwner("/sessions/s.jsonl");
+		if (!owner) throw new Error("expected the desktop to own the session");
+
+		const restored = pool.restoreLayout(phone.win, {
+			version: 1,
+			activeIndex: 0,
+			tabs: [
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/s.jsonl" },
+				{ cwd: "/b", kind: "agent", sessionPath: "/sessions/t.jsonl" },
+			],
+		});
+
+		expect(restored).toBe(1);
+		expect(pool.tabsForWindow(phone.win).map(tab => tab.sessionPath)).toEqual(["/sessions/t.jsonl"]);
+		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual(owner);
+	});
+
+	it("carries the task an agent opened a tab for in its status and the window's tab list", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.setTabTask("tab-a", "Fix the flaky upload test");
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+			tabId: "tab-a",
+			task: "Fix the flaky upload test",
+		});
+		expect(pool.tabsForWindow(fw.win)[0]?.task).toBe("Fix the flaky upload test");
+	});
+
 	it("reports a session as live only while some process holds it", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
@@ -1364,6 +1402,8 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		const layout = pool.tabLayoutForWindow(fw.win);
 		expect(layout?.tabs[0]).toMatchObject({ cwd: "/host/p", sessionPath: "/host/s.jsonl", device: "host-b" });
 
+		// A relaunch restores into a pool where nothing holds the session any more.
+		fw.close();
 		const restoredWindow = fakeWindow(2);
 		if (!layout) throw new Error("expected a layout");
 		pool.restoreLayout(restoredWindow.win, layout);

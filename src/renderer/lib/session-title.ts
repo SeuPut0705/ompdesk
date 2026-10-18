@@ -1,4 +1,5 @@
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
+import { agentTaskTitle } from "../../shared/agent-control";
 import type { SessionInfo } from "../../shared/ipc-types";
 import { translate } from "./i18n";
 import { promptDisplayText } from "./prompt-text";
@@ -21,7 +22,8 @@ function firstPrompt(session: Pick<SessionInfo, "firstMessage">): string {
 export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstMessage">, untitled: string): string {
 	const prompt = firstPrompt(session);
 	if (prompt === NO_TEXT_PROMPT) return session.title?.trim() || translate("session.noTextPrompt");
-	return session.title?.trim() || promptDisplayText(prompt).trim() || untitled;
+	// A session another session's agent opened reads as its task, not the whole first message.
+	return session.title?.trim() || agentTaskTitle(prompt) || promptDisplayText(prompt).trim() || untitled;
 }
 
 /** True once a session has user-visible conversation content (the no-text sentinel counts). */
