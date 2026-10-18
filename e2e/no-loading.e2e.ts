@@ -85,7 +85,8 @@ interface Desktop {
 async function launchDesktop(subjectRoot: string, profile: Profile): Promise<Desktop> {
 	const spawnedAt = Date.now();
 	const app = await electron.launch({
-		args: [path.join(subjectRoot, "out/main/index.js"), profile.project, `--user-data-dir=${profile.desktop}`],
+		// No folder argument: a relaunch restores the saved tabs, each on its session file (what a snapshot is keyed by).
+		args: [path.join(subjectRoot, "out/main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env: profile.env,
 	});
 	await app.context().addInitScript(LOADING_PROBE);
@@ -95,6 +96,29 @@ async function launchDesktop(subjectRoot: string, profile: Profile): Promise<Des
 	if (!(await page.evaluate(() => window.__nl !== undefined))) await page.reload();
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	return { app, page, spawnedAt };
+}
+
+/** A first message, so the session has its file and the saved layout names it: what the next launch restores. */
+async function saveSession(page: Page, profile: Profile): Promise<void> {
+	const input = page.locator("[data-composer-input]").first();
+	await input.fill("hello");
+	await input.press("Enter");
+	await expect
+		.poll(
+			async () => {
+				try {
+					const prefs = JSON.parse(await fs.readFile(path.join(profile.desktop, "prefs.json"), "utf8")) as {
+						tabLayouts?: Array<{ tabs: Array<{ sessionPath?: string }> }>;
+					};
+					return prefs.tabLayouts?.some(layout => layout.tabs.some(tab => tab.sessionPath !== undefined)) === true;
+				} catch {
+					return false;
+				}
+			},
+			{ timeout: 30_000 },
+		)
+		.toBe(true);
+	await expect(page.getByText("hello", { exact: true }).first()).toBeVisible();
 }
 
 /** The first transcript row and a composer that has answered: the screen a person came for. */
@@ -136,6 +160,7 @@ async function warmStart(
 	const cold = await launchDesktop(subjectRoot, profile);
 	await settled(cold.page, true);
 	const coldReading = await readLoading(cold.page);
+	await saveSession(cold.page, profile);
 	await cold.page.waitForTimeout(SNAPSHOT_SETTLE_MS);
 	await exitApp(cold.app);
 	const warm = await launchDesktop(subjectRoot, profile);
@@ -401,6 +426,7 @@ test.describe("loading perf (opt-in)", () => {
 					await settled(cold.page, true);
 					coldStop.resolve();
 					scenarios["cold start"]?.push(numbers(await readLoading(cold.page), cold));
+					await saveSession(cold.page, profile);
 					const browser = await chromium.launch();
 					if (coldFrames) await composeStrip(await coldFrames, path.join(stripBase, "desktop-cold.png"), browser);
 					await cold.page.waitForTimeout(SNAPSHOT_SETTLE_MS);
