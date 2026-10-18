@@ -1,0 +1,9 @@
+#!/bin/sh
+# Run by OMPdesk in a new worktree (and by hand after a plain `git worktree add`): install the dependencies and
+# make sure electron has its binary (`bun install` runs scripts/ensure-electron.ts as `postinstall`).
+set -eu
+cd "$(dirname "$0")/.."
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+command -v bun >/dev/null 2>&1 || { echo "worktree-setup: bun is not on PATH" >&2; exit 1; }
+bun install --frozen-lockfile
+bun scripts/ensure-electron.ts

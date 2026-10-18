@@ -9,6 +9,7 @@
   "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "bun scripts/ensure-electron.ts",
     "dev": "electron-vite dev",
     "build": "bun scripts/build-cache.ts",
     "preview": "electron-vite preview",
