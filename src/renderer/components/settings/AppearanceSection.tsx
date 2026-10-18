@@ -45,6 +45,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
+import { webRuntime } from "../../web/runtime";
 import { Button, Input, Select } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -211,6 +212,26 @@ export function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOO
 	);
 }
 
+/**
+ * A paired web device keeps everything on this page for itself (shared/device-prefs.ts): the shim stores it in
+ * the device's own record on the host, so the computer's look and this device's never move each other.
+ */
+function ThisDeviceNote() {
+	const t = useT();
+	if (!webRuntime()) return null;
+	return (
+		<p
+			className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sc-xs break-keep text-(--sc-text-muted)"
+			data-device-prefs-note="true"
+		>
+			<span className="rounded-full bg-(--sc-accent-soft) px-2 py-0.5 font-medium text-(--sc-text)">
+				{t("settings.appearance.thisDevice")}
+			</span>
+			<span>{t("settings.appearance.thisDeviceNote")}</span>
+		</p>
+	);
+}
+
 export function AppearanceSection() {
 	const t = useT();
 	const fontSize = useUiStore(state => state.fontSize);
@@ -258,6 +279,7 @@ export function AppearanceSection() {
 
 	return (
 		<>
+			<ThisDeviceNote />
 			<SettingsSection title={t("settings.appearance.theme")}>
 				<div className="scroll-mt-4 py-2" data-setting-row="true" id="setting-gui-theme">
 					<ThemeSwatches />

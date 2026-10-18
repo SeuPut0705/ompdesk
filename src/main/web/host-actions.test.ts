@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	WEB_DEVICE_CHANNELS,
 	WEB_HOST_CHANNELS,
 	type WebBlobOpenResult,
 	type WebHostListing,
@@ -10,7 +11,7 @@ import {
 } from "../../shared/web-host";
 import { BlobStore } from "./blobs";
 import type { WebDevice } from "./devices-store";
-import { createHostActions, DEVICE_UI_PREFS_MAX_BYTES, WEB_DEVICE_CHANNELS } from "./host-actions";
+import { createHostActions, DEVICE_UI_PREFS_MAX_BYTES } from "./host-actions";
 import type { WebCallContext } from "./ws-router";
 
 let home: string;

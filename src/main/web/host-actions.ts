@@ -10,6 +10,7 @@ import path from "node:path";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
+	WEB_DEVICE_CHANNELS,
 	WEB_HOST_CHANNELS,
 	WEB_HOST_LIST_MAX_ENTRIES,
 	type WebBlobOpenResult,
@@ -31,13 +32,6 @@ import type { WebCallContext, WebChannelTable } from "./ws-router";
 export const DEVICE_UI_PREFS_MAX_BYTES = 64 * 1024;
 /** Base64 a `SAVE` frame may carry (a frame is 1 MiB). */
 const SAVE_INLINE_MAX_CHARS = 1_000_000;
-
-export const WEB_DEVICE_CHANNELS = {
-	/** → this device's own interface preferences (`Record<string, unknown>`). */
-	UI_PREFS_GET: "web:device.uiPrefs.get",
-	/** `prefs` replaces them. */
-	UI_PREFS_SET: "web:device.uiPrefs.set",
-} as const;
 
 export interface HostActionsDeps {
 	devices: Pick<WebDevices, "setUiPrefs">;

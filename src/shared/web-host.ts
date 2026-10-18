@@ -30,6 +30,13 @@ export const WEB_HOST_CHANNELS = {
 
 export type WebHostChannel = (typeof WEB_HOST_CHANNELS)[keyof typeof WEB_HOST_CHANNELS];
 
+export const WEB_DEVICE_CHANNELS = {
+	/** → this device's own interface preferences (`Record<string, unknown>`, src/shared/device-prefs.ts). */
+	UI_PREFS_GET: "web:device.uiPrefs.get",
+	/** `prefs` replaces them. */
+	UI_PREFS_SET: "web:device.uiPrefs.set",
+} as const;
+
 /** The most entries one `LIST_DIRS` answer carries. */
 export const WEB_HOST_LIST_MAX_ENTRIES = 500;
 

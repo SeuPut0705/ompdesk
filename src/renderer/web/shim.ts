@@ -11,10 +11,12 @@
  * absent always means the host, as on the desktop (design §1.5).
  */
 
+import { isDeviceLocalPref, overlayDevicePrefs, readDevicePref } from "../../shared/device-prefs";
 import { IPC_COMMANDS, IPC_EVENTS, type IpcFsReadBinaryResult, type OmpApi } from "../../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
 import { PREVIEW_SAVE_PDF, PREVIEW_STREAM_PDF } from "../../shared/preview";
 import {
+	WEB_DEVICE_CHANNELS,
 	WEB_HOST_CHANNELS,
 	type WebHostListing,
 	type WebHostSaveResult,
@@ -186,6 +188,59 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 		}
 	}
 
+	/**
+	 * This device's own appearance and layout prefs (shared/device-prefs.ts) live in its `uiPrefs` record on the
+	 * host, never in the host's prefs: reads overlay them on the host's, writes of those keys go only to the
+	 * record (one at a time, each from the latest copy), and the host's `PREFS_CHANGED` for them is dropped.
+	 */
+	let devicePrefs: Record<string, unknown> | null = null;
+	let devicePrefsWrites: Promise<unknown> = Promise.resolve();
+
+	async function loadDevicePrefs(): Promise<Record<string, unknown>> {
+		const stored = await transport.invoke<Record<string, unknown> | null>(WEB_DEVICE_CHANNELS.UI_PREFS_GET);
+		devicePrefs = stored && typeof stored === "object" ? stored : {};
+		return devicePrefs;
+	}
+
+	/** The member of a `{key, value}` payload, read without trusting its shape. */
+	function payloadField(payload: unknown, field: "key" | "value"): unknown {
+		return typeof payload === "object" && payload !== null ? Reflect.get(payload, field) : undefined;
+	}
+
+	async function getPrefs(payload: unknown, ...rest: unknown[]): Promise<unknown> {
+		const key = payloadField(payload, "key");
+		if (typeof key === "string" && key !== "" && !isDeviceLocalPref(key)) {
+			return transport.invoke(C.PREFS_GET, payload, ...rest);
+		}
+		// A whole-store read (the page's start-up) refreshes the copy; a keyed one uses it.
+		const wholeStore = typeof key !== "string" || key === "";
+		const device = wholeStore || devicePrefs === null ? await loadDevicePrefs() : devicePrefs;
+		if (!wholeStore) return readDevicePref(device, key);
+		return overlayDevicePrefs(await transport.invoke(C.PREFS_GET, payload, ...rest), device);
+	}
+
+	function setPrefs(payload: unknown, ...rest: unknown[]): Promise<unknown> {
+		const key = payloadField(payload, "key");
+		if (typeof key !== "string" || !isDeviceLocalPref(key)) return transport.invoke(C.PREFS_SET, payload, ...rest);
+		const value = payloadField(payload, "value");
+		const write = devicePrefsWrites.then(async () => {
+			const current = devicePrefs ?? (await loadDevicePrefs());
+			const next = { ...current };
+			if (value === undefined) delete next[key];
+			else next[key] = value;
+			await transport.invoke(WEB_DEVICE_CHANNELS.UI_PREFS_SET, next);
+			devicePrefs = next;
+		});
+		devicePrefsWrites = write.catch(() => undefined);
+		return write;
+	}
+
+	const hostPrefsChanged = (listener: (payload: unknown) => void) => (payload: unknown) => {
+		const key = payloadField(payload, "key");
+		if (typeof key === "string" && isDeviceLocalPref(key)) return;
+		listener(payload);
+	};
+
 	const invokeOverrides: Record<string, (...args: unknown[]) => Promise<unknown>> = {
 		[C.SYSTEM_OPEN_EXTERNAL]: async (url: unknown) => {
 			if (typeof url !== "string") throw new Error("A link is required");
@@ -286,6 +341,8 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			const outcome = await env.save(name, new Blob([base64ToBytes(base64)], { type: "application/pdf" }));
 			return outcome === "cancelled" ? null : name;
 		},
+		[C.PREFS_GET]: getPrefs,
+		[C.PREFS_SET]: setPrefs,
 	};
 
 	const sendOverrides: Record<string, (...args: unknown[]) => void> = {
@@ -332,7 +389,11 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			} else transport.send(channel, ...args);
 		},
 		on: (channel, listener) =>
-			pageChannels.includes(channel) ? env.channels.on(channel, listener) : transport.on(channel, listener),
+			channel === E.PREFS_CHANGED
+				? transport.on(channel, hostPrefsChanged(listener))
+				: pageChannels.includes(channel)
+					? env.channels.on(channel, listener)
+					: transport.on(channel, listener),
 	};
 
 	const shared = createOmpApi(shimTransport);
