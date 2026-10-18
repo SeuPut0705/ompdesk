@@ -4,6 +4,7 @@ import {
 	ClipboardPaste,
 	CornerDownRight,
 	Cpu,
+	Ellipsis,
 	ExternalLink,
 	History,
 	ListPlus,
@@ -23,7 +24,7 @@ import { removeFileMention } from "../../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
-import { useShellInput } from "../../../hooks/use-shell-mode";
+import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
 import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
@@ -266,6 +267,9 @@ export function InputArea() {
 	const navDraftImages = useRef<ComposerImage[]>([]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
 	const [expanded, setExpanded] = useState(false);
+	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
+	const phone = useShellMode() === "phone";
+	const [moreOpen, setMoreOpen] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
 	const [dragActive, setDragActive] = useState(false);
 	/** First Esc of a double-Esc, and whether its "Esc again" hint shows. */
@@ -1701,6 +1705,7 @@ export function InputArea() {
 							aria-busy={!routeReady}
 							aria-label={t("input.toolbar")}
 							className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
+							data-more-open={moreOpen || undefined}
 							inert={!routeReady}
 							role="toolbar"
 						>
@@ -1748,6 +1753,16 @@ export function InputArea() {
 								side="above"
 								size="sm"
 							/>
+							{phone && (
+								<IconButton
+									aria-expanded={moreOpen}
+									className="omp-composer-more"
+									icon={<Ellipsis />}
+									label={t("input.moreControls")}
+									onClick={() => setMoreOpen(open => !open)}
+									size="sm"
+								/>
+							)}
 							<input
 								ref={fileInputRef}
 								type="file"

@@ -32,9 +32,9 @@ describe("touch targets and type", () => {
 		expect(phone).toMatch(/--sc-control-sm:\s*24px/);
 		expect(phone).toMatch(/--sc-control-md:\s*28px/);
 		expect(phone).toMatch(/--sc-control-lg:\s*32px/);
-		expect(phone).toMatch(/--phone-type-scale:\s*0\.9333/);
+		expect(phone).toMatch(/--phone-type-scale:\s*0\.8667/);
 		expect(read("../lib/theme.ts")).toContain("var(--phone-type-scale, 1)");
-		expect(phone).toMatch(/--sc-font-xs:\s*12px/);
+		expect(phone).toMatch(/--sc-font-xs:\s*11\.5px/);
 		expect(css).toMatch(/html\[data-input="touch"\] :is\(input:[^{]*\{\s*font-size:\s*16px/);
 	});
 
@@ -94,7 +94,7 @@ describe("the prompt card on touch", () => {
 
 describe("rows and bars on touch", () => {
 	it("a phone's bar and the rows a thumb taps one after another are dense (40 px), a sheet's items 44", () => {
-		expect(rule('html[data-shell="phone"] .omp-topbar')).toMatch(/height:\s*40px/);
+		expect(rule('html[data-shell="phone"] .omp-topbar')).toMatch(/height:\s*36px/);
 		for (const row of [
 			'\\[role="menuitem"\\]',
 			"\\.omp-session-sidebar \\[data-session-row\\]",

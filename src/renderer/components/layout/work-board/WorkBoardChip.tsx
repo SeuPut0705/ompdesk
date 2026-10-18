@@ -1,4 +1,4 @@
-import { ChevronUp } from "lucide-react";
+import { Bot, ChevronDown, SquareTerminal } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useT } from "../../../lib/i18n";
@@ -11,9 +11,10 @@ import { Sheet } from "../../common";
 import { liveSubagents, todoBoard } from "./work-board";
 
 /**
- * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status line
- * above the composer — what waits for you first, then the turn, the plan's progress, what runs — and a tap
- * opens the board itself in a bottom sheet. The line is a live region, so the board's announcements stay.
+ * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status strip
+ * under the header — what waits for you first, then the turn, the plan's progress with the current task, the
+ * running subagents and jobs — and a tap opens the board itself in a sheet. The strip says what the dock's todo
+ * card would, so mobile.css hides that card beside it. The line is a live region, so the board's announcements stay.
  */
 export function WorkBoardChip({ children }: { children: ReactNode }) {
 	const t = useT();
@@ -63,9 +64,36 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 			>
 				<span aria-hidden className="omp-work-board-pulse" data-state={state} />
 				<span aria-live="polite" className="omp-work-chip-label" role="status">
-					{label}
+					{plan && waiting === 0 ? (
+						<>
+							<span className="sr-only">{label}</span>
+							<span aria-hidden className="omp-work-chip-plan">
+								<span className="omp-work-chip-bar">
+									<span style={{ width: `${(plan.done / plan.total) * 100}%` }} />
+								</span>
+								<span className="tabular-nums">
+									{plan.done}/{plan.total}
+								</span>
+								{plan.active ? <span className="omp-work-chip-active">{plan.active}</span> : null}
+							</span>
+						</>
+					) : (
+						label
+					)}
 				</span>
-				<ChevronUp aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
+				{agents.length > 0 && (
+					<span aria-hidden className="omp-work-chip-count" data-count="agents">
+						<Bot className="size-(--sc-icon-sm)" />
+						{agents.length}
+					</span>
+				)}
+				{jobs.length > 0 && (
+					<span aria-hidden className="omp-work-chip-count" data-count="jobs">
+						<SquareTerminal className="size-(--sc-icon-sm)" />
+						{jobs.length}
+					</span>
+				)}
+				<ChevronDown aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 			</button>
 			<Sheet
 				bodyClassName="omp-work-chip-sheet px-3 pb-3"

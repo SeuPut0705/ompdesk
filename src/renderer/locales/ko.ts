@@ -714,6 +714,7 @@ export const ko: Record<string, string> = {
 	"input.delegation.failed": "위임 강도를 바꾸지 못했어요",
 	"input.ariaLabel": "메시지 입력",
 	"input.toolbar": "입력창 도구",
+	"input.moreControls": "모드, 모델 등 더 보기",
 	"input.addMenu": "첨부 및 더 보기",
 	"input.addMenu.goal": "목표 정하기",
 	"input.addMenu.goalDesc": "에이전트가 한 가지 목표를 향해 계속 일해요",

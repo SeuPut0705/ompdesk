@@ -727,6 +727,7 @@ export const en: Record<string, string> = {
 	"input.delegation.failed": "Couldn't change the delegation strength",
 	"input.ariaLabel": "Message",
 	"input.toolbar": "Composer controls",
+	"input.moreControls": "Mode, model and more",
 	"input.addMenu": "Attach and more",
 	"input.addMenu.goal": "Set a goal",
 	"input.addMenu.goalDesc": "Keep the agent working toward one objective",

@@ -230,7 +230,7 @@ for (const { engine, device } of variants(
 			// reach about 40 px (the bar's height) through their invisible hit area, which stops at the midpoint to
 			// the next button so no control covers a neighbour (the icons sit 14 px apart).
 			const bar = await hitSizes(page.locator("header button"));
-			expect(Math.min(...bar.map(({ hit }) => Math.min(hit.width, hit.height)))).toBeGreaterThanOrEqual(38);
+			expect(Math.min(...bar.map(({ hit }) => Math.min(hit.width, hit.height)))).toBeGreaterThanOrEqual(36);
 			expect(Math.min(...bar.map(({ visual }) => Math.min(visual.width, visual.height)))).toBeLessThanOrEqual(36);
 			// The composer's field never zooms iOS: 16 px or more.
 			const fontSize = await page
@@ -315,6 +315,17 @@ for (const { engine, device } of variants(
 				return;
 			}
 			await expect(chip).toBeVisible();
+			// The strip sits right under the header (≤ 28 px + margins), says the plan's progress, and the dock's
+			// todo card is hidden beside it; the composer rests right above the bottom safe area.
+			const stripBox = await chip.boundingBox();
+			const headerBox = await page.locator("header.omp-topbar").boundingBox();
+			expect(stripBox?.height).toBeLessThanOrEqual(36);
+			expect((stripBox?.y ?? 99) - ((headerBox?.y ?? 0) + (headerBox?.height ?? 0))).toBeLessThanOrEqual(8);
+			await expect(chip).toContainText("1/3");
+			await expect(page.locator('[data-dock-card="todo"]:visible')).toHaveCount(0);
+			const composerBox = await page.locator(".omp-composer-box").boundingBox();
+			const viewport = page.viewportSize();
+			expect((viewport?.height ?? 0) - ((composerBox?.y ?? 0) + (composerBox?.height ?? 0))).toBeLessThan(24);
 			await chip.click();
 			const sheet = page.locator('[data-sheet-placement="bottom"] [data-sheet-panel]');
 			await expect(sheet).toBeVisible();
@@ -366,7 +377,8 @@ for (const { engine, device } of variants(
 				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
 			);
 			for (const { visual, hit } of await hitSizes(menus)) {
-				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(44);
+				// A row's ⋯ reaches its 36 px row (neighbouring rows are flush, so the hit stops there).
+				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(36);
 				expect(Math.max(visual.width, visual.height)).toBeLessThanOrEqual(36);
 			}
 			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
