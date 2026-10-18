@@ -155,6 +155,11 @@ import {
 import { searchWorkspace } from "./workspace-search";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
+/** The caller `ompdesk_app` hands a handler: the calling session's window, no native browser window. */
+function agentCaller(win: ClientWindow): IpcCaller {
+	return { win, browserWindow: null, sender: { id: win.webContents.id, once: () => undefined } };
+}
+
 export interface IpcDeps {
 	/** Where every handler here registers (index.ts's one table). */
 	ipc: IpcRegistry;
@@ -883,6 +888,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					: sessionIndex.deleteSession(sessionPath),
 			),
 		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
+		// `ompdesk_app` runs the app's own handlers as the calling session's window would.
+		app: {
+			invoke: (win, channel, args) => ipc.invoke(channel, agentCaller(win), args),
+			fire: (win, channel, args) => ipc.send(channel, agentCaller(win), args),
+			localize: (en, ko) => (getMainLanguage() === "ko" ? ko : en),
+		},
 	});
 
 	// Autopilot's coordinator (src/main/autopilot.ts): the tab hooks DeskTools calls and the frames the sidecar

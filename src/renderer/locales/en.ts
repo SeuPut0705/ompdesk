@@ -5197,6 +5197,7 @@ export const en: Record<string, string> = {
 	"providerCfg.form.authApiKeyDefault": "API key (default)",
 	"settings.editors.errInvalidJson": "Invalid JSON: {error}",
 	"settings.runtime.planMode": "Plan mode",
+	"agentApp.undo": "Undo",
 	"settings.saveFailed": "Couldn't save setting",
 	"settings.schemaLoadFailed": "Couldn't load settings",
 	"settings.schemaUnavailable": "omp may not be responding. The app's own settings are still available.",

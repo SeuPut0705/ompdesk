@@ -54,6 +54,7 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
+import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type BranchFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
 import { AgentLimits, LimitError, PENDING_RUN } from "./limits";
 import {
@@ -220,9 +221,14 @@ export interface AgentControlHost {
 			| "autopilotShipPush"
 			| "autopilotShipRelease"
 			| "autopilotBranchNew"
-			| "autopilotBranchDefault",
+			| "autopilotBranchDefault"
+			| "appTitle"
+			| "appMessage"
+			| "appChanged",
 		params: Record<string, string>,
 	): string;
+	/** What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not available. */
+	appPorts?: AppPorts;
 }
 
 export interface ToolOutcome {
@@ -434,9 +440,12 @@ export class AgentControl {
 	/** Files a child's last merge conflicted in, until it merges. */
 	readonly #conflicts = new Map<string, string[]>();
 
+	readonly #app: AppControl | null;
+
 	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
 		this.#host = host;
 		this.#limits = limits;
+		this.#app = host.appPorts ? new AppControl(host.appPorts) : null;
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -453,6 +462,7 @@ export class AgentControl {
 
 	/** A tab closed. */
 	released(tabId: string): void {
+		this.#app?.released(tabId);
 		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
 		this.#closing.delete(tabId);
@@ -549,7 +559,23 @@ export class AgentControl {
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
 			case T.autopilot:
 				return this.#autopilot(caller, tabs, ARGS[T.autopilot].parse(raw));
+			case T.appList:
+				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
+			case T.app: {
+				const args = ARGS[T.app].parse(raw);
+				try {
+					return await this.#appControl().run(caller.tabId, args.action, args.args);
+				} catch (error) {
+					if (error instanceof AppRefusal) fail(error.message);
+					throw error;
+				}
+			}
 		}
+	}
+
+	#appControl(): AppControl {
+		if (!this.#app) fail("App actions are not available here.");
+		return this.#app;
 	}
 
 	/** An id the list printed, or a unique prefix of one; never the caller itself where `self` is passed. */

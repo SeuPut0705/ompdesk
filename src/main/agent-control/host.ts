@@ -16,6 +16,7 @@ import type {
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
+	AGENT_CONTROL_APP,
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
@@ -32,6 +33,7 @@ import {
 	agentHiddenPaths,
 } from "../../shared/agent-control";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabWorktree } from "../../shared/ipc-types";
+import { IPC_COMMANDS } from "../../shared/ipc-types";
 import {
 	BLOCKING_UI_METHODS,
 	type ExtensionUIResponse,
@@ -46,6 +48,7 @@ import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
+import type { AppPorts } from "./app-control";
 import { branchFacts, discardWorktree, mergeBranch } from "./branches";
 import { AgentLimits } from "./limits";
 import {
@@ -112,6 +115,12 @@ export interface AgentControlHostDeps {
 	};
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
 	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
+	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
+	app?: {
+		invoke: (win: ClientWindow, channel: string, args: readonly unknown[]) => Promise<unknown>;
+		fire: (win: ClientWindow, channel: string, args: readonly unknown[]) => void;
+		localize: (en: string, ko: string) => string;
+	};
 }
 
 function askOf(request: ControlAsk["request"]): boolean {
@@ -396,14 +405,7 @@ export class AgentControlRuntime {
 				const win = this.#win(callerTabId);
 				if (win && !win.isDestroyed()) deps.notify(win, callerTabId, title, body);
 			},
-			confirm: async (callerTabId, title, message) => {
-				const response = await this.#hostCommand(callerTabId, {
-					type: "agent_control_confirm",
-					title: `${AGENT_CARD_PREFIX}${title}`,
-					message,
-				});
-				return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
-			},
+			confirm: (callerTabId, title, message) => this.#confirm(callerTabId, title, message),
 			answer: async (tabId, requestId, response: ExtensionUIResponse) => {
 				if (!(await deps.pool.routeSideChannel(requestId, response, tabId)))
 					throw new Error("That question is not open any more.");
@@ -456,6 +458,50 @@ export class AgentControlRuntime {
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,
 			beforeFirstPrompt: deps.beforeFirstPrompt,
 			text: deps.text,
+			appPorts: deps.app ? this.#appPorts(deps.app) : undefined,
+		};
+	}
+
+	async #confirm(callerTabId: string, title: string, message: string): Promise<boolean> {
+		const response = await this.#hostCommand(callerTabId, {
+			type: "agent_control_confirm",
+			title: `${AGENT_CARD_PREFIX}${title}`,
+			message,
+		});
+		return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
+	}
+
+	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): AppPorts {
+		const deps = this.#deps;
+		const window = (tabId: string): ClientWindow => {
+			const win = this.#win(tabId);
+			if (!win || win.isDestroyed()) throw new Error("This session's window is gone.");
+			return win;
+		};
+		return {
+			getPref: key => deps.prefs.get(key),
+			setPref: async (tabId, key, value) => {
+				await app.invoke(window(tabId), IPC_COMMANDS.PREFS_SET, [{ key, value }]);
+			},
+			rpc: (tabId, command) => this.#hostCommand(tabId, command),
+			invoke: (tabId, channel, args) => app.invoke(window(tabId), channel, args),
+			fire: (tabId, channel, args) => app.fire(window(tabId), channel, args),
+			send: (tabId, event) => {
+				const win = this.#win(tabId);
+				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_APP, event);
+			},
+			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
+			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			note: async (tabId, text) => {
+				await this.#hostCommand(tabId, { type: "agent_control_note", text });
+			},
+			text: (key, params) => deps.text(key, params),
+			localize: app.localize,
+			callerTitle: tabId => {
+				const win = this.#win(tabId);
+				const title = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId)?.title : undefined;
+				return title || "this session";
+			},
 		};
 	}
 

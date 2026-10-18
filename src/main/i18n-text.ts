@@ -135,6 +135,15 @@ export const MAIN_TEXT = {
 		ko: "{name}(기본 브랜치: 작업과 푸시가 바로 여기에 반영돼요)",
 	},
 	"agentControl.answeredBy": { en: "Answered by an agent ({by})", ko: "에이전트가 답함 ({by})" },
+	"agentControl.appTitle": {
+		en: "An agent wants to change the app",
+		ko: "에이전트가 앱을 조작하려고 해요",
+	},
+	"agentControl.appMessage": {
+		en: "The agent in “{caller}” wants to do this: {what}. Allow it?",
+		ko: "“{caller}”의 에이전트가 다음 작업을 하려고 해요: {what}. 허용할까요?",
+	},
+	"agentControl.appChanged": { en: "Agent changed: {what} → {value}", ko: "에이전트가 바꿈: {what} → {value}" },
 	// Autopilot (src/main/autopilot.ts): notifications and the readable failures of a start.
 	"autopilot.paused.title": { en: "Autopilot paused", ko: "오토파일럿이 멈췄어요" },
 	"autopilot.ended.title": { en: "Autopilot ended", ko: "오토파일럿이 끝났어요" },

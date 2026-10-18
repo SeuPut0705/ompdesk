@@ -5178,6 +5178,7 @@ export const ko: Record<string, string> = {
 	"providerCfg.form.authApiKeyDefault": "API 키 (기본값)",
 	"settings.editors.errInvalidJson": "잘못된 JSON: {error}",
 	"settings.runtime.planMode": "계획 모드",
+	"agentApp.undo": "되돌리기",
 	"settings.saveFailed": "설정을 저장하지 못했어요",
 	"settings.schemaLoadFailed": "설정을 불러오지 못했어요",
 	"settings.schemaUnavailable":

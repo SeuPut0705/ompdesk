@@ -6,8 +6,10 @@
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import {
+	AGENT_CONTROL_APP,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
+	type AgentAppEvent,
 	type AgentControlViewEvent,
 	type AgentReviewEvent,
 } from "./agent-control";
@@ -342,6 +344,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
 			onTabListChanged: callback => subscribe<IpcTabListChangedPayload>(IPC_EVENTS.TAB_LIST_CHANGED, callback),
 			onAgentControlView: callback => subscribe<AgentControlViewEvent>(AGENT_CONTROL_VIEW, callback),
+			onAgentControlApp: callback => subscribe<AgentAppEvent>(AGENT_CONTROL_APP, callback),
 			onAgentControlReview: callback => subscribe<AgentReviewEvent>(AGENT_CONTROL_REVIEW, callback),
 		},
 

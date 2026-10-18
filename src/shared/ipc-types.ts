@@ -4,7 +4,7 @@
  */
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
-import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
+import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
 	AiMemoryHandoff,
 	AiMemoryPage,
@@ -1655,6 +1655,8 @@ export interface OmpApi {
 		onTabListChanged(callback: (payload: IpcTabListChangedPayload) => void): () => void;
 		/** The calling agent asks this window to show (or, once the person approved it, close) a session's tab. */
 		onAgentControlView(callback: (event: AgentControlViewEvent) => void): () => void;
+		/** What an agent's `ompdesk_app` call changed or asked the window to show (settings applied live, a panel, a toast with undo). */
+		onAgentControlApp(callback: (event: AgentAppEvent) => void): () => void;
 		/** The agent's review queue changed: every session this window's tab opened, for its work board. */
 		onAgentControlReview(callback: (event: AgentReviewEvent) => void): () => void;
 	};

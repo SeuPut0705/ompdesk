@@ -398,6 +398,39 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 			additionalProperties: false,
 		},
 	},
+	{
+		name: T.appList,
+		label: "OMPdesk app actions",
+		description:
+			"List what you can do to OMPdesk itself (settings, side panel, usage, models, saved sessions, updates, sign-in starts) with each action's tier and argument schema. Filter by area or query. See skill://ompdesk/references/app-control.md.",
+		parameters: {
+			type: "object",
+			properties: {
+				area: { type: "string", description: "An area such as settings, ui, usage, models, sessions, updates." },
+				query: { type: "string", description: "Words to match in an action's id or description." },
+			},
+			additionalProperties: false,
+		},
+	},
+	{
+		name: T.app,
+		label: "OMPdesk app action",
+		description:
+			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; sensitive actions ask the user first; some are never available. See skill://ompdesk/references/app-control.md.",
+		parameters: {
+			type: "object",
+			properties: {
+				action: { type: "string", description: "Action id from ompdesk_app_list, e.g. settings.theme." },
+				args: {
+					type: "object",
+					description: "The action's arguments as its schema says.",
+					additionalProperties: true,
+				},
+			},
+			required: ["action"],
+			additionalProperties: false,
+		},
+	},
 ];
 
 const sessionArg = z.string().trim().min(1).max(200);
@@ -583,6 +616,10 @@ export const ARGS = {
 			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
 		}),
 	[T.autopilot]: autopilotArgs,
+	[T.appList]: z
+		.object({ area: z.string().trim().max(60).optional(), query: z.string().trim().max(200).optional() })
+		.strict(),
+	[T.app]: z.object({ action: z.string().trim().min(1).max(100), args: z.record(z.unknown()).optional() }).strict(),
 } as const;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;

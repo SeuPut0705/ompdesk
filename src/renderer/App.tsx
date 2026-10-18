@@ -50,6 +50,7 @@ import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
+import { startAgentAppEvents } from "./lib/agent-app";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
@@ -145,6 +146,7 @@ function FocusedSessionEffects() {
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
 	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
+	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
 		const state: RunProgressState = !progressEnabled
 			? "idle"
