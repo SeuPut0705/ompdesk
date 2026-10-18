@@ -118,6 +118,45 @@ describe("seedWorktree", () => {
 		expect(await pathExists(path.join(target, "link"))).toBe(false);
 		expect(await pathExists(path.join(target, "via", ".env"))).toBe(false);
 	});
+	it("leaves a force-added tracked file inside an ignored folder out, even when the target branch lacks it", async () => {
+		await fs.writeFile(path.join(repo, ".gitignore"), "cache/\n");
+		await fs.mkdir(path.join(repo, "cache"));
+		await fs.writeFile(path.join(repo, "cache", "pinned.txt"), "tracked\n");
+		gitSync(repo, "add", "-f", ".gitignore", "cache/pinned.txt");
+		gitSync(repo, "commit", "-q", "-m", "force-add");
+		await fs.writeFile(path.join(repo, "cache", "local.bin"), "ignored\n");
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "cache\n");
+		// The target branch starts before the force-add, so the tracked file is absent there.
+		const target = path.join(scratch, "older");
+		gitSync(repo, "worktree", "add", "-q", "-b", "older", target, "HEAD~1");
+
+		const report = await seedWorktree(repo, target);
+
+		expect(await fs.readFile(path.join(target, "cache", "local.bin"), "utf8")).toBe("ignored\n");
+		expect(await pathExists(path.join(target, "cache", "pinned.txt"))).toBe(false);
+		expect(report?.skipped).toContainEqual({ path: path.join("cache", "pinned.txt"), reason: "not_ignored" });
+	});
+
+	it("never writes through a target-branch folder symlink that leads outside the worktree", async () => {
+		const elsewhere = path.join(scratch, "elsewhere");
+		await fs.mkdir(elsewhere);
+		await fs.writeFile(path.join(repo, ".gitignore"), "conf/.env\n");
+		gitSync(repo, "add", ".gitignore");
+		gitSync(repo, "commit", "-q", "-m", "ignore");
+		const target = await freshWorktree("trap");
+		await fs.symlink(elsewhere, path.join(target, "conf"));
+		gitSync(target, "add", "conf");
+		gitSync(target, "commit", "-q", "-m", "conf is a link");
+		await fs.mkdir(path.join(repo, "conf"));
+		await fs.writeFile(path.join(repo, "conf", ".env"), "SECRET=1\n");
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "conf/.env\n");
+
+		const report = await seedWorktree(repo, target);
+
+		expect(await fs.readdir(elsewhere)).toEqual([]);
+		expect(report?.copied).toBe(0);
+		expect(report?.skipped).toContainEqual({ path: "conf/.env", reason: "destination_outside" });
+	});
 });
 
 describe.skipIf(process.platform === "win32")("worktree setup hook", () => {

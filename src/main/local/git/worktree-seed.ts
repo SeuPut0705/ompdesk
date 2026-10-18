@@ -111,38 +111,68 @@ interface CopyState {
 	full: boolean;
 }
 
+/**
+ * The destination's nearest existing ancestor really lies in the worktree: a folder the target branch checked out as
+ * a symlink would otherwise carry `mkdir`/`copyFile` outside it.
+ */
+async function destinationInside(target: string, to: string): Promise<boolean> {
+	let dir = path.dirname(to);
+	while (dir !== target && isInside(target, dir)) {
+		const stat = await fs.lstat(dir).catch(() => null);
+		if (stat) {
+			if (!stat.isDirectory()) return false;
+			break;
+		}
+		dir = path.dirname(dir);
+	}
+	const real = await fs.realpath(dir).catch(() => null);
+	return real !== null && (real === target || isInside(target, real));
+}
+
+/** `rel` was checked ignored by the caller; a folder's entries are each checked again (a force-added file is tracked). */
 async function copyEntry(state: CopyState, rel: string): Promise<void> {
 	const from = path.join(state.root, rel);
 	const to = path.join(state.target, rel);
 	const stat = await fs.lstat(from).catch(() => null);
 	if (!stat) return;
-	if (stat.isSymbolicLink()) {
-		const real = await fs.realpath(from).catch(() => null);
-		if (!real || !isInside(real, state.root)) {
-			state.skipped.push({ path: rel, reason: "symlink_outside" });
-			return;
-		}
-		if (await fs.lstat(to).catch(() => null)) return;
-		await fs.mkdir(path.dirname(to), { recursive: true });
-		await fs.symlink(await fs.readlink(from), to);
-		return;
-	}
 	if (stat.isDirectory()) {
-		for (const name of (await fs.readdir(from)).sort()) {
-			if (name === ".git") continue;
-			await copyEntry(state, path.join(rel, name));
+		const entries = (await fs.readdir(from))
+			.filter(name => name !== ".git")
+			.sort()
+			.map(name => path.join(rel, name));
+		const ignored = await ignoredAmong(state.root, entries);
+		for (const entry of entries) {
+			if (!ignored.has(entry)) {
+				state.skipped.push({ path: entry, reason: "not_ignored" });
+				continue;
+			}
+			await copyEntry(state, entry);
 			if (state.full) return;
 		}
 		return;
 	}
-	if (!stat.isFile()) return;
+	if (!stat.isFile() && !stat.isSymbolicLink()) return;
+	if (await fs.lstat(to).catch(() => null)) {
+		state.skipped.push({ path: rel, reason: "exists" });
+		return;
+	}
+	if (!(await destinationInside(state.target, to))) {
+		state.skipped.push({ path: rel, reason: "destination_outside" });
+		return;
+	}
+	if (stat.isSymbolicLink()) {
+		const real = await fs.realpath(from).catch(() => null);
+		if (!real || !isInside(state.root, real)) {
+			state.skipped.push({ path: rel, reason: "symlink_outside" });
+			return;
+		}
+		await fs.mkdir(path.dirname(to), { recursive: true });
+		await fs.symlink(await fs.readlink(from), to);
+		return;
+	}
 	if (state.files + 1 > SEED_MAX_FILES || state.bytes + stat.size > SEED_MAX_BYTES) {
 		state.skipped.push({ path: rel, reason: "budget" });
 		state.full = true;
-		return;
-	}
-	if (await fs.lstat(to).catch(() => null)) {
-		state.skipped.push({ path: rel, reason: "exists" });
 		return;
 	}
 	await fs.mkdir(path.dirname(to), { recursive: true });
@@ -157,7 +187,7 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 	const listFile = path.join(root, WORKTREE_INCLUDE_FILE);
 	const stat = await fs.stat(listFile).catch(() => null);
 	if (!stat?.isFile()) return null;
-	const state: CopyState = { root, target, files: 0, bytes: 0, skipped: [], full: false };
+	const state: CopyState = { root, target: await fs.realpath(target), files: 0, bytes: 0, skipped: [], full: false };
 	if (stat.size > MAX_INCLUDE_BYTES) {
 		state.skipped.push({ path: WORKTREE_INCLUDE_FILE, reason: "too_large" });
 		return { copied: 0, bytes: 0, skipped: state.skipped };
@@ -173,13 +203,15 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 	const found: string[] = [];
 	for (const rel of await candidates(root, patterns)) {
 		const realParent = await fs.realpath(path.dirname(path.join(root, rel))).catch(() => null);
-		if (!realParent || (realParent !== root && !isInside(realParent, root))) {
+		if (!realParent || (realParent !== root && !isInside(root, realParent))) {
 			state.skipped.push({ path: rel, reason: "symlink_outside" });
 		} else found.push(rel);
 	}
 	const ignored = await ignoredAmong(root, found);
 	for (const rel of found) {
-		if (!ignored.has(rel)) {
+		// git never reports a folder holding a tracked file as ignored; `copyEntry` checks each of its entries instead.
+		const folder = (await fs.lstat(path.join(root, rel)).catch(() => null))?.isDirectory() === true;
+		if (!folder && !ignored.has(rel)) {
 			state.skipped.push({ path: rel, reason: "not_ignored" });
 			continue;
 		}
