@@ -81,6 +81,7 @@ import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
@@ -171,9 +172,6 @@ type PendingDelete =
 type SidebarMode = "code" | "chat";
 
 /** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
-const SIDEBAR_MIN = 220;
-const SIDEBAR_MAX = 420;
-const SIDEBAR_DEFAULT = 248;
 
 /** Stock's own `created` (the session header's timestamp): fixed for a session's life, unlike `modified`. */
 function createdAt(session: SessionInfo): number {
@@ -437,16 +435,17 @@ export function Sidebar() {
 	const [filter, setFilter] = useState("");
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
 	// Resizable docked column; the width persists like every other chrome pref.
-	const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
-	const sidebarWidthRef = useRef(SIDEBAR_DEFAULT);
+	const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+	const sidebarWidthRef = useRef(sidebarWidth);
 	useEffect(() => {
 		void window.omp.prefs
 			.get("sidebarWidth")
 			.then(value => {
 				if (typeof value !== "number" || !Number.isFinite(value)) return;
-				const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, value));
+				const clamped = clampSidebarWidth(value);
 				sidebarWidthRef.current = clamped;
 				setSidebarWidth(clamped);
+				writeSidebarWidth(clamped);
 			})
 			.catch(() => {});
 	}, []);
@@ -461,12 +460,13 @@ export function Sidebar() {
 		const host = e.currentTarget.parentElement;
 		if (!host) return;
 		const hostRect = host.getBoundingClientRect();
-		const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX - hostRect.left));
+		const clamped = clampSidebarWidth(e.clientX - hostRect.left);
 		sidebarWidthRef.current = clamped;
 		setSidebarWidth(clamped);
 	}, []);
 	const endSidebarDrag = useCallback(() => {
 		sidebarDragging.current = false;
+		writeSidebarWidth(sidebarWidthRef.current);
 		void window.omp.prefs.set("sidebarWidth", sidebarWidthRef.current).catch(() => {});
 	}, []);
 	const [deleting, setDeleting] = useState(false);

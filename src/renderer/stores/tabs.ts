@@ -61,6 +61,7 @@ import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
 import { webRuntime } from "../web/runtime";
 import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "./composer";
@@ -83,7 +84,6 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
-import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { ensureTabRuntime, installTabReadyGate, READY_WAIT_CAP_MS, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
 import { useUiStore } from "./ui";

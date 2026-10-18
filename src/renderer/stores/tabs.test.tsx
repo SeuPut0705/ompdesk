@@ -2631,7 +2631,8 @@ describe("a command for a starting tab", () => {
 		});
 		const runtime = ensureTabRuntime("t-start");
 		const commandForTab = vi.fn(async () => ok({}));
-		(window as unknown as { omp: { rpc: { commandForTab: typeof commandForTab } } }).omp.rpc.commandForTab = commandForTab;
+		(window as unknown as { omp: { rpc: { commandForTab: typeof commandForTab } } }).omp.rpc.commandForTab =
+			commandForTab;
 
 		const sent = runtime.command({ type: "get_state" });
 		await Promise.resolve();

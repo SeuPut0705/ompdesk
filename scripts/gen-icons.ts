@@ -33,7 +33,10 @@ import { writePwaIcons } from "./pwa-icons";
 const resources = path.join(import.meta.dir, "..", "resources");
 const rendererDir = path.join(import.meta.dir, "..", "src", "renderer");
 /** The two page shells: the desktop window and the paired phone's. */
-const RENDERER_PAGES = [path.join(rendererDir, "index.html"), path.join(rendererDir, "web.html")];
+const RENDERER_PAGES = [
+	{ file: path.join(rendererDir, "index.html"), variant: "desktop" },
+	{ file: path.join(rendererDir, "web.html"), variant: "web" },
+] as const;
 const brand = path.join(resources, "brand");
 const iconset = path.join(resources, "icon.iconset");
 /** The 256 px window / About / notification icon. */
@@ -115,7 +118,8 @@ async function writeDmgBackground(svg: Buffer): Promise<void> {
 
 async function main(): Promise<void> {
 	for (const [file, contents] of Object.entries(BRAND_SVGS)) await Bun.write(path.join(resources, file), contents);
-	for (const page of RENDERER_PAGES) await Bun.write(page, brandHtml(await Bun.file(page).text()));
+	for (const { file, variant } of RENDERER_PAGES)
+		await Bun.write(file, brandHtml(await Bun.file(file).text(), variant));
 	const source = (file: string) => Buffer.from(BRAND_SVGS[file]);
 	const small = (px: number) => px <= BRAND_MARK.smallMaxPx;
 	const appIcon = source("icon-source.svg");

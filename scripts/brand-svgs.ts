@@ -4,14 +4,15 @@
  * rasterizes them); brand-mark.test.ts fails when a checked-in file differs.
  */
 import { BRAND_MARK, type PiGeometry } from "../src/shared/brand-mark";
+import { type BootShellVariant, bootShell } from "./boot-shell";
 
 interface Paint {
 	ink: string;
 	accent: string;
 }
 
-const LIGHT: Paint = { ink: "#17171C", accent: "#5B5BD6" };
-const DARK: Paint = { ink: "#F4F4F6", accent: "#8B8DF8" };
+export const LIGHT: Paint = { ink: "#17171C", accent: "#5B5BD6" };
+export const DARK: Paint = { ink: "#F4F4F6", accent: "#8B8DF8" };
 const TILE: Paint = { ink: "url(#pi-ink)", accent: "url(#pi-accent)" };
 const MONO: Paint = { ink: "#000000", accent: "#000000" };
 
@@ -186,19 +187,11 @@ export const PWA_ICON_FILES = [
 ] as const;
 
 /**
- * The page's first paint, before React mounts: the full π centred in `#root` (React replaces it) and the
- * colours of each scheme, which pre-paint.js has already set on `<html data-theme>`. gen-icons writes both
- * blocks between their `boot-mark` markers in src/renderer/index.html and web.html.
- */
-export const BOOT_MARK_STYLE = `<style>.boot-mark{position:fixed;inset:0;display:grid;place-items:center}.boot-ink{fill:${LIGHT.ink}}.boot-accent{fill:${LIGHT.accent}}[data-theme="dark"] .boot-ink{fill:${DARK.ink}}[data-theme="dark"] .boot-accent{fill:${DARK.accent}}</style>`;
-export const BOOT_MARK_HTML = `<div class="boot-mark"><svg width="64" height="64" viewBox="${BRAND_MARK.viewBox}" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path class="boot-ink" d="${BRAND_MARK.full.ink}"/><path class="boot-accent" d="${BRAND_MARK.full.accent}"/></svg></div>`;
-
-/**
  * A page shell (src/renderer/index.html, web.html) with the generated parts written in: the favicon, and
- * the first-paint mark between the `boot-mark` markers. gen-icons writes it; brand-mark.test.ts checks the
+ * the first-paint shell (scripts/boot-shell.ts) between the `boot-mark` markers. gen-icons writes it; brand-mark.test.ts checks the
  * checked-in pages equal it.
  */
-export function brandHtml(html: string): string {
+export function brandHtml(html: string, variant: BootShellVariant): string {
 	const favicon = /(<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href=")[^"]*"/;
 	if (!favicon.test(html)) throw new Error('page has no <link rel="icon" type="image/svg+xml">');
 	const block = (name: string, body: string) => {
@@ -206,7 +199,8 @@ export function brandHtml(html: string): string {
 		if (!pattern.test(html)) throw new Error(`page has no boot-mark:${name} markers`);
 		html = html.replace(pattern, (_, open: string, close: string) => `${open}${body}${close}`);
 	};
-	block("style", BOOT_MARK_STYLE);
-	block("root", BOOT_MARK_HTML);
+	const shell = bootShell(variant);
+	block("style", shell.style);
+	block("root", shell.html);
 	return html.replace(favicon, (_, head: string) => `${head}${FAVICON_HREF}"`);
 }

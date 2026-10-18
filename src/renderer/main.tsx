@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { RootErrorBoundary } from "./components/common/RootErrorBoundary";
+import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { lazyChunk, watchChunkFailures } from "./lib/chunk-load";
 import { getCurrentLanguage, I18nProvider, loadLocale } from "./lib/i18n";
 import { installGlobalRuntimeErrorHandlers, reportRuntimeError } from "./lib/runtime-errors";

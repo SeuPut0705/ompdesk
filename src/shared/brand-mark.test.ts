@@ -28,14 +28,14 @@ describe("brand mark sources", () => {
 		expect(onDisk.sort()).toEqual(Object.keys(BRAND_SVGS).sort());
 	});
 
-	it.each(["index.html", "web.html"])(
-		"the renderer page %s carries the generated favicon and first-paint mark",
-		page => {
-			const html = fs.readFileSync(path.join(__dirname, "..", "renderer", page), "utf8");
-			expect(html).toContain(`href="${FAVICON_HREF}"`);
-			expect(brandHtml(html)).toBe(html);
-		},
-	);
+	it.each([
+		["index.html", "desktop"],
+		["web.html", "web"],
+	] as const)("the renderer page %s carries the generated favicon and first-paint shell", (page, variant) => {
+		const html = fs.readFileSync(path.join(__dirname, "..", "renderer", page), "utf8");
+		expect(html).toContain(`href="${FAVICON_HREF}"`);
+		expect(brandHtml(html, variant)).toBe(html);
+	});
 
 	it("each form is a π: one ink shape and the accent foot", () => {
 		for (const pi of [BRAND_MARK.full, BRAND_MARK.small]) {
