@@ -29,7 +29,7 @@ function ready(extra: Partial<AiMemoryState> = {}): AiMemoryState {
 		dataDir: "/Users/me/.local/share/ai-memory",
 		serverUrl: "http://127.0.0.1:49374",
 		webUrl: "http://127.0.0.1:49374/web",
-		wiring: { extension: true, mcp: true },
+		wiring: { app: true, terminal: false },
 		stats: { pages: 12, sessions: 3, observations: 40, diskBytes: 2048 },
 		detail: null,
 		...extra,

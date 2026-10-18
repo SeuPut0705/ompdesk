@@ -4,7 +4,7 @@
  * is not a prefs write: main installs or removes the wiring and the service, and pushes the new state back.
  */
 
-import { Brain, FolderOpen, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import { Brain, FolderOpen, KeyRound, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AiMemoryPhase } from "../../../shared/ai-memory";
 import { aiMemoryStatusText } from "../../lib/ai-memory-text";
@@ -15,7 +15,7 @@ import { toast, toastError } from "../../stores/toast";
 import { Badge, Button, ConfirmDialog, CopyButton, InlineNotice, Spinner } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
-type Action = "toggle" | "retry" | "purge" | "console" | "password" | "reveal";
+type Action = "toggle" | "retry" | "purge" | "console" | "password" | "reveal" | "terminal";
 
 const PRIVACY_KEYS = [
 	"aiMemory.privacy.local",
@@ -194,6 +194,38 @@ export function AiMemorySection() {
 							label={t("aiMemory.password")}
 						/>
 					</>
+				)}
+				{!unsupported && (state.enabled || state.wiring.terminal) && (
+					<SettingsRow
+						control={
+							<Button
+								disabled={starting || busy !== null}
+								icon={<SquareTerminal />}
+								loading={busy === "terminal"}
+								onClick={() =>
+									void run(
+										"terminal",
+										() => window.omp.aiMemory.setTerminal(!state.wiring.terminal),
+										t(state.wiring.terminal ? "aiMemory.terminal.removed" : "aiMemory.terminal.done"),
+									)
+								}
+								size="sm"
+								variant="secondary"
+							>
+								{t(state.wiring.terminal ? "aiMemory.terminal.remove" : "aiMemory.terminal.connect")}
+							</Button>
+						}
+						description={t("aiMemory.terminal.desc")}
+						footer={
+							state.wiring.terminal ? (
+								<span className="block text-sc-xs text-(--sc-text-muted)" data-ai-memory-terminal>
+									{t("aiMemory.terminal.connected")}
+								</span>
+							) : undefined
+						}
+						id="setting-aiMemory-terminal"
+						label={t("aiMemory.terminal.label")}
+					/>
 				)}
 				<SettingsRow
 					control={

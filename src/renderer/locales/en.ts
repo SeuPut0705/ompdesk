@@ -1540,7 +1540,7 @@ export const en: Record<string, string> = {
 		"ai-memory is built into OMPdesk. It writes down what happens in the omp sessions OMPdesk runs and hands the next session in the same folder what it needs to carry on.",
 	"aiMemory.switch.label": "Remember across sessions",
 	"aiMemory.switch.desc":
-		"On: every omp session OMPdesk runs is connected to ai-memory. Off: that connection is removed and the server stops, and what it stored stays.",
+		"On: every omp session OMPdesk runs loads ai-memory. Off: OMPdesk stops loading it. The server stops too if OMPdesk started it and nothing else uses it. What it stored stays.",
 	"aiMemory.status": "Status",
 	"aiMemory.phase.off": "Off",
 	"aiMemory.phase.starting": "Starting",
@@ -1550,8 +1550,9 @@ export const en: Record<string, string> = {
 	"aiMemory.phase.failed": "Failed",
 	"aiMemory.phase.unsupported": "Not available on this system",
 	"aiMemory.step.stage": "preparing the program",
-	"aiMemory.step.wire": "connecting it to omp",
-	"aiMemory.step.unwire": "disconnecting it from omp",
+	"aiMemory.step.wire": "setting up the server and OMPdesk's extension",
+	"aiMemory.step.unwire": "turning it off",
+	"aiMemory.step.terminal": "changing the terminal omp",
 	"aiMemory.step.purge": "deleting the data",
 	"aiMemory.step.check": "checking the server",
 	"aiMemory.source.bundled": "built in",
@@ -1588,8 +1589,17 @@ export const en: Record<string, string> = {
 	"aiMemory.privacy.replies": "The assistant's replies are not recorded.",
 	"aiMemory.privacy.ignore":
 		'To keep files out of capture, put a .ai-memory.toml in the project with a [capture] section that lists ignore_paths (for example ["**/.env*"]). That covers file and shell tool activity only; prompts are always recorded unless capture runs in allowlist mode.',
+	"aiMemory.terminal.label": "Terminal omp",
+	"aiMemory.terminal.desc":
+		"The omp you run in a terminal is separate: OMPdesk loads ai-memory only into its own sessions and writes nothing to ~/.omp. To record those sessions too, connect it here; this runs ai-memory's own setup for omp and adds one extension and one MCP entry to omp's agent folder.",
+	"aiMemory.terminal.connected":
+		"Connected: the terminal omp records to ai-memory too. Removing takes out only that extension and MCP entry.",
+	"aiMemory.terminal.connect": "Also use in the terminal omp",
+	"aiMemory.terminal.remove": "Remove from the terminal omp",
+	"aiMemory.terminal.done": "Terminal omp connected",
+	"aiMemory.terminal.removed": "Terminal omp disconnected",
 	"aiMemory.privacy.off":
-		"Turning memory off removes the hooks, the MCP entry and the skills and stops the server. The data stays until you delete it here.",
+		"Turning memory off stops OMPdesk from loading it and stops the server when OMPdesk started it and nothing else uses it. Other agents' ai-memory setups and the terminal omp's are never touched. The data stays until you delete it here.",
 	"aiMemoryPanel.loadFailed": "Couldn't read memory",
 	"aiMemoryPanel.pageFailed": "Couldn't read this page",
 	"aiMemoryPanel.back": "Back to the lists",

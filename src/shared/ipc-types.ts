@@ -335,6 +335,7 @@ export const IPC_COMMANDS = {
 	AI_MEMORY_SET_ENABLED: "ai-memory:set-enabled",
 	AI_MEMORY_RETRY: "ai-memory:retry",
 	AI_MEMORY_PURGE: "ai-memory:purge",
+	AI_MEMORY_SET_TERMINAL: "ai-memory:set-terminal",
 	AI_MEMORY_OPEN_WEB: "ai-memory:open-web",
 	AI_MEMORY_COPY_WEB_PASSWORD: "ai-memory:copy-web-password",
 	AI_MEMORY_REVEAL_DATA: "ai-memory:reveal-data",
@@ -1713,12 +1714,17 @@ export interface OmpApi {
 	/** ai-memory, OMPdesk's memory (src/main/ai-memory/): state, the on/off switch and read-only browsing of what it holds. */
 	aiMemory: {
 		getState(): Promise<AiMemoryState>;
-		/** Turn memory on or off (wires or unwires omp and starts or stops the server); progress arrives through `onState`. */
+		/**
+		 * Turn memory on or off: OMPdesk's sessions load (or stop loading) ai-memory's extension root, and its own server
+		 * starts or stops (only when OMPdesk started it and nothing else uses it); progress arrives through `onState`.
+		 */
 		setEnabled(enabled: boolean): Promise<void>;
-		/** Stage and wire again after a failure. */
+		/** Stage and set up again after a failure. */
 		retry(): Promise<void>;
-		/** Delete everything it remembers (wiki, database, raw events, token) and wire it again when it is on. */
+		/** Delete everything it remembers (wiki, database, raw events, token) and set it up again when it is on. */
 		purge(): Promise<void>;
+		/** "Also use in the terminal omp": ai-memory's own `setup --agent omp` (true), or remove just that omp wiring (false). */
+		setTerminal(enabled: boolean): Promise<void>;
 		/** Open the server's /web console in the default browser. */
 		openWeb(): Promise<void>;
 		/** Copy the /web console's password (the root token, never shown) to the clipboard. */

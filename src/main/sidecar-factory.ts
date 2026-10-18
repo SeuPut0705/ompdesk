@@ -62,6 +62,8 @@ export interface LocalSidecarDeps {
 	launchProfilesPref: () => unknown;
 	/** Grace period a closed tab's omp gets to shut down by itself (ai-memory's session-end rides it); absent: none. */
 	gracefulStopMs?: () => number;
+	/** `-e <root>` of ai-memory (OMPdesk's own extension root) while memory is on, read at every spawn; absent: none. */
+	aiMemoryExtensionArgs?: () => Promise<string[]>;
 	/**
 	 * Autopilot's coordinator (src/main/autopilot.ts), read per frame: it does not exist yet when the factory is
 	 * made. Absent or null: autopilot frames pass through untouched.
@@ -121,8 +123,9 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];
 				const pstackRoot = join(deps.builtinDir, "pstack");
 				const pstack = deps.pstackPref && pstackEnabled(deps.pstackPref()) ? ["-e", pstackRoot] : [];
+				const memory = (await deps.aiMemoryExtensionArgs?.()) ?? [];
 				return {
-					args: [...own, ...rea, ...pstack],
+					args: [...own, ...rea, ...pstack, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
 					// A chat (no project) keeps the pack's root but not its section text.
 					env: { OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0" },

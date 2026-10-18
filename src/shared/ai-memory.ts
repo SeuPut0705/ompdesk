@@ -1,14 +1,24 @@
 /**
  * ai-memory (https://github.com/akitaonrails/ai-memory, MIT) is OMPdesk's memory: a release binary shipped inside
- * the app (`resources/ai-memory-bin/`, pinned by `resources/omp-builtin/ai-memory/ai-memory.json`), wired into omp
- * by ai-memory's own installer (`setup --agent omp`: MCP entry, the generated omp extension, skills) and served by
- * ai-memory's own per-user service (launchd on macOS, a logon entry on Windows). Main side: src/main/ai-memory/.
+ * the app (`resources/ai-memory-bin/`, pinned by `resources/omp-builtin/ai-memory/ai-memory.json`), served by
+ * ai-memory's own per-user service (launchd on macOS, a logon entry on Windows) and loaded into the omp sessions
+ * OMPdesk spawns through an app-owned extension root (`<userData>/ai-memory/omp-ext/`, passed with `-e`: the omp
+ * extension, MCP entry and skills ai-memory's own generators write). Nothing is written to the user's
+ * `~/.omp/agent` unless they press "Also use in the terminal omp". Main side: src/main/ai-memory/.
  * Stock omp's own memory backends are never used and have no Settings rows.
  */
 import pin from "../../resources/omp-builtin/ai-memory/ai-memory.json" with { type: "json" };
 
 /** Settings › Memory (ai-memory) switch. Default on: only a stored `false` turns it off. */
 export const AI_MEMORY_PREF = "aiMemory";
+/**
+ * Whether the user connected their plain terminal `omp` too (`true`), disconnected it (`false`), or never decided
+ * (absent). The first launch with an absent value moves the global wiring an earlier build wrote (ai-memory's
+ * extension and MCP entry in omp's agent dir, run from OMPdesk's staged binary) to the app-owned root and stores `false`.
+ */
+export const AI_MEMORY_TERMINAL_PREF = "aiMemoryTerminal";
+/** `true` while OMPdesk itself installed ai-memory's user service and may stop it; `false` once a service it did not start was found. */
+export const AI_MEMORY_SERVICE_OWNED_PREF = "aiMemoryServiceOwned";
 /** The version the app ships (the pin file is the only place it is written). */
 export const AI_MEMORY_VERSION: string = pin.version;
 /** The pin file's per-platform assets, keyed `<process.platform>-<process.arch>`. */
@@ -22,16 +32,16 @@ export function aiMemoryEnabled(value: unknown): boolean {
 }
 
 /**
- * - `off`: switched off (hooks, MCP entry and skills removed, the service stopped).
- * - `starting`: on, and main is staging the binary, wiring omp or starting the server (`step` says which).
- * - `ready`: wired, and the server answers.
- * - `unreachable`: wired, but the server does not answer (stopped, crashed, port taken); main retries on its own.
- * - `failed`: staging or wiring failed (`detail`); retried at the next launch or by Settings › Try again.
+ * - `off`: switched off (OMPdesk stopped loading it; the server stopped when OMPdesk started it and nothing else uses it).
+ * - `starting`: on, and main is staging the binary, generating the extension root or starting the server (`step` says which).
+ * - `ready`: connected, and the server answers.
+ * - `unreachable`: connected, but the server does not answer (stopped, crashed, port taken); main retries on its own.
+ * - `failed`: staging or setup failed (`detail`); retried at the next launch or by Settings › Try again.
  * - `unsupported`: no build for this platform.
  */
 export type AiMemoryPhase = "off" | "starting" | "ready" | "unreachable" | "failed" | "unsupported";
 
-export type AiMemoryStep = "stage" | "wire" | "unwire" | "purge" | "check";
+export type AiMemoryStep = "stage" | "wire" | "unwire" | "purge" | "check" | "terminal";
 
 export interface AiMemoryState {
 	enabled: boolean;
@@ -49,8 +59,12 @@ export interface AiMemoryState {
 	serverUrl: string | null;
 	/** The server's /web console. */
 	webUrl: string | null;
-	/** What is on disk for omp right now (read from the files, not remembered). */
-	wiring: { extension: boolean; mcp: boolean };
+	/**
+	 * What is on disk right now (read from the files, not remembered). `app`: OMPdesk's own extension root is complete.
+	 * `terminal`: ai-memory's wiring sits in omp's agent dir, so the plain `omp` CLI uses it too (the user's choice, or
+	 * their own `ai-memory setup`); OMPdesk then does not load its root as well, so a session never captures twice.
+	 */
+	wiring: { app: boolean; terminal: boolean };
 	/** From the server's /admin/status; null while it does not answer. */
 	stats: { pages: number; sessions: number; observations: number; diskBytes: number } | null;
 	detail: string | null;

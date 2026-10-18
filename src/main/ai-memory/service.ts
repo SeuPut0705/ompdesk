@@ -1,21 +1,26 @@
 /**
- * ai-memory as OMPdesk's memory: stage the shipped binary, wire omp with ai-memory's own installer, keep its
- * per-user service running, and take it all back on "off".
+ * ai-memory as OMPdesk's memory: stage the shipped binary, keep its per-user service running, give the omp sessions
+ * OMPdesk spawns an app-owned extension root, and take back only OMPdesk's part on "off".
  *
- * Why ai-memory's own service rather than a child OMPdesk supervises: the omp CLI outside OMPdesk (a terminal, an
- * editor, a script) is wired the same way and keeps capturing and getting handoffs while OMPdesk is closed; ai-memory
- * documents that service as the local single-user setup (launchd LaunchAgent on macOS, a logon entry on Windows,
- * `ai-memory setup`). OMPdesk therefore supervises nothing long-lived: it runs short, idempotent `ai-memory`
- * commands, polls `/healthz`, and re-runs `setup` when the service or the wiring went missing.
+ * Why ai-memory's own service rather than a child OMPdesk supervises: ai-memory documents it as the local single-user
+ * setup (launchd LaunchAgent on macOS, a logon entry on Windows, `ai-memory setup`), and a terminal omp the user
+ * connected keeps capturing while OMPdesk is closed. OMPdesk therefore supervises nothing long-lived: it runs short,
+ * idempotent `ai-memory` commands, polls `/healthz`, and re-runs `setup` when the service or the root went missing.
  *
- * What runs, always with the binary from `binary.ts`:
- *   on    `setup --yes --agent omp`   data dir + token, the user service, the MCP entry, the generated omp
- *                                     extension and the skills, then ai-memory's own self-check
- *   off   `uninstall --apply --yes`   hooks, MCP entry, skills and the service; the data stays
- *   purge `uninstall --apply --yes`, then the wiki/db/raw folders are deleted (server stopped), then `on` again when
- *         memory is on
- * Defaults stay ai-memory's: no LLM or cloud embedding provider (zero-LLM path; its small local embedding model is
- * fetched once), the single-user cross-project profile.
+ * What runs, always with the binary from `binary.ts`, in a neutral working directory:
+ *   on    `setup --yes --agent omp`   the data dir + token and the user service. `setup` cannot install the service
+ *                                     without wiring an agent, so omp's agent dir is pointed at a scratch folder
+ *                                     (`PI_CODING_AGENT_DIR`), which is deleted again, together with the shared skills
+ *                                     it newly created: nothing is written to `~/.omp/agent`.
+ *         `install-hooks|install-mcp|install-skills` generate the extension root (`root.ts`), which sessions load with `-e`
+ *   off   OMPdesk stops loading the root and deletes it. The server stops only when OMPdesk started its service
+ *         (`unit.ts`: the unit runs a binary OMPdesk staged) and nothing else uses it (`uninstall`'s dry run lists no
+ *         other agent's wiring). `uninstall --apply` is never run: it removes every agent's wiring.
+ *   terminal  "Also use in the terminal omp": ai-memory's own `setup --agent omp` into the real agent dir; the reverse
+ *         removes just that extension and MCP entry (`terminal.ts`).
+ *   purge the server is stopped (when it is OMPdesk's), the wiki/db/raw folders are deleted, then on again
+ * Defaults stay ai-memory's: no LLM or cloud embedding provider (zero-LLM path; a fresh config opts out of the local
+ * embedding model, see `config.ts`), the single-user cross-project profile.
  */
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -42,9 +47,19 @@ import {
 	pruneStaged,
 	stageBinary,
 	stagedBinaryPath,
+	stagingRoot,
 } from "./binary";
 import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
 import { withoutLocalEmbeddings } from "./config";
+import { generateRoot, removeRoot, rootComplete } from "./root";
+import {
+	legacyOwned,
+	listSharedSkills,
+	readTerminalWiring,
+	removeNewSharedSkills,
+	removeTerminalWiring,
+} from "./terminal";
+import { launchdControl, logonControl, type ServiceControl } from "./unit";
 
 const POLL_MS = 60_000;
 const HEALTH_WAIT_MS = 30_000;
@@ -56,10 +71,6 @@ const OUTPUT_TAIL = 16 * 1024;
 /** The folders `ai-memory reset` wipes; everything else in the data directory (config, token, models) stays. */
 const DATA_FOLDERS = ["wiki", "db", "raw"] as const;
 const STATS_MAX_AGE_MS = 5_000;
-
-/** The files ai-memory's omp installer writes under omp's agent dir. */
-export const EXTENSION_FILE = join("extensions", "ai-memory-omp.ts");
-export const MCP_FILE = "mcp.json";
 
 export interface AiMemoryServiceDeps {
 	platform: SetupPlatform;
@@ -74,10 +85,21 @@ export interface AiMemoryServiceDeps {
 	/** Skip ai-memory's user service (`setup --no-service`); the caller then runs the server itself (tests). */
 	noService?: boolean;
 	home: string;
+	/** omp's own agent dir: where the terminal omp's wiring would be (never written unless the user asks). */
 	agentDir: () => string;
+	/** OMPdesk's own extension root (`<userData>/ai-memory/omp-ext`), loaded with `-e` into the sessions it spawns. */
+	rootDir: string;
 	/** The Settings switch: only a stored `false` is off. */
 	enabled: () => boolean;
 	persistEnabled: (enabled: boolean) => void;
+	/** `AI_MEMORY_TERMINAL_PREF`: undefined until the user (or the one-time migration) decided. */
+	terminalPref: () => boolean | undefined;
+	persistTerminal: (enabled: boolean) => void;
+	/** `AI_MEMORY_SERVICE_OWNED_PREF`. */
+	serviceOwnedPref: () => boolean | undefined;
+	persistServiceOwned: (owned: boolean) => void;
+	/** The OS service ai-memory's `setup` installs; absent: launchd on macOS, the logon entry on Windows. */
+	unit?: ServiceControl;
 	spawnEnv: () => Promise<NodeJS.ProcessEnv>;
 	onState: (state: AiMemoryState) => void;
 	/** Wait for something before the first wiring (the first tab boots before ai-memory competes with it). */
@@ -141,6 +163,9 @@ function tail(output: string, lines = 4): string {
 /** A step failed; `message` is what Settings shows. */
 class StepError extends Error {}
 
+/** The user's cancel (the runner stopped a command): not a failure. */
+class Cancelled extends Error {}
+
 export class AiMemoryService {
 	readonly #deps: AiMemoryServiceDeps;
 	readonly #runner: SetupRunner;
@@ -167,7 +192,7 @@ export class AiMemoryService {
 			dataDir: null,
 			serverUrl: null,
 			webUrl: null,
-			wiring: { extension: false, mcp: false },
+			wiring: { app: false, terminal: false },
 			stats: null,
 			detail: null,
 		};
@@ -243,6 +268,7 @@ export class AiMemoryService {
 			try {
 				await this.#disable(true);
 				if (this.#state.enabled) await this.#enable();
+				else await this.#restoreService();
 				resolve();
 			} catch (error) {
 				if (this.#state.enabled) await this.#enable().catch(() => undefined);
@@ -250,6 +276,52 @@ export class AiMemoryService {
 			}
 		}).catch(reject);
 		return promise;
+	}
+
+	/**
+	 * "Also use in the terminal omp": ai-memory's own `setup --agent omp` into omp's real agent dir, or (off) the removal
+	 * of exactly that extension and MCP entry. Memory itself (phase, server) is not changed; a failure throws.
+	 */
+	setTerminal(enabled: boolean): Promise<void> {
+		const { promise, resolve, reject } = Promise.withResolvers<void>();
+		if (!this.#platformOk || !this.#deps.automatic) {
+			reject(new Error("ai-memory is not managed by this build."));
+			return promise;
+		}
+		if (enabled && !this.#state.enabled) {
+			reject(new Error("Turn memory on first."));
+			return promise;
+		}
+		this.#enqueue(async () => {
+			const { phase, detail } = this.#state;
+			this.#patch({ phase: "starting", step: "terminal", detail: null });
+			try {
+				if (enabled) {
+					const resolved = this.#resolved ?? (await this.#resolve());
+					this.#resolved = resolved;
+					await this.#setup(resolved.bin, { terminal: true, service: this.#deps.serviceOwnedPref() !== false });
+					this.#deps.persistTerminal(true);
+				} else {
+					await removeTerminalWiring(this.#deps.agentDir());
+					this.#deps.persistTerminal(false);
+				}
+				this.#patch({ phase, step: null, detail, wiring: await this.#wiring() });
+				resolve();
+			} catch (error) {
+				this.#patch({ phase, step: null, detail, wiring: await this.#wiring() });
+				reject(error instanceof Cancelled ? new Error("Cancelled") : error);
+			}
+		}).catch(reject);
+		return promise;
+	}
+
+	/** After a purge with memory off: a server other clients use comes back (OMPdesk stopped it to empty the data). */
+	async #restoreService(): Promise<void> {
+		const bin = this.#resolved?.bin;
+		if (!bin || this.#deps.serviceOwnedPref() === false || !(await this.#othersUseServer(bin))) return;
+		const terminal =
+			this.#deps.terminalPref() === true && (await readTerminalWiring(this.#deps.agentDir())).extension;
+		await this.#setup(bin, { terminal, service: true });
 	}
 
 	/** Stats and health, at most every few seconds; the Settings page and the panel call it when they open. */
@@ -319,23 +391,33 @@ export class AiMemoryService {
 		this.#stopPolling();
 	}
 
-	/** What is on disk for omp now: the generated extension and the MCP entry. */
+	/** What is on disk now: OMPdesk's own root, and ai-memory's wiring of the terminal omp. */
 	async #wiring(): Promise<AiMemoryState["wiring"]> {
-		const dir = this.#deps.agentDir();
-		const extension = await stat(join(dir, EXTENSION_FILE)).then(
-			info => info.isFile(),
-			() => false,
-		);
-		let mcp = false;
-		try {
-			const config = JSON.parse(await readFile(join(dir, MCP_FILE), "utf8")) as {
-				mcpServers?: Record<string, unknown>;
-			};
-			mcp = !!config.mcpServers && "ai-memory" in config.mcpServers;
-		} catch {
-			mcp = false;
-		}
-		return { extension, mcp };
+		const [app, terminal] = await Promise.all([
+			rootComplete(this.#deps.rootDir),
+			readTerminalWiring(this.#deps.agentDir()),
+		]);
+		return { app, terminal: terminal.extension || terminal.mcp };
+	}
+
+	/**
+	 * What the omp sessions OMPdesk spawns load for memory: `-e <root>` while memory is on and the root is complete.
+	 * A terminal omp wired by ai-memory already loads the same extension from omp's agent dir, so the root is left out
+	 * then: a session never captures twice.
+	 */
+	async extensionArgs(): Promise<string[]> {
+		if (!this.#deps.automatic || !this.#platformOk || !this.#deps.enabled()) return [];
+		if (!(await rootComplete(this.#deps.rootDir))) return [];
+		if ((await readTerminalWiring(this.#deps.agentDir())).extension) return [];
+		return ["-e", this.#deps.rootDir];
+	}
+
+	get #unit(): ServiceControl {
+		const { unit, platform, home, toolsDir } = this.#deps;
+		if (unit) return unit;
+		const owned = () => [stagingRoot(toolsDir), ...(this.#resolved ? [this.#resolved.bin] : [])];
+		if (platform === "win32") return logonControl({ owned, dataDir: () => this.#state.dataDir });
+		return launchdControl({ home, owned, uid: process.getuid?.() ?? 0 });
 	}
 
 	async #resolve(): Promise<Resolved> {
@@ -380,12 +462,16 @@ export class AiMemoryService {
 		}
 	}
 
-	async #run(bin: string, args: string[]): Promise<{ ok: boolean; cancelled: boolean; output: string }> {
+	async #run(
+		bin: string,
+		args: string[],
+		extraEnv: NodeJS.ProcessEnv = {},
+	): Promise<{ ok: boolean; cancelled: boolean; output: string }> {
 		let output = "";
 		// Its own commands read the working directory as "this project" (setup's doctor, `status`): a neutral one.
 		const outcome = await this.#runner.run(
 			{ file: bin, args, shell: false },
-			await this.#deps.spawnEnv(),
+			{ ...(await this.#deps.spawnEnv()), ...extraEnv },
 			chunk => {
 				output = (output + chunk).slice(-OUTPUT_TAIL);
 			},
@@ -395,6 +481,59 @@ export class AiMemoryService {
 			throw new StepError(`ai-memory could not start: ${outcome.detail ?? bin}`);
 		}
 		return { ok: outcome.kind === "succeeded", cancelled: outcome.kind === "cancelled", output };
+	}
+
+	/** Paths whose binaries OMPdesk runs: a unit or an MCP entry running one was written by OMPdesk. */
+	#ownedPaths(): string[] {
+		return [stagingRoot(this.#deps.toolsDir), ...(this.#resolved ? [this.#resolved.bin] : [])];
+	}
+
+	/**
+	 * Whether OMPdesk started ai-memory's service and may stop it again. A service that was there before (a unit running
+	 * someone else's binary, or a server that answered with no unit of ours) is theirs, and then `setup` runs with
+	 * `--no-service` so it is never repointed. The answer is stored: it stays false once a service of someone else's was seen.
+	 */
+	async #serviceOwned(serverWasUp: boolean): Promise<boolean> {
+		const unit = await this.#unit.inspect();
+		const stored = this.#deps.serviceOwnedPref();
+		const owned = unit.installed ? unit.ours && stored !== false : !serverWasUp;
+		if (owned !== stored) this.#deps.persistServiceOwned(owned);
+		return owned;
+	}
+
+	/**
+	 * `setup` installs the service only together with an agent's wiring. For OMPdesk's server the agent dir is a
+	 * scratch folder (deleted afterwards, with the shared skills `setup` newly created); a terminal omp the user
+	 * connected is wired into its real agent dir by the very same command.
+	 */
+	async #setup(bin: string, options: { terminal: boolean; service: boolean }): Promise<void> {
+		const args = [
+			"setup",
+			"--yes",
+			"--agent",
+			"omp",
+			...(options.service && !this.#deps.noService ? [] : ["--no-service"]),
+		];
+		const { home } = this.#deps;
+		const scratch = `${this.#deps.rootDir}.setup`;
+		const skillsBefore = options.terminal ? null : await listSharedSkills(home);
+		let result: { ok: boolean; cancelled: boolean; output: string };
+		try {
+			result = await this.#run(bin, args, options.terminal ? {} : { PI_CODING_AGENT_DIR: scratch });
+		} finally {
+			if (!options.terminal) {
+				await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+				if (skillsBefore) await removeNewSharedSkills(home, skillsBefore).catch(() => undefined);
+			}
+		}
+		if (result.cancelled) throw new Cancelled();
+		const problems = parseProblems(result.output);
+		// Right after the service starts, setup's own self-check can ask before the server listens; the poll below
+		// is the real test. Any other problem is a failure.
+		const fatal = problems.filter(problem => !problem.startsWith("self-check"));
+		if (!result.ok && (fatal.length > 0 || problems.length === 0)) {
+			throw new StepError(`setup failed: ${fatal.join("; ") || tail(result.output) || "no output"}`);
+		}
 	}
 
 	async #enable(): Promise<void> {
@@ -409,6 +548,10 @@ export class AiMemoryService {
 			if (plan.cancelled) return;
 			const facts = parsePlan(plan.output);
 			if (facts?.dataDir) this.#patch({ dataDir: facts.dataDir });
+			// Whether a server of someone else's already runs on this data dir (read before `init` can write a config).
+			const before = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
+			if (before !== null) this.#patch({ serverUrl: serverUrlFromConfig(before) });
+			const serverWasUp = before !== null && (await this.#client.healthy());
 			// A fresh data dir: ai-memory's own `init` writes the config (and token) first, and the one setting OMPdesk
 			// changes goes in before the service starts, so the embedding model is never fetched. An existing config
 			// (a user's, or an earlier OMPdesk run) is left exactly as it is.
@@ -420,25 +563,35 @@ export class AiMemoryService {
 				const next = current === null ? null : withoutLocalEmbeddings(current);
 				if (next !== null) await writeFile(facts.configPath, next);
 			}
-			const args = ["setup", "--yes", "--agent", "omp", ...(this.#deps.noService ? ["--no-service"] : [])];
-			const setup = await this.#run(resolved.bin, args);
-			if (setup.cancelled) return;
-			const problems = parseProblems(setup.output);
-			// Right after the service starts, setup's own self-check can ask before the server listens; the poll below
-			// is the real test. Any other problem is a failure.
-			const fatal = problems.filter(problem => !problem.startsWith("self-check"));
-			if (!setup.ok && (fatal.length > 0 || problems.length === 0)) {
-				throw new StepError(`setup failed: ${fatal.join("; ") || tail(setup.output) || "no output"}`);
+			const owned = await this.#serviceOwned(serverWasUp);
+
+			// An earlier build wired omp globally (extension + MCP entry running OMPdesk's staged binary): move that to
+			// the app-owned root, once. What the user connected themselves (their own `ai-memory setup`, or the button)
+			// stays.
+			const agentDir = this.#deps.agentDir();
+			let terminal = await readTerminalWiring(agentDir);
+			if (this.#deps.terminalPref() === undefined) {
+				if (legacyOwned(terminal, this.#ownedPaths())) {
+					await removeTerminalWiring(agentDir);
+					terminal = await readTerminalWiring(agentDir);
+				}
+				this.#deps.persistTerminal(false);
+			}
+			// Keep a connected terminal omp pointed at the binary in use (an app update stages a new version).
+			const terminalWired = this.#deps.terminalPref() === true && (terminal.extension || terminal.mcp);
+			try {
+				await this.#setup(resolved.bin, { terminal: terminalWired, service: owned });
+			} catch (error) {
+				if (error instanceof Cancelled) return;
+				throw error;
 			}
 			const toml = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
 			this.#patch({ serverUrl: serverUrlFromConfig(toml) });
+			const generated = await this.#generateRoot(resolved.bin);
+			if (!generated) return;
 			const wiring = await this.#wiring();
 			this.#patch({ wiring });
-			if (!wiring.extension || !wiring.mcp) {
-				throw new StepError(
-					`setup finished but omp's ${wiring.extension ? "MCP entry" : "extension"} is not in ${this.#deps.agentDir()}`,
-				);
-			}
+			if (!wiring.app) throw new StepError(`ai-memory's extension root is not complete in ${this.#deps.rootDir}`);
 			this.#step("check");
 			const up = await this.#waitHealthy();
 			this.#patch({
@@ -455,11 +608,49 @@ export class AiMemoryService {
 		}
 	}
 
+	/** The extension root, from ai-memory's own generators; false when a command was cancelled. */
+	async #generateRoot(bin: string): Promise<boolean> {
+		try {
+			return await generateRoot(this.#deps.rootDir, args => this.#run(bin, args), tail);
+		} catch (error) {
+			throw error instanceof StepError
+				? error
+				: new StepError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	/**
-	 * Off (or purge): ai-memory's own uninstall (hooks, MCP entry, skills, the service); throws when it fails.
-	 * A purge then wipes the data folders itself. `uninstall --purge-data` would do that too, but it refuses while any
-	 * process named `ai-memory` runs, and every live omp session has one (its `mcp-bridge`, a stdio relay that holds
-	 * no database): with sessions open it could never run. Only the server owns the database, and it is stopped.
+	 * Whether another client uses the server besides OMPdesk's own sessions: the terminal omp, or any other agent
+	 * ai-memory wired (`uninstall` without `--apply` only lists what it would remove and changes nothing; the shared
+	 * skills are not a client). Unknown counts as in use: the server is then left running.
+	 */
+	async #othersUseServer(bin: string): Promise<boolean> {
+		if ((await readTerminalWiring(this.#deps.agentDir())).extension) return true;
+		const listing = await this.#run(bin, ["uninstall"]);
+		if (!listing.ok) return true;
+		return listing.output
+			.split(/\r?\n/)
+			.some(line => /^\s*would (delete|remove)\b/.test(line) && !line.includes("(managed Agent Skill)"));
+	}
+
+	/** Stop OMPdesk's own service (never one it did not start) and wait for the server to go. */
+	async #stopService(): Promise<void> {
+		const unit = await this.#unit.inspect();
+		if (!unit.installed || !unit.ours) return;
+		await this.#unit.remove();
+		const deadline = (this.#deps.now ?? Date.now)() + (this.#deps.healthWaitMs ?? HEALTH_WAIT_MS);
+		while (await this.#client.healthy()) {
+			if ((this.#deps.now ?? Date.now)() >= deadline) return;
+			await sleep(HEALTH_STEP_MS);
+		}
+	}
+
+	/**
+	 * Off (or purge): OMPdesk stops loading ai-memory and deletes its extension root; its own service is stopped when
+	 * nothing else uses it. Other agents' configs and the terminal omp's wiring are never touched. A purge stops the
+	 * server first and then wipes the data folders itself (`uninstall --purge-data` would refuse while any `ai-memory`
+	 * process runs, and every live omp session has one: its `mcp-bridge`, a stdio relay that holds no database).
+	 * Throws when a step fails.
 	 */
 	async #disable(purge: boolean): Promise<void> {
 		this.#stopPolling();
@@ -467,14 +658,14 @@ export class AiMemoryService {
 			this.#step(purge ? "purge" : "unwire");
 			const resolved = this.#resolved ?? (await this.#resolve());
 			this.#resolved = resolved;
-			const result = await this.#run(resolved.bin, ["uninstall", "--apply", "--yes"]);
-			if (result.cancelled) return;
-			if (!result.ok) {
-				throw new StepError(
-					`${purge ? "Purge" : "Turning memory off"} failed: ${tail(result.output) || "no output"}`,
-				);
+			const owned = this.#deps.serviceOwnedPref() !== false;
+			if (purge) {
+				if (owned) await this.#stopService();
+				await this.#wipeData();
+			} else {
+				await removeRoot(this.#deps.rootDir);
+				if (owned && !(await this.#othersUseServer(resolved.bin))) await this.#stopService();
 			}
-			if (purge) await this.#wipeData();
 			this.#patch({
 				phase: "off",
 				step: null,
@@ -545,7 +736,7 @@ export class AiMemoryService {
 			this.#patch({ phase: "unreachable", stats: null, detail: "The server does not answer." });
 		}
 		const broken = !up && this.#downPolls >= REWIRE_AFTER_POLLS;
-		const missing = !wiring.extension || !wiring.mcp;
+		const missing = !wiring.app;
 		const now = (this.#deps.now ?? Date.now)();
 		if (heal && (broken || missing) && now - this.#lastRewire >= REWIRE_COOLDOWN_MS) {
 			this.#lastRewire = now;

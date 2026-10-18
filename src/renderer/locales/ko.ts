@@ -1523,7 +1523,7 @@ export const ko: Record<string, string> = {
 		"ai-memory는 OMPdesk에 내장돼 있어요. OMPdesk가 실행하는 omp 세션에서 일어난 일을 적어 두고, 같은 폴더의 다음 세션이 이어서 작업할 수 있게 핸드오프를 넘겨요.",
 	"aiMemory.switch.label": "세션 사이에 기억하기",
 	"aiMemory.switch.desc":
-		"켜면 OMPdesk가 실행하는 모든 omp 세션이 ai-memory에 연결돼요. 끄면 연결을 걷어내고 서버를 멈추며, 저장된 내용은 남아요.",
+		"켜면 OMPdesk가 실행하는 모든 omp 세션이 ai-memory를 불러와요. 끄면 OMPdesk가 더 이상 불러오지 않고, OMPdesk가 시작한 서버를 다른 곳에서 쓰지 않을 때는 서버도 멈춰요. 저장된 내용은 남아요.",
 	"aiMemory.status": "상태",
 	"aiMemory.phase.off": "꺼짐",
 	"aiMemory.phase.starting": "시작하는 중",
@@ -1533,8 +1533,9 @@ export const ko: Record<string, string> = {
 	"aiMemory.phase.failed": "실패",
 	"aiMemory.phase.unsupported": "이 시스템에서는 쓸 수 없어요",
 	"aiMemory.step.stage": "프로그램을 준비하는 중",
-	"aiMemory.step.wire": "omp에 연결하는 중",
-	"aiMemory.step.unwire": "omp에서 연결을 걷어내는 중",
+	"aiMemory.step.wire": "서버와 OMPdesk 확장을 준비하는 중",
+	"aiMemory.step.unwire": "끄는 중",
+	"aiMemory.step.terminal": "터미널 omp를 바꾸는 중",
 	"aiMemory.step.purge": "데이터를 지우는 중",
 	"aiMemory.step.check": "서버를 확인하는 중",
 	"aiMemory.source.bundled": "내장",
@@ -1571,8 +1572,16 @@ export const ko: Record<string, string> = {
 	"aiMemory.privacy.replies": "어시스턴트의 답변은 기록하지 않아요.",
 	"aiMemory.privacy.ignore":
 		'파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml 파일을 두고 [capture] 섹션의 ignore_paths에 경로를 적어요(예: ["**/.env*"]). 파일과 셸 도구 활동에만 적용되며, 캡처가 허용 목록 모드가 아니면 프롬프트는 항상 기록돼요.',
+	"aiMemory.terminal.label": "터미널 omp",
+	"aiMemory.terminal.desc":
+		"터미널에서 실행하는 omp는 별개예요. OMPdesk는 자기 세션에만 ai-memory를 불러오고 ~/.omp에는 아무것도 쓰지 않아요. 터미널 세션도 기록하려면 여기서 연결하세요. ai-memory 자체의 omp 설정을 실행해 omp 에이전트 폴더에 확장 하나와 MCP 항목 하나를 추가해요.",
+	"aiMemory.terminal.connected": "연결됨: 터미널 omp도 ai-memory에 기록해요. 제거하면 그 확장과 MCP 항목만 빠져요.",
+	"aiMemory.terminal.connect": "터미널 omp에서도 사용",
+	"aiMemory.terminal.remove": "터미널 omp에서 제거",
+	"aiMemory.terminal.done": "터미널 omp를 연결했어요",
+	"aiMemory.terminal.removed": "터미널 omp 연결을 걷어냈어요",
 	"aiMemory.privacy.off":
-		"메모리를 끄면 훅, MCP 항목, 스킬이 제거되고 서버가 멈춰요. 데이터는 여기서 삭제하기 전까지 남아요.",
+		"메모리를 끄면 OMPdesk가 더 이상 불러오지 않고, OMPdesk가 시작한 서버는 다른 곳에서 쓰지 않을 때 멈춰요. 다른 에이전트의 ai-memory 설정과 터미널 omp의 설정은 건드리지 않아요. 데이터는 여기서 삭제하기 전까지 남아요.",
 	"aiMemoryPanel.loadFailed": "메모리를 읽지 못했어요",
 	"aiMemoryPanel.pageFailed": "이 페이지를 읽지 못했어요",
 	"aiMemoryPanel.back": "목록으로 돌아가기",

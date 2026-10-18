@@ -34,6 +34,7 @@ export function registerAiMemoryIpc(
 		| "setEnabled"
 		| "retry"
 		| "purge"
+		| "setTerminal"
 		| "projects"
 		| "search"
 		| "recent"
@@ -56,6 +57,10 @@ export function registerAiMemoryIpc(
 		void service.retry().catch(() => undefined);
 	});
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_PURGE, () => service.purge());
+	ipc.handle(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, (_caller, enabled: unknown) => {
+		if (typeof enabled !== "boolean") throw new Error("Invalid argument: enabled");
+		return service.setTerminal(enabled);
+	});
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_OPEN_WEB, async () => {
 		const { webUrl } = service.state();
 		if (!webUrl) throw new Error("ai-memory is not running");

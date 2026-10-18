@@ -36,7 +36,12 @@ import {
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF } from "../shared/agent-control";
-import { AI_MEMORY_PREF, aiMemoryEnabled } from "../shared/ai-memory";
+import {
+	AI_MEMORY_PREF,
+	AI_MEMORY_SERVICE_OWNED_PREF,
+	AI_MEMORY_TERMINAL_PREF,
+	aiMemoryEnabled,
+} from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
@@ -66,6 +71,7 @@ import { agentDir } from "./agent-paths";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { AiMemoryService } from "./ai-memory/service";
+import { pidFileControl } from "./ai-memory/unit";
 import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
@@ -599,6 +605,7 @@ app.whenReady().then(() => {
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
 		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),
+		aiMemoryExtensionArgs: () => aiMemoryService?.extensionArgs() ?? Promise.resolve([]),
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});
@@ -937,9 +944,12 @@ app.whenReady().then(() => {
 	extensionUpdater = extensionToolUpdater;
 	registerExtensionUpdateIpc(ipc, extensionToolUpdater);
 	// ai-memory is OMPdesk's memory (src/main/ai-memory/, pref `aiMemory`, default on): the shipped binary is staged
-	// into the tools dir, omp is wired by ai-memory's own installer and its per-user service serves it. A dev build
-	// reports only; OMP_GUI_AI_MEMORY_BIN (tests, a developer's own build) runs exactly that binary.
+	// into the tools dir, its per-user service serves it, and the omp sessions OMPdesk spawns load an app-owned
+	// extension root with `-e` (nothing is written to ~/.omp/agent). A dev build reports only; OMP_GUI_AI_MEMORY_BIN
+	// (tests, a developer's own build) runs exactly that binary; OMP_GUI_AI_MEMORY_UNIT_PIDFILE (the e2e fake's
+	// "service" is a pid file) stands in for the OS service.
 	const aiMemoryBinary = process.env.OMP_GUI_AI_MEMORY_BIN || null;
+	const aiMemoryUnitPidFile = process.env.OMP_GUI_AI_MEMORY_UNIT_PIDFILE || null;
 	const aiMemory = new AiMemoryService({
 		platform,
 		arch: process.arch,
@@ -952,8 +962,20 @@ app.whenReady().then(() => {
 		noService: process.env.OMP_GUI_AI_MEMORY_NO_SERVICE === "1",
 		home: homedir(),
 		agentDir,
+		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),
 		enabled: () => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)),
 		persistEnabled: enabled => prefs.set(AI_MEMORY_PREF, enabled),
+		terminalPref: () => {
+			const stored = prefs.get(AI_MEMORY_TERMINAL_PREF);
+			return typeof stored === "boolean" ? stored : undefined;
+		},
+		persistTerminal: enabled => prefs.set(AI_MEMORY_TERMINAL_PREF, enabled),
+		serviceOwnedPref: () => {
+			const stored = prefs.get(AI_MEMORY_SERVICE_OWNED_PREF);
+			return typeof stored === "boolean" ? stored : undefined;
+		},
+		persistServiceOwned: owned => prefs.set(AI_MEMORY_SERVICE_OWNED_PREF, owned),
+		...(aiMemoryUnitPidFile ? { unit: pidFileControl(aiMemoryUnitPidFile) } : {}),
 		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()) }),
 		beforeStart: afterFirstTab,
 		onState: state => {
@@ -999,6 +1021,7 @@ app.whenReady().then(() => {
 		launch: ompRunLauncher({
 			omp: systemOmp,
 			env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+			extensionArgs: () => aiMemoryService?.extensionArgs() ?? Promise.resolve([]),
 		}),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {

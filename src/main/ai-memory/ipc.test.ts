@@ -16,6 +16,7 @@ function setup(webUrl: string | null = "http://127.0.0.1:49374/web") {
 		setEnabled: vi.fn(async (_enabled: boolean) => {}),
 		retry: vi.fn(async () => {}),
 		purge: vi.fn(async () => {}),
+		setTerminal: vi.fn(async (_enabled: boolean) => {}),
 		projects: vi.fn(async () => []),
 		search: vi.fn(async (_query: string, _project?: unknown) => []),
 		recent: vi.fn(async (_project?: unknown) => []),
@@ -72,6 +73,19 @@ describe("ai-memory IPC", () => {
 		service.retry.mockRejectedValueOnce(new Error("boom"));
 		await expect(call(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, true)).resolves.toBeUndefined();
 		await expect(call(IPC_COMMANDS.AI_MEMORY_RETRY)).resolves.toBeUndefined();
+	});
+
+	it("set-terminal takes only a boolean and passes the service's refusal through", async () => {
+		const { service, call } = setup();
+		for (const bad of ["true", 1, null, undefined, {}]) {
+			await expect(call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, bad)).rejects.toThrow("Invalid argument: enabled");
+		}
+		expect(service.setTerminal).not.toHaveBeenCalled();
+		await call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, true);
+		await call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, false);
+		expect(service.setTerminal.mock.calls).toEqual([[true], [false]]);
+		service.setTerminal.mockRejectedValueOnce(new Error("Turn memory on first."));
+		await expect(call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, true)).rejects.toThrow("Turn memory on first.");
 	});
 
 	it("purge passes the service's refusal through to the caller", async () => {

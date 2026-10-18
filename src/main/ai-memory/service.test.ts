@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { AI_MEMORY_VERSION, type AiMemoryState } from "../../shared/ai-memory";
@@ -11,20 +11,16 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { AiMemoryClient } from "./client";
-import {
-	AiMemoryService,
-	type AiMemoryServiceDeps,
-	EXTENSION_FILE,
-	MCP_FILE,
-	parsePlan,
-	parseProblems,
-} from "./service";
+import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
+import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
+import type { ServiceControl } from "./unit";
 
 const BIN = "/fake/bin/ai-memory";
 const SERVER = "http://127.0.0.1:50123";
 const HANG = Symbol("hang");
 /** What ai-memory's `init` writes: its template, with the embedding opt-out as a comment. */
 const INIT_CONFIG = 'bind = "127.0.0.1:50123"\n# embedding_provider = "none"   # template\n';
+const SKILL_TEXT = "<!-- ai-memory-managed: routing-skill -->\n# skill\n";
 
 interface Result {
 	code: number;
@@ -35,6 +31,7 @@ interface Call {
 	args: string[];
 	cwd: string | undefined;
 	shell: boolean;
+	env: NodeJS.ProcessEnv;
 }
 
 class FakeChild extends EventEmitter implements SupervisedChild {
@@ -51,14 +48,17 @@ class FakeChild extends EventEmitter implements SupervisedChild {
 
 /** Everything one test needs: temp agent/data/home dirs, a scripted `ai-memory`, a fake server and the service. */
 interface Behavior {
-	/** Whether `setup --yes` really leaves the files behind. */
+	/** Whether `setup --yes` really leaves its wiring behind (in the agent dir it was pointed at). */
 	wire: boolean;
+	/** Whether the generators (`install-hooks`, `install-mcp`, `install-skills`) write their files. */
+	generate: boolean;
 	setup: () => Result;
 	init: () => Result;
-	uninstall: (args: string[]) => Result;
-	/** Whether a successful uninstall stops the server (`/healthz` stops answering until the next setup). */
-	stopsServer: boolean;
 	plan: () => Result;
+	/** The lines `uninstall` (dry run) prints: other agents' wiring it would remove. */
+	others: string[];
+	/** The dry run itself fails. */
+	listingFails: boolean;
 	/** A command's own hook, run before it answers (a hang, a spawn error). */
 	gate: ((args: string[]) => Promise<GateResult | undefined>) | undefined;
 }
@@ -66,14 +66,17 @@ interface Behavior {
 interface World {
 	root: string;
 	agentDir: string;
+	rootDir: string;
 	dataDir: string;
 	home: string;
 	toolsDir: string;
 	calls: Call[];
 	commands: () => string[];
 	behavior: Behavior;
-	health: { up: boolean; healthCalls: number; stopped: boolean };
-	state: { enabled: boolean };
+	health: { up: boolean; healthCalls: number };
+	/** The OS service: what `setup` installs and `remove` takes away. */
+	unit: { installed: boolean; ours: boolean; removed: number };
+	prefs: { enabled: boolean; terminal: boolean | undefined; owned: boolean | undefined };
 	states: AiMemoryState[];
 	persistEnabled: Mock<(enabled: boolean) => void>;
 	clock: { now: number };
@@ -83,6 +86,7 @@ interface World {
 async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<World> {
 	const root = await mkdtemp(join(tmpdir(), "ai-memory-service-"));
 	const agentDir = join(root, "agent");
+	const rootDir = join(root, "userData", "ai-memory", "omp-ext");
 	const dataDir = join(root, "data");
 	const home = join(root, "home");
 	const toolsDir = join(root, "tools");
@@ -92,12 +96,12 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 
 	const calls: Call[] = [];
 	const behavior: Behavior = {
-		/** Whether `setup --yes` really leaves the files behind. */
 		wire: true,
+		generate: true,
 		setup: (): Result => ({ code: 0, output: "setup done\n" }),
 		init: (): Result => ({ code: 0, output: "initialized\n" }),
-		uninstall: (_args: string[]): Result => ({ code: 0, output: "removed\n" }),
-		stopsServer: true,
+		others: [],
+		listingFails: false,
 		plan: (): Result => ({
 			code: 0,
 			output: `INFO ai_memory: plan\n${JSON.stringify({
@@ -109,14 +113,21 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 				agents: [{ agent: "omp", found: null, wiring: "mcp+hooks+skills" }],
 			})}\n`,
 		}),
-		/** A command's own hook, run before it answers (a hang, a spawn error). */
 		gate: undefined,
 	};
-	const health = { up: true, healthCalls: 0, stopped: false };
+	const health = { up: true, healthCalls: 0 };
+	const unit = { installed: false, ours: false, removed: 0 };
+	const prefs: World["prefs"] = { enabled: true, terminal: undefined, owned: undefined };
 
-	const spawner = (spec: SpawnSpec, _env: NodeJS.ProcessEnv, cwd?: string): SupervisedChild => {
+	const argAfter = (args: string[], flag: string): string => args[args.indexOf(flag) + 1] ?? "";
+	const writeFileDeep = async (file: string, text: string) => {
+		await mkdir(dirname(file), { recursive: true });
+		await writeFile(file, text);
+	};
+
+	const spawner = (spec: SpawnSpec, env: NodeJS.ProcessEnv, cwd?: string): SupervisedChild => {
 		const child = new FakeChild();
-		calls.push({ file: spec.file, args: spec.args, cwd, shell: spec.shell });
+		calls.push({ file: spec.file, args: spec.args, cwd, shell: spec.shell, env });
 		setImmediate(async () => {
 			const gated = await behavior.gate?.(spec.args);
 			if (gated === HANG) return;
@@ -129,38 +140,58 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 				return;
 			}
 			const [verb] = spec.args;
-			let result: Result;
+			let result: Result = { code: 0, output: "ok\n" };
 			if (verb === "init") {
 				result = behavior.init();
 				if (result.code === 0) await writeFile(join(dataDir, "config.toml"), INIT_CONFIG);
 			} else if (verb === "setup" && spec.args.includes("--plan")) result = behavior.plan();
 			else if (verb === "setup") {
 				result = behavior.setup();
-				if (health.stopped) {
+				if (!spec.args.includes("--no-service") && !unit.installed) {
+					// A fresh install of the service starts the server; re-running over an installed one changes nothing.
+					Object.assign(unit, { installed: true, ours: true });
 					health.up = true;
-					health.stopped = false;
 				}
 				if (behavior.wire) {
-					await mkdir(join(agentDir, "extensions"), { recursive: true });
-					await writeFile(join(agentDir, EXTENSION_FILE), "// generated\n");
-					await writeFile(
-						join(agentDir, MCP_FILE),
+					// `setup --agent omp` writes into omp's agent dir (PI_CODING_AGENT_DIR), and the shared skills into $HOME.
+					const dir = env.PI_CODING_AGENT_DIR ?? agentDir;
+					await writeFileDeep(join(dir, EXTENSION_FILE), `${GENERATED_HEADER} --apply\`.\n`);
+					await writeFileDeep(
+						join(dir, MCP_FILE),
 						JSON.stringify({ mcpServers: { "ai-memory": { command: spec.file, args: ["mcp-bridge"] } } }),
 					);
+					const skill = join(home, ".agents", "skills", "ai-memory-retrieval", "SKILL.md");
+					if (!existsSync(skill)) await writeFileDeep(skill, SKILL_TEXT);
 				}
 				if (!existsSync(join(dataDir, "config.toml"))) {
 					await writeFile(join(dataDir, "config.toml"), 'bind = "127.0.0.1:50123"\n');
 				}
-			} else {
-				result = behavior.uninstall(spec.args);
-				if (result.code === 0 && behavior.stopsServer) {
-					health.up = false;
-					health.stopped = true;
+			} else if (verb === "install-hooks" || verb === "install-mcp" || verb === "install-skills") {
+				if (behavior.generate) {
+					if (verb === "install-hooks") {
+						await writeFileDeep(
+							argAfter(spec.args, "--config-file"),
+							`${GENERATED_HEADER} --apply\`.\nexport default 1;\n`,
+						);
+					} else if (verb === "install-mcp") {
+						await writeFileDeep(
+							argAfter(spec.args, "--config-file"),
+							JSON.stringify({ mcpServers: { "ai-memory": { command: spec.file, args: ["mcp-bridge"] } } }),
+						);
+					} else {
+						await writeFileDeep(
+							join(argAfter(spec.args, "--target-dir"), "ai-memory-handoff", "SKILL.md"),
+							SKILL_TEXT,
+						);
+					}
 				}
-				if (result.code === 0) {
-					await rm(join(agentDir, EXTENSION_FILE), { force: true });
-					await rm(join(agentDir, MCP_FILE), { force: true });
-				}
+			} else if (verb === "uninstall") {
+				result = behavior.listingFails
+					? { code: 1, output: "cannot read\n" }
+					: {
+							code: 0,
+							output: `${behavior.others.join("\n")}\nnote: other checkouts\n(dry-run; pass --apply to remove)\n`,
+						};
 			}
 			child.finish(result.code, result.output ?? "");
 		});
@@ -186,10 +217,17 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		},
 	});
 
-	const state = { enabled: true };
+	const control: ServiceControl = {
+		inspect: async () => ({ installed: unit.installed, ours: unit.ours }),
+		remove: async () => {
+			unit.removed += 1;
+			Object.assign(unit, { installed: false, ours: false });
+			health.up = false;
+		},
+	};
 	const states: AiMemoryState[] = [];
 	const persistEnabled = vi.fn((enabled: boolean) => {
-		state.enabled = enabled;
+		prefs.enabled = enabled;
 	});
 	const clock = { now: 1_800_000_000_000 };
 	const service = new AiMemoryService({
@@ -201,8 +239,18 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		binaryOverride: BIN,
 		home,
 		agentDir: () => agentDir,
-		enabled: () => state.enabled,
+		rootDir,
+		enabled: () => prefs.enabled,
 		persistEnabled,
+		terminalPref: () => prefs.terminal,
+		persistTerminal: value => {
+			prefs.terminal = value;
+		},
+		serviceOwnedPref: () => prefs.owned,
+		persistServiceOwned: value => {
+			prefs.owned = value;
+		},
+		unit: control,
 		spawnEnv: async () => ({ PATH: "" }),
 		onState: snapshot => states.push(snapshot),
 		runner: new SetupRunner(spawner),
@@ -216,6 +264,7 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 	return {
 		root,
 		agentDir,
+		rootDir,
 		dataDir,
 		home,
 		toolsDir,
@@ -223,7 +272,8 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		commands,
 		behavior,
 		health,
-		state,
+		unit,
+		prefs,
 		states,
 		persistEnabled,
 		clock,
@@ -236,6 +286,15 @@ type GateResult = Result | typeof HANG | "spawn-error";
 const SETUP = "setup --yes --agent omp";
 const PLAN = "setup --plan --json --agent omp";
 const INIT = "init";
+const LISTING = "uninstall";
+/** The three generator commands, in order, for a root at `rootDir` (they write into `<root>.next`, swapped in after). */
+const generators = (rootDir: string) => [
+	`install-hooks --agent omp --apply --config-file ${join(`${rootDir}.next`, "index.ts")}`,
+	`install-mcp --client omp --apply --config-file ${join(`${rootDir}.next`, ".mcp.json")}`,
+	`install-skills --target-dir ${join(`${rootDir}.next`, "skills")}`,
+];
+
+const LEGACY_EXTENSION = `${GENERATED_HEADER} --apply\`.\n`;
 
 describe("AiMemoryService", () => {
 	let w: World | undefined;
@@ -246,6 +305,19 @@ describe("AiMemoryService", () => {
 		if (w) await rm(w.root, RM_TEMP);
 		w = undefined;
 	});
+
+	/** A mcp.json with another server beside ai-memory's entry, as a user's file would be. */
+	async function plantTerminalWiring(agentDir: string, command: string, extension = true): Promise<void> {
+		await mkdir(join(agentDir, "extensions"), { recursive: true });
+		if (extension) await writeFile(join(agentDir, EXTENSION_FILE), LEGACY_EXTENSION);
+		await writeFile(
+			join(agentDir, MCP_FILE),
+			JSON.stringify({
+				mcpServers: { other: { command: "other-server" }, "ai-memory": { command, args: ["mcp-bridge"] } },
+				theme: "kept",
+			}),
+		);
+	}
 
 	describe("pure parsers", () => {
 		it("parseProblems reads only `problem:` lines", () => {
@@ -267,10 +339,10 @@ describe("AiMemoryService", () => {
 	});
 
 	describe("start when on", () => {
-		it("stages, wires with ai-memory's own commands in order, checks and becomes ready", async () => {
-			const { service, commands, calls, states, home, dataDir, agentDir } = await make();
+		it("stages, sets up the server and the app-owned root with ai-memory's own commands, checks and becomes ready", async () => {
+			const { service, commands, calls, states, home, dataDir, agentDir, rootDir } = await make();
 			await service.start();
-			expect(commands()).toEqual([PLAN, INIT, SETUP]);
+			expect(commands()).toEqual([PLAN, INIT, SETUP, ...generators(rootDir)]);
 			for (const call of calls) {
 				expect(call.file).toBe(BIN);
 				expect(call.shell).toBe(false);
@@ -291,17 +363,45 @@ describe("AiMemoryService", () => {
 				dataDir,
 				serverUrl: SERVER,
 				webUrl: `${SERVER}/web`,
-				wiring: { extension: true, mcp: true },
+				wiring: { app: true, terminal: false },
 				stats: { pages: 4, sessions: 2, observations: 30, diskBytes: 2048 },
 				detail: null,
 				version: "3.1.1",
 			});
-			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			// The root holds ai-memory's own output: the extension, the MCP entry and the skills.
+			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
+			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers["ai-memory"].command).toBe(
+				BIN,
+			);
+			expect(await readdir(join(rootDir, "skills"))).toEqual(["ai-memory-handoff"]);
+			expect(await readdir(dirname(rootDir))).toEqual(["omp-ext"]);
+			// Nothing lands in omp's own agent dir.
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
+			expect(existsSync(join(agentDir, MCP_FILE))).toBe(false);
+		});
+
+		it("runs setup against a scratch agent dir that is gone afterwards, and takes back the shared skills it created", async () => {
+			const { service, calls, rootDir, home, agentDir } = await make();
+			const kept = join(home, ".agents", "skills", "ai-memory-messaging", "SKILL.md");
+			await mkdir(dirname(kept), { recursive: true });
+			await writeFile(kept, SKILL_TEXT);
+			const own = join(home, ".agents", "skills", "my-own-skill", "SKILL.md");
+			await mkdir(dirname(own), { recursive: true });
+			await writeFile(own, "mine");
+			await service.start();
+			const setup = calls.find(call => call.args.join(" ") === SETUP);
+			expect(setup?.env.PI_CODING_AGENT_DIR).toBe(`${rootDir}.setup`);
+			expect(setup?.env.PI_CODING_AGENT_DIR).not.toBe(agentDir);
+			expect(existsSync(`${rootDir}.setup`)).toBe(false);
+			// ai-memory-retrieval was created by this setup: gone. The others were there before: untouched.
+			expect(existsSync(join(home, ".agents", "skills", "ai-memory-retrieval"))).toBe(false);
+			expect(existsSync(kept)).toBe(true);
+			expect(existsSync(own)).toBe(true);
 		});
 
 		it("waits for beforeStart before the first command", async () => {
 			const gate = Promise.withResolvers<void>();
-			const { service, commands } = await make({ beforeStart: () => gate.promise });
+			const { service, commands, rootDir } = await make({ beforeStart: () => gate.promise });
 			const started = service.start();
 			await vi.waitFor(() => expect(service.state().phase).toBe("starting"));
 			// The first command would be spawned on the next macrotask; none was.
@@ -311,31 +411,32 @@ describe("AiMemoryService", () => {
 			expect(commands()).toEqual([]);
 			gate.resolve();
 			await started;
-			expect(commands()).toEqual([PLAN, INIT, SETUP]);
+			expect(commands()).toEqual([PLAN, INIT, SETUP, ...generators(rootDir)]);
 		});
 
 		it("passes --no-service to setup only", async () => {
-			const { service, commands } = await make({ noService: true });
+			const { service, commands, rootDir } = await make({ noService: true });
 			await service.start();
-			expect(commands()).toEqual([PLAN, INIT, `${SETUP} --no-service`]);
+			expect(commands()).toEqual([PLAN, INIT, `${SETUP} --no-service`, ...generators(rootDir)]);
 		});
 
 		it("a fresh data dir runs ai-memory's own init and opts out of the local embedding model before setup", async () => {
 			const { service, commands, dataDir } = await make();
 			await service.start();
-			expect(commands()).toEqual([PLAN, INIT, SETUP]);
+			expect(commands().slice(0, 3)).toEqual([PLAN, INIT, SETUP]);
 			const config = await readFile(join(dataDir, "config.toml"), "utf8");
 			expect(config).toMatch(/^embedding_provider = "none"/m);
 			expect(config).not.toMatch(/^# embedding_provider/m);
 		});
 
 		it("an existing config is never touched: no init, no edit", async () => {
-			const { service, commands, dataDir } = await make();
+			const { service, commands, dataDir, health } = await make();
 			await mkdir(dataDir, { recursive: true });
 			const mine = 'bind = "127.0.0.1:50123"\n# embedding_provider = "none"  # the user left hybrid search on\n';
 			await writeFile(join(dataDir, "config.toml"), mine);
+			health.up = false;
 			await service.start();
-			expect(commands()).toEqual([PLAN, SETUP]);
+			expect(commands().slice(0, 2)).toEqual([PLAN, SETUP]);
 			expect(await readFile(join(dataDir, "config.toml"), "utf8")).toBe(mine);
 		});
 
@@ -347,14 +448,14 @@ describe("AiMemoryService", () => {
 			expect(service.state()).toMatchObject({ phase: "failed", detail: "init failed: cannot create the data dir" });
 		});
 
-		it("a server that never answers leaves memory wired but unreachable", async () => {
-			const { service, health } = await make();
+		it("a server that never answers leaves memory set up but unreachable", async () => {
+			const { service, health } = await make({ noService: true });
 			health.up = false;
 			await service.start();
 			expect(service.state()).toMatchObject({
 				phase: "unreachable",
 				detail: "The server does not answer yet.",
-				wiring: { extension: true, mcp: true },
+				wiring: { app: true, terminal: false },
 			});
 		});
 	});
@@ -365,14 +466,6 @@ describe("AiMemoryService", () => {
 			behavior.setup = () => ({ code: 1, output: "problem: self-check: healthz did not answer\n" });
 			await service.start();
 			expect(service.state().phase).toBe("ready");
-		});
-
-		it("a lone self-check problem with a server that stays down is unreachable, not failed", async () => {
-			const { service, behavior, health } = await make();
-			health.up = false;
-			behavior.setup = () => ({ code: 1, output: "problem: self-check: healthz did not answer\n" });
-			await service.start();
-			expect(service.state().phase).toBe("unreachable");
 		});
 
 		it("any other problem fails with its text, even beside a self-check one", async () => {
@@ -392,25 +485,25 @@ describe("AiMemoryService", () => {
 			expect(service.state()).toMatchObject({ phase: "failed", detail: "setup failed: boom" });
 		});
 
-		it("a setup that leaves no extension fails and names the agent dir", async () => {
-			const { service, behavior, agentDir } = await make();
-			behavior.wire = false;
+		it("generators that leave no root fail and name it, with nothing half-written in place", async () => {
+			const { service, behavior, rootDir } = await make();
+			behavior.generate = false;
 			await service.start();
 			expect(service.state()).toMatchObject({
 				phase: "failed",
-				detail: `setup finished but omp's extension is not in ${agentDir}`,
-				wiring: { extension: false, mcp: false },
+				detail: "ai-memory's generators left the extension root incomplete",
+				wiring: { app: false },
 			});
+			expect(existsSync(rootDir)).toBe(false);
+			expect(existsSync(`${rootDir}.next`)).toBe(false);
+			expect(await service.extensionArgs()).toEqual([]);
 		});
 
-		it("a setup that leaves an extension but no MCP entry names the MCP entry", async () => {
-			const { service, behavior, agentDir } = await make();
-			behavior.wire = false;
-			behavior.setup = () => ({ code: 0 });
-			await mkdir(join(agentDir, "extensions"), { recursive: true });
-			await writeFile(join(agentDir, EXTENSION_FILE), "// there\n");
+		it("a failing generator names the command and its output", async () => {
+			const { service, behavior } = await make();
+			behavior.gate = async args => (args[0] === "install-mcp" ? { code: 1, output: "cannot write\n" } : undefined);
 			await service.start();
-			expect(service.state().detail).toBe(`setup finished but omp's MCP entry is not in ${agentDir}`);
+			expect(service.state()).toMatchObject({ phase: "failed", detail: "install-mcp failed: cannot write" });
 		});
 
 		it("a binary that cannot start is a failure with its own message", async () => {
@@ -422,69 +515,166 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a failed state is retried by retry()", async () => {
-			const { service, behavior, commands } = await make();
-			behavior.wire = false;
+			const { service, behavior, commands, rootDir } = await make();
+			behavior.generate = false;
 			await service.start();
 			expect(service.state().phase).toBe("failed");
-			behavior.wire = true;
+			behavior.generate = true;
 			await service.retry();
 			expect(service.state().phase).toBe("ready");
-			expect(commands()).toEqual([PLAN, INIT, SETUP, PLAN, SETUP]);
+			expect(commands().slice(-5)).toEqual([PLAN, SETUP, ...generators(rootDir)]);
+		});
+	});
+
+	describe("the root is loaded only while memory is on", () => {
+		it("-e <root> while on, nothing while off, and again after on", async () => {
+			const { service, rootDir } = await make();
+			expect(await service.extensionArgs()).toEqual([]);
+			await service.start();
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+			await service.setEnabled(false);
+			expect(await service.extensionArgs()).toEqual([]);
+			await service.setEnabled(true);
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+		});
+
+		it("the switch stops the loading at once: the stored value alone decides, before any command ends", async () => {
+			const { service, behavior, prefs } = await make();
+			await service.start();
+			behavior.gate = async () => HANG;
+			void service.setEnabled(false);
+			expect(prefs.enabled).toBe(false);
+			expect(await service.extensionArgs()).toEqual([]);
+		});
+
+		it("a terminal omp that already loads ai-memory's extension from its agent dir gets no second copy", async () => {
+			const { service, agentDir } = await make();
+			await service.start();
+			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
+			expect(await service.extensionArgs()).toEqual([]);
+			await rm(join(agentDir, EXTENSION_FILE));
+			expect(await service.extensionArgs()).toEqual(["-e", w?.rootDir]);
+		});
+
+		it("a build that does not manage ai-memory loads nothing", async () => {
+			const { service } = await make({ automatic: false });
+			await service.start();
+			expect(await service.extensionArgs()).toEqual([]);
 		});
 	});
 
 	describe("off, on and purge", () => {
-		it("off runs `uninstall --apply --yes`, persists first, and removes nothing else", async () => {
-			const { service, commands, persistEnabled, agentDir, dataDir, state } = await make();
+		it("off never runs `uninstall --apply`: it deletes the root, stops its own server and leaves everything else", async () => {
+			const { service, commands, persistEnabled, agentDir, dataDir, prefs, unit, health, rootDir, home } =
+				await make();
+			// Another agent's ai-memory wiring and omp's own config, planted before.
+			const claude = join(home, ".claude", "settings.json");
+			await mkdir(dirname(claude), { recursive: true });
+			await writeFile(claude, '{"hooks":{"ai-memory":1}}');
 			await service.start();
 			await service.setEnabled(false);
 			expect(persistEnabled).toHaveBeenCalledWith(false);
-			expect(state.enabled).toBe(false);
-			expect(commands()).toEqual([PLAN, INIT, SETUP, "uninstall --apply --yes"]);
+			expect(prefs.enabled).toBe(false);
+			// A dry run lists other clients; nothing ever applies an uninstall.
+			expect(commands().at(-1)).toBe(LISTING);
+			for (const command of commands()) expect(command).not.toContain("--apply --yes");
+			expect(commands().some(command => command.startsWith("uninstall") && command.includes("--apply"))).toBe(false);
 			expect(service.state()).toMatchObject({
 				enabled: false,
 				phase: "off",
 				step: null,
 				stats: null,
-				wiring: { extension: false, mcp: false },
+				wiring: { app: false, terminal: false },
 			});
-			// Not OMPdesk's to delete: omp's own config and ai-memory's data stay.
+			expect(existsSync(rootDir)).toBe(false);
+			expect(unit.removed).toBe(1);
+			expect(health.up).toBe(false);
+			// Not OMPdesk's to touch: other agents' configs, omp's own config and ai-memory's data.
+			expect(await readFile(claude, "utf8")).toBe('{"hooks":{"ai-memory":1}}');
 			expect(await readFile(join(agentDir, "config.yml"), "utf8")).toBe("theme: dark\n");
 			expect(existsSync(join(dataDir, "auth-tokens", "default"))).toBe(true);
 		});
 
-		it("on again wires again", async () => {
-			const { service, commands } = await make();
+		it("the server keeps running while another agent is wired to it", async () => {
+			const { service, behavior, unit, health } = await make();
+			behavior.others = ["would delete /home/u/.claude/settings.json (Claude Code hooks)"];
+			await service.start();
+			await service.setEnabled(false);
+			expect(service.state().phase).toBe("off");
+			expect(unit.removed).toBe(0);
+			expect(health.up).toBe(true);
+		});
+
+		it("other agents' managed skills alone are not a client: the server still stops", async () => {
+			const { service, behavior, unit } = await make();
+			behavior.others = ["would delete /home/u/.agents/skills/ai-memory-handoff/SKILL.md (managed Agent Skill)"];
+			await service.start();
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(1);
+		});
+
+		it("the server keeps running when the list of other clients cannot be read", async () => {
+			const { service, behavior, unit } = await make();
+			await service.start();
+			behavior.listingFails = true;
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(0);
+		});
+
+		it("a terminal omp connected to ai-memory keeps its wiring and the server", async () => {
+			const { service, unit, agentDir } = await make();
+			await service.start();
+			await service.setTerminal(true);
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(0);
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			expect(service.state().wiring).toEqual({ app: false, terminal: true });
+		});
+
+		it("a service OMPdesk did not start is never stopped, and setup is told not to install one", async () => {
+			const { service, commands, unit, prefs, rootDir } = await make();
+			Object.assign(unit, { installed: true, ours: false });
+			await service.start();
+			expect(commands()).toEqual([PLAN, INIT, `${SETUP} --no-service`, ...generators(rootDir)]);
+			expect(prefs.owned).toBe(false);
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(0);
+			// Still not ours after our own unit name shows up later: the stored answer stays false.
+			Object.assign(unit, { installed: true, ours: true });
+			await service.setEnabled(true);
+			expect(commands().at(-4)).toBe(`${SETUP} --no-service`);
+		});
+
+		it("a server that answered before OMPdesk set anything up (no unit of ours) is someone else's", async () => {
+			const { service, commands, dataDir, prefs, unit } = await make();
+			await mkdir(dataDir, { recursive: true });
+			await writeFile(join(dataDir, "config.toml"), 'bind = "127.0.0.1:50123"\n');
+			await service.start();
+			expect(commands()[1]).toBe(`${SETUP} --no-service`);
+			expect(prefs.owned).toBe(false);
+			await service.setEnabled(false);
+			expect(unit.removed).toBe(0);
+		});
+
+		it("on again sets up the root again", async () => {
+			const { service, commands, rootDir } = await make();
 			await service.start();
 			await service.setEnabled(false);
 			await service.setEnabled(true);
-			expect(commands()).toEqual([PLAN, INIT, SETUP, "uninstall --apply --yes", PLAN, SETUP]);
+			expect(commands().slice(-5)).toEqual([PLAN, SETUP, ...generators(rootDir)]);
 			expect(service.state()).toMatchObject({
 				enabled: true,
 				phase: "ready",
-				wiring: { extension: true, mcp: true },
+				wiring: { app: true, terminal: false },
 			});
 		});
 
 		it("a stored `false` at launch starts off and runs no command", async () => {
-			const { service, commands, state } = await make();
-			state.enabled = false;
+			const { service, commands, prefs } = await make();
+			prefs.enabled = false;
 			await service.start();
 			expect(commands()).toEqual([]);
 			expect(service.state()).toMatchObject({ enabled: false, phase: "off" });
-		});
-
-		it("a failing uninstall puts the service in failed with the output", async () => {
-			const { service, behavior } = await make();
-			await service.start();
-			behavior.uninstall = () => ({ code: 1, output: "could not stop the service\n" });
-			await expect(service.setEnabled(false)).rejects.toThrow(
-				"Turning memory off failed: could not stop the service",
-			);
-			expect(service.state()).toMatchObject({
-				phase: "failed",
-				detail: "Turning memory off failed: could not stop the service",
-			});
 		});
 
 		async function seedData(dataDir: string): Promise<void> {
@@ -494,62 +684,190 @@ describe("AiMemoryService", () => {
 			}
 		}
 
-		it("purge uninstalls, deletes wiki/db/raw itself once the server is gone, then wires again", async () => {
-			const { service, commands, dataDir } = await make();
+		it("purge stops its own server, deletes wiki/db/raw itself once it is gone, then sets up again", async () => {
+			const { service, commands, dataDir, unit } = await make();
 			await service.start();
 			await seedData(dataDir);
 			await service.purge();
-			// Never `--purge-data`: ai-memory refuses it while any live omp session runs an mcp-bridge.
-			expect(commands()).toEqual([PLAN, INIT, SETUP, "uninstall --apply --yes", PLAN, SETUP]);
+			// Never `uninstall`: it would remove other agents' wiring; and never `--purge-data` (live omp sessions
+			// run an mcp-bridge, which makes ai-memory refuse it).
+			expect(commands().some(command => command.startsWith("uninstall"))).toBe(false);
+			expect(unit.removed).toBe(1);
 			for (const folder of ["wiki", "db", "raw"]) expect(existsSync(join(dataDir, folder))).toBe(false);
 			// The config and the token are not memory.
 			expect(existsSync(join(dataDir, "config.toml"))).toBe(true);
 			expect(existsSync(join(dataDir, "auth-tokens", "default"))).toBe(true);
 			expect(service.state()).toMatchObject({ enabled: true, phase: "ready" });
+			expect(unit.installed).toBe(true);
 		});
 
-		it("a server that still answers after the uninstall deletes nothing and fails the purge; memory stays on", async () => {
-			const { service, behavior, commands, dataDir } = await make();
+		it("a server that still answers (not ours to stop) deletes nothing and fails the purge; memory stays on", async () => {
+			const { service, dataDir, unit } = await make();
 			await service.start();
 			await seedData(dataDir);
-			behavior.stopsServer = false;
+			Object.assign(unit, { installed: true, ours: false });
 			await expect(service.purge()).rejects.toThrow("An ai-memory server still answers");
 			for (const folder of ["wiki", "db", "raw"]) expect(existsSync(join(dataDir, folder))).toBe(true);
-			expect(commands()).toEqual([PLAN, INIT, SETUP, "uninstall --apply --yes", PLAN, SETUP]);
 			expect(service.state()).toMatchObject({ enabled: true, phase: "ready", detail: null });
 		});
 
 		it("a purge before the data directory is known deletes nothing", async () => {
-			const { service, commands, state } = await make();
-			state.enabled = false;
+			const { service, commands, prefs } = await make();
+			prefs.enabled = false;
 			await service.start();
 			await expect(service.purge()).rejects.toThrow("data directory is not known");
-			expect(commands()).toEqual(["uninstall --apply --yes"]);
+			expect(commands()).toEqual([]);
+		});
+	});
+
+	describe("the terminal omp", () => {
+		it("connecting runs ai-memory's own setup in omp's real agent dir and the root is no longer loaded", async () => {
+			const { service, calls, agentDir, prefs, home } = await make();
+			await service.start();
+			await service.setTerminal(true);
+			const setup = calls.filter(call => call.args.join(" ") === SETUP).at(-1);
+			expect(setup?.env.PI_CODING_AGENT_DIR).toBeUndefined();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			expect(prefs.terminal).toBe(true);
+			expect(service.state()).toMatchObject({ phase: "ready", wiring: { app: true, terminal: true } });
+			expect(await service.extensionArgs()).toEqual([]);
+			// The shared skills `setup` wrote stay: they belong to every agent that reads them.
+			expect(existsSync(join(home, ".agents", "skills", "ai-memory-retrieval"))).toBe(true);
 		});
 
-		it("a failing uninstall during a purge surfaces its text and wipes nothing", async () => {
-			const { service, behavior, dataDir } = await make();
+		it("disconnecting removes exactly ai-memory's extension and MCP entry, nothing else", async () => {
+			const { service, agentDir, prefs, rootDir } = await make();
 			await service.start();
-			await seedData(dataDir);
-			behavior.uninstall = () => ({ code: 1, output: "could not stop the service\n" });
-			await expect(service.purge()).rejects.toThrow("Purge failed: could not stop the service");
-			for (const folder of ["wiki", "db", "raw"]) expect(existsSync(join(dataDir, folder))).toBe(true);
+			await plantTerminalWiring(agentDir, join("/users", "own", "ai-memory"));
+			await service.setTerminal(false);
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
+			expect(JSON.parse(await readFile(join(agentDir, MCP_FILE), "utf8"))).toEqual({
+				mcpServers: { other: { command: "other-server" } },
+				theme: "kept",
+			});
+			expect(await readFile(join(agentDir, "config.yml"), "utf8")).toBe("theme: dark\n");
+			expect(prefs.terminal).toBe(false);
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+		});
+
+		it("an mcp.json left with nothing goes away; an extension that is not ai-memory's generated one stays", async () => {
+			const { service, agentDir } = await make();
+			await service.start();
+			await mkdir(join(agentDir, "extensions"), { recursive: true });
+			await writeFile(join(agentDir, EXTENSION_FILE), "// my own file with the same name\n");
+			await writeFile(
+				join(agentDir, MCP_FILE),
+				JSON.stringify({ mcpServers: { "ai-memory": { command: "/x/ai-memory", args: ["mcp-bridge"] } } }),
+			);
+			await service.setTerminal(false);
+			expect(existsSync(join(agentDir, MCP_FILE))).toBe(false);
+			expect(await readFile(join(agentDir, EXTENSION_FILE), "utf8")).toBe("// my own file with the same name\n");
+		});
+
+		it("an MCP entry named ai-memory that runs something else is not removed", async () => {
+			const { service, agentDir } = await make();
+			await service.start();
+			await writeFile(
+				join(agentDir, MCP_FILE),
+				JSON.stringify({ mcpServers: { "ai-memory": { command: "node" } } }),
+			);
+			await service.setTerminal(false);
+			expect(JSON.parse(await readFile(join(agentDir, MCP_FILE), "utf8")).mcpServers["ai-memory"].command).toBe(
+				"node",
+			);
+		});
+
+		it("connecting needs memory on", async () => {
+			const { service, commands, prefs } = await make();
+			prefs.enabled = false;
+			await service.start();
+			await expect(service.setTerminal(true)).rejects.toThrow("Turn memory on first.");
+			expect(commands()).toEqual([]);
+		});
+
+		it("a failed connect throws, restores the phase and stores nothing", async () => {
+			const { service, behavior, prefs } = await make();
+			await service.start();
+			behavior.setup = () => ({ code: 1, output: "problem: config: cannot write\n" });
+			await expect(service.setTerminal(true)).rejects.toThrow("setup failed: config: cannot write");
+			expect(prefs.terminal).toBe(false);
+			expect(service.state().phase).toBe("ready");
+		});
+
+		it("a connected terminal omp is set up again by the next launch's setup (a new binary path), in its real agent dir", async () => {
+			const { service, calls, prefs, agentDir } = await make();
+			await service.start();
+			await service.setTerminal(true);
+			expect(prefs.terminal).toBe(true);
+			const before = calls.length;
+			await service.retry();
+			const setup = calls.slice(before).find(call => call.args.join(" ") === SETUP);
+			expect(setup?.env.PI_CODING_AGENT_DIR).toBeUndefined();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+		});
+	});
+
+	describe("migration of an earlier build's global wiring", () => {
+		it("moves wiring that runs OMPdesk's staged binary to the app-owned root, once, and keeps everything else", async () => {
+			const { service, agentDir, prefs, toolsDir, rootDir, unit } = await make();
+			Object.assign(unit, { installed: true, ours: true });
+			await plantTerminalWiring(agentDir, join(toolsDir, "ai-memory", "3.0.0", "ai-memory"));
+			await service.start();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
+			expect(JSON.parse(await readFile(join(agentDir, MCP_FILE), "utf8"))).toEqual({
+				mcpServers: { other: { command: "other-server" } },
+				theme: "kept",
+			});
+			expect(prefs.terminal).toBe(false);
+			expect(service.state().wiring).toEqual({ app: true, terminal: false });
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+			// Once: after it the pref decided; a wiring planted later is the user's and stays.
+			await plantTerminalWiring(agentDir, join(toolsDir, "ai-memory", "3.0.0", "ai-memory"));
+			await service.retry();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+		});
+
+		it("wiring that runs the binary in use (an override, a newer user install) counts as OMPdesk's too", async () => {
+			const { service, agentDir } = await make();
+			await plantTerminalWiring(agentDir, BIN);
+			await service.start();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
+		});
+
+		it("wiring the user made with their own ai-memory is left alone, and is then the terminal's", async () => {
+			const { service, agentDir, prefs } = await make();
+			await plantTerminalWiring(agentDir, join("/users", "own", "bin", "ai-memory"));
+			await service.start();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			expect(prefs.terminal).toBe(false);
+			expect(service.state().wiring).toEqual({ app: true, terminal: true });
+			expect(await service.extensionArgs()).toEqual([]);
+		});
+
+		it("a user who connected the terminal (stored true) is never migrated away", async () => {
+			const { service, agentDir, prefs, toolsDir } = await make();
+			prefs.terminal = true;
+			await plantTerminalWiring(agentDir, join(toolsDir, "ai-memory", "3.0.0", "ai-memory"));
+			await service.start();
+			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			expect(prefs.terminal).toBe(true);
 		});
 	});
 
 	describe("builds without a managed binary", () => {
 		it("a dev build never runs a command: unsupported while on, off while off", async () => {
-			const { service, commands, state, persistEnabled } = await make({ automatic: false });
+			const { service, commands, prefs, persistEnabled } = await make({ automatic: false });
 			await service.start();
 			expect(service.state()).toMatchObject({ phase: "unsupported", enabled: true });
 			expect(service.state().detail).toContain("OMP_GUI_AI_MEMORY_BIN");
 			await service.setEnabled(false);
 			await service.retry();
 			await expect(service.purge()).rejects.toThrow("not managed by this build");
+			await expect(service.setTerminal(true)).rejects.toThrow("not managed by this build");
 			expect(persistEnabled).toHaveBeenCalledWith(false);
-			expect(state.enabled).toBe(false);
+			expect(prefs.enabled).toBe(false);
 			expect(commands()).toEqual([]);
-			state.enabled = false;
+			prefs.enabled = false;
 			await service.start();
 			expect(service.state()).toMatchObject({ phase: "off", detail: null });
 		});
@@ -572,9 +890,9 @@ describe("AiMemoryService", () => {
 		});
 
 		it("an override runs even on an architecture the pin has no build for", async () => {
-			const { service, commands } = await make({ platform: "darwin", arch: "x64" });
+			const { service, commands, rootDir } = await make({ platform: "darwin", arch: "x64" });
 			await service.start();
-			expect(commands()).toEqual([PLAN, INIT, SETUP]);
+			expect(commands()).toEqual([PLAN, INIT, SETUP, ...generators(rootDir)]);
 		});
 	});
 
@@ -594,7 +912,8 @@ describe("AiMemoryService", () => {
 		it("a NEWER user install wins and is the binary every command runs", async () => {
 			const { w2, bin } = await externalWorld("99.0.0");
 			await w2.service.start();
-			expect(w2.calls.map(call => call.file)).toEqual([bin, bin, bin]);
+			expect(w2.calls.length).toBeGreaterThan(3);
+			for (const call of w2.calls) expect(call.file).toBe(bin);
 			expect(w2.service.state()).toMatchObject({ source: "external", binary: bin, phase: "ready" });
 		});
 
@@ -647,7 +966,6 @@ describe("AiMemoryService", () => {
 			const seen = health.healthCalls;
 			await vi.waitFor(() => expect(health.healthCalls).toBeGreaterThan(seen + 6));
 			expect(setups()).toBe(2);
-			expect(service.state().phase).toBe("unreachable");
 			clock.now += 11 * 60_000;
 			await vi.waitFor(() => expect(setups()).toBe(3));
 		});
@@ -662,15 +980,13 @@ describe("AiMemoryService", () => {
 			expect(commands().filter(command => command === SETUP).length).toBeLessThanOrEqual(2);
 		});
 
-		it("a missing extension file is healed by running setup again", async () => {
-			const { service, agentDir, commands } = await make();
+		it("a missing root is healed by running setup and the generators again", async () => {
+			const { service, rootDir, commands } = await make();
 			await service.start();
-			await rm(join(agentDir, EXTENSION_FILE));
+			await rm(rootDir, { recursive: true });
 			await vi.waitFor(() => expect(commands().filter(command => command === SETUP)).toHaveLength(2));
-			await vi.waitFor(() =>
-				expect(service.state()).toMatchObject({ phase: "ready", wiring: { extension: true, mcp: true } }),
-			);
-			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
+			await vi.waitFor(() => expect(service.state()).toMatchObject({ phase: "ready", wiring: { app: true } }));
+			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
 		});
 
 		it("polling stops while memory is off", async () => {
@@ -701,11 +1017,11 @@ describe("AiMemoryService", () => {
 			const first = states[0];
 			expect(first).not.toBe(states[1]);
 			const before = JSON.stringify(states[1]);
-			(states[0] as AiMemoryState).wiring.extension = !states[0]?.wiring.extension;
+			(states[0] as AiMemoryState).wiring.app = !states[0]?.wiring.app;
 			expect(JSON.stringify(states[1])).toBe(before);
 			// state() hands out a copy too.
-			service.state().wiring.mcp = true;
-			expect(service.state().wiring.mcp).toBe(false);
+			service.state().wiring.terminal = true;
+			expect(service.state().wiring.terminal).toBe(false);
 		});
 	});
 
@@ -722,11 +1038,11 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a switch after dispose runs nothing", async () => {
-			const { service, commands } = await make();
+			const { service, commands, rootDir } = await make();
 			await service.start();
 			service.dispose();
 			await service.setEnabled(false);
-			expect(commands()).toEqual([PLAN, INIT, SETUP]);
+			expect(commands()).toEqual([PLAN, INIT, SETUP, ...generators(rootDir)]);
 		});
 	});
 

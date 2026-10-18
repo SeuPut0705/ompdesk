@@ -36,7 +36,7 @@ function state(extra: Partial<AiMemoryState> = {}): AiMemoryState {
 		dataDir: "/data",
 		serverUrl: "http://127.0.0.1:49374",
 		webUrl: "http://127.0.0.1:49374/web",
-		wiring: { extension: true, mcp: true },
+		wiring: { app: true, terminal: false },
 		stats: { pages: 5, sessions: 2, observations: 9, diskBytes: 1024 },
 		detail: null,
 		...extra,

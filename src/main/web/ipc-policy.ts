@@ -369,6 +369,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.AI_MEMORY_SET_ENABLED]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.AI_MEMORY_RETRY]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.AI_MEMORY_PURGE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.AI_MEMORY_SET_TERMINAL]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.AI_MEMORY_OPEN_WEB]: { dir: "invoke", permission: "desktop-control", mode: "pass" },
 	[C.AI_MEMORY_COPY_WEB_PASSWORD]: { dir: "invoke", permission: "desktop-control", mode: "pass" },
 	[C.AI_MEMORY_REVEAL_DATA]: { dir: "invoke", permission: "desktop-control", mode: "pass" },
