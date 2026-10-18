@@ -31,7 +31,6 @@ import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { chordFromEvent, formatShortcut, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
-import { continueList } from "../../../lib/list-continue";
 import { abortActiveTurn } from "../../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
@@ -61,9 +60,8 @@ import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay } from "./DictationOverlay";
-import { fitFieldHeight } from "./field-height";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
-import { cachedMentionFiles, editFieldText, listMentionFiles, mentionToken } from "./input-area-utils";
+import { cachedMentionFiles, listMentionFiles, mentionToken } from "./input-area-utils";
 import {
 	chipIndexForCode,
 	MAX_NEXT_PROMPT_CHIPS,
@@ -77,6 +75,7 @@ import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useComple
 import { useComposerAttach } from "./use-composer-attach";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerDraft } from "./use-composer-draft";
+import { useComposerField } from "./use-composer-field";
 import { useComposerHistory } from "./use-composer-history";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
@@ -88,8 +87,6 @@ const MENTION_FS_DEBOUNCE_MS = 150;
 const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
-/** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
-const NARROW_FIELD_PX = 290;
 
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
@@ -169,22 +166,31 @@ export function InputArea() {
 		if (!isStreaming) setMode("prompt");
 	}, [isStreaming]);
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
+	const [expanded, setExpanded] = useState(false);
+	const { textareaRef, ownEdit, placeDraft, continueListAtCaret, insertAtCaret, fieldNarrow } = useComposerField({
+		text,
+		setText,
+		expanded,
+	});
 	/**
 	 * A menu the user closed (Esc, ←/→, a click): the same token's menu stays closed while the draft is
 	 * unchanged, so moving the caret back into the token does not bring it back; any edit lifts it.
 	 */
 	const dismissedMenu = useRef<{ source: CompletionMenu["source"]; rangeStart: number; draft: string } | null>(null);
 	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
-	const publishMenu = useCallback((next: CompletionMenu | null) => {
-		const dismissed = dismissedMenu.current;
-		if (dismissed && textareaRef.current?.value !== dismissed.draft) dismissedMenu.current = null;
-		const shown =
-			dismissedMenu.current?.source === next?.source && dismissedMenu.current?.rangeStart === next?.rangeStart
-				? null
-				: next;
-		setMenu(current => (current && shown && sameCompletionMenu(current, shown) ? current : shown));
-	}, []);
+	const publishMenu = useCallback(
+		(next: CompletionMenu | null) => {
+			const dismissed = dismissedMenu.current;
+			if (dismissed && textareaRef.current?.value !== dismissed.draft) dismissedMenu.current = null;
+			const shown =
+				dismissedMenu.current?.source === next?.source && dismissedMenu.current?.rangeStart === next?.rangeStart
+					? null
+					: next;
+			setMenu(current => (current && shown && sameCompletionMenu(current, shown) ? current : shown));
+		},
+		[textareaRef],
+	);
 	const dismissMenu = () => {
 		if (menu)
 			dismissedMenu.current = {
@@ -208,8 +214,6 @@ export function InputArea() {
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
 	const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
-	const [expanded, setExpanded] = useState(false);
 	/** Phone: the mode, thinking, model and context controls fold behind one ⋯ so the idle composer is one row. */
 	const phone = useShellMode() === "phone";
 	const [moreOpen, setMoreOpen] = useState(false);
@@ -232,74 +236,7 @@ export function InputArea() {
 		empty: isEmptySession,
 	});
 
-	/** True while the composer writes its own draft into the field: the field's onChange then only mirrors it. */
-	const ownEdit = useRef(false);
-	/**
-	 * Write the draft and its caret in one task. A caret placed on a later frame moved
-	 * whatever the next keys did meanwhile (a select-all, typed text); written here,
-	 * React finds its value already in the field and leaves the caret alone. In the
-	 * focused field the write is one native edit (editFieldText), so Cmd/Ctrl+Z undoes it
-	 * and brings back what was there; a value set by script corrupted the undo stack.
-	 */
-	const placeDraft = useCallback(
-		(next: string, caret: number) => {
-			const el = textareaRef.current;
-			if (el) {
-				ownEdit.current = true;
-				try {
-					if (!editFieldText(el, next)) el.value = next;
-				} finally {
-					ownEdit.current = false;
-				}
-				el.setSelectionRange(caret, caret);
-			}
-			setText(next);
-		},
-		[setText],
-	);
-	/**
-	 * Continue (or end) a markdown list at the caret for a newline key. The edit goes through the
-	 * browser's own insertion so Cmd/Ctrl+Z restores the plain newline; a field that refuses it
-	 * (no `execCommand`) takes the draft directly. False when the plain newline should stand.
-	 */
-	const continueListAtCaret = (): boolean => {
-		const el = textareaRef.current;
-		if (!el) return false;
-		const value = el.value;
-		const start = el.selectionStart ?? value.length;
-		const edit = continueList(value, start, el.selectionEnd ?? start);
-		if (!edit) return false;
-		const next = value.slice(0, edit.from) + edit.insert + value.slice(edit.to);
-		el.setSelectionRange(edit.from, edit.to);
-		// The newline and the bullet are separate insertions: one undo then leaves the plain newline.
-		const exec = typeof document.execCommand === "function" ? document.execCommand.bind(document) : undefined;
-		let done = false;
-		if (exec !== undefined) {
-			if (edit.insert === "") done = exec("delete");
-			else if (edit.insert.length === 1) done = exec("insertText", false, edit.insert);
-			else if (exec("insertText", false, "\n")) {
-				// Moving the caret closes the open typing command, so the bullet is its own undo step.
-				el.setSelectionRange(edit.from + 1, edit.from + 1);
-				done = exec("insertText", false, edit.insert.slice(1));
-			}
-		}
-		if (!done || el.value !== next) placeDraft(next, edit.caret);
-		else el.setSelectionRange(edit.caret, edit.caret);
-		return true;
-	};
 	const mountedRef = useRef(true);
-	/** Splice text in at the caret (replacing a selection), space-separated from its neighbours. */
-	const insertAtCaret = (insert: string) => {
-		const el = textareaRef.current;
-		const current = el?.value ?? text;
-		const start = el?.selectionStart ?? current.length;
-		const end = el?.selectionEnd ?? start;
-		const before = current.slice(0, start);
-		const after = current.slice(end);
-		const inserted = `${before && !/\s$/.test(before) ? " " : ""}${insert}${/^\s/.test(after) ? "" : " "}`;
-		el?.focus();
-		placeDraft(`${before}${inserted}${after}`, start + inserted.length);
-	};
 	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
 		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
 	const paste = useComposerPaste({ text, textareaRef, placeDraft, attachFiles, runtimeTabId });
@@ -313,7 +250,7 @@ export function InputArea() {
 			placeDraft(chip, chip.length);
 			nextPromptView.accepted();
 		},
-		[placeDraft, nextPromptView],
+		[placeDraft, nextPromptView, textareaRef],
 	);
 	/** Ghost text after the caret while the user types (slash / `@` menus, IME, `!` `$` `/` drafts: never). */
 	const inline = useInlineCompletion({
@@ -323,23 +260,6 @@ export function InputArea() {
 		textareaRef,
 		complete: nextPromptView.completeInline,
 	});
-	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
-	// it shows the short prompt instead of a hint cut mid-glyph. A new width also rewraps the draft, so the
-	// field's height is fitted again (a side panel opening made the draft scroll inside a too-short field).
-	const [fieldNarrow, setFieldNarrow] = useState(false);
-	useEffect(() => {
-		const el = textareaRef.current;
-		if (!el || typeof ResizeObserver === "undefined") return;
-		let width = el.clientWidth;
-		const observer = new ResizeObserver(() => {
-			setFieldNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_FIELD_PX);
-			if (el.clientWidth === width) return;
-			width = el.clientWidth;
-			fitFieldHeight(el, expanded);
-		});
-		observer.observe(el);
-		return () => observer.disconnect();
-	}, [expanded]);
 	// New and empty sessions start with the caret in the composer, unless
 	// something else (a dialog, another field) already holds focus. The end of
 	// first-run setup counts as a new start: its button unmounted with focus on it.
@@ -433,12 +353,6 @@ export function InputArea() {
 		};
 	}, [status, sessionId, runtimeTabId, rpc]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the field's height follows its text (read from the element)
-	useEffect(() => {
-		const el = textareaRef.current;
-		if (el) fitFieldHeight(el, expanded);
-	}, [text, expanded]);
-
 	// Contextual argument hint (TUI ghost-text parity), from stock for builtins.
 	// Rendered as a dim row under the textarea — an inline-after-cursor ghost
 	// needs pixel-aligned overlay metrics that break with auto-grow/IME (same
@@ -470,7 +384,7 @@ export function InputArea() {
 			});
 		}, MENTION_FS_DEBOUNCE_MS);
 		return () => clearTimeout(timer);
-	}, [text, cwd, routeReady, runtimeTabId]);
+	}, [text, cwd, routeReady, runtimeTabId, textareaRef]);
 
 	useEffect(() => {
 		const onInsertMention = (event: Event) => {
@@ -484,7 +398,7 @@ export function InputArea() {
 		};
 		window.addEventListener("omp:insert-mention", onInsertMention);
 		return () => window.removeEventListener("omp:insert-mention", onInsertMention);
-	}, [setText, runtimeTabId]);
+	}, [setText, runtimeTabId, textareaRef]);
 
 	useEffect(() => {
 		const fillComposer = (event: Event) => {
@@ -533,7 +447,7 @@ export function InputArea() {
 		};
 		window.addEventListener("omp:fill-composer", fillComposer);
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
-	}, [placeDraft, setImages, runtimeTabId]);
+	}, [placeDraft, setImages, runtimeTabId, textareaRef]);
 
 	const insertCompletion = useCallback(
 		(item: CompletionItem) => {
@@ -549,7 +463,7 @@ export function InputArea() {
 			placeDraft(replaced, menu.rangeStart + item.value.length);
 			setMenu(null);
 		},
-		[text, menu, placeDraft],
+		[text, menu, placeDraft, textareaRef],
 	);
 
 	const dispatchSend = useComposerSubmit({
