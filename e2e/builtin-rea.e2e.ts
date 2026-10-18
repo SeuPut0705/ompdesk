@@ -51,7 +51,11 @@ async function launch() {
 	Reflect.deleteProperty(env, "OMP_GUI_OMP");
 	const started = performance.now();
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const page = await app.firstWindow();

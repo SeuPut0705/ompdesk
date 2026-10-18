@@ -87,7 +87,11 @@ for (const [language, theme] of variants([
 		const puppeteer = (await import(pathToFileURL(entry).href)) as { default?: PuppeteerModule } & PuppeteerModule;
 		const connect = (puppeteer.default ?? puppeteer).connect;
 		const app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+			args: [
+				path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+				project,
+				`--user-data-dir=${desktop}`,
+			],
 			env,
 		});
 		let browser: PuppeteerBrowser | null = null;

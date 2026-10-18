@@ -185,7 +185,10 @@ async function withPackagedApp(
 	try {
 		const launchedApp = await electron.launch({
 			...(executable ? { executablePath: executable } : {}),
-			args: [...(executable ? [] : [path.resolve("out/main/index.js")]), `--user-data-dir=${userData}`],
+			args: [
+				...(executable ? [] : [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")]),
+				`--user-data-dir=${userData}`,
+			],
 			env,
 		});
 		app = launchedApp;

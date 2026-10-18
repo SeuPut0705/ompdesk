@@ -103,7 +103,7 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 	}
 	return electron.launch({
 		args: [
-			path.resolve("out/main/index.js"),
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
 			options.project,
 			`--user-data-dir=${options.desktop}`,
 			...(options.args ?? []),

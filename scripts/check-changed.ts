@@ -1,7 +1,8 @@
 /**
  * The agent's default edit loop (AGENTS.md › Build, test): the checks that can
- * fail because of what changed, in one lock hold, in seconds instead of the
- * release gate's minutes.
+ * fail because of what changed, in seconds instead of the release gate's
+ * minutes. It holds no lock as a whole (`scripts/build-lock.ts`): the checks
+ * take a `vitest` slot, the build the `build` slot, Playwright a `playwright` slot.
  *
  *   bun run check:changed [--base <ref>] [--no-e2e] [--list]
  *
@@ -25,7 +26,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { acquireLock, type RunResult, run } from "./build-lock";
+import { acquireLock, type RunResult, run, runLocked } from "./build-lock";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -106,11 +107,12 @@ if (relatedFiles.length > 0) {
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-await acquireLock(["bun", "run", "check:changed"]);
-const started = performance.now();
 console.log(
 	`[check:changed] ${changed.length} changed file(s); ${CHECKS.map(([name]) => name).join(", ")} side by side`,
 );
+// The static checks and vitest side by side in one vitest slot; the build and Playwright take their own slots after.
+const held = await acquireLock(["bun", "run", "check:changed"], { kind: "vitest", via: "check:changed" });
+const started = performance.now();
 const results = await Promise.all(
 	CHECKS.map(async ([name, command]): Promise<readonly [string, RunResult]> => {
 		const result = await run(command, { capture: true });
@@ -120,6 +122,7 @@ const results = await Promise.all(
 		return [name, result];
 	}),
 );
+held.release(results.some(([, result]) => result.code !== 0) ? 1 : 0);
 const failed = results.filter(([, result]) => result.code !== 0).map(([name]) => name);
 if (failed.length > 0) {
 	console.log(`[check:changed] FAILED: ${failed.join(", ")}`);
@@ -135,9 +138,9 @@ if (specs.length === 0) {
 	process.exit(0);
 }
 console.log(`[check:changed] build, then ${specs.length} spec file(s): ${specs.join(" ")}`);
-const build = await run(["bun", "run", "build"]);
+const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 if (build.code !== 0) process.exit(1);
-const e2e = await run(["bunx", "playwright", "test", ...specs]);
+const e2e = await runLocked("playwright", ["bunx", "playwright", "test", ...specs], { via: "check:changed" });
 console.log(
 	`[check:changed] ${e2e.code === 0 ? "PASSED" : "FAILED: playwright"} in ${seconds(performance.now() - started)}`,
 );

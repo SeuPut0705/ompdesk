@@ -67,7 +67,9 @@ test("isolated real-session switch timing, transcript bytes and renderer heap", 
 			const app = await electron.launch({
 				executablePath: subject.executablePath,
 				args: [
-					...(subject.name === "after" ? [path.join(process.cwd(), "out/main/index.js")] : []),
+					...(subject.name === "after"
+						? [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")]
+						: []),
 					header.cwd,
 					`--user-data-dir=${desktop}`,
 				],

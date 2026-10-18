@@ -18,7 +18,11 @@ test("real omp: computer prelude reads without a card, and input asks (always-as
 	test.setTimeout(420_000);
 	const { project, desktop, env, smol } = await realOmpProfile();
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	try {

@@ -63,7 +63,10 @@ export function isCheckCommand(command: string, declared?: string): boolean {
 	const named = declared ? squash(declared) : "";
 	if (named && squash(command).includes(named)) return true;
 	return segments(command).some(segment => {
-		const bare = segment.replace(/^(?:bun\s+run\s+locked|bun\s+scripts\/build-lock\.ts)(?:\s+--)?\s+/, "");
+		const bare = segment.replace(
+			/^(?:bun\s+run\s+locked|bun\s+scripts\/build-lock\.ts)(?:\s+--(?:kind|chunk)\s+\S+)*(?:\s+--)?(?:\s+--(?:kind|chunk)\s+\S+)*(?:\s+--)?\s+/,
+			"",
+		);
 		return CHECK_SEGMENT.some(rule => rule.test(bare));
 	});
 }

@@ -24,7 +24,10 @@ async function launch(
 	userData: string,
 	env: Record<string, string>,
 ): Promise<{ app: ElectronApplication; page: Page }> {
-	const app = await electron.launch({ args: [path.resolve("out/main/index.js"), `--user-data-dir=${userData}`], env });
+	const app = await electron.launch({
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${userData}`],
+		env,
+	});
 	const page = await app.firstWindow();
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
 	await page.waitForFunction(() => window.omp?.rpc != null);

@@ -47,7 +47,12 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 	const app = await electron.launch({
 		// `--lang=de` stands for a system language whose locale file the package trims: Chromium alone would send
 		// German first; the Preview sends the system's own languages (src/main/system-languages.ts).
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`, "--lang=de"],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+			"--lang=de",
+		],
 		env,
 	});
 	try {

@@ -178,7 +178,11 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const shell = await app.firstWindow();

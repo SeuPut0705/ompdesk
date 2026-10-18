@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { appendLockLog, commandKind, type LockLogEntry, readLockLog } from "./lock-log";
-import { parseSince, percentile, summarize } from "./lock-stats";
+import { isLongHold, parseSince, percentile, slotRows, summarize } from "./lock-stats";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -32,6 +32,7 @@ describe("lock log", () => {
 		expect(commandKind("bunx vitest run --maxWorkers=4")).toBe("vitest");
 		expect(commandKind("bun run test")).toBe("vitest");
 		expect(commandKind("sleep 5")).toBe("other");
+		expect(commandKind("bun run check:changed --no-e2e")).toBe("gate");
 	});
 
 	it("appends entries and trims the log past 5000 lines", () => {
@@ -80,5 +81,27 @@ describe("lock stats", () => {
 			["a", 2, 4_000, 30_000],
 		]);
 		expect(rows[1]?.waitP90).toBe(3_000);
+	});
+
+	it("shows usage per slot and counts the single lock's entries apart", () => {
+		const at = (slot: number | undefined, heldMs: number): LockLogEntry => ({
+			...entry("a", "bunx playwright test", 0, heldMs),
+			slot,
+		});
+		const rows = slotRows([at(0, 30_000), at(0, 30_000), at(1, 15_000), at(undefined, 5_000)], 120_000);
+		expect(rows.map(row => [row.key, row.runs, row.holdTotal, row.busy])).toEqual([
+			["playwright (single lock)", 1, 5_000, 5_000 / 120_000],
+			["playwright#0", 2, 60_000, 0.5],
+			["playwright#1", 1, 15_000, 0.125],
+		]);
+	});
+
+	it("flags non-gate holds over 15 minutes and never the gate's", () => {
+		const long = 16 * 60_000;
+		expect(isLongHold(entry("a", "bunx playwright test", 0, long))).toBe(true);
+		expect(isLongHold(entry("a", "bunx playwright test", 0, 15 * 60_000))).toBe(false);
+		expect(isLongHold(entry("a", "bun run gate", 0, long))).toBe(false);
+		expect(isLongHold({ ...entry("a", "bunx playwright test", 0, long), via: "gate" })).toBe(false);
+		expect(isLongHold({ ...entry("a", "bunx playwright test", 0, long), via: "check:changed" })).toBe(true);
 	});
 });

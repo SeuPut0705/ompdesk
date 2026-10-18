@@ -130,7 +130,10 @@ function summary(agent: string): string {
 
 /** Launches the app on `desktop`; its main-process output goes to `main.log` beside the test's other outputs. */
 async function launch(desktop: string, env: Record<string, string>): Promise<{ app: ElectronApplication; page: Page }> {
-	const app = await electron.launch({ args: [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`], env });
+	const app = await electron.launch({
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`],
+		env,
+	});
 	const log = createWriteStream(test.info().outputPath("main.log"), { flags: "a" });
 	log.write(`--- launch ${new Date().toISOString()}\n`);
 	app.process().stdout?.pipe(log, { end: false });

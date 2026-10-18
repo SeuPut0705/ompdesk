@@ -62,7 +62,11 @@ async function launch(language: Language, theme: "light" | "dark"): Promise<Laun
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env: Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
 	});
 	const page = await app.firstWindow();

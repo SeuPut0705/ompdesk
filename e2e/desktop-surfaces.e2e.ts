@@ -52,7 +52,11 @@ async function launch(
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const page = await app.firstWindow();
@@ -217,11 +221,15 @@ test("@smoke Windows: the Mica backdrop is on where the build has it, and closin
 
 		// A second launch from the Start menu hands over to this instance and brings the window back.
 		const executable = await app.evaluate(() => process.execPath);
-		const second = spawn(executable, [path.resolve("out/main/index.js"), `--user-data-dir=${launched.desktop}`], {
-			env: launched.env,
-			stdio: "ignore",
-			windowsHide: true,
-		});
+		const second = spawn(
+			executable,
+			[path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${launched.desktop}`],
+			{
+				env: launched.env,
+				stdio: "ignore",
+				windowsHide: true,
+			},
+		);
 		const secondExit = new Promise<number | null>(resolve => second.once("exit", code => resolve(code)));
 		await expect.poll(windowState, { timeout: 30_000 }).toMatchObject({ count: 1, visible: true });
 		await secondExit;

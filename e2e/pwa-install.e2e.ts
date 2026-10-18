@@ -136,7 +136,10 @@ test("@smoke The page is installable: manifest, worker, no installability errors
 	const browser = await chromium.launch();
 	try {
 		app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
+			args: [
+				path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+				`--user-data-dir=${profile.desktop}`,
+			],
 			env: profile.env,
 		});
 		const desktop = await app.firstWindow();

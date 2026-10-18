@@ -152,7 +152,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 			],
 		}),
 	);
-	const args = [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`];
+	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`];
 	let app: ElectronApplication | undefined;
 	try {
 		const first = await launch(args, profile.env);

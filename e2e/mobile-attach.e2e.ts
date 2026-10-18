@@ -117,7 +117,10 @@ for (const engine of ENGINES)
 		let proxy: ServeProxy | null = null;
 		try {
 			app = await electron.launch({
-				args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
+				args: [
+					path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+					`--user-data-dir=${profile.desktop}`,
+				],
 				env: profile.env,
 			});
 			const desk = await app.firstWindow();

@@ -79,7 +79,11 @@ async function seededProfile() {
 /** Launch on the profile's userData; without `project` the saved layout (the run's tab) is restored. */
 async function launch(desktop: string, env: Record<string, string>, project?: string) {
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), ...(project ? [project] : []), `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			...(project ? [project] : []),
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const page = await app.firstWindow();

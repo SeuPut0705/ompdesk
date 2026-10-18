@@ -47,7 +47,7 @@ async function makeProfile(language: Language, delays: string): Promise<Profile>
 
 async function launch(profile: Profile): Promise<{ app: ElectronApplication; page: Page }> {
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env: profile.env,
 	});
 	const page = await app.firstWindow();

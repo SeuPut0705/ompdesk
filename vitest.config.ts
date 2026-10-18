@@ -15,7 +15,10 @@ export default defineConfig({
 		// Locally the full suite takes as long on 8 workers as on 14 (21 s on the
 		// maintainer's 15-core Mac; 4 took 28 s), so it stops at 8 and leaves the
 		// rest of the machine to whatever else runs.
-		maxWorkers: process.env.GITHUB_ACTIONS ? availableParallelism() : Math.min(8, availableParallelism() - 1),
+		// OMP_VITEST_WORKERS: fewer per run when several runs share the machine (AGENTS.md › Build lock and gate).
+		maxWorkers: process.env.GITHUB_ACTIONS
+			? availableParallelism()
+			: Number(process.env.OMP_VITEST_WORKERS) || Math.min(8, availableParallelism() - 1),
 		projects: [
 			{
 				extends: true,

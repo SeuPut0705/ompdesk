@@ -24,8 +24,8 @@ for (const file of files) if (!fs.existsSync(path.join(ROOT, file))) throw new E
 fs.rmSync(RAW_DIR, { recursive: true, force: true });
 const playwright = path.join(ROOT, "node_modules/.bin/playwright");
 const args = ["test", "-c", "scripts/readme-media/playwright.config.ts", ...files];
-// The lock is held already when this runs under `bun run locked` (the env var tells build-lock.ts so).
-const held = process.env.OMPDESK_BUILD_LOCK_HELD === "1";
+// A Playwright slot is held already when this runs under `bun run locked` (the env var lists the kinds held, `1` is the old single lock).
+const held = /(^|,)(1|playwright)(,|$)/.test(process.env.OMPDESK_BUILD_LOCK_HELD ?? "");
 const result = held
 	? spawnSync(playwright, args, { cwd: ROOT, stdio: "inherit", env: { ...process.env, OMP_GUI_HEADLESS: "1" } })
 	: spawnSync("bun", ["scripts/build-lock.ts", playwright, ...args], {

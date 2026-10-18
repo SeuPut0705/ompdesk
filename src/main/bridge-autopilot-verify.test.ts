@@ -60,6 +60,7 @@ describe("isCheckCommand", () => {
 		["bun test 2>&1 | tail -6", true],
 		["cd app && bun run check:changed", true],
 		["bun run locked -- bunx vitest run src/x.test.ts", true],
+		["bun run locked -- --chunk 3 -- bunx playwright test e2e/x.e2e.ts", true],
 		["npm run lint", true],
 		["pnpm test --filter api", true],
 		["pytest -q", true],

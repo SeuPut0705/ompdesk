@@ -93,7 +93,11 @@ for (const [index, { replyLanguage, prompt }] of CASES.entries()) {
 		// OMPdesk respects as the person's choice to turn titles off.
 		Reflect.deleteProperty(env, "PI_NO_TITLE");
 		const app = await electron.launch({
-			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+			args: [
+				path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+				project,
+				`--user-data-dir=${desktop}`,
+			],
 			env,
 		});
 		try {

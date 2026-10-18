@@ -1,6 +1,6 @@
 /**
- * The build lock's usage log (`scripts/build-lock.ts` writes it, `bun run
- * lock-stats` reads it): one JSON line per lock acquisition, written when the
+ * The lock's usage log (`scripts/build-lock.ts` writes it, `bun run
+ * lock-stats` reads it): one JSON line per slot hold, written when the
  * holder releases the lock, so it carries both the wait and the hold. It sits
  * next to the lock, `/tmp/ompdesk-build.log` (Windows: the temp directory), and
  * is trimmed to the newest entries once it passes `MAX_LINES`.
@@ -10,7 +10,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export const LOCK_LOG =
-	process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-build.log") : "/tmp/ompdesk-build.log";
+	process.env.OMPDESK_LOCK_LOG ||
+	(process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-build.log") : "/tmp/ompdesk-build.log");
 
 /** Past this many lines the log keeps only its newest `KEEP_LINES`. */
 const MAX_LINES = 5_000;
@@ -28,13 +29,18 @@ export interface LockLogEntry {
 	kind: LockKind;
 	cwd: string;
 	waitedMs: number;
+	/** Which slot of its kind the hold used; absent in entries from the single-lock days. */
+	slot?: number;
+	/** The orchestrating command (`gate`, `check:changed`) that took this hold as one of its phases. */
+	via?: string;
 	heldMs: number;
 	exit: number;
 }
 
 /** What a locked command is, from its command line. */
 export function commandKind(command: string): LockKind {
-	if (/(^|[\s/])gate(\.ts)?(\s|$)/.test(command)) return "gate";
+	// The gate and check:changed hold no lock themselves: each phase takes its own slot.
+	if (/(^|[\s/])gate(\.ts)?(\s|$)|check[:-]changed/.test(command)) return "gate";
 	if (/playwright|\btest:e2e\b/.test(command)) return "playwright";
 	if (/vitest|\brun test(:platform)?(\s|$)/.test(command)) return "vitest";
 	if (/electron-vite|electron-builder|\brun (build|package)/.test(command)) return "build";

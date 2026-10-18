@@ -24,7 +24,11 @@ async function launch(prompt: string, prepare?: (project: string) => void) {
 	const real = await realOmpProfile({ launchProfiles: {} });
 	prepare?.(real.project);
 	const app = await electron.launch({
-		args: [`${process.cwd()}/out/main/index.js`, real.project, `--user-data-dir=${real.desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			real.project,
+			`--user-data-dir=${real.desktop}`,
+		],
 		env: { ...real.env, OMP_GUI_HEADLESS: "1" },
 	});
 	const page = await app.firstWindow();

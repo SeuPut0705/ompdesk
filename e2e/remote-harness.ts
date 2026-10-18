@@ -158,7 +158,7 @@ export async function launchRemote(
 	profile: RemoteProfile,
 	options: { project?: boolean; ready?: boolean } = {},
 ): Promise<RemoteInstance> {
-	const args = [path.resolve("out/main/index.js")];
+	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")];
 	if (options.project !== false) args.push(profile.project);
 	args.push(`--user-data-dir=${profile.desktop}`);
 	const app = await electron.launch({ args, env: profile.env });

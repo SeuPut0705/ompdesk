@@ -14,6 +14,8 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { acquireLock } from "./build-lock";
+import { publishSnapshot } from "./out-snapshot";
 
 export const STAMP = path.join("out", ".build-stamp.json");
 
@@ -142,6 +144,9 @@ export function writeStamp(root: string, hash: string): void {
 
 if (import.meta.main) {
 	const root = path.resolve(import.meta.dirname, "..");
+	// Builds never overlap, and out/ is not rewritten while a snapshot is copied from it. CI has its own checkout.
+	const local = !process.env.GITHUB_ACTIONS;
+	if (local) await acquireLock(["bun", "run", "build"], { kind: "build" });
 	const started = performance.now();
 	const hash = inputHash(root, process.env);
 	const reason = rebuildReason(root, hash, process.env);
@@ -150,6 +155,7 @@ if (import.meta.main) {
 		console.log(
 			`[build] reusing out/: inputs unchanged (${hash.slice(0, 12)}, checked in ${checked}); OMPDESK_FORCE_BUILD=1 rebuilds`,
 		);
+		if (local) publishSnapshot(root, hash);
 		process.exit(0);
 	}
 	console.log(`[build] building out/: ${reason} (checked in ${checked})`);
@@ -164,4 +170,6 @@ if (import.meta.main) {
 		if (result.status !== 0) process.exit(result.status ?? 1);
 	}
 	writeStamp(root, hash);
+	// Playwright runs launch the app from this copy, so the next build never changes one under them.
+	if (local) publishSnapshot(root, hash);
 }

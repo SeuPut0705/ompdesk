@@ -46,7 +46,7 @@ async function relaunch(profile: ApProfile): Promise<{ app: ElectronApplication;
 		if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") env[key] = value;
 	}
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env,
 	});
 	const page = await app.firstWindow();

@@ -141,7 +141,7 @@ async function killWhileAsking(options: {
 }): Promise<void> {
 	const { profile, desktop, agent, env, project } = await realOmpProfile();
 	await writePrefs(desktop, project);
-	const args = [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`];
+	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`];
 	let current: ElectronApplication | undefined;
 	let shown: Page | undefined;
 	try {
@@ -271,7 +271,7 @@ test("real omp: a provider request that cannot connect while offline waits and c
 	const { profile, desktop, agent, env, project } = await realOmpProfile();
 	const port = await closedPort();
 	await writePrefs(desktop, project, { proxyUrl: `http://127.0.0.1:${port}` });
-	const args = [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`];
+	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`];
 	let app: ElectronApplication | undefined;
 	let proxy: net.Server | undefined;
 	let shown: Page | undefined;
@@ -328,7 +328,7 @@ test("real omp: a turn killed mid-run continues on the next launch through stock
 			launchProfiles: { [project]: { noExtensions: true, noSkills: true, noRules: true } },
 		}),
 	);
-	const args = [path.resolve("out/main/index.js"), `--user-data-dir=${desktop}`];
+	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`];
 	let current: Awaited<ReturnType<typeof electron.launch>> | undefined;
 	try {
 		const first = await electron.launch({ args, env });

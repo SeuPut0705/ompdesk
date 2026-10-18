@@ -60,7 +60,11 @@ test("real omp: inspector shows the per-turn prompt sections; Preview offers a w
 	});
 	const log = path.join(profile, "server.log");
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	try {

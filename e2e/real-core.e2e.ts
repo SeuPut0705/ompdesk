@@ -78,7 +78,11 @@ test("system omp persists settings and sessions and serves every stats route", a
 	const executablePath = process.env.OMP_GUI_TEST_APP;
 	const app = await electron.launch({
 		...(executablePath ? { executablePath } : {}),
-		args: [...(executablePath ? [] : [path.resolve("out/main/index.js")]), project, `--user-data-dir=${desktop}`],
+		args: [
+			...(executablePath ? [] : [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")]),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const mainOutput: string[] = [];
@@ -414,7 +418,11 @@ test("system omp's browser sign-in: loopback callback, default browser, cancel t
 	const executablePath = process.env.OMP_GUI_TEST_APP;
 	const app = await electron.launch({
 		...(executablePath ? { executablePath } : {}),
-		args: [...(executablePath ? [] : [path.resolve("out/main/index.js")]), project, `--user-data-dir=${desktop}`],
+		args: [
+			...(executablePath ? [] : [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")]),
+			project,
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	try {

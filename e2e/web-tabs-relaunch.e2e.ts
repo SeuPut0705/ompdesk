@@ -58,7 +58,7 @@ async function makeProfile(): Promise<Profile> {
 /** Launch on the profile's userData with no argv cwd, so a relaunch restores what the last run saved. */
 async function launch(profile: Profile): Promise<{ app: ElectronApplication; page: Page }> {
 	const app = await electron.launch({
-		args: [path.resolve("out/main/index.js"), `--user-data-dir=${profile.desktop}`],
+		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env: profile.env,
 	});
 	const page = await app.firstWindow();

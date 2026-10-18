@@ -65,7 +65,11 @@ async function launch(root: string, language: string, theme: string, restore = f
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
 		// A launch with a folder opens just that folder; a bare launch restores the saved session.
-		args: [path.resolve("out/main/index.js"), ...(restore ? [] : [project]), `--user-data-dir=${desktop}`],
+		args: [
+			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+			...(restore ? [] : [project]),
+			`--user-data-dir=${desktop}`,
+		],
 		env,
 	});
 	const page = await app.firstWindow();
