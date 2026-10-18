@@ -15,6 +15,7 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
 import { useTabsStore } from "../../../stores/tabs";
+import { useUiStore } from "../../../stores/ui";
 import type { ComposerToolbarProps } from "./ComposerToolbar";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -226,6 +227,36 @@ describe("dictation button", () => {
 		await render({ dictationPhase: "recording", stoppable: true });
 		expect(mic.querySelector(".omp-pulse-dot")).toBeNull();
 		expect(mic.querySelector("svg")?.getAttribute("class")).toContain("lucide-mic-off");
+	});
+});
+
+describe("+ menu Dictation item", () => {
+	const items = () => Array.from(document.querySelectorAll("[data-menu-item]")) as unknown as HTMLElement[];
+	async function openMenu(): Promise<void> {
+		const add = container.querySelector('button[aria-label="Attach and more"]') as unknown as HTMLElement;
+		await act(async () => {
+			add.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+	}
+
+	it("explains where to turn dictation on while it is off, and opens Settings without writing the setting", async () => {
+		await render();
+		await openMenu();
+		const item = items().find(entry => entry.textContent?.includes(translate("voice.menu.off")));
+		expect(item?.textContent).toContain(translate("voice.menu.offDesc"));
+		await act(async () => {
+			item?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(useUiStore.getState().destination).toBe("settings");
+		expect(useUiStore.getState().settingsTab).toBe("agent:setting-stt.enabled");
+		expect(useSettingsStore.getState().sttEnabled).toBe(false);
+	});
+
+	it("is gone once dictation is on: the mic button takes over", async () => {
+		useSettingsStore.setState({ sttEnabled: true });
+		await render();
+		await openMenu();
+		expect(items().some(entry => entry.textContent?.includes(translate("voice.menu.off")))).toBe(false);
 	});
 });
 

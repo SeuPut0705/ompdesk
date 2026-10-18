@@ -125,6 +125,9 @@ test("two windows view one tab: echo, first answer wins, drafts, one notificatio
 	await row.locator("button[data-roving-item]").click();
 	await expect(viewersChip(b)).toHaveAttribute("data-viewers-count", "1");
 	await expect(userBubbles(b)).toHaveCount(1);
+	// Under each composer one quiet line says the tab is shared, in the chip's words.
+	await expect(a.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
+	await expect(b.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
 	await captureTo(captures, a, "viewers-a-chip");
 	await captureTo(captures, b, "viewers-b-chip");
 

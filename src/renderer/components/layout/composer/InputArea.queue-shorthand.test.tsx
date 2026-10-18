@@ -1538,7 +1538,9 @@ describe("InputArea composer keys", () => {
 		if (!add) throw new Error("+ menu trigger missing");
 		await click(add);
 		const labels = Array.from(document.querySelectorAll("[data-menu-item]")).map(item => item.textContent ?? "");
-		expect(labels).toHaveLength(5);
+		expect(labels).toHaveLength(6);
+		// Dictation is off here: the menu still lists it, and says where to turn it on.
+		expect(labels.some(label => label.includes(translate("voice.menu.off")))).toBe(true);
 		expect(labels.some(label => label.includes("Review a change"))).toBe(false);
 		expect(labels.at(-1)).toBe(translate("input.addMenu.skills"));
 		const skillsItem = Array.from(document.querySelectorAll("[data-menu-item]")).at(-1) as unknown as TestElement;
@@ -1829,6 +1831,105 @@ describe("InputArea dictation", () => {
 		await flush();
 		expect(prompt).toHaveBeenCalledTimes(1);
 		expect(prompt.mock.calls[0]?.[0]).toBe("hello there");
+	});
+
+	it("shows the bar between the field and the toolbar, never over the draft", async () => {
+		await mountWithMic();
+		await typeInto(findTextarea(), "my draft");
+		await startTake();
+		const bar = document.querySelector("[data-dictation]") as unknown as TestElement;
+		expect(bar.getAttribute("class") ?? "").not.toContain("absolute");
+		const field = findTextarea();
+		const toolbar = document.querySelector(".omp-composer-toolbar") as unknown as TestElement;
+		const order = Array.from(document.querySelectorAll("*")) as unknown[];
+		expect(order.indexOf(field)).toBeLessThan(order.indexOf(bar));
+		expect(order.indexOf(bar)).toBeLessThan(order.indexOf(toolbar));
+		expect((field as unknown as { value: string }).value).toBe("my draft");
+		expect(bar.textContent).toContain("Enter");
+	});
+
+	it("Esc discards the take and stops there: the app-wide Esc that aborts a running turn never sees it", async () => {
+		await mountWithMic();
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await startTake();
+		const appWide = vi.fn();
+		window.addEventListener("keydown", appWide);
+		try {
+			await windowKey("Escape");
+		} finally {
+			window.removeEventListener("keydown", appWide);
+		}
+		expect(phase()).toBeNull();
+		expect(appWide).not.toHaveBeenCalled();
+		expect(document.querySelector("[data-dictation-failure]")).toBeNull();
+	});
+
+	function failure(): TestElement | null {
+		return document.querySelector("[data-dictation-failure]") as unknown as TestElement | null;
+	}
+
+	async function failOpening(name: string, message: string): Promise<void> {
+		mic.getUserMedia.mockImplementationOnce(async () => {
+			throw Object.assign(new Error(message), { name });
+		});
+		const button = document.querySelector(
+			`button[aria-label="${translate("voice.mic.start")}"]`,
+		) as unknown as TestElement | null;
+		if (!button) throw new Error("mic button missing");
+		await click(button);
+		await flush();
+	}
+
+	it("says what to do about a blocked microphone and keeps the browser's wording behind Details", async () => {
+		await mountWithMic();
+		await failOpening("NotAllowedError", "Permission denied by system");
+		expect(failure()?.getAttribute("data-dictation-failure")).toBe("denied");
+		expect(failure()?.textContent).toContain(translate("voice.fail.denied"));
+		// Text only: the OS privacy page is not openable from here.
+		expect(failure()?.textContent).not.toContain(translate("voice.fail.openSettings"));
+		expect(document.querySelector("[data-error-detail]")).toBeNull();
+		const details = [...document.querySelectorAll("[data-dictation-failure] button")].find(
+			button => button.textContent === translate("voice.fail.details"),
+		) as unknown as TestElement;
+		await click(details);
+		expect(document.querySelector("[data-error-detail]")?.textContent).toBe("Permission denied by system");
+	});
+
+	it("tells a missing microphone from a busy one", async () => {
+		await mountWithMic();
+		await failOpening("NotFoundError", "Requested device not found");
+		expect(failure()?.textContent).toContain(translate("voice.fail.noDevice"));
+		await failOpening("NotReadableError", "Could not start audio source");
+		expect(failure()?.getAttribute("data-dictation-failure")).toBe("in-use");
+		expect(failure()?.textContent).toContain(translate("voice.fail.inUse"));
+	});
+
+	it("sends an unset dictation model to Settings > Models, with the raw error only behind Details", async () => {
+		await mountWithMic();
+		transcribeAudio.mockImplementation(async () => ({ success: false, error: "No dictation model configured" }));
+		await startTake();
+		await windowKey("Enter");
+		expect(failure()?.getAttribute("data-dictation-failure")).toBe("no-model");
+		expect(failure()?.textContent).toContain(translate("voice.fail.noModel"));
+		expect(failure()?.textContent).not.toContain("No dictation model configured");
+		const open = [...document.querySelectorAll("[data-dictation-failure] button")].find(
+			button => button.textContent === translate("voice.fail.openSettings"),
+		) as unknown as TestElement;
+		await click(open);
+		expect(useUiStore.getState().destination).toBe("settings");
+		expect(useUiStore.getState().settingsTab).toBe("models:roles");
+		expect(failure()).toBeNull();
+	});
+
+	it("a failed transcription is a plain sentence plus Details, and the next take clears it", async () => {
+		await mountWithMic();
+		transcribeAudio.mockImplementationOnce(async () => ({ success: false, error: "stt unavailable" }));
+		await startTake();
+		await windowKey("Enter");
+		expect(failure()?.textContent).toContain(translate("voice.fail.failed"));
+		expect(failure()?.textContent).not.toContain("stt unavailable");
+		await startTake();
+		expect(failure()).toBeNull();
 	});
 });
 

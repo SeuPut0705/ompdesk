@@ -13,9 +13,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { Kbd } from "../../common";
-import { DictationOverlay } from "./DictationOverlay";
 import { FIELD_SIZING_SUPPORTED } from "./field-height";
-import type { ComposerDictation } from "./use-composer-dictation";
 
 /** Past this many characters the field sets its text in the system face (see components.css `data-long`). */
 const LONG_DRAFT_CHARS = 8000;
@@ -37,7 +35,6 @@ export function ComposerField({
 	suggestionHint,
 	expanded,
 	monospace,
-	dictation,
 	enterKeyHint,
 }: {
 	textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -61,7 +58,6 @@ export function ComposerField({
 	expanded: boolean;
 	/** A `!` / `$` draft: the field types in monospace. */
 	monospace: boolean;
-	dictation: Pick<ComposerDictation, "phase" | "levels" | "startedAt">;
 	/** The return key's label on a soft keyboard: "enter" where Enter adds a line, undefined where it sends. */
 	enterKeyHint?: "enter";
 }) {
@@ -165,9 +161,6 @@ export function ComposerField({
 					<span className="omp-inline-ghost-text">{inline.ghost}</span>
 					<Kbd shortcut="Tab" />
 				</div>
-			)}
-			{dictation.phase !== "idle" && (
-				<DictationOverlay levels={dictation.levels} phase={dictation.phase} startedAt={dictation.startedAt} />
 			)}
 			{suggestionHint && (
 				<span

@@ -32,6 +32,7 @@ import { ComposerQueueLive, ComposerQueuePill } from "./ComposerQueue";
 import { ComposerEditBanner, useComposerQueueEdit } from "./ComposerQueueEdit";
 import { ComposerRestoredQueue } from "./ComposerRestoredQueue";
 import { ComposerToolbar } from "./ComposerToolbar";
+import { ComposerUnderField } from "./ComposerUnderField";
 import { NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
 import { PasteMenu } from "./PasteMenu";
 import { useComposerAttach } from "./use-composer-attach";
@@ -498,7 +499,6 @@ export function InputArea() {
 						/>
 						<ComposerField
 							activeOption={menu?.index}
-							dictation={dictation}
 							emojiAutocomplete={emojiAutocomplete}
 							expanded={expanded}
 							inline={inline}
@@ -523,6 +523,7 @@ export function InputArea() {
 							stopArmed={stopArmed}
 							unavailable={status === "ready" ? nextPromptView.unavailable : undefined}
 						/>
+						<ComposerUnderField dictation={dictation} />
 
 						<ComposerToolbar
 							composerMode={composerMode?.mode}

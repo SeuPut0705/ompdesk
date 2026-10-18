@@ -166,16 +166,39 @@ export function cancelVoiceRecording(): void {
 	stopVoiceRecording();
 }
 
+/** Why a take failed, as far as the browser and the sidecar say; the composer maps each to its own message and next step. */
+export type DictationFailure = "denied" | "no-device" | "in-use" | "busy" | "empty" | "no-model" | "failed";
+
+export type DictationResult = { text: string } | { error: string; failure?: DictationFailure };
+
+/** `getUserMedia` rejections by DOMException name (Chromium: NotAllowedError, NotFoundError, NotReadableError). */
+export function classifyMicError(cause: unknown): DictationFailure {
+	const name = typeof cause === "object" && cause !== null && "name" in cause ? String(cause.name) : "";
+	if (/^(NotAllowedError|SecurityError|PermissionDeniedError)$/.test(name)) return "denied";
+	if (/^(NotFoundError|DevicesNotFoundError|OverconstrainedError)$/.test(name)) return "no-device";
+	if (/^(NotReadableError|TrackStartError|AbortError)$/.test(name)) return "in-use";
+	return "failed";
+}
+
+/** The sidecar's failure text: only a missing or unknown dictation model is told apart ("No stt model devices configured", "Unknown stt model: x" in stock); the rest stays "failed". */
+export function classifyTranscribeError(message: string): DictationFailure {
+	if (
+		/\bunknown (stt|dictation|speech) model\b|\b(no|missing|unset)\b[^.]*\b(dictation|stt|transcription)\b[^.]*\b(model|role)\b|\b(dictation|stt|transcription)\s+(model|role)\b[^.]*\b(not|unset|missing|configured|found|available)\b/i.test(
+			message,
+		)
+	)
+		return "no-model";
+	return "failed";
+}
+
 /**
  * Capture mic audio until {@link stopVoiceRecording} fires, resample to the
  * STT pipeline's 16 kHz mono PCM, and transcribe via the sidecar. Resolves
  * with `{ text }` (possibly empty) or `{ error }` (empty string when the
- * take was discarded). `listener` follows the phases for the composer's overlay.
+ * take was discarded; otherwise `failure` says why). `listener` follows the phases for the composer's overlay.
  */
-export async function recordAndTranscribe(
-	listener: DictationListener = {},
-): Promise<{ text: string } | { error: string }> {
-	if (activeRecording || startPending) return { error: translate("voice.mic.busy") };
+export async function recordAndTranscribe(listener: DictationListener = {}): Promise<DictationResult> {
+	if (activeRecording || startPending) return { error: translate("voice.mic.busy"), failure: "busy" };
 	startPending = true;
 	cancelBeforeStart = false;
 	let stream: MediaStream;
@@ -184,7 +207,7 @@ export async function recordAndTranscribe(
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
 		});
 	} catch (cause) {
-		return { error: cause instanceof Error ? cause.message : String(cause) };
+		return { error: cause instanceof Error ? cause.message : String(cause), failure: classifyMicError(cause) };
 	} finally {
 		startPending = false;
 	}
@@ -209,7 +232,7 @@ export async function recordAndTranscribe(
 	for (const track of stream.getTracks()) track.stop();
 	if (activeRecording === state) activeRecording = null;
 	if (state.cancelled) return { error: "" };
-	if (state.chunks.length === 0) return { error: translate("voice.mic.empty") };
+	if (state.chunks.length === 0) return { error: translate("voice.mic.empty"), failure: "empty" };
 	listener.onTranscribing?.();
 	try {
 		const encoded = await new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }).arrayBuffer();
@@ -233,10 +256,10 @@ export async function recordAndTranscribe(
 			void context.close();
 		}
 		const response = await window.omp.rpc.transcribeAudio(bytesToBase64(wav), "audio/wav");
-		if (!response.success) return { error: response.error };
+		if (!response.success) return { error: response.error, failure: classifyTranscribeError(response.error) };
 		return { text: (response.data as TranscribeAudioResult | undefined)?.text ?? "" };
 	} catch (cause) {
-		return { error: cause instanceof Error ? cause.message : String(cause) };
+		return { error: cause instanceof Error ? cause.message : String(cause), failure: "failed" };
 	}
 }
 

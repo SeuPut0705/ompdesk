@@ -58,13 +58,14 @@ async function profile(name: string): Promise<Profile> {
 	return dirs;
 }
 
-async function launch(dirs: Profile, env: Record<string, string> = {}): Promise<Launched> {
+async function launch(dirs: Profile, env: Record<string, string> = {}, args: string[] = []): Promise<Launched> {
 	const app = await launchApp({
 		project: dirs.project,
 		desktop: dirs.desktop,
 		agent: dirs.agent,
 		profile: dirs.root,
 		env: { OMP_GUI_TEST_RECORD: dirs.record, OMP_GUI_TEST_SESSION_FILES: "1", ...env },
+		args,
 	});
 	const page = await app.firstWindow();
 	const errors: string[] = [];
@@ -618,6 +619,82 @@ test("a new tab, ⌃Tab and New session put the next keystroke in the composer",
 		await expect(field()).toBeFocused();
 		await page.keyboard.type("typed after the click");
 		await expect(field()).toHaveValue("typed after the click");
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("+ › Dictation explains where to turn dictation on while it is off", async () => {
+	test.setTimeout(90_000);
+	const dirs = await profile("dictation-off");
+	const { app, page, errors } = await launch(dirs);
+	try {
+		await expect(page.getByRole("button", { name: "Start dictation" })).toHaveCount(0);
+		await page.getByRole("button", { name: "Attach and more" }).click();
+		const item = page.getByRole("menuitem", { name: /Dictation/ });
+		await expect(item).toContainText("Turn on speech-to-text in Settings");
+		await item.click();
+		await expect(page.locator('[data-settings-page="true"]')).toBeVisible();
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(dirs.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("dictation leaves the draft in view, Esc discards the take without stopping a running turn, a failure says what to do", async () => {
+	test.setTimeout(120_000);
+	const dirs = await profile("dictation");
+	const { app, page, errors } = await launch(dirs, {}, [
+		"--use-fake-device-for-media-stream",
+		"--use-fake-ui-for-media-stream",
+	]);
+	try {
+		const input = composer(page);
+		await page.evaluate(() => window.omp.rpc.setSetting("stt.enabled", true));
+		const mic = page.getByRole("button", { name: "Start dictation" });
+		await expect(mic).toBeVisible();
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect(stop(page)).toBeVisible();
+		await expect(page.locator("[data-send-mode]")).toBeVisible();
+		await input.fill("my draft");
+
+		await mic.click();
+		const bar = page.locator('[data-dictation="recording"]');
+		await expect(bar).toBeVisible();
+		// The bar sits under the field, never over it: the draft stays readable.
+		const fieldBox = await input.boundingBox();
+		const barBox = await bar.boundingBox();
+		if (!fieldBox || !barBox) throw new Error("no boxes");
+		expect(barBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height - 1);
+		await expect(input).toHaveValue("my draft");
+		await expect(bar).toContainText("Enter");
+
+		// Esc discards the take; the running turn is not stopped.
+		await page.keyboard.press("Escape");
+		await expect(bar).toHaveCount(0);
+		await page.waitForTimeout(400);
+		expect(await aborts(dirs)).toBe(0);
+		await expect(stop(page)).toBeVisible();
+		await expect(input).toHaveValue("my draft");
+
+		// The fake omp cannot transcribe: the failure is a plain sentence, the raw error sits behind Details.
+		await mic.click();
+		await expect(bar).toBeVisible();
+		await page.waitForTimeout(700);
+		await page.keyboard.press("Enter");
+		const failure = page.locator("[data-dictation-failure]");
+		await expect(failure).toBeVisible({ timeout: 20_000 });
+		await expect(failure).toContainText("Dictation failed. Try again.");
+		await expect(failure).not.toContainText("transcribe_audio");
+		await failure.getByRole("button", { name: "Details" }).click();
+		await expect(failure.locator("[data-error-detail]")).not.toBeEmpty();
+		await failure.getByRole("button", { name: "Dismiss" }).click();
+		await expect(failure).toHaveCount(0);
+		expect(await aborts(dirs)).toBe(0);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

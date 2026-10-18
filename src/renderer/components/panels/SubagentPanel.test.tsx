@@ -372,6 +372,93 @@ describe("Subagent view steer box", () => {
 		// Nothing typed: nothing to send.
 		expect(send?.getAttribute("disabled")).not.toBeNull();
 	});
+
+	interface Field extends TestElement {
+		value: string;
+		disabled: boolean;
+	}
+	interface FieldProps {
+		onChange: (event: { target: { value: string } }) => void;
+		onKeyDown: (event: Record<string, unknown>) => void;
+	}
+	const field = () => view().querySelector("textarea.omp-composer-input") as unknown as Field;
+	/** The handlers React attached: the test DOM has no input events React accepts. */
+	function propsOf(el: Field): FieldProps {
+		const slot = Object.getOwnPropertyNames(el).find(name => name.startsWith("__reactProps$"));
+		if (!slot) throw new Error("textarea has no React props");
+		return (el as unknown as Record<string, FieldProps>)[slot]!;
+	}
+	async function type(value: string): Promise<void> {
+		await act(async () => propsOf(field()).onChange({ target: { value } }));
+	}
+	async function key(name: string, extra: Record<string, unknown> = {}): Promise<{ defaultPrevented: boolean }> {
+		const state = { defaultPrevented: false };
+		const nativeEvent = { key: name, isComposing: false, keyCode: name === "Enter" ? 13 : 27, ...extra };
+		await act(async () =>
+			propsOf(field()).onKeyDown({
+				key: name,
+				shiftKey: false,
+				metaKey: false,
+				ctrlKey: false,
+				altKey: false,
+				...extra,
+				nativeEvent,
+				currentTarget: field(),
+				preventDefault: () => {
+					state.defaultPrevented = true;
+				},
+				stopPropagation: () => {},
+			}),
+		);
+		return state;
+	}
+
+	it("grows with its text at the main field's size, and stays enabled (busy, not disabled) while a steer is sent", async () => {
+		const held = Promise.withResolvers<unknown>();
+		commandForTab.mockImplementation(async (_tabId, command) =>
+			command.type === "steer_subagent"
+				? held.promise
+				: { type: "response", command: command.type, success: true, data: { messages: pages, nextByte: 0 } },
+		);
+		seed([snap()]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		expect(field().className).toContain("text-sc-lg");
+		await type("look at the tests");
+		await key("Enter");
+		const steers = () => commandForTab.mock.calls.filter(([, command]) => command.type === "steer_subagent");
+		expect(steers()).toHaveLength(1);
+		// Sending: still typeable, marked busy, and a second Enter does not send twice.
+		expect(field().disabled).toBeFalsy();
+		expect(field().getAttribute("aria-busy")).toBe("true");
+		await key("Enter");
+		expect(steers()).toHaveLength(1);
+		await type("look at the tests and more");
+		held.resolve({ type: "response", command: "steer_subagent", success: true, data: {} });
+		await flush();
+		// What was typed while it went out is kept.
+		expect(field().value).toBe("look at the tests and more");
+		expect(field().getAttribute("aria-busy")).toBeNull();
+	});
+
+	it("Esc clears the draft first and is kept from the surrounding sheet; Shift+Enter adds a line", async () => {
+		seed([snap()]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		await type("draft");
+		const shiftEnter = await key("Enter", { shiftKey: true });
+		expect(shiftEnter.defaultPrevented).toBe(false);
+		const esc = await key("Escape");
+		expect(esc.defaultPrevented).toBe(true);
+		expect(field().value).toBe("");
+	});
+
+	it("ignores Enter that confirms an IME composition", async () => {
+		seed([snap()]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		await type("한글");
+		const enter = await key("Enter", { isComposing: true, keyCode: 229 });
+		expect(enter.defaultPrevented).toBe(false);
+		expect(commandForTab.mock.calls.some(([, command]) => command.type === "steer_subagent")).toBe(false);
+	});
 });
 
 describe("transcriptToText", () => {

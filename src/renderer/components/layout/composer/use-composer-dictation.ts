@@ -5,23 +5,31 @@
  */
 import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import {
 	cancelVoiceRecording,
+	type DictationFailure,
 	evaluateSttSubmitTrigger,
 	METER_BARS,
 	readSttSubmitTrigger,
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../../lib/voice";
-import { toastError } from "../../../stores/toast";
 import type { DictationPhase } from "./DictationOverlay";
+
+/** A take that ended in an error: the kind picks the message and next step, `detail` is the raw cause. */
+export interface DictationFailureView {
+	kind: DictationFailure;
+	detail: string;
+}
 
 export interface ComposerDictation {
 	phase: DictationPhase;
 	levels: readonly number[];
 	startedAt: number | null;
+	/** The last take's error, shown under the field until dismissed or the next take starts. */
+	failure: DictationFailureView | null;
+	dismissFailure: () => void;
 	/** The mic button: start a take, or end the one in flight. */
 	toggle: () => void;
 	/** "Stop and send": end the take and submit the draft once it is transcribed into it. */
@@ -40,10 +48,11 @@ export function useComposerDictation({
 	sendRef: RefObject<(overrideText?: string) => unknown>;
 	mountedRef: RefObject<boolean>;
 }): ComposerDictation {
-	const t = useT();
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [levels, setLevels] = useState<readonly number[]>(() => Array(METER_BARS).fill(0));
 	const [startedAt, setStartedAt] = useState<number | null>(null);
+	const [failure, setFailure] = useState<DictationFailureView | null>(null);
+	const dismissFailure = useCallback(() => setFailure(null), []);
 	/** "Stop and send": submit the draft once the take is transcribed into it. */
 	const sendAfterDictationRef = useRef(false);
 	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
@@ -65,6 +74,7 @@ export function useComposerDictation({
 			else stopVoiceRecording();
 			return;
 		}
+		setFailure(null);
 		setPhase("starting");
 		ownsTake.current = true;
 		sendAfterDictationRef.current = false;
@@ -89,7 +99,7 @@ export function useComposerDictation({
 			setStartedAt(null);
 			setLevels(Array(METER_BARS).fill(0));
 			if ("error" in result) {
-				if (result.error) toastError({ title: t("voice.mic.failed"), error: result });
+				if (result.error) setFailure({ kind: result.failure ?? "failed", detail: result.error });
 				return;
 			}
 			const utterance = result.text.trim();
@@ -119,7 +129,7 @@ export function useComposerDictation({
 			placeDraft(next, start + insertedText.length);
 			if (evaluation.submit || sendAfter) sendRef.current(next);
 		});
-	}, [recording, phase, t, placeDraft, mountedRef, sendRef, textareaRef]);
+	}, [recording, phase, placeDraft, mountedRef, sendRef, textareaRef]);
 
 	const stopAndSend = useCallback(() => {
 		sendAfterDictationRef.current = true;
@@ -143,5 +153,5 @@ export function useComposerDictation({
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, [phase]);
 
-	return { phase, levels, startedAt, toggle, stopAndSend };
+	return { phase, levels, startedAt, failure, dismissFailure, toggle, stopAndSend };
 }

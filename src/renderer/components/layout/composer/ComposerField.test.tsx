@@ -64,7 +64,6 @@ function field(text: string, activeOption?: number) {
 			suggestionHint: false,
 			expanded: false,
 			monospace: false,
-			dictation: { phase: "idle", levels: [], startedAt: 0 },
 		}),
 	);
 }

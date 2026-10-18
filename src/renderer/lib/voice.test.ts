@@ -12,7 +12,13 @@ import {
 	uninstallFakeMic,
 } from "../test-support/dictation";
 import { translate } from "./i18n";
-import { cancelVoiceRecording, METER_BARS, recordAndTranscribe, stopVoiceRecording } from "./voice";
+import {
+	cancelVoiceRecording,
+	classifyTranscribeError,
+	METER_BARS,
+	recordAndTranscribe,
+	stopVoiceRecording,
+} from "./voice";
 
 interface RpcReply {
 	success: boolean;
@@ -120,9 +126,9 @@ describe("recordAndTranscribe", () => {
 
 	it("refuses a second take while one is opening or recording", async () => {
 		const first = recordAndTranscribe();
-		await expect(recordAndTranscribe()).resolves.toEqual({ error: translate("voice.mic.busy") });
+		await expect(recordAndTranscribe()).resolves.toEqual({ error: translate("voice.mic.busy"), failure: "busy" });
 		await flush();
-		await expect(recordAndTranscribe()).resolves.toEqual({ error: translate("voice.mic.busy") });
+		await expect(recordAndTranscribe()).resolves.toEqual({ error: translate("voice.mic.busy"), failure: "busy" });
 		stopVoiceRecording();
 		await expect(first).resolves.toEqual({ text: "hello there" });
 		// The slot frees up after the take.
@@ -137,7 +143,7 @@ describe("recordAndTranscribe", () => {
 		const take = recordAndTranscribe();
 		await flush();
 		stopVoiceRecording();
-		await expect(take).resolves.toEqual({ error: translate("voice.mic.empty") });
+		await expect(take).resolves.toEqual({ error: translate("voice.mic.empty"), failure: "empty" });
 		expect(transcribeAudio).not.toHaveBeenCalled();
 	});
 
@@ -145,12 +151,34 @@ describe("recordAndTranscribe", () => {
 		mic.getUserMedia.mockImplementationOnce(async () => {
 			throw new Error("Permission denied");
 		});
-		await expect(recordAndTranscribe()).resolves.toEqual({ error: "Permission denied" });
+		await expect(recordAndTranscribe()).resolves.toEqual({ error: "Permission denied", failure: "failed" });
 
 		transcribeAudio.mockImplementationOnce(async () => ({ success: false, error: "stt unavailable" }));
 		const take = recordAndTranscribe();
 		await flush();
 		stopVoiceRecording();
-		await expect(take).resolves.toEqual({ error: "stt unavailable" });
+		await expect(take).resolves.toEqual({ error: "stt unavailable", failure: "failed" });
+	});
+
+	it("tells a blocked mic, a missing one and a busy one apart by the rejection's name", async () => {
+		for (const [name, failure] of [
+			["NotAllowedError", "denied"],
+			["NotFoundError", "no-device"],
+			["NotReadableError", "in-use"],
+		] as const) {
+			mic.getUserMedia.mockImplementationOnce(async () => {
+				throw new DOMException("x", name);
+			});
+			await expect(recordAndTranscribe()).resolves.toEqual({ error: "x", failure });
+		}
+	});
+
+	it("names a missing dictation model, and nothing else, as no-model", () => {
+		expect(classifyTranscribeError("No dictation model configured")).toBe("no-model");
+		expect(classifyTranscribeError("Dictation role is not set")).toBe("no-model");
+		expect(classifyTranscribeError("No stt model devices configured")).toBe("no-model");
+		expect(classifyTranscribeError("Unknown stt model: whisper-x")).toBe("no-model");
+		expect(classifyTranscribeError("stt unavailable")).toBe("failed");
+		expect(classifyTranscribeError("Fixture bridge does not implement transcribe_audio")).toBe("failed");
 	});
 });

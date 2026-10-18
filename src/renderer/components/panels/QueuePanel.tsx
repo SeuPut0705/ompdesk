@@ -61,6 +61,7 @@ const QueuedRow = memo(function QueuedRow({
 					<TextArea
 						aria-label={t("queuePanel.editInput")}
 						autoFocus
+						autoGrow
 						className="w-full resize-y rounded-(--sc-radius-md) border border-(--sc-accent-border) bg-(--sc-field) px-2 py-1 text-sc-sm leading-(--sc-leading-snug) text-(--sc-text)"
 						onInput={event => setDraft(event.currentTarget.value)}
 						onKeyDown={event => {

@@ -1,14 +1,17 @@
+import { useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
-import { Kbd } from "../../common";
+import { useUiStore } from "../../../stores/ui";
+import { Button, InlineNotice, Kbd } from "../../common";
+import type { DictationFailureView } from "./use-composer-dictation";
 
 export type DictationPhase = "idle" | "starting" | "recording" | "transcribing";
 
 /**
- * Over the composer's text while dictating: "Starting microphone…" until the
- * mic opens, then a live level meter with the take's m:ss and the keys that end
- * it (Enter inserts, Esc discards), then "Transcribing…". The draft below stays
- * as it was; the transcript lands at its caret.
+ * A slim bar between the field and the toolbar while dictating: "Starting microphone…" until the mic opens, then a
+ * live level meter with the take's m:ss and the keys that end it (Enter inserts, Esc discards), then
+ * "Transcribing…". It never covers the field: the draft stays readable and editable, and the transcript lands at
+ * its caret.
  */
 export function DictationOverlay({
 	phase,
@@ -25,7 +28,7 @@ export function DictationOverlay({
 	const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 	return (
 		<div
-			className="omp-dictation absolute inset-x-2 top-2 bottom-0 z-1 flex items-center gap-3 rounded-(--sc-radius-md) bg-(--sc-surface-1) px-3 text-sc-sm text-(--sc-text-secondary)"
+			className="omp-dictation flex min-h-7 items-center gap-3 px-4 pb-1 text-sc-sm text-(--sc-text-secondary)"
 			data-dictation={phase}
 			role="status"
 		>
@@ -58,3 +61,65 @@ export function DictationOverlay({
 		</div>
 	);
 }
+
+/**
+ * A take that failed: one sentence saying what to do (the browser's or the sidecar's text is only the details
+ * behind a toggle), plus Settings where Settings is the fix. The OS's own microphone privacy page cannot be opened
+ * from here (the host opens web links and mail drafts only), so a blocked microphone says where to go.
+ */
+export function DictationFailureNotice({
+	failure,
+	onDismiss,
+}: {
+	failure: DictationFailureView;
+	onDismiss: () => void;
+}) {
+	const t = useT();
+	const [open, setOpen] = useState(false);
+	const hasDetail = failure.kind !== "busy" && failure.kind !== "empty" && failure.detail !== "";
+	return (
+		<div className="px-3 pb-1" data-dictation-failure={failure.kind}>
+			<InlineNotice
+				action={
+					<>
+						{failure.kind === "no-model" && (
+							<Button
+								onClick={() => {
+									onDismiss();
+									useUiStore.getState().openSettings("models:roles");
+								}}
+								size="sm"
+								variant="secondary"
+							>
+								{t("voice.fail.openSettings")}
+							</Button>
+						)}
+						{hasDetail && (
+							<Button aria-expanded={open} onClick={() => setOpen(value => !value)} size="sm" variant="ghost">
+								{t("voice.fail.details")}
+							</Button>
+						)}
+						<Button onClick={onDismiss} size="sm" variant="ghost">
+							{t("voice.fail.dismiss")}
+						</Button>
+					</>
+				}
+				className="py-1"
+				detail={open && hasDetail ? failure.detail : undefined}
+				live
+				title={t(FAILURE_MESSAGE[failure.kind])}
+				tone="danger"
+			/>
+		</div>
+	);
+}
+
+const FAILURE_MESSAGE = {
+	denied: "voice.fail.denied",
+	"no-device": "voice.fail.noDevice",
+	"in-use": "voice.fail.inUse",
+	busy: "voice.mic.busy",
+	empty: "voice.mic.empty",
+	"no-model": "voice.fail.noModel",
+	failed: "voice.fail.failed",
+} as const;

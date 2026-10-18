@@ -46,6 +46,9 @@ import type { DictationPhase } from "./DictationOverlay";
 import { RunChip } from "./RunChip";
 import { useThinkingName } from "./RunSettings";
 
+/** Settings row of the stock `stt.enabled` switch; the + menu's Dictation item opens it while dictation is off (stock owns the setting, nothing here writes it). */
+const STT_SETTING_TARGET = "agent:setting-stt.enabled";
+
 export interface ComposerToolbarProps {
 	/** The tab's route exists: without it the row is inert and busy. */
 	routeReady: boolean;
@@ -185,6 +188,17 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						shortcut: "⌃G",
 						onSelect: onToggleExpanded,
 					},
+					...(sttEnabled
+						? []
+						: [
+								{
+									id: "dictation",
+									label: t("voice.menu.off"),
+									description: t("voice.menu.offDesc"),
+									icon: Mic,
+									onSelect: () => useUiStore.getState().openSettings(STT_SETTING_TARGET),
+								},
+							]),
 					{
 						id: "goal",
 						label: t("input.addMenu.goal"),
