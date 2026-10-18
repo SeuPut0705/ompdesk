@@ -17,6 +17,8 @@
     "package:win": "bun run build && electron-builder --config electron-builder.win.yml --win --x64",
     "gen:icons": "bun scripts/gen-icons.ts",
     "sync:rea-skill": "bun scripts/sync-rea-skill.ts",
+    "sync:ai-memory": "bun scripts/sync-ai-memory.ts",
+    "bump:ai-memory": "bun scripts/bump-ai-memory.ts",
     "gen:licenses": "bun scripts/generate-third-party-notices.ts",
     "licenses:check": "bun scripts/generate-third-party-notices.ts --check",
     "check": "node scripts/lint-surfaces.mjs && biome check . && tsc --noEmit",

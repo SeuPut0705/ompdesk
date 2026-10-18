@@ -278,8 +278,6 @@ export interface SidecarOptions {
 	 * flags, and no prefs file is touched.
 	 */
 	launchProfiles?: () => unknown;
-	/** `-e <ai-memory's omp extension>` while memory is on and wired; added only when a launch profile passes `--no-extensions`. */
-	aiMemoryExtensionArgs?: () => string[];
 	/**
 	 * Rewrites a frame before anything sees it (Autopilot's coordinator adds the children and the ship queue to
 	 * `autopilot_update`). Must be synchronous and return a frame of the same type.
@@ -524,11 +522,7 @@ export class SidecarManager extends EventEmitter {
 		// append: neither can override the code-controlled argv above, while a
 		// profile value that merely looks like a protected flag survives intact.
 		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)];
-		const profileFlags = stripDenylistedFlags(userFlags);
-		args.push(...profileFlags);
-		// A folder whose launch profile switches extensions off still gets ai-memory (a built-in like REA):
-		// an explicit `-e` loads whatever `--no-extensions` skips from discovery.
-		if (profileFlags.includes("--no-extensions")) args.push(...(this.#options.aiMemoryExtensionArgs?.() ?? []));
+		args.push(...stripDenylistedFlags(userFlags));
 		this.#titleSuppressed = titleSuppressedByEnv({ ...process.env, ...this.#shellEnvVars });
 		const autoTitle = this.#options.autoTitle?.();
 

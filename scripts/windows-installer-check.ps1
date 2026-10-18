@@ -160,6 +160,12 @@ public static class SetupWindows {
 function Assert-PerUserInstall {
 	if (-not (Test-Path -LiteralPath $exe)) { Fail "$exe is missing" }
 	Ok "installed in $installDir"
+	$memory = Join-Path $installDir 'resources\ai-memory-bin\ai-memory.exe'
+	if (-not (Test-Path -LiteralPath $memory)) { Fail "$memory is missing (the bundled ai-memory)" }
+	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\resources\omp-builtin\ai-memory\ai-memory.json') | ConvertFrom-Json).version
+	$memoryVersion = (& $memory --version | Out-String).Trim()
+	if ($LASTEXITCODE -ne 0 -or $memoryVersion -notlike "*$pinned*") { Fail "$memory --version printed '$memoryVersion' (exit $LASTEXITCODE), expected $pinned" }
+	Ok "bundled ai-memory runs: $memoryVersion"
 	$entries = Get-UninstallEntries HKCU
 	if ($entries.Count -ne 1) { Fail "expected one per-user uninstall entry, found $($entries.Count)" }
 	$entry = $entries[0]

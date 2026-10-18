@@ -39,6 +39,8 @@ const BUILD_SCRIPTS = [
 const INPUT_DIRS = ["src", "resources"];
 const TEST_FILE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const RENDERER_DIR = `src${path.sep}renderer${path.sep}`;
+/** ai-memory's release binaries (bun run sync:ai-memory): packaged as extraResources, never read by the build. */
+const AI_MEMORY_BIN = path.join("resources", "ai-memory-bin");
 /**
  * Env electron-vite and its plugins read at build time: Vite's mode and
  * NODE_ENV, the `VITE_`-prefixed vars electron-vite's `loadEnv` exposes to each
@@ -57,6 +59,7 @@ function walk(root: string, dir: string, files: string[]): void {
 	for (const entry of entries) {
 		if (entry.name === ".DS_Store") continue;
 		const rel = path.join(dir, entry.name);
+		if (rel === AI_MEMORY_BIN) continue;
 		if (entry.isDirectory()) walk(root, rel, files);
 		else if (entry.isFile()) files.push(rel);
 	}

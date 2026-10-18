@@ -297,6 +297,8 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Sync the ai-memory binary
+        run: bun run sync:ai-memory
       - name: Package
         run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Stage the setup under its release name and the assisted-installer release

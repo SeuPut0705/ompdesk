@@ -19,3 +19,6 @@ dev-app-update.yml
 # Playwright artifacts
 playwright-report/
 test-results/
+
+# ai-memory release binaries: bun run sync:ai-memory puts them here from the pin (never committed)
+resources/ai-memory-bin/

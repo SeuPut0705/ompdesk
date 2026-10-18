@@ -4,12 +4,13 @@
  * in another — which is how `omp://` deep links came to be dead code in every
  * installed build.
  */
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
@@ -67,6 +68,34 @@ async function fakeLocales(appOutDir: string, platform: string, names: string[])
 	}
 }
 
+const AI_MEMORY_PIN_FILE = path.join(PACKAGE_ROOT, "resources/omp-builtin/ai-memory/ai-memory.json");
+const AI_MEMORY_PLATFORMS: Record<string, { key: string; binary: string; builderConfig: string }> = {
+	darwin: { key: "darwin-arm64", binary: "ai-memory", builderConfig: "electron-builder.yml" },
+	win32: { key: "win32-x64", binary: "ai-memory.exe", builderConfig: "electron-builder.win.yml" },
+};
+/** A tiny stand-in for the 40 MB release binary, and a pin that names it (the seam is `OMPDESK_AI_MEMORY_PIN`). */
+const FAKE_AI_MEMORY = Buffer.from("#!/bin/sh\necho fake ai-memory\n");
+const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+/** The packed app's `ai-memory-bin/<binary>` for `platform` under `appOutDir`. */
+async function fakeAiMemory(
+	appOutDir: string,
+	platform: string,
+	bytes: Uint8Array = FAKE_AI_MEMORY,
+	mode = 0o755,
+): Promise<string> {
+	const resources =
+		platform === "darwin"
+			? path.join(appOutDir, "OMPdesk.app", "Contents", "Resources")
+			: path.join(appOutDir, "resources");
+	const file = path.join(resources, "ai-memory-bin", AI_MEMORY_PLATFORMS[platform]?.binary ?? "");
+	await fs.promises.mkdir(path.dirname(file), { recursive: true });
+	await fs.promises.rm(file, { force: true });
+	await fs.promises.writeFile(file, bytes, { mode });
+	await fs.promises.chmod(file, mode);
+	return file;
+}
+
 const PRIVACY_KEYS = [
 	"NSMicrophoneUsageDescription",
 	"NSCameraUsageDescription",
@@ -84,6 +113,26 @@ function macConfigs(): { file: string; config: BuilderConfig }[] {
 		}))
 		.filter(entry => entry.config.mac);
 }
+
+/** The real `afterPack` runs against fake app directories: its ai-memory pin points at a fake binary's hash. */
+let pinDirectory = "";
+let previousPin: string | undefined;
+beforeAll(() => {
+	pinDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-ai-memory-pin-"));
+	const pin = JSON.parse(fs.readFileSync(AI_MEMORY_PIN_FILE, "utf8")) as {
+		assets: Record<string, { binarySha256: string }>;
+	};
+	for (const entry of Object.values(pin.assets)) entry.binarySha256 = sha256(FAKE_AI_MEMORY);
+	const file = path.join(pinDirectory, "ai-memory.json");
+	fs.writeFileSync(file, JSON.stringify(pin));
+	previousPin = process.env.OMPDESK_AI_MEMORY_PIN;
+	process.env.OMPDESK_AI_MEMORY_PIN = file;
+});
+afterAll(() => {
+	if (previousPin === undefined) delete process.env.OMPDESK_AI_MEMORY_PIN;
+	else process.env.OMPDESK_AI_MEMORY_PIN = previousPin;
+	fs.rmSync(pinDirectory, { recursive: true, force: true });
+});
 
 describe("mac bundle configs", () => {
 	const configs = macConfigs();
@@ -156,7 +205,9 @@ describe("mac bundle configs", () => {
 	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
-		expect(fs.readdirSync(root).sort()).toEqual(["rea", "skills"]);
+		// `ai-memory/` holds only the version pin (scripts and the main process read it; no extension code).
+		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "rea", "skills"]);
+		expect(fs.readdirSync(path.join(root, "ai-memory"))).toEqual(["ai-memory.json"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);
@@ -283,6 +334,7 @@ describe("mac bundle configs", () => {
 		try {
 			await fs.promises.mkdir(path.dirname(plistPath), { recursive: true });
 			await fakeLocales(directory, "darwin", ["en", "ko"]);
+			await fakeAiMemory(directory, "darwin");
 			for (const { file, config } of configs) {
 				await savePlistFile(plistPath, original);
 				const hookPath = config.afterPack;
@@ -326,6 +378,8 @@ describe("mac bundle configs", () => {
 			});
 		try {
 			await fakeLocales(directory, "win32", ["en-US", "ko"]);
+			await fakeAiMemory(directory, "win32");
+			await fakeAiMemory(directory, "darwin");
 			await expect(run("win32")).resolves.toBeUndefined();
 			for (const names of [["ko"], [], ["de", "en-US", "ko"]]) {
 				await fakeLocales(directory, "win32", names);
@@ -336,6 +390,77 @@ describe("mac bundle configs", () => {
 		} finally {
 			await fs.promises.rm(directory, { recursive: true, force: true });
 		}
+	});
+
+	describe("ai-memory binary", () => {
+		it("ships each platform's own binary directory as extraResources and nothing of the other", () => {
+			for (const [platform, { key, builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
+				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
+				const entries = (config.extraResources ?? []).filter(resource =>
+					resource.from.startsWith("resources/ai-memory-bin"),
+				);
+				expect(entries, `${platform}: ${builderConfig}`).toEqual([
+					{ from: `resources/ai-memory-bin/${key}`, to: "ai-memory-bin" },
+				]);
+			}
+		});
+
+		it("pins a semver release with both platforms' archive and binary hashes, and keeps the binaries untracked", () => {
+			const pin = JSON.parse(fs.readFileSync(AI_MEMORY_PIN_FILE, "utf8")) as {
+				version: string;
+				repository: string;
+				assets: Record<string, { archive: string; archiveSha256: string; binary: string; binarySha256: string }>;
+			};
+			expect(pin.version).toMatch(/^\d+\.\d+\.\d+$/);
+			expect(pin.repository).toBe("akitaonrails/ai-memory");
+			expect(Object.keys(pin.assets).sort()).toEqual(["darwin-arm64", "win32-x64"]);
+			expect(pin.assets["darwin-arm64"]?.archive).toBe("ai-memory-macos-aarch64.tar.gz");
+			expect(pin.assets["darwin-arm64"]?.binary).toBe("ai-memory");
+			expect(pin.assets["win32-x64"]?.archive).toBe("ai-memory-windows-x86_64.zip");
+			expect(pin.assets["win32-x64"]?.binary).toBe("ai-memory.exe");
+			for (const entry of Object.values(pin.assets)) {
+				expect(entry.archiveSha256).toMatch(/^[0-9a-f]{64}$/);
+				expect(entry.binarySha256).toMatch(/^[0-9a-f]{64}$/);
+			}
+			const ignored = fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n");
+			expect(ignored).toContain("resources/ai-memory-bin/");
+		});
+
+		it("fails the package when the platform's binary is missing, not executable or not the pinned bytes", async () => {
+			const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-ai-memory-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				try {
+					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
+					await fs.promises.writeFile(
+						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
+						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
+					);
+					await expect(run(), `${platform} without the binary`).rejects.toThrow(
+						/ai-memory-bin.*is missing; run `bun run sync:ai-memory`/,
+					);
+					await fakeAiMemory(directory, platform, Buffer.from("not the pinned bytes"));
+					await expect(run(), `${platform} with other bytes`).rejects.toThrow(
+						/hashes to [0-9a-f]{64}; the pin .* expects/,
+					);
+					if (platform === "darwin") {
+						await fakeAiMemory(directory, platform, FAKE_AI_MEMORY, 0o644);
+						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
+					}
+					await fakeAiMemory(directory, platform);
+					await expect(run(), `${platform} with the pinned binary`).resolves.toBeUndefined();
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		});
 	});
 });
 
@@ -378,6 +503,21 @@ describe("release assets", () => {
 
 	it("keeps the legacy update feed behind one explicit top-level switch", () => {
 		expect(["true", "false"]).toContain(release.env.LEGACY_UPDATE_FEED);
+	});
+
+	it("syncs the ai-memory binary before packaging on both platforms and verifies it in the package", () => {
+		for (const job of ["mac", "win"]) {
+			const steps = release.jobs[job]?.steps ?? [];
+			const sync = steps.findIndex(step => step.run === "bun run sync:ai-memory");
+			const pack = steps.findIndex(step => step.name === "Package");
+			expect(sync, job).toBeGreaterThanOrEqual(0);
+			expect(sync, job).toBeLessThan(pack);
+		}
+		const verify = (name: string) =>
+			release.jobs[name === "mac" ? "mac" : "win"]?.steps.find(step => step.name?.startsWith("Verify"))?.run ?? "";
+		expect(verify("mac")).toContain("ai-memory-bin/ai-memory");
+		expect(verify("mac")).toContain("codesign --verify --strict");
+		expect(verify("win")).toContain("ai-memory-bin/ai-memory.exe");
 	});
 });
 
