@@ -40,8 +40,10 @@ export function layoutKeyboardOpen(baselineHeight: number, innerHeight: number, 
 export function startKeyboardInset(root: HTMLElement = document.documentElement): () => void {
 	const viewport = window.visualViewport;
 	if (!viewport) return () => {};
-	let baselineWidth = window.innerWidth;
-	let baselineHeight = window.innerHeight;
+	// Set by the first update (a width of 0 is never a layout's).
+	let baselineWidth = 0;
+	let baselineHeight = 0;
+	let shownInset: number | null = null;
 	const update = () => {
 		// A new width (rotation) is a new layout: forget the old tallest height.
 		if (window.innerWidth !== baselineWidth) {
@@ -54,10 +56,16 @@ export function startKeyboardInset(root: HTMLElement = document.documentElement)
 		const resized = layoutKeyboardOpen(baselineHeight, window.innerHeight, focused);
 		if (!resized) baselineHeight = Math.max(baselineHeight, window.innerHeight);
 		const inset = keyboardInset(viewport, window.innerHeight);
-		root.style.setProperty("--kb-inset", `${inset}px`);
+		// A custom property on the root restyles the whole page: written only when it changes (every visual
+		// viewport scroll calls this).
+		if (inset !== shownInset) {
+			root.style.setProperty("--kb-inset", `${inset}px`);
+			shownInset = inset;
+		}
 		// The keyboard hides the home indicator / gesture bar either way: CSS drops the bottom inset.
-		if (inset >= KEYBOARD_MIN_PX || resized) root.dataset.kb = "open";
-		else delete root.dataset.kb;
+		const open = inset >= KEYBOARD_MIN_PX || resized;
+		if (open && root.dataset.kb !== "open") root.dataset.kb = "open";
+		else if (!open && root.dataset.kb !== undefined) delete root.dataset.kb;
 		// iOS scrolls the (fixed) page to reveal the focused field; the shell never scrolls. A zoomed page's
 		// pan is the user's own.
 		if (inset >= KEYBOARD_MIN_PX && viewport.scale <= ZOOMED_SCALE && (window.scrollY !== 0 || window.scrollX !== 0))
@@ -65,13 +73,17 @@ export function startKeyboardInset(root: HTMLElement = document.documentElement)
 	};
 	// Focus moves after its event, so a blur or focus reads `activeElement` one task later.
 	const afterFocus = () => setTimeout(update, 0);
-	update();
+	// The first read waits for the next frame: this starts while the shell's attributes were just set, and the
+	// visual viewport's size read here would lay the whole page out inside that task (and again in the frame).
+	const firstFrame = typeof window.requestAnimationFrame === "function" ? window.requestAnimationFrame(update) : null;
+	if (firstFrame === null) update();
 	viewport.addEventListener("resize", update);
 	viewport.addEventListener("scroll", update);
 	window.addEventListener("resize", update);
 	document.addEventListener("focusin", afterFocus);
 	document.addEventListener("focusout", afterFocus);
 	return () => {
+		if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
 		viewport.removeEventListener("resize", update);
 		viewport.removeEventListener("scroll", update);
 		window.removeEventListener("resize", update);
