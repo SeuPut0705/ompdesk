@@ -61,7 +61,8 @@ export interface SnapshotRead<T> {
 	at: number;
 }
 
-const CREDENTIAL_KEY = /token|secret|passw(or)?d|authorization|api[-_]?key|cookie|credential|private[-_]?key|bearer|signature/i;
+const CREDENTIAL_KEY =
+	/token|secret|passw(or)?d|authorization|api[-_]?key|cookie|credential|private[-_]?key|bearer|signature/i;
 const SECRET_SHAPES: readonly RegExp[] = [
 	/\bsk-[A-Za-z0-9_-]{16,}/g,
 	/\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}/g,
@@ -136,15 +137,20 @@ export function createSnapshotCache({ storage, now = Date.now }: SnapshotCacheOp
 
 	const readIndex = (): Index => {
 		if (index) return index;
-		if (!storage) return (index = {});
+		index = {};
+		if (!storage) return index;
 		try {
 			const raw = storage.getItem(INDEX_KEY);
 			const parsed = raw ? (JSON.parse(raw) as unknown) : null;
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return (index = parsed as Index);
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				index = parsed as Index;
+				return index;
+			}
 		} catch {
 			// A corrupt index is rebuilt below.
 		}
-		return (index = rebuild());
+		index = rebuild();
+		return index;
 	};
 
 	const rebuild = (): Index => {
@@ -304,7 +310,8 @@ let shared: SnapshotCache | null = null;
 
 /** The page's one cache over localStorage (null storage: every read misses and every write is refused). */
 export function snapshots(): SnapshotCache {
-	return (shared ??= createSnapshotCache({ storage: browserStorage() }));
+	shared ??= createSnapshotCache({ storage: browserStorage() });
+	return shared;
 }
 
 /** Tests: drop the memoized cache so the next `snapshots()` reads the current `localStorage`. */

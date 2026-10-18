@@ -10,6 +10,7 @@ import type {
 	RpcSessionState,
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
+import { MODEL_WRITE_DELAY_MS, seedModelStore, writeModelSnapshot } from "../lib/model-snapshot";
 import {
 	reuseSeededRows,
 	seedTranscript,
@@ -718,10 +719,11 @@ function snapshotIdentity(tab: SessionTab) {
 }
 
 /** The tab's last known page paints before the live read answers (a restored or re-opened session, a cold start). */
-function seedFromSnapshot(tabId: string, { messages, tools }: HydrationStores): void {
-	if (!messages) return;
+function seedFromSnapshot(tabId: string, { messages, tools, model }: HydrationStores): void {
 	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
 	if (!tab) return;
+	if (model) seedModelStore(model, tab.device, transcriptKey(snapshotIdentity(tab)));
+	if (!messages) return;
 	const rows = seedTranscript(messages, snapshotIdentity(tab));
 	// The tool cards derive from the rows: rebuilt, none of them waits for a result that is already in the rows.
 	if (rows) tools?.getState().hydrateMessages(rows, { turnIsLive: false });
@@ -750,9 +752,19 @@ export function installTranscriptSeeding(): () => void {
 const watchedTranscripts = new WeakSet<SessionRuntime>();
 
 /** Keep the tab's snapshot following its committed rows: one idle write per quiet moment, keyed by what the tab shows then. */
-function watchTranscript(tabId: string, runtime: SessionRuntime, { messages }: HydrationStores): void {
+function watchTranscript(tabId: string, runtime: SessionRuntime, { messages, model }: HydrationStores): void {
 	if (!messages || watchedTranscripts.has(runtime)) return;
 	watchedTranscripts.add(runtime);
+	let modelTimer: ReturnType<typeof setTimeout> | undefined;
+	model?.subscribe((state, previous) => {
+		if (state.availableModels === previous.availableModels && state.model === previous.model) return;
+		clearTimeout(modelTimer);
+		modelTimer = setTimeout(() => {
+			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+			if (tab && sessionRuntime(tabId) === runtime)
+				writeModelSnapshot(tab.device, transcriptKey(snapshotIdentity(tab)), model.getState());
+		}, MODEL_WRITE_DELAY_MS);
+	});
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	messages.subscribe((state, previous) => {
 		if (state.messages === previous.messages || state.messages.length === 0) return;
