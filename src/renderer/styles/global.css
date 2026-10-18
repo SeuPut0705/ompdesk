@@ -470,6 +470,17 @@ html[data-platform="win32"] {
 	background: var(--omp-bg-tertiary);
 }
 
+/* A page or section that replaces another: one opacity fade in, nothing after it (still under software compositing). */
+.omp-page-in {
+	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
+}
+
+html[data-gpu="software"] .omp-page-in,
+html[data-gpu="software"] .omp-updating-hint {
+	animation: none;
+	opacity: 1;
+}
+
 /* A quiet "updating" hint for rows painted from the last known state while the live read answers: text, no
    spinner, over the content (no layout shift). It stays hidden for the first 0.7 s, so a read that answers at once
    never flashes it; one opacity fade in, nothing running after it. */
