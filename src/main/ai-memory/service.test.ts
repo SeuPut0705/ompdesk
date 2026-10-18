@@ -1000,11 +1000,22 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a missing root is healed by running setup and the generators again", async () => {
-			const { service, rootDir, commands } = await make();
+			// The state the service reports, not a clock: the root seen gone, then ready with it back.
+			const healed = Promise.withResolvers<void>();
+			let removed = false;
+			let sawGone = false;
+			const { service, rootDir, commands } = await make({
+				onState: snapshot => {
+					if (!removed) return;
+					if (!snapshot.wiring.app) sawGone = true;
+					else if (sawGone && snapshot.phase === "ready") healed.resolve();
+				},
+			});
 			await service.start();
+			removed = true;
 			await rm(rootDir, { recursive: true });
-			await vi.waitFor(() => expect(commands().filter(command => command === SETUP)).toHaveLength(2));
-			await vi.waitFor(() => expect(service.state()).toMatchObject({ phase: "ready", wiring: { app: true } }));
+			await healed.promise;
+			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
 		});
 

@@ -193,40 +193,46 @@ describe("isolated commands", () => {
 		expect(quoteWindowsArg('a\\"b')).toBe('"a\\\\\\"b"');
 	});
 
-	it("Windows: PowerShell starts the command (a .cmd shim through cmd.exe) with NUL and the log as its only handles", () => {
+	it("Windows: Bun starts the command (a .cmd shim through cmd.exe) with NUL and the log as its only handles", () => {
 		const env = { SystemRoot: "C:\\Windows", PATH: "C:\\bin" };
+		const options = { platform: "win32", log: "C:\\Temp\\out.log", bun: "C:\\bun\\bun.exe" } as const;
 		const exe = isolatedLaunch(
 			{ file: "C:\\Tools\\ai memory\\ai-memory.exe", args: ["setup", "--yes"], shell: false, isolated: true },
 			env,
-			"win32",
-			"C:\\Temp\\out.log",
+			options,
 		);
 		expect(exe.spec).toMatchObject({
-			file: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			file: "C:\\bun\\bun.exe",
 			shell: false,
 			log: { path: "C:\\Temp\\out.log", redirect: false },
 		});
-		expect(exe.spec.args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"]);
+		expect(exe.spec.args[0]).toBe("-e");
+		expect(exe.spec.args[1]).toContain('require("bun:ffi")');
 		expect(exe.env).toEqual({
 			...env,
-			OMPDESK_ISOLATED_APP: "C:\\Tools\\ai memory\\ai-memory.exe",
-			OMPDESK_ISOLATED_COMMAND_LINE: '"C:\\Tools\\ai memory\\ai-memory.exe" setup --yes',
-			OMPDESK_ISOLATED_LOG: "C:\\Temp\\out.log",
+			OMPDESK_ISOLATED: JSON.stringify({
+				application: "C:\\Tools\\ai memory\\ai-memory.exe",
+				commandLine: '"C:\\Tools\\ai memory\\ai-memory.exe" setup --yes',
+				log: "C:\\Temp\\out.log",
+			}),
 		});
 		const shim = isolatedLaunch(
 			{ file: '"C:\\fake\\ai-memory.cmd"', args: ['"setup"'], shell: true, isolated: true },
 			env,
-			"win32",
-			"C:\\Temp\\out.log",
+			options,
 		);
-		expect(shim.env).toMatchObject({
-			OMPDESK_ISOLATED_APP: "C:\\Windows\\System32\\cmd.exe",
-			OMPDESK_ISOLATED_COMMAND_LINE: 'cmd.exe /d /s /c ""C:\\fake\\ai-memory.cmd" "setup""',
+		expect(JSON.parse(shim.env.OMPDESK_ISOLATED ?? "{}")).toMatchObject({
+			application: "C:\\Windows\\System32\\cmd.exe",
+			commandLine: 'cmd.exe /d /s /c ""C:\\fake\\ai-memory.cmd" "setup""',
 		});
 	});
 
+	it("Windows without Bun cannot start an isolated command, and says so", () => {
+		expect(() => isolatedLaunch(SPEC, {}, { platform: "win32", bun: null })).toThrow(/Bun was not found/);
+	});
+
 	it("POSIX: the log file stands in for the supervisor's pipes", () => {
-		expect(isolatedLaunch(SPEC, { PATH: "/bin" }, "darwin", "/tmp/out.log")).toEqual({
+		expect(isolatedLaunch(SPEC, { PATH: "/bin" }, { platform: "darwin", log: "/tmp/out.log" })).toEqual({
 			spec: { ...SPEC, log: { path: "/tmp/out.log", redirect: true } },
 			env: { PATH: "/bin" },
 		});
