@@ -183,6 +183,48 @@ describe("natural name order", () => {
 	});
 });
 
+describe("listWorkspace file cap", () => {
+	/** Every file path the tree reaches. */
+	const filesOf = (entries: { path: string; kind: string; children?: unknown }[]): string[] =>
+		entries.flatMap(entry =>
+			entry.kind === "file" ? [entry.path] : filesOf((entry.children ?? []) as typeof entries),
+		);
+
+	it("walks breadth-first: the cap drops the deepest files, not every file of a folder that sorts late", async () => {
+		writeFileSync(join(root, "top.ts"), "");
+		mkdirSync(join(root, "a", "deep", "deeper"), { recursive: true });
+		mkdirSync(join(root, "z"));
+		for (const name of ["a/one.ts", "a/deep/two.ts", "a/deep/deeper/three.ts", "z/four.ts"])
+			writeFileSync(join(root, name), "");
+		const cut = await listWorkspace(root, { maxEntries: 3 });
+		expect(cut.truncated).toBe(true);
+		// Shallow files first: `a/deep/deeper/three.ts` is the one that does not fit, `z/four.ts` is kept.
+		expect(filesOf(cut.entries).sort()).toEqual(["a/one.ts", "top.ts", "z/four.ts"]);
+		const all = await listWorkspace(root, { maxEntries: 10 });
+		expect(all.truncated).toBe(false);
+		expect(filesOf(all.entries)).toHaveLength(5);
+	});
+
+	it("lists a real repository's worth of files in one walk, honouring the ignore rules", async () => {
+		mkdirSync(join(root, "node_modules", "dep"), { recursive: true });
+		writeFileSync(join(root, "node_modules", "dep", "index.js"), "");
+		for (let pkg = 0; pkg < 25; pkg++) {
+			mkdirSync(join(root, `pkg${pkg}`));
+			for (let file = 0; file < 100; file++) writeFileSync(join(root, `pkg${pkg}`, `file-${file}.ts`), "");
+		}
+		const result = await listWorkspace(root, { maxDepth: 16, maxEntries: 20_000 });
+		expect(result.truncated).toBe(false);
+		expect(filesOf(result.entries)).toHaveLength(2500);
+	});
+
+	it("lists one folder on its own, so a file the cut walk missed is still reachable", async () => {
+		mkdirSync(join(root, "pkg", "deep"), { recursive: true });
+		writeFileSync(join(root, "pkg", "deep", "needle.ts"), "");
+		const result = await listWorkspace(root, { path: "pkg", maxEntries: 5 });
+		expect(filesOf(result.entries)).toEqual(["pkg/deep/needle.ts"]);
+	});
+});
+
 describe("listDirectories", () => {
 	it("bounds a crowded level and finds the folders past the bound by name", async () => {
 		// A crowded temp folder: the picker's target sorts after the 2000 listed names.

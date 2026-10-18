@@ -230,42 +230,50 @@ interface WalkState {
  */
 const NAME_ORDER = new Intl.Collator(undefined, { numeric: true });
 
-/** Recursive readdir → sorted tree (dirs first, then files, each in natural name order). */
-async function walkWorkspace(
-	dirAbs: string,
-	relPrefix: string,
-	depth: number,
-	state: WalkState,
-): Promise<FsTreeEntry[]> {
-	let dirents: Dirent[];
-	try {
-		dirents = await fsp.readdir(dirAbs, { withFileTypes: true });
-	} catch {
-		return []; // Unreadable directory (permissions) — skip, don't fail the walk.
-	}
-	const dirs: FsTreeEntry[] = [];
-	const files: FsTreeEntry[] = [];
-	const sorted = dirents.filter(dirent => !dirent.isSymbolicLink()).sort((a, b) => NAME_ORDER.compare(a.name, b.name));
-	for (const dirent of sorted) {
-		if (state.truncated) break;
-		const isDir = dirent.isDirectory();
-		if (!isDir && !dirent.isFile()) continue;
-		const rel = relPrefix ? `${relPrefix}/${dirent.name}` : dirent.name;
-		if (isIgnored(state.rules, rel, isDir)) continue;
-		if (isDir) {
-			const children =
-				depth < state.maxDepth ? await walkWorkspace(path.join(dirAbs, dirent.name), rel, depth + 1, state) : [];
-			dirs.push({ name: dirent.name, path: rel, kind: "dir", children });
-		} else {
-			if (state.fileCount >= state.maxFiles) {
-				state.truncated = true;
-				break;
+/**
+ * Breadth-first readdir → sorted tree (dirs first, then files, each in natural name order). Level by level,
+ * so when the file cap stops the walk it is the deepest files that are missing, never every file of a
+ * folder that merely sorts late; every folder seen is in the tree, with the children the walk got to.
+ */
+async function walkWorkspace(dirAbs: string, relPrefix: string, state: WalkState): Promise<FsTreeEntry[]> {
+	const top: FsTreeEntry[] = [];
+	let level = [{ abs: dirAbs, rel: relPrefix, out: top }];
+	for (let depth = 0; level.length > 0 && !state.truncated; depth++) {
+		const next: typeof level = [];
+		for (const dir of level) {
+			if (state.truncated) break;
+			let dirents: Dirent[];
+			try {
+				dirents = await fsp.readdir(dir.abs, { withFileTypes: true });
+			} catch {
+				continue; // Unreadable directory (permissions) — skip, don't fail the walk.
 			}
-			state.fileCount += 1;
-			files.push({ name: dirent.name, path: rel, kind: "file" });
+			const files: FsTreeEntry[] = [];
+			const sorted = dirents
+				.filter(dirent => !dirent.isSymbolicLink())
+				.sort((a, b) => NAME_ORDER.compare(a.name, b.name));
+			for (const dirent of sorted) {
+				const isDir = dirent.isDirectory();
+				if (!isDir && !dirent.isFile()) continue;
+				const rel = dir.rel ? `${dir.rel}/${dirent.name}` : dirent.name;
+				if (isIgnored(state.rules, rel, isDir)) continue;
+				if (isDir) {
+					const children: FsTreeEntry[] = [];
+					dir.out.push({ name: dirent.name, path: rel, kind: "dir", children });
+					if (depth < state.maxDepth) next.push({ abs: path.join(dir.abs, dirent.name), rel, out: children });
+				} else if (state.fileCount >= state.maxFiles) {
+					state.truncated = true;
+					break;
+				} else {
+					state.fileCount += 1;
+					files.push({ name: dirent.name, path: rel, kind: "file" });
+				}
+			}
+			dir.out.push(...files);
 		}
+		level = next;
 	}
-	return [...dirs, ...files];
+	return top;
 }
 
 /** `~/` expands to this machine's home; absolute paths normalize; relative ones resolve inside `cwd`. */
@@ -309,7 +317,7 @@ export async function listWorkspace(
 		if (!stat.isDirectory()) {
 			return { ok: false, entries: [], truncated: false, error: "Not a directory", code: "not_a_directory" };
 		}
-		const entries = await walkWorkspace(dirAbs, prefix, 0, state);
+		const entries = await walkWorkspace(dirAbs, prefix, state);
 		return { ok: true, entries, truncated: state.truncated };
 	} catch (err) {
 		return {
