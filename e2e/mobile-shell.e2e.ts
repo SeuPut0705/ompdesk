@@ -455,6 +455,12 @@ for (const { engine, device } of variants(
 					expect(seen.root?.height).toBeCloseTo(seen.body.height, 0);
 					expect(seen.shell?.bottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(seen.height - insets.bottom);
 					await page.setViewportSize(full);
+					// The resize events (window and visualViewport) that follow run keyboard-inset.ts's update, which writes
+					// `--kb-inset: 0` and clears `data-kb`; a keyboard faked before they ran was erased by them (the flake).
+					await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(full.height);
+					await page.evaluate(
+						() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+					);
 
 					// Keyboard open (what lib/keyboard-inset.ts writes): the composer rides on top of the keyboard.
 					const keyboard = landscape ? 120 : 300;

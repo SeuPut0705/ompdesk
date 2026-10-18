@@ -102,6 +102,13 @@ const drawer = (page: Page): Locator => page.locator("[data-drawer]");
 
 /** A destination page (Settings, Agents, Insights) through the drawer's footer. */
 async function openDestination(page: Page, id: "settings" | "agents" | "insights"): Promise<void> {
+	// A phone keeps the sidebar behind a menu button; from 800 px (a portrait tablet too) it is docked beside the page.
+	if ((await page.locator("button:visible:has(svg.lucide-menu)").count()) === 0) {
+		const docked = page.locator(`.omp-session-sidebar [data-destination="${id}"]`);
+		await docked.click();
+		await expect(page.locator("[data-drawer]")).toHaveCount(0);
+		return;
+	}
 	await menuButton(page).click();
 	const target = drawer(page).locator(`[data-destination="${id}"]`);
 	await settled(target);
@@ -261,8 +268,15 @@ for (const { engine, device } of variants(
 				await expect(page.locator("[data-master-detail-back]")).toHaveCount(0);
 				const navBox = await nav.boundingBox();
 				const contentBox = await content.boundingBox();
-				expect(navBox?.width ?? 0).toBeLessThan(260);
-				expect(contentBox?.x ?? 0).toBeGreaterThanOrEqual((navBox?.x ?? 0) + (navBox?.width ?? 0) - 1);
+				const pageBox = await settings.boundingBox();
+				if ((pageBox?.width ?? 0) > 700) {
+					// Room for two columns: the section list beside the section.
+					expect(navBox?.width ?? 0).toBeLessThan(260);
+					expect(contentBox?.x ?? 0).toBeGreaterThanOrEqual((navBox?.x ?? 0) + (navBox?.width ?? 0) - 1);
+				} else {
+					// The docked session list leaves the page under 700 px: the desktop's narrow rule makes the sections a bar above the section.
+					expect(contentBox?.y ?? 0).toBeGreaterThanOrEqual((navBox?.y ?? 0) + (navBox?.height ?? 0) - 1);
+				}
 				await page.locator('[data-settings-section="appearance"]').click();
 				await expect(page.locator("#settings-section-title")).toHaveText("Appearance & input");
 				await expect(nav).toBeVisible();
@@ -396,8 +410,7 @@ for (const { engine, device } of variants(
 				expect((await overflow(page, "body")).document).toBe(0);
 			}
 			await capture(page, "agents", tagOf(engine.name, device, LIGHT_EN));
-			await menuButton(page).click();
-			await drawer(page).locator('[data-destination="insights"]').click();
+			await openDestination(page, "insights");
 			await expect(page.getByRole("heading", { name: "Stats" }).first()).toBeVisible();
 			expect((await overflow(page, "body")).document).toBe(0);
 			await capture(page, "insights", tagOf(engine.name, device, LIGHT_EN));
