@@ -96,6 +96,13 @@ export interface SpawnSpec {
 	shell: boolean;
 	/** A file the supervisor hands the child as stdin (scheduled runs pipe their prompt this way). */
 	inputFile?: string;
+	/**
+	 * The command may leave a descendant that outlives the app by design (ai-memory's `setup` starts ai-memory's own
+	 * per-user service host): it gets no handle of the app's — no pipe, nothing the app inherited — only NUL as stdin
+	 * and a temp file as stdout/stderr, which the supervisor passes on as its own output once the command exited.
+	 * `file` is then an absolute path (or the `.cmd` shim `shell` runs) and `inputFile` is not used.
+	 */
+	isolated?: boolean;
 }
 
 /** A file main downloads and checks (download.ts) before the plan's process runs, so its bytes can show as progress. */

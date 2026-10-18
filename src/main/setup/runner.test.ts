@@ -1,4 +1,4 @@
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
 import type { SpawnSpec } from "./plans";
 import { SetupRunner, type SupervisedChild } from "./runner";
-import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./supervisor";
+import { isolatedLaunch, quoteWindowsArg, SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./supervisor";
 
 class FakeChild extends EventEmitter implements SupervisedChild {
 	readonly stdout = new PassThrough();
@@ -181,4 +181,96 @@ describe("supervisor", () => {
 			await rm(dir, RM_TEMP);
 		}
 	});
+});
+
+describe("isolated commands", () => {
+	it("quotes Windows arguments the way the C runtime reads them back", () => {
+		expect(quoteWindowsArg("plain")).toBe("plain");
+		expect(quoteWindowsArg("")).toBe('""');
+		expect(quoteWindowsArg("C:\\Program Files\\x.exe")).toBe('"C:\\Program Files\\x.exe"');
+		expect(quoteWindowsArg('say "hi"')).toBe('"say \\"hi\\""');
+		expect(quoteWindowsArg("dir\\ with\\")).toBe('"dir\\ with\\\\"');
+		expect(quoteWindowsArg('a\\"b')).toBe('"a\\\\\\"b"');
+	});
+
+	it("Windows: PowerShell starts the command (a .cmd shim through cmd.exe) with NUL and the log as its only handles", () => {
+		const env = { SystemRoot: "C:\\Windows", PATH: "C:\\bin" };
+		const exe = isolatedLaunch(
+			{ file: "C:\\Tools\\ai memory\\ai-memory.exe", args: ["setup", "--yes"], shell: false, isolated: true },
+			env,
+			"win32",
+			"C:\\Temp\\out.log",
+		);
+		expect(exe.spec).toMatchObject({
+			file: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			shell: false,
+			log: { path: "C:\\Temp\\out.log", redirect: false },
+		});
+		expect(exe.spec.args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"]);
+		expect(exe.env).toEqual({
+			...env,
+			OMPDESK_ISOLATED_APP: "C:\\Tools\\ai memory\\ai-memory.exe",
+			OMPDESK_ISOLATED_COMMAND_LINE: '"C:\\Tools\\ai memory\\ai-memory.exe" setup --yes',
+			OMPDESK_ISOLATED_LOG: "C:\\Temp\\out.log",
+		});
+		const shim = isolatedLaunch(
+			{ file: '"C:\\fake\\ai-memory.cmd"', args: ['"setup"'], shell: true, isolated: true },
+			env,
+			"win32",
+			"C:\\Temp\\out.log",
+		);
+		expect(shim.env).toMatchObject({
+			OMPDESK_ISOLATED_APP: "C:\\Windows\\System32\\cmd.exe",
+			OMPDESK_ISOLATED_COMMAND_LINE: 'cmd.exe /d /s /c ""C:\\fake\\ai-memory.cmd" "setup""',
+		});
+	});
+
+	it("POSIX: the log file stands in for the supervisor's pipes", () => {
+		expect(isolatedLaunch(SPEC, { PATH: "/bin" }, "darwin", "/tmp/out.log")).toEqual({
+			spec: { ...SPEC, log: { path: "/tmp/out.log", redirect: true } },
+			env: { PATH: "/bin" },
+		});
+	});
+
+	it("a descendant that outlives the command holds none of the supervisor's pipes: close comes, with the output and argv", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "ompdesk-isolated-"));
+		const pidFile = join(dir, "descendant.pid");
+		try {
+			// Like ai-memory's `setup` starting its service host: a detached descendant with every inheritable handle,
+			// still running after the command ended (and after this test's own timeout, so a held pipe fails it).
+			const installer = [
+				"const { spawn } = require('node:child_process');",
+				"const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300000)'], { detached: true, stdio: 'inherit' });",
+				`require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(descendant.pid));`,
+				"descendant.unref();",
+				"process.stdout.write(JSON.stringify(process.argv.slice(1)) + '\\n');",
+			].join("\n");
+			const argv = ["with space", 'a "quote"', "tail\\"];
+			const child = spawnSupervised(
+				{ file: process.execPath, args: ["-e", installer, ...argv], shell: false, isolated: true },
+				{ ...process.env },
+			);
+			let output = "";
+			child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
+				output += chunk;
+			});
+			child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+				output += chunk;
+			});
+			expect(await once(child, "close"), output).toEqual([0, null]);
+			expect(output).toContain(JSON.stringify(argv));
+			const descendant = Number(await readFile(pidFile, "utf8"));
+			expect(() => process.kill(descendant, 0)).not.toThrow();
+		} finally {
+			const descendant = Number(await readFile(pidFile, "utf8").catch(() => "0"));
+			if (descendant) {
+				try {
+					process.kill(descendant);
+				} catch {
+					// Already gone.
+				}
+			}
+			await rm(dir, RM_TEMP);
+		}
+	}, 60_000);
 });

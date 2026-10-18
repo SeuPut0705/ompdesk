@@ -200,24 +200,32 @@ function processTree(all: WinProcess[], root: number): WinProcess[] {
 const isAiMemoryService = (process: WinProcess) =>
 	/^ai-memory(\.exe)?$/i.test(process.name) && /\s(service-host|serve)(\s|$)/.test(process.commandLine ?? "");
 
-/** Every named pipe libuv made (`\Device\NamedPipe\uv\<ptr>-<creator pid>`) and who holds it (Sysinternals Handle). */
-function pipeHolders(): string | null {
+/**
+ * Every named pipe libuv made (`\Device\NamedPipe\uv\<ptr>-<creator pid>`) and who holds it, then every file and pipe
+ * ai-memory's service processes hold (Sysinternals Handle; CI's win-e2e sets OMP_GUI_HANDLE_EXE).
+ */
+function handleReport(service: WinProcess[]): string | null {
 	const handle = process.env.OMP_GUI_HANDLE_EXE;
 	if (!handle) return null;
-	try {
-		const output = execFileSync(handle, ["-accepteula", "-nobanner", "-a", "NamedPipe"], {
-			encoding: "utf8",
-			maxBuffer: 64 * 1024 * 1024,
-			timeout: 120_000,
-			windowsHide: true,
-		});
-		return output
-			.split(/\r?\n/)
-			.filter(line => line.includes("\\uv\\"))
-			.join("\n");
-	} catch (error) {
-		return `handle.exe failed: ${String(error)}`;
-	}
+	const run = (args: string[]) => {
+		try {
+			return execFileSync(handle, ["-accepteula", "-nobanner", "-a", ...args], {
+				encoding: "utf8",
+				maxBuffer: 64 * 1024 * 1024,
+				timeout: 120_000,
+				windowsHide: true,
+			}).split(/\r?\n/);
+		} catch (error) {
+			return [`handle.exe ${args.join(" ")} failed: ${String(error)}`];
+		}
+	};
+	return [
+		...run(["NamedPipe"]).filter(line => line.includes("\\uv\\")),
+		...service.flatMap(process => [
+			`ai-memory service ${process.pid}, files and pipes:`,
+			...run(["-p", String(process.pid)]).filter(line => /:\s+File\s/.test(line)),
+		]),
+	].join("\n");
 }
 
 /**
@@ -248,11 +256,12 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 			app.quit();
 		});
 	}, how);
+	// A real bound on a real process: its pipes close within moments of the quit, or never.
 	const timer = Promise.withResolvers<"open">();
 	const timeout = setTimeout(() => timer.resolve("open"), 30_000);
 	const outcome = await Promise.race([closed.promise, timer.promise]);
 	clearTimeout(timeout);
-	const holders = pipeHolders();
+	const holders = handleReport(before.filter(isAiMemoryService));
 	if (holders !== null) {
 		await fs.writeFile(info.outputPath(`pipe-holders-after-${how}.txt`), `${roles.join("\n")}\n\n${holders}`);
 		console.log(`[${how}] process roles:\n${roles.join("\n")}\n[${how}] libuv pipes and their holders:\n${holders}`);

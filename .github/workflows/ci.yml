@@ -374,8 +374,8 @@ jobs:
             throw "handle64.exe is not signed by Microsoft: $($signature.Status) $($signature.SignerCertificate.Subject)"
           }
           "OMP_GUI_HANDLE_EXE=$exe" >> $env:GITHUB_ENV
-      - name: ai-memory, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path)
-        run: bunx vitest run src/main/ai-memory src/main/sidecar.test.ts src/main/packaging-config.test.ts
+      - name: ai-memory, setup runner, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path, isolated commands)
+        run: bunx vitest run src/main/ai-memory src/main/setup/runner.test.ts src/main/sidecar.test.ts src/main/packaging-config.test.ts
       - name: omp update while omp runs
         run: bun scripts/omp-update-lock-check.ts
       - name: Playwright e2e

@@ -23,9 +23,9 @@ export type RunOutcome =
 	| { kind: "failed"; reason: "exit" | "spawn"; exitCode: number | null; detail?: string };
 
 /**
- * How long output may still arrive after the supervisor exited. A command can leave a detached descendant that holds
- * the inherited pipes open (ai-memory's `setup` starts its Windows service host that way), so `close` may never come;
- * what the supervisor wrote before it exited is in the pipe by now.
+ * How long output may still arrive after the supervisor exited. A command that leaves a detached descendant holding
+ * the inherited pipes open never lets `close` come (a command expected to do so runs `SpawnSpec.isolated`); what the
+ * supervisor wrote before it exited is in the pipe by now.
  */
 const DRAIN_MS = 500;
 

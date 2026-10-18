@@ -472,13 +472,18 @@ export class AiMemoryService {
 	async #run(
 		bin: string,
 		args: string[],
-		extraEnv: NodeJS.ProcessEnv = {},
+		options: { env?: NodeJS.ProcessEnv; isolated?: boolean } = {},
 	): Promise<{ ok: boolean; cancelled: boolean; output: string }> {
 		let output = "";
 		// Its own commands read the working directory as "this project" (setup's doctor, `status`): a neutral one.
 		const outcome = await this.#runner.run(
-			{ file: spawnCommand(bin), args: spawnArgs(bin, args), shell: needsShell(bin) },
-			{ ...(await this.#deps.spawnEnv()), ...extraEnv },
+			{
+				file: spawnCommand(bin),
+				args: spawnArgs(bin, args),
+				shell: needsShell(bin),
+				...(options.isolated ? { isolated: true } : {}),
+			},
+			{ ...(await this.#deps.spawnEnv()), ...options.env },
 			chunk => {
 				output = (output + chunk).slice(-OUTPUT_TAIL);
 			},
@@ -511,7 +516,8 @@ export class AiMemoryService {
 	/**
 	 * `setup` installs the service only together with an agent's wiring. For OMPdesk's server the agent dir is a
 	 * scratch folder (deleted afterwards, with the shared skills `setup` newly created); a terminal omp the user
-	 * connected is wired into its real agent dir by the very same command.
+	 * connected is wired into its real agent dir by the very same command. It runs isolated (`SpawnSpec.isolated`):
+	 * the service host it may start outlives OMPdesk by design, and must not hold any handle of OMPdesk's.
 	 */
 	async #setup(bin: string, options: { terminal: boolean; service: boolean }): Promise<void> {
 		const args = [
@@ -526,7 +532,10 @@ export class AiMemoryService {
 		const skillsBefore = options.terminal ? null : await listSharedSkills(home);
 		let result: { ok: boolean; cancelled: boolean; output: string };
 		try {
-			result = await this.#run(bin, args, options.terminal ? {} : { PI_CODING_AGENT_DIR: scratch });
+			result = await this.#run(bin, args, {
+				isolated: true,
+				...(options.terminal ? {} : { env: { PI_CODING_AGENT_DIR: scratch } }),
+			});
 		} finally {
 			if (!options.terminal) {
 				await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
