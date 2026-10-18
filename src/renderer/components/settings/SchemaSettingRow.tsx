@@ -44,7 +44,7 @@ const COMMON_SHELLS: readonly ModelValueGroup[] = [
 
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
 	const t = useT();
-	if (saving) return <Spinner label={t("common.saving")} size="sm" />;
+	if (saving) return <Spinner label={t("common.saving")} size="sm" spin />;
 	if (dirty) return <Badge variant="warning">{t("common.unsaved")}</Badge>;
 	if (saved)
 		return (

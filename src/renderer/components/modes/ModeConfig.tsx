@@ -30,7 +30,7 @@ import {
 	type InputProps,
 	ProgressBar,
 	SettingInfo,
-	Spinner,
+	SkeletonRows,
 	TextArea,
 } from "../common";
 import { SettingsRow } from "../settings/SettingsLayout";
@@ -220,11 +220,7 @@ function ModeFrame<T>({ rpc, children }: { rpc: ModeRpc<T>; children: (state: T)
 	const t = useT();
 	if (rpc.state !== null) return <div className="flex flex-col gap-3">{children(rpc.state)}</div>;
 	if (rpc.loading || !rpc.error) {
-		return (
-			<div className="flex justify-center py-4">
-				<Spinner label={t("common.loading")} />
-			</div>
-		);
+		return <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 	}
 	return (
 		<InlineNotice

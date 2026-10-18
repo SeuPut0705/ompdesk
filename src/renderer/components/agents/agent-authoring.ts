@@ -7,7 +7,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ModelRolesResult, RpcAgentAuthoringInfo, RpcResponse, RpcSkillsResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
+import { useFocusedScope } from "../../lib/focused-scope";
 import { useT } from "../../lib/i18n";
+import { lastRead, rememberRead } from "../../lib/last-read";
 import { useTabRpc } from "../../lib/tab-rpc";
 
 export interface AgentRoleOption {
@@ -43,7 +45,12 @@ function dataOf<T>(response: RpcResponse): T {
 export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 	const rpc = useTabRpc();
 	const t = useT();
-	const [data, setData] = useState<AgentAuthoringData | null>(null);
+	const { device, cwd } = useFocusedScope();
+	const authoringKey = `agent-authoring:${cwd}`;
+	// The editor opens on the form: the last read of this project's roles, tools and skills is its first state.
+	const [data, setData] = useState<AgentAuthoringData | null>(
+		() => lastRead<AgentAuthoringData>(device, authoringKey) ?? null,
+	);
 	const [error, setError] = useState<InlineFailure | null>(null);
 	const [loading, setLoading] = useState(false);
 
@@ -74,19 +81,21 @@ export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 				const authoring = response.data as RpcAgentAuthoringInfo;
 				const builtin = new Set(authoring.builtinTools);
 				const extra = authoring.registeredTools.filter(tool => !builtin.has(tool)).sort();
-				setData({
+				const next: AgentAuthoringData = {
 					info: authoring,
 					tools: [...authoring.builtinTools, ...new Set(extra)],
 					roles: roles.map(role => ({ value: `@${role.id}`, name: role.name, model: role.model })),
 					skills: [...new Set(skills.filter(skill => !skill.hidden).map(skill => skill.name))].sort(),
-				});
+				};
+				setData(next);
+				rememberRead(device, authoringKey, next);
 			} catch (cause) {
 				if (isCurrent()) setError(inlineFailure(cause, t("agentStudio.editor.loadFailed")));
 			} finally {
 				if (isCurrent()) setLoading(false);
 			}
 		},
-		[rpc, t],
+		[rpc, t, device, authoringKey],
 	);
 
 	useEffect(() => {

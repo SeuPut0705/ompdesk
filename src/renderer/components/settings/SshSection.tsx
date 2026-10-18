@@ -24,7 +24,7 @@ import {
 	Input,
 	ListRow,
 	Select,
-	Spinner,
+	SkeletonRows,
 	SwitchField,
 	TextArea,
 } from "../common";
@@ -283,9 +283,7 @@ export function SshSection() {
 	return (
 		<SettingsSection actions={empty && !creating ? undefined : addButton}>
 			{loading && !data && !loadError ? (
-				<div className="flex justify-center py-16">
-					<Spinner />
-				</div>
+				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 			) : (
 				<div className="flex flex-col gap-3 py-3">
 					{data && (

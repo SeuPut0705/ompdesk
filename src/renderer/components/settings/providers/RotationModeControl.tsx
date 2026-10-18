@@ -136,7 +136,7 @@ export function RotationModeControl({ device }: { device?: string }) {
 						);
 					})}
 				</div>
-				{(saving || mode === null) && <Spinner size="sm" />}
+				{(saving || mode === null) && <Spinner size="sm" spin />}
 			</div>
 			{mode && <p className="text-sc-sm text-(--sc-text-secondary)">{t(DESCRIPTION_KEY[mode])}</p>}
 			<p className="text-sc-xs text-(--sc-text-muted)">

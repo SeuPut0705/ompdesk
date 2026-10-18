@@ -9,8 +9,10 @@ import { CheckCircle2, GitMerge, MessageSquare, Pencil, RefreshCw, XCircle } fro
 import { useCallback, useEffect, useId, useState } from "react";
 import type { RpcCommand, RpcPrComments, RpcPrDetail, RpcPrMergeMethod } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
+import { useFocusedScope } from "../../../lib/focused-scope";
 import { formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { lastRead, rememberRead } from "../../../lib/last-read";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { toast, toastError } from "../../../stores/toast";
@@ -23,7 +25,7 @@ import {
 	Input,
 	Modal,
 	Select,
-	Spinner,
+	Skeleton,
 	TextArea,
 } from "../../common";
 
@@ -221,12 +223,17 @@ const REVIEW_STATE_TONE: Record<string, BadgeVariant> = {
 /** Conversation and review form for the selected PR. */
 export function PrConversation({ detail }: { detail: RpcPrDetail }) {
 	const t = useT();
-	const [comments, setComments] = useState<RpcPrComments | null>(null);
+	const scope = useFocusedScope();
+	const { device } = scope;
+	const number = detail.number;
+	const commentsKey = `pr:comments:${scope.cwd}:${number}`;
+	const [comments, setComments] = useState<RpcPrComments | null>(
+		() => lastRead<RpcPrComments>(scope.device, commentsKey) ?? null,
+	);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState<string | null>(null);
-	const number = detail.number;
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -234,18 +241,20 @@ export function PrConversation({ detail }: { detail: RpcPrDetail }) {
 		try {
 			const response = await window.omp.rpc.command({ type: "pr_comments", number });
 			if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-			setComments(response.data as RpcPrComments);
+			const data = response.data as RpcPrComments;
+			setComments(data);
+			rememberRead(device, commentsKey, data);
 		} catch (cause) {
 			setError(errorDetail(cause));
 		} finally {
 			setLoading(false);
 		}
-	}, [number, t]);
+	}, [number, t, device, commentsKey]);
 
 	useEffect(() => {
-		setComments(null);
+		setComments(lastRead<RpcPrComments>(device, commentsKey) ?? null);
 		void load();
-	}, [load]);
+	}, [load, device, commentsKey]);
 
 	const submit = async (event: "comment" | "approve" | "request_changes") => {
 		setBusy(event);
@@ -281,7 +290,18 @@ export function PrConversation({ detail }: { detail: RpcPrDetail }) {
 			</div>
 			{error && <InlineNotice detail={error} live title={t("prCenter.review.loadFailed")} tone="danger" />}
 			{!comments && !error ? (
-				<Spinner label={t("prCenter.loading")} size="sm" />
+				<div aria-label={t("prCenter.loading")} className="flex flex-col gap-2" role="status">
+					{[0, 1].map(index => (
+						<div
+							aria-hidden
+							className="flex flex-col gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-3 py-2"
+							key={index}
+						>
+							<Skeleton className="h-3 w-32" />
+							<Skeleton className="h-3 w-[80%]" />
+						</div>
+					))}
+				</div>
 			) : comments && comments.entries.length === 0 ? (
 				<p className="text-sc-sm text-(--sc-text-muted)">{t("prCenter.review.none")}</p>
 			) : (

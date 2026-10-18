@@ -11,7 +11,7 @@ import { GITHUB_REPO_PATTERN, type GithubTarget } from "../../../../shared/githu
 import { useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
 import { focusedTabDevice } from "../../../stores/remote";
-import { Button, EmptyState, ErrorDetail, Input, Select, Spinner, Tabs } from "../../common";
+import { Button, EmptyState, ErrorDetail, Input, Select, Skeleton, SkeletonRows, Tabs } from "../../common";
 import { GithubSignIn } from "../../onboarding/GithubSignIn";
 import { GithubActions } from "./GithubActions";
 import { GithubIssues } from "./GithubIssues";
@@ -82,8 +82,13 @@ export function GithubCenter() {
 			);
 		}
 		return (
-			<div className="flex flex-1 items-center justify-center">
-				<Spinner label={t("github.probing")} />
+			<div aria-busy className="flex min-h-0 flex-1 flex-col">
+				<div className="shrink-0 border-b border-(--sc-divider) px-6 py-3 min-[1280px]:px-10">
+					<Skeleton className="h-7 w-72 rounded-(--sc-radius-md)" />
+				</div>
+				<div className="px-3 py-2">
+					<SkeletonRows label={t("github.probing")} widths={[58, 44, 66, 40, 52]} />
+				</div>
 			</div>
 		);
 	}

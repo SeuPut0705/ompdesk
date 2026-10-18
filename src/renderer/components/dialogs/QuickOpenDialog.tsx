@@ -14,7 +14,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { rankQuickOpen } from "../../lib/quick-open";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Button, InlineNotice, Kbd, Modal, SearchField, SkeletonRows } from "../common";
 
 /** Directory depth and file cap of the walk (a large repo lists its first files). */
 const LIST_DEPTH = 12;
@@ -176,7 +176,7 @@ export function QuickOpenDialog() {
 							tone="danger"
 						/>
 					) : listing.state === "loading" ? (
-						<Spinner className="w-full justify-center py-10" label={t("quickOpen.loading")} size="sm" />
+						<SkeletonRows className="py-2" label={t("quickOpen.loading")} widths={[60, 44, 70, 52]} />
 					) : listing.state === "no-folder" ? (
 						<p className="py-10 text-center text-sc-sm text-(--sc-text-muted)">{t("quickOpen.noFolder")}</p>
 					) : matches.length === 0 ? (

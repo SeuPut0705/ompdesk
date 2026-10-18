@@ -46,8 +46,6 @@ export interface AsyncSectionProps {
 	children: ReactNode;
 }
 
-const PLAIN_STATE_CLASS = "flex flex-col items-center justify-center gap-2.5 px-4 py-6 text-center";
-
 export function AsyncSection({
 	loading,
 	hasData = false,

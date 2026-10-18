@@ -28,7 +28,7 @@ import {
 	ProgressBar,
 	SearchField,
 	Select,
-	Spinner,
+	SkeletonRows,
 	Tabs,
 } from "../common";
 
@@ -375,11 +375,7 @@ export function ImportForeignDialog() {
 				<InlineNotice className="mb-2" detail={importError.cause} live title={importError.message} tone="danger" />
 			)}
 			<div className="max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-				{state?.loading && (
-					<div className="flex h-32 items-center justify-center text-(--sc-text-muted)">
-						<Spinner label={t("common.loading")} />
-					</div>
-				)}
+				{state?.loading && <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />}
 				{state?.error && (
 					<InlineNotice
 						className="px-4 py-6"

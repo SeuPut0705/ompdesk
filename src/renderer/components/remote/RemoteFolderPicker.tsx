@@ -17,7 +17,7 @@ import type { RemoteDirListing } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { settleRemoteDirectory, useHostView, useRemotePickerStore } from "../../stores/remote";
-import { Button, IconButton, InlineNotice, ListRow, Modal, SearchField, Spinner } from "../common";
+import { Button, IconButton, InlineNotice, ListRow, Modal, SearchField, SkeletonRows, Spinner } from "../common";
 
 /** Typing pause before the host is asked for the filtered level. */
 const FILTER_DELAY_MS = 150;
@@ -185,9 +185,7 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 					role="group"
 				>
 					{!listing && loading ? (
-						<div className="flex h-full items-center justify-center">
-							<Spinner />
-						</div>
+						<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 					) : listing && listing.entries.length === 0 ? (
 						<p className="px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">
 							{query ? t("remote.picker.noMatch", { query }) : t("remote.picker.empty")}

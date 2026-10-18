@@ -16,6 +16,7 @@ import {
 	loadHljs,
 	splitHighlightedLines,
 } from "../../../lib/highlight";
+import { Skeleton } from "../../common";
 
 /**
  * Rows of a long list inside `scroller`, mounted only near its viewport. A
@@ -107,6 +108,19 @@ export function highlightDiffLines(
 		}
 	}
 	return tokens;
+}
+
+const DIFF_SKELETON_WIDTHS = [90, 72, 84, 60, 78, 66, 88, 50] as const;
+
+/** A diff on its way: code lines as flat bars, so the rows land where they were. */
+export function DiffSkeleton({ label }: { label: string }) {
+	return (
+		<div aria-label={label} className="flex flex-col gap-2 p-3" role="status">
+			{DIFF_SKELETON_WIDTHS.map((width, index) => (
+				<Skeleton className="h-3" key={`${index}-${width}`} style={{ width: `${width}%` }} />
+			))}
+		</div>
+	);
 }
 
 /** The diff body: virtualized rows under `scroller` (the preview's scrolling ancestor). */

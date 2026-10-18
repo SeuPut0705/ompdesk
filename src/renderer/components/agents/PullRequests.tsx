@@ -7,15 +7,26 @@
  */
 
 import { CheckCircle2, Circle, GitPullRequest, GitPullRequestDraft, Plus, RefreshCw, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { RpcPrListItem } from "../../../shared/rpc-types";
+import { useFocusedScope } from "../../lib/focused-scope";
 import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { focusedTabDevice } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, MasterDetail, Spinner, Tabs } from "../common";
+import {
+	Banner,
+	Button,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	MasterDetail,
+	Skeleton,
+	SkeletonRows,
+	Tabs,
+} from "../common";
 import { GithubSignIn } from "../onboarding/GithubSignIn";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
@@ -97,9 +108,13 @@ export function PullRequests() {
 		}
 	};
 
-	useEffect(() => {
+	// Before the first paint: what this repository showed last time is the state at once, the probe reads again.
+	const scope = useFocusedScope();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `scope.id` names the host and folder; `scope` is rebuilt every render
+	useLayoutEffect(() => {
+		usePrCenterStore.getState().enter(scope);
 		void usePrCenterStore.getState().probe();
-	}, []);
+	}, [scope.id]);
 
 	const openProject = async () => {
 		try {
@@ -137,8 +152,11 @@ export function PullRequests() {
 			);
 		}
 		return (
-			<div className="flex flex-1 items-center justify-center">
-				<Spinner label={t("prCenter.probing")} />
+			<div aria-busy className="flex min-h-0 flex-1 flex-col">
+				<div className="shrink-0 border-b border-(--sc-divider) px-6 py-3 min-[1280px]:px-10">
+					<Skeleton className="h-7 w-80 rounded-(--sc-radius-md)" />
+				</div>
+				<SkeletonRows className="px-3 py-2" label={t("prCenter.probing")} widths={[70, 56, 64, 48, 60]} />
 			</div>
 		);
 	}
@@ -258,9 +276,7 @@ export function PullRequests() {
 								title={t("prCenter.loadFailed")}
 							/>
 						) : listLoading && list.length === 0 ? (
-							<div className="flex flex-1 items-center justify-center">
-								<Spinner label={t("prCenter.loading")} />
-							</div>
+							<SkeletonRows className="py-1" label={t("prCenter.loading")} widths={[72, 58, 66, 50, 62]} />
 						) : list.length === 0 ? (
 							<EmptyState
 								actions={

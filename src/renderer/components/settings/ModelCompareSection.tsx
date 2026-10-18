@@ -50,7 +50,7 @@ import {
 	ProgressBar,
 	SearchField,
 	Select,
-	Spinner,
+	SkeletonRows,
 	Switch,
 } from "../common";
 import { modelRoleName } from "./schema-i18n";
@@ -449,7 +449,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 	if (fatalError !== null && rows.length === 0) {
 		body = null; // the danger banner above says what failed and offers the retry
 	} else if (loading && rows.length === 0) {
-		body = <Spinner className="w-full justify-center py-12" label={t("common.loading")} />;
+		body = <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 	} else if (rows.length === 0) {
 		body = sidecarReady ? <EmptyState size="sm" title={t("modelCompare.emptyCatalog")} /> : null;
 	} else if (visibleRows.length === 0) {

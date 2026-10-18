@@ -10,7 +10,6 @@ import { memo, type ReactNode, type RefObject, useEffect, useState } from "react
 import { useT } from "../../lib/i18n";
 import { svgDataUrl } from "../../lib/svg-preview";
 import type { ResolvedTheme } from "../../lib/theme";
-import { Spinner } from "../common/Spinner";
 import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
 import { Figure, type FigureMode } from "./Figure";
 
@@ -291,20 +290,9 @@ export const MermaidBlock = memo(function MermaidBlock({
 		onModeChange,
 	};
 
-	// SSR / non-DOM path or a diagram mermaid rejects: the source, still in the box.
-	if (typeof window === "undefined" || current.failed) return <Figure {...common} preview={null} />;
-	if (svg === null) {
-		return (
-			<Figure
-				{...common}
-				preview={() => (
-					<div className="flex items-center justify-center px-3 py-6">
-						<Spinner size="md" label={t("chat.renderingDiagram")} />
-					</div>
-				)}
-			/>
-		);
-	}
+	// SSR / non-DOM path, a diagram mermaid rejects, or one still rendering: the source, still in the box (the
+	// diagram replaces it when it is ready; nothing spins over it).
+	if (typeof window === "undefined" || current.failed || svg === null) return <Figure {...common} preview={null} />;
 	return (
 		<Figure
 			{...common}

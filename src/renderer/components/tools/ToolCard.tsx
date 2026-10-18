@@ -69,7 +69,7 @@ export function ToolStatusIcon({
 		>
 			{state === "running" ? (
 				runningIndicator === "spinner" ? (
-					<Spinner size="sm" />
+					<Spinner size="sm" spin />
 				) : (
 					<span className="size-1.5 rounded-full bg-(--sc-text-muted)" />
 				)

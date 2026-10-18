@@ -71,7 +71,7 @@ export function Button({
 			disabled={disabled || loading}
 			{...rest}
 		>
-			{loading ? <Spinner inheritColor size="sm" /> : icon}
+			{loading ? <Spinner inheritColor size="sm" spin /> : icon}
 			{children}
 			{trailingIcon}
 		</button>

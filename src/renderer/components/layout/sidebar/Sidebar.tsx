@@ -1703,7 +1703,7 @@ export function Sidebar() {
 									{groupBusy && (
 										<span className="flex shrink-0 items-center">
 											<span aria-hidden className="inline-flex">
-												<Spinner size="sm" />
+												<Spinner size="sm" spin />
 											</span>
 											<span className="sr-only">, {t("sidebar.signal.running")}</span>
 										</span>

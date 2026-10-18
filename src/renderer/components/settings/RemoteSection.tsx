@@ -27,7 +27,18 @@ import { onEscape } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
-import { Badge, Banner, Button, ConfirmDialog, CopyButton, ErrorDetail, Input, ListRow, Spinner } from "../common";
+import {
+	Badge,
+	Banner,
+	Button,
+	ConfirmDialog,
+	CopyButton,
+	ErrorDetail,
+	Input,
+	ListRow,
+	SkeletonRows,
+	Spinner,
+} from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
@@ -250,9 +261,7 @@ export function RemoteSection() {
 				<ErrorDetail error={loadError} />
 			</Banner>
 		) : (
-			<div className="flex justify-center py-8">
-				<Spinner />
-			</div>
+			<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 		);
 	}
 

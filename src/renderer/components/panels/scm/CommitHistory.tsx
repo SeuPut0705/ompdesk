@@ -26,8 +26,10 @@ import {
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { RpcGitCommit, RpcGitCommitDetail, RpcGitDiff, RpcGitLog } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
+import { useFocusedScope } from "../../../lib/focused-scope";
 import { cx, formatAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { lastRead, rememberRead } from "../../../lib/last-read";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useUiStore } from "../../../stores/ui";
 import {
@@ -40,16 +42,18 @@ import {
 	InlineNotice,
 	MenuButton,
 	SearchField,
-	Spinner,
+	Skeleton,
 } from "../../common";
 import { ChangeCounts, PanelListRow, PanelToolbar } from "../PanelChrome";
 import { parseRepositoryDiff, STATUS_STYLE } from "../RepositoryChanges";
 import { FileIcon } from "../viewers/FileViewer";
-import { DiffLines, VirtualRows } from "./DiffLines";
+import { DiffLines, DiffSkeleton, VirtualRows } from "./DiffLines";
 import { NameDialog, type NameRequest } from "./NameDialog";
 import { useScmAction } from "./use-scm-action";
 
 const PAGE = 100;
+/** The history's first visit: two-line commit rows (`estimate`), bars of varied width. */
+const COMMIT_SKELETON_WIDTHS = [74, 58, 68, 46, 62, 54] as const;
 
 const COMMIT_STATUS: Record<string, string> = {
 	A: "added",
@@ -91,7 +95,9 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 	const [query, setQuery] = useState("");
 	const [applied, setApplied] = useState("");
 	const [refresh, setRefresh] = useState(0);
-	const [log, setLog] = useState<RpcGitLog | null>(null);
+	const { device, cwd } = useFocusedScope();
+	// What this checkout's history showed last time paints at the first frame and is read again in place.
+	const [log, setLog] = useState<RpcGitLog | null>(() => lastRead<RpcGitLog>(device, `scm:log:${cwd}`) ?? null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [selected, setSelected] = useState<string | null>(null);
@@ -130,7 +136,9 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-				setLog(response.data as RpcGitLog);
+				const data = response.data as RpcGitLog;
+				setLog(data);
+				if (applied === "") rememberRead(device, `scm:log:${cwd}`, data);
 			})
 			.catch(cause => {
 				if (active) setError(errorDetail(cause));
@@ -141,12 +149,13 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 		return () => {
 			active = false;
 		};
-	}, [rpc, applied, refresh, t]);
+	}, [rpc, applied, refresh, t, device, cwd]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh reloads the open commit too.
 	useEffect(() => {
 		let active = true;
-		setDetail(null);
+		const key = `scm:commit:${cwd}:${selected}`;
+		setDetail(selected ? (lastRead<RpcGitCommitDetail>(device, key) ?? null) : null);
 		setFile(null);
 		if (!selected) return;
 		void rpc
@@ -154,7 +163,9 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-				setDetail(response.data as RpcGitCommitDetail);
+				const data = response.data as RpcGitCommitDetail;
+				setDetail(data);
+				rememberRead(device, key, data, false);
 			})
 			.catch(cause => {
 				if (active) setError(errorDetail(cause));
@@ -162,18 +173,21 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 		return () => {
 			active = false;
 		};
-	}, [rpc, selected, refresh, t]);
+	}, [rpc, selected, refresh, t, device, cwd]);
 
 	useEffect(() => {
 		let active = true;
-		setDiff(null);
+		const key = `scm:cdiff:${cwd}:${selected}:${file}`;
+		setDiff(selected && file ? (lastRead<RpcGitDiff>(device, key) ?? null) : null);
 		if (!selected || !file) return;
 		void rpc
 			.command({ type: "git_commit_diff", sha: selected, path: file })
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-				setDiff(response.data as RpcGitDiff);
+				const data = response.data as RpcGitDiff;
+				setDiff(data);
+				rememberRead(device, key, data, false);
 			})
 			.catch(cause => {
 				if (active) setError(errorDetail(cause));
@@ -181,7 +195,7 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 		return () => {
 			active = false;
 		};
-	}, [rpc, selected, file, t]);
+	}, [rpc, selected, file, t, device, cwd]);
 
 	const loadMore = async () => {
 		if (!log) return;
@@ -408,7 +422,14 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 						/>
 					</div>
 					{loading && !log ? (
-						<Spinner className="px-2 py-2" label={t("common.loading")} size="sm" />
+						<div aria-label={t("common.loading")} className="flex flex-col" role="status">
+							{COMMIT_SKELETON_WIDTHS.map(width => (
+								<div aria-hidden className="flex h-11 flex-col justify-center gap-1.5 px-2.5" key={width}>
+									<Skeleton className="h-2.5 rounded-(--sc-radius-full)" style={{ width: `${width}%` }} />
+									<Skeleton className="h-2 w-1/3 rounded-(--sc-radius-full)" />
+								</div>
+							))}
+						</div>
 					) : log && log.commits.length === 0 ? (
 						<EmptyState
 							icon={<History />}
@@ -488,10 +509,18 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 						{file && <CopyButton disabled={!diff?.diff} label={t("diff.copy")} text={diff?.diff ?? ""} />}
 					</div>
 					{!detail ? (
-						!error && <Spinner className="p-3" label={t("common.loading")} size="sm" />
+						!error && (
+							<div aria-label={t("common.loading")} className="flex flex-col gap-3 p-3" role="status">
+								<Skeleton className="h-3 w-2/3" />
+								<Skeleton className="h-2.5 w-1/3" />
+								{[0, 1, 2, 3].map(index => (
+									<Skeleton className="h-6 w-full" key={index} />
+								))}
+							</div>
+						)
 					) : file ? (
 						!diff ? (
-							!error && <Spinner className="p-3" label={t("common.loading")} size="sm" />
+							!error && <DiffSkeleton label={t("common.loading")} />
 						) : diff.kind === "text" ? (
 							<>
 								<DiffLines lines={lines} path={file} scroller={diffScroller} />

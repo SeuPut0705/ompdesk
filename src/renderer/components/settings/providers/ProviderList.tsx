@@ -17,7 +17,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
-import { Badge, Button, EmptyState, IconButton, ListRow, SearchField, Spinner } from "../../common";
+import { Badge, Button, EmptyState, IconButton, ListRow, SearchField, SkeletonRows, Spinner } from "../../common";
 import { type ProviderLogin, ProviderLoginPanel } from "./ProviderLogin";
 import { groupProviders } from "./provider-catalog";
 
@@ -257,7 +257,7 @@ export function ProviderRow({
 			}
 			meta={
 				busy ? (
-					<Spinner size="sm" />
+					<Spinner size="sm" spin />
 				) : provider.disabled ? (
 					<Badge variant="warning">{t("providers.badge.disabled")}</Badge>
 				) : connected ? (
@@ -405,9 +405,7 @@ export function ProviderList({
 				value={query}
 			/>
 			{loading && providers.length === 0 ? (
-				<div className="flex justify-center py-8">
-					<Spinner label={t("providerList.loading")} />
-				</div>
+				<SkeletonRows className="py-2" label={t("providerList.loading")} widths={[60, 44, 70, 52]} />
 			) : empty ? (
 				<EmptyState
 					actions={

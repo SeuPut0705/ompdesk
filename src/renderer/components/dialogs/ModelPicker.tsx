@@ -32,7 +32,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
@@ -364,9 +364,7 @@ export function ModelPicker() {
 							</Button>
 						</div>
 					) : loading ? (
-						<div className="flex justify-center py-6">
-							<Spinner label={t("modelPicker.loading")} size="sm" />
-						</div>
+						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : availableModels.length === 0 ? (
 						<div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
 							<span className="text-sc-sm text-(--sc-text-secondary)">{t("modelPicker.empty")}</span>
@@ -499,7 +497,7 @@ export function ModelPicker() {
 														<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
 													</span>
 												)}
-												{switching === key && <Spinner size="sm" />}
+												{switching === key && <Spinner size="sm" spin />}
 												{isCurrent && (
 													<Check
 														aria-label={t("modelPicker.current")}

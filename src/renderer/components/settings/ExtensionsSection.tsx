@@ -50,6 +50,7 @@ import {
 	ErrorDetail,
 	IconButton,
 	SettingInfo,
+	SkeletonRows,
 	Spinner,
 	type TabItem,
 	Tabs,
@@ -331,11 +332,7 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 	let body: ReactNode = null;
 	if (!loaded) {
 		if (rpc.loading) {
-			body = (
-				<div className="flex justify-center py-10">
-					<Spinner label={t("common.loading")} />
-				</div>
-			);
+			body = <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 		} else if (rpc.error) {
 			body = (
 				<Banner actions={retry} title={t("extPanel.loadFailed")} variant="danger">
@@ -433,7 +430,7 @@ function HooksTab({ rpc, query }: { rpc: LazyRpc<RpcHookInfo[]>; query: string }
 										</span>
 									}
 									disabled={mutation.busyKey !== null || !rpc.ready}
-									extra={busy ? <Spinner size="sm" /> : undefined}
+									extra={busy ? <Spinner size="sm" spin /> : undefined}
 									key={hook.id}
 									label={<span className="font-mono">{hook.name}</span>}
 									onCheckedChange={next =>
@@ -507,7 +504,7 @@ function ContextFilesTab({ rpc, query }: { rpc: LazyRpc<RpcContextFileInfo[]>; q
 										</span>
 									}
 									disabled={mutation.busyKey !== null || !rpc.ready}
-									extra={mutation.busyKey === file.id ? <Spinner size="sm" /> : undefined}
+									extra={mutation.busyKey === file.id ? <Spinner size="sm" spin /> : undefined}
 									key={file.id}
 									label={<span className="font-mono">{file.name}</span>}
 									onCheckedChange={next =>

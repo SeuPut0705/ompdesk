@@ -75,7 +75,7 @@ export function IconButton({
 			type={type ?? "button"}
 			{...rest}
 		>
-			{loading ? <Spinner inheritColor size="sm" /> : icon}
+			{loading ? <Spinner inheritColor size="sm" spin /> : icon}
 		</button>
 	);
 	if (!tooltip) return button;

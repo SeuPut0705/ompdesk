@@ -36,7 +36,7 @@ import {
 	MenuButton,
 	Select,
 	Sheet,
-	Spinner,
+	Skeleton,
 	SwitchField,
 	Tabs,
 	TextArea,
@@ -150,8 +150,14 @@ export function AgentEditorSheet({ target, definitions, onClose, onSaved }: Agen
 						<ErrorDetail error={authoring.error.cause} />
 					</Banner>
 				) : (
-					<div className="flex justify-center py-12">
-						<Spinner label={t("common.loading")} />
+					<div aria-label={t("common.loading")} className="flex flex-col gap-5 py-2" role="status">
+						{[0, 1, 2].map(index => (
+							<div aria-hidden className="flex flex-col gap-2" key={index}>
+								<Skeleton className="h-3 w-24" />
+								<Skeleton className="h-9 w-full rounded-(--sc-radius-md)" />
+							</div>
+						))}
+						<Skeleton className="h-40 w-full rounded-(--sc-radius-md)" />
 					</div>
 				))}
 		</Sheet>

@@ -69,7 +69,7 @@ function StatusIcon({ tone }: { tone: StatusTone }) {
 	if (tone === "busy")
 		return (
 			<span aria-hidden className="inline-flex">
-				<Spinner size="sm" />
+				<Spinner size="sm" spin />
 			</span>
 		);
 	if (tone === "pending")

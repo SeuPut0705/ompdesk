@@ -29,7 +29,7 @@ import {
 	Input,
 	ListRow,
 	Select,
-	Spinner,
+	SkeletonRows,
 	Switch,
 	TextArea,
 } from "../common";
@@ -266,11 +266,7 @@ export function SkillsTab({ query }: { query: string }) {
 			</div>
 		);
 	} else if (loading && skills.length === 0) {
-		listBody = (
-			<div className="flex h-full items-center justify-center py-8">
-				<Spinner label={t("common.loading")} size="sm" />
-			</div>
-		);
+		listBody = <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 	} else if (visible.length === 0) {
 		listBody = (
 			<EmptyState
@@ -433,9 +429,7 @@ export function SkillsTab({ query }: { query: string }) {
 						{t("settings.skills.preview")}
 					</h4>
 					{detailLoading ? (
-						<div className="flex justify-center py-12">
-							<Spinner label={t("common.loading")} size="sm" />
-						</div>
+						<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 					) : detailError ? (
 						<Banner
 							actions={

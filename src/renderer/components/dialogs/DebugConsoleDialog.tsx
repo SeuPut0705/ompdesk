@@ -40,7 +40,7 @@ import { useT } from "../../lib/i18n";
 import { asNumber, asRecord, asString } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, type BadgeVariant, Button, InlineNotice, Modal, Spinner, TextArea } from "../common";
+import { Badge, type BadgeVariant, Button, InlineNotice, Modal, SkeletonRows, Spinner, TextArea } from "../common";
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -640,9 +640,7 @@ export function DebugConsoleDialog() {
 								tone="danger"
 							/>
 						) : (
-							<div className="flex items-center justify-center rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6">
-								<Spinner size="sm" label={t("common.loading")} />
-							</div>
+							<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 						)
 					) : sessions.length === 0 ? (
 						<div className="flex flex-col items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6 text-center">
