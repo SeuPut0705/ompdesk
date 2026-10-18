@@ -743,6 +743,8 @@ export class WebServer {
 		const protocols = (singleHeader(req.headers["sec-websocket-protocol"]) ?? "").split(",").map(part => part.trim());
 		const ticketToken = protocols.find(part => part.startsWith("ticket."))?.slice("ticket.".length);
 		if (!protocols.includes(WS_PROTOCOL) || !ticketToken) return deny(400);
+		// The page's previous connection (ws-router.ts `attach`): it may continue without loading its state again.
+		const resumeFrom = protocols.find(part => part.startsWith("resume."))?.slice("resume.".length) || undefined;
 
 		const { policy, devices, router } = this.#deps;
 		const cookie = deviceCookieValue(req.headers, policy.secure);
@@ -754,6 +756,7 @@ export class WebServer {
 		}
 
 		const deviceId = auth.device.deviceId;
+		if (resumeFrom) router.retire(deviceId, resumeFrom);
 		if (router.connectionCount(deviceId) >= 4) return deny(429);
 
 		this.#wss.handleUpgrade(req, socket, head, ws => {
@@ -766,7 +769,7 @@ export class WebServer {
 					return ws.bufferedAmount;
 				},
 			};
-			const connection = router.attach(deviceId, adapter);
+			const connection = router.attach(deviceId, adapter, resumeFrom);
 			if (!connection) {
 				ws.close(1013, "too many connections");
 				return;

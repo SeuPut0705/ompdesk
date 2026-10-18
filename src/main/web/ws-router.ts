@@ -50,6 +50,9 @@ export const HEARTBEAT_MS = 20_000;
 export const HEARTBEAT_MAX_MISSES = 3;
 /** A socket this far behind on what it was sent is closed rather than fed more. */
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+/** How long an ended connection can be resumed by the page that held it (`resume.<connId>`). */
+export const RESUME_WINDOW_MS = 10 * 60_000;
+const RESUME_ENTRIES_MAX = 64;
 
 export const CLOSE_GOING_AWAY = 1001;
 export const CLOSE_POLICY = 1008;
@@ -321,12 +324,24 @@ function isCommandWithType(command: unknown): command is Parameters<typeof comma
 	return typeof command === "object" && command !== null && "type" in command && typeof command.type === "string";
 }
 
+/** A connection that ended: whether its page had everything it was sent, and the device's push count then. */
+interface EndedConnection {
+	deviceId: string;
+	pushes: number;
+	clean: boolean;
+	at: number;
+}
+
 export class WsRouter {
 	readonly #deps: WsRouterDeps;
 	readonly #connections = new Map<string, Set<WsConnection>>();
 	readonly #heavy = new ConcurrencyLimiter(HEAVY_CALLS_PER_DEVICE);
 	/** The device that last sent each tab a model command: it is charged that tab's tokens. */
 	readonly #drivers = new Map<string, string>();
+	/** Pushes made to each device's window so far, connected or not. */
+	readonly #pushes = new Map<string, number>();
+	/** Recently ended connections by `connId`, for a page that reconnects with `resume.<connId>`. */
+	readonly #ended = new Map<string, EndedConnection>();
 	readonly now: () => number;
 	readonly timers: Timers;
 
@@ -358,8 +373,22 @@ export class WsRouter {
 		return false;
 	}
 
-	/** Start serving a socket the server accepted for `deviceId`; null when the device already has its four. */
-	attach(deviceId: string, socket: RouterSocket): WsConnection | null {
+	/**
+	 * The page that held `connId` is back on a new socket: an old connection of the device still open (the
+	 * server had not noticed the drop yet) ends now, so it is judged as of this moment and frees its slot.
+	 */
+	retire(deviceId: string, connId: string): void {
+		for (const connection of this.#connections.get(deviceId) ?? []) {
+			if (connection.connId === connId) connection.close(CLOSE_GOING_AWAY, "resumed");
+		}
+	}
+
+	/**
+	 * Start serving a socket the server accepted for `deviceId`; null when the device already has its four.
+	 * `resumeFrom` is the page's previous `connId`: the hello says `resumed` when that connection ended with
+	 * every event it was sent acknowledged and nothing dropped, and no push reached the device since.
+	 */
+	attach(deviceId: string, socket: RouterSocket, resumeFrom?: string): WsConnection | null {
 		if (this.connectionCount(deviceId) >= MAX_CONNECTIONS_PER_DEVICE) return null;
 		const connection = new WsConnection(this, deviceId, socket);
 		let set = this.#connections.get(deviceId);
@@ -369,8 +398,20 @@ export class WsRouter {
 		}
 		set.add(connection);
 		this.#deps.onConnectionsChanged?.(deviceId);
-		connection.start();
+		connection.start(resumeFrom !== undefined && this.#resumable(deviceId, resumeFrom));
 		return connection;
+	}
+
+	#resumable(deviceId: string, connId: string): boolean {
+		const ended = this.#ended.get(connId);
+		this.#ended.delete(connId);
+		return (
+			ended !== undefined &&
+			ended.deviceId === deviceId &&
+			ended.clean &&
+			ended.pushes === (this.#pushes.get(deviceId) ?? 0) &&
+			this.now() - ended.at <= RESUME_WINDOW_MS
+		);
 	}
 
 	/** Called by a connection that ended. */
@@ -378,6 +419,16 @@ export class WsRouter {
 		const set = this.#connections.get(connection.deviceId);
 		if (!set?.delete(connection)) return;
 		if (set.size === 0) this.#connections.delete(connection.deviceId);
+		const now = this.now();
+		for (const [connId, ended] of this.#ended) {
+			if (now - ended.at > RESUME_WINDOW_MS || this.#ended.size >= RESUME_ENTRIES_MAX) this.#ended.delete(connId);
+		}
+		this.#ended.set(connection.connId, {
+			deviceId: connection.deviceId,
+			pushes: this.#pushes.get(connection.deviceId) ?? 0,
+			clean: connection.clean,
+			at: now,
+		});
 		this.#deps.onConnectionsChanged?.(connection.deviceId);
 	}
 
@@ -386,6 +437,7 @@ export class WsRouter {
 		this.#recordTokens(deviceId, channel, payload);
 		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as IpcChannel] : undefined;
 		if (policy?.dir !== "push" || policy.mode === "client" || Object.hasOwn(DESKTOP_ONLY_PUSH, channel)) return;
+		this.#pushes.set(deviceId, (this.#pushes.get(deviceId) ?? 0) + 1);
 		const data = channel === IPC_EVENTS.REMOTE_STATE ? withoutPairingCode(payload) : payload;
 		for (const connection of this.#connections.get(deviceId) ?? []) connection.push(channel, data);
 	}
@@ -422,6 +474,10 @@ export class WsConnection {
 	#cancelFlush: (() => void) | null = null;
 	#stopHeartbeat: (() => void) | null = null;
 	#seq = 0;
+	/** The last event `seq` the page acknowledged. */
+	#acked = 0;
+	/** A stream push was dropped while the page was hidden: it must load its state again. */
+	#missed = false;
 	#visible = true;
 	#closed = false;
 	#misses = 0;
@@ -437,9 +493,14 @@ export class WsConnection {
 		this.#lastTick = router.now();
 	}
 
-	start(): void {
-		this.#sendHello(false);
+	start(resumed: boolean): void {
+		this.#sendHello(resumed);
 		this.#stopHeartbeat = this.#router.timers.every(() => this.#tick(), HEARTBEAT_MS);
+	}
+
+	/** The page had every event this connection was sent: none queued, none dropped, all acknowledged. */
+	get clean(): boolean {
+		return !this.#missed && this.#queue.length === 0 && this.#acked >= this.#seq;
 	}
 
 	/** One text frame from the page. */
@@ -475,6 +536,8 @@ export class WsConnection {
 				this.#setVisible(frame.visible);
 				return;
 			case "ack":
+				if (frame.seq <= this.#seq) this.#acked = Math.max(this.#acked, frame.seq);
+				return;
 			case "pong":
 				return;
 		}
@@ -482,7 +545,11 @@ export class WsConnection {
 
 	/** A pushed event for this socket; queued, merged and sent within a batch window. */
 	push(channel: string, data: unknown): void {
-		if (this.#closed || (!this.#visible && STREAM_CHANNELS.has(channel))) return;
+		if (this.#closed) return;
+		if (!this.#visible && STREAM_CHANNELS.has(channel)) {
+			this.#missed = true;
+			return;
+		}
 		this.#queue.push({ ch: channel, d: data });
 		if (this.#cancelFlush) return;
 		this.#cancelFlush = this.#router.timers.after(() => this.flush(), EVENT_BATCH_MS);
@@ -520,8 +587,9 @@ export class WsConnection {
 		this.#stopHeartbeat?.();
 		this.#cancelFlush = null;
 		this.#stopHeartbeat = null;
-		this.#queue = [];
+		// Detached first: the router judges whether the page had everything (`clean`) with the queue still here.
 		this.#router.detach(this);
+		this.#queue = [];
 	}
 
 	#write(frame: WebServerFrame): void {
@@ -553,10 +621,15 @@ export class WsConnection {
 		if (visible === this.#visible) return;
 		this.#visible = visible;
 		if (!visible) {
-			this.#queue = this.#queue.filter(item => !STREAM_CHANNELS.has(item.ch));
+			const kept = this.#queue.filter(item => !STREAM_CHANNELS.has(item.ch));
+			if (kept.length < this.#queue.length) this.#missed = true;
+			this.#queue = kept;
 			return;
 		}
+		// Nothing streamed while hidden: the page's state is whole, and what is queued goes out as usual.
+		if (!this.#missed) return;
 		// Whatever streamed while hidden was dropped: the page reloads its state, as after a reconnect.
+		this.#missed = false;
 		this.#queue = [];
 		this.#sendHello(false);
 	}

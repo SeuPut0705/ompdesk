@@ -26,6 +26,7 @@ import {
 	MAX_FRAME_BYTES,
 	MESSAGE_BURST,
 	mergeMessageUpdates,
+	RESUME_WINDOW_MS,
 	type RouterSocket,
 	type Timers,
 	type WebChannelTable,
@@ -635,6 +636,19 @@ describe("presence", () => {
 		expect(r.socket.frames("evt")).toEqual([]);
 	});
 
+	it("comes back without a hello when nothing streamed while hidden, and sends what queued meanwhile", () => {
+		const r = rig();
+		const win = r.windows.windowFor("dev1");
+		const hellos = r.socket.frames("hello").length;
+		r.frame({ t: "presence", visible: false });
+		r.frame({ t: "presence", visible: true });
+		win.webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a", status: "idle" });
+		r.frame({ t: "presence", visible: false });
+		r.frame({ t: "presence", visible: true });
+		r.timers.flush();
+		expect(r.socket.frames("hello")).toHaveLength(hellos);
+		expect(r.socket.frames("evt").map(frame => frame.ch)).toEqual([IPC_EVENTS.TAB_STATUS]);
+	});
 	it("tells whether any socket of a device has its page in the foreground (what keeps Web Push quiet)", () => {
 		const r = rig();
 		expect(r.router.isDeviceVisible("dev1")).toBe(true);
@@ -651,6 +665,66 @@ describe("presence", () => {
 		r.connection.dispose();
 		second?.dispose();
 		expect(r.router.isDeviceVisible("dev1")).toBe(false);
+	});
+});
+
+describe("resume", () => {
+	/** A page reconnects on a new socket, offering `resumeFrom` (its last connection's id); the hello it gets. */
+	function reconnect(router: WsRouter, resumeFrom: string) {
+		const socket = new FakeSocket();
+		router.attach("dev1", socket, resumeFrom);
+		return socket.frames("hello")[0];
+	}
+
+	it("resumes a connection whose page acknowledged every event when no push came since", () => {
+		const r = rig();
+		r.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
+		r.timers.flush();
+		r.frame({ t: "ack", seq: r.socket.frames("evt").at(-1)?.seq ?? 0 });
+		r.connection.dispose();
+		expect(reconnect(r.router, r.connection.connId)).toMatchObject({ resumed: true });
+		// The id is good once.
+		expect(reconnect(r.router, r.connection.connId)).toMatchObject({ resumed: false });
+	});
+
+	it("does not resume a page that missed an event: unacknowledged, still queued, pushed since, or dropped hidden", () => {
+		const unacked = rig();
+		unacked.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
+		unacked.timers.flush();
+		unacked.connection.dispose();
+		expect(reconnect(unacked.router, unacked.connection.connId)).toMatchObject({ resumed: false });
+
+		const queued = rig();
+		queued.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
+		queued.connection.dispose();
+		expect(reconnect(queued.router, queued.connection.connId)).toMatchObject({ resumed: false });
+
+		const later = rig();
+		later.connection.dispose();
+		later.windows.windowFor("dev1").webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a" });
+		expect(reconnect(later.router, later.connection.connId)).toMatchObject({ resumed: false });
+
+		const hidden = rig();
+		hidden.frame({ t: "presence", visible: false });
+		hidden.windows.windowFor("dev1").webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [text("x")] });
+		hidden.connection.dispose();
+		expect(reconnect(hidden.router, hidden.connection.connId)).toMatchObject({ resumed: false });
+
+		const expired = rig();
+		expired.connection.dispose();
+		expired.clock.now += RESUME_WINDOW_MS + 1;
+		expect(reconnect(expired.router, expired.connection.connId)).toMatchObject({ resumed: false });
+
+		const stranger = rig();
+		expect(reconnect(stranger.router, "not-a-connection")).toMatchObject({ resumed: false });
+	});
+
+	it("retires the page's old connection the server had not seen drop, judging it as of then", () => {
+		const r = rig();
+		r.router.retire("dev1", r.connection.connId);
+		expect(r.socket.closed?.code).toBe(1001);
+		expect(r.router.connectionCount("dev1")).toBe(0);
+		expect(reconnect(r.router, r.connection.connId)).toMatchObject({ resumed: true });
 	});
 });
 

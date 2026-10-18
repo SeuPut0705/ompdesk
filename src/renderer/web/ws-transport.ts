@@ -6,12 +6,14 @@
  *   subprotocols, the host's `hello` first. A host whose `minClient` is newer than this page's protocol makes
  *   the page reload (a stale cached bundle); a 4401 close or a refused ticket means the device is unpaired.
  * - Reconnect: a dropped socket retries after 0.5 s doubling to 8 s with jitter; a page coming back from sleep
- *   (`wake()`: visible, online, pageshow) retries at once. The host keeps a disconnected device's window parked,
- *   so every reconnect that follows an earlier connection is a resync: events were missed, and the page loads its
- *   state again (`onResync`).
+ *   (`wake()`: visible, online, pageshow) retries at once. The host keeps a disconnected device's window parked.
+ *   A reconnect offers the last connection's id (`resume.<connId>`); the host's `hello` says `resumed` when that
+ *   connection ended with every event acknowledged and no push reached the device since, and the page carries on.
+ *   Otherwise events were missed (or a call the drop failed is unanswered) and the page loads its state again
+ *   (`onResync`). A host that dropped stream pushes while the page was hidden sends `hello` again on its return.
  * - Liveness: the host pings every 20 s; the page declares the link dead only after three silent intervals, and a
  *   tick that fires late (the phone slept) counts for nothing.
- * - Acks: the last event `seq` applied goes back, coalesced, so the host can pace and trim.
+ * - Acks: the last event `seq` applied goes back, coalesced; the host resumes only a connection fully acknowledged.
  * - Calls made while the link is down wait for it (up to `connectWaitMs`); calls in flight when it drops fail.
  */
 import type { OmpTransport } from "../../shared/omp-api";
@@ -134,6 +136,10 @@ export class WsTransport implements OmpTransport {
 	/** Frames received on this page so far; the wake probe compares it before and after. */
 	#inbound = 0;
 	#features: WebFeatures | null = null;
+	/** The last connection's id: a reconnect offers it (`resume.<connId>`) so the host can continue it. */
+	#connId: string | null = null;
+	/** A call failed when the last link dropped: the page loads its state again even if the host resumes. */
+	#lostCalls = false;
 
 	constructor(options: WsTransportOptions) {
 		this.#options = options;
@@ -267,7 +273,9 @@ export class WsTransport implements OmpTransport {
 		try {
 			const ticket = await this.#options.fetchTicket();
 			if (!this.#started) return;
-			const socket = this.#options.createSocket(this.#options.url, ["ompdesk.v1", `ticket.${ticket}`]);
+			const protocols = ["ompdesk.v1", `ticket.${ticket}`];
+			if (this.#everConnected && this.#connId) protocols.push(`resume.${this.#connId}`);
+			const socket = this.#options.createSocket(this.#options.url, protocols);
 			this.#socket = socket;
 			socket.onmessage = event => {
 				if (this.#socket === socket) this.#receive(event.data);
@@ -338,7 +346,12 @@ export class WsTransport implements OmpTransport {
 			return;
 		}
 		const reconnected = this.#everConnected;
+		// The host resumes a connection only when this page had every event; a call the drop failed still
+		// left something unanswered, so the page loads its state again then.
+		const resync = reconnected && (!frame.resumed || this.#lostCalls);
+		this.#lostCalls = false;
 		this.#everConnected = true;
+		this.#connId = frame.connId;
 		this.#ready = true;
 		this.#attempt = 0;
 		this.#features = frame.features;
@@ -355,7 +368,7 @@ export class WsTransport implements OmpTransport {
 			this.#clearTimer(entry.timer);
 			entry.run();
 		}
-		if (reconnected && !frame.resumed) this.#options.onResync?.();
+		if (resync) this.#options.onResync?.();
 	}
 
 	#event(seq: number, channel: string, data: unknown): void {
@@ -426,6 +439,7 @@ export class WsTransport implements OmpTransport {
 		this.#clearTimer(this.#heartbeatTimer);
 		this.#clearTimer(this.#ackTimer);
 		this.#helloTimer = this.#heartbeatTimer = this.#ackTimer = null;
+		if (this.#pending.size > 0) this.#lostCalls = true;
 		for (const pending of this.#pending.values()) pending.reject(new Error("The link to the computer dropped"));
 		this.#pending.clear();
 		if (code === CLOSE_REVOKED) {

@@ -265,6 +265,34 @@ describe("WsTransport", () => {
 		expect(log.resync).toBe(1);
 	});
 
+	it("offers the last connection's id on a reconnect, and resyncs a resumed link that failed a call", async () => {
+		const { transport, clock, last, log } = setup();
+		transport.start();
+		await settle();
+		expect(last().protocols).toEqual(["ompdesk.v1", "ticket.t1"]);
+		last().serve(HELLO());
+		last().drop();
+		clock.advance(600);
+		await settle();
+		expect(last().protocols).toEqual(["ompdesk.v1", "ticket.t2", "resume.c1"]);
+		last().serve(HELLO(true));
+		expect(log.resync).toBe(0);
+		// A call in flight when the link drops is lost: the host's resume cannot answer it.
+		const call = transport.invoke("tabs:list").catch((error: Error) => error.message);
+		last().drop();
+		expect(await call).toBe("The link to the computer dropped");
+		clock.advance(600);
+		await settle();
+		last().serve(HELLO(true));
+		expect(log.resync).toBe(1);
+		// The next clean resume needs nothing again.
+		last().drop();
+		clock.advance(600);
+		await settle();
+		last().serve(HELLO(true));
+		expect(log.resync).toBe(1);
+	});
+
 	it("fails calls in flight when the link drops, and sends later ones after the reconnect", async () => {
 		const { transport, clock, last } = setup();
 		transport.start();
