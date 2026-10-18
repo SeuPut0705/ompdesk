@@ -39,7 +39,7 @@ const AI_MEMORY_KEYS = { darwin: "darwin-arm64", win32: "win32-x64" };
 
 /**
  * Fail the package unless the platform's ai-memory binary is in the packed app's
- * Resources (`ai-memory-bin/`, from `bun run sync:ai-memory`), executable on macOS,
+ * Resources (`ai-memory-bin/`, from `bun run sync:ai-memory`), executable on macOS (checked on a POSIX host only),
  * and byte-identical to the pin's `binarySha256` (this runs before signing).
  */
 async function checkAiMemory(context) {
@@ -60,7 +60,9 @@ async function checkAiMemory(context) {
 	} catch {
 		throw new Error(`${file} is missing; run \`bun run sync:ai-memory\` before packaging`);
 	}
-	if (platform === "darwin" && ((await fs.stat(file)).mode & 0o111) === 0)
+	// The execute bit exists only on a POSIX file system; a Windows host cannot express it (every file reads as 0o666),
+	// so the mode is tested only where it means something. The pinned hash below is checked everywhere.
+	if (platform === "darwin" && process.platform !== "win32" && ((await fs.stat(file)).mode & 0o111) === 0)
 		throw new Error(`${file} is not executable`);
 	const actual = crypto.createHash("sha256").update(bytes).digest("hex");
 	if (actual !== entry.binarySha256) {

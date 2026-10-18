@@ -456,7 +456,8 @@ describe("mac bundle configs", () => {
 					await expect(run(), `${platform} with other bytes`).rejects.toThrow(
 						/hashes to [0-9a-f]{64}; the pin .* expects/,
 					);
-					if (platform === "darwin") {
+					// The execute bit exists only on a POSIX file system (after-pack.cjs checks it there only).
+					if (platform === "darwin" && process.platform !== "win32") {
 						await fakeAiMemory(directory, platform, FAKE_AI_MEMORY, 0o644);
 						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
 					}

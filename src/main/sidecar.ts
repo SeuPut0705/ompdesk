@@ -338,6 +338,20 @@ function loadLaunchProfileFlags(read: (() => unknown) | undefined, cwd: string):
  */
 export type SidecarStartGate = (bridge: BridgeClient, cwd: string) => Promise<string | null>;
 
+/**
+ * Stop an omp. SIGTERM where signals exist. Windows has none: `kill` is TerminateProcess of the direct child only, and
+ * omp starts through a `.cmd` or `.exe` shim whose real omp would be left running, so the whole tree goes (`taskkill
+ * /T /F`, as the setup supervisor does).
+ */
+function terminate(child: ChildProcess): void {
+	if (process.platform === "win32" && child.pid !== undefined) {
+		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+		killer.once("error", () => child.kill());
+		return;
+	}
+	child.kill("SIGTERM");
+}
+
 export class SidecarManager extends EventEmitter {
 	#child: ChildProcess | null = null;
 	#rpcClient: RpcClient | null = null;
@@ -488,7 +502,7 @@ export class SidecarManager extends EventEmitter {
 		const superseded = this.#child;
 		if (superseded) {
 			this.#cleanup();
-			superseded.kill("SIGTERM");
+			terminate(superseded);
 		}
 		const runtime = this.#runtime;
 		if (!runtime) return;
@@ -1188,7 +1202,7 @@ export class SidecarManager extends EventEmitter {
 		}
 		const child = this.#child;
 		this.#cleanup();
-		child?.kill("SIGTERM");
+		if (child) terminate(child);
 	}
 
 	dispose(): void {
@@ -1202,7 +1216,7 @@ export class SidecarManager extends EventEmitter {
 			this.#restartTimer = null;
 			this.#cleanup();
 			child.stdin.end();
-			const timer = setTimeout(() => child.kill("SIGTERM"), grace);
+			const timer = setTimeout(() => terminate(child), grace);
 			child.once("exit", () => clearTimeout(timer));
 		} else this.kill();
 		this.removeAllListeners();

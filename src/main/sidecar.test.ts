@@ -1050,14 +1050,20 @@ describe("SidecarManager", () => {
 	}, 15_000);
 
 	describe("dispose with a grace period (stock omp emits session_shutdown only when stdin ends)", () => {
-		/** A fake omp that logs `stdin-end` and `sigterm` lines; `exitOnEnd` is whether closing stdin ends it. */
+		/**
+		 * A fake omp that logs `stdin-end` and `sigterm` lines and records its pid; `exitOnEnd` is whether closing stdin
+		 * ends it. Windows has no signals (a stop is a tree kill that runs no handler), so there the proof of a stop is the
+		 * pid being gone.
+		 */
 		async function gracefulOmp(exitOnEnd: boolean) {
 			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-grace-"));
 			const logPath = path.join(tempDir, "signals.log");
+			const pidPath = path.join(tempDir, "pid");
 			const binaryPath = await writeFakeOmp(
 				tempDir,
 				[
 					'import * as fs from "node:fs";',
+					`fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
 					`process.on("SIGTERM", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "sigterm\\n"); process.exit(0); });`,
 					`process.stdin.on("end", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "stdin-end\\n"); if (${exitOnEnd}) process.exit(0); });`,
 					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
@@ -1070,7 +1076,21 @@ describe("SidecarManager", () => {
 					text => text.split("\n").filter(Boolean),
 					() => [] as string[],
 				);
-			return { tempDir, binaryPath, read };
+			const pid = async () => Number(await fs.readFile(pidPath, "utf8"));
+			const running = async () => {
+				try {
+					process.kill(await pid(), 0);
+					return true;
+				} catch {
+					return false;
+				}
+			};
+			/** The omp was stopped: its SIGTERM handler ran (POSIX), or the process is gone (Windows). */
+			const stopped = async (before: string[]) =>
+				process.platform === "win32"
+					? expect(await running()).toBe(false)
+					: expect(await read()).toEqual([...before, "sigterm"]);
+			return { tempDir, binaryPath, read, stopped };
 		}
 
 		it("closes stdin first and sends no SIGTERM to an omp that shuts down by itself", async () => {
@@ -1089,9 +1109,9 @@ describe("SidecarManager", () => {
 			}
 		});
 
-		it("sends SIGTERM only after the grace period to an omp that ignores the closed stdin", async () => {
-			const { tempDir, binaryPath, read } = await gracefulOmp(false);
-			// A real, short grace period: the escalation is a timer in front of a real child's signal handler.
+		it("stops an omp that ignores the closed stdin only after the grace period", async () => {
+			const { tempDir, binaryPath, read, stopped } = await gracefulOmp(false);
+			// A real, short grace period: the escalation is a timer in front of a real child's stop.
 			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, gracefulStopMs: () => 400 });
 			try {
 				const ready = waitForReady(sidecar);
@@ -1099,23 +1119,24 @@ describe("SidecarManager", () => {
 				await ready;
 				const disposedAt = Date.now();
 				sidecar.dispose();
-				await vi.waitFor(async () => expect(await read()).toEqual(["stdin-end", "sigterm"]));
+				await vi.waitFor(async () => expect(await read()).toContain("stdin-end"));
+				await vi.waitFor(async () => stopped(["stdin-end"]), { timeout: 10_000 });
 				expect(Date.now() - disposedAt).toBeGreaterThanOrEqual(350);
 			} finally {
 				await fs.rm(tempDir, RM_TEMP);
 			}
 		});
 
-		it("sends SIGTERM at once when the grace period is 0 or absent", async () => {
+		it("stops the omp at once when the grace period is 0 or absent", async () => {
 			for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
-				const { tempDir, binaryPath, read } = await gracefulOmp(false);
+				const { tempDir, binaryPath, stopped } = await gracefulOmp(false);
 				const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
 				try {
 					const ready = waitForReady(sidecar);
 					sidecar.start();
 					await ready;
 					sidecar.dispose();
-					await vi.waitFor(async () => expect(await read()).toEqual(["sigterm"]));
+					await vi.waitFor(async () => stopped([]), { timeout: 10_000 });
 				} finally {
 					await fs.rm(tempDir, RM_TEMP);
 				}
