@@ -4289,6 +4289,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.desktopSlot": "Screen turns between sessions",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
+	"bridgeHealth.feature.pstack": "pstack engineering mode",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",

@@ -4269,6 +4269,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.desktopSlot": "세션 간 화면 사용 차례",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "휴대폰 사진(HEIC) 모델용 변환",
+	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",

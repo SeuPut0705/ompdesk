@@ -19,6 +19,7 @@
     "sync:rea-skill": "bun scripts/sync-rea-skill.ts",
     "sync:ai-memory": "bun scripts/sync-ai-memory.ts",
     "bump:ai-memory": "bun scripts/bump-ai-memory.ts",
+    "sync:pstack": "bun scripts/sync-pstack.ts",
     "gen:licenses": "bun scripts/generate-third-party-notices.ts",
     "licenses:check": "bun scripts/generate-third-party-notices.ts --check",
     "check": "node scripts/lint-surfaces.mjs && biome check . && tsc --noEmit",

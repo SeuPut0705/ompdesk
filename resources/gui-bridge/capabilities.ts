@@ -66,6 +66,7 @@ export const FEATURES = {
 	autopilot: "Autopilot (guarded, unattended Goal loop)",
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
+	pstack: "pstack engineering mode (always-on playbook section)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -337,6 +338,11 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
+	/** modes/pstack.ts: the always-on pstack section reads the main session's plan mode and tool set. */
+	pstack: {
+		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
+		session: ["getPlanModeState()", "getActiveToolNames()", "sessionManager.getBranch()"],
+	},
 	/** modes/user-profile.ts: the same public hook as the reply language. */
 	userProfile: {},
 	/** modes/visuals.ts: stock's Visuals prompt section, rendered with the tui.renderMermaid / tui.renderSvg settings. */
