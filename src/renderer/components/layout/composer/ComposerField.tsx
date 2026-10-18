@@ -5,7 +5,7 @@
  * (use-composer-field.ts `placeDraft`) are only mirrored.
  */
 import type { ClipboardEvent, KeyboardEvent, RefObject } from "react";
-import { useId } from "react";
+import { useId, useLayoutEffect } from "react";
 import type { InlineCompletion } from "../../../hooks/use-inline-completion";
 import type { NextPromptView } from "../../../hooks/use-next-prompt";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
@@ -14,6 +14,7 @@ import { useT } from "../../../lib/i18n";
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { Kbd } from "../../common";
 import { DictationOverlay } from "./DictationOverlay";
+import { FIELD_SIZING_SUPPORTED } from "./field-height";
 import type { ComposerDictation } from "./use-composer-dictation";
 
 export function ComposerField({
@@ -64,6 +65,15 @@ export function ComposerField({
 	const t = useT();
 	const suggestionHintId = useId();
 	const menuOpen = activeOption !== undefined;
+	const sized = FIELD_SIZING_SUPPORTED && !expanded;
+	// The field is uncontrolled: React 19 re-syncs a controlled textarea's `defaultValue` (its text node) on every
+	// keystroke, which cut the browser's undo into one character per Cmd/Ctrl+Z (DI-1). The draft store is the
+	// source of truth; the field takes the draft only when it differs (a tab switch, a restored or sent draft).
+	// Typing and the composer's own native edits (placeDraft) already left the field equal to the draft.
+	useLayoutEffect(() => {
+		const el = textareaRef.current;
+		if (el && el.value !== text) el.value = text;
+	}, [text, textareaRef]);
 	return (
 		<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 			<textarea
@@ -78,7 +88,9 @@ export function ComposerField({
 				autoCorrect={monospace ? "off" : "on"}
 				spellCheck={!monospace}
 				enterKeyHint={enterKeyHint}
-				value={text}
+				role={menuOpen ? "combobox" : undefined}
+				aria-expanded={menuOpen ? true : undefined}
+				aria-haspopup={menuOpen ? "listbox" : undefined}
 				onChange={event => {
 					const value = event.target.value;
 					// The composer's own write (placeDraft): only mirror it.
@@ -134,10 +146,11 @@ export function ComposerField({
 				onSelect={inline.syncCaret}
 				onPaste={onPaste}
 				rows={expanded ? undefined : 2}
+				data-sizing={sized ? "content" : undefined}
 				placeholder={placeholder}
 				className={cx(
 					"omp-composer-input w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
-					expanded ? "min-h-0 flex-1" : "max-h-[40vh] min-h-6",
+					expanded ? "min-h-0 flex-1" : sized ? "min-h-6" : "max-h-[40vh] min-h-6",
 					monospace && "font-mono",
 					suggestionHint && "pr-24",
 				)}

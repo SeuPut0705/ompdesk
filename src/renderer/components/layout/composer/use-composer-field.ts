@@ -4,7 +4,7 @@
  */
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { continueList } from "../../../lib/list-continue";
-import { fitFieldHeight } from "./field-height";
+import { FIELD_SIZING_SUPPORTED, fitFieldHeight, observeFieldCeiling } from "./field-height";
 import { editFieldText } from "./input-area-utils";
 
 /** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
@@ -117,6 +117,11 @@ export function useComposerField({
 		});
 		observer.observe(el);
 		return () => observer.disconnect();
+	}, [expanded]);
+
+	useEffect(() => {
+		const el = textareaRef.current;
+		if (el && FIELD_SIZING_SUPPORTED && !expanded) return observeFieldCeiling(el);
 	}, [expanded]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the field's height follows its text (read from the element)

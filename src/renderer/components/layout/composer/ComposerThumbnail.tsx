@@ -21,6 +21,11 @@ function sizeLabel(base64: string): string {
 		: `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+/** "PNG · 1.2 MB": what a thumbnail's tooltip says before the picture's dimensions. */
+export function imageSummary(mimeType: string, base64: string): string {
+	return `${formatName(mimeType)} · ${sizeLabel(base64)}`;
+}
+
 export function ComposerThumbnail({
 	mimeType,
 	data,
@@ -34,6 +39,8 @@ export function ComposerThumbnail({
 				className="flex size-14 flex-col items-center justify-center gap-0.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-2) text-center text-sc-xs text-(--sc-text-muted)"
 				data-composer-photo-chip=""
 				role="img"
+				data-strip-stop=""
+				tabIndex={0}
 				aria-label={t("input.attachmentPhoto", { format: formatName(mimeType) })}
 			>
 				<ImageIcon aria-hidden className="size-4" />

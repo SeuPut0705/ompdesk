@@ -94,7 +94,9 @@ function findTextarea(): TestElement {
 }
 
 function chipButtons(): TestElement[] {
-	return Array.from(document.querySelectorAll("[data-next-chip]")) as unknown as TestElement[];
+	return Array.from(
+		document.querySelectorAll(".omp-next-chips:not([data-away]) [data-next-chip]"),
+	) as unknown as TestElement[];
 }
 
 const placeholder = () => findTextarea().getAttribute("placeholder");

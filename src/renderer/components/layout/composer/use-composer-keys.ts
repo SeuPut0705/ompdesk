@@ -10,17 +10,19 @@ import type { InlineCompletion } from "../../../hooks/use-inline-completion";
 import { composerEnterNewline, noteHardwareKey } from "../../../lib/hardware-keyboard";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { chordFromEvent, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
-import { dropReferencedPastes } from "../../../lib/paste-blobs";
+import { dropReferencedPastes, releasePaste, widenToPasteMarkers } from "../../../lib/paste-blobs";
 import type { TabRpc } from "../../../lib/tab-rpc";
 import type { ComposerImage } from "../../../stores/composer";
 import { useUiStore } from "../../../stores/ui";
+import { listboxTarget } from "./listbox-nav";
 import { chipIndexForCode, type NextPromptChipsHandle } from "./NextPromptChips";
+import { plannedDeletion } from "./paste-marker-edit";
+import { lastAttachmentStop } from "./strip-roving";
+import { arrowKeepsMenu } from "./use-completion-menu";
 import type { ComposerHistory } from "./use-composer-history";
 import type { ComposerMenu } from "./use-composer-menu";
 import type { ComposerPaste } from "./use-composer-paste";
 
-/** Rows PageUp/PageDown move through the completion menu. */
-const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
 const MODIFIER_KEYS = ["Shift", "Control", "Alt", "Meta", "CapsLock"];
@@ -52,6 +54,7 @@ export function useComposerKeys({
 	toggleHistorySearch,
 	runActive,
 	touchInput,
+	attachmentsRef,
 	enterSends,
 	queueEdit,
 	send,
@@ -88,6 +91,8 @@ export function useComposerKeys({
 	send: (overrideText?: string, forceMode?: "followUp") => boolean;
 	/** A touch input (phone, tablet): without a physical keyboard plain Enter adds a line and only Send sends. */
 	touchInput: boolean;
+	/** The element holding the attachment strips: Backspace in an empty field focuses its last attachment. */
+	attachmentsRef: RefObject<HTMLElement | null>;
 	/** The "Enter sends on mobile" setting: a touch device's Enter sends like the desktop's. */
 	enterSends: boolean;
 	/** A queued message is being edited in the field: Esc cancels the edit (`cancel`), ↑ does not recall history. Null when none is. */
@@ -148,6 +153,39 @@ export function useComposerKeys({
 				e.preventDefault();
 			return;
 		}
+		// A folded paste's marker is one unit: a delete that touches any part of it takes the whole marker, as one
+		// edit (Cmd/Ctrl+Z puts it back with its paste), so no half marker is left to be sent as text (DI-3).
+		if (e.key === "Backspace" || e.key === "Delete") {
+			const el = textareaRef.current;
+			const range = el && plannedDeletion(el.value, el.selectionStart, el.selectionEnd, e);
+			const widened = el && range && widenToPasteMarkers(el.value, range.from, range.to);
+			if (el && widened) {
+				e.preventDefault();
+				for (const id of widened.ids) releasePaste(id);
+				placeDraft(`${el.value.slice(0, widened.from)}${el.value.slice(widened.to)}`, widened.from);
+				return;
+			}
+			// Backspace in an empty field reaches for the last attachment (the strips are above the field): the
+			// way to them from a physical keyboard, and Delete there removes it (DI-9). A soft keyboard's
+			// Backspace on an empty field must keep the keyboard up.
+			if (
+				el &&
+				!enterNewline &&
+				e.key === "Backspace" &&
+				el.value === "" &&
+				!e.shiftKey &&
+				!e.altKey &&
+				!e.ctrlKey &&
+				!e.metaKey
+			) {
+				const last = lastAttachmentStop(attachmentsRef.current);
+				if (last) {
+					e.preventDefault();
+					last.focus();
+					return;
+				}
+			}
+		}
 		// Ghost text: Tab takes it, Esc hides it (and only then keeps Esc's other meanings off);
 		// any other key drops it and aborts the request (typing restarts the debounce).
 		const plainKey = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -185,37 +223,26 @@ export function useComposerKeys({
 			return;
 		}
 		if (menu && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-			menuHandle.dismiss();
+			// An arrow that stays inside the token keeps the menu (it is derived again for the new caret);
+			// one that steps out of it, or extends a selection, closes it.
+			const el = textareaRef.current;
+			const stays =
+				plainKey &&
+				el &&
+				el.selectionStart === el.selectionEnd &&
+				arrowKeepsMenu(el.value, menu, e.key, el.selectionStart);
+			if (!stays) menuHandle.dismiss();
 			return;
 		}
 		// The menu takes plain keys only: Shift+Enter still adds a line, ⌘↵ still sends, Shift+Tab
 		// and Shift+arrows keep their own meaning.
 		if (menu && plainKey) {
-			const count = menu.items.length;
-			// Home/End jump to the ends, PageUp/PageDown move a page; the caret stays put.
-			const paged =
-				e.key === "Home"
-					? 0
-					: e.key === "End"
-						? count - 1
-						: e.key === "PageUp"
-							? Math.max(0, menu.index - MENU_PAGE)
-							: e.key === "PageDown"
-								? Math.min(count - 1, menu.index + MENU_PAGE)
-								: undefined;
-			if (paged !== undefined) {
+			// ↑/↓ (wrapping), Home/End and PageUp/PageDown are the history search's keys too (listbox-nav.ts);
+			// the caret stays put.
+			const target = listboxTarget(e.key, menu.index, menu.items.length);
+			if (target !== null) {
 				e.preventDefault();
-				setMenu({ ...menu, index: Math.max(0, paged) });
-				return;
-			}
-			if (e.key === "ArrowDown") {
-				e.preventDefault();
-				setMenu({ ...menu, index: (menu.index + 1) % Math.max(1, count) });
-				return;
-			}
-			if (e.key === "ArrowUp") {
-				e.preventDefault();
-				setMenu({ ...menu, index: (menu.index - 1 + Math.max(1, count)) % Math.max(1, count) });
+				setMenu({ ...menu, index: target });
 				return;
 			}
 			if (e.key === "Tab" || e.key === "Enter") {

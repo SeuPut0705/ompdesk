@@ -22,7 +22,7 @@ import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
-import { CompletionList } from "./CompletionList";
+import { CompletionList, CompletionStatus } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
@@ -115,6 +115,7 @@ export function InputArea() {
 		dismiss: dismissMenu,
 		insert: insertCompletion,
 		argHint,
+		empty: menuEmpty,
 	} = useComposerMenu({ text, textareaRef, placeDraft, commands, emojiAutocomplete, cwd, routeReady, runtimeTabId });
 	const sending = useComposerStore(state => state.sending);
 	const setSending = useComposerStore(state => state.setSending);
@@ -146,13 +147,25 @@ export function InputArea() {
 
 	/** False once the composer unmounted: uploads, dictation and the $EDITOR round trip check it before writing. */
 	const mountedRef = useRef(true);
-	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
-		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
+	const regionRef = useRef<HTMLDivElement>(null);
+	const attachmentsRef = useRef<HTMLDivElement>(null);
+	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive } = useComposerAttach({
+		cwd,
+		historyDevice,
+		runtimeTabId,
+		mountedRef,
+		insertAtCaret,
+		setImages,
+		textareaRef,
+		regionRef,
+	});
 	const paste = useComposerPaste({ text, textareaRef, placeDraft, attachFiles, runtimeTabId });
 	const pasteMenu = paste.pending;
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
-	const chipsShown = chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
+	/** The suggestion row's place is kept while a draft is typed (its chips hide): the transcript never resizes on a keystroke. */
+	const chipRow = chipList.length > 0 && status === "ready" && !isStreaming;
+	const chipsShown = chipRow && text === "" && !menu && !pasteMenu;
 	const pickChip = useCallback(
 		(chip: string) => {
 			textareaRef.current?.focus();
@@ -309,6 +322,7 @@ export function InputArea() {
 		toggleHistorySearch: () => setHistorySearchOpen(open => !open),
 		runActive: isStreaming || submitPending || manualMaintenance,
 		touchInput,
+		attachmentsRef,
 		enterSends,
 		queueEdit: queueEdit.editing ? { cancel: cancelQueueEdit } : null,
 		send,
@@ -371,6 +385,7 @@ export function InputArea() {
 
 	return (
 		<div
+			ref={regionRef}
 			className={cx(
 				"omp-composer-region relative shrink-0 bg-transparent pb-3",
 				expanded && "omp-composer-region--expanded",
@@ -396,7 +411,15 @@ export function InputArea() {
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
-					{menu && <CompletionList menu={menu} menuId={menuId} onPick={insertCompletion} />}
+					{menu && (
+						<CompletionList
+							menu={menu}
+							menuId={menuId}
+							onHover={index => setMenu({ ...menu, index })}
+							onPick={insertCompletion}
+						/>
+					)}
+					<CompletionStatus count={menu?.items.length ?? 0} empty={menuEmpty} />
 
 					<ComposerPickers
 						closeHistory={() => setHistorySearchOpen(false)}
@@ -410,8 +433,9 @@ export function InputArea() {
 						skillsOpen={skillPickerOpen}
 						textareaRef={textareaRef}
 					/>
-					{chipsShown && (
+					{chipRow && (
 						<NextPromptChips
+							away={!chipsShown}
 							chips={chipList}
 							handleRef={chipsRef}
 							onPick={pickChip}
@@ -428,7 +452,6 @@ export function InputArea() {
 						data-composer-mode={composerMode?.mode}
 						data-composer-draft={text !== "" || undefined}
 						data-drag-active={dragActive || undefined}
-						{...dropProps}
 					>
 						<ComposerLiveEdge />
 						{dragActive && (
@@ -464,6 +487,8 @@ export function InputArea() {
 							setText={setText}
 							text={text}
 							textareaRef={textareaRef}
+							containerRef={attachmentsRef}
+							touch={touchInput}
 						/>
 						<ComposerField
 							activeOption={menu?.index}

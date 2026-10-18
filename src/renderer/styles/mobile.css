@@ -992,6 +992,32 @@ html[data-input="touch"] .omp-next-chips[data-touch] .omp-next-chip-send {
 	color: var(--sc-accent-fg);
 }
 
+/* Attached pictures on touch: ONE row of 56 px thumbnails that scrolls sideways (never wrapping: twenty pictures were
+   a 266 px strip), with the count and Remove all at its end. The 12 px of padding above holds the 28 px remove discs'
+   overhang; their 44 px reach is cut to the thumbnails' 10 px gap (an overflow container clips it anyway). */
+html[data-input="touch"] .omp-attach-strip[data-touch] {
+	flex-wrap: nowrap;
+	max-height: none;
+	padding-right: 12px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 12px;
+}
+
+html[data-input="touch"] .omp-attach-strip[data-touch]::-webkit-scrollbar {
+	display: none;
+}
+
+/* The folded-paste and file chips sit 6 px apart in rows of 28 px: their reach stops at the neighbours. */
+html[data-input="touch"] .omp-attach-row {
+	--hit-gap-x: 6px;
+	--hit-gap-y: 12px;
+}
+
 html[data-shell] [data-dock-card] > div:first-child {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;

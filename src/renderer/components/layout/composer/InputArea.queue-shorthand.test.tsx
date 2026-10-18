@@ -1153,7 +1153,7 @@ describe("InputArea expanded composer", () => {
 		const blob = storePaste("one\ntwo");
 		await typeInto(findTextarea(), `see ${pasteMarkerText(blob.id, blob.content)} please`);
 		const chip = document.querySelector(`[data-paste-chip="${blob.id}"]`) as unknown as TestElement | null;
-		expect(chip?.textContent).toBe(`Paste #${blob.id} · 2 lines`);
+		expect(chip?.textContent).toBe(`Paste #${blob.id} · 7 chars`);
 		await click(chip as TestElement);
 		const editor = document.querySelector('[role="dialog"] textarea') as unknown as TestElement | null;
 		if (!editor) throw new Error("paste editor missing");
@@ -1175,6 +1175,14 @@ describe("InputArea file intake", () => {
 		return record[key] as T;
 	}
 
+	/** A drop on the composer box: the session pane (here the composer's region) listens for it natively. */
+	function dropFiles(files: File[], items?: unknown[]): void {
+		const box = document.querySelector(".omp-composer-box");
+		const event = new Event("drop", { bubbles: true, cancelable: true });
+		Object.assign(event, { dataTransfer: { types: ["Files"], files, items } });
+		box?.dispatchEvent(event);
+	}
+
 	async function mountWithPaths(paths: Record<string, string>): Promise<void> {
 		await mount();
 		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = (file: File) => paths[file.name] ?? "";
@@ -1186,14 +1194,14 @@ describe("InputArea file intake", () => {
 			"deck.pptx": "/Users/me/My Deck.pptx",
 			src: "/tmp/src",
 		});
-		const box = document.querySelector(".omp-composer-box");
-		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
 		const files = [
 			new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" }),
 			new File([new Uint8Array([80, 75, 3, 4])], "deck.pptx"),
 			new File([], "src"),
 		];
-		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files }, preventDefault: () => {} }));
+		// A folder reaches the page as a zero-byte file; the drop's own entries say it is one.
+		const entries = files.map((_, index) => ({ webkitGetAsEntry: () => ({ isDirectory: index === 2 }) }));
+		await act(async () => dropFiles(files, entries));
 		await flush();
 		expect(useComposerStore.getState().draft).toBe('@docs/spec.pdf @"/Users/me/My Deck.pptx" @src ');
 	});
@@ -1234,10 +1242,8 @@ describe("InputArea file intake", () => {
 		await mount();
 		const upload = Promise.withResolvers<string>();
 		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () => upload.promise;
-		const box = document.querySelector(".omp-composer-box");
-		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
 		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
-		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files: [pdf] }, preventDefault: () => {} }));
+		await act(async () => dropFiles([pdf]));
 		await flush();
 		const chips = () => Array.from(document.querySelectorAll("[data-upload-chip]")).map(chip => chip.textContent);
 		expect(chips()).toEqual([translate("input.files.sending", { name: "report.pdf" })]);
@@ -1251,10 +1257,8 @@ describe("InputArea file intake", () => {
 		await mount();
 		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () =>
 			Promise.reject(new Error("Couldn't send report.pdf to your computer."));
-		const box = document.querySelector(".omp-composer-box");
-		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
 		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "report.pdf", { type: "application/pdf" });
-		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files: [pdf] }, preventDefault: () => {} }));
+		await act(async () => dropFiles([pdf]));
 		await flush();
 		expect(useToastStore.getState().toasts.map(item => [item.variant, item.message])).toEqual([
 			["error", "Couldn't send report.pdf to your computer."],
@@ -2142,10 +2146,10 @@ describe("InputArea composer audit", () => {
 		// Typing opens it again.
 		await typeDraft("/ret");
 		expect(options()).toContain("/retry");
+		// ← that stays inside the token keeps the menu open (DI-20): only an arrow that steps out closes it.
 		await pressKey({ key: "ArrowLeft" });
 		await caretMoved(3);
-		await caretMoved(4);
-		expect(options()).toEqual([]);
+		expect(options()).toContain("/retry");
 	});
 
 	it("M3: Backspace from `->` + newline leaves `->`; only typing adds the newline", async () => {
@@ -2350,5 +2354,185 @@ describe("InputArea composer audit", () => {
 		} finally {
 			uninstallFakeMic();
 		}
+	});
+});
+
+describe("InputArea paste markers are one unit (DI-3)", () => {
+	const content = Array.from({ length: 12 }, (_, line) => `line ${line + 1}`).join("\n");
+	const chips = () => document.querySelectorAll("[data-paste-chip]");
+	function caretAt(position: number): void {
+		(findTextarea() as unknown as { setSelectionRange(a: number, b: number): void }).setSelectionRange(
+			position,
+			position,
+		);
+	}
+
+	it("Backspace right after a marker deletes the whole marker and its chip", async () => {
+		await mount();
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		await typeInto(findTextarea(), `see ${marker} now`);
+		expect(chips()).toHaveLength(1);
+		caretAt(4 + marker.length);
+		const key = await pressKey({ key: "Backspace" });
+		expect(key.defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("see  now");
+		expect(chips()).toHaveLength(0);
+	});
+
+	it("Delete at a marker's start, and a word delete that reaches into it, take it whole", async () => {
+		await mount();
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		await typeInto(findTextarea(), `see ${marker} now`);
+		caretAt(4);
+		expect((await pressKey({ key: "Delete" })).defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("see  now");
+
+		const again = storePaste(content);
+		const second = pasteMarkerText(again.id, content);
+		await typeInto(findTextarea(), `see ${second}`);
+		caretAt(4 + second.length);
+		// ⌥⌫ (⌃⌫ elsewhere) removes a word: the last word of a marker is the marker.
+		const word = await pressKey({ key: "Backspace", altKey: true, ctrlKey: true });
+		expect(word.defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("see ");
+	});
+
+	it("leaves a delete that touches no marker to the browser", async () => {
+		await mount();
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		await typeInto(findTextarea(), `see ${marker} now`);
+		caretAt(4);
+		expect((await pressKey({ key: "Backspace" })).defaultPrevented).toBe(false);
+		caretAt(4 + marker.length);
+		expect((await pressKey({ key: "Delete" })).defaultPrevented).toBe(false);
+		expect(useComposerStore.getState().draft).toBe(`see ${marker} now`);
+	});
+
+	it("refuses to send what an edit left of a marker, and says so", async () => {
+		await mount();
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		const fragment = marker.slice(0, -1);
+		await typeInto(findTextarea(), `look at ${fragment}`);
+		await pressKey({ key: "Enter" });
+		await flush();
+		expect(steer).not.toHaveBeenCalled();
+		expect(useComposerStore.getState().draft).toBe(`look at ${fragment}`);
+		expect(useToastStore.getState().toasts.map(item => item.message)).toEqual([
+			translate("input.paste.dangling", { fragment }),
+		]);
+	});
+
+	it("the chip's × removes the marker and its paste; 'as text' unfolds it", async () => {
+		await mount();
+		const first = storePaste(content);
+		const second = storePaste(`${content}\nmore`);
+		const markers = `${pasteMarkerText(first.id, first.content)} and ${pasteMarkerText(second.id, second.content)}`;
+		await typeInto(findTextarea(), markers);
+		expect(chips()).toHaveLength(2);
+		const asText = document.querySelector(
+			`button[aria-label="${translate("input.paste.asText", { id: second.id })}"]`,
+		) as unknown as TestElement;
+		await click(asText);
+		expect(useComposerStore.getState().draft).toBe(
+			`${pasteMarkerText(first.id, first.content)} and ${second.content}`,
+		);
+		const remove = document.querySelector(
+			`button[aria-label="${translate("input.paste.remove", { id: first.id })}"]`,
+		) as unknown as TestElement;
+		await click(remove);
+		expect(useComposerStore.getState().draft).toBe(`and ${second.content}`);
+		expect(chips()).toHaveLength(0);
+	});
+});
+
+describe("InputArea attachments (DI-9, DI-14, DI-15, DI-18)", () => {
+	const png = (data: string) => ({
+		content: { type: "image" as const, data, mimeType: "image/png" },
+		preview: `data:image/png;base64,${data}`,
+	});
+
+	it("counts the pictures against the limit and warns past it without blocking", async () => {
+		await mount();
+		await act(async () => useComposerStore.getState().setImages([png("AA=="), png("AQ==")]));
+		const count = () => document.querySelector("[data-attachment-count]");
+		expect(count()?.getAttribute("data-attachment-count")).toBe("ok");
+		expect(count()?.textContent).toBe(translate("input.attachments.count", { count: 2, max: 20 }));
+		await act(async () =>
+			useComposerStore.getState().setImages(Array.from({ length: 21 }, (_, index) => png(`AA${index}`))),
+		);
+		expect(count()?.getAttribute("data-attachment-count")).toBe("over");
+		expect(count()?.getAttribute("role")).toBe("status");
+	});
+
+	it("Remove all empties the picture strip", async () => {
+		await mount();
+		await act(async () => useComposerStore.getState().setImages([png("AA=="), png("AQ==")]));
+		const all = Array.from(document.querySelectorAll("ul[aria-label] button")).find(
+			button => button.textContent === translate("input.attachments.removeAll"),
+		) as unknown as TestElement;
+		await click(all);
+		expect(useComposerStore.getState().images).toEqual([]);
+	});
+
+	it("a drop anywhere on the pane attaches, and a non-file drag over it is refused outright", async () => {
+		await mount();
+		// Remount inside a session pane that also holds a transcript: the composer listens on the pane.
+		await act(async () => root.unmount());
+		const pane = container as unknown as Element;
+		pane.className = "omp-session-pane";
+		root = createRoot(pane);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<InputArea />
+				</I18nProvider>,
+			),
+		);
+		// A sibling of the composer, as the transcript is (React renders into the pane and leaves it alone).
+		const transcript = document.createElement("div") as unknown as Element;
+		pane.prepend(transcript);
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = () => "/tmp/notes.md";
+		const file = new File(["alpha"], "notes.md");
+		const fire = (type: string, target: Element, dataTransfer: object) => {
+			const event = new Event(type, { bubbles: true, cancelable: true });
+			Object.assign(event, { dataTransfer });
+			target.dispatchEvent(event);
+			return event;
+		};
+		const refused: Record<string, unknown> = { types: ["text/plain"], dropEffect: "copy" };
+		expect(fire("dragover", transcript, refused).defaultPrevented).toBe(true);
+		expect(refused.dropEffect).toBe("none");
+		await act(async () => void fire("drop", transcript, { types: ["Files"], files: [file] }));
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("@notes.md ");
+	});
+
+	it("refuses an empty file that has a path, and does not mention the same file twice", async () => {
+		await mount();
+		const pathFor: Record<string, string> = { "notes.md": "/tmp/notes.md", "empty.txt": "/tmp/empty.txt" };
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = (file: File) => pathFor[file.name] ?? "";
+		const box = document.querySelector(".omp-composer-box");
+		const drop = (files: File[]) => {
+			const event = new Event("drop", { bubbles: true, cancelable: true });
+			Object.assign(event, { dataTransfer: { types: ["Files"], files } });
+			box?.dispatchEvent(event);
+		};
+		const notes = () => new File(["alpha"], "notes.md");
+		await act(async () => drop([notes(), notes(), new File([], "empty.txt")]));
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("@notes.md ");
+		expect(useToastStore.getState().toasts.map(item => item.message)).toContain(
+			translate("input.files.empty", { name: "empty.txt" }),
+		);
+		await act(async () => drop([notes()]));
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("@notes.md ");
+		expect(useToastStore.getState().toasts.map(item => item.message)).toContain(
+			translate("input.files.duplicates", { count: 1 }),
+		);
 	});
 });

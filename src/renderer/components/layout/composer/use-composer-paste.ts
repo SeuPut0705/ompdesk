@@ -1,6 +1,7 @@
 /**
  * Pasting into the composer: clipboard files attach, text past the marker size folds into a `[Paste #N]` marker,
- * and text past the paste-menu threshold first offers the large-paste choice (PasteMenu).
+ * and text past the paste-menu threshold first offers the large-paste choice (PasteMenu). The menu's four actions
+ * are reachable from the keyboard while the field keeps the caret, and a click elsewhere keeps the paste.
  */
 import type { ClipboardEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,7 +9,9 @@ import { useDisplayPreference } from "../../../lib/display-preferences";
 import { useT } from "../../../lib/i18n";
 import {
 	isMarkerSized,
+	type PasteBlob,
 	pasteMarkerText,
+	releasePaste,
 	shouldOfferPasteMenu,
 	storePaste,
 	wrapPasteInAttachmentBlock,
@@ -16,7 +19,7 @@ import {
 import { useTabRpc } from "../../../lib/tab-rpc";
 import type { SessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
-import { toastError } from "../../../stores/toast";
+import { toast, toastError } from "../../../stores/toast";
 
 /** A large paste waiting for its form: the paste already happened, the menu only picks how it goes in. */
 export interface PendingPaste {
@@ -24,11 +27,20 @@ export interface PendingPaste {
 	lineCount: number;
 }
 
+/** The menu's actions in order: inline, wrapped block, saved file, cancel. */
+export const PASTE_ACTIONS = 4;
+
 export interface ComposerPaste {
 	/** The pending large-paste choice, or null. */
 	pending: PendingPaste | null;
-	/** The menu's root: a pointer down outside it cancels the choice. */
+	/** The menu's root: a pointer down outside it keeps the paste (inline). */
 	menuRef: RefObject<HTMLDivElement | null>;
+	/** The action the keyboard is on (0 inline, 1 wrapped, 2 file, 3 cancel). */
+	active: number;
+	/** Move the keyboard's action by `by` (wraps). */
+	moveActive: (by: number) => void;
+	/** Run the action the keyboard is on. */
+	activate: () => void;
 	/** Drop the pending choice (nothing goes in). */
 	cancel: () => void;
 	chooseInline: () => void;
@@ -56,28 +68,24 @@ export function useComposerPaste({
 	/** Agent `paste.largeMenuThreshold` setting: line count that triggers the paste menu. */
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	const [pending, setPending] = useState<PendingPaste | null>(null);
+	const [active, setActive] = useState(0);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const cancel = useCallback(() => setPending(null), []);
-
-	// A large-paste choice stays reversible until the user explicitly chooses a
-	// representation. Outside click cancels it instead of silently inserting
-	// the default form.
+	const moveActive = useCallback(
+		(by: number) => setActive(current => (current + by + PASTE_ACTIONS) % PASTE_ACTIONS),
+		[],
+	);
+	// A fresh choice starts on its first action.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new pending paste resets the action
 	useEffect(() => {
-		if (!pending) return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target;
-			if (target instanceof Node && menuRef.current?.contains(target)) return;
-			setPending(null);
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		return () => document.removeEventListener("pointerdown", onPointerDown);
+		setActive(0);
 	}, [pending]);
 
 	// Collapse a large paste into a `[Paste #N]` marker with the blob held in
 	// memory; the marker expands back to full content at submit time (TUI
 	// editor.ts parity). Inserted at the caret, replacing any selection.
 	const insertPasteBlob = useCallback(
-		(content: string) => {
+		(content: string): PasteBlob => {
 			const blob = storePaste(content);
 			const marker = pasteMarkerText(blob.id, blob.content);
 			const el = textareaRef.current;
@@ -86,9 +94,50 @@ export function useComposerPaste({
 			const end = el?.selectionEnd ?? start;
 			el?.focus();
 			placeDraft(`${current.slice(0, start)}${marker}${current.slice(end)}`, start + marker.length);
+			return blob;
 		},
 		[text, placeDraft, textareaRef],
 	);
+
+	// A click elsewhere is not a choice, but it is no reason to lose what was pasted: the paste goes in inline
+	// and a toast offers to take it back (the menu used to close and throw the paste away).
+	const keepInline = useCallback(
+		(paste: PendingPaste) => {
+			const before = textareaRef.current?.value ?? text;
+			const caret = textareaRef.current?.selectionStart ?? before.length;
+			const blob = insertPasteBlob(paste.content);
+			setPending(null);
+			toast({
+				variant: "info",
+				message: t("input.paste.keptInline", { lines: paste.lineCount }),
+				action: {
+					label: t("input.paste.undo"),
+					run: () => {
+						const field = textareaRef.current;
+						const current = field?.value ?? "";
+						const marker = pasteMarkerText(blob.id, blob.content);
+						const at = current.indexOf(marker);
+						releasePaste(blob.id);
+						field?.focus();
+						// Only the marker goes if the draft moved on since; else the draft is as it was before the paste.
+						if (at >= 0) placeDraft(`${current.slice(0, at)}${current.slice(at + marker.length)}`, at);
+						else placeDraft(before, caret);
+					},
+				},
+			});
+		},
+		[insertPasteBlob, placeDraft, t, text, textareaRef],
+	);
+	useEffect(() => {
+		if (!pending) return;
+		const onPointerDown = (event: PointerEvent) => {
+			const target = event.target;
+			if (target instanceof Node && menuRef.current?.contains(target)) return;
+			keepInline(pending);
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [pending, keepInline]);
 
 	// Paste menu actions — the paste always inserts something; the menu only
 	// picks the form. Keep side effects outside state updaters: React may replay
@@ -151,6 +200,14 @@ export function useComposerPaste({
 		})();
 	}, [insertPasteBlob, pending, text, t, placeDraft, runtimeTabId, rpc, textareaRef]);
 
+	/** Run the action the keyboard is on. */
+	const activate = useCallback(() => {
+		if (active === 0) chooseInline();
+		else if (active === 1) chooseWrapped();
+		else if (active === 2) chooseSaveFile();
+		else cancel();
+	}, [active, cancel, chooseInline, chooseSaveFile, chooseWrapped]);
+
 	/**
 	 * A clipboard's text. Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse to a
 	 * `[Paste #N]` marker past the marker threshold; past the (separate, line-count-only) menu threshold,
@@ -200,5 +257,16 @@ export function useComposerPaste({
 		if (pasted && pasteText(pasted, false)) e.preventDefault();
 	};
 
-	return { pending, menuRef, cancel, chooseInline, chooseWrapped, chooseSaveFile, onPaste };
+	return {
+		pending,
+		menuRef,
+		active,
+		moveActive,
+		activate,
+		cancel,
+		chooseInline,
+		chooseWrapped,
+		chooseSaveFile,
+		onPaste,
+	};
 }

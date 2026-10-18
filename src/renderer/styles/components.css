@@ -3022,11 +3022,11 @@ button.omp-file-chip-name:hover {
 	height: 10px;
 }
 
-/* Attachment remove: a small disc on the thumbnail's corner, always visible
-   so removal never hides behind hover; the hit area keeps the 28px minimum. */
+/* Attachment remove: a 28px disc on the thumbnail's corner (36px reach), always visible so removal never hides
+   behind hover. */
 .omp-composer-attachment-remove {
-	width: 20px;
-	height: 20px;
+	width: 28px;
+	height: 28px;
 	border-radius: var(--sc-radius-full);
 	border-color: var(--sc-border-subtle);
 	background: var(--sc-elevated);
@@ -3042,12 +3042,35 @@ button.omp-file-chip-name:hover {
 .omp-composer-attachment-remove::after {
 	content: "";
 	position: absolute;
-	inset: calc((var(--sc-hit-min) - 20px) / -2);
+	inset: -4px;
 }
 
 .omp-composer-attachment-remove > svg {
-	width: 12px;
-	height: 12px;
+	width: 14px;
+	height: 14px;
+}
+
+/* The pictures: two rows of 56px thumbnails (a row is the 28px count/Remove-all line too), then the strip scrolls
+   inside itself; on touch it is one row that scrolls sideways (mobile.css). The 12px above is the strip's own
+   padding, where the remove discs overhang. */
+.omp-attach-strip {
+	max-height: calc(var(--sc-space-3) + 2 * 3.5rem + var(--sc-space-3) + var(--sc-space-2));
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+/* A remove button inside a chip (a folded paste, a file): a 24px disc in the chip's 28px height, 36px reach. */
+.omp-attachment-chip-remove {
+	width: 24px;
+	height: 24px;
+	margin-right: 1px;
+	border-radius: var(--sc-radius-full);
+}
+
+.omp-attachment-chip-remove::after {
+	content: "";
+	position: absolute;
+	inset: -6px;
 }
 
 /* Narrow main area: the breadcrumb truncates the project before the session
@@ -3169,6 +3192,18 @@ button.omp-file-chip-name:hover {
 	white-space: nowrap;
 }
 
+/* The browser sizes the field to its text (use-composer-field.ts keeps only the ceiling, 40% of the pane, in
+   --omp-field-max): no measuring pass per keystroke. An empty field is one line whatever its placeholder says. */
+.omp-composer-input[data-sizing="content"] {
+	field-sizing: content;
+	height: auto;
+	max-height: var(--omp-field-max, 40vh);
+}
+
+.omp-composer-input[data-sizing="content"]:placeholder-shown {
+	max-height: 1.5rem;
+}
+
 /* Prompt suggestions: the runner-up candidates sit above the composer box, each on
    one line. Candidates are at most 40 CJK / 60 other characters (next-prompt-core),
    so a chip is wide enough for a whole one and two that do not share a row wrap
@@ -3181,6 +3216,12 @@ button.omp-file-chip-name:hover {
 	min-width: 0;
 	margin-bottom: var(--sc-space-2);
 	overflow: hidden;
+}
+
+/* The row keeps its height while the draft is typed (the transcript above never changes size on the first
+   keystroke); its chips only step out of sight and out of the tab order. */
+.omp-next-chips[data-away] {
+	visibility: hidden;
 }
 
 .omp-next-chip {
