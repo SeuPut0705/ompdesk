@@ -329,7 +329,11 @@ export function InputArea() {
 		send,
 	});
 	const sendDisabled =
-		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
+		!routeReady ||
+		(status !== "ready" && status !== "starting") ||
+		sending ||
+		submissionUncertain ||
+		(!text.trim() && images.length === 0);
 	// The toolbar is memoised: its handlers keep their identity while the draft changes.
 	const sendFromToolbar = useStableCallback(() => {
 		// The expanded composer collapses only once the draft went out.
@@ -363,7 +367,7 @@ export function InputArea() {
 	// What the field's placeholder says, first match wins (RA-20): a question, approval or plan waits on the user, a queued
 	// message is being edited, the suggestion the user can take, then the lane Enter sends to, then idle.
 	const placeholder =
-		status !== "ready"
+		status !== "ready" && status !== "starting"
 			? t("input.placeholder.connecting")
 			: blockedBy !== null
 				? t(COMPOSER_BLOCKED_PLACEHOLDER[blockedBy])

@@ -260,3 +260,24 @@ describe("Enter on a touch keyboard", () => {
 		expect(JSON.stringify(sent())).toContain("desktop");
 	});
 });
+
+describe("a tab whose omp is still starting", () => {
+	it("takes typing and the Send button; the tab runtime holds the command until it is ready", async () => {
+		input.current = null;
+		await mount();
+		await act(async () => useSessionStore.setState({ status: "starting" }));
+		await typeInto("typed while starting");
+		const send = document.querySelector('button[aria-label="Send"]') as unknown as TestElement | null;
+		await act(async () => propsOf(send)?.onClick?.({ preventDefault: () => {} }));
+		expect(JSON.stringify(sent())).toContain("typed while starting");
+	});
+
+	it("a failed or exited tab still refuses with the connecting toast", async () => {
+		input.current = null;
+		await mount();
+		await act(async () => useSessionStore.setState({ status: "error" }));
+		await typeInto("typed while down");
+		await press("Enter");
+		expect(sent()).toEqual([]);
+	});
+});
