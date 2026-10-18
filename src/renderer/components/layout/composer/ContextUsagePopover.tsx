@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../../shared/rpc-types";
 import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { buildCurrentCommandMenu } from "../../../lib/command-registry";
-import { contextUsageView, formatContextUsage } from "../../../lib/context-usage";
+import { contextUsageView } from "../../../lib/context-usage";
 import { cx, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -13,6 +13,7 @@ import { useSessionStore } from "../../../stores/session";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, Spinner } from "../../common";
+import { popoverTabStops, tabOutOfPopover } from "../../common/popover-focus";
 
 interface AnchorPosition {
 	bottom?: number;
@@ -36,9 +37,11 @@ function approximateTokens(tokens: number): string {
 }
 
 /**
- * Compact context control beside Send. The idle surface is one icon; hover,
- * focus or click reveals the native provider-anchored token breakdown without
- * opening the full context-report modal.
+ * Compact context control beside Send: a ring only (the percent is in the aria-label and the breakdown; the ring
+ * turns warning at 80 % and danger at 95 %). A hover or a click or Enter/Space reveals the native
+ * provider-anchored token breakdown without opening the full context-report modal. Keyboard focus alone never
+ * opens it; an Enter/Space open moves focus into the breakdown, Tab past its last control closes it and goes on to
+ * the next toolbar control, Escape closes it and returns to the ring.
  */
 export function ContextUsagePopover() {
 	const t = useT();
@@ -58,6 +61,15 @@ export function ContextUsagePopover() {
 	const popoverRef = useRef<HTMLDivElement>(null);
 	const closeTimer = useRef<number | undefined>(undefined);
 	const { mounted, closing } = useOverlayPresence(open);
+	/** Opened with Enter or Space: focus moves into the breakdown once it is on screen (never on a hover or a focus). */
+	const focusPanel = useRef(false);
+
+	useEffect(() => {
+		if (!mounted || !anchor || !focusPanel.current) return;
+		focusPanel.current = false;
+		const panel = popoverRef.current;
+		(panel ? (popoverTabStops(panel)[0] ?? panel) : null)?.focus();
+	}, [mounted, anchor]);
 
 	const usageKey = contextUsage ? `${sessionId}:${contextUsage.tokens}:${contextUsage.contextWindow}` : "";
 
@@ -92,6 +104,8 @@ export function ContextUsagePopover() {
 		cancelScheduledClose();
 		setOpen(false);
 		setPinned(false);
+		// Escape from inside the breakdown: the portaled panel is about to go, focus goes back to the ring.
+		if (popoverRef.current?.contains(document.activeElement)) buttonRef.current?.focus();
 	}, [cancelScheduledClose]);
 
 	const scheduleClose = useCallback(() => {
@@ -102,11 +116,12 @@ export function ContextUsagePopover() {
 
 	useEffect(() => () => cancelScheduledClose(), [cancelScheduledClose]);
 
-	/** Focus leaving for somewhere outside the trigger and the breakdown closes a revealed popover. */
+	/** Focus moving on to a control outside the ring and the breakdown closes it, pinned or not (Tab out of it). */
 	const closeOnFocusOut = (event: FocusEvent<HTMLElement>) => {
 		const next = event.relatedTarget as Node | null;
 		if (buttonRef.current?.contains(next) || popoverRef.current?.contains(next)) return;
-		scheduleClose();
+		if (next) dismiss();
+		else scheduleClose();
 	};
 
 	useEffect(() => {
@@ -201,6 +216,7 @@ export function ContextUsagePopover() {
 	const triggerLabel = capacityKnown
 		? t("contextUsage.open", { percent: Math.round(percent) })
 		: t("contextUsage.windowUnknown");
+	const ringPercent = capacityKnown ? percent : null;
 
 	const popoverStyle: CSSProperties | undefined = anchor
 		? { bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: anchor.width }
@@ -209,32 +225,34 @@ export function ContextUsagePopover() {
 	return (
 		<div className="relative shrink-0" onMouseEnter={reveal} onMouseLeave={scheduleClose}>
 			<button
-				aria-controls="omp-context-usage-popover"
+				aria-controls={mounted ? "omp-context-usage-popover" : undefined}
 				aria-expanded={open}
+				aria-haspopup="dialog"
 				aria-label={triggerLabel}
 				className={cx(
-					"omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center gap-1.5 rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
+					"omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center justify-center rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
 					open
 						? "bg-(--sc-selected) text-(--sc-text)"
 						: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
 				)}
+				data-context-ring={
+					ringPercent === null ? "unknown" : ringPercent >= 95 ? "danger" : ringPercent >= 80 ? "warning" : "ok"
+				}
 				onBlur={closeOnFocusOut}
-				onClick={() => {
+				onClick={event => {
 					if (open && pinned) {
 						dismiss();
 						return;
 					}
 					reveal();
 					setPinned(true);
+					// Enter or Space (a click without a pointer): the keyboard user's focus goes into the breakdown.
+					if (event.detail === 0) focusPanel.current = true;
 				}}
-				onFocus={reveal}
 				ref={buttonRef}
 				type="button"
 			>
-				<ContextRing percent={capacityKnown ? percent : null} />
-				<span className="omp-context-usage-label">
-					{capacityKnown ? `${Math.round(percent)}%` : formatContextUsage(view)}
-				</span>
+				<ContextRing percent={ringPercent} />
 			</button>
 
 			{mounted &&
@@ -251,10 +269,14 @@ export function ContextUsagePopover() {
 						inert={closing}
 						onBlur={closeOnFocusOut}
 						onFocus={cancelScheduledClose}
+						onKeyDown={event => {
+							const panel = popoverRef.current;
+							if (panel && tabOutOfPopover(event, panel, buttonRef.current)) dismiss();
+						}}
 						onMouseEnter={cancelScheduledClose}
 						onMouseLeave={scheduleClose}
 						ref={popoverRef}
-						role="group"
+						role={pinned ? "dialog" : "group"}
 						style={popoverStyle}
 					>
 						<div className="flex items-baseline justify-between gap-4">

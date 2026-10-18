@@ -17,14 +17,13 @@ import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
+import { POPOVER_FOCUSABLE, tabOutOfPopover } from "./popover-focus";
 import { SheetHandle } from "./Sheet";
 
 export type PopoverPlacement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
 
 const GAP = 6;
 const MARGIN = 8;
-const FOCUSABLE =
-	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Popover panel visuals. */
 export function PopoverSurface({ className, children }: { className?: string; children: ReactNode }) {
@@ -105,14 +104,20 @@ export function Popover({
 		if (!open) return;
 		const panel = panelRef.current;
 		const unregisterLayer = registerDialogLayer(panel);
-		(panel?.querySelector<HTMLElement>(FOCUSABLE) ?? panel)?.focus();
+		(panel?.querySelector<HTMLElement>(POPOVER_FOCUSABLE) ?? panel)?.focus();
 		const onDown = (event: PointerEvent) => {
 			const target = event.target as globalThis.Node | null;
 			if (panel?.contains(target) || anchorRef.current?.contains(target)) return;
 			onCloseRef.current();
 		};
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || isImeKeyEvent(event) || !isTopmostDialog(panel)) return;
+			if (isImeKeyEvent(event) || !isTopmostDialog(panel)) return;
+			if (event.key === "Tab") {
+				// A phone's sheet is modal and its own back layer handles leaving it.
+				if (!sheet && panel && tabOutOfPopover(event, panel, anchorRef.current)) onCloseRef.current();
+				return;
+			}
+			if (event.key !== "Escape") return;
 			event.preventDefault();
 			event.stopImmediatePropagation();
 			onCloseRef.current();
@@ -126,7 +131,7 @@ export function Popover({
 			unregisterLayer();
 			if (hadFocus || document.activeElement === document.body) anchorRef.current?.focus();
 		};
-	}, [open, anchorRef]);
+	}, [open, anchorRef, sheet]);
 
 	if (!open) return null;
 	// On a phone the popover is a bottom sheet: a panel anchored to a thumb-sized trigger has no room beside it.

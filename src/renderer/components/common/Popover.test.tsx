@@ -75,3 +75,70 @@ it("places a panel near the window edge by its layout box, inside the window", a
 		}
 	}
 });
+
+it("Tab on the last control closes the popover and moves on to the control after its anchor; Shift+Tab on the first returns to the anchor", async () => {
+	let focused: unknown = null;
+	const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+	const savedFocus = Object.getOwnPropertyDescriptor(proto, "focus");
+	Object.defineProperty(proto, "focus", {
+		configurable: true,
+		value(this: unknown) {
+			focused = this;
+		},
+	});
+	Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+	try {
+		const toolbar = document.createElement("div");
+		const anchor = document.createElement("button");
+		const next = document.createElement("button");
+		toolbar.append(anchor, next);
+		document.body.appendChild(toolbar);
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		let closed = 0;
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root?.render(
+				<Popover
+					anchorRef={{ current: anchor as unknown as HTMLElement }}
+					ariaLabel="Run settings"
+					onClose={() => {
+						closed += 1;
+					}}
+					open
+				>
+					<button type="button">first</button>
+					<button type="button">last</button>
+				</Popover>,
+			);
+		});
+		const [first, last] = [...document.body.querySelectorAll('[role="dialog"] button')] as unknown as HTMLElement[];
+		const press = async (target: HTMLElement, shiftKey: boolean) => {
+			focused = target;
+			const event = new Event("keydown", { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "key", { value: "Tab" });
+			Object.defineProperty(event, "shiftKey", { value: shiftKey });
+			await act(async () => target.dispatchEvent(event));
+			return event;
+		};
+
+		// Between the panel's own controls the browser moves focus.
+		const inside = await press(first as HTMLElement, false);
+		expect(inside.defaultPrevented).toBe(false);
+		expect(closed).toBe(0);
+
+		const out = await press(last as HTMLElement, false);
+		expect(out.defaultPrevented).toBe(true);
+		expect(closed).toBe(1);
+		expect(focused).toBe(next);
+
+		const back = await press(first as HTMLElement, true);
+		expect(back.defaultPrevented).toBe(true);
+		expect(closed).toBe(2);
+		expect(focused).toBe(anchor);
+	} finally {
+		if (savedFocus) Object.defineProperty(proto, "focus", savedFocus);
+		else Reflect.deleteProperty(proto, "focus");
+		Reflect.deleteProperty(document, "activeElement");
+	}
+});

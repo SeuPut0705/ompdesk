@@ -36,6 +36,16 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
+// linkedom has no focus model: record what `focus()` reached so the keyboard route can be asserted.
+let focused: unknown = null;
+Object.defineProperty(HTMLElement.prototype, "focus", {
+	configurable: true,
+	value(this: unknown) {
+		focused = this;
+	},
+});
+Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+
 const report: RpcContextReportResult = {
 	contextWindow: 1_000_000,
 	model: "test-model",
@@ -89,6 +99,7 @@ async function settleExit(): Promise<void> {
 
 afterEach(async () => {
 	vi.useRealTimers();
+	focused = null;
 	await act(async () => root?.unmount());
 	container?.remove();
 	getContextReport.mockReset();
@@ -115,7 +126,8 @@ describe("ContextUsagePopover", () => {
 		await mount();
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
-		expect(trigger.textContent).toBe("16.0k");
+		// A ring only: the reading is in the name and the breakdown, never beside the ring.
+		expect(trigger.textContent).toBe("");
 		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.windowUnknown"));
 		expect(container.textContent).not.toContain("0%");
 
@@ -142,15 +154,15 @@ describe("ContextUsagePopover", () => {
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
 		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.open", { percent: 16 }));
-		// The resting control is a ring plus the share; the token counts live in the popover.
-		expect(trigger.textContent).toBe("16%");
+		// The resting control is the ring alone; the share is in its name, the token counts in the popover.
+		expect(trigger.textContent).toBe("");
+		expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
 		expect(document.querySelector("#omp-context-usage-popover")).toBeNull();
 
 		await act(async () => trigger.click());
 		expect(getContextReport).toHaveBeenCalledTimes(1);
-		// A pinned popover must not pose as a modal: App.tsx suppresses every
-		// non-overlay-safe chord (⌘N, ⌘W, ⇧Tab) while [role=dialog] is in the tree.
-		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		// A click pins it and it poses as a (non-modal) dialog like every other composer popover.
+		expect(document.querySelector("#omp-context-usage-popover")?.getAttribute("role")).toBe("dialog");
 		const dialog = document.querySelector("#omp-context-usage-popover");
 		expect(dialog?.textContent).toContain("Context usage 16%");
 		expect(dialog?.textContent).toContain("~161.9k / 1.0M");
@@ -179,10 +191,12 @@ describe("ContextUsagePopover", () => {
 			container.querySelector("button")?.dispatchEvent(new Event("mouseover", { bubbles: true }));
 		});
 		expect(document.querySelector("#omp-context-usage-popover")).not.toBeNull();
+		// A hover alone is no dialog: App.tsx suppresses the app chords while one is in the tree.
+		expect(document.querySelector("#omp-context-usage-popover")?.getAttribute("role")).toBe("group");
 		expect(getContextReport).toHaveBeenCalledTimes(1);
 	});
 
-	it("stays open while Tab moves focus into it and closes once focus leaves both", async () => {
+	it("never opens on keyboard focus, and closes once focus moves on to another control", async () => {
 		useSessionStore.setState({
 			contextUsage: { contextWindow: 100_000, percent: 10, tokens: 10_000 },
 			sessionId: "session-focus",
@@ -205,28 +219,93 @@ describe("ContextUsagePopover", () => {
 			});
 		};
 		const popover = () => document.querySelector("#omp-context-usage-popover");
-		// Past the 120 ms close delay a blur schedules.
-		const hold = async () => {
-			await act(async () => {
-				vi.advanceTimersByTime(200);
-			});
-		};
 
+		// Landing on the ring (Tab) shows nothing: three tab stops and a popover opening by itself were DI-23.
+		await act(async () => trigger.focus());
 		await moveFocus(outside, trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(popover()).toBeNull();
+
+		await act(async () => trigger.click());
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		const inside = [...(popover()?.querySelectorAll("button") ?? [])].at(-1);
 		expect(inside).toBeDefined();
 		await moveFocus(trigger, inside);
-		await hold();
-		// Focus inside the breakdown keeps it open: its link is reachable by keyboard.
+		await act(async () => vi.advanceTimersByTime(200));
+		// Focus inside the breakdown keeps it open: its buttons are reachable by keyboard.
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
 		expect(popover()?.getAttribute("aria-hidden")).toBeNull();
 
+		// Focus leaving for another control closes it at once, pinned or not.
 		await moveFocus(inside, outside);
-		await hold();
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 		vi.useRealTimers();
 		outside.remove();
+	});
+
+	it("opens with Enter or Space into the breakdown, Tab past its last control closes it, Escape returns to the ring", async () => {
+		useSessionStore.setState({
+			contextUsage: { contextWindow: 100_000, percent: 10, tokens: 10_000 },
+			sessionId: "session-keyboard",
+			status: "ready",
+		});
+		await mount();
+		const next = document.createElement("button");
+		container.after(next as never);
+		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
+		trigger.focus();
+		// A keyboard activation is a click with no pointer: detail 0.
+		await act(async () => {
+			const click = new Event("click", { bubbles: true, cancelable: true });
+			Object.defineProperty(click, "detail", { value: 0 });
+			trigger.dispatchEvent(click);
+		});
+		const popover = document.querySelector("#omp-context-usage-popover") as unknown as HTMLElement;
+		const buttons = [...popover.querySelectorAll("button")] as unknown as HTMLButtonElement[];
+		expect(document.activeElement).toBe(buttons[0]);
+
+		// Tab on the last control: out to the control after the ring, popover closed.
+		(buttons.at(-1) as HTMLButtonElement).focus();
+		const tab = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(tab, "key", { value: "Tab" });
+		await act(async () => buttons.at(-1)?.dispatchEvent(tab));
+		expect(tab.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(next);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		await settleExit();
+
+		// Escape from inside returns focus to the ring.
+		await act(async () => {
+			const click = new Event("click", { bubbles: true, cancelable: true });
+			Object.defineProperty(click, "detail", { value: 0 });
+			trigger.dispatchEvent(click);
+		});
+		const reopened = document.querySelector("#omp-context-usage-popover")?.querySelector("button");
+		expect(document.activeElement).toBe(reopened);
+		const escape = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(escape, "key", { value: "Escape" });
+		await act(async () => document.dispatchEvent(escape));
+		expect(document.activeElement).toBe(trigger);
+		next.remove();
+	});
+
+	it("tints the ring warning at 80% and danger at 95%", async () => {
+		useSessionStore.setState({
+			contextUsage: { contextWindow: 100_000, percent: 80, tokens: 80_000 },
+			sessionId: "session-ring",
+			status: "ready",
+		});
+		await mount();
+		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
+		expect(trigger.getAttribute("data-context-ring")).toBe("warning");
+		await act(async () =>
+			useSessionStore.setState({ contextUsage: { contextWindow: 100_000, percent: 95, tokens: 95_000 } }),
+		);
+		expect(trigger.getAttribute("data-context-ring")).toBe("danger");
+		await act(async () =>
+			useSessionStore.setState({ contextUsage: { contextWindow: 100_000, percent: 40, tokens: 40_000 } }),
+		);
+		expect(trigger.getAttribute("data-context-ring")).toBe("ok");
 	});
 
 	it("closes a pinned popover from its trigger, Escape, and an outside pointer", async () => {
