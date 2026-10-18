@@ -15,8 +15,16 @@ describe("checkKind", () => {
 		["bun run build", "build"],
 		["cargo build --release", "build"],
 		["git status", undefined],
-		["rg build src", undefined],
 		["ls tests", undefined],
+		["grep vitest package.json", undefined],
+		["echo 'npm test'", undefined],
+		["cat build.log", undefined],
+		["npm test && npm run build", undefined],
+		["bun run build && bun run build:web", "build"],
+		["bunx vitest run 2>&1 | tail -20", "test"],
+		["CI=1 npx jest --ci", "test"],
+		["node scripts/lint-surfaces.mjs", "lint"],
+		["rg build src", undefined],
 	])("%s → %s", (command, kind) => expect(checkKind(command)).toBe(kind));
 });
 

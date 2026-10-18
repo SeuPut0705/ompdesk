@@ -8,32 +8,57 @@
 
 export type CheckKind = "test" | "typecheck" | "lint" | "build";
 
-/** Order matters: `bun run test` is a test, `tsc --noEmit` a type check, `vite build` a build. */
-const CHECK_PATTERNS: readonly (readonly [CheckKind, RegExp])[] = [
-	[
-		"test",
-		/\b(?:vitest|jest|mocha|pytest|rspec|phpunit|ava|tap|playwright\s+test|(?:bun|deno|cargo|go|swift|dotnet|mix|gradle|mvn)\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?::[\w:-]+)?|test:platform|make\s+test)\b/,
-	],
-	[
-		"typecheck",
-		/\b(?:tsc|mypy|pyright|vue-tsc|svelte-check|check:types|typecheck|type-check|cargo\s+check|flow\s+check)\b/,
-	],
-	[
-		"lint",
-		/\b(?:biome|eslint|prettier\s+--check|ruff|flake8|pylint|clippy|golangci-lint|stylelint|shellcheck|rubocop|lint(?::[\w:-]+)?|lint-surfaces)\b/,
-	],
-	[
-		"build",
-		/\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build(?::[\w:-]+)?|(?:vite|next|electron-vite|cargo|go|swift|dotnet|gradle|mvn|docker)\s+build|webpack|rollup|esbuild|make|cmake\s+--build|xcodebuild|package:\w+)\b/,
-	],
+/**
+ * Per kind, the programs that run it and the package scripts that name it. A program counts only
+ * where a command segment runs it (after `npx`, `bunx`, `uv run`, `python -m`, env assignments),
+ * so `grep vitest package.json` or `echo 'npm test'` is no test.
+ */
+const CHECKS: readonly { kind: CheckKind; tool: RegExp; script: RegExp }[] = [
+	{
+		kind: "test",
+		tool: /^(?:vitest|jest|mocha|pytest|rspec|phpunit|ava|playwright\s+test|(?:bun|deno|cargo|go|swift|dotnet|mix|gradle|mvn)\s+test|make\s+test)\b/,
+		script: /^test(?::[\w:-]+)?$/,
+	},
+	{
+		kind: "typecheck",
+		tool: /^(?:tsc|mypy|pyright|vue-tsc|svelte-check|cargo\s+check|flow\s+check)\b/,
+		script: /^(?:check:types|typecheck|type-check|types)$/,
+	},
+	{
+		kind: "lint",
+		tool: /^(?:biome|eslint|prettier\s+--check|ruff|flake8|pylint|cargo\s+clippy|golangci-lint|stylelint|shellcheck|rubocop)\b|^node\s+\S*lint[\w-]*\.m?js\b/,
+		script: /^lint(?::[\w:-]+)?$/,
+	},
+	{
+		kind: "build",
+		tool: /^(?:(?:vite|next|electron-vite|cargo|go|swift|dotnet|gradle|mvn|docker)\s+build|webpack|rollup|esbuild|make|cmake\s+--build|xcodebuild)\b/,
+		script: /^(?:build(?::[\w:-]+)?|package:\w+)$/,
+	},
 ];
 
-/** The check a shell command runs, judged by its own words; `undefined` for anything else. */
-export function checkKind(command: string): CheckKind | undefined {
-	// A prefix that only reads (`cat`, `ls`, `git log`) never makes the command a check.
-	const text = command.replace(/\s+/g, " ");
-	for (const [kind, pattern] of CHECK_PATTERNS) if (pattern.test(text)) return kind;
+const EXEC_WRAPPER =
+	/^(?:(?:\w+=\S*|npx|bunx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|uv\s+run|poetry\s+run|python3?\s+-m|time|env)\s+)+/;
+const SCRIPT_RUNNER = /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(\S+)/;
+
+function segmentKind(segment: string): CheckKind | undefined {
+	const program = segment.replace(EXEC_WRAPPER, "");
+	const script = SCRIPT_RUNNER.exec(program)?.[1];
+	for (const check of CHECKS) if (check.tool.test(program) || (script && check.script.test(script))) return check.kind;
 	return undefined;
+}
+
+/**
+ * The check a shell command runs; `undefined` for anything else, and for a compound command that
+ * runs checks of two kinds (`npm test && npm run build`): its one exit code cannot say which failed.
+ */
+export function checkKind(command: string): CheckKind | undefined {
+	const kinds = new Set<CheckKind>();
+	for (const part of command.split(/&&|\|\||;|\n/)) {
+		// A pipeline's first stage is the program; `| tail` only trims its output.
+		const kind = segmentKind((part.split("|")[0] ?? "").trim().replace(/\s+/g, " "));
+		if (kind) kinds.add(kind);
+	}
+	return kinds.size === 1 ? [...kinds][0] : undefined;
 }
 
 const TEST_PASSED = /(\d+)\s+(?:tests?\s+)?pass(?:ed|ing)?\b/gi;
