@@ -67,6 +67,7 @@ export const AGENT_CONTROL_TOOLS = {
 	compare: "ompdesk_compare",
 	merge: "ompdesk_merge",
 	schedule: "ompdesk_schedule",
+	autopilot: "ompdesk_autopilot",
 } as const;
 
 export type AgentControlToolName = (typeof AGENT_CONTROL_TOOLS)[keyof typeof AGENT_CONTROL_TOOLS];
@@ -91,6 +92,8 @@ export const MAX_MESSAGES_PER_HOUR = 60;
 
 /** Scheduled runs an agent may have created and still live (`ompdesk_schedule`); each is named with the prefix below. */
 export const MAX_AGENT_SCHEDULES = 5;
+/** Autopilot runs agents started (`ompdesk_autopilot`) that may be live at once, across every session of the app. */
+export const MAX_AGENT_AUTOPILOT_RUNS = 2;
 /** The shortest repeat an agent may schedule, in minutes (the Schedules service itself allows 5). */
 export const AGENT_SCHEDULE_MIN_INTERVAL_MINUTES = 30;
 /** Schedules an agent creates start with this, so the person sees whose they are in Settings › Schedules and only these may be cancelled by an agent. */

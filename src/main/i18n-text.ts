@@ -115,6 +115,25 @@ export const MAIN_TEXT = {
 		en: "The agent in “{caller}” wants to run “{name}” {when} in {folder} while OMPdesk is open. It runs without auto-approve. Schedule it?",
 		ko: "“{caller}”의 에이전트가 OMPdesk가 켜져 있는 동안 {folder} 폴더에서 “{name}” 작업을 {when} 실행하도록 예약하려고 해요. 자동 승인 없이 실행돼요. 예약할까요?",
 	},
+	"agentControl.autopilotTitle": {
+		en: "An agent wants to start Autopilot",
+		ko: "에이전트가 오토파일럿을 시작하려고 해요",
+	},
+	"agentControl.autopilotMessage": {
+		en: "The agent in “{caller}” wants to start Autopilot on {folder}: an unattended loop that keeps changing the repository in its own worktree. Branch: {branch}. Ship level: {ship}. Start it?",
+		ko: "“{caller}”의 에이전트가 {folder} 폴더에서 오토파일럿을 시작하려고 해요. 별도 워크트리에서 저장소를 계속 고쳐 가는 자동 반복이에요. 브랜치: {branch}. 반영 수준: {ship}. 시작할까요?",
+	},
+	"agentControl.autopilotShipCommit": { en: "commits only (nothing is pushed)", ko: "커밋만(푸시는 안 해요)" },
+	"agentControl.autopilotShipPush": { en: "pushes every green cycle", ko: "초록 사이클마다 푸시" },
+	"agentControl.autopilotShipRelease": {
+		en: "pushes and RELEASES (a version is published)",
+		ko: "푸시하고 릴리스까지(새 버전이 공개돼요)",
+	},
+	"agentControl.autopilotBranchNew": { en: "a new autopilot/<date> branch", ko: "새 autopilot/<날짜> 브랜치" },
+	"agentControl.autopilotBranchDefault": {
+		en: "{name} (the default branch: work and pushes land on it directly)",
+		ko: "{name}(기본 브랜치: 작업과 푸시가 바로 여기에 반영돼요)",
+	},
 	"agentControl.answeredBy": { en: "Answered by an agent ({by})", ko: "에이전트가 답함 ({by})" },
 	// Autopilot (src/main/autopilot.ts): notifications and the readable failures of a start.
 	"autopilot.paused.title": { en: "Autopilot paused", ko: "오토파일럿이 멈췄어요" },

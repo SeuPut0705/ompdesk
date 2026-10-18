@@ -19,6 +19,7 @@ Each OMPdesk session is a tab in the user's window. These host tools let the mai
 - `ompdesk_session_stop` — `session`, `close`, `delete`.
 - `ompdesk_compare`, `ompdesk_merge` — worktree attempts: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — skill://ompdesk/references/schedules.md
+- `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md
 
 `session` is an id from `ompdesk_sessions`; a unique prefix is enough. Caps, confirmation cards and approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
 

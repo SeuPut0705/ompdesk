@@ -95,6 +95,7 @@ import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
+import { readBranchFacts } from "./autopilot-branches";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { openInExternalEditor } from "./editor";
@@ -846,6 +847,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		isStopping: callerTabId => autopilot.isStopping(callerTabId),
 		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
+		autopilot: {
+			command: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
+			defaultBranch: async (cwd, remote) => (await readBranchFacts(cwd, remote)).defaultBranch,
+		},
 		pool: sidecarPool,
 		schedules: () => deps.schedules?.() ?? null,
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>

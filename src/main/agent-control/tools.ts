@@ -6,8 +6,14 @@
  */
 import { z } from "zod";
 import {
+	AUTOPILOT_AREAS,
+	AUTOPILOT_NOTIFY_MODES,
+	MAX_PARALLEL_CHILDREN,
+} from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import {
 	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
 	AGENT_SCHEDULE_PREFIX,
+	MAX_AGENT_AUTOPILOT_RUNS,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
 	MAX_OPENS_PER_TURN,
@@ -289,6 +295,94 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		},
 	},
 	{
+		name: T.autopilot,
+		label: "OMPdesk Autopilot",
+		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). The user confirms a start unless they turned confirmations off, and always for ship release or the repo's default branch. At most ${MAX_AGENT_AUTOPILOT_RUNS} agent-started runs live at once. See skill://ompdesk.`,
+		parameters: {
+			type: "object",
+			properties: {
+				action: { type: "string", enum: ["start", "status", "stop"] },
+				folder: {
+					type: "string",
+					description:
+						"start: absolute project folder; default your own. It must be open in a local session of this window.",
+				},
+				guide: {
+					type: "string",
+					description: "start: AUTOPILOT.md text to commit as the run branch's first commit when it differs.",
+				},
+				ship: {
+					type: "string",
+					enum: ["commit", "push", "release"],
+					description:
+						"start: how far the run may ship; default the user's setting. release always asks the user.",
+				},
+				branch: {
+					type: "object",
+					properties: {
+						kind: { type: "string", enum: ["new", "existing"] },
+						name: { type: "string", description: "new: optional branch name; existing: the branch to work on." },
+					},
+					required: ["kind"],
+					additionalProperties: false,
+					description: "start: where the run commits; default a new autopilot/<date> branch.",
+				},
+				advanced: {
+					type: "object",
+					properties: {
+						focus: {
+							type: "array",
+							items: { type: "string", enum: [...AUTOPILOT_AREAS] },
+							description: "Areas the cycles favour; default all.",
+						},
+						parallel: {
+							type: "integer",
+							description: `Child sessions per cycle, 0-${MAX_PARALLEL_CHILDREN}.`,
+						},
+						cadence: {
+							type: "integer",
+							description: "With ship release: release every N cycles; default the run decides.",
+						},
+						remote: { type: "string", description: "Git remote a push goes to; default the user's setting." },
+						notify: {
+							type: "string",
+							enum: [...AUTOPILOT_NOTIFY_MODES],
+							description: "Notifications for the user.",
+						},
+						backlog: {
+							type: "array",
+							items: { type: "string" },
+							description: "Items the run takes before its own picks.",
+						},
+						limits: {
+							type: "object",
+							properties: {
+								tokens: { type: "number" },
+								minutes: { type: "number" },
+								cycles: { type: "number" },
+								usd: { type: "number" },
+							},
+							additionalProperties: false,
+							description: "Ceilings that pause the run; default none.",
+						},
+					},
+					additionalProperties: false,
+					description: "start: optional tuning; anything omitted keeps the Autopilot sheet's defaults.",
+				},
+				session: {
+					type: "string",
+					description: "status, stop: the run's session id from start or ompdesk_sessions.",
+				},
+				now: {
+					type: "boolean",
+					description: "stop: true aborts the running turn at once (pauses the run); default false.",
+				},
+			},
+			required: ["action"],
+			additionalProperties: false,
+		},
+	},
+	{
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
@@ -308,6 +402,51 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 
 const sessionArg = z.string().trim().min(1).max(200);
 const placement = z.enum(PLACEMENT);
+
+const positive = z.number().positive().finite();
+
+const autopilotBranch = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("new"), name: z.string().trim().min(1).max(200).optional() }).strict(),
+	z.object({ kind: z.literal("existing"), name: z.string().trim().min(1).max(200) }).strict(),
+]);
+
+const autopilotAdvanced = z
+	.object({
+		focus: z.array(z.enum(AUTOPILOT_AREAS)).max(AUTOPILOT_AREAS.length).optional(),
+		parallel: z.number().int().min(0).max(MAX_PARALLEL_CHILDREN).optional(),
+		cadence: z.number().int().min(1).max(100).optional(),
+		remote: z
+			.string()
+			.regex(/^[^\s-][^\s]{0,99}$/, "remote is a git remote name")
+			.optional(),
+		notify: z.enum(AUTOPILOT_NOTIFY_MODES).optional(),
+		backlog: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+		limits: z
+			.object({
+				tokens: positive.optional(),
+				minutes: positive.optional(),
+				cycles: positive.optional(),
+				usd: positive.optional(),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
+
+const autopilotArgs = z.discriminatedUnion("action", [
+	z
+		.object({
+			action: z.literal("start"),
+			folder: z.string().trim().min(1).max(4096).optional(),
+			guide: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
+			ship: z.enum(["commit", "push", "release"]).optional(),
+			branch: autopilotBranch.optional(),
+			advanced: autopilotAdvanced.optional(),
+		})
+		.strict(),
+	z.object({ action: z.literal("status"), session: sessionArg }).strict(),
+	z.object({ action: z.literal("stop"), session: sessionArg, now: z.boolean().optional() }).strict(),
+]);
 
 const worktreeArg = z.union([
 	z.boolean(),
@@ -443,8 +582,11 @@ export const ARGS = {
 				if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
 			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
 		}),
+	[T.autopilot]: autopilotArgs,
 } as const;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;
 
 export type ScheduleArgs = z.infer<(typeof ARGS)[typeof T.schedule]>;
+
+export type AutopilotArgs = z.infer<typeof autopilotArgs>;
