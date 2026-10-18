@@ -23,6 +23,7 @@ import {
 	normalizeNextPrompt,
 	parseNextPromptEnv,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import { autopilotRunning, PSTACK_ENV, pstackText, pstackVariant } from "../../resources/gui-bridge/modes/pstack-core";
 import {
 	labelPromptOrigins,
 	PROMPT_ORIGIN_ENTRY,
@@ -74,10 +75,14 @@ export function runRpcUi(): void {
 	};
 	const BOOLEAN_FLAGS: Record<string, true> = { "--no-tools": true, "--no-session": true, "--no-title": true };
 	const flags: Record<string, string> = {};
+	/** Every `-e`/`--extension` value in order: the bridge entry, then OMPdesk's own roots (control tools, REA, pstack). */
+	const extensionRoots: string[] = [];
 	for (let index = 2; index < process.argv.length; index++) {
 		const arg = process.argv[index];
-		if (VALUE_FLAGS[arg]) flags[arg] = process.argv[++index] ?? "";
-		else if (BOOLEAN_FLAGS[arg]) flags[arg] = "";
+		if (VALUE_FLAGS[arg]) {
+			flags[arg] = process.argv[++index] ?? "";
+			if (arg === "-e" || arg === "--extension") extensionRoots.push(flags[arg]);
+		} else if (BOOLEAN_FLAGS[arg]) flags[arg] = "";
 		else {
 			console.error(`Unknown option: ${arg}`);
 			process.exit(1);
@@ -1069,6 +1074,47 @@ export function runRpcUi(): void {
 	const imageBlobs = new Map<string, string>();
 	/** The delegation strength the GUI holds on this tab (gui-bridge modes/delegation.ts); spawn env first. */
 	let delegationMode = process.env.OMP_GUI_DELEGATION ?? "default";
+	/**
+	 * The bridge's `pstack` prompt section for this fake session (modes/pstack-core.ts, the packaged rules): the main
+	 * agent of a Code session gets it, Plan mode and an Autopilot run do not get the full one. `OMP_GUI_TEST_PSTACK=1`
+	 * shows it in the context inspector; without it the fixture's inspector stays as the other suites expect.
+	 */
+	const pstackSectionText = (): string | undefined =>
+		pstackText(
+			pstackVariant({
+				enabled: process.env[PSTACK_ENV] === "1",
+				kind: "main",
+				planMode: planModeEnabled,
+				autopilot: autopilotRunning(activeBranch()),
+				solo: delegationMode === "solo",
+			}),
+		);
+	/** The skills of every `-e` root that has a `skills/` folder, as stock lists an extension root's skills (`get_skills`). */
+	const rootSkills = () =>
+		extensionRoots.flatMap(root => {
+			const dir = nodePath.join(root, "skills");
+			if (!fs.existsSync(dir)) return [];
+			return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+				const file = nodePath.join(dir, entry.name, "SKILL.md");
+				if (!entry.isDirectory() || !fs.existsSync(file)) return [];
+				const head = /^---\n([\s\S]*?)\n---/.exec(fs.readFileSync(file, "utf8"))?.[1] ?? "";
+				const field = (key: string) => new RegExp(`^${key}:\\s*(.*)$`, "m").exec(head)?.[1]?.replace(/^"(.*)"$/, "$1") ?? "";
+				return [
+					{
+						name: field("name"),
+						description: field("description"),
+						source: "omp-plugins:user",
+						enabled: true,
+						location: file,
+						provider: "omp-plugins",
+						providerName: "Extension roots",
+						level: "user",
+						managed: false,
+						hidden: field("disable-model-invocation") === "true",
+					},
+				];
+			});
+		});
 	/** Stock's relay server while a spec lets the agent into the preview (browser.relay_start). */
 	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
 	/** `prompt_origin_set` calls whose prompt has not been sent yet. */
@@ -1259,6 +1305,10 @@ export function runRpcUi(): void {
 					tokens: 1_800,
 				},
 			];
+			const pstack = process.env.OMP_GUI_TEST_PSTACK === "1" ? pstackSectionText() : undefined;
+			if (pstack) {
+				entries.push({ id: "prompt:2", category: "systemContext", label: "<pstack>", tokens: Math.ceil(pstack.length / 4) });
+			}
 			return {
 				model: model.id,
 				contextWindow: 128_000,
@@ -1279,6 +1329,10 @@ export function runRpcUi(): void {
 		},
 		"context.entry": params => {
 			const id = String(params.id);
+			if (id === "prompt:2") {
+				const text = pstackSectionText() ?? "";
+				return { text, totalChars: text.length, truncated: false };
+			}
 			if (id === "file:AGENTS.md")
 				return { text: "# Fixture rules\n\nKeep every change small.", totalChars: 40, truncated: false };
 			if (id === "msg:1:2") {
@@ -1861,7 +1915,7 @@ export function runRpcUi(): void {
 		get_prompt_templates: () => ({ templates: [] }),
 		get_hooks: () => ({ hooks: [] }),
 		get_mcp_servers: () => ({ servers: [] }),
-		get_skills: () => ({ skills: [] }),
+		get_skills: () => ({ skills: process.env.OMP_GUI_TEST_PSTACK === "1" ? rootSkills() : [] }),
 		get_agent_definitions: () => ({ agents: [] }),
 		model_roles: () => ({
 			roles: ROLE_META.map(meta => ({
