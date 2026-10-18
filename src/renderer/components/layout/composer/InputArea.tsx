@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ImageContent } from "../../../../shared/rpc-types";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
 import { useShellInput, useShellMode } from "../../../hooks/use-shell-mode";
@@ -35,7 +34,7 @@ import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
 import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { type ComposerStore, prependToDraft, useComposerStore } from "../../../stores/composer";
+import { type ComposerStore, useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
 import { useInputHistoryStore } from "../../../stores/input-history";
@@ -56,7 +55,6 @@ import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
-import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
@@ -73,6 +71,7 @@ import { useComposerAttach } from "./use-composer-attach";
 import { useComposerCommands } from "./use-composer-commands";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerDraft } from "./use-composer-draft";
+import { useComposerEvents } from "./use-composer-events";
 import { useComposerField } from "./use-composer-field";
 import { useComposerHistory } from "./use-composer-history";
 import { useComposerMenu } from "./use-composer-menu";
@@ -303,68 +302,7 @@ export function InputArea() {
 		return items.length > 1 ? items.length : 0;
 	}, [queueBody]);
 
-	useEffect(() => {
-		const onInsertMention = (event: Event) => {
-			const detail = (event as CustomEvent<{ path?: string; tabId?: string }>).detail;
-			if ((detail?.tabId ?? useTabsStore.getState().activeTabId) !== runtimeTabId) return;
-			const path = detail?.path;
-			if (!path) return;
-			const mention = fileMentionFor(path, "");
-			setText(current => `${current}${current && !current.endsWith(" ") ? " " : ""}${mention} `);
-			requestAnimationFrame(() => textareaRef.current?.focus());
-		};
-		window.addEventListener("omp:insert-mention", onInsertMention);
-		return () => window.removeEventListener("omp:insert-mention", onInsertMention);
-	}, [setText, runtimeTabId, textareaRef]);
-
-	useEffect(() => {
-		const fillComposer = (event: Event) => {
-			const detail = (
-				event as CustomEvent<{
-					text?: string;
-					images?: ImageContent[];
-					prepend?: boolean;
-					clearPastes?: boolean;
-					tabId?: string;
-				}>
-			).detail;
-			if ((detail?.tabId ?? useTabsStore.getState().activeTabId) !== runtimeTabId) return;
-			const next = detail?.text;
-			const restoredImages = detail?.images ?? [];
-			if (!next && restoredImages.length === 0) return;
-			// The editor dialog writes back fully-inline text — consume the blobs.
-			if (detail?.clearPastes)
-				dropReferencedPastes(sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ?? "");
-			if (next) {
-				// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
-				// otherwise replace (starter cards, history recall).
-				const current =
-					textareaRef.current?.value ??
-					sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ??
-					"";
-				placeDraft(detail?.prepend ? prependToDraft(next, current) : next, next.length);
-			}
-			if (restoredImages.length > 0) {
-				setImages(current => [
-					...current,
-					...restoredImages.map(content => ({
-						content,
-						preview: `data:${content.mimeType};base64,${content.data}`,
-					})),
-				]);
-			}
-			// Focus waits a frame: the surface that sent the text (a dialog, a menu) may still
-			// hand focus back as it closes. Focus keeps the caret placed above.
-			requestAnimationFrame(() => {
-				const el = textareaRef.current;
-				if (!el) return;
-				if (useTabsStore.getState().activeTabId !== runtimeTabId) return;
-				el.focus();
-			});
-		};
-		window.addEventListener("omp:fill-composer", fillComposer);
-		return () => window.removeEventListener("omp:fill-composer", fillComposer);
-	}, [placeDraft, setImages, runtimeTabId, textareaRef]);
+	useComposerEvents({ runtimeTabId, textareaRef, setText, setImages, placeDraft });
 
 	const dispatchSend = useComposerSubmit({
 		text,
