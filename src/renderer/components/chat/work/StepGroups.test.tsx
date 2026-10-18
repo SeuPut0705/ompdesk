@@ -1,0 +1,201 @@
+import { parseHTML } from "linkedom";
+import { act } from "react";
+import type { Root } from "react-dom/client";
+import { afterEach, describe, expect, it } from "vitest";
+import type { AgentMessage, MessageContent, ToolCallContent } from "../../../../shared/rpc-types";
+import { I18nProvider } from "../../../lib/i18n";
+import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
+import type { StepReveal } from "./reveal-step";
+
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+Object.assign(globalThis as Record<string, unknown>, {
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
+Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
+
+// React DOM must initialize after linkedom globals; static imports initialize it too early.
+const { createRoot } = await import("react-dom/client");
+const { StepGroups } = await import("./StepGroups");
+const { StepRevealContext } = await import("./reveal-step");
+
+let container: HTMLElement;
+let root: Root | undefined;
+
+afterEach(async () => {
+	await act(async () => root?.unmount());
+	container?.remove();
+	root = undefined;
+	useToolsStore.getState().reset();
+});
+
+function call(id: string, name: string, args: Record<string, unknown>, intent?: string): ToolCallContent {
+	return { type: "toolCall", id, name, arguments: args, ...(intent ? { intent } : {}) };
+}
+
+function entry(name: string, args: Record<string, unknown>, status: ToolEntry["status"] = "done"): ToolEntry {
+	return {
+		toolName: name,
+		args,
+		status,
+		streamingArgs: "",
+		result: { content: [{ type: "text", text: "out" }] },
+		isError: status === "error",
+		startTime: 1,
+		endTime: 2,
+	};
+}
+
+let clock = 0;
+const assistant = (content: MessageContent[]): AgentMessage =>
+	({ role: "assistant", content, timestamp: ++clock }) as AgentMessage;
+
+async function mount(messages: AgentMessage[], entries: [string, ToolEntry][], reveal: StepReveal | null = null) {
+	useToolsStore.setState(toolEntriesState(entries));
+	container = document.createElement("div") as unknown as HTMLElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () =>
+		root?.render(
+			<I18nProvider>
+				<StepRevealContext.Provider value={reveal}>
+					<StepGroups messages={messages} />
+				</StepRevealContext.Provider>
+			</I18nProvider>,
+		),
+	);
+}
+
+const groups = () => [...container.querySelectorAll("[data-step-group]")] as unknown as HTMLElement[];
+const cards = () =>
+	[...container.querySelectorAll("[data-tool-call-id]")].map(card => card.getAttribute("data-tool-call-id"));
+const toggle = (group: HTMLElement | undefined) =>
+	act(async () => group?.querySelector("button")?.dispatchEvent(new Event("click", { bubbles: true }) as never));
+
+const bash = (command: string, status: ToolEntry["status"] = "done") => entry("bash", { command }, status);
+
+describe("StepGroups", () => {
+	it("lines same-intent calls up under one closed row that counts them, and opens to every call's own card", async () => {
+		await mount(
+			[
+				assistant([
+					call("a", "bash", { command: "bun run check:types" }, "Checking the types"),
+					call("b", "bash", { command: "bun run check:types" }, "Checking the types"),
+					call("c", "edit", { path: "src/a.ts" }, "Fixing the type"),
+				]),
+			],
+			[
+				["a", bash("bun run check:types")],
+				["b", bash("bun run check:types")],
+				["c", entry("edit", { path: "src/a.ts" })],
+			],
+		);
+		expect(groups()).toHaveLength(1);
+		expect(groups()[0]?.querySelector(".omp-step-group-label")?.textContent).toBe("Checking the types");
+		expect(groups()[0]?.textContent).toContain("2 steps");
+		expect(groups()[0]?.getAttribute("data-open")).toBe("false");
+		expect(cards()).toEqual(["c"]);
+		await toggle(groups()[0]);
+		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
+		expect(cards()).toEqual(["a", "b", "c"]);
+	});
+
+	it("opens a group by itself when one of its calls failed", async () => {
+		await mount(
+			[
+				assistant([
+					call("a", "bash", { command: "x" }, "Running the tests"),
+					call("b", "bash", { command: "x" }, "Running the tests"),
+				]),
+			],
+			[
+				["a", bash("x")],
+				["b", bash("x", "error")],
+			],
+		);
+		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
+		expect(groups()[0]?.getAttribute("data-state")).toBe("error");
+		expect(cards()).toEqual(["a", "b"]);
+	});
+
+	it("opens the group holding the step a finding asks for, again after the reader closed it", async () => {
+		const messages = [
+			assistant([call("a", "bash", { command: "x" }, "Same"), call("b", "bash", { command: "x" }, "Same")]),
+		];
+		const entries: [string, ToolEntry][] = [
+			["a", bash("x")],
+			["b", bash("x")],
+		];
+		await mount(messages, entries, { key: "b" });
+		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
+		await toggle(groups()[0]);
+		expect(groups()[0]?.getAttribute("data-open")).toBe("false");
+		await act(async () =>
+			root?.render(
+				<I18nProvider>
+					<StepRevealContext.Provider value={{ key: "b" }}>
+						<StepGroups messages={messages} />
+					</StepRevealContext.Provider>
+				</I18nProvider>,
+			),
+		);
+		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
+	});
+
+	it("folds consecutive reads into the read group card, one row for the reader", async () => {
+		await mount(
+			[
+				assistant([
+					call("r1", "read", { path: "a.ts", __ompReadGroup: { path: "a.ts" } }),
+					call("r2", "read", { path: "b.ts", __ompReadGroup: { path: "b.ts" } }),
+					call("g", "grep", { pattern: "x" }),
+				]),
+			],
+			[
+				["r1", entry("read", { path: "a.ts" })],
+				["r2", entry("read", { path: "b.ts" })],
+				["g", entry("grep", { pattern: "x" })],
+			],
+		);
+		expect(container.querySelectorAll(".omp-read-group")).toHaveLength(1);
+		expect(container.querySelector(".omp-read-group")?.textContent).toContain("a.ts, b.ts");
+		expect(cards()).toEqual(["g"]);
+	});
+
+	it("opens a folded read group holding a failed read", async () => {
+		await mount(
+			[
+				assistant([
+					call("r1", "read", { path: "a.ts", __ompReadGroup: { path: "a.ts" } }),
+					call("r2", "read", { path: "b.ts", __ompReadGroup: { path: "b.ts" } }),
+				]),
+			],
+			[
+				["r1", entry("read", { path: "a.ts" })],
+				["r2", entry("read", { path: "b.ts" }, "error")],
+			],
+		);
+		expect(cards()).toEqual(["r1", "r2"]);
+	});
+
+	it("leaves a card with no repeated intent exactly as the messages hold it", async () => {
+		await mount(
+			[
+				assistant([{ type: "text", text: "Looking." }, call("a", "grep", { pattern: "x" }, "Searching")]),
+				assistant([call("b", "bash", { command: "ls" }, "Listing")]),
+			],
+			[
+				["a", entry("grep", { pattern: "x" })],
+				["b", bash("ls")],
+			],
+		);
+		expect(groups()).toHaveLength(0);
+		expect(container.textContent).toContain("Looking.");
+		expect(cards()).toEqual(["a", "b"]);
+	});
+});

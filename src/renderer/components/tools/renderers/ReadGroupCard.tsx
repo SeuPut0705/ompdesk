@@ -7,7 +7,7 @@
  */
 
 import { ChevronRight, FileText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
@@ -24,18 +24,24 @@ function statusOf(status: string | undefined): "pending" | "success" | "error" |
 
 export function ReadGroupCard({
 	entries,
+	forceOpen = false,
 	inset,
 	runningIndicator = "spinner",
 	usage,
 }: {
 	entries: ReadGroupEntry[];
+	/** Opens the group (again) whenever this changes to something truthy: a work card showing a failed or asked-for read. */
+	forceOpen?: boolean | object;
 	inset?: boolean;
 	runningIndicator?: RunningIndicator;
 	/** Usage carried from fully-consumed assistant turns (TUI parity). */
 	usage?: ReadGroupUsage[];
 }) {
 	const t = useT();
-	const [open, setOpen] = useState(false);
+	const [open, setOpen] = useState(forceOpen !== false);
+	useEffect(() => {
+		if (forceOpen) setOpen(true);
+	}, [forceOpen]);
 	const rows = mergeReadGroupEntries(entries);
 	const pad = inset ? "py-0.5" : "ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-0.5";
 
