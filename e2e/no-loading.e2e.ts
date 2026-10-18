@@ -377,7 +377,9 @@ async function save(results: Results): Promise<void> {
 	await fs.mkdir(OUT, { recursive: true });
 	await fs.writeFile(path.join(OUT, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
 	const scenarios = [...new Set(Object.values(results).flatMap(subject => Object.keys(subject)))];
-	const keys = [
+	// A tab switch or a reconnect starts no page: what it reads is the waits, the shift and the empty frames.
+	const stateKeys = ["cls", "spinnerMs", "skeletonMs", "blankFrames", "transcriptEmptyFrames"];
+	const loadKeys = [
 		"shellMs",
 		"composerResponsiveMs",
 		"firstRowMs",
@@ -388,8 +390,14 @@ async function save(results: Results): Promise<void> {
 		"skeletonMs",
 		"blankFrames",
 	];
-	const lines = ["# Loading perf", "", `median of ${RUNS} runs per scenario; ms unless named`, ""];
+	const lines = [
+		"# Loading perf",
+		"",
+		`median of ${RUNS} runs per scenario; ms unless named; the fake omp boots in ${process.env.OMP_GUI_TEST_BOOT_DELAY_MS ?? "1500"} ms`,
+		"",
+	];
 	for (const scenario of scenarios) {
+		const keys = /switch|reconnect/.test(scenario) ? stateKeys : loadKeys;
 		lines.push(
 			`## ${scenario}`,
 			"",
