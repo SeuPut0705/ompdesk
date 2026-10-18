@@ -5634,6 +5634,9 @@ export const ko: Record<string, string> = {
 	"settings.agent.automation": "스마트 자동화",
 	"settings.gui.scheduledRetry": "일시 오류 뒤 자동 재시도",
 	"settings.gui.scheduledRetryDesc": "30초, 2분, 10분 간격으로 최대 3번 다시 시도해요",
+	"settings.gui.pstack": "pstack 엔지니어링 모드",
+	"settings.gui.pstackDesc":
+		"모든 대화에 엔지니어링 플레이북과 원칙(Lauren Tan의 pstack, MIT)을 적용해요. 간단한 질문엔 그냥 답해요. 끄면 pstack 스킬과 규칙을 쓰지 않아요.",
 	"settings.gui.autoMode": "자동 모드",
 	"settings.gui.autoModeDesc": "새 요청 하나에만 계획·목표를 써요. 내 모드는 바꾸지 않아요",
 	"settings.gui.autopilotShip": "오토파일럿 내보내기",

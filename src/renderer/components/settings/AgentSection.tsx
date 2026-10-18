@@ -8,6 +8,7 @@ import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
+import { PstackRow } from "./PstackRow";
 import { ScheduledRetryRow } from "./ScheduledRetryRow";
 import { SchemaField } from "./SchemaField";
 import { SettingsAdvanced, SettingsSection } from "./SettingsLayout";
@@ -70,6 +71,7 @@ export function AgentSection() {
 				<BatchNotificationsRow />
 				<ScheduledRetryRow />
 				<AutoModeRow />
+				<PstackRow />
 				<AutopilotSettingsRows />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>

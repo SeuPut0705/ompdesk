@@ -56,6 +56,7 @@ import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types"
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
+import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
 import { migrateThemeName } from "../shared/theme-names";
@@ -581,6 +582,7 @@ app.whenReady().then(() => {
 		builtinDir,
 		builtinReaPref: () => prefsStore().get(REA_PREF),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
+		pstackPref: () => prefsStore().get(PSTACK_PREF),
 		onReady: () => firstTabReady.resolve(),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,

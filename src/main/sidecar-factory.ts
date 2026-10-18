@@ -14,6 +14,7 @@ import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-c
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { agentControlEnabled } from "../shared/agent-control";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
+import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -35,6 +36,8 @@ export interface LocalSidecarDeps {
 	builtinReaPref: () => unknown;
 	/** Settings › Tools & extensions › OMPdesk control tools (`agentControl`, default on), read per use; absent = off (the caller that answers the tools supplies it). */
 	agentControlPref?: () => unknown;
+	/** Settings › Agent behavior › pstack engineering mode (`pstack`, default on), read per spawn; absent = off (tests only). */
+	pstackPref?: () => unknown;
 	/** A tab's session became ready (every time; the caller keeps what it needs). */
 	onReady?: () => void;
 	/** Proxy env per spawn (GUI pref → inherited env → system proxy). */
@@ -116,7 +119,14 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				// The control tools' skill loads with them; the tools themselves follow the switch live (hostTools).
 				const own =
 					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];
-				return { args: [...own, ...rea], ...(rea.length ? { root: reaRoot } : {}) };
+				const pstackRoot = join(deps.builtinDir, "pstack");
+				const pstack = deps.pstackPref && pstackEnabled(deps.pstackPref()) ? ["-e", pstackRoot] : [];
+				return {
+					args: [...own, ...rea, ...pstack],
+					...(rea.length ? { root: reaRoot } : {}),
+					// A chat (no project) keeps the pack's root but not its section text.
+					env: { OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0" },
+				};
 			},
 			hostTools: () => deps.agentControlPref !== undefined && agentControlEnabled(deps.agentControlPref()),
 			cwd,

@@ -187,6 +187,11 @@ describe("mac bundle configs", () => {
 				"rea/rea-config.json",
 				"rea/skills/reverse-engineer-anything/SKILL.md",
 				"rea/skills/reverse-engineer-anything/LICENSE",
+				"pstack/pstack-config.json",
+				"pstack/UPSTREAM-LICENSE",
+				"pstack/adapter.md",
+				"pstack/skills/poteto-mode/SKILL.md",
+				"pstack/agents/pstack-agent.md",
 				"skills/ompdesk/SKILL.md",
 			]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
@@ -194,6 +199,7 @@ describe("mac bundle configs", () => {
 				);
 			}
 		}
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/pstack/plugin.json"))).toBe(false);
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
@@ -206,7 +212,7 @@ describe("mac bundle configs", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
 		// `ai-memory/` holds only the version pin (scripts and the main process read it; no extension code).
-		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "rea", "skills"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "ai-memory"))).toEqual(["ai-memory.json"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");

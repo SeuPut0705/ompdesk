@@ -5654,6 +5654,9 @@ export const en: Record<string, string> = {
 	"settings.agent.automation": "Smart automation",
 	"settings.gui.scheduledRetry": "Retry after temporary errors",
 	"settings.gui.scheduledRetryDesc": "Waits 30 s, then 2 min, then 10 min (3 tries)",
+	"settings.gui.pstack": "pstack engineering mode",
+	"settings.gui.pstackDesc":
+		"Engineering playbooks and principles (pstack by Lauren Tan, MIT) in every conversation. Trivial questions still get a plain answer. Off: no pstack skills or rules.",
 	"settings.gui.autoMode": "Auto mode",
 	"settings.gui.autoModeDesc": "Uses Plan or Goal for one new request, never changes your mode",
 	"settings.gui.autopilotShip": "Autopilot shipping",

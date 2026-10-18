@@ -191,7 +191,7 @@ export interface SidecarOptions {
 	/** The gui-bridge extension directory. Absent: no `-e`, no bridge (tests). */
 	bridgeDir?: string;
 	/** Optional app-only MCP root, resolved before a spawn; never touches stock config. */
-	builtinMcp?: () => Promise<{ args: string[]; root?: string }>;
+	builtinMcp?: () => Promise<{ args: string[]; root?: string; env?: Record<string, string> }>;
 	/** Whether the OMPdesk control tools are registered with the GUI's host tools (Settings switch); default off. */
 	hostTools?: () => boolean;
 	cwd: string;
@@ -379,7 +379,7 @@ export class SidecarManager extends EventEmitter {
 	#options: SidecarOptions;
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
-	#builtinMcp: { args: string[]; root?: string } = { args: [] };
+	#builtinMcp: { args: string[]; root?: string; env?: Record<string, string> } = { args: [] };
 	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
 	#freshLaunchPending: boolean;
@@ -558,6 +558,7 @@ export class SidecarManager extends EventEmitter {
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
+					...this.#builtinMcp.env,
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",

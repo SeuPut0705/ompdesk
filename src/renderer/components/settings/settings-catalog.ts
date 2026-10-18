@@ -249,6 +249,12 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "inline completion ghost text complete as i type autocomplete 이어서 완성 입력 자동 완성 회색",
 	},
 	{
+		id: "pstack",
+		section: "agent",
+		labelKey: "settings.gui.pstack",
+		aliases: "pstack engineering mode playbooks principles skills rules poteto 엔지니어링 모드 플레이북 원칙 스킬 규칙",
+	},
+	{
 		id: "autoTitle",
 		section: "agent",
 		labelKey: "settings.gui.autoTitle",
