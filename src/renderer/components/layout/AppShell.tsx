@@ -88,7 +88,7 @@ const PAGE_LABEL_KEY: Record<PageDestination, string> = {
  * Settings, from the preloaded module when there is one. Through lazy() the
  * first open suspends even with the chunk already loaded, and React holds the
  * revealed page back behind the fallback for its Suspense throttle (~300 ms).
- * Picked once per mount, so a preload landing while the page is open never
+ * Picked once per mount (keyed by the destination: each page is its own mount), so a preload landing while the page is open never
  * remounts it.
  */
 function DestinationPage({ destination }: { destination: PageDestination }): ReactNode {
@@ -384,7 +384,7 @@ export function AppShell() {
 					>
 						<PageTopBar showSidebarToggle={!sidebarVisible} />
 						<Suspense fallback={<PageFrameSkeleton />}>
-							<DestinationPage destination={destination} />
+							<DestinationPage destination={destination} key={destination} />
 						</Suspense>
 					</section>
 				)}
