@@ -312,7 +312,7 @@ export function ExecutionGroup({
 						aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
 						className="omp-work-cause"
 						data-work-cause={error.cause ? "" : undefined}
-						data-work-chip="error"
+						data-work-finding="error"
 						onClick={() => show(error.toolCallId)}
 						title={error.cause ?? t("chat.work.cause.open")}
 						type="button"
@@ -324,7 +324,7 @@ export function ExecutionGroup({
 				{tests ? (
 					<button
 						className="omp-work-finding"
-						data-work-chip="tests"
+						data-work-finding="tests"
 						onClick={() => show(tests.toolCallId)}
 						title={t("chat.work.chip.testsOpen")}
 						type="button"
@@ -337,7 +337,7 @@ export function ExecutionGroup({
 				{changed ? (
 					<button
 						className="omp-work-finding"
-						data-work-chip="changes"
+						data-work-finding="changes"
 						onClick={() => setPanelTab("diff")}
 						title={t("chat.work.openChanges")}
 						type="button"
@@ -349,7 +349,7 @@ export function ExecutionGroup({
 				{previewUrl ? (
 					<button
 						className="omp-work-finding"
-						data-work-chip="preview"
+						data-work-finding="preview"
 						onClick={() => openPreview(previewUrl)}
 						title={t("chat.work.chip.previewOpen", { url: previewUrl })}
 						type="button"

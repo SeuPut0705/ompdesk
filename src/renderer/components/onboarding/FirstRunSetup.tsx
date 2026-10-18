@@ -24,7 +24,18 @@ import { useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, Kbd, ListRow, Modal, Spinner } from "../common";
+import {
+	Badge,
+	Banner,
+	BrandMark,
+	Button,
+	EmptyState,
+	ErrorDetail,
+	Kbd,
+	ListRow,
+	Modal,
+	SkeletonRows,
+} from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
 import { type ProviderCatalog, useProviderCatalog } from "../settings/providers/ProviderList";
 import { ProviderLoginPanel, useProviderLogin } from "../settings/providers/ProviderLogin";
@@ -169,9 +180,7 @@ function ConnectStep() {
 						{t("setup.configReadFailed")}
 					</Banner>
 				) : (
-					<div className="flex justify-center py-8">
-						<Spinner label={t("modelPicker.loading")} />
-					</div>
+					<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 				)}
 				<div>
 					<Button icon={<ArrowLeft />} onClick={() => setCustomForm(false)} variant="ghost">
@@ -396,9 +405,7 @@ function ModelStep() {
 
 			{ordered.length === 0 ? (
 				catalog.loading || catalog.refreshPending ? (
-					<div className="flex justify-center py-8">
-						<Spinner label={t("modelPicker.loading")} />
-					</div>
+					<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 				) : (
 					<EmptyState
 						actions={

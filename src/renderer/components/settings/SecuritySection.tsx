@@ -28,6 +28,7 @@ import {
 	Input,
 	ListRow,
 	Select,
+	SkeletonRows,
 	Spinner,
 } from "../common";
 import { SettingsSection } from "./SettingsLayout";
@@ -321,7 +322,7 @@ export function SecuritySection() {
 
 	let body: ReactNode;
 	if (loading && !dashboard) {
-		body = <Spinner className="w-full justify-center py-16" label={t("common.loading")} />;
+		body = <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 	} else if (!dashboard) {
 		body = (
 			<div className="py-3">

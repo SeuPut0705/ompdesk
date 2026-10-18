@@ -37,7 +37,6 @@ import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { SshPromptDialog } from "./components/settings/SshTools";
-import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
@@ -222,8 +221,6 @@ export function App() {
 	useRpcEvents();
 	// ⌃⇥ / tab overview order and ⌘[ ⌘] history.
 	useEffect(installTabHistory, []);
-	// A tab's last known transcript page paints as soon as the tab is listed (lib/transcript-snapshot.ts).
-	useEffect(installTranscriptSeeding, []);
 	useExtensionUi();
 	usePlanApproval();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.

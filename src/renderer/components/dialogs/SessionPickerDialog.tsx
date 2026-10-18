@@ -350,7 +350,7 @@ export function SessionPickerDialog() {
 											{t("sessionPicker.contentMatch")}
 										</Badge>
 									)}
-									{switching === session.path && <Spinner size="sm" />}
+									{switching === session.path && <Spinner size="sm" spin />}
 									{isCurrent && (
 										<Check aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)" />
 									)}

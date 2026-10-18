@@ -30,7 +30,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { Button, ConfirmDialog, EmptyState, IconButton, InlineNotice, SettingInfo, Spinner } from "../common";
+import { Button, ConfirmDialog, EmptyState, IconButton, InlineNotice, SettingInfo, SkeletonRows } from "../common";
 import { CustomRoleDialog, type CustomRoleFields } from "./CustomRoleDialog";
 import { ModelRoleRow, type RoleAgents } from "./ModelRoleRow";
 import { SettingsSection } from "./SettingsLayout";
@@ -266,7 +266,9 @@ export function ModelRolesSection() {
 					tone="danger"
 				/>
 			)}
-			{loading && !hasRows && <Spinner className="w-full justify-center py-6" label={t("common.loading")} />}
+			{loading && !hasRows && (
+				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
+			)}
 			{sidecarReady && loaded && !loading && error === null && !hasRows && (
 				<EmptyState icon={<Tags />} size="sm" title={t("modelRoles.empty")} />
 			)}

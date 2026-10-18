@@ -108,7 +108,7 @@ for (const fail of shots ? [false, true] : []) {
 					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
 					await card.locator(".omp-execution-group-header").first().click();
 					await expect(card.locator(".omp-execution-group-body")).toHaveCount(0);
-					await card.locator(fail ? '[data-work-chip="error"]' : '[data-work-chip="tests"]').click();
+					await card.locator(fail ? '[data-work-finding="error"]' : '[data-work-finding="tests"]').click();
 					const target = card.locator(".omp-tool-card").filter({ hasText: fail ? "check:types" : "vitest" });
 					await expect(target.locator("button[aria-expanded]").first()).toHaveAttribute("aria-expanded", "true");
 					await expect(target).toBeInViewport();

@@ -3,8 +3,13 @@
  * records what a person sees while the app comes up or switches. Pure observation, no app hooks.
  *
  * - `fcp`, `lcp`: paint entries (ms since navigation start).
- * - `shellAt`: the first frame that holds the real layout (`.omp-shell`), i.e. the first meaningful paint of the
- *   app. `splashUntil`: the frame the brand mark of index.html/web.html was replaced.
+ * - `bootAt`: the first frame that holds the page's own boot skeleton (`.boot-shell`, painted from HTML/CSS before
+ *   any script). `shellAt`: the first frame that holds the React layout (`.omp-shell`). `splashUntil`: the frame the
+ *   boot skeleton was replaced. `bootShift`: the largest distance (px) between the boot skeleton's sidebar, top bar
+ *   and composer box and the React ones that replaced them (`null` when either never showed): the skeleton is the
+ *   real layout when it is 0.
+ * - `titleAt`: the first frame the title bar names a tab; `selectedAt`: the first frame the sidebar marks the open
+ *   session (both come from the tab snapshot, before the tab list answers).
  * - `composerAt` / `composerResponsiveAt`: the composer input is in the DOM / a message posted after it ran.
  * - `rowAt`: the first transcript row painted.
  * - `cls`: layout shifts without a recent input (the Layout Instability API), summed.
@@ -19,7 +24,7 @@ export const LOADING_PROBE = `(() => {
 	if (window.__nl) return;
 	const now = () => performance.now();
 	const nl = (window.__nl = {
-		fcp: null, lcp: null, shellAt: null, splashUntil: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
+		fcp: null, lcp: null, bootAt: null, shellAt: null, splashUntil: null, titleAt: null, selectedAt: null, bootShift: null, bootDetail: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
 		cls: 0, shifts: [], spinnerMs: 0, spinnerFrames: 0, spinnerFirstAt: null, skeletonMs: 0, skeletonFrames: 0,
 		blankFrames: 0, transcriptEmptyFrames: 0, frames: 0, samples: [], spinners: [],
 	});
@@ -45,15 +50,36 @@ export const LOADING_PROBE = `(() => {
 		}
 		return found;
 	};
+	const GEOMETRY = [
+		[".boot-shell .omp-session-sidebar", ".omp-shell .omp-session-sidebar"],
+		[".boot-shell .omp-topbar", ".omp-shell .omp-topbar"],
+		[".boot-shell .omp-composer-box", ".omp-shell .omp-composer-box"],
+	];
+	const rectOf = selector => { const el = document.querySelector(selector); if (!el) return null; const b = el.getBoundingClientRect(); return b.width > 0 || b.height > 0 ? [b.x, b.y, b.width, b.height] : null; };
+	let bootRects = null;
 	let last = 0;
 	const tick = t => {
 		const dt = last ? t - last : 0;
 		last = t;
 		nl.frames++;
 		const root = document.getElementById("root");
-		const splash = !!root && !!root.querySelector(".boot-mark");
+		const boot = !!document.querySelector(".boot-shell");
+		const splash = boot || (!!root && !!root.querySelector(".boot-mark"));
 		const shell = !!document.querySelector(".omp-shell");
+		if (boot && nl.bootAt === null) nl.bootAt = t;
+		if (boot) bootRects = GEOMETRY.map(([b]) => rectOf(b));
 		if (shell && nl.shellAt === null) nl.shellAt = t;
+		if (shell && nl.titleAt === null) { const id = document.querySelector(".omp-shell .omp-titlebar-identity"); if (id && (id.textContent || "").trim()) nl.titleAt = t; }
+		if (shell && nl.selectedAt === null && document.querySelector(".omp-shell .omp-session-sidebar [data-session-path][data-current]")) nl.selectedAt = t;
+		if (shell && nl.bootShift === null && bootRects) {
+			const reactRects = GEOMETRY.map(([, r]) => rectOf(r));
+			// The composer box mounts a frame after the shell: wait for it; the sidebar is absent on a phone (both).
+			if (reactRects[1] && reactRects[2]) {
+				let worst = 0;
+				GEOMETRY.forEach((_, i) => { const a = bootRects[i], b = reactRects[i]; if (a && b) for (let k = 0; k < 4; k++) worst = Math.max(worst, Math.abs(a[k] - b[k])); else if (!!a !== !!b) worst = Math.max(worst, 999); });
+				nl.bootShift = Math.round(worst * 100) / 100; nl.bootDetail = JSON.stringify({ boot: bootRects, react: reactRects });
+			}
+		}
 		if (!splash && nl.splashUntil === null && nl.frames > 1 && root && root.childElementCount > 0) nl.splashUntil = t;
 		if (document.querySelector("[data-composer-input]") && nl.composerAt === null) {
 			nl.composerAt = t;
@@ -79,8 +105,14 @@ export const LOADING_PROBE = `(() => {
 export interface LoadingReading {
 	fcp: number | null;
 	lcp: number | null;
+	bootAt: number | null;
 	shellAt: number | null;
 	splashUntil: number | null;
+	titleAt: number | null;
+	selectedAt: number | null;
+	bootShift: number | null;
+	/** The rects behind `bootShift` (boot, then React), for a failing audit. */
+	bootDetail: string | null;
 	composerAt: number | null;
 	composerResponsiveAt: number | null;
 	rowAt: number | null;

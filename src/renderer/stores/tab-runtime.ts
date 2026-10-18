@@ -18,6 +18,7 @@ import {
 import { createSettingsStore } from "./settings";
 import { createSubagentGraphStore } from "./subagent-graph";
 import { createSubagentsStore, type SubagentsStore } from "./subagents";
+import { tabReady } from "./tab-ready-gate";
 import { createTodoStore } from "./todo";
 import { createToolsStore } from "./tools";
 
@@ -59,6 +60,12 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 		if (changesSession) generation++;
 		const requestGeneration = generation;
 		const origin = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
+		// A tab whose omp is still starting holds the command back (tab-ready-gate.ts); one that is not goes out now.
+		const starting = tabReady(tabId);
+		if (starting) {
+			await starting;
+			if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
+		}
 		const response = await window.omp.rpc.commandForTab(tabId, rpcCommand, timeoutMs);
 		// Session metadata can retire this runtime before its own lifecycle ACK.
 		// Preserve the execution outcome; callers guard any subsequent UI writes.

@@ -10,7 +10,7 @@ import type { InlineFailure } from "../../../lib/error-detail";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useFocusedTabDevice, useHostView } from "../../../stores/remote";
-import { Button, IconButton, InlineNotice, Spinner } from "../../common";
+import { Button, IconButton, InlineNotice, Skeleton } from "../../common";
 import { PathLink } from "../../tools/media/PathLink";
 
 export interface FileInfo {
@@ -29,9 +29,18 @@ export function useReportFileInfo(size: number | null, mime?: string): void {
 	}, [report, size, mime]);
 }
 
+const VIEWER_SKELETON_WIDTHS = [48, 72, 64, 36, 80, 58, 44, 68, 52, 76] as const;
+
 export function ViewerLoading() {
 	const t = useT();
-	return <Spinner className="p-4" label={t("filesPanel.reading")} size="sm" />;
+	// The shape of a file: code lines as flat bars, so the text lands where they were.
+	return (
+		<div aria-label={t("filesPanel.reading")} className="flex flex-col gap-2 p-4" role="status">
+			{VIEWER_SKELETON_WIDTHS.map((width, index) => (
+				<Skeleton className="h-3" key={`${index}-${width}`} style={{ width: `${width}%` }} />
+			))}
+		</div>
+	);
 }
 
 export function ViewerFailure({ failure }: { failure: InlineFailure }) {

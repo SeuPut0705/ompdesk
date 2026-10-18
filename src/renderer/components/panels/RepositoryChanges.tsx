@@ -4,8 +4,10 @@ import { isConflictStatus, stagedState } from "../../../shared/git-status";
 import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint } from "../../../shared/rpc-types";
 import { parseDiff } from "../../lib/diff";
 import { errorDetail } from "../../lib/error-detail";
+import { useFocusedScope } from "../../lib/focused-scope";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { lastRead, rememberRead } from "../../lib/last-read";
 import type { TabRpc } from "../../lib/tab-rpc";
 import { useTabRpc } from "../../lib/tab-rpc";
 import {
@@ -19,11 +21,11 @@ import {
 	IconButton,
 	InlineNotice,
 	SearchField,
-	Spinner,
+	SkeletonRows,
 } from "../common";
 import { ChangeCounts, PanelListRow, PanelToolbar } from "./PanelChrome";
 import { CommitBox } from "./scm/CommitBox";
-import { DiffLines, VirtualRows } from "./scm/DiffLines";
+import { DiffLines, DiffSkeleton, VirtualRows } from "./scm/DiffLines";
 import { NameDialog, type NameRequest } from "./scm/NameDialog";
 import { SourceControlBar } from "./scm/SourceControlBar";
 import { useScmAction } from "./scm/use-scm-action";
@@ -85,7 +87,13 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	const t = useT();
 	const rpc = useTabRpc();
 	const [refresh, setRefresh] = useState(0);
-	const [changes, setChanges] = useState<RpcGitChanges | null>(null);
+	const { device, cwd } = useFocusedScope();
+	const changesKey = `scm:changes:${cwd}`;
+	// The last list of this checkout paints at the first frame; the first read below replaces it in place.
+	const [changes, setChanges] = useState<RpcGitChanges | null>(
+		() => lastRead<RpcGitChanges>(device, changesKey) ?? null,
+	);
+	const seeded = useRef(changes !== null);
 	const [selected, setSelected] = useState("");
 	const [preview, setPreview] = useState<RpcGitDiff | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -109,8 +117,11 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		let active = true;
 		setLoading(true);
 		if (loadedFor.current !== rpc) {
-			setChanges(null);
-			setSelected("");
+			if (seeded.current) seeded.current = false;
+			else {
+				setChanges(lastRead<RpcGitChanges>(device, changesKey) ?? null);
+				setSelected("");
+			}
 		}
 		setError(null);
 		void Promise.resolve()
@@ -127,6 +138,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				const data = response.data as RpcGitChanges;
 				loadedRoot.current = { rpc, root: data.root };
 				setChanges(data);
+				rememberRead(device, changesKey, data);
 				setSelected(previous => (data.files.some(file => file.path === previous) ? previous : ""));
 			})
 			.catch(cause => {
@@ -138,7 +150,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		return () => {
 			active = false;
 		};
-	}, [rpc, refresh, t]);
+	}, [rpc, refresh, t, device, changesKey]);
 	// The checkout changes under an open panel (the agent edits, the user saves in Files or an editor): ask git
 	// for a cheap fingerprint (two processes) while the window shows and when it comes back, and read the whole
 	// checkout again only when that moved. A hidden window polls nothing.
@@ -181,7 +193,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		let active = true;
 		// A reload of the same file keeps its diff on screen (and its scroll) until the new one arrives.
 		const same = previewFor.current?.rpc === rpc && previewFor.current.path === selected;
-		if (!same) setPreview(null);
+		if (!same) setPreview(selected ? (lastRead<RpcGitDiff>(device, `scm:diff:${cwd}:${selected}`) ?? null) : null);
 		previewFor.current = selected ? { rpc, path: selected } : null;
 		if (!selected) return;
 		setError(null);
@@ -190,7 +202,9 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-				setPreview(response.data as RpcGitDiff);
+				const data = response.data as RpcGitDiff;
+				setPreview(data);
+				rememberRead(device, `scm:diff:${cwd}:${selected}`, data, false);
 			})
 			.catch(cause => {
 				if (active) setError(errorDetail(cause));
@@ -198,7 +212,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		return () => {
 			active = false;
 		};
-	}, [rpc, selected, refresh, t]);
+	}, [rpc, selected, refresh, t, device, cwd]);
 	const files = changes?.files.filter(file => file.path.toLocaleLowerCase().includes(query.toLocaleLowerCase())) ?? [];
 	const current = changes?.files.find(file => file.path === selected);
 	const position = files.findIndex(file => file.path === selected);
@@ -285,7 +299,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				<CommitBox branch={head.branch} conflicts={conflicts} rpc={rpc} runner={runner} staged={staged} />
 			)}
 			{loading && !changes ? (
-				<Spinner className="px-3 py-2" label={t("common.loading")} size="sm" />
+				<SkeletonRows className="px-3 py-2" label={t("common.loading")} widths={[56, 70, 48, 64, 52, 60]} />
 			) : changes && !changes.isRepo ? (
 				<EmptyState icon={<FolderGit2 />} size="sm" title={t("diffPanel.notRepoTitle")} />
 			) : changes?.files.length === 0 ? (
@@ -462,7 +476,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 									<CopyButton disabled={!preview?.diff} label={t("diff.copy")} text={preview?.diff ?? ""} />
 								</div>
 								{!preview && !error ? (
-									<Spinner className="p-3" label={t("common.loading")} size="sm" />
+									<DiffSkeleton label={t("common.loading")} />
 								) : preview?.kind === "text" ? (
 									<DiffLines lines={lines} path={selected} scroller={previewScroller} />
 								) : (

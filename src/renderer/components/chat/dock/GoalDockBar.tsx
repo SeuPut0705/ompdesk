@@ -108,7 +108,7 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 				disabled={busy !== null}
 				icon={
 					busy === "pause" || busy === "resume" ? (
-						<Spinner inheritColor size="sm" />
+						<Spinner inheritColor size="sm" spin />
 					) : paused ? (
 						<Play />
 					) : (

@@ -10,7 +10,7 @@ import { memo, type ReactNode, type RefObject, useEffect, useState } from "react
 import { useT } from "../../lib/i18n";
 import { svgDataUrl } from "../../lib/svg-preview";
 import type { ResolvedTheme } from "../../lib/theme";
-import { Spinner } from "../common/Spinner";
+import { Skeleton } from "../common/Skeleton";
 import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
 import { Figure, type FigureMode } from "./Figure";
 
@@ -294,12 +294,13 @@ export const MermaidBlock = memo(function MermaidBlock({
 	// SSR / non-DOM path or a diagram mermaid rejects: the source, still in the box.
 	if (typeof window === "undefined" || current.failed) return <Figure {...common} preview={null} />;
 	if (svg === null) {
+		// Still rendering: a flat box where the diagram lands (the header and its toggles are already there).
 		return (
 			<Figure
 				{...common}
 				preview={() => (
-					<div className="flex items-center justify-center px-3 py-6">
-						<Spinner size="md" label={t("chat.renderingDiagram")} />
+					<div aria-label={t("chat.renderingDiagram")} className="px-3 py-6" role="status">
+						<Skeleton className="h-10 w-full" />
 					</div>
 				)}
 			/>

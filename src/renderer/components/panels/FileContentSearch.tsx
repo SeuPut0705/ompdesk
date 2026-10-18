@@ -10,7 +10,7 @@ import type { IpcFsSearchResult } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
-import { EmptyState, IconButton, InlineNotice, SearchField, Spinner } from "../common";
+import { EmptyState, IconButton, InlineNotice, SearchField, SkeletonRows } from "../common";
 
 /** Pause after the last keystroke before a search runs. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -129,10 +129,10 @@ export function FileContentSearch({ tabId, focusSeq }: { tabId: string | undefin
 				{state.status === "idle" ? (
 					<EmptyState icon={<FileText />} size="sm" title={t("filesPanel.contentSearch.hint")} />
 				) : state.status === "searching" ? (
-					<Spinner
-						className="w-full justify-center py-8"
+					<SkeletonRows
+						className="py-1"
 						label={t("filesPanel.contentSearch.searching")}
-						size="sm"
+						widths={[64, 48, 72, 40, 58]}
 					/>
 				) : state.status === "error" ? (
 					<div className="p-3">

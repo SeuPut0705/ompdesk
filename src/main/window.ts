@@ -66,6 +66,11 @@ export interface WindowRecord {
 	pendingSessionPath?: string;
 	/** The window has the Mica backdrop: its renderer loads with `?mica=1` and lets it through. */
 	mica: boolean;
+	/**
+	 * Creation order among the open windows (the lowest free number): a renderer loads with `?slot=N` and paints
+	 * the tab strip its slot had last time before the tab list answers (renderer/lib/tab-snapshot.ts).
+	 */
+	slot: number;
 }
 
 /**
@@ -180,6 +185,7 @@ export class WindowManager {
 			cwd,
 			pendingSessionPath: opts.pendingSessionPath,
 			mica,
+			slot: this.#freeSlot(),
 		};
 		this.#records.set(record.id, record);
 		this.#observeRuntimeFailures(record);
@@ -338,11 +344,19 @@ export class WindowManager {
 		});
 	}
 
-	#loadRenderer({ win, mica }: WindowRecord): void {
+	/** The lowest slot no open window holds. */
+	#freeSlot(): number {
+		const taken = new Set([...this.#records.values()].map(record => record.slot));
+		let slot = 0;
+		while (taken.has(slot)) slot++;
+		return slot;
+	}
+
+	#loadRenderer({ win, mica, slot }: WindowRecord): void {
 		// OMP_GUI_STYLEGUIDE=1 opens the internal design style guide instead of the app.
 		const hash = process.env.OMP_GUI_STYLEGUIDE === "1" ? "/styleguide" : undefined;
 		// `mica=1`: the window has the Mica backdrop, so the renderer lets it through.
-		const query: Record<string, string> = mica ? { mica: "1" } : {};
+		const query: Record<string, string> = { slot: String(slot), ...(mica ? { mica: "1" } : {}) };
 		if (process.env.ELECTRON_RENDERER_URL) {
 			const url = new URL(process.env.ELECTRON_RENDERER_URL);
 			for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);

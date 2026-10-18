@@ -251,7 +251,7 @@ function CustomEndpoints({
 									leading={<ProviderMark neutral provider={{ id: config.id, name: config.id }} />}
 									meta={
 										busyProvider === config.id ? (
-											<Spinner size="sm" />
+											<Spinner size="sm" spin />
 										) : provider === undefined ? (
 											<CircleDashed aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />
 										) : undefined

@@ -61,6 +61,7 @@ import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
 import { webRuntime } from "../web/runtime";
 import { type ComposerImage, type ComposerStore, prependToDraft, useComposerStore } from "./composer";
@@ -83,6 +84,7 @@ import {
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
 } from "./session-runtime-context";
+import { installTabReadyGate, READY_WAIT_CAP_MS } from "./tab-ready-gate";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
 import { useUiStore } from "./ui";
@@ -134,6 +136,29 @@ export interface SessionTab {
 	shared?: true;
 	/** How many windows besides the owner show this tab; absent when none does. Main's list is the authority. */
 	viewerCount?: number;
+	/**
+	 * A tab of the last run, painted from the tab snapshot until `tabs.list` answers (lib/tab-snapshot.ts): its id is
+	 * the old one, nothing runs behind it. The list adopts it into the real tab of the same session or drops it.
+	 */
+	ghost?: true;
+}
+
+/** The tabs of the last run as ghosts, their first-frame state; null on a first start. */
+function ghostTabs(): { tabs: SessionTab[]; activeTabId: string | null } | null {
+	const snapshot = readTabSnapshot();
+	if (!snapshot) return null;
+	const tabs = snapshot.tabs.map(
+		(entry): SessionTab => ({ ...entry, status: "starting", unreadDone: false, ghost: true }),
+	);
+	return { tabs, activeTabId: snapshot.activeTabId };
+}
+
+/** The real tab of `info` among the ghosts: the same session file, or (no file yet) the next blank one in order. */
+function takeGhost(ghosts: SessionTab[], info: IpcTabInfo): SessionTab | undefined {
+	const index = info.sessionPath
+		? ghosts.findIndex(ghost => ghost.sessionPath === info.sessionPath && ghost.device === info.device)
+		: ghosts.findIndex(ghost => !ghost.sessionPath && !ghost.sessionId && ghost.device === info.device);
+	return index === -1 ? undefined : ghosts.splice(index, 1)[0];
 }
 
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
@@ -473,9 +498,11 @@ export interface TabsStore {
 	reset: () => void;
 }
 
+const restored = ghostTabs();
+
 export const useTabsStore = create<TabsStore>()((set, get) => ({
-	tabs: [],
-	activeTabId: null,
+	tabs: restored?.tabs ?? [],
+	activeTabId: restored?.activeTabId ?? null,
 	bundles: new Map(),
 	split: null,
 	rememberedSplits: [],
@@ -494,7 +521,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (dropUnlisted) {
 			// Outside set(): dropping a runtime fires the focus listeners synchronously (see applyTabStatus).
 			const keep = new Set(list.map(info => info.tabId));
-			const gone = get().tabs.filter(tab => !keep.has(tab.id));
+			const gone = get().tabs.filter(tab => !keep.has(tab.id) && !tab.ghost);
 			if (gone.length > 0) {
 				set(state => ({ tabs: state.tabs.filter(tab => keep.has(tab.id)) }));
 				for (const tab of gone) deleteSessionRuntime(tab.id);
@@ -503,7 +530,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A paired web window starts with no tab (the host makes none for it, unlike a desktop window): without one the
 		// page would show a header and a spinner forever. It gets the same empty start tab a desktop window opens
 		// (no session until its first message), in the host's default workspace.
-		if (webRuntime() && list.length === 0 && get().tabs.length === 0 && !openingStartTab) {
+		if (webRuntime() && list.length === 0 && get().tabs.every(tab => tab.ghost) && !openingStartTab) {
 			openingStartTab = true;
 			try {
 				await get().openTab({ work: true, placeholder: true });
@@ -514,11 +541,23 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		// A web page keeps its own done marks across reloads (lib/unread-marks.ts); the desktop's live in memory.
 		const savedMarks = webRuntime() ? readUnreadMarks() : null;
+		const ghosts = get().tabs.filter(tab => tab.ghost);
 		set(state => {
-			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
+			const leftovers = new Map(state.tabs.filter(tab => !tab.ghost).map(tab => [tab.id, tab]));
+			const unclaimed = state.tabs.filter(tab => tab.ghost);
+			const adopted = new Map<string, string>();
 			const merged: SessionTab[] = list.map(info => {
-				const existing = leftovers.get(info.tabId);
+				let existing = leftovers.get(info.tabId);
 				leftovers.delete(info.tabId);
+				if (!existing) {
+					// The ghost of this session becomes the real tab: same place in the strip, same selection.
+					const ghost = takeGhost(unclaimed, info);
+					if (ghost) {
+						adopted.set(ghost.id, info.tabId);
+						const { ghost: _ghost, ...plain } = ghost;
+						existing = plain;
+					}
+				}
 				const sessionChanged = tabSessionChanged(existing, info);
 				if (sessionChanged) {
 					replaceTabRuntime(info.tabId);
@@ -540,9 +579,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// survive appended at the end.
 			const tabs = dropUnlisted ? merged : [...merged, ...leftovers.values()];
 			const mainActiveTabId = list.find(info => info.active)?.tabId;
+			const wantedActive = (state.activeTabId && adopted.get(state.activeTabId)) || state.activeTabId;
 			const activeTabId =
-				state.activeTabId && tabs.some(tab => tab.id === state.activeTabId)
-					? state.activeTabId
+				wantedActive && tabs.some(tab => tab.id === wantedActive)
+					? wantedActive
 					: mainActiveTabId && tabs.some(tab => tab.id === mainActiveTabId)
 						? mainActiveTabId
 						: (tabs[0]?.id ?? null);
@@ -566,6 +606,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			mainRemembersSplits = fromMain.length > 0;
 			return { tabs, activeTabId, split, rememberedSplits };
 		});
+		// A ghost is gone by now, adopted or not: its runtime (the seeded transcript) goes with it.
+		for (const ghost of ghosts) if (!get().tabs.some(tab => tab.id === ghost.id)) deleteSessionRuntime(ghost.id);
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
 		setFocusedSessionRuntime(activeTabId);
@@ -693,7 +735,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const before = get();
 		if (id === before.activeTabId) return;
 		const target = before.tabs.find(tab => tab.id === id);
-		if (!target) return;
+		// A ghost is only a picture of last time's tab: main does not know it yet.
+		if (!target || target.ghost) return;
 		ensureTabRuntime(id);
 		const request = ++switchRequest;
 		// Main forwards session events only for visible tabs, so a tab that ran out of view
@@ -836,7 +879,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const state = get();
 		if (state.tabs.length <= 1) return;
 		const index = state.tabs.findIndex(tab => tab.id === id);
-		if (index === -1) return;
+		if (index === -1 || state.tabs[index]?.ghost) return;
 		// Unsaved Files edits belong to this tab: closing it would drop them, so the editor's discard confirm asks first
 		// and the side panel closes the tab once the user agrees.
 		const ui = useUiStore.getState();
@@ -1098,6 +1141,38 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		});
 	},
 }));
+
+// The restored active tab is the focused runtime from the first render on (its seeded transcript renders in it).
+if (restored?.activeTabId) setFocusedSessionRuntime(restored.activeTabId);
+
+// The strip as of now is the next start's first frame (lib/tab-snapshot.ts); ghosts are never written back.
+useTabsStore.subscribe(state => {
+	if (state.tabs.length === 0 || state.tabs.some(tab => tab.ghost)) return;
+	rememberTabs(() => {
+		const { tabs, activeTabId } = useTabsStore.getState();
+		if (tabs.some(tab => tab.ghost)) return null;
+		return { tabs: limitTabs(tabs.map(tabSnapshotEntry)), activeTabId };
+	});
+});
+
+// A command for a tab whose omp is still starting waits for it (tab-runtime.ts): a new session's composer works at
+// once and the first message leaves when the omp is ready. A tab that is gone, failed or exited releases it too;
+// the command then fails the way it always did, and the composer restores the draft.
+installTabReadyGate(tabId => {
+	const starting = () => useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.status === "starting";
+	if (!starting()) return null;
+	return new Promise<void>(resolve => {
+		const release = () => {
+			clearTimeout(cap);
+			off();
+			resolve();
+		};
+		const off = useTabsStore.subscribe(() => {
+			if (!starting()) release();
+		});
+		const cap = setTimeout(release, READY_WAIT_CAP_MS);
+	});
+});
 
 // A run starting in any tab — background ones included, whose agent_start never
 // reaches the renderer — makes that session's remembered suggestion stale. It lives

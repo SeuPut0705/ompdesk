@@ -72,7 +72,7 @@ export function ConnectedRow({
 				{quota}
 				<span className="order-3 flex size-(--sc-control-sm) shrink-0 items-center justify-center @xl:order-4">
 					{busy ? (
-						<Spinner size="sm" />
+						<Spinner size="sm" spin />
 					) : (
 						menu.length > 0 && (
 							<MenuButton

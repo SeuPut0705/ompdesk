@@ -17,7 +17,7 @@ import { useNowTick } from "../../lib/now-tick";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
+import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, SkeletonRows } from "../common";
 import { PANEL_ROW_SURFACE, PanelToolbar } from "./PanelChrome";
 
 const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
@@ -26,6 +26,9 @@ const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
 	failed: "error",
 	cancelled: "warning",
 };
+
+/** Job rows' first visit: the shape of a short list (a name bar per row), nothing turning. */
+const JOB_SKELETON_WIDTHS = [58, 72, 46] as const;
 
 export function JobsPanel() {
 	const t = useT();
@@ -161,9 +164,7 @@ export function JobsPanel() {
 				</Banner>
 			)}
 			{loading ? (
-				<div className="flex flex-1 items-center justify-center py-8">
-					<Spinner label={t("jobs.loading")} size="sm" />
-				</div>
+				<SkeletonRows className="px-1 py-2" label={t("jobs.loading")} widths={JOB_SKELETON_WIDTHS} />
 			) : jobs.length === 0 ? (
 				!error && (
 					<EmptyState

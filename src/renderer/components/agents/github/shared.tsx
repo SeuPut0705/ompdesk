@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, CircleDot, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, CircleDot, XCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import type { GithubTarget } from "../../../../shared/github";
 import { cx } from "../../../lib/format";
@@ -90,7 +90,7 @@ export function RunState({ status, conclusion }: { status: string; conclusion: s
 	const t = useT();
 	const [Icon, className, key] =
 		status !== "completed"
-			? [Loader2, "text-(--sc-warning)", "github.runs.running"]
+			? [CircleDot, "text-(--sc-warning)", "github.runs.running"]
 			: conclusion === "success"
 				? [CheckCircle2, "text-(--sc-success)", "github.runs.success"]
 				: conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure"

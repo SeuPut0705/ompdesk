@@ -18,7 +18,7 @@ import type { RpcContextInspectResult } from "../../../shared/rpc-types";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Banner, Button, ErrorDetail, Spinner } from "../common";
+import { Banner, Button, ErrorDetail, SkeletonRows } from "../common";
 import { CATEGORY_COLOR, CONTEXT_CATEGORIES, ContextInspector } from "./ContextInspector";
 
 interface CategoryRow {
@@ -59,11 +59,7 @@ export function ContextBreakdown({ refreshKey = 0 }: { refreshKey?: number }) {
 	}, [tabRpc.getContextInspect, refreshKey]);
 
 	if (loading && !report) {
-		return (
-			<div className="flex justify-center py-6">
-				<Spinner label={t("contextReport.loading")} />
-			</div>
-		);
+		return <SkeletonRows className="py-2" label={t("contextReport.loading")} widths={[60, 44, 70, 52]} />;
 	}
 	if (error) {
 		return (

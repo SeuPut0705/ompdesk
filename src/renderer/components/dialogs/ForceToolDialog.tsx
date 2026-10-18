@@ -15,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, InlineNotice, Input, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, InlineNotice, Input, Modal, SearchField, SkeletonRows } from "../common";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -171,9 +171,7 @@ export function ForceToolDialog() {
 				/>
 				<div className="min-h-32 max-h-[36dvh] flex-1 overflow-y-auto rounded-(--sc-radius-md) p-1">
 					{loading ? (
-						<div className="flex h-32 items-center justify-center">
-							<Spinner label={t("modelPicker.loading")} />
-						</div>
+						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : loadError ? (
 						<InlineNotice className="p-3" detail={loadError.cause} live title={loadError.message} tone="danger" />
 					) : filtered.length === 0 ? (

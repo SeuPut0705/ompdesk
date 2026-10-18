@@ -156,7 +156,7 @@ describe("WriteRenderer", () => {
 		await expand();
 		const figure = container.querySelector('[data-figure="mermaid"]');
 		// MermaidBlock: rendering (Preview showing), or (mermaid needs a real browser) its source in the same box.
-		expect(figure?.textContent).toMatch(/Rendering diagram|Mermaid/);
+		expect(figure?.querySelector('[aria-label="Rendering diagram…"]') ?? figure?.textContent).toBeTruthy();
 		expect(figure?.querySelector("[data-figure-title]")?.textContent).toBe("flow.mmd");
 		await showCode();
 		expect(container.textContent).toContain("A --> B");

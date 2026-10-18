@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Button, EmptyState, SearchField, Spinner } from "../../common";
+import { Button, EmptyState, SearchField, SkeletonRows, Spinner } from "../../common";
 import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
@@ -55,9 +55,7 @@ export function ProviderPicker({
 				value={query}
 			/>
 			{loading && providers.length === 0 ? (
-				<div className="flex justify-center py-6">
-					<Spinner label={t("providerList.loading")} />
-				</div>
+				<SkeletonRows className="py-2" label={t("providerList.loading")} widths={[60, 44, 70, 52]} />
 			) : available.length === 0 ? (
 				<EmptyState
 					actions={
@@ -94,7 +92,7 @@ export function ProviderPicker({
 								>
 									<ProviderMark provider={provider} />
 									<span className="min-w-0 flex-1 truncate">{provider.name}</span>
-									{busy && <Spinner size="sm" />}
+									{busy && <Spinner size="sm" spin />}
 								</button>
 							</li>
 						);

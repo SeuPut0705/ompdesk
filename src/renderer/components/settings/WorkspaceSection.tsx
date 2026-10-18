@@ -20,7 +20,17 @@ import {
 	removeWorkspaceDirectory,
 } from "../../lib/workspace-dirs";
 import { useSessionStore } from "../../stores/session";
-import { Badge, Banner, Button, ConfirmDialog, EmptyState, ErrorDetail, IconButton, ListRow, Spinner } from "../common";
+import {
+	Badge,
+	Banner,
+	Button,
+	ConfirmDialog,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	ListRow,
+	SkeletonRows,
+} from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export function WorkspaceSection() {
@@ -136,9 +146,7 @@ export function WorkspaceSection() {
 				</Banner>
 			)}
 			{loading && directories.length === 0 ? (
-				<div className="flex justify-center py-8">
-					<Spinner />
-				</div>
+				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 			) : directories.length > 0 ? (
 				<div className="py-2">
 					{directories.map(directory => (

@@ -177,7 +177,7 @@ export function PlanApprovalDialog() {
 	const showRefine = pending.options.length === 0 || pending.options.includes("refine");
 	const busy = submitting !== null;
 	const hasFeedback = feedback.trim().length > 0;
-	const spinner = <Spinner size="sm" />;
+	const spinner = <Spinner size="sm" spin />;
 
 	const choices: Choice[] = [
 		...approveOptions.map(option => ({

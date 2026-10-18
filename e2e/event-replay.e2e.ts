@@ -65,7 +65,7 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 		await expect(page.locator(".omp-execution-group-header[aria-label*='running']")).toHaveCount(0);
 		// Three commands: one type check, which reads as its result, and two others.
 		await expect(page.locator(".omp-execution-group-summary").last()).toContainText("types OK · 2 commands");
-		await expect(page.locator('[data-work-chip="changes"]').last()).toBeVisible();
+		await expect(page.locator('[data-work-finding="changes"]').last()).toBeVisible();
 		if (process.env.OMP_GUI_WORK_CARD_SHOTS)
 			await page
 				.locator(".omp-execution-group")

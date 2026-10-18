@@ -3142,8 +3142,8 @@ export const en: Record<string, string> = {
 
 	// Chat stream / message chrome
 	"chat.copyCode": "Copy code",
-	"chat.renderingDiagram": "Rendering diagram…",
 	"chat.diagram": "Diagram",
+	"chat.renderingDiagram": "Rendering diagram…",
 	"svgPreview.image": "SVG image",
 	"svgPreview.mode": "Preview or code",
 	"svgPreview.preview": "Preview",

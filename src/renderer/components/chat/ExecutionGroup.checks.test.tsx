@@ -113,7 +113,7 @@ describe("work card findings", () => {
 
 	it("offers Changes for a run that edited files and opens the diff view", async () => {
 		await mount([["edit-1", edit]]);
-		const chip = container.querySelector('[data-work-chip="changes"]') as unknown as HTMLElement;
+		const chip = container.querySelector('[data-work-finding="changes"]') as unknown as HTMLElement;
 		await act(async () => chip.dispatchEvent(new Event("click", { bubbles: true }) as never));
 		expect(useUiStore.getState()).toMatchObject({ panelTab: "diff", panelVisible: true });
 	});

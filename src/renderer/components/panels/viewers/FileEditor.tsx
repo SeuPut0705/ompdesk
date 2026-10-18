@@ -12,8 +12,9 @@ import { FS_WRITE_MAX_BYTES } from "../../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { toastError } from "../../../stores/toast";
-import { Banner, Button, InlineNotice, Spinner, TextEditor, type TextEditorLanguage } from "../../common";
+import { Banner, Button, InlineNotice, TextEditor, type TextEditorLanguage } from "../../common";
 import type { ViewerKind } from "./file-kind";
+import { ViewerLoading } from "./viewer-chrome";
 
 /** Viewer kinds whose file is plain text the editor can hold. */
 export const EDITABLE_KINDS: Partial<Record<ViewerKind, true>> = {
@@ -120,11 +121,7 @@ export function FileEditor({
 	};
 
 	if (state.status === "loading") {
-		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner size="sm" />
-			</div>
-		);
+		return <ViewerLoading />;
 	}
 	if (state.status === "error") {
 		return (

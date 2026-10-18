@@ -35,7 +35,7 @@ export const KIND_LIMITS: Record<SnapshotKind, number> = {
 	usage: 4,
 	models: 4,
 	/** A panel or page's last read (Stats, ai-memory): small, per host, read at the page's first frame. */
-	panel: 24,
+	panel: 64,
 };
 /** A snapshot older than this is not shown as the last known state (a month-old guess is a lie, not a hint). */
 export const SNAPSHOT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;

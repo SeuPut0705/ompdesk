@@ -39,4 +39,21 @@
 	} catch (e) {
 		/* no localStorage — the stylesheet default stands */
 	}
+	// The boot shell (scripts/boot-shell.ts) lays out like the app: the sidebar at the width it was left at
+	// (mirrored by lib/sidebar-width.ts) and, in the desktop app, room for the window controls (lib/window-chrome.ts).
+	try {
+		var width = parseFloat(localStorage.getItem("omp.sidebarWidth"));
+		if (isFinite(width)) document.documentElement.style.setProperty("--boot-sidebar-w", Math.round(width) + "px");
+	} catch (e) {
+		/* the default width stands */
+	}
+	try {
+		if (navigator.userAgent.indexOf("Electron/") >= 0) {
+			var platform = navigator.platform.toLowerCase();
+			document.documentElement.dataset.platform =
+				platform.indexOf("mac") === 0 ? "darwin" : platform.indexOf("win") === 0 ? "win32" : "other";
+		}
+	} catch (e) {
+		/* no platform room is reserved */
+	}
 })();

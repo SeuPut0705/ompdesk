@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
+import { lastRead, rememberRead } from "../../../lib/last-read";
+import { useTabsStore } from "../../../stores/tabs";
 
 /** First text read; the drawer stays quick for the common small file. */
 export const TEXT_PREVIEW_BYTES = 200_000;
@@ -31,10 +33,21 @@ export type TextFileState =
 			loadingMore: boolean;
 	  };
 
+/** A file this size or smaller is remembered (memory, this run) so reopening it paints at once. */
+const REMEMBER_MAX_CHARS = 100_000;
+
+const deviceOf = (tabId: string | undefined) => useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.device;
+const seenKey = (tabId: string | undefined, path: string) => `file:${tabId ?? ""}:${path}`;
+
+/** The last read of a text file, as the state it painted: the live read below replaces it in place. */
+function seenText(tabId: string | undefined, path: string): TextFileState {
+	return lastRead<TextFileState>(deviceOf(tabId), seenKey(tabId, path)) ?? { status: "loading" };
+}
+
 export function useTextFile(path: string, tabId: string | undefined): { state: TextFileState; loadMore: () => void } {
 	const t = useT();
 	const version = useRef(0);
-	const [state, setState] = useState<TextFileState>({ status: "loading" });
+	const [state, setState] = useState<TextFileState>(() => seenText(tabId, path));
 
 	const read = useCallback(
 		async (maxBytes: number) => {
@@ -49,14 +62,17 @@ export function useTextFile(path: string, tabId: string | undefined): { state: T
 				} else if (result.binary) {
 					setState({ status: "binary", size: result.size });
 				} else {
-					setState({
+					const ready: TextFileState = {
 						status: "ready",
 						content: result.content,
 						truncated: result.truncated,
 						size: result.size,
 						maxBytes,
 						loadingMore: false,
-					});
+					};
+					setState(ready);
+					if (result.content.length <= REMEMBER_MAX_CHARS)
+						rememberRead(deviceOf(tabId), seenKey(tabId, path), ready, false);
 				}
 			} catch (error) {
 				if (current !== version.current) return;
@@ -67,12 +83,12 @@ export function useTextFile(path: string, tabId: string | undefined): { state: T
 	);
 
 	useEffect(() => {
-		setState({ status: "loading" });
+		setState(seenText(tabId, path));
 		void read(TEXT_PREVIEW_BYTES);
 		return () => {
 			version.current++;
 		};
-	}, [read]);
+	}, [read, tabId, path]);
 
 	const loadMore = useCallback(() => {
 		setState(prev => (prev.status === "ready" ? { ...prev, loadingMore: true } : prev));

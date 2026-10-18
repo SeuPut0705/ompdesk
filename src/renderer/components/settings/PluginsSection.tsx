@@ -44,6 +44,7 @@ import {
 	ErrorDetail,
 	IconButton,
 	ListRow,
+	SkeletonRows,
 	Spinner,
 	Switch,
 	type TabItem,
@@ -234,11 +235,7 @@ export function ResourceGate<T>({
 	);
 	if (!resource.data) {
 		if (resource.loading) {
-			return (
-				<div className="flex items-center justify-center py-10">
-					<Spinner label={t("common.loading")} />
-				</div>
-			);
+			return <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />;
 		}
 		if (resource.error) {
 			return (
@@ -387,7 +384,7 @@ function PluginsTab({
 												)}
 												{busy ? (
 													<span className="flex h-(--sc-hit-min) w-8 items-center justify-center">
-														<Spinner size="sm" />
+														<Spinner size="sm" spin />
 													</span>
 												) : (
 													<Switch

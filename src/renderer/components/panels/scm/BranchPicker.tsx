@@ -8,11 +8,13 @@ import { GitBranch, GitMerge, MoreHorizontal, Pencil, Plus, Trash2 } from "lucid
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitBranch } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
+import { useFocusedScope } from "../../../lib/focused-scope";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
+import { lastRead, rememberRead } from "../../../lib/last-read";
 import type { TabRpc } from "../../../lib/tab-rpc";
-import { Button, ConfirmDialog, InlineNotice, MenuButton, Popover, SearchField, Spinner } from "../../common";
+import { Button, ConfirmDialog, InlineNotice, MenuButton, Popover, SearchField, SkeletonRows } from "../../common";
 import { PANEL_ROW } from "../PanelChrome";
 import type { NameRequest } from "./NameDialog";
 import type { ScmRunner } from "./use-scm-action";
@@ -34,21 +36,26 @@ export function BranchPicker({
 	const anchorRef = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	const [list, setList] = useState<RpcGitBranch[] | null>(null);
+	const { device, cwd } = useFocusedScope();
+	const branchesKey = `scm:branches:${cwd}`;
+	// The branches seen last time are there when the popover opens; the read below replaces them in place.
+	const [list, setList] = useState<RpcGitBranch[] | null>(() => lastRead<RpcGitBranch[]>(device, branchesKey) ?? null);
 	const [error, setError] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<{ name: string; force: boolean } | null>(null);
 
 	useEffect(() => {
 		if (!open) return;
 		let active = true;
-		setList(null);
+		setList(lastRead<RpcGitBranch[]>(device, branchesKey) ?? null);
 		setError(null);
 		void rpc
 			.command({ type: "git_branches" })
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
-				setList(response.data as RpcGitBranch[]);
+				const data = response.data as RpcGitBranch[];
+				setList(data);
+				rememberRead(device, branchesKey, data);
 			})
 			.catch(cause => {
 				if (active) setError(errorDetail(cause));
@@ -56,7 +63,7 @@ export function BranchPicker({
 		return () => {
 			active = false;
 		};
-	}, [open, rpc, t]);
+	}, [open, rpc, t, device, branchesKey]);
 
 	const needle = query.trim().toLocaleLowerCase();
 	const shown = useMemo(
@@ -215,7 +222,7 @@ export function BranchPicker({
 						{error ? (
 							<InlineNotice detail={error} live title={t("scm.branch.loadFailed")} tone="danger" />
 						) : list === null ? (
-							<Spinner className="px-2 py-2" label={t("common.loading")} size="sm" />
+							<SkeletonRows className="py-1" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 						) : (
 							<>
 								{local.length > 0 && (

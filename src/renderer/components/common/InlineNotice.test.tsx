@@ -26,9 +26,9 @@ describe("InlineNotice", () => {
 		expect(copyable).toMatch(/<button[^>]*aria-label="Copy error"/);
 	});
 
-	it("shows a labelled spinner while pending", () => {
+	it("shows a still pending ring, never a turning one", () => {
 		const html = render(<InlineNotice live title="Checking accounts…" tone="pending" />);
 		expect(html).toContain('role="status"');
-		expect(html).toContain("animate-spin");
+		expect(html).not.toContain("animate-spin");
 	});
 });

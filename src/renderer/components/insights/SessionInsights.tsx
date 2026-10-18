@@ -18,7 +18,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, SkeletonRows } from "../common";
 import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
 import { ContextBreakdown } from "./ContextBreakdown";
 import { ModelUsage } from "./ModelUsage";
@@ -147,9 +147,7 @@ export function SessionInsights() {
 				title={t("insights.session.loadFailed")}
 			/>
 		) : (
-			<div className="flex justify-center py-12">
-				<Spinner label={t("sessionInfo.loading")} />
-			</div>
+			<SkeletonRows className="py-2" label={t("sessionInfo.loading")} widths={[60, 44, 70, 52]} />
 		);
 	}
 

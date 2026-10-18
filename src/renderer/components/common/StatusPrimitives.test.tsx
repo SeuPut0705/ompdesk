@@ -11,11 +11,12 @@ function render(node: React.ReactNode): string {
 }
 
 describe("IconButton loading", () => {
-	it("swaps the icon for a spinner, marks itself busy and refuses clicks", () => {
+	it("swaps the icon for a still ring, marks itself busy and refuses clicks", () => {
 		const html = render(<IconButton icon={<RefreshCw data-icon="refresh" />} label="Refresh" loading />);
 		expect(html).toMatch(/<button[^>]*aria-busy="true"/);
 		expect(html).toMatch(/<button[^>]*disabled=""/);
-		expect(html).toContain("animate-spin");
+		expect(html).toContain('role="status"');
+		expect(html).not.toContain("animate-spin");
 		expect(html).not.toContain('data-icon="refresh"');
 	});
 

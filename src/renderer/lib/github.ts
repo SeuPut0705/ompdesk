@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GithubRequest, GithubResults } from "../../shared/github";
+import { useFocusedScope } from "./focused-scope";
+import { lastRead, rememberRead } from "./last-read";
 
 /** A failed `github` command: gh's message plus main's code (gh_missing, gh_unauthenticated, github_failed, …). */
 export class GithubError extends Error {
@@ -36,22 +38,22 @@ export function useGithubLoad<R extends GithubRequest>(
 	request: R | null,
 	key: string,
 ): GithubLoad<GithubResults[R["op"]]> {
-	const [data, setData] = useState<GithubResults[R["op"]] | null>(null);
+	type Data = GithubResults[R["op"]];
+	const scope = useFocusedScope();
+	// What this key showed last time (a run's log is not kept): painted at the first frame, read again in place.
+	// The folder is part of it: a repo-less request resolves the checkout repo from the tab's cwd.
+	const snapKey = request && request.op !== "run_log" ? `github:${scope.cwd}:${request.op}:${key}` : null;
+	const [loaded, setLoaded] = useState<{ key: string; data: Data } | null>(null);
 	const [error, setError] = useState<{ message: string; code: string } | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [round, setRound] = useState(0);
 	const latest = useRef(0);
-	const current = useRef(request);
-	current.current = request;
-	const shownKey = useRef(key);
+	const current = useRef({ request, snapKey, device: scope.device });
+	current.current = { request, snapKey, device: scope.device };
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the request; the ref holds its latest value
 	useEffect(() => {
-		const next = current.current;
+		const { request: next, snapKey: remember, device } = current.current;
 		const sequence = ++latest.current;
-		if (shownKey.current !== key) {
-			shownKey.current = key;
-			setData(null);
-		}
 		setError(null);
 		if (!next) {
 			setLoading(false);
@@ -61,7 +63,8 @@ export function useGithubLoad<R extends GithubRequest>(
 		github(next).then(
 			result => {
 				if (sequence !== latest.current) return;
-				setData(result);
+				setLoaded({ key, data: result });
+				if (remember) rememberRead(device, remember, result);
 				setLoading(false);
 			},
 			(cause: unknown) => {
@@ -75,5 +78,7 @@ export function useGithubLoad<R extends GithubRequest>(
 		);
 	}, [key, round]);
 	const reload = useCallback(() => setRound(value => value + 1), []);
+	// Rows of this key (live, else its last snapshot), never another key's.
+	const data = loaded?.key === key ? loaded.data : snapKey ? (lastRead<Data>(scope.device, snapKey) ?? null) : null;
 	return { data, error: error?.message ?? null, errorCode: error?.code ?? null, loading, reload };
 }

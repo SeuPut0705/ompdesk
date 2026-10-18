@@ -3118,8 +3118,8 @@ export const ko: Record<string, string> = {
 
 	// Chat stream / message chrome
 	"chat.copyCode": "코드 복사",
-	"chat.renderingDiagram": "다이어그램 렌더링 중…",
 	"chat.diagram": "다이어그램",
+	"chat.renderingDiagram": "다이어그램 렌더링 중…",
 	"svgPreview.image": "SVG 이미지",
 	"svgPreview.mode": "미리보기 또는 코드",
 	"svgPreview.preview": "미리보기",

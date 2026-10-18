@@ -9,11 +9,22 @@ describe("Spinner", () => {
 	it("spins an HTML wrapper, never the svg itself", () => {
 		const html = renderToStaticMarkup(
 			<I18nProvider>
-				<Spinner size="sm" />
-				<Spinner inheritColor label="Loading" />
+				<Spinner size="sm" spin />
+				<Spinner inheritColor label="Loading" spin />
 			</I18nProvider>,
 		);
 		expect(html.match(/<span[^>]*class="[^"]*animate-spin/g)).toHaveLength(2);
 		expect(html).not.toMatch(/<svg[^>]*animate-spin/);
+	});
+
+	it("is a still hollow ring unless it is action feedback", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<Spinner label="Loading" />
+			</I18nProvider>,
+		);
+		expect(html).not.toContain("animate-spin");
+		expect(html).toContain('role="status"');
+		expect(html).not.toContain("<path");
 	});
 });

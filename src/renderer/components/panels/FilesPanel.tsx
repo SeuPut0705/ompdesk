@@ -34,6 +34,7 @@ import { copyText, formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, PLATFORM } from "../../lib/keymap";
+import { lastRead, rememberRead } from "../../lib/last-read";
 import { useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
@@ -49,7 +50,7 @@ import {
 	ErrorDetail,
 	IconButton,
 	SearchField,
-	Spinner,
+	SkeletonRows,
 } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/media/PathLink";
@@ -62,6 +63,10 @@ import type { FileInfo } from "./viewers/viewer-chrome";
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 8;
+/** The tree's first visit: the shape of a few folders and files, bars of varied width. */
+const FILES_SKELETON_WIDTHS = [46, 62, 54, 70, 38, 58, 50] as const;
+/** A listing up to this long is also kept for the next run (a bigger one only for this run). */
+const TREE_PERSIST_MAX = 1500;
 
 interface Entry {
 	kind: "file" | "dir";
@@ -533,7 +538,10 @@ export function FilesPanel() {
 	const cwd = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.cwd ?? "");
 	const listVersion = useRef(0);
 	const [query, setQuery] = useState("");
-	const [tree, setTree] = useState<FsTreeEntry[]>([]);
+	const device = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.device);
+	const treeKey = `files:tree:${cwd}`;
+	// The listing of this folder seen last time paints at the first frame; the read below replaces it in place.
+	const [tree, setTree] = useState<FsTreeEntry[]>(() => lastRead<FsTreeEntry[]>(device, treeKey) ?? []);
 	const [loading, setLoading] = useState(true);
 	const [truncated, setTruncated] = useState(false);
 	/** The failed list result or thrown cause; null when the tree loaded. */
@@ -574,6 +582,7 @@ export function FilesPanel() {
 			}
 			setTree(result.entries);
 			setTruncated(result.truncated);
+			rememberRead(device, treeKey, result.entries, result.entries.length <= TREE_PERSIST_MAX);
 		} catch (err) {
 			if (version !== listVersion.current) return;
 			setError(err);
@@ -582,10 +591,10 @@ export function FilesPanel() {
 		} finally {
 			if (version === listVersion.current) setLoading(false);
 		}
-	}, [tabId]);
+	}, [tabId, device, treeKey]);
 
 	useEffect(() => {
-		setTree([]);
+		setTree(lastRead<FsTreeEntry[]>(device, treeKey) ?? []);
 		setExpanded(new Set());
 		setSelectedId(null);
 		setEditing(null);
@@ -593,7 +602,7 @@ export function FilesPanel() {
 		return () => {
 			listVersion.current++;
 		};
-	}, [load]);
+	}, [load, device, treeKey]);
 
 	useEffect(() => {
 		setGit(NO_GIT);
@@ -909,7 +918,7 @@ export function FilesPanel() {
 			) : (
 				<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
 					{loading && tree.length === 0 ? (
-						<Spinner className="w-full justify-center py-8" label={t("filesPanel.scanning")} size="sm" />
+						<SkeletonRows className="py-1" label={t("filesPanel.scanning")} widths={FILES_SKELETON_WIDTHS} />
 					) : error !== null ? (
 						<div className="px-4 py-8 text-center text-sc-sm leading-relaxed text-(--sc-text-muted)">
 							{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}

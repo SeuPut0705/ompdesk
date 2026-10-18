@@ -15,7 +15,7 @@ import { installStepKeys } from "../../web/install";
 import { useInstallGuidance } from "../../web/install-ui";
 import type { PushAvailability, PushViewState } from "../../web/push-client";
 import type { WebPwa } from "../../web/pwa";
-import { Banner, Button, Spinner } from "../common";
+import { Banner, Button, SkeletonRows } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 const UNAVAILABLE_KEY: Record<Exclude<PushAvailability, "ready" | "needs-install">, string> = {
@@ -147,9 +147,7 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 	if (!loaded) {
 		return (
 			<SettingsSection title={t("web.push.title")}>
-				<div className="flex justify-center py-4">
-					<Spinner label={t("common.loading")} />
-				</div>
+				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 			</SettingsSection>
 		);
 	}

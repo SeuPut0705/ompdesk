@@ -14,7 +14,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Button, InlineNotice, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -198,7 +198,7 @@ export function BranchPickerDialog() {
 							tone="danger"
 						/>
 					) : loading ? (
-						<Spinner className="w-full justify-center py-10" label={t("branchPicker.loading")} size="sm" />
+						<SkeletonRows className="py-2" label={t("branchPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : filtered.length === 0 ? (
 						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}
@@ -224,7 +224,7 @@ export function BranchPickerDialog() {
 								>
 									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 									<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{entry.text}</span>
-									{branching === entry.entryId && <Spinner size="sm" />}
+									{branching === entry.entryId && <Spinner size="sm" spin />}
 								</button>
 							);
 						})

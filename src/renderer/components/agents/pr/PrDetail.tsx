@@ -22,7 +22,7 @@ import { DiffView } from "../../../lib/diff";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
-import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Spinner } from "../../common";
+import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
 import { PrConversation, PrEditButton, PrMergeButton } from "./PrActions";
 
 const BODY_COLLAPSE_LINES = 12;
@@ -67,7 +67,11 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 			</button>
 			{expanded?.phase === "loading" && (
 				<div className="border-t border-(--sc-divider) px-3 py-2">
-					<Spinner label={t("prCenter.diffLoading")} size="sm" />
+					<div aria-label={t("prCenter.diffLoading")} className="flex flex-col gap-2" role="status">
+						<Skeleton className="h-3 w-[70%]" />
+						<Skeleton className="h-3 w-[85%]" />
+						<Skeleton className="h-3 w-[55%]" />
+					</div>
 				</div>
 			)}
 			{expanded?.phase === "error" && (
@@ -110,11 +114,34 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 			/>
 		);
 	}
-	// A selected PR whose detail read failed must not sit on "Loading…" forever.
-	if (detailLoading || (!detail && !error)) {
+	// A PR seen before shows its last read while it loads again; one never seen is the shape of a PR. A read that
+	// failed must not sit on a skeleton forever.
+	if (!detail && (detailLoading || !error)) {
 		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner label={t("prCenter.loading")} />
+			<div
+				aria-label={t("prCenter.loading")}
+				className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-6 min-[1280px]:px-10"
+				role="status"
+			>
+				<div className="flex flex-col gap-2">
+					<Skeleton className="h-6 w-3/4" />
+					<Skeleton className="h-4 w-1/2" />
+					<div className="flex gap-2 pt-1">
+						<Skeleton className="h-8 w-28 rounded-(--sc-radius-md)" />
+						<Skeleton className="h-8 w-28 rounded-(--sc-radius-md)" />
+						<Skeleton className="h-8 w-28 rounded-(--sc-radius-md)" />
+					</div>
+				</div>
+				<div className="flex flex-col gap-2">
+					<Skeleton className="h-3 w-full" />
+					<Skeleton className="h-3 w-[92%]" />
+					<Skeleton className="h-3 w-[64%]" />
+				</div>
+				<div className="flex flex-col gap-2">
+					{[0, 1, 2, 3].map(index => (
+						<Skeleton className="h-9 w-full rounded-(--sc-radius-md)" key={index} />
+					))}
+				</div>
 			</div>
 		);
 	}

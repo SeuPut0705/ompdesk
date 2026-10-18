@@ -76,7 +76,7 @@ function CellStatus({ cell }: { cell: CellView }) {
 	const t = useT();
 	return (
 		<span className="ml-auto flex shrink-0 items-center gap-1.5 text-sc-xs tabular-nums text-(--sc-text-subtle)">
-			{cell.status === "running" && <Spinner size="sm" />}
+			{cell.status === "running" && <Spinner size="sm" spin />}
 			{cell.status === "error" && (
 				<CircleX aria-label={t("tools.eval.error")} className="size-3 text-(--sc-danger)" role="img" />
 			)}
