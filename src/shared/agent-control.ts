@@ -68,7 +68,35 @@ export const AGENT_CONTROL_TOOLS = {
 	merge: "ompdesk_merge",
 	schedule: "ompdesk_schedule",
 	autopilot: "ompdesk_autopilot",
+	appList: "ompdesk_app_list",
+	app: "ompdesk_app",
 } as const;
+
+/** main → window (`AGENT_CONTROL_APP`): what `ompdesk_app` changed, for the window to show or apply. */
+export const AGENT_CONTROL_APP = "agent-control:app";
+
+/** The side panel's views an agent may open (mirrors `PANEL_TABS` of the renderer's ui store; a test keeps them equal). */
+export const AGENT_PANEL_TABS = [
+	"terminal",
+	"diff",
+	"preview",
+	"files",
+	"jobs",
+	"plan",
+	"logs",
+	"queue",
+	"tree",
+	"memory",
+] as const;
+
+/** What one step back restores: a stored preference or a stock setting, as the user's own Settings control writes it. */
+export type AppUndo = { kind: "pref"; key: string; value: unknown } | { kind: "setting"; path: string; value: unknown };
+
+export type AgentAppEvent =
+	| { kind: "panel"; tab: (typeof AGENT_PANEL_TABS)[number] | null }
+	| { kind: "settings"; section: string; sub?: string }
+	| { kind: "pref"; key: string; value: unknown }
+	| { kind: "toast"; message: string; undo?: AppUndo };
 
 export type AgentControlToolName = (typeof AGENT_CONTROL_TOOLS)[keyof typeof AGENT_CONTROL_TOOLS];
 
