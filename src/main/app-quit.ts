@@ -8,10 +8,44 @@
 import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
 import { getMainLanguage, mainT } from "./i18n";
 import { assessQuitRisk, QuitLatch, type QuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
+import { QuitWatchdog, type QuitWatchdogReason } from "./quit-watchdog";
+import { writeRuntimeLog } from "./runtime-log";
 
 const latch = new QuitLatch();
 let asking = false;
 let inventory: () => WindowTabFact[] = () => [];
+const forcedExitHooks: Array<() => void> = [];
+
+const quitWatchdog = new QuitWatchdog({
+	setTimer: (fn, ms) => {
+		const timer = setTimeout(fn, ms);
+		timer.unref();
+		return timer;
+	},
+	clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
+	log: report => writeRuntimeLog(report),
+	exit: () => {
+		// `app.exit` skips `will-quit`, so whatever hangs off it (the relaunch swap) runs here first.
+		for (const hook of forcedExitHooks) {
+			try {
+				hook();
+			} catch (err) {
+				console.warn(`[quit] forced-exit hook failed: ${String(err)}`);
+			}
+		}
+		app.exit(0);
+	},
+});
+
+/** Run `hook` right before the watchdog force-exits, for work a `will-quit` handler would have done. */
+export function onQuitForcedExit(hook: () => void): void {
+	forcedExitHooks.push(hook);
+}
+
+/** The quit was cancelled after it committed (a failed install keeps the app running): stop the force exit. */
+export function disarmQuitWatchdog(reason?: QuitWatchdogReason): void {
+	quitWatchdog.disarm(reason);
+}
 
 export function requestQuit(): void {
 	latch.approve();
@@ -99,7 +133,11 @@ export function installQuitGuard(
 			}
 			return;
 		}
-		if (latch.proceed(teardown)) return;
+		if (latch.proceed(teardown)) {
+			// The quit is committed: finalize (which may ask the user) is over and the teardown ran.
+			quitWatchdog.arm("quit");
+			return;
+		}
 		event.preventDefault();
 		void confirmQuit().then(ok => {
 			if (ok) requestQuit();
@@ -112,5 +150,6 @@ export function installQuitGuard(
 	autoUpdater.on("before-quit-for-update", () => {
 		finalizing = "done";
 		latch.proceedForUpdate(teardown);
+		quitWatchdog.arm("update");
 	});
 }

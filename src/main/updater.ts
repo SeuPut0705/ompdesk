@@ -43,7 +43,7 @@ import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
-import { confirmQuit, requestQuit } from "./app-quit";
+import { confirmQuit, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import {
@@ -119,6 +119,8 @@ let ownBundle: string | undefined;
 let stagedApp: string | undefined;
 /** The approved quit came from "Restart & install": reopen after the swap. */
 let relaunchAfterSwap = false;
+/** The relaunch swap helper was started; a forced exit after `will-quit` must not start a second one. */
+let swapLaunched = false;
 /** Token the last check authenticated with, if any; the macOS asset download reuses it. */
 let updateToken: string | undefined;
 /** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
@@ -652,11 +654,16 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// unless forced. Pair with OMP_DEV_UPDATE_MODE to exercise the DMG paths.
 	if (process.env.OMP_DEV_UPDATE_CHECK === "1") autoUpdater.forceDevUpdateConfig = true;
 	// Relaunch mode: any approved quit installs the staged bundle; "Restart"
-	// additionally reopens it. `will-quit` only fires once the quit guard agreed.
+	// additionally reopens it. `will-quit` only fires once the quit guard agreed; the quit watchdog's
+	// forced `app.exit` skips it, so it starts the swap through the same once-only call.
 	if (installMode === "relaunch") {
-		app.on("will-quit", () => {
-			if (stagedApp && ownBundle) launchSwap(stagedApp, ownBundle, relaunchAfterSwap);
-		});
+		const launchStagedSwap = (): void => {
+			if (swapLaunched || !stagedApp || !ownBundle) return;
+			swapLaunched = true;
+			launchSwap(stagedApp, ownBundle, relaunchAfterSwap);
+		};
+		app.on("will-quit", launchStagedSwap);
+		onQuitForcedExit(launchStagedSwap);
 	}
 
 	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
@@ -708,6 +715,8 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		broadcast({ state: "downloaded", version: info.version, mode: "automatic" }),
 	);
 	autoUpdater.on("error", error => {
+		// A quitAndInstall() that failed natively leaves the app running: the committed quit is off.
+		disarmQuitWatchdog("update");
 		if (checkInFlight) return;
 		// Passive failures remain unobtrusive. Explicit IPC actions catch and
 		// rebroadcast the same failure as user-visible.

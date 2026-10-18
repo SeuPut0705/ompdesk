@@ -4,15 +4,18 @@
  * nothing. With the setting on, nothing asks.
  */
 import type { MessageBoxOptions } from "electron";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { confirmQuit, installQuitGuard, setQuitResumes } from "./app-quit";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { confirmQuit, installQuitGuard, requestQuit, setQuitResumes } from "./app-quit";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
+import { QUIT_EXIT_TIMEOUT_MS } from "./quit-watchdog";
 
 const electron = vi.hoisted(() => {
 	const beforeQuit: Array<(event: { preventDefault(): void }) => void> = [];
 	return {
 		beforeQuit,
 		quit: vi.fn(),
+		exit: vi.fn(),
+		log: vi.fn(),
 		showMessageBox: vi.fn<(options: MessageBoxOptions) => Promise<{ response: number }>>(),
 	};
 });
@@ -23,11 +26,13 @@ vi.mock("electron", () => ({
 			if (name === "before-quit") electron.beforeQuit.push(listener);
 		},
 		quit: electron.quit,
+		exit: electron.exit,
 	},
 	autoUpdater: { on: () => {} },
 	BrowserWindow: { getFocusedWindow: () => null },
 	dialog: { showMessageBox: electron.showMessageBox },
 }));
+vi.mock("./runtime-log", () => ({ writeRuntimeLog: electron.log }));
 // The real ./i18n opens the prefs store at load; the text table is what matters here.
 vi.mock("./i18n", () => ({
 	getMainLanguage: () => "en",
@@ -50,6 +55,8 @@ beforeEach(() => {
 	setQuitResumes(() => false);
 	electron.showMessageBox.mockReset();
 	electron.quit.mockReset();
+	electron.exit.mockReset();
+	electron.log.mockReset();
 });
 
 describe("confirmQuit", () => {
@@ -93,5 +100,28 @@ describe("confirmQuit", () => {
 		for (const listener of electron.beforeQuit) listener({ preventDefault });
 		expect(preventDefault).toHaveBeenCalled();
 		await vi.waitFor(() => expect(electron.quit).toHaveBeenCalledTimes(1));
+	});
+});
+
+describe("quit watchdog wiring", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("an approved quit that never ends is forced out after the deadline, and logs it", async () => {
+		const fire = () => {
+			for (const listener of electron.beforeQuit) listener({ preventDefault: () => {} });
+		};
+		requestQuit();
+		// The first pass runs finalize and re-quits; only the committed pass arms the watchdog.
+		fire();
+		await vi.waitFor(() => expect(electron.quit).toHaveBeenCalledTimes(2));
+		vi.useFakeTimers();
+		fire();
+		vi.advanceTimersByTime(QUIT_EXIT_TIMEOUT_MS - 1);
+		expect(electron.exit).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
+		expect(electron.exit).toHaveBeenCalledWith(0);
+		expect(electron.log).toHaveBeenCalledWith(expect.objectContaining({ source: "background-task" }));
 	});
 });
