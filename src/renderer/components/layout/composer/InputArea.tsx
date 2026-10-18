@@ -482,6 +482,7 @@ export function InputArea() {
 
 						<ComposerToolbar
 							composerMode={composerMode?.mode}
+							composerExcluded={composerMode?.excluded}
 							dictationPhase={dictation.phase}
 							expanded={expanded}
 							fileInputRef={fileInputRef}
