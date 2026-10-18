@@ -159,12 +159,27 @@ for (const engine of ENGINES)
 			await phone.reload();
 			const field = phone.locator("[data-composer-input]").first();
 			await expect(field).toBeVisible({ timeout: 60_000 });
-			const thumbnails = phone.locator('ul[aria-label="Attached images"] li img');
+			// A picture this browser draws is a thumbnail; one it cannot (a HEIC in Chromium) is the photo chip with its
+			// format and size (ComposerThumbnail), while the computer converts it for the model.
+			const thumbnails = phone.locator('ul[aria-label="Attached images"] li :is(img, [data-composer-photo-chip])');
+			const drawn = phone.locator('ul[aria-label="Attached images"] li img');
 
 			for (const [index, picture] of pictures.entries()) {
 				const message = `look at ${picture.name}`;
 				await phone.locator('input[type="file"]').first().setInputFiles(picture);
 				await expect(thumbnails).toHaveCount(1, { timeout: 30_000 });
+				if (picture.mimeType === "image/heic" && engine.name === "chromium") {
+					await expect(phone.locator("[data-composer-photo-chip]")).toHaveAttribute("aria-label", "HEIC photo");
+					await expect(drawn).toHaveCount(0);
+				} else {
+					await expect
+						.poll(() =>
+							drawn.evaluateAll(
+								images => images.filter(image => (image as HTMLImageElement).naturalWidth > 0).length,
+							),
+						)
+						.toBe(1);
+				}
 				await captureTo(CAPTURES, phone, `${engine.name}-${picture.name}-composer`);
 				await field.fill(message);
 				await phone.keyboard.press("Enter");

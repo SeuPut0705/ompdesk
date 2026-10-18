@@ -243,10 +243,38 @@ for (const { engine, device } of variants(
 			const sheet = await showTerminal(page, device.phone);
 			const bar = sheet.locator("[data-terminal-keybar]");
 			await expect(bar).toBeVisible();
-			// Keys are drawn at the control size and reach 44 px down through their hit area.
+			// Keys are drawn at the control size and hit through an ::after bounded by the bar's --hit-gap-y (mobile.css),
+			// which their scroller must not clip: a tap 1 px inside the top or bottom of a key's hit box lands on the key.
+			// On a phone the bar sits right on the panel tab bar, and a key's hit area reaches down to the tab buttons'
+			// own: a tap between the two lands on one of them, never on nothing.
 			const keys = await hitSizes(bar.locator("[data-terminal-key]"));
 			expect(keys.length).toBeGreaterThan(0);
-			expect(Math.min(...keys.map(({ hit }) => hit.height))).toBeGreaterThanOrEqual(44);
+			for (const { visual, hit } of keys) expect(hit.height).toBeGreaterThan(visual.height);
+			const reach = await page.evaluate(() => {
+				const missed: string[] = [];
+				const keyBottoms: number[] = [];
+				const tabTops: number[] = [];
+				for (const node of document.querySelectorAll("[data-terminal-key], [data-panel-tabbar] > button")) {
+					const box = node.getBoundingClientRect();
+					// A key scrolled (partly) out of the bar's scroller is not there to tap.
+					const shown = (node.parentElement ?? document.body).getBoundingClientRect();
+					if (box.width === 0 || box.left < shown.left || box.right > shown.right) continue;
+					const height = Math.max(box.height, Number.parseFloat(getComputedStyle(node, "::after").height) || 0);
+					const top = box.top + box.height / 2 - height / 2;
+					if (!node.matches("[data-terminal-key]")) {
+						tabTops.push(top);
+						continue;
+					}
+					keyBottoms.push(top + height);
+					for (const y of [top + 1, top + height - 1]) {
+						const found = document.elementFromPoint(box.left + box.width / 2, y);
+						if (!found || !node.contains(found)) missed.push(`${node.getAttribute("data-terminal-key")} at ${y}`);
+					}
+				}
+				return { missed, keyBottom: Math.min(...keyBottoms), tabTop: Math.max(...tabTops) };
+			});
+			expect(reach.missed).toEqual([]);
+			if (device.phone) expect(Math.abs(reach.keyBottom - reach.tabTop)).toBeLessThanOrEqual(1);
 			await bar.locator('[data-terminal-key="esc"]').dispatchEvent("pointerdown");
 			await bar.locator('[data-terminal-key="ctrl"]').dispatchEvent("pointerdown");
 			await expect(bar.locator('[data-terminal-key="ctrl"]')).toHaveAttribute("aria-pressed", "true");

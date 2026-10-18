@@ -42,12 +42,16 @@ async function mobileWebReady(page: Page): Promise<void> {
 		.toBe("ready");
 }
 
-/** What the phone's drawer lists in the Code lane, every group unfolded. */
+/** What the phone's drawer lists in the Code lane, every group, family and "n done" fold unfolded. */
 interface Rows {
 	/** `data-session-path` → how many rows show it. */
 	perPath: Record<string, number>;
 	groups: string[];
-	/** Rows `data-session-run-child` marks, with the group they sit in and whether that group is a worktree's. */
+	/**
+	 * The run's children: the sessions its agent opened (`ompdesk_session_open`), one line each in the run's family
+	 * (`data-sidebar-opened-session`, sidebar-family.ts), or a row `data-session-run-child` marks; with the group they
+	 * sit in and whether that group is a worktree's.
+	 */
 	childRows: Array<{ path: string; text: string; group: string; worktreeGroup: boolean }>;
 	text: string;
 }
@@ -67,16 +71,24 @@ async function closeDrawer(phone: Page): Promise<void> {
 
 async function readRows(phone: Page): Promise<Rows> {
 	const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
-	for (const fold of await sidebar.locator('[data-workspace-group] button[aria-expanded="false"]').all())
-		await fold.click().catch(() => undefined);
+	// Projects first, then the families they show, then a family's folded finished sessions.
+	for (const folds of [
+		'[data-workspace-group] button[aria-expanded="false"]',
+		'[data-sidebar-subagents-toggle][aria-expanded="false"]',
+		'[data-family-done][aria-expanded="false"]',
+	])
+		for (const fold of await sidebar.locator(folds).all()) await fold.click().catch(() => undefined);
 	return sidebar.evaluate(element => {
 		const perPath: Record<string, number> = {};
 		const childRows: Rows["childRows"] = [];
 		const headers = [...element.querySelectorAll("[data-workspace-group]")];
-		for (const row of element.querySelectorAll(".omp-sidebar-session-row[data-session-path]")) {
+		for (const row of element.querySelectorAll(
+			":is(.omp-sidebar-session-row, [data-sidebar-opened-session])[data-session-path]",
+		)) {
 			const rowPath = row.getAttribute("data-session-path") ?? "";
 			perPath[rowPath] = (perPath[rowPath] ?? 0) + 1;
-			if (row.getAttribute("data-session-run-child") !== "true") continue;
+			if (row.getAttribute("data-session-run-child") !== "true" && !row.hasAttribute("data-sidebar-opened-session"))
+				continue;
 			const key = row.closest("[data-session-group]")?.getAttribute("data-session-group");
 			const header = headers.find(candidate => candidate.getAttribute("data-workspace-group") === key);
 			childRows.push({
@@ -144,6 +156,8 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), ap.project);
 		await phone.reload();
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
+		// A phone's composer is one row: the mode picker waits behind "Mode, model and more".
+		await phone.getByRole("button", { name: "Mode, model and more" }).click();
 		await phone.locator("[data-composer-modes-trigger]").click();
 		await phone.getByRole("tab", { name: "Autopilot" }).click();
 		await phone.locator("[data-autopilot-start]").click();
@@ -152,7 +166,8 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.getByRole("button", { name: "Close side panel" }).first().click();
 		await expect(phone.locator("[data-autopilot-panel]")).toHaveCount(0);
 
-		// A cycle's children are open: their rows sit under the run's, named by their task, in no group of their own.
+		// A cycle's children are open: their rows sit under the run's, in the run's family (the sessions its agent
+		// opened), named by their task, in no group of their own.
 		await openDrawer(phone);
 		await expect
 			.poll(async () => (await readRows(phone)).childRows.length, { timeout: 60_000, message: "the children open" })

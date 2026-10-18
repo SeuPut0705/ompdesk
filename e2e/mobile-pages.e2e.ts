@@ -174,12 +174,15 @@ async function overflow(page: Page, root: string): Promise<{ document: number; o
 
 /**
  * Controls inside `root` that are on screen yet a finger cannot hit: a button, switch, tab or summary reaches 44 px
- * through its invisible ::after (mobile.css, `--sc-touch-target`), a list row is the target of its stretched link
- * (a dense 40 px row), and a field, which has no ::after, is drawn at least 36 px high.
+ * through its invisible ::after (mobile.css, `--sc-touch-target`), or as far as its container's `--hit-gap-x/-y`
+ * lets it (half the gap to a close neighbour, past its padding box); a list row is the target of its stretched link
+ * (a dense `--sc-row-touch` row: 40 px under a finger, 36 on a phone, flush with its neighbours), and a field, which
+ * has no ::after, is drawn at least 36 px high.
  */
 async function smallTargets(page: Page, root: string): Promise<string[]> {
 	return page.evaluate(selector => {
 		const small: string[] = [];
+		const rowTouch = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sc-row-touch"));
 		const controls = document
 			.querySelector(selector)
 			?.querySelectorAll(
@@ -195,8 +198,18 @@ async function smallTargets(page: Page, root: string): Promise<string[]> {
 			const reach = !row && !field && after.content !== "none" && after.position === "absolute";
 			const width = Math.max(own.width, reach ? Number.parseFloat(after.width) : 0);
 			const height = Math.max(own.height, reach ? Number.parseFloat(after.height) : 0);
-			const need = row ? 39.5 : field ? 35.5 : 43.5;
-			if (Math.min(width, height) < need) {
+			const need = row ? rowTouch - 0.5 : field ? 35.5 : 43.5;
+			// The reach grows from the padding box and stops at half the declared gap (unset: the full 44 px).
+			const style = getComputedStyle(element);
+			const gapX = Number.parseFloat(style.getPropertyValue("--hit-gap-x"));
+			const gapY = Number.parseFloat(style.getPropertyValue("--hit-gap-y"));
+			const paddingWidth =
+				own.width - Number.parseFloat(style.borderLeftWidth) - Number.parseFloat(style.borderRightWidth);
+			const paddingHeight =
+				own.height - Number.parseFloat(style.borderTopWidth) - Number.parseFloat(style.borderBottomWidth);
+			const needWidth = reach && !Number.isNaN(gapX) ? Math.min(need, paddingWidth + gapX - 0.5) : need;
+			const needHeight = reach && !Number.isNaN(gapY) ? Math.min(need, paddingHeight + gapY - 0.5) : need;
+			if (width < needWidth || height < needHeight) {
 				const label = element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 30) ?? "";
 				small.push(`${element.tagName.toLowerCase()} "${label}" ${Math.round(width)}×${Math.round(height)}`);
 			}
@@ -419,6 +432,8 @@ for (const { engine, device } of variants(
 
 		test("the model picker is a full-height sheet with its search pinned on a phone", async () => {
 			const page = await openHarness(browser, device, LIGHT_EN);
+			// A phone's composer is one row: the model chip waits behind "Mode, model and more".
+			if (device.phone) await page.getByRole("button", { name: "Mode, model and more" }).click();
 			await page.locator("[data-model-chip]").click();
 			const dialog = page.getByRole("dialog");
 			const search = dialog.getByRole("searchbox", { name: "Search models" });
