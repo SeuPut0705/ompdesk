@@ -19,7 +19,7 @@ import {
 	Target,
 	X,
 } from "lucide-react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { removeFileMention } from "../../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
@@ -43,12 +43,7 @@ import {
 	editPaste,
 	expandPasteMarkers,
 	getPaste,
-	isMarkerSized,
-	pasteMarkerText,
 	referencedPasteIds,
-	shouldOfferPasteMenu,
-	storePaste,
-	wrapPasteInAttachmentBlock,
 } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -96,10 +91,12 @@ import {
 	type NextPromptChipsHandle,
 } from "./NextPromptChips";
 import { PastedTextDialog } from "./PastedTextDialog";
+import { PasteMenu } from "./PasteMenu";
 import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerAttach } from "./use-composer-attach";
+import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
 
 type SendMode = "prompt" | "steer" | "followUp";
@@ -150,8 +147,6 @@ export function InputArea() {
 	const openSettings = useUiStore(s => s.openSettings);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
-	/** Agent `paste.largeMenuThreshold` setting: line count that triggers the paste menu. */
-	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer
@@ -248,9 +243,6 @@ export function InputArea() {
 	/** "Stop and send": submit the draft once the take is transcribed into it. */
 	const sendAfterDictationRef = useRef(false);
 	const recording = dictation !== "idle";
-	/** Pending large-paste choice: the paste already happened, this picks the form. */
-	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
-	const pasteMenuRef = useRef<HTMLDivElement>(null);
 	/** The folded paste open in "Edit pasted text". */
 	const [editingPaste, setEditingPaste] = useState<number | null>(null);
 	const draftPastes = useMemo(() => referencedPasteIds(text), [text]);
@@ -354,6 +346,23 @@ export function InputArea() {
 		else el.setSelectionRange(edit.caret, edit.caret);
 		return true;
 	};
+	const mountedRef = useRef(true);
+	/** Splice text in at the caret (replacing a selection), space-separated from its neighbours. */
+	const insertAtCaret = (insert: string) => {
+		const el = textareaRef.current;
+		const current = el?.value ?? text;
+		const start = el?.selectionStart ?? current.length;
+		const end = el?.selectionEnd ?? start;
+		const before = current.slice(0, start);
+		const after = current.slice(end);
+		const inserted = `${before && !/\s$/.test(before) ? " " : ""}${insert}${/^\s/.test(after) ? "" : " "}`;
+		el?.focus();
+		placeDraft(`${before}${inserted}${after}`, start + inserted.length);
+	};
+	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
+		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
+	const paste = useComposerPaste({ text, textareaRef, placeDraft, attachFiles, runtimeTabId });
+	const pasteMenu = paste.pending;
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
 	const chipsShown = chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
@@ -390,7 +399,6 @@ export function InputArea() {
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, [expanded]);
-	const mountedRef = useRef(true);
 	/** This composer started the take in flight: only then does its unmount discard it (another pane may be dictating). */
 	const ownsTake = useRef(false);
 
@@ -404,20 +412,6 @@ export function InputArea() {
 		if (active && active !== document.body) return;
 		textareaRef.current?.focus();
 	}, [routeReady, focusedPane, isEmptySession, sessionId, settingUp]);
-
-	// A large-paste choice stays reversible until the user explicitly chooses a
-	// representation. Outside click cancels it instead of silently inserting
-	// the default form.
-	useEffect(() => {
-		if (!pasteMenu) return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target;
-			if (target instanceof Node && pasteMenuRef.current?.contains(target)) return;
-			setPasteMenu(null);
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		return () => document.removeEventListener("pointerdown", onPointerDown);
-	}, [pasteMenu]);
 
 	// This composer's in-flight dictation is cancelled (never transcribed) if it unmounts; the
 	// recording slot is app-wide, and closing one split pane must not end another pane's take.
@@ -617,84 +611,6 @@ export function InputArea() {
 		[text, menu, placeDraft],
 	);
 
-	// Collapse a large paste into a `[Paste #N]` marker with the blob held in
-	// memory; the marker expands back to full content at submit time (TUI
-	// editor.ts parity). Inserted at the caret, replacing any selection.
-	const insertPasteBlob = useCallback(
-		(content: string) => {
-			const blob = storePaste(content);
-			const marker = pasteMarkerText(blob.id, blob.content);
-			const el = textareaRef.current;
-			const current = el?.value ?? text;
-			const start = el?.selectionStart ?? current.length;
-			const end = el?.selectionEnd ?? start;
-			el?.focus();
-			placeDraft(`${current.slice(0, start)}${marker}${current.slice(end)}`, start + marker.length);
-		},
-		[text, placeDraft],
-	);
-
-	// Paste menu actions — the paste always inserts something; the menu only
-	// picks the form. Keep side effects outside state updaters: React may replay
-	// updater functions, which must never duplicate a paste or an RPC write.
-	const choosePasteInline = useCallback(() => {
-		if (!pasteMenu) return;
-		insertPasteBlob(pasteMenu.content);
-		setPasteMenu(null);
-	}, [insertPasteBlob, pasteMenu]);
-
-	const choosePasteWrapped = useCallback(() => {
-		if (!pasteMenu) return;
-		insertPasteBlob(wrapPasteInAttachmentBlock(pasteMenu.content));
-		setPasteMenu(null);
-	}, [insertPasteBlob, pasteMenu]);
-
-	// Save-as-file: the agent writes the blob into the session's local:// store
-	// (counter allocated agent-side so two windows can never collide) and the
-	// composer gets the returned literal reference. Any protocol or transport
-	// failure falls back to the inline marker, so clipboard content is not lost.
-	const choosePasteSaveFile = useCallback(() => {
-		if (!pasteMenu) return;
-		const pendingPaste = pasteMenu;
-		setPasteMenu(null);
-		// The menu's button leaves with it: typing goes on in the field while the file is written.
-		textareaRef.current?.focus();
-		// Capture tab AND session at click time: after the RPC resolves,
-		// `setText` may belong to a different tab's draft (tab switch) or a
-		// different session's draft (in-place session replace). Both success
-		// and fallback paths are gated — a cross-session paste corrupts both.
-		const origin = {
-			tabId: runtimeTabId,
-			sessionId: sessionRuntimeStore<SessionStore>(runtimeTabId, "session")?.getState().sessionId,
-		};
-		const stillOrigin = () =>
-			origin.tabId !== null &&
-			sessionRuntimeStore<SessionStore>(origin.tabId, "session")?.getState().sessionId === origin.sessionId;
-		void (async () => {
-			try {
-				const response = await rpc.writeLocalPaste(pendingPaste.content);
-				if (!stillOrigin()) return;
-				if (!response.success) throw new Error(response.error);
-				const data = response.data as { url?: string } | undefined;
-				if (!data?.url) throw new Error("write_local_paste returned no URL");
-				const el = textareaRef.current;
-				const current = el?.value ?? text;
-				const start = el?.selectionStart ?? current.length;
-				const end = el?.selectionEnd ?? start;
-				const insert = `${data.url} `;
-				el?.focus();
-				placeDraft(`${current.slice(0, start)}${insert}${current.slice(end)}`, start + insert.length);
-			} catch (cause) {
-				// The RPC threw (transport/permission): without the origin gate the
-				// inline fallback would splice clipboard content into whichever
-				// composer is now foreground.
-				if (!stillOrigin()) return;
-				toastError({ title: t("input.paste.saveFailed"), error: cause });
-				insertPasteBlob(pendingPaste.content);
-			}
-		})();
-	}, [insertPasteBlob, pasteMenu, text, t, placeDraft, runtimeTabId, rpc]);
-
 	const dispatchSend = useComposerSubmit({
 		text,
 		images,
@@ -888,10 +804,10 @@ export function InputArea() {
 		if (pasteMenu) {
 			if (e.key === "Escape") {
 				e.preventDefault();
-				setPasteMenu(null);
+				paste.cancel();
 			} else if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
 				e.preventDefault();
-				choosePasteInline();
+				paste.chooseInline();
 			} else if (
 				e.key === "Enter" ||
 				e.key === "Backspace" ||
@@ -1119,73 +1035,7 @@ export function InputArea() {
 			if (send(undefined, followUp ? "followUp" : undefined) && expanded) setExpanded(false);
 		}
 	};
-
-	const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-		const files = Array.from(e.clipboardData.files);
-		const pasted = e.clipboardData.getData("text/plain");
-		if (files.length > 0) {
-			e.preventDefault();
-			// A clipboard may hold files and text together (a picture copied with its caption): the text
-			// goes in too. A file manager's copy also carries the files' names as text: that text is the
-			// files themselves, already attached.
-			const names = new Set(files.map(file => file.name));
-			const lines = pasted
-				.split(/\r?\n/)
-				.map(line => line.trim())
-				.filter(line => line !== "");
-			if (lines.some(line => !names.has(line) && !names.has(line.split(/[\\/]/).at(-1) ?? "")))
-				pasteText(pasted, true);
-			void attachFiles(files);
-			return;
-		}
-		if (pasted && pasteText(pasted, false)) e.preventDefault();
-	};
-
-	/**
-	 * A clipboard's text. Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse to a
-	 * `[Paste #N]` marker past the marker threshold; past the (separate, line-count-only) menu threshold,
-	 * offer the inline/wrapped choice first. A small paste is the field's own default unless `own` (the
-	 * default was cancelled for a file beside it): then it goes in at the caret here. False when the
-	 * field's default paste should run.
-	 */
-	const pasteText = (pasted: string, own: boolean): boolean => {
-		const content = pasted
-			.replace(/\r\n?/g, "\n")
-			.normalize("NFC")
-			.replace(/\t/g, "   ")
-			.replace(/[\x00-\x08\x0B-\x1F]/g, "");
-		if (!isMarkerSized(content)) {
-			if (!own) return false;
-			const el = textareaRef.current;
-			const current = el?.value ?? text;
-			const start = el?.selectionStart ?? current.length;
-			const end = el?.selectionEnd ?? start;
-			placeDraft(`${current.slice(0, start)}${content}${current.slice(end)}`, start + content.length);
-			return true;
-		}
-		const lineCount = content.split("\n").length;
-		if (shouldOfferPasteMenu(lineCount, pasteMenuThreshold)) setPasteMenu({ content, lineCount });
-		else insertPasteBlob(content);
-		return true;
-	};
-
 	const modeLabel = mode === "followUp" ? t("input.followUp") : t("input.steer");
-
-	/** Splice text in at the caret (replacing a selection), space-separated from its neighbours. */
-	const insertAtCaret = (insert: string) => {
-		const el = textareaRef.current;
-		const current = el?.value ?? text;
-		const start = el?.selectionStart ?? current.length;
-		const end = el?.selectionEnd ?? start;
-		const before = current.slice(0, start);
-		const after = current.slice(end);
-		const inserted = `${before && !/\s$/.test(before) ? " " : ""}${insert}${/^\s/.test(after) ? "" : " "}`;
-		el?.focus();
-		placeDraft(`${before}${inserted}${after}`, start + inserted.length);
-	};
-
-	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
-		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
 
 	const sendDisabled =
 		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
@@ -1221,49 +1071,17 @@ export function InputArea() {
 			<div className="omp-composer-shell relative w-full">
 				<AskDockSlot />
 				{pasteMenu && (
-					<div
-						ref={pasteMenuRef}
-						role="dialog"
-						aria-label={t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
-						className="omp-pop-in absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 shadow-(--sc-shadow-md)"
-					>
-						<div className="flex items-baseline justify-between gap-3">
-							<span className="text-sc-md font-medium text-(--sc-text)">
-								{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
-							</span>
-							<span className="shrink-0 text-sc-sm text-(--sc-text-muted)">{t("input.paste.hint")}</span>
-						</div>
-						<pre className="mt-2 max-h-32 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-divider) bg-(--sc-surface-1) px-2.5 py-2 font-mono text-sc-sm break-all whitespace-pre-wrap text-(--sc-text-secondary)">
-							{(() => {
-								const lines = pasteMenu.content.split("\n");
-								if (lines.length <= 6) return pasteMenu.content;
-								const head = lines.slice(0, 3).join("\n");
-								const tail = lines.slice(-2).join("\n");
-								return `${head}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${tail}`;
-							})()}
-						</pre>
-						<div className="mt-3 flex flex-wrap gap-2">
-							<Button onClick={choosePasteInline} size="sm" variant="primary">
-								{t("input.paste.inline")}
-							</Button>
-							<Button onClick={choosePasteWrapped} size="sm">
-								{t("input.paste.wrap")}
-							</Button>
-							<Button onClick={choosePasteSaveFile} size="sm">
-								{t("input.paste.saveFile")}
-							</Button>
-							<Button
-								onClick={() => {
-									setPasteMenu(null);
-									textareaRef.current?.focus();
-								}}
-								size="sm"
-								variant="ghost"
-							>
-								{t("input.paste.cancel")}
-							</Button>
-						</div>
-					</div>
+					<PasteMenu
+						menuRef={paste.menuRef}
+						onCancel={() => {
+							paste.cancel();
+							textareaRef.current?.focus();
+						}}
+						onInline={paste.chooseInline}
+						onSaveFile={paste.chooseSaveFile}
+						onWrap={paste.chooseWrapped}
+						paste={pasteMenu}
+					/>
 				)}
 				<ComposerQueue onSettled={() => textareaRef.current?.focus()} />
 
@@ -1537,7 +1355,7 @@ export function InputArea() {
 								onCompositionEnd={inline.onCompositionEnd}
 								onKeyUp={inline.syncCaret}
 								onSelect={inline.syncCaret}
-								onPaste={handlePaste}
+								onPaste={paste.onPaste}
 								rows={expanded ? undefined : 2}
 								placeholder={placeholder}
 								className={cx(
