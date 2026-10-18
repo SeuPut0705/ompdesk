@@ -67,8 +67,8 @@ async function capture(name: string): Promise<void> {
 	if (!directory) return;
 	await fs.mkdir(directory, { recursive: true });
 	for (const [theme, label] of [
-		["light", "Porcelain"],
-		["dark", "Graphite"],
+		["light", "OMPdesk Light"],
+		["dark", "OMPdesk Dark"],
 	]) {
 		const input = page.locator("textarea").first();
 		await input.fill("/theme");

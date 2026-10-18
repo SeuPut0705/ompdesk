@@ -91,8 +91,8 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 			.toBe(false);
 		await page.keyboard.press("Escape");
 		for (const [theme, label] of [
-			["light", "Porcelain"],
-			["dark", "Graphite"],
+			["light", "OMPdesk Light"],
+			["dark", "OMPdesk Dark"],
 		]) {
 			await page.locator("textarea").first().fill("/theme");
 			await page.getByRole("button", { name: "Send", exact: true }).click();

@@ -13,6 +13,8 @@ export const DEVICE_LOCAL_PREF_KEYS: readonly string[] = [
 	// Theme.
 	"theme",
 	"themeName",
+	"systemLightTheme",
+	"systemDarkTheme",
 	"followAgentTheme",
 	"colorBlindMode",
 	// Type and density.

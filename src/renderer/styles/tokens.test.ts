@@ -4,7 +4,7 @@
  * 1. The stylesheet palettes (theme-*.css + the aliases and derived colors in
  *    tokens.css) and the named-theme maps THEMES.light / THEMES.dark resolve
  *    to the same color for every --omp-* key, and scTokensFor() mirrors the
- *    same --sc-* primitives — so picking "Porcelain"/"Graphite" by name looks
+ *    same --sc-* primitives — so picking "OMPdesk Light"/"OMPdesk Dark" by name looks
  *    exactly like following the OS.
  * 2. Contrast floors from design-spec.md: text ≥ 4.5:1 on every surface;
  *    interactive boundaries and the focus ring ≥ 3:1.

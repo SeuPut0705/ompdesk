@@ -81,6 +81,14 @@
 	--omp-ansi-bright-magenta: var(--omp-syntax-number);
 	--omp-ansi-bright-cyan: var(--omp-syntax-function);
 	--omp-ansi-bright-white: var(--omp-text);
+	/* Chart series: a named theme writes its own six inline (lib/themes.ts themeExtrasFor);
+	   these are what a stylesheet-only paint reads. */
+	--omp-chart-1: var(--sc-accent);
+	--omp-chart-2: var(--sc-info);
+	--omp-chart-3: var(--sc-success);
+	--omp-chart-4: var(--sc-warning);
+	--omp-chart-5: var(--sc-danger);
+	--omp-chart-6: var(--sc-text-muted);
 }
 
 *,
@@ -960,24 +968,41 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	gap: 0.625rem;
 }
 
-/* GUI color-blind mode — Okabe-Ito color-blind-safe palette for the
-   semantic tokens. !important is required: named themes also set these vars
-   inline on <html>, and a stylesheet rule only wins with !important. Both the
-   --sc-* palette and the legacy --omp-* names are pinned. */
+/* GUI color-blind mode — Okabe-Ito color-blind-safe hues for the semantic tokens,
+   shaded per scheme so each reads as text (4.5:1) on every theme's surfaces of that
+   scheme (themes.contrast.test.ts, "color-blind mode"). !important is required:
+   named themes also set these vars inline on <html>, and a stylesheet rule only wins
+   with !important. Both the --sc-* palette and the legacy --omp-* names are pinned. */
 :root[data-colorblind="true"] {
-	--sc-accent: #0072b2 !important;
-	--sc-accent-hover: #005f93 !important;
-	--sc-accent-fg: #ffffff !important;
-	--sc-success: #009e73 !important;
-	--sc-warning: #e69f00 !important;
-	--sc-danger: #d55e00 !important;
-	--omp-accent: #0072b2 !important;
-	--omp-success: #009e73 !important;
-	--omp-warning: #e69f00 !important;
-	--omp-error: #d55e00 !important;
-	--omp-accent-dim: color-mix(in srgb, #0072b2 12%, transparent) !important;
-	--omp-success-dim: color-mix(in srgb, #009e73 12%, transparent) !important;
-	--omp-error-dim: color-mix(in srgb, #d55e00 10%, transparent) !important;
+	--cb-accent: #005d92;
+	--cb-accent-hover: #004f7c;
+	--cb-accent-fg: #ffffff;
+	--cb-success: #00654a;
+	--cb-warning: #755100;
+	--cb-danger: #934100;
+}
+:root[data-colorblind="true"][data-theme="dark"] {
+	--cb-accent: #96c5df;
+	--cb-accent-hover: #a6cee4;
+	--cb-accent-fg: #0b0b1a;
+	--cb-success: #7acdb6;
+	--cb-warning: #ecb438;
+	--cb-danger: #ebb285;
+}
+:root[data-colorblind="true"] {
+	--sc-accent: var(--cb-accent) !important;
+	--sc-accent-hover: var(--cb-accent-hover) !important;
+	--sc-accent-fg: var(--cb-accent-fg) !important;
+	--sc-success: var(--cb-success) !important;
+	--sc-warning: var(--cb-warning) !important;
+	--sc-danger: var(--cb-danger) !important;
+	--omp-accent: var(--cb-accent) !important;
+	--omp-success: var(--cb-success) !important;
+	--omp-warning: var(--cb-warning) !important;
+	--omp-error: var(--cb-danger) !important;
+	--omp-accent-dim: color-mix(in srgb, var(--cb-accent) 12%, transparent) !important;
+	--omp-success-dim: color-mix(in srgb, var(--cb-success) 12%, transparent) !important;
+	--omp-error-dim: color-mix(in srgb, var(--cb-danger) 10%, transparent) !important;
 }
 
 .settings-embedded-panel.settings-plugin-detail-open {

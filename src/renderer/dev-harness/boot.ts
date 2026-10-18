@@ -5,6 +5,7 @@
  */
 
 import { createOmpApi } from "../../shared/omp-api";
+import { migrateThemeName, schemeOfTheme } from "../../shared/theme-names";
 import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
@@ -18,9 +19,12 @@ const query = new URLSearchParams(location.search);
 const prefs: Record<string, unknown> = {};
 if (query.get("rail") === "all") prefs.sidebar = { railPins: ["usage", "agents", "stats"] };
 // The app takes its theme from prefs once they load (and resolves "system" from the OS, not from localStorage),
-// so `?theme=` has to be a pref too or a dark capture paints light.
-const theme = query.get("theme");
-if (theme === "dark" || theme === "light") prefs.theme = theme;
+// so `?theme=` has to be a pref too or a dark capture paints light. Any theme id works (`?theme=nord`).
+const theme = migrateThemeName(query.get("theme"));
+if (theme !== null) {
+	prefs.themeName = theme;
+	prefs.theme = theme === "system" ? "system" : schemeOfTheme(theme);
+}
 const { transport, harness } = createHarnessTransport(prefs);
 const api = createOmpApi(transport);
 // `fs.pathForFile` is the one member only Electron's preload can answer; a browser has no local path to give.
@@ -80,6 +84,7 @@ const [
 	autopilot,
 	mobileWeb,
 	remote,
+	nextPrompt,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -94,6 +99,7 @@ const [
 	import("../stores/autopilot").then(module => module.useAutopilotStore),
 	import("../stores/mobile-web").then(module => module.useMobileWebStore),
 	import("../stores/remote").then(module => module.useRemoteStore),
+	import("../stores/next-prompt").then(module => module.useNextPromptStore),
 ]);
 window.__stores = {
 	ui,
@@ -109,6 +115,7 @@ window.__stores = {
 	autopilot,
 	mobileWeb,
 	remote,
+	nextPrompt,
 };
 
 interface StoreHandle {

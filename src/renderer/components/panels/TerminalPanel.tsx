@@ -52,30 +52,34 @@ function readFontScale(): number {
 	}
 }
 
+/** xterm's palette for the page's theme: the surface, the text, the selection and the theme's own ANSI 16 (`--omp-ansi-*`). */
 export function terminalTheme(element: HTMLElement): ITheme {
 	const style = getComputedStyle(element);
-	const color = (name: string) => style.getPropertyValue(`--sc-${name}`).trim();
+	const read = (name: string) => style.getPropertyValue(name).trim();
+	const color = (name: string) => read(`--sc-${name}`);
+	const ansi = (name: string) => read(`--omp-ansi-${name}`);
 	return {
 		background: color("surface-1"),
 		foreground: color("text"),
 		cursor: color("text"),
-		selectionBackground: color("selection"),
-		black: color("text-subtle"),
-		brightBlack: color("text-muted"),
-		red: color("danger"),
-		brightRed: color("danger"),
-		green: color("success"),
-		brightGreen: color("success"),
-		yellow: color("warning"),
-		brightYellow: color("warning"),
-		blue: color("info"),
-		brightBlue: color("info"),
-		magenta: color("accent"),
-		brightMagenta: color("accent"),
-		cyan: color("info"),
-		brightCyan: color("info"),
-		white: color("text"),
-		brightWhite: color("text"),
+		cursorAccent: color("surface-1"),
+		selectionBackground: read("--omp-selection-bg"),
+		black: ansi("black"),
+		red: ansi("red"),
+		green: ansi("green"),
+		yellow: ansi("yellow"),
+		blue: ansi("blue"),
+		magenta: ansi("magenta"),
+		cyan: ansi("cyan"),
+		white: ansi("white"),
+		brightBlack: ansi("bright-black"),
+		brightRed: ansi("bright-red"),
+		brightGreen: ansi("bright-green"),
+		brightYellow: ansi("bright-yellow"),
+		brightBlue: ansi("bright-blue"),
+		brightMagenta: ansi("bright-magenta"),
+		brightCyan: ansi("bright-cyan"),
+		brightWhite: ansi("bright-white"),
 	};
 }
 

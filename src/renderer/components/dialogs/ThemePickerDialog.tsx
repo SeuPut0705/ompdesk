@@ -7,14 +7,15 @@
  */
 
 import { Check, Monitor } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { ThemeScheme } from "../../../shared/theme-names";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import {
 	applyThemeByName,
 	getPersistedThemeSelection,
-	resolveTokenColor,
+	getSystemThemePair,
 	THEMES,
 	type ThemeName,
 	type ThemeSelection,
@@ -22,21 +23,17 @@ import {
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Modal, SearchField } from "../common";
-
-const SWATCH_KEYS = ["--omp-accent", "--omp-syntax-string", "--omp-syntax-function", "--omp-syntax-number"] as const;
+import { ThemePreview } from "../settings/ThemePicker";
 
 interface ThemeEntry {
 	selection: ThemeSelection;
+	group: "system" | ThemeScheme;
 	label: string;
 	description: string;
 }
 
-/** Catalog themes; locale keys mirror each stable theme selection id. */
-const THEME_ENTRIES: ThemeEntry[] = (Object.keys(THEMES) as ThemeName[]).map(name => ({
-	selection: name as ThemeSelection,
-	label: THEMES[name].label,
-	description: THEMES[name].description ?? "",
-}));
+/** Catalog themes in picker order; locale keys mirror each stable theme id. */
+const THEME_NAMES_IN_ORDER = Object.keys(THEMES) as ThemeName[];
 
 export function ThemePickerDialog() {
 	const t = useT();
@@ -52,11 +49,17 @@ export function ThemePickerDialog() {
 
 	const entries = useMemo<ThemeEntry[]>(
 		() => [
-			{ selection: "system", label: t("themePicker.system"), description: t("themePicker.systemDesc") },
-			...THEME_ENTRIES.map(entry => ({
-				...entry,
-				label: t(`themePicker.theme.${entry.selection}.label`),
-				description: t(`themePicker.theme.${entry.selection}.description`),
+			{
+				selection: "system",
+				group: "system",
+				label: t("themePicker.system"),
+				description: t("themePicker.systemDesc"),
+			},
+			...THEME_NAMES_IN_ORDER.map(name => ({
+				selection: name,
+				group: THEMES[name].scheme,
+				label: t(`themePicker.theme.${name}.label`),
+				description: t(`themePicker.theme.${name}.description`),
 			})),
 		],
 		[t],
@@ -76,7 +79,7 @@ export function ThemePickerDialog() {
 		void getPersistedThemeSelection().then(sel => {
 			if (cancelled) return;
 			setCurrent(sel);
-			const themeIndex = THEME_ENTRIES.findIndex(e => e.selection === sel);
+			const themeIndex = THEME_NAMES_IN_ORDER.findIndex(name => name === sel);
 			setActive(sel === "system" ? 0 : Math.max(0, themeIndex + 1));
 		});
 		requestAnimationFrame(() => inputRef.current?.focus());
@@ -145,61 +148,60 @@ export function ThemePickerDialog() {
 					)}
 					{filtered.map((entry, i) => {
 						const isSystem = entry.selection === "system";
-						const theme = isSystem ? null : THEMES[entry.selection as ThemeName];
 						const isCurrent = entry.selection === current;
+						const pair = getSystemThemePair();
 						return (
-							<button
-								key={entry.selection}
-								type="button"
-								data-index={i}
-								aria-pressed={isCurrent}
-								onClick={() => select(entry)}
-								onMouseEnter={() => setActive(i)}
-								className={cx(
-									"flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-3 py-2.5 text-left",
-									i === active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+							<Fragment key={entry.selection}>
+								{entry.group !== filtered[i - 1]?.group && entry.group !== "system" && (
+									<div className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
+										{t(`themePicker.group.${entry.group}`)}
+									</div>
 								)}
-							>
-								<span
-									aria-hidden="true"
-									className="flex h-14 w-24 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-(--sc-radius-md) border"
-									style={{
-										background: theme ? resolveTokenColor(theme, "--omp-bg-primary") : "var(--sc-surface-2)",
-										borderColor: theme ? resolveTokenColor(theme, "--omp-border") : "var(--sc-border-subtle)",
-										color: theme ? resolveTokenColor(theme, "--omp-text") : "var(--sc-text)",
-									}}
-								>
-									{isSystem ? (
-										<span className="flex h-full w-full items-center justify-center text-(--sc-text-muted)">
-											<Monitor className="size-(--sc-icon-md)" />
-										</span>
-									) : (
-										<>
-											<span className="font-display text-sc-xl font-medium">Aa</span>
-											<span className="flex gap-1">
-												{SWATCH_KEYS.map(key => (
-													<span
-														key={key}
-														className="h-1.5 w-3 rounded-full"
-														style={{ background: resolveTokenColor(theme!, key) }}
-													/>
-												))}
-											</span>
-										</>
+								<button
+									type="button"
+									data-index={i}
+									data-theme-entry={entry.selection}
+									aria-pressed={isCurrent}
+									onClick={() => select(entry)}
+									onMouseEnter={() => setActive(i)}
+									className={cx(
+										"flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-3 py-2.5 text-left",
+										i === active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 									)}
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="flex flex-wrap items-center gap-2 text-sc-md font-medium text-(--sc-text)">
-										{entry.label}
-										{isCurrent && (
-											<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+								>
+									<span
+										aria-hidden="true"
+										className="flex h-14 w-28 shrink-0 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)"
+									>
+										{isSystem ? (
+											<>
+												<span className="w-1/2 overflow-hidden">
+													<ThemePreview theme={THEMES[pair.light]} />
+												</span>
+												<span className="w-1/2 overflow-hidden">
+													<ThemePreview theme={THEMES[pair.dark]} />
+												</span>
+											</>
+										) : (
+											<ThemePreview theme={THEMES[entry.selection as ThemeName]} />
 										)}
 									</span>
-									<span className="block text-sc-sm leading-relaxed text-(--sc-text-muted)">
-										{entry.description}
+									<span className="min-w-0 flex-1">
+										<span className="flex flex-wrap items-center gap-2 text-sc-md font-medium text-(--sc-text)">
+											{isSystem && (
+												<Monitor aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+											)}
+											{entry.label}
+											{isCurrent && (
+												<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+											)}
+										</span>
+										<span className="block text-sc-sm leading-relaxed text-(--sc-text-muted)">
+											{entry.description}
+										</span>
 									</span>
-								</span>
-							</button>
+								</button>
+							</Fragment>
 						);
 					})}
 				</div>

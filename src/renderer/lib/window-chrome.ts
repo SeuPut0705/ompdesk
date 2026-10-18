@@ -32,12 +32,16 @@ export function markChromePlatform(root: HTMLElement = document.documentElement)
 }
 
 /**
- * Windows only: push the caption-button colors whenever the theme or the
- * surface under the top-right corner changes (side panel docked → surface-1,
- * otherwise the canvas). Returns the cleanup.
+ * Windows and the mobile web page: push the window-control colors whenever the theme or the
+ * surface under the top bar changes (side panel docked → surface-1, otherwise the canvas).
+ * Windows recolors the caption buttons; a web page's `theme-color` metas (the installed PWA's
+ * status bar and browser chrome) take the same color. Returns the cleanup.
  */
 export function syncWindowControls(surfaceToken: "--sc-bg" | "--sc-surface-1"): () => void {
-	if (chromePlatform() !== "win32" || typeof window.omp?.windowChrome?.setColors !== "function") return () => {};
+	const platform = chromePlatform();
+	if ((platform !== "win32" && platform !== "web") || typeof window.omp?.windowChrome?.setColors !== "function") {
+		return () => {};
+	}
 	let last = "";
 	const push = () => {
 		const style = getComputedStyle(document.documentElement);

@@ -27,7 +27,7 @@ import { formatCost } from "./format";
 
 Chart.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
-/** Scheme fallbacks, used only when the theme stylesheets failed to load (Porcelain / Graphite). */
+/** Scheme fallbacks, used only when the theme stylesheets failed to load (OMPdesk Light / Dark). */
 const FALLBACK = {
 	light: {
 		"--sc-text": "#1b1b1f",
@@ -72,26 +72,26 @@ function token(name: TokenName): string {
 }
 
 /**
- * Categorical palette for multi-series charts (cycled). Only semantic design
- * tokens are used, so charts share the page's light/dark contrast policy;
- * exact duplicates (small palettes reuse hues) are removed.
+ * Categorical palette for multi-series charts (cycled): the theme's six series
+ * (`--omp-chart-1…6`, each at least 3:1 on the page), falling back to the
+ * semantic tokens when a stylesheet-only paint has not defined them. Exact
+ * duplicates are removed.
  */
 const SERIES_TOKENS = [
-	"--sc-accent",
-	"--sc-info",
-	"--sc-success",
-	"--sc-warning",
-	"--sc-danger",
-	"--sc-text-muted",
+	["--omp-chart-1", "--sc-accent"],
+	["--omp-chart-2", "--sc-info"],
+	["--omp-chart-3", "--sc-success"],
+	["--omp-chart-4", "--sc-warning"],
+	["--omp-chart-5", "--sc-danger"],
+	["--omp-chart-6", "--sc-text-muted"],
 ] as const;
 
 export function chartColors(): string[] {
 	const style = getComputedStyle(document.documentElement);
 	const fallback = FALLBACK[scheme()];
-	const resolved = SERIES_TOKENS.map(name => {
-		const value = style.getPropertyValue(name).trim();
-		if (value) return value;
-		return name in fallback ? fallback[name as TokenName] : fallback["--sc-text-muted"];
+	const resolved = SERIES_TOKENS.map(([series, semantic]) => {
+		const value = style.getPropertyValue(series).trim() || style.getPropertyValue(semantic).trim();
+		return value || fallback[semantic];
 	});
 	return resolved.filter((color, index) => resolved.indexOf(color) === index);
 }

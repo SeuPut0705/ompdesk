@@ -11,6 +11,8 @@ export type ThemeMode = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 
 export const THEME_SCHEME_STORAGE_KEY = "omp.themeScheme";
+/** JSON `{light?: "#rrggbb", dark?: "#rrggbb"}`: the page background pre-paint.js paints per OS scheme (lib/themes.ts storePaint). */
+export const THEME_PAINT_STORAGE_KEY = "omp.themePaint";
 
 /** Synchronous boot mode mirrored by pre-paint.js before preferences IPC exists; follows the OS until a choice is saved. */
 export function readPrepaintThemeMode(): ThemeMode {
@@ -51,14 +53,14 @@ let lastAppliedMode: ThemeMode | null = null;
 let customTokensActive = false;
 
 /**
- * Marks a full custom token set (lib/themes.ts) as applied on top of the given
- * base scheme. While active, re-applying the SAME mode (e.g. the App effect
- * re-firing on an unrelated font-size change) keeps the custom tokens instead
- * of clearing them. Switching to a different mode still clears, so explicit
- * dark/light/system switches always win.
+ * Marks a full custom token set (lib/themes.ts) as applied for the given
+ * mode ("system" while the System pair shows). While active, re-applying the
+ * SAME mode (e.g. the App effect re-firing on an unrelated font-size change)
+ * keeps the custom tokens instead of clearing them. Switching to a different
+ * mode still clears, so explicit dark/light/system switches always win.
  */
-export function markCustomThemeTokens(scheme: ResolvedTheme): void {
-	lastAppliedMode = scheme;
+export function markCustomThemeTokens(mode: ThemeMode): void {
+	lastAppliedMode = mode;
 	customTokensActive = true;
 }
 

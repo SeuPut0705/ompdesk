@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
+import { migrateThemeName } from "../../shared/theme-names";
 import { isUiLanguage } from "../../shared/ui-language";
 import { saveGuiPreference } from "../lib/display-preferences";
 import { setLanguageOverride } from "../lib/i18n";
 import {
 	applyThemeByName,
 	getPersistedThemeSelection,
-	isThemeSelection,
 	resolveThemeSelection,
 	type ThemeSelection,
 } from "../lib/themes";
@@ -79,7 +79,7 @@ export function useHostAppearance(): void {
 			.then(async ({ appearance }) => {
 				if (!live) return;
 				const { themeName, language } = appearance;
-				const theme = isThemeSelection(themeName) ? themeName : await getPersistedThemeSelection();
+				const theme = migrateThemeName(themeName) ?? (await getPersistedThemeSelection());
 				if (!live) return;
 				showingHost.current = true;
 				setLanguageOverride(isUiLanguage(language) ? language : null);

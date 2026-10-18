@@ -5,13 +5,11 @@
 
 import {
 	Brain,
-	Check,
 	ClipboardPaste,
 	Eye,
 	EyeOff,
 	Gauge,
 	ListOrdered,
-	Monitor,
 	Palette,
 	PanelRight,
 	PanelTop,
@@ -23,148 +21,24 @@ import {
 	TextQuote,
 	Type,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import {
 	GUI_DISPLAY_BOOL_FIELDS,
 	saveGuiPreference,
 	setDisplayPreference,
 	useDisplayPreference,
 } from "../../lib/display-preferences";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { setCodeLineNumbersPref } from "../../lib/markdown";
-import {
-	applyThemeByName,
-	getPersistedThemeSelection,
-	resolveTokenColor,
-	THEMES,
-	type ThemeDefinition,
-	type ThemeName,
-	type ThemeSelection,
-} from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { webRuntime } from "../../web/runtime";
 import { Button, Input, Select, SettingInfo } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { ThemePicker } from "./ThemePicker";
 
-const THEME_SELECTIONS: readonly ThemeSelection[] = ["system", ...(Object.keys(THEMES) as ThemeName[])];
 const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20] as const;
-
-function ThemePreview({ theme }: { theme: ThemeDefinition }) {
-	const color = (key: Parameters<typeof resolveTokenColor>[1]) => resolveTokenColor(theme, key);
-	return (
-		<span
-			aria-hidden
-			className="flex h-full w-full overflow-hidden"
-			style={{ background: color("--omp-bg-primary") }}
-		>
-			<span className="h-full w-1/4" style={{ background: color("--omp-sidebar-bg") }} />
-			<span className="flex flex-1 flex-col justify-center gap-1.5 px-2">
-				<span className="h-1 w-4/5 rounded-(--sc-radius-full)" style={{ background: color("--omp-text") }} />
-				<span className="h-1 w-3/5 rounded-(--sc-radius-full)" style={{ background: color("--omp-muted") }} />
-				<span className="h-1.5 w-1/3 rounded-(--sc-radius-full)" style={{ background: color("--omp-accent") }} />
-			</span>
-		</span>
-	);
-}
-
-/** Inline theme choice: one radio per palette with a live preview; arrow keys move, selection applies at once. */
-function ThemeSwatches() {
-	const t = useT();
-	const [current, setCurrent] = useState<ThemeSelection | null>(null);
-	const groupRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		void getPersistedThemeSelection().then(selection => {
-			if (!cancelled) setCurrent(selection);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	const choose = (selection: ThemeSelection) => {
-		applyThemeByName(selection);
-		useUiStore.getState().setTheme(selection === "system" ? "system" : THEMES[selection].scheme);
-		setCurrent(selection);
-	};
-
-	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-		if (delta === undefined) return;
-		event.preventDefault();
-		const index = THEME_SELECTIONS.indexOf(current ?? "system");
-		const next = THEME_SELECTIONS[(index + delta + THEME_SELECTIONS.length) % THEME_SELECTIONS.length];
-		choose(next);
-		groupRef.current?.querySelector<HTMLElement>(`[data-theme-option="${next}"]`)?.focus();
-	};
-
-	return (
-		<div
-			aria-label={t("settings.gui.theme")}
-			className="settings-theme-grid"
-			onKeyDown={onKeyDown}
-			ref={groupRef}
-			role="radiogroup"
-		>
-			{THEME_SELECTIONS.map(selection => {
-				const selected = selection === (current ?? "system");
-				const label = selection === "system" ? t("themePicker.system") : t(`themePicker.theme.${selection}.label`);
-				return (
-					<button
-						aria-checked={selected}
-						className="group/theme flex min-w-0 flex-col gap-1.5 rounded-(--sc-radius-lg) p-1 text-left"
-						data-theme-option={selection}
-						key={selection}
-						onClick={() => choose(selection)}
-						role="radio"
-						tabIndex={selected ? 0 : -1}
-						title={
-							selection === "system"
-								? t("themePicker.systemDesc")
-								: t(`themePicker.theme.${selection}.description`)
-						}
-						type="button"
-					>
-						<span
-							className={cx(
-								"relative flex h-14 overflow-hidden rounded-(--sc-radius-md) border",
-								selected
-									? "border-(--sc-accent) ring-2 ring-(--sc-accent-soft)"
-									: "border-(--sc-border-subtle) group-hover/theme:border-(--sc-border)",
-							)}
-						>
-							{selection === "system" ? (
-								<>
-									<span className="w-1/2 overflow-hidden">
-										<ThemePreview theme={THEMES.light} />
-									</span>
-									<span className="w-1/2 overflow-hidden">
-										<ThemePreview theme={THEMES.dark} />
-									</span>
-								</>
-							) : (
-								<ThemePreview theme={THEMES[selection]} />
-							)}
-							{selected && (
-								<span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-(--sc-radius-full) bg-(--sc-accent) text-(--sc-accent-fg)">
-									<Check aria-hidden className="size-3" strokeWidth={3} />
-								</span>
-							)}
-						</span>
-						<span className="flex items-center gap-1 truncate px-0.5 text-sc-sm text-(--sc-text-secondary)">
-							{selection === "system" && <Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
-							<span className="truncate">{label}</span>
-						</span>
-					</button>
-				);
-			})}
-		</div>
-	);
-}
 
 /** Each display preference's glyph. */
 const DISPLAY_ICONS: Record<(typeof GUI_DISPLAY_BOOL_FIELDS)[number], ReactNode> = {
@@ -282,9 +156,7 @@ export function AppearanceSection() {
 		<>
 			<ThisDeviceNote />
 			<SettingsSection title={t("settings.appearance.theme")}>
-				<div className="scroll-mt-4 py-2" data-setting-row="true" id="setting-gui-theme">
-					<ThemeSwatches />
-				</div>
+				<ThemePicker />
 				<SettingsSwitchRow
 					checked={followAgentTheme}
 					description={t("settings.gui.followAgentThemeDesc")}

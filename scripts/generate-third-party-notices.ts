@@ -165,6 +165,24 @@ function isPermissive(spdx: string): boolean {
 const RULE = "=".repeat(78);
 const THIN = "-".repeat(78);
 
+/** The MIT License's terms, shared by the palettes credited above their copyright lines. */
+const MIT_TEXT = [
+	"Permission is hereby granted, free of charge, to any person obtaining a copy of the palettes",
+	'and associated documentation files (the "Software"), to deal in the Software without',
+	"restriction, including without limitation the rights to use, copy, modify, merge, publish,",
+	"distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the",
+	"Software is furnished to do so, subject to the following conditions:",
+	"",
+	"The above copyright notice and this permission notice shall be included in all copies or",
+	"substantial portions of the Software.",
+	"",
+	'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING',
+	"BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND",
+	"NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,",
+	"DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,",
+	"OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+].join("\n");
+
 function vendoredSections(): string {
 	const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8").replace(/\r\n?/g, "\n").trim();
 	const reaLicense = read("resources/omp-builtin/rea/skills/reverse-engineer-anything/LICENSE");
@@ -204,6 +222,24 @@ function vendoredSections(): string {
 			"endorsement.",
 			"",
 			lobeLicense,
+		].join("\n"),
+		[
+			"Theme palettes (src/renderer/lib/theme-palettes.ts)",
+			"The Solarized Light, Nord, Tokyo Night, Gruvbox Dark and GitHub Light themes start from the",
+			"colors their authors publish; where a published color fails WCAG AA for text on its own",
+			"background it is replaced by a shade of the same hue (see the header of that file). Each",
+			"palette is credited below with its license; every one is MIT.",
+			"",
+			"- Solarized, https://github.com/altercation/solarized, Copyright (c) 2011 Ethan Schoonover",
+			"- Nord, https://github.com/nordtheme/nord, Copyright (c) 2016-present Sven Greb",
+			"  <development@svengreb.de> (https://www.svengreb.de)",
+			"- Tokyo Night, https://github.com/tokyo-night/tokyo-night-vscode-theme,",
+			"  Copyright (c) 2018-present Enkia",
+			"- Gruvbox, https://github.com/morhetz/gruvbox, by Pavel Pertsev (morhetz), licensed MIT",
+			"  (package.json; the repository ships no separate license file)",
+			"- GitHub Primer primitives, https://github.com/primer/primitives, Copyright (c) 2018 GitHub Inc.",
+			"",
+			MIT_TEXT,
 		].join("\n"),
 		[
 			"OMPdesk application icon, tray icons, mark and wordmark (resources/icon.*, resources/brand/,",

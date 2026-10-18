@@ -190,8 +190,8 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			// Select real named themes: changing only data-theme leaves the
 			// theme engine's inline tokens in the previous scheme.
 			for (const [theme, label] of [
-				["light", "Porcelain"],
-				["dark", "Graphite"],
+				["light", "OMPdesk Light"],
+				["dark", "OMPdesk Dark"],
 			]) {
 				const composer = page.locator('.omp-session-pane[data-active="true"] textarea').first();
 				await composer.fill("/theme");

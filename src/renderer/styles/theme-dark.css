@@ -1,4 +1,4 @@
-/* ompdesk Dark — default dark palette. Keep in sync with THEMES.dark (lib/themes.ts, label "Graphite"):
+/* ompdesk Dark — default dark palette. Keep in sync with THEMES.dark (lib/themes.ts, label "OMPdesk Dark"):
    applyThemeByName() writes that map inline when the theme is picked by name.
    Only palette primitives live here; scales, derived washes and the --omp-*
    compatibility aliases are theme-independent (tokens.css). Spec: design-spec.md. */

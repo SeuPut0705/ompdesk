@@ -176,8 +176,8 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			if (!directory) return;
 			await fs.mkdir(directory, { recursive: true });
 			for (const [theme, label] of [
-				["light", "Porcelain"],
-				["dark", "Graphite"],
+				["light", "OMPdesk Light"],
+				["dark", "OMPdesk Dark"],
 			]) {
 				await input.fill("/theme");
 				await page.getByRole("button", { name: "Send", exact: true }).first().click();

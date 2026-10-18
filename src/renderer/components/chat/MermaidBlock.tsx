@@ -15,9 +15,9 @@ import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage
 import { Figure, type FigureMode } from "./Figure";
 
 let mermaidPromise: Promise<Mermaid> | null = null;
-/** Theme the shared mermaid singleton was last initialized with. */
-let initializedTheme: ResolvedTheme | null = null;
-/** Rendered SVG cache, keyed by `${theme}:${fnv(source)}`. */
+/** Look key the shared mermaid singleton was last initialized with. */
+let initializedLook: string | null = null;
+/** Rendered SVG cache, keyed by `${look.key}:${fnv(source)}`. */
 const svgCache = new Map<string, string>();
 const CACHE_LIMIT = 50;
 let renderSeq = 0;
@@ -88,19 +88,20 @@ function sanitizeSvg(svg: string): string {
 	return new XMLSerializer().serializeToString(root);
 }
 
-async function renderDiagram(source: string, theme: ResolvedTheme): Promise<string> {
-	const key = `${theme}:${hashSource(source)}`;
+async function renderDiagram(source: string, look: MermaidLook): Promise<string> {
+	const key = `${look.key}:${hashSource(source)}`;
 	const cached = svgCache.get(key);
 	if (cached !== undefined) return cached;
 	const mermaid = await loadMermaid();
-	if (initializedTheme !== theme) {
+	if (initializedLook !== look.key) {
 		const config: MermaidConfig = {
 			startOnLoad: false,
-			theme: theme === "dark" ? "dark" : "default",
+			theme: "base",
+			themeVariables: look.variables,
 			securityLevel: "strict",
 		};
 		mermaid.initialize(config);
-		initializedTheme = theme;
+		initializedLook = look.key;
 	}
 	const id = `omp-mermaid-${renderSeq++}`;
 	let svg: string;
@@ -127,18 +128,70 @@ function readResolvedTheme(): ResolvedTheme {
 	return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
+/** What a diagram is drawn in: the active theme's surfaces, text and lines, as mermaid's `base` theme variables. */
+interface MermaidLook {
+	/** Theme id plus a hash of the variables: any change to either re-renders. */
+	key: string;
+	variables: NonNullable<MermaidConfig["themeVariables"]>;
+}
+
+function readLook(): MermaidLook {
+	if (typeof window === "undefined" || typeof getComputedStyle !== "function") return { key: "plain", variables: {} };
+	const root = document.documentElement;
+	const style = getComputedStyle(root);
+	const read = (name: string) => style.getPropertyValue(name).trim();
+	const scheme = readResolvedTheme();
+	const variables = {
+		darkMode: scheme === "dark",
+		background: read("--sc-elevated"),
+		fontFamily: read("--sc-font-sans"),
+		textColor: read("--sc-text"),
+		primaryColor: read("--sc-surface-3"),
+		primaryTextColor: read("--sc-text"),
+		primaryBorderColor: read("--sc-border"),
+		secondaryColor: read("--sc-surface-2"),
+		secondaryTextColor: read("--sc-text"),
+		tertiaryColor: read("--sc-surface-1"),
+		tertiaryTextColor: read("--sc-text"),
+		lineColor: read("--sc-text-secondary"),
+		mainBkg: read("--sc-surface-3"),
+		nodeBorder: read("--sc-border"),
+		clusterBkg: read("--sc-surface-2"),
+		clusterBorder: read("--sc-border-subtle"),
+		titleColor: read("--sc-text"),
+		edgeLabelBackground: read("--sc-surface-1"),
+		noteBkgColor: read("--sc-surface-2"),
+		noteTextColor: read("--sc-text"),
+		noteBorderColor: read("--sc-border"),
+		errorBkgColor: read("--sc-surface-2"),
+		errorTextColor: read("--sc-danger"),
+	};
+	// A variable the page does not define (a bare test document) keeps mermaid's own value.
+	const defined = Object.fromEntries(Object.entries(variables).filter(([, value]) => value !== ""));
+	const name = root.getAttribute("data-theme-name") ?? scheme;
+	return { key: `${name}:${hashSource(JSON.stringify(defined))}`, variables: defined };
+}
+
 /**
- * Resolved GUI scheme, tracked via the `data-theme` attribute on <html> so
- * custom themes (lib/themes) and OS flips in "system" mode both re-render.
+ * The diagram look, tracked through `data-theme` / `data-theme-name` on <html>, so
+ * a named theme (lib/themes) and an OS flip under System both re-render.
  */
-function useResolvedTheme(): ResolvedTheme {
-	const [theme, setTheme] = useState<ResolvedTheme>(readResolvedTheme);
+function useMermaidLook(): MermaidLook {
+	const [look, setLook] = useState<MermaidLook>(readLook);
 	useEffect(() => {
-		const observer = new MutationObserver(() => setTheme(readResolvedTheme()));
-		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+		const observer = new MutationObserver(() =>
+			setLook(current => {
+				const next = readLook();
+				return next.key === current.key ? current : next;
+			}),
+		);
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["data-theme", "data-theme-name"],
+		});
 		return () => observer.disconnect();
 	}, []);
-	return theme;
+	return look;
 }
 
 interface MermaidImageProps {
@@ -191,8 +244,8 @@ export const MermaidBlock = memo(function MermaidBlock({
 	onModeChange,
 }: MermaidBlockProps) {
 	const t = useT();
-	const theme = useResolvedTheme();
-	const cacheKey = `${theme}:${hashSource(code)}`;
+	const look = useMermaidLook();
+	const cacheKey = `${look.key}:${hashSource(code)}`;
 	const [state, setState] = useState<RenderState>(() => ({
 		key: cacheKey,
 		svg: svgCache.get(cacheKey) ?? null,
@@ -207,7 +260,7 @@ export const MermaidBlock = memo(function MermaidBlock({
 		}
 		setState({ key: cacheKey, svg: null, failed: false });
 		let cancelled = false;
-		renderDiagram(code, theme).then(
+		renderDiagram(code, look).then(
 			clean => {
 				if (!cancelled) setState({ key: cacheKey, svg: clean, failed: false });
 			},
@@ -218,7 +271,7 @@ export const MermaidBlock = memo(function MermaidBlock({
 		return () => {
 			cancelled = true;
 		};
-	}, [code, theme, cacheKey]);
+	}, [code, look, cacheKey]);
 
 	// Guard against showing the previous diagram while the effect for a new
 	// (code, theme) pair has not run yet.

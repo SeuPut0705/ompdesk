@@ -44,8 +44,8 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 			if (!directory) return;
 			await fs.mkdir(directory, { recursive: true });
 			for (const [theme, label] of [
-				["light", "Porcelain"],
-				["dark", "Graphite"],
+				["light", "OMPdesk Light"],
+				["dark", "OMPdesk Dark"],
 			]) {
 				const draft = await input.inputValue();
 				await input.fill("/theme");

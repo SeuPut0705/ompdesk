@@ -56,6 +56,7 @@ import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
+import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
@@ -259,6 +260,14 @@ function prefsStore(): Store<MainPrefs> {
 		// The model pool was removed; its saved presets (pref `modelPool`) are dropped once. The journal's
 		// `ompdesk.model-pool` entries stay in old sessions and are ignored.
 		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("modelPool");
+		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
+		// stored pref never names a missing theme and the saved window opens in the right scheme.
+		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
+		for (const key of ["themeName", "systemLightTheme", "systemDarkTheme"]) {
+			const stored = prefs.get(key);
+			const migrated = migrateThemeName(stored);
+			if (typeof stored === "string" && migrated !== null && migrated !== stored) prefs.set(key, migrated);
+		}
 	}
 	return mainPrefsStore;
 }

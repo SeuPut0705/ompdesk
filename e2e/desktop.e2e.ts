@@ -130,7 +130,7 @@ test("math survives history reload and scrolls inside its column in both themes"
 	// CDP session, never page.setViewportSize: that pins the page for good (Playwright cannot unset it), and the
 	// narrow-window test below would then resize a window the page no longer follows.
 	const cdp = await page.context().newCDPSession(page);
-	for (const theme of ["Graphite", "Porcelain"]) {
+	for (const theme of ["OMPdesk Dark", "OMPdesk Light"]) {
 		await command("/theme");
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(theme);
@@ -179,17 +179,16 @@ test("math survives history reload and scrolls inside its column in both themes"
 test("all named themes apply with readable primary text and no stale scheme tokens", async () => {
 	test.setTimeout(90_000);
 	const labels = [
-		"Graphite",
-		"Slate",
-		"Deep sea",
-		"Espresso",
-		"Ember",
-		"Porcelain",
-		"Ivory",
-		"Sand",
-		"Rose quartz",
-		"Glacier",
-		"Sage",
+		"OMPdesk Light",
+		"GitHub Light",
+		"Solarized Light",
+		"Sepia",
+		"High Contrast Light",
+		"OMPdesk Dark",
+		"Nord",
+		"Tokyo Night",
+		"Gruvbox Dark",
+		"High Contrast Dark",
 	];
 	const colors: Record<string, string> = {};
 	const contrastValues: Record<string, { body: number; send: number }> = {};
@@ -235,7 +234,8 @@ test("all named themes apply with readable primary text and no stale scheme toke
 			animations: "disabled",
 		});
 	}
-	expect(new Set(Object.values(colors)).size).toBeGreaterThan(8);
+	// Ten themes, eight page backgrounds: OMPdesk, GitHub and High Contrast Light are all white and differ elsewhere.
+	expect(new Set(Object.values(colors)).size).toBeGreaterThanOrEqual(8);
 	await fs.writeFile("test-results/theme-values.json", JSON.stringify(colors, null, 2));
 	await fs.writeFile("test-results/theme-contrast.json", JSON.stringify(contrastValues, null, 2));
 });
@@ -488,7 +488,7 @@ test("failed preference writes retain edits and never allow a premature restart"
 	await lineNumbers.click();
 	await expect(page.getByRole("alert").filter({ hasText: "audit appearance write refused" })).toBeVisible();
 	await expect(lineNumbers).toHaveAttribute("aria-checked", checked ?? "false");
-	await settings.getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Porcelain" }).click();
+	await settings.getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "OMPdesk Light" }).click();
 	await expect(page.getByRole("alert").filter({ hasText: "audit appearance write refused" })).toBeVisible();
 	await page.keyboard.press("Escape");
 	expect(errors).toEqual([]);

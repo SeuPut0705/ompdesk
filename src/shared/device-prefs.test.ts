@@ -12,6 +12,8 @@ describe("device-local preferences", () => {
 		for (const key of [
 			"themeName",
 			"theme",
+			"systemLightTheme",
+			"systemDarkTheme",
 			"fontSize",
 			"compactDensity",
 			"colorBlindMode",

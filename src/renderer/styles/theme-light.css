@@ -1,4 +1,4 @@
-/* ompdesk Light — default light palette. Keep in sync with THEMES.light (lib/themes.ts, label "Porcelain"):
+/* ompdesk Light — default light palette. Keep in sync with THEMES.light (lib/themes.ts, label "OMPdesk Light"):
    applyThemeByName() writes that map inline when the theme is picked by name.
    Only palette primitives live here; scales, derived washes and the --omp-*
    compatibility aliases are theme-independent (tokens.css). Spec: design-spec.md. */
@@ -23,7 +23,7 @@
 	/* Lines */
 	--sc-divider: #ebebee;
 	--sc-border-subtle: #dcdce2;
-	--sc-border: #8d8d96;
+	--sc-border: #878790;
 	/* Accent */
 	--sc-accent: #5b5bd6;
 	--sc-accent-hover: #4f4fc4;

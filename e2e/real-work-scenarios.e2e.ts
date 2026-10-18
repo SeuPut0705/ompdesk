@@ -79,8 +79,8 @@ const evidence = path.join(
 async function capture(page: Page, name: string): Promise<void> {
 	await fs.mkdir(evidence, { recursive: true });
 	for (const [theme, label] of [
-		["light", "Porcelain"],
-		["dark", "Graphite"],
+		["light", "OMPdesk Light"],
+		["dark", "OMPdesk Dark"],
 	]) {
 		const input = page.locator("textarea").first();
 		const draft = await input.inputValue();

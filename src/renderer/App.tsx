@@ -78,6 +78,7 @@ import {
 	getPersistedThemeSelection,
 	getThemeSelectionVersion,
 	initAgentThemeSync,
+	loadSystemThemePair,
 	refreshPluginThemes,
 	resolveThemeSelection,
 } from "./lib/themes";
@@ -274,6 +275,7 @@ export function App() {
 				if (cancelled) return;
 				const prefs = (raw ?? {}) as Partial<Record<string, unknown>>;
 				hydrateDisplayPreferences(prefs.displayPreferences);
+				loadSystemThemePair(prefs);
 				const selection = await getPersistedThemeSelection(prefs);
 				if (cancelled) return;
 				if (getThemeSelectionVersion() === initialThemeVersion) {

@@ -100,7 +100,7 @@ const shownAccent = () => document.documentElement.style.getPropertyValue("--omp
 
 beforeEach(() => {
 	for (const key of Object.keys(prefs)) delete prefs[key];
-	Object.assign(prefs, { language: "en", themeName: "frost" });
+	Object.assign(prefs, { language: "en", themeName: "nord" });
 	window.localStorage?.setItem("omp.lang", "en");
 	omp.hostDesktop.get.mockClear();
 	omp.prefs.set.mockClear();
@@ -126,13 +126,14 @@ describe("useHostAppearance", () => {
 
 		expect(omp.hostDesktop.get).toHaveBeenCalledWith("dev-studio");
 		expect(probeText()).toBe("취소");
-		expect(shownAccent()).toBe(THEMES.matcha.tokens["--omp-accent"]);
+		// A host still on a retired id (matcha) shows as its successor.
+		expect(shownAccent()).toBe(THEMES["solarized-light"].tokens["--omp-accent"]);
 		expect(omp.prefs.set).not.toHaveBeenCalled();
 
 		await act(async () => focusTab());
 		await settle();
 		expect(probeText()).toBe("Cancel");
-		expect(shownAccent()).toBe(THEMES.frost.tokens["--omp-accent"]);
+		expect(shownAccent()).toBe(THEMES.nord.tokens["--omp-accent"]);
 		expect(omp.prefs.set).not.toHaveBeenCalled();
 	});
 

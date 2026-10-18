@@ -2,19 +2,21 @@
  * Named theme registry for the OMPdesk GUI.
  *
  * Every theme defines the exact same set of `--omp-*` design tokens (see
- * THEME_TOKEN_KEYS — the canonical 119 keys). `dark` and `light` are the
- * OMPdesk default palettes and match theme-dark.css / theme-light.css, where
- * the same values are spelled as `--sc-*` primitives plus `--omp-*` aliases
- * (tokens.css); styles/tokens.test.ts keeps the two in sync. Transcript and
- * ANSI aliases in global.css follow these tokens in every palette.
+ * THEME_TOKEN_KEYS — the canonical 119 keys), the terminal's ANSI 16, six chart
+ * series and a focus ring. `dark` and `light` (OMPdesk Dark / Light) are written
+ * out below and match theme-dark.css / theme-light.css, where the same values are
+ * spelled as `--sc-*` primitives plus `--omp-*` aliases (tokens.css);
+ * styles/tokens.test.ts keeps the two in sync. Every other theme is a compact
+ * palette (theme-palettes.ts) that theme-builder.ts expands. Transcript and ANSI
+ * aliases in global.css follow these tokens in every palette.
  * applyThemeByName() writes the full token map as inline custom properties on
  * <html> (beating the `:root` stylesheet rules), mirrors it onto the `--sc-*`
  * palette (SC_TOKEN_SOURCES) so migrated surfaces follow named themes too,
- * keeps `data-theme` / the color-scheme meta in sync via lib/theme's
- * applyTheme(), and persists the selection under the `themeName` pref (plus
- * the legacy `theme` pref for backwards compat). "system" — the default — is
- * a special selection that resolves to dark or light via the OS media query
- * and stays stylesheet-driven.
+ * keeps `data-theme` (scheme), `data-theme-name` (theme) and the color-scheme
+ * meta in sync via lib/theme's applyTheme(), and persists the selection under
+ * the `themeName` pref (plus the legacy `theme` pref for backwards compat).
+ * "system" — the default — resolves the OS scheme to the theme the user paired
+ * with it (`systemLightTheme` / `systemDarkTheme`).
  *
  * On top of the named themes sits the agent theme overlay (bottom of this
  * file): the coding-agent's `theme.dark` / `theme.light` settings name TUI
@@ -24,9 +26,37 @@
  */
 
 import type { RpcThemeColorsResult } from "../../shared/rpc-types";
+import {
+	DEFAULT_SYSTEM_THEMES,
+	isThemeName,
+	migrateThemeName,
+	type SystemThemePair,
+	systemThemeFor,
+	type ThemeName,
+	type ThemeScheme,
+	type ThemeSelection,
+} from "../../shared/theme-names";
 import { saveGuiPreference } from "./display-preferences";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./tab-routing";
-import { applyTheme, markCustomThemeTokens, resolveTheme, THEME_SCHEME_STORAGE_KEY } from "./theme";
+import {
+	applyTheme,
+	markCustomThemeTokens,
+	resolveTheme,
+	THEME_PAINT_STORAGE_KEY,
+	THEME_SCHEME_STORAGE_KEY,
+	type ThemeMode,
+} from "./theme";
+import { ANSI_KEYS, ansiRow, buildTheme, CHART_KEYS } from "./theme-builder";
+import {
+	githubLight,
+	gruvboxDark,
+	highContrastDark,
+	highContrastLight,
+	nord as nordPalette,
+	sepia,
+	solarizedLight,
+	tokyoNight,
+} from "./theme-palettes";
 
 /** Canonical token keys, in stylesheet order. Every theme defines all of them. */
 export const THEME_TOKEN_KEYS = [
@@ -190,14 +220,28 @@ export interface ThemeDefinition {
 	/** One-line picker blurb. */
 	description: string;
 	/** Base color scheme — drives data-theme, the color-scheme meta, and native controls. */
-	scheme: "dark" | "light";
+	scheme: ThemeScheme;
+	/** The published palette family this theme starts from, shown in the picker. */
+	origin?: string;
 	tokens: ThemeTokens;
+	/** Terminal and ANSI-text colors: black…white, then the bright row (ANSI_KEYS order). */
+	ansi: readonly string[];
+	/** Categorical chart series (CHART_KEYS order). */
+	chart: readonly string[];
+	/** Keyboard focus ring. */
+	focusRing: string;
 }
 
 const dark: ThemeDefinition = {
-	label: "Graphite",
-	description: "The OMPdesk dark default: neutral charcoal and an indigo accent.",
+	label: "OMPdesk Dark",
+	description: "Neutral charcoal with the OMPdesk indigo accent.",
 	scheme: "dark",
+	ansi: ansiRow({
+		ansi: ["#8f8f99", "#f27a7d", "#5bc98c", "#e2b552", "#a5a7fa", "#f0a1bd", "#6cc7c0", "#c4c4cb"],
+		text: "#ededf0",
+	}),
+	chart: ["#8b8df8", "#79a6f6", "#5bc98c", "#e2b552", "#f27a7d", "#a1a1aa"],
+	focusRing: "#8b8df8",
 	tokens: {
 		"--omp-accent": "#8b8df8",
 		"--omp-accent-bright": "#a1a3fa",
@@ -316,9 +360,15 @@ const dark: ThemeDefinition = {
 };
 
 const light: ThemeDefinition = {
-	label: "Porcelain",
-	description: "The OMPdesk light default: clean white and an indigo accent.",
+	label: "OMPdesk Light",
+	description: "Clean white with the OMPdesk indigo accent.",
 	scheme: "light",
+	ansi: ansiRow({
+		ansi: ["#6a6a73", "#bf3a3e", "#18794e", "#935f00", "#4646c0", "#a3365c", "#0f6b75", "#46464f"],
+		text: "#1b1b1f",
+	}),
+	chart: ["#5b5bd6", "#2f62c4", "#18794e", "#935f00", "#bf3a3e", "#5f5f68"],
+	focusRing: "#5b5bd6",
 	tokens: {
 		"--omp-accent": "#5b5bd6",
 		"--omp-accent-bright": "#4f4fc4",
@@ -327,7 +377,7 @@ const light: ThemeDefinition = {
 		"--omp-border": "#dcdce2",
 		"--omp-border-accent": "rgba(91, 91, 214, 0.55)",
 		"--omp-border-muted": "#ebebee",
-		"--omp-border-strong": "#8d8d96",
+		"--omp-border-strong": "#878790",
 		"--omp-success": "#18794e",
 		"--omp-success-dim": "rgba(24, 121, 78, 0.12)",
 		"--omp-error": "#bf3a3e",
@@ -399,7 +449,7 @@ const light: ThemeDefinition = {
 		"--omp-link": "#5b5bd6",
 		"--omp-custom-msg-label": "#5b5bd6",
 		"--omp-input-bg": "#ffffff",
-		"--omp-input-border": "#8d8d96",
+		"--omp-input-border": "#878790",
 		"--omp-input-focus-border": "#5b5bd6",
 		"--omp-input-glow": "rgba(91, 91, 214, 0.22)",
 		"--omp-btn-primary-bg": "#5b5bd6",
@@ -436,1127 +486,58 @@ const light: ThemeDefinition = {
 	},
 };
 
-const titanium: ThemeDefinition = {
-	label: "Slate",
-	description: "Soft slate surfaces and silver-blue details.",
-	scheme: "dark",
-	tokens: {
-		"--omp-accent": "#accad6",
-		"--omp-accent-bright": "#c9e0e7",
-		"--omp-accent-dim": "rgba(172, 202, 214, 0.13)",
-		"--omp-accent-glow": "rgba(172, 202, 214, 0.16)",
-		"--omp-border": "#414b53",
-		"--omp-border-accent": "rgba(172, 202, 214, 0.52)",
-		"--omp-border-muted": "#343d45",
-		"--omp-border-strong": "#687680",
-		"--omp-success": "#9bc7ab",
-		"--omp-success-dim": "rgba(155, 199, 171, 0.08)",
-		"--omp-error": "#e6a09a",
-		"--omp-error-dim": "rgba(230, 160, 154, 0.08)",
-		"--omp-warning": "#d7bc88",
-		"--omp-warning-dim": "rgba(215, 188, 136, 0.08)",
-		"--omp-info": "#a2bfdc",
-		"--omp-info-dim": "rgba(162, 191, 220, 0.08)",
-		"--omp-text": "#edf0f1",
-		"--omp-text-secondary": "#c7cfd4",
-		"--omp-bg-primary": "#24282c",
-		"--omp-bg-secondary": "#2b3035",
-		"--omp-bg-tertiary": "#343b41",
-		"--omp-bg-elevated": "#383f46",
-		"--omp-selected-bg": "rgba(172, 202, 214, 0.12)",
-		"--omp-user-msg-bg": "#2b3035",
-		"--omp-user-msg-border": "#414b53",
-		"--omp-custom-msg-bg": "#2b3035",
-		"--omp-code-bg": "#2b3035",
-		"--omp-tool-pending-bg": "#2b3035",
-		"--omp-tool-error-bg": "rgba(230, 160, 154, 0.065)",
-		"--omp-tool-output": "#c7cfd4",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#9bc7ab",
-		"--omp-tool-rail-error": "#e6a09a",
-		"--omp-md-heading": "#edf0f1",
-		"--omp-md-link": "#accad6",
-		"--omp-md-link-url": "#b4bfc6",
-		"--omp-md-code": "#deb0a1",
-		"--omp-md-code-block": "#edf0f1",
-		"--omp-md-code-block-border": "#414b53",
-		"--omp-md-quote": "#c7cfd4",
-		"--omp-md-quote-border": "#687680",
-		"--omp-md-hr": "#414b53",
-		"--omp-md-list-bullet": "#b4bfc6",
-		"--omp-diff-added": "#9bc7ab",
-		"--omp-diff-added-bg": "rgba(155, 199, 171, 0.09)",
-		"--omp-diff-removed": "#e6a09a",
-		"--omp-diff-removed-bg": "rgba(230, 160, 154, 0.09)",
-		"--omp-diff-context": "#b4bfc6",
-		"--omp-syntax-comment": "#a5b2bc",
-		"--omp-syntax-keyword": "#a3bedb",
-		"--omp-syntax-function": "#91c5bf",
-		"--omp-syntax-variable": "#edf0f1",
-		"--omp-syntax-string": "#d4ba91",
-		"--omp-syntax-number": "#deb0a1",
-		"--omp-syntax-type": "#b9cdb1",
-		"--omp-syntax-operator": "#c7cfd4",
-		"--omp-syntax-punctuation": "#b4bfc6",
-		"--omp-thinking-off": "#a5b2bc",
-		"--omp-thinking-minimal": "#b4bfc6",
-		"--omp-thinking-low": "#c7cfd4",
-		"--omp-thinking-medium": "#accad6",
-		"--omp-thinking-high": "#c9e0e7",
-		"--omp-thinking-xhigh": "#edf0f1",
-		"--omp-status-bg": "#1d2125",
-		"--omp-status-model": "#c7cfd4",
-		"--omp-status-path": "#b4bfc6",
-		"--omp-status-git-clean": "#9bc7ab",
-		"--omp-status-git-dirty": "#d7bc88",
-		"--omp-status-context": "#c7cfd4",
-		"--omp-status-spend": "#c7cfd4",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#b4bfc6",
-		"--omp-status-dim": "#a5b2bc",
-		"--omp-status-text": "#edf0f1",
-		"--omp-muted": "#b4bfc6",
-		"--omp-dim": "#a5b2bc",
-		"--omp-link": "#accad6",
-		"--omp-custom-msg-label": "#accad6",
-		"--omp-input-bg": "#2b3035",
-		"--omp-input-border": "#414b53",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(172, 202, 214, 0.1)",
-		"--omp-btn-primary-bg": "#edf0f1",
-		"--omp-btn-primary-text": "#24282c",
-		"--omp-btn-secondary-bg": "#343b41",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#24282c",
-		"--omp-badge-bg": "#343b41",
-		"--omp-badge-text": "#c7cfd4",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(8, 12, 16, 0.62)",
-		"--omp-modal-bg": "#383f46",
-		"--omp-modal-border": "#414b53",
-		"--omp-toast-bg": "#383f46",
-		"--omp-toast-text": "#edf0f1",
-		"--omp-toast-border": "#414b53",
-		"--omp-progress-bg": "#343b41",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#1d2125",
-		"--omp-sidebar-item-hover": "#343b41",
-		"--omp-sidebar-item-active": "rgba(172, 202, 214, 0.13)",
-		"--omp-selection-bg": "rgba(172, 202, 214, 0.25)",
-		"--omp-scrollbar-thumb": "#687680",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#1d2125",
-		"--omp-panel-border": "#343d45",
-		"--omp-panel-header": "#b4bfc6",
-		"--omp-titlebar-bg": "#1d2125",
-		"--omp-titlebar-text": "#edf0f1",
-		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.16)",
-		"--omp-shadow-md": "0 6px 18px rgba(0, 0, 0, 0.22)",
-		"--omp-shadow-lg": "0 16px 48px rgba(0, 0, 0, 0.32)",
-	},
-};
+const customThemes = {
+	"github-light": buildTheme(githubLight),
+	"solarized-light": buildTheme(solarizedLight),
+	sepia: buildTheme(sepia),
+	"hc-light": buildTheme(highContrastLight),
+	nord: buildTheme(nordPalette),
+	"tokyo-night": buildTheme(tokyoNight),
+	"gruvbox-dark": buildTheme(gruvboxDark),
+	"hc-dark": buildTheme(highContrastDark),
+} as const;
 
-const nord: ThemeDefinition = {
-	label: "Deep Sea",
-	description: "Deep petrol blue with a soft sea-glass accent.",
-	scheme: "dark",
-	tokens: {
-		"--omp-accent": "#8bc4c5",
-		"--omp-accent-bright": "#b3dcdc",
-		"--omp-accent-dim": "rgba(139, 196, 197, 0.13)",
-		"--omp-accent-glow": "rgba(139, 196, 197, 0.16)",
-		"--omp-border": "#324c58",
-		"--omp-border-accent": "rgba(139, 196, 197, 0.52)",
-		"--omp-border-muted": "#263e49",
-		"--omp-border-strong": "#587984",
-		"--omp-success": "#9bc7ab",
-		"--omp-success-dim": "rgba(155, 199, 171, 0.08)",
-		"--omp-error": "#e6a09a",
-		"--omp-error-dim": "rgba(230, 160, 154, 0.08)",
-		"--omp-warning": "#d7bc88",
-		"--omp-warning-dim": "rgba(215, 188, 136, 0.08)",
-		"--omp-info": "#a2bfdc",
-		"--omp-info-dim": "rgba(162, 191, 220, 0.08)",
-		"--omp-text": "#e3edef",
-		"--omp-text-secondary": "#b7cbd2",
-		"--omp-bg-primary": "#14232b",
-		"--omp-bg-secondary": "#192c35",
-		"--omp-bg-tertiary": "#223a44",
-		"--omp-bg-elevated": "#29414c",
-		"--omp-selected-bg": "rgba(139, 196, 197, 0.12)",
-		"--omp-user-msg-bg": "#192c35",
-		"--omp-user-msg-border": "#324c58",
-		"--omp-custom-msg-bg": "#192c35",
-		"--omp-code-bg": "#192c35",
-		"--omp-tool-pending-bg": "#192c35",
-		"--omp-tool-error-bg": "rgba(230, 160, 154, 0.065)",
-		"--omp-tool-output": "#b7cbd2",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#9bc7ab",
-		"--omp-tool-rail-error": "#e6a09a",
-		"--omp-md-heading": "#e3edef",
-		"--omp-md-link": "#8bc4c5",
-		"--omp-md-link-url": "#a5bec7",
-		"--omp-md-code": "#deb0a1",
-		"--omp-md-code-block": "#e3edef",
-		"--omp-md-code-block-border": "#324c58",
-		"--omp-md-quote": "#b7cbd2",
-		"--omp-md-quote-border": "#587984",
-		"--omp-md-hr": "#324c58",
-		"--omp-md-list-bullet": "#a5bec7",
-		"--omp-diff-added": "#9bc7ab",
-		"--omp-diff-added-bg": "rgba(155, 199, 171, 0.09)",
-		"--omp-diff-removed": "#e6a09a",
-		"--omp-diff-removed-bg": "rgba(230, 160, 154, 0.09)",
-		"--omp-diff-context": "#a5bec7",
-		"--omp-syntax-comment": "#98b2bf",
-		"--omp-syntax-keyword": "#a3bedb",
-		"--omp-syntax-function": "#91c5bf",
-		"--omp-syntax-variable": "#e3edef",
-		"--omp-syntax-string": "#d4ba91",
-		"--omp-syntax-number": "#deb0a1",
-		"--omp-syntax-type": "#b9cdb1",
-		"--omp-syntax-operator": "#b7cbd2",
-		"--omp-syntax-punctuation": "#a5bec7",
-		"--omp-thinking-off": "#98b2bf",
-		"--omp-thinking-minimal": "#a5bec7",
-		"--omp-thinking-low": "#b7cbd2",
-		"--omp-thinking-medium": "#8bc4c5",
-		"--omp-thinking-high": "#b3dcdc",
-		"--omp-thinking-xhigh": "#e3edef",
-		"--omp-status-bg": "#101d24",
-		"--omp-status-model": "#b7cbd2",
-		"--omp-status-path": "#a5bec7",
-		"--omp-status-git-clean": "#9bc7ab",
-		"--omp-status-git-dirty": "#d7bc88",
-		"--omp-status-context": "#b7cbd2",
-		"--omp-status-spend": "#b7cbd2",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#a5bec7",
-		"--omp-status-dim": "#98b2bf",
-		"--omp-status-text": "#e3edef",
-		"--omp-muted": "#a5bec7",
-		"--omp-dim": "#98b2bf",
-		"--omp-link": "#8bc4c5",
-		"--omp-custom-msg-label": "#8bc4c5",
-		"--omp-input-bg": "#192c35",
-		"--omp-input-border": "#324c58",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(139, 196, 197, 0.1)",
-		"--omp-btn-primary-bg": "#e3edef",
-		"--omp-btn-primary-text": "#14232b",
-		"--omp-btn-secondary-bg": "#223a44",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#14232b",
-		"--omp-badge-bg": "#223a44",
-		"--omp-badge-text": "#b7cbd2",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(8, 12, 16, 0.62)",
-		"--omp-modal-bg": "#29414c",
-		"--omp-modal-border": "#324c58",
-		"--omp-toast-bg": "#29414c",
-		"--omp-toast-text": "#e3edef",
-		"--omp-toast-border": "#324c58",
-		"--omp-progress-bg": "#223a44",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#101d24",
-		"--omp-sidebar-item-hover": "#223a44",
-		"--omp-sidebar-item-active": "rgba(139, 196, 197, 0.13)",
-		"--omp-selection-bg": "rgba(139, 196, 197, 0.25)",
-		"--omp-scrollbar-thumb": "#587984",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#101d24",
-		"--omp-panel-border": "#263e49",
-		"--omp-panel-header": "#a5bec7",
-		"--omp-titlebar-bg": "#101d24",
-		"--omp-titlebar-text": "#e3edef",
-		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.16)",
-		"--omp-shadow-md": "0 6px 18px rgba(0, 0, 0, 0.22)",
-		"--omp-shadow-lg": "0 16px 48px rgba(0, 0, 0, 0.32)",
-	},
-};
-
-const solarized: ThemeDefinition = {
-	label: "Sand",
-	description: "Pale sand, warm stone, and a muted ochre accent.",
-	scheme: "light",
-	tokens: {
-		"--omp-accent": "#825d2a",
-		"--omp-accent-bright": "#724c21",
-		"--omp-accent-dim": "rgba(134, 97, 45, 0.08)",
-		"--omp-accent-glow": "rgba(134, 97, 45, 0.16)",
-		"--omp-border": "#ded7ca",
-		"--omp-border-accent": "rgba(134, 97, 45, 0.52)",
-		"--omp-border-muted": "#e9e3d9",
-		"--omp-border-strong": "#b4a68e",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#302e29",
-		"--omp-text-secondary": "#5b574e",
-		"--omp-bg-primary": "#faf8f3",
-		"--omp-bg-secondary": "#f2efe7",
-		"--omp-bg-tertiary": "#e8e3d8",
-		"--omp-bg-elevated": "#fffdf9",
-		"--omp-selected-bg": "rgba(134, 97, 45, 0.09)",
-		"--omp-user-msg-bg": "#f2efe7",
-		"--omp-user-msg-border": "#ded7ca",
-		"--omp-custom-msg-bg": "#f2efe7",
-		"--omp-code-bg": "#f2efe7",
-		"--omp-tool-pending-bg": "#f2efe7",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#5b574e",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#302e29",
-		"--omp-md-link": "#825d2a",
-		"--omp-md-link-url": "#686052",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#302e29",
-		"--omp-md-code-block-border": "#ded7ca",
-		"--omp-md-quote": "#5b574e",
-		"--omp-md-quote-border": "#b4a68e",
-		"--omp-md-hr": "#ded7ca",
-		"--omp-md-list-bullet": "#686052",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#686052",
-		"--omp-syntax-comment": "#6c6254",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#302e29",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#5b574e",
-		"--omp-syntax-punctuation": "#686052",
-		"--omp-thinking-off": "#6c6254",
-		"--omp-thinking-minimal": "#686052",
-		"--omp-thinking-low": "#5b574e",
-		"--omp-thinking-medium": "#825d2a",
-		"--omp-thinking-high": "#724c21",
-		"--omp-thinking-xhigh": "#302e29",
-		"--omp-status-bg": "#f0ede5",
-		"--omp-status-model": "#5b574e",
-		"--omp-status-path": "#686052",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#5b574e",
-		"--omp-status-spend": "#5b574e",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#686052",
-		"--omp-status-dim": "#6c6254",
-		"--omp-status-text": "#302e29",
-		"--omp-muted": "#686052",
-		"--omp-dim": "#6c6254",
-		"--omp-link": "#825d2a",
-		"--omp-custom-msg-label": "#825d2a",
-		"--omp-input-bg": "#fffdf9",
-		"--omp-input-border": "#ded7ca",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(134, 97, 45, 0.1)",
-		"--omp-btn-primary-bg": "#302e29",
-		"--omp-btn-primary-text": "#faf8f3",
-		"--omp-btn-secondary-bg": "#e8e3d8",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#e8e3d8",
-		"--omp-badge-text": "#5b574e",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
-		"--omp-modal-bg": "#fffdf9",
-		"--omp-modal-border": "#ded7ca",
-		"--omp-toast-bg": "#fffdf9",
-		"--omp-toast-text": "#302e29",
-		"--omp-toast-border": "#ded7ca",
-		"--omp-progress-bg": "#e8e3d8",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#f0ede5",
-		"--omp-sidebar-item-hover": "#e8e3d8",
-		"--omp-sidebar-item-active": "rgba(134, 97, 45, 0.1)",
-		"--omp-selection-bg": "rgba(134, 97, 45, 0.19)",
-		"--omp-scrollbar-thumb": "#b4a68e",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#f0ede5",
-		"--omp-panel-border": "#e9e3d9",
-		"--omp-panel-header": "#686052",
-		"--omp-titlebar-bg": "#f0ede5",
-		"--omp-titlebar-text": "#302e29",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
-	},
-};
-
-const paper: ThemeDefinition = {
-	label: "Ivory",
-	description: "Warm ivory pages with a fine copper accent.",
-	scheme: "light",
-	tokens: {
-		"--omp-accent": "#94513e",
-		"--omp-accent-bright": "#7e4334",
-		"--omp-accent-dim": "rgba(148, 81, 62, 0.08)",
-		"--omp-accent-glow": "rgba(148, 81, 62, 0.16)",
-		"--omp-border": "#dfd7cc",
-		"--omp-border-accent": "rgba(148, 81, 62, 0.52)",
-		"--omp-border-muted": "#ece5db",
-		"--omp-border-strong": "#b6a594",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#302d29",
-		"--omp-text-secondary": "#5c554e",
-		"--omp-bg-primary": "#fdfbf7",
-		"--omp-bg-secondary": "#f5f1e9",
-		"--omp-bg-tertiary": "#eae4da",
-		"--omp-bg-elevated": "#fffefa",
-		"--omp-selected-bg": "rgba(148, 81, 62, 0.09)",
-		"--omp-user-msg-bg": "#f5f1e9",
-		"--omp-user-msg-border": "#dfd7cc",
-		"--omp-custom-msg-bg": "#f5f1e9",
-		"--omp-code-bg": "#f5f1e9",
-		"--omp-tool-pending-bg": "#f5f1e9",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#5c554e",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#302d29",
-		"--omp-md-link": "#94513e",
-		"--omp-md-link-url": "#6a6057",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#302d29",
-		"--omp-md-code-block-border": "#dfd7cc",
-		"--omp-md-quote": "#5c554e",
-		"--omp-md-quote-border": "#b6a594",
-		"--omp-md-hr": "#dfd7cc",
-		"--omp-md-list-bullet": "#6a6057",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#6a6057",
-		"--omp-syntax-comment": "#6f6459",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#302d29",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#5c554e",
-		"--omp-syntax-punctuation": "#6a6057",
-		"--omp-thinking-off": "#6f6459",
-		"--omp-thinking-minimal": "#6a6057",
-		"--omp-thinking-low": "#5c554e",
-		"--omp-thinking-medium": "#94513e",
-		"--omp-thinking-high": "#7e4334",
-		"--omp-thinking-xhigh": "#302d29",
-		"--omp-status-bg": "#f3f0ea",
-		"--omp-status-model": "#5c554e",
-		"--omp-status-path": "#6a6057",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#5c554e",
-		"--omp-status-spend": "#5c554e",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#6a6057",
-		"--omp-status-dim": "#6f6459",
-		"--omp-status-text": "#302d29",
-		"--omp-muted": "#6a6057",
-		"--omp-dim": "#6f6459",
-		"--omp-link": "#94513e",
-		"--omp-custom-msg-label": "#94513e",
-		"--omp-input-bg": "#fffefa",
-		"--omp-input-border": "#dfd7cc",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(148, 81, 62, 0.1)",
-		"--omp-btn-primary-bg": "#302d29",
-		"--omp-btn-primary-text": "#fdfbf7",
-		"--omp-btn-secondary-bg": "#eae4da",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#eae4da",
-		"--omp-badge-text": "#5c554e",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
-		"--omp-modal-bg": "#fffefa",
-		"--omp-modal-border": "#dfd7cc",
-		"--omp-toast-bg": "#fffefa",
-		"--omp-toast-text": "#302d29",
-		"--omp-toast-border": "#dfd7cc",
-		"--omp-progress-bg": "#eae4da",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#f3f0ea",
-		"--omp-sidebar-item-hover": "#eae4da",
-		"--omp-sidebar-item-active": "rgba(148, 81, 62, 0.1)",
-		"--omp-selection-bg": "rgba(148, 81, 62, 0.19)",
-		"--omp-scrollbar-thumb": "#b6a594",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#f3f0ea",
-		"--omp-panel-border": "#ece5db",
-		"--omp-panel-header": "#6a6057",
-		"--omp-titlebar-bg": "#f3f0ea",
-		"--omp-titlebar-text": "#302d29",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
-	},
-};
-
-const dawn: ThemeDefinition = {
-	label: "Rose Quartz",
-	description: "Almost-white rose, warm ink, and a dusty rose accent.",
-	scheme: "light",
-	tokens: {
-		"--omp-accent": "#8d5064",
-		"--omp-accent-bright": "#784455",
-		"--omp-accent-dim": "rgba(141, 80, 100, 0.08)",
-		"--omp-accent-glow": "rgba(141, 80, 100, 0.16)",
-		"--omp-border": "#e2d6da",
-		"--omp-border-accent": "rgba(141, 80, 100, 0.52)",
-		"--omp-border-muted": "#ede3e7",
-		"--omp-border-strong": "#bba1aa",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#342b2d",
-		"--omp-text-secondary": "#605257",
-		"--omp-bg-primary": "#fcf9f9",
-		"--omp-bg-secondary": "#f5eeee",
-		"--omp-bg-tertiary": "#ece1e2",
-		"--omp-bg-elevated": "#fffdfd",
-		"--omp-selected-bg": "rgba(141, 80, 100, 0.09)",
-		"--omp-user-msg-bg": "#f5eeee",
-		"--omp-user-msg-border": "#e2d6da",
-		"--omp-custom-msg-bg": "#f5eeee",
-		"--omp-code-bg": "#f5eeee",
-		"--omp-tool-pending-bg": "#f5eeee",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#605257",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#342b2d",
-		"--omp-md-link": "#8d5064",
-		"--omp-md-link-url": "#6e5e64",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#342b2d",
-		"--omp-md-code-block-border": "#e2d6da",
-		"--omp-md-quote": "#605257",
-		"--omp-md-quote-border": "#bba1aa",
-		"--omp-md-hr": "#e2d6da",
-		"--omp-md-list-bullet": "#6e5e64",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#6e5e64",
-		"--omp-syntax-comment": "#716067",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#342b2d",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#605257",
-		"--omp-syntax-punctuation": "#6e5e64",
-		"--omp-thinking-off": "#716067",
-		"--omp-thinking-minimal": "#6e5e64",
-		"--omp-thinking-low": "#605257",
-		"--omp-thinking-medium": "#8d5064",
-		"--omp-thinking-high": "#784455",
-		"--omp-thinking-xhigh": "#342b2d",
-		"--omp-status-bg": "#f3eded",
-		"--omp-status-model": "#605257",
-		"--omp-status-path": "#6e5e64",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#605257",
-		"--omp-status-spend": "#605257",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#6e5e64",
-		"--omp-status-dim": "#716067",
-		"--omp-status-text": "#342b2d",
-		"--omp-muted": "#6e5e64",
-		"--omp-dim": "#716067",
-		"--omp-link": "#8d5064",
-		"--omp-custom-msg-label": "#8d5064",
-		"--omp-input-bg": "#fffdfd",
-		"--omp-input-border": "#e2d6da",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(141, 80, 100, 0.1)",
-		"--omp-btn-primary-bg": "#342b2d",
-		"--omp-btn-primary-text": "#fcf9f9",
-		"--omp-btn-secondary-bg": "#ece1e2",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#ece1e2",
-		"--omp-badge-text": "#605257",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
-		"--omp-modal-bg": "#fffdfd",
-		"--omp-modal-border": "#e2d6da",
-		"--omp-toast-bg": "#fffdfd",
-		"--omp-toast-text": "#342b2d",
-		"--omp-toast-border": "#e2d6da",
-		"--omp-progress-bg": "#ece1e2",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#f3eded",
-		"--omp-sidebar-item-hover": "#ece1e2",
-		"--omp-sidebar-item-active": "rgba(141, 80, 100, 0.1)",
-		"--omp-selection-bg": "rgba(141, 80, 100, 0.19)",
-		"--omp-scrollbar-thumb": "#bba1aa",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#f3eded",
-		"--omp-panel-border": "#ede3e7",
-		"--omp-panel-header": "#6e5e64",
-		"--omp-titlebar-bg": "#f3eded",
-		"--omp-titlebar-text": "#342b2d",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
-	},
-};
-
-const latte: ThemeDefinition = {
-	label: "Espresso",
-	description: "Roasted coffee surfaces and a soft caramel accent.",
-	scheme: "dark",
-	tokens: {
-		"--omp-accent": "#d6b18a",
-		"--omp-accent-bright": "#e7caaa",
-		"--omp-accent-dim": "rgba(214, 177, 138, 0.13)",
-		"--omp-accent-glow": "rgba(214, 177, 138, 0.16)",
-		"--omp-border": "#4b4036",
-		"--omp-border-accent": "rgba(214, 177, 138, 0.52)",
-		"--omp-border-muted": "#3b332c",
-		"--omp-border-strong": "#7b6857",
-		"--omp-success": "#9bc7ab",
-		"--omp-success-dim": "rgba(155, 199, 171, 0.08)",
-		"--omp-error": "#e6a09a",
-		"--omp-error-dim": "rgba(230, 160, 154, 0.08)",
-		"--omp-warning": "#d7bc88",
-		"--omp-warning-dim": "rgba(215, 188, 136, 0.08)",
-		"--omp-info": "#a2bfdc",
-		"--omp-info-dim": "rgba(162, 191, 220, 0.08)",
-		"--omp-text": "#eee8e0",
-		"--omp-text-secondary": "#cec2b6",
-		"--omp-bg-primary": "#25211e",
-		"--omp-bg-secondary": "#2d2824",
-		"--omp-bg-tertiary": "#39312b",
-		"--omp-bg-elevated": "#3d352f",
-		"--omp-selected-bg": "rgba(214, 177, 138, 0.12)",
-		"--omp-user-msg-bg": "#2d2824",
-		"--omp-user-msg-border": "#4b4036",
-		"--omp-custom-msg-bg": "#2d2824",
-		"--omp-code-bg": "#2d2824",
-		"--omp-tool-pending-bg": "#2d2824",
-		"--omp-tool-error-bg": "rgba(230, 160, 154, 0.065)",
-		"--omp-tool-output": "#cec2b6",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#9bc7ab",
-		"--omp-tool-rail-error": "#e6a09a",
-		"--omp-md-heading": "#eee8e0",
-		"--omp-md-link": "#d6b18a",
-		"--omp-md-link-url": "#beafa1",
-		"--omp-md-code": "#deb0a1",
-		"--omp-md-code-block": "#eee8e0",
-		"--omp-md-code-block-border": "#4b4036",
-		"--omp-md-quote": "#cec2b6",
-		"--omp-md-quote-border": "#7b6857",
-		"--omp-md-hr": "#4b4036",
-		"--omp-md-list-bullet": "#beafa1",
-		"--omp-diff-added": "#9bc7ab",
-		"--omp-diff-added-bg": "rgba(155, 199, 171, 0.09)",
-		"--omp-diff-removed": "#e6a09a",
-		"--omp-diff-removed-bg": "rgba(230, 160, 154, 0.09)",
-		"--omp-diff-context": "#beafa1",
-		"--omp-syntax-comment": "#b3a496",
-		"--omp-syntax-keyword": "#a3bedb",
-		"--omp-syntax-function": "#91c5bf",
-		"--omp-syntax-variable": "#eee8e0",
-		"--omp-syntax-string": "#d4ba91",
-		"--omp-syntax-number": "#deb0a1",
-		"--omp-syntax-type": "#b9cdb1",
-		"--omp-syntax-operator": "#cec2b6",
-		"--omp-syntax-punctuation": "#beafa1",
-		"--omp-thinking-off": "#b3a496",
-		"--omp-thinking-minimal": "#beafa1",
-		"--omp-thinking-low": "#cec2b6",
-		"--omp-thinking-medium": "#d6b18a",
-		"--omp-thinking-high": "#e7caaa",
-		"--omp-thinking-xhigh": "#eee8e0",
-		"--omp-status-bg": "#1e1b18",
-		"--omp-status-model": "#cec2b6",
-		"--omp-status-path": "#beafa1",
-		"--omp-status-git-clean": "#9bc7ab",
-		"--omp-status-git-dirty": "#d7bc88",
-		"--omp-status-context": "#cec2b6",
-		"--omp-status-spend": "#cec2b6",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#beafa1",
-		"--omp-status-dim": "#b3a496",
-		"--omp-status-text": "#eee8e0",
-		"--omp-muted": "#beafa1",
-		"--omp-dim": "#b3a496",
-		"--omp-link": "#d6b18a",
-		"--omp-custom-msg-label": "#d6b18a",
-		"--omp-input-bg": "#2d2824",
-		"--omp-input-border": "#4b4036",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(214, 177, 138, 0.1)",
-		"--omp-btn-primary-bg": "#eee8e0",
-		"--omp-btn-primary-text": "#25211e",
-		"--omp-btn-secondary-bg": "#39312b",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#25211e",
-		"--omp-badge-bg": "#39312b",
-		"--omp-badge-text": "#cec2b6",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(8, 12, 16, 0.62)",
-		"--omp-modal-bg": "#3d352f",
-		"--omp-modal-border": "#4b4036",
-		"--omp-toast-bg": "#3d352f",
-		"--omp-toast-text": "#eee8e0",
-		"--omp-toast-border": "#4b4036",
-		"--omp-progress-bg": "#39312b",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#1e1b18",
-		"--omp-sidebar-item-hover": "#39312b",
-		"--omp-sidebar-item-active": "rgba(214, 177, 138, 0.13)",
-		"--omp-selection-bg": "rgba(214, 177, 138, 0.25)",
-		"--omp-scrollbar-thumb": "#7b6857",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#1e1b18",
-		"--omp-panel-border": "#3b332c",
-		"--omp-panel-header": "#beafa1",
-		"--omp-titlebar-bg": "#1e1b18",
-		"--omp-titlebar-text": "#eee8e0",
-		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.16)",
-		"--omp-shadow-md": "0 6px 18px rgba(0, 0, 0, 0.22)",
-		"--omp-shadow-lg": "0 16px 48px rgba(0, 0, 0, 0.32)",
-	},
-};
-
-const gruvbox: ThemeDefinition = {
-	label: "Ember",
-	description: "Warm charcoal with a low, copper ember.",
-	scheme: "dark",
-	tokens: {
-		"--omp-accent": "#dea28d",
-		"--omp-accent-bright": "#eac2b3",
-		"--omp-accent-dim": "rgba(222, 162, 141, 0.13)",
-		"--omp-accent-glow": "rgba(222, 162, 141, 0.16)",
-		"--omp-border": "#4c3d40",
-		"--omp-border-accent": "rgba(222, 162, 141, 0.52)",
-		"--omp-border-muted": "#3c3033",
-		"--omp-border-strong": "#7c5f64",
-		"--omp-success": "#9bc7ab",
-		"--omp-success-dim": "rgba(155, 199, 171, 0.08)",
-		"--omp-error": "#e6a09a",
-		"--omp-error-dim": "rgba(230, 160, 154, 0.08)",
-		"--omp-warning": "#d7bc88",
-		"--omp-warning-dim": "rgba(215, 188, 136, 0.08)",
-		"--omp-info": "#a2bfdc",
-		"--omp-info-dim": "rgba(162, 191, 220, 0.08)",
-		"--omp-text": "#f0e7e5",
-		"--omp-text-secondary": "#d0bfbd",
-		"--omp-bg-primary": "#241e20",
-		"--omp-bg-secondary": "#2c2527",
-		"--omp-bg-tertiary": "#392e30",
-		"--omp-bg-elevated": "#3e3235",
-		"--omp-selected-bg": "rgba(222, 162, 141, 0.12)",
-		"--omp-user-msg-bg": "#2c2527",
-		"--omp-user-msg-border": "#4c3d40",
-		"--omp-custom-msg-bg": "#2c2527",
-		"--omp-code-bg": "#2c2527",
-		"--omp-tool-pending-bg": "#2c2527",
-		"--omp-tool-error-bg": "rgba(230, 160, 154, 0.065)",
-		"--omp-tool-output": "#d0bfbd",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#9bc7ab",
-		"--omp-tool-rail-error": "#e6a09a",
-		"--omp-md-heading": "#f0e7e5",
-		"--omp-md-link": "#dea28d",
-		"--omp-md-link-url": "#c0adaa",
-		"--omp-md-code": "#deb0a1",
-		"--omp-md-code-block": "#f0e7e5",
-		"--omp-md-code-block-border": "#4c3d40",
-		"--omp-md-quote": "#d0bfbd",
-		"--omp-md-quote-border": "#7c5f64",
-		"--omp-md-hr": "#4c3d40",
-		"--omp-md-list-bullet": "#c0adaa",
-		"--omp-diff-added": "#9bc7ab",
-		"--omp-diff-added-bg": "rgba(155, 199, 171, 0.09)",
-		"--omp-diff-removed": "#e6a09a",
-		"--omp-diff-removed-bg": "rgba(230, 160, 154, 0.09)",
-		"--omp-diff-context": "#c0adaa",
-		"--omp-syntax-comment": "#b9a39f",
-		"--omp-syntax-keyword": "#a3bedb",
-		"--omp-syntax-function": "#91c5bf",
-		"--omp-syntax-variable": "#f0e7e5",
-		"--omp-syntax-string": "#d4ba91",
-		"--omp-syntax-number": "#deb0a1",
-		"--omp-syntax-type": "#b9cdb1",
-		"--omp-syntax-operator": "#d0bfbd",
-		"--omp-syntax-punctuation": "#c0adaa",
-		"--omp-thinking-off": "#b9a39f",
-		"--omp-thinking-minimal": "#c0adaa",
-		"--omp-thinking-low": "#d0bfbd",
-		"--omp-thinking-medium": "#dea28d",
-		"--omp-thinking-high": "#eac2b3",
-		"--omp-thinking-xhigh": "#f0e7e5",
-		"--omp-status-bg": "#1c181a",
-		"--omp-status-model": "#d0bfbd",
-		"--omp-status-path": "#c0adaa",
-		"--omp-status-git-clean": "#9bc7ab",
-		"--omp-status-git-dirty": "#d7bc88",
-		"--omp-status-context": "#d0bfbd",
-		"--omp-status-spend": "#d0bfbd",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#c0adaa",
-		"--omp-status-dim": "#b9a39f",
-		"--omp-status-text": "#f0e7e5",
-		"--omp-muted": "#c0adaa",
-		"--omp-dim": "#b9a39f",
-		"--omp-link": "#dea28d",
-		"--omp-custom-msg-label": "#dea28d",
-		"--omp-input-bg": "#2c2527",
-		"--omp-input-border": "#4c3d40",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(222, 162, 141, 0.1)",
-		"--omp-btn-primary-bg": "#f0e7e5",
-		"--omp-btn-primary-text": "#241e20",
-		"--omp-btn-secondary-bg": "#392e30",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#241e20",
-		"--omp-badge-bg": "#392e30",
-		"--omp-badge-text": "#d0bfbd",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(8, 12, 16, 0.62)",
-		"--omp-modal-bg": "#3e3235",
-		"--omp-modal-border": "#4c3d40",
-		"--omp-toast-bg": "#3e3235",
-		"--omp-toast-text": "#f0e7e5",
-		"--omp-toast-border": "#4c3d40",
-		"--omp-progress-bg": "#392e30",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#1c181a",
-		"--omp-sidebar-item-hover": "#392e30",
-		"--omp-sidebar-item-active": "rgba(222, 162, 141, 0.13)",
-		"--omp-selection-bg": "rgba(222, 162, 141, 0.25)",
-		"--omp-scrollbar-thumb": "#7c5f64",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#1c181a",
-		"--omp-panel-border": "#3c3033",
-		"--omp-panel-header": "#c0adaa",
-		"--omp-titlebar-bg": "#1c181a",
-		"--omp-titlebar-text": "#f0e7e5",
-		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.16)",
-		"--omp-shadow-md": "0 6px 18px rgba(0, 0, 0, 0.22)",
-		"--omp-shadow-lg": "0 16px 48px rgba(0, 0, 0, 0.32)",
-	},
-};
-
-const frost: ThemeDefinition = {
-	label: "Glacier",
-	description: "Airy ice-white with a clear steel-blue accent.",
-	scheme: "light",
-	tokens: {
-		"--omp-accent": "#356987",
-		"--omp-accent-bright": "#2a5570",
-		"--omp-accent-dim": "rgba(53, 105, 135, 0.08)",
-		"--omp-accent-glow": "rgba(53, 105, 135, 0.16)",
-		"--omp-border": "#d2dfe5",
-		"--omp-border-accent": "rgba(53, 105, 135, 0.52)",
-		"--omp-border-muted": "#e0e9ed",
-		"--omp-border-strong": "#96aebc",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#26343c",
-		"--omp-text-secondary": "#4e606b",
-		"--omp-bg-primary": "#f7fafb",
-		"--omp-bg-secondary": "#eef4f6",
-		"--omp-bg-tertiary": "#e2eaee",
-		"--omp-bg-elevated": "#fcfeff",
-		"--omp-selected-bg": "rgba(53, 105, 135, 0.09)",
-		"--omp-user-msg-bg": "#eef4f6",
-		"--omp-user-msg-border": "#d2dfe5",
-		"--omp-custom-msg-bg": "#eef4f6",
-		"--omp-code-bg": "#eef4f6",
-		"--omp-tool-pending-bg": "#eef4f6",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#4e606b",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#26343c",
-		"--omp-md-link": "#356987",
-		"--omp-md-link-url": "#566872",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#26343c",
-		"--omp-md-code-block-border": "#d2dfe5",
-		"--omp-md-quote": "#4e606b",
-		"--omp-md-quote-border": "#96aebc",
-		"--omp-md-hr": "#d2dfe5",
-		"--omp-md-list-bullet": "#566872",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#566872",
-		"--omp-syntax-comment": "#586a74",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#26343c",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#4e606b",
-		"--omp-syntax-punctuation": "#566872",
-		"--omp-thinking-off": "#586a74",
-		"--omp-thinking-minimal": "#566872",
-		"--omp-thinking-low": "#4e606b",
-		"--omp-thinking-medium": "#356987",
-		"--omp-thinking-high": "#2a5570",
-		"--omp-thinking-xhigh": "#26343c",
-		"--omp-status-bg": "#edf2f4",
-		"--omp-status-model": "#4e606b",
-		"--omp-status-path": "#566872",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#4e606b",
-		"--omp-status-spend": "#4e606b",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#566872",
-		"--omp-status-dim": "#586a74",
-		"--omp-status-text": "#26343c",
-		"--omp-muted": "#566872",
-		"--omp-dim": "#586a74",
-		"--omp-link": "#356987",
-		"--omp-custom-msg-label": "#356987",
-		"--omp-input-bg": "#fcfeff",
-		"--omp-input-border": "#d2dfe5",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(53, 105, 135, 0.1)",
-		"--omp-btn-primary-bg": "#26343c",
-		"--omp-btn-primary-text": "#f7fafb",
-		"--omp-btn-secondary-bg": "#e2eaee",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#e2eaee",
-		"--omp-badge-text": "#4e606b",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
-		"--omp-modal-bg": "#fcfeff",
-		"--omp-modal-border": "#d2dfe5",
-		"--omp-toast-bg": "#fcfeff",
-		"--omp-toast-text": "#26343c",
-		"--omp-toast-border": "#d2dfe5",
-		"--omp-progress-bg": "#e2eaee",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#edf2f4",
-		"--omp-sidebar-item-hover": "#e2eaee",
-		"--omp-sidebar-item-active": "rgba(53, 105, 135, 0.1)",
-		"--omp-selection-bg": "rgba(53, 105, 135, 0.19)",
-		"--omp-scrollbar-thumb": "#96aebc",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#edf2f4",
-		"--omp-panel-border": "#e0e9ed",
-		"--omp-panel-header": "#566872",
-		"--omp-titlebar-bg": "#edf2f4",
-		"--omp-titlebar-text": "#26343c",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
-	},
-};
-
-const matcha: ThemeDefinition = {
-	label: "Sage",
-	description: "Quiet chalk green and a natural sage accent.",
-	scheme: "light",
-	tokens: {
-		"--omp-accent": "#466d51",
-		"--omp-accent-bright": "#395941",
-		"--omp-accent-dim": "rgba(70, 109, 81, 0.08)",
-		"--omp-accent-glow": "rgba(70, 109, 81, 0.16)",
-		"--omp-border": "#d6dfd0",
-		"--omp-border-accent": "rgba(70, 109, 81, 0.52)",
-		"--omp-border-muted": "#e3eade",
-		"--omp-border-strong": "#a4b49a",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#2c352c",
-		"--omp-text-secondary": "#54614f",
-		"--omp-bg-primary": "#f8faf7",
-		"--omp-bg-secondary": "#f0f4ed",
-		"--omp-bg-tertiary": "#e3eadf",
-		"--omp-bg-elevated": "#fcfdfa",
-		"--omp-selected-bg": "rgba(70, 109, 81, 0.09)",
-		"--omp-user-msg-bg": "#f0f4ed",
-		"--omp-user-msg-border": "#d6dfd0",
-		"--omp-custom-msg-bg": "#f0f4ed",
-		"--omp-code-bg": "#f0f4ed",
-		"--omp-tool-pending-bg": "#f0f4ed",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#54614f",
-		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#2c352c",
-		"--omp-md-link": "#466d51",
-		"--omp-md-link-url": "#5e6958",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#2c352c",
-		"--omp-md-code-block-border": "#d6dfd0",
-		"--omp-md-quote": "#54614f",
-		"--omp-md-quote-border": "#a4b49a",
-		"--omp-md-hr": "#d6dfd0",
-		"--omp-md-list-bullet": "#5e6958",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#5e6958",
-		"--omp-syntax-comment": "#5e6b58",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#2c352c",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#54614f",
-		"--omp-syntax-punctuation": "#5e6958",
-		"--omp-thinking-off": "#5e6b58",
-		"--omp-thinking-minimal": "#5e6958",
-		"--omp-thinking-low": "#54614f",
-		"--omp-thinking-medium": "#466d51",
-		"--omp-thinking-high": "#395941",
-		"--omp-thinking-xhigh": "#2c352c",
-		"--omp-status-bg": "#eef2eb",
-		"--omp-status-model": "#54614f",
-		"--omp-status-path": "#5e6958",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#54614f",
-		"--omp-status-spend": "#54614f",
-		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#5e6958",
-		"--omp-status-dim": "#5e6b58",
-		"--omp-status-text": "#2c352c",
-		"--omp-muted": "#5e6958",
-		"--omp-dim": "#5e6b58",
-		"--omp-link": "#466d51",
-		"--omp-custom-msg-label": "#466d51",
-		"--omp-input-bg": "#fcfdfa",
-		"--omp-input-border": "#d6dfd0",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(70, 109, 81, 0.1)",
-		"--omp-btn-primary-bg": "#2c352c",
-		"--omp-btn-primary-text": "#f8faf7",
-		"--omp-btn-secondary-bg": "#e3eadf",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#e3eadf",
-		"--omp-badge-text": "#54614f",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
-		"--omp-modal-bg": "#fcfdfa",
-		"--omp-modal-border": "#d6dfd0",
-		"--omp-toast-bg": "#fcfdfa",
-		"--omp-toast-text": "#2c352c",
-		"--omp-toast-border": "#d6dfd0",
-		"--omp-progress-bg": "#e3eadf",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#eef2eb",
-		"--omp-sidebar-item-hover": "#e3eadf",
-		"--omp-sidebar-item-active": "rgba(70, 109, 81, 0.1)",
-		"--omp-selection-bg": "rgba(70, 109, 81, 0.19)",
-		"--omp-scrollbar-thumb": "#a4b49a",
-		"--omp-scrollbar-track": "transparent",
-		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-panel-bg": "#eef2eb",
-		"--omp-panel-border": "#e3eade",
-		"--omp-panel-header": "#5e6958",
-		"--omp-titlebar-bg": "#eef2eb",
-		"--omp-titlebar-text": "#2c352c",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
-	},
-};
-
-// Selection IDs remain stable so existing preferences survive the redesign.
+/** Every theme by id, in picker order (the light group, then the dark group). */
 export const THEMES = {
-	dark,
-	titanium,
-	nord,
-	latte,
-	gruvbox,
 	light,
-	paper,
-	solarized,
-	dawn,
-	frost,
-	matcha,
-} as const satisfies Record<string, ThemeDefinition>;
+	"github-light": customThemes["github-light"],
+	"solarized-light": customThemes["solarized-light"],
+	sepia: customThemes.sepia,
+	"hc-light": customThemes["hc-light"],
+	dark,
+	nord: customThemes.nord,
+	"tokyo-night": customThemes["tokyo-night"],
+	"gruvbox-dark": customThemes["gruvbox-dark"],
+	"hc-dark": customThemes["hc-dark"],
+} as const satisfies Record<ThemeName, ThemeDefinition>;
 
-export type ThemeName = keyof typeof THEMES;
+export type { SystemThemePair, ThemeName, ThemeSelection };
 
-/** A picker selection: a named theme, or "system" to follow the OS. */
-export type ThemeSelection = ThemeName | "system";
-
+/** A stored value that is exactly a current theme id or "system". Stored prefs go through `migrateThemeName` instead. */
 export function isThemeSelection(value: unknown): value is ThemeSelection {
-	return typeof value === "string" && (value === "system" || value in THEMES);
+	return value === "system" || isThemeName(value);
 }
 
-/** The theme actually shown for a selection ("system" resolves via the OS). */
+/** What System shows per OS scheme; set from the prefs at boot and by {@link setSystemThemePair}. */
+let systemPair: SystemThemePair = { ...DEFAULT_SYSTEM_THEMES };
+let currentSelection: ThemeSelection = "system";
+
+export function getSystemThemePair(): SystemThemePair {
+	return systemPair;
+}
+
+/** The id a selection shows right now ("system" resolves via the OS scheme and the System pair). */
+export function resolveThemeName(selection: ThemeSelection): ThemeName {
+	return selection === "system" ? systemPair[resolveTheme("system")] : selection;
+}
+
+/** The theme actually shown for a selection ("system" resolves via the OS and the System pair). */
 export function resolveThemeSelection(selection: ThemeSelection): ThemeDefinition {
-	return THEMES[selection === "system" ? resolveTheme("system") : selection];
+	return THEMES[resolveThemeName(selection)];
 }
 
 /**
- * Inline tokens most recently written by applyThemeByName for a named theme;
- * null while the "system" selection is stylesheet-driven. The agent theme
+ * Inline tokens most recently written by applyThemeByName. The agent theme
  * overlay (bottom of this file) restores these when an override goes away.
  */
 let baseThemeTokens: ThemeTokens | null = null;
@@ -1566,59 +547,122 @@ export function getThemeSelectionVersion(): number {
 	return themeSelectionVersion;
 }
 
+/** The page background of each OS scheme for the selection, which pre-paint.js paints before any script runs. */
+function paintBackgrounds(selection: ThemeSelection): Partial<Record<ThemeScheme, string>> {
+	if (selection === "system") {
+		return {
+			light: THEMES[systemPair.light].tokens["--omp-bg-primary"],
+			dark: THEMES[systemPair.dark].tokens["--omp-bg-primary"],
+		};
+	}
+	const theme = THEMES[selection];
+	return { [theme.scheme]: theme.tokens["--omp-bg-primary"] };
+}
+
 /**
- * Applies a theme selection live: flips `data-theme` + the color-scheme meta
- * to the theme's base scheme, then writes every token inline on <html>.
- * "system" stays purely stylesheet-driven (dark/light resolve per the OS
- * media query, and lib/theme's watcher re-applies on OS changes). Persists
- * the selection under the `themeName` pref and mirrors the base scheme (or
- * "system") into the legacy `theme` pref so older boot paths stay coherent.
- * Pass `{ persist: false }` for ephemeral previews (settings-window theme
- * browsing) so the user's stored selection is left untouched.
+ * Applies a theme selection live: flips `data-theme` (the scheme) and
+ * `data-theme-name` (the theme) on <html> plus the color-scheme meta, then
+ * writes every token inline on <html>, with the terminal's ANSI 16, the chart
+ * series and the focus ring. "system" shows the System pair's light or dark
+ * theme for the OS scheme (lib/theme's watcher calls this again on OS changes).
+ * Persists the selection under the `themeName` pref and mirrors the base
+ * scheme (or "system") into the legacy `theme` pref so older boot paths stay
+ * coherent. Pass `{ persist: false }` for ephemeral previews (settings-window
+ * theme browsing, a focused host's theme) so the user's stored selection is
+ * left untouched.
  */
 export function applyThemeByName(selection: ThemeSelection, opts: { persist?: boolean } = {}): void {
 	themeSelectionVersion++;
+	currentSelection = selection;
 	const { persist = true } = opts;
-	const legacyTheme = selection === "system" ? "system" : THEMES[selection].scheme;
-	if (selection !== "system") {
-		const theme = THEMES[selection];
-		applyTheme(theme.scheme);
-		const style = document.documentElement.style;
-		for (const key of THEME_TOKEN_KEYS) style.setProperty(key, theme.tokens[key]);
-		for (const [key, value] of Object.entries(scTokensFor(theme))) style.setProperty(key, value);
-		baseThemeTokens = theme.tokens;
-		markCustomThemeTokens(theme.scheme);
-	} else {
-		baseThemeTokens = null;
-		applyTheme("system");
-	}
+	const name = resolveThemeName(selection);
+	const theme = THEMES[name];
+	const mode = selection === "system" ? "system" : theme.scheme;
+	applyTheme(mode);
+	const root = document.documentElement;
+	const style = root.style;
+	for (const key of THEME_TOKEN_KEYS) style.setProperty(key, theme.tokens[key]);
+	for (const [key, value] of Object.entries(scTokensFor(theme))) style.setProperty(key, value);
+	for (const [key, value] of Object.entries(themeExtrasFor(theme))) style.setProperty(key, value);
+	root.setAttribute("data-theme-name", name);
+	baseThemeTokens = theme.tokens;
+	markCustomThemeTokens(mode);
 	writeOverlay();
 	if (persist) {
 		void saveGuiPreference("themeName", selection, () => {});
-		void saveGuiPreference("theme", legacyTheme, () => {});
-		try {
-			localStorage.setItem(THEME_SCHEME_STORAGE_KEY, selection === "system" ? "system" : THEMES[selection].scheme);
-		} catch {
-			// localStorage unavailable — the async path still applies the theme.
-		}
+		void saveGuiPreference("theme", mode, () => {});
+		storePaint(selection, mode);
 	}
+}
+
+/** Mirror what pre-paint.js reads on the next cold start: the scheme (or "system") and each scheme's page background. */
+function storePaint(selection: ThemeSelection, mode: ThemeMode): void {
+	try {
+		localStorage.setItem(THEME_SCHEME_STORAGE_KEY, mode);
+		localStorage.setItem(THEME_PAINT_STORAGE_KEY, JSON.stringify(paintBackgrounds(selection)));
+	} catch {
+		// localStorage unavailable — the async path still applies the theme.
+	}
+}
+
+/**
+ * Chooses the light and dark theme System shows, then re-applies System when it is the
+ * selection. A name of the wrong scheme falls back to the OMPdesk default of that scheme.
+ * `persist: false` is for a host's pair shown without saving it.
+ */
+export function setSystemThemePair(next: Partial<SystemThemePair>, opts: { persist?: boolean } = {}): void {
+	const { persist = true } = opts;
+	systemPair = {
+		light: systemThemeFor("light", next.light ?? systemPair.light),
+		dark: systemThemeFor("dark", next.dark ?? systemPair.dark),
+	};
+	if (persist) {
+		if (next.light !== undefined) void saveGuiPreference("systemLightTheme", systemPair.light, () => {});
+		if (next.dark !== undefined) void saveGuiPreference("systemDarkTheme", systemPair.dark, () => {});
+	}
+	if (currentSelection === "system") applyThemeByName("system", { persist });
+}
+
+/**
+ * Takes the System pair out of a prefs record (`systemLightTheme` / `systemDarkTheme`; the OMPdesk
+ * defaults for what is unset or names a theme of the wrong scheme) as the live one. Boot calls it
+ * before the first applyThemeByName.
+ */
+export function loadSystemThemePair(prefs: Readonly<Record<string, unknown>> | undefined): void {
+	systemPair = {
+		light: systemThemeFor("light", prefs?.systemLightTheme),
+		dark: systemThemeFor("dark", prefs?.systemDarkTheme),
+	};
 }
 
 /**
  * Reads the persisted selection: the `themeName` pref first, then the legacy
  * `theme` pref (dark/light/system written by older builds and the settings
- * window), falling back to "system" — OMPdesk follows the OS by default.
+ * window), falling back to "system" — OMPdesk follows the OS by default. A
+ * retired theme id reads as its successor (shared/theme-names.ts); the first
+ * read that finds one stores the successor, so the pref is never left naming
+ * a theme the app no longer has.
  */
 export async function getPersistedThemeSelection(prefs?: Readonly<Record<string, unknown>>): Promise<ThemeSelection> {
 	if (prefs) {
-		if (isThemeSelection(prefs.themeName)) return prefs.themeName;
-		return isThemeSelection(prefs.theme) ? prefs.theme : "system";
+		const named = migrateThemeName(prefs.themeName);
+		if (named !== null) {
+			if (typeof prefs.themeName === "string" && named !== prefs.themeName) {
+				void saveGuiPreference("themeName", named, () => {});
+			}
+			return named;
+		}
+		return migrateThemeName(prefs.theme) ?? "system";
 	}
 	try {
-		const named = await window.omp.prefs.get("themeName");
-		if (isThemeSelection(named)) return named;
-		const legacy = await window.omp.prefs.get("theme");
-		if (isThemeSelection(legacy)) return legacy;
+		const stored = await window.omp.prefs.get("themeName");
+		const named = migrateThemeName(stored);
+		if (named !== null) {
+			if (named !== stored) void saveGuiPreference("themeName", named, () => {});
+			return named;
+		}
+		const legacy = migrateThemeName(await window.omp.prefs.get("theme"));
+		if (legacy !== null) return legacy;
 	} catch {
 		// prefs IPC unavailable (tests, storybook) — use the default.
 	}
@@ -1673,6 +717,22 @@ export function scTokensFor(theme: ThemeDefinition): Record<ScTokenKey, string> 
 		tokens["--sc-accent-fg"] = ratio(paperLum) > ratio(inkLum) ? paper : ink;
 	}
 	return tokens;
+}
+
+/**
+ * The custom properties a theme sets beyond THEME_TOKEN_KEYS: the terminal's ANSI 16 (`--omp-ansi-*`),
+ * the chart series (`--omp-chart-1…6`) and the focus ring (`--sc-focus-ring`). global.css gives the
+ * first two defaults taken from the semantic tokens, so a stylesheet-only first paint still reads.
+ */
+export function themeExtrasFor(theme: ThemeDefinition): Record<string, string> {
+	const extras: Record<string, string> = { "--sc-focus-ring": theme.focusRing };
+	ANSI_KEYS.forEach((key, index) => {
+		extras[key] = theme.ansi[index] as string;
+	});
+	CHART_KEYS.forEach((key, index) => {
+		extras[key] = theme.chart[index] as string;
+	});
+	return extras;
 }
 
 // ============================================================================
