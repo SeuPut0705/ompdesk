@@ -191,6 +191,14 @@ describe("TurnStatusRow", () => {
 });
 
 describe("TranscriptHistoryStatus", () => {
+	it("says the rows are the last known state while the live read answers, as a delayed fade-in note", async () => {
+		await mount(<TranscriptHistoryStatus error={null} loading={false} onRetry={() => {}} updating />);
+		const status = container.querySelector('[data-testid="transcript-history-status"]');
+		expect(status?.textContent).toContain(translate("chat.history.updating"));
+		expect(status?.className).toContain("omp-updating-hint");
+		expect(container.querySelectorAll(".animate-spin")).toHaveLength(0);
+	});
+
 	it("says a failed page of earlier messages as an alert whose Retry loads it again", async () => {
 		const onRetry = vi.fn();
 		await mount(<TranscriptHistoryStatus error="disk read failed" loading={false} onRetry={onRetry} />);
@@ -203,11 +211,14 @@ describe("TranscriptHistoryStatus", () => {
 		expect(onRetry).toHaveBeenCalledTimes(1);
 	});
 
-	it("is a quiet spinner while loading, and nothing at all otherwise", async () => {
+	it("is a still note while loading (no spinner, out of the flow), and nothing at all otherwise", async () => {
 		await mount(<TranscriptHistoryStatus error={null} loading onRetry={() => {}} />);
 		const status = container.querySelector('[data-testid="transcript-history-status"]');
 		expect(status?.getAttribute("role")).toBeNull();
 		expect(status?.querySelector("button")).toBeNull();
+		expect(status?.textContent).toContain(translate("chat.history.loading"));
+		expect(container.querySelectorAll(".animate-spin, [role=status]")).toHaveLength(0);
+		expect(status?.className).toContain("absolute");
 		await act(async () => {
 			root.render(
 				<I18nProvider>

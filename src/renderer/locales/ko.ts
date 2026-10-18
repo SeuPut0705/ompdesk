@@ -15,6 +15,7 @@ export const ko: Record<string, string> = {
 	"mcp.rea.node-failed": "Node.js를 실행하지 못했어요.",
 	"mcp.rea.npx-failed": "npx를 실행하지 못했어요.",
 	"chat.history.loading": "이전 메시지를 불러오고 있어요…",
+	"chat.history.updating": "최신 내용으로 갱신하고 있어요…",
 	"chat.history.failed": "이전 메시지를 불러오지 못했어요.",
 	"extDialog.ask.step": "{current}/{total}",
 	"extDialog.ask.next": "다음",

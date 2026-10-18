@@ -15,6 +15,7 @@ export const en: Record<string, string> = {
 	"mcp.rea.node-failed": "Node.js couldn't run.",
 	"mcp.rea.npx-failed": "npx couldn't run.",
 	"chat.history.loading": "Loading earlier messages…",
+	"chat.history.updating": "Updating…",
 	"chat.history.failed": "Couldn't load earlier messages.",
 	"extDialog.ask.step": "{current} of {total}",
 	"extDialog.ask.next": "Next",

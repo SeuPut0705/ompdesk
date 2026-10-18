@@ -373,15 +373,6 @@ html[data-platform="win32"] {
 	}
 }
 
-@keyframes omp-shimmer {
-	from {
-		background-position: 200% 0;
-	}
-	to {
-		background-position: -200% 0;
-	}
-}
-
 @keyframes omp-pulse-dot {
 	0%,
 	100% {
@@ -472,16 +463,19 @@ html[data-platform="win32"] {
 	}
 }
 
+/* The shape of content nothing is known of yet (a first visit): still. A sweep repainted every frame it was up
+   (background-position is no compositor property) for a wait that now only a first visit sees. */
 .omp-skeleton {
 	border-radius: var(--radius-md);
-	background: linear-gradient(
-		100deg,
-		var(--omp-bg-tertiary) 40%,
-		var(--omp-bg-elevated) 50%,
-		var(--omp-bg-tertiary) 60%
-	);
-	background-size: 200% 100%;
-	animation: omp-shimmer 1.4s linear infinite; /* motion-ok: loading placeholder sweep */
+	background: var(--omp-bg-tertiary);
+}
+
+/* A quiet "updating" hint for rows painted from the last known state while the live read answers: text, no
+   spinner, over the content (no layout shift). It stays hidden for the first 0.7 s, so a read that answers at once
+   never flashes it; one opacity fade in, nothing running after it. */
+.omp-updating-hint {
+	opacity: 0;
+	animation: omp-fade-in var(--sc-duration-med) var(--sc-ease-standard) 700ms forwards; /* motion-ok: delay before the hint shows */
 }
 
 .omp-pulse-dot {
