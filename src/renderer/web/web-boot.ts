@@ -9,6 +9,7 @@
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
 import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
+import { snapshots } from "../lib/snapshot-cache";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
@@ -92,7 +93,11 @@ async function bootApp(): Promise<void> {
 			resyncCause = cause;
 			resync?.request();
 		},
-		onUnpaired: () => location.replace("/pair"),
+		onUnpaired: () => {
+			// This device is no longer allowed to see this computer's sessions: nothing of them stays in the page.
+			snapshots().clearAll();
+			location.replace("/pair");
+		},
 	});
 
 	// The worker's install fetches the shell's chunks. Registered once the app has loaded, it takes them from the
