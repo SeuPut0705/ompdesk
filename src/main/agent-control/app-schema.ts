@@ -8,7 +8,12 @@ export type PropSchema =
 	| { type: "string"; description?: string; enum?: readonly string[]; minLength?: number; maxLength?: number }
 	| { type: "boolean"; description?: string }
 	| { type: "integer" | "number"; description?: string; minimum?: number; maximum?: number }
-	| { type: "array"; description?: string; items: { type: "string"; maxLength?: number }; maxItems?: number };
+	| {
+			type: "array";
+			description?: string;
+			items: { type: "string"; maxLength?: number; enum?: readonly string[] };
+			maxItems?: number;
+	  };
 
 export interface ArgsSchema {
 	type: "object";
@@ -48,7 +53,12 @@ function problem(name: string, schema: PropSchema, value: unknown): string | nul
 		case "array": {
 			if (!Array.isArray(value)) return `${name} must be a list`;
 			if (value.length > (schema.maxItems ?? 20)) return `${name} has too many items`;
-			return value.every(item => typeof item === "string" && item.length <= (schema.items.maxLength ?? 500))
+			return value.every(
+				item =>
+					typeof item === "string" &&
+					item.length <= (schema.items.maxLength ?? 500) &&
+					(!schema.items.enum || schema.items.enum.includes(item)),
+			)
 				? null
 				: `${name} must be a list of short strings`;
 		}

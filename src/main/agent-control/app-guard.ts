@@ -13,6 +13,9 @@
 import type { RpcCommand } from "../../shared/rpc-types";
 import { SETTING_BY_ID, SETTINGS } from "./app-settings";
 
+/** A refusal the agent reads: not a failure of the app. */
+export class AppRefusal extends Error {}
+
 export type Tier = "read" | "change" | "sensitive" | "never";
 export type GrantedTier = Exclude<Tier, "never">;
 
@@ -78,6 +81,13 @@ const RPC_TIER: Record<string, Tier | ((command: RpcCommand) => Tier)> = {
 	set_model_role: "change",
 	set_thinking_level: "change",
 	login: "sensitive",
+	mcp_add: "sensitive",
+	get_autopilot: "read",
+	set_autopilot: command => {
+		if (command.type !== "set_autopilot") return "never";
+		if (command.action === "start") return "sensitive";
+		return command.action === "stop" || command.action === "abort" ? "change" : "never";
+	},
 	marketplace_action: command =>
 		command.type === "marketplace_action" && command.action === "install" ? "sensitive" : "never",
 };

@@ -6,12 +6,19 @@
  *
  * The risk table `AGENT_CHANNELS` (app-channels.ts) names, per IPC channel, the actions that call it.
  */
+
+import {
+	AUTOPILOT_AREAS,
+	AUTOPILOT_SHIP_PRESETS,
+	type AutopilotArea,
+	type AutopilotShipPreset,
+} from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE } from "../../shared/mobile-web";
 import type { RpcCommand } from "../../shared/rpc-types";
-import type { Tier } from "./app-guard";
+import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
 import { type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
 
@@ -59,6 +66,8 @@ export interface AppAction {
 	tier: Tier;
 	/** Why a `never` action exists: shown to the agent so it does not try another route. */
 	neverReason?: string;
+	/** What the confirmation card says is about to happen, in full (exact command, url, arguments). */
+	describe?: (args: Record<string, unknown>) => string;
 	/** Absent for a `never` action. */
 	run?: (ctx: ActionContext, args: Record<string, unknown>) => Promise<ActionResult>;
 }
@@ -555,18 +564,134 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		"Read an API key, token, password, proxy credential or the sign-in state of an account.",
 		"Secrets never reach an agent. Use accounts.*_status for who is signed in.",
 	),
-	never(
-		"extensions.install_mcp",
-		"extensions",
-		"Add an MCP server (it starts a program or reaches a network service).",
-		"Not offered: the person adds MCP servers in Settings › Tools & extensions.",
-	),
-	never(
-		"remote.pair",
-		"connections",
-		"Pair another computer or a phone with this one.",
-		"Pairing trusts a device with this computer's sessions. The person does it in Settings › Devices & connections.",
-	),
+	{
+		id: "extensions.install_mcp",
+		area: "extensions",
+		description:
+			"Add an MCP server (stdio: it starts a program; http/sse: it reaches a service). The user sees the exact command or url first. No env or headers: secrets are never set by an agent.",
+		args: objectSchema(
+			{
+				name: { type: "string", minLength: 1, maxLength: 80 },
+				transport: { type: "string", enum: ["stdio", "http", "sse"] },
+				command: { type: "string", minLength: 1, maxLength: 500 },
+				args: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 30 },
+				url: { type: "string", minLength: 8, maxLength: 1000 },
+				scope: { type: "string", enum: ["user", "project"] },
+			},
+			["name", "transport"],
+		),
+		tier: "sensitive",
+		describe: args => {
+			const where =
+				args.transport === "stdio"
+					? `runs: ${[args.command, ...((args.args as string[]) ?? [])].join(" ")}`
+					: `connects to: ${String(args.url)}`;
+			return `add the MCP server "${String(args.name)}" (${String(args.transport)}, ${String(args.scope ?? "user")} scope), which ${where}`;
+		},
+		run: async (ctx, args) => {
+			const stdio = args.transport === "stdio";
+			if (stdio && typeof args.command !== "string") throw new AppRefusal("stdio needs command.");
+			if (!stdio && (typeof args.url !== "string" || !/^https?:\/\//.test(args.url)))
+				throw new AppRefusal("http and sse need an http(s) url.");
+			const config = stdio
+				? {
+						transport: "stdio" as const,
+						command: String(args.command),
+						...(Array.isArray(args.args) ? { args: args.args as string[] } : {}),
+					}
+				: { transport: args.transport as "http" | "sse", url: String(args.url) };
+			await ctx.rpc({
+				type: "mcp_add",
+				name: String(args.name),
+				config,
+				scope: args.scope === "project" ? "project" : "user",
+			});
+			return {
+				text: `Added MCP server ${String(args.name)}.`,
+				change: { en: "Added MCP server", ko: "MCP 서버 추가", value: String(args.name) },
+			};
+		},
+	},
+	{
+		id: "remote.pair",
+		area: "connections",
+		description:
+			"Start pairing another computer: opens Settings › Devices & connections, where this computer's pairing code is shown and the person types the other one's. You never give or read a pairing code.",
+		args: NO_ARGS,
+		tier: "sensitive",
+		describe: () => "start pairing another computer (opens Devices & connections; the person completes it there)",
+		run: async ctx => {
+			ctx.ui({ kind: "settings", section: "connections", sub: "remote" });
+			return {
+				text: "Pairing started: Settings › Devices & connections is open; the person completes it. You cannot see or enter the code.",
+			};
+		},
+	},
+	{
+		id: "autopilot.status",
+		area: "autopilot",
+		description: "Whether this session is an Autopilot run and its state, cycle, branch and last reason.",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => {
+			const data = await ctx.rpc({ type: "get_autopilot" });
+			const s = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+			if (!s.active) return { text: "This session is not an Autopilot run." };
+			const parts = ["role", "state", "cycle", "branch", "baseBranch", "reason", "detail"]
+				.filter(k => s[k] !== undefined)
+				.map(k => `${k}: ${String(s[k])}`);
+			return { text: `Autopilot: ${parts.join(", ")}.` };
+		},
+	},
+	{
+		id: "autopilot.start",
+		area: "autopilot",
+		description:
+			"Start an Autopilot run in this session: cycles that commit on an autopilot branch. preset local (default) never pushes; push pushes the branch after green cycles; release also releases.",
+		args: objectSchema({
+			preset: { type: "string", enum: AUTOPILOT_SHIP_PRESETS },
+			focus: { type: "array", items: { type: "string", enum: AUTOPILOT_AREAS }, maxItems: 7 },
+			backlog: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 20 },
+		}),
+		tier: "sensitive",
+		describe: args =>
+			`start an Autopilot run (ship: ${String(args.preset ?? "local")}${args.preset === "push" || args.preset === "release" ? ", it commits AND pushes" : ", commits only, no push"}; focus: ${Array.isArray(args.focus) && args.focus.length > 0 ? args.focus.join(", ") : "all areas"}; ${Array.isArray(args.backlog) ? args.backlog.length : 0} backlog items)`,
+		run: async (ctx, args) => {
+			await ctx.rpc({
+				type: "set_autopilot",
+				action: "start",
+				preset: (args.preset as AutopilotShipPreset | undefined) ?? "local",
+				...(Array.isArray(args.focus) ? { focus: args.focus as AutopilotArea[] } : {}),
+				...(Array.isArray(args.backlog) ? { backlog: args.backlog as string[] } : {}),
+			});
+			return {
+				text: "Autopilot started in this session.",
+				change: { en: "Autopilot", ko: "오토파일럿", value: "started" },
+			};
+		},
+	},
+	{
+		id: "autopilot.stop",
+		area: "autopilot",
+		description: "Stop this session's Autopilot run in an orderly way (it finishes what it must and ends).",
+		args: NO_ARGS,
+		tier: "change",
+		run: async ctx => {
+			await ctx.rpc({ type: "set_autopilot", action: "stop" });
+			return { text: "Autopilot is stopping.", change: { en: "Autopilot", ko: "오토파일럿", value: "stopping" } };
+		},
+	},
+	{
+		id: "autopilot.end",
+		area: "autopilot",
+		description: "End this session's Autopilot run at once: the running turn is aborted.",
+		args: NO_ARGS,
+		tier: "change",
+		run: async ctx => {
+			await ctx.rpc({ type: "set_autopilot", action: "abort" });
+			return { text: "Autopilot ended.", change: { en: "Autopilot", ko: "오토파일럿", value: "ended" } };
+		},
+	},
 	...SETTINGS.map(settingAction),
 ];
 

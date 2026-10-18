@@ -13,12 +13,11 @@ import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type { IpcChannel } from "../web/ipc-policy";
 import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, type AppChange } from "./app-catalog";
 import { AGENT_CHANNELS } from "./app-channels";
-import { covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
+import { AppRefusal, covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
 import { validateArgs } from "./app-schema";
 import { SETTING_BY_ID, SETTINGS } from "./app-settings";
 
-/** A refusal the agent reads: not a failure of the app. */
-export class AppRefusal extends Error {}
+export { AppRefusal };
 
 /** What `ompdesk_app` needs from the app; `host.ts` builds it. */
 export interface AppPorts {
@@ -129,6 +128,7 @@ export class AppControl {
 
 	#summary(action: AppAction | null, args: Record<string, unknown> | null): string {
 		if (!action) return "";
+		if (action.describe && args) return action.describe(args);
 		const row = action.id.startsWith("settings.") ? SETTING_BY_ID[action.id.slice("settings.".length)] : undefined;
 		const masked = row?.kind === "pref" && row.redact ? { ...args, value: "…" } : args;
 		const shownArgs = masked && Object.keys(masked).length > 0 ? ` ${JSON.stringify(masked)}` : "";

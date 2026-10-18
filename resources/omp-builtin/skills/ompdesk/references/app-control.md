@@ -4,7 +4,7 @@
 
 ## Flow
 
-1. `ompdesk_app_list` with `area` (`settings`, `ui`, `usage`, `models`, `sessions`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
+1. `ompdesk_app_list` with `area` (`settings`, `ui`, `usage`, `models`, `sessions`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `connections`, `autopilot`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
 2. `ompdesk_app` with `action` (an id from the list, e.g. `settings.theme`) and `args` as the schema says. Arguments are checked in the app; an unknown action or argument is refused.
 3. Read before you change: `settings.get` shows current values, `usage.read` the provider quota windows.
 
@@ -12,8 +12,8 @@
 
 - `read`: free.
 - `change`: free. The user sees a quiet toast ("Agent changed: Theme → Nord") with Undo, and the change is noted in your session. `app.undo` puts back your last change when it had a previous value.
-- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins, erasing memory or saved sessions, updates, restart and quit. The user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. If the user turned on "let agents manage", the card is skipped.
-- `never`: what bounds your own power (the control tools switch, approval mode, who may approve, memory and computer-use switches), secrets and tokens, answering a card, pairing devices, adding MCP servers. The list shows these with the reason. Tell the user to do them in Settings; `ui.settings_open` opens the right section for them.
+- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins or MCP servers (the card shows the exact command or url), starting pairing (`remote.pair` only opens the place where the user completes it; you never give or read a code), starting Autopilot (`autopilot.start` commits, and pushes with preset `push` or `release`), erasing memory or saved sessions, updates, restart and quit. The user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. If the user turned on "let agents manage", the card is skipped.
+- `never`: what bounds your own power (the control tools switch, approval mode, who may approve, memory and computer-use switches), secrets, tokens and pairing codes, answering a card. The list shows these with the reason. Tell the user to do them in Settings; `ui.settings_open` opens the right section for them.
 
 ## Sign-in
 

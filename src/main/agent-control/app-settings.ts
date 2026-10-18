@@ -308,7 +308,7 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	pstack: { never: "the engineering-mode pack changes the prompt and skills every session runs with" },
 	agentControl: { never: "this switch gates the agent's own power over the app" },
 	ssh: { never: "SSH hosts and keys are credentials and network reach" },
-	remote: { never: "pairing another computer is the person's decision" },
+	remote: { covered: "remote.pair" },
 	mobileWeb: { covered: "mobile_web.set_enabled" },
 	hostAppearance: { never: "a paired host's look; the person's own choice" },
 	auth: { never: "the update token is a credential" },

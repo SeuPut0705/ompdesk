@@ -119,7 +119,7 @@ describe("ompdesk_app tiers", () => {
 		const ports = new FakePorts();
 		ports.manage = true;
 		const control = new AppControl(ports);
-		for (const id of ["agent_power.set", "cards.answer", "credentials.read", "remote.pair"])
+		for (const id of ["agent_power.set", "cards.answer", "credentials.read"])
 			expect(await refusal(control.run(CALLER, id, {})), id).toContain("never available");
 		expect(await refusal(control.run(CALLER, "settings.agentControlManage", { value: true }))).toContain(
 			"Unknown action",
@@ -221,7 +221,7 @@ describe("what agents can never reach, by any route", () => {
 			{ type: "bash", command: "ls" },
 			{ type: "prompt", message: "x" },
 			{ type: "agent_control_confirm", title: "t", message: "m" },
-			{ type: "set_autopilot", action: "start" },
+			{ type: "set_autopilot", action: "configure" },
 			{ type: "extension_ui_response", id: "1", confirmed: true },
 		] as unknown as RpcCommand[])
 			expect(rpcTier(command), command.type).toBe("never");
@@ -287,5 +287,135 @@ describe("what agents can never reach, by any route", () => {
 		expect(ports.writes).toEqual([]);
 		expect(ports.rpcs).toEqual([]);
 		expect(ports.invoked).toEqual([]);
+	});
+});
+
+describe("MCP install, pairing and Autopilot", () => {
+	it("shows the exact command and arguments on the card before adding an MCP server, and sends them unchanged", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "extensions.install_mcp", {
+			name: "files",
+			transport: "stdio",
+			command: "npx",
+			args: ["-y", "some-mcp@1.2.3", "/tmp"],
+		});
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.cards[0]?.message).toContain("runs: npx -y some-mcp@1.2.3 /tmp");
+		expect(ports.rpcs).toEqual([
+			{
+				type: "mcp_add",
+				name: "files",
+				config: { transport: "stdio", command: "npx", args: ["-y", "some-mcp@1.2.3", "/tmp"] },
+				scope: "user",
+			},
+		]);
+
+		const remote = new FakePorts();
+		await control
+			.run(CALLER, "extensions.install_mcp", { name: "x", transport: "http", url: "https://mcp.example/api" })
+			.catch(() => undefined);
+		await new AppControl(remote).run(CALLER, "extensions.install_mcp", {
+			name: "docs",
+			transport: "http",
+			url: "https://mcp.example/api",
+			scope: "project",
+		});
+		expect(remote.cards[0]?.message).toContain("connects to: https://mcp.example/api");
+	});
+
+	it("declined, nothing is added; with the switch no card; env and headers cannot be set; bad shapes are refused", async () => {
+		const ports = new FakePorts();
+		ports.approve = false;
+		const control = new AppControl(ports);
+		await refusal(control.run(CALLER, "extensions.install_mcp", { name: "a", transport: "stdio", command: "x" }));
+		expect(ports.rpcs).toEqual([]);
+
+		const open = new FakePorts();
+		open.manage = true;
+		const free = new AppControl(open);
+		await free.run(CALLER, "extensions.install_mcp", { name: "a", transport: "stdio", command: "x" });
+		expect(open.cards).toEqual([]);
+		expect(
+			await refusal(
+				free.run(CALLER, "extensions.install_mcp", {
+					name: "a",
+					transport: "stdio",
+					command: "x",
+					env: { K: "v" },
+				}),
+			),
+		).toContain("unknown argument");
+		expect(await refusal(free.run(CALLER, "extensions.install_mcp", { name: "a", transport: "stdio" }))).toContain(
+			"needs command",
+		);
+		expect(
+			await refusal(
+				free.run(CALLER, "extensions.install_mcp", { name: "a", transport: "http", url: "file:///etc/passwd" }),
+			),
+		).toContain("http(s)");
+	});
+
+	it("starts pairing only by opening Settings after the card; the agent can neither give nor read a code", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "remote.pair", {});
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.events).toContainEqual({ kind: "settings", section: "connections", sub: "remote" });
+		expect(ports.invoked).toEqual([]);
+		expect(ports.rpcs).toEqual([]);
+		expect(await refusal(control.run(CALLER, "remote.pair", { code: "123456", address: "10.0.0.2" }))).toContain(
+			"unknown argument",
+		);
+
+		const declined = new FakePorts();
+		declined.approve = false;
+		await refusal(new AppControl(declined).run(CALLER, "remote.pair", {}));
+		expect(declined.events).toEqual([]);
+	});
+
+	it("reads Autopilot freely, asks before a start that commits and pushes, and stops or ends without a card", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		expect(await control.run(CALLER, "autopilot.status", {})).toContain("not an Autopilot run");
+		await control.run(CALLER, "autopilot.start", { preset: "push", focus: ["tests"], backlog: ["fix flaky"] });
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.cards[0]?.message).toContain("commits AND pushes");
+		expect(ports.rpcs.at(-1)).toMatchObject({
+			type: "set_autopilot",
+			action: "start",
+			preset: "push",
+			focus: ["tests"],
+			backlog: ["fix flaky"],
+		});
+
+		await control.run(CALLER, "autopilot.start", {});
+		expect(ports.rpcs.at(-1)).toMatchObject({ action: "start", preset: "local" });
+		expect(ports.cards[1]?.message).toContain("commits only, no push");
+
+		const cardsBefore = ports.cards.length;
+		await control.run(CALLER, "autopilot.stop", {});
+		await control.run(CALLER, "autopilot.end", {});
+		expect(ports.cards).toHaveLength(cardsBefore);
+		expect(ports.rpcs.slice(-2)).toMatchObject([{ action: "stop" }, { action: "abort" }]);
+		expect(await refusal(control.run(CALLER, "autopilot.start", { preset: "yolo" }))).toContain("must be one of");
+	});
+
+	it("keeps every other autopilot command, and pairing and MCP commands that are not the offered shapes, never", () => {
+		for (const action of [
+			"configure",
+			"ship",
+			"backlog_add",
+			"note",
+			"pause",
+			"resume",
+			"guide_draft",
+			"cancel_ship",
+		])
+			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");
+		expect(rpcTier({ type: "set_autopilot", action: "start" } as RpcCommand)).toBe("sensitive");
+		expect(rpcTier({ type: "mcp_add", name: "a", config: { transport: "stdio", command: "x" } })).toBe("sensitive");
+		for (const type of ["mcp_test", "mcp_reauth", "ssh_manage"])
+			expect(rpcTier({ type } as unknown as RpcCommand), type).toBe("never");
 	});
 });
