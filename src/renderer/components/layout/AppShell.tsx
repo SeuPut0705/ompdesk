@@ -27,7 +27,7 @@ import { useTabsStore } from "../../stores/tabs";
 import { type PageDestination, useUiStore } from "../../stores/ui";
 import { Button, IconButton, Spinner, Tooltip } from "../common";
 import type { SettingsPage as LoadedSettingsPage } from "../settings/SettingsPage";
-import { PanelContainer } from "./PanelContainer";
+import { PanelContainer, preloadPanelViews } from "./PanelContainer";
 import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { Sidebar } from "./sidebar/Sidebar";
@@ -41,6 +41,8 @@ const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ 
 const SettingsPage = lazy(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 /** Settings from the idle-time preload in AppShell, once it has loaded. */
 let preloadedSettingsPage: typeof LoadedSettingsPage | undefined;
+/** How long a paired web page lets its first screen settle before the idle preloads start. */
+const WEB_PRELOAD_DELAY_MS = 5000;
 
 const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	agents: "destination.agents",
@@ -248,18 +250,28 @@ export function AppShell() {
 	// Settings opened ~300 ms after ⌘, (see SettingsDestination). Load its chunk
 	// (~460 KB) in an idle moment after startup, so the first open renders it
 	// directly; the same specifier as the lazy() above, so both resolve to one
-	// module record.
-	useEffect(
-		() =>
-			whenIdle(
-				() =>
+	// module record. The side panel's views likewise (a web page has not loaded
+	// them yet; the desktop already has, PanelContainer). A paired web page waits
+	// WEB_PRELOAD_DELAY_MS first: its first screen idles while the socket answers,
+	// and a preload in those gaps took the phone's link and CPU from it.
+	useEffect(() => {
+		let cancelIdle = () => {};
+		const timer = setTimeout(
+			() => {
+				cancelIdle = whenIdle(() => {
 					void import("../settings/SettingsPage").then(module => {
 						preloadedSettingsPage = module.SettingsPage;
-					}),
-				10_000,
-			),
-		[],
-	);
+					});
+					void preloadPanelViews();
+				}, 10_000);
+			},
+			document.documentElement.dataset.platform === "web" ? WEB_PRELOAD_DELAY_MS : 0,
+		);
+		return () => {
+			clearTimeout(timer);
+			cancelIdle();
+		};
+	}, []);
 
 	// Esc on a page goes back to the session, unless something on the page
 	// (a search field, a menu) or an overlay already used the keystroke.

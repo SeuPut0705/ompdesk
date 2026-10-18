@@ -16,7 +16,7 @@ import {
 	X,
 } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
 import { useCompactShell, useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
@@ -27,19 +27,33 @@ import { SessionRuntimeProvider, sessionRuntime } from "../../stores/session-run
 import { useTabsStore } from "../../stores/tabs";
 import { CLOSED_FILE_VIEW, type PanelTab, useUiStore } from "../../stores/ui";
 import { ContextMenu, IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
-import { AutopilotPanel } from "../panels/autopilot/AutopilotPanel";
-import { DiffPanel } from "../panels/DiffPanel";
-import { FilesPanel } from "../panels/FilesPanel";
-import { JobsPanel } from "../panels/JobsPanel";
-import { LogPanel } from "../panels/LogPanel";
-import { MemoryPanel } from "../panels/MemoryPanel";
 import { PanelActionsContext } from "../panels/PanelChrome";
-import { PlanPanel } from "../panels/PlanPanel";
-import { PreviewPanel } from "../panels/PreviewPanel";
-import { QueuePanel } from "../panels/QueuePanel";
-import { SessionTreePanel } from "../panels/SessionTreePanel";
-import { SubagentPanel } from "../panels/SubagentPanel";
-import { TerminalPanel } from "../panels/TerminalPanel";
+import type { PanelView as LoadedPanelView, PanelViewProps } from "./PanelViews";
+
+const LazyPanelView = lazy(() => import("./PanelViews").then(module => ({ default: module.PanelView })));
+/** The views once their chunk has loaded: rendered directly, never through lazy()'s suspend and its ~300 ms throttle. */
+let loadedPanelView: typeof LoadedPanelView | undefined;
+
+/** Load the views' chunk (PanelViews.tsx); the same specifier as the lazy() above, so one module record. */
+export function preloadPanelViews(): Promise<void> {
+	return import("./PanelViews").then(module => {
+		loadedPanelView = module.PanelView;
+	});
+}
+
+// The desktop reads its chunks from disk: load the views at once, so a panel open at launch never suspends.
+// A paired web page loads them in an idle moment after its first screen (AppShell).
+if (typeof document === "undefined" || document.documentElement.dataset.platform !== "web") void preloadPanelViews();
+
+/** The panel's view: the loaded module when there is one, picked once per mount. */
+function PanelViewSlot(props: PanelViewProps) {
+	const [View] = useState(() => loadedPanelView ?? LazyPanelView);
+	return (
+		<Suspense fallback={null}>
+			<View {...props} />
+		</Suspense>
+	);
+}
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 840;
@@ -265,18 +279,7 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 						: `${pinned?.tabId ?? activeTabId ?? "no-tab"}:${panelTab}`
 				}
 			>
-				{panelTab === "terminal" && <TerminalPanel />}
-				{panelTab === "preview" && <PreviewPanel />}
-				{panelTab === "plan" && <PlanPanel />}
-				{panelTab === "diff" && <DiffPanel />}
-				{panelTab === "files" && <FilesPanel />}
-				{panelTab === "logs" && <LogPanel />}
-				{panelTab === "queue" && <QueuePanel />}
-				{panelTab === "tree" && <SessionTreePanel />}
-				{panelTab === "memory" && <MemoryPanel />}
-				{panelTab === "jobs" && <JobsPanel />}
-				{panelTab === "subagent" && <SubagentPanel subagent={panelSubagent} />}
-				{panelTab === "autopilot" && <AutopilotPanel />}
+				<PanelViewSlot panelTab={panelTab} subagent={panelSubagent} />
 			</PanelErrorBoundary>
 		</div>
 	);

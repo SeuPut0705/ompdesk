@@ -9,13 +9,16 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { migrateDefaultPanelTab, PANEL_TABS, useUiStore } from "../../stores/ui";
-import { PanelContainer } from "./PanelContainer";
+import { PanelContainer, preloadPanelViews } from "./PanelContainer";
+
+// The views are a lazy chunk (PanelViews.tsx); the desktop has it before a panel mounts, and so do these tests.
+beforeAll(() => preloadPanelViews());
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.defineProperties(window, {
