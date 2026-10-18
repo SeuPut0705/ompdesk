@@ -20,7 +20,9 @@ import { Banner } from "./Banner";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
 import { ErrorDetail } from "./ErrorDetail";
-import { Spinner } from "./Spinner";
+import { SkeletonRows } from "./Skeleton";
+
+const SKELETON_WIDTHS = [62, 44, 71, 38, 55] as const;
 
 export interface AsyncSectionProps {
 	loading: boolean;
@@ -73,9 +75,8 @@ export function AsyncSection({
 
 	if (loading && !hasData) {
 		return (
-			<div aria-busy className={cx(PLAIN_STATE_CLASS, box)}>
-				<Spinner size="md" />
-				{loadingLabel && <span className="text-sc-sm text-(--sc-text-muted)">{loadingLabel}</span>}
+			<div aria-busy className={cx("overflow-hidden px-1 py-2", box)}>
+				<SkeletonRows label={loadingLabel ?? t("common.loading")} widths={SKELETON_WIDTHS} />
 			</div>
 		);
 	}
