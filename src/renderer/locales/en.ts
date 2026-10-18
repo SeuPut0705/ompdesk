@@ -328,6 +328,7 @@ export const en: Record<string, string> = {
 	"input.suggestion.accept": "to accept",
 	"input.chips.label": "Suggested messages",
 	"input.chips.chip": "Suggested message {index}: {text}",
+	"input.chips.sendNow": "Send now",
 	"input.placeholder.chat": "Ask anything",
 	"tabs.kind.chat": "Chat session (no project)",
 	"input.attach": "Attach files",

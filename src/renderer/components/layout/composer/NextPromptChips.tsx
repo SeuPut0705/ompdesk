@@ -1,4 +1,13 @@
-import { type KeyboardEvent, type Ref, useImperativeHandle, useRef, useState } from "react";
+import {
+	Fragment,
+	type KeyboardEvent,
+	type MouseEvent,
+	type Ref,
+	useEffect,
+	useImperativeHandle,
+	useRef,
+	useState,
+} from "react";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { Kbd } from "../../common/Kbd";
@@ -24,6 +33,10 @@ interface NextPromptChipsProps {
 	/** Esc / ↑ on a chip: back to the composer without filling it. */
 	onReturn(): void;
 	handleRef?: Ref<NextPromptChipsHandle>;
+	/** Touch: one sideways-scrolling row with no key hints; a long press on a chip offers "send now". */
+	touch?: boolean;
+	/** Touch "send now" (the chip's text goes out unedited). */
+	onSend?(text: string): void;
 }
 
 /**
@@ -32,12 +45,22 @@ interface NextPromptChipsProps {
  * the composer, Esc/↑ hand focus back. Each chip truncates to a max width; its
  * full text is the title and the accessible name.
  */
-export function NextPromptChips({ chips, onPick, onReturn, handleRef }: NextPromptChipsProps) {
+export function NextPromptChips({ chips, onPick, onReturn, handleRef, touch = false, onSend }: NextPromptChipsProps) {
 	const t = useT();
 	const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 	const [active, setActive] = useState(0);
 	const visible = chips.slice(0, MAX_NEXT_PROMPT_CHIPS);
 	const current = Math.min(active, Math.max(0, visible.length - 1));
+	/** Touch: the chip a long press armed; its "send now" button sits right after it. */
+	const [armed, setArmed] = useState<number | null>(null);
+	useEffect(() => {
+		if (armed === null) return;
+		const dismiss = (event: Event) => {
+			if (!(event.target as Element | null)?.closest?.("[data-next-chip-send]")) setArmed(null);
+		};
+		document.addEventListener("pointerdown", dismiss, true);
+		return () => document.removeEventListener("pointerdown", dismiss, true);
+	}, [armed]);
 
 	const focusChip = (index: number) => {
 		setActive(index);
@@ -92,27 +115,52 @@ export function NextPromptChips({ chips, onPick, onReturn, handleRef }: NextProm
 
 	if (visible.length === 0) return null;
 	return (
-		<div aria-label={t("input.chips.label")} className="omp-next-chips" role="group">
+		<div aria-label={t("input.chips.label")} className="omp-next-chips" data-touch={touch || undefined} role="group">
 			{visible.map((text, index) => (
-				<button
-					aria-keyshortcuts={`Alt+${index + 1}`}
-					aria-label={t("input.chips.chip", { index: index + 1, text })}
-					className="omp-next-chip"
-					data-next-chip={index}
-					key={`${index}:${text}`}
-					onClick={() => onPick(text, index)}
-					onFocus={() => setActive(index)}
-					onKeyDown={event => onKeyDown(event, index)}
-					ref={element => {
-						buttons.current[index] = element;
-					}}
-					tabIndex={index === current ? 0 : -1}
-					title={text}
-					type="button"
-				>
-					<span className="omp-next-chip-text">{text}</span>
-					<Kbd shortcut={`⌥${index + 1}`} />
-				</button>
+				<Fragment key={`${index}:${text}`}>
+					<button
+						aria-keyshortcuts={touch ? undefined : `Alt+${index + 1}`}
+						aria-label={t("input.chips.chip", { index: index + 1, text })}
+						className="omp-next-chip"
+						data-next-chip={index}
+						onClick={() => {
+							setArmed(null);
+							onPick(text, index);
+						}}
+						onContextMenu={
+							touch && onSend
+								? (event: MouseEvent) => {
+										event.preventDefault();
+										setArmed(index);
+									}
+								: undefined
+						}
+						onFocus={() => setActive(index)}
+						onKeyDown={event => onKeyDown(event, index)}
+						ref={element => {
+							buttons.current[index] = element;
+						}}
+						tabIndex={index === current ? 0 : -1}
+						title={touch ? undefined : text}
+						type="button"
+					>
+						<span className="omp-next-chip-text">{text}</span>
+						{!touch && <Kbd shortcut={`⌥${index + 1}`} />}
+					</button>
+					{touch && onSend && armed === index && (
+						<button
+							className="omp-next-chip omp-next-chip-send"
+							data-next-chip-send
+							onClick={() => {
+								setArmed(null);
+								onSend(text);
+							}}
+							type="button"
+						>
+							<span className="omp-next-chip-text">{t("input.chips.sendNow")}</span>
+						</button>
+					)}
+				</Fragment>
 			))}
 		</div>
 	);

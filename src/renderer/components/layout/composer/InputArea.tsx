@@ -23,6 +23,7 @@ import { removeFileMention } from "../../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
+import { useShellInput } from "../../../hooks/use-shell-mode";
 import { withGuiCommands } from "../../../lib/command-registry";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../../lib/emoji";
@@ -85,7 +86,12 @@ import { DraftFileCards } from "./DraftFileCards";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { cachedMentionFiles, editFieldText, fileToImage, listMentionFiles, mentionToken } from "./input-area-utils";
-import { chipIndexForCode, NextPromptChips, type NextPromptChipsHandle } from "./NextPromptChips";
+import {
+	chipIndexForCode,
+	MAX_NEXT_PROMPT_CHIPS,
+	NextPromptChips,
+	type NextPromptChipsHandle,
+} from "./NextPromptChips";
 import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
@@ -168,6 +174,18 @@ export function InputArea() {
 	const nextPromptView = useNextPrompt();
 	/** The built-in's best candidate (or, while it is off, the legacy widget's entry): already empty unless ready and idle. */
 	const nextPrompt = nextPromptView.best;
+	/** Touch (no Tab, →, ↓, Alt+N, Esc): the best candidate is the FIRST CHIP, never the placeholder, so one
+	 * text is never shown twice; no inline ghost requests at all (the phone keyboard has its own suggestions
+	 * and IME composition dominates). A tap on a chip fills the field, a long press offers "send now". */
+	const touchInput = useShellInput() === "touch";
+	const placeholderPrompt = touchInput ? undefined : nextPrompt;
+	const chipList = useMemo(
+		() =>
+			touchInput
+				? [...(nextPrompt === undefined ? [] : [nextPrompt]), ...nextPromptView.chips].slice(0, MAX_NEXT_PROMPT_CHIPS)
+				: nextPromptView.chips,
+		[touchInput, nextPrompt, nextPromptView.chips],
+	);
 	// The legacy widget feeds the memory only while the built-in is off: with it on, a recorded
 	// widget would overwrite the built-in's entry.
 	useEffect(() => {
@@ -342,7 +360,7 @@ export function InputArea() {
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
 	const chipsShown =
-		nextPromptView.chips.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
+		chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
 	const pickChip = useCallback(
 		(chip: string) => {
 			textareaRef.current?.focus();
@@ -353,7 +371,7 @@ export function InputArea() {
 	);
 	/** Ghost text after the caret while the user types (slash / `@` menus, IME, `!` `$` `/` drafts: never). */
 	const inline = useInlineCompletion({
-		enabled: nextPromptView.inline && status === "ready" && !isStreaming && routeReady,
+		enabled: nextPromptView.inline && !touchInput && status === "ready" && !isStreaming && routeReady,
 		text,
 		menuOpen: menu !== null || pasteMenu !== null,
 		textareaRef,
@@ -714,6 +732,8 @@ export function InputArea() {
 		},
 		[dispatchSend, runtimeTabId, images.length, nextPromptKey],
 	);
+	/** Touch long press on a suggestion chip, "send now": the chip's text goes out as it is. */
+	const sendChip = useCallback((chip: string) => void send(chip), [send]);
 	/** The send of the latest render: a take transcribed later sends what the composer holds then (pictures, mode, run). */
 	const sendRef = useRef(send);
 	useEffect(() => {
@@ -905,7 +925,7 @@ export function InputArea() {
 		if (!["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) inline.drop();
 		if (chipsShown) {
 			const chipIndex = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? chipIndexForCode(e.code) : undefined;
-			const chip = chipIndex === undefined ? undefined : nextPromptView.chips[chipIndex];
+			const chip = chipIndex === undefined ? undefined : chipList[chipIndex];
 			if (chip !== undefined) {
 				e.preventDefault();
 				pickChip(chip);
@@ -917,9 +937,9 @@ export function InputArea() {
 				return;
 			}
 		}
-		if (nextPrompt !== undefined && text === "" && (e.key === "Tab" || e.key === "ArrowRight") && plainKey) {
+		if (placeholderPrompt !== undefined && text === "" && (e.key === "Tab" || e.key === "ArrowRight") && plainKey) {
 			e.preventDefault();
-			placeDraft(nextPrompt, nextPrompt.length);
+			placeDraft(placeholderPrompt, placeholderPrompt.length);
 			nextPromptView.accepted();
 			return;
 		}
@@ -1247,8 +1267,8 @@ export function InputArea() {
 	const placeholder =
 		status !== "ready"
 			? t("input.placeholder.connecting")
-			: nextPrompt !== undefined
-				? nextPrompt
+			: placeholderPrompt !== undefined
+				? placeholderPrompt
 				: isStreaming
 					? mode === "followUp"
 						? t("input.placeholder.followUp")
@@ -1257,7 +1277,7 @@ export function InputArea() {
 						? t("input.placeholder.chat")
 						: t("input.placeholder.idle");
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
-	const showSuggestionHint = nextPrompt !== undefined && text === "";
+	const showSuggestionHint = placeholderPrompt !== undefined && text === "";
 	const suggestionHintId = useId();
 	const menuId = useId();
 	const menuIndex = menu?.index;
@@ -1420,9 +1440,11 @@ export function InputArea() {
 					)}
 					{chipsShown && (
 						<NextPromptChips
-							chips={nextPromptView.chips}
+							chips={chipList}
 							handleRef={chipsRef}
 							onPick={pickChip}
+							onSend={touchInput ? sendChip : undefined}
+							touch={touchInput}
 							onReturn={() => textareaRef.current?.focus()}
 						/>
 					)}

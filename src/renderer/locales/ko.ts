@@ -322,6 +322,7 @@ export const ko: Record<string, string> = {
 	"input.suggestion.accept": "수락",
 	"input.chips.label": "추천 메시지",
 	"input.chips.chip": "추천 메시지 {index}: {text}",
+	"input.chips.sendNow": "바로 보내기",
 	"input.placeholder.chat": "무엇이든 물어보세요",
 	"tabs.kind.chat": "채팅 세션 (프로젝트 없음)",
 	"input.attach": "파일 첨부",

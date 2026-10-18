@@ -748,6 +748,42 @@ html[data-shell] .omp-composer-toolbar {
 	--hit-gap-y: 8px;
 }
 
+/* Prompt suggestions on touch: ONE row above the composer, scrolling sideways (never wrapping, so the chrome
+   budget is a single 32 px row, and nothing at all with no suggestions). Chips are 28 px high; the global
+   44 px hit reach is cut to the row's own height by --hit-gap-y (an overflow container clips it anyway). */
+html[data-input="touch"] .omp-next-chips[data-touch] {
+	flex-wrap: nowrap;
+	gap: 8px;
+	height: 32px;
+	margin-bottom: 4px;
+	padding-block: 2px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	--hit-gap-x: 8px;
+	--hit-gap-y: 4px;
+}
+
+html[data-input="touch"] .omp-next-chips[data-touch]::-webkit-scrollbar {
+	display: none;
+}
+
+html[data-input="touch"] .omp-next-chips[data-touch] .omp-next-chip {
+	flex: 0 0 auto;
+	height: 28px;
+	max-width: 70vw;
+	-webkit-touch-callout: none;
+	user-select: none;
+}
+
+html[data-input="touch"] .omp-next-chips[data-touch] .omp-next-chip-send {
+	border-color: var(--sc-accent);
+	background: var(--sc-accent);
+	color: var(--sc-accent-fg);
+}
+
 html[data-shell] [data-dock-card] > div:first-child {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
