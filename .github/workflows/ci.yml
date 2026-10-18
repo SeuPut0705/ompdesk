@@ -374,8 +374,12 @@ jobs:
             throw "handle64.exe is not signed by Microsoft: $($signature.Status) $($signature.SignerCertificate.Subject)"
           }
           "OMP_GUI_HANDLE_EXE=$exe" >> $env:GITHUB_ENV
-      - name: ai-memory, setup runner, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path, isolated commands)
-        run: bunx vitest run src/main/ai-memory src/main/setup/runner.test.ts src/main/sidecar.test.ts src/main/packaging-config.test.ts
+      - name: ai-memory, sidecar and packaging unit tests on Windows (staging, paths, the logon entry, the stop path)
+        run: bunx vitest run src/main/ai-memory src/main/sidecar.test.ts src/main/packaging-config.test.ts
+      # Real PowerShell, a real handle list and a real detached descendant (SpawnSpec.isolated); its own step, so its
+      # C# compile does not load the timing-sensitive files above.
+      - name: Setup runner unit tests on Windows (the supervisor, isolated commands)
+        run: bunx vitest run src/main/setup/runner.test.ts
       - name: omp update while omp runs
         run: bun scripts/omp-update-lock-check.ts
       - name: Playwright e2e
