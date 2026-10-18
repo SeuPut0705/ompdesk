@@ -63,11 +63,14 @@ function globRegex(pattern: string): RegExp {
 	return new RegExp(`^${out}$`);
 }
 
-/** Paths git ignores among `paths` (relative to `root`); tracked files are never among them. */
+/**
+ * Paths git ignores among `paths` (relative to `root`, either separator), named with `/` as git prints them; tracked
+ * files are never among them. A `\` in the argument would come back quoted (`"secrets\\key"`) on Windows.
+ */
 async function ignoredAmong(root: string, paths: string[]): Promise<Set<string>> {
 	const ignored = new Set<string>();
 	for (let i = 0; i < paths.length; i += 100) {
-		const chunk = paths.slice(i, i + 100);
+		const chunk = paths.slice(i, i + 100).map(item => item.replace(/\\/g, "/"));
 		// `-z` needs `--stdin`, which the git runner has no input for; a path never holds a newline here.
 		const result = await gitRaw(root, ["check-ignore", "--", ...chunk]);
 		if (result.code > 1) continue;
