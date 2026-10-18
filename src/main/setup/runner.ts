@@ -12,6 +12,7 @@ export interface SupervisedChild {
 	readonly stderr: NodeJS.ReadableStream | null;
 	once(event: "error", listener: (error: Error) => void): unknown;
 	once(event: "close", listener: (code: number | null) => void): unknown;
+	once(event: "exit", listener: (code: number | null) => void): unknown;
 }
 
 export type Spawner = (spec: SpawnSpec, env: NodeJS.ProcessEnv, cwd?: string) => SupervisedChild;
@@ -20,6 +21,13 @@ export type RunOutcome =
 	| { kind: "succeeded" }
 	| { kind: "cancelled" }
 	| { kind: "failed"; reason: "exit" | "spawn"; exitCode: number | null; detail?: string };
+
+/**
+ * How long output may still arrive after the supervisor exited. A command can leave a detached descendant that holds
+ * the inherited pipes open (ai-memory's `setup` starts its Windows service host that way), so `close` may never come;
+ * what the supervisor wrote before it exited is in the pipe by now.
+ */
+const DRAIN_MS = 500;
 
 /** Exit status 127: the supervisor (or a shell) could not start the command. */
 const NOT_STARTED = 127;
@@ -78,10 +86,14 @@ export class SetupRunner {
 			resolve(this.#cancelled ? { kind: "cancelled" } : outcome);
 		};
 		child.once("error", error => finish({ kind: "failed", reason: "spawn", exitCode: null, detail: error.message }));
-		child.once("close", code => {
+		const ended = (code: number | null) => {
 			if (code === 0) finish({ kind: "succeeded" });
 			else if (code === NOT_STARTED) finish({ kind: "failed", reason: "spawn", exitCode: code, detail: lastLine });
 			else finish({ kind: "failed", reason: "exit", exitCode: code, detail: lastLine || undefined });
+		};
+		child.once("close", ended);
+		child.once("exit", code => {
+			setTimeout(() => ended(code), DRAIN_MS).unref();
 		});
 		return promise;
 	}

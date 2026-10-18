@@ -97,6 +97,28 @@ describe("SetupRunner", () => {
 		expect(runner.running).toBe(false);
 	});
 
+	it("ends when the supervisor exits even if a detached descendant keeps the pipes open (no close event)", async () => {
+		const { runner, children } = fake();
+		const output: string[] = [];
+		const run = runner.run(SPEC, { PATH: "/bin" }, chunk => output.push(chunk));
+		children[0]?.stdout.write("service started\n");
+		await flush();
+		// The supervisor exited with 0; the service host it left behind still holds stdout, so `close` never comes.
+		children[0]?.emit("exit", 0);
+		expect(await run).toEqual({ kind: "succeeded" });
+		expect(output.join("")).toBe("service started\n");
+		expect(runner.running).toBe(false);
+	});
+
+	it("reports a non-zero exit the same way when only `exit` arrives", async () => {
+		const { runner, children } = fake();
+		const run = runner.run(SPEC, { PATH: "/bin" }, () => {});
+		children[0]?.stderr.write("boom\n");
+		await flush();
+		children[0]?.emit("exit", 6);
+		expect(await run).toEqual({ kind: "failed", reason: "exit", exitCode: 6, detail: "boom" });
+	});
+
 	it("runs one install at a time", async () => {
 		const { runner, children } = fake();
 		const first = runner.run(SPEC, {}, () => {});
