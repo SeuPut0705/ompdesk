@@ -16,7 +16,7 @@ import { useSessionStore } from "../../stores/session";
 import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { fakeMobileWeb } from "../../test-support/mobile-web";
+import { fakeMobileWeb, readyMobileWebState } from "../../test-support/mobile-web";
 import { SettingsPage } from "./SettingsPage";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -189,5 +189,33 @@ describe("Settings for a tab on a paired host", () => {
 		const region = query(".settings-column");
 		expect(region?.tagName).toBe("SECTION");
 		expect(query(`#${region?.getAttribute("aria-labelledby")}`)?.textContent).toBe("General");
+	});
+});
+
+describe("A section that fails on bad data", () => {
+	it("shows its own error inside the page and leaves the section list working", async () => {
+		focusTab(undefined);
+		// Mobile web answers with a state missing its account list: the section throws while it renders.
+		const broken = readyMobileWebState({ allowedUsers: undefined as unknown as string[] });
+		const bad = fakeMobileWeb(broken);
+		const omp = (window as unknown as { omp: { mobileWeb: unknown } }).omp;
+		const good = omp.mobileWeb;
+		omp.mobileWeb = bad.api;
+		const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await openSettings("connections");
+			expect(query(".settings-column")).not.toBeNull();
+			expect(query("[data-settings-nav]")).not.toBeNull();
+			expect(document.body.textContent).toContain("This panel crashed");
+			expect(document.body.textContent).not.toContain("stopped rendering");
+			// Another section is one click away and renders normally.
+			await act(async () => {
+				(query('[data-settings-section="appearance"]') as unknown as HTMLElement).click();
+			});
+			expect(document.body.textContent).not.toContain("This panel crashed");
+		} finally {
+			quiet.mockRestore();
+			omp.mobileWeb = good;
+		}
 	});
 });

@@ -44,24 +44,32 @@ export function PageLayout({
 }: PageLayoutProps) {
 	return (
 		<div className={cx("flex min-h-0 flex-1 flex-col bg-(--sc-bg)", className)}>
-			<header className={cx("shrink-0 pt-6", GUTTER, !tabs && "pb-4")}>
+			<header className={cx("omp-page-header shrink-0 pt-6", GUTTER, !tabs && "pb-4")}>
 				<div className="flex flex-wrap items-end gap-x-6 gap-y-3">
 					<div className="min-w-0 flex-1">
-						<h1 className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">{title}</h1>
+						<h1 className="omp-page-title text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
+							{title}
+						</h1>
 						{description && (
-							<p className="mt-1 max-w-3xl text-sc-sm break-keep text-(--sc-text-muted)">{description}</p>
+							<p className="omp-page-desc mt-1 max-w-3xl text-sc-sm break-keep text-(--sc-text-muted)">
+								{description}
+							</p>
 						)}
 					</div>
 					{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
 				</div>
-				{tabs && <div className="mt-4">{tabs}</div>}
+				{tabs && <div className="omp-page-tabs mt-4">{tabs}</div>}
 			</header>
 			<div
 				aria-label={panelLabel}
 				className={cx("min-h-0 flex-1", body === "scroll" ? "overflow-y-auto" : "flex flex-col")}
 				role={panelLabel ? "tabpanel" : undefined}
 			>
-				{body === "scroll" ? <div className={cx("w-full max-w-6xl py-6", GUTTER)}>{children}</div> : children}
+				{body === "scroll" ? (
+					<div className={cx("omp-page-body w-full max-w-6xl py-6", GUTTER)}>{children}</div>
+				) : (
+					children
+				)}
 			</div>
 		</div>
 	);

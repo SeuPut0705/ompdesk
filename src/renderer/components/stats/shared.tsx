@@ -95,7 +95,7 @@ export function MetricCard({
 }) {
 	const empty = EMPTY_FIGURE.test(value);
 	return (
-		<div className="flex min-w-0 flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+		<div className="omp-metric-card flex min-w-0 flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
 			<div className="truncate text-sc-xs text-(--sc-text-muted)" title={label}>
 				{label}
 			</div>
@@ -116,7 +116,7 @@ export function MetricCard({
 
 /** Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). */
 export function MetricGrid({ children }: { children: ReactNode }) {
-	return <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">{children}</div>;
+	return <div className="omp-metric-grid grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">{children}</div>;
 }
 
 export interface StatColumn<T> {

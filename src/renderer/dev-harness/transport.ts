@@ -10,6 +10,7 @@
 
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
 import {
 	EMPTY_PREVIEW,
@@ -24,6 +25,7 @@ import {
 	type PreviewStreamPollRequest,
 } from "../../shared/preview";
 import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
+import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
 	CONTEXT_INSPECT,
@@ -43,6 +45,21 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
+import {
+	DIRECTORIES,
+	MARKETPLACES,
+	MOBILE_WEB_STATE,
+	MODEL_ROLES,
+	PLUGINS,
+	PROMPT_TEMPLATES,
+	REMOTE_STATE,
+	SCHEDULE_LOG,
+	SCHEDULES_STATE,
+	SECURITY_DASHBOARD,
+	SETUP_STATE,
+	WEB_BLOCKS,
+	WEB_DEVICES,
+} from "./fixture-settings";
 
 type Listener = (data: unknown) => void;
 
@@ -181,6 +198,18 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, {
 					values: Object.fromEntries(SETTINGS_SCHEMA.entries.map(entry => [entry.path, entry.value])),
 				});
+			case "get_model_roles":
+				return respond(command, MODEL_ROLES);
+			case "get_plugins":
+				return respond(command, PLUGINS);
+			case "get_marketplaces":
+				return respond(command, MARKETPLACES);
+			case "get_prompt_templates":
+				return respond(command, PROMPT_TEMPLATES);
+			case "get_security_dashboard":
+				return respond(command, SECURITY_DASHBOARD);
+			case "get_directories":
+				return respond(command, DIRECTORIES);
 			case "get_ssh_hosts":
 				return respond(command, { openSshAvailable: true, hosts: [], warnings: [] });
 			case "get_available_commands":
@@ -270,6 +299,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				};
 			case IPC_COMMANDS.UPDATER_GET_STATUS:
 				return { state: "idle" };
+			case IPC_COMMANDS.UPDATER_CHECK:
+				return { state: "not-available", version: "0.0.0-harness" };
 			case IPC_COMMANDS.MODELS_SIGNED_IN:
 				return true;
 			case IPC_COMMANDS.GITHUB_AUTH_REFRESH:
@@ -277,23 +308,20 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.MODELS_PROVIDERS_LIST:
 				return { providers: [] };
 			case IPC_COMMANDS.SETUP_GET_STATE:
-				return null;
+				return SETUP_STATE;
 			case IPC_COMMANDS.REMOTE_GET_STATE:
-				return {
-					host: {
-						enabled: false,
-						name: "Studio Mac",
-						port: null,
-						addresses: [],
-						code: null,
-						expiresAt: null,
-						peers: [],
-						keepAwake: true,
-						keepingAwake: false,
-						usedBy: [],
-					},
-					hosts: [],
-				};
+				return REMOTE_STATE;
+			case SCHEDULES_COMMAND:
+				return SCHEDULES_STATE;
+			case SCHEDULES_LOG:
+				return SCHEDULE_LOG;
+			case MOBILE_WEB_GET_STATE:
+			case MOBILE_WEB_COMMAND:
+				return MOBILE_WEB_STATE;
+			case WEB_DEVICES_LIST:
+				return WEB_DEVICES;
+			case WEB_BLOCKS_LIST:
+				return WEB_BLOCKS;
 			case "ssh-tools:command":
 				return { forwards: [], watches: [], graceMs: 60 * 60_000 };
 			case "ssh-tools:agent":

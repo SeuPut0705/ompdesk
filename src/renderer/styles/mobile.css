@@ -929,3 +929,173 @@ html[data-shell] .omp-session-sidebar:not(.omp-drawer .omp-session-sidebar) {
 	padding-bottom: var(--safe-b);
 }
 
+/* ── Phone density: pages, Settings, dialogs, toasts, banners ─────────────────────────────────────────────── */
+/* Destination pages (Agents, Stats): a 16 px gutter, an 18.7 px title and a one-line caption, not the desktop's
+   24 px gutter and 24 px head room. */
+html[data-shell="phone"] .omp-page-header {
+	padding-top: var(--sc-space-3);
+	padding-inline: var(--sc-space-4);
+}
+
+html[data-shell="phone"] .omp-page-header:not(:has(.omp-page-tabs)) {
+	padding-bottom: var(--sc-space-2);
+}
+
+html[data-shell="phone"] .omp-page-desc {
+	margin-top: 2px;
+	font-size: var(--sc-font-xs);
+}
+
+html[data-shell="phone"] .omp-page-tabs {
+	margin-top: var(--sc-space-2);
+}
+
+html[data-shell="phone"] .omp-page-body {
+	padding: var(--sc-space-3) var(--sc-space-4) calc(var(--sc-space-6) + var(--safe-b));
+}
+
+/* A scrolling page and a settings section end above the home indicator on a tablet too. */
+html[data-shell] :is(.omp-page-body, .settings-column) {
+	padding-bottom: calc(var(--sc-space-8) + var(--safe-b));
+}
+
+/* Settings: a 16 px gutter, a compact head, tight groups, rows that keep their hit area off the row below. */
+html[data-shell="phone"] .settings-column {
+	padding: var(--sc-space-2) var(--sc-space-4) calc(var(--sc-space-8) + var(--safe-b));
+}
+
+html[data-shell="phone"] .settings-column > header {
+	margin-bottom: var(--sc-space-2);
+}
+
+html[data-shell="phone"] .settings-section + .settings-section,
+html[data-shell="phone"] .settings-sections > * + .settings-section {
+	margin-top: var(--sc-space-4);
+}
+
+html[data-shell="phone"] .settings-sections > * + .settings-advanced {
+	margin-top: var(--sc-space-4);
+}
+
+html[data-shell="phone"] .settings-nav {
+	padding: var(--sc-space-2) var(--sc-space-3) var(--sc-space-4);
+	gap: var(--sc-space-1-5);
+}
+
+html[data-shell="phone"] .settings-content :is([data-setting-row], .settings-field-row) {
+	--hit-gap-y: 8px;
+}
+
+/* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home
+   indicator. A body that sets its own padding (flush lists) keeps it. */
+html[data-shell="phone"] :is(.omp-dialog-head, .omp-sheet-head) {
+	min-height: 0;
+	padding: var(--sc-space-2) var(--sc-space-2) var(--sc-space-2) var(--sc-space-4);
+}
+
+html[data-shell="phone"] :is(.omp-dialog-head, .omp-sheet-head) [id] {
+	font-size: var(--sc-font-lg);
+}
+
+html[data-shell="phone"] .omp-body-pad {
+	padding: var(--sc-space-3) var(--sc-space-4);
+}
+
+html[data-shell="phone"] :is(.omp-dialog-foot, .omp-sheet-foot) {
+	padding: var(--sc-space-2) var(--sc-space-4);
+}
+
+/* Toasts: full width under the 40 px bar, one 12 px gutter each side. */
+html[data-shell="phone"] .omp-toast-stack {
+	top: calc(var(--safe-t) + 48px);
+	right: calc(var(--safe-r) + var(--sc-space-3));
+	left: calc(var(--safe-l) + var(--sc-space-3));
+	width: auto;
+	max-width: none;
+}
+
+html[data-shell="phone"] .omp-toast-stack > * {
+	padding-block: var(--sc-space-2);
+	padding-left: var(--sc-space-3);
+	gap: var(--sc-space-2);
+}
+
+/* Banners: 8 px of padding, one 8 px gap, so a notice is a line or two, not a card. */
+html[data-shell="phone"] .omp-banner {
+	padding: var(--sc-space-2) var(--sc-space-3);
+	gap: var(--sc-space-2);
+}
+
+/* Schedules: a long name and a "frequency · folder" line wrap under the badge instead of cutting off at 8 px. */
+html[data-shell="phone"] .omp-sched-name {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+html[data-shell="phone"] .omp-sched-meta {
+	flex-wrap: wrap;
+	row-gap: 2px;
+}
+
+html[data-shell="phone"] .omp-sched-detail {
+	flex: 1 1 100%;
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+html[data-shell="phone"] .omp-run-head {
+	flex-wrap: wrap;
+	row-gap: 0;
+}
+
+html[data-shell="phone"] .omp-run-name {
+	flex-basis: 8rem;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+/* The palette's keyboard hint row (Move, Run, Close) means nothing without a keyboard. */
+html[data-input="touch"] .omp-palette-hints {
+	display: none;
+}
+
+/* Stats: figure cards are 8 px × 12 px with an 18 px figure, two to a row at 8 px; a page caption is one line. */
+html[data-shell="phone"] .omp-metric-grid {
+	gap: var(--sc-space-2);
+}
+
+html[data-shell="phone"] .omp-metric-card {
+	gap: 0;
+	padding: var(--sc-space-2) var(--sc-space-3);
+}
+
+html[data-shell="phone"] .omp-metric-card > :nth-child(2) {
+	font-size: var(--sc-font-xl);
+}
+
+html[data-shell="phone"] .omp-page-desc {
+	display: -webkit-box;
+	-webkit-line-clamp: 1;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* List rows inside a settings page (paired devices, hosts, accounts): the title and its description wrap instead of
+   cutting at 8 characters, and the status/actions drop under the title when the row cannot hold them. */
+html[data-shell="phone"] .settings-content .omp-list-row {
+	flex-wrap: wrap;
+	row-gap: var(--sc-space-0-5);
+}
+
+html[data-shell="phone"] .settings-content .omp-list-row > span.min-w-0.flex-1 {
+	flex-basis: 9rem;
+}
+
+html[data-shell="phone"] .settings-content .omp-list-row > span.min-w-0.flex-1 > :is(span, button).truncate,
+html[data-shell="phone"] .settings-content .omp-list-row > span.min-w-0.flex-1 > span.block {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}

@@ -38,7 +38,16 @@ import { PLATFORM } from "../../lib/keymap";
 import { type FocusedHost, useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ListRow, MasterDetailBack, SearchField, useMasterDetail } from "../common";
+import {
+	Banner,
+	Button,
+	EmptyState,
+	ListRow,
+	MasterDetailBack,
+	PanelErrorBoundary,
+	SearchField,
+	useMasterDetail,
+} from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
@@ -555,11 +564,14 @@ export function SettingsPage() {
 												</div>
 											)}
 											<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-												{SECTION_SCOPE[section] === "host" ? (
-													<HostScoped>{renderSection()}</HostScoped>
-												) : (
-													renderSection()
-												)}
+												{/* A section that fails on bad data shows its own error here, never takes the page down. */}
+												<PanelErrorBoundary key={section}>
+													{SECTION_SCOPE[section] === "host" ? (
+														<HostScoped>{renderSection()}</HostScoped>
+													) : (
+														renderSection()
+													)}
+												</PanelErrorBoundary>
 											</SettingsScopeProvider>
 										</div>
 									)}

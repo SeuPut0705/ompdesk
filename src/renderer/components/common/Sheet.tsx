@@ -104,7 +104,7 @@ export function SheetSurface({
 	onClose,
 	footer,
 	className,
-	bodyClassName = "px-5 py-4",
+	bodyClassName = "omp-body-pad px-5 py-4",
 	children,
 	header,
 	placement = "right",
@@ -128,7 +128,7 @@ export function SheetSurface({
 					{header}
 				</>
 			) : (
-				<div className="flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5">
+				<div className="omp-sheet-head flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-1">
 						<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
@@ -140,9 +140,9 @@ export function SheetSurface({
 					)}
 				</div>
 			)}
-			<div className={cx("min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
+			<div className={cx("omp-sheet-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
 			{footer && (
-				<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
+				<div className="omp-sheet-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
 					{footer}
 				</div>
 			)}

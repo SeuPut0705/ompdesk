@@ -60,7 +60,7 @@ export function Banner({ variant = "info", title, children, actions, onDismiss, 
 	return (
 		<div
 			className={cx(
-				"flex flex-wrap items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2.5 text-sc-md text-(--sc-text)",
+				"omp-banner flex flex-wrap items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2.5 text-sc-md text-(--sc-text)",
 				style.box,
 				className,
 			)}

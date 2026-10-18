@@ -651,7 +651,7 @@ export function CommandPalette() {
 						)
 					)}
 				</div>
-				<div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
+				<div className="omp-palette-hints flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
 					<span className="flex items-center gap-1.5">
 						<Kbd shortcut="↑" />
 						<Kbd shortcut="↓" />

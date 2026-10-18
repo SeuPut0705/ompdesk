@@ -188,8 +188,10 @@ export function SchedulesSection() {
 									/>
 									<CalendarClock aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 									<div className="flex min-w-0 flex-1 flex-col">
-										<span className="truncate text-sc-md font-medium text-(--sc-text)">{schedule.name}</span>
-										<span className="flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
+										<span className="omp-sched-name truncate text-sc-md font-medium text-(--sc-text)">
+											{schedule.name}
+										</span>
+										<span className="omp-sched-meta flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
 											{active ? (
 												<Badge variant="info">
 													<Spinner size="sm" /> {t("schedules.status.running")}
@@ -201,7 +203,7 @@ export function SchedulesSection() {
 													</Badge>
 												)
 											)}
-											<span className="min-w-0 truncate" title={schedule.cwd}>
+											<span className="omp-sched-detail min-w-0 truncate" title={schedule.cwd}>
 												{frequencySummary(schedule.frequency)} · {basename(schedule.cwd) || schedule.cwd}
 												{schedule.model ? ` · ${schedule.model}` : ""}
 											</span>
@@ -342,9 +344,9 @@ function RunRow({
 	const Chevron = open ? ChevronDown : ChevronRight;
 	return (
 		<li className="border-b border-(--sc-divider) last:border-b-0" data-schedule-run-row={run.id}>
-			<div className="flex min-w-0 items-center gap-2 py-2">
+			<div className="omp-run-head flex min-w-0 items-center gap-2 py-2">
 				<Badge variant={STATUS_BADGE[run.status]}>{t(`schedules.status.${run.status}`)}</Badge>
-				<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text)">
+				<span className="omp-run-name min-w-0 flex-1 truncate text-sc-sm text-(--sc-text)">
 					{name}
 					{run.trigger === "manual" && (
 						<span className="text-(--sc-text-muted)"> · {t("schedules.trigger.manual")}</span>

@@ -64,7 +64,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 		descriptionId,
 		onClose,
 		chromeless,
-		bodyClassName = "px-5 py-4",
+		bodyClassName = "omp-body-pad px-5 py-4",
 		handle,
 		footer,
 		className,
@@ -85,7 +85,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 		>
 			{handle}
 			{!chromeless && (
-				<div className="flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
+				<div className="omp-dialog-head flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-0.5">
 						<div className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
@@ -101,9 +101,9 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 					)}
 				</div>
 			)}
-			<div className={cx("min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
+			<div className={cx("omp-dialog-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
 			{footer && (
-				<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
+				<div className="omp-dialog-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
 					{footer}
 				</div>
 			)}
@@ -153,7 +153,7 @@ export function Modal({
 	placement = "center",
 	ariaLabel,
 	panelClassName,
-	bodyClassName = "px-5 py-4",
+	bodyClassName = "omp-body-pad px-5 py-4",
 	footer,
 	container,
 	children,
