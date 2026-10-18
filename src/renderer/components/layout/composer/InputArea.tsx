@@ -62,7 +62,6 @@ import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay } from "./DictationOverlay";
-import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { fitFieldHeight } from "./field-height";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { cachedMentionFiles, editFieldText, listMentionFiles, mentionToken } from "./input-area-utils";
@@ -78,6 +77,7 @@ import { SkillPickerOverlay } from "./SkillPickerOverlay";
 import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerAttach } from "./use-composer-attach";
 import { useComposerDictation } from "./use-composer-dictation";
+import { useComposerDraft } from "./use-composer-draft";
 import { useComposerPaste } from "./use-composer-paste";
 import { useComposerSubmit } from "./use-composer-submit";
 
@@ -88,17 +88,6 @@ const MENTION_FS_DEBOUNCE_MS = 150;
 const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
-/** Typing pause before the draft is saved for a reload or relaunch. */
-const DRAFT_SAVE_MS = 300;
-/** The window's localStorage; absent (tests, a locked-down page) the draft only lives in memory. */
-const browserStorage: Storage | undefined = (() => {
-	try {
-		return typeof localStorage === "undefined" ? undefined : localStorage;
-	} catch {
-		return undefined;
-	}
-})();
-
 /** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
 const NARROW_FIELD_PX = 290;
 
@@ -235,34 +224,15 @@ export function InputArea() {
 
 	// The unsent draft outlives a reload and a relaunch (draft-persistence.ts): the session's saved
 	// text comes back into an empty field once the session is known, and every change is saved.
-	const draftStore = useMemo(
-		() => draftKeys({ device: historyDevice, sessionFile, sessionId, cwd, empty: isEmptySession }),
-		[historyDevice, sessionFile, sessionId, cwd, isEmptySession],
-	);
-	/** The session key whose saved draft was read; saving waits for it so an empty first render never erases it. */
-	const [draftLoadedFor, setDraftLoadedFor] = useState<string | null>(null);
-	useEffect(() => {
-		if (!draftStore || draftLoadedFor === draftStore.session || !browserStorage) return;
-		const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
-		if (composer.getState().draft === "") {
-			const saved = loadDraft(browserStorage, draftStore, performance.timeOrigin);
-			if (saved !== undefined) composer.getState().setDraft(saved);
-		}
-		setDraftLoadedFor(draftStore.session);
-	}, [draftStore, draftLoadedFor, runtimeTabId]);
-	useEffect(() => {
-		if (!draftStore || draftLoadedFor !== draftStore.session || !browserStorage) return;
-		const storage = browserStorage;
-		// A sent or cleared draft is dropped at once; typing is saved once it pauses, and before the page goes (a
-		// reload for missed events or an update may come right after an upload put its path in the draft).
-		const save = () => saveDraft(storage, draftStore, expandPasteMarkers(text));
-		const timer = setTimeout(save, text ? DRAFT_SAVE_MS : 0);
-		window.addEventListener("pagehide", save);
-		return () => {
-			clearTimeout(timer);
-			window.removeEventListener("pagehide", save);
-		};
-	}, [text, draftStore, draftLoadedFor]);
+	useComposerDraft({
+		text,
+		runtimeTabId,
+		device: historyDevice,
+		sessionFile,
+		sessionId,
+		cwd,
+		empty: isEmptySession,
+	});
 
 	/** True while the composer writes its own draft into the field: the field's onChange then only mirrors it. */
 	const ownEdit = useRef(false);
