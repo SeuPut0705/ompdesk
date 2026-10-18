@@ -2443,3 +2443,45 @@ describe("agent control view requests", () => {
 		expect(viewHandler).toBeNull();
 	});
 });
+
+describe("a web window with no tab", () => {
+	beforeEach(() => {
+		webMode.on = true;
+	});
+	afterEach(() => {
+		webMode.on = false;
+	});
+
+	it("opens the empty start tab in the host's default workspace instead of waiting on a tab that never comes", async () => {
+		omp.tabs.list.mockResolvedValue([]);
+		omp.tabs.spawn.mockResolvedValue({ tabId: "start", cwd: "/host/work" });
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultWorkspace: true, placeholder: true }),
+		);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["start"]);
+		expect(useTabsStore.getState().tabs[0]?.placeholder).toBe(true);
+		expect(useTabsStore.getState().activeTabId).toBe("start");
+	});
+
+	it("opens it once while reconciles overlap, and never on the desktop", async () => {
+		omp.tabs.list.mockResolvedValue([]);
+		const spawned = Promise.withResolvers<IpcSpawnTabResult | null>();
+		omp.tabs.spawn.mockReturnValue(spawned.promise);
+
+		const first = useTabsStore.getState().reconcileTabs();
+		await useTabsStore.getState().reconcileTabs();
+		spawned.resolve({ tabId: "start", cwd: "/host/work" });
+		await first;
+		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
+
+		useTabsStore.getState().reset?.();
+		webMode.on = false;
+		omp.tabs.spawn.mockClear();
+		await useTabsStore.getState().reconcileTabs();
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+	});
+});

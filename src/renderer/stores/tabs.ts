@@ -132,6 +132,8 @@ export interface SessionTab {
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
 // resolve out of order and leave main targeting the wrong sidecar.
 let switchVersion = 0;
+/** A web window's empty start tab is being opened (see `reconcileTabs`). */
+let openingStartTab = false;
 let routingChain: Promise<void> = Promise.resolve();
 let ratioFlushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped by every `switchTab`: a switch still waiting on its tab's session yields to a newer one. */
@@ -475,6 +477,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A tab this window is closing is gone for it even while main still lists
 		// it (its release is in flight): reviving it would recreate its runtime.
 		const list = listed.filter(info => !isTabClosed(info.tabId));
+		// A paired web window starts with no tab (the host makes none for it, unlike a desktop window): without one the
+		// page would show a header and a spinner forever. It gets the same empty start tab a desktop window opens
+		// (no session until its first message), in the host's default workspace.
+		if (webRuntime() && list.length === 0 && get().tabs.length === 0 && !openingStartTab) {
+			openingStartTab = true;
+			try {
+				await get().openTab({ work: true, placeholder: true });
+			} finally {
+				openingStartTab = false;
+			}
+			return true;
+		}
 		// A web page keeps its own done marks across reloads (lib/unread-marks.ts); the desktop's live in memory.
 		const savedMarks = webRuntime() ? readUnreadMarks() : null;
 		set(state => {

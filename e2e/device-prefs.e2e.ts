@@ -79,7 +79,7 @@ async function phoneReady(phone: Page) {
 	await expect(phone.locator("[data-composer-input]").first())
 		.toBeVisible({ timeout: 60_000 })
 		.catch(async error => {
-			await shot(phone, "no-app");
+			await shot(phone, "no-composer");
 			console.log(
 				"[phone body]",
 				(
@@ -145,10 +145,6 @@ test("@smoke The phone sets dark while the computer stays light, across a reload
 		const context = await browser.newContext({ ...devices["Pixel 7"], colorScheme: "light" });
 		const phone = await context.newPage();
 		await phone.goto(`${proxy.url}/`);
-		// A web window starts with no tab of its own (the spinner): open one in the project, as the sidebar would.
-		await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
-		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), profile.project);
-		await phone.reload();
 		await phoneReady(phone);
 
 		// Nothing set on the phone: it follows the system, not the computer's own choice.
