@@ -14,6 +14,7 @@ import {
 	reuseSeededRows,
 	seedTranscript,
 	TRANSCRIPT_WRITE_DELAY_MS,
+	transcriptKey,
 	writeTranscriptSnapshot,
 } from "../lib/transcript-snapshot";
 import { useAutopilotStore } from "../stores/autopilot";
@@ -41,7 +42,7 @@ import { type SettingsStore, useSettingsStore } from "../stores/settings";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import { isTabClosed, useTabsStore } from "../stores/tabs";
+import { isTabClosed, type SessionTab, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
 import { type ToolsStore, useToolsStore } from "../stores/tools";
 
@@ -701,14 +702,49 @@ export function supersedeTabHydration(tabId: string): void {
 	inFlightHydrations.delete(runtime);
 }
 
+/** The stores a tab's runtime owns that a hydration (or a snapshot seed) writes. */
+function runtimeStores(tabId: string): HydrationStores {
+	return {
+		messages: sessionRuntimeStore<MessagesStore>(tabId, "messages"),
+		session: sessionRuntimeStore<SessionStore>(tabId, "session"),
+		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
+		model: sessionRuntimeStore<ModelStore>(tabId, "model"),
+	};
+}
+
+/** What names a tab's transcript in the snapshot cache: its file, a file it is about to open, or its id. */
+function snapshotIdentity(tab: SessionTab) {
+	return { sessionPath: tab.sessionPath ?? tab.pendingSessionPath, sessionId: tab.sessionId, device: tab.device };
+}
+
 /** The tab's last known page paints before the live read answers (a restored or re-opened session, a cold start). */
 function seedFromSnapshot(tabId: string, { messages, tools }: HydrationStores): void {
 	if (!messages) return;
 	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
 	if (!tab) return;
-	const rows = seedTranscript(messages, tab);
+	const rows = seedTranscript(messages, snapshotIdentity(tab));
 	// The tool cards derive from the rows: rebuilt, none of them waits for a result that is already in the rows.
 	if (rows) tools?.getState().hydrateMessages(rows, { turnIsLive: false });
+}
+
+/**
+ * Seed every tab the store lists as soon as it (or its session file) is known, not when its omp is ready: a tab
+ * a relaunch restored, a session opened from the sidebar and a web page's tabs show their last rows at once.
+ * Returns the unsubscribe.
+ */
+export function installTranscriptSeeding(): () => void {
+	const done = new Map<string, string>();
+	const run = (tabs: readonly SessionTab[]) => {
+		for (const tab of tabs) {
+			const key = transcriptKey(snapshotIdentity(tab));
+			if (!key || done.get(tab.id) === key || isTabClosed(tab.id)) continue;
+			done.set(tab.id, key);
+			ensureTabRuntime(tab.id);
+			seedFromSnapshot(tab.id, runtimeStores(tab.id));
+		}
+	};
+	run(useTabsStore.getState().tabs);
+	return useTabsStore.subscribe(state => run(state.tabs));
 }
 
 const watchedTranscripts = new WeakSet<SessionRuntime>();
@@ -723,7 +759,8 @@ function watchTranscript(tabId: string, runtime: SessionRuntime, { messages }: H
 		clearTimeout(timer);
 		timer = setTimeout(() => {
 			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
-			if (tab && sessionRuntime(tabId) === runtime) writeTranscriptSnapshot(tab, messages.getState().messages);
+			if (tab && sessionRuntime(tabId) === runtime)
+				writeTranscriptSnapshot(snapshotIdentity(tab), messages.getState().messages);
 		}, TRANSCRIPT_WRITE_DELAY_MS);
 	});
 }
@@ -732,12 +769,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
 	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
-	const stores: HydrationStores = {
-		messages: sessionRuntimeStore<MessagesStore>(tabId, "messages"),
-		session: sessionRuntimeStore<SessionStore>(tabId, "session"),
-		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
-		model: sessionRuntimeStore<ModelStore>(tabId, "model"),
-	};
+	const stores = runtimeStores(tabId);
 	seedFromSnapshot(tabId, stores);
 	watchTranscript(tabId, runtime, stores);
 	const before = captureHydrationBaseline(stores);
