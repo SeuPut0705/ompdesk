@@ -129,7 +129,6 @@ const ROLE_PURPOSES: Record<string, string> = {
 	plan: "Architect model for plan mode: explores and writes the implementation plan before any edit.",
 	commit: "Writes commit messages and changelog entries (`omp commit`). Short, cheap output is enough.",
 	tiny: "Smallest, cheapest model for trivial background tasks such as session titles. Falls back to the Fast role.",
-	memory: "Summarizes and consolidates memories between sessions. Falls back to the Tiny role.",
 	task: "Runs subagents spawned by the task tool; they do delegated coding work in parallel.",
 	[ADVISOR_ROLE]:
 		"Second-opinion reviewer: passively reviews every turn of the main agent and injects notes (concerns, blockers). Ideally a strong model from a different vendor than the default model, so it catches different mistakes. It only runs while the advisor is enabled.",

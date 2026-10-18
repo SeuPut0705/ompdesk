@@ -57,6 +57,8 @@ export interface LocalSidecarDeps {
 	accountRotationLedger: string;
 	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
 	launchProfilesPref: () => unknown;
+	/** `-e` args for ai-memory's extension, read per spawn (see SidecarOptions.aiMemoryExtensionArgs). */
+	aiMemoryExtensionArgs?: () => string[];
 	/**
 	 * Autopilot's coordinator (src/main/autopilot.ts), read per frame: it does not exist yet when the factory is
 	 * made. Absent or null: autopilot frames pass through untouched.
@@ -134,6 +136,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
 			launchProfiles: deps.launchProfilesPref,
+			...(deps.aiMemoryExtensionArgs ? { aiMemoryExtensionArgs: deps.aiMemoryExtensionArgs } : {}),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail

@@ -79,6 +79,8 @@ export interface AiMemoryHandoff extends AiMemoryProjectRef {
 	createdAt: string | null;
 	/** The handoff body's first lines (what the next session is told). */
 	summary: string;
+	/** `open` (waiting for the next session in that folder), `accepted`, or another state ai-memory reports. */
+	state: string;
 }
 
 export interface AiMemoryPage extends AiMemoryPageRef {

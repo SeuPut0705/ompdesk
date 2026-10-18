@@ -3,6 +3,14 @@
  * Type-safe contract for the contextBridge API.
  */
 
+import type {
+	AiMemoryHandoff,
+	AiMemoryPage,
+	AiMemoryPageRef,
+	AiMemoryProject,
+	AiMemoryProjectRef,
+	AiMemoryState,
+} from "./ai-memory";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type { BuiltinReaState } from "./builtin-mcp";
@@ -128,6 +136,8 @@ export const IPC_EVENTS = {
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
 	/** The tool CLIs' automatic updates changed (src/main/cli-tools/updater.ts); payload is the whole CliUpdateState. */
 	CLI_UPDATE_STATE: "cli-update:state",
+	/** ai-memory's state changed (src/main/ai-memory/); payload is the whole AiMemoryState. */
+	AI_MEMORY_STATE: "ai-memory:state",
 	/** The extensions' automatic updates changed (src/main/ext-update/); payload is the whole ExtensionUpdateState. */
 	EXTENSION_UPDATE_STATE: "extension-update:state",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
@@ -320,6 +330,19 @@ export const IPC_COMMANDS = {
 	CLI_UPDATE_GET_STATE: "cli-update:get-state",
 	/** Check and update one tool (a CliToolId) or all now, whatever the pref says (runs in the background) */
 	CLI_UPDATE_NOW: "cli-update:now",
+	/** ai-memory (src/main/ai-memory/): whole AiMemoryState snapshot */
+	AI_MEMORY_GET_STATE: "ai-memory:get-state",
+	AI_MEMORY_SET_ENABLED: "ai-memory:set-enabled",
+	AI_MEMORY_RETRY: "ai-memory:retry",
+	AI_MEMORY_PURGE: "ai-memory:purge",
+	AI_MEMORY_OPEN_WEB: "ai-memory:open-web",
+	AI_MEMORY_COPY_WEB_PASSWORD: "ai-memory:copy-web-password",
+	AI_MEMORY_REVEAL_DATA: "ai-memory:reveal-data",
+	AI_MEMORY_PROJECTS: "ai-memory:projects",
+	AI_MEMORY_SEARCH: "ai-memory:search",
+	AI_MEMORY_RECENT: "ai-memory:recent",
+	AI_MEMORY_HANDOFFS: "ai-memory:handoffs",
+	AI_MEMORY_READ_PAGE: "ai-memory:read-page",
 	/** The extensions' automatic updates (src/main/ext-update/): whole ExtensionUpdateState snapshot */
 	EXTENSION_UPDATE_GET_STATE: "extension-update:get-state",
 	/** Check and update one row (an ExtensionRow key) or all now, whatever the pref says (runs in the background) */
@@ -1686,6 +1709,29 @@ export interface OmpApi {
 		/** Check and update `tool` (or every listed tool) now, whatever the pref says; progress arrives through `onState`. */
 		now(tool?: CliToolId): Promise<void>;
 		onState(callback: (state: CliUpdateState) => void): () => void;
+	};
+	/** ai-memory, OMPdesk's memory (src/main/ai-memory/): state, the on/off switch and read-only browsing of what it holds. */
+	aiMemory: {
+		getState(): Promise<AiMemoryState>;
+		/** Turn memory on or off (wires or unwires omp and starts or stops the server); progress arrives through `onState`. */
+		setEnabled(enabled: boolean): Promise<void>;
+		/** Stage and wire again after a failure. */
+		retry(): Promise<void>;
+		/** Delete everything it remembers (wiki, database, raw events, token) and wire it again when it is on. */
+		purge(): Promise<void>;
+		/** Open the server's /web console in the default browser. */
+		openWeb(): Promise<void>;
+		/** Copy the /web console's password (the root token, never shown) to the clipboard. */
+		copyWebPassword(): Promise<void>;
+		/** Reveal the data directory in the file manager. */
+		revealData(): Promise<void>;
+		projects(): Promise<AiMemoryProject[]>;
+		search(query: string, project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
+		/** One project's recent pages, or (no project) the recent pages of the most recently updated projects, merged. */
+		recent(project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
+		handoffs(project?: AiMemoryProjectRef): Promise<AiMemoryHandoff[]>;
+		readPage(ref: AiMemoryProjectRef & { path: string }): Promise<AiMemoryPage>;
+		onState(callback: (state: AiMemoryState) => void): () => void;
 	};
 	/** This computer's marketplaces, plugins, skills and MCP servers, kept current by its own updater. */
 	extensionUpdate: {

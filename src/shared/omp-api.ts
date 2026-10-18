@@ -3,6 +3,14 @@
  * paired web device's page one over its WebSocket. Every channel, payload and wrapper is the same either way;
  * only `fs.pathForFile` (a dropped file's local path) stays with the preload, because only Electron knows it.
  */
+import type {
+	AiMemoryHandoff,
+	AiMemoryPage,
+	AiMemoryPageRef,
+	AiMemoryProject,
+	AiMemoryProjectRef,
+	AiMemoryState,
+} from "./ai-memory";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import {
 	AGENT_CONTROL_REVIEW,
@@ -372,6 +380,28 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			now: (tool?: CliToolId) => transport.invoke(IPC_COMMANDS.CLI_UPDATE_NOW, tool) as Promise<void>,
 			onState: (callback: (state: CliUpdateState) => void) =>
 				subscribe<CliUpdateState>(IPC_EVENTS.CLI_UPDATE_STATE, callback),
+		},
+
+		aiMemory: {
+			getState: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_GET_STATE) as Promise<AiMemoryState>,
+			setEnabled: (enabled: boolean) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, enabled) as Promise<void>,
+			retry: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_RETRY) as Promise<void>,
+			purge: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_PURGE) as Promise<void>,
+			openWeb: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_OPEN_WEB) as Promise<void>,
+			copyWebPassword: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_COPY_WEB_PASSWORD) as Promise<void>,
+			revealData: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_REVEAL_DATA) as Promise<void>,
+			projects: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_PROJECTS) as Promise<AiMemoryProject[]>,
+			search: (query: string, project?: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SEARCH, query, project) as Promise<AiMemoryPageRef[]>,
+			recent: (project?: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_RECENT, project) as Promise<AiMemoryPageRef[]>,
+			handoffs: (project?: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_HANDOFFS, project) as Promise<AiMemoryHandoff[]>,
+			readPage: (ref: AiMemoryProjectRef & { path: string }) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_READ_PAGE, ref) as Promise<AiMemoryPage>,
+			onState: (callback: (state: AiMemoryState) => void) =>
+				subscribe<AiMemoryState>(IPC_EVENTS.AI_MEMORY_STATE, callback),
 		},
 
 		extensionUpdate: {

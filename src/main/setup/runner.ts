@@ -14,7 +14,7 @@ export interface SupervisedChild {
 	once(event: "close", listener: (code: number | null) => void): unknown;
 }
 
-export type Spawner = (spec: SpawnSpec, env: NodeJS.ProcessEnv) => SupervisedChild;
+export type Spawner = (spec: SpawnSpec, env: NodeJS.ProcessEnv, cwd?: string) => SupervisedChild;
 
 export type RunOutcome =
 	| { kind: "succeeded" }
@@ -41,12 +41,12 @@ export class SetupRunner {
 	}
 
 	/** Run `spec`; `onOutput` gets stdout and stderr chunks as they arrive. One run at a time. */
-	run(spec: SpawnSpec, env: NodeJS.ProcessEnv, onOutput: (chunk: string) => void): Promise<RunOutcome> {
+	run(spec: SpawnSpec, env: NodeJS.ProcessEnv, onOutput: (chunk: string) => void, cwd?: string): Promise<RunOutcome> {
 		if (this.#child) return Promise.reject(new Error("An install is already running"));
 		this.#cancelled = false;
 		let child: SupervisedChild;
 		try {
-			child = this.#spawn(spec, env);
+			child = this.#spawn(spec, env, cwd);
 		} catch (error) {
 			return Promise.resolve({
 				kind: "failed",

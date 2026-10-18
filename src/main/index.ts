@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir, release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
+	clipboard,
 	app,
 	BrowserWindow,
 	globalShortcut,
@@ -36,6 +37,7 @@ import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF } from "../shared/agent-control";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
+import { AI_MEMORY_PREF, aiMemoryEnabled } from "../shared/ai-memory";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
@@ -64,6 +66,8 @@ import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { agentDir } from "./agent-paths";
+import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
@@ -100,6 +104,7 @@ import { SessionKindStore } from "./session-kinds";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
+import { AiMemoryService } from "./ai-memory/service";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -375,6 +380,7 @@ const webTabLayouts = new WebTabLayouts({
 let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
+let aiMemoryService: AiMemoryService | null = null;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
@@ -589,6 +595,7 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
+		aiMemoryExtensionArgs: () => aiMemoryService?.extensionArgs() ?? [],
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});
@@ -926,6 +933,40 @@ app.whenReady().then(() => {
 	});
 	extensionUpdater = extensionToolUpdater;
 	registerExtensionUpdateIpc(ipc, extensionToolUpdater);
+	// ai-memory is OMPdesk's memory (src/main/ai-memory/, pref `aiMemory`, default on): the shipped binary is staged
+	// into the tools dir, omp is wired by ai-memory's own installer and its per-user service serves it. A dev build
+	// reports only; OMP_GUI_AI_MEMORY_BIN (tests, a developer's own build) runs exactly that binary.
+	const aiMemoryBinary = process.env.OMP_GUI_AI_MEMORY_BIN || null;
+	const aiMemory = new AiMemoryService({
+		platform,
+		arch: process.arch,
+		automatic: aiMemoryBinary !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1"),
+		toolsDir,
+		bundledDir: app.isPackaged
+			? join(process.resourcesPath, "ai-memory-bin")
+			: join(devResourcesDir, "ai-memory-bin", `${process.platform}-${process.arch}`),
+		binaryOverride: aiMemoryBinary,
+		noService: process.env.OMP_GUI_AI_MEMORY_NO_SERVICE === "1",
+		home: homedir(),
+		agentDir,
+		enabled: () => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)),
+		persistEnabled: enabled => prefs.set(AI_MEMORY_PREF, enabled),
+		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()) }),
+		beforeStart: afterFirstTab,
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);
+			}
+		},
+	});
+	aiMemoryService = aiMemory;
+	registerAiMemoryIpc(ipc, aiMemory, {
+		openExternal: url => shell.openExternal(url),
+		openPath: path => shell.openPath(path),
+		readClipboard: () => clipboard.readText(),
+		writeClipboard: text => clipboard.writeText(text),
+	});
+	void aiMemory.start().catch(() => undefined);
 	void setup
 		.start()
 		.catch(() => undefined)
@@ -1336,6 +1377,7 @@ installQuitGuard(
 		cliUpdater?.dispose();
 		extensionUpdater?.dispose();
 		setupService?.dispose();
+		aiMemoryService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();
 		workAwakePolicy?.dispose();
