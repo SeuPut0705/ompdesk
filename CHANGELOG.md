@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.38.1] - 2026-10-18
+
+휴대폰에서 사진이나 파일을 골라도 첨부되지 않던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰에서 사진이나 파일을 고르는 동안 페이지가 다시 불러와져 선택이 사라지던 것을 고쳤어요. 이제 선택 창이 열려 있는 동안에는 다시 불러오기를 기다려요.
+- Windows에서 ai-memory 서비스가 켜져 있으면 앱을 끄거나 업데이트할 때 멈추던 것을 고쳤어요.
+
+### 바뀐 것
+- 휴대폰의 + 메뉴에 "사진"(갤러리/카메라)과 "파일 첨부"가 생겼어요.
+- 이미지가 아닌 파일도 올려서 경로로 전달해요. 올리는 동안 진행 칩이 보이고, 실패하면 이유를 알려줘요.
+- 작업 막대가 시트나 가림막 없이 그 자리에서 펼쳐져서, 화면의 어떤 부분도 가리지 않아요.
+
+<!-- en -->
+
+Picking a photo or file on a phone no longer fails to attach.
+
+### Fixed
+- The page used to reload while a phone's photo or file picker was open, losing the pick. It now waits to reload while a picker is open.
+- On Windows, quitting or updating no longer hangs while ai-memory's service is running.
+
+### Changed
+- The phone's + menu now offers "Photos" (gallery/camera) and "Attach files".
+- Non-image files are uploaded and passed to the agent by path, with a progress chip and a worded error if it fails.
+- The work strip expands in place, with no sheet or scrim, so nothing is covered.
+
 ## [0.38.0] - 2026-10-18
 
 기억 기능(ai-memory)과 엔지니어링 모드(pstack)를 내장해서, 세션이 이어지고 더 꼼꼼하게 일해요.
