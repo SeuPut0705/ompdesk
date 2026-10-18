@@ -422,11 +422,12 @@ html[data-shell="phone"] .omp-composer-send-cluster {
 
 html[data-input="touch"] .omp-edge-zone {
 	position: fixed;
-	inset-block: 0;
+	/* Below the top bar and clear of the work strip and composer: it never covers a control. */
+	inset-block: calc(var(--safe-t) + 48px) calc(var(--safe-b) + 96px);
 	left: 0;
 	z-index: var(--sc-z-sticky);
 	display: block;
-	width: 20px;
+	width: 10px;
 	touch-action: none;
 }
 
@@ -893,9 +894,21 @@ html[data-shell] .omp-work-chip {
 	--hit-gap-y: 0px;
 }
 
+/* Sidebar rows, project/device groups and header controls sit flush: no hit area grows past its own box. */
 html[data-shell] .omp-session-sidebar {
-	--hit-gap-x: 14px;
-	--hit-gap-y: 14px;
+	--hit-gap-x: 0px;
+	--hit-gap-y: 0px;
+}
+
+/* Page-top bars (Agents, Stats…) and figure headers: icons are close, the reach stops at their midpoint. */
+html[data-shell] .omp-topbar:not(.omp-titlebar) {
+	--hit-gap-x: 8px;
+	--hit-gap-y: 8px;
+}
+
+html[data-shell] [data-figure-header] {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 4px;
 }
 
 /* A session's family rows are stacked 1 px apart and the chip sits inside its parent row: no hit area may grow past

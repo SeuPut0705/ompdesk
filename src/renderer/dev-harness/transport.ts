@@ -183,6 +183,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			}
 			case "get_transcript":
 				return respond(command, { messages: transcriptFor(tabId) });
+			case "get_delegation":
+			case "set_delegation":
+				return respond(command, { mode: "assisted" });
 			case "get_available_models":
 			case "get_providers":
 				return respond(command, {

@@ -377,8 +377,8 @@ for (const { engine, device } of variants(
 				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
 			);
 			for (const { visual, hit } of await hitSizes(menus)) {
-				// A row's ⋯ reaches its 36 px row (neighbouring rows are flush, so the hit stops there).
-				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(36);
+				// Rows are flush: a row's ⋯ keeps its own box rather than covering the neighbouring row.
+				expect(Math.min(hit.width, hit.height)).toBeGreaterThanOrEqual(24);
 				expect(Math.max(visual.width, visual.height)).toBeLessThanOrEqual(36);
 			}
 			await capture(page, "row-menu", `${engine.name}-${device.name.replace(/ /g, "-")}-light-en`);
