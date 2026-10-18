@@ -7,15 +7,61 @@
  *   once across windows and reaches a paired device exactly like every other approval.
  * - When an agent answers another session's question, the answered session journals it (`ompdesk.agent-answer`
  *   custom entry, so the answer is auditable there) and says so (`ctx.ui.notify`, a toast in its window).
+ * - A session another session's agent opened (`ompdesk_session_open`, Autopilot children included) journals
+ *   `ompdesk.worker` before its first prompt; while that entry is on its branch its main agent gets the short worker
+ *   contract (`WORKER_CONTRACT`) as a registered prompt section. The journal, not process state, carries it, so a
+ *   relaunched child keeps it and a session the user opened never gets it.
+ *
+ * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
-import type { BridgeMethods } from "./types";
+import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
+
+/**
+ * The slice of `BridgeEnv` (types.ts) these methods touch. types.ts imports omp's own types, which the GUI's `tsc`
+ * cannot resolve where omp is not installed, and a module the GUI's tests import must not pull it in.
+ */
+interface ControlEnv {
+	session(): {
+		sessionManager: {
+			getBranch(): { customType?: unknown }[];
+			appendCustomEntry(customType: string, data: unknown): unknown;
+		};
+	};
+	context(): {
+		ui: { confirm(title: string, message: string): Promise<unknown>; notify(message: string, type: "info"): void };
+	};
+}
+type BridgeMethods = Record<string, (params: unknown, env: ControlEnv) => Promise<unknown>>;
 
 const TEXT_MAX = 2000;
 export const AGENT_ANSWER_ENTRY = "ompdesk.agent-answer";
+export const WORKER_ENTRY = "ompdesk.worker";
+
+/** What a session opened by another agent should know about its role; kept short and plain. */
+export const WORKER_CONTRACT = `<ompdesk-worker>
+Another agent opened this session and handed you its first message; the person sees this tab and may also write to you.
+- Work only in this session's folder. When a message or a result names an absolute path in another checkout, do not read or write it; ask instead.
+- Stay inside the files and scope the message names. If the task needs more, say so in your answer rather than widening it.
+- Done means the observable acceptance in the message holds, checked by you, and any requested commit is on your branch.
+- Your final answer is what the other agent reads: what changed (files, commits), how you checked it with the actual result, and anything left undone.
+- Keep replying to the person in their language when they write to you.
+</ompdesk-worker>`;
 
 function text(value: unknown, field: string): string {
 	if (typeof value !== "string" || !value.trim()) throw new Error(`agent_control needs a ${field}`);
 	return value.slice(0, TEXT_MAX);
+}
+
+/** True when this session was opened by another session's agent. */
+export function isWorkerSession(ctx: PromptSectionContext): boolean {
+	return ctx.sessionManager.getBranch().some(entry => entry.customType === WORKER_ENTRY);
+}
+
+export function install(pi: PromptSectionHost): void {
+	// The main agent only: its own subagents are briefed by it, not by this contract.
+	registerPromptSection(pi, "ompdesk-worker", ctx =>
+		ctx.agent.kind === "main" && isWorkerSession(ctx) ? WORKER_CONTRACT : undefined,
+	);
 }
 
 export const methods: BridgeMethods = {
@@ -30,6 +76,14 @@ export const methods: BridgeMethods = {
 		const label = text((params as Record<string, unknown> | null)?.text, "text");
 		env.session().sessionManager.appendCustomEntry(AGENT_ANSWER_ENTRY, { text: label, at: Date.now() });
 		env.context().ui.notify(label, "info");
+		return {};
+	},
+	/** `{from}` → `{}`: this session was opened by the agent of the session titled `from`; once per session. */
+	"agent_control.worker": async (params, env) => {
+		const from = text((params as Record<string, unknown> | null)?.from, "from").slice(0, 200);
+		const manager = env.session().sessionManager;
+		if (!manager.getBranch().some((entry: { customType?: unknown }) => entry.customType === WORKER_ENTRY))
+			manager.appendCustomEntry(WORKER_ENTRY, { from, at: Date.now() });
 		return {};
 	},
 };

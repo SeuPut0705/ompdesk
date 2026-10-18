@@ -655,6 +655,12 @@ export class AgentControl {
 		if (task) this.#host.setTask(tabId, task);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
+			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
+			// first turn on, across relaunches; a session the user opened never carries it.
+			responseData(
+				await this.#host.command(tabId, { type: "agent_control_worker", from: caller.title || "another session" }),
+				"Marking the session as a worker",
+			);
 			const notes: string[] = [];
 			if (args.model) {
 				const model = await this.#resolveModel(tabId, args.model);

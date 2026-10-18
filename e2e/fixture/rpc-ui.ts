@@ -1081,6 +1081,7 @@ export function runRpcUi(): void {
 			return undefined;
 		},
 		"agent_control.note": () => ({}),
+		"agent_control.worker": () => ({}),
 		// gui-bridge prompt-origin.ts: main names the device of the next prompt with this text (a paired web device).
 		prompt_origin_set: params => {
 			const origin = params.origin as { deviceId: string; name: string };

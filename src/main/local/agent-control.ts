@@ -9,6 +9,7 @@ import type { LocalHandler } from "./types";
 
 const confirmCommand = z.object({ title: z.string().min(1).max(200), message: z.string().min(1).max(2000) });
 const noteCommand = z.object({ text: z.string().min(1).max(500) });
+const workerCommand = z.object({ from: z.string().min(1).max(200) });
 
 export const handlers: Record<string, LocalHandler> = {
 	agent_control_confirm: async (command, ctx) => {
@@ -19,6 +20,12 @@ export const handlers: Record<string, LocalHandler> = {
 	agent_control_note: async (command, ctx) => {
 		const { text } = noteCommand.parse(command);
 		await ctx.bridge.request("agent_control.note", { text });
+		return {};
+	},
+	/** The session was opened by another session's agent: its bridge journals it and adds the worker contract. */
+	agent_control_worker: async (command, ctx) => {
+		const { from } = workerCommand.parse(command);
+		await ctx.bridge.request("agent_control.worker", { from });
 		return {};
 	},
 };

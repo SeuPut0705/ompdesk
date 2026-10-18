@@ -298,6 +298,15 @@ describe("ompdesk_session_open", () => {
 		expect(prompts(host, one as string)[0]).toBe(wrapAgentMessage("part one", "Boss"));
 		expect(host.sent.some(entry => entry.tabId === two && entry.command.type === "set_plan_mode")).toBe(true);
 		expect(host.sent.some(entry => entry.tabId === two && entry.command.type === "set_model")).toBe(true);
+		// Each child, never the caller, is marked a worker before its first prompt (its bridge adds the contract).
+		const workers = host.sent.filter(entry => entry.command.type === "agent_control_worker");
+		expect(workers.map(entry => entry.tabId).sort()).toEqual([one, two].sort());
+		expect(workers.every(({ command }) => command.type === "agent_control_worker" && command.from === "Boss")).toBe(
+			true,
+		);
+		const firstPrompt = host.sent.findIndex(entry => entry.tabId === one && entry.command.type === "prompt");
+		const mark = host.sent.findIndex(entry => entry.tabId === one && entry.command.type === "agent_control_worker");
+		expect(mark).toBeLessThan(firstPrompt);
 	});
 
 	it("runs beforeFirstPrompt before the first prompt and closes the child when it throws", async () => {
