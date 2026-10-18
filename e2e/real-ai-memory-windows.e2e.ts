@@ -16,8 +16,8 @@ import { exitApp, launchApp } from "./harness";
 // entry, ends the supervisor and the server and leaves the .exe unlocked (a running server holds its image open, which
 // is why OMPdesk never runs the shipped file in place). The fake omp stands in for omp: no model is involved.
 //
-// Isolation: AI_MEMORY_DATA_DIR and AI_MEMORY_HOME point into the test's own folder (ai-memory resolves the profile
-// through Windows' known folders, which HOME/USERPROFILE do not move). The logon entry is the one thing global to the
+// Isolation: AI_MEMORY_DATA_DIR points into the test's own folder (ai-memory resolves the profile through Windows'
+// known folders, which HOME/USERPROFILE do not move; the runner is thrown away). The logon entry is the one thing global to the
 // user; the spec only runs while that value and port 49374 are free, and removes them again at the end.
 const PORT = 49374;
 const RUN_KEY = String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`;
@@ -82,7 +82,8 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 	// A copy of the release binary: the spec moves it at the end to prove nothing still holds it open.
 	const bin = path.join(binDir, "ai-memory.exe");
 	await fs.copyFile(shipped, bin);
-	const isolation = { AI_MEMORY_DATA_DIR: dataDir, AI_MEMORY_HOME: home, HOME: home, USERPROFILE: home };
+	// AI_MEMORY_HOME would also move ai-memory's Windows known-folder lookups and make its `uninstall` fail; only the data is isolated.
+	const isolation = { AI_MEMORY_DATA_DIR: dataDir, HOME: home, USERPROFILE: home };
 	const cleanup = () =>
 		spawnSync(bin, ["uninstall", "--apply", "--yes"], {
 			env: { ...process.env, ...isolation, PI_CODING_AGENT_DIR: agent },
@@ -120,7 +121,8 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 		expect(
 			await fs.readdir(agent).then(names => names.filter(name => /ai-memory|mcp\.json|extensions/.test(name))),
 		).toEqual([]);
-		expect(existsSync(path.join(home, ".agents", "skills", "ai-memory-retrieval"))).toBe(false);
+		// ai-memory resolves its profile through the known folders, so the shared skills folder is the runner's real one.
+		expect(existsSync(path.join(os.homedir(), ".agents", "skills", "ai-memory-retrieval"))).toBe(false);
 		// The logon entry is ai-memory's own and runs the binary OMPdesk runs; the server answers.
 		const entry = logonEntry();
 		expect(entry?.toLowerCase()).toContain(bin.toLowerCase());
