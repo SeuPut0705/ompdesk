@@ -29,7 +29,7 @@ import {
 } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { cx, formatTokens } from "../../../lib/format";
+import { cx, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
@@ -112,14 +112,8 @@ export function sidebarSubagentCount(tabId: string): number {
 	return store ? countLiveSubagents(store.getState().subagents) : 0;
 }
 
-/** Elapsed time for the row meta: whole units only ("12s", "10m", "2h"); the tooltip keeps the full value. */
-export function formatCompactElapsed(ms: number): string {
-	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
-	return `${Math.floor(minutes / 60)}h`;
-}
+/** Below this sidebar width (px) the summary chip shrinks to its running-count pill (default width is 248). */
+const NARROW_SIDEBAR = 300;
 
 /**
  * A session row's icon sits at pl-2.5 (nested sessions use 28px)
@@ -207,7 +201,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	return (
 		<div data-subagent-depth={depth}>
 			<FamilyRow
-				age={elapsed !== null ? formatCompactElapsed(elapsed) : undefined}
+				age={elapsed !== null ? formatTimeAgo(new Date(Date.now() - elapsed).toISOString()) : undefined}
 				buttonProps={{
 					tabIndex: -1,
 					"data-roving-item": rovingKey,
@@ -326,7 +320,26 @@ function FamilyChip({
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
 	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);
+	const chipRef = useRef<HTMLButtonElement>(null);
+	const [narrow, setNarrow] = useState(false);
+	const present = counts.agents + counts.sessions > 0;
+	useEffect(() => {
+		const sidebar = chipRef.current?.closest(".omp-session-sidebar");
+		if (!present || !sidebar) return;
+		const measure = () => {
+			const width = sidebar.getBoundingClientRect().width;
+			setNarrow(width > 0 && width < NARROW_SIDEBAR);
+		};
+		measure();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(measure);
+		observer.observe(sidebar);
+		return () => observer.disconnect();
+	}, [present]);
 	if (counts.agents + counts.sessions === 0) return null;
+	// A narrow sidebar has no room for the counts beside the title: only the running pill stays, the tooltip and
+	// the accessible name keep the whole summary.
+	const compact = narrow && counts.running > 0;
 	const summary = [
 		counts.agents > 0 ? t("sidebar.family.agents", { count: counts.agents }) : "",
 		counts.sessions > 0 ? t("sidebar.family.sessions", { count: counts.sessions }) : "",
@@ -352,15 +365,17 @@ function FamilyChip({
 				tabIndex={-1}
 				title={label}
 				type="button"
+				data-family-compact={compact || undefined}
+				ref={chipRef}
 			>
-				{counts.agents > 0 && (
+				{counts.agents > 0 && !compact && (
 					<span className="inline-flex items-center gap-0.5" data-family-agents={counts.agents}>
 						<Bot aria-hidden className="size-(--sc-icon-sm)" />
 						{counts.agents}
 					</span>
 				)}
-				{counts.agents > 0 && counts.sessions > 0 && <span aria-hidden>·</span>}
-				{counts.sessions > 0 && (
+				{counts.agents > 0 && counts.sessions > 0 && !compact && <span aria-hidden>·</span>}
+				{counts.sessions > 0 && !compact && (
 					<span className="inline-flex items-center gap-0.5" data-family-sessions={counts.sessions}>
 						<GitBranch aria-hidden className="size-(--sc-icon-sm)" />
 						{counts.sessions}

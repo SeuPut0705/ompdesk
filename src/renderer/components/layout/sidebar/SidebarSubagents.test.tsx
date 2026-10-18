@@ -37,7 +37,8 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 // Deferred until after the globals above: react-dom computes DOM support
 // flags at evaluation time.
 const { createRoot } = await import("react-dom/client");
-const { SidebarSubagents, SidebarSubagentsToggle, formatCompactElapsed } = await import("./SidebarSubagents");
+const { SidebarSubagents, SidebarSubagentsToggle } = await import("./SidebarSubagents");
+const { formatTimeAgo } = await import("../../../lib/format");
 const { SubagentPanel } = await import("../../panels/SubagentPanel");
 
 const TAB = "t1";
@@ -413,9 +414,54 @@ describe("a session's family: one-line rows", () => {
 		expect(row("r2").getAttribute("data-signal")).toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
-		expect(formatCompactElapsed(12_000)).toBe("12s");
-		expect(formatCompactElapsed(635_000)).toBe("10m");
-		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
+		// One age format across the sidebar: the session rows' own formatter.
+		expect(formatTimeAgo(new Date(Date.now() - 635_000).toISOString())).toBe("10m");
+	});
+
+	it("collapses the chip to its running-count pill when the sidebar is narrow; the tooltip keeps the summary", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" })]);
+		const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+			this: HTMLElement,
+		) {
+			const width = this.className?.includes?.("omp-session-sidebar") ? 248 : 0;
+			return { width } as DOMRect;
+		});
+		try {
+			await mount(
+				<div className="omp-session-sidebar">
+					<Session kids={[opened({ key: "/wt/a.jsonl", state: "running" })]} />
+				</div>,
+			);
+			const chip = toggle();
+			expect(chip?.getAttribute("data-family-compact")).toBe("true");
+			expect(chip?.querySelector("[data-family-agents]")).toBeNull();
+			expect(chip?.querySelector("[data-family-sessions]")).toBeNull();
+			expect(chip?.querySelector("[data-family-running]")?.textContent).toBe("2");
+			expect(chip?.getAttribute("title")).toContain(translate("sidebar.family.agents", { count: 1 }));
+			expect(chip?.getAttribute("aria-label")).toContain(translate("sidebar.family.sessions", { count: 1 }));
+		} finally {
+			rect.mockRestore();
+		}
+	});
+
+	it("keeps the whole chip at a width with room, and with nothing running", async () => {
+		seed([snap({ id: "r1", index: 1, status: "completed" })]);
+		const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+			this: HTMLElement,
+		) {
+			return { width: this.className?.includes?.("omp-session-sidebar") ? 248 : 0 } as DOMRect;
+		});
+		try {
+			await mount(
+				<div className="omp-session-sidebar">
+					<Session />
+				</div>,
+			);
+			expect(toggle()?.getAttribute("data-family-compact")).toBeNull();
+			expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("1");
+		} finally {
+			rect.mockRestore();
+		}
 	});
 
 	it("never shows the Title: label of a task, in a subagent row or an opened session's", async () => {
