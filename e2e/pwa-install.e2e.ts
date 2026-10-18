@@ -293,17 +293,9 @@ test("@smoke The page is installable: manifest, worker, no installability errors
 		const iphone = await iphoneContext.newPage();
 		await iphone.goto(`${proxy.url}/`);
 		await phoneReady(iphone, "iphone");
-		await openMobileWebSettings(iphone);
-		const section = iphone.locator('[data-web-install="ios-share"]');
-		await section.scrollIntoViewIfNeeded();
-		await expect(section).toBeVisible();
-		await expect(section).toContainText(en["web.install.ios2"]);
-		await shot(iphone, "iphone-light-settings-install");
-
-		// The Help menu's item opens the same steps in a sheet. (A fresh load: a menu item that opens a sheet and
-		// then the drawer closing leave the page's history one entry short, which is not what this test is about.)
-		await iphone.goto(`${proxy.url}/`);
-		await phoneReady(iphone, "iphone");
+		// The Help menu's item opens the steps in a sheet; closing it and then pressing Settings in the still open
+		// drawer must stay in the app (a menu item that opens a sheet used to leave the history one entry short, and
+		// the drawer closing then went back to about:blank).
 		await openHelpMenu(iphone);
 		await shot(iphone, "iphone-light-help-menu-install");
 		await iphone.getByRole("menuitem", { name: en["web.install.menu"] }).click();
@@ -314,6 +306,13 @@ test("@smoke The page is installable: manifest, worker, no installability errors
 		await shot(iphone, "iphone-light-install-sheet");
 		await iphone.locator("[data-install-sheet-close]").click();
 		await expect(sheet).toHaveCount(0);
+		await openMobileWebSettings(iphone);
+		expect(iphone.url()).toBe(`${proxy.url}/`);
+		const section = iphone.locator('[data-web-install="ios-share"]');
+		await section.scrollIntoViewIfNeeded();
+		await expect(section).toBeVisible();
+		await expect(section).toContainText(en["web.install.ios2"]);
+		await shot(iphone, "iphone-light-settings-install");
 		passed = true;
 	} finally {
 		await browser.close();
