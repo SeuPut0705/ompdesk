@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useT } from "../../../lib/i18n";
+import { isImeKeyEvent } from "../../../lib/ime";
 import { Button, EmptyState, SearchField, Spinner } from "../../common";
 import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
@@ -45,7 +46,8 @@ export function ProviderPicker({
 				onKeyDown={event => {
 					// A search that narrows to one provider: Enter signs in to it.
 					const only = available.length === 1 ? available[0] : undefined;
-					if (event.key === "Enter" && only && searching && sidecarReady) void login.start(only.id);
+					if (event.key === "Enter" && !isImeKeyEvent(event) && only && searching && sidecarReady)
+						void login.start(only.id);
 				}}
 				label={t("providerList.search")}
 				onValueChange={setQuery}

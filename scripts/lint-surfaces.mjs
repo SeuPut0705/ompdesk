@@ -20,10 +20,15 @@
  * var(--sc-duration-fast) or var(--sc-duration-med) (the legacy
  * --omp-motion-fast/-med aliases still pass). Bare Nms values are errors unless
  * the line has `motion-ok` (loops like caret, token definitions).
+ *
+ * IME (renderer .ts/.tsx, tests excluded): a function that tests a key for
+ * "Enter" must use the isImeKeyEvent guard (see scripts/lint-ime.mjs); an
+ * exception carries `ime-ok: <reason>` in a comment in or above the function.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findImeViolations } from "./lint-ime.mjs";
 
 // fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
 const ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
@@ -68,6 +73,11 @@ for (const file of collect(ROOT)) {
 			violations.push(`${rel}:${index + 1}  raw pixel font class  ${match[0]}  (use text-omp-*)`);
 		}
 	});
+	if (!/\.test\.tsx?$/.test(rel)) {
+		for (const hit of findImeViolations(lines.join("\n"), file)) {
+			violations.push(`${rel}:${hit.line}  Enter without IME guard  ${hit.text}  (use isImeKeyEvent from lib/ime)`);
+		}
+	}
 }
 
 for (const name of readdirSync(STYLES)) {

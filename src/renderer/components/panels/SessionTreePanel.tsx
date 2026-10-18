@@ -739,6 +739,7 @@ function SessionTreeView({
 			const element = event.target as HTMLElement | null;
 			const tag = element?.tagName;
 			if (tag === "INPUT" || tag === "TEXTAREA" || element?.isContentEditable) return;
+			// ime-ok: editable targets returned above, so no composition is live on this path.
 			const { tree: context } = keyboardContextRef.current;
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				const entries = context.filteredEntries;

@@ -168,6 +168,7 @@ export function TabOverviewDialog() {
 										setDragging(null);
 									}}
 									onKeyDown={event => {
+										if (isImeKeyEvent(event)) return;
 										if (event.key === "Enter") pick(tab.id);
 									}}
 									onMouseEnter={() => setActiveIndex(index)}

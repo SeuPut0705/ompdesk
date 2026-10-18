@@ -70,6 +70,7 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 					paused.current = true;
 				}}
 				onKeyDown={event => {
+					// ime-ok: Enter acts only when the card itself has focus (target === currentTarget), never a text field.
 					if (event.key === "Escape") {
 						event.stopPropagation();
 						dismiss();

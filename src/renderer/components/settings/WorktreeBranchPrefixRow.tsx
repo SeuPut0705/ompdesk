@@ -14,6 +14,7 @@ import {
 } from "../../../shared/worktree-branch";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { Input } from "../common";
 import { SettingsRow } from "./SettingsLayout";
 
@@ -62,6 +63,7 @@ export function WorktreeBranchPrefixRow() {
 					onBlur={commit}
 					onChange={event => setDraft(event.target.value)}
 					onKeyDown={event => {
+						if (isImeKeyEvent(event)) return;
 						if (event.key === "Enter") commit();
 						if (event.key === "Escape") setDraft(saved);
 					}}

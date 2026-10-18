@@ -32,6 +32,7 @@ import { errorMessage } from "../../lib/error-detail";
 import { FILE_DRAG_TYPE } from "../../lib/file-drag";
 import { copyText, formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, PLATFORM } from "../../lib/keymap";
 import { useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
@@ -168,6 +169,7 @@ function EntryNameField({
 			}}
 			onClick={event => event.stopPropagation()}
 			onKeyDown={event => {
+				if (isImeKeyEvent(event)) return;
 				if (event.key === "Enter") {
 					event.preventDefault();
 					finish(true);

@@ -106,6 +106,7 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, row: FlatRow, index: number) => {
 		// Keys typed into a control inside the row (an inline rename field) stay with it.
 		if (event.target !== event.currentTarget) return;
+		// ime-ok: only the focused row itself reaches here, never a text field, so no composition is live.
 		if (row.node.onMenu && (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) {
 			event.preventDefault();
 			const rect = event.currentTarget.getBoundingClientRect();

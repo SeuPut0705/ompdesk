@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { AsyncSection } from "../common";
 
 export const STATS_RANGES = ["1h", "24h", "7d", "30d", "90d", "all"] as const;
@@ -171,6 +172,7 @@ export function StatTable<T>({
 							onKeyDown={
 								onRowClick
 									? event => {
+											if (isImeKeyEvent(event)) return;
 											if (event.key === "Enter" || event.key === " ") {
 												event.preventDefault();
 												onRowClick(row);

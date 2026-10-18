@@ -115,4 +115,21 @@ describe("WorktreeBranchPrefixRow", () => {
 		expect(input.value).toBe("alice/");
 		expect(input.getAttribute("aria-invalid")).toBeNull();
 	});
+
+	it("does not save on the Enter that commits a Hangul composition", async () => {
+		const input = await mount();
+		const press = (event: object) => {
+			const record = input as unknown as Record<string, unknown>;
+			const props = Object.getOwnPropertyNames(record).find(prop => prop.startsWith("__reactProps$"));
+			const handlers = props ? (record[props] as { onKeyDown?: (event: object) => void }) : {};
+			return act(async () => handlers.onKeyDown?.(event));
+		};
+		await type(input, "alice/");
+		await press({ key: "Enter", nativeEvent: { isComposing: true }, keyCode: 13 });
+		// Safari reports the committing Enter as keyCode 229 with isComposing already false.
+		await press({ key: "Enter", nativeEvent: { isComposing: false }, keyCode: 229 });
+		expect(set).not.toHaveBeenCalled();
+		await press({ key: "Enter", nativeEvent: { isComposing: false }, keyCode: 13 });
+		expect(set).toHaveBeenCalledWith("worktreeBranchPrefix", "alice/");
+	});
 });

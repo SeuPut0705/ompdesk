@@ -8,6 +8,7 @@
 import { useEffect, useId, useState } from "react";
 import { create } from "zustand";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { useTabHistoryStore } from "../../lib/tab-history";
 import { tabChipLabel, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
@@ -66,7 +67,7 @@ export function TabSwitcher() {
 			if (event.key === "Tab") move(event.shiftKey ? -1 : 1);
 			else if (event.key === "ArrowDown") move(1);
 			else if (event.key === "ArrowUp") move(-1);
-			else if (event.key === "Enter") {
+			else if (event.key === "Enter" && !isImeKeyEvent(event)) {
 				event.preventDefault();
 				commit();
 			}

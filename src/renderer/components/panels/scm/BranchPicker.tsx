@@ -10,6 +10,7 @@ import type { RpcGitBranch } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { isImeKeyEvent } from "../../../lib/ime";
 import type { TabRpc } from "../../../lib/tab-rpc";
 import { Button, ConfirmDialog, InlineNotice, MenuButton, Popover, SearchField, Spinner } from "../../common";
 import { PANEL_ROW } from "../PanelChrome";
@@ -179,7 +180,7 @@ export function BranchPicker({
 						controlSize="sm"
 						label={t("scm.branch.filter")}
 						onKeyDown={event => {
-							if (event.key === "Enter" && query.trim() && !exact) {
+							if (event.key === "Enter" && !isImeKeyEvent(event) && query.trim() && !exact) {
 								event.preventDefault();
 								act(
 									"create",
