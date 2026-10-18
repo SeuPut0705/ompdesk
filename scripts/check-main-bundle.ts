@@ -17,6 +17,10 @@
  *   in the renderer.
  * - the renderer ships no .woff or .ttf font: Electron's Chromium always takes the
  *   .woff2, and the renderer's `woff2OnlyFonts` plugin drops the older fallbacks.
+ * - the JavaScript a paired phone loads before its first screen (`web.html`'s entry,
+ *   the app it imports, `../main`, and their static imports) stays within
+ *   WEB_FIRST_SCREEN_JS_BYTES; the side panel's views (PanelViews.tsx) are never in
+ *   it. e2e/web-perf.e2e.ts measures what that costs a phone.
  */
 
 import { spawnSync } from "node:child_process";
@@ -35,6 +39,11 @@ const WS_PROBE_CONFIG = fileURLToPath(new URL("./ws-bundle-probe.config.ts", imp
 const OPTIONAL_PEER_STUB = /__viteOptionalPeerDep_\w+/g;
 /** A property name only axe-core's source carries; it survives minification. */
 const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
+/**
+ * The phone's first-screen JavaScript, raw bytes (3.79 MB on 18 Oct 2026 after the side panel's views went lazy,
+ * 4.17 MB before): a build that grows past it fails, so the next eager import is a decision, not an accident.
+ */
+const WEB_FIRST_SCREEN_JS_BYTES = 3_900_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
@@ -124,7 +133,40 @@ if (legacyFonts.length > 0) {
 	process.exit(1);
 }
 
+// The phone's first screen: web.html's entry chunk, the app chunk it imports (`main-*`), and their static imports.
+const transpiler = new Bun.Transpiler({ loader: "js" });
+const webHtml = await fs.readFile(path.join(RENDERER, "web.html"), "utf8");
+const webEntry = /<script type="module"[^>]*src="\.\/assets\/([^"]+)"/.exec(webHtml)?.[1];
+if (!webEntry) {
+	console.error("out/renderer/web.html names no module entry under ./assets/.");
+	process.exit(1);
+}
+const firstScreen = new Map<string, number>();
+const addChunk = async (name: string, followDynamic: boolean): Promise<void> => {
+	if (firstScreen.has(name)) return;
+	const code = await fs.readFile(RENDERER_ASSETS + name, "utf8");
+	firstScreen.set(name, Buffer.byteLength(code));
+	for (const { path: specifier, kind } of transpiler.scanImports(code)) {
+		const file = specifier.startsWith("./") ? specifier.slice(2) : null;
+		if (!file?.endsWith(".js")) continue;
+		if (kind === "import-statement") await addChunk(file, false);
+		else if (followDynamic && kind === "dynamic-import" && file.startsWith("main-")) await addChunk(file, false);
+	}
+};
+await addChunk(webEntry, true);
+const firstScreenBytes = [...firstScreen.values()].reduce((total, size) => total + size, 0);
+const panelChunk = [...firstScreen.keys()].find(name => name.startsWith("PanelViews-"));
+if (panelChunk || firstScreenBytes > WEB_FIRST_SCREEN_JS_BYTES) {
+	console.error(
+		`The paired phone's first screen loads ${(firstScreenBytes / 1e6).toFixed(2)} MB of JavaScript in ${firstScreen.size} files ` +
+			`(budget ${(WEB_FIRST_SCREEN_JS_BYTES / 1e6).toFixed(2)} MB)${panelChunk ? `, the side panel's views (${panelChunk}) among them` : ""}. ` +
+			"Load what the first screen does not show lazily (React.lazy / import()), or raise the budget in scripts/check-main-bundle.ts with numbers from e2e/web-perf.e2e.ts.",
+	);
+	process.exit(1);
+}
+
 console.log(
 	"main bundle is self-contained: no un-bundled runtime imports, no optional-peer stubs, the bundled ws carries " +
-		"masked frames; the renderer ships no axe-core and no .woff/.ttf fonts",
+		`masked frames; the renderer ships no axe-core and no .woff/.ttf fonts; the phone's first screen loads ` +
+		`${(firstScreenBytes / 1e6).toFixed(2)} MB of JavaScript`,
 );
