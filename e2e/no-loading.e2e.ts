@@ -413,15 +413,13 @@ test.describe("loading perf (opt-in)", () => {
 					warmStop.resolve();
 					scenarios["warm start"]?.push(numbers(await readLoading(warm.page), warm));
 					if (warmFrames) await composeStrip(await warmFrames, path.join(stripBase, "desktop-warm.png"), browser);
-					// Switch: to a second tab and back to the long one.
-					await warm.page.evaluate(
-						async cwd => (await window.omp.tabs.spawn({ cwd, kind: "agent" }))?.tabId ?? null,
-						profile.project,
-					);
-					const rows = warm.page.locator("[data-session-path^='tab:']");
-					await expect(rows).toHaveCount(2, { timeout: 30_000 });
-					await rows.filter({ hasText: "New session" }).first().locator("button").first().click();
-					await warm.page.waitForTimeout(800);
+					// Switch: a second tab, each shown once, then ⌘2 and back with ⌘1 (the measured switch).
+					await openSecondTab(warm.page, profile.project);
+					for (const key of ["ControlOrMeta+2", "ControlOrMeta+1"]) {
+						await warm.page.keyboard.press(key);
+						await expect(warm.page.getByText("Long session answer 249", { exact: true })).toBeVisible();
+						await warm.page.waitForTimeout(800);
+					}
 					await warm.page.evaluate(() => {
 						window.__nl?.reset();
 						document.documentElement.dataset.probeExpectRows = "1";
@@ -430,19 +428,13 @@ test.describe("loading perf (opt-in)", () => {
 					const switchFrames = record
 						? recordFrames(warm.page, path.join(stripBase, "desktop-switch"), switchStop.promise, 40)
 						: null;
-					const clickedAt = await warm.page.evaluate(() => performance.now());
-					await rows.filter({ hasNotText: "New session" }).first().locator("button").first().click();
+					await warm.page.keyboard.press("ControlOrMeta+2");
 					await expect(warm.page.getByText("Long session answer 249", { exact: true })).toBeVisible();
 					await warm.page.waitForTimeout(800);
 					switchStop.resolve();
-					const switched = await readLoading(warm.page);
-					scenarios["tab switch"]?.push({
-						...numbers(switched),
-						rowAfterClickMs: round(await warm.page.evaluate(() => window.__nl?.rowAt ?? null)),
-					});
+					scenarios["tab switch"]?.push(numbers(await readLoading(warm.page)));
 					if (switchFrames)
 						await composeStrip(await switchFrames, path.join(stripBase, "desktop-switch.png"), browser);
-					void clickedAt;
 					await browser.close();
 					await exitApp(warm.app);
 				} finally {
