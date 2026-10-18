@@ -1098,7 +1098,8 @@ export function runRpcUi(): void {
 				const file = nodePath.join(dir, entry.name, "SKILL.md");
 				if (!entry.isDirectory() || !fs.existsSync(file)) return [];
 				const head = /^---\n([\s\S]*?)\n---/.exec(fs.readFileSync(file, "utf8"))?.[1] ?? "";
-				const field = (key: string) => new RegExp(`^${key}:\\s*(.*)$`, "m").exec(head)?.[1]?.replace(/^"(.*)"$/, "$1") ?? "";
+				const field = (key: string) =>
+					new RegExp(`^${key}:\\s*(.*)$`, "m").exec(head)?.[1]?.replace(/^"(.*)"$/, "$1") ?? "";
 				return [
 					{
 						name: field("name"),
@@ -1307,7 +1308,12 @@ export function runRpcUi(): void {
 			];
 			const pstack = process.env.OMP_GUI_TEST_PSTACK === "1" ? pstackSectionText() : undefined;
 			if (pstack) {
-				entries.push({ id: "prompt:2", category: "systemContext", label: "<pstack>", tokens: Math.ceil(pstack.length / 4) });
+				entries.push({
+					id: "prompt:2",
+					category: "systemContext",
+					label: "<pstack>",
+					tokens: Math.ceil(pstack.length / 4),
+				});
 			}
 			return {
 				model: model.id,

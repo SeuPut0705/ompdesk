@@ -13,7 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { z } from "zod";
-import { cleanupAp, command, launchAp, makeApProfile, mainTab, startRun, waitForStatus } from "./autopilot-harness";
+import { cleanupAp, command, launchAp, mainTab, makeApProfile, startRun, waitForStatus } from "./autopilot-harness";
 import { exitApp, launchApp, recordsOfType } from "./harness";
 
 const Inspected = z.object({ entries: z.array(z.object({ id: z.string(), label: z.string() })) });
@@ -27,7 +27,10 @@ async function launch(prefs: Record<string, unknown>) {
 	const agent = path.join(root, "agent");
 	const record = path.join(root, "rpc.jsonl");
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true, ...prefs }));
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language: "en", firstRunComplete: true, ...prefs }),
+	);
 	const app = await launchApp({
 		project,
 		desktop,
@@ -40,7 +43,9 @@ async function launch(prefs: Record<string, unknown>) {
 	await expect
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
-	const tab = await page.evaluate(() => window.omp.tabs.list().then(tabs => tabs.find(item => item.active)?.tabId ?? ""));
+	const tab = await page.evaluate(() =>
+		window.omp.tabs.list().then(tabs => tabs.find(item => item.active)?.tabId ?? ""),
+	);
 	return { app, page, tab, record, root };
 }
 
@@ -71,13 +76,20 @@ test("on by default: the pack loads, its skills are listed, a Code session's mai
 	test.setTimeout(120_000);
 	const { app, page, tab, record } = await launch({});
 	try {
-		const launches = await recordsOfType(record, "launch");
-		const argv = launches.flatMap(frame => (Array.isArray(frame.argv) ? (frame.argv as string[]) : []));
+		const argv = await spawnArgv(record);
 		expect(argv.some(arg => arg.endsWith(path.join("omp-builtin", "pstack")))).toBe(true);
 
 		const skills = await skillsOf(page, tab);
 		const names = skills.map(skill => skill.name);
-		expect(names).toEqual(expect.arrayContaining(["poteto-mode", "pstack-adapter", "pstack-tdd", "pstack-teach", "principle-fix-root-causes"]));
+		expect(names).toEqual(
+			expect.arrayContaining([
+				"poteto-mode",
+				"pstack-adapter",
+				"pstack-tdd",
+				"pstack-teach",
+				"principle-fix-root-causes",
+			]),
+		);
 		expect(names).not.toContain("tdd");
 		expect(names).not.toContain("teach");
 		expect(names).not.toContain("setup-pstack");
@@ -99,7 +111,7 @@ test("Plan mode leaves the section out and it returns with the mode; Solo delega
 	const { app, page, tab } = await launch({});
 	try {
 		const full = await sectionOf(page, tab);
-		expect(full).toContain("`agent: \"pstack-agent\"`");
+		expect(full).toContain('`agent: "pstack-agent"`');
 		expect((await command(page, tab, { type: "set_plan_mode", enabled: true })).success).toBe(true);
 		expect(await sectionOf(page, tab)).toBeUndefined();
 		expect((await command(page, tab, { type: "set_plan_mode", enabled: false })).success).toBe(true);
@@ -120,11 +132,12 @@ test("the switch off: no pack root, no pstack skills, no section", async () => {
 	test.setTimeout(120_000);
 	const { app, page, tab, record } = await launch({ pstack: false });
 	try {
-		const launches = await recordsOfType(record, "launch");
-		const argv = launches.flatMap(frame => (Array.isArray(frame.argv) ? (frame.argv as string[]) : []));
+		const argv = await spawnArgv(record);
 		expect(argv.some(arg => arg.endsWith(path.join("omp-builtin", "pstack")))).toBe(false);
 		const names = (await skillsOf(page, tab)).map(skill => skill.name);
-		expect(names.filter(name => name.startsWith("principle-") || name.startsWith("pstack-") || name === "poteto-mode")).toEqual([]);
+		expect(
+			names.filter(name => name.startsWith("principle-") || name.startsWith("pstack-") || name === "poteto-mode"),
+		).toEqual([]);
 		expect(await sectionOf(page, tab)).toBeUndefined();
 	} finally {
 		await exitApp(app);

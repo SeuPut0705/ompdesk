@@ -8,6 +8,8 @@
 			"e2e/**/*.ts",
 			"resources/**/*.ts",
 			"resources/omp-builtin/**",
+			"!resources/omp-builtin/pstack",
+			"!resources/gui-bridge/modes/pstack-text.ts",
 			"src/main/test-fixtures/*.mjs",
 			"scripts/**/*.ts",
 			"scripts/**/*.mjs",

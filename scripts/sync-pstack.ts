@@ -68,12 +68,7 @@ const RULES: Rule[] = [
 		"Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `poteto-agent` prompt.",
 		"Bundled skills are read as `skill://<name>`. Tell every `pstack-agent` you spawn to read `skill://poteto-mode` first.",
 	),
-	rule(
-		"mode-askquestion",
-		/^poteto-mode\/SKILL\.md$/,
-		"About to `AskQuestion` on",
-		"About to `ask` on",
-	),
+	rule("mode-askquestion", /^poteto-mode\/SKILL\.md$/, "About to `AskQuestion` on", "About to `ask` on"),
 	rule(
 		"mode-create-skill",
 		/^poteto-mode\/SKILL\.md$/,
@@ -114,7 +109,7 @@ const RULES: Rule[] = [
 		"mode-subagents",
 		/^poteto-mode\/SKILL\.md$/,
 		/## Subagents\n[\s\S]*?(?=\n## Writing the reply)/,
-		"## Subagents\n\nSubagents run through omp's `task` tool. Pass `agent: \"pstack-agent\"` for code-writing delegates and ad-hoc helpers (it reads this skill first), leave `agent` out for the default `task` agent, use `scout` or `reviewer` for read-only work. The chat that runs the playbook never delegates the playbook itself. Routed workflow skills (`how`, `why`, `interrogate`, `reflect`, `swarm`) set their own spawns, so respect what they prescribe.\n\n" +
+		'## Subagents\n\nSubagents run through omp\'s `task` tool. Pass `agent: "pstack-agent"` for code-writing delegates and ad-hoc helpers (it reads this skill first), leave `agent` out for the default `task` agent, use `scout` or `reviewer` for read-only work. The chat that runs the playbook never delegates the playbook itself. Routed workflow skills (`how`, `why`, `interrogate`, `reflect`, `swarm`) set their own spawns, so respect what they prescribe.\n\n' +
 			`${MODEL_ROLES} Hand a hard change to \`@slow\` through the task call's model override. File pointers beat inlined context. You own every subagent's work: review the diff and write your own summary. A second opinion is the same prompt on a different model, and agreement is high-signal. Give new work to a fresh subagent with the consolidated brief, every later directive and the prior report. Reuse one only when the new work strictly needs state that lives in it (its checkout, uncommitted changes, a running process). A session you opened with \`ompdesk_session_open\` is the exception: continue it with \`ompdesk_session_send\`.\n`,
 	),
 	rule(
@@ -130,12 +125,7 @@ const RULES: Rule[] = [
 		"and open its full steps at the `skill://poteto-mode/playbooks/<file>.md` path printed after the entry.",
 	),
 	rule("mode-pause-cursor", /^poteto-mode\/SKILL\.md$/, "a Cursor restart", "an omp or OMPdesk restart"),
-	rule(
-		"mode-orchestrate-entry",
-		/^poteto-mode\/SKILL\.md$/,
-		/- \*\*Orchestrate\.\*\*.*\n/,
-		"",
-	),
+	rule("mode-orchestrate-entry", /^poteto-mode\/SKILL\.md$/, /- \*\*Orchestrate\.\*\*.*\n/, ""),
 	rule(
 		"mode-orchestrate-route",
 		/^poteto-mode\/SKILL\.md$/,
@@ -195,7 +185,7 @@ const RULES: Rule[] = [
 		"how-spawn",
 		/^how\/SKILL\.md$/,
 		/Every spawn is a Task subagent with `subagent_type: generalPurpose` and `readonly: true`\.[\s\S]*?(?= Pick each subagent's reasoning level)/,
-		"Every spawn is a `task` subagent with `agent: \"scout\"` (read-only). Explorers run on `@task`, and every explainer on `@slow`. If the `task` tool rejects a model, use that default and say so.",
+		'Every spawn is a `task` subagent with `agent: "scout"` (read-only). Explorers run on `@task`, and every explainer on `@slow`. If the `task` tool rejects a model, use that default and say so.',
 	),
 	rule(
 		"reflect-agents",
@@ -255,7 +245,7 @@ const RULES: Rule[] = [
 		"arena-judge",
 		/^arena\/SKILL\.md$/,
 		/choose one model from the `arena cross-judge pool` line in `~\/\.cursor\/rules\/pstack-models\.mdc`\. If the rule or that line is missing, choose from `claude-opus-5-5-xhigh` and `grok-4\.7-xhigh-fast`\. Prefer a different model family from the parent's\. Spawn one readonly judge subagent on that model\./,
-		"choose a judge model from a different family than the parent's (the `advisor` role, or another configured provider). Spawn one read-only judge (`agent: \"reviewer\"`) on that model.",
+		'choose a judge model from a different family than the parent\'s (the `advisor` role, or another configured provider). Spawn one read-only judge (`agent: "reviewer"`) on that model.',
 	),
 	rule(
 		"architect-runners",
@@ -552,7 +542,7 @@ const RULES: Rule[] = [
 	rule(
 		"audit-transcripts",
 		/^poteto-mode\/scripts\/worktree-audit\.sh$/,
-		'# Transcripts dir: ~/.cursor/projects/<slugified-repo-path>/agent-transcripts.\nslug=$(printf \'%s\' "$main_wt" | sed \'s#^/##; s#/#-#g\')\ntranscripts="$HOME/.cursor/projects/$slug/agent-transcripts"',
+		"# Transcripts dir: ~/.cursor/projects/<slugified-repo-path>/agent-transcripts.\nslug=$(printf '%s' \"$main_wt\" | sed 's#^/##; s#/#-#g')\ntranscripts=\"$HOME/.cursor/projects/$slug/agent-transcripts\"",
 		'# Transcripts dir: every omp session folder (the worktree path is searched for inside them).\ntranscripts="$HOME/.omp/agent/sessions"',
 	),
 	// ── generic ──────────────────────────────────────────────────────────────────────────────────
@@ -577,7 +567,10 @@ function applyRules(relPath: string, text: string, counted: Counted[]): string {
 	for (const entry of counted) {
 		if (!entry.rule.files.test(relPath)) continue;
 		const before = out;
-		out = typeof entry.rule.from === "string" ? out.split(entry.rule.from).join(entry.rule.to) : out.replace(entry.rule.from, entry.rule.to);
+		out =
+			typeof entry.rule.from === "string"
+				? out.split(entry.rule.from).join(entry.rule.to)
+				: out.replace(entry.rule.from, entry.rule.to);
 		if (out !== before) entry.hits++;
 	}
 	return out;
@@ -605,7 +598,9 @@ function upstreamSource(): { dir: string; cleanup: () => void } {
 		return { dir: override, cleanup: () => {} };
 	}
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pstack-src-"));
-	execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", `https://github.com/${config.repo}`, tmp], { stdio: "inherit" });
+	execFileSync("git", ["clone", "--filter=blob:none", "--no-checkout", `https://github.com/${config.repo}`, tmp], {
+		stdio: "inherit",
+	});
 	execFileSync("git", ["-C", tmp, "checkout", config.commit], { stdio: "inherit" });
 	return { dir: tmp, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
 }
@@ -613,8 +608,12 @@ function upstreamSource(): { dir: string; cleanup: () => void } {
 function check(): void {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pstack-check-"));
 	try {
-		execFileSync("git", ["clone", "--filter=blob:none", "--bare", `https://github.com/${config.repo}`, tmp], { stdio: "ignore" });
-		const log = execFileSync("git", ["-C", tmp, "log", "--oneline", `${config.commit}..HEAD`, "--", config.path], { encoding: "utf8" });
+		execFileSync("git", ["clone", "--filter=blob:none", "--bare", `https://github.com/${config.repo}`, tmp], {
+			stdio: "ignore",
+		});
+		const log = execFileSync("git", ["-C", tmp, "log", "--oneline", `${config.commit}..HEAD`, "--", config.path], {
+			encoding: "utf8",
+		});
 		console.log(log.trim() ? log : `pstack/ unchanged since ${config.commit}`);
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
@@ -657,7 +656,11 @@ function main(): void {
 		// Agents: the wrapper is OMPdesk's own (pstack-agent.md); comment-sicko is translated.
 		const agentsOut = path.join(PACK, "agents");
 		fs.mkdirSync(agentsOut, { recursive: true });
-		const sicko = applyRules("comment-sicko.md", fs.readFileSync(path.join(upstream, "agents/comment-sicko.md"), "utf8"), counted);
+		const sicko = applyRules(
+			"comment-sicko.md",
+			fs.readFileSync(path.join(upstream, "agents/comment-sicko.md"), "utf8"),
+			counted,
+		);
 		fs.writeFileSync(path.join(agentsOut, "comment-sicko.md"), withAgentTools(sicko));
 
 		// pstack-adapter skill: the adapter text as a readable skill (subagents have no `<pstack>` section).
@@ -676,7 +679,8 @@ function main(): void {
 		fs.writeFileSync(LICENSE_COPY, license);
 
 		const unmatched = counted.filter(entry => entry.hits === 0).map(entry => entry.rule.id);
-		if (unmatched.length) throw new Error(`pstack translation rules matched nothing (upstream reworded?): ${unmatched.join(", ")}`);
+		if (unmatched.length)
+			throw new Error(`pstack translation rules matched nothing (upstream reworded?): ${unmatched.join(", ")}`);
 
 		// Generated bridge text.
 		fs.writeFileSync(TEXT_MODULE, renderTextModule(assemblePstackSections(PACK)));
@@ -684,8 +688,13 @@ function main(): void {
 		// Manifest of every pack file (OMPdesk-owned ones included).
 		const files = walk(PACK).filter(rel => rel !== "pstack-manifest.json");
 		const manifest = Object.fromEntries(files.map(rel => [rel, sha256(fs.readFileSync(path.join(PACK, rel)))]));
-		fs.writeFileSync(MANIFEST, `${JSON.stringify({ commit: config.commit, version: config.version, files: manifest }, null, "\t")}\n`);
-		console.log(`Vendored pstack ${config.version} (${config.commit.slice(0, 7)}): ${files.length} files, ${RULES.length} rules; owned: ${OWNED.join(", ")}`);
+		fs.writeFileSync(
+			MANIFEST,
+			`${JSON.stringify({ commit: config.commit, version: config.version, files: manifest }, null, "\t")}\n`,
+		);
+		console.log(
+			`Vendored pstack ${config.version} (${config.commit.slice(0, 7)}): ${files.length} files, ${RULES.length} rules; owned: ${OWNED.join(", ")}`,
+		);
 	} finally {
 		source.cleanup();
 	}
@@ -703,7 +712,10 @@ function insertNote(text: string): string {
 
 /** comment-sicko only reads: restrict its tools (omp agent frontmatter) and give it model roles. */
 function withAgentTools(text: string): string {
-	return text.replace(/^---\n([\s\S]*?)\n---\n/, (_all, head: string) => `---\n${head}\ntools: [read, grep, glob, find]\nmodel: ["@slow", "@task"]\n---\n`);
+	return text.replace(
+		/^---\n([\s\S]*?)\n---\n/,
+		(_all, head: string) => `---\n${head}\ntools: [read, grep, glob, find]\nmodel: ["@slow", "@task"]\n---\n`,
+	);
 }
 
 main();

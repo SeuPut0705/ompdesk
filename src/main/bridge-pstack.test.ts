@@ -49,7 +49,7 @@ describe("pstackText", () => {
 	});
 
 	it("flips only the delegation paragraph when delegation is off", () => {
-		expect(PSTACK_SECTION).toContain("agent: \"pstack-agent\"");
+		expect(PSTACK_SECTION).toContain('agent: "pstack-agent"');
 		expect(PSTACK_SECTION_SOLO).not.toContain("ompdesk_session_open` with `worktree: true`. Never delegate");
 		expect(PSTACK_SECTION_SOLO).toContain("there is no `task` tool");
 		const head = (text: string) => text.slice(0, text.indexOf("## Delegation"));
@@ -61,7 +61,9 @@ describe("pstackText", () => {
 	it("keeps the routing gate and the precedence line in the full section", () => {
 		expect(PSTACK_SECTION).toContain("## Routing gate");
 		expect(PSTACK_SECTION).toContain("A trivial request gets a plain answer");
-		expect(PSTACK_SECTION).toMatch(/repository's rules files[^]*then what the user asks for[^]*then a skill the user invoked/);
+		expect(PSTACK_SECTION).toMatch(
+			/repository's rules files[\s\S]*then what the user asks for[\s\S]*then a skill the user invoked/,
+		);
 	});
 
 	it("keeps the Autopilot variant away from shipping playbooks", () => {
@@ -80,8 +82,13 @@ interface FakeSession {
 	tools: string[];
 }
 
-function fakeHost(session: FakeSession | undefined): { host: PstackHost; run: (ctx: PromptSectionContext) => string[] } {
-	let handler: ((event: { systemPrompt: string[] }, ctx: PromptSectionContext) => { systemPrompt: string[] } | undefined) | undefined;
+function fakeHost(session: FakeSession | undefined): {
+	host: PstackHost;
+	run: (ctx: PromptSectionContext) => string[];
+} {
+	let handler:
+		| ((event: { systemPrompt: string[] }, ctx: PromptSectionContext) => { systemPrompt: string[] } | undefined)
+		| undefined;
 	const host: PstackHost = {
 		on: (_event, fn) => {
 			handler = fn;
@@ -140,7 +147,11 @@ describe("install", () => {
 
 	it("swaps in the condensed section while an Autopilot run is running or stopping, not after it ended", () => {
 		const { run } = fakeHost({ planMode: false, tools });
-		const state = (value: string): JournalEntry => ({ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: { state: value } });
+		const state = (value: string): JournalEntry => ({
+			type: "custom",
+			customType: AUTOPILOT_STATE_ENTRY,
+			data: { state: value },
+		});
 		expect(run(context("main", [state("running")]))).toEqual(["base", PSTACK_AUTOPILOT_SECTION]);
 		expect(run(context("main", [state("running"), state("stopping")]))).toEqual(["base", PSTACK_AUTOPILOT_SECTION]);
 		expect(run(context("main", [state("running"), state("ended")]))).toEqual(["base", PSTACK_SECTION]);

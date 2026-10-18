@@ -252,7 +252,8 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		id: "pstack",
 		section: "agent",
 		labelKey: "settings.gui.pstack",
-		aliases: "pstack engineering mode playbooks principles skills rules poteto 엔지니어링 모드 플레이북 원칙 스킬 규칙",
+		aliases:
+			"pstack engineering mode playbooks principles skills rules poteto 엔지니어링 모드 플레이북 원칙 스킬 규칙",
 	},
 	{
 		id: "autoTitle",

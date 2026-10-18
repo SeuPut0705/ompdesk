@@ -62,7 +62,9 @@ describe("pack integrity", () => {
 	it("matches the sync's checksum manifest (a hand edit of a generated file fails here)", () => {
 		expect(files).toEqual(Object.keys(manifest.files).sort());
 		for (const file of files) {
-			const hash = createHash("sha256").update(readFileSync(path.join(PACK, file))).digest("hex");
+			const hash = createHash("sha256")
+				.update(readFileSync(path.join(PACK, file)))
+				.digest("hex");
 			expect(hash, file).toBe(manifest.files[file]);
 		}
 	});
@@ -77,7 +79,9 @@ describe("pack integrity", () => {
 		for (const gone of ["setup-pstack", "poteto-help", "make-bot-ui", "tdd", "teach"]) {
 			expect(skillNames, gone).not.toContain(gone);
 		}
-		expect(skillNames).toEqual(expect.arrayContaining(["pstack-tdd", "pstack-teach", "poteto-mode", "pstack-adapter"]));
+		expect(skillNames).toEqual(
+			expect.arrayContaining(["pstack-tdd", "pstack-teach", "poteto-mode", "pstack-adapter"]),
+		);
 		expect(existsSync(path.join(SKILLS, "poteto-mode/scripts/watch-pr"))).toBe(false);
 		expect(existsSync(path.join(SKILLS, "poteto-mode/scripts/orch"))).toBe(false);
 		expect(existsSync(path.join(SKILLS, "poteto-mode/playbooks/orchestrate.md"))).toBe(false);
@@ -86,9 +90,29 @@ describe("pack integrity", () => {
 
 /** Stock omp's bundled skills and the names users commonly install: a pack skill must not take them. */
 const KNOWN_OTHER_SKILLS = [
-	"tdd", "teach", "review", "prototype", "caveman", "ponytail", "qa", "plan", "debug", "diagnosing-bugs",
-	"codebase-design", "design-an-interface", "domain-modeling", "grilling", "ompdesk", "reverse-engineer-anything",
-	"find-skills", "obsidian-vault", "cavecrew", "setup-pre-commit", "request-refactor-plan", "learn", "recap",
+	"tdd",
+	"teach",
+	"review",
+	"prototype",
+	"caveman",
+	"ponytail",
+	"qa",
+	"plan",
+	"debug",
+	"diagnosing-bugs",
+	"codebase-design",
+	"design-an-interface",
+	"domain-modeling",
+	"grilling",
+	"ompdesk",
+	"reverse-engineer-anything",
+	"find-skills",
+	"obsidian-vault",
+	"cavecrew",
+	"setup-pre-commit",
+	"request-refactor-plan",
+	"learn",
+	"recap",
 ];
 
 describe("skills", () => {
@@ -131,7 +155,8 @@ describe("skills", () => {
 			}
 			if (!file.startsWith("skills/")) continue;
 			for (const link of text.matchAll(/\]\((\.{1,2}\/[^)#\s]+)(?:#[^)]*)?\)/g)) {
-				if (!existsSync(path.resolve(path.dirname(path.join(PACK, file)), link[1]))) missing.push(`${file}: ${link[1]}`);
+				if (!existsSync(path.resolve(path.dirname(path.join(PACK, file)), link[1])))
+					missing.push(`${file}: ${link[1]}`);
 			}
 		}
 		expect(missing).toEqual([]);
@@ -142,7 +167,13 @@ describe("translation", () => {
 	/** Cursor-only or Claude-only names that must not survive; the adapter texts name them on purpose. */
 	const FORBIDDEN =
 		/AskQuestion|generalPurpose|~?\/?\.cursor|\bCursor\b|Bugbot|pstack-models|claude-opus|grok-|cloud_base_branch|run_in_background|subagent_type|readonly: |agent-transcripts|`Task`|Task tool|cursor-team-kit|\/setup-pstack|poteto-help|poteto-agent|make-bot-ui|watch-pr|todolist|\bcloud agent|control-ui|control-cli/;
-	const exempt = new Set(["skills/pstack-adapter/SKILL.md", "adapter.md", "README.md", "UPSTREAM-LICENSE", "agents/pstack-agent.md"]);
+	const exempt = new Set([
+		"skills/pstack-adapter/SKILL.md",
+		"adapter.md",
+		"README.md",
+		"UPSTREAM-LICENSE",
+		"agents/pstack-agent.md",
+	]);
 
 	it("leaves no Cursor-only term in a translated file", () => {
 		const hits: string[] = [];

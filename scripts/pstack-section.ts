@@ -53,7 +53,12 @@ function playbookLines(body: string, playbookDir: string): string[] {
 		const item = /^- \*\*(.+?)\.\*\* (.*)$/.exec(line);
 		if (!item) continue;
 		const explicit = /File: `playbooks\/([a-z0-9-]+\.md)`/.exec(item[2]);
-		const file = explicit?.[1] ?? `${item[1].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.md`;
+		const file =
+			explicit?.[1] ??
+			`${item[1]
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-|-$/g, "")}.md`;
 		if (!fs.existsSync(path.join(playbookDir, file))) {
 			throw new Error(`poteto-mode lists the playbook "${item[1]}" but playbooks/${file} does not exist`);
 		}
