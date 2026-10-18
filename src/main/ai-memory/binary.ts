@@ -20,7 +20,7 @@ import { chmod, copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promi
 import { join } from "node:path";
 import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { compareVersions } from "../../shared/version";
-import { executableName, findOnPath } from "../spawn";
+import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 
 export type AiMemoryPlatform = "darwin" | "win32";
 
@@ -105,9 +105,16 @@ export function parseAiMemoryVersion(output: string): string | null {
 /** `<bin> --version`, or null when it does not run or does not say. */
 export function probeVersion(bin: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
 	const { promise, resolve } = Promise.withResolvers<string | null>();
-	execFile(bin, ["--version"], { env, timeout: 10_000, windowsHide: true }, (error, stdout) => {
-		resolve(error ? null : parseAiMemoryVersion(stdout));
-	});
+	// A Windows `.cmd` launcher (the e2e's fake) only starts through cmd.exe; the release `.exe` starts directly.
+	const args = spawnArgs(bin, ["--version"]);
+	execFile(
+		spawnCommand(bin),
+		args,
+		{ env, timeout: 10_000, windowsHide: true, shell: needsShell(bin) },
+		(error, stdout) => {
+			resolve(error ? null : parseAiMemoryVersion(stdout));
+		},
+	);
 	return promise;
 }
 

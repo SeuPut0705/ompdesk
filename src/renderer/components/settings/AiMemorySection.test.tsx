@@ -46,6 +46,7 @@ const api = {
 	openWeb: vi.fn(async () => {}),
 	copyWebPassword: vi.fn(async () => {}),
 	revealData: vi.fn(async () => {}),
+	setTerminal: vi.fn(async (_enabled: boolean) => {}),
 };
 Object.assign(window as unknown as Record<string, unknown>, { omp: { aiMemory: api } });
 
@@ -135,7 +136,7 @@ describe("Settings › Memory (ai-memory)", () => {
 
 	it("shows the step while starting and keeps the switch from being flipped", async () => {
 		await mount(ready({ phase: "starting", step: "wire", stats: null }));
-		expect(text()).toContain("Starting: connecting it to omp");
+		expect(text()).toContain("Starting: setting up the server and OMPdesk's extension");
 		expect(document.body.querySelector("[role=switch]")?.hasAttribute("disabled")).toBe(true);
 	});
 
@@ -175,6 +176,36 @@ describe("Settings › Memory (ai-memory)", () => {
 		);
 		await click(confirm.at(-1) ?? null);
 		expect(api.purge).toHaveBeenCalledTimes(1);
+	});
+
+	it("offers the terminal omp as an explicit button, and the reverse once it is connected", async () => {
+		await mount(ready());
+		expect(text()).toContain("writes nothing to ~/.omp");
+		expect(document.body.querySelector("[data-ai-memory-terminal]")).toBeNull();
+		await click(button("Also use in the terminal omp"));
+		expect(api.setTerminal).toHaveBeenCalledWith(true);
+		await act(async () => root?.unmount());
+		root = null;
+		document.body.innerHTML = "";
+		useAiMemoryStore.getState().reset();
+		await mount(ready({ wiring: { app: false, terminal: true } }));
+		expect(document.body.querySelector("[data-ai-memory-terminal]")?.textContent).toContain(
+			"Removing takes out only",
+		);
+		expect(button("Also use in the terminal omp")).toBeNull();
+		await click(button("Remove from the terminal omp"));
+		expect(api.setTerminal).toHaveBeenLastCalledWith(false);
+	});
+
+	it("shows the terminal row while memory is off only when the terminal omp is still connected", async () => {
+		await mount(ready({ enabled: false, phase: "off", stats: null }));
+		expect(button("Also use in the terminal omp")).toBeNull();
+		await act(async () => root?.unmount());
+		root = null;
+		document.body.innerHTML = "";
+		useAiMemoryStore.getState().reset();
+		await mount(ready({ enabled: false, phase: "off", stats: null, wiring: { app: false, terminal: true } }));
+		expect(button("Remove from the terminal omp")).not.toBeNull();
 	});
 
 	it("hides the console and data rows while memory is off, and says unsupported plainly", async () => {

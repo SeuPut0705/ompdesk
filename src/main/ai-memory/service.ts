@@ -37,6 +37,7 @@ import {
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
 import { SetupRunner } from "../setup/runner";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import {
 	type AiMemoryPlatform,
 	type ExternalInstall,
@@ -470,7 +471,7 @@ export class AiMemoryService {
 		let output = "";
 		// Its own commands read the working directory as "this project" (setup's doctor, `status`): a neutral one.
 		const outcome = await this.#runner.run(
-			{ file: bin, args, shell: false },
+			{ file: spawnCommand(bin), args: spawnArgs(bin, args), shell: needsShell(bin) },
 			{ ...(await this.#deps.spawnEnv()), ...extraEnv },
 			chunk => {
 				output = (output + chunk).slice(-OUTPUT_TAIL);
