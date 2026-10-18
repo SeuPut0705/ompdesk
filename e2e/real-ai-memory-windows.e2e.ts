@@ -148,7 +148,14 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 		// Off: OMPdesk started the service and nothing else uses it, so the entry, the supervisor and the server go.
 		await page.evaluate(() => window.omp.aiMemory.setEnabled(false));
 		await phase("off");
-		expect(logonEntry()).toBeNull();
+		const listing = spawnSync(bin, ["uninstall"], {
+			env: { ...process.env, ...isolation, PI_CODING_AGENT_DIR: agent },
+			encoding: "utf8",
+		});
+		expect(
+			logonEntry(),
+			`the logon entry survived "off"; ai-memory's uninstall dry run says:\n${listing.stdout}${listing.stderr}\nstate: ${JSON.stringify(await state())}`,
+		).toBeNull();
 		await expect.poll(healthy, { timeout: 30_000 }).toBe(false);
 		for (const pid of pids) await expect.poll(() => alive(pid), { timeout: 30_000 }).toBe(false);
 		expect(existsSync(extRoot)).toBe(false);
