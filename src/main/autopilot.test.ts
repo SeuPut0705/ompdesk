@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_OBJECTIVE,
@@ -28,6 +28,10 @@ import { createWorktree } from "./local/git/worktree";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
+
+// A start runs real git processes (branch facts, worktree, push target); on a loaded Windows runner one test
+// crossed vitest's 5 s once (win-platform run 39111794694: "is not a run when the goal cannot be created").
+vi.setConfig({ testTimeout: 30_000 });
 
 interface Call {
 	tab: string;
