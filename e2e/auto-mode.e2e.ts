@@ -60,7 +60,7 @@ async function finish(launched: Launched): Promise<void> {
 
 const composer = (page: Page): Locator => page.locator(".omp-composer-input").first();
 const chip = (page: Page): Locator => page.locator("[data-auto-mode-chip]");
-const modeButton = (page: Page): Locator => page.locator("[data-composer-modes-trigger]");
+const modeButton = (page: Page): Locator => page.locator("[data-run-settings-trigger]");
 
 async function send(page: Page, message: string, replies: number): Promise<void> {
 	await composer(page).fill(message);

@@ -94,7 +94,7 @@ for (const language of variants(["en", "ko"] as const))
 				await captureTo(captures, page, `autopilot-timeline-older-${language}-${theme}`);
 
 				// The Mode popover shows the run instead of the sheet.
-				await page.locator("[data-composer-modes-trigger]").click();
+				await page.locator("[data-run-settings-trigger]").click();
 				await expect(page.locator("[data-autopilot-run]")).toBeVisible();
 				await capture(page, `${language}-${theme}-mode`);
 				await page.keyboard.press("Escape");
@@ -108,7 +108,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("[data-board-cycle]").first()).toBeVisible();
 				await expect(page.locator("[data-board-autopilot-totals]")).toBeVisible();
 				// And the composer chip names the cycle and the area.
-				await expect(page.locator("[data-composer-modes-trigger]")).toContainText(TEXT[language].running);
+				await expect(page.locator("[data-run-settings-trigger]")).toContainText(TEXT[language].running);
 
 				// The worktree's folder (`gui-<date>-<hash>`) never shows: the project and the kind do, the path is the tooltip.
 				const project = path.basename(profile.project);
@@ -274,7 +274,7 @@ test("a usage limit waits for the quota, books a resume by itself and retries af
 		const waiting = await status(page, tabId);
 		expect(waiting.cycles?.length).toBe(1);
 		await expect(page.locator("[data-autopilot-now]")).toBeVisible();
-		await expect(page.locator("[data-composer-modes-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
+		await expect(page.locator("[data-run-settings-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
 		await capture(page, "quota-wait");
 		// After the reset stock `retry` runs, cycle 2 completes and the run goes on.
 		await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 3, "the run resumes after the reset", 90_000);
@@ -292,7 +292,7 @@ test("the project guide: a repo without one gets a draft in the sheet, the edite
 	const profile = await makeApProfile({ script: { cycleMs: 900 } });
 	const { app, page } = await launchAp(profile);
 	try {
-		await page.locator("[data-composer-modes-trigger]").click();
+		await page.locator("[data-run-settings-trigger]").click();
 		await page.getByRole("tab", { name: /^(Autopilot|오토파일럿)/ }).click();
 		const box = page.locator("[data-autopilot-guide]");
 		// The fake omp has no smol model: the draft is the deterministic template over what the repo says.

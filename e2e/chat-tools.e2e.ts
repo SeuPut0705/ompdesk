@@ -105,7 +105,7 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 	await expect(page.getByPlaceholder("Ask anything", { exact: true })).toBeVisible();
 
 	// Every tool surface an agent session has.
-	await expect(page.locator("[data-composer-modes-trigger]")).toBeVisible();
+	await expect(page.locator("[data-run-settings-trigger]")).toBeVisible();
 	await page.locator("[data-run-settings-trigger]").click();
 	await expect(page.locator("select[data-approval-mode]")).toBeVisible();
 	await page.keyboard.press("Escape");

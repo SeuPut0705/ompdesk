@@ -30,7 +30,7 @@ for (const language of ["en", "ko"] as const)
 					});
 				};
 				const popover = page.locator('[role="dialog"]').filter({ has: page.locator("[data-tab-id='autopilot']") });
-				await page.locator("[data-composer-modes-trigger]").click();
+				await page.locator("[data-run-settings-trigger]").click();
 				await expect(popover).toBeVisible();
 				for (const tab of ["plan", "goal", "autopilot"]) {
 					await popover.locator(`[data-tab-id="${tab}"]`).click();

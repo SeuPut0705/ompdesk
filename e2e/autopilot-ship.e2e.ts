@@ -257,7 +257,7 @@ for (const language of ["en", "ko"] as const)
 		const { app, page } = await launchAp(profile);
 		const text = SHEET[language];
 		const openSheet = async () => {
-			await page.locator("[data-composer-modes-trigger]").click();
+			await page.locator("[data-run-settings-trigger]").click();
 			await page.getByRole("tab", { name: text.tab }).click();
 			await expect(page.locator("[data-autopilot-sheet]")).toBeVisible();
 		};

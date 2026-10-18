@@ -35,7 +35,7 @@ test("autopilot cycles", async () => {
 		await recorder.reset();
 		await recorder.attach(page);
 		await page.waitForTimeout(1_000);
-		await page.locator("[data-composer-modes-trigger]").click();
+		await page.locator("[data-run-settings-trigger]").click();
 		await page.getByRole("tab", { name: /^Autopilot/ }).click();
 		await page.waitForTimeout(2_200);
 		await page.locator("[data-autopilot-start]").click();

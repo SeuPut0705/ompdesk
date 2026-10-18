@@ -354,7 +354,7 @@ const AUTOPILOT_TAB: Record<Language, RegExp> = { en: /^Autopilot/, ko: /^오토
 
 /** Start a run the way a user does: Mode popover > Autopilot > Start. The run's tab opens focused; resolves with it. */
 export async function startFromSheet(page: Page, language: Language): Promise<RunTab> {
-	await page.locator("[data-composer-modes-trigger]").click();
+	await page.locator("[data-run-settings-trigger]").click();
 	await page.getByRole("tab", { name: AUTOPILOT_TAB[language] }).click();
 	await page.locator("[data-autopilot-start]").click();
 	return waitForRunTab(page);
