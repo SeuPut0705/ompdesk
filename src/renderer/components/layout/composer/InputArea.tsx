@@ -1,7 +1,6 @@
 import {
 	ArrowUp,
 	ChevronDown,
-	ClipboardPaste,
 	CornerDownRight,
 	Cpu,
 	Ellipsis,
@@ -17,11 +16,9 @@ import {
 	Sparkles,
 	Square,
 	Target,
-	X,
 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { removeFileMention } from "../../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../../shared/rpc-types";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
 import { useNextPrompt } from "../../../hooks/use-next-prompt";
@@ -38,13 +35,7 @@ import { chordFromEvent, formatShortcut, isComposerFollowUpKey, PLATFORM } from 
 import { continueList } from "../../../lib/list-continue";
 import { abortActiveTurn } from "../../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../../lib/next-prompt";
-import {
-	dropReferencedPastes,
-	editPaste,
-	expandPasteMarkers,
-	getPaste,
-	referencedPasteIds,
-} from "../../../lib/paste-blobs";
+import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import {
@@ -68,18 +59,17 @@ import { useSettingsStore } from "../../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { CompletionList } from "./CompletionList";
+import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
-import { ComposerThumbnail } from "./ComposerThumbnail";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileMentionFor } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
-import { DraftFileCards } from "./DraftFileCards";
 import { draftKeys, loadDraft, saveDraft } from "./draft-persistence";
 import { fitFieldHeight } from "./field-height";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
@@ -90,7 +80,6 @@ import {
 	NextPromptChips,
 	type NextPromptChipsHandle,
 } from "./NextPromptChips";
-import { PastedTextDialog } from "./PastedTextDialog";
 import { PasteMenu } from "./PasteMenu";
 import { RunSettings } from "./RunSettings";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
@@ -243,9 +232,6 @@ export function InputArea() {
 	/** "Stop and send": submit the draft once the take is transcribed into it. */
 	const sendAfterDictationRef = useRef(false);
 	const recording = dictation !== "idle";
-	/** The folded paste open in "Edit pasted text". */
-	const [editingPaste, setEditingPaste] = useState<number | null>(null);
-	const draftPastes = useMemo(() => referencedPasteIds(text), [text]);
 	/** The draft's pictures while ↑/↓ shows history entries (restored on the way back). */
 	const navDraftImages = useRef<ComposerImage[]>([]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
@@ -1201,91 +1187,14 @@ export function InputArea() {
 								{t("input.deliveryUnknown")}
 							</Banner>
 						)}
-						{images.length > 0 && (
-							<ul aria-label={t("input.attachments")} className="flex flex-wrap gap-2.5 px-3 pt-3">
-								{images.map((image, index) => (
-									<li key={index} className="relative">
-										<ComposerThumbnail
-											data={image.content.data}
-											mimeType={image.content.mimeType}
-											src={image.preview}
-											alt={t("input.attachmentAlt", { index: index + 1 })}
-											className="size-14 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) object-cover"
-											gallery={images.map((item, itemIndex) => ({
-												src: item.preview,
-												alt: t("input.attachmentAlt", { index: itemIndex + 1 }),
-											}))}
-											onRemove={() =>
-												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
-											}
-										/>
-										<IconButton
-											className="omp-composer-attachment-remove absolute -top-1.5 -right-1.5"
-											icon={<X />}
-											label={t("input.removeAttachment", { index: index + 1 })}
-											onClick={() => {
-												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index));
-												// The button leaves with its picture: typing goes on in the field, never on <body>.
-												textareaRef.current?.focus();
-											}}
-											size="sm"
-											variant="secondary"
-										/>
-									</li>
-								))}
-							</ul>
-						)}
-						{sendingFiles.length > 0 && (
-							<ul aria-label={t("input.files.sendingList")} className="flex flex-wrap gap-1.5 px-3 pt-3">
-								{sendingFiles.map(entry => (
-									<li
-										key={entry.id}
-										className="flex h-7 max-w-full items-center gap-1.5 rounded-(--sc-radius-full) border border-(--sc-border-subtle) px-2.5 text-sc-xs text-(--sc-text-secondary)"
-										data-upload-chip=""
-									>
-										<Spinner size="sm" />
-										<span className="truncate">{t("input.files.sending", { name: entry.name })}</span>
-									</li>
-								))}
-							</ul>
-						)}
-						{draftPastes.length > 0 && (
-							<ul aria-label={t("input.paste.listLabel")} className="flex flex-wrap gap-1.5 px-3 pt-3">
-								{draftPastes.map(id => (
-									<li key={id}>
-										<button
-											className="flex h-7 items-center gap-1.5 rounded-(--sc-radius-full) border border-(--sc-border-subtle) px-2.5 text-sc-xs text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
-											data-paste-chip={id}
-											onClick={() => setEditingPaste(id)}
-											title={t("input.paste.edit")}
-											type="button"
-										>
-											<ClipboardPaste aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-muted)" />
-											<span className="tabular-nums">
-												{t("input.paste.chip", { id, lines: getPaste(id)?.lineCount ?? 0 })}
-											</span>
-										</button>
-									</li>
-								))}
-							</ul>
-						)}
-						<DraftFileCards
-							onRemove={path => {
-								// The card leaves with its mention: one native edit in the focused field (⌘Z puts it back).
-								const el = textareaRef.current;
-								el?.focus();
-								const next = removeFileMention(el?.value ?? text, path);
-								placeDraft(next, next.length);
-							}}
+						<ComposerAttachments
+							images={images}
+							placeDraft={placeDraft}
+							sendingFiles={sendingFiles}
+							setImages={setImages}
+							setText={setText}
 							text={text}
-						/>
-						<PastedTextDialog
-							onClose={() => setEditingPaste(null)}
-							onSave={(id, content) => {
-								setText(current => editPaste(current, id, content));
-								setEditingPaste(null);
-							}}
-							pasteId={editingPaste}
+							textareaRef={textareaRef}
 						/>
 						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
