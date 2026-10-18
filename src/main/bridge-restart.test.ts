@@ -1,7 +1,8 @@
 /**
  * What a relaunch's restore reads from the journal beyond stock `restoreSession`
  * (resources/gui-bridge/restart-core.ts): background bash jobs the last process
- * started and never finished, and a goal that was still active when it ended.
+ * started and never finished, the subagents it revived for a session whose own turn
+ * stays idle, and a goal that was still active when it ended.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -9,8 +10,9 @@ import {
 	interruptedJobs,
 	type JournalEntry,
 	RESTART_JOBS_MESSAGE,
-	restartJobsDetails,
-	restartJobsNotice,
+	RESTART_SUBAGENTS_MESSAGE,
+	restartFollowUp,
+	revivedSubagents,
 } from "../../resources/gui-bridge/restart-core";
 
 const exit: JournalEntry = { type: "custom", customType: "session_exit" };
@@ -113,32 +115,98 @@ describe("interruptedJobs", () => {
 		const named: JournalEntry = {
 			type: "custom_message",
 			customType: RESTART_JOBS_MESSAGE,
-			content: restartJobsNotice([{ id: "bg_7", command: "x", intent: "Watch" }]),
+			content: restartFollowUp([{ id: "bg_7", command: "x", intent: "Watch" }], [])?.content,
 		};
 		expect(interruptedJobs(replaced(bashCall("c1", "x"), started("c1", "bg_7"), named), startedAt)).toEqual([]);
 	});
 });
 
-describe("restartJobsNotice", () => {
-	it("names each stopped job with its intent first, then its command, and asks for a quiet re-run of what is needed", () => {
-		const text = restartJobsNotice([
-			{ id: "bg_1", command: "npm test" },
-			{ id: "bg_2", command: "gh run watch 1", intent: "Watch release CI" },
+describe("revivedSubagents", () => {
+	const spawn = (tasks: Array<{ name: string; task: string }>): JournalEntry => ({
+		type: "message",
+		message: {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "t1", name: "task", arguments: { i: "Delegating", tasks } }],
+		},
+	});
+
+	it("names each revived subagent with its assignment's Title: line, else its first line, from the latest task call", () => {
+		const branch = [
+			spawn([{ name: "Release", task: "Title: old title\nbody" }]),
+			spawn([
+				{ name: "Release", task: "Title: v0.38.0 배포\n\n1. Integrate the branch" },
+				{ name: "Scout", task: "Find the flaky test\nthen report" },
+			]),
+		];
+		expect(revivedSubagents(branch, ["Release", "Scout", "Nested"])).toEqual([
+			{ id: "Release", intent: "v0.38.0 배포" },
+			{ id: "Scout", intent: "Find the flaky test" },
+			// A child of a subagent was not spawned by this session: its id alone.
+			{ id: "Nested" },
 		]);
-		const lines = text.split("\n");
+	});
+
+	it("keeps a long first line to one short list line", () => {
+		const [agent] = revivedSubagents([spawn([{ name: "Long", task: "x".repeat(300) }])], ["Long"]);
+		expect(agent?.intent).toHaveLength(120);
+		expect(agent?.intent?.endsWith("…")).toBe(true);
+	});
+});
+
+describe("restartFollowUp", () => {
+	it("says nothing when the restart left nothing to tell", () => {
+		expect(restartFollowUp([], [])).toBeUndefined();
+	});
+
+	it("names each stopped job with its intent first, then its command, and asks for a quiet re-run of what is needed", () => {
+		const followUp = restartFollowUp(
+			[
+				{ id: "bg_1", command: "npm test" },
+				{ id: "bg_2", command: "gh run watch 1", intent: "Watch release CI" },
+			],
+			[],
+		);
+		expect(followUp?.customType).toBe(RESTART_JOBS_MESSAGE);
+		const lines = followUp?.content.split("\n") ?? [];
 		expect(lines[1]).toBe("- bg_1: `npm test`");
 		expect(lines[2]).toBe("- bg_2: Watch release CI — `gh run watch 1`");
-		expect(text).toMatch(/only the jobs the work still needs/);
-		expect(text).toMatch(/Say nothing about the restart/);
+		expect(followUp?.content).toMatch(/only the jobs the work still needs/);
+		expect(followUp?.content).toMatch(/Say nothing about the restart/);
 	});
 
 	it("gives the transcript only ids and intents, never a command", () => {
-		const details = restartJobsDetails([
-			{ id: "bg_1", command: "secret --token=abc" },
-			{ id: "bg_2", command: "y", intent: "Watch release CI" },
-		]);
+		const details = restartFollowUp(
+			[
+				{ id: "bg_1", command: "secret --token=abc" },
+				{ id: "bg_2", command: "y", intent: "Watch release CI" },
+			],
+			[],
+		)?.details;
 		expect(details).toEqual({ jobs: [{ id: "bg_1" }, { id: "bg_2", intent: "Watch release CI" }] });
 		expect(JSON.stringify(details)).not.toContain("secret");
+	});
+
+	it("tells an idle session which subagents work again: check them, tell the user briefly, keep supervising, no restart talk", () => {
+		const followUp = restartFollowUp([], [{ id: "Release", intent: "v0.38.0 배포" }, { id: "Nested" }]);
+		expect(followUp?.customType).toBe(RESTART_SUBAGENTS_MESSAGE);
+		const lines = followUp?.content.split("\n") ?? [];
+		expect(lines[1]).toBe("- Release: v0.38.0 배포");
+		expect(lines[2]).toBe("- Nested");
+		expect(followUp?.content).toMatch(/tell the user in a sentence or two what is still in progress/);
+		expect(followUp?.content).toMatch(/keep supervising/);
+		expect(followUp?.content).toMatch(/Say nothing about the restart/);
+		expect(followUp?.details).toEqual({
+			jobs: [],
+			subagents: [{ id: "Release", intent: "v0.38.0 배포" }, { id: "Nested" }],
+		});
+	});
+
+	it("folds stopped jobs and revived subagents into one follow-up, so the session gets one turn", () => {
+		const followUp = restartFollowUp([{ id: "bg_1", command: "make" }], [{ id: "Scout" }]);
+		expect(followUp?.customType).toBe(RESTART_JOBS_MESSAGE);
+		expect(followUp?.content).toContain("- bg_1: `make`");
+		expect(followUp?.content).toContain("- Scout");
+		expect(followUp?.details).toEqual({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }] });
 	});
 });
 

@@ -2344,6 +2344,7 @@ export const ko: Record<string, string> = {
 	"settings.gui.transcript.full": "전체",
 	"chat.resumingStopFailed": "이어서 하던 작업을 멈추지 못했어요",
 	"chat.restartJobs": "재시작 때 멈춘 백그라운드 작업 {count}개를 다시 실행해요",
+	"chat.restartSubagents": "재시작 뒤 백그라운드 작업 {count}개를 이어서 진행해요",
 	"settings.gui.transcript.fullDesc": "모든 사고 과정 블록과 도구 카드를 보여줘요.",
 	"settings.gui.proxy": "HTTP 프록시",
 	"settings.gui.proxyDesc":

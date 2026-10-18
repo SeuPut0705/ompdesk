@@ -75,12 +75,12 @@ function callsMentioning(agent: string, needle: string): number {
 	return count;
 }
 
-/** The top-level session's assistant text after the restart notice: it should re-run what it needs without narrating. */
-function assistantTextAfterRestartNotice(agent: string): string[] {
+/** The top-level session's assistant text after the relaunch's follow-up `customType`: it should carry on without narrating. */
+function assistantTextAfterNotice(agent: string, customType = "ompdesk-restart-jobs"): string[] {
 	const sessions = path.join(agent, "sessions");
 	return sessionFiles(agent).flatMap(file => {
 		if (path.relative(sessions, file.file).split(path.sep).length !== 2) return [];
-		const notice = file.lines.findIndex(line => line.customType === "ompdesk-restart-jobs");
+		const notice = file.lines.findIndex(line => line.customType === customType);
 		if (notice < 0) return [];
 		return file.lines
 			.slice(notice + 1)
@@ -193,6 +193,8 @@ interface QuietUi {
 	resumingRows: number;
 	resumeToasts: number;
 	restartNotes: string[];
+	/** The muted lines naming subagents the relaunch revived (`ompdesk-restart-subagents`). */
+	subagentNotes: string[];
 	userBubbles: string[];
 	restartText: number;
 	/** Distance of the transcript from its bottom, in px. */
@@ -207,8 +209,9 @@ async function quietUi(page: Page): Promise<QuietUi> {
 			resumingRows: seen?.rows ?? 0,
 			resumeToasts: seen?.toasts ?? 0,
 			restartNotes: [...document.querySelectorAll("[data-restart-jobs]")].map(node => node.textContent ?? ""),
+			subagentNotes: [...document.querySelectorAll("[data-restart-subagents]")].map(node => node.textContent ?? ""),
 			userBubbles: [...document.querySelectorAll(".omp-user-bubble")].map(node => node.textContent ?? ""),
-			restartText: document.body.innerText.includes("OMPdesk restarted") ? 1 : 0,
+			restartText: /OMPdesk restarted|working again/.test(document.body.innerText) ? 1 : 0,
 			gapToBottom: scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight : -1,
 		};
 	});
@@ -426,13 +429,23 @@ test("real omp update restart (c1): a background subagent after the turn ended",
 				.toBeGreaterThan(1);
 			await new Promise(resolve => setTimeout(resolve, 3000));
 		},
-		continued: ({ agent }) => parentGotAfterExit(agent, "SUB-FINISHED"),
+		// The idle parent gets one follow-up naming the revived subagent and answers it (it no longer sits silent until
+		// the subagent's result), then the subagent's result arrives as before.
+		continued: ({ agent }) =>
+			assistantTextAfterNotice(agent, "ompdesk-restart-subagents").length > 0 &&
+			parentGotAfterExit(agent, "SUB-FINISHED"),
 		extra: ({ project, agent }) => ({
 			subDoneLines: existsSync(path.join(project, "sub-done.txt"))
 				? readFileSync(path.join(project, "sub-done.txt"), "utf8").trim().split("\n").length
 				: 0,
 			parentSawResult: parentGotAfterExit(agent, "SUB-FINISHED"),
+			saidAfterNotice: assistantTextAfterNotice(agent, "ompdesk-restart-subagents"),
 		}),
+		expectUi: ui => {
+			expect(ui.resumeToasts, "no resume toast").toBe(0);
+			expect(ui.subagentNotes, "one muted line for the revived subagent").toHaveLength(1);
+			expect(ui.restartText, "the notice's text is not on screen").toBe(0);
+		},
 	});
 });
 
@@ -475,7 +488,7 @@ test("real omp update restart (b2): a background bash job after the turn ended",
 		},
 		continued: ({ project }) => existsSync(path.join(project, "bg-done.txt")),
 		// The notice names the job to the model; the window shows one muted line, no toast, no bubble, no commands.
-		extra: ({ agent }) => ({ saidAfterNotice: assistantTextAfterRestartNotice(agent) }),
+		extra: ({ agent }) => ({ saidAfterNotice: assistantTextAfterNotice(agent) }),
 		expectUi: ui => {
 			expect(ui.resumeToasts, "no resume toast").toBe(0);
 			expect(ui.restartNotes, "one muted line for the stopped job").toHaveLength(1);

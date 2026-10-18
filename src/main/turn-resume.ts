@@ -335,6 +335,13 @@ function restoreSummary(data: Record<string, unknown> | undefined): string {
 export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
 
 /**
+ * How long a continuation's `restore_interrupted` and `retry` may take. Stock's restore reads every subagent
+ * transcript of the session before it answers (577 files, 1.1 GB took over 8 s on a cold relaunch, past the RPC
+ * client's default 8 s, so the reply was cut and logged `failed` while stock went on reviving).
+ */
+export const RESUME_COMMAND_TIMEOUT_MS = 2 * 60_000;
+
+/**
  * Resolves once `sidecar` can take commands; false when it fails, has already failed, or is not
  * ready within {@link RESUME_READY_TIMEOUT_MS}.
  */
@@ -673,19 +680,28 @@ export class TurnResume {
 			this.sync();
 			return false;
 		}
+		// Why a command did not answer: kept for the `continue` log line, never swallowed.
+		const failures: ResumeLogDetails = {};
 		const send = async (type: "restore_interrupted" | "retry"): Promise<Record<string, unknown> | undefined> => {
 			if (cancelled()) return undefined;
+			const key = type === "retry" ? "retry" : "restore";
 			let response: RpcResponse | undefined;
 			try {
-				response = await sidecar.rpcClient?.command({ type });
-			} catch {
-				response = undefined;
+				response = await sidecar.rpcClient?.command({ type }, RESUME_COMMAND_TIMEOUT_MS);
+			} catch (error) {
+				failures[`${key}Error`] = error instanceof Error ? error.message : String(error);
+				return undefined;
+			}
+			if (!response) failures[`${key}Error`] = "the tab has no omp connection";
+			else if (!response.success) {
+				failures[`${key}Error`] = response.error;
+				if (response.code) failures[`${key}Code`] = response.code;
 			}
 			const data: unknown = response?.success ? response.data : undefined;
 			return typeof data === "object" && data !== null ? { ...data } : undefined;
 		};
-		// Something goes on: the cut-off turn, a revived subagent, the agent told about the background
-		// jobs the restart stopped (the bridge sends that follow-up), or stock's retry.
+		// Something goes on: the cut-off turn, a revived subagent (the bridge tells an idle session about it in
+		// one follow-up turn), the agent told about the background jobs the restart stopped, or stock's retry.
 		const continues = (data: Record<string, unknown> | undefined): boolean =>
 			data?.turn === true ||
 			data?.retried === true ||
@@ -732,6 +748,8 @@ export class TurnResume {
 			prompt: promptSent,
 			goal: goalResumed,
 			started,
+			...(restored?.followUp === true ? { followUp: true } : {}),
+			...failures,
 			...(cancelled() ? { cancelled: true } : {}),
 		});
 		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : cancelled() ? "cancelled" : "none");

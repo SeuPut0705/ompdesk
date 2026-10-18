@@ -17,9 +17,8 @@ import {
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
-	RESTART_JOBS_MESSAGE,
-	restartJobsDetails,
-	restartJobsNotice,
+	restartFollowUp,
+	revivedSubagents,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
 
@@ -314,12 +313,14 @@ export const methods: BridgeMethods = {
 		/**
 		 * What `omp --restore` runs (stock's own continue path, TUI-only as a flag): the turn the
 		 * last process was cut off in plus the subagents it ran. `turn` is false with nothing left
-		 * unfinished, while a turn runs, or without a model. Two things stock leaves behind are
-		 * reported too: `jobs`, the background bash jobs that process started and never finished
-		 * (stock restores no bash job; the agent is told in one follow-up, shown in the transcript as one muted
-		 * line and never as a message, so it runs again what is still needed without narrating it), and
-		 * `goalPausedByExit`, a goal that was active until that process ended and that stock paused at startup
-		 * (the host resumes it after the restore).
+		 * unfinished, while a turn runs, or without a model. Stock leaves the agent unaware of some of
+		 * what the restart did; one follow-up tells it (displayed, shown in the transcript as muted lines
+		 * and never as a message, so it carries on without narrating the restart; `followUp` says it went):
+		 * `jobs`, the background bash jobs that process started and never finished (stock restores no bash
+		 * job), and, when the session's own turn does not go on, the subagents the restore revived (their
+		 * results arrive only when they finish, maybe hours later, and until then the session would sit
+		 * silent). `goalPausedByExit` is a goal that was active until that process ended and that stock
+		 * paused at startup (the host resumes it after the restore).
 		 */
 		"composer.restore_interrupted": async (_params, env) => {
 			const session = env.session() as Session;
@@ -345,27 +346,21 @@ export const methods: BridgeMethods = {
 				eventBus: taskTool?.session?.eventBus,
 				subagentEventBus: taskTool?.session?.subagentEventBus,
 			});
+			// A restored turn already goes on with its subagents (a cut-off `wait` reruns and finds them again).
+			const followUp = restartFollowUp(cutOff, outcome.turn ? [] : revivedSubagents(branch, outcome.subagents));
 			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
-			if (cutOff.length > 0) {
+			if (followUp) {
 				void session
-					.promptCustomMessage(
-						{
-							customType: RESTART_JOBS_MESSAGE,
-							content: restartJobsNotice(cutOff),
-							display: true,
-							details: restartJobsDetails(cutOff),
-						},
-						{ streamingBehavior: "followUp" },
-					)
+					.promptCustomMessage({ ...followUp, display: true }, { streamingBehavior: "followUp" })
 					.catch((error: unknown) =>
 						env.emit({
 							type: "notice",
 							level: "error",
-							message: `Telling the agent about stopped background jobs failed: ${error instanceof Error ? error.message : String(error)}`,
+							message: `Telling the agent what the restart left running failed: ${error instanceof Error ? error.message : String(error)}`,
 						}),
 					);
 			}
-			return { ...outcome, jobs: cutOff.map(job => job.id), goalPausedByExit };
+			return { ...outcome, jobs: cutOff.map(job => job.id), goalPausedByExit, followUp: followUp !== undefined };
 		},
 
 		"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),

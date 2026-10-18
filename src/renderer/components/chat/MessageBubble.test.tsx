@@ -510,6 +510,23 @@ describe("MessageBubble restart notice", () => {
 		expect(render(notice(undefined))).toContain("Re-running 1 background task(s)");
 		expect(render({ ...notice(undefined), display: false })).toBe("");
 	});
+
+	it("shows revived subagents as their own muted line, alone or under the jobs line, never the notice text", () => {
+		const subagents = render({
+			...notice({ jobs: [], subagents: [{ id: "Release0380", intent: "v0.38.0 배포" }, { id: "Scout" }] }),
+			customType: "ompdesk-restart-subagents",
+			content: "These background agents you started are working again; their results reach you as usual:",
+		});
+		expect(subagents).toContain("data-restart-subagents");
+		expect(subagents).not.toContain("data-restart-jobs");
+		expect(subagents).toContain("Continuing 2 background task(s) after the restart");
+		expect(subagents).toContain('title="v0.38.0 배포"');
+		expect(subagents).not.toContain("working again");
+		expect(subagents).not.toContain("omp-user-bubble");
+		const both = render(notice({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }] }));
+		expect(both).toContain("Re-running 1 background task(s) the restart stopped");
+		expect(both).toContain("Continuing 1 background task(s) after the restart");
+	});
 });
 
 describe("MessageBubble noise filtering", () => {
