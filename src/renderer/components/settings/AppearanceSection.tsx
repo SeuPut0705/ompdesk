@@ -46,7 +46,7 @@ import {
 import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { webRuntime } from "../../web/runtime";
-import { Button, Input, Select } from "../common";
+import { Button, Input, Select, SettingInfo } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 const THEME_SELECTIONS: readonly ThemeSelection[] = ["system", ...(Object.keys(THEMES) as ThemeName[])];
@@ -221,13 +221,14 @@ function ThisDeviceNote() {
 	if (!webRuntime()) return null;
 	return (
 		<p
-			className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sc-xs break-keep text-(--sc-text-muted)"
+			className="mb-3 flex items-center gap-2 text-sc-xs break-keep text-(--sc-text-muted)"
 			data-device-prefs-note="true"
 		>
 			<span className="rounded-full bg-(--sc-accent-soft) px-2 py-0.5 font-medium text-(--sc-text)">
 				{t("settings.appearance.thisDevice")}
 			</span>
-			<span>{t("settings.appearance.thisDeviceNote")}</span>
+			<span className="min-w-0 truncate">{t("settings.appearance.thisDeviceShort")}</span>
+			<SettingInfo text={t("settings.appearance.thisDeviceNote")} />
 		</p>
 	);
 }

@@ -19,6 +19,7 @@ interface Profile {
 	desktop: string;
 	env: Record<string, string>;
 	tailscale: FixtureTailscale;
+	project: string;
 }
 
 async function makeProfile(): Promise<Profile> {
@@ -40,11 +41,10 @@ async function makeProfile(): Promise<Profile> {
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(root),
-		OMP_GUI_TEST_SESSION_FILES: "1",
 		...tailscale.env,
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	return { root, desktop, env, tailscale };
+	return { root, desktop, project, env, tailscale };
 }
 
 async function launch(profile: Profile) {
@@ -76,11 +76,19 @@ async function shot(page: Page, name: string) {
 
 /** The phone's app is up (its header menu shows; the session behind it may still be starting). */
 async function phoneReady(phone: Page) {
-	await expect(phone.locator("header button:has(svg.lucide-menu)").first())
+	await expect(phone.locator("[data-composer-input]").first())
 		.toBeVisible({ timeout: 60_000 })
 		.catch(async error => {
 			await shot(phone, "no-app");
-			console.log("[phone body]", (await phone.locator("body").innerText().catch(() => "")).slice(0, 800));
+			console.log(
+				"[phone body]",
+				(
+					await phone
+						.locator("body")
+						.innerText()
+						.catch(() => "")
+				).slice(0, 800),
+			);
 			throw error;
 		});
 }
@@ -137,6 +145,10 @@ test("@smoke The phone sets dark while the computer stays light, across a reload
 		const context = await browser.newContext({ ...devices["Pixel 7"], colorScheme: "light" });
 		const phone = await context.newPage();
 		await phone.goto(`${proxy.url}/`);
+		// A web window starts with no tab of its own (the spinner): open one in the project, as the sidebar would.
+		await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
+		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), profile.project);
+		await phone.reload();
 		await phoneReady(phone);
 
 		// Nothing set on the phone: it follows the system, not the computer's own choice.

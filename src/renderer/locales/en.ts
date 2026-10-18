@@ -5710,6 +5710,7 @@ export const en: Record<string, string> = {
 	"settings.appearance.theme": "Theme",
 	"settings.appearance.text": "Text and spacing",
 	"settings.appearance.thisDevice": "This device",
+	"settings.appearance.thisDeviceShort": "Saved on this device only",
 	"settings.appearance.thisDeviceNote":
 		"Theme, text size, layout and how conversations look are saved for this device only. Changing them here doesn't change your computer, and the other way round.",
 	"settings.gui.colorBlindModeDesc": "Uses colors that stay distinguishable with common color-vision differences.",
