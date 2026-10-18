@@ -4769,7 +4769,6 @@ export const ko: Record<string, string> = {
 	"composerQueue.editSave": "대기 메시지 저장",
 	"composerQueue.editPlaceholder": "대기 메시지를 고쳐 보세요…",
 	"composerQueue.editGone": "“{text}” 메시지는 이미 전달됐어요. 고친 내용은 입력창 맨 앞에 있어요.",
-	"composerQueue.stopping": "멈추는 중…",
 
 	// Queue panel
 	"queuePanel.lane.steering": "추가 지시",

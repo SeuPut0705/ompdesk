@@ -4787,7 +4787,6 @@ export const en: Record<string, string> = {
 	"composerQueue.editSave": "Save queued message",
 	"composerQueue.editPlaceholder": "Edit the queued message…",
 	"composerQueue.editGone": "“{text}” was already delivered. Your edit is in the field, ahead of your draft.",
-	"composerQueue.stopping": "Stopping…",
 
 	// Queue panel
 	"queuePanel.lane.steering": "Steer",

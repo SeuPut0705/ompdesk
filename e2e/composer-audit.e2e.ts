@@ -17,8 +17,8 @@ type Language = "en" | "ko";
 type Theme = "light" | "dark";
 
 const TEXT = {
-	en: { toggle: "Toggle side panel", search: "side panel", queued: "Queued", stop: /^Stop/ },
-	ko: { toggle: "사이드 패널 전환", search: "사이드 패널", queued: "대기 중", stop: /^중단/ },
+	en: { toggle: "Toggle side panel", search: "side panel", stop: /^Stop/ },
+	ko: { toggle: "사이드 패널 전환", search: "사이드 패널", stop: /^중단/ },
 } as const;
 
 async function launch(
@@ -91,7 +91,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(input).toHaveValue("");
 				await expect(page.locator("[data-paste-chip]")).toHaveCount(0);
 				await expect(page.locator("[data-draft-file-cards]")).toHaveCount(0);
-				await expect(page.getByRole("region", { name: text.queued })).toBeVisible();
+				await expect(page.locator("[data-queue-pill]")).toContainText(/1/);
 				await capture(page, `${language}-${theme}-steer-queued`);
 				await expect.poll(async () => (await recordsOfType(record, "steer")).length).toBe(1);
 				const [steer] = await recordsOfType(record, "steer");

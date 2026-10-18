@@ -361,7 +361,7 @@ export function ComposerQueueLive() {
 	useEffect(() => {
 		const before = seen.current;
 		seen.current = { total, moved, held, editingLane, since: before.since };
-		if (Date.now() - before.since < LIVE_QUIET_MS) return;
+		const hydrating = Date.now() - before.since < LIVE_QUIET_MS;
 		if (editingLane && !before.editingLane)
 			setMessage(
 				`${t("composerQueue.editBanner")}. ${t("composerQueue.editSaves", { lane: t(`composerQueue.lane.${editingLane}`) })}`,
@@ -369,7 +369,7 @@ export function ComposerQueueLive() {
 		else if (held > before.held) setMessage(t("composerQueue.livePaused", { count: held }));
 		else if (moved && moved !== before.moved)
 			setMessage(t("composerQueue.liveMoved", { lane: t(`composerQueue.lane.${moved.lane}`) }));
-		else if (total > before.total) setMessage(t("composerQueue.liveQueued", { count: total }));
+		else if (!hydrating && total > before.total) setMessage(t("composerQueue.liveQueued", { count: total }));
 	}, [total, moved, held, editingLane, t]);
 	useEffect(() => {
 		if (!message) return;

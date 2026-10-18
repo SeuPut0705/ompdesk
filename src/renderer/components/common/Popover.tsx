@@ -109,6 +109,8 @@ export function Popover({
 		const onDown = (event: PointerEvent) => {
 			const target = event.target as globalThis.Node | null;
 			if (panel?.contains(target) || anchorRef.current?.contains(target)) return;
+			// A menu opened from inside the panel renders in a portal: pressing its items is not an outside press.
+			if (target instanceof Element && target.closest('[role="menu"]')) return;
 			onCloseRef.current();
 		};
 		const onKey = (event: KeyboardEvent) => {

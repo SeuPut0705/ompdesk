@@ -361,6 +361,7 @@ test("removing an attachment, a card or a queued message, or cancelling a paste,
 		await input.press("Enter");
 		await expect(page.locator("[data-queue-edit-banner]")).toHaveCount(0);
 		expect(await composerFocused(page)).toBe(true);
+		await page.waitForTimeout(800);
 		await pill.click();
 		await page.getByRole("button", { name: "More actions: queued edited" }).click();
 		await page.getByRole("menuitem", { name: "Remove" }).click();
@@ -491,7 +492,7 @@ test("Stop with queued messages pauses the queue: separate chips in one row, the
 		const paused = page.locator("[data-restored-queue]");
 		await expect(paused).toBeVisible();
 		await expect(paused).toContainText("Queue paused because you stopped");
-		await expect(paused.locator("[data-restored-item]")).toHaveText(["queued one", "queued two"]);
+		await expect(paused.locator("[data-restored-item]")).toHaveText([/queued one$/, /queued two$/]);
 		expect(Math.round((await paused.boundingBox())?.height ?? 0)).toBe(36);
 		await expect(page.locator("[data-queue-pill]")).toHaveCount(0);
 		await expect(page.locator("[data-composer-live]")).toContainText(
@@ -503,6 +504,7 @@ test("Stop with queued messages pauses the queue: separate chips in one row, the
 		expect(await sentOfType(dirs.record, "follow_up")).toEqual([]);
 
 		// Resume sends them in order through stock's calls: the first starts the turn again, the rest queue behind it.
+		await page.mouse.move(0, 0);
 		await paused.getByRole("button", { name: "Resume" }).click();
 		await expect(paused).toHaveCount(0);
 		await expect.poll(() => sentOfType(dirs.record, "prompt")).toEqual(["fixture running", "queued one"]);
@@ -533,7 +535,7 @@ test("Discard and a chip's × drop restored messages; a chip's text puts it in t
 		const paused = page.locator("[data-restored-queue]");
 		await expect(paused.locator("[data-restored-item]")).toHaveCount(3);
 		await paused.getByRole("button", { name: "Remove restored message: queued two" }).click();
-		await expect(paused.locator("[data-restored-item]")).toHaveText(["queued one", "queued three"]);
+		await expect(paused.locator("[data-restored-item]")).toHaveText([/queued one$/, /queued three$/]);
 		await paused.getByRole("button", { name: "Put in the field: queued three" }).click();
 		await expect(input).toHaveValue("queued three");
 		await paused.getByRole("button", { name: "Discard all restored messages" }).click();

@@ -276,7 +276,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 							className="omp-composer-action"
 							disabled={!routeReady}
 							icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
-							label={stopping ? t("composerQueue.stopping") : t("input.abort")}
+							label={t("input.abort")}
 							loading={stopping}
 							onClick={onStop}
 							shortcut="Esc"

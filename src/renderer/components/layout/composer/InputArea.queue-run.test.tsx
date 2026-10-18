@@ -248,12 +248,12 @@ describe("Esc and Stop in the composer", () => {
 		expect(document.querySelector("[data-deciding-hint]")).toBeNull();
 	});
 
-	it("keeps Stop busy and inert, named Stopping…, until the turn ends", async () => {
+	it("keeps Stop busy and inert until the turn ends", async () => {
 		await mount({ streaming: true });
 		const stop = button("Stop");
 		expect(stop?.hasAttribute("disabled")).toBe(false);
 		await act(async () => useComposerStore.getState().setStopping(true));
-		const busy = button("Stopping…");
+		const busy = button("Stop");
 		expect(busy?.hasAttribute("disabled")).toBe(true);
 		expect(busy?.getAttribute("aria-busy")).toBe("true");
 		await act(async () => useComposerStore.getState().setStopping(false));
