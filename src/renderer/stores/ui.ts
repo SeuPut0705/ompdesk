@@ -3,6 +3,7 @@ import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
+import { transitionView } from "../lib/view-transition";
 
 export type { ThemeMode };
 
@@ -470,6 +471,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setPanelTab: tab => {
 		const next = { panelTab: tab, panelVisible: true };
 		if (get().fileEditDirty && tab !== get().panelTab) set({ pendingFileSwitch: next });
+		else if (get().panelVisible && tab !== get().panelTab) transitionView(() => set(next));
 		else set(next);
 	},
 	openSubagentPanel: subagent => {
@@ -570,23 +572,28 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			get().openAgents(section && AGENTS_TABS.includes(section) ? (section as AgentsTab) : undefined);
 		else get().openInsights(section && INSIGHTS_TABS.includes(section) ? (section as InsightsTab) : undefined);
 	},
-	closeDestination: () => set({ destination: "session" }),
-	openAgents: tab => set(state => ({ destination: "agents", agentsTab: tab ?? state.agentsTab })),
+	closeDestination: () => transitionView(() => set({ destination: "session" })),
+	openAgents: tab =>
+		transitionView(() => set(state => ({ destination: "agents", agentsTab: tab ?? state.agentsTab }))),
 	openInsights: (tab, scope) =>
-		set(state => ({
-			destination: "insights",
-			insightsTab: tab ?? state.insightsTab,
-			insightsStatsScope: scope ?? state.insightsStatsScope,
-		})),
+		transitionView(() =>
+			set(state => ({
+				destination: "insights",
+				insightsTab: tab ?? state.insightsTab,
+				insightsStatsScope: scope ?? state.insightsStatsScope,
+			})),
+		),
 	// Without an explicit target, a page that is already open stays on its
 	// section: ⌘, pressed again must not bounce the user back to the first one
 	// (and wipe the search they typed).
 	openSettings: tab =>
-		set(state => ({
-			destination: "settings",
-			settingsTab: tab ?? (state.destination === "settings" ? state.settingsTab : DEFAULT_SETTINGS_TAB),
-		})),
-	setSettingsSection: tab => set({ settingsTab: tab }),
+		transitionView(() =>
+			set(state => ({
+				destination: "settings",
+				settingsTab: tab ?? (state.destination === "settings" ? state.settingsTab : DEFAULT_SETTINGS_TAB),
+			})),
+		),
+	setSettingsSection: tab => transitionView(() => set({ settingsTab: tab })),
 	openProviders: () => {
 		set({ providerForm: null });
 		get().openSettings("models:accounts");

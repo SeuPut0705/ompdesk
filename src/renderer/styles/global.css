@@ -470,6 +470,19 @@ html[data-platform="win32"] {
 	background: var(--omp-bg-tertiary);
 }
 
+/* The View Transitions API's cross-fade (lib/view-transition.ts) at the interaction duration, opacity only: no slide,
+   no scale of the root snapshot. */
+::view-transition-group(root) {
+	animation-duration: var(--sc-duration-fast);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation-duration: var(--sc-duration-fast);
+	animation-timing-function: var(--sc-ease-standard);
+	mix-blend-mode: normal;
+}
+
 /* A page or section that replaces another: one opacity fade in, nothing after it (still under software compositing). */
 .omp-page-in {
 	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
