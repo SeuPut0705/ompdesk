@@ -330,12 +330,23 @@ for (const { engine, device } of variants(
 			// stays visible and takes taps right below the panel.
 			const panel = page.locator("[data-work-strip-panel]");
 			await expect(panel).toHaveCount(0);
+			// The panel is not the docked board: it must not reserve room beside the columns (`data-work-board`).
+			const columns = async () => ({
+				row: (await page.locator("[data-transcript-kind]").first().boundingBox())?.width ?? 0,
+				composer: (await page.locator(".omp-composer-box").boundingBox())?.width ?? 0,
+				marked: await page.locator(".omp-session-pane[data-work-board]").count(),
+			});
+			const closedColumns = await columns();
 			await chip.click();
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
 			await expect(panel.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
 			await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
 			const panelBox = await settledBox(panel);
+			const openColumns = await columns();
+			expect(openColumns.marked).toBe(0);
+			expect(Math.abs(openColumns.row - closedColumns.row)).toBeLessThanOrEqual(2);
+			expect(Math.abs(openColumns.composer - closedColumns.composer)).toBeLessThanOrEqual(2);
 			const headerBottom = (headerBox?.y ?? 0) + (headerBox?.height ?? 0);
 			expect(panelBox.y).toBeGreaterThanOrEqual(headerBottom);
 			expect(panelBox.height).toBeLessThanOrEqual((viewport?.height ?? 0) * 0.5 + 1);

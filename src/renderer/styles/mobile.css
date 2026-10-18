@@ -533,6 +533,7 @@ html[data-shell="phone"] kbd {
 }
 
 /* The board names and hides itself in its own header; under the strip the strip names it and a pref toggle has no place. */
+.omp-work-strip-panel .omp-work-board-pulse,
 .omp-work-strip-panel .omp-work-board-name,
 .omp-work-strip-panel .omp-work-board-hide {
 	display: none;

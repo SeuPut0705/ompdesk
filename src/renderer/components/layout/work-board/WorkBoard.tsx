@@ -445,7 +445,12 @@ function goalNote(
 	return key ? t(key) : (status ?? "");
 }
 
-export function WorkBoard({ pane }: { pane: HTMLElement }) {
+/**
+ * `inline` is the board shown inside the phone's expanded status strip (WorkBoardChip): it takes no margin of the
+ * pane, so it never marks the pane (`data-work-board*`), which would shift the transcript and composer by the
+ * docked board's reserve; the strip already hides the dock cards that say the same.
+ */
+export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?: boolean }) {
 	const t = useT();
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
@@ -516,7 +521,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 	const showsRunning = running > 0;
 	const showsTodos = plan !== null;
 	useLayoutEffect(() => {
-		if (!present) return;
+		if (!present || inline) return;
 		// The dock strips that say the same thing step aside while the board shows it (components.css).
 		pane.setAttribute("data-work-board", "");
 		if (showsRunning) pane.setAttribute("data-work-board-running", "");
@@ -526,7 +531,7 @@ export function WorkBoard({ pane }: { pane: HTMLElement }) {
 			pane.removeAttribute("data-work-board-running");
 			pane.removeAttribute("data-work-board-todo");
 		};
-	}, [pane, present, showsRunning, showsTodos]);
+	}, [pane, present, inline, showsRunning, showsTodos]);
 	if (!present) return null;
 
 	const working = agents.filter(agent => !WAITING_AGENT[agent.status]).length + jobs.length + (turnActive ? 1 : 0);
@@ -881,7 +886,7 @@ export function WorkBoardHost() {
 			</div>
 			{chipPane && (
 				<WorkBoardChip>
-					<WorkBoard pane={chipPane} />
+					<WorkBoard inline pane={chipPane} />
 				</WorkBoardChip>
 			)}
 		</>
