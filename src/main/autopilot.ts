@@ -665,6 +665,12 @@ export class Autopilot {
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
 			};
 			run.status = await this.#bridge<AutopilotStatus>(newTab, AUTOPILOT_BRIDGE_METHODS.arm, arm);
+			for (const text of options.backlog ?? []) {
+				run.status = await this.#bridge<AutopilotStatus>(newTab, AUTOPILOT_BRIDGE_METHODS.backlog, {
+					op: "add",
+					text,
+				});
+			}
 			run.snapshot = await takeSnapshot(made.path, made.baseCwd).catch(() => null);
 			const tokenBudget = settings.limits.tokens;
 			const goalResponse = await this.#stockResponse(newTab, {
