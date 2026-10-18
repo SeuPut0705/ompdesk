@@ -63,3 +63,62 @@ if (pwaMode === "ios" || pwaMode === "push") {
 
 // Dynamic: the renderer reads `window.omp` as it evaluates, and a static import would run it before the lines above.
 await import("../main");
+
+// The responsive audit (e2e/responsive-audit.ts) opens dialogs, popovers and panels by setting the stores a click
+// would, so it needs them on the page. Stores are plain zustand hooks; the scoped ones follow the focused session.
+const [
+	ui,
+	tabs,
+	toast,
+	extensionUi,
+	planApproval,
+	queue,
+	composer,
+	session,
+	workBoard,
+	subagents,
+	autopilot,
+	mobileWeb,
+	remote,
+] = await Promise.all([
+	import("../stores/ui").then(module => module.useUiStore),
+	import("../stores/tabs").then(module => module.useTabsStore),
+	import("../stores/toast").then(module => module.useToastStore),
+	import("../stores/extension-ui").then(module => module.useExtensionUiStore),
+	import("../stores/plan-approval").then(module => module.usePlanApprovalStore),
+	import("../stores/queue").then(module => module.useQueueStore),
+	import("../stores/composer").then(module => module.useComposerStore),
+	import("../stores/session").then(module => module.useSessionStore),
+	import("../stores/work-board").then(module => module.useWorkBoardStore),
+	import("../stores/subagents").then(module => module.useSubagentsStore),
+	import("../stores/autopilot").then(module => module.useAutopilotStore),
+	import("../stores/mobile-web").then(module => module.useMobileWebStore),
+	import("../stores/remote").then(module => module.useRemoteStore),
+]);
+window.__stores = {
+	ui,
+	tabs,
+	toast,
+	extensionUi,
+	planApproval,
+	queue,
+	composer,
+	session,
+	workBoard,
+	subagents,
+	autopilot,
+	mobileWeb,
+	remote,
+};
+
+interface StoreHandle {
+	getState(): unknown;
+	setState(partial: unknown): void;
+}
+
+declare global {
+	interface Window {
+		/** The stores the responsive audit drives (harness only). */
+		__stores?: Record<string, StoreHandle>;
+	}
+}
