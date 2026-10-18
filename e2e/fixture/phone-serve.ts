@@ -34,12 +34,64 @@ export function serveSites(tailscale: FixtureTailscale): ServeSite[] {
 const DEVICE_COOKIE = "__Host-ompdesk";
 const PLAIN_COOKIE = "ompdesk-e2e";
 
+/** A phone's network (e2e/web-perf.e2e.ts): every byte between the page and the app crosses it. */
+export interface LinkProfile {
+	/** Round trip; half of it is added each way, and one more to a new connection's first request (its handshake). */
+	rttMs: number;
+	downKbps: number;
+	upKbps: number;
+}
+
+/** Bytes the page received and sent through the proxy, as they crossed the wire (compressed if the app compressed). */
+export interface WireBytes {
+	httpDown: number;
+	httpRequests: number;
+	wsDown: number;
+	wsUp: number;
+	wsFramesDown: number;
+}
+
 export interface ServeProxyOptions {
 	/**
 	 * WebKit drops a `Secure` cookie on `http://localhost`, so the page never stays paired: the proxy hands the
 	 * page the device cookie under a plain name without `Secure` and gives the app its real name back.
 	 */
 	plainCookie?: boolean;
+	/** Shape the traffic like this link (unset: loopback speed). `setLink` changes it later. */
+	link?: LinkProfile;
+}
+
+/**
+ * One direction of a shaped link: what is sent leaves in order, each chunk after the ones before it are through
+ * (the bandwidth), and arrives half a round trip later. One timer drains the queue, so order is never lost.
+ */
+class LinkPipe {
+	#free = 0;
+	#queue: { at: number; deliver: () => void }[] = [];
+	#timer: NodeJS.Timeout | undefined;
+
+	send(link: LinkProfile, kbps: number, bytes: number, deliver: () => void, extraMs = 0): void {
+		const now = performance.now();
+		const start = Math.max(now, this.#free);
+		this.#free = start + (bytes * 8) / kbps;
+		const at = Math.max(this.#queue.at(-1)?.at ?? 0, this.#free + link.rttMs / 2 + extraMs);
+		this.#queue.push({ at, deliver });
+		this.#arm();
+	}
+
+	#arm(): void {
+		const next = this.#queue[0];
+		if (this.#timer || !next) return;
+		this.#timer = setTimeout(
+			() => {
+				this.#timer = undefined;
+				const now = performance.now();
+				while (this.#queue[0] && this.#queue[0].at <= now + 0.5) this.#queue.shift()?.deliver();
+				this.#arm();
+			},
+			Math.max(0, next.at - performance.now()),
+		);
+	}
 }
 
 export class ServeProxy {
@@ -48,7 +100,13 @@ export class ServeProxy {
 	readonly #address: string;
 	readonly #plainCookie: boolean;
 	readonly #sockets = new Set<net.Socket>();
+	readonly #down = new LinkPipe();
+	readonly #up = new LinkPipe();
+	/** Client connections that have sent a request already (a new one pays its handshake once). */
+	readonly #warm = new WeakSet<net.Socket>();
+	#link: LinkProfile | undefined;
 	#target: ServeSite;
+	readonly bytes: WireBytes = { httpDown: 0, httpRequests: 0, wsDown: 0, wsUp: 0, wsFramesDown: 0 };
 
 	private constructor(
 		server: http.Server,
@@ -62,6 +120,7 @@ export class ServeProxy {
 		this.#login = login;
 		this.#address = address;
 		this.#plainCookie = options.plainCookie === true;
+		this.#link = options.link;
 	}
 
 	static async start(
@@ -89,6 +148,26 @@ export class ServeProxy {
 		this.#target = target;
 	}
 
+	setLink(link: LinkProfile | undefined): void {
+		this.#link = link;
+	}
+
+	/** Up the link to the app: `deliver` runs once the bytes would have arrived. */
+	#sendUp(socket: net.Socket, bytes: number, deliver: () => void): void {
+		const link = this.#link;
+		if (!link) return deliver();
+		const handshake = this.#warm.has(socket) ? 0 : link.rttMs;
+		this.#warm.add(socket);
+		this.#up.send(link, link.upKbps, bytes, deliver, handshake);
+	}
+
+	/** Down the link to the page. */
+	#sendDown(bytes: number, deliver: () => void): void {
+		const link = this.#link;
+		if (!link) return deliver();
+		this.#down.send(link, link.downKbps, bytes, deliver);
+	}
+
 	/** Cut every WebSocket the page has open (a network blip): the page reconnects on its own. */
 	dropSockets(): void {
 		for (const socket of this.#sockets) socket.destroy();
@@ -108,56 +187,87 @@ export class ServeProxy {
 	}
 
 	#forward(req: http.IncomingMessage, res: http.ServerResponse): void {
-		const upstream = http.request(
-			{
-				host: "127.0.0.1",
-				port: this.#target.port,
-				path: `${this.#target.prefix}${req.url ?? "/"}`,
-				method: req.method,
-				headers: this.#headers(req),
-			},
-			answer => {
-				// The device cookie is `__Host-` and `Secure`; Chromium keeps it on `http://localhost`, WebKit does not.
-				const cookies = answer.headers["set-cookie"];
-				if (this.#plainCookie && cookies) {
-					answer.headers["set-cookie"] = cookies.map(cookie =>
-						cookie.replace(`${DEVICE_COOKIE}=`, `${PLAIN_COOKIE}=`).replace(/;\s*Secure/i, ""),
-					);
-				}
-				res.writeHead(answer.statusCode ?? 502, answer.headers);
-				answer.pipe(res);
-			},
-		);
-		upstream.on("error", () => {
-			if (!res.headersSent) res.writeHead(502);
-			res.end();
+		this.bytes.httpRequests++;
+		this.#sendUp(req.socket, 0, () => {
+			const upstream = http.request(
+				{
+					host: "127.0.0.1",
+					port: this.#target.port,
+					path: `${this.#target.prefix}${req.url ?? "/"}`,
+					method: req.method,
+					headers: this.#headers(req),
+				},
+				answer => {
+					// The device cookie is `__Host-` and `Secure`; Chromium keeps it on `http://localhost`, WebKit does not.
+					const cookies = answer.headers["set-cookie"];
+					if (this.#plainCookie && cookies) {
+						answer.headers["set-cookie"] = cookies.map(cookie =>
+							cookie.replace(`${DEVICE_COOKIE}=`, `${PLAIN_COOKIE}=`).replace(/;\s*Secure/i, ""),
+						);
+					}
+					if (!this.#link) {
+						answer.on("data", (chunk: Buffer) => {
+							this.bytes.httpDown += chunk.length;
+						});
+						res.writeHead(answer.statusCode ?? 502, answer.headers);
+						answer.pipe(res);
+						return;
+					}
+					this.#sendDown(0, () => res.writeHead(answer.statusCode ?? 502, answer.headers));
+					answer.on("data", (chunk: Buffer) => {
+						this.bytes.httpDown += chunk.length;
+						this.#sendDown(chunk.length, () => res.write(chunk));
+					});
+					answer.on("end", () => this.#sendDown(0, () => res.end()));
+				},
+			);
+			upstream.on("error", () => {
+				if (!res.headersSent) res.writeHead(502);
+				res.end();
+			});
+			req.pipe(upstream);
 		});
-		req.pipe(upstream);
 	}
 
 	#upgrade(req: http.IncomingMessage, socket: net.Socket, head: Buffer): void {
-		const upstream = net.connect(Number(this.#target.port), "127.0.0.1", () => {
-			const headers = this.#headers(req);
-			const lines = [`${req.method} ${this.#target.prefix}${req.url ?? "/"} HTTP/1.1`];
-			for (const [name, value] of Object.entries(headers)) {
-				if (value === undefined) continue;
-				for (const one of Array.isArray(value) ? value : [value]) lines.push(`${name}: ${one}`);
-			}
-			upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
-			if (head.length > 0) upstream.write(head);
-			upstream.pipe(socket);
-			socket.pipe(upstream);
-		});
 		this.#sockets.add(socket);
+		let upstream: net.Socket | null = null;
 		const end = () => {
 			this.#sockets.delete(socket);
 			socket.destroy();
-			upstream.destroy();
+			upstream?.destroy();
 		};
-		upstream.on("error", end);
 		socket.on("error", end);
-		upstream.on("close", end);
 		socket.on("close", end);
+		this.#sendUp(socket, 0, () => {
+			if (socket.destroyed) return;
+			const target = net.connect(Number(this.#target.port), "127.0.0.1", () => {
+				const headers = this.#headers(req);
+				const lines = [`${req.method} ${this.#target.prefix}${req.url ?? "/"} HTTP/1.1`];
+				for (const [name, value] of Object.entries(headers)) {
+					if (value === undefined) continue;
+					for (const one of Array.isArray(value) ? value : [value]) lines.push(`${name}: ${one}`);
+				}
+				target.write(`${lines.join("\r\n")}\r\n\r\n`);
+				if (head.length > 0) target.write(head);
+				target.on("data", (chunk: Buffer) => {
+					this.bytes.wsDown += chunk.length;
+					this.bytes.wsFramesDown++;
+					this.#sendDown(chunk.length, () => {
+						if (!socket.destroyed) socket.write(chunk);
+					});
+				});
+				socket.on("data", (chunk: Buffer) => {
+					this.bytes.wsUp += chunk.length;
+					this.#sendUp(socket, chunk.length, () => {
+						if (!target.destroyed) target.write(chunk);
+					});
+				});
+			});
+			upstream = target;
+			target.on("error", end);
+			target.on("close", end);
+		});
 	}
 
 	async close(): Promise<void> {
