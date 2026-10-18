@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SessionInfo } from "../../shared/ipc-types";
+import { resetSessionListFeeds } from "../stores/session-list";
 import { useSessionList } from "./use-session-list";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -95,6 +96,7 @@ function probeText(selector: string): string {
 }
 
 afterEach(async () => {
+	resetSessionListFeeds();
 	if (root) {
 		await act(async () => {
 			root.unmount();

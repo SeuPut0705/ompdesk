@@ -25,6 +25,7 @@ import { useMessagesStore } from "../../../stores/messages";
 import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
+import { resetSessionListFeeds } from "../../../stores/session-list";
 import { useSessionStore } from "../../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
@@ -246,6 +247,7 @@ async function commitRenameInput(current: string, name: string): Promise<void> {
 }
 
 afterEach(async () => {
+	resetSessionListFeeds();
 	if (root) {
 		await act(async () => {
 			root.unmount();
