@@ -273,7 +273,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const sectionIds = await settings
 			.locator("[data-settings-section]")
 			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
-		expect(sectionIds).toHaveLength(12);
+		expect(sectionIds).toHaveLength(13);
 		const content = settings.locator(".settings-content");
 		const settingsPages: Array<{ page: string; text: string }> = [];
 		const capture = async (name: string) => {
