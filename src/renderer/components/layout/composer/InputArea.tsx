@@ -139,8 +139,18 @@ export function InputArea() {
 
 	/** False once the composer unmounted: uploads, dictation and the $EDITOR round trip check it before writing. */
 	const mountedRef = useRef(true);
-	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive, dropProps } =
-		useComposerAttach({ cwd, historyDevice, runtimeTabId, mountedRef, insertAtCaret, setImages });
+	const regionRef = useRef<HTMLDivElement>(null);
+	const attachmentsRef = useRef<HTMLDivElement>(null);
+	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive } = useComposerAttach({
+		cwd,
+		historyDevice,
+		runtimeTabId,
+		mountedRef,
+		insertAtCaret,
+		setImages,
+		textareaRef,
+		regionRef,
+	});
 	const paste = useComposerPaste({ text, textareaRef, placeDraft, attachFiles, runtimeTabId });
 	const pasteMenu = paste.pending;
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
@@ -287,6 +297,7 @@ export function InputArea() {
 		toggleHistorySearch: () => setHistorySearchOpen(open => !open),
 		runActive: isStreaming || submitPending || manualMaintenance,
 		touchInput,
+		attachmentsRef,
 		enterSends,
 		send,
 	});
@@ -335,6 +346,7 @@ export function InputArea() {
 
 	return (
 		<div
+			ref={regionRef}
 			className={cx(
 				"omp-composer-region relative shrink-0 bg-transparent pb-3",
 				expanded && "omp-composer-region--expanded",
@@ -392,7 +404,6 @@ export function InputArea() {
 						data-composer-mode={composerMode?.mode}
 						data-composer-draft={text !== "" || undefined}
 						data-drag-active={dragActive || undefined}
-						{...dropProps}
 					>
 						<ComposerLiveEdge />
 						{dragActive && (
@@ -426,6 +437,8 @@ export function InputArea() {
 							setText={setText}
 							text={text}
 							textareaRef={textareaRef}
+							containerRef={attachmentsRef}
+							touch={touchInput}
 						/>
 						<ComposerField
 							activeOption={menu?.index}

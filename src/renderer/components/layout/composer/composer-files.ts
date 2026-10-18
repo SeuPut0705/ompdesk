@@ -13,6 +13,12 @@
 
 /** Stock auto-read ceiling for a mentioned text file (`MAX_AUTO_READ_TEXT_BYTES`). */
 export const MAX_INLINE_TEXT_BYTES = 5 * 1024 * 1024;
+/**
+ * Pictures one message should carry. Neither stock omp nor the providers' APIs publish one number for every model,
+ * so this is the point past which the composer warns (it never blocks): a request with more pictures than a
+ * provider's per-message cap fails there, after the user hit send.
+ */
+export const MAX_COMPOSER_IMAGES = 20;
 /** Bytes sniffed for a NUL to tell text from binary (stock `isProbablyBinary` reads a head too). */
 const BINARY_SNIFF_BYTES = 8000;
 
@@ -26,6 +32,8 @@ export interface ComposerFileIntake {
 	texts: Array<{ name: string; content: string }>;
 	/** `message`: why a `notSent` file did not reach the computer, in words (the upload's error). */
 	rejected: Array<{ name: string; reason: ComposerFileRejection; message?: string }>;
+	/** Files that named a path already in this batch. */
+	duplicates: number;
 }
 
 export interface ComposerFileIntakeOptions {
@@ -38,6 +46,8 @@ export interface ComposerFileIntakeOptions {
 	pathFor: (file: File) => string | Promise<string>;
 	/** The tab's omp runs on another device, so this machine's paths mean nothing there. */
 	remote: boolean;
+	/** The files that are folders: a drop reports one as a file of zero bytes, which is no reason to refuse it. */
+	directories?: ReadonlySet<File>;
 }
 
 const LEADING_PUNCTUATION = /^[`"'([{<]/;
@@ -75,9 +85,15 @@ export async function intakeComposerFiles(
 	files: readonly File[],
 	options: ComposerFileIntakeOptions,
 ): Promise<ComposerFileIntake> {
-	const intake: ComposerFileIntake = { images: [], mentions: [], texts: [], rejected: [] };
+	const intake: ComposerFileIntake = { images: [], mentions: [], texts: [], rejected: [], duplicates: 0 };
+	const seen: Record<string, true> = {};
 	for (const file of files) {
-		if (file.type.startsWith("image/") && file.size > 0) {
+		// A file with no bytes is refused whether it has a path or not (a folder reports zero bytes: it is not a file).
+		if (file.size === 0 && !options.directories?.has(file)) {
+			intake.rejected.push({ name: file.name, reason: "empty" });
+			continue;
+		}
+		if (file.type.startsWith("image/")) {
 			intake.images.push(file);
 			continue;
 		}
@@ -93,7 +109,11 @@ export async function intakeComposerFiles(
 			continue;
 		}
 		if (path) {
-			intake.mentions.push(fileMentionFor(path, options.cwd));
+			const mention = fileMentionFor(path, options.cwd);
+			// The same file twice in one drop or pick is one mention.
+			if (seen[mention]) intake.duplicates++;
+			else intake.mentions.push(mention);
+			seen[mention] = true;
 			continue;
 		}
 		const text = await readText(file);

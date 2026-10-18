@@ -6,14 +6,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	clearPastes,
+	danglingPasteFragment,
 	dropPaste,
 	dropReferencedPastes,
+	expandPasteMarkerAsText,
 	expandPasteMarkers,
 	isMarkerSized,
+	pasteMarkerSpans,
 	pasteMarkerText,
 	referencedPasteIds,
+	releasePaste,
 	shouldOfferPasteMenu,
 	storePaste,
+	widenToPasteMarkers,
 	wrapPasteInAttachmentBlock,
 } from "./paste-blobs";
 
@@ -97,5 +102,68 @@ describe("expansion", () => {
 
 		expect(expandPasteMarkers(activeMarker)).toBe(activeMarker);
 		expect(expandPasteMarkers(backgroundMarker)).toBe(background.content);
+	});
+});
+
+describe("a marker is one unit (DI-3)", () => {
+	const content = Array.from({ length: 15 }, (_, line) => `line ${line}`).join("\n");
+
+	it("widens a deletion that touches any part of a marker to the whole marker", () => {
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		const draft = `see ${marker} now`;
+		expect(pasteMarkerSpans(draft)).toEqual([{ id: blob.id, start: 4, end: 4 + marker.length }]);
+		// Backspace right after the marker's closing bracket: the last character only.
+		const widened = widenToPasteMarkers(draft, 4 + marker.length - 1, 4 + marker.length);
+		expect(widened).toEqual({ from: 4, to: 4 + marker.length, ids: [blob.id] });
+		// A range inside it, and one that only clips its first character.
+		expect(widenToPasteMarkers(draft, 8, 10)?.from).toBe(4);
+		expect(widenToPasteMarkers(draft, 3, 5)?.to).toBe(4 + marker.length);
+		// Next to it, or elsewhere: no marker touched.
+		expect(widenToPasteMarkers(draft, 0, 4)).toBeNull();
+		expect(widenToPasteMarkers(draft, 4 + marker.length, draft.length)).toBeNull();
+	});
+
+	it("leaves a marker nobody stored alone: that is text the user typed", () => {
+		expect(widenToPasteMarkers("a [Paste #99, +20 lines] b", 3, 6)).toBeNull();
+	});
+
+	it("a released paste is out of the store until its marker is back (undo)", () => {
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		releasePaste(blob.id);
+		expect(referencedPasteIds("gone")).toEqual([]);
+		// While the marker is out of the draft nothing sends the paste.
+		expect(expandPasteMarkers("gone")).toBe("gone");
+		// Cmd/Ctrl+Z brings the marker's text back and the paste with it.
+		expect(expandPasteMarkers(marker)).toBe(content);
+		expect(referencedPasteIds(marker)).toEqual([blob.id]);
+	});
+
+	it("finds the fragment an edit left of a marker, only for pastes it knows", () => {
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		expect(danglingPasteFragment(`ask ${marker}`)).toBeNull();
+		expect(danglingPasteFragment(marker.slice(0, -1))).toBe(marker.slice(0, -1));
+		expect(danglingPasteFragment(marker.slice(1))).toBe(marker.slice(1));
+		expect(danglingPasteFragment(`${marker.slice(0, 10)} more`)).toContain("[Paste #");
+		expect(danglingPasteFragment("[Paste #404, +9 lines")).toBeNull();
+		expect(danglingPasteFragment("plain text")).toBeNull();
+	});
+
+	it("expands one marker into its text", () => {
+		const blob = storePaste(content);
+		const marker = pasteMarkerText(blob.id, content);
+		const out = expandPasteMarkerAsText(`a ${marker} b`, blob.id);
+		expect(out).toEqual({ text: `a ${content} b`, at: 2, length: content.length });
+		// The blob is done with: a second ask finds no marker's paste.
+		expect(expandPasteMarkerAsText(`a ${marker} b`, blob.id)).toBeNull();
+	});
+
+	it("dropPaste forgets a released paste too", () => {
+		const blob = storePaste(content);
+		releasePaste(blob.id);
+		dropPaste(blob.id);
+		expect(expandPasteMarkers(pasteMarkerText(blob.id, content))).toBe(pasteMarkerText(blob.id, content));
 	});
 });

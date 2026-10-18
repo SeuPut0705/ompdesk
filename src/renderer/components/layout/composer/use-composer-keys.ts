@@ -10,11 +10,13 @@ import type { InlineCompletion } from "../../../hooks/use-inline-completion";
 import { composerEnterNewline, noteHardwareKey } from "../../../lib/hardware-keyboard";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { chordFromEvent, isComposerFollowUpKey, PLATFORM } from "../../../lib/keymap";
-import { dropReferencedPastes } from "../../../lib/paste-blobs";
+import { dropReferencedPastes, releasePaste, widenToPasteMarkers } from "../../../lib/paste-blobs";
 import type { TabRpc } from "../../../lib/tab-rpc";
 import type { ComposerImage } from "../../../stores/composer";
 import { useUiStore } from "../../../stores/ui";
 import { chipIndexForCode, type NextPromptChipsHandle } from "./NextPromptChips";
+import { plannedDeletion } from "./paste-marker-edit";
+import { lastAttachmentStop } from "./strip-roving";
 import type { ComposerHistory } from "./use-composer-history";
 import type { ComposerMenu } from "./use-composer-menu";
 import type { ComposerPaste } from "./use-composer-paste";
@@ -52,6 +54,7 @@ export function useComposerKeys({
 	toggleHistorySearch,
 	runActive,
 	touchInput,
+	attachmentsRef,
 	enterSends,
 	send,
 }: {
@@ -87,6 +90,8 @@ export function useComposerKeys({
 	send: (overrideText?: string, forceMode?: "followUp") => boolean;
 	/** A touch input (phone, tablet): without a physical keyboard plain Enter adds a line and only Send sends. */
 	touchInput: boolean;
+	/** The element holding the attachment strips: Backspace in an empty field focuses its last attachment. */
+	attachmentsRef: RefObject<HTMLElement | null>;
 	/** The "Enter sends on mobile" setting: a touch device's Enter sends like the desktop's. */
 	enterSends: boolean;
 }): ComposerKeys {
@@ -144,6 +149,39 @@ export function useComposerKeys({
 			)
 				e.preventDefault();
 			return;
+		}
+		// A folded paste's marker is one unit: a delete that touches any part of it takes the whole marker, as one
+		// edit (Cmd/Ctrl+Z puts it back with its paste), so no half marker is left to be sent as text (DI-3).
+		if (e.key === "Backspace" || e.key === "Delete") {
+			const el = textareaRef.current;
+			const range = el && plannedDeletion(el.value, el.selectionStart, el.selectionEnd, e);
+			const widened = el && range && widenToPasteMarkers(el.value, range.from, range.to);
+			if (el && widened) {
+				e.preventDefault();
+				for (const id of widened.ids) releasePaste(id);
+				placeDraft(`${el.value.slice(0, widened.from)}${el.value.slice(widened.to)}`, widened.from);
+				return;
+			}
+			// Backspace in an empty field reaches for the last attachment (the strips are above the field): the
+			// way to them from a physical keyboard, and Delete there removes it (DI-9). A soft keyboard's
+			// Backspace on an empty field must keep the keyboard up.
+			if (
+				el &&
+				!enterNewline &&
+				e.key === "Backspace" &&
+				el.value === "" &&
+				!e.shiftKey &&
+				!e.altKey &&
+				!e.ctrlKey &&
+				!e.metaKey
+			) {
+				const last = lastAttachmentStop(attachmentsRef.current);
+				if (last) {
+					e.preventDefault();
+					last.focus();
+					return;
+				}
+			}
 		}
 		// Ghost text: Tab takes it, Esc hides it (and only then keeps Esc's other meanings off);
 		// any other key drops it and aborts the request (typing restarts the debounce).

@@ -4,17 +4,20 @@ import { getPaste } from "../../../lib/paste-blobs";
 import { Button, Modal, TextArea } from "../../common";
 
 /**
- * Edit a folded paste before sending. Save hands the new text back; Cancel
- * (or Esc) keeps the paste as it was.
+ * Edit a folded paste before sending. Save hands the new text back; Cancel (or Esc) keeps the paste as it was;
+ * "Paste as text" unfolds it into the draft. The caret opens in the text (not on the close button), and the
+ * composer takes focus back when the dialog is gone.
  */
 export function PastedTextDialog({
 	pasteId,
 	onClose,
 	onSave,
+	onAsText,
 }: {
 	pasteId: number | null;
 	onClose: () => void;
 	onSave: (id: number, content: string) => void;
+	onAsText: (id: number) => void;
 }) {
 	const t = useT();
 	const [value, setValue] = useState("");
@@ -25,6 +28,18 @@ export function PastedTextDialog({
 		<Modal
 			footer={
 				<>
+					<Button
+						className="mr-auto"
+						data-paste-as-text
+						onClick={() => {
+							if (pasteId === null) return;
+							onAsText(pasteId);
+							onClose();
+						}}
+						variant="ghost"
+					>
+						{t("input.paste.asTextAction")}
+					</Button>
 					<Button onClick={onClose} variant="secondary">
 						{t("common.cancel")}
 					</Button>
@@ -47,6 +62,7 @@ export function PastedTextDialog({
 		>
 			<TextArea
 				aria-label={t("input.paste.editLabel")}
+				autoFocus
 				className="max-h-[60dvh] min-h-48"
 				mono
 				onChange={event => setValue(event.target.value)}

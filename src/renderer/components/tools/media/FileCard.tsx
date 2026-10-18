@@ -126,9 +126,20 @@ export interface FileCardProps {
 	hideMissing?: boolean;
 	/** Composer: remove the attachment. */
 	onRemove?: () => void;
+	/** A one-line chip with the file's name and no preview (a draft's mention: the composer's strip stays small). */
+	compact?: boolean;
+	/** Told once whether the path names a file (a draft's chip strip counts the chips that show). */
+	onResolved?: (exists: boolean) => void;
 }
 
-export function FileCard({ path, missingLabel, hideMissing = false, onRemove }: FileCardProps) {
+export function FileCard({
+	path,
+	missingLabel,
+	hideMissing = false,
+	onRemove,
+	compact = false,
+	onResolved,
+}: FileCardProps) {
 	const t = useT();
 	const tabId = useRuntimeTabId() ?? undefined;
 	const ref = useRef<HTMLDivElement>(null);
@@ -152,7 +163,7 @@ export function FileCard({ path, missingLabel, hideMissing = false, onRemove }: 
 				const kind = fileCardKind(path, stat.directory === true);
 				const ready = (preview?: Preview, count?: Count) =>
 					live && setState({ status: "ready", kind, size: stat.size, preview, count });
-				if (kind === "folder" || stat.size > PREVIEW_MAX_BYTES) return ready();
+				if (kind === "folder" || stat.size > PREVIEW_MAX_BYTES || compact) return ready();
 				const readBinary = async () => {
 					const file = tabId
 						? await window.omp.fs.readBinary(path, undefined, tabId)
@@ -240,8 +251,13 @@ export function FileCard({ path, missingLabel, hideMissing = false, onRemove }: 
 			live = false;
 			void destroy?.();
 		};
-	}, [near, path, tabId]);
+	}, [near, path, tabId, compact]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the callback is a notification, not an input
+	useEffect(() => {
+		if (state.status === "ready") onResolved?.(true);
+		else if (state.status === "missing") onResolved?.(false);
+	}, [state.status]);
 	if (hideMissing && state.status === "missing") return null;
 	const name = basename(path.replace(/[\\/]+$/, "")) || path;
 	const kind = state.status === "ready" ? state.kind : fileCardKind(path);
@@ -268,6 +284,46 @@ export function FileCard({ path, missingLabel, hideMissing = false, onRemove }: 
 	};
 	const preview = state.status === "ready" ? state.preview : undefined;
 
+	if (compact) {
+		// A draft's mention: one 28px chip with the file's name (the type, size and path are its tooltip). The
+		// strip's keyboard route (strip-roving.ts) reaches its button; Delete on it removes the mention.
+		return (
+			<div
+				className={cx(
+					"relative flex h-7 max-w-64 shrink-0 items-center rounded-(--sc-radius-full) border border-(--sc-border-subtle) text-sc-xs text-(--sc-text-secondary)",
+					state.status === "missing" && "text-(--sc-warning)",
+				)}
+				data-file-card={kind}
+				data-state={state.status}
+				data-strip-item=""
+				ref={ref}
+				title={`${path}\n${meta}`}
+			>
+				<button
+					aria-label={t("fileCard.open", { name })}
+					className="flex h-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-full) pr-1 pl-2.5 hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent) disabled:cursor-default"
+					data-strip-stop=""
+					disabled={state.status === "missing"}
+					onClick={open}
+					type="button"
+				>
+					<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+					<span className="truncate font-mono">{name}</span>
+				</button>
+				{onRemove && (
+					<IconButton
+						className="omp-attachment-chip-remove shrink-0"
+						data-strip-remove=""
+						icon={<X />}
+						label={t("fileCard.remove", { name })}
+						onClick={onRemove}
+						size="sm"
+						tabIndex={-1}
+					/>
+				)}
+			</div>
+		);
+	}
 	return (
 		<div
 			className="group relative flex w-44 shrink-0 flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"

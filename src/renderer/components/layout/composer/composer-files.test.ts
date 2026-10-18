@@ -36,10 +36,11 @@ describe("intakeComposerFiles", () => {
 		const png = new File([new Uint8Array([137, 80, 78, 71])], "shot.png", { type: "image/png" });
 		const pdf = new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" });
 		const folder = new File([], "src");
-		const intake = await intakeComposerFiles(
-			[png, pdf, folder],
-			local({ "shot.png": "/work/shot.png", "spec.pdf": "/tmp/spec.pdf", src: "/work/src" }),
-		);
+		const intake = await intakeComposerFiles([png, pdf, folder], {
+			...local({ "shot.png": "/work/shot.png", "spec.pdf": "/tmp/spec.pdf", src: "/work/src" }),
+			// A dropped folder reaches the page as a file of zero bytes: only the drop's entries tell it apart.
+			directories: new Set([folder]),
+		});
 		expect(intake.images).toEqual([png]);
 		expect(intake.mentions).toEqual(["@/tmp/spec.pdf", "@src"]);
 		expect(intake.texts).toEqual([]);
@@ -57,6 +58,19 @@ describe("intakeComposerFiles", () => {
 			{ name: "empty.txt", reason: "empty" },
 			{ name: "blob.bin", reason: "binary" },
 		]);
+	});
+
+	it("refuses an empty file with a path as it refuses an empty pasted one, and folds the same file twice", async () => {
+		const empty = new File([], "empty.txt");
+		const first = new File(["a"], "a.md");
+		const again = new File(["a"], "a.md");
+		const intake = await intakeComposerFiles(
+			[empty, first, again],
+			local({ "empty.txt": "/tmp/empty.txt", "a.md": "/tmp/a.md" }),
+		);
+		expect(intake.rejected).toEqual([{ name: "empty.txt", reason: "empty" }]);
+		expect(intake.mentions).toEqual(["@/tmp/a.md"]);
+		expect(intake.duplicates).toBe(1);
 	});
 
 	it("never mentions this machine's paths for a tab on another device", async () => {

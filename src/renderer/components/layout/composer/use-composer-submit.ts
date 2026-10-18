@@ -21,7 +21,7 @@ import { rememberHistoryImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { abortActiveTurn, clearSessionContext } from "../../../lib/messages";
-import { dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
+import { danglingPasteFragment, dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { IMAGE_ONLY_CHIP } from "../../../lib/queue-chip";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { parseSlashCommand } from "../../../lib/slash-command";
@@ -82,6 +82,13 @@ export function useComposerSubmit({
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;
+			// An edit that cut into a paste marker left text that names a paste but is not one: sending it would
+			// hand the agent the literal fragment and lose the paste (DI-3).
+			const fragment = danglingPasteFragment(message);
+			if (fragment) {
+				toast({ variant: "warning", message: t("input.paste.dangling", { fragment }) });
+				return;
+			}
 			// ↑ history brings the pictures back with the text (stock keeps text only). History holds the
 			// paste-expanded text, as stock's does: the blobs are freed once the send is accepted.
 			const historyText = expandPasteMarkers(message);

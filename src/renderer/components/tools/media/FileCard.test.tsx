@@ -104,17 +104,18 @@ describe("FileCard", () => {
 });
 
 describe("DraftFileCards", () => {
-	it("cards the draft's existing mentions after it settles and removes one", async () => {
+	it("chips the draft's existing mentions after it settles, removes one or all, and hands focus back", async () => {
 		const onRemove = vi.fn();
-		await render(<DraftFileCards onRemove={onRemove} text="" />);
+		const onRemoveAll = vi.fn();
+		const focusField = vi.fn();
+		const cards = (text: string) => (
+			<DraftFileCards focusField={focusField} onRemove={onRemove} onRemoveAll={onRemoveAll} text={text} />
+		);
+		await render(cards(""));
 		vi.useFakeTimers();
 		const draft = "compare @notes.md with @nothing-here and @data/rows.csv";
 		await act(async () => {
-			root.render(
-				<I18nProvider>
-					<DraftFileCards onRemove={onRemove} text={draft} />
-				</I18nProvider>,
-			);
+			root.render(<I18nProvider>{cards(draft)}</I18nProvider>);
 		});
 		// Settling: nothing is stat'ed for a draft still being typed.
 		expect(stat).not.toHaveBeenCalled();
@@ -128,12 +129,23 @@ describe("DraftFileCards", () => {
 			});
 		}
 		expect(stat.mock.calls.map(call => call[0])).toEqual(["notes.md", "nothing-here", "data/rows.csv"]);
-		// `@nothing-here` names no file, so it gets no card.
+		// `@nothing-here` names no file, so it gets no chip; a chip reads no preview of the file.
 		expect([...container.querySelectorAll("[data-file-card]")]).toHaveLength(2);
+		expect(read).not.toHaveBeenCalled();
+		expect(container.querySelector("table, pre, canvas")).toBeNull();
+		expect(container.querySelector("[data-file-card]")?.getAttribute("title")).toContain("notes.md");
+		// Two chips: one tab stop each strip comes from the roving hook; Remove all takes both.
+		const removeAll = container.querySelector("button[data-strip-stop]:not([aria-label])");
+		expect(removeAll?.textContent).toBe("Remove all");
+		await act(async () => {
+			removeAll?.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		expect(onRemoveAll).toHaveBeenCalledWith(["notes.md", "data/rows.csv"]);
 		const remove = container.querySelector('button[aria-label="Remove notes.md"]');
 		await act(async () => {
 			remove?.dispatchEvent(new Event("click", { bubbles: true }));
 		});
 		expect(onRemove).toHaveBeenCalledWith("notes.md");
+		expect(focusField).toHaveBeenCalledTimes(2);
 	});
 });
