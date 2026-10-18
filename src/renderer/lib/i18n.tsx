@@ -1,12 +1,32 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../../shared/ui-language";
-import { en } from "../locales/en";
-import { ko } from "../locales/ko";
 
 export type Locale = Record<string, string>;
 export type Lang = UiLanguage;
 
-const LOCALES: Record<Lang, Locale> = { en, ko };
+/**
+ * Each language is a chunk of its own (en ≈ 350 KB, ko ≈ 290 KB of strings), loaded on first use: a page parses
+ * only the language it shows. The entries (main.tsx, the web page's web-boot.ts) load the current one before
+ * the first render, and a switch loads the next one before it applies, so no text ever shows as its key.
+ */
+const LOCALES: Partial<Record<Lang, Locale>> = {};
+const LOCALE_CHUNKS: Record<Lang, () => Promise<Locale>> = {
+	en: () => import("../locales/en").then(module => module.en),
+	ko: () => import("../locales/ko").then(module => module.ko),
+};
+const pendingLocales: Partial<Record<Lang, Promise<void>>> = {};
+
+export function loadLocale(lang: Lang): Promise<void> {
+	if (LOCALES[lang]) return Promise.resolve();
+	pendingLocales[lang] ??= LOCALE_CHUNKS[lang]().then(locale => {
+		LOCALES[lang] = locale;
+	});
+	return pendingLocales[lang];
+}
+
+export function localeLoaded(lang: Lang): boolean {
+	return LOCALES[lang] !== undefined;
+}
 const LANG_KEY = "omp.lang";
 
 function readStoredLanguage(): Lang | undefined {
@@ -32,9 +52,18 @@ function storeLanguage(lang: Lang): void {
  * on a change, and `translate()` / `uiLocale()` read it on every call.
  */
 let languageOverride: Lang | null = null;
+/** The override last asked for, applied once its language has loaded. */
+let requestedOverride: Lang | null = null;
 const overrideListeners = new Set<(lang: Lang | null) => void>();
 
 export function setLanguageOverride(lang: Lang | null): void {
+	requestedOverride = lang;
+	if (lang !== null && !localeLoaded(lang)) {
+		void loadLocale(lang).then(() => {
+			if (requestedOverride === lang) setLanguageOverride(lang);
+		});
+		return;
+	}
 	if (lang === languageOverride) return;
 	languageOverride = lang;
 	for (const listener of overrideListeners) listener(lang);
@@ -52,8 +81,7 @@ export function getCurrentLanguage(): Lang {
 }
 
 function translateForLang(lang: Lang, key: string, params?: Record<string, string | number>): string {
-	const locale = LOCALES[lang];
-	const str = locale[key] ?? en[key] ?? key;
+	const str = LOCALES[lang]?.[key] ?? LOCALES.en?.[key] ?? key;
 	if (!params) return str;
 	// One pass: a value is never re-scanned (a path holding "{name}" stays literal), a placeholder
 	// repeated in a string is filled everywhere, and "$&"-style patterns in a value are not special.
@@ -92,6 +120,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 		};
 	}, []);
 	const userSelected = useRef(false);
+	/** The user's language changes once its strings are here (saved first, so `translate()` agrees). */
+	const applyOwn = useCallback((next: Lang) => {
+		void loadLocale(next).then(() => {
+			storeLanguage(next);
+			setLangState(next);
+		});
+	}, []);
 
 	useEffect(() => {
 		const prefs = window.omp?.prefs;
@@ -103,8 +138,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 			.then(value => {
 				if (cancelled || userSelected.current) return;
 				if (isUiLanguage(value)) {
-					storeLanguage(value);
-					setLangState(value);
+					applyOwn(value);
 				} else if (stored) {
 					void prefs.set("language", stored).catch(() => {});
 				}
@@ -113,14 +147,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [applyOwn]);
 
-	const setLang = useCallback((next: Lang) => {
-		userSelected.current = true;
-		setLangState(next);
-		storeLanguage(next);
-		void window.omp?.prefs?.set("language", next).catch(() => {});
-	}, []);
+	const setLang = useCallback(
+		(next: Lang) => {
+			userSelected.current = true;
+			applyOwn(next);
+			void window.omp?.prefs?.set("language", next).catch(() => {});
+		},
+		[applyOwn],
+	);
 
 	const t = useCallback(
 		(key: string, params?: Record<string, string | number>): string => translateForLang(lang, key, params),

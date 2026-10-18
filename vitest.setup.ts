@@ -1,5 +1,6 @@
 // A write under the real ~/.omp, ~/.pi, ~/.config/omp or OMPdesk's userData fails the test.
 import "./scripts/vitest-real-home-guard";
+import { loadLocale } from "./src/renderer/lib/i18n";
 
 if (typeof navigator !== "undefined") {
 	Object.defineProperty(navigator, "language", { configurable: true, get: () => "en-US" });
@@ -7,3 +8,7 @@ if (typeof navigator !== "undefined") {
 	// the suite behaves the same on the Windows CI runner.
 	Object.defineProperty(navigator, "platform", { configurable: true, get: () => "MacIntel" });
 }
+
+// The UI's strings are a chunk per language (src/renderer/lib/i18n.tsx); the entries load the current one before
+// they render, and the tests have both from the start.
+await Promise.all([loadLocale("en"), loadLocale("ko")]);

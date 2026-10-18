@@ -8,7 +8,7 @@
  * not pull the app in.
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
-import { translate } from "../lib/i18n";
+import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
@@ -241,6 +241,8 @@ async function bootApp(): Promise<void> {
 
 async function boot(): Promise<void> {
 	document.documentElement.dataset.platform = "web";
+	// The current language's strings download beside the app (main.tsx waits for them before its first render).
+	void loadLocale(getCurrentLanguage());
 	if (location.pathname === "/pair") {
 		const { renderPairScreen } = await import("./pair-boot");
 		renderPairScreen();
