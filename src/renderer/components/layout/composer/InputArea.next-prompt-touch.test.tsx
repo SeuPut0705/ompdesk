@@ -138,7 +138,8 @@ async function mount(): Promise<void> {
 	prompt = vi.fn(async () => ok());
 	rpcCommand = vi.fn(async (command: RpcCommand) => {
 		if (command.type === "get_queue") return ok({ steering: [], followUp: [] });
-		if (command.type === "complete_inline") return ok({ requestId: command.requestId, text: completeInline(command.draft) });
+		if (command.type === "complete_inline")
+			return ok({ requestId: command.requestId, text: completeInline(command.draft) });
 		return ok();
 	});
 	completeInline = vi.fn<(draft: string) => string | null>(() => " into smaller functions");

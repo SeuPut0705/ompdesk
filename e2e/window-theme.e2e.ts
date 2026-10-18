@@ -125,9 +125,7 @@ for (const scheme of ["light", "dark"] as const) {
 			await settings.locator("#setting-gui-systemDarkTheme select").selectOption("nord");
 			await settings.locator("#setting-gui-systemLightTheme select").selectOption("sepia");
 			const paired = osScheme === "dark" ? { name: "nord", bg: "#2e3440" } : { name: "sepia", bg: "#f4ecd8" };
-			await expect
-				.poll(() => second.evaluate(() => document.documentElement.dataset.themeName))
-				.toBe(paired.name);
+			await expect.poll(() => second.evaluate(() => document.documentElement.dataset.themeName)).toBe(paired.name);
 			expect((await surfaces(second)).bg).toBe(paired.bg);
 			// A theme picked by name moves the native theme to that theme's scheme.
 			await settings.locator('[data-theme-option="sepia"]').click();

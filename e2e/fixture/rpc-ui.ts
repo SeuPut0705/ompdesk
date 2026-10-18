@@ -3086,7 +3086,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 	const desktopRuns = new Map<string, (waited: boolean) => void>();
 	let desktopHolding = false;
 	let desktopRequests = 0;
-	const startDesktopActing = (user: AgentMessage) => {
+	const startDesktopActing = () => {
 		const id = `fixture-desktop-${sessionId}-${++desktopRequests}`;
 		const args = { code: "const w = await computer.focusedWindow(); await w.press('shift')", language: "js" };
 		const call: AgentMessage = {
@@ -3161,7 +3161,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message === "fixture flow" || README_SCENE) {
 			startFlow(user);
 		} else if (message === "fixture desktop acting") {
-			startDesktopActing(user);
+			startDesktopActing();
 		} else if (message === "fixture desktop done") {
 			// The holder's turn ends: the bridge let go itself, so main needs no revoke.
 			if (desktopHolding) pushBridgeEvent({ type: "desktop_slot_release", reason: "turn_end" });

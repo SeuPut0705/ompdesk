@@ -275,14 +275,12 @@ describe("Autopilot start sheet", () => {
 		await mount(<ComposerModes />);
 		await openSheet();
 		const parallel = $(
-			"select[aria-label='" + translate("autopilot.sheet.parallel") + "']",
+			`select[aria-label='${translate("autopilot.sheet.parallel")}']`,
 		) as unknown as HTMLSelectElement;
 		expect(parallel.value).toBe("4");
 		const labels = [...document.querySelectorAll("[data-autopilot-sheet] option")].map(option => option.textContent);
 		expect(labels).toContain(translate("autopilot.sheet.parallelAuto", { n: 4 }));
-		const notify = $(
-			"select[aria-label='" + translate("autopilot.sheet.notify") + "']",
-		) as unknown as HTMLSelectElement;
+		const notify = $(`select[aria-label='${translate("autopilot.sheet.notify")}']`) as unknown as HTMLSelectElement;
 		expect(notify.value).toBe("stops");
 		expect(document.querySelectorAll("[data-autopilot-limits] input[type='number']")).toHaveLength(4);
 		for (const input of document.querySelectorAll("[data-autopilot-limits] input"))

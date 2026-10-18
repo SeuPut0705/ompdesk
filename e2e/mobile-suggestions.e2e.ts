@@ -89,7 +89,7 @@ const row = (page: Page): Locator => page.locator(".omp-next-chips");
 const chips = (page: Page): Locator => page.locator("[data-next-chip]");
 const field = (page: Page): Locator => page.locator("textarea").first();
 const draft = (page: Page): Promise<string> =>
-	page.evaluate(() => (window.__stores?.composer.getState() as { draft: string }).draft);
+	page.evaluate(() => (window.__stores?.composer.getState() as { draft: string } | undefined)?.draft ?? "");
 const unhandled = (page: Page): Promise<string[]> => page.evaluate(() => window.__harness?.unhandled ?? []);
 
 async function capture(page: Page, name: string): Promise<void> {
@@ -112,9 +112,13 @@ for (const lang of variants<Lang>(["en", "ko"], () => true)) {
 				const overflow = await row(page).evaluate(element => getComputedStyle(element).overflowX);
 				expect(overflow).toBe("auto");
 				// One row: every chip shares a top edge, even when they do not all fit.
-				const tops = await chips(page).evaluateAll(items => items.map(item => Math.round(item.getBoundingClientRect().top)));
+				const tops = await chips(page).evaluateAll(items =>
+					items.map(item => Math.round(item.getBoundingClientRect().top)),
+				);
 				expect(new Set(tops).size).toBe(1);
-				const heights = await chips(page).evaluateAll(items => items.map(item => item.getBoundingClientRect().height));
+				const heights = await chips(page).evaluateAll(items =>
+					items.map(item => item.getBoundingClientRect().height),
+				);
 				for (const height of heights) expect(height).toBeLessThanOrEqual(28);
 				await capture(page, `${lang}-light-chips`);
 			} finally {

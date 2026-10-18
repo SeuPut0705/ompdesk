@@ -298,7 +298,6 @@ export function FileCard({ path, missingLabel, hideMissing = false, onRemove }: 
 					<table aria-hidden className="w-full self-start table-fixed text-sc-2xs text-(--sc-text-secondary)">
 						<tbody>
 							{preview.rows.map((row, rowIndex) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: a fixed preview of the first rows.
 								<tr className="border-b border-(--sc-divider)" key={rowIndex}>
 									{row.map((cell, cellIndex) => (
 										<td className="truncate px-1 py-0.5" key={cellIndex}>

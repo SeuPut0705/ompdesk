@@ -419,10 +419,10 @@ export class Autopilot {
 		const message = activity.outcome.errorMessage ?? "";
 		if (!run || QUOTA_ERROR.test(message)) return;
 		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance.
-		(this.#deps.after ?? afterMs)(() => this.#track(this.#errorStands(run, message)), ERROR_GRACE_MS);
+		(this.#deps.after ?? afterMs)(() => this.#track(this.#errorStands(run)), ERROR_GRACE_MS);
 	}
 
-	async #errorStands(run: Run, message: string): Promise<void> {
+	async #errorStands(run: Run): Promise<void> {
 		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
 		const facts = this.#deps.pool.tabFacts(run.tabId);
 		if (!facts || facts.busy || facts.awaitingConnection || facts.retrying || facts.scheduledRetry) return;

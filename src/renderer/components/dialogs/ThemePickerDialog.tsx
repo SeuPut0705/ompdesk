@@ -79,8 +79,7 @@ export function ThemePickerDialog() {
 		void getPersistedThemeSelection().then(sel => {
 			if (cancelled) return;
 			setCurrent(sel);
-			const themeIndex = THEME_NAMES_IN_ORDER.findIndex(name => name === sel);
-			setActive(sel === "system" ? 0 : Math.max(0, themeIndex + 1));
+			setActive(sel === "system" ? 0 : Math.max(0, THEME_NAMES_IN_ORDER.indexOf(sel) + 1));
 		});
 		requestAnimationFrame(() => inputRef.current?.focus());
 		return () => {

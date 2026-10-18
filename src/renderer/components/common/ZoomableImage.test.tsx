@@ -104,11 +104,11 @@ describe("ZoomableImage", () => {
 		const openPath = async () => ({ ok: true });
 		Reflect.set(window, "omp", { system: { openPath } });
 		await mount(
-			<>
+			<div>
 				{gallery.map(image => (
 					<ZoomableImage alt={image.alt} gallery={gallery} key={image.src} src={image.src} />
 				))}
-			</>,
+			</div>,
 		);
 		await click(container.querySelectorAll("[data-zoomable-image]")[1] ?? null);
 		const shown = () => viewer()?.querySelector("[data-image-viewer] img")?.getAttribute("alt");

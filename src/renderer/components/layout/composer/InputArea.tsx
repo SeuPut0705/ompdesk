@@ -73,7 +73,7 @@ import { useSettingsStore } from "../../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip, ZoomableImage } from "../../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
 import { ComposerLiveEdge, ComposerSend } from "./ComposerLive";
 import { ComposerModes } from "./ComposerModes";
@@ -183,7 +183,10 @@ export function InputArea() {
 	const chipList = useMemo(
 		() =>
 			touchInput
-				? [...(nextPrompt === undefined ? [] : [nextPrompt]), ...nextPromptView.chips].slice(0, MAX_NEXT_PROMPT_CHIPS)
+				? [...(nextPrompt === undefined ? [] : [nextPrompt]), ...nextPromptView.chips].slice(
+						0,
+						MAX_NEXT_PROMPT_CHIPS,
+					)
 				: nextPromptView.chips,
 		[touchInput, nextPrompt, nextPromptView.chips],
 	);
@@ -363,8 +366,7 @@ export function InputArea() {
 	};
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
 	/** Runner-up suggestions: only over an empty, idle composer with nothing else open. */
-	const chipsShown =
-		chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
+	const chipsShown = chipList.length > 0 && text === "" && status === "ready" && !isStreaming && !menu && !pasteMenu;
 	const pickChip = useCallback(
 		(chip: string) => {
 			textareaRef.current?.focus();
