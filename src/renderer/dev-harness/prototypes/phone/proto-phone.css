@@ -1,0 +1,202 @@
+/* Phone composer prototypes: the rules each variant adds ON TOP of the real mobile.css. Written as the diff the winner
+   would carry into mobile.css ("Idle composer = one row" block). Selectors repeat the production selector with the
+   box's [data-pp] attribute, which is only there to out-rank it inside the prototype page. */
+
+/* PT-16: a touch screen's scrollbars are overlays; reserving 9 px on the right made the column 12 / 21 px. */
+html[data-input="touch"] {
+	--omp-scrollbar-size: 0px;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+/* ── The row: 44 px of field, 32 px Send, 28 px + / ⋯ with a 44 px reach ─────────────────────────────────── */
+html[data-shell="phone"] .omp-composer-box[data-pp] > div:has(> [data-composer-input]) {
+	padding: 10px 4px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp] .omp-composer-toolbar {
+	--hit-gap-x: 16px;
+	--hit-gap-y: 16px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp] .omp-composer-toolbar:not([data-more-open]) > :is(button, [role="button"], span):first-child {
+	margin: 0 0 8px 6px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp="a"] .omp-composer-toolbar:not([data-more-open]) > .omp-composer-more {
+	margin: 0 0 8px 16px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp] .omp-composer-toolbar:not([data-more-open]) > .omp-composer-send-cluster {
+	margin: 0 6px 6px 0;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp="b"],
+html[data-shell="phone"] .omp-composer-box[data-pp="c"] {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+html[data-shell="phone"] .pp-actions {
+	gap: 8px;
+}
+
+html[data-shell="phone"] .pp-send,
+html[data-shell="phone"] .pp-key {
+	width: 32px;
+	height: 32px;
+}
+
+html[data-shell="phone"] .pp-mode-chip {
+	height: 28px;
+	padding-inline: 8px;
+}
+
+/* Send stays on a 44 px reach: nothing to its right, 6 px of the field's padding to its left. */
+html[data-shell="phone"] .omp-composer-box[data-pp] .omp-composer-send-cluster {
+	--hit-gap-x: 16px;
+	--hit-gap-y: 16px;
+}
+
+/* ── A: the ⋯ row, a real second row inside the box ─────────────────────────────────────────────────────── */
+html[data-shell="phone"] .omp-composer-box[data-pp="a"] > .pp-more-row {
+	order: 3;
+	padding: 0 8px 8px;
+}
+
+/* ── Chip rows (A's second row, C's row above the box): one line, sideways, a fade where more waits ─────── */
+.pp-chiprow {
+	height: 32px;
+	padding-block: 2px;
+	scrollbar-width: none;
+	overscroll-behavior-x: contain;
+	-webkit-overflow-scrolling: touch;
+	--hit-gap-x: 8px;
+	--hit-gap-y: 4px;
+}
+
+.pp-chiprow::-webkit-scrollbar,
+.pp-strip::-webkit-scrollbar {
+	display: none;
+}
+
+.pp-chip {
+	height: 28px;
+}
+
+.pp-chiprow[data-edge-end]:not([data-edge-start]),
+.pp-strip-wrap[data-edge-end]:not([data-edge-start]) > .pp-strip {
+	mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.pp-chiprow[data-edge-start]:not([data-edge-end]),
+.pp-strip-wrap[data-edge-start]:not([data-edge-end]) > .pp-strip {
+	mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+
+.pp-chiprow[data-edge-start][data-edge-end],
+.pp-strip-wrap[data-edge-start][data-edge-end] > .pp-strip {
+	mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
+/* C: the row sits above the box, in the composer's column. */
+.pp-c-row {
+	margin-bottom: 4px;
+}
+
+/* ── The attachment strip: one scrolling row ───────────────────────────────────────────────────────────── */
+.pp-strip {
+	scrollbar-width: none;
+	overscroll-behavior-x: contain;
+	scroll-snap-type: x proximity;
+	-webkit-overflow-scrolling: touch;
+	--hit-gap-x: 16px;
+	--hit-gap-y: 16px;
+}
+
+.pp-strip > li {
+	scroll-snap-align: start;
+}
+
+/* ── B: the split Send while a turn runs with a draft: "↑ Steer | ⌄" ───────────────────────────────────── */
+.pp-split {
+	display: inline-flex;
+	height: 32px;
+	overflow: hidden;
+	border-radius: 9999px;
+	background: var(--sc-accent);
+	color: var(--sc-accent-fg);
+	--hit-gap-x: 0px;
+	--hit-gap-y: 12px;
+}
+
+.pp-split > button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 100%;
+	padding-inline: 10px 8px;
+	font-size: var(--sc-font-sm);
+	font-weight: 500;
+}
+
+.pp-split > button + button {
+	width: 36px;
+	justify-content: center;
+	padding-inline: 0;
+	border-left: 1px solid color-mix(in srgb, var(--sc-accent-fg) 35%, transparent);
+}
+
+.pp-split > button:disabled {
+	opacity: 0.5;
+}
+
+/* ── Expanded composer on a phone (PT-2): a column — head, field fills, footer row with Send ───────────── */
+html[data-shell="phone"] .omp-composer-box[data-expanded] {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp][data-expanded] > .omp-composer-toolbar:not([data-more-open]) > .omp-composer-send-cluster {
+	order: 0;
+	margin: 0 6px 0 auto;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp][data-expanded] > .omp-composer-toolbar:not([data-more-open]) > :is(button, [role="button"], span):first-child {
+	margin: 0 0 0 6px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-pp][data-expanded] > .omp-composer-toolbar:not([data-more-open]) > .omp-composer-more {
+	margin: 0 0 0 4px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-expanded] > * {
+	order: 0;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-expanded] > div:has(> [data-composer-input]) {
+	order: 1;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 8px 12px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-expanded] > .omp-composer-toolbar:not([data-more-open]) {
+	display: flex;
+	order: 2;
+	align-items: center;
+	padding: 0 0 6px;
+}
+
+html[data-shell="phone"] .omp-composer-box[data-expanded] > .pp-more-row {
+	display: none;
+}
+
+/* ── A new-line key and the B sheet tiles ──────────────────────────────────────────────────────────────── */
+.pp-tile {
+	-webkit-touch-callout: none;
+}
