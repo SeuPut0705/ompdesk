@@ -377,7 +377,7 @@ describe("agents after a relaunch", () => {
 		expect(lanes.map(lane => lane.querySelector(".omp-work-card-name")?.textContent)).toEqual(["Scout"]);
 		expect(lanes[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe("Work interrupted");
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe(
-			"2 interrupted · 2 commands · 1 agent",
+			"2 interrupted · build OK · 1 command · 1 agent",
 		);
 	});
 

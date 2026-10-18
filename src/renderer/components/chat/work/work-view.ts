@@ -9,6 +9,10 @@ import { type ChatMediaKind, toolResultMedia } from "../../tools/media/chat-medi
 import { asPerFileResults } from "../../tools/renderers/EditRenderer";
 import { normalizeYieldData } from "../../tools/renderers/task-render-utils";
 import { isInterruptedError } from "./WorkStatus";
+import { checkKind } from "./work-checks";
+
+/** Enough of a check's output for its runner summary and first error line. */
+const CHECK_TEXT_MAX = 8000;
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -148,6 +152,8 @@ export interface WorkCommandOutcome {
 	durationMs?: number;
 	/** What a stopped command printed before the stop, without stock's abort annotation. */
 	output?: string;
+	/** The tail of what a check (tests, build, lint) or a failed command printed, for `summarizeChecks`. */
+	text?: string;
 }
 
 export interface WorkFileOutcome {
@@ -331,15 +337,23 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 						.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
 						.trim()
 				: "";
+			const failed = errored && !cut;
+			const text =
+				!cut &&
+				Array.isArray(asRecord(entry.result)?.content) &&
+				(failed || exitCode || checkKind(entry.args.command))
+					? resultText(entry.result).slice(-CHECK_TEXT_MAX)
+					: "";
 			commands.push({
 				command: entry.args.command,
 				exitCode,
-				failed: errored && !cut,
+				failed,
 				...(agentName ? { agentName } : {}),
 				...(entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
+				...(text ? { text } : {}),
 			});
 		}
 	}

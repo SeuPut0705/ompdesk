@@ -989,6 +989,53 @@
 	overflow: visible;
 }
 
+/* A finished card's findings: why it failed (opens the steps) and its Changes link. One line, wraps whole. */
+.omp-work-findings {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--sc-space-1);
+	align-items: center;
+	min-width: 0;
+	justify-content: flex-start;
+	/* Under the narrative: the head's inset plus its status mark, less a chip's own padding. */
+	margin: calc(-1 * var(--sc-space-1)) var(--sc-space-3) var(--sc-space-2)
+		calc(var(--sc-space-3) + var(--sc-icon-sm) + var(--sc-space-2) - var(--sc-space-1-5));
+	font-size: var(--sc-font-xs);
+	--hit-gap-x: var(--sc-space-1);
+}
+
+.omp-work-cause,
+.omp-work-finding {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--sc-space-1);
+	min-width: 0;
+	max-width: 100%;
+	height: var(--sc-control-sm);
+	padding: 0 var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	transition: background-color var(--sc-duration-instant);
+}
+
+.omp-work-cause {
+	flex: 0 1 auto;
+	color: var(--sc-danger);
+	font-family: var(--sc-font-mono);
+}
+
+.omp-work-finding {
+	flex: none;
+	white-space: nowrap;
+	color: var(--sc-text-muted);
+	border: var(--sc-hairline) solid var(--sc-divider);
+}
+
+.omp-work-cause:hover,
+.omp-work-finding:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
 .omp-execution-group-body {
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset);
 	border-left: var(--sc-hairline) solid var(--sc-divider);

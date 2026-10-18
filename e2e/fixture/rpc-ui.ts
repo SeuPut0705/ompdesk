@@ -2186,6 +2186,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			args: Record<string, unknown>;
 			result: { content: AgentMessage["content"]; details?: Record<string, unknown> };
 		};
+		// OMP_GUI_TEST_WORK_TYPES_FAIL=1: the run's type check fails, as stock records a non-zero exit.
+		const typesFail = process.env.OMP_GUI_TEST_WORK_TYPES_FAIL === "1";
+		const typesFailure: WorkFixtureStep["result"] = {
+			content: [
+				{
+					type: "text",
+					text: "$ tsc --noEmit\nsrc/workspace.ts(3,3): error TS2322: Type 'string' is not assignable to type 'boolean'.\nerror: script \"check:types\" exited with code 2",
+				},
+			],
+			details: { exitCode: 2 },
+		};
 		// The edit step's two changes, each taller than the stage: following must land on the newest
 		// one's first changed line, which neither the stage's top nor its bottom shows.
 		const readyLines = ["  ready: false,", ...Array.from({ length: 16 }, (_, i) => `  check${i + 1}: true,`)];
@@ -2211,10 +2222,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			{
 				name: "bash",
 				args: { command: "bun run check:types", intent: "Checking the workspace types" },
-				result: {
-					content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }],
-					details: { exitCode: 0 },
-				},
+				result: typesFail
+					? typesFailure
+					: {
+							content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }],
+							details: { exitCode: 0 },
+						},
 			},
 			{
 				name: "write",
@@ -2632,15 +2645,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				return;
 			}
 			if (index !== 0) return;
-			steps[0].result = {
-				content: [
-					{
-						type: "text",
-						text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
-					},
-				],
-				details: { exitCode: 0 },
-			};
+			steps[0].result = typesFail
+				? typesFailure
+				: {
+						content: [
+							{
+								type: "text",
+								text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
+							},
+						],
+						details: { exitCode: 0 },
+					};
 			write({
 				type: "tool_execution_update",
 				toolCallId: "work-view-0",

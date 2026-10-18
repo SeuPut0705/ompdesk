@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, CircleX, FileDiff } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
@@ -8,11 +8,13 @@ import { asRecord } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import type { TodoSnapshot } from "../../stores/todo";
 import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 import { useRunOutcome, useRunStores } from "./work/use-work-run";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
+import { checkKind, firstErrorLine, firstFailure, summarizeChecks } from "./work/work-checks";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
 import { isSkippedWork } from "./work/work-view";
@@ -78,6 +80,7 @@ export function ExecutionGroup({
 	superseded = false,
 }: ExecutionGroupProps) {
 	const t = useT();
+	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));
 	const { tools, messages } = useRunStores();
 	// Primitive selector: encode (running, failed, skipped, interrupted, span, reads, searches)
@@ -178,10 +181,31 @@ export function ExecutionGroup({
 		});
 		facts.push(hasStats ? `${files} +${added} −${removed}` : files);
 	}
-	if (outcome.commands.length)
+	// What the commands checked reads as its result ("tests passed", "build failed"); the
+	// other commands keep their count.
+	const checks = summarizeChecks(outcome.commands);
+	for (const check of checks) {
+		const verdict = check.passed ? "passed" : "failed";
+		const count = check.passed ? check.tests?.passed : check.tests?.failed;
 		facts.push(
-			t("chat.work.commandsRun", { count: outcome.commands.length, plural: countPlural(outcome.commands.length) }),
+			count !== undefined
+				? t(`chat.work.check.${check.kind}.${verdict}Count`, { count })
+				: t(`chat.work.check.${check.kind}.${verdict}`),
 		);
+	}
+	const otherCommands = outcome.commands.filter(
+		command => command.interrupted || command.unknown || !checkKind(command.command),
+	).length;
+	if (otherCommands)
+		facts.push(t("chat.work.commandsRun", { count: otherCommands, plural: countPlural(otherCommands) }));
+	// One line naming why the run failed: the first failing check's cause, else a failed command's.
+	const failedCheck = checks.find(check => !check.passed);
+	const failure = failedCheck ? undefined : firstFailure(outcome.commands);
+	const cause =
+		state === "running"
+			? undefined
+			: (failedCheck?.cause ?? (failure?.text ? firstErrorLine(failure.text) : undefined));
+	const changed = state !== "running" && outcome.files.length > 0;
 	if (agents.length)
 		facts.push(t("chat.work.agentsDone", { count: agents.length, plural: countPlural(agents.length) }));
 	if (facts.length === produced) {
@@ -256,11 +280,42 @@ export function ExecutionGroup({
 			/>
 		</button>
 	);
+	const findings =
+		cause || changed ? (
+			<div className="omp-work-findings">
+				{cause ? (
+					<button
+						aria-label={`${t("chat.work.cause.open")}: ${cause}`}
+						className="omp-work-cause"
+						data-work-cause=""
+						onClick={() => onExpandedChange(true)}
+						title={cause}
+						type="button"
+					>
+						<CircleX aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
+						<span className="truncate">{cause}</span>
+					</button>
+				) : null}
+				{changed ? (
+					<button
+						className="omp-work-finding"
+						data-work-chip="changes"
+						onClick={() => setPanelTab("diff")}
+						title={t("chat.work.openChanges")}
+						type="button"
+					>
+						<FileDiff aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
+						<span>{t("chat.work.openChanges")}</span>
+					</button>
+				) : null}
+			</div>
+		) : null;
 
 	return (
 		<section className={cx("omp-execution-group", className)} data-state={state}>
 			<LiveStepPeek
 				summaryRow={header}
+				findings={findings}
 				thinkingLive={thinkingLive}
 				toolCallIds={toolCallIds}
 				state={state}
