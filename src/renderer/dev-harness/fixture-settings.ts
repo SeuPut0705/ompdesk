@@ -245,3 +245,18 @@ export const SETUP_STATE: SetupState = {
 		setupItem("tailscale", false, "1.78.1"),
 	],
 };
+
+// ── Dialogs ───────────────────────────────────────────────────────────────────────────────────────────────────
+export const RUNTIME_LOG_TAIL = [
+	"2026-10-18T06:01:12Z [error] sidecar: request timed out after 30s (get_usage)",
+	"2026-10-18T06:01:40Z [error] extension host: failed to read /Users/dev/projects/ompdesk/.omp/extensions/a-very-long-extension-name/index.ts",
+];
+
+export const ACTIVE_TOOLS = {
+	tools: [
+		{ name: "read", description: "Read files and directories", source: "builtin" },
+		{ name: "write", description: "Write a file", source: "builtin" },
+		{ name: "bash", description: "Run a shell command in the project", source: "builtin" },
+		{ name: "web_search", description: "Search the web", source: "mcp:search" },
+	],
+};

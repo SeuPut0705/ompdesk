@@ -46,6 +46,7 @@ import {
 	transcriptFor,
 } from "./fixture";
 import {
+	ACTIVE_TOOLS,
 	DIRECTORIES,
 	MARKETPLACES,
 	MOBILE_WEB_STATE,
@@ -53,6 +54,7 @@ import {
 	PLUGINS,
 	PROMPT_TEMPLATES,
 	REMOTE_STATE,
+	RUNTIME_LOG_TAIL,
 	SCHEDULE_LOG,
 	SCHEDULES_STATE,
 	SECURITY_DASHBOARD,
@@ -206,6 +208,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, MARKETPLACES);
 			case "get_prompt_templates":
 				return respond(command, PROMPT_TEMPLATES);
+			case "get_active_tools":
+				return respond(command, ACTIVE_TOOLS);
 			case "get_security_dashboard":
 				return respond(command, SECURITY_DASHBOARD);
 			case "get_directories":
@@ -301,6 +305,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return { state: "idle" };
 			case IPC_COMMANDS.UPDATER_CHECK:
 				return { state: "not-available", version: "0.0.0-harness" };
+			case IPC_COMMANDS.RUNTIME_LOG_TAIL:
+				return RUNTIME_LOG_TAIL;
 			case IPC_COMMANDS.MODELS_SIGNED_IN:
 				return true;
 			case IPC_COMMANDS.GITHUB_AUTH_REFRESH:
