@@ -471,7 +471,7 @@ export class AgentControlRuntime {
 		return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
 	}
 
-	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): AppPorts {
+	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): Omit<AppPorts, "autopilot"> {
 		const deps = this.#deps;
 		const window = (tabId: string): ClientWindow => {
 			const win = this.#win(tabId);

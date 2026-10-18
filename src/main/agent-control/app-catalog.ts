@@ -7,12 +7,6 @@
  * The risk table `AGENT_CHANNELS` (app-channels.ts) names, per IPC channel, the actions that call it.
  */
 
-import {
-	AUTOPILOT_AREAS,
-	AUTOPILOT_SHIP_PRESETS,
-	type AutopilotArea,
-	type AutopilotShipPreset,
-} from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
@@ -54,6 +48,8 @@ export interface ActionContext {
 	/** Call a fire-and-forget channel's handler. */
 	fire(channel: string, ...args: unknown[]): void;
 	ui(event: AgentAppEvent): void;
+	/** Run `ompdesk_autopilot` with these arguments: its confirmation card, folder rules and run limit apply. */
+	autopilot(args: Record<string, unknown>): Promise<string>;
 	/** Restore the last change this session's agent made (asks again when that change needed a card). */
 	undoLast(): Promise<ActionResult>;
 }
@@ -630,67 +626,45 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "autopilot.status",
 		area: "autopilot",
-		description: "Whether this session is an Autopilot run and its state, cycle, branch and last reason.",
-		args: NO_ARGS,
+		description: "Read an Autopilot run you started (state, cycle, branch): ompdesk_autopilot status.",
+		args: objectSchema({ session: { type: "string", minLength: 1, maxLength: 200 } }, ["session"]),
 		tier: "read",
-		run: async ctx => {
-			const data = await ctx.rpc({ type: "get_autopilot" });
-			const s = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
-			if (!s.active) return { text: "This session is not an Autopilot run." };
-			const parts = ["role", "state", "cycle", "branch", "baseBranch", "reason", "detail"]
-				.filter(k => s[k] !== undefined)
-				.map(k => `${k}: ${String(s[k])}`);
-			return { text: `Autopilot: ${parts.join(", ")}.` };
-		},
+		run: async (ctx, args) => ({ text: await ctx.autopilot({ action: "status", session: args.session }) }),
 	},
 	{
 		id: "autopilot.start",
 		area: "autopilot",
 		description:
-			"Start an Autopilot run in this session: cycles that commit on an autopilot branch. preset local (default) never pushes; push pushes the branch after green cycles; release also releases.",
+			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release), its folder rules and its two-run cap. ship defaults to the user's stored level.",
 		args: objectSchema({
-			preset: { type: "string", enum: AUTOPILOT_SHIP_PRESETS },
-			focus: { type: "array", items: { type: "string", enum: AUTOPILOT_AREAS }, maxItems: 7 },
-			backlog: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 20 },
+			folder: { type: "string", minLength: 1, maxLength: 4096 },
+			ship: { type: "string", enum: ["commit", "push", "release"] },
 		}),
-		tier: "sensitive",
-		describe: args =>
-			`start an Autopilot run (ship: ${String(args.preset ?? "local")}${args.preset === "push" || args.preset === "release" ? ", it commits AND pushes" : ", commits only, no push"}; focus: ${Array.isArray(args.focus) && args.focus.length > 0 ? args.focus.join(", ") : "all areas"}; ${Array.isArray(args.backlog) ? args.backlog.length : 0} backlog items)`,
-		run: async (ctx, args) => {
-			await ctx.rpc({
-				type: "set_autopilot",
+		tier: "change",
+		run: async (ctx, args) => ({
+			text: await ctx.autopilot({
 				action: "start",
-				preset: (args.preset as AutopilotShipPreset | undefined) ?? "local",
-				...(Array.isArray(args.focus) ? { focus: args.focus as AutopilotArea[] } : {}),
-				...(Array.isArray(args.backlog) ? { backlog: args.backlog as string[] } : {}),
-			});
-			return {
-				text: "Autopilot started in this session.",
-				change: { en: "Autopilot", ko: "오토파일럿", value: "started" },
-			};
-		},
+				...(args.folder === undefined ? {} : { folder: args.folder }),
+				...(args.ship === undefined ? {} : { ship: args.ship }),
+			}),
+		}),
 	},
 	{
 		id: "autopilot.stop",
 		area: "autopilot",
-		description: "Stop this session's Autopilot run in an orderly way (it finishes what it must and ends).",
-		args: NO_ARGS,
+		description:
+			"End an Autopilot run after the cycle in flight, or with now: true stop it at once (the turn is aborted and the run paused): ompdesk_autopilot stop.",
+		args: objectSchema({ session: { type: "string", minLength: 1, maxLength: 200 }, now: { type: "boolean" } }, [
+			"session",
+		]),
 		tier: "change",
-		run: async ctx => {
-			await ctx.rpc({ type: "set_autopilot", action: "stop" });
-			return { text: "Autopilot is stopping.", change: { en: "Autopilot", ko: "오토파일럿", value: "stopping" } };
-		},
-	},
-	{
-		id: "autopilot.end",
-		area: "autopilot",
-		description: "End this session's Autopilot run at once: the running turn is aborted.",
-		args: NO_ARGS,
-		tier: "change",
-		run: async ctx => {
-			await ctx.rpc({ type: "set_autopilot", action: "abort" });
-			return { text: "Autopilot ended.", change: { en: "Autopilot", ko: "오토파일럿", value: "ended" } };
-		},
+		run: async (ctx, args) => ({
+			text: await ctx.autopilot({
+				action: "stop",
+				session: args.session,
+				...(args.now === undefined ? {} : { now: args.now }),
+			}),
+		}),
 	},
 	...SETTINGS.map(settingAction),
 ];

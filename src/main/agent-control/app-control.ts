@@ -36,6 +36,8 @@ export interface AppPorts {
 	/** The English or the Korean text, by the app's language. */
 	localize(en: string, ko: string): string;
 	callerTitle(callerTabId: string): string;
+	/** `ompdesk_autopilot` itself (its card, folder rules and run cap); the app actions go through it, never around it. */
+	autopilot(callerTabId: string, args: unknown): Promise<string>;
 }
 
 /** Past this many matches `ompdesk_app_list` lists names only; narrow with `area` or `query` for schemas. */
@@ -160,6 +162,7 @@ export class AppControl {
 			invoke: (channel, ...args) => ports.invoke(callerTabId, this.#channel(channel, actionId, granted), args),
 			fire: (channel, ...args) => ports.fire(callerTabId, this.#channel(channel, actionId, granted), args),
 			ui: event => ports.send(callerTabId, event),
+			autopilot: args => ports.autopilot(callerTabId, args),
 			undoLast: () => this.#undo(callerTabId),
 		};
 		return ctx;

@@ -228,7 +228,7 @@ export interface AgentControlHost {
 		params: Record<string, string>,
 	): string;
 	/** What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not available. */
-	appPorts?: AppPorts;
+	appPorts?: Omit<AppPorts, "autopilot">;
 }
 
 export interface ToolOutcome {
@@ -445,7 +445,9 @@ export class AgentControl {
 	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
 		this.#host = host;
 		this.#limits = limits;
-		this.#app = host.appPorts ? new AppControl(host.appPorts) : null;
+		this.#app = host.appPorts
+			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
+			: null;
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -571,6 +573,16 @@ export class AgentControl {
 				}
 			}
 		}
+	}
+
+	/** The app action's way into `ompdesk_autopilot`: same parse, same card, same run cap. */
+	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
+		const tabs = this.#host.tabs(callerTabId);
+		const caller = tabs?.find(tab => tab.tabId === callerTabId);
+		if (!tabs || !caller) fail("This session's tab is gone.");
+		const parsed = ARGS[T.autopilot].safeParse(raw);
+		if (!parsed.success) fail(`Invalid arguments: ${parsed.error.issues.map(issue => issue.message).join("; ")}`);
+		return this.#autopilot(caller, tabs, parsed.data);
 	}
 
 	#appControl(): AppControl {

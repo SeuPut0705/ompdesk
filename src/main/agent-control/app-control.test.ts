@@ -55,6 +55,11 @@ class FakePorts implements AppPorts {
 		key === "appChanged" ? `Agent changed: ${params.what} → ${params.value}` : `${key} ${JSON.stringify(params)}`;
 	localize = (en: string): string => en;
 	callerTitle = (): string => "Main";
+	autopilotCalls: unknown[] = [];
+	autopilot = async (_tab: string, args: unknown): Promise<string> => {
+		this.autopilotCalls.push(args);
+		return "autopilot reply";
+	};
 }
 
 const refusal = async (promise: Promise<unknown>): Promise<string> => {
@@ -374,35 +379,31 @@ describe("MCP install, pairing and Autopilot", () => {
 		expect(declined.events).toEqual([]);
 	});
 
-	it("reads Autopilot freely, asks before a start that commits and pushes, and stops or ends without a card", async () => {
+	it("routes Autopilot through ompdesk_autopilot (its card and run cap), never through set_autopilot", async () => {
 		const ports = new FakePorts();
 		const control = new AppControl(ports);
-		expect(await control.run(CALLER, "autopilot.status", {})).toContain("not an Autopilot run");
-		await control.run(CALLER, "autopilot.start", { preset: "push", focus: ["tests"], backlog: ["fix flaky"] });
-		expect(ports.cards).toHaveLength(1);
-		expect(ports.cards[0]?.message).toContain("commits AND pushes");
-		expect(ports.rpcs.at(-1)).toMatchObject({
-			type: "set_autopilot",
-			action: "start",
-			preset: "push",
-			focus: ["tests"],
-			backlog: ["fix flaky"],
-		});
-
-		await control.run(CALLER, "autopilot.start", {});
-		expect(ports.rpcs.at(-1)).toMatchObject({ action: "start", preset: "local" });
-		expect(ports.cards[1]?.message).toContain("commits only, no push");
-
-		const cardsBefore = ports.cards.length;
-		await control.run(CALLER, "autopilot.stop", {});
-		await control.run(CALLER, "autopilot.end", {});
-		expect(ports.cards).toHaveLength(cardsBefore);
-		expect(ports.rpcs.slice(-2)).toMatchObject([{ action: "stop" }, { action: "abort" }]);
-		expect(await refusal(control.run(CALLER, "autopilot.start", { preset: "yolo" }))).toContain("must be one of");
+		expect(await control.run(CALLER, "autopilot.status", { session: "abcd1234" })).toBe("autopilot reply");
+		expect(await control.run(CALLER, "autopilot.start", { ship: "push", folder: "/work/repo" })).toBe(
+			"autopilot reply",
+		);
+		expect(await control.run(CALLER, "autopilot.stop", { session: "abcd1234", now: true })).toBe("autopilot reply");
+		expect(ports.autopilotCalls).toEqual([
+			{ action: "status", session: "abcd1234" },
+			{ action: "start", folder: "/work/repo", ship: "push" },
+			{ action: "stop", session: "abcd1234", now: true },
+		]);
+		expect(ports.rpcs).toEqual([]);
+		expect(await refusal(control.run(CALLER, "autopilot.start", { ship: "yolo" }))).toContain("must be one of");
+		expect(await refusal(control.run(CALLER, "autopilot.start", { advanced: { cadence: 1 } }))).toContain(
+			"unknown argument",
+		);
 	});
 
 	it("keeps every other autopilot command, and pairing and MCP commands that are not the offered shapes, never", () => {
 		for (const action of [
+			"start",
+			"stop",
+			"abort",
 			"configure",
 			"ship",
 			"backlog_add",
@@ -413,7 +414,7 @@ describe("MCP install, pairing and Autopilot", () => {
 			"cancel_ship",
 		])
 			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");
-		expect(rpcTier({ type: "set_autopilot", action: "start" } as RpcCommand)).toBe("sensitive");
+		expect(rpcTier({ type: "get_autopilot" })).toBe("never");
 		expect(rpcTier({ type: "mcp_add", name: "a", config: { transport: "stdio", command: "x" } })).toBe("sensitive");
 		for (const type of ["mcp_test", "mcp_reauth", "ssh_manage"])
 			expect(rpcTier({ type } as unknown as RpcCommand), type).toBe("never");

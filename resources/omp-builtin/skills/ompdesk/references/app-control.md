@@ -12,7 +12,7 @@
 
 - `read`: free.
 - `change`: free. The user sees a quiet toast ("Agent changed: Theme → Nord") with Undo, and the change is noted in your session. `app.undo` puts back your last change when it had a previous value.
-- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins or MCP servers (the card shows the exact command or url), starting pairing (`remote.pair` only opens the place where the user completes it; you never give or read a code), starting Autopilot (`autopilot.start` commits, and pushes with preset `push` or `release`), erasing memory or saved sessions, updates, restart and quit. The user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. If the user turned on "let agents manage", the card is skipped.
+- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins or MCP servers (the card shows the exact command or url), starting pairing (`remote.pair` only opens the place where the user completes it; you never give or read a code), erasing memory or saved sessions, updates, restart and quit. The user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. If the user turned on "let agents manage", the card is skipped.
 - `never`: what bounds your own power (the control tools switch, approval mode, who may approve, memory and computer-use switches), secrets, tokens and pairing codes, answering a card. The list shows these with the reason. Tell the user to do them in Settings; `ui.settings_open` opens the right section for them.
 
 ## Sign-in
@@ -24,3 +24,7 @@
 - Change one thing, say what you changed, and leave the rest.
 - Do not change a setting to make your own task easier (approvals, models, limits) unless the user asked for that.
 - A toast and a card are for the user: never claim they approved something they did not.
+
+## Autopilot
+
+`autopilot.start`, `autopilot.status` and `autopilot.stop` are `ompdesk_autopilot` itself: its confirmation card (commit, push or release), its folder rules and its run cap apply, and the app actions have no other route to Autopilot. See skill://ompdesk/references/autopilot.md.
