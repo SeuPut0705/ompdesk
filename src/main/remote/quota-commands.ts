@@ -159,6 +159,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_model_setup_facts",
 	"get_next_prompt",
 	"get_omp_update",
+	"get_orphan_worktrees",
 	"get_plan_mode",
 	"get_plugin_detail",
 	"get_plugin_doctor",
@@ -245,6 +246,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"redeem_reset_pass",
 	"reload_plugins",
 	"remove_directory",
+	"remove_orphan_worktree",
 	"remove_queued_message",
 	"resolve_local_url",
 	// Stock `AgentLifecycleManager.ensureLive` rebuilds a parked subagent's session from its file; no prompt is sent.

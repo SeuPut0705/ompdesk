@@ -363,3 +363,82 @@ describe("predictMerge", () => {
 		expect(gitSync(repo, "rev-parse", "HEAD")).toBe(head);
 	});
 });
+
+/** What a squash-merge PR does: one new commit on the parent's main holding the branch's net change; the branch's own commits are in no ancestry. */
+function squashMerge(wt: WorktreeRef): void {
+	gitSync(repo, "merge", "--squash", wt.branch);
+	gitSync(repo, "commit", "-q", "-m", `squash ${wt.branch}`);
+}
+
+describe("a branch squash-merged into the parent's main", () => {
+	it("counts as landed by content in landingFacts and branchFacts, with nothing of its own left", async () => {
+		const wt = await agentWorktree("sq1");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await commitIn(wt.path, "b.ts", "b\n");
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: false, clean: true });
+		squashMerge(wt);
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: true, squashed: true, clean: true });
+		expect(await branchFacts(wt)).toMatchObject({
+			merged: true,
+			commitsAhead: 0,
+			files: [],
+			uncommitted: 0,
+			untracked: 0,
+		});
+	});
+
+	it("lists only the work left in the worktree after the squash", async () => {
+		const wt = await agentWorktree("sq2");
+		await commitIn(wt.path, "a.ts", "a\n");
+		squashMerge(wt);
+		await fs.writeFile(path.join(wt.path, "a.ts"), "a\nmore\n");
+		await fs.writeFile(path.join(wt.path, "scratch.txt"), "x");
+		expect(await branchFacts(wt)).toMatchObject({
+			merged: true,
+			commitsAhead: 0,
+			files: [{ path: "a.ts", added: 1, removed: 0 }],
+			uncommitted: 1,
+			untracked: 1,
+		});
+		expect(await landingFacts(wt)).toMatchObject({ landed: true, squashed: true, clean: false });
+	});
+
+	it("counts as landed by patch equivalence when main has moved on over the same files (a cherry-pick)", async () => {
+		const wt = await agentWorktree("sq3");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await commitIn(repo, "unrelated.ts", "u\n");
+		gitSync(repo, "cherry-pick", wt.branch);
+		await commitIn(repo, "a.ts", "a\nlater\n");
+		expect(await landingFacts(wt)).toMatchObject({ landed: true, squashed: true });
+	});
+
+	it("keeps a branch with real unmerged work unlanded, even when part of it was squashed", async () => {
+		const wt = await agentWorktree("sq4");
+		await commitIn(wt.path, "a.ts", "a\n");
+		squashMerge(wt);
+		await commitIn(wt.path, "b.ts", "b\n");
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: false, clean: true });
+		expect(await branchFacts(wt)).toMatchObject({ merged: false, commitsAhead: 2 });
+
+		const other = await agentWorktree("sq5");
+		await commitIn(other.path, "c.ts", "c\n");
+		await commitIn(repo, "unrelated.ts", "u\n");
+		expect((await landingFacts(other)).landed).toBe(false);
+	});
+
+	it("lets removeSafeWorktree take the worktree and keep the branch, which `branch -d` refuses", async () => {
+		const wt = await agentWorktree("sq6");
+		await commitIn(wt.path, "a.ts", "a\n");
+		squashMerge(wt);
+		expect(await removeSafeWorktree(wt)).toBe("branch-kept");
+		await expect(fs.stat(wt.path)).rejects.toThrow();
+		expect(gitSync(repo, "branch", "--list", wt.branch)).toContain(wt.branch);
+
+		const left = await agentWorktree("sq7");
+		await commitIn(left.path, "d.ts", "d\n");
+		squashMerge(left);
+		await fs.writeFile(path.join(left.path, "scratch.txt"), "unsaved");
+		expect(await removeSafeWorktree(left)).toBeNull();
+		expect(await fs.readFile(path.join(left.path, "scratch.txt"), "utf8")).toBe("unsaved");
+	});
+});

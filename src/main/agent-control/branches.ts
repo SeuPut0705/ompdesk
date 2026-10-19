@@ -130,12 +130,60 @@ async function readBase(baseCwd: string): Promise<Base> {
 	return { branch, head, upstream: tracked ?? remote };
 }
 
+/** Verdicts of `landedByContent` per (target, tip) commit pair: both are immutable, and the review sweep asks every 10 s. */
+const contentVerdicts = new Map<string, boolean>();
+const MAX_CONTENT_VERDICTS = 256;
+
+/** The tree a merge of `tip` into `target` would make is `target`'s own tree: merging adds nothing. */
+async function mergesAddNothing(cwd: string, target: string, tip: string): Promise<boolean> {
+	// Exit 0 prints the merged tree first; a conflict exits 1, and git older than 2.38 has no `--write-tree`.
+	const merged = await gitRaw(cwd, ["merge-tree", "--write-tree", target, tip]);
+	if (merged.code !== 0) return false;
+	const mergedTree = merged.stdout.toString("utf8").split("\n", 1)[0]?.trim();
+	if (!mergedTree) return false;
+	const targetTree = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
+	return targetTree.code === 0 && targetTree.stdout.toString("utf8").trim() === mergedTree;
+}
+
+/** Every commit of `tip` has a patch-equivalent in `target` (`git cherry` marks each one `-`): a rebase or cherry-pick landed it. */
+async function patchesAllIn(cwd: string, target: string, tip: string): Promise<boolean> {
+	const cherry = await gitRaw(cwd, ["cherry", target, tip]);
+	if (cherry.code !== 0) return false;
+	const lines = cherry.stdout.toString("utf8").split("\n").filter(Boolean);
+	return lines.length > 0 && lines.every(line => line.startsWith("-"));
+}
+
+/**
+ * Whether `target` already holds what `tip` changed although `tip` is not in its history: a squash merge (merging adds
+ * nothing) or a rebase or cherry-pick (every commit has a patch-equivalent there). Both arguments are commit ids.
+ */
+async function landedByContent(cwd: string, target: string, tip: string): Promise<boolean> {
+	const key = `${target} ${tip}`;
+	const known = contentVerdicts.get(key);
+	if (known !== undefined) return known;
+	const verdict = (await mergesAddNothing(cwd, target, tip)) || (await patchesAllIn(cwd, target, tip));
+	if (contentVerdicts.size >= MAX_CONTENT_VERDICTS) {
+		const oldest = contentVerdicts.keys().next();
+		if (!oldest.done) contentVerdicts.delete(oldest.value);
+	}
+	contentVerdicts.set(key, verdict);
+	return verdict;
+}
+
+interface Landing {
+	landed: boolean;
+	/** Landed by content, not by ancestry. */
+	squashed?: true;
+	diffBase: string;
+}
+
 /**
  * Where the child's own work starts: the base that already holds its tip when it landed (so only uncommitted work is
  * left), else the upstream when it holds the parent's HEAD (a stale local branch never lends the child the upstream's
- * newer commits), else the parent's HEAD.
+ * newer commits), else the parent's HEAD. A tip that is in no base's history has still landed when a base holds its
+ * changes (`landedByContent`: a squash merge, rebase or cherry-pick); the work is then measured from the tip itself.
  */
-async function landing(cwd: string, base: Base, tip: string): Promise<{ landed: boolean; diffBase: string }> {
+async function landing(cwd: string, base: Base, tip: string): Promise<Landing> {
 	const { head, upstream } = base;
 	const [inUpstream, inHead, headInUpstream] = await Promise.all([
 		upstream ? contains(cwd, upstream, tip) : false,
@@ -144,6 +192,9 @@ async function landing(cwd: string, base: Base, tip: string): Promise<{ landed: 
 	]);
 	if (upstream && inUpstream) return { landed: true, diffBase: upstream };
 	if (inHead) return { landed: true, diffBase: head };
+	for (const target of upstream ? [upstream, head] : [head]) {
+		if (await landedByContent(cwd, target, tip)) return { landed: true, squashed: true, diffBase: tip };
+	}
 	return { landed: false, diffBase: upstream && headInUpstream ? upstream : head };
 }
 
@@ -297,32 +348,79 @@ export async function predictMerge(worktree: WorktreeRef): Promise<MergePredicti
 export interface LandingFacts {
 	/** The branch has a commit of its own (its tip is not where it was created); an untouched branch has nothing to land. */
 	hasWork: boolean;
-	/** Its tip is in the parent checkout's HEAD or in the upstream its branch tracks (merged here, pushed or merged there). */
+	/** Its work is in the parent checkout's HEAD or in the upstream its branch tracks (merged here, pushed or merged there), by ancestry or by content. */
 	landed: boolean;
+	/** Present when `landed` by content (squash merge, rebase, cherry-pick) rather than by ancestry. */
+	squashed?: true;
 	/** No uncommitted or untracked file in the worktree: removing it loses nothing. */
 	clean: boolean;
+}
+
+/** The commit a branch was created at (its oldest reflog entry), or undefined without a reflog. */
+async function createdAt(baseCwd: string, branch: string): Promise<string | undefined> {
+	const reflog = await gitRaw(baseCwd, ["reflog", "show", "--format=%H", `refs/heads/${branch}`]);
+	return reflog.stdout.toString("utf8").split("\n").filter(Boolean).at(-1);
 }
 
 /**
  * Whether a child's work has landed: its branch tip is an ancestor of the parent's HEAD (a local merge, a
  * fast-forward, a rebase that kept the tip) or of the upstream the parent's branch tracks, else `origin`'s default
- * branch (pushed to main, or merged there), and whether the worktree is clean. An untouched branch is trivially an
+ * branch (pushed to main, or merged there), or one of them holds its changes under other commits (a squash merge, a
+ * rebase, a cherry-pick: `squashed`), and whether the worktree is clean. An untouched branch is trivially an
  * ancestor, so `hasWork` compares the tip with the commit the branch was created at (its oldest reflog entry); without
  * a reflog nothing counts as work.
  */
 export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
 	const tip = await resolve(worktree.baseCwd, `refs/heads/${worktree.branch}`);
 	if (!tip) return { hasWork: false, landed: false, clean: false };
-	const [base, reflog, own] = await Promise.all([
+	const [base, created, own] = await Promise.all([
 		readBase(worktree.baseCwd),
-		gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", `refs/heads/${worktree.branch}`]),
+		createdAt(worktree.baseCwd, worktree.branch),
 		dirtiness(worktree.path).catch(() => null),
 	]);
-	const created = reflog.stdout.toString("utf8").split("\n").filter(Boolean).at(-1);
+	const state = await landing(worktree.baseCwd, base, tip);
 	return {
 		hasWork: created !== undefined && created !== tip,
-		landed: (await landing(worktree.baseCwd, base, tip)).landed,
+		landed: state.landed,
+		...(state.squashed ? { squashed: true as const } : {}),
 		clean: own !== null && own.tracked === 0 && own.untracked === 0,
+	};
+}
+
+/** A linked worktree as a listing of worktrees no session holds sees it: its branch is null on a detached HEAD. */
+export interface StandingRef {
+	path: string;
+	branch: string | null;
+	baseCwd: string;
+}
+
+export interface WorktreeStanding {
+	/** As `LandingFacts.hasWork`; false on a detached HEAD, which was never created as a branch. */
+	hasWork: boolean;
+	/** HEAD's work is in the parent's HEAD or upstream, by ancestry or by content. */
+	landed: boolean;
+	squashed?: true;
+	/** Commits of its own against where its work would start (as `BranchFacts.commitsAhead`); 0 once landed. */
+	commitsAhead: number;
+	/** Tracked changes plus untracked files in the worktree. */
+	dirtyFiles: number;
+}
+
+/** `landingFacts` and `branchFacts` for the worktree's HEAD in one read, whether or not it has a branch. */
+export async function worktreeStanding(worktree: StandingRef): Promise<WorktreeStanding> {
+	const [base, tip] = await Promise.all([readBase(worktree.baseCwd), text(worktree.path, ["rev-parse", "HEAD"])]);
+	const [state, created, own] = await Promise.all([
+		landing(worktree.baseCwd, base, tip),
+		worktree.branch ? createdAt(worktree.baseCwd, worktree.branch) : undefined,
+		dirtiness(worktree.path),
+	]);
+	const ahead = state.landed ? "0" : await text(worktree.baseCwd, ["rev-list", "--count", tip, `^${state.diffBase}`]);
+	return {
+		hasWork: created !== undefined && created !== tip,
+		landed: state.landed,
+		...(state.squashed ? { squashed: true as const } : {}),
+		commitsAhead: Number(ahead) || 0,
+		dirtyFiles: own.tracked + own.untracked,
 	};
 }
 
@@ -330,24 +428,36 @@ export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts>
 export type WorktreeRemoval = "removed" | "branch-kept" | null;
 
 /**
- * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
- * uncommitted or untracked file whose branch tip is in the parent's HEAD or upstream (an untouched branch is) goes
- * (`worktree remove` without `--force` refuses a dirty one too), and the branch only with `branch -d`, which refuses
- * an unmerged one. Null when anything held it back.
+ * `git worktree remove` without `--force` of `worktreePath`, only when git lists it as a linked worktree of the
+ * repository at `baseCwd` (the primary checkout never goes); git itself refuses one with uncommitted or untracked files
+ * or locked. Returns the primary checkout's path when the worktree went, else null.
  */
-export async function removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
-	const facts = await landingFacts(worktree);
-	if (!facts.landed || !facts.clean) return null;
-	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
+export async function removeLinkedWorktree(baseCwd: string, worktreePath: string): Promise<string | null> {
+	const listed = (await text(baseCwd, ["worktree", "list", "--porcelain"]))
 		.split("\n")
 		.filter(line => line.startsWith("worktree "))
 		.map(line => line.slice("worktree ".length));
 	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
-	const wanted = await realpath(worktree.path).catch(() => worktree.path);
+	const wanted = await realpath(worktreePath).catch(() => worktreePath);
 	if (!linked.includes(wanted)) return null;
-	const removed = await gitRaw(primary ?? worktree.baseCwd, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
-	if (removed.code !== 0) return null;
-	const branch = await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
+	const main = primary ?? baseCwd;
+	const removed = await gitRaw(main, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
+	return removed.code === 0 ? main : null;
+}
+
+/**
+ * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
+ * uncommitted or untracked file whose work has landed in the parent's HEAD or upstream (an untouched branch has; a
+ * squash-merged one has by content) goes (`worktree remove` without `--force` refuses a dirty one too), and the branch
+ * only with `branch -d`, which refuses an unmerged one: a squash-merged branch keeps it (`branch-kept`). Null when
+ * anything held it back.
+ */
+export async function removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
+	const facts = await landingFacts(worktree);
+	if (!facts.landed || !facts.clean) return null;
+	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
+	if (!primary) return null;
+	const branch = await gitRaw(primary, ["branch", "-d", worktree.branch]);
 	return branch.code === 0 ? "removed" : "branch-kept";
 }
 

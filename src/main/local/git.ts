@@ -1,4 +1,6 @@
 /** Git / worktree / PR / source-control commands (rpc-map §5), answered in main over the git and gh CLIs. */
+
+import { listOrphanWorktrees, removeOrphanWorktree, sessionOpenFolders } from "../worktree-orphans";
 import { getGitChanges, getGitDiff, getGitFingerprint, getGitStatus } from "./git/changes";
 import { githubCommand } from "./git/github";
 import {
@@ -41,6 +43,11 @@ export const handlers: Record<string, LocalHandler> = {
 		),
 	worktree_remove: (command, ctx) =>
 		removeWorktree({ path: str(command.path) ?? "", force: command.force === true }, ctx.bridge, ctx.cwd),
+	// Orphaned worktrees (src/main/worktree-orphans.ts): which folders sessions hold is the whole app's, not this tab's.
+	get_orphan_worktrees: (_command, ctx) =>
+		listOrphanWorktrees(ctx.cwd, { bridge: ctx.bridge, openFolders: sessionOpenFolders }),
+	remove_orphan_worktree: (command, ctx) =>
+		removeOrphanWorktree(ctx.cwd, str(command.path) ?? "", { bridge: ctx.bridge, openFolders: sessionOpenFolders }),
 	// worktree-lifecycle.ts reads `worktree.onExit` from the closing tab's live session.
 	worktree_lifecycle_settings: (_command, ctx) => ctx.bridge.request("worktree_lifecycle_settings"),
 	pr_repo: (_command, ctx) => prRepo(ctx.cwd),

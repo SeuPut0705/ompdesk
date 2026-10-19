@@ -163,6 +163,7 @@ import {
 	WorktreePrompts,
 	type WorktreeWindows,
 } from "./worktree-lifecycle";
+import { setOpenFoldersSource } from "./worktree-orphans";
 
 // App identity: the dev run shows "Electron" in the dock otherwise; packaged
 // builds get the name from the bundle via electron-builder. The name also picks
@@ -737,6 +738,9 @@ app.whenReady().then(() => {
 		// Autopilot runs paired devices started here, charged to them until they end (remote/hosted-autopilot.ts).
 		runChargesFile: join(app.getPath("userData"), "autopilot-device-runs.json"),
 	});
+	// Orphaned worktrees (worktree-orphans.ts): a folder is open when a tab of this computer or a tab it hosts for a
+	// paired device runs in it (`hostServices.workspaceDirs()` is the cwd of every hosted tab, a superset of `hostedSessions()`).
+	setOpenFoldersSource(() => [...sidecarPool.workspaceDirs(), ...hostServices.workspaceDirs()]);
 	let hostOmpVersion: string | null = null;
 	void systemOmp().then(resolution => {
 		if (resolution.ok) hostOmpVersion = resolution.runtime.version;

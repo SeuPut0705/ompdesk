@@ -397,6 +397,11 @@ export type RpcCommand =
 			branch?: { name: string; mode: "new" | "local" | "remote"; remote?: string; from?: string };
 	  }
 	| { id?: string; type: "worktree_remove"; path: string; force?: boolean }
+	// Orphaned worktrees: OMPdesk-made linked worktrees no open session uses, listed for the repository of the tab's
+	// cwd; removal re-checks everything and only takes a landed or untouched one (`LocalCommandError` codes
+	// `not_orphan`, `not_removable`).
+	| { id?: string; type: "get_orphan_worktrees" }
+	| { id?: string; type: "remove_orphan_worktree"; path: string }
 	// omp's `worktree.onStart` / `worktree.onExit` as the live session resolves them (omp 18.8.6+).
 	| { id?: string; type: "worktree_lifecycle_settings" }
 	// Pull requests (PR Center, plan/21). pr_diff is per-file (lazy), pr_draft
@@ -1116,6 +1121,43 @@ export interface RpcWorktreeCreateResult {
 	seed?: WorktreeSeedReport;
 	/** Present when the repo has a `.ompdesk/worktree-setup`. */
 	setup?: WorktreeSetupReport;
+}
+
+/**
+ * `landed`: its branch's work is in the parent's HEAD or upstream (ancestry, or a squash/rebase that left nothing new);
+ * `untouched`: the branch has no commit of its own; `unlanded`: commits nothing holds; `dirty`: uncommitted or
+ * untracked files (wins over the others).
+ */
+export type OrphanWorktreeState = "landed" | "untouched" | "unlanded" | "dirty";
+
+/** One linked worktree no open session uses (get_orphan_worktrees). */
+export interface RpcOrphanWorktree {
+	/** Real path of the linked worktree. */
+	path: string;
+	/** Null: detached HEAD. */
+	branch: string | null;
+	/** The primary checkout. */
+	repo: string;
+	state: OrphanWorktreeState;
+	/** Landed by content (squash merge, rebase, cherry-pick), not by ancestry. */
+	squashed?: true;
+	/** Commits of its own not in the base (0 when landed/untouched). */
+	commitsAhead: number;
+	/** Tracked changes + untracked files. */
+	dirtyFiles: number;
+	/** Last commit time of its HEAD (epoch ms). */
+	modifiedAt: number;
+}
+
+/** get_orphan_worktrees: the worktree root and what lives there for the calling tab's repository, newest first. */
+export interface RpcOrphanWorktrees {
+	root: string;
+	worktrees: RpcOrphanWorktree[];
+}
+
+/** remove_orphan_worktree: the worktree is gone; `branch-kept` when `git branch -d` kept its branch (a squash merge). */
+export interface RpcOrphanWorktreeRemoval {
+	removal: "removed" | "branch-kept";
 }
 
 /** pr_repo: gh availability + the session cwd's GitHub repo, or the typed reason it's unusable. */
