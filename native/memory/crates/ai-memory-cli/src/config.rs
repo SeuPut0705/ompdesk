@@ -435,14 +435,15 @@ pub struct Config {
     /// happens on PreCompact and via manual `memory_consolidate`. Set with
     /// `AI_MEMORY_CONSOLIDATE_ON_SESSION_END=true`.
     pub consolidate_on_session_end: bool,
-    /// Server-side opt-in for assistant/Stop capture (#196). When true, the
-    /// server honors a client's sanitized `_ai_memory_assistant` marker on a
-    /// `Stop` event and persists the excerpt as the Stop body. Off by default;
-    /// when off the marker is stripped and the Stop stays empty. The client half
-    /// of the double opt-in is baked separately by
-    /// `install-hooks --capture-assistant`. Set with
-    /// `AI_MEMORY_CAPTURE_ASSISTANT=true`.
-    pub capture_assistant: bool,
+    /// Server-side half of assistant/Stop capture (#196). When the server
+    /// keeps a client's sanitized `_ai_memory_assistant` marker on a `Stop`
+    /// event, it persists the excerpt as the Stop body; otherwise the marker is
+    /// stripped and the Stop stays empty. Unset keeps omp's alone (the turn
+    /// conclusions OMPdesk's extension sends); `true` opts every capable agent
+    /// in; `false` turns it off for all. The client half is the marker plus
+    /// `capture_assistant=1` (`install-hooks --capture-assistant` for native
+    /// hooks). Set with `AI_MEMORY_CAPTURE_ASSISTANT=true|false`.
+    pub capture_assistant: Option<bool>,
     /// On by default. When the project's ai-memory store is brand new (empty),
     /// the SessionStart hook triggers a one-time, bounded import of this
     /// project's existing local harness session history so installing hooks
@@ -1369,7 +1370,7 @@ impl Default for Config {
             llm_fallback_configs: Vec::new(),
             llm_fallback_unresolved: Vec::new(),
             consolidate_on_session_end: false,
-            capture_assistant: false,
+            capture_assistant: None,
             backfill_on_start: true,
             run_autowire: true,
             run: RunSettings::default(),
@@ -3767,6 +3768,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.server_url, "https://from-env.example");
+    }
+
+    /// `capture_assistant` is three-state: unset lets the server keep omp's turn
+    /// conclusions (OMPdesk's extension sends them), only an explicit `false`
+    /// turns that off, and `true` opts every capable agent in.
+    #[test]
+    fn capture_assistant_is_unset_unless_the_file_names_it() {
+        assert_eq!(load_with_toml("").unwrap().capture_assistant, None);
+        assert_eq!(
+            load_with_toml("capture_assistant = false\n")
+                .unwrap()
+                .capture_assistant,
+            Some(false)
+        );
+        assert_eq!(
+            load_with_toml("capture_assistant = true\n")
+                .unwrap()
+                .capture_assistant,
+            Some(true)
+        );
     }
 
     /// An explicit `server_url` that happens to name the default URL is still

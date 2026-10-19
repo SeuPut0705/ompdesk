@@ -46,7 +46,7 @@ const ASSISTANT_MESSAGE_FIELDS: &[&str] = &["last_assistant_message"];
 /// The raw field that carries the assistant's final message for `(agent, event)`,
 /// or `None` when the pair has no verified assistant-message field.
 ///
-/// Closed table: Claude Code, Codex, and OpenCode support `Stop` capture.
+/// Closed table: Claude Code, Codex, OpenCode and omp support `Stop` capture.
 /// Extend deliberately — a new entry opts an agent/event into capture and MUST
 /// have its field name present in [`ASSISTANT_MESSAGE_FIELDS`] so the strip
 /// covers it (enforced by `closed_table_fields_are_all_stripped`).
@@ -55,14 +55,28 @@ const ASSISTANT_MESSAGE_FIELDS: &[&str] = &["last_assistant_message"];
 /// codex-cli 0.154.0, #743) — the same spelling Claude Code uses, so no new
 /// entry in [`ASSISTANT_MESSAGE_FIELDS`] is needed. Codex has no `SubagentStop`
 /// in its supported event vocabulary, so only `(Codex, Stop)` is added.
+///
+/// omp has no native hook: OMPdesk's generated extension sends the turn's last
+/// reply, already redacted, as the `_ai_memory_assistant` marker itself. The raw
+/// field is listed only so the table's every entry stays covered by the strip.
 #[must_use]
 pub fn assistant_message_field(agent: AgentKind, event: HookEvent) -> Option<&'static str> {
     match (agent, event) {
-        (AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::OpenCode, HookEvent::Stop) => {
-            Some("last_assistant_message")
-        }
+        (
+            AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::OpenCode | AgentKind::Omp,
+            HookEvent::Stop,
+        ) => Some("last_assistant_message"),
         _ => None,
     }
+}
+
+/// Whether the server keeps `agent`'s opt-in excerpt, given config.toml's
+/// `capture_assistant`: an explicit value decides for every agent; unset keeps
+/// omp's alone, the turn conclusions OMPdesk's extension sends (OMPdesk never
+/// edits an existing config, so its default lives here).
+#[must_use]
+pub fn server_captures(configured: Option<bool>, agent: AgentKind) -> bool {
+    configured.unwrap_or(agent == AgentKind::Omp)
 }
 
 /// The opt-in assistant-capture wire protocol carried in the body under
@@ -245,7 +259,7 @@ mod tests {
             for event in events {
                 let expected = matches!(
                     agent,
-                    AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::OpenCode
+                    AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::OpenCode | AgentKind::Omp
                 ) && event == HookEvent::Stop;
                 assert_eq!(
                     assistant_message_field(agent, event).is_some(),

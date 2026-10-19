@@ -503,12 +503,14 @@ pub struct HookState {
     /// ended may have taught the profile something. The pass reads only what
     /// is new past its marks, so a wake-up with nothing new is cheap.
     pub profile_notify: Option<Arc<tokio::sync::Notify>>,
-    /// Opt-in (`AI_MEMORY_CAPTURE_ASSISTANT`): when true, the server honors the
-    /// client's `_ai_memory_assistant` protocol on a `Stop` event and persists
-    /// the sanitized excerpt as the Stop body. Off by default; when off the
-    /// marker is stripped and the Stop stays empty. Double opt-in: the client
-    /// must also have been installed with `--capture-assistant` (#196).
-    pub capture_assistant_enabled: bool,
+    /// `capture_assistant` from config.toml (`AI_MEMORY_CAPTURE_ASSISTANT`):
+    /// whether the server honors a client's `_ai_memory_assistant` protocol on
+    /// a `Stop` event and persists the sanitized excerpt as the Stop body.
+    /// Unset keeps omp's (OMPdesk's turn conclusions) and no other agent's;
+    /// `true` opts every capable agent in, `false` turns it off for all
+    /// (`assistant_capture::server_captures`). Double opt-in: the client must
+    /// also send the marker with `capture_assistant=1` (#196).
+    pub capture_assistant: Option<bool>,
     /// `[handoff].claim_on_session_start` (default `true` — unchanged
     /// behavior). When `false`, `SessionStart` does not claim a pending
     /// handoff; it renders a non-consuming notice instead and leaves the
@@ -682,7 +684,8 @@ async fn admit_hook(
     // Consume the opt-in `_ai_memory_assistant` marker and, when both opt-ins are
     // on for a supported Stop, populate the Stop body with the sanitized excerpt.
     // Any gate failure leaves an empty Stop with the same 202 "queued" response.
-    crate::assistant_capture::apply_assistant_backstop(&mut env, state.capture_assistant_enabled);
+    let capture = crate::assistant_capture::server_captures(state.capture_assistant, env.agent);
+    crate::assistant_capture::apply_assistant_backstop(&mut env, capture);
     if env.aliases_invalid {
         HookProcessingOutcome::DroppedInvalid.record(&state.ingest_metrics);
         return (StatusCode::ACCEPTED, "invalid marker aliases");
@@ -944,10 +947,8 @@ async fn handle_hook_batch(
         crate::assistant_capture::strip_assistant_message_raw(&mut item.body);
         let query = parse_hook_query(&item.url);
         let mut env = HookEnvelope::from_query_and_body(query, item.body);
-        crate::assistant_capture::apply_assistant_backstop(
-            &mut env,
-            state.capture_assistant_enabled,
-        );
+        let capture = crate::assistant_capture::server_captures(state.capture_assistant, env.agent);
+        crate::assistant_capture::apply_assistant_backstop(&mut env, capture);
         if env.aliases_invalid {
             HookProcessingOutcome::DroppedInvalid.record(&state.ingest_metrics);
             results.push(HookBatchResult {
@@ -4562,9 +4563,9 @@ fn build_auto_handoff(
             digest.observation_count()
         ),
     };
-    // Stop bodies exist only after the assistant-capture double opt-in. The
-    // excerpt continues the work in the next session's baton and stays out of
-    // the git-tracked session page.
+    // Stop bodies exist only after the assistant-capture opt-in. The excerpt
+    // continues the work in the next session's baton and leads the session
+    // page as its `## Outcome` (the wiki is the data dir's local git).
     if let Some(assistant) = &facts.latest_assistant {
         summary.push_str("\n\nLatest assistant response: ");
         summary.push_str(assistant);
@@ -6284,7 +6285,7 @@ pub(crate) mod tests {
             consolidate_on_session_end: false,
             session_consolidation_notify: None,
             profile_notify: None,
-            capture_assistant_enabled: false,
+            capture_assistant: None,
             claim_handoff_on_session_start: true,
             create_handoff_on_session_end: true,
             subagent_sessions: Arc::new(tokio::sync::Mutex::new(SubagentSessionSet::default())),
@@ -9132,7 +9133,7 @@ pub(crate) mod tests {
     async fn assistant_capture_round_trips_when_both_opt_ins_on() {
         let tmp = TempDir::new().unwrap();
         let mut state = make_state(&tmp).await;
-        state.capture_assistant_enabled = true;
+        state.capture_assistant = Some(true);
         let state = Arc::new(state);
 
         let items = vec![opted_in_stop_item("cap-on", "the fix is in config.rs")];
@@ -9168,7 +9169,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn assistant_capture_stays_empty_when_server_disabled() {
         let tmp = TempDir::new().unwrap();
-        // make_state defaults capture_assistant_enabled = false.
+        // make_state leaves capture_assistant unset: a Claude Code Stop stays empty.
         let state = Arc::new(make_state(&tmp).await);
 
         let items = vec![opted_in_stop_item("cap-off", "should not persist")];
@@ -9199,6 +9200,69 @@ pub(crate) mod tests {
             stop.body
         );
         assert!(!any_file_contains(tmp.path(), b"should not persist"));
+    }
+
+    /// A Stop batch item as OMPdesk's omp extension sends it: the redacted
+    /// conclusion as the `_ai_memory_assistant` marker, `capture_assistant=1`
+    /// on the URL.
+    fn omp_conclusion_item(session_id: &str, excerpt: &str) -> HookBatchItem {
+        HookBatchItem {
+            url: "http://h/hook?event=stop&agent=omp&capture_assistant=1".into(),
+            body: serde_json::json!({
+                "sessionID": session_id,
+                "_ai_memory_assistant": { "version": 1, "excerpt": excerpt },
+            }),
+        }
+    }
+
+    async fn omp_stop_body(state: &Arc<HookState>, session_id: &str) -> String {
+        let id = resolve_session_id(&HookEnvelope::from_query_and_body(
+            HookQuery {
+                event: "stop".into(),
+                agent: Some("omp".into()),
+                ..Default::default()
+            },
+            serde_json::json!({ "sessionID": session_id }),
+        ))
+        .unwrap();
+        state
+            .reader
+            .observations_for_session(id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|o| o.kind == ai_memory_core::ObservationKind::Stop)
+            .expect("Stop persisted")
+            .body
+    }
+
+    #[tokio::test]
+    async fn omp_conclusion_is_kept_unless_the_config_turns_it_off() {
+        for (configured, kept) in [(None, true), (Some(true), true), (Some(false), false)] {
+            let tmp = TempDir::new().unwrap();
+            let mut state = make_state(&tmp).await;
+            state.capture_assistant = configured;
+            let state = Arc::new(state);
+            let items = vec![omp_conclusion_item("omp-cap", "Jev 1.14로 고정했어요.")];
+            let response = handle_hook_batch(
+                State(state.clone()),
+                None,
+                None,
+                None,
+                HeaderMap::new(),
+                Json(items),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = omp_stop_body(&state, "omp-cap").await;
+            if kept {
+                assert_eq!(body, "Jev 1.14로 고정했어요.", "config {configured:?}");
+            } else {
+                assert!(body.is_empty(), "config {configured:?} kept {body:?}");
+            }
+            assert!(!any_file_contains(tmp.path(), b"_ai_memory_assistant"));
+        }
     }
 
     /// `pre-tool-use` query+agent for building an env to recompute a SessionId.
@@ -13015,8 +13079,8 @@ pub(crate) mod tests {
             .unwrap()
             .body;
         assert!(
-            !body.contains("Found two bugs"),
-            "the assistant excerpt stays out of the git-tracked session page"
+            body.contains("## Outcome\n\nFound two bugs\n"),
+            "the captured reply is the session page's outcome: {body}"
         );
     }
 
@@ -13070,7 +13134,12 @@ pub(crate) mod tests {
                 .read_page(state.workspace_id, state.project_id, &page.path)
                 .unwrap()
                 .body;
-            assert!(!body.contains("Assistant-only result"));
+            assert_eq!(
+                body.contains("## Outcome\n\nAssistant-only result"),
+                server && client,
+                "the page leads with the captured reply only when both opt-ins hold: {body}"
+            );
+            assert!(!body.contains(&secret));
         }
     }
 
@@ -15317,9 +15386,9 @@ pub(crate) mod tests {
             )
             .expect("the session page is written");
         assert!(
-            page.body
-                .contains("raw observations omitted from the middle"),
-            "a long session still gets the elided raw list: {}",
+            page.body.contains("- **observations:** ")
+                && !page.body.contains("## Raw observations"),
+            "a long session's page counts its rows and lists none: {}",
             page.body.lines().take(12).collect::<Vec<_>>().join("\n")
         );
         let briefing = state
@@ -18339,14 +18408,12 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .expect("PostCompaction checkpoint page must be readable from the store");
+        // The page counts the session's rows and no longer lists them, so the
+        // compaction event itself is not quoted on it.
         assert!(
-            page.body.contains("post-compaction"),
-            "checkpoint body must include the PostCompaction raw observation: {}",
-            page.body
-        );
-        assert!(
-            page.body.contains(summary),
-            "checkpoint body must include the Devin summary field: {}",
+            page.body.contains("- **observations:** ")
+                && !page.body.contains("## Raw observations"),
+            "checkpoint body counts the rows and lists none: {}",
             page.body
         );
         let checkpoints = state.wiki.recent_checkpoints(5).unwrap();
@@ -19359,7 +19426,7 @@ pub(crate) mod tests {
             allowlist: Vec::new(),
         })
         .unwrap();
-        state.capture_assistant_enabled = true;
+        state.capture_assistant = Some(true);
         let session_id = "privacy-evidence";
 
         for (event, body) in [
@@ -19444,10 +19511,9 @@ pub(crate) mod tests {
             },
             assistant_body,
         );
-        crate::assistant_capture::apply_assistant_backstop(
-            &mut assistant,
-            state.capture_assistant_enabled,
-        );
+        let capture =
+            crate::assistant_capture::server_captures(state.capture_assistant, assistant.agent);
+        crate::assistant_capture::apply_assistant_backstop(&mut assistant, capture);
         process(&state, assistant, None, Vec::new()).await.unwrap();
 
         process(

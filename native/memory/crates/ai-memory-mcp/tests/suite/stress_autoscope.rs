@@ -164,7 +164,7 @@ impl Harness {
             consolidate_on_session_end: false,
             session_consolidation_notify: None,
             profile_notify: None,
-            capture_assistant_enabled: false,
+            capture_assistant: None,
             claim_handoff_on_session_start: true,
             create_handoff_on_session_end: true,
             per_user_slots: false,

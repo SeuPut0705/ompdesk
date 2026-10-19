@@ -1586,7 +1586,7 @@ pub async fn run(config: &Config, args: ServeArgs) -> Result<()> {
                 consolidate_on_session_end: config.consolidate_on_session_end,
                 session_consolidation_notify,
                 profile_notify: Some(profile_notify.clone()),
-                capture_assistant_enabled: config.capture_assistant,
+                capture_assistant: config.capture_assistant,
                 claim_handoff_on_session_start: config.handoff.claim_on_session_start,
                 create_handoff_on_session_end: config.handoff.create_on_session_end,
                 per_user_slots: config.slots.per_user,

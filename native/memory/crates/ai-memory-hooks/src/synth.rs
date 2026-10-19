@@ -2,18 +2,18 @@
 //!
 //! At `SessionEnd` we turn a session's observations into a single markdown
 //! page under `wiki/sessions/<id>.md` using only deterministic heuristics:
-//! first-prompt as title, files touched, tool-call counts. Once the LLM
-//! provider lands in M6 we'll add an opt-in path that re-narrates the page.
+//! the session's outcome (its last captured reply) first, first-prompt as
+//! title, the prompts, tool-call counts. Once the LLM provider lands in M6
+//! we'll add an opt-in path that re-narrates the page.
 //!
 //! The page is rendered from a [`SessionDigest`], not from the observation
 //! rows. A session can hold hundreds of thousands of rows, and everything the
 //! page and the auto-handoff print is either a count, a "last of a kind"
-//! marker, the head and tail the raw-observation list shows, or the first or
-//! last row that passes a predicate. [`SessionDigest::load`] reads exactly
-//! those with bounded queries, so the memory a SessionEnd spends does not grow
-//! with the session, and the output is the one the full row list produced —
-//! the one exception being the `## Prompts` list, which is capped like the
-//! raw-observation list.
+//! marker, the head and tail of the prompt list, or the first or last row that
+//! passes a predicate. [`SessionDigest::load`] reads exactly those with
+//! bounded queries, so the memory a SessionEnd spends does not grow with the
+//! session. The rows themselves are not listed: the page says what happened,
+//! and the observations stay queryable in the store.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,8 +22,8 @@ use ai_memory_core::{
     WorkspaceId, looks_like_markup_block, looks_like_scaffolding, truncate_for_title,
 };
 use ai_memory_store::{
-    ObservationOrder, ReaderPool, SessionKindSummary, SessionLine, SessionObservationSnapshot,
-    StoreError, StoreResult,
+    ObservationOrder, ReaderPool, SessionKindSummary, SessionObservationSnapshot, StoreError,
+    StoreResult,
 };
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -31,16 +31,14 @@ use jiff::tz::TimeZone;
 use crate::capture_policy::ToolFamily;
 use crate::payload::{is_safe_tool_title, tool_family_from_title};
 
-const RAW_OBSERVATION_MAX_LINES: usize = 500;
-const RAW_OBSERVATION_HEAD_LINES: usize = 250;
-const RAW_OBSERVATION_TAIL_LINES: usize = RAW_OBSERVATION_MAX_LINES - RAW_OBSERVATION_HEAD_LINES;
-/// The `## Prompts` list is capped the way the raw-observation list is: a
-/// session with more prompts than this prints its first and last slice and
-/// an omission line between them. The values are the same bound, so the page
-/// never holds more prompt titles than raw-observation lines.
-pub(crate) const PROMPT_TITLES_MAX: usize = RAW_OBSERVATION_MAX_LINES;
-pub(crate) const PROMPT_TITLES_HEAD: usize = RAW_OBSERVATION_HEAD_LINES;
+/// The `## Prompts` list is capped: a session with more prompts than this
+/// prints its first and last slice and an omission line between them.
+pub(crate) const PROMPT_TITLES_MAX: usize = 500;
+pub(crate) const PROMPT_TITLES_HEAD: usize = 250;
 pub(crate) const PROMPT_TITLES_TAIL: usize = PROMPT_TITLES_MAX - PROMPT_TITLES_HEAD;
+/// The page summary taken from the outcome is one sentence of at most this
+/// many characters.
+pub(crate) const OUTCOME_SUMMARY_MAX_CHARS: usize = 200;
 const SUBAGENT_PROMPT_PREAMBLE: &str = "You are a subagent spawned by another session.";
 
 /// Build a [`NewPage`] from the digest of a session's observations.
@@ -68,7 +66,14 @@ pub fn synthesize_session_page(
         "agent": agent_kind.as_str(),
         "tier": "episodic",
     });
-    let summary = session_summary(digest);
+    // The outcome says what the session came to; the counts are the fallback.
+    let summary = digest
+        .handoff
+        .latest_assistant
+        .as_deref()
+        .map(outcome_summary)
+        .filter(|summary| !summary.is_empty())
+        .unwrap_or_else(|| session_summary(digest));
     if !summary.is_empty() {
         // Insert only when there is something to say. The store's hit
         // descriptor prefers `summary` over the body, so writing a blank one
@@ -158,11 +163,6 @@ pub struct SessionDigest {
     total: usize,
     /// At least one prompt or tool use (the page is not lifecycle-only).
     substantive: bool,
-    /// The first raw-observation lines the page shows (all of them when the
-    /// session fits in [`RAW_OBSERVATION_MAX_LINES`]).
-    first_lines: Vec<SessionLine>,
-    /// The last lines, only for a session longer than the cap.
-    last_lines: Vec<SessionLine>,
     /// When the newest `SessionStart` happened.
     start_at: Option<Timestamp>,
     /// The newest `SessionEnd`.
@@ -283,21 +283,6 @@ fn assistant_response(obs: &Observation) -> Option<String> {
     (obs.kind == ObservationKind::Stop && !obs.body.trim().is_empty()).then(|| obs.body.clone())
 }
 
-#[cfg(test)]
-fn session_line(obs: &Observation) -> SessionLine {
-    SessionLine {
-        kind: obs.kind,
-        extension: obs.extension.clone(),
-        source_event: obs.source_event.clone(),
-        title: obs
-            .title
-            .chars()
-            .take(ai_memory_store::SESSION_LINE_TITLE_CHARS)
-            .collect(),
-        created_at: obs.created_at,
-    }
-}
-
 /// Tool names worth listing: a harness's own tool name. Skip `tool <family>` /
 /// bare-`<family>` labels: a family is a partition of the calls, not a name
 /// for a tool, so "Tools used: tool file, tool non-file" tells the receiver
@@ -312,17 +297,6 @@ fn build_digest(
 ) -> StoreResult<(SessionDigest, DigestLoadStats)> {
     let summary: SessionKindSummary = snapshot.kind_summary()?;
     let total = summary.total;
-
-    // The raw-observation list: everything when it fits, else the head and the
-    // tail the page prints around its "omitted" marker.
-    let (first_lines, last_lines) = if total <= RAW_OBSERVATION_MAX_LINES {
-        (snapshot.first_lines(RAW_OBSERVATION_MAX_LINES)?, Vec::new())
-    } else {
-        (
-            snapshot.first_lines(RAW_OBSERVATION_HEAD_LINES)?,
-            snapshot.last_lines(RAW_OBSERVATION_TAIL_LINES)?,
-        )
-    };
 
     let start_at = summary
         .last_session_start_at
@@ -425,8 +399,6 @@ fn build_digest(
         SessionDigest {
             total,
             substantive: summary.substantive,
-            first_lines,
-            last_lines,
             start_at,
             end,
             prompt_titles,
@@ -665,6 +637,73 @@ fn session_summary(digest: &SessionDigest) -> String {
     format!("{}.", parts.join(", "))
 }
 
+/// One plain line for `frontmatter.summary` from a session's outcome: its first
+/// line that is not a markdown heading (else the first heading's words),
+/// without a heading, quote or list marker, cut after its first sentence and
+/// to [`OUTCOME_SUMMARY_MAX_CHARS`]. Empty when the outcome has no words.
+///
+/// Plain prose with no leading marker, for the reason `session_summary` gives.
+pub(crate) fn outcome_summary(outcome: &str) -> String {
+    let lines: Vec<&str> = outcome
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let line = lines
+        .iter()
+        .find(|line| !line.starts_with('#'))
+        .or(lines.first())
+        .copied()
+        .unwrap_or_default();
+    let sentence = first_sentence(without_line_marker(line));
+    if sentence.chars().count() <= OUTCOME_SUMMARY_MAX_CHARS {
+        return sentence.to_string();
+    }
+    let mut cut: String = sentence
+        .chars()
+        .take(OUTCOME_SUMMARY_MAX_CHARS - 1)
+        .collect();
+    cut.push('…');
+    cut
+}
+
+/// `line` without a leading heading, quote, bullet or ordered-list marker.
+fn without_line_marker(line: &str) -> &str {
+    let mut rest = line.trim_start_matches('#').trim_start();
+    for marker in [">", "- ", "* ", "+ "] {
+        if let Some(after) = rest.strip_prefix(marker) {
+            rest = after.trim_start();
+            break;
+        }
+    }
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    if digits > 0
+        && let Some(after) = rest[digits..]
+            .strip_prefix(". ")
+            .or_else(|| rest[digits..].strip_prefix(") "))
+    {
+        rest = after;
+    }
+    rest.trim()
+}
+
+/// `text` up to and including its first sentence end: `.`, `!` or `?` before
+/// whitespace or the end (so `v1.2.3` is no end), or a full-width `。！？`.
+fn first_sentence(text: &str) -> &str {
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let ends = match c {
+            '。' | '！' | '？' => true,
+            '.' | '!' | '?' => chars.peek().is_none_or(|(_, next)| next.is_whitespace()),
+            _ => false,
+        };
+        if ends {
+            return &text[..at + c.len_utf8()];
+        }
+    }
+    text
+}
+
 /// `""` or `"s"` for a count.
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
@@ -703,6 +742,11 @@ fn format_duration(seconds: i64) -> Option<String> {
 fn render_body(session_id: SessionId, digest: &SessionDigest, title: &str) -> String {
     let mut buf = String::with_capacity(2048);
     buf.push_str(&format!("# {title}\n\n"));
+
+    // What the session came to (its last captured reply) leads the page.
+    if let Some(outcome) = digest.handoff.latest_assistant.as_deref() {
+        buf.push_str(&format!("## Outcome\n\n{}\n\n", outcome.trim()));
+    }
 
     buf.push_str("## Session metadata\n\n");
     buf.push_str(&format!("- **session_id:** `{session_id}`\n"));
@@ -750,11 +794,7 @@ fn render_body(session_id: SessionId, digest: &SessionDigest, title: &str) -> St
         }
         buf.push('\n');
     }
-
-    buf.push_str("## Raw observations\n\n");
-    render_raw_observations(&mut buf, digest);
-
-    buf.push_str("\n_Synthesised by ai-memory (M3, no-LLM heuristic)._\n");
+    buf.push_str("_Synthesised by ai-memory (M3, no-LLM heuristic)._\n");
     buf
 }
 
@@ -807,41 +847,6 @@ fn abrupt_ending_note(facts: &HandoffFacts) -> Option<&'static str> {
     None
 }
 
-fn render_raw_observations(buf: &mut String, digest: &SessionDigest) {
-    for line in &digest.first_lines {
-        render_raw_observation(buf, line);
-    }
-    if digest.total <= RAW_OBSERVATION_MAX_LINES {
-        return;
-    }
-    let omitted = digest.total - RAW_OBSERVATION_HEAD_LINES - RAW_OBSERVATION_TAIL_LINES;
-    buf.push_str(&format!(
-        "\n_... {omitted} raw observations omitted from the middle (showing first {RAW_OBSERVATION_HEAD_LINES} and last {RAW_OBSERVATION_TAIL_LINES})._\n\n",
-    ));
-    for line in &digest.last_lines {
-        render_raw_observation(buf, line);
-    }
-}
-
-fn render_raw_observation(buf: &mut String, line: &SessionLine) {
-    let kind = observation_kind_label(line);
-    buf.push_str(&format!(
-        "- `{}` @ {} — {}\n",
-        kind,
-        human_ts(&line.created_at),
-        line.title,
-    ));
-}
-
-fn observation_kind_label(line: &SessionLine) -> String {
-    match (&line.extension, &line.source_event) {
-        (Some(extension), Some(source_event)) => {
-            format!("{} [{}:{}]", line.kind.as_str(), extension, source_event)
-        }
-        _ => line.kind.as_str().to_string(),
-    }
-}
-
 fn human_ts(ts: &jiff::Timestamp) -> String {
     ts.to_zoned(TimeZone::UTC)
         .strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -855,20 +860,6 @@ fn human_ts(ts: &jiff::Timestamp) -> String {
 impl SessionDigest {
     pub(crate) fn from_observations(session_id: SessionId, observations: &[Observation]) -> Self {
         let total = observations.len();
-        let (first_lines, last_lines) = if total <= RAW_OBSERVATION_MAX_LINES {
-            (observations.iter().map(session_line).collect(), Vec::new())
-        } else {
-            (
-                observations[..RAW_OBSERVATION_HEAD_LINES]
-                    .iter()
-                    .map(session_line)
-                    .collect(),
-                observations[total - RAW_OBSERVATION_TAIL_LINES..]
-                    .iter()
-                    .map(session_line)
-                    .collect(),
-            )
-        };
         let last_of = |kind: ObservationKind| observations.iter().rev().find(|o| o.kind == kind);
         let title = match title_from_prompts(
             observations
@@ -919,8 +910,6 @@ impl SessionDigest {
                         | ObservationKind::PostToolUse
                 )
             }),
-            first_lines,
-            last_lines,
             start_at: last_of(ObservationKind::SessionStart).map(|o| o.created_at),
             end: last_of(ObservationKind::SessionEnd).map(|o| SessionEndFact {
                 created_at: o.created_at,
@@ -1556,23 +1545,6 @@ mod tests {
         assert!(page.body.contains("`Bash`: 1"));
     }
 
-    #[test]
-    fn body_includes_opt_in_extension_source_event() {
-        let mut custom = obs(ObservationKind::Other, "Lead contacted");
-        custom.extension = Some("fstech".into());
-        custom.source_event = Some("lead.contact".into());
-
-        let page = synthesize_session_page(
-            WorkspaceId::new(),
-            ProjectId::new(),
-            SessionId::new(),
-            AgentKind::Codex,
-            &[custom],
-        );
-
-        assert!(page.body.contains("`other [fstech:lead.contact]`"));
-    }
-
     /// #1221: the zero-LLM page must say when a session ended abruptly,
     /// reusing the `derive_open_questions` heuristics. A final prompt that
     /// is a question, with no Stop after it, means the prompt was never
@@ -1677,49 +1649,91 @@ mod tests {
         );
     }
 
-    #[test]
-    fn raw_observations_small_session_includes_all_entries() {
-        let observations: Vec<Observation> = (0..5)
-            .map(|i| obs(ObservationKind::Other, &format!("entry-{i}")))
-            .collect();
-
-        let page = synthesize_session_page(
-            WorkspaceId::new(),
-            ProjectId::new(),
-            SessionId::new(),
-            AgentKind::Codex,
-            &observations,
-        );
-
-        for i in 0..5 {
-            assert!(page.body.contains(&format!("entry-{i}")));
-        }
-        assert!(!page.body.contains("raw observations omitted"));
+    fn stop_with(body: &str) -> Observation {
+        let mut o = obs(ObservationKind::Stop, "stop");
+        o.body = body.into();
+        o
     }
 
     #[test]
-    fn raw_observations_large_session_omits_middle_with_count() {
-        let observations: Vec<Observation> = (0..600)
-            .map(|i| obs(ObservationKind::Other, &format!("entry-{i}")))
-            .collect();
-
+    fn the_outcome_leads_the_page_and_names_its_summary() {
+        let observations = vec![
+            obs(ObservationKind::SessionStart, "session"),
+            obs(ObservationKind::UserPrompt, "jev는 어케하기로 한거야?"),
+            obs(ObservationKind::PreToolUse, "Bash"),
+            obs(ObservationKind::PostToolUse, "Bash"),
+            stop_with("first turn's answer"),
+            stop_with("Jev 1.14로 고정했어요. 92.4% vs 74.2%였어요.\n\n- 자동 최신은 끕니다."),
+            obs(ObservationKind::SessionEnd, "session"),
+        ];
         let page = synthesize_session_page(
             WorkspaceId::new(),
             ProjectId::new(),
-            SessionId::new(),
+            test_session_id(),
+            AgentKind::Omp,
+            &observations,
+        );
+        let outcome = "## Outcome\n\nJev 1.14로 고정했어요. 92.4% vs 74.2%였어요.\n\n- 자동 최신은 끕니다.\n\n";
+        assert!(
+            page.body
+                .starts_with(&format!("# {}\n\n{outcome}", page.title)),
+            "{}",
+            page.body
+        );
+        assert!(!page.body.contains("first turn's answer"));
+        let at_prompts = page.body.find("## Prompts").expect("prompts listed");
+        let at_tools = page.body.find("## Tool calls").expect("tool counts listed");
+        assert!(page.body.find("## Outcome").unwrap() < at_prompts && at_prompts < at_tools);
+        assert!(page.body.contains("- **observations:** 7\n"));
+        assert!(!page.body.contains("## Raw observations"));
+        assert_eq!(
+            page.frontmatter_json["summary"],
+            serde_json::json!("Jev 1.14로 고정했어요.")
+        );
+    }
+
+    #[test]
+    fn a_session_without_a_conclusion_keeps_its_counting_summary_and_lists_no_rows() {
+        let mut observations = vec![obs(ObservationKind::UserPrompt, "bound the queue")];
+        observations.extend((0..600).map(|i| obs(ObservationKind::Other, &format!("entry-{i}"))));
+        let page = synthesize_session_page(
+            WorkspaceId::new(),
+            ProjectId::new(),
+            test_session_id(),
             AgentKind::Codex,
             &observations,
         );
-
-        assert!(page.body.contains("entry-0"));
-        assert!(page.body.contains("entry-249"));
-        assert!(!page.body.contains("entry-250"));
-        assert!(!page.body.contains("entry-349"));
-        assert!(page.body.contains("entry-350"));
-        assert!(page.body.contains("entry-599"));
-        assert!(
-            page.body
-                .contains("100 raw observations omitted from the middle")
+        assert!(!page.body.contains("## Outcome"));
+        assert!(!page.body.contains("entry-0"));
+        assert!(!page.body.contains("## Raw observations"));
+        assert!(page.body.contains("- **observations:** 601\n"));
+        assert_eq!(
+            page.frontmatter_json["summary"],
+            serde_json::json!("1 prompt.")
         );
+    }
+
+    #[test]
+    fn the_outcome_summary_is_its_first_sentence_on_one_plain_line() {
+        for (outcome, summary) in [
+            ("Done. The rest follows.", "Done."),
+            ("고정했어요. 이유는 아래에", "고정했어요."),
+            (
+                "## 결론\n\n- 테일스케일 신원으로만 연결해요.\n- 코드는 지웠어요.",
+                "테일스케일 신원으로만 연결해요.",
+            ),
+            ("## 결론만 있음", "결론만 있음"),
+            ("> quoted? yes\nnext", "quoted?"),
+            ("1. First step is done! Then", "First step is done!"),
+            ("no terminator here\nsecond line", "no terminator here"),
+            ("v1.2.3 shipped. Next", "v1.2.3 shipped."),
+            ("  \n\n", ""),
+        ] {
+            assert_eq!(outcome_summary(outcome), summary, "{outcome:?}");
+        }
+        let long = "가".repeat(400);
+        let cut = outcome_summary(&long);
+        assert_eq!(cut.chars().count(), OUTCOME_SUMMARY_MAX_CHARS);
+        assert!(cut.ends_with('…'));
     }
 }

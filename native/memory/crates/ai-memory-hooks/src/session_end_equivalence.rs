@@ -867,8 +867,19 @@ impl Fixture {
         let new_page = super::synthesize_session_page(self.ws, self.proj, sid, agent, &digest);
         assert_eq!(new_page.path, old_page.path, "{name}: page path");
         assert_eq!(new_page.title, old_page.title, "{name}: page title");
+        // The oracle predates the outcome section and the dropped raw list:
+        // bring its page to that form, then compare byte for byte.
+        let outcome = HandoffFacts::from_observations(&rows).latest_assistant;
+        let mut old_frontmatter = old_page.frontmatter_json.clone();
+        if let Some(summary) = outcome
+            .as_deref()
+            .map(crate::synth::outcome_summary)
+            .filter(|summary| !summary.is_empty())
+        {
+            old_frontmatter["summary"] = serde_json::Value::String(summary);
+        }
         assert_eq!(
-            new_page.frontmatter_json, old_page.frontmatter_json,
+            new_page.frontmatter_json, old_frontmatter,
             "{name}: page frontmatter"
         );
         // The oracle predates the prompt-list cap: fold its full prompt list
@@ -881,7 +892,10 @@ impl Fixture {
             .collect();
         assert_eq!(
             new_page.body,
-            prompt_capped_body(&old_page.body, &prompt_titles),
+            outcome_body(
+                &prompt_capped_body(&old_page.body, &prompt_titles),
+                outcome.as_deref()
+            ),
             "{name}: page body"
         );
 
@@ -961,6 +975,27 @@ impl Fixture {
             "{name}: handoff facts"
         );
     }
+}
+
+/// The oracle page in today's form: the outcome (the latest captured reply)
+/// right under the title, and no raw-observation list before the footer.
+fn outcome_body(body: &str, outcome: Option<&str>) -> String {
+    let raw = body
+        .find("## Raw observations\n\n")
+        .expect("the oracle page lists its raw observations");
+    let footer = raw
+        + body[raw..]
+            .find("\n_Synthesised by ai-memory")
+            .expect("the oracle page ends with its footer");
+    let mut out = String::with_capacity(body.len());
+    let title_end = body.find("\n\n").expect("the page opens with its title") + 2;
+    out.push_str(&body[..title_end]);
+    if let Some(outcome) = outcome {
+        out.push_str(&format!("## Outcome\n\n{}\n\n", outcome.trim()));
+    }
+    out.push_str(&body[title_end..raw]);
+    out.push_str(&body[footer + 1..]);
+    out
 }
 
 /// The oracle page predates the prompt-list cap: it lists every prompt.
@@ -1446,7 +1481,7 @@ async fn the_prompt_list_is_capped_like_the_raw_observations() {
         .split("## Prompts\n\n")
         .nth(1)
         .expect("the page lists its prompts")
-        .split("\n## Raw observations")
+        .split("\n_Synthesised by ai-memory")
         .next()
         .unwrap();
     let numbered = section

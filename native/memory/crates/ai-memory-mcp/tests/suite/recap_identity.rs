@@ -71,7 +71,7 @@ async fn harness() -> Harness {
         consolidate_on_session_end: false,
         session_consolidation_notify: None,
         profile_notify: None,
-        capture_assistant_enabled: false,
+        capture_assistant: None,
         claim_handoff_on_session_start: false,
         create_handoff_on_session_end: false,
         per_user_slots: false,
