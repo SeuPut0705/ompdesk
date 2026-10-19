@@ -389,6 +389,19 @@ describe("FirstRunSetup connect step", () => {
 		expect(button(translate("setup.model.back"))).toBeDefined();
 	});
 
+	it("Back from the fallback model step returns to the provider list and stays there", async () => {
+		await openConnectStep();
+		await signInToClaude({ providers: [claudeConnected], models: [] });
+		expect(document.querySelector('[data-first-run-step="model"]')).not.toBeNull();
+
+		await act(async () => button(translate("setup.model.back"))?.click());
+		await settle();
+
+		expect(document.querySelector('[data-first-run-step="connect"]')).not.toBeNull();
+		expect(useFirstRunStore.getState().phase).toBe("connect");
+		expect(rpc.setModel).not.toHaveBeenCalled();
+	});
+
 	it("opens the model step with the save error when the default cannot be saved", async () => {
 		rpc.setModel.mockImplementationOnce(async () => ({
 			type: "response",
