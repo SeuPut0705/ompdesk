@@ -582,4 +582,76 @@ describe("AiMemoryClient (Memory page)", () => {
 		routes["/admin/write-page"] = json({}, 500);
 		await expect(client.writePage({ ...PROJECT, path: "x", body: "y" })).rejects.toThrow("answered 500");
 	});
+
+	it("retirePage writes the page back expired now, its metadata kept, tagged superseded and naming its successor", async () => {
+		const at = new Date("2026-10-19T12:00:00Z");
+		routes[`${BASE}/pages/decisions/jev-auto.md`] = json({
+			id: "pg-1",
+			tier: "semantic",
+			kind: "decision",
+			pinned: false,
+			body_markdown: "# Jev는 자동으로 최신\n\n본문\n",
+			frontmatter: {
+				title: "Jev는 자동으로 최신",
+				kind: "decision",
+				abstract: "요약",
+				entities: ["jev"],
+				relations: { fixes: ["gotchas/x.md"], "see-also": ["notes/y.md"] },
+				tags: ["judge"],
+				last_modified_by: "someone",
+			},
+		});
+		routes["/mcp"] = mcp({ page_id: "pg-2" });
+		expect(
+			await client.retirePage({ ...PROJECT, path: "decisions/jev-auto.md", successor: "decisions/jev-1-14.md", at }),
+		).toBe("retired");
+		expect(sent.at(-1)?.body).toMatchObject({
+			params: {
+				name: "memory_write_page",
+				arguments: {
+					...PROJECT,
+					path: "decisions/jev-auto.md",
+					body: "# Jev는 자동으로 최신\n\n본문\n\n_Superseded by [[decisions/jev-1-14.md]] on 2026-10-19 (memory upkeep)._\n",
+					tier: "semantic",
+					title: "Jev는 자동으로 최신",
+					kind: "decision",
+					abstract: "요약",
+					entities: ["jev"],
+					relations: { fixes: ["gotchas/x.md"] },
+					tags: ["judge", "superseded"],
+					expires_at: "2026-10-19T12:00:00.000Z",
+					expected_page_id: "pg-1",
+				},
+			},
+		});
+	});
+
+	it("retirePage leaves a pinned page alone and says when the page is not the version the caller judged", async () => {
+		const ref = { ...PROJECT, path: "a.md", successor: "b.md", at: new Date() };
+		routes[`${BASE}/pages/a.md`] = json({ id: "pg-1", pinned: true, body_markdown: "# A", frontmatter: {} });
+		expect(await client.retirePage(ref)).toBe("pinned");
+		routes[`${BASE}/pages/a.md`] = json({ id: "pg-2", body_markdown: "# A", frontmatter: {} });
+		expect(await client.retirePage({ ...ref, expectedPageId: "pg-1" })).toBe("changed");
+		expect(sent.some(call => call.path === "/mcp")).toBe(false);
+		routes["/mcp"] = json({
+			jsonrpc: "2.0",
+			id: 1,
+			error: { code: -32602, message: "precondition failed for a.md: expected pg-2, found pg-3" },
+		});
+		expect(await client.retirePage({ ...ref, expectedPageId: "pg-2" })).toBe("changed");
+	});
+
+	it("createPage writes create_only, with the session as evidence only when it is given", async () => {
+		routes["/mcp"] = mcp({ page_id: "pg-1" });
+		const page = { ...PROJECT, path: "decisions/x.md", body: "# X", tier: "semantic", kind: "decision" };
+		expect(await client.createPage({ ...page, sessionId: "s-1" })).toBe(true);
+		expect(sent.at(-1)?.body).toMatchObject({
+			params: { arguments: { ...page, create_only: true, session_id: "s-1" } },
+		});
+		await client.createPage({ ...page, workspace: "default", project: "_global" });
+		expect(sent.at(-1)?.body).toMatchObject({ params: { arguments: { project: "_global", create_only: true } } });
+		expect(sent.at(-1)?.body).not.toHaveProperty("params.arguments.session_id");
+		routes["/mcp"] = json({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "precondition failed for x" } });
+		expect(await client.createPage(page)).toBe(false);
+	});
 });

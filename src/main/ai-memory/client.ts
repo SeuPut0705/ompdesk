@@ -557,4 +557,56 @@ export class AiMemoryClient {
 			summary: str(record(row.frontmatter).summary) || undefined,
 		};
 	}
+
+	/**
+	 * Takes a page out of default recall, because a newer page replaces it: the same page again through
+	 * `memory_write_page` with `expires_at` now. The server keeps that frontmatter key as the page's TTL (wiki.rs
+	 * `parse_expires_at`) and hides an expired page from `memory_query`, search, recent and the page list by default
+	 * (`not_expired`, reader.rs:51; `include_expired` is false unless asked, server.rs:2721; api.rs:178), while an exact
+	 * read still answers. The write replaces all metadata, so what the write path takes of the page's own goes back
+	 * (title, kind, abstract, entities, relations, tags; not `summary` or profile keys), plus the tag `superseded` and a
+	 * closing line naming the successor (the write path takes no free frontmatter key, so no `superseded_by:`).
+	 * ai-memory's daily forget sweep later hard-deletes an expired page (sweep.rs:11-15); only the wiki's git
+	 * checkpoints keep it then. A pinned page is the owner's and is never retired. `changed` when the page is no longer
+	 * the version `expectedPageId` names (the one the caller judged), or moved on during the write.
+	 */
+	async retirePage(
+		ref: AiMemoryProjectRef & { path: string; successor: string; at: Date; expectedPageId?: string },
+	): Promise<"retired" | "pinned" | "changed"> {
+		const path = ref.path.split("/").map(encodeURIComponent).join("/");
+		const row = record(await this.#get(`${this.#projectPath(ref)}/pages/${path}`));
+		const frontmatter = record(row.frontmatter);
+		if (row.pinned === true || frontmatter.pinned === true) return "pinned";
+		const id = str(row.id);
+		if (!id || (ref.expectedPageId && id !== ref.expectedPageId)) return "changed";
+		// The server refuses the whole write over metadata outside its bounds (`PageWriteMetadata::into_frontmatter`):
+		// three relation kinds, 10 entities, a 1024-character abstract. Anything else stays behind with the old version.
+		const relations = Object.fromEntries(
+			["causes", "fixes", "contradicts"]
+				.map(kind => [kind, strings(record(frontmatter.relations)[kind])] as const)
+				.filter(([, targets]) => targets.length > 0),
+		);
+		const abstract = str(frontmatter.abstract);
+		const note = `_Superseded by [[${ref.successor}]] on ${ref.at.toISOString().slice(0, 10)} (memory upkeep)._`;
+		try {
+			await this.#tool("memory_write_page", {
+				...projectOf(ref),
+				path: ref.path,
+				body: `${str(row.body_markdown).trimEnd()}\n\n${note}\n`,
+				...(str(row.tier) ? { tier: str(row.tier) } : {}),
+				...(str(frontmatter.title) ? { title: str(frontmatter.title) } : {}),
+				...(str(frontmatter.kind) ? { kind: str(frontmatter.kind) } : {}),
+				...(abstract && abstract.length <= 1024 ? { abstract } : {}),
+				...(strings(frontmatter.entities).length ? { entities: strings(frontmatter.entities).slice(0, 10) } : {}),
+				...(Object.keys(relations).length ? { relations } : {}),
+				tags: [...new Set([...strings(frontmatter.tags), "superseded"])],
+				expires_at: ref.at.toISOString(),
+				expected_page_id: id,
+			});
+			return "retired";
+		} catch (error) {
+			if (error instanceof Error && /precondition/i.test(error.message)) return "changed";
+			throw error;
+		}
+	}
 }
