@@ -267,14 +267,14 @@ export interface AgentControlHost {
 	deleteSession(callerTabId: string, tabId: string): Promise<void>;
 	/** Delete a saved session no tab of this app holds, on the device it is saved on (the sidebar's delete). */
 	deleteStored(session: StoredSession): Promise<void>;
-	/** Git facts of a session's worktree (this computer's sessions only). Rejects with a readable message. */
-	branchFacts(worktree: WorktreeRef): Promise<BranchFacts>;
-	/** Merge the worktree's branch into its parent checkout (local, never pushed). */
-	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
-	/** What git says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
-	landing(worktree: WorktreeRef): Promise<LandingFacts>;
-	/** Remove a clean worktree whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
-	removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval>;
+	/** Git facts of a session's worktree, read on `device` (absent = this computer). Rejects with a readable message. */
+	branchFacts(worktree: WorktreeRef, device?: string): Promise<BranchFacts>;
+	/** Merge the worktree's branch into its parent checkout on `device` (never pushed). */
+	mergeBranch(worktree: WorktreeRef, label: string, device?: string): Promise<MergeOutcome>;
+	/** What git on `device` says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
+	landing(worktree: WorktreeRef, device?: string): Promise<LandingFacts>;
+	/** Remove a clean worktree on `device` whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
+	removeSafeWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
@@ -1751,9 +1751,7 @@ export class AgentControl {
 		}
 		if (args.delete) {
 			const done = `Stopped, closed and deleted ${label(target)}.`;
-			return own && target.worktree && !target.deviceName
-				? `${done} ${await this.#dropWorktree(target.worktree)}`
-				: done;
+			return own && target.worktree ? `${done} ${await this.#dropWorktree(target.worktree, target.device)}` : done;
 		}
 		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
 		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
@@ -1789,12 +1787,12 @@ export class AgentControl {
 	 * A deleted child's worktree and branch go only when nothing would be lost (clean tree, untracked files included,
 	 * branch tip in the parent's HEAD or upstream); otherwise both stay and the answer says what is unlanded.
 	 */
-	async #dropWorktree(worktree: WorktreeRef): Promise<string> {
-		const removal = await this.#host.removeSafeWorktree(worktree).catch(() => null);
+	async #dropWorktree(worktree: WorktreeRef, device: string | undefined): Promise<string> {
+		const removal = await this.#host.removeSafeWorktree(worktree, device).catch(() => null);
 		if (removal === "removed") return `Removed its worktree ${worktree.path} and branch ${worktree.branch}.`;
 		if (removal === "branch-kept")
 			return `Removed its worktree ${worktree.path}; git kept branch ${worktree.branch} (not merged into the parent checkout's HEAD).`;
-		const facts = await this.#host.branchFacts(worktree).catch(() => null);
+		const facts = await this.#host.branchFacts(worktree, device).catch(() => null);
 		const unlanded = facts
 			? [
 					facts.merged ? null : `${facts.commitsAhead} commit(s) not in the base or its upstream`,
@@ -1875,13 +1873,9 @@ export class AgentControl {
 		const lines = [`- ${id} ${name}: ${state}`, `  ${checkLine}`];
 		const worktree = open ? target.worktree : undefined;
 		if (!worktree) lines.push("  no worktree: no branch to diff");
-		else if (open && target.deviceName)
-			lines.push(
-				`  its worktree is on ${target.deviceName}; branch facts are read on this computer's sessions only`,
-			);
 		else
 			try {
-				const facts = await this.#host.branchFacts(worktree);
+				const facts = await this.#host.branchFacts(worktree, target.device);
 				const added = facts.files.reduce((sum, file) => sum + file.added, 0);
 				const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
 				const shown = facts.files
@@ -1972,7 +1966,7 @@ export class AgentControl {
 	/** Merge a worktree session's branch into the parent checkout: one card unless the user turned it off. */
 	async #merge(caller: ControlTab, target: ControlTab): Promise<string> {
 		const worktree = this.#mergeable(caller, target);
-		const facts = await this.#host.branchFacts(worktree);
+		const facts = await this.#host.branchFacts(worktree, target.device);
 		const problem = mergeProblem(worktree, facts);
 		if (problem) fail(problem);
 		if (!this.#host.manageEnabled()) {
@@ -1997,14 +1991,12 @@ export class AgentControl {
 		this.#refuseHidden(target, caller);
 		if (!target.worktree)
 			fail(`${label(target)} has no worktree branch to merge (open sessions with worktree: true).`);
-		if (target.deviceName)
-			fail(`${label(target)} runs on ${target.deviceName}; merging works on this computer's sessions only.`);
 		if (target.busy || waits(target)) fail(`${label(target)} is still working or waiting; collect its result first.`);
 		return target.worktree;
 	}
 
 	async #runMerge(target: ControlTab, worktree: WorktreeRef): Promise<string> {
-		const outcome = await this.#host.mergeBranch(worktree, target.title);
+		const outcome = await this.#host.mergeBranch(worktree, target.title, target.device);
 		if (!outcome.merged) {
 			this.#conflicts.set(target.tabId, outcome.files);
 			fail(
@@ -2049,9 +2041,9 @@ export class AgentControl {
 			// Its plan waits for approval: the opener (or the person) answers it, nothing is left to review.
 			...(tab.plan ? { waiting: true as const } : {}),
 		};
-		if (!tab.worktree || tab.deviceName) return item;
+		if (!tab.worktree) return item;
 		try {
-			const facts = await this.#host.branchFacts(tab.worktree);
+			const facts = await this.#host.branchFacts(tab.worktree, tab.device);
 			const clean = facts.uncommitted === 0 && facts.untracked === 0;
 			if (facts.merged && clean && !running && !item.failed && !item.waiting) {
 				this.#conflicts.delete(tab.tabId);
@@ -2110,7 +2102,7 @@ export class AgentControl {
 					this.#collected.delete(tab.tabId);
 					continue;
 				}
-				if (!tab.autoClosable || tab.hidden || tab.deviceName || tab.status !== "ready" || !tab.lastRun) continue;
+				if (!tab.autoClosable || tab.hidden || tab.status !== "ready" || !tab.lastRun) continue;
 				const decision = autoCloseDecision(await this.#autoCloseFacts(tab, openerIdle));
 				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
 			}
@@ -2122,7 +2114,9 @@ export class AgentControl {
 	async #autoCloseFacts(tab: ControlTab, openerIdle: boolean): Promise<AutoCloseFacts> {
 		const session = await this.#state(tab);
 		const branch = tab.worktree
-			? await this.#host.landing(tab.worktree).catch(() => ({ hasWork: false, landed: false, clean: false }))
+			? await this.#host
+					.landing(tab.worktree, tab.device)
+					.catch(() => ({ hasWork: false, landed: false, clean: false }))
 			: null;
 		return {
 			openedByAgent: tab.autoClosable === true,
@@ -2148,7 +2142,7 @@ export class AgentControl {
 			if (this.#host.tabs(caller.tabId)?.some(entry => entry.tabId === tab.tabId)) return;
 			const removed =
 				removeWorktree && tab.worktree
-					? (await this.#host.removeSafeWorktree(tab.worktree).catch(() => null)) !== null
+					? (await this.#host.removeSafeWorktree(tab.worktree, tab.device).catch(() => null)) !== null
 					: false;
 			this.#host.recordClosed({
 				path: tab.sessionPath as string,

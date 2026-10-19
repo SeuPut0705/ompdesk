@@ -31,6 +31,11 @@
  * - The host's scheduled runs (schedules.ts): `host.schedules.command {request: SchedulesRequest}` →
  *   SchedulesState (the host's own ScheduleService validates every draft and runs them there),
  *   `host.schedules.log {runId}` → string; the host pushes every change as the `host.schedules.changed` event
+ * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
+ *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
+ *   BranchFacts, `host.git.landing {worktree}` → LandingFacts, `host.git.merge {worktree, label}` → MergeOutcome
+ *   (never pushed), `host.git.removeWorktree {worktree}` → WorktreeRemoval, `host.git.worktreeCreate
+ *   {baseCwd, name, branchPrefix?, baseRef}` → RpcWorktreeCreateResult. Free: no model call, no quota.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`
  * and `host.schedules.changed`.
@@ -106,6 +111,20 @@ export const DEVICE_RENAME_EVENT = "device.rename";
 /** Device-name requests the host serves itself: the device names itself, or renames the host. */
 export const NAME_METHODS = { peerName: "peer.name", hostRename: "host.rename" } as const;
 export const MAX_DEVICE_NAME = 64;
+/** Git the host runs for an agent of the device on the host's own checkouts (`host.git.*` above). */
+export const GIT_METHODS = {
+	facts: "host.git.facts",
+	landing: "host.git.landing",
+	merge: "host.git.merge",
+	removeWorktree: "host.git.removeWorktree",
+	worktreeCreate: "host.git.worktreeCreate",
+} as const;
+/** A merge or a removal runs git for up to two minutes a step on the host: more than the link's default 30 s. */
+export const GIT_REQUEST_TIMEOUT_MS = 300_000;
+/** `host.git.worktreeCreate` reply: the checkout the device's tab opens in (the rest is the seed and setup report). */
+export const WorktreeCreateReply = z
+	.object({ path: z.string().min(1), branch: z.string().min(1), baseCwd: z.string().min(1) })
+	.passthrough();
 /** A device name on the link: trimmed, 1–64 characters. */
 export const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
 export const NameParams = z.object({ name: DeviceNameSchema });

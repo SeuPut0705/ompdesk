@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,8 +23,10 @@ import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import type { ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
+import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
@@ -2022,5 +2024,70 @@ describe("LocalHostServices host.* calls", () => {
 		for (const bad of [{ ...good, data: "AA=C" }, { ...good, data: "AAE" }, { ...good, size: -1 }, null]) {
 			expect(() => decodeBinaryRead(bad)).toThrow(/\[remote_protocol\]/);
 		}
+	});
+});
+
+describe("LocalHostServices host.git.*: a device's agent working on a session this computer runs", () => {
+	/** What `worktree_create` leaves: `repo` with one commit and a child branch checked out beside it. */
+	async function repoWithChild(): Promise<WorktreeRef> {
+		const repo = join(workDir, "repo");
+		await initRepo(repo);
+		const worktree = { path: join(workDir, "wt-a"), branch: "omp/agent/a", baseCwd: repo };
+		gitSync(repo, "worktree", "add", "-q", "-b", worktree.branch, worktree.path);
+		gitSync(worktree.path, "config", "user.email", "agent@example.com");
+		gitSync(worktree.path, "config", "user.name", "Agent");
+		writeFileSync(join(worktree.path, "child.txt"), "from the child\n");
+		gitSync(worktree.path, "add", "child.txt");
+		gitSync(worktree.path, "commit", "-q", "-m", "child work");
+		return worktree;
+	}
+
+	it("answers branch facts and landing exactly as this computer's own git does, then merges and removes", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const worktree = await repoWithChild();
+		expect(await services.call(x.peer, "host.git.facts", { worktree }, x)).toEqual(await branchFacts(worktree));
+		expect(await services.call(x.peer, "host.git.landing", { worktree }, x)).toEqual(await landingFacts(worktree));
+		const merged = await services.call(x.peer, "host.git.merge", { worktree, label: "Child" }, x);
+		expect(merged).toMatchObject({ merged: true });
+		expect(gitSync(worktree.baseCwd, "log", "-1", "--format=%s")).toBe("Merge omp/agent/a into main (Child)");
+		expect(existsSync(join(worktree.baseCwd, "child.txt"))).toBe(true);
+		expect(await services.call(x.peer, "host.git.removeWorktree", { worktree }, x)).toBe("removed");
+		expect(existsSync(worktree.path)).toBe(false);
+	});
+
+	it("refuses relative paths, and sends a merge's refusal back with git's reason", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const worktree = await repoWithChild();
+		await expect(
+			services.call(x.peer, "host.git.facts", { worktree: { ...worktree, path: "wt-a" } }, x),
+		).rejects.toThrow(/Invalid host.git.facts/);
+		gitSync(worktree.baseCwd, "checkout", "-q", "--detach");
+		await expect(services.call(x.peer, "host.git.merge", { worktree, label: "" }, x)).rejects.toThrow(
+			/detached HEAD/,
+		);
+	});
+
+	it("makes a worktree with a running omp of this computer naming it, as worktree_create does", async () => {
+		const { services, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const repo = join(workDir, "repo");
+		await initRepo(repo);
+		const params = { baseCwd: repo, name: "part-a", branchPrefix: "omp/agent/", baseRef: "HEAD" };
+		await expect(services.call(x.peer, "host.git.worktreeCreate", params, x)).rejects.toThrow(/No omp is running/);
+		const root = join(workDir, "wt");
+		const asked: unknown[] = [];
+		Object.assign(local.tab, {
+			bridgeRequest: async (method: string, request: unknown) => {
+				asked.push({ method, request });
+				return { root, hash: "abc1234" };
+			},
+		});
+		local.tab.setStatus("ready");
+		const made = await services.call(x.peer, "host.git.worktreeCreate", params, x);
+		expect(made).toMatchObject({ path: join(root, "gui-part-a-abc1234"), branch: "omp/agent/part-a", baseCwd: repo });
+		expect(asked).toEqual([{ method: "git.worktree_location", request: { primaryRoot: repo } }]);
+		expect(gitSync(join(root, "gui-part-a-abc1234"), "branch", "--show-current")).toBe("omp/agent/part-a");
 	});
 });

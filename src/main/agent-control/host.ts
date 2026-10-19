@@ -63,14 +63,25 @@ import {
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
 import type { Schedule, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { createWorktree, WORKTREE_COMMAND_BUDGETS_MS, worktreeBridge } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
-import { SchedulesStateSchema } from "../remote/app-protocol";
+import { GIT_METHODS, GIT_REQUEST_TIMEOUT_MS, SchedulesStateSchema, WorktreeCreateReply } from "../remote/app-protocol";
 import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
-import { branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "./branches";
+import {
+	type BranchFacts,
+	branchFacts,
+	type LandingFacts,
+	landingFacts,
+	type MergeOutcome,
+	mergeBranch,
+	removeSafeWorktree,
+	type WorktreeRef,
+	type WorktreeRemoval,
+} from "./branches";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -111,6 +122,7 @@ export interface AgentControlHostDeps {
 		| "windowOfTab"
 		| "tabWindows"
 		| "sessionOwner"
+		| "allSidecars"
 	>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
@@ -121,7 +133,7 @@ export interface AgentControlHostDeps {
 	/** The paired hosts this computer runs sessions on (Settings › Devices) and a request to one of them. */
 	remote?: {
 		hosts(): HostView[];
-		request<T>(deviceId: string, method: string, params: unknown): Promise<T>;
+		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -168,6 +180,14 @@ export interface AgentControlHostDeps {
 
 function askOf(request: ControlAsk["request"]): boolean {
 	return BLOCKING_UI_METHODS[request.method] === true && !isSignInRequest(request);
+}
+
+/** What a worktree for a new session is made from (`worktree_create`'s fields). */
+type WorktreeInput = { name: string; baseCwd: string; baseRef: "HEAD" | "default"; branchPrefix: string };
+
+/** The binding `host.git.*` takes: exactly the checkout, its branch and its parent (never the tab's own name). */
+function gitRef(worktree: WorktreeRef): WorktreeRef {
+	return { path: worktree.path, branch: worktree.branch, baseCwd: worktree.baseCwd };
 }
 
 /** `omp/agent/<name>` from a branch the agent chose: the prefix (through the last `/`) and the name. */
@@ -402,10 +422,6 @@ export class AgentControlRuntime {
 		// `device` absent: the caller's own machine; null: this computer; an id: that paired host.
 		const device = request.device === undefined ? caller.device : (request.device ?? undefined);
 		const elsewhere = device !== caller.device;
-		if (elsewhere && request.worktree)
-			throw new Error(
-				"A worktree is made on the computer the calling session runs on; open it without worktree, or from a session on that device.",
-			);
 		// Another machine's folder is never resolved against the caller's: an absolute path, or that machine's default workspace.
 		const cwd = request.sessionPath
 			? undefined
@@ -416,6 +432,10 @@ export class AgentControlRuntime {
 				: await this.#folder(caller, request.folder);
 		if (elsewhere && request.folder && cwd === undefined)
 			throw new Error(`On another device the folder must be absolute (got "${request.folder}").`);
+		if (elsewhere && request.worktree && cwd === undefined)
+			throw new Error(
+				"A worktree on another device needs that device's repository: pass its absolute folder (the checkout to branch from).",
+			);
 		let worktree: IpcTabWorktree | undefined;
 		let prepared: string | null = null;
 		if (request.worktree && cwd !== undefined) {
@@ -426,21 +446,16 @@ export class AgentControlRuntime {
 				);
 			const slug = `agent-${Math.random().toString(36).slice(2, 8)}`;
 			const { branchPrefix, name } = splitBranch(request.worktree.branch, slug);
-			const response = await this.#deps.dispatch(
-				win,
-				caller,
-				callerTabId,
-				{
-					type: "worktree_create",
-					name,
-					baseCwd: cwd,
-					baseRef: base === "default" ? "default" : "HEAD",
-					branchPrefix,
-				},
-				960_000,
-			);
-			if (!response.success) throw new Error(`Creating the worktree failed: ${response.error ?? "unknown error"}`);
-			const made = response.data as RpcWorktreeCreateResult;
+			const input = { name, baseCwd: cwd, baseRef: base === "default" ? "default" : "HEAD", branchPrefix } as const;
+			// The worktree is made on the computer the new session runs on: the caller's own through its tab,
+			// another one without a tab of the caller there.
+			const made = elsewhere
+				? await this.#worktreeOn(device, input).catch((error: unknown) => {
+						throw new Error(
+							`Creating the worktree failed: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					})
+				: await this.#worktreeThroughCaller(win, caller, callerTabId, input);
 			worktree = { name, branch: made.branch, baseCwd: made.baseCwd, path: made.path };
 			prepared = describePreparation(made);
 		}
@@ -457,6 +472,49 @@ export class AgentControlRuntime {
 		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener.
 		if (!request.tag) this.#deps.pool.setTabOpener(result.tabId, callerTabId);
 		return { tabId: result.tabId, ...(worktree ? { worktree } : {}), ...(prepared ? { prepared } : {}) };
+	}
+
+	async #worktreeThroughCaller(
+		win: ClientWindow,
+		caller: SidecarLike,
+		callerTabId: string,
+		input: WorktreeInput,
+	): Promise<RpcWorktreeCreateResult> {
+		const response = await this.#deps.dispatch(
+			win,
+			caller,
+			callerTabId,
+			{ type: "worktree_create", ...input },
+			WORKTREE_COMMAND_BUDGETS_MS.worktree_create,
+		);
+		if (!response.success) throw new Error(`Creating the worktree failed: ${response.error ?? "unknown error"}`);
+		return response.data as RpcWorktreeCreateResult;
+	}
+
+	/** A worktree on `device` (a paired host, or this computer when undefined) for a caller running elsewhere. */
+	async #worktreeOn(device: string | undefined, input: WorktreeInput): Promise<RpcWorktreeCreateResult> {
+		if (!device)
+			return createWorktree(input.baseCwd, input, worktreeBridge(this.#deps.pool.allSidecars(), input.baseCwd));
+		const reply = await this.#remote().request<unknown>(
+			device,
+			GIT_METHODS.worktreeCreate,
+			input,
+			WORKTREE_COMMAND_BUDGETS_MS.worktree_create,
+		);
+		const parsed = WorktreeCreateReply.safeParse(reply);
+		if (!parsed.success) throw new Error("The device answered the worktree request with something unreadable.");
+		return parsed.data as RpcWorktreeCreateResult;
+	}
+
+	#remote(): NonNullable<AgentControlHostDeps["remote"]> {
+		const remote = this.#deps.remote;
+		if (!remote) throw new Error("Paired devices are not available here.");
+		return remote;
+	}
+
+	/** Git on the computer a session's worktree is on: this one's own, or the paired host's (`host.git.*`). */
+	async #git<T>(device: string | undefined, method: string, params: object, local: () => Promise<T>): Promise<T> {
+		return device ? this.#remote().request<T>(device, method, params, GIT_REQUEST_TIMEOUT_MS) : local();
 	}
 
 	/** `Autopilot.handleCommand` for one run tab, as the Autopilot screen sends it; a failure throws its readable message. */
@@ -680,10 +738,22 @@ export class AgentControlRuntime {
 				await deps.deleteSession(info.sessionPath, info.device);
 			},
 			deleteStored: session => deps.deleteSession(session.path, session.device),
-			branchFacts: worktree => branchFacts(worktree),
-			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
-			landing: worktree => landingFacts(worktree),
-			removeSafeWorktree: worktree => removeSafeWorktree(worktree),
+			branchFacts: (worktree, device) =>
+				this.#git<BranchFacts>(device, GIT_METHODS.facts, { worktree: gitRef(worktree) }, () =>
+					branchFacts(worktree),
+				),
+			mergeBranch: (worktree, label, device) =>
+				this.#git<MergeOutcome>(device, GIT_METHODS.merge, { worktree: gitRef(worktree), label }, () =>
+					mergeBranch(worktree, label),
+				),
+			landing: (worktree, device) =>
+				this.#git<LandingFacts>(device, GIT_METHODS.landing, { worktree: gitRef(worktree) }, () =>
+					landingFacts(worktree),
+				),
+			removeSafeWorktree: (worktree, device) =>
+				this.#git<WorktreeRemoval>(device, GIT_METHODS.removeWorktree, { worktree: gitRef(worktree) }, () =>
+					removeSafeWorktree(worktree),
+				),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: device => {
 				// One Settings › Schedules command on the machine that runs the schedules: this computer's service,

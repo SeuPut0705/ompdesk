@@ -946,7 +946,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		remote: {
 			hosts: () => remoteDevices.state().hosts,
-			request: (device, method, params) => remoteDevices.request(device, method, params),
+			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
 		},
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });

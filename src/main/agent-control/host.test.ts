@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	AGENT_CONTROL_APPROVE_PREF,
@@ -11,6 +14,8 @@ import {
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type { SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { gitSync, initRepo } from "../local/git/test-repos";
+import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import type { ClientWindow } from "../web/client-window";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
@@ -79,6 +84,7 @@ function setup(
 				otherTabs.some(tab => tab.tabId === tabId) ? win2 : tabs.some(tab => tab.tabId === tabId) ? win : null,
 			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
 			sessionOwner: () => null,
+			allSidecars: () => [],
 		},
 		sessions: options.sessions,
 		remote: options.remote,
@@ -454,7 +460,7 @@ describe("AgentControlRuntime", () => {
 		expect(win2.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "far00002", how: "focus" }]);
 	});
 
-	it("opens on a paired device with that device's absolute folder, never a worktree or a relative folder", async () => {
+	it("opens on a paired device with that device's absolute folder, never a relative folder", async () => {
 		const { runtime, win, spawned } = setup({
 			remote: {
 				hosts: () => [{ deviceId: "dev-1", name: "DESKTOP-91ID999", state: "online" }],
@@ -469,9 +475,77 @@ describe("AgentControlRuntime", () => {
 			/must be absolute/,
 		);
 		expect((await runtime.run(win, "main0001", T.open, { device: "dev-1", worktree: true })).text).toMatch(
-			/worktree is made on the computer/,
+			/needs that device's repository/,
 		);
 		expect(spawned).toHaveLength(2);
+	});
+
+	it("makes a worktree on the paired device the session runs on and binds the new tab to it", async () => {
+		const request = vi.fn(async (_device: string, method: string) =>
+			method === "host.git.worktreeCreate"
+				? { path: "C:\\wt\\gui-agent-x", branch: "omp/agent/part-a", baseCwd: "C:\\work" }
+				: null,
+		);
+		const { runtime, win, spawned, commands } = setup({
+			remote: { hosts: () => [{ deviceId: "dev-1", name: "PC", state: "online" }], request: request as never },
+		});
+		// The fake pool never reports the new tab ready: the spawn path is what is checked.
+		await runtime.run(win, "main0001", T.open, {
+			device: "dev-1",
+			folder: "C:\\work",
+			worktree: { branch: "omp/agent/part-a", base: "default" },
+		});
+		expect(request).toHaveBeenCalledWith(
+			"dev-1",
+			"host.git.worktreeCreate",
+			{ name: "part-a", baseCwd: "C:\\work", baseRef: "default", branchPrefix: "omp/agent/" },
+			WORKTREE_COMMAND_BUDGETS_MS.worktree_create,
+		);
+		expect(commands.some(entry => entry.command.type === "worktree_create")).toBe(false);
+		expect(spawned[0]).toEqual({
+			cwd: "C:\\wt\\gui-agent-x",
+			device: "dev-1",
+			worktree: { name: "part-a", branch: "omp/agent/part-a", baseCwd: "C:\\work", path: "C:\\wt\\gui-agent-x" },
+		});
+	});
+
+	it("asks a paired host's git for its session's branch, and this computer's git for a local one", async () => {
+		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-host-git-")));
+		try {
+			const repo = path.join(root, "repo");
+			await initRepo(repo);
+			const local = { name: "w", branch: "omp/agent/w", baseCwd: repo, path: path.join(root, "wt-w") };
+			gitSync(repo, "worktree", "add", "-q", "-b", local.branch, local.path);
+			const facts = { branch: "omp/agent/far", baseBranch: "main", commitsAhead: 4, files: [] };
+			const request = vi.fn(async () => ({ ...facts, uncommitted: 0, untracked: 0, merged: false }));
+			const remote = {
+				name: "far",
+				branch: "omp/agent/far",
+				baseCwd: "C:\\repo",
+				path: "C:\\wt\\far",
+			};
+			const { runtime, win } = setup({
+				tabs: [
+					{ tabId: "main0001" },
+					{ tabId: "near0002", title: "Near", worktree: local },
+					{ tabId: "far00003", title: "Far", device: "dev-1", worktree: remote },
+				],
+				remote: { hosts: () => [{ deviceId: "dev-1", name: "PC", state: "online" }], request: request as never },
+			});
+			const result = await runtime.run(win, "main0001", T.compare, { sessions: ["near0002", "far00003"] });
+			expect(result.isError, result.text).toBe(false);
+			expect(result.text).toContain("branch omp/agent/far → main: 4 commit(s) ahead");
+			expect(result.text).toContain("branch omp/agent/w → main: 0 commit(s) ahead");
+			expect(request).toHaveBeenCalledTimes(1);
+			expect(request).toHaveBeenCalledWith(
+				"dev-1",
+				"host.git.facts",
+				{ worktree: { branch: "omp/agent/far", baseCwd: "C:\\repo", path: "C:\\wt\\far" } },
+				expect.any(Number),
+			);
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("lists and reads saved sessions of this computer and of a paired device", async () => {

@@ -129,12 +129,16 @@ class FakeHost implements AgentControlHost {
 	facts = new Map<string, BranchFacts>();
 	mergeResult: MergeOutcome = { merged: true, sha: "abc1234", summary: "2 files changed" };
 	merges: string[] = [];
-	branchFacts = async (worktree: WorktreeRef): Promise<BranchFacts> => {
+	/** Every git seam call with the device it was sent to (undefined = this computer). */
+	gitCalls: { op: "facts" | "merge" | "landing" | "remove"; branch: string; device: string | undefined }[] = [];
+	branchFacts = async (worktree: WorktreeRef, device?: string): Promise<BranchFacts> => {
+		this.gitCalls.push({ op: "facts", branch: worktree.branch, device });
 		const facts = this.facts.get(worktree.branch);
 		if (!facts) throw new Error("no such branch");
 		return facts;
 	};
-	mergeBranch = async (worktree: WorktreeRef) => {
+	mergeBranch = async (worktree: WorktreeRef, _label: string, device?: string) => {
+		this.gitCalls.push({ op: "merge", branch: worktree.branch, device });
 		this.merges.push(worktree.branch);
 		return this.mergeResult;
 	};
@@ -143,9 +147,12 @@ class FakeHost implements AgentControlHost {
 	/** What `removeSafeWorktree` does: by default the work landed and the tree is clean. */
 	removal: WorktreeRemoval = "removed";
 	closedRecords: ClosedChild[] = [];
-	landing = async (worktree: WorktreeRef): Promise<LandingFacts> =>
-		this.landings.get(worktree.branch) ?? { hasWork: false, landed: false, clean: true };
-	removeSafeWorktree = async (worktree: WorktreeRef): Promise<WorktreeRemoval> => {
+	landing = async (worktree: WorktreeRef, device?: string): Promise<LandingFacts> => {
+		this.gitCalls.push({ op: "landing", branch: worktree.branch, device });
+		return this.landings.get(worktree.branch) ?? { hasWork: false, landed: false, clean: true };
+	};
+	removeSafeWorktree = async (worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval> => {
+		this.gitCalls.push({ op: "remove", branch: worktree.branch, device });
 		if (this.removal) this.removed.push(worktree.branch);
 		return this.removal;
 	};
@@ -1032,13 +1039,14 @@ describe("ompdesk_compare", () => {
 		expect(result.text).toContain("Compare runs no tests");
 	});
 
-	it("explains a session without a worktree, a remote one, and an empty default", async () => {
+	it("explains a session without a worktree, a branch its host cannot read, and an empty default", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
 			{ tabId: "plain002", title: "Plain", last: "done" },
 			{
 				tabId: "remot003",
 				title: "Far",
+				device: "dev-studio",
 				deviceName: "Studio",
 				last: "done",
 				worktree: { name: "w", branch: "b", baseCwd: "/r", path: "/p" },
@@ -1048,7 +1056,8 @@ describe("ompdesk_compare", () => {
 		expect((await service.run("main0001", T.compare, {})).text).toMatch(/No worktree sessions/);
 		const both = await service.run("main0001", T.compare, { sessions: ["plain002", "remot003"] });
 		expect(both.text).toContain("no worktree");
-		expect(both.text).toContain("on this computer's sessions only");
+		expect(both.text).toContain("could not read its branch: no such branch");
+		expect(host.gitCalls).toEqual([{ op: "facts", branch: "b", device: "dev-studio" }]);
 	});
 });
 
@@ -1093,6 +1102,43 @@ describe("ompdesk_merge", () => {
 		expect((await service.run("main0001", T.merge, { session: "plain002" })).text).toMatch(/no worktree branch/);
 		expect((await service.run("main0001", T.merge, { session: "priv0003" })).text).toMatch(/hid this session/);
 		expect((await service.run("main0001", T.merge, { session: "main0001" })).text).toMatch(/own session/);
+	});
+});
+
+describe("a worktree child on a paired host", () => {
+	/** Both children run on the paired Windows desktop; every git question goes to that computer. */
+	async function remoteChildren() {
+		const made = await withWorktreeChildren();
+		for (const id of made.ids)
+			Object.assign(made.host.tabsById.get(id) as FakeTab, { device: desktop.id, deviceName: desktop.name });
+		return made;
+	}
+
+	it("compares and merges it on that host with no refusal", async () => {
+		const { host, service, ids } = await remoteChildren();
+		host.manage = true;
+		const compared = await service.run("main0001", T.compare, { sessions: [ids[0]] });
+		expect(compared.text).toContain("branch omp/agent/a → main: 2 commit(s) ahead");
+		expect(compared.text).not.toContain("sessions only");
+		const merged = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(merged.isError).toBe(false);
+		expect(merged.text).toContain("Merged omp/agent/a into /repo");
+		expect(host.gitCalls).toEqual([
+			{ op: "facts", branch: "omp/agent/a", device: desktop.id },
+			{ op: "facts", branch: "omp/agent/a", device: desktop.id },
+			{ op: "merge", branch: "omp/agent/a", device: desktop.id },
+		]);
+	});
+
+	it("lists its branch in the review queue and removes its worktree on delete, both on that host", async () => {
+		const { host, service, ids } = await remoteChildren();
+		const items = await service.reviewItems("main0001");
+		expect(items.find(item => item.tabId === ids[0])).toMatchObject({ commitsAhead: 2 });
+		const deleted = await service.run("main0001", T.stop, { session: ids[1], delete: true });
+		expect(deleted.text).toContain("Removed its worktree /wt/omp/agent/b and branch omp/agent/b.");
+		expect(host.gitCalls.length).toBeGreaterThan(0);
+		expect(host.gitCalls.every(call => call.device === desktop.id)).toBe(true);
+		expect(host.gitCalls).toContainEqual({ op: "remove", branch: "omp/agent/b", device: desktop.id });
 	});
 });
 
@@ -1671,6 +1717,21 @@ describe("autoClose: opened sessions whose work landed", () => {
 		await dirty.service.autoClose("main0001");
 		expect(closes(dirty.host)).toHaveLength(0);
 		expect(dirty.host.removed).toEqual([]);
+	});
+
+	it("closes a landed child on a paired host and removes its worktree there", async () => {
+		const { host, service } = await finishedChild({
+			worktree: true,
+			patch: { device: "dev-win-1", deviceName: "DESKTOP-91ID999" },
+		});
+		host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(1);
+		expect(host.removed).toEqual(["omp/agent/w"]);
+		expect(host.gitCalls.filter(call => call.op === "landing" || call.op === "remove")).toEqual([
+			{ op: "landing", branch: "omp/agent/w", device: "dev-win-1" },
+			{ op: "remove", branch: "omp/agent/w", device: "dev-win-1" },
+		]);
 	});
 
 	it("never closes a landed, clean child that still runs a turn or waits on an ask", async () => {

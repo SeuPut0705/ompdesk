@@ -58,11 +58,13 @@ import {
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
+import { branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions } from "../deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
+import { createWorktree, worktreeBridge } from "../local/git/worktree";
 import type { MachineServices } from "../machine-services";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
@@ -99,6 +101,7 @@ import {
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
+	GIT_METHODS,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
@@ -265,6 +268,21 @@ const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES)
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
 const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
 const DesktopUpdateParams = z.object({ action: z.enum(["check", "download", "install"]) });
+/** A session's worktree binding (`IpcTabWorktree`), as the device's agent names it for `host.git.*`. */
+const GitWorktree = z.object({
+	path: AbsolutePath,
+	branch: z.string().min(1).max(255),
+	baseCwd: AbsolutePath,
+});
+const GitWorktreeParams = z.object({ worktree: GitWorktree });
+const GitMergeParams = z.object({ worktree: GitWorktree, label: z.string().max(500) });
+const GitWorktreeCreateParams = z.object({
+	baseCwd: AbsolutePath,
+	// createWorktree checks the name's and the prefix's own shape and says why it refuses one.
+	name: z.string().min(1).max(64),
+	branchPrefix: z.string().max(200).optional(),
+	baseRef: z.enum(["HEAD", "default"]),
+});
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -719,6 +737,25 @@ export class LocalHostServices implements HostServices {
 			}
 			case "host.schedules.log":
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
+			// Agent control of a session this computer runs for the device: the git it would run on its own checkout.
+			case GIT_METHODS.facts:
+				return branchFacts(parse(GitWorktreeParams, method, params).worktree);
+			case GIT_METHODS.landing:
+				return landingFacts(parse(GitWorktreeParams, method, params).worktree);
+			case GIT_METHODS.removeWorktree:
+				return removeSafeWorktree(parse(GitWorktreeParams, method, params).worktree);
+			case GIT_METHODS.merge: {
+				const { worktree, label } = parse(GitMergeParams, method, params);
+				return mergeBranch(worktree, label);
+			}
+			case GIT_METHODS.worktreeCreate: {
+				const input = parse(GitWorktreeCreateParams, method, params);
+				const running = [
+					...this.#deps.localTabs.allSidecars(),
+					...[...this.#tabs.values()].map(tab => tab.sidecar),
+				];
+				return createWorktree(input.baseCwd, input, worktreeBridge(running, input.baseCwd));
+			}
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}

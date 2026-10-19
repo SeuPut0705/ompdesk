@@ -208,6 +208,34 @@ export async function createWorktree(
 	return { ...made, ...(await prepareWorktree(primary, made.path)) };
 }
 
+/** A running omp of this computer as `createWorktree` needs it (a `SidecarLike`, structurally). */
+export interface WorktreeBridgeSource {
+	readonly device?: string;
+	readonly status: string;
+	readonly cwd: string;
+	bridgeRequest?(method: string, params?: unknown): Promise<unknown>;
+}
+
+/**
+ * The bridge a worktree made without a calling tab of this computer names it with (an agent on another computer
+ * opening a session here): stock's worktree base and repo hash come from a running omp's own `git.worktree_location`,
+ * as `worktree_create` asks its tab's. A session in `baseCwd` first, then any running one of this computer.
+ */
+export function worktreeBridge(
+	sources: Iterable<WorktreeBridgeSource>,
+	baseCwd: string,
+): Pick<BridgeClient, "request"> {
+	const ready = [...sources].filter(source => !source.device && source.status === "ready" && source.bridgeRequest);
+	const near = ready.find(source => source.cwd === baseCwd || isInside(baseCwd, source.cwd)) ?? ready[0];
+	if (!near?.bridgeRequest)
+		throw new LocalCommandError(
+			"No omp is running on this computer to name the worktree: open a session on it first, then try again.",
+			"worktree_create_failed",
+		);
+	const request = near.bridgeRequest.bind(near);
+	return { request: <T>(method: string, params?: unknown) => request(method, params) as Promise<T> };
+}
+
 /**
  * Real path of `worktreePath` when it lies strictly inside `root` (the
  * directory every GUI and PR worktree is created under), else null. Both sides
