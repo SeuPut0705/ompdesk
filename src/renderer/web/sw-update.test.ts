@@ -380,7 +380,7 @@ describe("purgeAndReload", () => {
 				undefined,
 				reload,
 			),
-		).resolves.toBeUndefined();
+		).resolves.toBe(true);
 		expect(reload).toHaveBeenCalledTimes(2);
 	});
 
@@ -403,6 +403,35 @@ describe("purgeAndReload", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("keeps the purge done but does not reload when the page stopped being safe during the cleanup", async () => {
+		const page = { draftEmpty: true };
+		const reload = vi.fn();
+		const gate = Promise.withResolvers<boolean>();
+		const unregister = vi.fn(async () => gate.promise);
+		const purges: Promise<boolean>[] = [];
+		const watcher = new UpdateWatcher(new FakeRegistration(), new FakeContainer(), vi.fn(), () => {
+			const purge = purgeAndReload({ getRegistrations: async () => [{ unregister }] }, undefined, reload, () =>
+				safeToReload(moment(page)),
+			);
+			purges.push(purge);
+			return purge;
+		});
+		watcher.markOutdated();
+		expect(watcher.resume(moment(page))).toBe(true);
+		page.draftEmpty = false;
+		gate.resolve(true);
+		await purges[0];
+		expect(unregister).toHaveBeenCalledTimes(1);
+		expect(reload).not.toHaveBeenCalled();
+		expect(watcher.resume(moment(page))).toBe(false);
+		page.draftEmpty = true;
+		expect(watcher.resume(moment(page))).toBe(true);
+		await purges[1];
+		expect(reload).toHaveBeenCalledTimes(1);
+		expect(watcher.resume(moment(page))).toBe(false);
+		expect(reload).toHaveBeenCalledTimes(1);
 	});
 });
 

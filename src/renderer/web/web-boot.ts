@@ -48,9 +48,12 @@ function noteReason(reason: ReloadReason, details?: Record<string, string | numb
 	noteReload(localStorage, { reason, at: Date.now(), ...(details ? { details } : {}) });
 }
 
-function purge(): Promise<void> {
-	return purgeAndReload(navigator.serviceWorker, typeof caches === "undefined" ? undefined : caches, () =>
-		location.reload(),
+function purge(safe: () => boolean): Promise<boolean> {
+	return purgeAndReload(
+		navigator.serviceWorker,
+		typeof caches === "undefined" ? undefined : caches,
+		() => location.reload(),
+		safe,
 	);
 }
 
@@ -61,7 +64,7 @@ async function pageStale(): Promise<void> {
 	if (Date.now() - last < RELOAD_LOOP_MS) return;
 	sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
 	noteReason("outdated", { atBoot: true });
-	await purge();
+	await purge(() => true);
 }
 
 async function bootApp(): Promise<void> {
@@ -168,9 +171,9 @@ async function bootApp(): Promise<void> {
 		noteReason(reloadFor ?? fallback, details);
 		location.reload();
 	};
-	const purgeNow = () => {
+	const purgeNow = (): Promise<boolean> => {
 		noteReason(chunkStale && transport.state !== "outdated" ? "chunk-load-failed" : "outdated");
-		void purge();
+		return purge(() => !moment || safeToReload(moment));
 	};
 
 	window.omp = web.api;
@@ -211,12 +214,12 @@ async function bootApp(): Promise<void> {
 		if (!moment) return;
 		if (transport.state === "outdated") {
 			if (pwa.update) pwa.update.resume(moment);
-			else if (safeToReload(moment)) purgeNow();
+			else if (safeToReload(moment)) void purgeNow();
 			return;
 		}
 		if (!gate.open(Date.now())) return;
 		if (pwa.update) pwa.update.resume(moment);
-		else if (chunkStale && safeToReload(moment)) purgeNow();
+		else if (chunkStale && safeToReload(moment)) void purgeNow();
 	};
 	void registration.then(registered => {
 		if (!registered) return;
