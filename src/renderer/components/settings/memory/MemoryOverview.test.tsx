@@ -111,3 +111,16 @@ describe("Memory › Overview", () => {
 		expect(api.setTerminal).toHaveBeenCalledWith(true);
 	});
 });
+
+describe("Memory › Overview › Learn from conversations", () => {
+	it("is a switch under Remember, on by default, and only while Memory is on", async () => {
+		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
+		expect(text("#setting-aiMemory-learn")).toContain("Learn from conversations");
+		expect(q("#setting-aiMemory-learn [role=switch]")?.getAttribute("aria-checked")).toBe("true");
+		cleanup();
+		await mount(
+			<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState({ enabled: false, phase: "off" })} />,
+		);
+		expect(q("#setting-aiMemory-learn")).toBeNull();
+	});
+});

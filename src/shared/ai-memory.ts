@@ -19,6 +19,8 @@ export const AI_MEMORY_PREF = "aiMemory";
 export const AI_MEMORY_TERMINAL_PREF = "aiMemoryTerminal";
 /** `true` while OMPdesk itself installed ai-memory's user service and may stop it; `false` once a service it did not start was found. */
 export const AI_MEMORY_SERVICE_OWNED_PREF = "aiMemoryServiceOwned";
+/** Settings › Memory › Learn from conversations: the cheap-model upkeep that writes decisions, rules and gotchas. Default on: only a stored `false` is off. */
+export const AI_MEMORY_LEARN_PREF = "aiMemoryLearn";
 /** The version the app ships (the pin file is the only place it is written). */
 export const AI_MEMORY_VERSION: string = pin.version;
 /** The pin file's per-platform assets, keyed `<process.platform>-<process.arch>`. */
@@ -116,6 +118,8 @@ export interface AiMemoryPage extends AiMemoryPageRef {
 	pinned: boolean;
 	createdAt: string | null;
 	tags: string[];
+	/** The frontmatter's one-line summary (a session page's counts), when it has one. */
+	summary?: string;
 }
 
 /** One project's counts and health, from the server's overview. Null fields: the server did not say. */

@@ -15,6 +15,9 @@ export const en: Record<string, string> = {
 	"memory.step.check": "checking the server",
 	"memory.source.bundled": "built in",
 	"memory.source.external": "your own install",
+	"memory.overview.learn": "Learn from conversations",
+	"memory.overview.learn.info":
+		"When you pause a conversation after typing 6 or more messages, your cheap model (the smol role) reads those messages once and saves the decisions, rules and gotchas in them as pages. At most one run an hour and six a day, about $0.02 each. Only your own words are read.",
 	"memory.overview.switch": "Remember across sessions",
 	"memory.overview.switch.info":
 		"On: every omp session OMPdesk runs records to Memory and starts with what the project already knows. Off: OMPdesk stops loading it, and its server stops if nothing else uses it. What is stored stays.",
@@ -73,6 +76,9 @@ export const ko: Record<string, string> = {
 	"memory.step.check": "서버를 확인하는 중",
 	"memory.source.bundled": "내장",
 	"memory.source.external": "직접 설치한 것",
+	"memory.overview.learn": "대화에서 배우기",
+	"memory.overview.learn.info":
+		"메시지를 6개 이상 입력한 대화를 잠시 멈추면, 가벼운 모델(smol 역할)이 그 메시지를 한 번 읽고 결정·규칙·함정을 페이지로 남겨요. 한 시간에 한 번, 하루 여섯 번까지, 한 번에 약 0.02달러예요. 직접 입력한 말만 읽어요.",
 	"memory.overview.switch": "세션 사이에 기억하기",
 	"memory.overview.switch.info":
 		"켜면 OMPdesk가 실행하는 모든 omp 세션이 메모리에 기록하고, 프로젝트가 이미 아는 내용으로 시작해요. 끄면 OMPdesk가 더 이상 불러오지 않고, 다른 곳에서 쓰지 않으면 서버도 멈춰요. 저장된 내용은 그대로 남아요.",

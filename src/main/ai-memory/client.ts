@@ -305,19 +305,24 @@ export class AiMemoryClient {
 		};
 	}
 
-	async sessions(project: AiMemoryProjectRef): Promise<AiMemorySession[]> {
-		const body = record(
-			await this.#get(`${this.#projectPath(project)}/sessions?limit=${SESSION_LIMIT}&include_open=true`),
-		);
+	/** The project's sessions, newest first (`limit` more than the page shows, for a job that walks them all). */
+	async sessions(project: AiMemoryProjectRef, limit = SESSION_LIMIT): Promise<AiMemorySession[]> {
+		const body = record(await this.#get(`${this.#projectPath(project)}/sessions?limit=${limit}&include_open=true`));
 		return rows(body.sessions).map(sessionRow);
 	}
 
-	/** One session's raw observations, in capture order, read-only. */
-	async observations(project: AiMemoryProjectRef, sessionId: string, offset = 0): Promise<AiMemoryObservations> {
+	/** One session's raw observations, in capture order, read-only; `kinds` keeps only those kinds (`["user-prompt"]`). */
+	async observations(
+		project: AiMemoryProjectRef,
+		sessionId: string,
+		offset = 0,
+		kinds?: readonly string[],
+	): Promise<AiMemoryObservations> {
 		const id = encodeURIComponent(sessionId);
+		const only = kinds?.length ? `&kinds=${encodeURIComponent(kinds.join(","))}` : "";
 		const body = record(
 			await this.#get(
-				`${this.#projectPath(project)}/sessions/${id}/observations?limit=${OBSERVATION_LIMIT}&offset=${Math.max(0, Math.floor(offset))}&body_max_chars=2000`,
+				`${this.#projectPath(project)}/sessions/${id}/observations?limit=${OBSERVATION_LIMIT}&offset=${Math.max(0, Math.floor(offset))}&body_max_chars=2000${only}`,
 			),
 		);
 		return {
@@ -400,6 +405,56 @@ export class AiMemoryClient {
 		if (input.tags) body.tags = input.tags;
 		if (input.pinned !== undefined) body.pinned = input.pinned;
 		await this.#post("/admin/write-page", body);
+	}
+
+	/**
+	 * Rewrites a session page through `memory_write_page` with its session, the path the server offers for exactly
+	 * this: it keeps the page's link to the session (`session_id`, `agent`), tells a title another page holds apart,
+	 * and refuses (`precondition_failed`) when the page is no longer the version `expectedPageId` names.
+	 */
+	async writeSessionPage(
+		input: AiMemoryProjectRef & {
+			path: string;
+			sessionId: string;
+			body: string;
+			expectedPageId: string;
+			tier?: string;
+			abstract?: string;
+		},
+	): Promise<void> {
+		await this.#tool("memory_write_page", {
+			...projectOf(input),
+			path: input.path,
+			body: input.body,
+			tier: input.tier ?? "episodic",
+			session_id: input.sessionId,
+			expected_page_id: input.expectedPageId,
+			...(input.abstract ? { abstract: input.abstract } : {}),
+		});
+	}
+
+	/**
+	 * Writes a page that does not exist yet (`create_only`), recording the session it was learned in as evidence.
+	 * False when something already lives at the path: the page is never overwritten.
+	 */
+	async createPage(
+		input: AiMemoryProjectRef & { path: string; body: string; tier: string; kind: string; sessionId: string },
+	): Promise<boolean> {
+		try {
+			await this.#tool("memory_write_page", {
+				...projectOf(input),
+				path: input.path,
+				body: input.body,
+				tier: input.tier,
+				kind: input.kind,
+				session_id: input.sessionId,
+				create_only: true,
+			});
+			return true;
+		} catch (error) {
+			if (error instanceof Error && /precondition/i.test(error.message)) return false;
+			throw error;
+		}
 	}
 
 	/**
@@ -498,6 +553,7 @@ export class AiMemoryClient {
 			pinned: row.pinned === true,
 			createdAt: str(row.created_at) || null,
 			tags: strings(record(row.frontmatter).tags),
+			summary: str(record(row.frontmatter).summary) || undefined,
 		};
 	}
 }

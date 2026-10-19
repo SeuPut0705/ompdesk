@@ -262,6 +262,18 @@ const PROJECTS = [
 	{ workspace_name: WORKSPACE, project_name: "alpha", page_count: 4, last_updated: "2026-10-17T10:00:00Z" },
 	{ workspace_name: WORKSPACE, project_name: "beta", page_count: 1, last_updated: "2026-10-01T10:00:00Z" },
 ];
+// FAKE_AI_MEMORY_UPKEEP=1: a third project holding what the old titling left behind (the quality upkeep's repair reads it).
+const UPKEEP = process.env.FAKE_AI_MEMORY_UPKEEP === "1";
+const WRAPPED_PROMPT =
+	'<ompdesk-agent-message from="부모 세션">\nTitle: 맥 자동업데이트 확인\n\nCheck the updater.\n</ompdesk-agent-message>';
+const WRAPPED_TITLE = '<ompdesk-agent-message from="부모 세션">';
+if (UPKEEP)
+	PROJECTS.push({
+		workspace_name: WORKSPACE,
+		project_name: "gamma",
+		page_count: 1,
+		last_updated: "2026-10-18T10:00:00Z",
+	});
 let idCounter = 0;
 const page = (path: string, title: string, kind: string, tier: string, updated: string, body: string): FakePage => ({
 	path,
@@ -303,6 +315,18 @@ const PAGES: Record<string, FakePage[]> = {
 		),
 		page("notes/ideas.md", "Ideas", "note", "semantic", "2026-10-14T10:00:00Z", "# Ideas\n\nTry a ring buffer."),
 	],
+	gamma: UPKEEP
+		? [
+				page(
+					"sessions/junk1.md",
+					WRAPPED_TITLE,
+					"session",
+					"episodic",
+					"2026-10-18T10:00:00Z",
+					`# ${WRAPPED_TITLE}\n\n## Prompts\n\n1. ${WRAPPED_TITLE}\n`,
+				),
+			]
+		: [],
 	beta: [
 		page(
 			"notes/readme.md",
@@ -337,6 +361,28 @@ const HANDOFFS: Record<string, FakeHandoff[]> = {
 		},
 	],
 	beta: [],
+	gamma: UPKEEP
+		? [
+				{
+					id: "h-child",
+					agent: "omp",
+					at: "2026-10-18T10:00:00Z",
+					state: "open",
+					summary: `Started: ${WRAPPED_TITLE}\nTitle: 맥 자동업데이트 확인`,
+					open_questions: [],
+					next_steps: [],
+				},
+				{
+					id: "h-main",
+					agent: "omp",
+					at: "2026-10-18T09:00:00Z",
+					state: "open",
+					summary: "Session focused on: 이제 업데이트 완료했어",
+					open_questions: [],
+					next_steps: [],
+				},
+			]
+		: [],
 };
 const SESSIONS: Record<string, Record<string, unknown>[]> = {
 	alpha: [
@@ -362,6 +408,20 @@ const SESSIONS: Record<string, Record<string, unknown>[]> = {
 		},
 	],
 	beta: [],
+	gamma: UPKEEP
+		? [
+				{
+					session_id: "junk1",
+					cwd: "/work/gamma",
+					agent_kind: "omp",
+					started_at: "2026-10-18T09:00:00Z",
+					ended_at: "2026-10-18T10:00:00Z",
+					observation_count: 1,
+					actor_user: null,
+					consolidation: null,
+				},
+			]
+		: [],
 };
 let revCounter = 0;
 const checkpoints: string[] = ["rev-0"];
@@ -539,6 +599,26 @@ function serve(): void {
 					if (open) entry.state = "expired";
 					return reply({ handoff_id: entry.id, cancelled: open, state: entry.state });
 				}
+				if (tool === "memory_write_page") {
+					const key = String(args.project);
+					const list = PAGES[key] ?? [];
+					const existing = list.find(entry => entry.path === args.path);
+					if (args.create_only === true && existing)
+						return json({ jsonrpc: "2.0", id: body.id, error: { code: -32603, message: "precondition failed" } });
+					if (typeof args.expected_page_id === "string" && existing?.id !== args.expected_page_id)
+						return json({ jsonrpc: "2.0", id: body.id, error: { code: -32603, message: "precondition failed" } });
+					const text = String(args.body);
+					const next = page(
+						String(args.path),
+						/^# (.*)$/m.exec(text)?.[1] ?? String(args.path),
+						existing?.kind ?? String(args.kind ?? "note"),
+						String(args.tier ?? "semantic"),
+						new Date().toISOString(),
+						text,
+					);
+					PAGES[key] = [next, ...list.filter(entry => entry.path !== args.path)];
+					return reply({ page_id: next.id, path: next.path });
+				}
 				if (tool === "memory_feedback") return reply({ ok: true, path: args.path, signal: args.signal });
 				return json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "unknown tool" } });
 			}
@@ -567,6 +647,25 @@ function serve(): void {
 					const session = (SESSIONS[name] ?? []).find(item => item.session_id === sessionId);
 					if (!session) return json({ error: "not found" }, 404);
 					const offset = Number(url.searchParams.get("offset") ?? 0);
+					if (name === "gamma") {
+						const row = {
+							id: "o-0",
+							session_id: sessionId,
+							kind: "user-prompt",
+							title: WRAPPED_TITLE,
+							body: WRAPPED_PROMPT,
+							importance: 3,
+							created_at: "2026-10-18T09:30:00Z",
+						};
+						return json({
+							session,
+							observations: offset === 0 ? [row] : [],
+							total: 1,
+							offset,
+							limit: 50,
+							order: "asc",
+						});
+					}
 					const limit = Number(url.searchParams.get("limit") ?? 50);
 					const count = Number(session.observation_count);
 					const rows = Array.from({ length: Math.max(0, Math.min(limit, count - offset)) }, (_, index) => ({
@@ -591,7 +690,7 @@ function serve(): void {
 					pinned: found.pinned,
 					created_at: found.updated_at,
 					updated_at: found.updated_at,
-					frontmatter: { tags: found.tags },
+					frontmatter: { tags: found.tags, summary: "1 prompt" },
 					body_markdown: found.body,
 				});
 			}

@@ -179,7 +179,9 @@ export function fakeMemoryApi() {
 export type FakeMemoryApi = ReturnType<typeof fakeMemoryApi>;
 
 export function installApi(api: FakeMemoryApi): void {
-	Object.assign(dom.window as unknown as Record<string, unknown>, { omp: { aiMemory: api } });
+	Object.assign(dom.window as unknown as Record<string, unknown>, {
+		omp: { aiMemory: api, prefs: { get: async () => undefined, set: async () => undefined } },
+	});
 }
 
 let root: Root | null = null;

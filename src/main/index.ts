@@ -37,6 +37,7 @@ import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../shared/agent-control";
 import {
+	AI_MEMORY_LEARN_PREF,
 	AI_MEMORY_PREF,
 	AI_MEMORY_SERVICE_OWNED_PREF,
 	AI_MEMORY_TERMINAL_PREF,
@@ -69,9 +70,12 @@ import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/wor
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
+import { AiMemoryClient } from "./ai-memory/client";
+import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { AiMemoryService } from "./ai-memory/service";
 import { pidFileControl } from "./ai-memory/unit";
+import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
@@ -390,6 +394,7 @@ let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
 let aiMemoryService: AiMemoryService | null = null;
+let aiMemoryUpkeep: MemoryUpkeep | null = null;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
@@ -1003,10 +1008,29 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);
 			}
+			// The repair and the learning run only while the server answers.
+			if (state.phase === "ready") aiMemoryUpkeep?.ready();
+			else aiMemoryUpkeep?.pause();
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	aiMemoryService = aiMemory;
+	// Memory's own quality upkeep (src/main/ai-memory/upkeep.ts): repairs old titles and child handoffs once per launch,
+	// and learns decisions/rules/gotchas from a person's paused conversations on the user's cheap model (`aiMemoryLearn`).
+	aiMemoryUpkeep = new MemoryUpkeep({
+		client: new AiMemoryClient({
+			url: () => aiMemory.state().serverUrl,
+			dataDir: () => aiMemory.state().dataDir,
+		}),
+		learn: () => prefs.get(AI_MEMORY_LEARN_PREF) !== false,
+		model: async message => {
+			const omp = await systemOmp();
+			if (!omp.ok) throw new Error(omp.error);
+			return runSmol(omp.runtime, message, join(app.getPath("temp"), "ompdesk-memory-upkeep"));
+		},
+		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
+		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
+	});
 	registerAiMemoryIpc(ipc, aiMemory, {
 		openExternal: url => shell.openExternal(url),
 		openPath: path => shell.openPath(path),
@@ -1435,6 +1459,7 @@ installQuitGuard(
 		cliUpdater?.dispose();
 		extensionUpdater?.dispose();
 		setupService?.dispose();
+		aiMemoryUpkeep?.dispose();
 		aiMemoryService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();

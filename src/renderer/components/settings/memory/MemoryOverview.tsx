@@ -3,7 +3,7 @@
  * disk size, the console, the terminal omp and the privacy line. One line a row; every explanation is a tooltip.
  * The switch is not a prefs write: main installs or removes the wiring and the service and pushes the state back.
  */
-import { Brain, FolderOpen, KeyRound, RefreshCw, SquareTerminal } from "lucide-react";
+import { Brain, FolderOpen, GraduationCap, KeyRound, RefreshCw, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import type {
 	AiMemoryOverview,
@@ -12,9 +12,11 @@ import type {
 	AiMemoryProjectRef,
 	AiMemoryState,
 } from "../../../../shared/ai-memory";
+import { AI_MEMORY_LEARN_PREF } from "../../../../shared/ai-memory";
 import { formatBytes, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { Badge, Button, CopyButton, InlineNotice, Spinner } from "../../common";
+import { useMainPreference } from "../GeneralSection";
 import { SettingsRow, SettingsSwitchRow } from "../SettingsLayout";
 import { projectLabel } from "./MemorySection";
 import { useMemoryAction } from "./memory-ui";
@@ -34,6 +36,7 @@ export function MemoryOverview({
 	const { run } = useMemoryAction();
 	const starting = state.phase === "starting";
 	const unsupported = state.phase === "unsupported";
+	const [learn, setLearn] = useMainPreference(AI_MEMORY_LEARN_PREF, true);
 	const problem = state.phase === "failed" || state.phase === "unreachable";
 	const usable = state.enabled && !unsupported;
 	const ready = state.phase === "ready";
@@ -88,6 +91,16 @@ export function MemoryOverview({
 				label={t("memory.overview.switch")}
 				onCheckedChange={checked => void act("toggle", () => window.omp.aiMemory.setEnabled(checked))}
 			/>
+			{state.enabled && !unsupported && (
+				<SettingsSwitchRow
+					checked={learn}
+					description={t("memory.overview.learn.info")}
+					icon={<GraduationCap />}
+					id="setting-aiMemory-learn"
+					label={t("memory.overview.learn")}
+					onCheckedChange={setLearn}
+				/>
+			)}
 			<SettingsRow
 				tipOnly
 				compactControl
