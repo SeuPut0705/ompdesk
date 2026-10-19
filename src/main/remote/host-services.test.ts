@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -936,7 +936,8 @@ describe("LocalHostServices", () => {
 			services.call(conn.peer, "tab.open", { rtab: "a", cwd: workDir, sessionPath: "/s/one.jsonl" }, conn),
 			services.call(conn.peer, "tab.open", { rtab: "b", cwd: workDir, sessionPath: "/s/one.jsonl" }, conn),
 		]);
-		expect(opens.map(open => open.status)).toEqual(["fulfilled", "rejected"]);
+		// Whichever open's folder check finishes first takes the session; the other is refused.
+		expect(opens.map(open => open.status).sort()).toEqual(["fulfilled", "rejected"]);
 		expect(sidecars).toHaveLength(1);
 
 		// The link drops while the device reopens: the new connection's open takes the tab, never a second.
@@ -2277,7 +2278,8 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		const params = { baseCwd: repo, name: "part-a", branchPrefix: "omp/agent/", baseRef: "HEAD" };
 		const made = await services.call(x.peer, "host.git.worktreeCreate", params, x);
 		expect(made).toMatchObject({ path: join(root, "gui-part-a-abc1234"), branch: "omp/agent/part-a", baseCwd: repo });
-		expect(asked).toEqual([{ method: "git.worktree_location", request: { primaryRoot: repo } }]);
+		// Stock's location is keyed by git's own path of the main checkout (the long form of a Windows 8.3 TEMP).
+		expect(asked).toEqual([{ method: "git.worktree_location", request: { primaryRoot: realpathSync.native(repo) } }]);
 		expect(gitSync(join(root, "gui-part-a-abc1234"), "branch", "--show-current")).toBe("omp/agent/part-a");
 		await expect(
 			services.call(x.peer, "host.git.worktreeCreate", { ...params, name: "Bad Name!" }, x),

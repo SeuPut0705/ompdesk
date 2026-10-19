@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -78,6 +79,22 @@ describe("removeWorktree", () => {
 		await removeWorktree({ path: old.path }, bridge, outside);
 		expect(await pathExists(old.path)).toBe(false);
 	});
+	// A hosted runner's TEMP is an 8.3 short path (C:\Users\RUNNER~1\…); git answers with the long one. The caller's
+	// spelling of the main checkout is the one its tabs and sessions use, so it comes back as given.
+	it.skipIf(process.platform !== "win32")(
+		"keeps the caller's spelling of the main checkout (a Windows short path)",
+		async () => {
+			await initRepo(outside);
+			// Verbatim: Node's quoting would wrap the `for` loop's own quotes and cmd would name a path that does not exist.
+			const short = spawnSync("cmd", ["/d", "/s", "/c", `"for %I in ("${outside}") do @echo %~sI"`], {
+				encoding: "utf8",
+				windowsVerbatimArguments: true,
+			}).stdout.trim();
+			if (!short || short.toLowerCase() === outside.toLowerCase()) return; // no 8.3 names on this volume
+			const created = await createWorktree(short, { name: "short" }, bridge);
+			expect(created.baseCwd).toBe(short);
+		},
+	);
 	it("names the branch with the user's prefix, keeps the folder name, and refuses a prefix git would reject", async () => {
 		await initRepo(outside);
 		const plain = await createWorktree(outside, { name: "plain" }, bridge);

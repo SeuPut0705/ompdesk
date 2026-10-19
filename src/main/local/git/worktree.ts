@@ -165,6 +165,14 @@ export async function createWorktree(
 	const baseCwd = input.baseCwd ?? sessionCwd;
 	if (!(await repoRoot(baseCwd))) throw new LocalCommandError(`Not a git repository: ${baseCwd}`, "not_a_repo");
 	const primary = await primaryRoot(baseCwd);
+	// The main checkout as the caller spells it when it is that directory: git answers with the long form of a Windows
+	// 8.3 path (C:\Users\RUNNER~1\…), and the caller's tabs and sessions compare against the form it gave.
+	const realOf = (dir: string) =>
+		fs.realpath(dir).then(real => (process.platform === "win32" ? real.toLowerCase() : real));
+	const mainCheckout =
+		(await realOf(baseCwd).catch(() => null)) === (await realOf(primary).catch(() => undefined))
+			? path.resolve(baseCwd)
+			: primary;
 	const startPoint = input.baseRef === "default" ? ((await defaultBranchRef(primary)) ?? "HEAD") : "HEAD";
 	const location = await stockWorktreeLocation(bridge, primary);
 
@@ -184,7 +192,7 @@ export async function createWorktree(
 						"worktree_create_failed",
 					);
 				}
-				return { path: candidate.path, branch: input.branch.name, baseCwd: primary };
+				return { path: candidate.path, branch: input.branch.name, baseCwd: mainCheckout };
 			}
 			// A half-created dir (no .git yet) still makes `git worktree add` fail with "exists".
 			if ((await pathTaken(candidate.path)) || (await branchExists(primary, candidate.branch))) continue;
@@ -202,7 +210,7 @@ export async function createWorktree(
 					"worktree_create_failed",
 				);
 			}
-			return { path: candidate.path, branch: candidate.branch, baseCwd: primary };
+			return { path: candidate.path, branch: candidate.branch, baseCwd: mainCheckout };
 		}
 		throw new LocalCommandError(`No available worktree name after ${MAX_SUFFIX} attempts`, "worktree_create_failed");
 	});
