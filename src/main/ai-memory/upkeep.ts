@@ -6,16 +6,18 @@
  * 2. **Learn** (`distill.ts`): ai-memory writes session pages by itself but no decisions, rules or gotchas (its own
  *    consolidation needs an LLM provider on the server, which OMPdesk keeps out). While Settings › Memory › "Learn from
  *    conversations" is on, a conversation a person has paused (10 minutes quiet) with 6 or more new messages of theirs is
- *    read once by the cheap model, and the pages that pass the checks are created. At most one run per hour and six per
- *    day, one conversation per run, so the bill is bounded: measured on the user's own sessions a run reads ~3k tokens
- *    and writes 0.2–0.5k, $0.015–0.018 on `claude-sonnet-5-5` (the `smol` role there).
+ *    read once by the cheap model, and the pages that pass the checks are created: the project's in its own project,
+ *    the owner's preferences and corrections in `_global` (read by every project's recall), and none the project's
+ *    rules file already states (`rules-file.ts`). At most one run per hour and six per day, one conversation per run,
+ *    so the bill is bounded: measured on the user's own sessions a run reads ~3k tokens and writes 0.2–0.5k,
+ *    $0.015–0.018 on `claude-sonnet-5-5` (the `smol` role there).
  *
  * Only what a person typed is read: a subagent's or an agent-opened session carries an agent's words, and ai-memory's
  * server redacts secrets before they are stored.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AiMemoryProjectRef, AiMemorySession } from "../../shared/ai-memory";
+import type { AiMemoryPageRef, AiMemoryProjectRef, AiMemorySession } from "../../shared/ai-memory";
 import type { AiMemoryClient } from "./client";
 import {
 	buildDigest,
@@ -23,7 +25,11 @@ import {
 	type DigestPrompt,
 	type DistillMessage,
 	distillMessage,
+	GLOBAL_PROJECT,
 	KIND_LAYOUT,
+	KNOWN_GLOBAL_PAGES,
+	KNOWN_PROJECT_PAGES,
+	type KnownPage,
 	parseProposals,
 	personPrompts,
 	proposalMarkdown,
@@ -31,6 +37,7 @@ import {
 } from "./distill";
 import type { ModelResult } from "./distill-model";
 import { type RetitleClient, type RetitleReport, retitleSessionPages } from "./retitle";
+import { readRulesText, rulesIndex, statedByRules } from "./rules-file";
 
 export const UPKEEP_TICK_MS = 15 * 60_000;
 /** A conversation is read once its person has been quiet this long. */
@@ -56,6 +63,8 @@ export interface UpkeepDeps {
 	/** `<userData>/ai-memory/upkeep.json`: which conversations were read up to which message, and when the runs were. */
 	stateFile: string;
 	log: (message: UpkeepLogMessage, details: UpkeepLogDetails) => void;
+	/** The rules files of the repository a folder is in (`rules-file.ts readRulesText`); a seam for the tests. */
+	rules?: (cwd: string) => Promise<string>;
 	now?: () => number;
 	tickMs?: number;
 	firstTickMs?: number;
@@ -77,6 +86,8 @@ export type TickOutcome =
 			prompts: number;
 			created: string[];
 			duplicates: number;
+			/** Pages the project's rules file already states, not written. */
+			inRules: number;
 			refused: string[];
 			model: string;
 			inputTokens: number;
@@ -256,10 +267,26 @@ export class MemoryUpkeep {
 		return personPrompts(observations);
 	}
 
+	/** The durable pages memory holds: the project's (newest first) and the owner's preferences in `_global`. */
+	async #knownPages(pages: readonly AiMemoryPageRef[]): Promise<KnownPage[]> {
+		// `_global` exists once something wrote it; until then there is nothing to show.
+		const global = await this.#deps.client.pages(GLOBAL_PROJECT).catch(() => []);
+		return [
+			...pages
+				.filter(page => !page.path.startsWith("sessions/"))
+				.slice(0, KNOWN_PROJECT_PAGES)
+				.map(page => ({ path: page.path, title: page.title, global: false })),
+			...global
+				.filter(page => page.path.startsWith(`${KIND_LAYOUT.preference.folder}/`))
+				.slice(0, KNOWN_GLOBAL_PAGES)
+				.map(page => ({ path: page.path, title: page.title, global: true })),
+		];
+	}
+
 	async #learn(candidate: Candidate, state: UpkeepState, now: number): Promise<TickOutcome> {
 		const { project, session, fresh } = candidate;
 		const pages = await this.#deps.client.pages(project);
-		const existing = pages.filter(page => !page.path.startsWith("sessions/")).map(page => page.title);
+		const known = await this.#knownPages(pages);
 		const sessionTitles = new Map(
 			pages.filter(page => page.path.startsWith("sessions/")).map(page => [page.path, page.title] as const),
 		);
@@ -270,27 +297,36 @@ export class MemoryUpkeep {
 		const digest = buildDigest(fresh, tasks);
 		let result: ModelResult;
 		try {
-			result = await this.#deps.model(distillMessage(digest, existing));
+			result = await this.#deps.model(distillMessage(digest, known));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.#deps.log("failed", { step: "learn-model", session: session.id, detail });
 			return { ran: true, failed: detail };
 		}
-		const parsed = parseProposals(result.text, digest.shown, existing);
+		const parsed = parseProposals(result.text, digest, known);
+		const rules = rulesIndex(
+			parsed.proposals.length ? await (this.#deps.rules ?? readRulesText)(session.cwd ?? "").catch(() => "") : "",
+		);
 		const created: string[] = [];
 		let duplicates = 0;
+		let inRules = 0;
 		for (const proposal of parsed.proposals) {
+			if (statedByRules(rules, proposal)) {
+				inRules += 1;
+				parsed.refused.push(`${proposal.title}: the project's rules file already says it`);
+				continue;
+			}
 			const path = proposalPath(proposal);
 			const layout = KIND_LAYOUT[proposal.kind];
 			const written = await this.#deps.client.createPage({
-				...project,
+				...(layout.global ? GLOBAL_PROJECT : project),
 				path,
 				body: proposalMarkdown(proposal, session.id),
 				tier: layout.tier,
 				kind: layout.kind,
-				sessionId: session.id,
+				...(layout.global ? {} : { sessionId: session.id }),
 			});
-			if (written) created.push(path);
+			if (written) created.push(layout.global ? `${GLOBAL_PROJECT.project}/${path}` : path);
 			else duplicates += 1;
 		}
 		// An answer that parsed (even one with no pages) settles the window; an unusable answer is read again next time.
@@ -307,6 +343,7 @@ export class MemoryUpkeep {
 			prompts: digest.shown.length,
 			created,
 			duplicates,
+			inRules,
 			refused: parsed.refused,
 			model: result.model,
 			inputTokens: result.inputTokens,
@@ -319,6 +356,7 @@ export class MemoryUpkeep {
 			prompts: outcome.prompts,
 			created: created.length,
 			duplicates,
+			inRules,
 			refused: parsed.refused.length,
 			model: result.model,
 			inputTokens: result.inputTokens,

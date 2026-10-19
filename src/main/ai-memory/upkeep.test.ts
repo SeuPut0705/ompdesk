@@ -42,9 +42,17 @@ function typed(count: number, quietMs: number): { text: string; at: number }[] {
 	}));
 }
 
-function fakeClient(sessions: FakeSession[], existing: { path: string; title: string }[] = []) {
-	const created: { path: string; body: string; tier: string; kind: string; sessionId: string }[] = [];
-	const taken = new Set(existing.map(page => page.path));
+interface FakePage {
+	path: string;
+	title: string;
+	/** Default `ompdesk`. */
+	project?: string;
+}
+
+function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
+	const created: { project: string; path: string; body: string; tier: string; kind: string; sessionId?: string }[] =
+		[];
+	const taken = new Set(existing.map(page => `${page.project ?? PROJECT.project}/${page.path}`));
 	const observationCalls: string[] = [];
 	const client: UpkeepClient = {
 		projects: async () => [
@@ -66,16 +74,18 @@ function fakeClient(sessions: FakeSession[], existing: { path: string; title: st
 			const slice = all.slice(offset, offset + 50);
 			return { session: session(sessionId, all.length), observations: slice, total: all.length, offset };
 		},
-		pages: async () => [
-			...existing.map(page => ({
-				...PROJECT,
-				path: page.path,
-				title: page.title,
-				kind: "note",
-				tier: "semantic",
-				updatedAt: null,
-			})),
-			...sessions.map(entry => ({
+		pages: async ref => [
+			...existing
+				.filter(page => (page.project ?? PROJECT.project) === ref.project)
+				.map(page => ({
+					...ref,
+					path: page.path,
+					title: page.title,
+					kind: "note",
+					tier: "semantic",
+					updatedAt: null,
+				})),
+			...(ref.project === PROJECT.project ? sessions : []).map(entry => ({
 				...PROJECT,
 				path: `sessions/${entry.id}.md`,
 				title: `작업 ${entry.id}`,
@@ -91,14 +101,16 @@ function fakeClient(sessions: FakeSession[], existing: { path: string; title: st
 		handoffs: async () => [],
 		cancelHandoff: async () => undefined,
 		createPage: async input => {
-			if (taken.has(input.path)) return false;
-			taken.add(input.path);
+			const key = `${input.project}/${input.path}`;
+			if (taken.has(key)) return false;
+			taken.add(key);
 			created.push({
+				project: input.project,
 				path: input.path,
 				body: input.body,
 				tier: input.tier,
 				kind: input.kind,
-				sessionId: input.sessionId,
+				...(input.sessionId ? { sessionId: input.sessionId } : {}),
 			});
 			return true;
 		},
@@ -138,7 +150,11 @@ afterEach(async () => {
 
 function upkeep(
 	client: UpkeepClient,
-	options: { learn?: () => boolean; model?: (message: DistillMessage) => Promise<ModelResult> } = {},
+	options: {
+		learn?: () => boolean;
+		model?: (message: DistillMessage) => Promise<ModelResult>;
+		rules?: (cwd: string) => Promise<string>;
+	} = {},
 ) {
 	return new MemoryUpkeep({
 		client,
@@ -152,6 +168,7 @@ function upkeep(
 		stateFile: join(dir, "upkeep.json"),
 		log: (message, details) => logs.push({ message, details }),
 		now: () => now,
+		rules: options.rules ?? (async () => ""),
 	});
 }
 
@@ -190,6 +207,72 @@ describe("MemoryUpkeep.tick", () => {
 				}),
 			},
 		]);
+	});
+
+	it("files the owner's preferences in _global/preferences/ for every project, shown what is already there", async () => {
+		const { client, created } = fakeClient(
+			[{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }],
+			[{ project: "_global", path: "preferences/한-줄-행.md", title: "설정 행은 한 줄로" }],
+		);
+		const preference = {
+			kind: "preference",
+			title: "보고는 결론부터 쓴다",
+			body: "보고할 때 결론을 첫 줄에 쓰고 근거를 뒤에 둔다.\n소유자가 여러 번 요구했다.",
+			quote: "사용자 메시지 3",
+			confidence: 0.8,
+			evidence: [3],
+		};
+		const worker = upkeep(client, {
+			model: async message => {
+				messages.push(message);
+				return answer([rule, preference]);
+			},
+		});
+		expect(await worker.tick()).toMatchObject({
+			ran: true,
+			created: ["_rules/동시-세션-수-제한을-두지-않는다.md", "_global/preferences/보고는-결론부터-쓴다.md"],
+		});
+		expect(created).toEqual([
+			expect.objectContaining({
+				project: "ompdesk",
+				path: "_rules/동시-세션-수-제한을-두지-않는다.md",
+				sessionId: "main-1",
+			}),
+			{
+				project: "_global",
+				path: "preferences/보고는-결론부터-쓴다.md",
+				body: expect.stringContaining("> 사용자 메시지 3"),
+				tier: "semantic",
+				kind: "preference",
+			},
+		]);
+		expect(messages[0]?.user).toContain("- preferences/한-줄-행.md · 설정 행은 한 줄로");
+	});
+
+	it("skips a page the project's rules file already states, read from the session's folder", async () => {
+		const { client, created } = fakeClient([{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }]);
+		const asked: string[] = [];
+		const other = { ...rule, title: "보고는 결론부터 쓴다", gist_en: "Reports lead with the conclusion." };
+		const outcome = await upkeep(client, {
+			model: async () =>
+				answer([{ ...rule, gist_en: "No count or rate caps on how many sessions run at the same time." }, other]),
+			rules: async cwd => {
+				asked.push(cwd);
+				return [
+					"# Agent control",
+					"- Sessions an agent opened run in their own tabs and report with ompdesk_report.",
+					"- **No count or rate caps**: any number of sessions may run at the same time.",
+					"- A session in view or typed into is never closed by an agent.",
+				].join("\n");
+			},
+		}).tick();
+		expect(asked).toEqual(["/work"]);
+		expect(outcome).toMatchObject({
+			created: ["_rules/보고는-결론부터-쓴다.md"],
+			inRules: 1,
+			refused: [`${rule.title}: the project's rules file already says it`],
+		});
+		expect(created).toHaveLength(1);
 	});
 
 	it("does not read the same messages twice: the next window starts after the last one read", async () => {
