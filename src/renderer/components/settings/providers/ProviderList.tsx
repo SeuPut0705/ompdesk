@@ -45,6 +45,8 @@ export interface ProviderCatalog {
 	configError: string | null;
 	refreshPending: boolean;
 	sidecarReady: boolean;
+	/** Sign-in can start: the tab's omp is ready or still starting (its commands wait for it). */
+	loginReady: boolean;
 	load: (forceRefresh?: boolean) => Promise<ProvidersResult | undefined>;
 }
 
@@ -65,7 +67,10 @@ export function useProviderCatalog({
 	// models.yml lives with the focused tab's omp: a paired host's own file.
 	const device = useFocusedTabDevice();
 	const t = useT();
-	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const status = useSessionStore(state => state.status);
+	const sidecarReady = status === "ready";
+	// A command for a starting tab is held until its omp is ready, so a sign-in can be asked for already.
+	const loginReady = sidecarReady || status === "starting";
 	const providers = useModelStore(state => state.providers);
 	const refreshPending = useModelStore(state => state.catalogRefreshPending);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
@@ -133,7 +138,18 @@ export function useProviderCatalog({
 		return () => clearInterval(timer);
 	}, [active, refreshPending, load, pollMs]);
 
-	return { providers, customConfigs, options, loading, error, configError, refreshPending, sidecarReady, load };
+	return {
+		providers,
+		customConfigs,
+		options,
+		loading,
+		error,
+		configError,
+		refreshPending,
+		sidecarReady,
+		loginReady,
+		load,
+	};
 }
 
 function SectionLabel({ children, level }: { children: ReactNode; level: "h3" | "h4" }) {

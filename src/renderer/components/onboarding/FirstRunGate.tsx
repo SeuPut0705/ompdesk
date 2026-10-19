@@ -1,7 +1,7 @@
 /**
  * Once per launch, when the sidecar first reports ready: with no provider
  * that can serve, start the inline first-run setup (the empty main area
- * renders it); a setup left at a later step (model, GitHub) before a relaunch
+ * renders it); a setup left at the model step before a relaunch
  * resumes there; otherwise make sure new sessions start on a model that can
  * serve (`ensureServingDefault`). Renders nothing.
  */
@@ -91,6 +91,10 @@ export function FirstRunGate() {
 			// unlatched so the next ready transition checks again.
 			if (cancelled || catalogResult.status === "rejected") return;
 			checkedThisLaunch.current = true;
+			const resume = savedStep.status === "fulfilled" ? savedStep.value : undefined;
+			// A step an older version saved (GitHub) is gone: forget it instead of resuming at it.
+			if (resume !== undefined && !isResumableFirstRunStep(resume))
+				void window.omp.prefs.set(FIRST_RUN_STEP_PREF, undefined).catch(() => {});
 			const providers = catalogResult.value.providers
 				.map(toProviderInfo)
 				.filter((row): row is ProviderInfo => row !== null);
@@ -103,7 +107,6 @@ export function FirstRunGate() {
 				return;
 			}
 			if (early.provisional) useFirstRunStore.getState().setPhase("idle", null);
-			const resume = savedStep.status === "fulfilled" ? savedStep.value : undefined;
 			if (isResumableFirstRunStep(resume)) {
 				useFirstRunStore.getState().setPhase(resume, null);
 				return;

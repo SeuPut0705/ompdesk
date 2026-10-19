@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderInfo } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
-import type { ProviderCatalog } from "./ProviderList";
+import { useModelStore } from "../../../stores/model";
+import { useSessionStore } from "../../../stores/session";
+import { type ProviderCatalog, useProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderPicker } from "./ProviderPicker";
 
@@ -47,6 +49,7 @@ function catalogOf(providers: ProviderInfo[]): ProviderCatalog {
 		configError: null,
 		refreshPending: false,
 		sidecarReady: true,
+		loginReady: true,
 		load: vi.fn(),
 	} as unknown as ProviderCatalog;
 }
@@ -81,6 +84,8 @@ afterEach(async () => {
 	for (const root of roots) await act(async () => root.unmount());
 	roots.length = 0;
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+	useModelStore.getState().reset();
+	useSessionStore.getState().reset();
 });
 
 const featuredIds = () =>
@@ -166,5 +171,46 @@ describe("ProviderPicker featured group", () => {
 		await act(async () => props.onChange?.({ target: input, currentTarget: input }));
 		expect(document.querySelector("[data-featured-providers]")).toBeNull();
 		expect(otherIds()).toEqual(["anthropic"]);
+	});
+});
+
+describe("ProviderPicker while omp starts", () => {
+	function LivePicker({ login }: { login: ProviderLogin }) {
+		const catalog = useProviderCatalog({ active: false });
+		return <ProviderPicker catalog={catalog} login={login} />;
+	}
+
+	async function mountLive(status: "starting" | "error", login: ProviderLogin) {
+		useModelStore.setState({ providers: stock });
+		useSessionStore.getState().setStatus(status, "/tmp/project");
+		const root = createRoot(document.body as unknown as Element);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<LivePicker login={login} />
+				</I18nProvider>,
+			),
+		);
+		roots.push(root);
+	}
+
+	const claudeCard = () => document.querySelector<HTMLButtonElement>('[data-featured-provider="anthropic"] button');
+
+	it("lets a card start a sign-in while the session is starting, held until omp is ready", async () => {
+		const login = fakeLogin();
+		await mountLive("starting", login);
+		expect(claudeCard()?.disabled).toBe(false);
+		expect(claudeCard()?.getAttribute("title")).toBeNull();
+		await act(async () => claudeCard()?.click());
+		expect(login.start).toHaveBeenCalledWith("anthropic");
+	});
+
+	it("keeps the cards disabled, saying why, when the session failed", async () => {
+		const login = fakeLogin();
+		await mountLive("error", login);
+		expect(claudeCard()?.disabled).toBe(true);
+		expect(claudeCard()?.getAttribute("title")).toBe(translate("providers.notConnected"));
+		await act(async () => claudeCard()?.click());
+		expect(login.start).not.toHaveBeenCalled();
 	});
 });

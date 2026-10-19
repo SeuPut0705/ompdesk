@@ -4,7 +4,7 @@
  * `<installer> <item> <method>`). gh is nowhere on the app's PATH (the login
  * shell is a stand-in that reports a PATH without gh) and setup's ledger has
  * gh in its daily back-off after three misses, the state a user who "never got
- * gh" is in. At the first run's GitHub step the card offers the sign-in; the
+ * gh" is in. In Settings › General the card offers the sign-in; the
  * click installs gh through setup's gh item: main's download holds at half so
  * the card shows "Installing GitHub CLI…" with its bytes, the first install
  * fails with a network reason and Retry, the retry puts the fake gh into the
@@ -21,7 +21,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { seedFakeGh, writeFakeGh } from "../src/main/github-auth/test-fake-gh";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp, variants } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 /** gh attempt 1 fails offline; attempt 2 copies the fake gh into the managed tools dir. Other items never run here. */
 const INSTALLER = `
@@ -89,7 +89,7 @@ for (const language of variants(["en", "ko"] as const)) {
 		await Promise.all([home, desktop, project, agent, installerDir].map(dir => fs.mkdir(dir)));
 		await fs.writeFile(
 			path.join(desktop, "prefs.json"),
-			JSON.stringify({ language, themeName: "light", firstRunComplete: true, firstRunStep: "github" }),
+			JSON.stringify({ language, themeName: "light", firstRunComplete: true }),
 		);
 		// Three automatic misses today: the launch leaves gh alone ("Paused after failed attempts").
 		const missed = { failures: 3, lastAttempt: Date.now() };
@@ -161,9 +161,12 @@ for (const language of variants(["en", "ko"] as const)) {
 			});
 			await page.waitForFunction(() => window.omp?.rpc != null);
 
-			const step = page.locator('[data-first-run-step="github"]');
-			await expect(step).toBeVisible({ timeout: 30_000 });
-			const card = step.getByTestId("github-sign-in");
+			const settings = page.locator("[data-settings-page]");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+			const section = settings.locator("#setting-github-account");
+			await section.scrollIntoViewIfNeeded();
+			const card = section.getByTestId("github-sign-in");
+			await expect(card).toBeVisible({ timeout: 30_000 });
 			await expect(card).toHaveAttribute("data-github-phase", "missing");
 			// Backed off at launch: nothing installed on its own.
 			expect(await installs()).toEqual([]);

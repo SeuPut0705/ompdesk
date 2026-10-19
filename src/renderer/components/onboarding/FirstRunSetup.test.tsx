@@ -7,12 +7,10 @@ import type { CustomProvidersConfig, CustomProviderView } from "../../../shared/
 import type { ModelInfo, ProviderInfo, ProvidersResult, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { FIRST_RUN_STEP_PREF, useFirstRunStore } from "../../stores/first-run";
-import { useGithubAuthStore } from "../../stores/github-auth";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
-import { fakeGithubAuth, githubState } from "../../test-support/github-auth";
 import { routeCommands } from "../../test-support/route-commands";
 import { FirstRunGate } from "./FirstRunGate";
 import { FirstRunSetup } from "./FirstRunSetup";
@@ -70,13 +68,11 @@ const prefsApi = {
 		else prefs[key] = value;
 	}),
 };
-const github = fakeGithubAuth();
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc,
 		models: { listProviders, signedIn: vi.fn(async () => signedIn) },
 		prefs: prefsApi,
-		githubAuth: github.api,
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn() },
 		runtime: { startupMark: vi.fn() },
@@ -123,8 +119,6 @@ afterEach(async () => {
 	useMachineSetupStore.getState().reset();
 	useSessionStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
-	useGithubAuthStore.getState().reset();
-	github.set(githubState());
 	for (const fn of Object.values(rpc)) fn.mockClear();
 	for (const key of Object.keys(prefs)) delete prefs[key];
 	defaultRole = undefined;
@@ -192,7 +186,8 @@ describe("FirstRunGate", () => {
 		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: true });
 		expect(rpc.getProviders).not.toHaveBeenCalled();
 		const starter = document.querySelector<HTMLButtonElement>('[data-provider-connect="openai-codex"]');
-		expect(starter?.disabled).toBe(true);
+		// A tab command is held until omp is ready, so the card can already start a sign-in.
+		expect(starter?.disabled).toBe(false);
 		expect(text()).not.toContain(translate("providers.notConnected"));
 		expect(document.querySelector('[role="alert"]')).toBeNull();
 
@@ -290,59 +285,11 @@ describe("FirstRunSetup model step", () => {
 		await act(async () => button(translate("setup.model.use"))?.click());
 		expect(rpc.setModel).toHaveBeenCalledWith("acme", "acme-opus-5");
 		expect(rpc.setModelRole).toHaveBeenCalledWith("default", "acme/acme-opus-5");
-		// GitHub is the optional last step, and the step reached is kept for a relaunch.
-		expect(useFirstRunStore.getState().phase).toBe("github");
-		expect(prefs[FIRST_RUN_STEP_PREF]).toBe("github");
-		// Not "all set" yet: the optional GitHub step is still ahead, so no toast covers the step list.
-		expect(useToastStore.getState().toasts).toEqual([]);
-		expect(document.querySelector('[data-testid="first-run-github"]')).not.toBeNull();
-		expect(text()).toContain(translate("githubAuth.signIn"));
-
-		await act(async () => useModelStore.setState({ model: opus }));
-		await act(async () => button(translate("setup.github.skip"))?.click());
+		// Nothing follows the model: setup ends, the saved step is forgotten and the ready toast names the model.
 		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(document.querySelector("[data-first-run-step]")).toBeNull();
 		expect(FIRST_RUN_STEP_PREF in prefs).toBe(false);
 		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
-	});
-
-	it("skips the GitHub step when an account is signed in with a full Git identity", async () => {
-		catalog = { ...catalog, providers: [acme], models: [opus] };
-		github.set(
-			githubState({
-				status: { installed: true, version: "2.62.0", authenticated: true, login: "octocat", otherAccounts: [] },
-				identity: { name: "The Octocat", email: "octocat@github.com" },
-			}),
-		);
-		useSessionStore.getState().setStatus("ready", "/tmp/project");
-		useFirstRunStore.getState().setPhase("model", "acme");
-		await mount(<FirstRunSetup />);
-		await act(async () => button(translate("setup.model.use"))?.click());
-		expect(useFirstRunStore.getState().phase).toBe("idle");
-		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
-	});
-
-	it("waits for the GitHub check still in flight before deciding to skip the step", async () => {
-		catalog = { ...catalog, providers: [acme], models: [opus] };
-		github.set(
-			githubState({
-				status: { installed: true, version: "2.62.0", authenticated: true, login: "octocat", otherAccounts: [] },
-				identity: { name: "The Octocat", email: "octocat@github.com" },
-			}),
-		);
-		// The check the model step warms on mount is still running when the button is pressed.
-		const slow = Promise.withResolvers<void>();
-		github.api.refresh.mockImplementationOnce(async () => {
-			await slow.promise;
-			return githubState();
-		});
-		useSessionStore.getState().setStatus("ready", "/tmp/project");
-		useFirstRunStore.getState().setPhase("model", "acme");
-		await mount(<FirstRunSetup />);
-		expect(useGithubAuthStore.getState().state.status).toBeNull();
-
-		await act(async () => button(translate("setup.model.use"))?.click());
-		expect(useFirstRunStore.getState().phase).toBe("idle");
-		slow.resolve();
 	});
 
 	it("scrolls the pre-selected model into view in a long list", async () => {
@@ -374,8 +321,131 @@ describe("FirstRunSetup model step", () => {
 	});
 });
 
+describe("FirstRunSetup connect step", () => {
+	const claude: ModelInfo = {
+		provider: "anthropic",
+		id: "claude-opus-5",
+		name: "Claude Opus 5",
+		contextWindow: 200_000,
+	};
+	const claudeConnected = provider({
+		id: "anthropic",
+		name: "Anthropic (Claude Pro/Max)",
+		authenticated: true,
+		modelCount: 1,
+	});
+
+	async function settle(): Promise<void> {
+		for (let round = 0; round < 4; round++) await act(async () => delay(0));
+	}
+
+	async function openConnectStep(): Promise<void> {
+		catalog = { ...catalog, providers: [anthropic], models: [] };
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("connect", null);
+		await mount(<FirstRunSetup />);
+	}
+
+	/** Click Claude's card; omp's catalog says it is connected by the time `login` returns. */
+	async function signInToClaude(connected: Partial<ProvidersResult>): Promise<void> {
+		catalog = { ...catalog, ...connected };
+		await act(async () => document.querySelector<HTMLButtonElement>('[data-provider-connect="anthropic"]')?.click());
+		await settle();
+	}
+
+	it("ends the setup on its own after a sign-in: the default model is saved and the toast names it", async () => {
+		await openConnectStep();
+		await signInToClaude({ providers: [claudeConnected], models: [claude] });
+
+		expect(document.querySelector("[data-first-run-step]")).toBeNull();
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(rpc.setModel).toHaveBeenCalledWith("anthropic", "claude-opus-5");
+		expect(rpc.setModelRole).toHaveBeenCalledWith("default", "anthropic/claude-opus-5");
+		expect(FIRST_RUN_STEP_PREF in prefs).toBe(false);
+		const toasts = useToastStore.getState().toasts;
+		expect(toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
+		expect(toasts.map(toast => toast.message).join("\n")).toContain("Claude Opus 5");
+	});
+
+	it("picks the model for a provider that connected somewhere else meanwhile", async () => {
+		catalog = { ...catalog, providers: [acme], models: [opus] };
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("connect", null);
+		await mount(<FirstRunSetup />);
+		await settle();
+
+		expect(document.querySelector("[data-first-run-step]")).toBeNull();
+		expect(rpc.setModelRole).toHaveBeenCalledWith("default", "acme/acme-opus-5");
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
+	});
+
+	it("opens the model step when no model can be picked", async () => {
+		await openConnectStep();
+		await signInToClaude({ providers: [claudeConnected], models: [] });
+
+		expect(document.querySelector('[data-first-run-step="model"]')).not.toBeNull();
+		expect(rpc.setModel).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts).toEqual([]);
+		expect(button(translate("setup.model.back"))).toBeDefined();
+	});
+
+	it("opens the model step with the save error when the default cannot be saved", async () => {
+		rpc.setModel.mockImplementationOnce(async () => ({
+			type: "response",
+			command: "set_model",
+			success: false,
+			error: "config.yml is read-only",
+		}));
+		await openConnectStep();
+		await signInToClaude({ providers: [claudeConnected], models: [claude] });
+
+		expect(document.querySelector('[data-first-run-step="model"]')).not.toBeNull();
+		expect(text()).toContain(translate("setup.model.saveFailed"));
+		expect(text()).toContain("config.yml is read-only");
+		expect(text()).toContain("Claude Opus 5");
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("shows one muted line under the title, with no step list, subtitle or key-hint row", async () => {
+		await openConnectStep();
+		const region = document.querySelector('[data-first-run-step="connect"]');
+		expect(region?.querySelector("h1")?.textContent).toBe(translate("setup.title"));
+		expect(region?.textContent).toContain(translate("setup.connect.description"));
+		expect(region?.querySelector("ol")).toBeNull();
+		expect(region?.querySelector("h2")).toBeNull();
+		expect(region?.querySelector("kbd")).toBeNull();
+		expect(button(translate("setup.later"))).toBeDefined();
+	});
+
+	it("keeps the custom endpoint to one line: the description is behind the info glyph, not a paragraph", async () => {
+		await openConnectStep();
+		expect(document.querySelector("[data-setting-info]")).not.toBeNull();
+		const description = Array.from(document.querySelectorAll("*")).find(
+			element => element.children.length === 0 && element.textContent === translate("setup.custom.description"),
+		);
+		expect(description?.className).toContain("sr-only");
+		expect(button(translate("providerList.addCustom"))).toBeDefined();
+	});
+});
+
 describe("FirstRunSetup resume and keys", () => {
-	it("resumes the step reached before a relaunch once a provider can serve", async () => {
+	it("resumes the model step reached before a relaunch once a provider can serve", async () => {
+		catalog = { ...catalog, providers: [acme], models: [opus] };
+		prefs[FIRST_RUN_STEP_PREF] = "model";
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		await mount(
+			<>
+				<FirstRunGate />
+				<FirstRunSetup />
+			</>,
+		);
+		expect(useFirstRunStore.getState().phase).toBe("model");
+		expect(document.querySelector('[data-first-run-step="model"]')).not.toBeNull();
+		// Resuming is not a fresh default pick.
+		expect(rpc.setModel).not.toHaveBeenCalled();
+	});
+
+	it("forgets a saved GitHub step an older version left, and opens no step", async () => {
 		catalog = { ...catalog, providers: [acme], models: [opus] };
 		prefs[FIRST_RUN_STEP_PREF] = "github";
 		useSessionStore.getState().setStatus("ready", "/tmp/project");
@@ -385,10 +455,9 @@ describe("FirstRunSetup resume and keys", () => {
 				<FirstRunSetup />
 			</>,
 		);
-		expect(useFirstRunStore.getState().phase).toBe("github");
-		expect(document.querySelector('[data-first-run-step="github"]')).not.toBeNull();
-		// Resuming is not a fresh default pick.
-		expect(rpc.setModel).not.toHaveBeenCalled();
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+		expect(document.querySelector("[data-first-run-step]")).toBeNull();
+		expect(FIRST_RUN_STEP_PREF in prefs).toBe(false);
 	});
 
 	it("starts over at connect when the saved step has no provider to stand on", async () => {
@@ -408,11 +477,6 @@ describe("FirstRunSetup resume and keys", () => {
 		const advance = await act(async () => press("Enter", { metaKey: true }));
 		expect(advance.defaultPrevented).toBe(true);
 		expect(rpc.setModel).toHaveBeenCalledWith("acme", "acme-opus-5");
-		expect(useFirstRunStore.getState().phase).toBe("github");
-
-		await act(async () => {
-			press("Enter", { ctrlKey: true });
-		});
 		expect(useFirstRunStore.getState().phase).toBe("idle");
 	});
 

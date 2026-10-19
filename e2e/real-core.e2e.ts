@@ -462,7 +462,7 @@ test("system omp's browser sign-in: loopback callback, default browser, cancel t
 		).toBeVisible();
 		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 
-		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
+		// A first-run browser sign-in opens the browser by itself.
 		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(1);
 		const [launchUrl] = (await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[];
 		expect(launchUrl).toMatch(/^http:\/\/localhost:\d+\/launch$/);

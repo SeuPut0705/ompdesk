@@ -610,7 +610,8 @@ describe("ProvidersSection", () => {
 		// The URL is shown inline and acknowledged so the prompt is not queued behind it.
 		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "url-1", value: "done" });
 		expect(text()).toContain("Create or copy your API key from the DeepSeek dashboard");
-		// No callback server (no launchUrl): the link is a page to copy the key from.
+		// No callback server (no launchUrl): the link is a page to copy the key from, opened on a click only.
+		expect(openExternal).not.toHaveBeenCalled();
 		expect(button(translate("providerList.login.openKeyPage"))).toBeDefined();
 		const field = document.querySelector('input[type="password"]');
 		expect(field).toBeTruthy();
@@ -787,7 +788,8 @@ describe("ProvidersSection", () => {
 				});
 				useExtensionUiStore.getState().pushRequest(pasteRequest("code-1"));
 			});
-			await act(async () => button(translate("providerList.login.openBrowser"))?.click());
+			// A paired host's tab leaves the browser to the button; a local one has opened it already.
+			if (device !== undefined) await act(async () => button(translate("providerList.login.openBrowser"))?.click());
 		}
 
 		const pasteField = () => document.querySelector('input[type="password"]');
@@ -799,8 +801,9 @@ describe("ProvidersSection", () => {
 				.filter(response => response.cancelled === true)
 				.map(response => response.id);
 
-		it("on a remote tab opens the provider's URL, not the host's launch page, and asks for the redirect", async () => {
+		it("on a remote tab opens the provider's URL only on a click, not the host's launch page, and asks for the redirect", async () => {
 			await startSignIn(HOST_ID);
+			expect(openExternal).toHaveBeenCalledTimes(1);
 			expect(openExternal).toHaveBeenCalledWith(openUrl.url);
 			expect(openExternal).not.toHaveBeenCalledWith(openUrl.launchUrl);
 			expect(document.querySelector("[data-remote-login-hint]")?.textContent).toBe(
@@ -811,8 +814,9 @@ describe("ProvidersSection", () => {
 			expect(pasteField()).toBeTruthy();
 		});
 
-		it("on a local tab opens the launch page and shows no paste hint", async () => {
+		it("on a local tab opens the launch page by itself, once, and shows no paste hint", async () => {
 			await startSignIn(undefined);
+			expect(openExternal).toHaveBeenCalledTimes(1);
 			expect(openExternal).toHaveBeenCalledWith(openUrl.launchUrl);
 			expect(document.querySelector("[data-remote-login-hint]")).toBeNull();
 			// The code prompt beside an OAuth callback does not turn the browser sign-in into a key page.
@@ -949,6 +953,8 @@ describe("ProvidersSection", () => {
 				expect(login).not.toHaveBeenCalled();
 				expect(progress()).toBe(translate("providerList.login.inProgress"));
 				expect(button(translate("providerList.login.openBrowser"))).toBeDefined();
+				// A sign-in this page did not start never opens the browser again by itself.
+				expect(openExternal).not.toHaveBeenCalled();
 				expect(button(translate("providerList.login.pasteToggle"))).toBeDefined();
 				expect(button(translate("common.cancel"))).toBeDefined();
 				// The leftover request stays the panel's: nothing is answered while the sign-in runs.

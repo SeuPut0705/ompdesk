@@ -2,14 +2,14 @@
  * First-run setup, inline in the empty main area (design-spec §2.2): omp is
  * installed on this machine (main does it on its own; `SetupTakeover` shows it
  * full-window before this ever renders) → connect a provider (search, recommended first, sign-in or API
- * key inline, or a custom endpoint) → choose the default model (optionally
- * verified with one short test request) → optionally sign in to GitHub → ready
- * to prompt. `FirstRunGate` decides when the provider steps show (and resumes a
- * step left before a relaunch).
+ * key inline, or a custom endpoint) → the default model is picked and saved on its own and setup ends,
+ * ready to prompt. Only when no model can be picked, or saving it fails, the model step lets the person
+ * choose (optionally verified with one short test request). `FirstRunGate` decides when the provider
+ * steps show (and resumes the model step left before a relaunch).
  * ⌘/Ctrl+Enter runs the step's primary action; Esc asks before leaving setup.
  */
 
-import { ArrowLeft, Check, CheckCircle2, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Plus, Sparkles } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -19,7 +19,6 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { modelSelector } from "../../lib/model-usage";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
-import { useGithubAuthStore } from "../../stores/github-auth";
 import { useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useTabsStore } from "../../stores/tabs";
@@ -31,9 +30,9 @@ import {
 	Button,
 	EmptyState,
 	ErrorDetail,
-	Kbd,
 	ListRow,
 	Modal,
+	SettingInfo,
 	SkeletonRows,
 } from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
@@ -42,14 +41,12 @@ import { ProviderLoginPanel, useProviderLogin } from "../settings/providers/Prov
 import { ProviderPicker } from "../settings/providers/ProviderPicker";
 import {
 	canServe,
-	hasUsableModelProvider,
 	modelDisplayName,
 	pickDefaultModel,
 	STARTER_PROVIDERS,
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
-import { GithubSignIn, useGithubAuth } from "./GithubSignIn";
 import { useMachineSetupNeeded } from "./MachineSetupView";
 
 /**
@@ -62,8 +59,6 @@ export function useFirstRunActive(): boolean {
 	const installing = useMachineSetupNeeded();
 	return phase !== "idle" || installing;
 }
-
-const STEPS = ["install", "connect", "model", "github", "prompt"] as const;
 
 /** The step's primary action, which ⌘/Ctrl+Enter runs; null while it has none. */
 const PrimaryActionContext = createContext<{ current: (() => void) | null }>({ current: null });
@@ -79,41 +74,6 @@ function usePrimaryAction(action: (() => void) | null): void {
 }
 type SetupStep = Exclude<FirstRunPhase, "idle">;
 
-function StepList({ phase }: { phase: SetupStep }) {
-	const t = useT();
-	const current = STEPS.indexOf(phase);
-	return (
-		<ol aria-label={t("setup.steps")} className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2">
-			{STEPS.map((step, index) => {
-				const done = index < current;
-				const active = index === current;
-				return (
-					<li
-						aria-current={active ? "step" : undefined}
-						className={`flex items-center gap-2 text-sc-sm ${active ? "font-medium text-(--sc-text)" : "text-(--sc-text-muted)"}`}
-						key={step}
-					>
-						<span
-							aria-hidden
-							className={`flex size-5 items-center justify-center rounded-(--sc-radius-full) border text-sc-2xs font-semibold ${
-								done
-									? "border-transparent bg-(--sc-success-soft) text-(--sc-success)"
-									: active
-										? "border-transparent bg-(--sc-accent) text-(--sc-accent-fg)"
-										: "border-(--sc-border-subtle) text-(--sc-text-muted)"
-							}`}
-						>
-							{done ? <Check className="size-3" /> : index + 1}
-						</span>
-						{t(`setup.step.${step}`)}
-						{done && <span className="sr-only">{t("setup.stepDone")}</span>}
-					</li>
-				);
-			})}
-		</ol>
-	);
-}
-
 /** The setup's top edge into view: a step opens there, whatever the last one left scrolled. */
 function revealSetup(): void {
 	document.querySelector("[data-first-run-step]")?.scrollIntoView?.({ block: "start" });
@@ -121,7 +81,10 @@ function revealSetup(): void {
 
 function ConnectStep() {
 	const t = useT();
+	const tabRpc = useTabRpc();
 	const setPhase = useFirstRunStore(state => state.setPhase);
+	const setModelError = useFirstRunStore(state => state.setModelError);
+	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const live = useProviderCatalog();
 	// Before omp answers (its first boot after machine setup installed it) the step shows the recommended
 	// providers, not a spinner or a "not connected" error; their buttons wait for the session, and the live
@@ -139,34 +102,82 @@ function ConnectStep() {
 	if (catalog.options) lastOptions.current = catalog.options;
 	const options = catalog.options ?? lastOptions.current;
 
+	// The provider this setup just connected (sign-in or custom endpoint): its models are preferred, and
+	// `connected` is set once the catalog has been read again, so the pick below sees the new provider.
+	const justConnected = useRef<string | null>(null);
+	const [connected, setConnected] = useState<string | null>(null);
+	const settling = useRef(false);
 	const advance = useCallback(
 		async (providerId: string) => {
+			justConnected.current = providerId;
 			await load(true);
-			setPhase("model", providerId);
+			setConnected(providerId);
 		},
-		[load, setPhase],
+		[load],
 	);
 	const login = useProviderLogin(advance);
 
-	// Connected somewhere else meanwhile (Settings, the CLI, env): move on. A step opened ahead of the gate's
-	// check waits for it (a serving provider there means no setup at all).
+	// A provider can serve now (just connected here, or somewhere else meanwhile: Settings, the CLI, env): pick
+	// its default model and end the setup. Only a pick that is missing or cannot be saved opens the model step.
+	// A step opened ahead of the gate's check waits for it (a serving provider there means no setup at all).
 	const provisional = useFirstRunStore(state => state.provisional);
 	useEffect(() => {
-		if (provisional || customForm || login.state.running || !hasUsableModelProvider(providers, customConfigs)) return;
-		const [first] = servingProviderIds(providers, customConfigs);
-		setPhase("model", first ?? null);
-	}, [customConfigs, customForm, login.state.running, provisional, providers, setPhase]);
+		if (provisional || customForm || login.state.running || settling.current) return;
+		const serving = servingProviderIds(providers, customConfigs);
+		if (serving.size === 0 && connected === null) return;
+		settling.current = true;
+		const [first] = serving;
+		const preferred = justConnected.current ?? first ?? null;
+		void (async () => {
+			const models = await refreshAvailableModels(false).then(
+				result => result.models,
+				() => useModelStore.getState().availableModels,
+			);
+			const pick = pickDefaultModel(models, serving, preferred ?? undefined);
+			if (!pick) {
+				setPhase("model", preferred);
+				return;
+			}
+			try {
+				await applyDefaultModel(tabRpc, useTabsStore.getState().activeTabId, pick);
+			} catch (cause) {
+				setModelError(cause instanceof Error ? cause.message : String(cause));
+				setPhase("model", preferred);
+				return;
+			}
+			setPhase("idle", null);
+			announceReady(t, pick);
+		})();
+	}, [
+		connected,
+		customConfigs,
+		customForm,
+		login.state.running,
+		provisional,
+		providers,
+		refreshAvailableModels,
+		setModelError,
+		setPhase,
+		t,
+		tabRpc,
+	]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `customForm` is the trigger; the effect reads the DOM.
 	useEffect(() => {
 		revealSetup();
 	}, [customForm]);
 
+	// A new sign-in's panel opens under the whole provider list: bring it into view. Centered, because the
+	// composer covers the scroller's bottom edge, where `nearest` would leave it.
+	useEffect(() => {
+		if (login.state.since > 0) document.querySelector("[data-login-panel]")?.scrollIntoView?.({ block: "center" });
+	}, [login.state.since]);
+
 	// The form needs the provider options. Until they arrive (or when reading them failed) say so in place,
 	// instead of leaving the list as it was and popping the form in later.
 	if (customForm && !options) {
 		return (
-			<div className="mt-8 flex flex-col gap-3" data-testid="first-run-custom-pending">
+			<div className="mt-6 flex flex-col gap-3" data-testid="first-run-custom-pending">
 				{catalog.configError ? (
 					<Banner
 						actions={
@@ -193,7 +204,7 @@ function ConnectStep() {
 
 	if (customForm && options) {
 		return (
-			<div className="mt-8">
+			<div className="mt-6">
 				<CustomProviderForm
 					editing={null}
 					existing={customConfigs}
@@ -209,13 +220,7 @@ function ConnectStep() {
 	}
 
 	return (
-		<div className="mt-8 flex flex-col gap-3">
-			<div>
-				<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
-					{t("setup.connect.title")}
-				</h2>
-				<p className="mt-1 text-sc-md text-(--sc-text-secondary)">{t("setup.connect.description")}</p>
-			</div>
+		<div className="mt-6 flex flex-col gap-3">
 			{catalog.error && (
 				<Banner
 					actions={
@@ -253,10 +258,10 @@ function ConnectStep() {
 					/>
 				</div>
 			)}
-			<div className="mt-2 flex flex-wrap items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
-				<div className="min-w-0 flex-1">
-					<div className="text-sc-md font-medium text-(--sc-text)">{t("setup.custom.title")}</div>
-					<div className="text-sc-sm text-(--sc-text-muted)">{t("setup.custom.description")}</div>
+			<div className="mt-2 flex items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+				<div className="flex min-w-0 flex-1 items-center gap-1.5">
+					<span className="truncate text-sc-md font-medium text-(--sc-text)">{t("setup.custom.title")}</span>
+					<SettingInfo text={t("setup.custom.description")} />
 				</div>
 				<Button icon={<Plus />} onClick={() => setCustomForm(true)} variant="secondary">
 					{t("providerList.addCustom")}
@@ -300,14 +305,12 @@ function ModelStep() {
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(() => useFirstRunStore.getState().modelError);
 	const [test, setTest] = useState<TestState>({ kind: "idle" });
 	const list = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		void refreshAvailableModels(false).catch(() => {});
-		// Warm the GitHub step's check while the model list is on screen.
-		void useGithubAuthStore.getState().refresh();
 	}, [refreshAvailableModels]);
 
 	const serving = useMemo(
@@ -379,16 +382,8 @@ function ModelStep() {
 		setError(null);
 		try {
 			await applyDefaultModel(tabRpc, useTabsStore.getState().activeTabId, model);
-			// GitHub is optional: an account already signed in with a full Git identity skips the step.
-			// The check warmed above may still be in flight (about a second); wait for it rather than
-			// reading the empty state and showing the step to an account that is signed in.
-			await useGithubAuthStore.getState().refresh();
-			const github = useGithubAuthStore.getState().state;
-			const githubReady = github.status?.authenticated && github.identity?.name && github.identity.email;
-			if (githubReady) {
-				setPhase("idle", null);
-				announceReady(t, model);
-			} else setPhase("github", null);
+			setPhase("idle", null);
+			announceReady(t, model);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
@@ -516,38 +511,6 @@ function ModelStep() {
 	);
 }
 
-function GithubStep() {
-	const t = useT();
-	const setPhase = useFirstRunStore(state => state.setPhase);
-	const signedIn = useGithubAuth().status?.authenticated === true;
-	const model = useModelStore(state => state.model);
-	const leave = () => {
-		setPhase("idle", null);
-		if (model) announceReady(t, model);
-	};
-	usePrimaryAction(leave);
-	return (
-		<div className="mt-8 flex flex-col gap-3" data-testid="first-run-github">
-			<div>
-				<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
-					{t("setup.github.title")}
-				</h2>
-				<p className="mt-1 text-sc-md text-(--sc-text-secondary)">{t("setup.github.description")}</p>
-			</div>
-			<GithubSignIn />
-			<div className="mt-4 flex flex-wrap items-center gap-2 border-t border-(--sc-divider) pt-4">
-				<Button icon={<ArrowLeft />} onClick={() => setPhase("model")} variant="ghost">
-					{t("setup.model.back")}
-				</Button>
-				<span className="flex-1" />
-				<Button onClick={leave} variant={signedIn ? "primary" : "secondary"}>
-					{signedIn ? t("setup.github.done") : t("setup.github.skip")}
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 function LeaveConfirm({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
@@ -634,21 +597,10 @@ export function FirstRunSetup() {
 				>
 					{t("setup.title")}
 				</h1>
-				<p className="mt-2 text-sc-lg text-(--sc-text-muted)">{t("setup.subtitle")}</p>
-				<StepList phase={step} />
-				{step === "connect" ? <ConnectStep /> : step === "model" ? <ModelStep /> : <GithubStep />}
-				<p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sc-xs text-(--sc-text-muted)">
-					{step !== "connect" && (
-						<span className="inline-flex items-center gap-1.5">
-							<Kbd shortcut="⌘↵" />
-							{t("setup.keys.advance")}
-						</span>
-					)}
-					<span className="inline-flex items-center gap-1.5">
-						<Kbd shortcut="⎋" />
-						{t("setup.later")}
-					</span>
-				</p>
+				{step === "connect" && (
+					<p className="mt-2 text-sc-md text-(--sc-text-muted)">{t("setup.connect.description")}</p>
+				)}
+				{step === "connect" ? <ConnectStep /> : <ModelStep />}
 				<LeaveConfirm onClose={() => setLeaving(false)} open={leaving} />
 			</section>
 		</PrimaryActionContext.Provider>

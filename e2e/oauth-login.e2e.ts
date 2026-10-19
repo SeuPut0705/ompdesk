@@ -152,8 +152,11 @@ for (const [language, theme] of variants([
 			await expect(page.locator("[data-prompt-countdown]")).toHaveCount(0);
 			await shot("2-fallback-open");
 
-			await anthropic.getByRole("button", { name: tr(language, "providerList.login.openBrowser") }).click();
+			// The browser opens by itself, once, with no click; the button stays to reopen it.
 			await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(1);
+			await expect(
+				anthropic.getByRole("button", { name: tr(language, "providerList.login.openBrowser") }),
+			).toBeVisible();
 			const [launchUrl] = (await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[];
 			expect(launchUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/launch$/);
 			expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
@@ -209,9 +212,10 @@ test("a reload mid-sign-in leaves no chat card and the panel shows the sign-in a
 		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 
 		// The browser half still reaches the callback server of the login that survived the reload.
+		// The sign-in already opened the browser once by itself; the button reopens the same page.
 		await anthropic.getByRole("button", { name: en["providerList.login.openBrowser"] }).click();
-		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(1);
-		const [launchUrl] = (await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[];
+		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(2);
+		const launchUrl = ((await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[]).at(-1);
 		expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
 
 		await expect(page.getByText(tr("en", "providers.loginSuccess", { provider: "Anthropic" }))).toBeVisible();

@@ -825,15 +825,8 @@ for (const [language, theme] of VARIANTS) {
 					.first()
 					.fill("audit-model");
 				await page.getByRole("button", { name: /^(Add provider|프로바이더 추가)$/ }).click();
-				await expect(page.getByRole("radiogroup")).toBeVisible({ timeout: 30_000 });
-				await shoot("model-step");
-				await page.getByRole("button", { name: /^(Start with this model|이 모델로 시작)$/ }).click();
-				await page.waitForTimeout(800);
-				// GitHub is optional and machine-dependent (skipped when this computer's gh is signed in).
-				if (await page.locator('[data-first-run-step="github"]').count()) {
-					await shoot("github-step");
-					await page.getByRole("button", { name: /^(Skip for now|지금은 건너뛰기)$/ }).click();
-				}
+				// The default model is picked on its own: the setup closes and the composer is free.
+				await expect(page.locator("[data-first-run-step]")).toHaveCount(0, { timeout: 30_000 });
 				await shoot("ready-to-type");
 				const focus = await focusReport(page);
 				notes.push(`focus after setup: ${JSON.stringify(focus)}`);

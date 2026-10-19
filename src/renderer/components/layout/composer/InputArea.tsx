@@ -22,6 +22,7 @@ import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
+import { useFirstRunActive } from "../../onboarding/FirstRunSetup";
 import { CompletionList, CompletionStatus } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
@@ -72,6 +73,8 @@ export function InputArea() {
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
+	// Before any provider is connected the small model is missing; the hint would only add noise to the setup.
+	const firstRunActive = useFirstRunActive();
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
 	const sessionFile = useSessionStore(s => s.sessionFile);
@@ -521,7 +524,7 @@ export function InputArea() {
 							deciding={deciding}
 							escHint={keys.escHint}
 							stopArmed={stopArmed}
-							unavailable={status === "ready" ? nextPromptView.unavailable : undefined}
+							unavailable={status === "ready" && !firstRunActive ? nextPromptView.unavailable : undefined}
 						/>
 						<ComposerUnderField dictation={dictation} />
 

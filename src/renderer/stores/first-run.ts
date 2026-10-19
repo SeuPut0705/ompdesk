@@ -2,18 +2,18 @@ import { create } from "zustand";
 
 /**
  * Inline first-run setup in the empty main area: `connect` (pick a provider,
- * sign in or paste a key) → `model` (choose the default model) → `github`
- * (optional GitHub sign-in) → `idle` (ready to prompt, or dismissed with
- * "Set up later").
+ * sign in or paste a key) → `idle` (ready to prompt, or dismissed with
+ * "Set up later"). The default model is picked on its own when a provider
+ * connects; `model` is the fallback when none can be picked or saving it fails.
  */
-export type FirstRunPhase = "idle" | "connect" | "model" | "github";
+export type FirstRunPhase = "idle" | "connect" | "model";
 
 /** Prefs key holding the step reached, so a relaunch resumes there (cleared at `idle`). */
 export const FIRST_RUN_STEP_PREF = "firstRunStep";
 
 /** A step a relaunch may resume: only those past `connect`, which the gate opens on its own. */
-export function isResumableFirstRunStep(value: unknown): value is "model" | "github" {
-	return value === "model" || value === "github";
+export function isResumableFirstRunStep(value: unknown): value is "model" {
+	return value === "model";
 }
 
 interface FirstRunState {
@@ -26,6 +26,9 @@ interface FirstRunState {
 	 */
 	provisional: boolean;
 	setPhase: (phase: FirstRunPhase, connectedProvider?: string | null) => void;
+	/** Why the automatic default-model pick failed; the model step opens showing it. */
+	modelError: string | null;
+	setModelError: (message: string | null) => void;
 	/** Open the connect step ahead of the gate's provider check (see `provisional`). */
 	openProvisional: () => void;
 	reset: () => void;
@@ -42,7 +45,9 @@ export const useFirstRunStore = create<FirstRunState>()((set, get) => ({
 	connectedProvider: null,
 	provisional: false,
 	customForm: false,
+	modelError: null,
 	setCustomForm: customForm => set({ customForm }),
+	setModelError: modelError => set({ modelError }),
 	setPhase: (phase, connectedProvider) => {
 		if (phase !== get().phase || get().provisional) {
 			// Resume is a convenience: a failed write only means the next launch starts over.
@@ -53,10 +58,12 @@ export const useFirstRunStore = create<FirstRunState>()((set, get) => ({
 			provisional: false,
 			connectedProvider: connectedProvider === undefined ? get().connectedProvider : connectedProvider,
 			customForm: phase === "connect" ? get().customForm : false,
+			modelError: phase === "model" ? get().modelError : null,
 		});
 	},
 	openProvisional: () => {
 		if (get().phase === "idle") set({ phase: "connect", provisional: true, connectedProvider: null });
 	},
-	reset: () => set({ phase: "idle", provisional: false, connectedProvider: null, customForm: false }),
+	reset: () =>
+		set({ phase: "idle", provisional: false, connectedProvider: null, customForm: false, modelError: null }),
 }));

@@ -50,6 +50,7 @@ const catalog: ProviderCatalog = {
 	configError: null,
 	refreshPending: false,
 	sidecarReady: true,
+	loginReady: true,
 	load,
 };
 

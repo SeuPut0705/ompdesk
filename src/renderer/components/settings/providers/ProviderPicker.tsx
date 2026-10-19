@@ -36,7 +36,7 @@ export function ProviderPicker({
 }) {
 	const t = useT();
 	const [query, setQuery] = useState("");
-	const { providers, loading, sidecarReady } = catalog;
+	const { providers, loading, loginReady } = catalog;
 	const searching = query.trim().length > 0;
 	const featured = searching ? [] : featuredCards(providers, showConnectedFeatured);
 	const featuredIds = new Set(featured.flatMap(card => [card.def.id, card.def.apiKeyId ?? ""]));
@@ -57,7 +57,7 @@ export function ProviderPicker({
 				onKeyDown={event => {
 					// A search that narrows to one provider: Enter signs in to it.
 					const only = available.length === 1 ? available[0] : undefined;
-					if (event.key === "Enter" && !isImeKeyEvent(event) && only && searching && sidecarReady)
+					if (event.key === "Enter" && !isImeKeyEvent(event) && only && searching && loginReady)
 						void login.start(only.id);
 				}}
 				label={t("providerList.search")}
@@ -99,7 +99,7 @@ export function ProviderPicker({
 										card={card}
 										key={card.def.id}
 										login={login}
-										sidecarReady={sidecarReady}
+										loginReady={loginReady}
 									/>
 								))}
 							</ul>
@@ -126,9 +126,9 @@ export function ProviderPicker({
 											aria-label={t("providers.picker.connect", { provider: provider.name })}
 											className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
 											data-provider-connect={provider.id}
-											disabled={!sidecarReady || busy}
+											disabled={!loginReady || busy}
 											onClick={() => void login.start(provider.id)}
-											title={sidecarReady ? undefined : t("providers.notConnected")}
+											title={loginReady ? undefined : t("providers.notConnected")}
 											type="button"
 										>
 											<ProviderMark provider={provider} />
@@ -184,12 +184,12 @@ function FeaturedCard({
 	card,
 	login,
 	busyId,
-	sidecarReady,
+	loginReady,
 }: {
 	card: FeaturedCardData;
 	login: ProviderLogin;
 	busyId: (id: string) => boolean;
-	sidecarReady: boolean;
+	loginReady: boolean;
 }) {
 	const t = useT();
 	const { def, startId, apiKeyId, connected, mark } = card;
@@ -214,9 +214,9 @@ function FeaturedCard({
 					aria-label={t("providers.picker.connect", { provider: def.label })}
 					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
 					data-provider-connect={startId}
-					disabled={!sidecarReady || busy}
+					disabled={!loginReady || busy}
 					onClick={() => void login.start(startId)}
-					title={sidecarReady ? undefined : t("providers.notConnected")}
+					title={loginReady ? undefined : t("providers.notConnected")}
 					type="button"
 				>
 					<ProviderMark provider={mark} />
@@ -239,7 +239,7 @@ function FeaturedCard({
 				<button
 					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
 					data-provider-connect={apiKeyId}
-					disabled={!sidecarReady || busyId(apiKeyId)}
+					disabled={!loginReady || busyId(apiKeyId)}
 					onClick={() => void login.start(apiKeyId)}
 					type="button"
 				>

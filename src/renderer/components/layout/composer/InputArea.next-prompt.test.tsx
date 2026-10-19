@@ -7,6 +7,7 @@ import type { RpcCommand, RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { useFirstRunStore } from "../../../stores/first-run";
 import { useInputHistoryStore } from "../../../stores/input-history";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -229,6 +230,7 @@ afterEach(async () => {
 	await act(async () => root.unmount());
 	container.remove();
 	useSessionStore.getState().reset();
+	useFirstRunStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useModelStore.getState().reset();
 	useComposerStore.getState().reset();
@@ -648,5 +650,16 @@ describe("InputArea suggestion footer hint", () => {
 		await press({ key: "Escape" });
 		expect(document.querySelector("[data-esc-hint]")).not.toBeNull();
 		expect(document.querySelector("[data-next-prompt-unavailable]")).toBeNull();
+	});
+
+	it("stays off while the first-run setup is open, then shows once it ends", async () => {
+		await mount();
+		await setBuiltin();
+		await act(async () => useSessionStore.setState({ nextPromptUnavailable: { reason: "no_model" } }));
+		await act(async () => useFirstRunStore.getState().setPhase("connect", null));
+		expect(document.querySelector("[data-next-prompt-unavailable]")).toBeNull();
+
+		await act(async () => useFirstRunStore.getState().setPhase("idle", null));
+		expect(document.querySelector("[data-next-prompt-unavailable]")).not.toBeNull();
 	});
 });

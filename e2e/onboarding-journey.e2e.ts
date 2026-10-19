@@ -184,14 +184,8 @@ for (const variant of VARIANTS) {
 				await expect(providerId).toHaveValue("audit-local", { timeout: 1000 });
 				await page.getByRole("button", { name: /^(Add provider|프로바이더 추가)$/ }).click();
 			}).toPass({ timeout: 30_000 });
-			await expect(page.getByRole("radiogroup")).toBeVisible({ timeout: 30_000 });
-			await shoot("model");
-			await page.getByRole("button", { name: /^(Start with this model|이 모델로 시작)$/ }).click();
-			const github = page.locator('[data-first-run-step="github"]');
-			await expect(github).toBeVisible({ timeout: 30_000 });
-			await shoot("github");
-			await page.getByRole("button", { name: /^(Skip for now|지금은 건너뛰기)$/ }).click();
-			await expect(setup).toHaveCount(0);
+			// The default model is picked on its own: no model or GitHub step, the setup closes and the composer is free.
+			await expect(setup).toHaveCount(0, { timeout: 30_000 });
 			await shoot("ready");
 
 			const composer = page.locator("textarea").first();

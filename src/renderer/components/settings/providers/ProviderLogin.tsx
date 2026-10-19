@@ -13,6 +13,8 @@
  * never closes it, so the panel keeps waiting for the browser first, offers
  * the paste as a secondary fallback, and answers the leftover request once
  * `login` returns. An empty answer before that would only make stock ask again.
+ * A browser sign-in this page starts on a local tab opens the browser by itself; a
+ * device code, a key page, a resumed sign-in and a paired host's tab leave it to the button.
  *
  * On a tab that runs on a paired host, omp and its OAuth callback server run
  * there while the browser opens here: the link is the provider's own URL
@@ -130,8 +132,12 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		for (const request of pending) {
 			if (!Object.hasOwn(owned, request.id) || (arrivedAt[request.id] ?? 0) < state.since) continue;
 			if (request.method === "open_url") {
+				const link = loginLink(request, remote);
+				setState(prev => ({ ...prev, link }));
+				// A browser sign-in this page started on this computer opens by itself; the panel's button reopens it.
+				if (link.oauth && !remote && !state.resumed && state.since > 0)
+					void window.omp.system.openExternal(link.target);
 				// omp never waits on this answer; acknowledge it all the same.
-				setState(prev => ({ ...prev, link: loginLink(request, remote) }));
 				void sendResponse({ type: "extension_ui_response", id: request.id, value: "done" });
 				removeRequest(request.id);
 			} else if (request.method === "input" && stateRef.current.prompt?.id !== request.id) {
@@ -144,7 +150,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				removeRequest(request.id);
 			}
 		}
-	}, [arrivedAt, owned, pending, remote, removeRequest, sendResponse, state.running, state.since]);
+	}, [arrivedAt, owned, pending, remote, removeRequest, sendResponse, state.resumed, state.running, state.since]);
 
 	// A sign-in main still runs for this tab that this page did not start (it reloaded, or the link to a
 	// paired host came back): show it again, with the paste fallback and Cancel, until main answers `login`.

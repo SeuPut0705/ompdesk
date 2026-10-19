@@ -4,11 +4,10 @@
  * stock PtySession, on a temp HOME and GIT_CONFIG_GLOBAL (the user's gh login
  * and git config are never read or written).
  *
- * The first run was left at the GitHub step before this "relaunch", so it
- * resumes there; the device code shows, gh's "Press Enter to open" waits for
- * "Copy code & open GitHub", the approval signs in and fills the empty Git
- * identity; Esc asks before leaving and ⌘/Ctrl+Enter finishes setup; Settings ›
- * General then shows the account and signs it out. Captures in light/dark × en/ko.
+ * Settings › General shows the sign-in card; the device code shows, gh's "Press
+ * Enter to open" waits for "Copy code & open GitHub", the approval signs in and
+ * fills the empty Git identity, and sign-out clears the account. Captures in
+ * light/dark × en/ko.
  */
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
@@ -25,7 +24,7 @@ for (const [language, theme] of variants([
 	["ko", "light"],
 	["ko", "dark"],
 ] as const)) {
-	test(`GitHub sign-in from the resumed first run (${language} ${theme})`, async () => {
+	test(`GitHub sign-in from Settings › General (${language} ${theme})`, async () => {
 		test.skip(process.platform === "win32", "the fake gh is a shebang script; PATH lookup wants gh.exe on Windows");
 		test.setTimeout(120_000);
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-github-${language}-${theme}-`));
@@ -36,7 +35,7 @@ for (const [language, theme] of variants([
 		await Promise.all([fs.mkdir(home), fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
 		await fs.writeFile(
 			path.join(desktop, "prefs.json"),
-			JSON.stringify({ language, themeName: theme, firstRunComplete: true, firstRunStep: "github" }),
+			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 		);
 		const gh = await writeFakeGh(root);
 		const ghState = path.join(root, "gh-state.json");
@@ -90,11 +89,13 @@ for (const [language, theme] of variants([
 			});
 			await page.waitForFunction(() => window.omp?.rpc != null);
 
-			// Resumed at the GitHub step after the relaunch.
-			const step = page.locator('[data-first-run-step="github"]');
-			await expect(step).toBeVisible({ timeout: 30_000 });
-			const card = step.getByTestId("github-sign-in");
-			await expect(card).toHaveAttribute("data-github-phase", "signed-out");
+			// Settings › General holds the GitHub sign-in.
+			const settings = page.locator("[data-settings-page]");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+			const section = settings.locator("#setting-github-account");
+			await section.scrollIntoViewIfNeeded();
+			const card = section.getByTestId("github-sign-in");
+			await expect(card).toHaveAttribute("data-github-phase", "signed-out", { timeout: 30_000 });
 			await expect(card).toContainText("gh 2.62.0");
 			await shot("1-signed-out");
 
@@ -117,31 +118,10 @@ for (const [language, theme] of variants([
 			expect(config).toContain("email = octocat@example.com");
 			await shot("3-signed-in");
 
-			// Esc asks before leaving; staying keeps the step.
-			await page.locator("body").press("Escape");
-			const dialog = page.getByRole("dialog");
-			await expect(dialog).toBeVisible();
-			await expect
-				.poll(() => page.evaluate(() => document.getAnimations().every(a => a.playState !== "running")))
-				.toBe(true);
-			await shot("4-leave-confirm");
-			await page.keyboard.press("Escape");
-			await expect(dialog).toHaveCount(0);
-			await expect(step).toBeVisible();
-
-			// ⌘/Ctrl+Enter finishes setup, and the resume marker goes with it.
-			await page.locator("body").press("ControlOrMeta+Enter");
-			await expect(step).toHaveCount(0);
-			await expect.poll(() => page.evaluate(() => window.omp.prefs.get("firstRunStep"))).toBeUndefined();
-
-			const settings = page.locator("[data-settings-page]");
-			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
-			const section = settings.locator("#setting-github-account");
-			await section.scrollIntoViewIfNeeded();
-			await expect(section.getByTestId("github-sign-in")).toHaveAttribute("data-github-phase", "signed-in");
-			await shot("5-settings");
+			// Sign out clears the account again.
+			await shot("4-settings");
 			await section.getByTestId("github-sign-out").click();
-			await expect(section.getByTestId("github-sign-in")).toHaveAttribute("data-github-phase", "signed-out");
+			await expect(card).toHaveAttribute("data-github-phase", "signed-out");
 			expect(JSON.parse(await fs.readFile(ghState, "utf8")).active).toBeNull();
 			expect(errors).toEqual([]);
 		} finally {
