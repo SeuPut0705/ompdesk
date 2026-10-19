@@ -434,11 +434,12 @@ export class AiMemoryClient {
 	}
 
 	/**
-	 * Writes a page that does not exist yet (`create_only`), recording the session it was learned in as evidence.
-	 * False when something already lives at the path: the page is never overwritten.
+	 * Writes a page that does not exist yet (`create_only`), recording the session it was learned in as evidence when
+	 * the page is in that session's project (the server refuses a session of another project, so a `_global` page has
+	 * none). False when something already lives at the path: the page is never overwritten.
 	 */
 	async createPage(
-		input: AiMemoryProjectRef & { path: string; body: string; tier: string; kind: string; sessionId: string },
+		input: AiMemoryProjectRef & { path: string; body: string; tier: string; kind: string; sessionId?: string },
 	): Promise<boolean> {
 		try {
 			await this.#tool("memory_write_page", {
@@ -447,7 +448,7 @@ export class AiMemoryClient {
 				body: input.body,
 				tier: input.tier,
 				kind: input.kind,
-				session_id: input.sessionId,
+				...(input.sessionId ? { session_id: input.sessionId } : {}),
 				create_only: true,
 			});
 			return true;
