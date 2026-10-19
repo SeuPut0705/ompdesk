@@ -39,7 +39,7 @@ import {
 } from "./distill";
 import type { ModelResult } from "./distill-model";
 import { type RetitleClient, type RetitleReport, retitleSessionPages } from "./retitle";
-import { readRulesText, rulesIndex, statedByRules } from "./rules-file";
+import { readRulesText, rulesIndex, rulesOutline, statedByRules } from "./rules-file";
 import { pageToReplace } from "./supersede";
 
 export const UPKEEP_TICK_MS = 15 * 60_000;
@@ -314,18 +314,19 @@ export class MemoryUpkeep {
 			.filter(other => other.id !== session.id && (other.startedAt ? Date.parse(other.startedAt) >= since : false))
 			.flatMap(other => sessionTitles.get(`sessions/${other.id}.md`) ?? []);
 		const digest = buildDigest(fresh, tasks);
+		// The model sees the rules file's outline (it matches a Korean page to an English rule); `statedByRules` stays the
+		// code backstop for what it still repeats.
+		const rulesText = await (this.#deps.rules ?? readRulesText)(session.cwd ?? "").catch(() => "");
 		let result: ModelResult;
 		try {
-			result = await this.#deps.model(distillMessage(digest, known));
+			result = await this.#deps.model(distillMessage(digest, known, rulesOutline(rulesText)));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.#deps.log("failed", { step: "learn-model", session: session.id, detail });
 			return { ran: true, failed: detail };
 		}
 		const parsed = parseProposals(result.text, digest, known);
-		const rules = rulesIndex(
-			parsed.proposals.length ? await (this.#deps.rules ?? readRulesText)(session.cwd ?? "").catch(() => "") : "",
-		);
+		const rules = rulesIndex(parsed.proposals.length ? rulesText : "");
 		const created: string[] = [];
 		const superseded: string[] = [];
 		const retiredHere = new Set<string>();

@@ -281,8 +281,13 @@ describe("MemoryUpkeep.tick", () => {
 		const asked: string[] = [];
 		const other = { ...rule, title: "보고는 결론부터 쓴다", gist_en: "Reports lead with the conclusion." };
 		const outcome = await upkeep(client, {
-			model: async () =>
-				answer([{ ...rule, gist_en: "No count or rate caps on how many sessions run at the same time." }, other]),
+			model: async message => {
+				messages.push(message);
+				return answer([
+					{ ...rule, gist_en: "No count or rate caps on how many sessions run at the same time." },
+					other,
+				]);
+			},
 			rules: async cwd => {
 				asked.push(cwd);
 				return [
@@ -294,6 +299,8 @@ describe("MemoryUpkeep.tick", () => {
 			},
 		}).tick();
 		expect(asked).toEqual(["/work"]);
+		// The model saw the outline before answering; the code check is the backstop for what it still repeats.
+		expect(messages[0]?.user).toContain("# Agent control\n- No count or rate caps");
 		expect(outcome).toMatchObject({
 			created: ["_rules/보고는-결론부터-쓴다.md"],
 			inRules: 1,

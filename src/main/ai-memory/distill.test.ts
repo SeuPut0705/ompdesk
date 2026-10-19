@@ -50,7 +50,7 @@ describe("buildDigest / distillMessage", () => {
 
 	it("lists the pages memory already holds, the project's and the owner's preferences apart, capped", () => {
 		const digest = buildDigest([{ n: 1, text: "x", at: null }], []);
-		expect(distillMessage(digest, []).user.match(/\(none\)/g)).toHaveLength(2);
+		expect(distillMessage(digest, []).user.match(/\(none\)/g)).toHaveLength(3);
 		const many = distillMessage(digest, [
 			...Array.from({ length: 80 }, (_, index) => ({
 				path: `decisions/d${index}.md`,
@@ -74,6 +74,19 @@ describe("buildDigest / distillMessage", () => {
 		]);
 		expect(message.user).toContain("- decisions/jev.md · Jev는 최신 · 판단 모델은 자동으로 최신을 쓴다");
 		expect(message.system).toContain('"supersedes"');
+	});
+
+	it("shows the project's rules-file outline so the model skips what is already a rule, and says (none) without one", () => {
+		const digest = buildDigest([{ n: 1, text: "x", at: null }], []);
+		const outline = "## Composer\n- Enter on a touch input adds a line";
+		const message = distillMessage(digest, [], outline);
+		expect(message.user).toContain(
+			`## The project's rules file already says (its headings and lead phrases)\n${outline}`,
+		);
+		expect(message.system).toMatch(/rules file/);
+		expect(distillMessage(digest, []).user).toContain(
+			"## The project's rules file already says (its headings and lead phrases)\n(none)",
+		);
 	});
 });
 
@@ -227,21 +240,35 @@ describe("parseProposals: the owner's preferences and corrections", () => {
 		expect(parsed.proposals[0]?.evidence).toEqual([28]);
 	});
 
-	it("a correction weighs more: a lower confidence floor, and it is kept first when the answer holds too many pages", () => {
+	it("a correction is accepted from confidence 0.65 (a preference or project page needs 0.75), and the refusal names the kind", () => {
 		const correction = {
 			...preference,
 			kind: "correction",
 			title: "고치라고 하면 접근부터 바꾼다",
 			quote: "아니 그게 아니라",
-			confidence: 0.7,
 		};
-		expect(
-			parseProposals(JSON.stringify({ pages: [{ ...preference, confidence: 0.7 }] }), window, []).proposals,
-		).toEqual([]);
-		const pages = [1, 2, 3].map(n => ({ ...good, title: `규칙 ${n}` }));
-		const parsed = parseProposals(JSON.stringify({ pages: [...pages, correction] }), window, []);
-		expect(parsed.proposals.map(page => page.title)).toEqual([correction.title, "규칙 1", "규칙 2"]);
-		expect(parsed.refused).toEqual(["규칙 3: over the 3-page limit"]);
+		const at = (page: object, confidence: number) =>
+			parseProposals(JSON.stringify({ pages: [{ ...page, confidence }] }), window, []);
+		expect(at(correction, 0.65).proposals).toHaveLength(1);
+		expect(at(correction, 0.7).proposals).toHaveLength(1);
+		expect(at(correction, 0.64).refused).toEqual([`${correction.title} (correction): confidence 0.64`]);
+		expect(at(preference, 0.7).refused).toEqual([`${preference.title} (preference): confidence 0.7`]);
+		expect(at(good, 0.7).refused).toEqual([`${good.title} (rule): confidence 0.7`]);
+	});
+
+	it("the owner's pages have their own cap of 2 beside the 3 project pages, corrections first", () => {
+		const rules = [1, 2, 3, 4].map(n => ({ ...good, title: `규칙 ${n}` }));
+		const preferences = [1, 2].map(n => ({ ...preference, title: `취향 ${n}` }));
+		const correction = { ...preference, kind: "correction", title: "교정 하나", quote: "아니 그게 아니라" };
+		const parsed = parseProposals(JSON.stringify({ pages: [...rules, ...preferences, correction] }), window, []);
+		expect(parsed.proposals.map(page => page.title)).toEqual(["규칙 1", "규칙 2", "규칙 3", "교정 하나", "취향 1"]);
+		expect(parsed.refused).toEqual(["규칙 4: over the 3-page limit", "취향 2: over the 2-page limit"]);
+	});
+
+	it("a preference late in a long answer is weighed, not cut by the project pages before it", () => {
+		const rules = [1, 2, 3, 4, 5, 6].map(n => ({ ...good, title: `규칙 ${n}` }));
+		const parsed = parseProposals(JSON.stringify({ pages: [...rules, preference] }), window, []);
+		expect(parsed.proposals.map(page => page.title)).toContain(preference.title);
 	});
 });
 

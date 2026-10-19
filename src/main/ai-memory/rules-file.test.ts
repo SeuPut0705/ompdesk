@@ -2,7 +2,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RULES_FILE_BYTES, readRulesText, rulesIndex, statedByRules } from "./rules-file";
+import {
+	RULES_FILE_BYTES,
+	RULES_OUTLINE_BYTES,
+	readRulesText,
+	rulesIndex,
+	rulesOutline,
+	statedByRules,
+} from "./rules-file";
 
 const AGENTS = [
 	"# Rules",
@@ -25,6 +32,49 @@ describe("statedByRules", () => {
 		expect(statedByRules(rulesIndex(""), page("Packaged builds keep only the en-US and ko Electron locales."))).toBe(
 			false,
 		);
+	});
+});
+
+describe("rulesOutline", () => {
+	it("keeps the #, ## and ### headings and the bold lead phrases, in the file's order, and nothing else", () => {
+		const outline = rulesOutline(
+			[
+				"# Rules",
+				"Intro prose that is not kept.",
+				"## Composer",
+				"- **Esc while a turn runs only arms**: a second Esc stops.",
+				"  - Nested prose without bold.",
+				"#### Too deep",
+				"**Bold paragraph lead.** More text.",
+				"### Phone composer",
+				"- Plain bullet with **bold inside** is not a lead.",
+			].join("\n"),
+		);
+		expect(outline).toBe(
+			[
+				"# Rules",
+				"## Composer",
+				"- Esc while a turn runs only arms",
+				"- Bold paragraph lead.",
+				"### Phone composer",
+			].join("\n"),
+		);
+	});
+
+	it("stops at the byte bound on a whole line", () => {
+		const text = Array.from({ length: 2000 }, (_, index) => `## 섹션 ${index}`).join("\n");
+		const outline = rulesOutline(text);
+		expect(Buffer.byteLength(outline)).toBeLessThanOrEqual(RULES_OUTLINE_BYTES);
+		expect(outline.split("\n").every(line => /^## 섹션 \d+$/.test(line))).toBe(true);
+		expect(rulesOutline("")).toBe("");
+	});
+
+	it("takes every heading before any lead, so a long file's later sections survive the bound", () => {
+		const early = Array.from({ length: 400 }, (_, index) => `- **Early lead phrase number ${index}**: text`);
+		const outline = rulesOutline(["# Rules", ...early, "## Late section", "- **Late lead**: text"].join("\n"));
+		expect(outline).toContain("## Late section");
+		expect(outline.startsWith("# Rules\n- Early lead phrase number 0")).toBe(true);
+		expect(Buffer.byteLength(outline)).toBeLessThanOrEqual(RULES_OUTLINE_BYTES);
 	});
 });
 

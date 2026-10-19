@@ -20,6 +20,10 @@ export const RULES_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 export const RULES_FILE_BYTES = 4 * 1024 * 1024;
 export const RULES_COVERAGE = 0.6;
 export const RULES_MIN_SHARED = 3;
+/** The rules-file outline the distill prompt carries (≈ 1.5k tokens at most). */
+export const RULES_OUTLINE_BYTES = 6 * 1024;
+/** A bold lead longer than this is an emphasized sentence, not a label. */
+const OUTLINE_LEAD_CHARS = 100;
 
 /** Words that say nothing about what a rule is about. */
 const STOP_WORDS = new Set(
@@ -99,6 +103,39 @@ export function statedByRules(index: RulesIndex, proposal: { title: string; body
 	);
 }
 
+/**
+ * What the distill prompt shows of the rules file so the model can see what is already a rule: its `#`, `##` and `###`
+ * headings and the bold phrase a line opens with (`- **No count or rate caps**: …` → `- No count or rate caps`; one
+ * over `OUTLINE_LEAD_CHARS` is an emphasized sentence, not a label, and is left out), shown in the file's order, whole
+ * lines up to `RULES_OUTLINE_BYTES`. The headings are taken first and the leads after them, so the bound drops leads
+ * late in the file rather than whole later sections (OMPdesk's AGENTS.md: headings 4 KB, leads far more). The lexical
+ * `statedByRules` cannot match a Korean page to an English file (replay of 19 Oct 2026: 0 of 15 pages skipped, at
+ * least 4 stated in AGENTS.md); the model can.
+ */
+export function rulesOutline(text: string): string {
+	const headings: { at: number; line: string }[] = [];
+	const leads: { at: number; line: string }[] = [];
+	text.split("\n").forEach((line, at) => {
+		if (/^#{1,3} \S/.test(line)) headings.push({ at, line: line.trimEnd() });
+		else {
+			const lead = /^\s*(?:[-*]\s+)?\*\*([^*\n]+?)\*\*/.exec(line)?.[1]?.trim();
+			if (lead && lead.length <= OUTLINE_LEAD_CHARS) leads.push({ at, line: `- ${lead}` });
+		}
+	});
+	const kept: { at: number; line: string }[] = [];
+	let bytes = 0;
+	for (const entry of [...headings, ...leads]) {
+		const size = Buffer.byteLength(entry.line) + 1;
+		if (bytes + size > RULES_OUTLINE_BYTES + 1) break;
+		kept.push(entry);
+		bytes += size;
+	}
+	return kept
+		.sort((a, b) => a.at - b.at)
+		.map(entry => entry.line)
+		.join("\n");
+}
+
 /** The repository root holding `cwd` (a `.git` folder or file), else `cwd` itself. */
 async function repositoryRoot(cwd: string): Promise<string> {
 	for (let dir = cwd; ; ) {
@@ -119,8 +156,9 @@ async function head(file: string): Promise<string> {
 	const handle = await open(file, "r").catch(() => null);
 	if (!handle) return "";
 	try {
-		const buffer = Buffer.alloc(RULES_FILE_BYTES);
-		const { bytesRead } = await handle.read(buffer, 0, RULES_FILE_BYTES, 0);
+		const length = Math.min((await handle.stat()).size, RULES_FILE_BYTES);
+		const buffer = Buffer.alloc(length);
+		const { bytesRead } = await handle.read(buffer, 0, length, 0);
 		return buffer.subarray(0, bytesRead).toString("utf8");
 	} catch {
 		return "";

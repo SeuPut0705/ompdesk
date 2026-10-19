@@ -25,13 +25,19 @@ export const KNOWN_PROJECT_PAGES = 30;
 export const KNOWN_GLOBAL_PAGES = 20;
 /** How much of a known page's body the model reads: enough to tell an update of it from a neighbour. */
 export const KNOWN_EXCERPT_CHARS = 200;
-/** Pages one window may add: most windows add none. */
+/** Project pages (decision, rule, gotcha, procedure) one window may add: most windows add none. */
 export const DISTILL_MAX_PAGES = 3;
+/**
+ * The owner's preferences and corrections one window may add, beside the project pages: in one cap they lost to the
+ * decisions a window is full of (replay of 19 Oct 2026: a clear preference refused "over the 3-page limit").
+ */
+export const DISTILL_MAX_GLOBAL_PAGES = 2;
 const MIN_CONFIDENCE = 0.75;
 /**
  * A correction weighs more than anything else a window yields: the owner had to stop and redo the assistant's work, so
- * the lesson is established by the friction itself (the evidence rule of omp's `sharpshooter`). It needs less
- * confidence and is kept first when an answer holds more pages than one window may add.
+ * the lesson is established by the friction itself (the evidence rule of omp's `sharpshooter`). It is accepted from
+ * 0.65 instead of 0.75 (set with the replay of 19 Oct 2026) and is kept first among the owner's pages when an answer
+ * holds more than their cap.
  */
 const CORRECTION_MIN_CONFIDENCE = 0.65;
 /** Korean says a rule in 40 characters; fewer than that is a heading, not a page. */
@@ -151,7 +157,7 @@ export function buildDigest(prompts: readonly DigestPrompt[], tasks: readonly st
 }
 
 const SYSTEM = `You curate long-term memory from what its owner said while working with an AI coding assistant.
-You read a numbered excerpt of the owner's own messages and may write at most ${DISTILL_MAX_PAGES} memory pages. Most excerpts deserve none: answer {"pages":[]} unless something clearly lasts.
+You read a numbered excerpt of the owner's own messages and may write at most ${DISTILL_MAX_PAGES} pages about the project and ${DISTILL_MAX_GLOBAL_PAGES} preferences or corrections. Most excerpts deserve none: answer {"pages":[]} unless something clearly lasts.
 
 Write a page only for knowledge a future session needs and cannot get from the code:
 - decision: a choice the owner made about how this product should work or be built, with the reason when they gave one, and what they rejected.
@@ -166,6 +172,7 @@ Cite the message numbers a page rests on, and quote the owner: "quote" is a shor
 Give a confidence from 0 to 1 for how clearly the excerpt establishes it; write nothing below 0.75 (a correction: below 0.65).
 Write each page in the language the owner wrote in. A title is a specific noun phrase of at most ${TITLE_MAX} characters that tells the page apart from every page memory already holds; a body is 2 to 8 short lines of plain markdown: the fact first, then the reason or the consequence. "gist_en" is the page's point as one plain English sentence.
 Memory already holds the pages listed below. Do not repeat one. When a page you write replaces one of them (the same subject, decided again or contradicted), give that page's path as "supersedes"; never name a page that is only related.
+The project's rules file is already in front of every session; its outline is listed below. Do not write a page that only restates a rule it already has; a page that decides something new or reverses one of its rules is still worth writing.
 
 Answer with one JSON object and nothing else:
 {"pages":[{"kind":"decision|rule|gotcha|procedure|preference|correction","title":"...","body":"...","quote":"...","gist_en":"...","supersedes":null,"confidence":0.0,"evidence":[1,2]}]}`;
@@ -175,8 +182,11 @@ export interface DistillMessage {
 	user: string;
 }
 
-/** The one request: the instructions, the digest and the pages memory already holds (so a page is never written twice). */
-export function distillMessage(digest: Digest, known: readonly KnownPage[]): DistillMessage {
+/**
+ * The one request: the instructions, the digest, the pages memory already holds (so a page is never written twice) and
+ * the project's rules-file outline (`rules-file.ts rulesOutline`, so a rule the file states is not learned again).
+ */
+export function distillMessage(digest: Digest, known: readonly KnownPage[], rulesOutline = ""): DistillMessage {
 	const line = (page: KnownPage) => `- ${page.path} · ${page.title}${page.excerpt ? ` · ${page.excerpt}` : ""}`;
 	const project = known
 		.filter(page => !page.global)
@@ -193,6 +203,9 @@ export function distillMessage(digest: Digest, known: readonly KnownPage[]): Dis
 			"",
 			"## Pages the project already has (path · title · start)",
 			...(project.length ? project : ["(none)"]),
+			"",
+			"## The project's rules file already says (its headings and lead phrases)",
+			rulesOutline.trim() || "(none)",
 			"",
 			"## The owner's preferences, kept for every project (path · title · start)",
 			...(global.length ? global : ["(none)"]),
@@ -251,8 +264,8 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 	const shown = digest.prompts.map(prompt => prompt.n);
 	const taken = new Set(known.map(page => titleKey(page.title)));
 	const accepted: Proposal[] = [];
-	// Read past the page limit so a correction late in the answer is weighed before the limit cuts.
-	for (const entry of pages.slice(0, DISTILL_MAX_PAGES * 2)) {
+	// Read past the page limits so a page late in the answer is weighed before a limit cuts.
+	for (const entry of pages.slice(0, (DISTILL_MAX_PAGES + DISTILL_MAX_GLOBAL_PAGES) * 2)) {
 		const item = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
 		const kind = typeof item.kind === "string" ? item.kind : "";
 		const title = typeof item.title === "string" ? flat(item.title) : "";
@@ -274,7 +287,7 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 		else if (body.length < BODY_MIN || body.length > BODY_MAX)
 			parsed.refused.push(`${label}: body ${body.length} chars`);
 		else if (confidence < (kind === "correction" ? CORRECTION_MIN_CONFIDENCE : MIN_CONFIDENCE))
-			parsed.refused.push(`${label}: confidence ${confidence}`);
+			parsed.refused.push(`${label} (${kind}): confidence ${confidence}`);
 		else if (evidence.length === 0 && !quoted) parsed.refused.push(`${label}: cites no prompt it was shown`);
 		else if (quote && !quoted) parsed.refused.push(`${label}: quote is not the owner's words`);
 		else if (!quote && layout.global) parsed.refused.push(`${label}: quotes no evidence`);
@@ -296,11 +309,16 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 			});
 		}
 	}
-	// Stable: corrections first, the rest in the model's order.
-	accepted.sort((a, b) => Number(b.kind === "correction") - Number(a.kind === "correction"));
-	parsed.proposals = accepted.slice(0, DISTILL_MAX_PAGES);
-	for (const dropped of accepted.slice(DISTILL_MAX_PAGES))
+	const project = accepted.filter(page => !KIND_LAYOUT[page.kind].global);
+	// Stable: corrections first among the owner's pages, the rest in the model's order.
+	const owner = accepted
+		.filter(page => KIND_LAYOUT[page.kind].global)
+		.sort((a, b) => Number(b.kind === "correction") - Number(a.kind === "correction"));
+	parsed.proposals = [...project.slice(0, DISTILL_MAX_PAGES), ...owner.slice(0, DISTILL_MAX_GLOBAL_PAGES)];
+	for (const dropped of project.slice(DISTILL_MAX_PAGES))
 		parsed.refused.push(`${dropped.title}: over the ${DISTILL_MAX_PAGES}-page limit`);
+	for (const dropped of owner.slice(DISTILL_MAX_GLOBAL_PAGES))
+		parsed.refused.push(`${dropped.title}: over the ${DISTILL_MAX_GLOBAL_PAGES}-page limit`);
 	return parsed;
 }
 
