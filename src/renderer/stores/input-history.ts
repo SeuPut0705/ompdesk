@@ -2,6 +2,7 @@ import { z } from "zod";
 import { create } from "zustand";
 import { reportRuntimeError } from "../lib/runtime-errors";
 import { focusedTabRpc, type TabRpc } from "../lib/tab-rpc";
+import { isSessionReplaced } from "./session-runtime-context";
 
 /** Stock HistoryStorage owns persistence/search. Remote tabs use their omp host's
  * history, never the client's local history. Only local tabs migrate legacy prefs. */
@@ -118,6 +119,8 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 		try {
 			if (device === undefined) await migratePrefs(rpc);
 			const response = await rpc.historyRecent(200);
+			// The tab closed or changed sessions while this read was in flight: its new runtime reads again.
+			if (isSessionReplaced(response)) return;
 			if (!response.success) throw new Error(response.error);
 			const incoming = stockEntries(response.data, device);
 			set(state => ({
@@ -149,6 +152,8 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 		void rpc
 			.historyRecord(trimmed, cwd)
 			.then(response => {
+				// The prompt was sent; the tab's runtime was replaced before the write's answer came back.
+				if (isSessionReplaced(response)) return;
 				if (!response.success) throw new Error(response.error);
 				const { skipped } = z.object({ skipped: z.boolean() }).parse(response.data);
 				if (!skipped) {

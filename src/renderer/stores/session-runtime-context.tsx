@@ -1,7 +1,7 @@
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from "react";
 import { type UseBoundStore, useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
-import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import type { RpcCommand, RpcResponse, RpcResponseError } from "../../shared/rpc-types";
 
 export type RuntimeStoreKey =
 	| "autopilot"
@@ -23,6 +23,32 @@ export type TabCommand = (command: RpcCommand, timeoutMs?: number) => Promise<Rp
 /** Active-tab fallback for tests and startup races, before a tab runtime exists. */
 export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 	return window.omp.rpc.command(command, timeoutMs);
+}
+
+/**
+ * What a tab runtime answers once it no longer speaks for its tab (the tab closed, or its session changed and a new
+ * runtime took over): the command never reached the session it was meant for, or its answer belongs to an old one.
+ * `data.sessionReplaced` lets a background read tell that from a failure.
+ */
+export function replacedSessionResponse(command: RpcCommand): RpcResponseError {
+	return {
+		type: "response",
+		command: command.type,
+		success: false,
+		error: "The originating session was replaced or closed. Refresh this view before retrying.",
+		data: { sessionReplaced: true },
+	};
+}
+
+/** A refusal from a runtime that no longer speaks for its tab: superseded, not failed. */
+export function isSessionReplaced(response: RpcResponse): boolean {
+	return (
+		!response.success &&
+		typeof response.data === "object" &&
+		response.data !== null &&
+		"sessionReplaced" in response.data &&
+		response.data.sessionReplaced === true
+	);
 }
 
 export interface SessionRuntime {

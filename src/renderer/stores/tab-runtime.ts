@@ -1,4 +1,4 @@
-import type { RpcCommand, RpcResponse, RpcResponseError } from "../../shared/rpc-types";
+import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import { createAutopilotStore } from "./autopilot";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";
@@ -11,6 +11,7 @@ import {
 	addRuntimeStore,
 	deleteSessionRuntime,
 	registerSessionRuntime,
+	replacedSessionResponse,
 	type SessionRuntime,
 	sessionRuntime,
 	sessionRuntimeStore,
@@ -33,15 +34,6 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
 	"switch_leaf",
 	"clear_context",
 ]);
-
-function replacedSessionResponse(command: RpcCommand): RpcResponseError {
-	return {
-		type: "response",
-		command: command.type,
-		success: false,
-		error: "The originating session was replaced or closed. Refresh this view before retrying.",
-	};
-}
 
 export function createTabRuntime(tabId: string): SessionRuntime {
 	let generation = 0;
