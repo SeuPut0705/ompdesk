@@ -49,6 +49,10 @@ on:
         description: "Also run the real automatic-setup install (Bun, PortableGit, omp) on Windows"
         type: boolean
         default: false
+      win_platform:
+        description: "Also run bun run test:platform on Windows (main's pushes cancel each other)"
+        type: boolean
+        default: false
       win_e2e:
         description: "Also run the @smoke e2e (fake omp) and the omp update lock check on Windows, with captures"
         type: boolean
@@ -167,7 +171,7 @@ jobs:
   # Windows (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes).
   # Pushes to main only: a pull request runs Linux alone.
   win-platform:
-    if: "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.win_platform)"
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
