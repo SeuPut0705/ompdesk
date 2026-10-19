@@ -27,7 +27,7 @@ import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
 import { useProjectNames } from "../../../lib/project-origin";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { ensureAgentReviewSubscription, useAgentReviewItems, useAgentReviewStore } from "../../../stores/agent-review";
+import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
@@ -50,10 +50,9 @@ import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
 import { WorkBoardChip } from "./WorkBoardChip";
-import { liveSubagents, needsReview, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
+import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
 
-/** The review and opened-session rows load when a session has such children: most never do. */
-const ReviewSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.ReviewSection })));
+/** The opened-session rows load when a session has such children: most never do. */
 const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
@@ -364,8 +363,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
-	const allReview = useAgentReviewItems(tabId);
-	const review = useMemo(() => allReview.filter(needsReview), [allReview]);
 	useEffect(() => {
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
@@ -428,7 +425,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		plan !== null ||
 		goal !== null ||
 		showsLast ||
-		review.length > 0 ||
 		opened.rows.length > 0;
 	const showsRunning = running > 0;
 	const showsTodos = plan !== null;
@@ -537,12 +533,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						);
 					})}
 				</BoardSection>
-			)}
-
-			{review.length > 0 && tabId && (
-				<Suspense fallback={null}>
-					<ReviewSection items={review} parentTabId={tabId} />
-				</Suspense>
 			)}
 
 			{turnActive && (

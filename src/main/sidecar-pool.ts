@@ -165,6 +165,12 @@ export interface TabFacts {
 	scheduledRetry?: boolean;
 }
 
+/** A plan proposal awaiting approval: its title and plan file. */
+export interface PendingPlan {
+	title: string;
+	planFilePath: string;
+}
+
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
 
@@ -259,6 +265,8 @@ interface PoolEntry extends RunTracking {
 	sessionFile?: string;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
+	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
 	resuming?: boolean;
 	/** The run's prompt while stock has not written the new session's file yet (it does at the first assistant message). */
@@ -399,6 +407,11 @@ export class SidecarPool {
 			retrying: entry.retry !== undefined,
 			scheduledRetry: entry.scheduledRetry !== undefined,
 		};
+	}
+
+	/** The plan proposal `tabId`'s session waits on (approve or reject), if any. */
+	pendingPlan(tabId: string): PendingPlan | null {
+		return this.#byTabId.get(tabId)?.planProposal ?? null;
 	}
 
 	#announce(activity: TabActivity): void {
@@ -684,6 +697,7 @@ export class SidecarPool {
 					const hostSignIn = entry.hostSignIns?.at(-1);
 					entry.hostSignIns = undefined;
 					if (hostSignIn !== undefined) this.#signInEnded(entry, hostSignIn);
+					delete entry.planProposal;
 				}
 			}
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
@@ -847,7 +861,10 @@ export class SidecarPool {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") entry.placeholder = false;
 				else if (event.type === "auto_retry_start") retryStarted = true;
-				else if (event.type === "plan_proposal") {
+				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
+					if (event.type === "plan_proposal")
+						entry.planProposal = { title: event.title ?? "", planFilePath: event.planFilePath };
+					else if (entry.planProposal?.planFilePath === event.planFilePath) delete entry.planProposal;
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
 				} else if (event.type === "message_end") {

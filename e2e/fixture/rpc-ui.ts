@@ -423,6 +423,13 @@ export function runRpcUi(): void {
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
+	/** The bridge's `settlePending`: the proposal stops waiting and every window hears `plan_proposal_resolved`. */
+	const resolvePlan = () => {
+		if (!planProposal) return;
+		const frame = `${JSON.stringify({ event: { type: "plan_proposal_resolved", planFilePath: planProposal.planFilePath } })}\n`;
+		planProposal = undefined;
+		for (const socket of bridgeClients) socket.write(frame);
+	};
 	/** Stock's agent writes the plan before proposing it; the fixture's proposal leaves the same file behind. */
 	const writeProposedPlan = (proposal: Record<string, unknown>) => {
 		if (typeof proposal.planFilePath !== "string" || typeof proposal.planContent !== "string") return;
@@ -553,7 +560,11 @@ export function runRpcUi(): void {
 	const replayFrames = process.env.OMP_GUI_TEST_REPLAY_FRAMES === "1";
 	let pendingReplay = "";
 	const write = (frame: object) => {
-		if ("type" in frame && frame.type === "agent_start") cancelRecap();
+		if ("type" in frame && frame.type === "agent_start") {
+			cancelRecap();
+			// A turn that starts while the plan waits replies to it (bridge modes/plan.ts `settlePending`).
+			resolvePlan();
+		}
 		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
@@ -1924,7 +1935,7 @@ export function runRpcUi(): void {
 		// execution turn (a `fixture flow` run, driven like any other).
 		"modes.plan_approval": params => {
 			if (!planProposal) throw new Error("No plan is awaiting approval");
-			planProposal = undefined;
+			resolvePlan();
 			if (params.approved !== true) {
 				// Feedback re-plans; a plain rejection ends a plan the automatic choice used for one request (plan.ts).
 				if (typeof params.feedback === "string" && params.feedback.trim()) {

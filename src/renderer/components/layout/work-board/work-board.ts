@@ -3,7 +3,6 @@
  * rows are chosen. Pure, so the breakpoint and the sections are tested without a DOM.
  */
 
-import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { APPROVAL_TITLE_PREFIX, isApprovalRequest } from "../../../stores/extension-ui";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
@@ -74,16 +73,6 @@ export function todoBoard(phases: readonly { tasks: readonly TodoTask[] }[]): To
 		hidden: Math.max(0, tasks.length - (start + rows.length)),
 		segments: tasks.map(task => task.status),
 	};
-}
-
-/**
- * The "Needs review" section lists only the exceptions of finished opened sessions: a merge conflict, a failed ending,
- * commits nothing merged, uncommitted work. A session still working belongs to the "Opened sessions" rows (like a
- * running subagent), and a finished one with nothing to settle folds away or closes.
- */
-export function needsReview(item: AgentReviewItem): boolean {
-	if (item.state === "running") return false;
-	return item.state === "conflict" || item.failed === true || item.commitsAhead > 0 || item.uncommitted > 0;
 }
 
 /** Live subagents (working or waiting; a finished, failed or aborted one has left the board) in spawn order. */

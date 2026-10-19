@@ -111,8 +111,8 @@ export type RpcCommand =
 			triggerTurn: boolean;
 			deliverAs?: "followUp" | "nextTurn" | "aside";
 	  }
-	// The work board's review queue (main/agent-control/host.ts): answered in main, never reaches omp
-	| { id?: string; type: "agent_control_review"; action: "list" | "approve" | "discard" | "dismiss"; child?: string }
+	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp
+	| { id?: string; type: "agent_control_review" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }
@@ -2613,6 +2613,8 @@ export type AgentSessionEvent =
 			planContent: string;
 			options: string[];
 	  }
+	// The proposal stopped waiting (answered in any window or by an agent, or a prompt replied to it).
+	| { type: "plan_proposal_resolved"; planFilePath: string }
 	| NextPromptUpdate
 	| NextPromptConfigFrame
 	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.

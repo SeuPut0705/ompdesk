@@ -195,11 +195,10 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 }
 
 /**
- * The review queue (work board): the sessions an agent opened, once they have finished, wait for the person with their
- * diff stat and an Approve (merge the worktree branch into the parent checkout; a session without a branch is
- * accepted) and a Discard (close the session and remove its worktree and branch). Main pushes the whole list for a
- * parent session on every change (`AGENT_CONTROL_REVIEW`); the renderer asks and acts through the
- * `agent_control_review` command.
+ * The opened-session list (work board rows): the sessions an agent opened, with their status, step, clock, report and
+ * diff stat. Nobody approves or discards them on the board: the opener's agent reviews and lands them with
+ * `ompdesk_compare` / `ompdesk_merge` / `ompdesk_session_stop`. Main pushes the whole list for a parent session on
+ * every change (`AGENT_CONTROL_REVIEW`); the renderer asks once on mount through the `agent_control_review` command.
  */
 export const AGENT_CONTROL_REVIEW = "agent-control:review";
 
@@ -238,16 +237,9 @@ export interface AgentReviewEvent {
 	items: AgentReviewItem[];
 }
 
-export type AgentReviewAction = "list" | "approve" | "discard" | "dismiss";
-
-export type AgentReviewOutcome = "merged" | "accepted" | "discarded" | "dismissed" | "conflict";
-
-/** What the `agent_control_review` command answers: the list after the action, what the action did, and any detail. */
+/** What the `agent_control_review` command answers: the opened sessions' list. */
 export interface AgentReviewResult {
 	items: AgentReviewItem[];
-	outcome?: AgentReviewOutcome;
-	/** English detail for the person to read (a conflict's files, a refusal). */
-	message?: string;
 }
 
 /**

@@ -63,6 +63,7 @@ function setup(
 		pool: {
 			tabsForWindow: target => (target === win2 ? otherTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
+			pendingPlan: () => null,
 			observeTabs: observer => {
 				activity.push(observer as never);
 				return () => undefined;

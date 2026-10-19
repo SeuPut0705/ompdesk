@@ -2696,6 +2696,26 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(pool.tabFacts("tab-a")).toBeNull();
 		expect(pool.tabFacts("nope")).toBeNull();
 	});
+
+	it("holds a tab's plan proposal from its frame until it resolves or the omp goes away", () => {
+		const { pool, a } = observed();
+		const frame = {
+			type: "plan_proposal",
+			planFilePath: "local://PLAN.md",
+			title: "Plan",
+			planContent: "x",
+			options: [],
+		};
+		a.emitEvents([frame]);
+		expect(pool.pendingPlan("tab-a")).toEqual({ title: "Plan", planFilePath: "local://PLAN.md" });
+		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://other.md" }]);
+		expect(pool.pendingPlan("tab-a")).not.toBeNull();
+		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://PLAN.md" }]);
+		expect(pool.pendingPlan("tab-a")).toBeNull();
+		a.emitEvents([frame]);
+		a.emit("status", { status: "restarting" });
+		expect(pool.pendingPlan("tab-a")).toBeNull();
+	});
 });
 
 describe("SidecarPool hosted views (a window here showing a paired device's tab on this computer)", () => {

@@ -36,10 +36,10 @@ const item = (patch: Partial<AgentReviewItem> = {}): AgentReviewItem => ({
 });
 
 let listed: AgentReviewItem[] = [];
-const commandForTab = vi.fn(async (_tab: string, command: { action?: string }) => ({
+const commandForTab = vi.fn(async (_tab: string, _command: { type: string }) => ({
 	type: "response",
 	success: true,
-	data: command.action === "list" ? { items: listed } : { items: [], outcome: "merged" },
+	data: { items: listed },
 }));
 const getJobs = vi.fn(async () => ({ type: "response", success: true, data: { jobs: [] } }));
 const getGoal = vi.fn(async () => ({ type: "response", success: true, data: { enabled: false } }));
@@ -99,7 +99,6 @@ async function mount(more: Array<Record<string, unknown>> = []): Promise<void> {
 
 const section = () => pane.querySelector('[data-board-section="review"]');
 const buttons = () => [...pane.querySelectorAll(".omp-work-board-actions button")] as unknown as HTMLButtonElement[];
-const button = (label: string) => buttons().find(entry => (entry.textContent ?? "").includes(label));
 
 beforeEach(() => {
 	observers.length = 0;
@@ -116,83 +115,41 @@ afterEach(async () => {
 	container?.remove();
 });
 
-describe("work board review queue", () => {
-	it("asks for the list when it mounts and shows a finished child with its branch, diff stat and buttons", async () => {
+describe("work board without a review section", () => {
+	const unmerged = {
+		id: "child1",
+		cwd: "/w",
+		status: "ready",
+		kind: "agent",
+		unreadDone: false,
+		openedBy: "t1",
+		title: "Alpha",
+		lastRun: { stopReason: "stop", text: "ok" },
+		worktree: { name: "a", branch: "omp/agent/a", baseCwd: "/w", path: "/wt/a" },
+	};
+
+	it("asks for the list when it mounts and shows a finished, unmerged child as a plain row with no buttons", async () => {
 		listed = [item()];
-		await mount();
-		expect(commandForTab).toHaveBeenCalledWith("t1", { type: "agent_control_review", action: "list" });
-		expect(section()?.textContent).toContain("Needs review");
-		expect(section()?.textContent).toContain("Alpha");
-		expect(section()?.textContent).toContain("3 files · +20 −4");
-		expect(section()?.textContent).toContain("omp/agent/a → main");
-		expect(buttons().map(entry => entry.textContent)).toEqual(["Review", "Approve", "Discard"]);
-	});
-
-	it("keeps a running child out of the review queue, and a finished one with nothing to settle", async () => {
-		await mount();
+		await mount([unmerged]);
+		expect(commandForTab).toHaveBeenCalledWith("t1", { type: "agent_control_review" });
 		expect(section()).toBeNull();
-		await act(async () => useAgentReviewStore.getState().apply({ tabId: "t1", items: [item({ state: "running" })] }));
-		expect(section()).toBeNull();
-		await act(async () =>
-			useAgentReviewStore.getState().apply({
-				tabId: "t1",
-				items: [item({ branch: undefined, baseBranch: undefined, commitsAhead: 0, uncommitted: 0 })],
-			}),
-		);
-		expect(section()).toBeNull();
+		expect(pane.textContent).not.toContain("Needs review");
+		expect(pane.querySelector('[data-board-opened="child1"]')?.textContent).toContain("Alpha");
+		expect(buttons()).toEqual([]);
+		for (const label of ["Approve", "Discard", "Accept"]) expect(pane.textContent).not.toContain(label);
 	});
 
-	it("lists a failed ending as an exception", async () => {
+	it("keeps a running, a failed and a conflicted child out of any review section", async () => {
 		await mount();
-		await act(async () =>
-			useAgentReviewStore
-				.getState()
-				.apply({ tabId: "t1", items: [item({ branch: undefined, commitsAhead: 0, failed: true })] }),
-		);
-		expect(section()?.textContent).toContain("Alpha");
-	});
-
-	it("Approve sends the approve action for that child, and a merged outcome says so", async () => {
-		listed = [item()];
-		await mount();
-		await act(async () => (button("Approve") as HTMLButtonElement).click());
-		expect(commandForTab).toHaveBeenLastCalledWith(
-			"t1",
-			{ type: "agent_control_review", action: "approve", child: "child1" },
-			300_000,
-		);
-		expect(useToastStore.getState().toasts.map(toast => toast.message)).toContain("Merged the work of “Alpha”");
-		expect(section()).toBeNull();
-	});
-
-	it("Discard needs a second click, and a session without a branch offers Accept", async () => {
-		listed = [item(), item({ tabId: "child2", title: "Plain", branch: undefined, baseBranch: undefined })];
-		await mount();
-		expect(buttons().map(entry => entry.textContent)).toEqual([
-			"Review",
-			"Approve",
-			"Discard",
-			"Review",
-			"Accept",
-			"Discard",
-		]);
-		await act(async () => (button("Discard") as HTMLButtonElement).click());
-		expect(commandForTab).toHaveBeenCalledTimes(1);
-		expect(button("Discard for good?")).toBeDefined();
-		await act(async () => (button("Discard for good?") as HTMLButtonElement).click());
-		expect(commandForTab).toHaveBeenLastCalledWith(
-			"t1",
-			{ type: "agent_control_review", action: "discard", child: "child1" },
-			300_000,
-		);
-	});
-
-	it("a conflict keeps the item and names the files", async () => {
-		await mount();
-		await act(async () =>
-			useAgentReviewStore.getState().apply({ tabId: "t1", items: [item({ state: "conflict", note: "src/a.ts" })] }),
-		);
-		expect(section()?.textContent).toContain("Conflict in src/a.ts. Nothing was merged.");
+		for (const patch of [
+			{ state: "running" as const },
+			{ branch: undefined, commitsAhead: 0, failed: true as const },
+			{ state: "conflict" as const, note: "src/a.ts" },
+		]) {
+			await act(async () => useAgentReviewStore.getState().apply({ tabId: "t1", items: [item(patch)] }));
+			expect(section()).toBeNull();
+			expect(buttons()).toEqual([]);
+		}
 	});
 });
 

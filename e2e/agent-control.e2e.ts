@@ -169,3 +169,40 @@ test("by default (full control) the agent deletes a session it did not open with
 	expect(result.text).toMatch(/Stopped, closed and deleted|no saved file yet/);
 	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 });
+
+/** A plan-mode child that proposed its plan, shown so its card is on screen. */
+async function proposingChild(): Promise<string> {
+	const opened = await call("ompdesk_session_open", { message: "Plan the rollout", mode: "plan", show: "background" });
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(child).not.toBe("");
+	await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+	await fixtureCommand(child, "fixture:plan");
+	await call("ompdesk_tab_focus", { session: child });
+	await expect(page.getByText("Fixture rollout plan").first()).toBeVisible({ timeout: 30_000 });
+	const listed = await call("ompdesk_sessions", { status: "waiting" });
+	expect(listed.text).toContain(child);
+	expect(listed.text).toContain('waiting for plan approval: "Fixture rollout plan"');
+	return child;
+}
+
+test("the main agent approves a child's plan: the card closes and the child leaves plan mode", async () => {
+	test.setTimeout(150_000);
+	const child = await proposingChild();
+	const answered = await call("ompdesk_session_answer", { session: child, approve: true, choice: "keep_context" });
+	expect(answered.isError).toBe(false);
+	expect(answered.text).toContain("approved plan");
+	await expect(page.getByText("Fixture rollout plan")).toHaveCount(0, { timeout: 30_000 });
+	const state = await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), child);
+	expect(state).toMatchObject({ data: { planModeEnabled: false } });
+	expect((await call("ompdesk_sessions", { status: "waiting" })).text).not.toContain(child);
+});
+
+test("a plain message to a child whose plan waits replies to it and closes the card", async () => {
+	test.setTimeout(150_000);
+	const child = await proposingChild();
+	expect((await call("ompdesk_session_send", { session: child, message: "Split step 2 in two" })).text).toContain(
+		"Sent to",
+	);
+	await expect(page.getByText("Fixture rollout plan")).toHaveCount(0, { timeout: 30_000 });
+	expect((await call("ompdesk_sessions", { status: "waiting" })).text).not.toContain(child);
+});

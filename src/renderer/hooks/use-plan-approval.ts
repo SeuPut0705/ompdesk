@@ -21,8 +21,15 @@ export function usePlanApproval(): void {
 			if (isTabClosed(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				for (const event of events) {
+					const store = usePlanApprovalStore.getState();
+					if (event.type === "plan_proposal_resolved") {
+						// Answered elsewhere (another window, a device, an agent) or replied to by a prompt. This window's
+						// own answer in flight settles the card itself, keeping its outcome notice.
+						if (store.pending?.planFilePath === event.planFilePath && !store.submitting) store.clearProposal();
+						continue;
+					}
 					if (event.type !== "plan_proposal") continue;
-					usePlanApprovalStore.getState().showProposal({
+					store.showProposal({
 						planFilePath: event.planFilePath,
 						title: event.title,
 						suggestedFileName: event.suggestedFileName,

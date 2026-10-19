@@ -659,7 +659,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			parseAgentMessage(cmd.message) === null
 		)
 			agentControl.noteUserPrompt(issuerTabId);
-		// The work board's review queue (src/main/agent-control): answered here, never sent to omp.
+		// The work board's opened-session list (src/main/agent-control): answered here, never sent to omp.
 		if (cmd.type === "agent_control_review") {
 			if (!issuerTabId)
 				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
@@ -669,7 +669,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					type: "response",
 					command: cmd.type,
 					success: true,
-					data: await agentControl.review(win, issuerTabId, cmd.action, cmd.child),
+					data: await agentControl.review(win, issuerTabId),
 				};
 			} catch (err) {
 				return {

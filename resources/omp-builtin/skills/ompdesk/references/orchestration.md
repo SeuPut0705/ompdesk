@@ -22,6 +22,7 @@ Children tell you: each one's `done`, `review`, `question` or `blocked` report (
 
 - finished: use the answer; `ompdesk_session_read` (`limit`, `before` cursor) when the summary is thin.
 - waiting for an answer: `ompdesk_session_answer` only when the answer is a detail you know; a preference, a secret or the user's own choice goes to the user (`ompdesk_tab_focus`, `ompdesk_notify`).
+- waiting for plan approval (a plan-mode session proposed its plan): read the plan file the listing names, then `ompdesk_session_answer` with `approve: true` and `choice` `execute` (fresh context, default), `compact` or `keep_context`, or `approve: false` with `text` as feedback (it revises). A plain `ompdesk_session_send` also counts as feedback and closes the card. Approving needs the user's approve permission unless full control is on; feedback always works.
 - timeout: still running. Wait again or report progress; silence alone is no reason to stop it.
 
 ## Paths in a child's answer

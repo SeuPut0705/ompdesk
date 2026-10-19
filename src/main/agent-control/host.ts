@@ -31,7 +31,6 @@ import {
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
-	type AgentReviewAction,
 	type AgentReviewEvent,
 	type AgentReviewItem,
 	type AgentReviewResult,
@@ -70,7 +69,7 @@ import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
-import { branchFacts, discardWorktree, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
+import { branchFacts, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -99,6 +98,7 @@ export interface AgentControlHostDeps {
 		SidecarPool,
 		| "tabsForWindow"
 		| "tabFacts"
+		| "pendingPlan"
 		| "observeTabs"
 		| "openRequests"
 		| "routeSideChannel"
@@ -296,21 +296,11 @@ export class AgentControlRuntime {
 		return outcome;
 	}
 
-	/** The work board's review queue: list, or Approve / Discard / Dismiss one session this one opened. */
-	async review(
-		win: ClientWindow,
-		callerTabId: string,
-		action: AgentReviewAction,
-		child?: string,
-	): Promise<AgentReviewResult> {
+	/** The work board's opened-session rows: the list of sessions this one opened (read-only; the agent lands them with tools). */
+	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
-		const result = await this.control.review(callerTabId, action, child);
-		if (action !== "list") {
-			this.#sendReview(callerTabId, result.items);
-			this.#sweepSoon(callerTabId);
-		}
-		return result;
+		return { items: await this.control.reviewItems(callerTabId) };
 	}
 
 	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
@@ -367,6 +357,7 @@ export class AgentControlRuntime {
 	}
 
 	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
+		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -376,6 +367,7 @@ export class AgentControlRuntime {
 			status: info.status,
 			busy: this.#deps.pool.tabFacts(info.tabId)?.busy === true,
 			asks,
+			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
 			here,
 			...(info.worktree ? { worktree: info.worktree } : {}),
@@ -688,7 +680,6 @@ export class AgentControlRuntime {
 			},
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
-			discardWorktree: worktree => discardWorktree(worktree),
 			landing: worktree => landingFacts(worktree),
 			removeLandedWorktree: worktree => removeLandedWorktree(worktree),
 			recordClosed: child => this.#recordClosed(child),

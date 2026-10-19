@@ -146,6 +146,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	next_prompt_update: true,
 	next_prompt_config: true,
 	plan_proposal: true,
+	// The proposal no longer waits (answered anywhere, or a prompt replied to it): every window drops its card.
+	plan_proposal_resolved: true,
 	queue_update: true,
 	token_rate: true,
 	read_group_metadata: true,

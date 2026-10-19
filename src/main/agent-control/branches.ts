@@ -243,17 +243,3 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 	const summary = await text(worktree.baseCwd, ["diff", "--shortstat", "HEAD~1", "HEAD"]);
 	return { merged: true, sha, summary };
 }
-
-/** Remove the worktree and its branch once its session is closed; only a registered linked worktree goes. */
-export async function discardWorktree(worktree: WorktreeRef): Promise<void> {
-	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
-		.split("\n")
-		.filter(line => line.startsWith("worktree "))
-		.map(line => line.slice("worktree ".length));
-	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
-	const wanted = await realpath(worktree.path).catch(() => worktree.path);
-	if (!linked.includes(wanted))
-		throw new BranchError(`${worktree.path} is not a linked worktree of ${worktree.baseCwd}; nothing was removed.`);
-	await git(primary ?? worktree.baseCwd, ["worktree", "remove", "--force", wanted], { timeoutMs: TIMEOUT_MS });
-	await gitRaw(primary ?? worktree.baseCwd, ["branch", "-D", worktree.branch]);
-}

@@ -125,7 +125,6 @@ class FakeHost implements AgentControlHost {
 	facts = new Map<string, BranchFacts>();
 	mergeResult: MergeOutcome = { merged: true, sha: "abc1234", summary: "2 files changed" };
 	merges: string[] = [];
-	discarded: string[] = [];
 	branchFacts = async (worktree: WorktreeRef): Promise<BranchFacts> => {
 		const facts = this.facts.get(worktree.branch);
 		if (!facts) throw new Error("no such branch");
@@ -134,9 +133,6 @@ class FakeHost implements AgentControlHost {
 	mergeBranch = async (worktree: WorktreeRef) => {
 		this.merges.push(worktree.branch);
 		return this.mergeResult;
-	};
-	discardWorktree = async (worktree: WorktreeRef) => {
-		this.discarded.push(worktree.branch);
 	};
 	landings = new Map<string, LandingFacts>();
 	removed: string[] = [];
@@ -755,6 +751,47 @@ describe("ompdesk_session_answer", () => {
 			/not waiting/,
 		);
 	});
+
+	const planned = { title: "Share over Tailscale", planFilePath: "local://PLAN.md" };
+
+	it("approves a pending plan through plan_approval when agents may approve, and marks the answer", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", plan: planned });
+		const service = control(host);
+		const refused = await service.run("main0001", T.answer, { session: "work0002", approve: true });
+		expect(refused.text).toContain("사용자 승인이 필요해요");
+		expect(host.sent.some(entry => entry.command.type === "plan_approval")).toBe(false);
+		host.approve = true;
+		const done = await service.run("main0001", T.answer, {
+			session: "work0002",
+			approve: true,
+			choice: "keep_context",
+		});
+		expect(done.isError).toBe(false);
+		expect(host.sent.find(entry => entry.command.type === "plan_approval")).toEqual({
+			tabId: "work0002",
+			command: { type: "plan_approval", approved: true, option: "keep_context" },
+		});
+		expect(host.marked).toContain("Boss");
+	});
+
+	it("rejects a pending plan with feedback whatever the approve setting, and refuses an unknown option", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", plan: planned });
+		const service = control(host);
+		expect(
+			(await service.run("main0001", T.answer, { session: "work0002", approve: true, choice: "save" })).isError,
+		).toBe(true);
+		const rejected = await service.run("main0001", T.answer, {
+			session: "work0002",
+			approve: false,
+			text: "Split it in two",
+		});
+		expect(rejected.isError).toBe(false);
+		expect(host.sent.find(entry => entry.command.type === "plan_approval")?.command).toEqual({
+			type: "plan_approval",
+			approved: false,
+			feedback: "Split it in two",
+		});
+	});
 });
 
 describe("ompdesk_session_stop", () => {
@@ -1004,7 +1041,7 @@ describe("the review queue", () => {
 	it("lists the sessions the caller opened with their diff stat, running ones as running", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
 		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
-		const { items } = await service.review("main0001", "list");
+		const items = await service.reviewItems("main0001");
 		expect(items).toHaveLength(2);
 		expect(items[0]).toMatchObject({
 			tabId: ids[0],
@@ -1020,7 +1057,7 @@ describe("the review queue", () => {
 		});
 		expect(items[1]?.state).toBe("running");
 		host.tabsById.set("other004", { ...(host.tabsById.get(ids[0]) as FakeTab), tabId: "other004" });
-		expect((await service.review("main0001", "list")).items.map(item => item.tabId)).not.toContain("other004");
+		expect((await service.reviewItems("main0001")).map(item => item.tabId)).not.toContain("other004");
 	});
 
 	it("leaves out a landed, clean, idle child and lists a landed one only for the files it left over", async () => {
@@ -1033,61 +1070,21 @@ describe("the review queue", () => {
 			files: [{ path: "src/x.ts", added: 1, removed: 0 }],
 			uncommitted: 1,
 		});
-		const { items } = await service.review("main0001", "list");
+		const items = await service.reviewItems("main0001");
 		expect(items.map(item => item.tabId)).toEqual([ids[1]]);
 		expect(items[0]).toMatchObject({ commitsAhead: 0, files: 1, added: 1, removed: 0, uncommitted: 1 });
 
 		host.facts.set("omp/agent/b", { ...landed, branch: "omp/agent/b", untracked: 2 });
-		expect((await service.review("main0001", "list")).items).toMatchObject([
+		expect(await service.reviewItems("main0001")).toMatchObject([
 			{ tabId: ids[1], commitsAhead: 0, files: 0, uncommitted: 2 },
 		]);
 
 		// Still working: listed as running, whatever its branch says.
 		host.facts.set("omp/agent/b", { ...landed, branch: "omp/agent/b" });
 		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
-		expect((await service.review("main0001", "list")).items).toMatchObject([{ tabId: ids[1], state: "running" }]);
+		expect(await service.reviewItems("main0001")).toMatchObject([{ tabId: ids[1], state: "running" }]);
 		(host.tabsById.get(ids[1]) as FakeTab).busy = false;
-		expect((await service.review("main0001", "list")).items).toEqual([]);
-	});
-
-	it("Approve merges without asking (the click is the confirmation) and a conflict keeps the item with its files", async () => {
-		const { host, service, ids } = await withWorktreeChildren();
-		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"] };
-		const conflicted = await service.review("main0001", "approve", ids[0]);
-		expect(conflicted.message).toContain("Merge conflict");
-		expect(conflicted.items.find(item => item.tabId === ids[0])).toMatchObject({
-			state: "conflict",
-			note: "src/a.ts",
-		});
-		host.mergeResult = { merged: true, sha: "def5678", summary: "" };
-		const merged = await service.review("main0001", "approve", ids[0]);
-		expect(merged.message).toContain("Merged omp/agent/a");
-		expect(merged.items.map(item => item.tabId)).toEqual([ids[1]]);
-		expect(host.cards).toHaveLength(0);
-	});
-
-	it("Discard closes the session and removes its worktree and branch; Dismiss only hides the item", async () => {
-		const { host, service, ids } = await withWorktreeChildren();
-		(host.tabsById.get(ids[0]) as FakeTab).status = "asleep";
-		const discarded = await service.review("main0001", "discard", ids[0]);
-		expect(host.views).toContainEqual({ tabId: ids[0], how: "close" });
-		expect(host.discarded).toEqual(["omp/agent/a"]);
-		expect(discarded.items.map(item => item.tabId)).toEqual([ids[1]]);
-		const dismissed = await service.review("main0001", "dismiss", ids[1]);
-		expect(dismissed.items).toEqual([]);
-		expect(host.discarded).toEqual(["omp/agent/a"]);
-		expect(host.tabsById.has(ids[1])).toBe(true);
-	});
-
-	it("acts only on sessions the caller opened, and a session without a branch is simply accepted", async () => {
-		const host = new FakeHost({ tabId: "main0001" }, { tabId: "theirs02", title: "Theirs" });
-		const service = control(host);
-		await expect(service.review("main0001", "approve", "theirs02")).rejects.toThrow(/not one this session opened/);
-		const [plain] = await service.openSessions("main0001", [{ message: "x" }]);
-		(host.tabsById.get(plain as string) as FakeTab).busy = false;
-		const accepted = await service.review("main0001", "approve", plain);
-		expect(host.merges).toEqual([]);
-		expect(accepted.items).toEqual([]);
+		expect(await service.reviewItems("main0001")).toEqual([]);
 	});
 });
 
@@ -1528,6 +1525,24 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(host.removed).toEqual([]);
 	});
 
+	it("treats a plan awaiting approval as waiting: listed, a wait returns, no auto-close, no review", async () => {
+		const plan = { title: "Share over Tailscale", planFilePath: "local://PLAN.md" };
+		const { host, service, child } = await finishedChild({
+			worktree: true,
+			patch: { plan, lastRun: { stopReason: "aborted" }, last: "Plan written." },
+		});
+		const listed = await service.run("main0001", T.list, { status: "waiting" });
+		expect(listed.text).toContain(child.tabId);
+		expect(listed.text).toContain('waiting for plan approval: "Share over Tailscale" (local://PLAN.md)');
+		const waited = await service.run("main0001", T.result, { session: child.tabId, wait: true });
+		expect(waited.text).toMatch(/needs an answer/);
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(0);
+		const [item] = await service.reviewItems("main0001");
+		expect(item).toMatchObject({ state: "running", waiting: true });
+		expect(item?.failed).toBeUndefined();
+	});
+
 	it("waits while the opener runs until it has read the answer", async () => {
 		const { host, service, child } = await finishedChild();
 		const opener = host.tabsById.get("main0001") as FakeTab;
@@ -1545,7 +1560,6 @@ describe("autoClose: opened sessions whose work landed", () => {
 		await merged.service.autoClose("main0001");
 		expect(merged.host.removed).toEqual(["omp/agent/w"]);
 		expect(merged.host.closedRecords[0]?.cwd).toBe("/repo");
-		expect(merged.host.discarded).toEqual([]);
 
 		const dirty = await finishedChild({ worktree: true });
 		dirty.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: false });

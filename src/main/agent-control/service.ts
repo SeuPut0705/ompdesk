@@ -33,10 +33,7 @@ import {
 	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
-	type AgentReviewAction,
 	type AgentReviewItem,
-	type AgentReviewOutcome,
-	type AgentReviewResult,
 	agentTaskTitle,
 	type ClosedChild,
 	isApprovalSelect,
@@ -99,6 +96,8 @@ export interface ControlTab {
 	busy: boolean;
 	/** Open asks and approvals that wait for the person. */
 	asks: ControlAsk[];
+	/** A plan proposal that waits for approval (plan mode); answered like an ask with `ompdesk_session_answer`. */
+	plan?: { title: string; planFilePath: string };
 	/** The user hid this session from agents (Sidebar › Hide from other agents). */
 	hidden: boolean;
 	/** In the calling session's window (the default list); other windows' tabs are listed with scope app. */
@@ -263,8 +262,6 @@ export interface AgentControlHost {
 	branchFacts(worktree: WorktreeRef): Promise<BranchFacts>;
 	/** Merge the worktree's branch into its parent checkout (local, never pushed). */
 	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
-	/** Remove a closed session's worktree and branch. */
-	discardWorktree(worktree: WorktreeRef): Promise<void>;
 	/** What git says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
 	landing(worktree: WorktreeRef): Promise<LandingFacts>;
 	/** Remove a landed, clean worktree and its branch (never forced); false when anything held it back. */
@@ -385,6 +382,11 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 	const done = tasks.filter(task => task.status === "completed" || task.status === "abandoned").length;
 	const current = tasks.find(task => task.status === "in_progress");
 	return `todos ${done}/${tasks.length} done${current ? ` (now: ${oneLine(current.content, 80)})` : ""}`;
+}
+
+/** The session waits on someone: an open ask or approval, or a plan proposal awaiting approval. */
+function waits(tab: ControlTab): boolean {
+	return tab.asks.length > 0 || tab.plan !== undefined;
 }
 
 /** A saved session's name: its title, else the task an agent opened it for, else its first message. */
@@ -910,6 +912,8 @@ export class AgentControl {
 		const { state, step } = session;
 		const ask = tab.asks[0];
 		if (ask) return `waiting for the user's answer: "${oneLine(askTitle(ask.request), 120)}"`;
+		if (tab.plan)
+			return `waiting for plan approval: "${oneLine(tab.plan.title || "plan", 120)}" (${tab.plan.planFilePath})`;
 		switch (tab.status) {
 			case "asleep":
 				return "not started (it starts when shown or messaged)";
@@ -997,7 +1001,7 @@ export class AgentControl {
 				if (todos) parts.push(todos);
 				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
-				const kind = tab.asks.length
+				const kind = waits(tab)
 					? "waiting"
 					: line.startsWith("running") || line === "starting"
 						? "running"
@@ -1446,10 +1450,10 @@ export class AgentControl {
 		const line = this.#stateLine(tab, session);
 		const settled = line === "idle" || line.startsWith("stopped") || line.startsWith("not started");
 		const todos = todoProgress(session.state?.todoPhases);
-		const hint = tab.asks.length > 0 ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
+		const hint = waits(tab) ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
 		const body = session.last ? cut(session.last, perAnswer) : "(no answer yet)";
 		return {
-			settled: settled || tab.asks.length > 0,
+			settled: settled || waits(tab),
 			text: `${label(tab)} [${tab.tabId}]: ${line}.${todos ? ` ${todos}.` : ""}${hint}\nLast answer:\n${body}`,
 		};
 	}
@@ -1576,6 +1580,7 @@ export class AgentControl {
 	async #answer(caller: ControlTab, target: ControlTab, args: AnswerArgs): Promise<string> {
 		this.#refuseHidden(target, caller);
 		const asks = target.asks.filter(ask => !askTitle(ask.request).startsWith(AGENT_CARD_PREFIX));
+		if (asks.length === 0 && target.plan) return this.#answerPlan(caller, target, target.plan, args);
 		if (asks.length === 0)
 			fail(
 				target.asks.length > 0
@@ -1633,6 +1638,42 @@ export class AgentControl {
 	}
 
 	/**
+	 * A plan proposal, through the same `plan_approval` command the plan card sends: approve with an option, or
+	 * reject (with `text`, stock's feedback turn). Approving follows the tool-approval rule; rejecting always works.
+	 */
+	async #answerPlan(
+		caller: ControlTab,
+		target: ControlTab,
+		plan: { title: string; planFilePath: string },
+		args: AnswerArgs,
+	): Promise<string> {
+		const approve = args.approve ?? (args.choice === undefined ? undefined : !/^(reject|deny|no)/i.test(args.choice));
+		if (approve === undefined)
+			fail("Give approve: true (choice execute, compact or keep_context) or approve: false (text = feedback).");
+		const name = `"${oneLine(plan.title || "plan", 100)}"`;
+		let command: RpcCommand;
+		let summary: string;
+		if (approve) {
+			const option = args.choice === undefined || args.choice === "Approve" ? "execute" : args.choice;
+			if (option !== "execute" && option !== "compact" && option !== "keep_context")
+				fail(`Plan option "${option}": use execute, compact or keep_context.`);
+			if (!this.#host.approveEnabled())
+				fail(
+					"사용자 승인이 필요해요: approving another session's plan needs the user's permission for agents to approve (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Rejecting with feedback is allowed.",
+				);
+			command = { type: "plan_approval", approved: true, option };
+			summary = `approved plan ${name} (${option})`;
+		} else {
+			const feedback = args.text?.trim();
+			command = { type: "plan_approval", approved: false, ...(feedback ? { feedback } : {}) };
+			summary = feedback ? `rejected plan ${name} with feedback` : `rejected plan ${name}`;
+		}
+		responseData(await this.#host.command(target.tabId, command), "Answering the plan");
+		await this.#host.markAnswered(target.tabId, caller.title || caller.tabId).catch(() => undefined);
+		return `Answered ${label(target)}: ${summary}.${approve || args.text?.trim() ? " It continues now." : ""}`;
+	}
+
+	/**
 	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
 	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone.
 	 */
@@ -1647,7 +1688,7 @@ export class AgentControl {
 		const params = { caller: caller.title || "—", target: target.title || target.tabId };
 		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
 		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
-		const resting = !target.busy && target.asks.length === 0 && !target.looked && !target.userTouched;
+		const resting = !target.busy && !waits(target) && !target.looked && !target.userTouched;
 		const harmless = args.close === true && !args.delete && resting;
 		if (args.close && !args.delete && (target.looked || target.userTouched))
 			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
@@ -1876,8 +1917,7 @@ export class AgentControl {
 			fail(`${label(target)} has no worktree branch to merge (open sessions with worktree: true).`);
 		if (target.deviceName)
 			fail(`${label(target)} runs on ${target.deviceName}; merging works on this computer's sessions only.`);
-		if (target.busy || target.asks.length > 0)
-			fail(`${label(target)} is still working or waiting; collect its result first.`);
+		if (target.busy || waits(target)) fail(`${label(target)} is still working or waiting; collect its result first.`);
 		return target.worktree;
 	}
 
@@ -1902,7 +1942,7 @@ export class AgentControl {
 	 */
 	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem | null> {
 		const session = await this.#state(tab);
-		const running = tab.busy || tab.asks.length > 0 || (tab.status !== "ready" && tab.status !== "running");
+		const running = tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running");
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
@@ -1924,6 +1964,8 @@ export class AgentControl {
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
 			...this.#reportFields(tab.tabId),
+			// Its plan waits for approval: the opener (or the person) answers it, nothing is left to review.
+			...(tab.plan ? { waiting: true as const } : {}),
 		};
 		if (!tab.worktree || tab.deviceName) return item;
 		try {
@@ -1959,53 +2001,6 @@ export class AgentControl {
 		return items.filter(item => item !== null);
 	}
 
-	/**
-	 * The board's buttons: Approve merges a worktree session's branch into the parent checkout (the person's click is
-	 * the confirmation) and accepts a session without one; Discard stops and closes the session and removes its
-	 * worktree and branch; Dismiss only hides the item. Only sessions this one opened. Throws a readable message.
-	 */
-	async review(callerTabId: string, action: AgentReviewAction, child?: string): Promise<AgentReviewResult> {
-		if (action === "list") return { items: await this.reviewItems(callerTabId) };
-		const tabs = this.#host.tabs(callerTabId);
-		const caller = tabs?.find(tab => tab.tabId === callerTabId);
-		const target = tabs?.find(tab => tab.tabId === child);
-		if (!tabs || !caller || !target || !this.#openedBy(callerTabId, tabs).has(target.tabId))
-			throw new Error("That session is not one this session opened.");
-		let message: string | undefined;
-		let outcome: AgentReviewOutcome = action === "discard" ? "discarded" : "dismissed";
-		if (action === "approve") {
-			if (target.worktree) {
-				const worktree = this.#mergeable(caller, target);
-				const problem = mergeProblem(worktree, await this.#host.branchFacts(worktree));
-				if (problem) throw new Error(problem);
-				try {
-					message = await this.#runMerge(target, worktree);
-					outcome = "merged";
-				} catch (error) {
-					if (error instanceof ToolError)
-						return { items: await this.reviewItems(callerTabId), outcome: "conflict", message: error.message };
-					throw error;
-				}
-			} else {
-				this.#reviewed.add(target.tabId);
-				outcome = "accepted";
-			}
-		} else if (action === "discard") {
-			this.#closing.add(target.tabId);
-			try {
-				if (target.status === "ready" || target.status === "running")
-					await this.#host.command(target.tabId, { type: "abort" }).catch(() => undefined);
-				this.#host.view(callerTabId, { tabId: target.tabId, how: "close" });
-				await this.#whenGone(callerTabId, target.tabId);
-				if (target.worktree && !target.deviceName) await this.#host.discardWorktree(target.worktree);
-			} finally {
-				this.#closing.delete(target.tabId);
-			}
-			this.#reviewed.add(target.tabId);
-		} else this.#reviewed.add(target.tabId);
-		return { items: await this.reviewItems(callerTabId), outcome, ...(message ? { message } : {}) };
-	}
-
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
 	async #whenGone(callerTabId: string, tabId: string, waitMs = 10_000): Promise<void> {
 		const deadline = Date.now() + waitMs;
@@ -2026,10 +2021,10 @@ export class AgentControl {
 		if (!tabs || !caller?.sessionPath) return;
 		this.#sweeping.add(callerTabId);
 		try {
-			const openerIdle = !caller.busy && caller.asks.length === 0;
+			const openerIdle = !caller.busy && !waits(caller);
 			for (const tab of tabs) {
 				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
-				if (tab.busy || tab.asks.length > 0) {
+				if (tab.busy || waits(tab)) {
 					this.#collected.delete(tab.tabId);
 					continue;
 				}

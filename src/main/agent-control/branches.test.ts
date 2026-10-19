@@ -6,7 +6,6 @@ import { gitSync, initRepo } from "../local/git/test-repos";
 import {
 	BranchError,
 	branchFacts,
-	discardWorktree,
 	landingFacts,
 	mergeBranch,
 	removeLandedWorktree,
@@ -197,18 +196,6 @@ describe("mergeBranch", () => {
 		gitSync(repo, "checkout", "-q", "--detach");
 		await expect(mergeBranch(wt, "")).rejects.toBeInstanceOf(BranchError);
 		await expect(mergeBranch(wt, "")).rejects.toThrow(/detached/);
-	});
-});
-
-describe("discardWorktree", () => {
-	it("removes a linked worktree and its branch, and refuses anything else", async () => {
-		const wt = await agentWorktree("f");
-		await fs.writeFile(path.join(wt.path, "wip.txt"), "unsaved");
-		await discardWorktree(wt);
-		await expect(fs.stat(wt.path)).rejects.toThrow();
-		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
-		await expect(discardWorktree({ path: repo, branch: "main", baseCwd: repo })).rejects.toBeInstanceOf(BranchError);
-		expect(gitSync(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
 	});
 });
 

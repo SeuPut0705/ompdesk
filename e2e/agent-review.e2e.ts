@@ -5,7 +5,8 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { exitApp, launchApp, readRecords } from "./harness";
 
-// Fan-out into git worktrees, then compare and merge (src/main/agent-control, work board review queue): the fake
+// Fan-out into git worktrees, then compare and merge (src/main/agent-control): the work board shows the children as
+// plain rows and no review section; the opener's agent lands them with the tools. The fake
 // omp's agent calls the control tools (`fixture:host-tool:<name> <json>`) against a real git repository, so the
 // worktrees, the merge and the removal are real git. The children's edits are committed by the test, standing in
 // for what a real child does.
@@ -98,9 +99,7 @@ async function children(): Promise<{ tabId: string; path: string; branch: string
 		.map(tab => ({ tabId: tab.tabId, path: tab.worktree?.path ?? "", branch: tab.worktree?.branch ?? "" }));
 }
 
-const reviewSection = () => page.locator('[data-board-section="review"]');
-
-test("fan out into worktrees, compare, merge one from the board and one through the tool, discard a third", async () => {
+test("fan out into worktrees, compare, merge two through the tool, close a third; the board shows no review", async () => {
 	test.setTimeout(240_000);
 	const opened = await call("ompdesk_session_open", {
 		sessions: [
@@ -143,25 +142,22 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	expect(compared.text).toContain("final answer: Local fixture reply");
 	expect(compared.text).toContain("Compare runs no tests");
 
-	// The board lists the three children with work to review and their diff stat. Before the commits above a finished,
-	// untouched child had nothing to review and was off the board (the user's rule: a finished clean child
-	// disappears); the commits were made outside the app, so the timer's sweep (500 ms here) brings them in.
-	await expect(reviewSection()).toBeVisible({ timeout: 30_000 });
-	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(3, { timeout: 30_000 });
-	await expect(reviewSection()).toContainText("1 files · +2 −0");
+	// The board has no review section and no Approve/Discard/Review buttons: the agent reviews and lands its own
+	// children with the tools. The children show only as "Opened sessions" status rows.
+	await expect(page.locator('[data-board-section="opened"] [data-board-opened]')).toHaveCount(3, { timeout: 30_000 });
+	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
+	await expect(page.locator("[data-review-child]")).toHaveCount(0);
+	await expect(page.getByText("Needs review")).toHaveCount(0);
+	await expect(page.locator(".omp-work-board-actions")).toHaveCount(0);
 
-	// Approve on the board: the person's click merges, without a card.
+	// The agent lands the first through the tool: with full control (the default) it merges at once, without a card.
 	const first = made[0] as { tabId: string; path: string; branch: string };
-	await reviewSection()
-		.locator(`[data-review-child="${first.tabId}"]`)
-		.getByRole("button", { name: "Approve" })
-		.click();
-	await expect
-		.poll(async () => fs.readFile(path.join(project, "part-a.txt"), "utf8").catch(() => ""))
-		.toContain("work of a");
+	const landed = await call("ompdesk_merge", { session: first.tabId });
+	expect(landed.isError).toBe(false);
+	expect(landed.text).toContain("Nothing was pushed");
+	expect(await fs.readFile(path.join(project, "part-a.txt"), "utf8")).toContain("work of a");
 	expect(git(project, "log", "-1", "--format=%s")).toContain(`Merge ${first.branch} into main`);
-	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(2);
-	await expect(page.getByText("Merged the work of").first()).toBeVisible();
+	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
 
 	// With full control and "Let agents manage other sessions" stored off the tool asks first; a refusal merges
 	// nothing.
@@ -188,30 +184,14 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	expect(mergedResult.text).toContain("Nothing was pushed");
 	expect(await fs.readFile(path.join(project, "part-b.txt"), "utf8")).toContain("work of b");
 
-	// Discard the third: its session closes, its worktree and branch are removed, the parent is untouched.
+	// Discard the third through the tool: its session closes and its work never reaches the parent. (`ompdesk_session_stop`
+	// does not remove the worktree; the app's auto-close does that only for landed, clean branches.)
 	const third = made[2] as { tabId: string; path: string; branch: string };
-	await reviewSection()
-		.locator(`[data-review-child="${third.tabId}"]`)
-		.getByRole("button", { name: "Discard" })
-		.click();
-	await reviewSection()
-		.locator(`[data-review-child="${third.tabId}"]`)
-		.getByRole("button", { name: "Discard for good?" })
-		.click();
+	const closed = await call("ompdesk_session_stop", { session: third.tabId, close: true });
+	expect(closed.isError).toBe(false);
 	await expect
 		.poll(async () => (await tabs()).some(tab => tab.tabId === third.tabId), { timeout: 30_000 })
 		.toBe(false);
-	await expect
-		.poll(
-			async () =>
-				fs.stat(third.path).then(
-					() => true,
-					() => false,
-				),
-			{ timeout: 30_000 },
-		)
-		.toBe(false);
-	expect(git(project, "branch", "--list", third.branch)).toBe("");
 	await expect(fs.stat(path.join(project, "part-c.txt"))).rejects.toThrow();
 	expect(git(project, "status", "--porcelain")).toBe("");
 	// Nothing was ever pushed: the repository has no remote.

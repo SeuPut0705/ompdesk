@@ -56,6 +56,16 @@ interface PendingProposal {
 }
 
 let pending: PendingProposal | undefined;
+
+/**
+ * The proposal is no longer awaiting an answer (approved, rejected, superseded by a prompt, plan mode left, session
+ * switched): every window showing its card and main's waiting state hear it once.
+ */
+function settlePending(): void {
+	const shown = pending?.frame;
+	pending = undefined;
+	if (shown) emit({ type: "plan_proposal_resolved", planFilePath: shown.planFilePath });
+}
 let installedHandler: PlanProposalHandler | undefined;
 /** Active tools before plan mode added `write`; restored when it ends. */
 let previousTools: string[] | undefined;
@@ -105,7 +115,7 @@ function disarm(session: AgentSession): void {
 		session.setPlanProposalHandler(null);
 	}
 	installedHandler = undefined;
-	pending = undefined;
+	settlePending();
 }
 
 /** Leave plan mode (session-level subset of the TUI's `#tearDownPlanMode`). */
@@ -168,6 +178,9 @@ async function onProposalWritten(event: AgentSessionEvent, session: AgentSession
 }
 
 onSessionEvent((event, session) => {
+	// A turn that starts while the card waits is the person's (or an agent's) reply: feedback, like the dialog's
+	// refine, so the card goes everywhere and the agent revises or carries on from the message.
+	if (event.type === "agent_start" && pending?.frame) settlePending();
 	void onProposalWritten(event, session).catch(error =>
 		emit({ type: "notice", level: "error", message: `Plan proposal failed: ${errorMessage(error)}` }),
 	);
@@ -175,7 +188,7 @@ onSessionEvent((event, session) => {
 
 // A proposal belongs to the transcript that produced it.
 onSessionSwitch(() => {
-	pending = undefined;
+	settlePending();
 });
 
 function reportTurnError(error: unknown): void {
@@ -187,7 +200,7 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 	if (!proposal) throw new Error("No plan is awaiting approval");
 
 	if (params.approved !== true) {
-		pending = undefined;
+		settlePending();
 		const sessionId = session.sessionManager.getSessionId();
 		// Automatic mode choice never enters plan mode again in this session.
 		markPlanRejected(sessionId);

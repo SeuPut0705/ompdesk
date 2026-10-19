@@ -212,6 +212,17 @@ describe("PlanApprovalDialog", () => {
 		expect(document.body.textContent).toContain("Do the thing.");
 	});
 
+	it("closes when the proposal is resolved elsewhere, and only for its own plan", async () => {
+		installMockOmp(vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true })));
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+		await emit([{ type: "plan_proposal_resolved", planFilePath: "/session/plans/other.md" }]);
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+		await emit([{ type: "plan_proposal_resolved", planFilePath: "/session/plans/2026-08-03-auth-refactor.md" }]);
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+
 	it("shows one button per advertised option and approves with the matching option", async () => {
 		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true }));
 		installMockOmp(planApproval);
