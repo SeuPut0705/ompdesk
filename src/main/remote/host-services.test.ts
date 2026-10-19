@@ -1699,6 +1699,84 @@ describe("LocalHostServices: a device opening a session a window of this compute
 	});
 });
 
+describe("LocalHostServices: Autopilot of a device's tab", () => {
+	it("answers get/set_autopilot through this computer's coordinator, counting a start against the device", async () => {
+		const { services, sidecars } = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", { ...peer("device-x"), limits: { requestsPerDay: 1 } }]]);
+		services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const send = (command: Record<string, unknown>) =>
+			services.call(x.peer, "tab.command", { rtab: "t1", command }, x) as Promise<RpcResponse>;
+
+		// Before a coordinator is attached the command goes to the omp, as any other.
+		await send({ type: "get_autopilot" });
+		expect(sidecars[0]?.commands.map(command => command.type)).toEqual(["get_autopilot"]);
+
+		const seen: { tabId: string; sidecar: unknown; viewsWindow: boolean; command: unknown }[] = [];
+		services.attachAutopilot(async (target, command) => {
+			seen.push({ tabId: target.tabId, sidecar: target.sidecar, viewsWindow: target.viewsWindow, command });
+			return { type: "response", command: command.type, success: true, data: { active: true, tabId: "run1" } };
+		});
+		await expect(send({ type: "set_autopilot", action: "start", preset: "push" })).resolves.toMatchObject({
+			success: true,
+			data: { tabId: "run1" },
+		});
+		expect(seen).toEqual([
+			{
+				tabId: "peer:device-x:t1",
+				sidecar: sidecars[0],
+				viewsWindow: false,
+				command: { type: "set_autopilot", action: "start", preset: "push" },
+			},
+		]);
+		expect(sidecars[0]?.commands).toHaveLength(1);
+		expect(stored.get("device-x")?.usage).toMatchObject({ requests: 1 });
+		// A read never counts; a second start is past the device's daily limit.
+		await expect(send({ type: "get_autopilot" })).resolves.toMatchObject({ success: true });
+		expect(ipcErrorCode(await send({ type: "set_autopilot", action: "start" }).catch(error => error))).toBe(
+			"remote_limit_reached",
+		);
+		expect(seen).toHaveLength(2);
+	});
+
+	it("names the window's session when the device's tab views a window's tab", async () => {
+		const context = setup();
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set("/s/run.jsonl", view);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/run.jsonl" }, x);
+		const targets: { sessionPath?: string; viewsWindow: boolean }[] = [];
+		context.services.attachAutopilot(async (target, command) => {
+			targets.push({ sessionPath: target.sessionPath, viewsWindow: target.viewsWindow });
+			return { type: "response", command: command.type, success: true, data: { active: true, state: "stopping" } };
+		});
+		await context.services.call(
+			x.peer,
+			"tab.command",
+			{ rtab: "t1", command: { type: "set_autopilot", action: "stop" } },
+			x,
+		);
+		expect(targets).toEqual([{ sessionPath: "/s/run.jsonl", viewsWindow: true }]);
+		expect(view.commands).toEqual([]);
+	});
+});
+
 describe("LocalHostServices host.* calls", () => {
 	it("serves this machine's models.yml providers, validating what a device writes", async () => {
 		const { services, machine } = setup();

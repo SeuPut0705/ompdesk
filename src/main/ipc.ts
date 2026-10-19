@@ -122,6 +122,7 @@ import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
+import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
@@ -180,7 +181,10 @@ export interface IpcDeps {
 	 * The tabs this computer runs for paired devices (LocalHostServices): this computer's windows list their
 	 * sessions (`HOSTED_SESSIONS`) and open one as a view of that tab, never as a second omp on its file.
 	 */
-	hostedTabs: Pick<LocalHostServices, "viewSession" | "hostedSessions" | "onHostedSessionsChange">;
+	hostedTabs: Pick<
+		LocalHostServices,
+		"viewSession" | "hostedSessions" | "onHostedSessionsChange" | "sidecarOf" | "attachAutopilot"
+	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
 	/** Where to start when the caller has no cwd. Never the volume root: a
@@ -843,7 +847,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 
 	const autopilot: Autopilot = new Autopilot({
-		pool: sidecarPool,
+		// A paired device's tab here can be a run's source (it starts the run from its folder): the coordinator reads it
+		// by its resume id. Runs themselves are always this computer's window tabs.
+		pool: {
+			sidecarOf: tabId => sidecarPool.sidecarOf(tabId) ?? deps.hostedTabs.sidecarOf(tabId),
+			tabFacts: tabId => sidecarPool.tabFacts(tabId),
+			releaseTabWhenExited: tabId => sidecarPool.releaseTabWhenExited(tabId),
+			noteStopped: tabId => sidecarPool.noteStopped(tabId),
+			noteSessionName: (tabId, title) => sidecarPool.noteSessionName(tabId, title),
+			routeSideChannel: (id, frame, tabId) => sidecarPool.routeSideChannel(id, frame, tabId),
+		},
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
 			dispatchRpcCommand(win, sidecar, tabId, {
 				command,
@@ -888,6 +901,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		relaunchContinuation: deps.relaunchContinuation,
 	});
 	deps.autopilotRef.current = autopilot;
+	// A paired device's get/set_autopilot on its tab here are this coordinator's (src/main/remote/hosted-autopilot.ts).
+	deps.hostedTabs.attachAutopilot(
+		hostedAutopilot({
+			pool: sidecarPool,
+			targetWindow: () => windowManager.getTargetWindow(),
+			handle: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
+		}),
+	);
 	// The desktop slot (src/main/desktop-slot-host.ts): the bridge's slot frames come through the sidecar factory.
 	const desktopSlot = new DesktopSlotHost({
 		pool: sidecarPool,

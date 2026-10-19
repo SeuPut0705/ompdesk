@@ -213,6 +213,23 @@ interface HostTab extends RunTracking {
 	title?: string;
 }
 
+/** A device's tab here as this computer's Autopilot coordinator sees it (`attachAutopilot`). */
+export interface HostedAutopilotTarget {
+	/** The tab's resume id: the coordinator's tab id for a run started from it. */
+	tabId: string;
+	sidecar: SidecarLike;
+	/** The session file the tab is on, if any. */
+	sessionPath?: string;
+	/** The tab views a window's tab of this computer (`viewForDevice`): that tab is the coordinator's. */
+	viewsWindow: boolean;
+}
+
+/** This computer's Autopilot coordinator answering `get_autopilot` / `set_autopilot` for a device's tab. */
+export type HostedAutopilot = (
+	target: HostedAutopilotTarget,
+	command: { type: "get_autopilot" | "set_autopilot" } & Record<string, unknown>,
+) => Promise<RpcResponse>;
+
 const Rtab = z.string().min(1).max(128);
 const AbsolutePath = z.string().min(1).refine(isAbsolute, "absolute path required");
 const SessionPath = z.string().endsWith(".jsonl");
@@ -337,6 +354,7 @@ export class LocalHostServices implements HostServices {
 	#hostedSnapshot = "[]";
 	#quota: PeerQuota | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
+	#autopilot: HostedAutopilot | null = null;
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
@@ -370,6 +388,20 @@ export class LocalHostServices implements HostServices {
 	 */
 	attachResume(resume: Pick<TurnResume, "sync" | "cancelWait">): void {
 		this.#resume = resume;
+	}
+
+	/**
+	 * This computer's Autopilot coordinator (built after this service, with the IPC handlers): a device's
+	 * `get_autopilot` / `set_autopilot` are its, never the omp's, so a run of a folder here is this computer's run
+	 * (worktree, guard, shipping, restart) whichever device asked; a start counts as one of the device's requests.
+	 */
+	attachAutopilot(autopilot: HostedAutopilot): void {
+		this.#autopilot = autopilot;
+	}
+
+	/** A device tab's sidecar by its resume id (the coordinator reads a start's source tab through it). */
+	sidecarOf(id: string): SidecarLike | null {
+		return this.#byResumeId(id)?.sidecar ?? null;
 	}
 
 	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
@@ -1248,10 +1280,10 @@ export class LocalHostServices implements HostServices {
 				? await this.#metered(
 						peer.deviceId,
 						1,
-						() => client.command(command, params.timeoutMs),
+						() => this.#run(tab, client, command, params.timeoutMs),
 						result => result.success,
 					)
-				: await client.command(command, params.timeoutMs);
+				: await this.#run(tab, client, command, params.timeoutMs);
 			if (!response.success) signInError = response.error ?? "";
 			// A login or logout rewrote this machine's credential store: every tab
 			// running here re-reads it — this machine's own and every device's.
@@ -1266,6 +1298,26 @@ export class LocalHostServices implements HostServices {
 		} finally {
 			if (login !== null) this.#noteSignIn(tab, login, signInError);
 		}
+	}
+
+	/** The tab's omp answers a command, except Autopilot's, which this computer's coordinator answers. */
+	#run(
+		tab: HostTab,
+		client: NonNullable<SidecarLike["rpcClient"]>,
+		command: RpcCommand,
+		timeoutMs: number | undefined,
+	): Promise<RpcResponse> {
+		if (this.#autopilot && (command.type === "get_autopilot" || command.type === "set_autopilot"))
+			return this.#autopilot(
+				{
+					tabId: tab.resumeId,
+					sidecar: tab.sidecar,
+					...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
+					viewsWindow: tab.viewsWindow === true,
+				},
+				command,
+			);
+		return client.command(command, timeoutMs);
 	}
 
 	/** A `login` started (`ended` undefined) or answered on the tab: the device learns what still runs. */
