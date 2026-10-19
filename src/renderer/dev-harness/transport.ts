@@ -28,6 +28,7 @@ import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
+	ADVISOR_USAGE,
 	CONTEXT_INSPECT,
 	FILE_CONTENTS,
 	FILE_TREE,
@@ -272,6 +273,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			}
 			case "get_session_stats":
 				return respond(command, SESSION_STATS);
+			case "get_advisor_stats":
+				return respond(command, ADVISOR_USAGE);
 			case "get_context_inspect":
 				return respond(command, CONTEXT_INSPECT);
 			case "get_desktop_slot":

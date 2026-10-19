@@ -49,6 +49,7 @@ interface RpcMock {
 	getSessionStats: Mock;
 	getContextInspect: Mock;
 	getUsage: Mock;
+	getAdvisorStats: Mock;
 }
 
 function installOmp(): RpcMock {
@@ -82,6 +83,12 @@ function installOmp(): RpcMock {
 			},
 		})),
 		getUsage: vi.fn(async () => ({ type: "response", command: "get_usage", success: true, data: { reports: [] } })),
+		getAdvisorStats: vi.fn(async () => ({
+			type: "response",
+			command: "get_advisor_stats",
+			success: false,
+			error: "unknown command",
+		})),
 	};
 	Object.assign(window, {
 		omp: {
@@ -185,6 +192,74 @@ describe("InsightsPage", () => {
 		expect(text).toContain("#0199aa00");
 		// Named like the sidebar row, not "Untitled session".
 		expect(document.querySelector("h2")?.textContent).toBe("Build the Tally app");
+	});
+
+	it("shows the advisor's spend, calls and advisories with its share of the session's spend", async () => {
+		const omp = installOmp();
+		omp.getSessionStats.mockResolvedValue({
+			type: "response",
+			command: "get_session_stats",
+			success: true,
+			data: { ...stats, cost: 1.626 },
+		});
+		omp.getAdvisorStats.mockResolvedValue({
+			type: "response",
+			command: "get_advisor_stats",
+			success: true,
+			data: {
+				configured: true,
+				active: true,
+				subscription: false,
+				cost: 0.454,
+				calls: 7,
+				tokens: { input: 1000, output: 200, cacheRead: 5000, total: 6200 },
+				advisories: { total: 3, other: 0, blocker: 0, concern: 2, nit: 1 },
+				advisors: [{ name: "default", status: "running", model: "acme/acme-opus-5", calls: 7, cost: 0.454 }],
+			},
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useSessionStore.setState({ sessionId: stats.sessionId });
+		useUiStore.getState().openInsights("stats", "session");
+		await mount();
+
+		const section = document.querySelector("[data-advisor-insights]");
+		expect(section).not.toBeNull();
+		const text = section?.textContent ?? "";
+		expect(text).toContain("Advisor");
+		expect(text).toContain("$0.45");
+		expect(text).toContain("21.8% of this session's spend");
+		expect(text).toContain("Model calls");
+		expect(text).toContain("Advisories");
+		expect(text).toContain("Concern 2 · Nit 1");
+	});
+
+	it("leaves the advisor section out when the advisor cannot be read or never ran", async () => {
+		const omp = installOmp();
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openInsights("stats", "session");
+		await mount();
+		expect(omp.getAdvisorStats).toHaveBeenCalled();
+		expect(document.querySelector("[data-advisor-insights]")).toBeNull();
+
+		omp.getAdvisorStats.mockResolvedValue({
+			type: "response",
+			command: "get_advisor_stats",
+			success: true,
+			data: {
+				configured: false,
+				active: false,
+				subscription: false,
+				cost: 0,
+				calls: 0,
+				tokens: { input: 0, output: 0, cacheRead: 0, total: 0 },
+				advisories: { total: 0, other: 0, blocker: 0, concern: 0, nit: 0 },
+				advisors: [],
+			},
+		});
+		await act(async () => root.unmount());
+		container.remove();
+		await mount();
+		expect(document.querySelector("[data-advisor-insights]")).toBeNull();
 	});
 
 	it("lets this session's columns shrink below their longest unbreakable value", async () => {

@@ -12,7 +12,8 @@
  */
 
 import { ChevronDown, Network, SlidersHorizontal, Turtle, Zap } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { actionKbd, formatShortcut } from "../../../lib/keymap";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -25,6 +26,9 @@ import { type ComposerModeId, MODE_ICONS, ModesSection, useComposerModes } from 
 import { DelegationField, useDelegation } from "./DelegationField";
 import { AdvancedAndRoles, SpeedFields, useSpeedState, useThinkingName } from "./RunSettings";
 import { ThinkingLevelField } from "./ThinkingControl";
+
+// Not on the first screen and past its JavaScript budget: loaded when the popover first renders it.
+const RunAdvisorRow = lazyChunk(() => import("./AdvisorUsageRow").then(module => ({ default: module.RunAdvisorRow })));
 
 export function RunChip() {
 	const t = useT();
@@ -150,6 +154,9 @@ export function RunChip() {
 					{delegation.mode !== null && (
 						<DelegationField mode={delegation.mode} onPick={next => void delegation.pick(next)} />
 					)}
+					<Suspense fallback={null}>
+						<RunAdvisorRow open={open} />
+					</Suspense>
 					<SpeedFields />
 					<AdvancedAndRoles onClose={close} />
 				</div>

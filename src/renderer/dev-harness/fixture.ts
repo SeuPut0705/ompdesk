@@ -4,6 +4,7 @@
  * the app's main process and omp would send, so the mobile layouts can be captured without either.
  */
 
+import type { AdvisorUsage } from "../../../resources/gui-bridge/advisor-stats-contracts";
 import type { IpcTabInfo, SessionInfo } from "../../shared/ipc-types";
 import type {
 	RpcContextInspectResult,
@@ -510,6 +511,18 @@ export const PR_DETAIL: RpcPrDetail = {
 		{ name: "check", status: "COMPLETED", conclusion: "SUCCESS" },
 		{ name: "e2e (mobile)", status: "IN_PROGRESS", conclusion: null },
 	],
+};
+
+/** What `get_advisor_stats` answers: an advisor on another vendor's model, three notes delivered (Run popover, Insights). */
+export const ADVISOR_USAGE: AdvisorUsage = {
+	configured: true,
+	active: true,
+	subscription: false,
+	cost: 0.454,
+	calls: 18,
+	tokens: { input: 96_400, output: 3_100, cacheRead: 71_000, total: 170_500 },
+	advisories: { total: 3, blocker: 0, concern: 2, nit: 1, other: 0 },
+	advisors: [{ name: "default", status: "running", model: "openai/gpt-6.1-sol", calls: 18, cost: 0.454 }],
 };
 
 /** What `get_session_stats` answers: the open session's figures (Insights › Activity › This session). */

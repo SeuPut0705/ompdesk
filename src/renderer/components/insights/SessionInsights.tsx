@@ -19,6 +19,7 @@ import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, SkeletonRows } from "../common";
 import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
+import { AdvisorInsights } from "./AdvisorInsights";
 import { ContextBreakdown } from "./ContextBreakdown";
 import { ModelUsage } from "./ModelUsage";
 
@@ -213,6 +214,7 @@ export function SessionInsights() {
 			{history && <p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("sessionInfo.scope")}</p>}
 
 			<ModelUsage stats={stats} />
+			<AdvisorInsights refreshKey={`${trigger}:${refreshKey}`} sessionCost={history?.cost ?? stats.cost} />
 
 			<SectionTitle>{t("sessionInfo.contextWindow")}</SectionTitle>
 			<ContextBreakdown refreshKey={refreshKey} />
