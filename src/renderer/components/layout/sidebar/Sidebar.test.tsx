@@ -2249,6 +2249,42 @@ describe("Sidebar device sections", () => {
 		expect(row()?.getAttribute("data-pane-focus")).toBe("true");
 		expect(row()?.getAttribute("draggable")).toBe("false");
 	});
+
+	it("closes and deletes a host's session from its row, naming the host and deleting it there", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		const remotePath = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "tr",
+					cwd: "/Users/kim/code/app",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					device: "dev-studio",
+					sessionPath: remotePath,
+				},
+			],
+			activeTabId: "t0",
+		});
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`);
+		expect(row()?.querySelector("[data-device-session-close]")).not.toBeNull();
+		await fire(row()?.querySelector("[data-device-session-delete]") ?? null, "onClick");
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Remote fix on studio");
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		const confirm = [...document.body.querySelectorAll('[role="dialog"] button')].find(
+			b => (b.textContent ?? "").trim() === "Delete",
+		) as unknown as Element;
+		await fire(confirm, "onClick");
+		expect(omp.sessions.delete).toHaveBeenCalledWith(remotePath, "dev-studio");
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "tr")).toBe(false);
+	});
 });
 
 describe("Sidebar archive, grouping and move", () => {

@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { capture, exitApp, readRecords, variants } from "./harness";
+import { capture, cssString, exitApp, readRecords, variants } from "./harness";
 import {
 	freePort,
 	type Language,
@@ -441,6 +441,81 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 		if (client) await exitApp(client.app);
 		if (host) await exitApp(host.app);
 		await proxy.close();
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
+test("a device deletes a host's session from its sidebar row: the host's omp lets go, the file goes, and neither relaunch brings it back", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-delete-")));
+	const discovery = 55_000 + Math.floor(Math.random() * 1_000) * 2;
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			discoveryPort: discovery,
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			discoveryPort: discovery + 1,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await pair(host.page, client.page, "Host B");
+		await openHostFolder(client.page, deviceId, hostProfile.project);
+		const a = client.page;
+		await send(a, "remote hello");
+		await expect(a.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
+
+		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
+		const firstRow = section.locator("[data-device-session]").first();
+		await expect(firstRow).toHaveAttribute("data-device-session", /\.jsonl$/, { timeout: 30_000 });
+		const sessionPath = (await firstRow.getAttribute("data-device-session")) ?? "";
+		const exists = () =>
+			fs.stat(sessionPath).then(
+				() => true,
+				() => false,
+			);
+		expect(await exists()).toBe(true);
+		const omps = ompPids(hostProfile).length;
+
+		const row = section.locator(`[data-device-session=${cssString(sessionPath)}]`);
+		await row.hover();
+		await row.locator("[data-device-session-delete]").click();
+		const dialog = a.getByRole("dialog");
+		await expect(dialog).toContainText("on Host B");
+		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+
+		await expect.poll(() => remoteStatus(a, deviceId)).toBeUndefined();
+		await expect.poll(exists, { timeout: 20_000 }).toBe(false);
+		await expect(row).toHaveCount(0);
+		if (process.platform !== "win32") await expect.poll(() => ompPids(hostProfile).length).toBe(omps - 1);
+
+		// Both relaunch: the session stays gone on B and in A's sidebar.
+		await exitApp(client.app);
+		client = null;
+		await exitApp(host.app);
+		host = null;
+		host = await launchRemote(hostProfile, { project: false });
+		client = await launchRemote(clientProfile, { project: false, ready: false });
+		const after = client.page;
+		await expect(after.locator(`[data-sidebar-device="${deviceId}"]`)).toHaveAttribute(
+			"data-device-state",
+			"online",
+			{
+				timeout: 60_000,
+			},
+		);
+		await expect(after.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(0);
+		expect(await exists()).toBe(false);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 });

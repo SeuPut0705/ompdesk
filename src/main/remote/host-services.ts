@@ -432,7 +432,7 @@ export class LocalHostServices implements HostServices {
 			case "sessions.kindFor":
 				return this.#deps.sessionIndex.kindFor(parse(SessionPathParams, method, params).sessionPath);
 			case "sessions.delete":
-				return this.#deleteSession(parse(SessionPathParams, method, params).sessionPath);
+				return this.#deleteSession(peer, parse(SessionPathParams, method, params).sessionPath);
 			case "sessions.rename": {
 				const { sessionPath, name } = parse(RenameParams, method, params);
 				return this.#renameSession(sessionPath, name);
@@ -746,13 +746,7 @@ export class LocalHostServices implements HostServices {
 		for (const [key, other] of this.#tabs) {
 			if (other === tab || other.sessionFile !== file) continue;
 			const loser = runBusy(other.run) && !runBusy(tab.run) ? tab : other;
-			this.#emit(loser, "status", {
-				status: "exited",
-				statusPayload: { message: "This session is open in another tab on the host" },
-				processAlive: false,
-				cwd: loser.sidecar.cwd,
-				kind: loser.sidecar.kind,
-			} satisfies TabStatusArg);
+			this.#emit(loser, "status", this.#goneStatus(loser, "This session is open in another tab on the host"));
 			this.#closeTab(loser === tab ? this.#key(tab.peerId, tab.rtab) : key);
 			if (loser === tab) return;
 		}
@@ -1068,15 +1062,33 @@ export class LocalHostServices implements HostServices {
 
 	/**
 	 * This machine's sidebar policy (session-mutations.ts): a tab of this machine holding the session
-	 * closes, another device's live tab refuses; a device's own tab, closed just before, is waited for.
+	 * closes, another device's live tab refuses. The asking device's own tabs on the file (the one it
+	 * just closed, one left from an earlier connection in its grace period, a duplicate) are its to
+	 * release: an idle one is closed and waited for, one running a turn refuses.
 	 */
-	async #deleteSession(sessionPath: string): Promise<null> {
-		if (this.#liveOwner(sessionPath)) throw codedError("session_running", "Session is open on the host");
+	async #deleteSession(peer: PeerInfo, sessionPath: string): Promise<null> {
+		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
+		if (held.some(tab => (tab.peerId !== peer.deviceId && tab.sidecar.processAlive) || runBusy(tab.run)))
+			throw codedError("session_running", "Session is open on the host");
+		for (const tab of held) {
+			this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
+			this.#closeTab(this.#key(tab.peerId, tab.rtab));
+		}
 		await this.#exiting.get(sessionPath);
 		await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
 			this.#deps.sessionIndex.deleteSession(sessionPath),
 		);
 		return null;
+	}
+
+	#goneStatus(tab: HostTab, message: string): TabStatusArg {
+		return {
+			status: "exited",
+			statusPayload: { message },
+			processAlive: false,
+			cwd: tab.sidecar.cwd,
+			kind: tab.sidecar.kind,
+		};
 	}
 
 	/** This machine's sidebar policy, with a device tab holding the session as the first live owner. */

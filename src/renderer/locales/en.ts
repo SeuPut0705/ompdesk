@@ -5776,6 +5776,8 @@ export const en: Record<string, string> = {
 	"remote.sidebar.thisDevice": "This device",
 	"remote.sidebar.addProject": "Add project on {name}",
 	"remote.sidebar.offline": "Offline. Sessions show up when it's back.",
+	"remote.sidebar.deleteMessage":
+		"Delete {name} on {device}? This permanently removes its transcript on that computer and cannot be undone.",
 	"remote.sidebar.empty": "No sessions on this device yet.",
 	"remote.tab.chip": "Runs on {name}",
 	"remote.tab.unknownDevice": "Unknown device",

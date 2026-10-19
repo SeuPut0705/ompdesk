@@ -7,7 +7,18 @@
  * attached to it, else opens a remote tab; "Add project" browses the host's
  * disk with the remote folder picker.
  */
-import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MessageCircle, Monitor, Plus } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	Folder,
+	FolderOpen,
+	FolderPlus,
+	MessageCircle,
+	Monitor,
+	Plus,
+	Trash2,
+	X,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -19,8 +30,10 @@ import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-tit
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
+import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
+import { ConfirmDialog } from "../../common/ConfirmDialog";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -155,7 +168,9 @@ function DeviceSessions({
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
 }) {
 	const t = useT();
-	const { sessions, isLoading, error, refresh } = useSessionList("global", host.deviceId);
+	const { sessions, isLoading, error, refresh, deleteSession } = useSessionList("global", host.deviceId);
+	const [pendingDelete, setPendingDelete] = useState<DeviceSession | null>(null);
+	const [deleting, setDeleting] = useState(false);
 	const allTabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const destination = useUiStore(state => state.destination);
@@ -230,6 +245,29 @@ function DeviceSessions({
 		void onOpen({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
 	};
 
+	// Like the local list (Sidebar.tsx): the tab showing the session closes first, then main waits for the host's
+	// omp to let go of the file and the host deletes it (its own `sessions.delete`).
+	const confirmDelete = async (session: DeviceSession) => {
+		if (tabFor(session)?.status === "running") {
+			toast({ variant: "warning", message: t("sidebar.menu.taskRunning") });
+			setPendingDelete(null);
+			return;
+		}
+		setDeleting(true);
+		try {
+			if (!(await useTabsStore.getState().closeDeletedSession(session.path, tabFor(session)?.id))) {
+				setPendingDelete(null);
+				return;
+			}
+			await deleteSession(session.path);
+			setPendingDelete(null);
+		} catch (cause) {
+			toastError({ title: t("sidebar.deleteFailed"), error: cause });
+		} finally {
+			setDeleting(false);
+		}
+	};
+
 	const renderRow = (session: DeviceSession, nested: boolean) => {
 		const tab = tabFor(session);
 		const signal = tab ? tabSignalPresentation(tab) : null;
@@ -252,8 +290,36 @@ function DeviceSessions({
 				)}
 			</span>
 		);
+		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
+		const deletable = !session.path.startsWith("tab:") && !signal?.running;
 		return (
 			<ListRow
+				actions={
+					<>
+						{tab && (
+							<IconButton
+								data-device-session-close
+								icon={<X />}
+								label={t("sidebar.menu.closeSession")}
+								onClick={() => void useTabsStore.getState().closeTab(tab.id)}
+								size="sm"
+								tabIndex={-1}
+							/>
+						)}
+						{deletable && (
+							<IconButton
+								data-device-session-delete
+								icon={<Trash2 />}
+								label={t("sidebar.delete")}
+								onClick={() => setPendingDelete(session)}
+								size="sm"
+								tabIndex={-1}
+							/>
+						)}
+					</>
+				}
+				actionCount={(tab ? 1 : 0) + (deletable ? 1 : 0)}
+				actionsOnHover
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
 				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 				key={session.path}
@@ -324,11 +390,36 @@ function DeviceSessions({
 			</p>
 		);
 	}
+	const dialog = (
+		<ConfirmDialog
+			busy={deleting}
+			message={
+				pendingDelete
+					? t("remote.sidebar.deleteMessage", {
+							name: sessionDisplayTitle(pendingDelete, t("sidebar.untitled")),
+							device: host.name,
+						})
+					: ""
+			}
+			onCancel={() => setPendingDelete(null)}
+			onConfirm={() => {
+				if (pendingDelete) void confirmDelete(pendingDelete);
+			}}
+			open={pendingDelete !== null}
+			title={t("sidebar.deleteConfirm")}
+		/>
+	);
 	if (mode === "chat") {
-		return <div className="space-y-px">{rows.map(session => renderRow(session, false))}</div>;
+		return (
+			<div className="space-y-px">
+				{rows.map(session => renderRow(session, false))}
+				{dialog}
+			</div>
+		);
 	}
 	return (
 		<div className="space-y-px">
+			{dialog}
 			{groups.map(group => {
 				const groupCollapsed = !query && collapsedGroups[group.cwd] === true;
 				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
