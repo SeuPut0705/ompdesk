@@ -8,9 +8,10 @@
  *    conversations" is on, a conversation a person has paused (10 minutes quiet) with 6 or more new messages of theirs is
  *    read once by the cheap model, and the pages that pass the checks are created: the project's in its own project,
  *    the owner's preferences and corrections in `_global` (read by every project's recall), and none the project's
- *    rules file already states (`rules-file.ts`). At most one run per hour and six per day, one conversation per run,
- *    so the bill is bounded: measured on the user's own sessions a run reads ~3k tokens and writes 0.2–0.5k,
- *    $0.015–0.018 on `claude-sonnet-5-5` (the `smol` role there).
+ *    rules file already states (`rules-file.ts`). A new page that replaces one memory holds (named by the model, else a
+ *    same-kind title close enough, `supersede.ts`) takes the old one out of default recall (`retirePage`). At most one
+ *    run per hour and six per day, one conversation per run, so the bill is bounded: measured on the user's own
+ *    sessions a run reads ~3k tokens and writes 0.2–0.5k, $0.015–0.018 on `claude-sonnet-5-5` (the `smol` role there).
  *
  * Only what a person typed is read: a subagent's or an agent-opened session carries an agent's words, and ai-memory's
  * server redacts secrets before they are stored.
@@ -27,6 +28,7 @@ import {
 	distillMessage,
 	GLOBAL_PROJECT,
 	KIND_LAYOUT,
+	KNOWN_EXCERPT_CHARS,
 	KNOWN_GLOBAL_PAGES,
 	KNOWN_PROJECT_PAGES,
 	type KnownPage,
@@ -38,6 +40,7 @@ import {
 import type { ModelResult } from "./distill-model";
 import { type RetitleClient, type RetitleReport, retitleSessionPages } from "./retitle";
 import { readRulesText, rulesIndex, statedByRules } from "./rules-file";
+import { pageToReplace } from "./supersede";
 
 export const UPKEEP_TICK_MS = 15 * 60_000;
 /** A conversation is read once its person has been quiet this long. */
@@ -49,7 +52,7 @@ const SCAN_SESSIONS = 100;
 /** The first tick waits so the first tab and the wiring have the machine to themselves. */
 const FIRST_TICK_MS = 2 * 60_000;
 
-export type UpkeepClient = RetitleClient & Pick<AiMemoryClient, "sessions" | "createPage">;
+export type UpkeepClient = RetitleClient & Pick<AiMemoryClient, "sessions" | "createPage" | "retirePage">;
 
 export type UpkeepLogMessage = "retitle" | "learn" | "failed";
 export type UpkeepLogDetails = Record<string, string | number | boolean | null>;
@@ -88,6 +91,8 @@ export type TickOutcome =
 			duplicates: number;
 			/** Pages the project's rules file already states, not written. */
 			inRules: number;
+			/** `old → new` for each page a new one replaced (the old one left default recall). */
+			superseded: string[];
 			refused: string[];
 			model: string;
 			inputTokens: number;
@@ -267,20 +272,34 @@ export class MemoryUpkeep {
 		return personPrompts(observations);
 	}
 
-	/** The durable pages memory holds: the project's (newest first) and the owner's preferences in `_global`. */
+	/** The durable pages memory holds, newest first, with the start of each: the project's and the owner's preferences in `_global`. */
 	async #knownPages(pages: readonly AiMemoryPageRef[]): Promise<KnownPage[]> {
 		// `_global` exists once something wrote it; until then there is nothing to show.
 		const global = await this.#deps.client.pages(GLOBAL_PROJECT).catch(() => []);
-		return [
-			...pages
-				.filter(page => !page.path.startsWith("sessions/"))
-				.slice(0, KNOWN_PROJECT_PAGES)
-				.map(page => ({ path: page.path, title: page.title, global: false })),
+		const shown = [
+			...pages.filter(page => !page.path.startsWith("sessions/")).slice(0, KNOWN_PROJECT_PAGES),
 			...global
 				.filter(page => page.path.startsWith(`${KIND_LAYOUT.preference.folder}/`))
-				.slice(0, KNOWN_GLOBAL_PAGES)
-				.map(page => ({ path: page.path, title: page.title, global: true })),
+				.slice(0, KNOWN_GLOBAL_PAGES),
 		];
+		return Promise.all(
+			shown.map(async page => {
+				const read = await this.#deps.client.page(page).catch(() => null);
+				// The H1 is the title the model already reads.
+				const excerpt = (read?.markdown ?? "")
+					.replace(/^#[^\n]*\n/, "")
+					.replaceAll(/\s+/g, " ")
+					.trim();
+				return {
+					path: page.path,
+					title: page.title,
+					global: page.project === GLOBAL_PROJECT.project,
+					...(excerpt ? { excerpt: excerpt.slice(0, KNOWN_EXCERPT_CHARS) } : {}),
+					...(read?.id ? { id: read.id } : {}),
+					...(read?.pinned ? { pinned: true } : {}),
+				};
+			}),
+		);
 	}
 
 	async #learn(candidate: Candidate, state: UpkeepState, now: number): Promise<TickOutcome> {
@@ -308,6 +327,8 @@ export class MemoryUpkeep {
 			parsed.proposals.length ? await (this.#deps.rules ?? readRulesText)(session.cwd ?? "").catch(() => "") : "",
 		);
 		const created: string[] = [];
+		const superseded: string[] = [];
+		const retiredHere = new Set<string>();
 		let duplicates = 0;
 		let inRules = 0;
 		for (const proposal of parsed.proposals) {
@@ -318,16 +339,42 @@ export class MemoryUpkeep {
 			}
 			const path = proposalPath(proposal);
 			const layout = KIND_LAYOUT[proposal.kind];
+			const target = layout.global ? GLOBAL_PROJECT : project;
+			const label = (page: string) => (layout.global ? `${GLOBAL_PROJECT.project}/${page}` : page);
+			const replaced = pageToReplace(proposal, known);
 			const written = await this.#deps.client.createPage({
-				...(layout.global ? GLOBAL_PROJECT : project),
+				...target,
 				path,
-				body: proposalMarkdown(proposal, session.id),
+				body: proposalMarkdown(proposal, session.id, replaced?.path),
 				tier: layout.tier,
 				kind: layout.kind,
 				...(layout.global ? {} : { sessionId: session.id }),
 			});
-			if (written) created.push(layout.global ? `${GLOBAL_PROJECT.project}/${path}` : path);
-			else duplicates += 1;
+			if (!written) {
+				duplicates += 1;
+				continue;
+			}
+			created.push(label(path));
+			if (!replaced) continue;
+			const key = label(replaced.path);
+			if (!retiredHere.has(key)) {
+				// Only once the new page exists, and only the version the model was shown: the old one leaves default recall.
+				const retired = await this.#deps.client
+					.retirePage({
+						...target,
+						path: replaced.path,
+						successor: path,
+						at: new Date(now),
+						...(replaced.id ? { expectedPageId: replaced.id } : {}),
+					})
+					.catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
+				if (retired !== "retired") {
+					parsed.refused.push(`${replaced.path}: not superseded (${retired})`);
+					continue;
+				}
+				retiredHere.add(key);
+			}
+			superseded.push(`${key} → ${label(path)}`);
 		}
 		// An answer that parsed (even one with no pages) settles the window; an unusable answer is read again next time.
 		const understood = parsed.proposals.length > 0 || parsed.refused.every(line => !line.startsWith("answer is not"));
@@ -344,6 +391,7 @@ export class MemoryUpkeep {
 			created,
 			duplicates,
 			inRules,
+			superseded,
 			refused: parsed.refused,
 			model: result.model,
 			inputTokens: result.inputTokens,
@@ -357,6 +405,7 @@ export class MemoryUpkeep {
 			created: created.length,
 			duplicates,
 			inRules,
+			superseded: superseded.length,
 			refused: parsed.refused.length,
 			model: result.model,
 			inputTokens: result.inputTokens,

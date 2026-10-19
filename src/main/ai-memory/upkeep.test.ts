@@ -47,6 +47,8 @@ interface FakePage {
 	title: string;
 	/** Default `ompdesk`. */
 	project?: string;
+	body?: string;
+	pinned?: boolean;
 }
 
 function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
@@ -54,6 +56,9 @@ function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
 		[];
 	const taken = new Set(existing.map(page => `${page.project ?? PROJECT.project}/${page.path}`));
 	const observationCalls: string[] = [];
+	const retired: { project: string; path: string; successor: string; at: string }[] = [];
+	const find = (project: string, path: string) =>
+		existing.find(page => (page.project ?? PROJECT.project) === project && page.path === path);
 	const client: UpkeepClient = {
 		projects: async () => [
 			{ ...PROJECT, pages: 0, lastUpdated: null },
@@ -94,8 +99,20 @@ function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
 				updatedAt: null,
 			})),
 		],
-		page: async () => {
-			throw new Error("not read");
+		page: async ref => {
+			const found = find(ref.project, ref.path);
+			if (!found?.body) throw new Error("not read");
+			return {
+				...ref,
+				title: found.title,
+				updatedAt: null,
+				tier: "semantic",
+				markdown: found.body,
+				id: `pg-${found.path}`,
+				pinned: found.pinned === true,
+				createdAt: null,
+				tags: [],
+			};
 		},
 		writeSessionPage: async () => undefined,
 		handoffs: async () => [],
@@ -114,8 +131,18 @@ function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
 			});
 			return true;
 		},
+		retirePage: async input => {
+			if (find(input.project, input.path)?.pinned) return "pinned";
+			retired.push({
+				project: input.project,
+				path: input.path,
+				successor: input.successor,
+				at: input.at.toISOString(),
+			});
+			return "retired";
+		},
 	};
-	return { client, created, observationCalls };
+	return { client, created, observationCalls, retired };
 }
 
 const answer = (pages: unknown[]): ModelResult => ({
@@ -273,6 +300,79 @@ describe("MemoryUpkeep.tick", () => {
 			refused: [`${rule.title}: the project's rules file already says it`],
 		});
 		expect(created).toHaveLength(1);
+	});
+
+	it("a page that names what it supersedes takes the old one out of recall, once the new one exists", async () => {
+		const { client, created, retired } = fakeClient(
+			[{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }],
+			[
+				{
+					path: "_rules/세션-수-상한-8개.md",
+					title: "세션은 8개까지 연다",
+					body: "# 세션은 8개까지 연다\n\n동시에 8개까지만 연다.",
+				},
+			],
+		);
+		const outcome = await upkeep(client, {
+			model: async message => {
+				messages.push(message);
+				return answer([{ ...rule, supersedes: "_rules/세션-수-상한-8개.md" }]);
+			},
+		}).tick();
+		// The model was shown the old page, its start included, to name it.
+		expect(messages[0]?.user).toContain(
+			"- _rules/세션-수-상한-8개.md · 세션은 8개까지 연다 · 동시에 8개까지만 연다.",
+		);
+		expect(outcome).toMatchObject({
+			created: ["_rules/동시-세션-수-제한을-두지-않는다.md"],
+			superseded: ["_rules/세션-수-상한-8개.md → _rules/동시-세션-수-제한을-두지-않는다.md"],
+		});
+		expect(retired).toEqual([
+			{
+				project: "ompdesk",
+				path: "_rules/세션-수-상한-8개.md",
+				successor: "_rules/동시-세션-수-제한을-두지-않는다.md",
+				at: new Date(T0).toISOString(),
+			},
+		]);
+		expect(created[0]?.body).toContain("_Replaces [[_rules/세션-수-상한-8개.md]]._");
+	});
+
+	it("without a named page the code rule supersedes the similar same-kind title and leaves an unrelated one", async () => {
+		const { client, retired } = fakeClient(
+			[{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }],
+			[
+				{ path: "decisions/use-sqlite-for-the-cache.md", title: "Use SQLite for the cache" },
+				{ path: "decisions/tailscale-only.md", title: "Computers share over Tailscale only" },
+			],
+		);
+		const decision = { ...rule, kind: "decision", title: "Use SQLite for the session cache" };
+		const other = { ...rule, kind: "decision", title: "Pin the judge model to 1.14" };
+		const outcome = await upkeep(client, { model: async () => answer([decision, other]) }).tick();
+		expect(outcome).toMatchObject({
+			created: ["decisions/use-sqlite-for-the-session-cache.md", "decisions/pin-the-judge-model-to-1-14.md"],
+			superseded: ["decisions/use-sqlite-for-the-cache.md → decisions/use-sqlite-for-the-session-cache.md"],
+		});
+		expect(retired.map(entry => entry.path)).toEqual(["decisions/use-sqlite-for-the-cache.md"]);
+	});
+
+	it("never supersedes when the new page was not written, nor a page its owner pinned", async () => {
+		const { client, created, retired } = fakeClient(
+			[{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }],
+			[
+				{ path: "_rules/동시-세션-수-제한을-두지-않는다.md", title: "다른 제목" },
+				{ path: "_rules/old.md", title: "옛 규칙" },
+				{ path: "_rules/pinned.md", title: "고정된 규칙", body: "# 고정된 규칙\n\n본문", pinned: true },
+			],
+		);
+		const pinnedOne = { ...rule, title: "새 규칙", supersedes: "_rules/pinned.md" };
+		const outcome = await upkeep(client, {
+			model: async () => answer([{ ...rule, supersedes: "_rules/old.md" }, pinnedOne]),
+		}).tick();
+		expect(retired).toEqual([]);
+		expect(outcome).toMatchObject({ duplicates: 1, superseded: [], refused: [] });
+		expect(created.map(page => page.path)).toEqual(["_rules/새-규칙.md"]);
+		expect(created[0]?.body).not.toContain("Replaces");
 	});
 
 	it("does not read the same messages twice: the next window starts after the last one read", async () => {

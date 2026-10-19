@@ -19,10 +19,12 @@ const PROMPT_CHARS = 700;
 /** A window reads at most this many prompts (the newest are kept: the earlier ones were a previous window's). */
 const WINDOW_PROMPTS = 40;
 const TASK_TITLES = 12;
-/** The project's own durable pages the model is shown, newest first. */
+/** The project's own durable pages the model is shown (path, title, the start of the body), newest first. */
 export const KNOWN_PROJECT_PAGES = 30;
 /** The owner's preferences (kept in `_global`, read in every project) the model is shown beside them. */
 export const KNOWN_GLOBAL_PAGES = 20;
+/** How much of a known page's body the model reads: enough to tell an update of it from a neighbour. */
+export const KNOWN_EXCERPT_CHARS = 200;
 /** Pages one window may add: most windows add none. */
 export const DISTILL_MAX_PAGES = 3;
 const MIN_CONFIDENCE = 0.75;
@@ -74,6 +76,8 @@ export interface Proposal {
 	quote?: string;
 	/** The page's point as one English sentence: what is compared with the project's (English) rules file. */
 	gist?: string;
+	/** A page memory already holds (a path the model was shown, in the page's own scope) that this one replaces. */
+	supersedes?: string;
 }
 
 /** A durable page memory already holds, as the model is shown it. */
@@ -82,6 +86,10 @@ export interface KnownPage {
 	title: string;
 	/** The start of its body, flattened, when it was read. */
 	excerpt?: string;
+	/** The version the model was shown (the server's page id): a retire checks it is still the current one. */
+	id?: string;
+	/** Pinned by the owner: never superseded. */
+	pinned?: boolean;
 	/** Kept in `_global` (the owner's preferences), not in the project. */
 	global: boolean;
 }
@@ -151,10 +159,10 @@ Never write: progress or status of one task, questions the owner asked, anything
 Cite the message numbers a page rests on, and quote the owner: "quote" is a short passage copied character for character from one of those messages, in their language, with no translation, paraphrase or ellipsis. A preference or correction without such a quote is not written.
 Give a confidence from 0 to 1 for how clearly the excerpt establishes it; write nothing below 0.75 (a correction: below 0.65).
 Write each page in the language the owner wrote in. A title is a specific noun phrase of at most ${TITLE_MAX} characters that tells the page apart from every page memory already holds; a body is 2 to 8 short lines of plain markdown: the fact first, then the reason or the consequence. "gist_en" is the page's point as one plain English sentence.
-Memory already holds the pages listed below. Do not repeat one.
+Memory already holds the pages listed below. Do not repeat one. When a page you write replaces one of them (the same subject, decided again or contradicted), give that page's path as "supersedes"; never name a page that is only related.
 
 Answer with one JSON object and nothing else:
-{"pages":[{"kind":"decision|rule|gotcha|procedure|preference|correction","title":"...","body":"...","quote":"...","gist_en":"...","confidence":0.0,"evidence":[1,2]}]}`;
+{"pages":[{"kind":"decision|rule|gotcha|procedure|preference|correction","title":"...","body":"...","quote":"...","gist_en":"...","supersedes":null,"confidence":0.0,"evidence":[1,2]}]}`;
 
 export interface DistillMessage {
 	system: string;
@@ -177,10 +185,10 @@ export function distillMessage(digest: Digest, known: readonly KnownPage[]): Dis
 		user: [
 			digest.text,
 			"",
-			"## Pages the project already has",
+			"## Pages the project already has (path · title · start)",
 			...(project.length ? project : ["(none)"]),
 			"",
-			"## The owner's preferences, kept for every project",
+			"## The owner's preferences, kept for every project (path · title · start)",
 			...(global.length ? global : ["(none)"]),
 		].join("\n"),
 	};
@@ -216,13 +224,13 @@ export interface Parsed {
 	refused: string[];
 }
 
-const flat = (text: string): string => text.replaceAll(/\s+/g, " ").trim();
+const flat = (text: string): string => text.normalize("NFC").replaceAll(/\s+/g, " ").trim();
 const titleKey = (title: string): string => flat(title).toLowerCase();
 
 /**
  * The proposals a model's answer holds that pass the checks: a known kind, a real title and body, cited prompts,
  * confidence, and a quote that is the owner's own words (required for a preference or correction, checked on any page
- * that gives one).
+ * that gives one). A `supersedes` that names no page the model was shown, in the page's own scope, is dropped.
  */
 export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, known: readonly KnownPage[]): Parsed {
 	const parsed: Parsed = { proposals: [], refused: [] };
@@ -265,6 +273,8 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 		else {
 			taken.add(titleKey(title));
 			const gist = typeof item.gist_en === "string" ? flat(item.gist_en) : "";
+			const supersedes = typeof item.supersedes === "string" ? item.supersedes.trim() : "";
+			const replaces = known.find(page => page.path === supersedes && page.global === layout.global);
 			accepted.push({
 				kind: kind as DistillKind,
 				title,
@@ -273,6 +283,7 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 				evidence: quoted && !evidence.includes(quoted.n) ? [...evidence, quoted.n].sort((a, b) => a - b) : evidence,
 				...(quoted ? { quote } : {}),
 				...(gist && gist.length <= GIST_MAX ? { gist } : {}),
+				...(replaces ? { supersedes: replaces.path } : {}),
 			});
 		}
 	}
@@ -296,8 +307,8 @@ export function proposalPath(proposal: Pick<Proposal, "kind" | "title">): string
 	return `${KIND_LAYOUT[proposal.kind].folder}/${slug || "page"}.md`;
 }
 
-/** The page: the title as its H1 (the server derives the title from it), the body, the owner's words, and where it came from. */
-export function proposalMarkdown(proposal: Proposal, sessionId: string): string {
+/** The page: the title as its H1 (the server derives the title from it), the body, the owner's words, the page it replaces, and where it came from. */
+export function proposalMarkdown(proposal: Proposal, sessionId: string, replaces?: string): string {
 	const cited = proposal.evidence.map(n => `#${n}`).join(", ");
 	return [
 		`# ${proposal.title}`,
@@ -305,6 +316,7 @@ export function proposalMarkdown(proposal: Proposal, sessionId: string): string 
 		proposal.body,
 		"",
 		...(proposal.quote ? [`> ${proposal.quote}`, ""] : []),
+		...(replaces ? [`_Replaces [[${replaces}]]._`, ""] : []),
 		`_Source: the owner's messages ${cited}, session \`${sessionId}\` (memory upkeep)._`,
 		"",
 	].join("\n");

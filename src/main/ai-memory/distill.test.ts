@@ -66,6 +66,15 @@ describe("buildDigest / distillMessage", () => {
 		expect(global).toContain("- preferences/minimal-settings.md · 설정을 최소로");
 		expect(distillMessage(digest, []).system).toContain('{"pages":[]}');
 	});
+
+	it("shows the start of each page so the model can tell an update of it, and asks it to name what it replaces", () => {
+		const digest = buildDigest([{ n: 1, text: "x", at: null }], []);
+		const message = distillMessage(digest, [
+			{ path: "decisions/jev.md", title: "Jev는 최신", excerpt: "판단 모델은 자동으로 최신을 쓴다", global: false },
+		]);
+		expect(message.user).toContain("- decisions/jev.md · Jev는 최신 · 판단 모델은 자동으로 최신을 쓴다");
+		expect(message.system).toContain('"supersedes"');
+	});
 });
 
 const good = {
@@ -136,6 +145,23 @@ describe("parseProposals", () => {
 		]);
 		expect(parseProposals('{"pages":"none"}', window, []).refused).toEqual(["answer is not a {pages:[…]} object"]);
 		expect(parseProposals('{"pages":[]}', window, [])).toEqual({ proposals: [], refused: [] });
+	});
+
+	it("keeps a supersedes that names a page the model was shown in the page's own scope, and drops any other", () => {
+		const known = [
+			{ path: "_rules/old.md", title: "옛 규칙", global: false },
+			{ path: "preferences/old.md", title: "옛 취향", global: true },
+		];
+		const named = (supersedes: string, kind = "rule") =>
+			parseProposals(
+				JSON.stringify({ pages: [{ ...good, kind, quote: "몇 개든 열 수 있어야 해", supersedes }] }),
+				window,
+				known,
+			).proposals[0]?.supersedes;
+		expect(named("_rules/old.md")).toBe("_rules/old.md");
+		expect(named("preferences/old.md", "preference")).toBe("preferences/old.md");
+		expect(named("preferences/old.md")).toBeUndefined();
+		expect(named("_rules/invented.md")).toBeUndefined();
 	});
 });
 
