@@ -1,25 +1,39 @@
 /**
- * The model setup assistant's pure parts: which models it offers (the chat
- * candidates the roles RPC returns, i.e. what the connected accounts serve,
- * enriched from the catalog), what it preselects, which roles it researches,
- * which proposed assignments actually change a role, and the last proposal
- * kept in prefs per device.
+ * The model setup assistant's pure parts: which models the picker offers, what the planner is fed (roles, facts,
+ * quota headroom), the reason sentences behind each row's ⓘ, the research request and its cost estimate, how a
+ * research plan overlays the rules' rows, and the apply record kept in prefs per device (what was written, what
+ * each role held before, and the signature "new models or accounts since" is judged against).
  */
 import { z } from "zod";
+import type { Billing, BillingBasis, ModelSetupFacts } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import {
 	ADVISOR_ROLE,
-	isSetupRole,
-	MODEL_SETUP_MAX_MODELS,
 	type ModelSetupModel,
 	type ModelSetupPlan,
-	ModelSetupPlanSchema,
+	type ModelSetupRequest,
 	type ModelSetupRole,
 } from "../../../../shared/model-setup";
-import type { ModelInfo, ModelRoleEntry } from "../../../../shared/rpc-types";
+import {
+	baseSelector,
+	billingOf,
+	fullAutoAllows,
+	type PlanMode,
+	type PlanReason,
+	type PlanRoleInput,
+	type PlanRow,
+} from "../../../../shared/role-plan";
+import type { ModelInfo, ModelRoleEntry, UsageReport } from "../../../../shared/rpc-types";
 
-export interface SetupModelOption extends ModelSetupModel {
-	/** Display name; the selector when the catalog has none. */
+export interface SetupModelOption {
+	/** `provider/id`, the value a role is set to. */
+	selector: string;
+	provider: string;
+	/** Display name; the id when stock has none. */
 	label: string;
+	/** `chat`, or `judge` for a judge-kind model of the judge role's pool. */
+	kind: string;
+	billing: Billing;
+	contextWindow?: number;
 }
 
 export interface SetupProviderGroup {
@@ -27,46 +41,27 @@ export interface SetupProviderGroup {
 	models: SetupModelOption[];
 }
 
-/**
- * Renderer counterpart of stock `splitThinkingSuffix(value, -1,
- * MAX_THINKING_SUFFIX_OPTIONS).base` (pi-tui overlays/model-selector.ts),
- * pinned by model-setup-logic.test.ts. Stock's resolver additionally keeps a
- * suffix that belongs to a literal catalog id (`glm-4.7:max`); that catalog
- * lookup is not applied here.
- */
-const THINKING_SUFFIX = /:(?:off|minimal|low|medium|high|xhigh|max|auto)$/;
-
-/** A role value without its `:thinking` suffix, so `p/m:high` and the proposal `p/m` compare equal. */
-export function baseSelector(value: string | undefined): string | undefined {
-	return value?.trim().replace(THINKING_SUFFIX, "") || undefined;
-}
-
-/**
- * Every chat model the connected accounts serve: the `default` role's
- * candidate pool (backend-filtered to available chat models), with context
- * window, price and intelligence from the catalog when it has them.
- */
-export function setupModelOptions(roles: readonly ModelRoleEntry[], catalog: readonly ModelInfo[]): SetupModelOption[] {
-	const pool = roles.find(role => role.id === "default")?.candidates ?? roles.flatMap(role => role.candidates);
+/** The chat models of the default role's pool plus the judge-kind models of the judge role's, each with its billing class. */
+export function setupModelOptions(roles: readonly ModelRoleEntry[], facts: ModelSetupFacts): SetupModelOption[] {
+	const chatPool = roles.find(role => role.id === "default")?.candidates ?? roles.flatMap(role => role.candidates);
+	const judgePool = roles
+		.find(role => role.id === "judge")
+		?.candidates.filter(candidate => candidate.kind === "judge");
 	const seen = new Set<string>();
 	const options: SetupModelOption[] = [];
-	for (const candidate of pool) {
-		if (candidate.kind !== "chat") continue;
+	for (const candidate of [...chatPool.filter(entry => entry.kind === "chat"), ...(judgePool ?? [])]) {
 		const selector = `${candidate.provider}/${candidate.id}`;
-		if (seen.has(selector)) continue;
+		const model = facts.models[selector];
+		// A model the facts do not describe cannot be planned.
+		if (!model || seen.has(selector)) continue;
 		seen.add(selector);
-		const info = catalog.find(model => model.provider === candidate.provider && model.id === candidate.id);
-		const cost = info?.cost;
 		options.push({
 			selector,
 			provider: candidate.provider,
 			label: candidate.name || candidate.id,
-			...(candidate.name && candidate.name !== candidate.id ? { name: candidate.name } : {}),
-			...(typeof info?.contextWindow === "number" ? { contextWindow: info.contextWindow } : {}),
-			...(typeof cost?.input === "number" && typeof cost.output === "number"
-				? { cost: { input: cost.input, output: cost.output } }
-				: {}),
-			...(typeof info?.int === "number" && Number.isFinite(info.int) ? { intelligence: info.int } : {}),
+			kind: candidate.kind,
+			billing: billingOf(facts, selector),
+			...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
 		});
 	}
 	return options;
@@ -78,19 +73,10 @@ export function groupByProvider(options: readonly SetupModelOption[]): SetupProv
 	return [...groups].map(([provider, models]) => ({ provider, models }));
 }
 
-/** Higher first: the catalog's intelligence score, then output price, then context window. */
-function strength(a: SetupModelOption, b: SetupModelOption): number {
-	return (
-		(b.intelligence ?? -1) - (a.intelligence ?? -1) ||
-		(b.cost?.output ?? -1) - (a.cost?.output ?? -1) ||
-		(b.contextWindow ?? -1) - (a.contextWindow ?? -1)
-	);
-}
-
 /** The current default model among the options: the `default` role, else the session's model. */
 export function currentDefaultModel(
 	roles: readonly ModelRoleEntry[],
-	options: readonly SetupModelOption[],
+	options: readonly Pick<SetupModelOption, "selector">[],
 	activeModel: ModelInfo | null,
 ): string | undefined {
 	const configured = baseSelector(roles.find(role => role.id === "default")?.model);
@@ -98,37 +84,265 @@ export function currentDefaultModel(
 	return [configured, active].find(selector => options.some(option => option.selector === selector));
 }
 
-/** The current default model plus the strongest model of every other connected provider. */
-export function defaultSelection(options: readonly SetupModelOption[], defaultModel: string | undefined): string[] {
-	const defaultProvider = options.find(option => option.selector === defaultModel)?.provider;
-	const picks = defaultModel && defaultProvider ? [defaultModel] : [];
-	for (const group of groupByProvider(options)) {
-		if (group.provider === defaultProvider) continue;
-		const strongest = [...group.models].sort(strength)[0];
-		if (strongest) picks.push(strongest.selector);
-	}
-	return picks.slice(0, MODEL_SETUP_MAX_MODELS);
+/** `get_model_roles` as the planner reads it, whatever roles it lists (stock's or OMPdesk's). */
+export function planRoleInputs(roles: readonly ModelRoleEntry[]): PlanRoleInput[] {
+	return roles.map(role => ({
+		id: role.id,
+		section: role.section,
+		...(role.hidden ? { hidden: true } : {}),
+		candidates: role.candidates.map(candidate => `${candidate.provider}/${candidate.id}`),
+		...(role.model ? { current: role.model } : {}),
+	}));
 }
 
 /**
- * The roles the research assigns: the visible built-in chat roles. Kind roles
- * (image, speech) need other models; custom roles keep the user's model.
+ * Provider → how much of its roomiest account's tightest window is left (0–1): per report the minimum over its
+ * limits of the remaining fraction, then the maximum over the provider's reports. A limited report (its reset is
+ * still ahead) and a limit with no fraction count for nothing; a provider none of whose reports say is absent.
  */
-export function setupRoles(roles: readonly ModelRoleEntry[]): ModelSetupRole[] {
-	return roles
-		.filter(role => role.section === "chat" && !role.hidden && isSetupRole(role.id))
-		.map(role => ({ id: role.id, name: role.name }));
+export function usageHeadroom(reports: readonly UsageReport[] | null, now: number): Record<string, number> {
+	const headroom: Record<string, number> = {};
+	for (const report of reports ?? []) {
+		if (report.resetAt !== undefined && report.resetAt > now) continue;
+		const fractions = report.limits.flatMap(limit => {
+			const remaining =
+				limit.remainingFraction ?? (limit.usedFraction !== undefined ? 1 - limit.usedFraction : undefined);
+			return remaining === undefined ? [] : [Math.min(1, Math.max(0, remaining))];
+		});
+		if (fractions.length === 0) continue;
+		headroom[report.provider] = Math.max(headroom[report.provider] ?? 0, Math.min(...fractions));
+	}
+	return headroom;
 }
 
-/** The assignments that change a role; one already on that model (any thinking suffix) is not written. */
-export function changedAssignments(
-	drafts: Readonly<Record<string, string>>,
-	roles: readonly ModelRoleEntry[],
-): Array<{ role: string; model: string }> {
-	return Object.entries(drafts).flatMap(([role, model]) =>
-		baseSelector(roles.find(entry => entry.id === role)?.model) === model ? [] : [{ role, model }],
-	);
+/** The distinct models a plan chose, in row order: the picker's prefill of the second mode. */
+export function distinctModels(rows: readonly PlanRow[]): string[] {
+	return [...new Set(rows.flatMap(row => (row.model ? [row.model] : [])))];
 }
+
+/** A row the apply can write: it names a model and the role is not on it already. */
+export function writable(row: PlanRow): boolean {
+	return row.model !== null && baseSelector(row.current) !== row.model;
+}
+
+// ── Reason sentences (behind each row's ⓘ) ─────────────────────────────────────────────────────────────────────
+
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+const KNOWN_BASES: readonly BillingBasis[] = [
+	"oauth",
+	"oauth-and-key",
+	"api-key",
+	"env",
+	"config",
+	"runtime",
+	"custom-endpoint",
+	"base-url-changed",
+	"local-keyless",
+	"unknown",
+];
+
+/** A price in USD as a short figure: two decimals at most, none when whole. */
+export function formatUsd(value: number): string {
+	return `$${Number(value.toFixed(2))}`;
+}
+
+/** "int 70 of 85, $1.2/M output vs $5/M": the numbers of a rule's sentence that the facts have. */
+function factsLine(t: Translate, reason: PlanReason): string {
+	const parts: string[] = [];
+	if (reason.int !== undefined) {
+		parts.push(
+			reason.topInt !== undefined
+				? t("modelSetup.reason.facts.score", { int: Math.round(reason.int), top: Math.round(reason.topInt) })
+				: t("modelSetup.reason.facts.scoreOnly", { int: Math.round(reason.int) }),
+		);
+	}
+	if (reason.outputPrice !== undefined) {
+		parts.push(
+			reason.comparePrice !== undefined
+				? t("modelSetup.reason.facts.priceVs", {
+						out: formatUsd(reason.outputPrice),
+						cmp: formatUsd(reason.comparePrice),
+					})
+				: t("modelSetup.reason.facts.price", { out: formatUsd(reason.outputPrice) }),
+		);
+	}
+	return parts.join(", ");
+}
+
+/**
+ * The sentence a row's ⓘ shows, from the planner's facts: the rule and its numbers, the provider's billing (and
+ * in the picked mode why it has that class), the quota left when reported, and for the advisor whether its vendor
+ * differs from the default's. `keepsDefault`: the default row's model is the one the role already runs on.
+ */
+export function reasonText(
+	t: Translate,
+	row: PlanRow,
+	options: { mode: PlanMode; keepsDefault: boolean; research?: string },
+): string {
+	if (options.research !== undefined) {
+		return [options.research || t("modelSetup.reason.research"), billingSentence(t, row.reason, options.mode)]
+			.filter(Boolean)
+			.join(" ");
+	}
+	const { reason } = row;
+	const facts = factsLine(t, reason);
+	const withFacts = (key: string) => (facts ? `${t(key)}: ${facts}.` : `${t(key)}.`);
+	let main: string;
+	switch (reason.rule) {
+		case "default":
+			main = options.keepsDefault
+				? `${t("modelSetup.reason.default.keep")}.`
+				: withFacts("modelSetup.reason.default.strongest");
+			break;
+		case "strong":
+			main = withFacts("modelSetup.reason.strong");
+			break;
+		case "advisor":
+			main = withFacts(reason.crossVendor ? "modelSetup.reason.advisor.cross" : "modelSetup.reason.advisor.same");
+			break;
+		case "cheap":
+			main = withFacts("modelSetup.reason.cheap");
+			break;
+		case "task":
+			main = withFacts("modelSetup.reason.task");
+			break;
+		case "vision":
+			main = withFacts("modelSetup.reason.vision");
+			break;
+		case "chat":
+			main = withFacts("modelSetup.reason.chat");
+			break;
+		case "stock":
+			return t("modelSetup.reason.stock");
+		case "no-candidate":
+			return t(options.mode === "full" ? "modelSetup.reason.none.full" : "modelSetup.reason.none.picked");
+	}
+	const headroom =
+		reason.headroom !== undefined
+			? t("modelSetup.reason.headroom", { percent: Math.round(reason.headroom * 100) })
+			: "";
+	return [main, billingSentence(t, reason, options.mode), headroom].filter(Boolean).join(" ");
+}
+
+/** "Subscription." / "Metered: billed through an API key." (the basis only in the picked mode, where metered is allowed). */
+function billingSentence(t: Translate, reason: PlanReason, mode: PlanMode): string {
+	if (!reason.billing) return "";
+	const label = t(`modelSetup.reason.billing.${reason.billing}`);
+	if (mode === "full") return `${label}.`;
+	const basis = reason.basis && KNOWN_BASES.includes(reason.basis) ? reason.basis : "unknown";
+	return `${label}: ${t(`modelSetup.reason.basis.${basis}`)}.`;
+}
+
+// ── Research ("Find more evidence") ────────────────────────────────────────────────────────────────────────────
+
+/** What one research run reads and writes, for the cost shown before it starts. */
+export const RESEARCH_INPUT_TOKENS = 100_000;
+export const RESEARCH_OUTPUT_TOKENS = 5_000;
+export const RESEARCH_MINUTES = 1;
+
+/** The research's billing class and, when the model's list prices are known, its cost in USD. */
+export function researchEstimate(facts: ModelSetupFacts, selector: string): { billing: Billing; usd?: number } {
+	const model = facts.models[selector];
+	const billing = billingOf(facts, selector);
+	if (model?.inputPrice === undefined || model.outputPrice === undefined) return { billing };
+	return {
+		billing,
+		usd: (RESEARCH_INPUT_TOKENS * model.inputPrice + RESEARCH_OUTPUT_TOKENS * model.outputPrice) / 1_000_000,
+	};
+}
+
+/** The models the research may assign: full = non-metered chat models, picked = the picked ones. */
+export function researchPool(
+	options: readonly SetupModelOption[],
+	facts: ModelSetupFacts,
+	mode: PlanMode,
+	picked: readonly string[],
+): string[] {
+	return options
+		.filter(option => option.kind === "chat")
+		.filter(option => (mode === "full" ? fullAutoAllows(facts, option.selector) : picked.includes(option.selector)))
+		.map(option => option.selector);
+}
+
+/** The research run's request: the pool's models, the chat roles of `get_model_roles`, the model that researches. */
+export function researchRequest(input: {
+	researchModel: string;
+	defaultModel?: string;
+	pool: readonly string[];
+	facts: ModelSetupFacts;
+	roles: readonly ModelRoleEntry[];
+	rows: readonly PlanRow[];
+	language: string;
+}): ModelSetupRequest {
+	const models = input.pool.flatMap((selector): ModelSetupModel[] => {
+		const model = input.facts.models[selector];
+		if (!model) return [];
+		const cost = {
+			...(model.inputPrice !== undefined ? { input: model.inputPrice } : {}),
+			...(model.outputPrice !== undefined ? { output: model.outputPrice } : {}),
+		};
+		return [
+			{
+				selector,
+				provider: model.provider,
+				...(model.name && model.name !== model.id ? { name: model.name } : {}),
+				...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
+				...(Object.keys(cost).length > 0 ? { cost } : {}),
+				...(model.int !== undefined ? { intelligence: model.int } : {}),
+			},
+		];
+	});
+	const rows = new Set(input.rows.map(row => row.role));
+	const roles: ModelSetupRole[] = input.roles
+		.filter(role => role.section === "chat" && rows.has(role.id))
+		.map(role => ({ id: role.id, name: role.name, section: role.section }));
+	return {
+		researchModel: input.researchModel,
+		...(input.defaultModel ? { defaultModel: input.defaultModel } : {}),
+		models,
+		roles,
+		language: input.language,
+	};
+}
+
+/** A planned row, with the research's reason when its plan named the row's model. */
+export interface ProposalRow extends PlanRow {
+	research?: string;
+}
+
+/**
+ * The rules' rows with the research plan laid over them: an assignment replaces its row's model only when the
+ * model is in the research pool and a candidate of that role (a role takes no other), and carries the research's
+ * reason. Manual and stock rows keep their state; ticking follows the usual default for the new model.
+ */
+export function withResearch(
+	rows: readonly PlanRow[],
+	plan: ModelSetupPlan | undefined,
+	pool: ReadonlySet<string>,
+	roles: readonly PlanRoleInput[],
+): ProposalRow[] {
+	return rows.map(row => {
+		const assignment = plan?.assignments.find(entry => entry.role === row.role);
+		const candidates = roles.find(role => role.id === row.role)?.candidates ?? [];
+		if (
+			!assignment ||
+			row.reason.rule === "stock" ||
+			!pool.has(assignment.model) ||
+			!candidates.includes(assignment.model)
+		) {
+			return row;
+		}
+		return {
+			...row,
+			model: assignment.model,
+			checked: !row.manual && assignment.model !== baseSelector(row.current),
+			research: assignment.reason,
+		};
+	});
+}
+
+// ── The model the advisor runs on (Settings › Agent behavior's advisor row) ────────────────────────────────────
 
 /**
  * The model the advisor runs on: its own role, else — like stock's
@@ -143,39 +357,134 @@ export function effectiveAdvisorModel(
 	return slow ? { model: slow, via: "slow" } : undefined;
 }
 
+// ── Facts and the apply record ─────────────────────────────────────────────────────────────────────────────────
+
+const OptionalNumber = z.number().optional();
+const FactsSchema = z.object({
+	providers: z.record(
+		z.object({
+			billing: z.enum(["subscription", "free", "metered"]),
+			// A basis a newer bridge adds still reads: the reason text falls back to "unknown".
+			basis: z.string().transform(value => value as BillingBasis),
+		}),
+	),
+	models: z.record(
+		z.object({
+			provider: z.string(),
+			id: z.string(),
+			name: z.string(),
+			kind: z.string(),
+			family: z.string().optional(),
+			int: OptionalNumber,
+			tps: OptionalNumber,
+			contextWindow: OptionalNumber,
+			inputPrice: OptionalNumber,
+			outputPrice: OptionalNumber,
+			image: z.boolean(),
+		}),
+	),
+	roles: z.record(z.object({ persisted: z.string().optional() })),
+	judgePins: z.array(z.string()),
+});
+
+/** `get_model_setup_facts`' data, or undefined when it is not the contract's shape. */
+export function parseSetupFacts(data: unknown): ModelSetupFacts | undefined {
+	const parsed = FactsSchema.safeParse(data);
+	return parsed.success ? (parsed.data as ModelSetupFacts) : undefined;
+}
+
 export const MODEL_SETUP_PREFS_KEY = "modelSetup";
-/** Prefs key of this computer's own machine; a paired host's proposal is kept under its device id. */
+/** Prefs key of this computer's own machine; a paired host's record is kept under its device id. */
 const LOCAL_DEVICE = "local";
 
-const StoredProposal = z.object({
-	savedAt: z.number(),
-	researchModel: z.string(),
-	models: z.array(z.string()),
-	plan: ModelSetupPlanSchema,
-	dropped: z.array(z.string()),
+const AppliedSchema = z.object({
+	at: z.number(),
+	/** Role → the model OMPdesk wrote. */
+	values: z.record(z.string()),
+	/** Role → what it held before (null: nothing set). */
+	before: z.record(z.string().nullable()),
 });
-export type StoredProposal = z.infer<typeof StoredProposal>;
-const StoredProposals = z.record(z.unknown());
+export type AppliedSetup = z.infer<typeof AppliedSchema>;
 
-async function readProposals(): Promise<Record<string, unknown>> {
-	const parsed = StoredProposals.safeParse(await window.omp.prefs.get(MODEL_SETUP_PREFS_KEY));
+const SetupRecordSchema = z.object({
+	applied: AppliedSchema.optional(),
+	/** `setupSignature` at the last apply: what "new models or accounts" is judged against. */
+	signature: z.string().optional(),
+});
+export type SetupRecord = z.infer<typeof SetupRecordSchema>;
+const Records = z.record(z.unknown());
+
+async function readRecords(): Promise<Record<string, unknown>> {
+	const parsed = Records.safeParse(await window.omp.prefs.get(MODEL_SETUP_PREFS_KEY));
 	return parsed.success ? parsed.data : {};
 }
 
-/** The last proposal for the machine `device` names (absent = this computer), if one is stored and readable. */
-export async function loadLastProposal(device: string | undefined): Promise<StoredProposal | undefined> {
-	const parsed = StoredProposal.safeParse((await readProposals())[device ?? LOCAL_DEVICE]);
-	return parsed.success ? parsed.data : undefined;
+/** The apply record of the machine `device` names (absent = this computer). An old or unreadable one reads as nothing. */
+export async function loadSetupRecord(device: string | undefined): Promise<SetupRecord | undefined> {
+	const parsed = SetupRecordSchema.safeParse((await readRecords())[device ?? LOCAL_DEVICE]);
+	if (!parsed.success || (parsed.data.applied === undefined && parsed.data.signature === undefined)) return undefined;
+	return parsed.data;
 }
 
-export async function saveLastProposal(device: string | undefined, proposal: StoredProposal): Promise<void> {
-	await window.omp.prefs.set(MODEL_SETUP_PREFS_KEY, {
-		...(await readProposals()),
-		[device ?? LOCAL_DEVICE]: proposal,
-	});
+/** Stores `record` for the machine; undefined removes it. Other machines' records stay. */
+export async function saveSetupRecord(device: string | undefined, record: SetupRecord | undefined): Promise<void> {
+	const { [device ?? LOCAL_DEVICE]: _replaced, ...others } = await readRecords();
+	await window.omp.prefs.set(MODEL_SETUP_PREFS_KEY, record ? { ...others, [device ?? LOCAL_DEVICE]: record } : others);
 }
 
-/** The editable table's starting point: one model per proposed role. */
-export function draftsOf(plan: ModelSetupPlan): Record<string, string> {
-	return Object.fromEntries(plan.assignments.map(entry => [entry.role, entry.model]));
+/**
+ * The record after writing `writes`. A role an earlier apply wrote and nobody changed since stays in it (its
+ * original `before` too, so Undo returns it to where it was before any setup); a role changed by hand since drops
+ * out; the written roles' `before` is what they hold now.
+ */
+export function mergeApplied(
+	previous: AppliedSetup | undefined,
+	roles: readonly Pick<ModelRoleEntry, "id" | "model">[],
+	writes: readonly { role: string; model: string }[],
+	at: number,
+): AppliedSetup {
+	const values: Record<string, string> = {};
+	const before: Record<string, string | null> = {};
+	const stillOurs = (role: string) => {
+		const written = previous?.values[role];
+		return (
+			written !== undefined && baseSelector(roles.find(entry => entry.id === role)?.model) === baseSelector(written)
+		);
+	};
+	for (const role of Object.keys(previous?.values ?? {})) {
+		if (!stillOurs(role)) continue;
+		values[role] = previous?.values[role] ?? "";
+		before[role] = previous?.before[role] ?? null;
+	}
+	for (const write of writes) {
+		values[write.role] = write.model;
+		if (!stillOurs(write.role)) before[write.role] = roles.find(entry => entry.id === write.role)?.model ?? null;
+	}
+	return { at, values, before };
+}
+
+/**
+ * What Undo does against the roles as they are now: each role OMPdesk wrote and that still holds that model
+ * (thinking suffix aside) goes back to what it held; a role changed by hand since, or gone, is left and named.
+ */
+export function undoSteps(
+	applied: AppliedSetup,
+	roles: readonly Pick<ModelRoleEntry, "id" | "model">[],
+): { restore: Array<{ role: string; model: string | null }>; skipped: string[] } {
+	const restore: Array<{ role: string; model: string | null }> = [];
+	const skipped: string[] = [];
+	for (const [role, value] of Object.entries(applied.values)) {
+		const current = roles.find(entry => entry.id === role);
+		if (current && baseSelector(current.model) === baseSelector(value)) {
+			restore.push({ role, model: applied.before[role] ?? null });
+		} else {
+			skipped.push(role);
+		}
+	}
+	return { restore, skipped };
+}
+
+/** Whether the setup would see something new since the last apply: a record with a signature that differs from now. */
+export function offersNewSetup(record: SetupRecord | undefined, signature: string): boolean {
+	return record?.signature !== undefined && record.signature !== signature;
 }

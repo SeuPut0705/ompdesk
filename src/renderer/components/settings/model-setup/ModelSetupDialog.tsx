@@ -1,25 +1,22 @@
 /**
- * Model setup assistant: pick the models the connected accounts serve, let a
- * research model compare them on public benchmarks (one stock omp job on the
- * focused tab's machine), then review its role-by-role proposal and apply it.
- * Nothing is written before Apply, and Apply writes only the roles whose model
- * changes plus `advisor.enabled` when its switch moved. The last proposal is
- * kept per device, so reopening shows it with its date.
+ * Model setup assistant. Two modes over one live proposal, planned in the renderer by `planRoles` (no model call):
+ * full auto (subscription and free models only) opens straight onto its proposal; picked mode lets the person tick
+ * the models first (metered ones included). One line per role from `get_model_roles`; its reason sits behind ⓘ.
+ * Apply writes only the ticked rows and stores what it wrote (for Undo) with the signature "new models or
+ * accounts since" is judged against. "Find more evidence" is the one action that spends tokens: it shows its cost
+ * first, then runs the research on the focused tab's machine and lays its picks over the rules' rows.
  */
 
-import { ExternalLink, Info, Sparkles } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ROLE_GROUPS } from "../../../../../resources/gui-bridge/model-role-contracts";
-import {
-	ADVISOR_ROLE,
-	MODEL_SETUP_MAX_MODELS,
-	MODEL_SETUP_TIMEOUT_MS,
-	type ModelSetupActivity,
-	type ModelSetupRequest,
-} from "../../../../shared/model-setup";
+import { ExternalLink, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ROLE_GROUPS, roleGroup } from "../../../../../resources/gui-bridge/model-role-contracts";
+import type { ModelSetupFacts } from "../../../../../resources/gui-bridge/model-setup-contracts";
+import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupActivity, type ModelSetupPlan } from "../../../../shared/model-setup";
+import { type PlanMode, planRoles, setupSignature } from "../../../../shared/role-plan";
 import type { ModelRoleEntry, ModelRolesResult } from "../../../../shared/rpc-types";
+import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { cx, formatClock } from "../../../lib/format";
+import { cx } from "../../../lib/format";
 import { useLang, useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
@@ -27,43 +24,46 @@ import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import {
-	Badge,
-	Button,
-	ErrorDetail,
-	InlineNotice,
-	Modal,
-	SearchField,
-	Select,
-	Spinner,
-	SwitchField,
-} from "../../common";
+import { Badge, Button, ErrorDetail, InlineNotice, Modal, SearchField, SettingInfo, Spinner, Tabs } from "../../common";
 import { modelRoleName } from "../schema-i18n";
 import {
-	baseSelector,
-	changedAssignments,
 	currentDefaultModel,
-	defaultSelection,
-	draftsOf,
+	distinctModels,
+	formatUsd,
 	groupByProvider,
-	loadLastProposal,
+	loadSetupRecord,
+	mergeApplied,
+	type ProposalRow,
+	parseSetupFacts,
+	planRoleInputs,
+	RESEARCH_MINUTES,
+	reasonText,
+	researchEstimate,
+	researchPool,
+	researchRequest,
 	type SetupModelOption,
-	type StoredProposal,
-	saveLastProposal,
+	type SetupRecord,
+	saveSetupRecord,
 	setupModelOptions,
-	setupRoles,
+	usageHeadroom,
+	withResearch,
+	writable,
 } from "./model-setup-logic";
 
-type Step = "loading" | "pick" | "research" | "review";
-const STEPS = ["pick", "research", "review"] as const;
+interface SetupData {
+	roles: ModelRoleEntry[];
+	facts: ModelSetupFacts;
+}
+
+/** What a finished research run leaves: its plan (laid over the rules' rows) and what it dropped. */
+interface Evidence {
+	plan: ModelSetupPlan;
+	dropped: string[];
+}
 
 function formatElapsed(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function formatContext(tokens: number): string {
-	return tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(1))}M` : `${Math.round(tokens / 1_000)}K`;
 }
 
 export function ModelSetupDialog() {
@@ -75,96 +75,67 @@ export function ModelSetupDialog() {
 	const runDevice = useRef<string | undefined>(undefined);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const activeModel = useModelStore(state => state.model);
-	const catalog = useModelStore(state => state.availableModels);
 	const providers = useModelStore(state => state.providers);
+	const reports = useUsageReports();
 
-	const [step, setStep] = useState<Step>("loading");
-	const [roles, setRoles] = useState<ModelRoleEntry[]>([]);
+	const [data, setData] = useState<SetupData | null>(null);
+	const [record, setRecord] = useState<SetupRecord | undefined>();
 	const [loadError, setLoadError] = useState<string | null>(null);
-	const [selected, setSelected] = useState<string[]>([]);
-	const [researchModel, setResearchModel] = useState("");
+	const [mode, setMode] = useState<PlanMode>("full");
+	// Undefined until the person touches the checklist: it then follows the full-auto plan's models.
+	const [picked, setPicked] = useState<string[] | undefined>();
 	const [query, setQuery] = useState("");
+	const [ticks, setTicks] = useState<Record<string, boolean>>({});
+	const [applying, setApplying] = useState(false);
+	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [running, setRunning] = useState(false);
 	const [startedAt, setStartedAt] = useState(0);
 	const [now, setNow] = useState(() => Date.now());
 	const [activity, setActivity] = useState<ModelSetupActivity | undefined>();
 	const [runError, setRunError] = useState<(InlineFailure & { reply?: string }) | null>(null);
-	const [proposal, setProposal] = useState<StoredProposal | null>(null);
-	const [drafts, setDrafts] = useState<Record<string, string>>({});
-	const [advisorOn, setAdvisorOn] = useState(false);
-	const [advisorEnabled, setAdvisorEnabled] = useState<boolean | undefined>();
-	const [applying, setApplying] = useState(false);
+	const [evidence, setEvidence] = useState<Evidence | null>(null);
 
-	const options = useMemo(() => setupModelOptions(roles, catalog), [roles, catalog]);
-	const defaultModel = useMemo(() => currentDefaultModel(roles, options, activeModel), [roles, options, activeModel]);
-	const groups = useMemo(() => groupByProvider(options), [options]);
-	const providerName = (id: string) => providers.find(provider => provider.id === id)?.name ?? id;
-	const labelOf = (selector: string | undefined) =>
-		selector
-			? (options.find(option => option.selector === selector)?.label ?? selector)
-			: t("modelSetup.review.unset");
-
-	const showProposal = useCallback((stored: StoredProposal) => {
-		setProposal(stored);
-		setDrafts(draftsOf(stored.plan));
-		setAdvisorOn(stored.plan.advisor.enable);
-		setStep("review");
-	}, []);
-
-	const startOver = useCallback((nextRoles: ModelRoleEntry[]) => {
-		const nextOptions = setupModelOptions(nextRoles, useModelStore.getState().availableModels);
-		const nextDefault = currentDefaultModel(nextRoles, nextOptions, useModelStore.getState().model);
-		setSelected(defaultSelection(nextOptions, nextDefault));
-		setResearchModel(nextDefault ?? nextOptions[0]?.selector ?? "");
-		setRunError(null);
-		setStep("pick");
-	}, []);
-
-	// One read on open: the roles (their candidates are the connected accounts' models),
-	// the advisor switch, the catalog for context and price, and the last proposal.
-	useEffect(() => {
-		if (!sidecarReady) {
-			setStep(current => (current === "loading" ? "pick" : current));
-			return;
-		}
-		let cancelled = false;
-		void (async () => {
+	// One parallel read: the roles (their candidates are the connected accounts' models), the facts (billing,
+	// scores, prices) and this machine's apply record. `current` says whether its answer is still wanted.
+	const loadSetup = useCallback(
+		async (current: () => boolean) => {
 			try {
-				const [rolesRes, settingsRes, stored] = await Promise.all([
+				const [rolesRes, factsRes, stored] = await Promise.all([
 					tabRpc.getModelRoles(),
-					tabRpc.getSettings(["advisor.enabled"]),
-					loadLastProposal(device).catch(() => undefined),
-					useModelStore
-						.getState()
-						.refreshAvailableModels()
-						.catch(() => undefined),
+					tabRpc.getModelSetupFacts(),
+					loadSetupRecord(device).catch(() => undefined),
 				]);
-				if (cancelled) return;
+				if (!current()) return;
 				if (!rolesRes.success) {
-					setLoadError(rolesRes.error);
-					setStep("pick");
+					setLoadError(errorDetail(rolesRes));
 					return;
 				}
-				const nextRoles = (rolesRes.data as ModelRolesResult).roles;
-				setRoles(nextRoles);
-				if (settingsRes.success) {
-					const data = settingsRes.data as { values?: Record<string, unknown>; advisorEnabled?: boolean };
-					const enabled = data.advisorEnabled ?? data.values?.["advisor.enabled"];
-					setAdvisorEnabled(typeof enabled === "boolean" ? enabled : undefined);
+				if (!factsRes.success) {
+					setLoadError(errorDetail(factsRes));
+					return;
 				}
-				startOver(nextRoles);
-				if (stored) showProposal(stored);
+				const facts = parseSetupFacts(factsRes.data);
+				if (!facts) {
+					setLoadError(t("modelSetup.loadFailed"));
+					return;
+				}
+				setLoadError(null);
+				setData({ roles: (rolesRes.data as ModelRolesResult).roles, facts });
+				setRecord(stored);
 			} catch (cause) {
-				if (!cancelled) {
-					setLoadError(cause instanceof Error ? cause.message : String(cause));
-					setStep("pick");
-				}
+				if (current()) setLoadError(cause instanceof Error ? cause.message : String(cause));
 			}
-		})();
+		},
+		[device, t, tabRpc],
+	);
+	useEffect(() => {
+		if (!sidecarReady) return;
+		let cancelled = false;
+		void loadSetup(() => !cancelled);
 		return () => {
 			cancelled = true;
 		};
-	}, [device, showProposal, sidecarReady, startOver, tabRpc]);
+	}, [loadSetup, sidecarReady]);
 
 	// Progress: the clock every second, and the run's latest tool call from its machine.
 	useEffect(() => {
@@ -181,49 +152,85 @@ export function ModelSetupDialog() {
 		return () => clearInterval(timer);
 	}, [running]);
 
+	const roles = data?.roles;
+	const facts = data?.facts;
+	const options = useMemo(() => (roles && facts ? setupModelOptions(roles, facts) : []), [roles, facts]);
+	const defaultModel = useMemo(
+		() => (roles ? currentDefaultModel(roles, options, activeModel) : undefined),
+		[roles, options, activeModel],
+	);
+	const roleInputs = useMemo(() => (roles ? planRoleInputs(roles) : []), [roles]);
+	const headroom = useMemo(() => usageHeadroom(reports, Date.now()), [reports]);
+	const lastApplied = record?.applied?.values;
+	const planInput = useMemo(
+		() => (facts ? { roles: roleInputs, facts, defaultModel, headroom, lastApplied } : undefined),
+		[roleInputs, facts, defaultModel, headroom, lastApplied],
+	);
+	const fullRows = useMemo(() => (planInput ? planRoles({ ...planInput, mode: "full" }) : []), [planInput]);
+	const pickedModels = useMemo(() => picked ?? distinctModels(fullRows), [picked, fullRows]);
+	const ruleRows = useMemo(
+		() => (planInput && mode === "picked" ? planRoles({ ...planInput, mode, picked: pickedModels }) : fullRows),
+		[planInput, mode, pickedModels, fullRows],
+	);
+	const pool = useMemo(
+		() => (facts ? researchPool(options, facts, mode, pickedModels) : []),
+		[options, facts, mode, pickedModels],
+	);
+	const rows = useMemo(
+		() => withResearch(ruleRows, evidence?.plan, new Set(pool), roleInputs),
+		[ruleRows, evidence, pool, roleInputs],
+	);
+	const groups = useMemo(() => groupByProvider(options), [options]);
+	const researchModel = ruleRows.find(row => row.role === "default")?.model ?? defaultModel;
+
+	const providerName = (id: string) => providers.find(provider => provider.id === id)?.name ?? id;
+	const labelOf = (selector: string | undefined) =>
+		selector ? facts?.models[selector]?.name || options.find(o => o.selector === selector)?.label || selector : "";
+	const isTicked = (row: ProposalRow) => writable(row) && (ticks[row.role] ?? row.checked);
+
+	const changeMode = (next: string) => {
+		setMode(next === "picked" ? "picked" : "full");
+		setTicks({});
+	};
+	const togglePicked = (selector: string, checked: boolean) => {
+		setPicked(current => {
+			const base = current ?? pickedModels;
+			return checked
+				? [...base.filter(value => value !== selector), selector]
+				: base.filter(value => value !== selector);
+		});
+		setTicks({});
+	};
+
 	const close = () => {
 		if (running) void window.omp.modelSetup.abort(runDevice.current).catch(() => false);
 		useUiStore.getState().closeModelSetup();
 	};
 
-	const toggle = (selector: string, checked: boolean) =>
-		setSelected(current =>
-			checked
-				? [...current.filter(value => value !== selector), selector]
-				: current.filter(value => value !== selector),
-		);
-
 	const research = async () => {
-		const models = options.filter(option => selected.includes(option.selector));
-		const request: ModelSetupRequest = {
+		if (!facts || !roles || !researchModel) return;
+		const request = researchRequest({
 			researchModel,
 			...(defaultModel ? { defaultModel } : {}),
-			models: models.map(({ label: _label, ...model }) => model),
-			roles: setupRoles(roles),
+			pool,
+			facts,
+			roles,
+			rows: ruleRows,
 			language: lang === "ko" ? "Korean" : "English",
-		};
+		});
 		runDevice.current = device;
+		setConfirmOpen(false);
 		setRunError(null);
 		setActivity(undefined);
 		setStartedAt(Date.now());
 		setNow(Date.now());
 		setRunning(true);
-		setStep("research");
 		try {
 			const result = await window.omp.modelSetup.run(request, device);
 			if (result.success) {
-				const stored: StoredProposal = {
-					savedAt: Date.now(),
-					researchModel,
-					models: models.map(model => model.selector),
-					plan: result.plan,
-					dropped: result.dropped,
-				};
-				await saveLastProposal(device, stored).catch(() => {});
-				showProposal(stored);
-			} else if (result.cancelled) {
-				setStep("pick");
-			} else {
+				setEvidence({ plan: result.plan, dropped: result.dropped });
+				setTicks({});
+			} else if (!result.cancelled) {
 				setRunError({ ...inlineFailure(result, t("modelSetup.research.failed")), reply: result.reply });
 			}
 		} catch (cause) {
@@ -237,67 +244,61 @@ export function ModelSetupDialog() {
 		void window.omp.modelSetup.abort(runDevice.current).catch(() => false);
 	};
 
-	const changes = useMemo(() => changedAssignments(drafts, roles), [drafts, roles]);
-	const advisorChanges = advisorEnabled === undefined ? advisorOn : advisorOn !== advisorEnabled;
-	const advisorModelAfter =
-		drafts[ADVISOR_ROLE] ??
-		baseSelector(roles.find(role => role.id === ADVISOR_ROLE)?.model) ??
-		drafts.slow ??
-		baseSelector(roles.find(role => role.id === "slow")?.model);
-
 	const apply = async () => {
+		if (!data) return;
 		setApplying(true);
+		const writes = rows.flatMap(row =>
+			row.model !== null && isTicked(row) ? [{ role: row.role, model: row.model }] : [],
+		);
+		const signature = setupSignature(roleInputs, data.facts);
+		const previous = record;
+		if (writes.length === 0) {
+			// Nothing to write: the person has seen this setup, so "new models or accounts" starts from now.
+			await saveSetupRecord(device, {
+				...(previous?.applied ? { applied: previous.applied } : {}),
+				signature,
+			}).catch(() => {});
+			setApplying(false);
+			toast({ variant: "info", message: t("modelSetup.apply.nothing") });
+			useUiStore.getState().closeModelSetup();
+			return;
+		}
+		const at = Date.now();
+		await saveSetupRecord(device, {
+			applied: mergeApplied(previous?.applied, data.roles, writes, at),
+			signature,
+		}).catch(() => {});
 		const failures: Array<{ role: string; error: unknown }> = [];
-		let written = 0;
-		for (const change of changes) {
+		for (const write of writes) {
 			try {
-				const res = await tabRpc.setModelRole(change.role, change.model);
-				if (res.success) written++;
-				else failures.push({ role: change.role, error: res });
+				const res = await tabRpc.setModelRole(write.role, write.model);
+				if (!res.success) failures.push({ role: write.role, error: res });
 			} catch (error) {
-				failures.push({ role: change.role, error });
+				failures.push({ role: write.role, error });
 			}
 		}
-		let advisorActive: boolean | undefined;
-		let advisorFailed: unknown;
-		if (advisorChanges) {
-			try {
-				const res = await tabRpc.setSetting("advisor.enabled", advisorOn);
-				if (res.success) {
-					setAdvisorEnabled(advisorOn);
-					advisorActive = (res.data as { advisorActive?: boolean } | undefined)?.advisorActive;
-				} else advisorFailed = res;
-			} catch (error) {
-				advisorFailed = error;
-			}
-		}
-		setApplying(false);
-		if (failures.length > 0 || advisorFailed !== undefined) {
+		if (failures.length > 0) {
+			const written = writes.filter(write => !failures.some(failure => failure.role === write.role));
+			await saveSetupRecord(
+				device,
+				written.length > 0
+					? { applied: mergeApplied(previous?.applied, data.roles, written, at), signature }
+					: previous,
+			).catch(() => {});
+			setApplying(false);
 			toast({
 				variant: "error",
 				title: t("modelSetup.apply.failedTitle"),
-				message: t("modelSetup.apply.partial", {
-					count: written,
-					failed: failures.length + (advisorFailed !== undefined ? 1 : 0),
-				}),
-				detail: [
-					...failures.map(failure => `${failure.role}: ${errorDetail(failure.error)}`),
-					...(advisorFailed !== undefined ? [`advisor.enabled: ${errorDetail(advisorFailed)}`] : []),
-				].join("\n"),
+				message: t("modelSetup.apply.partial", { count: written.length, failed: failures.length }),
+				detail: failures.map(failure => `${failure.role}: ${errorDetail(failure.error)}`).join("\n"),
 			});
+			// What the roles hold now differs from what was planned: read them again.
+			setTicks({});
+			void loadSetup(() => true);
 			return;
 		}
-		const advisorPart = advisorChanges
-			? ` ${t(advisorOn ? "modelSetup.apply.advisorOn" : "modelSetup.apply.advisorOff")}`
-			: "";
-		toast({
-			variant: written > 0 || advisorChanges ? "success" : "info",
-			message:
-				written > 0 || advisorChanges
-					? `${t("modelSetup.apply.done", { count: written })}${advisorPart}`
-					: t("modelSetup.apply.nothing"),
-		});
-		if (advisorOn && advisorActive === false) toast({ variant: "warning", message: t("advisor.noModel") });
+		setApplying(false);
+		toast({ variant: "success", message: t("modelSetup.apply.done", { count: writes.length }) });
 		useUiStore.getState().closeModelSetup();
 	};
 
@@ -311,172 +312,150 @@ export function ModelSetupDialog() {
 			),
 		}))
 		.filter(group => group.models.length > 0);
-	const atLimit = selected.length >= MODEL_SETUP_MAX_MODELS;
-	const canResearch = sidecarReady && selected.length > 0 && researchModel !== "" && !running;
-	// The proposal by purpose group, the contract's order within each (the same grouping as Settings › Model roles).
-	const assignmentGroups = ROLE_GROUPS.map(group => ({
+	const rowGroups = ROLE_GROUPS.map(group => ({
 		id: group.id,
-		entries: group.roles.flatMap(id => proposal?.plan.assignments.filter(entry => entry.role === id) ?? []),
-	})).filter(group => group.entries.length > 0);
-	const proposalModels = proposal ? options.filter(option => proposal.models.includes(option.selector)) : [];
+		rows: rows.filter(
+			row => roleGroup(row.role, roles?.find(role => role.id === row.role)?.section ?? "chat") === group.id,
+		),
+	})).filter(group => group.rows.length > 0);
+	const canResearch = sidecarReady && data !== null && researchModel !== undefined && pool.length > 0 && !running;
+	const estimate = facts && researchModel ? researchEstimate(facts, researchModel) : undefined;
 
-	const footer =
-		step === "pick" ? (
-			<>
-				{proposal && (
-					<Button className="mr-auto" onClick={() => showProposal(proposal)} variant="ghost">
-						{t("modelSetup.pick.backToProposal")}
-					</Button>
-				)}
-				<Button onClick={close} variant="secondary">
-					{t("common.cancel")}
-				</Button>
-				<Button disabled={!canResearch} icon={<Sparkles />} onClick={() => void research()} variant="primary">
-					{t("modelSetup.pick.start")}
-				</Button>
-			</>
-		) : step === "research" ? (
-			running ? (
-				<Button onClick={cancel} variant="danger">
-					{t("modelSetup.research.cancel")}
-				</Button>
-			) : (
-				<>
-					<Button onClick={() => setStep("pick")} variant="secondary">
-						{t("modelSetup.research.back")}
-					</Button>
-					<Button disabled={!canResearch} onClick={() => void research()} variant="primary">
-						{t("common.retry")}
-					</Button>
-				</>
-			)
-		) : step === "review" ? (
-			<>
-				<Button className="mr-auto" onClick={() => startOver(roles)} variant="ghost">
-					{t("modelSetup.review.startOver")}
-				</Button>
-				<Button onClick={close} variant="secondary">
-					{t("common.cancel")}
-				</Button>
-				<Button
-					disabled={!sidecarReady || applying}
-					loading={applying}
-					onClick={() => void apply()}
-					variant="primary"
-				>
-					{t("modelSetup.review.apply")}
-				</Button>
-			</>
-		) : undefined;
+	const footer = running ? (
+		<Button onClick={cancel} variant="danger">
+			{t("modelSetup.research.cancel")}
+		</Button>
+	) : (
+		<>
+			<Button
+				aria-expanded={confirmOpen}
+				className="mr-auto"
+				disabled={!canResearch}
+				icon={<Search />}
+				onClick={() => setConfirmOpen(open => !open)}
+				variant="ghost"
+			>
+				{t("modelSetup.evidence.open")}
+			</Button>
+			<Button onClick={close} variant="secondary">
+				{t("common.cancel")}
+			</Button>
+			<Button
+				disabled={!sidecarReady || data === null || applying}
+				loading={applying}
+				onClick={() => void apply()}
+				variant="primary"
+			>
+				{t("modelSetup.review.apply")}
+			</Button>
+		</>
+	);
 
 	return (
 		<Modal footer={footer} onClose={close} open size="lg" title={t("modelSetup.title")}>
-			<div className="space-y-4" data-model-setup-step={step}>
-				<ol aria-label={t("modelSetup.steps")} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sc-sm">
-					{STEPS.map((id, index) => (
-						<li
-							aria-current={step === id ? "step" : undefined}
-							className={cx(
-								"flex items-center gap-1.5",
-								step === id ? "font-medium text-(--sc-text)" : "text-(--sc-text-muted)",
-							)}
-							key={id}
-						>
-							<span
-								className={cx(
-									"inline-flex size-5 items-center justify-center rounded-(--sc-radius-full) border text-sc-xs tabular-nums",
-									step === id ? "border-(--sc-accent) text-(--sc-accent)" : "border-(--sc-border-subtle)",
-								)}
-							>
-								{index + 1}
-							</span>
-							{t(`modelSetup.step.${id}`)}
-						</li>
-					))}
-				</ol>
-
+			<div className="space-y-4" data-model-setup-mode={mode}>
 				{!sidecarReady && <InlineNotice title={t("modelSetup.notConnected")} tone="info" />}
 				{loadError !== null && <InlineNotice detail={loadError} title={t("modelSetup.loadFailed")} tone="danger" />}
 
-				{step === "loading" && (
+				{data === null && sidecarReady && loadError === null && (
 					<div className="flex justify-center py-10">
 						<Spinner />
 					</div>
 				)}
 
-				{step === "pick" && (
-					<div className="space-y-4">
-						<p className="text-sc-sm text-(--sc-text-secondary)">{t("modelSetup.pick.intro")}</p>
-						{options.length === 0 && sidecarReady && loadError === null ? (
-							<InlineNotice title={t("modelSetup.pick.none")} tone="warning" />
-						) : (
-							<>
-								<div className="flex items-center gap-3">
-									<SearchField
-										className="min-w-0 flex-1"
-										label={t("modelSetup.pick.filter")}
-										onValueChange={setQuery}
-										placeholder={t("modelSetup.pick.filter")}
-										value={query}
-									/>
-									<span className="shrink-0 text-sc-sm tabular-nums text-(--sc-text-muted)">
-										{t("modelSetup.pick.count", { count: selected.length, max: MODEL_SETUP_MAX_MODELS })}
-									</span>
-								</div>
-								<div className="max-h-72 space-y-3 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
-									{visibleGroups.map(group => (
-										<fieldset className="space-y-1" key={group.provider}>
-											<legend className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
-												{providerName(group.provider)}
-											</legend>
-											{group.models.map(option => (
-												<ModelCheckbox
-													checked={selected.includes(option.selector)}
-													disabled={running || (atLimit && !selected.includes(option.selector))}
-													isDefault={option.selector === defaultModel}
-													key={option.selector}
-													onChange={checked => toggle(option.selector, checked)}
-													option={option}
-												/>
-											))}
-										</fieldset>
-									))}
-								</div>
-								<Select
-									hint={t("modelSetup.pick.researchHint")}
-									label={t("modelSetup.pick.researchModel")}
-									onChange={event => setResearchModel(event.target.value)}
-									value={researchModel}
-								>
-									{groups.map(group => (
-										<optgroup key={group.provider} label={providerName(group.provider)}>
-											{group.models.map(option => (
-												<option key={option.selector} value={option.selector}>
-													{option.label === option.selector
-														? option.selector
-														: `${option.label} (${option.selector})`}
-												</option>
-											))}
-										</optgroup>
-									))}
-								</Select>
-								<p className="flex items-start gap-2 text-sc-sm text-(--sc-text-muted)">
-									<Info aria-hidden className="mt-0.5 size-(--sc-icon-sm) shrink-0" />
-									{t("modelSetup.pick.cost", { model: labelOf(researchModel) })}
-								</p>
-							</>
-						)}
-					</div>
-				)}
+				{data !== null && (
+					<>
+						<div className="flex items-center gap-5 [--hit-gap-x:20px]">
+							<Tabs
+								ariaLabel={t("modelSetup.mode.label")}
+								onChange={changeMode}
+								tabs={[
+									{ id: "full", label: t("modelSetup.mode.full") },
+									{ id: "picked", label: t("modelSetup.mode.picked") },
+								]}
+								activeId={mode}
+								compact
+								variant="segmented"
+							/>
+							<SettingInfo
+								text={t(mode === "full" ? "modelSetup.mode.fullInfo" : "modelSetup.mode.pickedInfo")}
+							/>
+						</div>
 
-				{step === "research" && (
-					<div className="space-y-3 py-2" role="status">
-						{running ? (
-							<>
+						{mode === "picked" &&
+							(options.length === 0 ? (
+								<InlineNotice title={t("modelSetup.pick.none")} tone="warning" />
+							) : (
+								<div className="space-y-2">
+									<div className="flex items-center gap-3">
+										<SearchField
+											className="min-w-0 flex-1"
+											label={t("modelSetup.pick.filter")}
+											onValueChange={setQuery}
+											placeholder={t("modelSetup.pick.filter")}
+											value={query}
+										/>
+										<span
+											className="shrink-0 text-sc-sm tabular-nums text-(--sc-text-muted)"
+											data-model-setup-count
+										>
+											{t("modelSetup.pick.count", { count: pickedModels.length })}
+										</span>
+									</div>
+									<div className="max-h-56 space-y-3 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+										{visibleGroups.map(group => (
+											<fieldset className="space-y-1" key={group.provider}>
+												<legend className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+													{providerName(group.provider)}
+												</legend>
+												{group.models.map(option => (
+													<ModelCheckbox
+														checked={pickedModels.includes(option.selector)}
+														disabled={running}
+														isDefault={option.selector === defaultModel}
+														key={option.selector}
+														onChange={checked => togglePicked(option.selector, checked)}
+														option={option}
+													/>
+												))}
+											</fieldset>
+										))}
+									</div>
+								</div>
+							))}
+
+						{confirmOpen && researchModel && estimate && (
+							<div
+								className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-sm text-(--sc-text-secondary)"
+								data-model-setup-confirm
+								role="group"
+							>
+								<span className="min-w-0 flex-1">
+									{t("modelSetup.evidence.confirm", {
+										model: labelOf(researchModel),
+										cost:
+											estimate.billing === "subscription"
+												? t("modelSetup.evidence.costSubscription")
+												: estimate.billing === "free"
+													? t("modelSetup.evidence.costFree")
+													: estimate.usd !== undefined
+														? t("modelSetup.evidence.costBilled", { usd: formatUsd(estimate.usd) })
+														: t("modelSetup.evidence.costBilledUnknown"),
+										minutes: RESEARCH_MINUTES,
+									})}
+								</span>
+								<Button onClick={() => void research()} size="sm" variant="primary">
+									{t("modelSetup.evidence.run")}
+								</Button>
+							</div>
+						)}
+
+						{running && (
+							<div className="space-y-2" role="status">
 								<div className="flex items-center gap-3">
 									<Spinner />
 									<div className="min-w-0">
-										<p className="text-sc-md font-medium text-(--sc-text)">
+										<p className="truncate text-sc-md font-medium text-(--sc-text)">
 											{t("modelSetup.research.running", { model: labelOf(researchModel) })}
 										</p>
 										<p className="text-sc-sm tabular-nums text-(--sc-text-muted)">
@@ -490,154 +469,87 @@ export function ModelSetupDialog() {
 								<p className="truncate text-sc-sm text-(--sc-text-secondary)" data-model-setup-activity>
 									{activity ? activityLine(t, activity) : t("modelSetup.research.starting")}
 								</p>
-							</>
-						) : (
-							runError && (
-								<div
-									className="rounded-(--sc-radius-md) border border-(--sc-danger)/40 p-3 text-sc-sm"
-									role="alert"
-								>
-									<p className="text-(--sc-danger)">{runError.message}</p>
-									<ErrorDetail className="mt-1" error={runError.cause} />
-									{runError.reply && (
-										<pre className="mt-2 max-h-40 overflow-y-auto font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-muted)">
-											{runError.reply}
-										</pre>
-									)}
-								</div>
-							)
-						)}
-					</div>
-				)}
-
-				{step === "review" && proposal && (
-					<div className="space-y-4">
-						<p className="text-sc-sm text-(--sc-text-muted)">
-							{t("modelSetup.review.meta", {
-								date: formatClock(proposal.savedAt),
-								model: labelOf(proposal.researchModel),
-							})}
-						</p>
-						<div className="overflow-x-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-							<table className="w-full text-left text-sc-sm">
-								<thead className="text-sc-xs text-(--sc-text-muted)">
-									<tr className="border-b border-(--sc-border-subtle)">
-										<th className="px-3 py-2 font-medium">{t("modelSetup.review.role")}</th>
-										<th className="px-3 py-2 font-medium">{t("modelSetup.review.model")}</th>
-										<th className="px-3 py-2 font-medium">{t("modelSetup.review.reason")}</th>
-									</tr>
-								</thead>
-								<tbody className="divide-y divide-(--sc-divider)">
-									{assignmentGroups.map(group => (
-										<Fragment key={group.id}>
-											<tr className="bg-(--sc-surface-2)" data-model-setup-group={group.id}>
-												<th
-													className="px-3 py-1.5 text-sc-xs font-medium text-(--sc-text-muted)"
-													colSpan={3}
-													scope="colgroup"
-												>
-													{t(`modelRoles.group.${group.id}`)}
-												</th>
-											</tr>
-											{group.entries.map(entry => {
-												const role = roles.find(candidate => candidate.id === entry.role);
-												const roleName = role ? modelRoleName(lang, role.name) : entry.role;
-												const current = baseSelector(role?.model);
-												const draft = drafts[entry.role] ?? entry.model;
-												return (
-													<tr data-model-setup-role={entry.role} key={entry.role}>
-														<td className="px-3 py-2 align-top">
-															<div className="font-medium text-(--sc-text)">{roleName}</div>
-															<div className="text-sc-xs text-(--sc-text-muted)">
-																{t("modelSetup.review.current", { model: labelOf(current) })}
-															</div>
-														</td>
-														<td className="min-w-52 px-3 py-2 align-top">
-															<Select
-																aria-label={t("modelSetup.review.select", { role: roleName })}
-																controlSize="sm"
-																onChange={event =>
-																	setDrafts(previous => ({
-																		...previous,
-																		[entry.role]: event.target.value,
-																	}))
-																}
-																value={draft}
-															>
-																{proposalModels.map(option => (
-																	<option key={option.selector} value={option.selector}>
-																		{option.label}
-																	</option>
-																))}
-																{!proposalModels.some(option => option.selector === draft) && (
-																	<option value={draft}>{draft}</option>
-																)}
-															</Select>
-															{draft === current && (
-																<Badge className="mt-1" variant="muted">
-																	{t("modelSetup.review.unchanged")}
-																</Badge>
-															)}
-														</td>
-														<td className="px-3 py-2 align-top text-(--sc-text-secondary)">
-															{entry.reason}
-														</td>
-													</tr>
-												);
-											})}
-										</Fragment>
-									))}
-								</tbody>
-							</table>
-						</div>
-						{/* The row's hover inset sits outside the content edge, like the other dialog switches. */}
-						<div className="-mx-2">
-							<SwitchField
-								checked={advisorOn}
-								description={proposal.plan.advisor.reason || undefined}
-								label={t("modelSetup.review.advisor")}
-								onCheckedChange={setAdvisorOn}
-							/>
-						</div>
-						{advisorOn && !advisorModelAfter && (
-							<InlineNotice title={t("modelSetup.review.advisorNoModel")} tone="warning" />
-						)}
-						{proposal.plan.notes && (
-							<p className="text-sc-sm text-(--sc-text-secondary)">{proposal.plan.notes}</p>
-						)}
-						{proposal.dropped.length > 0 && (
-							<InlineNotice
-								detail={proposal.dropped.join("; ")}
-								title={t("modelSetup.review.dropped", { count: proposal.dropped.length })}
-								tone="info"
-							/>
-						)}
-						{proposal.plan.sources.length > 0 && (
-							<div>
-								<h4 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
-									{t("modelSetup.review.sources")}
-								</h4>
-								<ul className="space-y-1">
-									{proposal.plan.sources.map(source => (
-										<li key={source.url}>
-											<a
-												className="inline-flex max-w-full items-center gap-1 text-sc-sm text-(--sc-accent) hover:underline"
-												href={source.url}
-												onClick={event => {
-													event.preventDefault();
-													void window.omp.system.openExternal(source.url);
-												}}
-												title={source.url}
-											>
-												<span className="truncate">{source.title}</span>
-												<ExternalLink aria-hidden className="size-3 shrink-0" />
-											</a>
-										</li>
-									))}
-								</ul>
 							</div>
 						)}
-					</div>
+						{!running && runError && (
+							<div
+								className="rounded-(--sc-radius-md) border border-(--sc-danger)/40 p-3 text-sc-sm"
+								role="alert"
+							>
+								<p className="text-(--sc-danger)">{runError.message}</p>
+								<ErrorDetail className="mt-1" error={runError.cause} />
+								{runError.reply && (
+									<pre className="mt-2 max-h-40 overflow-y-auto font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-muted)">
+										{runError.reply}
+									</pre>
+								)}
+							</div>
+						)}
+
+						<div className="space-y-3">
+							{rowGroups.map(group => (
+								<section data-model-setup-group={group.id} key={group.id}>
+									<h4 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+										{t(`modelRoles.group.${group.id}`)}
+									</h4>
+									<ul className="space-y-0.5 [html[data-input=touch]_&]:space-y-1">
+										{group.rows.map(row => (
+											<RoleRow
+												key={row.role}
+												labelOf={labelOf}
+												mode={mode}
+												onTick={checked => setTicks(current => ({ ...current, [row.role]: checked }))}
+												role={roles?.find(role => role.id === row.role)}
+												row={row}
+												ticked={isTicked(row)}
+												keepsDefault={row.model !== null && row.model === defaultModel}
+											/>
+										))}
+									</ul>
+								</section>
+							))}
+						</div>
+
+						{evidence && (
+							<div className="space-y-2">
+								{evidence.plan.notes && (
+									<p className="text-sc-sm text-(--sc-text-secondary)">{evidence.plan.notes}</p>
+								)}
+								{evidence.dropped.length > 0 && (
+									<InlineNotice
+										detail={evidence.dropped.join("; ")}
+										title={t("modelSetup.review.dropped", { count: evidence.dropped.length })}
+										tone="info"
+									/>
+								)}
+								{evidence.plan.sources.length > 0 && (
+									<div>
+										<h4 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+											{t("modelSetup.review.sources")}
+										</h4>
+										<ul className="space-y-1">
+											{evidence.plan.sources.map(source => (
+												<li key={source.url}>
+													<a
+														className="inline-flex max-w-full items-center gap-1 text-sc-sm text-(--sc-accent) hover:underline"
+														href={source.url}
+														onClick={event => {
+															event.preventDefault();
+															void window.omp.system.openExternal(source.url);
+														}}
+														title={source.url}
+													>
+														<span className="truncate">{source.title}</span>
+														<ExternalLink aria-hidden className="size-3 shrink-0" />
+													</a>
+												</li>
+											))}
+										</ul>
+									</div>
+								)}
+							</div>
+						)}
+					</>
 				)}
 			</div>
 		</Modal>
@@ -657,6 +569,100 @@ function activityLine(
 	return t(key, { tool: activity.tool, detail: activity.detail ?? "" }).trim();
 }
 
+/**
+ * One role, one line: tick · role · → · model · state · ⓘ (the reason). A role left to stock shows what it runs on now;
+ * a role already on the planned model reads "unchanged"; one the person set by hand is unticked and says so.
+ */
+function RoleRow({
+	row,
+	role,
+	mode,
+	ticked,
+	keepsDefault,
+	labelOf,
+	onTick,
+}: {
+	row: ProposalRow;
+	role: ModelRoleEntry | undefined;
+	mode: PlanMode;
+	ticked: boolean;
+	keepsDefault: boolean;
+	labelOf: (selector: string | undefined) => string;
+	onTick: (checked: boolean) => void;
+}) {
+	const t = useT();
+	const { lang } = useLang();
+	const name = role ? modelRoleName(lang, role.name) : row.role;
+	const stock = row.model === null;
+	const unchanged = !stock && !writable(row);
+	const effective = role?.effective?.name || labelOf(role?.effective?.model) || t("modelSetup.row.noModel");
+	const reason = [
+		reasonText(t, row, {
+			mode,
+			keepsDefault,
+			...(row.research !== undefined ? { research: row.research } : {}),
+		}),
+		row.manual ? t("modelSetup.reason.manual") : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+	const label = stock ? effective : labelOf(row.model ?? undefined);
+	return (
+		<li
+			className="flex min-h-(--sc-control-md) items-center gap-2 text-sc-sm [html[data-input=touch]_&]:min-h-10"
+			data-model-setup-role={row.role}
+			data-model-setup-state={stock ? "stock" : unchanged ? "unchanged" : row.manual ? "manual" : "plan"}
+		>
+			{/* The label carries the checkbox's touch reach, and a tap on the role's name ticks it too. */}
+			<label className="flex w-28 shrink-0 items-center gap-2 self-stretch sm:w-40">
+				{stock ? (
+					<span aria-hidden className="size-4 shrink-0" />
+				) : (
+					<input
+						aria-label={t("modelSetup.row.select", { role: name })}
+						checked={ticked}
+						className="size-4 shrink-0 accent-(--sc-accent)"
+						data-model-setup-tick={row.role}
+						disabled={unchanged}
+						onChange={event => onTick(event.target.checked)}
+						type="checkbox"
+					/>
+				)}
+				<span className="min-w-0 truncate font-medium text-(--sc-text)" title={name}>
+					{name}
+				</span>
+			</label>
+			<span aria-hidden className="shrink-0 text-(--sc-text-muted)">
+				→
+			</span>
+			<span
+				className={cx(
+					"min-w-0 flex-1 truncate",
+					stock || unchanged ? "text-(--sc-text-muted)" : "text-(--sc-text)",
+				)}
+				data-model-setup-model
+				title={label}
+			>
+				{label}
+			</span>
+			{stock ? (
+				<Badge className="shrink-0" variant="muted">
+					{t("modelSetup.row.stock")}
+				</Badge>
+			) : unchanged ? (
+				<Badge className="shrink-0" variant="muted">
+					{t("modelSetup.row.unchanged")}
+				</Badge>
+			) : row.manual ? (
+				<Badge className="shrink-0" variant="muted">
+					{t("modelSetup.row.manual")}
+				</Badge>
+			) : null}
+			<SettingInfo text={reason} />
+		</li>
+	);
+}
+
 function ModelCheckbox({
 	option,
 	checked,
@@ -671,36 +677,29 @@ function ModelCheckbox({
 	onChange: (checked: boolean) => void;
 }) {
 	const t = useT();
-	const facts = [
-		option.contextWindow ? t("modelSetup.pick.context", { tokens: formatContext(option.contextWindow) }) : undefined,
-		option.cost?.input !== undefined && option.cost.output !== undefined
-			? t("modelSetup.pick.price", { input: option.cost.input, output: option.cost.output })
-			: undefined,
-	].filter((fact): fact is string => fact !== undefined);
 	return (
 		<label
 			className={cx(
-				"flex items-start gap-2.5 rounded-(--sc-radius-sm) px-1.5 py-1 hover:bg-(--sc-hover)",
+				"flex items-center gap-2.5 rounded-(--sc-radius-sm) px-1.5 py-1 hover:bg-(--sc-hover)",
 				disabled && "opacity-60",
 			)}
+			title={option.selector}
 		>
 			<input
 				checked={checked}
-				className="mt-0.5 size-4 shrink-0 accent-(--sc-accent)"
+				className="size-4 shrink-0 accent-(--sc-accent)"
 				data-model-setup-model={option.selector}
 				disabled={disabled}
 				onChange={event => onChange(event.target.checked)}
 				type="checkbox"
 			/>
-			<span className="min-w-0 flex-1">
-				<span className="flex flex-wrap items-center gap-1.5">
-					<span className="text-sc-sm text-(--sc-text)">{option.label}</span>
-					{isDefault && <Badge variant="success">{t("modelSetup.pick.default")}</Badge>}
-				</span>
-				<span className="block truncate font-mono text-sc-xs text-(--sc-text-muted)">
-					{[option.selector, ...facts].join(" · ")}
-				</span>
-			</span>
+			<span className="min-w-0 truncate text-sc-sm text-(--sc-text)">{option.label}</span>
+			{isDefault && <Badge variant="success">{t("modelSetup.pick.default")}</Badge>}
+			{option.billing === "metered" && (
+				<Badge className="shrink-0" variant="muted">
+					{t("modelSetup.pick.metered")}
+				</Badge>
+			)}
 		</label>
 	);
 }

@@ -3,6 +3,7 @@
  * section with stock-shaped data instead of the transport's `{}`.
  */
 
+import type { ModelSetupFacts } from "../../../resources/gui-bridge/model-setup-contracts";
 import type { RemoteState } from "../../shared/ipc-types";
 import { type MobileWebState, type WebBlockedInfo, type WebDeviceInfo, webDeviceTier } from "../../shared/mobile-web";
 import type { ModelRoleCandidate, ModelRoleEntry } from "../../shared/rpc-types";
@@ -11,30 +12,105 @@ import type { SetupItemState, SetupState } from "../../shared/setup";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
 
 const CANDIDATES: ModelRoleCandidate[] = [
+	{ provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5", kind: "chat" },
 	{ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", kind: "chat" },
 	{ provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5", kind: "chat" },
 	{ provider: "openai", id: "gpt-5", name: "GPT-5", kind: "chat" },
+	{ provider: "openai", id: "gpt-5-mini", name: "GPT-5 mini", kind: "chat" },
+	{ provider: "openrouter", id: "deepseek-v3", name: "DeepSeek V3", kind: "chat" },
+	{ provider: "ollama", id: "qwen3", name: "Qwen3 8B", kind: "chat" },
 ];
 
-const role = (id: string, name: string, model: string | undefined): ModelRoleEntry => ({
+const IMAGE_CANDIDATES: ModelRoleCandidate[] = [
+	{ provider: "openai", id: "gpt-image-1", name: "GPT Image 1", kind: "image" },
+];
+
+const role = (
+	id: string,
+	name: string,
+	model: string | undefined,
+	section: ModelRoleEntry["section"] = "chat",
+): ModelRoleEntry => ({
 	id,
 	name,
-	section: "chat",
+	section,
 	model,
 	source: model ? "settings" : "default",
 	effective: model
 		? { model, name: model.split("/")[1], source: "configured" }
 		: { model: "anthropic/claude-sonnet-4-5", name: "claude-sonnet-4-5", source: "fallback", via: "default" },
-	candidates: CANDIDATES,
+	candidates: section === "kind" ? IMAGE_CANDIDATES : CANDIDATES,
 });
 
 export const MODEL_ROLES = {
 	roles: [
 		role("default", "Default", "anthropic/claude-sonnet-4-5"),
-		role("slow", "Slow", undefined),
-		role("smol", "Smol", "anthropic/claude-haiku-4-5"),
-		role("plan", "Plan", undefined),
+		role("slow", "Thinking", undefined),
+		role("smol", "Fast", "anthropic/claude-haiku-4-5"),
+		role("plan", "Architect", undefined),
+		role("task", "Subtask", undefined),
+		role("advisor", "Advisor", undefined),
+		role("commit", "Commit", undefined),
+		role("tiny", "Tiny", undefined),
+		role("vision", "Vision", undefined),
+		role("image", "Image generation", undefined, "kind"),
 	],
+};
+
+/** The model setup's facts (`get_model_setup_facts`): two subscriptions, one API-key aggregator, one local runtime. */
+export const MODEL_SETUP_FACTS: ModelSetupFacts = {
+	providers: {
+		anthropic: { billing: "subscription", basis: "oauth" },
+		openai: { billing: "subscription", basis: "oauth" },
+		openrouter: { billing: "metered", basis: "api-key" },
+		ollama: { billing: "free", basis: "local-keyless" },
+	},
+	models: Object.fromEntries(
+		[
+			[
+				"anthropic/claude-opus-4-5",
+				{ int: 80, contextWindow: 200_000, inputPrice: 5, outputPrice: 25, family: "claude" },
+			],
+			[
+				"anthropic/claude-sonnet-4-5",
+				{ int: 70, contextWindow: 1_000_000, inputPrice: 3, outputPrice: 15, family: "claude" },
+			],
+			[
+				"anthropic/claude-haiku-4-5",
+				{ int: 55, contextWindow: 200_000, inputPrice: 1, outputPrice: 5, family: "claude" },
+			],
+			["openai/gpt-5", { int: 78, contextWindow: 400_000, inputPrice: 1.25, outputPrice: 10, family: "gpt" }],
+			["openai/gpt-5-mini", { int: 58, contextWindow: 400_000, inputPrice: 0.25, outputPrice: 2, family: "gpt" }],
+			[
+				"openrouter/deepseek-v3",
+				{ int: 62, contextWindow: 128_000, inputPrice: 0.3, outputPrice: 1.2, family: "deepseek" },
+			],
+			["ollama/qwen3", { int: 35, contextWindow: 32_000, inputPrice: 0, outputPrice: 0, family: "qwen" }],
+			["openai/gpt-image-1", { family: "gpt" }],
+		].map(([selector, facts]) => {
+			const [provider, ...rest] = (selector as string).split("/");
+			const candidate = [...CANDIDATES, ...IMAGE_CANDIDATES].find(
+				entry => `${entry.provider}/${entry.id}` === selector,
+			);
+			return [
+				selector,
+				{
+					provider,
+					id: rest.join("/"),
+					name: candidate?.name ?? selector,
+					kind: candidate?.kind ?? "chat",
+					image: provider === "anthropic" || provider === "openai",
+					...(facts as object),
+				},
+			];
+		}),
+	),
+	// The values config.yml holds; smol was set by hand, so the proposal keeps it unticked.
+	roles: {
+		default: { persisted: "anthropic/claude-sonnet-4-5" },
+		smol: { persisted: "anthropic/claude-haiku-4-5" },
+	},
+	judgePins: [],
 };
 
 export const PLUGINS = { plugins: [] };

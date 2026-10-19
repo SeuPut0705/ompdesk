@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { ipcErrorCode } from "./ipc-error-codes";
 import {
 	buildModelSetupPrompt,
-	isSetupRole,
 	type ModelSetupRequest,
 	ModelSetupRequestSchema,
 	parseModelSetupPlan,
@@ -70,8 +69,8 @@ describe("buildModelSetupPrompt", () => {
 		]);
 		expect(prompt).toMatch(/- advisor \(Advisor\): Second-opinion reviewer.*different vendor than the default/);
 		expect(prompt).toContain('"role" is one of: default, smol, advisor, reviewer.');
-		expect(isSetupRole("advisor")).toBe(true);
-		expect(isSetupRole("reviewer")).toBe(false);
+		// A role the table has no purpose for is described by its name and section: any chat role is researchable.
+		expect(prompt).toContain("- reviewer (Reviewer): Reviewer (chat role)");
 		expect(prompt).toContain("Reply with ONLY one JSON object");
 		expect(prompt).toContain("benchmarks and comparisons for exactly these models");
 		expect(prompt).toContain('Write every "reason" and "notes" in Korean.');
@@ -98,7 +97,7 @@ describe("buildModelSetupPrompt", () => {
 		const custom = buildModelSetupPrompt({ ...REQUEST, roles: [{ id: "review", name: "Review" }] });
 		expect(custom).not.toContain("### Conversation");
 		expect(custom).toContain("### Other roles");
-		expect(isSetupRole("review")).toBe(false);
+		expect(custom).toContain("- review (Review): Review (chat role)");
 	});
 });
 
@@ -108,6 +107,11 @@ describe("ModelSetupRequestSchema", () => {
 		expect(ModelSetupRequestSchema.safeParse({ ...REQUEST, researchModel: "--help" }).success).toBe(false);
 		expect(ModelSetupRequestSchema.safeParse({ ...REQUEST, models: [] }).success).toBe(false);
 		expect(ModelSetupRequestSchema.safeParse({ ...REQUEST, roles: [{ id: "a b", name: "x" }] }).success).toBe(false);
+	});
+
+	it("takes any number of picked models: the picker has no cap", () => {
+		const many = Array.from({ length: 40 }, (_, index) => ({ selector: `p/m${index}`, provider: "p" }));
+		expect(ModelSetupRequestSchema.safeParse({ ...REQUEST, models: many }).success).toBe(true);
 	});
 });
 

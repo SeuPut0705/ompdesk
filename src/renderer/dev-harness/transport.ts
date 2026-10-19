@@ -54,6 +54,7 @@ import {
 	MARKETPLACES,
 	MOBILE_WEB_STATE,
 	MODEL_ROLES,
+	MODEL_SETUP_FACTS,
 	PLUGINS,
 	PROMPT_TEMPLATES,
 	REMOTE_STATE,
@@ -239,6 +240,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				});
 			case "get_model_roles":
 				return respond(command, MODEL_ROLES);
+			case "get_model_setup_facts":
+				return respond(command, MODEL_SETUP_FACTS);
 			case "get_plugins":
 				return respond(command, PLUGINS);
 			case "get_marketplaces":

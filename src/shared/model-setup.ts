@@ -14,8 +14,8 @@ import { codedError } from "./ipc-error-codes";
 export const MODEL_SETUP_TIMEOUT_MS = 10 * 60_000;
 
 export const ADVISOR_ROLE = "advisor";
-/** At most this many models are researched at once (prompt size and research effort). */
-export const MODEL_SETUP_MAX_MODELS = 12;
+/** A sanity bound on the candidate list of one request (validated on the machine that runs it); the picker has no cap. */
+const MAX_REQUEST_MODELS = 500;
 
 export interface ModelSetupModel {
 	/** `provider/id`, the value a role is set to. */
@@ -32,6 +32,8 @@ export interface ModelSetupModel {
 export interface ModelSetupRole {
 	id: string;
 	name: string;
+	/** Stock's section of the role; the prompt describes a role it has no stated purpose for by it. */
+	section?: "chat" | "kind";
 }
 
 export interface ModelSetupRequest {
@@ -93,9 +95,15 @@ export const ModelSetupRequestSchema: z.ZodType<ModelSetupRequest> = z.object({
 			}),
 		)
 		.min(1)
-		.max(MODEL_SETUP_MAX_MODELS),
+		.max(MAX_REQUEST_MODELS),
 	roles: z
-		.array(z.object({ id: RoleId, name: z.string().max(100) }))
+		.array(
+			z.object({
+				id: RoleId,
+				name: z.string().max(100),
+				section: z.enum(["chat", "kind"]).optional(),
+			}),
+		)
 		.min(1)
 		.max(40),
 	language: z
@@ -116,9 +124,8 @@ export const ModelSetupPlanSchema: z.ZodType<ModelSetupPlan> = z.object({
 });
 
 /**
- * What each built-in role does in stock omp. The assistant assigns only these:
- * a custom role (`modelRoles.<name>` the user added, e.g. for their own
- * agents) has a purpose OMPdesk cannot know, so its model stays the user's.
+ * What each of stock's built-in roles does. A role not listed here (one a newer omp or OMPdesk adds) is described
+ * by its name and section.
  */
 const ROLE_PURPOSES: Record<string, string> = {
 	default:
@@ -134,9 +141,10 @@ const ROLE_PURPOSES: Record<string, string> = {
 		"Second-opinion reviewer: passively reviews every turn of the main agent and injects notes (concerns, blockers). Ideally a strong model from a different vendor than the default model, so it catches different mistakes. It only runs while the advisor is enabled.",
 };
 
-/** Whether the model setup assistant proposes a model for `role`. */
-export function isSetupRole(role: string): boolean {
-	return Object.hasOwn(ROLE_PURPOSES, role);
+function rolePurpose(role: ModelSetupRole): string {
+	return Object.hasOwn(ROLE_PURPOSES, role.id)
+		? ROLE_PURPOSES[role.id]
+		: `${role.name} (${role.section ?? "chat"} role)`;
 }
 
 function formatTokens(value: number): string {
@@ -159,7 +167,7 @@ function describeModel(model: ModelSetupModel): string {
 }
 
 function describeRole(role: ModelSetupRole): string {
-	return `- ${role.id} (${role.name}): ${ROLE_PURPOSES[role.id] ?? role.name}`;
+	return `- ${role.id} (${role.name}): ${rolePurpose(role)}`;
 }
 
 const GROUP_HEADINGS: Record<RoleGroupId, string> = {
