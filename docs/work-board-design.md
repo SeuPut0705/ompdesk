@@ -49,17 +49,18 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 
 ## What the shipped board does
 
-- Head: pulse (working / waiting / idle), status line, segmented todo bar, hide button.
-- Waiting on you first: questions, approvals and a pending plan review; the only live region (polite);
-  `⌥B` (`board.focus`) jumps to its first row from anywhere.
+- Placement: a pane that leaves at least 300 px beside its reading column (`workBoardFits`) docks it, when the user's `workBoard` pref is on (default) and the side panel is closed; a board with no section takes no room. Where it cannot dock (a phone, a portrait tablet) it is a status chip over the composer that opens the board as a sheet.
+- Head: pulse (working / waiting / idle), "Work board", a hide button (turns the pref off), the worktree's project name when the session runs in one, the segmented todo bar with "3/7 done", and the account's usage limit. Direction B's status sentence did not ship: the waiting section's live region and each section's count carry it.
+- Sections, top to bottom, each shown only when it has rows: Autopilot, Waiting on you, Needs review, This turn, Running, Opened sessions, Todos, Goal, Last turn.
+- Autopilot: while the session is an Autopilot run, its cycle rows come first and the Goal section steps aside.
+- Waiting on you first: questions, approvals and a pending plan review; the only live region (polite); `⌥B` (`board.focus`) jumps to its first row from anywhere.
+- Needs review: only the exceptions of finished sessions an agent opened (a merge conflict, a failed ending, commits nothing merged, uncommitted work), with Review, Approve (merge into this checkout, nothing is pushed) and Discard (a second click removes the worktree and branch).
 - This turn: the last four calls with their tool icon, target and duration; the live one's icon is tinted.
-- Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they
-  run on) and background shells; a click opens the subagent in the side panel / Background tasks.
-- Todos: finished tasks fold into "N done", the active row is emphasised, finished rows are struck through;
-  a click scrolls the todo card in the conversation into view when it is there.
+- Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they run on) and background shells; a click opens the subagent in the side panel / Background tasks.
+- Opened sessions: one row per session the agent opened (status, current step, clock, branch state, its last `ompdesk_report`); sessions main closed after their work landed collapse into an "N closed" note.
+- Todos: finished tasks fold into "N done", the active row is emphasised, finished rows are struck through; a click scrolls the todo card in the conversation into view when it is there.
 - Goal: objective, status, and budget / time meters from `get_goal` (warning colour from 90 %).
 - Last turn (idle): duration, files changed with +/−, a click opens Changes.
-- Every section folds to its header; folds persist (`workBoardCollapsed`).
 - Motion: one running animation, the head's pulse while something works; rows fade in and out once
   (`usePresence`) and otherwise stay still, so a live row is marked by colour (an info dot, a tinted icon), not by
   movement. Every animated row cost the GPU process about 2 % of a core while the transcript streamed, whatever
@@ -78,7 +79,6 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 
 ## Not done
 
-- Exit and reorder animations (rows enter with a fade; leaving rows disappear at once) — a presence layer would
-  be needed and the board's rows change rarely.
+- Reorder animations. Rows fade in and out once through `usePresence`; a row that moves jumps.
 - A cost line in the idle summary (no per-turn cost is in the renderer's stores; deriving it would break the
   "read, never derive" rule).

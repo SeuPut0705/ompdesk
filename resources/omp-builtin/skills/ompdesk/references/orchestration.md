@@ -36,7 +36,7 @@ With sessions you did not open: look first (`ompdesk_sessions`, then `ompdesk_se
 
 ## Finish
 
-Synthesize per session: what it found or changed, conflicts and overlaps, what is left. Close the sessions you opened when done (`ompdesk_session_stop` with `close`). Children finishing reach the user through OMPdesk's batched notifications; use `ompdesk_notify` (`title`, `body`) only for what those do not say.
+Synthesize per session: what it found or changed, conflicts and overlaps, what is left. Close the sessions you opened when done (`ompdesk_session_stop` with `close`); one you collected that ended well, that nobody is using and whose work landed has closed itself already, and its saved session stays readable (skill://ompdesk/references/worktrees-review.md). Children finishing reach the user through OMPdesk's batched notifications; use `ompdesk_notify` (`title`, `body`) only for what those do not say.
 
 ## Another folder, model and mode, shown beside
 

@@ -18,4 +18,6 @@ Connections are authenticated with per-device keys and encrypted. Settings and s
 ## Good to know
 
 - A remote tab uses that computer's omp, accounts, files, terminal and history. Its omp, extensions and tools are updated by that computer's own OMPdesk.
+- If a device disconnects, its tabs keep running for 10 minutes, waiting for it to come back.
+- The computer that runs the work stays awake while a paired device is connected or its session runs. **Keep this computer awake while a device is using it** (on by default) turns that off.
 - This is separate from [Mobile web](mobile-web.md), which opens OMPdesk from a phone browser over Tailscale.

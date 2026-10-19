@@ -16,9 +16,7 @@ row appears once, with the head's final facts.
 
 Captured on the fake omp's "fixture work view" run with `OMP_GUI_TEST_WORK_RICH=1` (search steps share an intent, a
 test run, a dev server), passing and with the type check failing, en light and ko dark, at a wide (1440) and a
-narrow (420) window. The side-by-side sheets are `/tmp/work-card/proto-compare-{pass,fail}-{wide,narrow}-{en-light,ko-dark}.png`
-(the single shots are `proto-{A,B,C}-…`); the prototypes were throwaway CSS and a flag on the card, removed once the
-choice was made.
+narrow (420) window. The prototypes were throwaway CSS and a flag on the card, removed once the choice was made.
 
 | | A — chips inline in the head | B — chip row under the head | C — B plus a step list by intent under the head |
 | --- | --- | --- | --- |
@@ -56,7 +54,8 @@ collapsible reads into the transcript's own read-group card. Rules that keep it 
   the middle (`reveal-step.ts` looks for the card by its `data-tool-call-id` for two seconds, because a big card
   mounts its rows in slices).
 - **Preview**: a bash result that printed a loopback address with a port from a server-looking command or banner
-  (`devServerUrl`, the same rule that opens the Preview by itself); opens the Preview panel on that address.
+  (`devServerUrl` in `lib/panel-auto-open.ts`, the rule the opt-in **Open dev servers in Preview** setting also uses);
+  opens the Preview panel on that address.
 - **Open Changes**, as before.
 - **Copy summary**: the head's facts and time, the cause, each changed file with its `+N -M`, each check as the head
   words it, and the preview address, as plain text through the clipboard helper.

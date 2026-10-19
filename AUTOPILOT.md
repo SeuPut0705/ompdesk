@@ -4,8 +4,8 @@ Project-wide direction for Autopilot runs on this repository, shared across sess
 
 ## Goals and roadmap
 
-- OMPdesk is the desktop app for the omp coding agent: parallel sessions, Autopilot, the phone. v0.34.0 is out; v0.35.0 is the work in progress.
-- Priority now: stability and polish of the v0.34 features over new features. A rough edge in something that already shipped beats a new idea.
+- OMPdesk is the desktop app for the omp coding agent: parallel sessions, Autopilot, the phone. The released version is in `package.json`; the next release is the work in progress.
+- Priority now: stability and polish of the shipped features over new features. A rough edge in something that already shipped beats a new idea.
 - Public-repo first impression matters: README (en and ko), onboarding, first run, empty states and screenshots are product surfaces. Keep them accurate and polished.
 
 ## Principles
@@ -14,7 +14,7 @@ Project-wide direction for Autopilot runs on this repository, shared across sess
 - Smart features default ON. The user's choice always wins, every automatic behavior is reversible from Settings, quiet (no nagging, no extra dialogs) and cheap (a `smol`-role request, never the main model, for background work).
 - Work continues after any restart: a crash, a SIGKILL, a normal quit, an omp restart. Minimize confirmation dialogs; decide, and make the decision undoable.
 - Efficient account use: spread load across accounts, never burn quota on background niceties, and keep the prompt-cache prefix stable (static system sections stay byte-identical).
-- Korean and English parity: every user-visible string has both, with the same keys in `en.ts` and `ko.ts`. Docs have a `.ko.md` twin.
+- Korean and English parity: every user-visible string has both, with the same keys in `en.ts` and `ko.ts`. User-facing docs have a `.ko.md` twin.
 
 ## Area priorities
 

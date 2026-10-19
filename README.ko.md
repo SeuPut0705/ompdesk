@@ -43,7 +43,7 @@
 </tr>
 <tr>
 <td width="50%" valign="top"><b>분할 화면과 작업 현황</b><br>세션을 최대 4개까지 나란히 열어요. 칸마다 서브에이전트, 할 일, 기다리는 질문이 실시간 보드에 보여요.<br><a href="docs/media/split-board.webp"><img src="docs/media/split-board.webp" alt="실행 중인 세션과 작업 현황, 이어서 세션 둘을 끌어 와 세 칸으로 나누는 모습" width="100%"></a></td>
-<td width="50%" valign="top"><b>모바일 웹 (베타, 기본값 꺼짐)</b><br>내 Tailscale 네트워크로 휴대폰에서 실행 중인 작업에 추가 지시를 보내요. 링크를 복사해 같은 Tailscale 계정으로 로그인한 기기에서 열면 끝이에요. 코드도 QR도 필요 없고, 원하면 푸시 알림도 받아요. <a href="docs/mobile-web.ko.md">설정 방법</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="폭 390px 휴대폰 화면: 실행 중인 세션에 추가 지시를 보내고, 설정에서 알림 켜기를 고르는 모습" width="45%"></a></td>
+<td width="50%" valign="top"><b>모바일 웹 (베타, 기본값 꺼짐)</b><br>내 Tailscale 네트워크로 휴대폰에서 실행 중인 작업에 추가 지시를 보내요. 링크를 복사해 같은 Tailscale 계정으로 로그인한 기기에서 열면 끝이에요. 입력할 페어링 코드는 없고, 원하면 푸시 알림도 받아요. <a href="docs/mobile-web.ko.md">설정 방법</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="폭 390px 휴대폰 화면: 실행 중인 세션에 추가 지시를 보내고, 설정에서 알림 켜기를 고르는 모습" width="45%"></a></td>
 </tr>
 <tr>
 <td width="50%" valign="top"><b>재시작 뒤 이어서 하기</b><br>작업 도중에 종료하거나, 비정상 종료하거나, 업데이트로 다시 시작해도 다음 실행에서 멈춘 곳부터 이어가요.<br><a href="docs/media/resume.webp"><img src="docs/media/resume.webp" alt="작업 중 OMPdesk를 종료하고 다시 열면 알림과 함께 작업이 이어지는 모습" width="100%"></a></td>
@@ -84,6 +84,15 @@ OMPdesk, omp, 연결한 계정의 도구 CLI, omp의 플러그인·스킬·MCP �
 - **로컬.** 설정, 세션, 계정은 omp를 실행하는 컴퓨터에 저장돼요. 모델 호출은 내 프로바이더로 가요.
 - **텔레메트리 없음.** OMPdesk는 사용 통계를 수집하지 않고, omp의 OTLP 내보내기도 꺼 둬요.
 - **모바일 웹은 내 tailnet 안에서만.** 기본값은 꺼짐이고, 내 Tailscale 네트워크로만 접속돼요.
+
+## 문서
+
+- [모바일 웹](docs/mobile-web.ko.md): 휴대폰에서 Tailscale로 실행 중인 작업에 추가 지시를 보내요.
+- [원격 기기](docs/remote-devices.ko.md): 다른 컴퓨터에서 탭을 실행해요.
+- [업데이트](docs/updates.ko.md): 무엇이 스스로 업데이트되는지, 끄는 방법.
+- [문제 해결](docs/troubleshooting.ko.md): 자주 겪는 문제와 직접 설치하는 방법.
+- [Windows 개발 환경](docs/windows-dev.md) (영어): 기여자를 위한 설정과 제약.
+- 설계 기록(영어): [작업 현황](docs/work-board-design.md), [작업 카드](docs/work-card-design.md).
 
 ## 소스에서 실행하기
 
