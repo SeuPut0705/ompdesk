@@ -668,7 +668,8 @@ type IdentityKeyResolver = (provider: string, credential: { type: string }) => s
  */
 async function identityKeyResolver(env: BridgeEnv): Promise<IdentityKeyResolver | undefined> {
 	if ((await probe(env, ["accountPools"])).length > 0) return undefined;
-	const auth: Rec = await import("@oh-my-pi/pi-ai/auth-storage");
+	// The package root: omp's bundle does not export `pi-ai/auth-storage`, whose import would be a second copy.
+	const auth: Rec = await import("@oh-my-pi/pi-ai");
 	const resolve = auth.resolveCredentialIdentityKey;
 	return typeof resolve === "function"
 		? (provider, credential) => {

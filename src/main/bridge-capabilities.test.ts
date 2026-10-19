@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	ALL_FEATURES,
+	BUNDLED_SCHEME,
 	deriveUnavailable,
 	FEATURES,
 	hasPath,
@@ -13,6 +14,7 @@ import {
 	REQUIREMENTS,
 	requireFn,
 	UnsupportedOmpError,
+	unsafeCopies,
 } from "../../resources/gui-bridge/capabilities";
 import { en } from "../renderer/locales/en";
 
@@ -194,5 +196,59 @@ describe("health.ts loaders", () => {
 			Object.values(REQUIREMENTS).flatMap(requirement => Object.keys(requirement.modules ?? {})),
 		);
 		expect(new Set(loaders.map(([, key]) => key))).toEqual(required);
+	});
+
+	it("covers every stock module the extension imports, so the copy check sees them all", () => {
+		// The stock helper, stats host and boot model run in their own Bun processes over omp's package files.
+		const outside = new Set(["stock-helper", "stats-host.ts", "boot-model.ts", "health.ts"]);
+		const required = new Set([
+			...Object.values(REQUIREMENTS).flatMap(requirement => Object.keys(requirement.modules ?? {})),
+			// thinking-default.ts feature-detects the natives addon (a package root omp bundles) instead of requiring it.
+			"@oh-my-pi/pi-natives",
+		]);
+		const unlisted: string[] = [];
+		for (const entry of fs.readdirSync(BRIDGE_DIR, { recursive: true, encoding: "utf8" })) {
+			if (!entry.endsWith(".ts") || entry.endsWith(".test.ts") || outside.has(entry.split(path.sep)[0] ?? ""))
+				continue;
+			const source = fs.readFileSync(path.join(BRIDGE_DIR, entry), "utf8");
+			const specifiers = [
+				...source.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"(@oh-my-pi\/[^"]+)"/gms),
+				...source.matchAll(/import\(\s*"(@oh-my-pi\/[^"]+)"\s*\)/g),
+			].map(match => match[1] ?? "");
+			for (const specifier of specifiers) if (!required.has(specifier)) unlisted.push(`${entry}: ${specifier}`);
+		}
+		expect(unlisted).toEqual([]);
+	});
+});
+
+describe("separate copies of stock", () => {
+	const bundled = (key: string) => `${BUNDLED_SCHEME}${key}`;
+
+	it("refuses a copy outside COPY_SAFE once omp serves anything from its bundle", () => {
+		const copies = unsafeCopies({
+			"@oh-my-pi/pi-coding-agent/config/registry": bundled("@oh-my-pi/pi-coding-agent/config/registry"),
+			"@oh-my-pi/pi-coding-agent/goals/settings": "file:///omp/pi-coding-agent/src/goals/settings.ts",
+			"@oh-my-pi/pi-coding-agent/tiny/text": "file:///omp/pi-coding-agent/src/tiny/text.ts",
+		});
+		expect([...copies]).toEqual(["@oh-my-pi/pi-coding-agent/goals/settings"]);
+	});
+
+	it("sees no copy on an omp run from source, where every import shares one graph", () => {
+		const copies = unsafeCopies({
+			"@oh-my-pi/pi-coding-agent/config/registry": "file:///omp/pi-coding-agent/src/config/registry.ts",
+			"@oh-my-pi/pi-coding-agent/goals/settings": "file:///omp/pi-coding-agent/src/goals/settings.ts",
+		});
+		expect(copies.size).toBe(0);
+	});
+
+	it("names a refused copy as the missing internal of each feature that needs it", () => {
+		const requirement = { modules: { "mod/copied": ["read()"], "mod/btw": ["getBtwTurns()"] } };
+		const modules = new Map<string, unknown>([
+			["mod/copied", { read() {} }],
+			["mod/btw", { getBtwTurns() {} }],
+		]);
+		expect(missingFor(requirement, sources({ modules, copies: new Set(["mod/copied"]) }))).toEqual([
+			"mod/copied (separate copy, not this omp's module)",
+		]);
 	});
 });
