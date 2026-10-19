@@ -222,6 +222,7 @@ afterEach(async () => {
 	roots.length = 0;
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	useUiStore.getState().closeProviderForm();
+	useUiStore.getState().clearProviderFocus();
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
@@ -482,6 +483,62 @@ describe("ProvidersSection", () => {
 		const rows = Array.from(picker?.querySelectorAll("li") ?? []).map(item => item.textContent ?? "");
 		expect(rows.some(item => item.includes("DeepSeek"))).toBe(true);
 		expect(rows.some(item => item.includes("Anthropic"))).toBe(false);
+	});
+
+	describe("showing the card of a provider a Model roles row asked for", () => {
+		async function focused(id: string): Promise<Element[]> {
+			getProviders.mockResolvedValue(
+				providersResponse(
+					snapshot([
+						row("anthropic", { name: "Anthropic" }),
+						row("openrouter", { name: "OpenRouter", authenticated: false, loginAvailable: true }),
+						row("deepseek", { name: "DeepSeek", authenticated: false, loginAvailable: true }),
+					]),
+				),
+			);
+			useSessionStore.setState({ status: "ready" });
+			useUiStore.getState().focusProvider(id);
+			const shown: Element[] = [];
+			const originalScroll = elementPrototype.scrollIntoView;
+			elementPrototype.scrollIntoView = function (this: Element) {
+				shown.push(this);
+			};
+			try {
+				await mount(<ProvidersSection />);
+			} finally {
+				elementPrototype.scrollIntoView = originalScroll;
+			}
+			return shown;
+		}
+
+		it("opens the folded picker and scrolls to a featured provider's card", async () => {
+			const shown = await focused("openrouter");
+
+			expect(button(translate("providers.add"))?.getAttribute("aria-expanded")).toBe("true");
+			expect(shown.at(-1)?.getAttribute("data-featured-provider")).toBe("openrouter");
+			expect(useUiStore.getState().providerFocus).toBeNull();
+		});
+
+		it("scrolls to the tile of a provider the picker lists plainly", async () => {
+			const shown = await focused("deepseek");
+
+			expect(shown.at(-1)?.getAttribute("data-provider-connect")).toBe("deepseek");
+			expect(useUiStore.getState().providerFocus).toBeNull();
+		});
+
+		it("scrolls to a connected provider's row without opening the picker", async () => {
+			const shown = await focused("anthropic");
+
+			expect(button(translate("providers.add"))?.getAttribute("aria-expanded")).toBe("false");
+			expect(shown.at(-1)?.getAttribute("data-provider-row")).toBe("anthropic");
+		});
+
+		it("lands on the section for a provider with no card here", async () => {
+			const shown = await focused("elsewhere");
+
+			expect(shown.at(-1)?.id).toBe("settings-models-accounts");
+			expect(useUiStore.getState().providerFocus).toBeNull();
+		});
 	});
 
 	it("opens the custom endpoint form in place of the list (no dialog)", async () => {

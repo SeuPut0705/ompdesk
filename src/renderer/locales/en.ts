@@ -1461,6 +1461,12 @@ export const en: Record<string, string> = {
 	"modelRoles.noModel": "No model available",
 	"modelRoles.unavailable": "Not available",
 	"modelRoles.unavailableHint": "{model} can't be used right now: its provider isn't signed in or the model is gone.",
+	"modelRoles.skipped": "{model} needs a key from {providers}",
+	"modelRoles.skipped.info":
+		"omp prefers {model} for this role, but none of the listed providers is signed in, so {using} answers instead. Connect any one of them and it takes over.",
+	"modelRoles.skipped.infoJudge":
+		"A native judge model answers short judgments in a single request, cheaper than prompting a chat model; once one is available, a chat model no longer stands in for it.",
+	"modelRoles.skipped.open": "Open {provider} in Providers & accounts",
 	"modelRoles.account.signedIn": "Signed in",
 	"modelRoles.account.signedOut": "Not signed in",
 	"modelRoles.account.off": "Provider off",

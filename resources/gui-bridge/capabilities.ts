@@ -717,8 +717,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"CHAT_MODEL_ROLE_IDS",
 			],
 			[`${AGENT}/config/model-resolver`]: [
+				"disabledProviderIds()",
 				"extractExplicitThinkingSelector()",
 				"resolveModelOverride()",
+				"resolveRoleChain()",
 				"resolveRoleSelection()",
 			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],

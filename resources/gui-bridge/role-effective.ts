@@ -18,11 +18,15 @@
  *   of them matching, an agent runs on the session model (stock's
  *   `activeModelPattern` fallback)
  *
+ * An empty built-in role also reports `skipped`: the first candidate of stock's own chain over every model the role
+ * accepts (`resolveRoleChain` over the whole catalog, credentials ignored) when the chain over the credentialed pool
+ * answers with another kind of model (`modelKind`) because no provider holds credentials for it.
+ *
  * A pin test (src/main/bridge-model-roles-stock.test.ts) runs the real omp and
  * compares these answers with the stock functions' own.
  */
 
-import { roleSelectors } from "./model-role-contracts";
+import { roleSelectors, type SkippedPreferred } from "./model-role-contracts";
 
 interface ModelLike {
 	provider: string;
@@ -34,6 +38,11 @@ interface Resolution {
 	model?: ModelLike;
 	thinkingLevel?: string;
 	explicitThinkingLevel: boolean;
+}
+
+interface ChainModel extends ModelLike {
+	/** Stock's `modelKind` of the model. */
+	kind: string;
 }
 
 /** The slice of stock this module calls; settings.ts binds the real functions to the session and each role's candidate pool. */
@@ -49,6 +58,12 @@ export interface RoleStock {
 	/** The role's configured value, trimmed; undefined while empty. */
 	configured(role: string): string | undefined;
 	sessionModel(): ModelLike | undefined;
+	/**
+	 * `resolveRoleChain(role, settings, pool)` twice, in stock's attempt order: over every model the role accepts
+	 * whether or not a provider holds credentials for it (providers turned off in settings left out), and over
+	 * the credentialed pool the role really draws from.
+	 */
+	chains(role: string): { preferred: ChainModel[]; usable: ChainModel[] };
 }
 
 export interface RoleEffective {
@@ -67,6 +82,8 @@ export interface RoleEffective {
 	via?: string;
 	/** The role holds a value but no available model matches it (signed out, model gone). */
 	unavailable?: boolean;
+	/** Set for an empty built-in role whose preferred candidate lacks credentials while another class answers. */
+	skipped?: SkippedPreferred;
 }
 
 const SELECTORS: Record<string, string[]> = {
@@ -85,7 +102,36 @@ function shown(model: ModelLike, thinkingLevel: string | undefined, explicit: bo
 	};
 }
 
-export function effectiveRole(stock: RoleStock, role: string, builtin: boolean): RoleEffective {
+const same = (a: ModelLike, b: ModelLike) => a.provider === b.provider && a.id === b.id;
+
+/**
+ * Stock's first choice for the role, when no credentials exist for it and the model answering is of another
+ * class. A chat role's first choice (Claude Haiku for Fast, say) and a later chat model are one class, so they
+ * never show it; the native judge model (`modelKind` judge) is not interchangeable with the chat or tiny
+ * model the `judge` chain ends on (`textJudgeRoleChain` in stock's judgment module keeps it that way).
+ */
+function skippedPreferred(stock: RoleStock, role: string): SkippedPreferred | undefined {
+	const { preferred, usable } = stock.chains(role);
+	const [lead] = preferred;
+	const answering = usable[0];
+	if (!lead || !answering || lead.kind === "chat" || answering.kind === lead.kind) return undefined;
+	if (usable.some(model => same(model, lead))) return undefined;
+	const providers: string[] = [];
+	for (const model of preferred) {
+		if (model.kind !== lead.kind) break;
+		if (!usable.some(candidate => same(candidate, model)) && !providers.includes(model.provider)) {
+			providers.push(model.provider);
+		}
+	}
+	return {
+		name: lead.name && lead.name !== lead.id ? lead.name : lead.id,
+		model: `${lead.provider}/${lead.id}`,
+		kind: lead.kind,
+		providers,
+	};
+}
+
+function resolveEffective(stock: RoleStock, role: string, builtin: boolean): RoleEffective {
 	const configured = stock.configured(role) !== undefined;
 	if (role === "commit") {
 		const picked = stock.selectRole(role, ["commit", "smol", ...stock.chatRoleIds]);
@@ -116,4 +162,11 @@ export function effectiveRole(stock: RoleStock, role: string, builtin: boolean):
 		return { ...shown(running, undefined, false), source: "session", ...unavailable };
 	}
 	return { source: "none", ...unavailable };
+}
+
+export function effectiveRole(stock: RoleStock, role: string, builtin: boolean): RoleEffective {
+	const effective = resolveEffective(stock, role, builtin);
+	if (!builtin || !effective.model || stock.configured(role) !== undefined) return effective;
+	const skipped = skippedPreferred(stock, role);
+	return skipped ? { ...effective, skipped } : effective;
 }
