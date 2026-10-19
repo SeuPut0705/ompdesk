@@ -9,10 +9,12 @@ import {
 	beginHints,
 	buildBegin,
 	buildStatus,
+	docsPickRefusal,
 	finalizeCycle,
 	followupAge,
 	initialStateEntry,
 	parseEndReport,
+	writeOffNote,
 } from "../../resources/gui-bridge/modes/autopilot-core";
 import {
 	isCheckCommand,
@@ -301,6 +303,27 @@ describe("begin hints", () => {
 		expect(beginHints([], { open: [], backlog: 2, maxParallel: 2 }).join(" ")).toContain("Fan-out pays only");
 		expect(beginHints([], { open: [], backlog: 2, maxParallel: 0 })).toEqual([]);
 		expect(beginHints([], { open: [], backlog: 1, maxParallel: 2 })).toEqual([]);
+	});
+	it("puts an open follow-up that names a defect ahead of docs and polish", () => {
+		const hints = beginHints([cycle(1)], { ...facts, open: ["truncate breaks on n < 0", "document the CLI"] });
+		expect(hints.join(" ")).toContain('"truncate breaks on n < 0"');
+		expect(hints.join(" ")).not.toContain("document the CLI");
+		expect(beginHints([cycle(1)], { ...facts, open: ["document the CLI"] })).toEqual([]);
+	});
+	it("refuses a docs pick right after a docs-only cycle unless a reason is given", () => {
+		const docs = cycle(1, { area: "docs", change: { files: 1, added: 3, removed: 1, commits: 1, docOnly: true } });
+		expect(docsPickRefusal([docs], "docs", undefined)).toContain("documentation only");
+		expect(docsPickRefusal([docs], "docs", "  ")).not.toBeNull();
+		expect(docsPickRefusal([docs], "docs", "the release notes are due")).toBeNull();
+		expect(docsPickRefusal([docs], "bugs", undefined)).toBeNull();
+		expect(docsPickRefusal([cycle(1)], "docs", undefined)).toBeNull();
+	});
+	it("flags a report that writes a found problem off as a limitation without a follow-up", () => {
+		const report = { title: "README design notes", summary: "Negative n is a known limitation." };
+		expect(writeOffNote(report)).toContain("followups");
+		expect(writeOffNote({ ...report, followups: ["truncate with negative n"] })).toBeNull();
+		expect(writeOffNote({ title: "Fix slugify", summary: "Replaced every space." })).toBeNull();
+		expect(BEGIN_PICK).toMatch(/known bug or failing behaviour .* first/);
 	});
 	it("buildBegin carries the pick instruction and the hints", () => {
 		const state = initialStateEntry({

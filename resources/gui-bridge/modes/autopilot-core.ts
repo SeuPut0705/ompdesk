@@ -666,7 +666,39 @@ export const CARRIED_FOLLOWUP_CYCLES = 3;
 
 /** What `begin` tells the agent to do after its audit (the static protocol only says "PICK"). */
 export const BEGIN_PICK =
-	'After the audit and before any edit: autopilot({op:"pick", area, title}). It shows the item in the panel and refuses a title that repeats a recent cycle. In `end`, give the commit hash and `check`, the exact command you ran as the repo\'s check.';
+	'After the audit and before any edit: autopilot({op:"pick", area, title}). Rank: a known bug or failing behaviour (an open follow-up, a failing check, one you just found) first, then features and refactors, then tests, docs and polish last. It shows the item in the panel and refuses a title that repeats a recent cycle, and a docs pick right after a docs-only cycle unless you pass `reason`. A bug you find and can fix is never written off as a "known limitation": fix it now, or put it in followups so it is the next pick. In `end`, give the commit hash and `check`, the exact command you ran as the repo\'s check.';
+
+/** Words that mark a follow-up or report as a defect rather than a wish. */
+const DEFECT =
+	/\b(bug|broken|break(s|ing)?|fail(s|ed|ing)?|wrong|incorrect|crash(es)?|regression|error)\b|버그|오류|실패|깨져/i;
+/** A report that writes a found problem off instead of fixing it. */
+const WRITE_OFF =
+	/\b(known (limitation|issue)|limitation|left (as is|unchanged|unfixed)|not fixed|won'?t fix)\b|알려진 (한계|제한)|제한 사항/i;
+
+/** Whether `record` changed documentation only (or reported docs with no change measured). */
+function docsOnly(record: AutopilotCycleRecord | undefined): boolean {
+	return (
+		record !== undefined &&
+		record.area !== "unreported" &&
+		(record.change?.docOnly === true || (record.area === "docs" && !record.change))
+	);
+}
+
+/** `pick`'s refusal of a docs item right after a docs-only cycle, or null; a stated `reason` lifts it. */
+export function docsPickRefusal(
+	records: readonly AutopilotCycleRecord[],
+	area: string,
+	reason: string | undefined,
+): string | null {
+	if (area !== "docs" || !docsOnly(records.at(-1)) || (reason ?? "").trim() !== "") return null;
+	return "The last cycle changed documentation only: pick a bug, a feature or a test, or pick docs again with `reason` saying why nothing else is worth doing.";
+}
+
+/** What `end` tells the agent when its report writes a problem off as a limitation and carries no follow-up for it. */
+export function writeOffNote(report: { title: string; summary: string; followups?: readonly string[] }): string | null {
+	if (!WRITE_OFF.test(`${report.title}\n${report.summary}`) || (report.followups?.length ?? 0) > 0) return null;
+	return "This report calls a problem a limitation. If it is fixable, it is a bug: call end again with it in followups so the next cycle picks it first.";
+}
 
 /** Consecutive cycles, ending with the last one, whose follow-ups name `text` (case, punctuation and spacing ignored). */
 export function followupAge(records: readonly AutopilotCycleRecord[], text: string): number {
@@ -695,12 +727,13 @@ export function beginHints(
 			`The follow-up "${text}" has been carried for ${age} cycles: do it now if the guide ranks it in scope, or drop it and say why in followups, before another small finding.`,
 		);
 	}
-	const last = records.at(-1);
-	if (
-		last &&
-		last.area !== "unreported" &&
-		(last.change?.docOnly === true || (last.area === "docs" && !last.change))
-	) {
+	const defects = facts.open.filter(text => DEFECT.test(text)).slice(0, 2);
+	if (defects.length > 0) {
+		hints.push(
+			`Open follow-ups name a defect (${defects.map(text => `"${text}"`).join(", ")}): pick one before docs, tests or polish.`,
+		);
+	}
+	if (docsOnly(records.at(-1))) {
 		hints.push("The last cycle changed documentation only: pick code, tests or a bug unless nothing else is left.");
 	}
 	if (facts.maxParallel !== 0 && facts.backlog + facts.open.length >= 2) {
