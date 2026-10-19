@@ -732,12 +732,15 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				}
 				// One-shot boot health check: verify the command loop is live.
 				void (async () => {
+					const runtime = sessionRuntime(statusTabId);
+					const command = runtime?.command ?? activeTabCommand;
+					// Every write below goes to this tab's runtime, or (no tab id) to whichever runtime has focus: write
+					// nothing once the tab's runtime was replaced or closed, or a tabless check's focus moved meanwhile.
+					const focusedAtStart = runtime ? null : focusedSessionRuntime();
+					const isCurrent = () =>
+						!disposed &&
+						(runtime ? sessionRuntime(statusTabId) === runtime : focusedSessionRuntime() === focusedAtStart);
 					try {
-						const runtime = sessionRuntime(statusTabId);
-						const command = runtime?.command ?? activeTabCommand;
-						// Without a runtime (no tab id) every write below resolves its stores by focus: remember whose focus
-						// this fetch was for and write nothing into a pane that took focus while it was in flight.
-						const focusedAtStart = runtime ? null : focusedSessionRuntime();
 						// A window opened "in new window" for a specific session
 						// switches to it BEFORE hydrating, so the first transcript
 						// it pulls is the target session, not the fresh empty one.
@@ -747,8 +750,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							if (!sw.success) toastError({ title: translate("events.sessionOpenFailed"), error: sw });
 						}
 						const res = await command({ type: "get_state" });
-						if (runtime && sessionRuntime(statusTabId) !== runtime) return;
-						if (!runtime && focusedSessionRuntime() !== focusedAtStart) return;
+						if (!isCurrent()) return;
 						if (!res.success) {
 							withSessionRuntime(statusTabId, () =>
 								useSessionStore.getState().setSidecarError(translate("events.sidecarNoResponse")),
@@ -766,8 +768,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								}
 								if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
 								await Promise.allSettled([
-									syncGoal("", activeTabCommand, () => true),
-									syncAutopilot("", activeTabCommand, () => true),
+									syncGoal("", activeTabCommand, isCurrent),
+									syncAutopilot("", activeTabCommand, isCurrent),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),
 									useSettingsStore.getState().syncApproval(),
@@ -776,6 +778,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							void command({ type: "set_subagent_subscription", level: "progress" });
 						}
 					} catch {
+						if (!isCurrent()) return;
 						withSessionRuntime(statusTabId, () =>
 							useSessionStore.getState().setSidecarError(translate("events.sidecarHealthFailed")),
 						);
