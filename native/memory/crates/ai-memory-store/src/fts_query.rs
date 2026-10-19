@@ -210,6 +210,71 @@ fn fts5_query_parses(query: &str) -> bool {
     })
 }
 
+/// Korean particles and endings that `unicode61` leaves glued to the noun
+/// (`메모리도` is one token, never `메모리` + `도`). Longest first: the first
+/// suffix that matches wins, so `에서` is tried before `서` and `으로` before
+/// `로`. Deliberately a short list of common postpositions, not a stemmer: the
+/// stem rides along as an OR'd prefix term, so a wrong strip costs recall
+/// noise, never a lost exact match.
+const HANGUL_ENDINGS: &[&str] = &[
+    "에서는",
+    "에서도",
+    "으로는",
+    "으로도",
+    "까지는",
+    "까지도",
+    "부터는",
+    "에서",
+    "으로",
+    "까지",
+    "부터",
+    "에게",
+    "한테",
+    "처럼",
+    "보다",
+    "마다",
+    "조차",
+    "라도",
+    "이나",
+    "에는",
+    "에도",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "도",
+    "로",
+    "에",
+    "의",
+    "와",
+    "과",
+    "랑",
+    "만",
+    "요",
+    "서",
+];
+
+/// A stem shorter than this is too common a prefix to be worth searching.
+const MIN_HANGUL_STEM_SYLLABLES: usize = 2;
+
+fn is_hangul_syllable(c: char) -> bool {
+    ('\u{AC00}'..='\u{D7A3}').contains(&c)
+}
+
+/// The noun stem of a token made only of Hangul syllables that ends in one of
+/// [`HANGUL_ENDINGS`], when at least [`MIN_HANGUL_STEM_SYLLABLES`] remain.
+fn hangul_stem(token: &str) -> Option<&str> {
+    if token.is_empty() || !token.chars().all(is_hangul_syllable) {
+        return None;
+    }
+    let stem = HANGUL_ENDINGS
+        .iter()
+        .find_map(|ending| token.strip_suffix(ending))?;
+    (stem.chars().count() >= MIN_HANGUL_STEM_SYLLABLES).then_some(stem)
+}
+
 fn prepare_fts5_token(token: &str) -> Vec<String> {
     if has_unknown_bare_column(token) {
         return token
@@ -217,6 +282,12 @@ fn prepare_fts5_token(token: &str) -> Vec<String> {
             .split_whitespace()
             .map(quote_fts5_token)
             .collect();
+    }
+
+    if let Some(stem) = hangul_stem(token) {
+        // One parenthesised group, so the explicit-syntax space join (implicit
+        // AND binds tighter than OR) cannot split it from its neighbours.
+        return vec![format!("({token} OR {stem}*)")];
     }
 
     if should_quote_fts5_token(token) {
@@ -600,5 +671,92 @@ mod tests {
         // "e" (no accent) is a different token entirely and is not filtered
         // by an "é" entry — diacritics are never stripped, only case is folded.
         assert_eq!(super::prepare_fts5_query("e teste", &pt), "e OR teste");
+    }
+
+    #[test]
+    fn hangul_endings_are_ordered_longest_first() {
+        let lens: Vec<usize> = HANGUL_ENDINGS.iter().map(|e| e.chars().count()).collect();
+        assert!(lens.is_sorted_by(|a, b| a >= b), "{HANGUL_ENDINGS:?}");
+    }
+
+    // --- Korean particle stems -------------------------------------------
+
+    /// Measured on a live store (unicode61 tokenizer, no Korean morphology):
+    /// `메모리` hits 20 pages but `메모리도` 2; `테일스케일` 7 vs `테일스케일로` 0;
+    /// `검토` 12 vs `검토가` 6. The stem rides along as a prefix term.
+    #[test]
+    fn hangul_token_with_particle_adds_stem_prefix_term() {
+        assert_eq!(prepare_fts5_query("메모리도"), "(메모리도 OR 메모리*)");
+        assert_eq!(
+            prepare_fts5_query("테일스케일로"),
+            "(테일스케일로 OR 테일스케일*)"
+        );
+        assert_eq!(prepare_fts5_query("검토가"), "(검토가 OR 검토*)");
+    }
+
+    #[test]
+    fn hangul_stem_groups_compose_with_or_and_explicit_syntax() {
+        assert_eq!(
+            prepare_fts5_query("메모리도 테일스케일로"),
+            "(메모리도 OR 메모리*) OR (테일스케일로 OR 테일스케일*)"
+        );
+        // Explicit syntax space-joins tokens; the group must stay atomic so
+        // `a OR b AND c` precedence cannot swallow its neighbour.
+        assert_eq!(
+            prepare_fts5_query("메모리도 AND 검토가"),
+            "(메모리도 OR 메모리*) AND (검토가 OR 검토*)"
+        );
+    }
+
+    #[test]
+    fn longest_hangul_ending_wins() {
+        // `에서` beats `서`, `으로` beats `로`.
+        assert_eq!(prepare_fts5_query("서울에서"), "(서울에서 OR 서울*)");
+        assert_eq!(prepare_fts5_query("서버으로"), "(서버으로 OR 서버*)");
+        assert_eq!(prepare_fts5_query("오늘까지"), "(오늘까지 OR 오늘*)");
+        assert_eq!(prepare_fts5_query("오늘부터"), "(오늘부터 OR 오늘*)");
+    }
+
+    #[test]
+    fn hangul_stem_needs_two_syllables() {
+        // Only a particle, or a stem of one syllable: nothing to prefix on.
+        for bare in ["이", "가", "에서", "나는", "그가", "시부터"] {
+            assert_eq!(prepare_fts5_query(bare), bare, "{bare}");
+        }
+    }
+
+    #[test]
+    fn hangul_token_without_particle_and_non_hangul_are_unchanged() {
+        assert_eq!(prepare_fts5_query("메모리"), "메모리");
+        assert_eq!(prepare_fts5_query("memory도"), "memory도");
+        assert_eq!(prepare_fts5_query("deploy"), "deploy");
+        assert_eq!(prepare_fts5_query("메모리도*"), "메모리도*");
+    }
+
+    /// The engine is the judge: against a real FTS5 table with the store's
+    /// tokenizer, the inflected query now finds the bare-stem document.
+    #[test]
+    fn hangul_stem_query_matches_bare_stem_documents_in_fts5() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE t USING fts5(title, body, \
+             tokenize = \"unicode61 remove_diacritics 2 tokenchars '/_-'\");
+             INSERT INTO t(title, body) VALUES ('a', '메모리 정리'), \
+                ('b', '테일스케일 설정'), ('c', '검토 완료'), ('d', '무관한 문서');",
+        )
+        .unwrap();
+        let count = |raw: &str| -> i64 {
+            let q = prepare_fts5_query(raw);
+            conn.query_row("SELECT count(*) FROM t WHERE t MATCH ?1", [q], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(count("메모리도"), 1);
+        assert_eq!(count("테일스케일로"), 1);
+        assert_eq!(count("검토가"), 1);
+        assert_eq!(count("메모리도 테일스케일로"), 2);
+        assert_eq!(count("메모리도 AND 검토가"), 0);
+        assert_eq!(count("메모리도 OR 검토가"), 2);
     }
 }
