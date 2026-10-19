@@ -20,7 +20,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("task review assembly against stock",
 	it("assembles yields and accepts findings exactly as stock's task renderer", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-review-"));
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			const script = `
 import assert from "node:assert/strict";
 import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";

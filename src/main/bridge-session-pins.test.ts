@@ -20,7 +20,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("gui-bridge session pins against stoc
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-pins-"));
 		fs.chmodSync(dir, 0o700);
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			fs.copyFileSync("resources/gui-bridge/session-pins.ts", path.join(dir, "session-pins.ts"));
 			const script = `
 import assert from "node:assert/strict";

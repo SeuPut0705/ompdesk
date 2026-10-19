@@ -207,8 +207,9 @@ beforeEach(async () => {
 afterEach(async () => {
 	for (const socket of sockets) socket.terminate();
 	await host.stop();
-	rmSync(userData, { recursive: true, force: true });
-	rmSync(staticRoot, { recursive: true, force: true });
+	// A store's atomic write may still land after stop; on Windows that fails the rm with ENOTEMPTY, so retry.
+	rmSync(userData, { recursive: true, force: true, maxRetries: 5 });
+	rmSync(staticRoot, { recursive: true, force: true, maxRetries: 5 });
 });
 
 function post(path: string, body: unknown, headers: Record<string, string> = {}) {

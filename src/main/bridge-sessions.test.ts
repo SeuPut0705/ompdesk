@@ -13,7 +13,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("stock session display adapter", () =
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-display-"));
 		fs.chmodSync(dir, 0o700);
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			fs.copyFileSync("resources/gui-bridge/session-display.ts", path.join(dir, "session-display.ts"));
 			const script = `
 import assert from "node:assert/strict";

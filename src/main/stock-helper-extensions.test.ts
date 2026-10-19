@@ -32,7 +32,16 @@ const children: ChildProcessWithoutNullStreams[] = [];
 const servers: Server[] = [];
 const registries: Array<{ close: () => Promise<void> }> = [];
 afterEach(async () => {
-	for (const child of children.splice(0)) child.kill();
+	// Windows keeps a running worker's files (the loaded natives addon) locked: wait for the exit before the rm.
+	await Promise.all(
+		children.splice(0).map(child => {
+			if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+			const { promise, resolve } = Promise.withResolvers<void>();
+			child.once("exit", () => resolve());
+			child.kill();
+			return promise;
+		}),
+	);
 	for (const server of servers.splice(0)) {
 		server.closeAllConnections();
 		server.close();

@@ -41,7 +41,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("edit input sections against stock", 
 	it("finds the same files and file operations as stock's streaming edit call", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-edit-"));
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			const script = `
 import assert from "node:assert/strict";
 import { editToolRenderer, getEditInputPaths } from "@oh-my-pi/pi-tui/tools/edit";

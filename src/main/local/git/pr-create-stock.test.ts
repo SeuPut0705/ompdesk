@@ -31,17 +31,20 @@ function flagSet(args: string[]): string[] {
 	return flags.sort();
 }
 
-// Stock uses Bun/native modules, which cannot execute in Vitest's Node worker.
-describe.skipIf(!fs.existsSync(stockRoot))("prCreate against stock executePrCreate", () => {
-	it("passes stock's gh pr create flags and reads stock's PR number", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-pr-"));
-		try {
-			const bin = path.join(dir, "bin");
-			fs.mkdirSync(bin);
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
-			fs.writeFileSync(
-				path.join(bin, "gh"),
-				`#!/bin/sh
+// Stock uses Bun/native modules, which cannot execute in Vitest's Node worker. The recording `gh` is a shebang
+// script Windows cannot start, so there stock would find the user's real gh and talk to GitHub.
+describe.skipIf(!fs.existsSync(stockRoot) || process.platform === "win32")(
+	"prCreate against stock executePrCreate",
+	() => {
+		it("passes stock's gh pr create flags and reads stock's PR number", () => {
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-pr-"));
+			try {
+				const bin = path.join(dir, "bin");
+				fs.mkdirSync(bin);
+				fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
+				fs.writeFileSync(
+					path.join(bin, "gh"),
+					`#!/bin/sh
 if [ "$1 $2" = "pr create" ]; then
 	: > "${dir}/create.args"
 	prev=""
@@ -56,32 +59,39 @@ fi
 if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$3" > "${dir}/view.args"; fi
 exit 1
 `,
-				{ mode: 0o755 },
-			);
-			const input = { title: "Add feature", body: "Line one\n\nLine two", base: "main", head: "feat", draft: true };
-			fs.writeFileSync(
-				path.join(dir, "check.ts"),
-				`import { executePrCreate } from "@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout";
+					{ mode: 0o755 },
+				);
+				const input = {
+					title: "Add feature",
+					body: "Line one\n\nLine two",
+					base: "main",
+					head: "feat",
+					draft: true,
+				};
+				fs.writeFileSync(
+					path.join(dir, "check.ts"),
+					`import { executePrCreate } from "@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout";
 await executePrCreate({ cwd: process.argv[2] }, ${JSON.stringify({ repo: "o/r", ...input })}, undefined);
 console.log("stock pr create done");
 `,
-			);
-			expect(
-				execFileSync("bun", [path.join(dir, "check.ts"), dir], {
-					encoding: "utf8",
-					env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
-					timeout: 30_000,
-				}),
-			).toContain("stock pr create done");
+				);
+				expect(
+					execFileSync("bun", [path.join(dir, "check.ts"), dir], {
+						encoding: "utf8",
+						env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
+						timeout: 30_000,
+					}),
+				).toContain("stock pr create done");
 
-			const stockArgs = fs.readFileSync(path.join(dir, "create.args"), "utf8").trimEnd().split("\n");
-			expect(stockArgs.slice(0, 2)).toEqual(["pr", "create"]);
-			expect(flagSet(stockArgs)).toEqual(flagSet(prCreateArgs("o/r", input, "/tmp/body.md")));
-			expect(fs.readFileSync(path.join(dir, "body.md"), "utf8")).toBe(input.body);
-			const stockNumber = Number(fs.readFileSync(path.join(dir, "view.args"), "utf8").trim());
-			expect(createdPr(GH_OUTPUT)).toEqual({ url: "https://github.com/o/r/pull/7", number: stockNumber });
-		} finally {
-			fs.rmSync(dir, { recursive: true, force: true });
-		}
-	});
-});
+				const stockArgs = fs.readFileSync(path.join(dir, "create.args"), "utf8").trimEnd().split("\n");
+				expect(stockArgs.slice(0, 2)).toEqual(["pr", "create"]);
+				expect(flagSet(stockArgs)).toEqual(flagSet(prCreateArgs("o/r", input, "/tmp/body.md")));
+				expect(fs.readFileSync(path.join(dir, "body.md"), "utf8")).toBe(input.body);
+				const stockNumber = Number(fs.readFileSync(path.join(dir, "view.args"), "utf8").trim());
+				expect(createdPr(GH_OUTPUT)).toEqual({ url: "https://github.com/o/r/pull/7", number: stockNumber });
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	},
+);

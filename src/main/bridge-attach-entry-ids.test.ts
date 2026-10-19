@@ -26,7 +26,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("sessions.attach_entry_ids on a recor
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-attach-ids-"));
 		fs.chmodSync(dir, 0o700);
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			fs.copyFileSync("resources/gui-bridge/session-display.ts", path.join(dir, "session-display.ts"));
 			fs.copyFileSync("e2e/fixtures/real-advisor-frames.json", path.join(dir, "recording.json"));
 			fs.writeFileSync(

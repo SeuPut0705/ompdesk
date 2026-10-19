@@ -18,7 +18,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("todo phase numerals against stock", 
 	it("numbers phases exactly as stock's todo renderer", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-todo-"));
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			const script = `
 import assert from "node:assert/strict";
 import { phaseRomanNumeral as stock } from "@oh-my-pi/pi-tui/tools/todo";

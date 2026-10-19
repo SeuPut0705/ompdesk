@@ -21,7 +21,7 @@ describe.skipIf(!fs.existsSync(stockRoot))("background notice against stock", ()
 	it("strips every notice stock writes, exactly as stock strips it", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-bg-notice-"));
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			const script = `
 import assert from "node:assert/strict";
 import { formatBackgroundNotice } from "@oh-my-pi/pi-tui/tools/bash";

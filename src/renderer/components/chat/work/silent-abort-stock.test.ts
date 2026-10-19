@@ -18,7 +18,7 @@ describe.skipIf(!fs.existsSync(path.join(stockModules, "@oh-my-pi/pi-tui")))("si
 	it("tells a silent abort exactly as stock does", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-silent-abort-"));
 		try {
-			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "dir");
+			fs.symlinkSync(stockModules, path.join(dir, "node_modules"), "junction");
 			fs.writeFileSync(
 				path.join(dir, "check.ts"),
 				`
