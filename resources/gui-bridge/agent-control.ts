@@ -15,7 +15,8 @@
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
 import { hasMailEntry, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
-import { completeOnSmol } from "./modes/next-prompt-engine";
+import { crossFamily, JUDGE_ROLES, modelFamily } from "./agent-control-judge-core";
+import { completeOnSmol, type ModelLike, type NextPromptSession } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
 
 /**
@@ -38,6 +39,8 @@ type BridgeMethods = Record<string, (params: unknown, env: ControlEnv) => Promis
 const TEXT_MAX = 2000;
 /** The judge's evidence is bounded in main; this is the last guard. */
 const JUDGE_INPUT_MAX = 120_000;
+/** A judge reads a long evidence prompt and writes a verdict; main waits 180 s for the reply. */
+const JUDGE_DEADLINE_MS = 170_000;
 export const AGENT_ANSWER_ENTRY = "ompdesk.agent-answer";
 export const WORKER_ENTRY = "ompdesk.worker";
 
@@ -141,22 +144,41 @@ export const methods: BridgeMethods = {
 		return {};
 	},
 	/**
-	 * `{system, user}` → `{text, model, usd?, tokens?}`: the control tools' judge (`ompdesk_compare` with criteria), one
-	 * request on stock's `slow` role (its fallbacks per `resolveRoleChain`), never the session's own model, journaled in
-	 * stock's usage ledger as `ompdesk-judge`. Main builds the prompt from the compared sessions' evidence.
+	 * `{system, user}` → `{text, model, role, family, mainModel, mainFamily, crossFamily, usd?, tokens?}`: the control
+	 * tools' judge (`ompdesk_compare` with criteria), one request on stock's `advisor` role, then `slow` (each with its
+	 * fallbacks per `resolveRoleChain`), never the session's own model. A candidate whose family (`Model.identity.class`)
+	 * differs from the session's model is preferred, so the judge does not grade its own lineage; when none does, or a
+	 * family is unknown, the first credentialed candidate judges and `crossFamily` says so (false, or null when either
+	 * family is unknown). Journaled in stock's usage ledger as `ompdesk-judge`. Main builds the prompt from the
+	 * compared sessions' evidence and turns a rejection (no model, no credentials, a failed request) into `unavailable`.
 	 */
 	"agent_control.judge": async (params, env) => {
 		const record = (params ?? {}) as Record<string, unknown>;
 		const system = typeof record.system === "string" ? record.system : "";
 		const user = typeof record.user === "string" ? record.user : "";
 		if (!system.trim() || !user.trim()) throw new Error("agent_control.judge needs {system, user}");
-		return completeOnSmol(env.session() as never, {
+		const session = env.session() as unknown as NextPromptSession & { model?: ModelLike };
+		const main = session.model ?? null;
+		const judged = await completeOnSmol(session, {
 			system,
 			user: user.slice(0, JUDGE_INPUT_MAX),
 			maxTokens: 2_000,
 			temperature: 0,
 			purpose: "ompdesk-judge",
-			role: "slow",
+			roles: JUDGE_ROLES,
+			prefer: model => crossFamily(model, main) !== false,
+			deadlineMs: JUDGE_DEADLINE_MS,
 		});
+		return {
+			text: judged.text,
+			model: judged.model,
+			role: judged.role,
+			family: modelFamily(judged.modelRef),
+			mainModel: main ? `${main.provider}/${main.id}` : null,
+			mainFamily: modelFamily(main),
+			crossFamily: crossFamily(judged.modelRef, main),
+			...(judged.usd === undefined ? {} : { usd: judged.usd }),
+			...(judged.tokens === undefined ? {} : { tokens: judged.tokens }),
+		};
 	},
 };

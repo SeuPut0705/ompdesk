@@ -89,9 +89,11 @@ const REQUEST_DEADLINE_MS = 20_000;
 
 // ───────────────────────────── stock seam ─────────────────────────────
 
-interface ModelLike {
+/** A stock model; `identity.class` is its vendor lineage ("unknown" when stock cannot classify it). */
+export interface ModelLike {
 	provider: string;
 	id: string;
+	identity?: { class?: string };
 }
 
 interface Registry {
@@ -184,31 +186,57 @@ interface Resolved {
 	model: ModelLike;
 	used: NextPromptModelUsed;
 	resolver: unknown;
+	/** False when a `prefer` rule matched no credentialed candidate and the first credentialed one stood in. */
+	preferred: boolean;
 }
 
 /**
- * A stock role (`smol` by default): its configured value, then its empty-role fallbacks (`resolveRoleChain`), the
- * first model with credentials. Nothing matching, or no credentials, is an `Unavailable`; the main model is never
- * a stand-in.
+ * The first model with credentials on an ordered list of stock roles (`smol` by default): each role's configured
+ * value, then its empty-role fallbacks (`resolveRoleChain`), a model listed by two roles counted once. With `prefer`,
+ * the first credentialed candidate it accepts wins; failing that, the first credentialed one (`preferred: false`).
+ * Nothing matching, or no credentials, is an `Unavailable`; the main model is never a stand-in.
  */
-async function resolveSmol(session: NextPromptSession, stock: NextPromptStock, role = "smol"): Promise<Resolved> {
+async function resolveModel(
+	session: NextPromptSession,
+	stock: NextPromptStock,
+	roles: readonly string[] = ["smol"],
+	prefer?: (model: ModelLike) => boolean,
+): Promise<Resolved> {
 	const registry = session.modelRegistry;
-	const pool = stock.roleCandidatePool(role, session.settings as never, registry as never);
-	const chain = stock.resolveRoleChain(role, session.settings as never, pool as never);
-	if (chain.length === 0) throw new Unavailable("no_model", `The ${role} role resolves to no available model`);
-	for (const candidate of chain) {
-		const key = await registry.getApiKey(candidate.model as never, session.sessionId);
-		if (!key) continue;
-		return {
-			model: candidate.model,
-			used: { model: `${candidate.model.provider}/${candidate.model.id}`, role },
-			resolver: registry.resolver(candidate.model as never, session.sessionId),
-		};
+	const candidates: Array<{ model: ModelLike; role: string }> = [];
+	const listed = new Set<string>();
+	for (const role of roles) {
+		const pool = stock.roleCandidatePool(role, session.settings as never, registry as never);
+		for (const candidate of stock.resolveRoleChain(role, session.settings as never, pool as never)) {
+			const ref = `${candidate.model.provider}/${candidate.model.id}`;
+			if (listed.has(ref)) continue;
+			listed.add(ref);
+			candidates.push({ model: candidate.model, role });
+		}
 	}
-	const first = chain[0]?.model;
+	if (candidates.length === 0) {
+		throw new Unavailable("no_model", `The ${roles.join(" or ")} role resolves to no available model`);
+	}
+	let fallback: Resolved | undefined;
+	for (const { model, role } of candidates) {
+		const key = await registry.getApiKey(model as never, session.sessionId);
+		if (!key) continue;
+		const matches = prefer === undefined || prefer(model);
+		if (!matches && fallback) continue;
+		const resolved: Resolved = {
+			model,
+			used: { model: `${model.provider}/${model.id}`, role },
+			resolver: registry.resolver(model as never, session.sessionId),
+			preferred: matches,
+		};
+		if (matches) return resolved;
+		fallback = resolved;
+	}
+	if (fallback) return fallback;
+	const first = candidates[0]?.model;
 	throw new Unavailable(
 		"no_credentials",
-		`No credentials for ${first ? `${first.provider}/${first.id}` : `the ${role} model`}`,
+		`No credentials for ${first ? `${first.provider}/${first.id}` : `the ${roles.join(" or ")} model`}`,
 	);
 }
 
@@ -228,9 +256,9 @@ async function ask(
 	resolved: Resolved,
 	system: string,
 	user: string,
-	options: { maxTokens: number; temperature: number; signal: AbortSignal },
+	options: { maxTokens: number; temperature: number; signal: AbortSignal; deadlineMs?: number },
 ): Promise<Asked> {
-	const signal = AbortSignal.any([options.signal, AbortSignal.timeout(REQUEST_DEADLINE_MS)]);
+	const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.deadlineMs ?? REQUEST_DEADLINE_MS)]);
 	const context = { systemPrompt: [system], messages: [{ role: "user", content: user, timestamp: Date.now() }] };
 	const call = (maxTokens: number | undefined) =>
 		stock.completeSimple(resolved.model as never, context, {
@@ -354,7 +382,7 @@ async function currentState(session: NextPromptSession | undefined): Promise<Nex
 	let failure = unavailable;
 	if (session) {
 		try {
-			model = (await resolveSmol(session, await loadStock())).used;
+			model = (await resolveModel(session, await loadStock())).used;
 			lastModel = model;
 			if (failure && (failure.reason === "no_model" || failure.reason === "no_credentials")) {
 				unavailable = undefined;
@@ -473,7 +501,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		// Asked early so it runs beside the model lookup; never blocks the gate, never throws.
 		const judging = replyNeedsUser(session, lastReplyText(messages));
 		const stock = await loadStock();
-		const resolved = await resolveSmol(session, stock);
+		const resolved = await resolveModel(session, stock);
 		const judged = await judging;
 		if (signal.aborted) return;
 		const appState = judged === undefined ? ruleAppState : moment(session, judged).appState;
@@ -540,7 +568,7 @@ function recordUsage(
 		session.sessionManager.appendModelUsage?.(
 			{
 				purpose,
-				role: "smol",
+				role: resolved.used.role,
 				api: message.api,
 				provider: message.provider ?? resolved.model.provider,
 				model: message.model ?? resolved.model.id,
@@ -697,7 +725,7 @@ export const handlers: EngineMethods = {
 		const session = env.session() as unknown as NextPromptSession;
 		const started = performance.now();
 		try {
-			const resolved = await resolveSmol(session, stock);
+			const resolved = await resolveModel(session, stock);
 			if (abort.signal.aborted) return none;
 			requests.inline++;
 			const messages = session.messages;
@@ -759,19 +787,27 @@ export function resetNextPromptState(): void {
 	compactedSinceSuggestion = false;
 }
 
-/** What one cheap smol request answered with (the model that served it, the text, what it cost). */
+/** What one cheap request answered with (the model that served it, the text, what it cost). */
 export interface SmolCompletion {
 	text: string;
+	/** `provider/id` of the model that served it. */
 	model: string;
+	/** The stock role whose chain supplied the model. */
+	role: string;
+	/** The stock model itself (its `identity.class` is the lineage); the judge reports it. */
+	modelRef: ModelLike;
+	/** False when `prefer` accepted no credentialed candidate and the first credentialed one served instead. */
+	preferred: boolean;
 	usd?: number;
 	tokens?: number;
 }
 
 /**
- * One request on a stock role (`smol` unless `role` names another) for another bridge module (Autopilot's guide
- * draft, the control tools' judge on `slow`): same resolution as the suggestions (never the session's model), same
- * ceilings, the request in stock's usage ledger under `purpose`. Throws when the role has no model or credentials or
- * the request fails; the caller owns its fallback.
+ * One request on stock roles (`smol` unless `roles` or `role` name others, tried in that order; see `resolveModel`)
+ * for another bridge module (Autopilot's guide draft, the control tools' judge on `advisor` then `slow`): same
+ * resolution as the suggestions (never the session's model), same output ceiling, the request in stock's usage
+ * ledger under `purpose`. `deadlineMs` replaces the 20 s a suggestion may take, for a caller whose answer is long.
+ * Throws when no role has a model or credentials or the request fails; the caller owns its fallback.
  */
 export async function completeOnSmol(
 	session: NextPromptSession,
@@ -782,15 +818,19 @@ export async function completeOnSmol(
 		temperature: number;
 		purpose: string;
 		role?: string;
+		roles?: readonly string[];
+		prefer?: (model: ModelLike) => boolean;
+		deadlineMs?: number;
 		signal?: AbortSignal;
 	},
 ): Promise<SmolCompletion> {
 	const stock = await loadStock();
-	const resolved = await resolveSmol(session, stock, request.role);
+	const resolved = await resolveModel(session, stock, request.roles ?? [request.role ?? "smol"], request.prefer);
 	const asked = await ask(session, stock, resolved, request.system, request.user, {
 		maxTokens: request.maxTokens,
 		temperature: request.temperature,
 		signal: request.signal ?? new AbortController().signal,
+		...(request.deadlineMs === undefined ? {} : { deadlineMs: request.deadlineMs }),
 	});
 	recordUsage(session, resolved, asked.message, request.purpose);
 	const usage = asked.message.usage as { cost?: { total?: unknown }; totalTokens?: unknown } | undefined;
@@ -799,6 +839,9 @@ export async function completeOnSmol(
 	return {
 		text: asked.text,
 		model: resolved.used.model,
+		role: resolved.used.role,
+		modelRef: resolved.model,
+		preferred: resolved.preferred,
 		...(typeof cost === "number" ? { usd: cost } : {}),
 		...(typeof tokens === "number" ? { tokens } : {}),
 	};

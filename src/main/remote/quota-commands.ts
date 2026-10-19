@@ -50,7 +50,8 @@ export const MODEL_COMMAND_TYPES = [
 	"auto_mode_decide",
 	// Judge-model assists (bridge modes/judge-assist.ts): one judge request when a native judge resolves, else none.
 	"judge_preview_check",
-	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `slow` role model.
+	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `advisor` role, else `slow`,
+	// preferring a model family other than the caller's.
 	"agent_control_judge",
 	// A report from another session (bridge agent-control.ts): `triggerTurn` wakes the receiver for a turn.
 	"agent_control_mail",

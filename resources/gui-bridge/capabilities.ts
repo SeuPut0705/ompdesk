@@ -318,12 +318,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	replyLanguage: {},
 	/**
 	 * agent-control.ts: the public extension context's `ui.confirm`, and `agent_control.judge` (`ompdesk_compare` with
-	 * criteria): one request on stock's `slow` role through next-prompt-engine's `completeOnSmol` (`roleCandidatePool`,
-	 * `resolveRoleChain`, the session's credentials, `completeSimple`). Stored transcripts are read in the stock helper
-	 * (`loadSessionMessagesReadOnly`, `stock-helper/sessions.ts`).
+	 * criteria): one request on stock's `advisor` role, then `slow`, through next-prompt-engine's `completeOnSmol`
+	 * (`roleCandidatePool`, `resolveRoleChain`, the session's credentials, `completeSimple`). It prefers a candidate
+	 * whose `Model.identity.class` (the vendor lineage) differs from the session's own model (`AgentSession.model`).
+	 * Stored transcripts are read in the stock helper (`loadSessionMessagesReadOnly`, `stock-helper/sessions.ts`).
 	 */
 	agentControl: {
-		session: ["settings", "sessionId", "modelRegistry.getApiKey()", "modelRegistry.resolver()"],
+		session: ["settings", "sessionId", "model", "modelRegistry.getApiKey()", "modelRegistry.resolver()"],
 		modules: {
 			"@oh-my-pi/pi-ai": ["completeSimple()"],
 			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],

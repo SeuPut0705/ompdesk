@@ -35,7 +35,10 @@ export const handlers: Record<string, LocalHandler> = {
 		await ctx.bridge.request("agent_control.worker", { from });
 		return {};
 	},
-	/** `ompdesk_compare` with criteria: one request on the caller's `slow` role model; main built the evidence. */
+	/**
+	 * `ompdesk_compare` with criteria: one request on the `advisor` role, else `slow`, preferring a model family other
+	 * than the caller's; main built the evidence.
+	 */
 	agent_control_judge: async (command, ctx) => {
 		const { system, user } = judgeCommand.parse(command);
 		return ctx.bridge.request("agent_control.judge", { system, user });
