@@ -379,7 +379,7 @@ describe("MCP install, pairing and Autopilot", () => {
 		expect(declined.events).toEqual([]);
 	});
 
-	it("routes Autopilot through ompdesk_autopilot (its card and run cap), never through set_autopilot", async () => {
+	it("routes Autopilot through ompdesk_autopilot (its card and folder rules), never through set_autopilot", async () => {
 		const ports = new FakePorts();
 		const control = new AppControl(ports);
 		expect(await control.run(CALLER, "autopilot.status", { session: "abcd1234" })).toBe("autopilot reply");

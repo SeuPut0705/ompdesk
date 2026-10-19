@@ -48,7 +48,7 @@ export interface ActionContext {
 	/** Call a fire-and-forget channel's handler. */
 	fire(channel: string, ...args: unknown[]): void;
 	ui(event: AgentAppEvent): void;
-	/** Run `ompdesk_autopilot` with these arguments: its confirmation card, folder rules and run limit apply. */
+	/** Run `ompdesk_autopilot` with these arguments: its confirmation card and folder rules apply. */
 	autopilot(args: Record<string, unknown>): Promise<string>;
 	/** Restore the last change this session's agent made (asks again when that change needed a card). */
 	undoLast(): Promise<ActionResult>;
@@ -687,7 +687,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "autopilot.start",
 		area: "autopilot",
 		description:
-			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release), its folder rules and its two-run cap. ship defaults to the user's stored level.",
+			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release) and its folder rules. ship defaults to the user's stored level.",
 		args: objectSchema({
 			folder: { type: "string", minLength: 1, maxLength: 4096 },
 			ship: { type: "string", enum: ["commit", "push", "release"] },

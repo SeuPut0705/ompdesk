@@ -655,7 +655,7 @@ type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] }
 
 export class AgentControl {
 	readonly #host: AgentControlHost;
-	/** Tabs each calling tab opened, for the open limit and the "opened by you" marks. */
+	/** Tabs each calling tab opened, for the "opened by you" marks. */
 	readonly #opened = new Map<string, Set<string>>();
 	/** Tabs whose stop or close is in flight. */
 	readonly #closing = new Set<string>();
@@ -829,7 +829,7 @@ export class AgentControl {
 		}
 	}
 
-	/** The app action's way into `ompdesk_autopilot`: same parse, same card, same run cap. */
+	/** The app action's way into `ompdesk_autopilot`: same parse, same card. */
 	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
 		const tabs = this.#host.tabs(callerTabId);
 		const caller = tabs?.find(tab => tab.tabId === callerTabId);

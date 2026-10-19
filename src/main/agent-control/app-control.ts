@@ -36,7 +36,7 @@ export interface AppPorts {
 	/** The English or the Korean text, by the app's language. */
 	localize(en: string, ko: string): string;
 	callerTitle(callerTabId: string): string;
-	/** `ompdesk_autopilot` itself (its card, folder rules and run cap); the app actions go through it, never around it. */
+	/** `ompdesk_autopilot` itself (its card and folder rules); the app actions go through it, never around it. */
 	autopilot(callerTabId: string, args: unknown): Promise<string>;
 }
 

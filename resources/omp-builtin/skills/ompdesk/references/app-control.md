@@ -27,4 +27,4 @@
 
 ## Autopilot
 
-`autopilot.start`, `autopilot.status` and `autopilot.stop` are `ompdesk_autopilot` itself: its confirmation card (commit, push or release), its folder rules and its run cap apply, and the app actions have no other route to Autopilot. See skill://ompdesk/references/autopilot.md.
+`autopilot.start`, `autopilot.status` and `autopilot.stop` are `ompdesk_autopilot` itself: its confirmation card (commit, push or release) and its folder rules apply, and the app actions have no other route to Autopilot. See skill://ompdesk/references/autopilot.md.
