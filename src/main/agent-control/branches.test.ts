@@ -1,9 +1,20 @@
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
-import { BranchError, branchFacts, landingFacts, mergeBranch, removeSafeWorktree, type WorktreeRef } from "./branches";
+import {
+	BranchError,
+	boundDiff,
+	branchEvidence,
+	branchFacts,
+	landingFacts,
+	mergeBranch,
+	predictMerge,
+	removeSafeWorktree,
+	type WorktreeRef,
+} from "./branches";
 
 let root: string;
 let repo: string;
@@ -162,15 +173,19 @@ describe("mergeBranch", () => {
 		expect(gitSync(repo, "remote")).toBe("");
 	});
 
-	it("aborts a conflicting merge, names the files and leaves the parent clean", async () => {
+	it("predicts a conflicting merge, names the files and never touches the parent's checkout", async () => {
 		const wt = await agentWorktree("d");
 		await commitIn(wt.path, "README.md", "from the agent\n");
 		await commitIn(repo, "README.md", "from the parent\n");
 		const head = gitSync(repo, "rev-parse", "HEAD");
+		const origHead = path.join(repo, ".git", "ORIG_HEAD");
+		const origBefore = await fs.readFile(origHead, "utf8").catch(() => null);
 		const outcome = await mergeBranch(wt, "Worker");
-		expect(outcome).toEqual({ merged: false, reason: "conflict", files: ["README.md"] });
+		expect(outcome).toEqual({ merged: false, reason: "conflict", files: ["README.md"], predicted: true });
 		expect(gitSync(repo, "rev-parse", "HEAD")).toBe(head);
 		expect(gitSync(repo, "status", "--porcelain")).toBe("");
+		expect(existsSync(path.join(repo, ".git", "MERGE_HEAD"))).toBe(false);
+		expect(await fs.readFile(origHead, "utf8").catch(() => null)).toBe(origBefore);
 		expect((await fs.readFile(path.join(repo, "README.md"), "utf8")).replaceAll("\r\n", "\n")).toBe(
 			"from the parent\n",
 		);
@@ -257,5 +272,94 @@ describe("removeSafeWorktree", () => {
 		expect(gitSync(repo, "branch", "--list", dirty.branch)).toContain(dirty.branch);
 
 		expect(await removeSafeWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
+	});
+});
+
+describe("boundDiff", () => {
+	const section = (file: string, lines: number): string =>
+		`diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n${Array.from({ length: lines }, (_, i) => `+line ${i}\n`).join("")}`;
+
+	it("returns the whole diff when it fits and nothing when there is no budget", () => {
+		const diff = section("a.ts", 3);
+		expect(boundDiff(diff, diff.length)).toEqual({ text: diff, omitted: 0 });
+		expect(boundDiff(diff, 0)).toEqual({ text: "", omitted: diff.length });
+		expect(boundDiff("", 100)).toEqual({ text: "", omitted: 0 });
+	});
+
+	it("gives a small source file its whole hunk however big the lockfile beside it is", () => {
+		const source = section("src/app.ts", 4);
+		const lock = section("package-lock.json", 5000);
+		const { text, omitted } = boundDiff(lock + source, 2000);
+		expect(text).toContain(source);
+		expect(text).toMatch(/… \d+ more lines of package-lock\.json left out\n/);
+		expect(text.length).toBeLessThanOrEqual(2000);
+		expect(omitted).toBeGreaterThan(0);
+		expect(omitted).toBe(lock.length + source.length - text.replace(/… .* left out\n/, "").length);
+	});
+
+	it("cuts at a line boundary and says how many lines it left out", () => {
+		const { text } = boundDiff(section("big.ts", 100), 300);
+		expect(text.endsWith(" left out\n")).toBe(true);
+		const kept = text.split("\n").filter(line => line.startsWith("+line "));
+		expect(kept.every(line => /^\+line \d+$/.test(line))).toBe(true);
+		const left = Number(/… (\d+) more line/.exec(text)?.[1]);
+		expect(kept.length + left).toBe(100);
+	});
+});
+
+describe("branchEvidence", () => {
+	it("carries the child's diff against where it lands, cut to the budget, and the merge prediction", async () => {
+		const wt = await agentWorktree("ev");
+		await commitIn(wt.path, "feature.ts", "export const added = 1;\n");
+		await fs.writeFile(path.join(wt.path, "README.md"), "hello\nuncommitted line\n");
+		const evidence = await branchEvidence(wt, 10_000);
+		expect(evidence.diff).toContain("+export const added = 1;");
+		expect(evidence.diff).toContain("+uncommitted line");
+		expect(evidence.diffOmitted).toBe(0);
+		expect(evidence.merge).toEqual({ kind: "clean" });
+	});
+
+	it("skips the diff at a budget of 0 and reports a cut one", async () => {
+		const wt = await agentWorktree("ev0");
+		await commitIn(wt.path, "feature.ts", `${"x".repeat(80)}\n`.repeat(50));
+		expect(await branchEvidence(wt, 0)).toMatchObject({ diff: "", diffOmitted: 0 });
+		const cut = await branchEvidence(wt, 400);
+		expect(cut.diff.length).toBeLessThanOrEqual(400);
+		expect(cut.diffOmitted).toBeGreaterThan(0);
+	});
+});
+
+describe("predictMerge", () => {
+	it("names the file two branches changed on the same lines, and calls disjoint work clean", async () => {
+		const clashing = await agentWorktree("clash");
+		await commitIn(clashing.path, "README.md", "from the agent\n");
+		const disjoint = await agentWorktree("apart");
+		await commitIn(disjoint.path, "feature.ts", "x\n");
+		await commitIn(repo, "README.md", "from the parent\n");
+		expect(await predictMerge(clashing)).toEqual({ kind: "conflict", files: ["README.md"] });
+		expect(await predictMerge(disjoint)).toEqual({ kind: "clean" });
+	});
+
+	it("says unknown for a branch that no longer exists", async () => {
+		const wt = await agentWorktree("gone");
+		const result = await predictMerge({ ...wt, branch: "omp/agent/missing" });
+		expect(result.kind).toBe("unknown");
+	});
+
+	it("writes its merged tree to a scratch store: the repo's object counts, status and HEAD stay as they were", async () => {
+		const wt = await agentWorktree("quiet");
+		await commitIn(wt.path, "feature.ts", "from the agent\n");
+		await commitIn(repo, "other.ts", "from the parent\n");
+		const counts = () =>
+			gitSync(repo, "count-objects", "-v")
+				.split("\n")
+				.filter(line => /^(count|in-pack):/.test(line));
+		const head = gitSync(repo, "rev-parse", "HEAD");
+		const before = counts();
+		expect(before).toHaveLength(2);
+		expect(await predictMerge(wt)).toEqual({ kind: "clean" });
+		expect(counts()).toEqual(before);
+		expect(gitSync(repo, "status", "--porcelain")).toBe("");
+		expect(gitSync(repo, "rev-parse", "HEAD")).toBe(head);
 	});
 });

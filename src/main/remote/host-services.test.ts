@@ -23,7 +23,7 @@ import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
-import { branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
+import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
@@ -2237,6 +2237,13 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		const x = new FakeConnection(peer("device-x"));
 		const worktree = await repoWithChild();
 		expect(await services.call(x.peer, "host.git.facts", { worktree }, x)).toEqual(await branchFacts(worktree));
+		const evidence = await services.call(x.peer, "host.git.evidence", { worktree, diffChars: 5000 }, x);
+		expect(evidence).toEqual(await branchEvidence(worktree, 5000));
+		expect(evidence).toMatchObject({
+			diff: expect.stringContaining("+from the child"),
+			diffOmitted: 0,
+			merge: { kind: "clean" },
+		});
 		expect(await services.call(x.peer, "host.git.landing", { worktree }, x)).toEqual(await landingFacts(worktree));
 		const merged = await services.call(x.peer, "host.git.merge", { worktree, label: "Child" }, x);
 		expect(merged).toMatchObject({ merged: true });
@@ -2253,6 +2260,13 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		await expect(
 			services.call(x.peer, "host.git.facts", { worktree: { ...worktree, path: "wt-a" } }, x),
 		).rejects.toThrow(/Invalid host.git.facts/);
+		for (const diffChars of [-1, 200_001, 1.5, "5"])
+			await expect(services.call(x.peer, "host.git.evidence", { worktree, diffChars }, x)).rejects.toThrow(
+				/Invalid host.git.evidence/,
+			);
+		await expect(
+			services.call(x.peer, "host.git.evidence", { worktree: { ...worktree, path: "wt-a" }, diffChars: 10 }, x),
+		).rejects.toThrow(/Invalid host.git.evidence/);
 		gitSync(worktree.baseCwd, "checkout", "-q", "--detach");
 		await expect(services.call(x.peer, "host.git.merge", { worktree, label: "" }, x)).rejects.toThrow(
 			/detached HEAD/,

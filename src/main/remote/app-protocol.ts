@@ -35,9 +35,11 @@
  *   change as the `host.schedules.changed` event
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
- *   BranchFacts, `host.git.landing {worktree}` → LandingFacts, `host.git.merge {worktree, label}` → MergeOutcome
- *   (never pushed), `host.git.removeWorktree {worktree}` → WorktreeRemoval, `host.git.worktreeCreate
- *   {baseCwd, name, branchPrefix?, baseRef}` → RpcWorktreeCreateResult. Free: no model call, no quota.
+ *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
+ *   and a `merge-tree` prediction of its merge), `host.git.landing {worktree}` → LandingFacts, `host.git.merge
+ *   {worktree, label}` → MergeOutcome (never pushed), `host.git.removeWorktree {worktree}` → WorktreeRemoval,
+ *   `host.git.worktreeCreate {baseCwd, name, branchPrefix?, baseRef}` → RpcWorktreeCreateResult. Free: no model
+ *   call, no quota.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`
  * and `host.schedules.changed`.
@@ -116,6 +118,7 @@ export const MAX_DEVICE_NAME = 64;
 /** Git the host runs for an agent of the device on the host's own checkouts (`host.git.*` above). */
 export const GIT_METHODS = {
 	facts: "host.git.facts",
+	evidence: "host.git.evidence",
 	landing: "host.git.landing",
 	merge: "host.git.merge",
 	removeWorktree: "host.git.removeWorktree",

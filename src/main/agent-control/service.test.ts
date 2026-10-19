@@ -9,7 +9,7 @@ import type {
 	RpcResponse,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
-import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
+import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
@@ -130,12 +130,24 @@ class FakeHost implements AgentControlHost {
 	mergeResult: MergeOutcome = { merged: true, sha: "abc1234", summary: "2 files changed" };
 	merges: string[] = [];
 	/** Every git seam call with the device it was sent to (undefined = this computer). */
-	gitCalls: { op: "facts" | "merge" | "landing" | "remove"; branch: string; device: string | undefined }[] = [];
+	gitCalls: {
+		op: "facts" | "evidence" | "merge" | "landing" | "remove";
+		branch: string;
+		device: string | undefined;
+	}[] = [];
 	branchFacts = async (worktree: WorktreeRef, device?: string): Promise<BranchFacts> => {
 		this.gitCalls.push({ op: "facts", branch: worktree.branch, device });
 		const facts = this.facts.get(worktree.branch);
 		if (!facts) throw new Error("no such branch");
 		return facts;
+	};
+	evidence = new Map<string, BranchEvidence>();
+	/** The diff budget each `branchEvidence` call asked for. */
+	diffChars: number[] = [];
+	branchEvidence = async (worktree: WorktreeRef, diffChars: number, device?: string): Promise<BranchEvidence> => {
+		this.gitCalls.push({ op: "evidence", branch: worktree.branch, device });
+		this.diffChars.push(diffChars);
+		return this.evidence.get(worktree.branch) ?? { diff: "", diffOmitted: 0, merge: { kind: "clean" } };
 	};
 	mergeBranch = async (worktree: WorktreeRef, _label: string, device?: string) => {
 		this.gitCalls.push({ op: "merge", branch: worktree.branch, device });
@@ -207,6 +219,10 @@ class FakeHost implements AgentControlHost {
 	storedMessages = async (row: StoredSession) => this.storedTranscripts.get(row.path) ?? [];
 	judged: string[] = [];
 	judgeReply = "";
+	/** What the bridge answers besides the text: the judge model, its role and families. */
+	judgeMeta: Record<string, unknown> = { model: "anthropic/claude-slow", usd: 0.0123 };
+	/** An error the judge request fails with instead of answering. */
+	judgeError: string | null = null;
 
 	parents = new Map<string, string>();
 	parentOf = (tabId: string) => this.parents.get(tabId);
@@ -255,7 +271,7 @@ class FakeHost implements AgentControlHost {
 				return ok();
 			case "agent_control_judge":
 				this.judged.push(command.user);
-				return ok({ text: this.judgeReply, model: "anthropic/claude-slow", usd: 0.0123 });
+				return this.judgeError ? bad(this.judgeError) : ok({ text: this.judgeReply, ...this.judgeMeta });
 			default:
 				return ok();
 		}
@@ -1057,7 +1073,10 @@ describe("ompdesk_compare", () => {
 		const both = await service.run("main0001", T.compare, { sessions: ["plain002", "remot003"] });
 		expect(both.text).toContain("no worktree");
 		expect(both.text).toContain("could not read its branch: no such branch");
-		expect(host.gitCalls).toEqual([{ op: "facts", branch: "b", device: "dev-studio" }]);
+		expect(host.gitCalls).toEqual([
+			{ op: "facts", branch: "b", device: "dev-studio" },
+			{ op: "evidence", branch: "b", device: "dev-studio" },
+		]);
 	});
 });
 
@@ -1085,7 +1104,7 @@ describe("ompdesk_merge", () => {
 	it("reports a conflict as the merge's result, aborted, and refuses what would lose work", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
 		host.manage = true;
-		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"] };
+		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"], predicted: false };
 		const conflict = await service.run("main0001", T.merge, { session: ids[0] });
 		expect(conflict.isError).toBe(true);
 		expect(conflict.text).toContain("Merge conflict in src/a.ts: the merge was aborted");
@@ -1094,6 +1113,17 @@ describe("ompdesk_merge", () => {
 		expect(host.merges).toEqual(["omp/agent/a"]);
 		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
 		expect((await service.run("main0001", T.merge, { session: ids[1] })).text).toMatch(/still working/);
+	});
+
+	it("refuses a merge git merge-tree predicts will conflict, naming the files, with the parent untouched", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.manage = true;
+		host.mergeResult = { merged: false, reason: "conflict", files: ["README.md", "src/a.ts"], predicted: true };
+		const result = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("Merging omp/agent/a would conflict in README.md, src/a.ts");
+		expect(result.text).toContain("no merge was attempted and /repo is unchanged");
+		expect(result.text).not.toContain("aborted");
 	});
 
 	it("refuses a session without a branch, a hidden one, and itself", async () => {
@@ -1125,6 +1155,7 @@ describe("a worktree child on a paired host", () => {
 		expect(merged.text).toContain("Merged omp/agent/a into /repo");
 		expect(host.gitCalls).toEqual([
 			{ op: "facts", branch: "omp/agent/a", device: desktop.id },
+			{ op: "evidence", branch: "omp/agent/a", device: desktop.id },
 			{ op: "facts", branch: "omp/agent/a", device: desktop.id },
 			{ op: "merge", branch: "omp/agent/a", device: desktop.id },
 		]);
@@ -2211,6 +2242,114 @@ describe("ompdesk_compare with criteria", () => {
 		expect(odd.text).toContain("its answer was not the expected JSON");
 		expect(odd.text).toContain("I cannot decide.");
 	});
+
+	/** Two worktree children: A's diff, B's diff and failing check, each read through the git seam. */
+	function judgedPair() {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{
+				tabId: "aaaa0002",
+				title: "Approach A",
+				last: "Done; tests pass.",
+				worktree: { name: "a", branch: "omp/agent/a", baseCwd: "/repo", path: "/wt/a" },
+				messages: bashCheck(
+					"c1",
+					"bun run vitest",
+					`${"noise line\n".repeat(400)}Tests  12 passed (12)\nexit code 0`,
+				),
+			},
+			{
+				tabId: "bbbb0003",
+				title: "Approach B",
+				last: "Done.",
+				worktree: { name: "b", branch: "omp/agent/b", baseCwd: "/repo", path: "/wt/b" },
+				messages: bashCheck("c2", "bunx tsc --noEmit", "src/y.ts(3,1): error TS2322: Type 'string'", true),
+			},
+		);
+		host.facts.set("omp/agent/a", { ...clean, branch: "omp/agent/a" });
+		host.facts.set("omp/agent/b", { ...clean, branch: "omp/agent/b" });
+		host.evidence.set("omp/agent/a", {
+			diff: "diff --git a/src/x.ts b/src/x.ts\n+export const answer = 42;\n",
+			diffOmitted: 0,
+			merge: { kind: "clean" },
+		});
+		host.evidence.set("omp/agent/b", {
+			diff: `diff --git a/src/y.ts b/src/y.ts\n-export function parse(input) {\n${"+x\n".repeat(30_000)}`,
+			diffOmitted: 1234,
+			merge: { kind: "conflict", files: ["README.md", "src/y.ts"] },
+		});
+		host.judgeReply = JSON.stringify({
+			ranking: [{ session: "aaaa0002", score: 80, criteria: [], reasons: "ok" }],
+			winner: "aaaa0002",
+			why: "A",
+		});
+		return host;
+	}
+
+	it("gives the judge each child's diff and the tail of its checks' output, within the evidence budget", async () => {
+		const host = judgedPair();
+		await control(host).run("main0001", T.compare, {
+			sessions: ["aaaa0002", "bbbb0003"],
+			criteria: ["parser keeps working"],
+		});
+		expect(host.diffChars).toEqual([30_000, 30_000]);
+		const prompt = host.judged[0] ?? "";
+		expect(prompt).toContain("+export const answer = 42;");
+		expect(prompt).toContain("-export function parse(input) {");
+		expect(prompt).toContain("Tests  12 passed (12)");
+		expect(prompt).toContain("error TS2322: Type 'string'");
+		expect(prompt).toContain("merge: would conflict in README.md, src/y.ts");
+		expect(prompt.length).toBeLessThan(62_000);
+	});
+
+	it("names the judge model, the role it came from and its family against the caller's", async () => {
+		const host = judgedPair();
+		host.judgeMeta = {
+			model: "openai-codex/gpt-6.1-sol",
+			role: "advisor",
+			family: "openai",
+			mainModel: "anthropic/claude-opus-5-5",
+			mainFamily: "anthropic",
+			crossFamily: true,
+			usd: 0.05,
+		};
+		const service = control(host);
+		const args = { sessions: ["aaaa0002", "bbbb0003"], criteria: ["works"] };
+		expect((await service.run("main0001", T.compare, args)).text).toContain(
+			"Verdict by openai-codex/gpt-6.1-sol (advisor role, openai family; your model is anthropic), $0.0500:",
+		);
+		host.judgeMeta = {
+			...host.judgeMeta,
+			model: "anthropic/claude-opus-5-5",
+			family: "anthropic",
+			crossFamily: false,
+		};
+		expect((await service.run("main0001", T.compare, args)).text).toContain(
+			"same family as your model: no model of another family had credentials",
+		);
+	});
+
+	it("returns the evidence with verdict unavailable when the judge fails", async () => {
+		const host = judgedPair();
+		host.judgeError = "No credentials for openai-codex/gpt-6.1-sol";
+		const result = await control(host).run("main0001", T.compare, {
+			sessions: ["aaaa0002", "bbbb0003"],
+			criteria: ["works"],
+		});
+		expect(result.isError).toBe(false);
+		expect(result.text).toMatch(/^Verdict: unavailable \(.*No credentials for openai-codex\/gpt-6\.1-sol\)/);
+		expect(result.text).toContain("Evidence:");
+		expect(result.text).toContain('- aaaa0002 "Approach A"');
+	});
+
+	it("predicts each child's merge with git merge-tree and says which files would conflict", async () => {
+		const host = judgedPair();
+		const result = await control(host).run("main0001", T.compare, { sessions: ["aaaa0002", "bbbb0003"] });
+		expect(host.diffChars).toEqual([0, 0]);
+		expect(result.text).toContain("merge: no conflict with main");
+		expect(result.text).toContain("merge: would conflict in README.md, src/y.ts (predicted by git merge-tree");
+		expect(result.text).not.toContain("ready to merge with ompdesk_merge\n  final answer: Done.");
+	});
 });
 
 describe("checksRun and parseVerdict", () => {
@@ -2229,8 +2368,8 @@ describe("checksRun and parseVerdict", () => {
 			{ role: "bashExecution", command: "bun run lint", exitCode: 0 },
 		] as AgentMessage[];
 		expect(checksRun(messages)).toEqual([
-			{ command: "cargo test", passed: false },
-			{ command: "bun run lint", passed: true },
+			{ command: "cargo test", passed: false, tail: "test result: FAILED. exit code 101" },
+			{ command: "bun run lint", passed: true, tail: "" },
 		]);
 	});
 

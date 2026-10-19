@@ -602,7 +602,11 @@ describe("AgentControlRuntime", () => {
 			const local = { name: "w", branch: "omp/agent/w", baseCwd: repo, path: path.join(root, "wt-w") };
 			gitSync(repo, "worktree", "add", "-q", "-b", local.branch, local.path);
 			const facts = { branch: "omp/agent/far", baseBranch: "main", commitsAhead: 4, files: [] };
-			const request = vi.fn(async () => ({ ...facts, uncommitted: 0, untracked: 0, merged: false }));
+			const request = vi.fn(async (_device: string, method: string) =>
+				method === "host.git.evidence"
+					? { diff: "", diffOmitted: 0, merge: { kind: "conflict", files: ["a.ts"] } }
+					: { ...facts, uncommitted: 0, untracked: 0, merged: false },
+			);
 			const remote = {
 				name: "far",
 				branch: "omp/agent/far",
@@ -621,13 +625,19 @@ describe("AgentControlRuntime", () => {
 			expect(result.isError, result.text).toBe(false);
 			expect(result.text).toContain("branch omp/agent/far → main: 4 commit(s) ahead");
 			expect(result.text).toContain("branch omp/agent/w → main: 0 commit(s) ahead");
-			expect(request).toHaveBeenCalledTimes(1);
-			expect(request).toHaveBeenCalledWith(
-				"dev-1",
-				"host.git.facts",
-				{ worktree: { branch: "omp/agent/far", baseCwd: "C:\\repo", path: "C:\\wt\\far" } },
-				expect.any(Number),
-			);
+			expect(result.text).toContain("merge: would conflict in a.ts");
+			expect(request.mock.calls.map(call => call.slice(0, 3))).toEqual([
+				[
+					"dev-1",
+					"host.git.facts",
+					{ worktree: { branch: "omp/agent/far", baseCwd: "C:\\repo", path: "C:\\wt\\far" } },
+				],
+				[
+					"dev-1",
+					"host.git.evidence",
+					{ worktree: { branch: "omp/agent/far", baseCwd: "C:\\repo", path: "C:\\wt\\far" }, diffChars: 0 },
+				],
+			]);
 		} finally {
 			await fs.rm(root, { recursive: true, force: true });
 		}

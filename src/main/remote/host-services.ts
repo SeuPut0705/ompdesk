@@ -58,7 +58,7 @@ import {
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
-import { branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions } from "../deleted-sessions";
@@ -304,6 +304,8 @@ const GitWorktree = z.object({
 	baseCwd: AbsolutePath,
 });
 const GitWorktreeParams = z.object({ worktree: GitWorktree });
+/** `diffChars` mirrors what `ompdesk_compare` may ask for; a bigger number would only ship more diff than it reads. */
+const GitEvidenceParams = z.object({ worktree: GitWorktree, diffChars: z.number().int().min(0).max(200_000) });
 const GitMergeParams = z.object({ worktree: GitWorktree, label: z.string().max(500) });
 const GitWorktreeCreateParams = z.object({
 	baseCwd: AbsolutePath,
@@ -840,6 +842,10 @@ export class LocalHostServices implements HostServices {
 			// Agent control of a session this computer runs for the device: the git it would run on its own checkout.
 			case GIT_METHODS.facts:
 				return branchFacts(parse(GitWorktreeParams, method, params).worktree);
+			case GIT_METHODS.evidence: {
+				const { worktree, diffChars } = parse(GitEvidenceParams, method, params);
+				return branchEvidence(worktree, diffChars);
+			}
 			case GIT_METHODS.landing:
 				return landingFacts(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.removeWorktree:

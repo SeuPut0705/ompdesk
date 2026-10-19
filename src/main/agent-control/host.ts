@@ -85,7 +85,9 @@ import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
 import {
+	type BranchEvidence,
 	type BranchFacts,
+	branchEvidence,
 	branchFacts,
 	type LandingFacts,
 	landingFacts,
@@ -791,6 +793,10 @@ export class AgentControlRuntime {
 			branchFacts: (worktree, device) =>
 				this.#git<BranchFacts>(device, GIT_METHODS.facts, { worktree: gitRef(worktree) }, () =>
 					branchFacts(worktree),
+				),
+			branchEvidence: (worktree, diffChars, device) =>
+				this.#git<BranchEvidence>(device, GIT_METHODS.evidence, { worktree: gitRef(worktree), diffChars }, () =>
+					branchEvidence(worktree, diffChars),
 				),
 			mergeBranch: (worktree, label, device) =>
 				this.#git<MergeOutcome>(device, GIT_METHODS.merge, { worktree: gitRef(worktree), label }, () =>

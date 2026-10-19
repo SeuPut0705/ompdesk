@@ -60,9 +60,12 @@ import { APPROVE_DENY, APPROVE_ONCE, isApprovalSelect } from "../../shared/tool-
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import {
+	type BranchEvidence,
 	type BranchFacts,
+	boundDiff,
 	type LandingFacts,
 	type MergeOutcome,
+	type MergePrediction,
 	mergeProblem,
 	type WorktreeRef,
 	type WorktreeRemoval,
@@ -269,6 +272,11 @@ export interface AgentControlHost {
 	deleteStored(session: StoredSession): Promise<void>;
 	/** Git facts of a session's worktree, read on `device` (absent = this computer). Rejects with a readable message. */
 	branchFacts(worktree: WorktreeRef, device?: string): Promise<BranchFacts>;
+	/**
+	 * What a judge reads of a session's worktree on `device`: its diff against where it lands, cut to `diffChars`
+	 * (0 = none), and a `git merge-tree` prediction of merging it into the parent's HEAD (nothing is touched).
+	 */
+	branchEvidence(worktree: WorktreeRef, diffChars: number, device?: string): Promise<BranchEvidence>;
 	/** Merge the worktree's branch into its parent checkout on `device` (never pushed). */
 	mergeBranch(worktree: WorktreeRef, label: string, device?: string): Promise<MergeOutcome>;
 	/** What git on `device` says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
@@ -534,24 +542,41 @@ export function renderMessage(message: AgentMessage): string | null {
 	}
 }
 
+/** A check a session ran: the command, whether it passed, and the end of its output. */
+export interface CheckRun {
+	command: string;
+	passed: boolean;
+	/** The last `CHECK_TAIL_CHARS` of its output (where runners print their summary and first failures). */
+	tail: string;
+}
+
 /** One compared session as the judge and the agent read it. */
 interface Evidence {
 	id: string;
 	/** The block the agent reads. */
 	text: string;
-	/** State, checks and diff lines without the answer (the judge gets the answer whole, separately). */
+	/** State, checks, diff summary and merge prediction lines, without the answer, the diff and the check output. */
 	facts: string;
 	answer: string | null;
+	checks: CheckRun[];
+	/** The worktree's diff against where it lands, already cut by its git; "" without a worktree. */
+	diff: string;
+	diffOmitted: number;
 }
 
 /** Newest transcript messages a compare reads from an open session for the checks it ran. */
 const EVIDENCE_MESSAGES = 200;
-/** The judge request's evidence, all sessions together. */
+/** The judge request's evidence, all sessions together; each session gets an equal share. */
 const JUDGE_EVIDENCE_CHARS = 60_000;
+/** Output a check keeps for the judge: its end, where runners print the summary and the failures. */
+const CHECK_TAIL_CHARS = 1_200;
+/** Newest checks per session whose output the judge reads. */
+const JUDGE_CHECKS = 4;
 
 const JUDGE_SYSTEM = `You judge the work of several coding sessions against acceptance criteria, for the agent that started them.
-Use only the evidence given: each session's state, the checks it ran (command and outcome, read from its transcript), its git diff summary and its final answer.
-A claim in a final answer that no check or diff supports counts as "unknown", not "yes". A failed check counts against the criterion it covers. A session that is still running cannot be the winner.
+Use only the evidence given: each session's state, the checks it ran (command, outcome and the end of its output, read from its transcript), its git diff against where it would land, a prediction of merging it, and its final answer.
+Read the diff yourself. A criterion no hunk implements is "no" even when the final answer claims it. A change that removes or alters behaviour no criterion asked for is a regression: name it in reasons and lower the score. A predicted merge conflict counts against the session.
+A claim that no check or diff supports counts as "unknown", not "yes". A failed check counts against the criterion it covers. A session that is still running cannot be the winner.
 Answer with JSON only, no prose around it:
 {"ranking":[{"session":"<id>","score":<0-100>,"criteria":[{"criterion":"<text>","met":"yes|partly|no|unknown","why":"<short evidence>"}],"reasons":"<one or two sentences>"}],"winner":"<id or null>","why":"<why it wins, or why none does>"}
 Rank every session, best first. Pick a winner only if it meets every criterion at least partly and beats the others on the evidence.`;
@@ -621,10 +646,16 @@ function renderPage(
 const CHECK_COMMAND =
 	/\b(test|tests|vitest|jest|pytest|mocha|playwright|tsc|typecheck|check|lint|biome|eslint|ruff|mypy|clippy|build|cargo (test|check|build)|go (test|vet|build)|gradle|mvn|make)\b/i;
 
-/** The checks a transcript ran, newest last: the command and whether it passed (exit 0 / no error). */
-export function checksRun(messages: readonly AgentMessage[]): { command: string; passed: boolean }[] {
+/** The end of a check's output, where runners print their summary and the failures. */
+function outputTail(text: string): string {
+	const trimmed = text.trimEnd();
+	return trimmed.length > CHECK_TAIL_CHARS ? `…${trimmed.slice(-CHECK_TAIL_CHARS)}` : trimmed;
+}
+
+/** The checks a transcript ran, newest last: the command, whether it passed (exit 0 / no error), its output's end. */
+export function checksRun(messages: readonly AgentMessage[]): CheckRun[] {
 	const calls = new Map<string, string>();
-	const checks: { command: string; passed: boolean }[] = [];
+	const checks: CheckRun[] = [];
 	for (const message of messages) {
 		if (message.role === "assistant" && Array.isArray(message.content)) {
 			for (const block of message.content)
@@ -637,12 +668,59 @@ export function checksRun(messages: readonly AgentMessage[]): { command: string;
 			if (command === undefined) continue;
 			const text = contentText(message.content);
 			const exit = /exit(?:ed with)? (?:code )?(\d+)/i.exec(text);
-			checks.push({ command, passed: !message.isError && (exit ? exit[1] === "0" : true) });
+			checks.push({ command, passed: !message.isError && (exit ? exit[1] === "0" : true), tail: outputTail(text) });
 		} else if (message.role === "bashExecution" && CHECK_COMMAND.test(message.command ?? "")) {
-			checks.push({ command: message.command ?? "", passed: message.exitCode === 0 });
+			checks.push({
+				command: message.command ?? "",
+				passed: message.exitCode === 0,
+				tail: outputTail(message.output ?? ""),
+			});
 		}
 	}
 	return checks;
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** What `git merge-tree` predicts merging a child's branch into the parent's HEAD would do. */
+function predictionLine(prediction: MergePrediction, base: string | null): string {
+	switch (prediction.kind) {
+		case "clean":
+			return `merge: no conflict with ${base ?? "the parent's HEAD"}`;
+		case "conflict":
+			return `merge: would conflict in ${prediction.files.join(", ")} (predicted by git merge-tree; nothing was touched)`;
+		case "unknown":
+			return `merge: not predicted (${oneLine(prediction.reason, 200)})`;
+	}
+}
+
+/** What the bridge's `agent_control.judge` answers (agent-control.ts); an older bridge sends only text, model, usd. */
+interface JudgeReply {
+	text?: string;
+	model?: string;
+	/** The role whose chain served it (`advisor`, else `slow`). */
+	role?: string;
+	family?: string | null;
+	mainFamily?: string | null;
+	/** Whether the judge's family differs from the caller's model; null when either is unknown. */
+	crossFamily?: boolean | null;
+	usd?: number;
+}
+
+/** " by <model> (<role> role, <family> family; …)": which model judged and whether it is another family than the caller's. */
+function judgeLabel(reply: JudgeReply | undefined): string {
+	if (!reply?.model) return "";
+	if (!reply.role) return ` by ${reply.model}`;
+	const family = reply.family ? `, ${reply.family} family` : "";
+	const relation =
+		reply.crossFamily === true
+			? `; your model is ${reply.mainFamily}`
+			: reply.crossFamily === false
+				? "; same family as your model: no model of another family had credentials"
+				: "";
+	return ` by ${reply.model} (${reply.role} role${family}${relation})`;
 }
 
 /** What a session is doing right now, from the tail of its transcript: a tool call without a result yet. */
@@ -1833,7 +1911,7 @@ export class AgentControl {
 	}
 
 	/** What a compare reads from one session: its final answer, the checks it ran and its worktree's diff. */
-	async #evidence(caller: ControlTab, target: ControlTab | StoredSession): Promise<Evidence> {
+	async #evidence(caller: ControlTab, target: ControlTab | StoredSession, diffChars: number): Promise<Evidence> {
 		const open = "busy" in target;
 		if (open) this.#refuseHidden(target, caller);
 		else if (target.hidden) fail("The user hid a session you asked to compare from other agents.");
@@ -1872,10 +1950,16 @@ export class AgentControl {
 			: "checks run: none seen in its transcript";
 		const lines = [`- ${id} ${name}: ${state}`, `  ${checkLine}`];
 		const worktree = open ? target.worktree : undefined;
+		let diff = "";
+		let diffOmitted = 0;
 		if (!worktree) lines.push("  no worktree: no branch to diff");
-		else
-			try {
-				const facts = await this.#host.branchFacts(worktree, target.device);
+		else {
+			const [facts, read] = await Promise.all([
+				this.#host.branchFacts(worktree, target.device).catch((error: unknown) => errorText(error)),
+				this.#host.branchEvidence(worktree, diffChars, target.device).catch((error: unknown) => errorText(error)),
+			]);
+			if (typeof facts === "string") lines.push(`  could not read its branch: ${facts}`);
+			else {
 				const added = facts.files.reduce((sum, file) => sum + file.added, 0);
 				const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
 				const shown = facts.files
@@ -1883,23 +1967,38 @@ export class AgentControl {
 					.map(file => `${file.path} +${file.added} −${file.removed}`)
 					.join(", ");
 				const more = facts.files.length > 12 ? `, … ${facts.files.length - 12} more` : "";
-				const problem = mergeProblem(worktree, facts);
+				const toMerge = !facts.merged && facts.commitsAhead > 0;
+				const prediction: MergePrediction =
+					typeof read === "string" ? { kind: "unknown", reason: read } : read.merge;
+				if (open && toMerge && prediction.kind === "conflict") this.#conflicts.set(target.tabId, prediction.files);
+				else if (open && prediction.kind === "clean") this.#conflicts.delete(target.tabId);
+				const problem =
+					mergeProblem(worktree, facts) ??
+					(toMerge && prediction.kind === "conflict"
+						? `merging would conflict; ask that session to merge ${facts.baseBranch} into its branch and resolve the conflicts, then compare again.`
+						: null);
 				lines.push(
 					`  branch ${facts.branch} → ${facts.baseBranch ?? "(detached)"}: ${facts.commitsAhead} commit(s) ahead, ${facts.files.length} file(s) changed (+${added} −${removed})${facts.merged ? ", already merged" : ""}`,
 					`  uncommitted ${facts.uncommitted}, untracked ${facts.untracked}${shown ? `\n  files: ${shown}${more}` : ""}`,
+					...(toMerge ? [`  ${predictionLine(prediction, facts.baseBranch)}`] : []),
 					`  ${problem ? `cannot merge yet: ${problem}` : "ready to merge with ompdesk_merge"}`,
 				);
-			} catch (error) {
-				lines.push(`  could not read its branch: ${error instanceof Error ? error.message : String(error)}`);
 			}
+			if (typeof read !== "string") {
+				diff = read.diff;
+				diffOmitted = read.diffOmitted;
+			}
+		}
 		const facts = lines.slice(1).join("\n");
 		lines.push(`  final answer: ${answer ? oneLine(answer, 700) : "(none yet)"}`);
-		return { id, text: lines.join("\n"), facts, answer };
+		return { id, text: lines.join("\n"), facts, answer, checks, diff, diffOmitted };
 	}
 
 	/**
-	 * Each session's evidence (final answer, checks from its transcript, worktree diff); with criteria, one judge
-	 * request on the caller's `slow` role grades them and names a winner. Runs no tests.
+	 * Each session's evidence (final answer, checks from its transcript, worktree diff and merge prediction); with
+	 * criteria, one judge request on the caller's omp (stock's advisor chain, then slow, a model of another family than
+	 * the caller's when one has credentials) grades them and names a winner. A failed judge leaves the evidence with
+	 * `Verdict: unavailable`. Runs no tests.
 	 */
 	async #compare(
 		caller: ControlTab,
@@ -1913,37 +2012,60 @@ export class AgentControl {
 			: tabs.filter(tab => own.has(tab.tabId) && tab.worktree);
 		if (targets.length === 0)
 			fail("No worktree sessions to compare. Open sessions with worktree: true, or pass sessions.");
-		const evidence = await Promise.all(targets.map(target => this.#evidence(caller, target)));
+		const diffChars = criteria ? Math.floor(JUDGE_EVIDENCE_CHARS / targets.length) : 0;
+		const evidence = await Promise.all(targets.map(target => this.#evidence(caller, target, diffChars)));
 		for (const target of targets) if ("busy" in target) this.#collected.add(target.tabId);
 		const blocks = evidence.map(entry => entry.text).join("\n");
 		if (!criteria)
 			return `${blocks}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer. Pass criteria to have them judged.`;
-		const verdict = await this.#judge(caller, evidence, criteria);
+		const verdict = await this.#judge(caller, evidence, criteria).catch(
+			(error: unknown) =>
+				`Verdict: unavailable (${oneLine(errorText(error), 400)}). Judge the evidence below yourself or compare again.`,
+		);
 		return `${verdict}\n\nEvidence:\n${blocks}`;
 	}
 
 	async #judge(caller: ControlTab, evidence: Evidence[], criteria: string[]): Promise<string> {
 		const per = Math.floor(JUDGE_EVIDENCE_CHARS / evidence.length);
+		const session = (entry: Evidence): string => {
+			const answer = cut(entry.answer ?? "(none)", Math.max(500, Math.floor(per * 0.2)));
+			let checksLeft = Math.floor(per * 0.15);
+			const checks: string[] = [];
+			for (const check of entry.checks.slice(-JUDGE_CHECKS).reverse()) {
+				const block = `$ ${oneLine(check.command, 200)} → ${check.passed ? "passed" : "FAILED"}\n${check.tail}`;
+				if (block.length > checksLeft) break;
+				checksLeft -= block.length;
+				checks.unshift(block);
+			}
+			const room = Math.max(0, per - entry.facts.length - answer.length - checks.join("\n").length - 200);
+			const bounded = entry.diff.length > room ? boundDiff(entry.diff, room) : { text: entry.diff, omitted: 0 };
+			const omitted = entry.diffOmitted + bounded.omitted;
+			return [
+				`<session id="${entry.id}">`,
+				entry.facts,
+				...(checks.length ? ["check output (newest last):", ...checks] : []),
+				"final answer:",
+				answer,
+				...(bounded.text
+					? [`diff${omitted ? ` (${omitted} characters left out)` : ""}:`, bounded.text]
+					: entry.diff || omitted
+						? [`diff: ${omitted} characters, none fit`]
+						: []),
+				"</session>",
+			].join("\n");
+		};
 		const user = [
 			"Acceptance criteria:",
 			...criteria.map((criterion, index) => `${index + 1}. ${criterion}`),
 			"",
-			...evidence.map(entry =>
-				[
-					`<session id="${entry.id}">`,
-					entry.facts,
-					"final answer:",
-					cut(entry.answer ?? "(none)", Math.max(500, per - entry.facts.length)),
-					"</session>",
-				].join("\n"),
-			),
+			...evidence.map(session),
 		].join("\n");
-		const reply = responseData<{ text?: string; model?: string; usd?: number }>(
+		const reply = responseData<JudgeReply>(
 			await this.#host.command(caller.tabId, { type: "agent_control_judge", system: JUDGE_SYSTEM, user }, 180_000),
 			"Judging",
 		);
 		const parsed = parseVerdict(reply?.text ?? "");
-		const cost = `${reply?.model ? ` by ${reply.model}` : ""}${typeof reply?.usd === "number" ? `, $${reply.usd.toFixed(4)}` : ""}`;
+		const cost = `${judgeLabel(reply)}${typeof reply?.usd === "number" ? `, $${reply.usd.toFixed(4)}` : ""}`;
 		if (!parsed) return `Judge${cost} (its answer was not the expected JSON):\n${cut(reply?.text ?? "", 4000)}`;
 		const known = new Set(evidence.map(entry => entry.id));
 		const ranking = parsed.ranking.filter(row => known.has(row.session)).sort((a, b) => b.score - a.score);
@@ -1999,8 +2121,11 @@ export class AgentControl {
 		const outcome = await this.#host.mergeBranch(worktree, target.title, target.device);
 		if (!outcome.merged) {
 			this.#conflicts.set(target.tabId, outcome.files);
+			const ask = `Ask ${label(target)} to merge the parent's branch into its own and resolve, then try again.`;
 			fail(
-				`Merge conflict in ${outcome.files.join(", ")}: the merge was aborted and ${worktree.baseCwd} is unchanged. Ask ${label(target)} to rebase or resolve against the parent's branch, then try again.`,
+				outcome.predicted
+					? `Merging ${worktree.branch} would conflict in ${outcome.files.join(", ")} (predicted by git merge-tree): no merge was attempted and ${worktree.baseCwd} is unchanged. ${ask}`
+					: `Merge conflict in ${outcome.files.join(", ")}: the merge was aborted and ${worktree.baseCwd} is unchanged. ${ask}`,
 			);
 		}
 		this.#conflicts.delete(target.tabId);
