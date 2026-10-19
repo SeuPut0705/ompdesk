@@ -162,6 +162,7 @@ export function SchedulesSection() {
 					checked={!state.paused}
 					data-schedules-master
 					description={t("schedules.masterDesc")}
+					infoOnly
 					label={t("schedules.master")}
 					onCheckedChange={checked => void send({ action: "setPaused", paused: !checked })}
 				/>
