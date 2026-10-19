@@ -37,7 +37,7 @@ describe("readRulesText", () => {
 		await rm(root, { recursive: true, force: true });
 	});
 
-	it("reads AGENTS.md and CLAUDE.md at the root of the repository the folder is in, the first 200 KB of each", async () => {
+	it("reads AGENTS.md and CLAUDE.md at the root of the repository the folder is in, whole up to the bound", async () => {
 		await mkdir(join(root, ".git"));
 		await mkdir(join(root, "packages", "app"), { recursive: true });
 		await writeFile(join(root, "AGENTS.md"), `${"a".repeat(RULES_FILE_BYTES)}TAIL`);
@@ -47,6 +47,18 @@ describe("readRulesText", () => {
 		expect(text).toContain("claude rules");
 		expect(text).not.toContain("TAIL");
 		expect(text).not.toContain("nested");
+	});
+
+	it("a rule stated deep in a long rules file (OMPdesk's is over 400 KB) still counts", async () => {
+		const filler = "- Unrelated filler line about window chrome and tray icons.\n".repeat(5000);
+		await writeFile(
+			join(root, "AGENTS.md"),
+			`${filler}- Packaged apps keep only Electron's en-US and ko locales; never en alone.\n`,
+		);
+		expect(filler.length).toBeGreaterThan(250 * 1024);
+		const index = rulesIndex(await readRulesText(root));
+		const gist = "Packaged builds keep only the en-US and ko Electron locales.";
+		expect(statedByRules(index, { title: "제목", body: "본문", gist })).toBe(true);
 	});
 
 	it("is empty without a folder or a rules file, and reads the folder itself outside a repository", async () => {

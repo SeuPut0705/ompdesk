@@ -8,14 +8,16 @@
  * the most), and at least `RULES_MIN_SHARED` (3) of them. Terms are Latin words (lowercased, common words left out, a
  * plural or tense ending cut) and character pairs of Hangul, Han and kana runs. The owner usually writes in Korean and
  * the rules file in English, so the proposal's English gist (`gist_en`, written by the same model call) is compared
- * too; its title and body together are the other candidate. Read-only: the file is never written, and only its first
- * 200 KB are read.
+ * too; its title and body together are the other candidate. It cannot tell a rule from its negation ("keep only en-US"
+ * and "keep every locale" share their terms), so a correction that contradicts the rules file is skipped as stated.
+ * Read-only: the file is never written, and it is read whole up to `RULES_FILE_BYTES` (4 MB: OMPdesk's own AGENTS.md is
+ * over 400 KB, and a cut at 200 KB missed half its rules).
  */
 import { open, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const RULES_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
-export const RULES_FILE_BYTES = 200 * 1024;
+export const RULES_FILE_BYTES = 4 * 1024 * 1024;
 export const RULES_COVERAGE = 0.6;
 export const RULES_MIN_SHARED = 3;
 
