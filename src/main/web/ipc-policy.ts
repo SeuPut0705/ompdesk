@@ -490,6 +490,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.OMP_UPDATE_STATE]: { dir: "push", mode: "pass" },
 	[E.OMP_UPDATED]: { dir: "push", mode: "pass" },
 	[E.HOST_OMP_UPDATE_STATE]: { dir: "push", mode: "pass" },
+	[E.HOST_SCHEDULES_STATE]: { dir: "push", mode: "pass" },
 	[E.CLI_UPDATE_STATE]: { dir: "push", mode: "pass" },
 	[E.AI_MEMORY_STATE]: { dir: "push", mode: "pass" },
 	[E.EXTENSION_UPDATE_STATE]: { dir: "push", mode: "pass" },

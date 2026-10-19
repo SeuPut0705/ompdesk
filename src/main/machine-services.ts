@@ -8,6 +8,7 @@
  * one per call with `machineFor(device)`, `device` being the paired host the
  * caller's focused tab runs on (absent = this computer).
  */
+import { z } from "zod";
 import {
 	type AccountRotationMode,
 	type AccountRotationState,
@@ -29,6 +30,7 @@ import type {
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import type { OmpUpdateState } from "../shared/omp-update";
+import type { SchedulesRequest, SchedulesState } from "../shared/schedules";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
@@ -44,8 +46,10 @@ import {
 	LINK_SLACK_MS,
 	ModelSetupStatusSchema,
 	OmpUpdateStateSchema,
+	SchedulesStateSchema,
 } from "./remote/app-protocol";
 import type { Revive } from "./restart-policy";
+import type { ScheduleService } from "./schedules";
 import type { StatsClient } from "./stats-client";
 
 export interface MachineServices {
@@ -81,6 +85,10 @@ export interface MachineServices {
 	ompUpdate(): Promise<OmpUpdateState>;
 	/** Check and update that machine's omp now, whatever its pref says; answers at once, the run goes on in the background. */
 	startOmpUpdate(): Promise<OmpUpdateState>;
+	/** Settings › Schedules on that machine: its own ScheduleService validates the request and runs the schedules there. */
+	schedules(request: SchedulesRequest): Promise<SchedulesState>;
+	/** A run's captured output on that machine, tail-capped. */
+	scheduleLog(runId: string): Promise<string>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -135,6 +143,8 @@ export interface LocalMachineDeps {
 	desktop: DesktopDeps;
 	/** This computer's omp updater (`omp-updater.ts`); it exists once startup has built it. */
 	ompUpdater: () => Pick<OmpUpdater, "state" | "updateNow">;
+	/** This computer's ScheduleService; it exists once startup has built it. */
+	schedules: () => Pick<ScheduleService, "command" | "readLog"> | null;
 }
 
 export interface AccountRotationDeps {
@@ -333,6 +343,20 @@ export class LocalMachine implements MachineServices {
 		void updater.updateNow().catch(() => undefined);
 		return updater.state();
 	}
+
+	async schedules(request: SchedulesRequest): Promise<SchedulesState> {
+		return this.#scheduleService().command(request);
+	}
+
+	async scheduleLog(runId: string): Promise<string> {
+		return this.#scheduleService().readLog(runId);
+	}
+
+	#scheduleService(): Pick<ScheduleService, "command" | "readLog"> {
+		const service = this.#deps.schedules();
+		if (!service) throw new Error("Scheduled runs are not available yet");
+		return service;
+	}
 }
 
 /** One host-level call on a paired host (RemoteDevices.request). */
@@ -449,6 +473,14 @@ export class RemoteMachine implements MachineServices {
 
 	async startOmpUpdate(): Promise<OmpUpdateState> {
 		return OmpUpdateStateSchema.parse(await this.#request<unknown>("host.ompUpdate.now", {}));
+	}
+
+	async schedules(request: SchedulesRequest): Promise<SchedulesState> {
+		return SchedulesStateSchema.parse(await this.#request<unknown>("host.schedules.command", { request }));
+	}
+
+	async scheduleLog(runId: string): Promise<string> {
+		return z.string().parse(await this.#request<unknown>("host.schedules.log", { runId }));
 	}
 }
 

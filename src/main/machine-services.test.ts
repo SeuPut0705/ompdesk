@@ -99,6 +99,7 @@ function localMachine(
 			busy: () => false,
 		},
 		ompUpdater: () => updater,
+		schedules: () => null,
 	});
 }
 
@@ -219,6 +220,46 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.builtinRea()).rejects.toThrow();
+	});
+
+	it("sends Settings › Schedules to a paired host's own service and checks its state", async () => {
+		const state = {
+			paused: false,
+			schedules: [
+				{
+					id: "s1",
+					createdAt: "2026-10-19T00:00:00Z",
+					name: "Nightly",
+					prompt: "p",
+					cwd: "C:\\work",
+					frequency: { kind: "daily", time: "09:00", days: [1] },
+					model: null,
+					autoApprove: false,
+					enabled: true,
+				},
+			],
+			runs: [],
+			nextRuns: { s1: null },
+		};
+		const host = fakeHost(method => (method === "host.schedules.log" ? "tail" : state));
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.schedules({ action: "setEnabled", id: "s1", enabled: false })).resolves.toEqual(state);
+		await expect(remote.scheduleLog("r1")).resolves.toBe("tail");
+		expect(host.calls.map(({ device, method, params }) => ({ device, method, params }))).toEqual([
+			{
+				device: "host-b",
+				method: "host.schedules.command",
+				params: { request: { action: "setEnabled", id: "s1", enabled: false } },
+			},
+			{ device: "host-b", method: "host.schedules.log", params: { runId: "r1" } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ paused: "no" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.schedules({ action: "get" })).rejects.toThrow();
+		await expect(localMachine(0).schedules({ action: "get" })).rejects.toThrow(/not available yet/);
 	});
 
 	it("reads a paired host's omp update state, starts its update there and checks the replies", async () => {

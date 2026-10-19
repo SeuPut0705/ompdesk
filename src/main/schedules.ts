@@ -21,8 +21,6 @@ import { finished } from "node:stream/promises";
 import {
 	nextRunAt,
 	SCHEDULE_RUNS_KEPT,
-	SCHEDULES_COMMAND,
-	SCHEDULES_LOG,
 	type Schedule,
 	type ScheduleDraft,
 	type ScheduleRun,
@@ -33,7 +31,6 @@ import {
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
-import type { IpcRegistry } from "./web/ipc-registry";
 
 /** How often due schedules are checked; a wall-clock check survives system sleep, a long timer would not. */
 export const SCHEDULE_TICK_MS = 30_000;
@@ -481,15 +478,4 @@ export function ompRunLauncher(options: {
 		});
 		return { stop: () => child.stdin?.end(), done };
 	};
-}
-
-export function registerSchedulesIpc(ipc: IpcRegistry, service: ScheduleService): void {
-	ipc.handle(SCHEDULES_COMMAND, (_caller, request: SchedulesRequest) => {
-		if (typeof request !== "object" || request === null) throw new Error("Invalid schedules request");
-		return service.command(request);
-	});
-	ipc.handle(SCHEDULES_LOG, (_caller, runId: unknown) => {
-		if (typeof runId !== "string") throw new Error("Invalid run id");
-		return service.readLog(runId);
-	});
 }

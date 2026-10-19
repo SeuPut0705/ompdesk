@@ -73,11 +73,15 @@ export type SchedulesRequest =
 	| { action: "runNow"; id: string }
 	| { action: "stop"; runId: string };
 
+/** `device`: a paired host by id (Settings follows the focused tab); absent = this computer. */
 export interface SchedulesApi {
-	command(request: SchedulesRequest): Promise<SchedulesState>;
+	command(request: SchedulesRequest, device?: string): Promise<SchedulesState>;
 	/** A run's captured output (stdout and stderr of `omp -p`), tail-capped. */
-	readLog(runId: string): Promise<string>;
+	readLog(runId: string, device?: string): Promise<string>;
+	/** This computer's schedules changed. */
 	onState(callback: (state: SchedulesState) => void): () => void;
+	/** A paired host's schedules changed (the host pushes them over the link). */
+	onHostState(callback: (device: string, state: SchedulesState) => void): () => void;
 }
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;

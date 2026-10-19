@@ -25,12 +25,14 @@ import {
 	type HostView,
 	IPC_EVENTS,
 	type IpcHostOmpUpdate,
+	type IpcHostSchedules,
 	type RemoteDirListing,
 	type RemoteState,
 	type RemoteTailnetPhase,
 	type TailnetComputer,
 } from "../../shared/ipc-types";
 import type { OmpUpdateState } from "../../shared/omp-update";
+import type { SchedulesState } from "../../shared/schedules";
 import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
 import { isTailnetAddress } from "../tailscale/tailnet";
 import type { TailnetPeer } from "../tailscale/whois";
@@ -45,6 +47,8 @@ import {
 	NameParams,
 	OMP_UPDATE_EVENT,
 	OmpUpdateStateSchema,
+	SCHEDULES_EVENT,
+	SchedulesStateSchema,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TabEventMessage,
@@ -470,6 +474,11 @@ export class RemoteDevices {
 		this.#deps.services.ompUpdateChanged(state);
 	}
 
+	/** This machine's scheduled runs changed: devices showing them (Settings › Schedules on a tab here) follow. */
+	hostSchedulesChanged(state: SchedulesState): void {
+		this.#deps.services.schedulesChanged(state);
+	}
+
 	/** This machine's session index changed: devices using it as a host refetch. */
 	hostSessionsChanged(): void {
 		this.#deps.services.sessionsChanged();
@@ -777,6 +786,14 @@ export class RemoteDevices {
 				if (state.success) {
 					const update: IpcHostOmpUpdate = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_OMP_UPDATE_STATE, update);
+				}
+				return;
+			}
+			if (event === SCHEDULES_EVENT) {
+				const state = SchedulesStateSchema.safeParse(data);
+				if (state.success) {
+					const update: IpcHostSchedules = { device: deviceId, state: state.data };
+					this.#deps.broadcast(IPC_EVENTS.HOST_SCHEDULES_STATE, update);
 				}
 				return;
 			}

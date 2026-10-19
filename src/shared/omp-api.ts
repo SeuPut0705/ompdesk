@@ -54,6 +54,7 @@ import type {
 	IpcFsReadResult,
 	IpcHostedSession,
 	IpcHostOmpUpdate,
+	IpcHostSchedules,
 	IpcModelSetupRunResult,
 	IpcNotifyKind,
 	IpcNotifyPayload,
@@ -235,9 +236,13 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			},
 		},
 		schedules: {
-			command: request => transport.invoke(SCHEDULES_COMMAND, request),
-			readLog: runId => transport.invoke(SCHEDULES_LOG, runId),
+			command: (request, device) => transport.invoke(SCHEDULES_COMMAND, request, device),
+			readLog: (runId, device) => transport.invoke(SCHEDULES_LOG, runId, device),
 			onState: callback => subscribe<SchedulesState>(SCHEDULES_STATE, callback),
+			onHostState: callback =>
+				subscribe<IpcHostSchedules>(IPC_EVENTS.HOST_SCHEDULES_STATE, update =>
+					callback(update.device, update.state),
+				),
 		},
 		mobileWeb: {
 			getState: () => transport.invoke(MOBILE_WEB_GET_STATE),

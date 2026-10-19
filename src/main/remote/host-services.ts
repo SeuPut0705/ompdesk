@@ -56,6 +56,7 @@ import {
 	type SessionInfoUpdateFrame,
 	type SidecarStatusPayload,
 } from "../../shared/rpc-types";
+import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
@@ -100,6 +101,9 @@ import {
 	encodeBinaryRead,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
+	SCHEDULES_EVENT,
+	SchedulesCommandParams,
+	SchedulesLogParams,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
@@ -690,6 +694,12 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.ompUpdate();
 			case "host.ompUpdate.now":
 				return this.#deps.machine.startOmpUpdate();
+			// Settings › Schedules and `ompdesk_schedule` of a device: this computer's own service checks the draft
+			// (folder, interval, time) and runs the schedule here, while this OMPdesk is open.
+			case "host.schedules.command":
+				return this.#deps.machine.schedules(parse(SchedulesCommandParams, method, params).request);
+			case "host.schedules.log":
+				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -717,6 +727,11 @@ export class LocalHostServices implements HostServices {
 	/** This machine's own OmpUpdater changed state: every connected device shows it like the computer's own row. */
 	ompUpdateChanged(state: OmpUpdateState): void {
 		for (const conn of this.#conns) emitSafely(conn, OMP_UPDATE_EVENT, state);
+	}
+
+	/** This machine's scheduled runs changed: every connected device showing them follows. */
+	schedulesChanged(state: SchedulesState): void {
+		for (const conn of this.#conns) emitSafely(conn, SCHEDULES_EVENT, state);
 	}
 
 	/** This machine's reply-language setting changed: the tabs it runs for paired devices follow it. */

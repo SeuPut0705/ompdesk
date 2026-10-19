@@ -261,6 +261,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.OMP_UPDATE_STATE]: never(PUSH),
 	[E.OMP_UPDATED]: never(PUSH),
 	[E.HOST_OMP_UPDATE_STATE]: never(PUSH),
+	[E.HOST_SCHEDULES_STATE]: never(PUSH),
 	[E.CLI_UPDATE_STATE]: never(PUSH),
 	[E.EXTENSION_UPDATE_STATE]: never(PUSH),
 	[E.GITHUB_AUTH_STATE]: never(PUSH),

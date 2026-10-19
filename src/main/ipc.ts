@@ -91,6 +91,7 @@ import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
+import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
@@ -1699,6 +1700,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, (caller, device?: unknown) =>
 		machineFor(caller, device).startOmpUpdate(),
 	);
+	// Settings › Schedules on the machine the caller's focused tab runs on: a paired host runs its own schedules.
+	ipc.handle(SCHEDULES_COMMAND, (caller, request: unknown, device?: unknown) => {
+		if (typeof request !== "object" || request === null) throw new Error("Invalid schedules request");
+		return machineFor(caller, device).schedules(request as SchedulesRequest);
+	});
+	ipc.handle(SCHEDULES_LOG, (caller, runId: unknown, device?: unknown) => {
+		if (typeof runId !== "string") throw new Error("Invalid run id");
+		return machineFor(caller, device).scheduleLog(runId);
+	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
 	// file is created with a minimal skeleton when missing so there is always

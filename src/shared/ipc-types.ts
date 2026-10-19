@@ -53,7 +53,7 @@ import type {
 	SidecarStatusPayload,
 	SubagentFrame,
 } from "./rpc-types";
-import type { SchedulesApi } from "./schedules";
+import type { SchedulesApi, SchedulesState } from "./schedules";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
@@ -69,6 +69,12 @@ import type { UiLanguage } from "./ui-language";
 export interface IpcHostOmpUpdate {
 	device: string;
 	state: OmpUpdateState;
+}
+
+/** A paired host's `SchedulesState`, pushed by the host whenever its scheduled runs change. */
+export interface IpcHostSchedules {
+	device: string;
+	state: SchedulesState;
 }
 
 export const IPC_EVENTS = {
@@ -145,6 +151,8 @@ export const IPC_EVENTS = {
 	OMP_UPDATED: "omp-update:updated",
 	/** A paired host's omp update changed (pushed by the host over the link); payload is an IpcHostOmpUpdate. */
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
+	/** A paired host's scheduled runs changed (pushed by the host over the link); payload is an IpcHostSchedules. */
+	HOST_SCHEDULES_STATE: "host-schedules:state",
 	/** The tool CLIs' automatic updates changed (src/main/cli-tools/updater.ts); payload is the whole CliUpdateState. */
 	CLI_UPDATE_STATE: "cli-update:state",
 	/** ai-memory's state changed (src/main/ai-memory/); payload is the whole AiMemoryState. */

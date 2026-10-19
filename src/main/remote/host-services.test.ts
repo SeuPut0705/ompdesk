@@ -22,12 +22,13 @@ import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-set
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
+import type { ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
-import { decodeBinaryRead, OMP_UPDATE_EVENT, type TabEventMessage } from "./app-protocol";
+import { decodeBinaryRead, OMP_UPDATE_EVENT, SCHEDULES_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
@@ -191,6 +192,8 @@ const OMP_UPDATE_IDLE: OmpUpdateState = {
 	failure: null,
 };
 
+const SCHEDULES_EMPTY: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
+
 /** This machine's models.yml, stats and bench, recording what the host asked of it. */
 function fakeMachine() {
 	return {
@@ -230,6 +233,8 @@ function fakeMachine() {
 		desktopUpdate: vi.fn(async (_action: HostUpdateAction): Promise<HostDesktopState> => DESKTOP),
 		ompUpdate: vi.fn(async (): Promise<OmpUpdateState> => OMP_UPDATE_IDLE),
 		startOmpUpdate: vi.fn(async (): Promise<OmpUpdateState> => ({ ...OMP_UPDATE_IDLE, phase: "checking" })),
+		schedules: vi.fn(async (_request: SchedulesRequest): Promise<SchedulesState> => SCHEDULES_EMPTY),
+		scheduleLog: vi.fn(async (runId: string) => `log of ${runId}`),
 	} satisfies MachineServices;
 }
 
@@ -1862,6 +1867,56 @@ describe("LocalHostServices host.* calls", () => {
 		services.ompUpdateChanged(OMP_UPDATE_IDLE);
 		expect(y.events.filter(entry => entry.event === OMP_UPDATE_EVENT)).toHaveLength(1);
 		expect(x.events.filter(entry => entry.event === OMP_UPDATE_EVENT)).toHaveLength(2);
+	});
+
+	it("runs a device's schedule requests on this machine's own service and pushes its changes", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		const draft: ScheduleDraft = {
+			name: "[agent] nightly",
+			prompt: "audit",
+			cwd: "/srv/app",
+			frequency: { kind: "interval", minutes: 60 },
+			model: null,
+			autoApprove: false,
+			enabled: true,
+		};
+		await expect(services.call(x.peer, "host.schedules.command", { request: { action: "get" } }, x)).resolves.toEqual(
+			SCHEDULES_EMPTY,
+		);
+		await services.call(x.peer, "host.schedules.command", { request: { action: "save", draft } }, x);
+		await services.call(x.peer, "host.schedules.command", { request: { action: "delete", id: "s1" } }, x);
+		expect(machine.schedules.mock.calls.map(([request]) => request)).toEqual([
+			{ action: "get" },
+			{ action: "save", draft },
+			{ action: "delete", id: "s1" },
+		]);
+		await expect(services.call(y.peer, "host.schedules.log", { runId: "r1" }, y)).resolves.toBe("log of r1");
+
+		// Only Settings › Schedules' own actions with a whole draft reach the service.
+		for (const bad of [
+			{},
+			{ request: { action: "wipe" } },
+			{ request: { action: "save", draft: { ...draft, autoApprove: "yes" } } },
+			{ request: { action: "save", draft: { ...draft, frequency: { kind: "cron", spec: "* * * * *" } } } },
+			{ request: { action: "delete" } },
+		]) {
+			await expect(services.call(x.peer, "host.schedules.command", bad, x)).rejects.toThrow(
+				/Invalid host.schedules.command/,
+			);
+		}
+		await expect(services.call(x.peer, "host.schedules.log", { runId: 3 }, x)).rejects.toThrow(
+			/Invalid host.schedules.log/,
+		);
+		expect(machine.schedules).toHaveBeenCalledTimes(3);
+
+		const changed = { ...SCHEDULES_EMPTY, paused: true };
+		services.schedulesChanged(changed);
+		for (const conn of [x, y])
+			expect(conn.events.filter(entry => entry.event === SCHEDULES_EVENT).map(entry => entry.data)).toEqual([
+				changed,
+			]);
 	});
 
 	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {

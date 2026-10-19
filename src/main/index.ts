@@ -112,7 +112,7 @@ import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
-import { ompRunLauncher, registerSchedulesIpc, ScheduleService } from "./schedules";
+import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { registerSetupIpc } from "./setup/ipc";
@@ -696,6 +696,7 @@ app.whenReady().then(() => {
 			if (!ompUpdater) throw new Error("OMPdesk is still starting");
 			return ompUpdater;
 		},
+		schedules: () => scheduleService,
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 			tabs: () => sidecarPool.allSidecars(),
@@ -1127,9 +1128,10 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(SCHEDULES_STATE, state);
 			}
+			// Devices showing this computer's schedules (Settings › Schedules on a tab here) follow.
+			devices.hostSchedulesChanged(state);
 		},
 	});
-	registerSchedulesIpc(ipc, scheduleService);
 	void scheduleService.start();
 	logWatcher = new LogWatcher();
 
