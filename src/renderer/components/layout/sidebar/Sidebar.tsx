@@ -102,7 +102,7 @@ import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
-import { useTabsStore } from "../../../stores/tabs";
+import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
@@ -142,7 +142,13 @@ import {
 } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
-import { CHILD_TOKEN, isShownOpened, openedChildStatus, openerOfSessions } from "./sidebar-family";
+import {
+	CHILD_TOKEN,
+	isShownOpened,
+	openedChildStatus,
+	openerOfSessions,
+	remoteOpenedChildren,
+} from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -856,6 +862,34 @@ export function Sidebar() {
 			siblings.sort((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 		return byRoot;
 	}, [codeSessions, familyRootOf]);
+	// A session an agent here opened on a paired device is that opener's child too (one family, whatever the
+	// computer): its tab nests under the opener's row, named by its device, and leaves the device's own list.
+	const remoteChildTabs = useMemo(
+		() => remoteOpenedChildren(tabs, new Set(codeSessions.map(session => session.path))),
+		[tabs, codeSessions],
+	);
+	const remoteChildrenOf = useMemo(() => {
+		const byRoot = new Map<string, SessionTab[]>();
+		for (const tab of tabs) {
+			const opener = remoteChildTabs.get(tab.id);
+			if (opener === undefined) continue;
+			const root = familyRootOf.get(opener) ?? opener;
+			const siblings = byRoot.get(root);
+			if (siblings) siblings.push(tab);
+			else byRoot.set(root, [tab]);
+		}
+		return byRoot;
+	}, [tabs, remoteChildTabs, familyRootOf]);
+	// What the device sections leave out: those children's tabs and session files.
+	const nestedRemote = useMemo(() => {
+		const keys = new Set<string>();
+		for (const tab of tabs)
+			if (remoteChildTabs.has(tab.id)) {
+				keys.add(tab.id);
+				if (tab.sessionPath) keys.add(tab.sessionPath);
+			}
+		return keys;
+	}, [tabs, remoteChildTabs]);
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
 		() =>
@@ -1631,6 +1665,62 @@ export function Sidebar() {
 		};
 	};
 
+	/** A session this computer's agent opened on a paired device: the same one-line child, from its tab, named by its device. */
+	const remoteFamilyChildFor = (tab: SessionTab): FamilyOpened => {
+		const key = `session:${tab.sessionPath ?? `tab:${tab.id}`}`;
+		const review = reviewOf.get(tab.id);
+		const failed =
+			review?.failed === true ||
+			tab.status === "error" ||
+			tab.lastRun?.stopReason === "error" ||
+			tab.lastRun?.stopReason === "aborted";
+		const waiting = tab.awaitingInput !== undefined || review?.waiting === true;
+		const running = tab.status === "running" || tab.compacting === true;
+		const status = openedChildStatus({
+			waiting,
+			running,
+			finished: tab.lastRun !== undefined,
+			failed,
+			unmerged:
+				review?.branch !== undefined &&
+				review.state !== "running" &&
+				(review.commitsAhead > 0 || review.uncommitted > 0),
+		});
+		const device = hosts.find(host => host.deviceId === tab.device)?.name ?? tab.device ?? "";
+		const title = tab.title || tab.task || t("sidebar.newSession");
+		const statusLabel =
+			status === "problem"
+				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
+				: status === "waiting"
+					? t(tab.awaitingInput === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput")
+					: status === "running"
+						? t("sidebar.signal.running")
+						: status === "done"
+							? t("tabs.done")
+							: t("sidebar.row.open");
+		return {
+			key: tab.sessionPath ?? `tab:${tab.id}`,
+			kind: tab.worktree !== undefined ? "worktree" : "session",
+			status,
+			state: status ? CHILD_TOKEN[status] : null,
+			stateLabel: statusLabel,
+			title,
+			device,
+			tooltip: [title, statusLabel, `${device} · ${tab.cwd}`].filter(Boolean).join("\n"),
+			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
+			onOpen: () => void useTabsStore.getState().switchTab(tab.id),
+			buttonProps: { tabIndex: -1, "data-roving-item": key, onFocus: () => setFocusKey(key) },
+			rowProps: {
+				"data-active": tab.id === activeTabId,
+				"data-session-path": tab.sessionPath ?? `tab:${tab.id}`,
+				"data-sidebar-opened-session": true,
+				"data-device": tab.device,
+				"data-signal": waiting ? "waiting" : running ? "running" : status === "problem" ? "error" : undefined,
+				"data-child-status": status ?? undefined,
+			},
+		};
+	};
+
 	/** `archived`: a row of the Archived section; `recent`: a row of the flat recent list, which names its project. */
 	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
 		const key = `session:${session.path}`;
@@ -1652,7 +1742,12 @@ export function Sidebar() {
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
 		const opened =
-			variant === "archived" ? [] : (familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child));
+			variant === "archived"
+				? []
+				: [
+						...(familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child)),
+						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
+					];
 		const title =
 			sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
@@ -2337,7 +2432,13 @@ export function Sidebar() {
 						</>
 					)}
 					{hosts.map(host => (
-						<SidebarDeviceSection host={host} key={host.deviceId} mode={mode} query={query} />
+						<SidebarDeviceSection
+							host={host}
+							key={host.deviceId}
+							mode={mode}
+							nested={nestedRemote}
+							query={query}
+						/>
 					))}
 				</div>
 

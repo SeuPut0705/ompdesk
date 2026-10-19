@@ -55,6 +55,22 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(running).toMatchObject({ title: "Running", step: "running bash (vitest)", since: 1000 });
 	});
 
+	it("names the paired device a child runs on, as a child on this computer otherwise", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("boss", { sessionPath: "/s/boss.jsonl" }),
+				tab("win", { openedBy: "boss", status: "running", task: "On Windows", device: "dev-win" }),
+				tab("here", { openedBy: "boss", status: "running", task: "Here" }),
+			],
+			review: new Map(),
+			closed: [],
+			deviceName: id => (id === "dev-win" ? "DESKTOP-PC" : id),
+		});
+		expect(rows.find(row => row.key === "win")).toMatchObject({ status: "running", device: "DESKTOP-PC" });
+		expect(rows.find(row => row.key === "here")?.device).toBeUndefined();
+	});
+
 	it("puts a child whose question waits on the opener first, with its last report", () => {
 		const rows = openedChildRows({
 			parent,

@@ -29,6 +29,8 @@ export interface OpenedChildRow {
 	merge?: "unmerged" | "merged";
 	/** Its last report to this session (`ompdesk_report`). */
 	report?: { kind: string; text: string; at: number };
+	/** The paired device it runs on, by name; absent = this computer. */
+	device?: string;
 }
 
 export interface OpenedChildCounts {
@@ -53,8 +55,10 @@ export function openedChildRows(input: {
 	tabs: readonly SessionTab[];
 	review: ReadonlyMap<string, AgentReviewItem>;
 	closed: readonly ClosedChild[];
+	/** A paired device's display name (Settings › Devices) for a child that runs there. */
+	deviceName?: (deviceId: string) => string;
 }): OpenedChildRow[] {
-	const { parent, tabs, review, closed } = input;
+	const { parent, tabs, review, closed, deviceName } = input;
 	const rows: OpenedChildRow[] = [];
 	const shown = new Set<string>();
 	for (const tab of tabs) {
@@ -95,6 +99,7 @@ export function openedChildRows(input: {
 			...(item?.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),
 			...(item?.report ? { report: item.report } : {}),
+			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
 		});
 	}
 	for (const child of closed) {

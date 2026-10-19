@@ -275,6 +275,19 @@ test.describe("on a paired device", () => {
 		await expect(app.page.locator("[data-agent-mail='done']").filter({ hasText: "Finished on PC-B" })).toBeVisible({
 			timeout: 30_000,
 		});
+		// The board docks beside the transcript only with room for it (`workBoardFits`).
+		await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
+		// The opener's work board lists it like a local child: one opened-session row with its status, the device's
+		// name and its last report.
+		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		await expect(row).toBeVisible({ timeout: 30_000 });
+		await expect(row).toHaveAttribute("data-board-report", "done");
+		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
+		// In the sidebar it is the opener's child, not a row of PC-B's own list.
+		const hostList = app.page.locator(
+			"[data-sidebar-device] [data-device-session], [data-sidebar-device] [data-session-path]",
+		);
+		await expect(hostList.filter({ hasText: "remote part" })).toHaveCount(0);
 	});
 
 	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {

@@ -57,10 +57,15 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 			sub={
 				<>
 					<span className="min-w-0 flex-1 truncate">{note}</span>
+					{row.device ? (
+						<span className="shrink-0 truncate" data-board-device>
+							{row.device}
+						</span>
+					) : null}
 					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
 				</>
 			}
-			title={`${title}\n${statusLabel}${branch ? `\n${branch}` : ""}`}
+			title={`${title}${row.device ? ` · ${row.device}` : ""}\n${statusLabel}${branch ? `\n${branch}` : ""}`}
 		/>
 	);
 }

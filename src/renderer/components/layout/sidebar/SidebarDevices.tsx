@@ -97,10 +97,13 @@ export function SidebarDeviceSection({
 	host,
 	mode,
 	query,
+	nested,
 }: {
 	host: HostView;
 	mode: SidebarDeviceMode;
 	query: string;
+	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
+	nested?: ReadonlySet<string>;
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
@@ -166,7 +169,7 @@ export function SidebarDeviceSection({
 			</div>
 			{!collapsed &&
 				(online ? (
-					<DeviceSessions host={host} mode={mode} onOpen={openRemote} query={query} />
+					<DeviceSessions host={host} mode={mode} nested={nested} onOpen={openRemote} query={query} />
 				) : host.state === "connecting" ? (
 					<p className="flex items-center gap-2 px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)">
 						<Spinner size="sm" />
@@ -182,11 +185,13 @@ function DeviceSessions({
 	host,
 	mode,
 	query,
+	nested,
 	onOpen,
 }: {
 	host: HostView;
 	mode: SidebarDeviceMode;
 	query: string;
+	nested: ReadonlySet<string> | undefined;
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
 }) {
 	const t = useT();
@@ -205,11 +210,14 @@ function DeviceSessions({
 	const split = useTabsStore(state => state.split);
 	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const deviceGroupFolds = useSidebarFolds(s => s.deviceGroups);
-	const hostTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
+	const hostTabs = useMemo(
+		() => allTabs.filter(tab => tab.device === host.deviceId && !nested?.has(tab.id)),
+		[allTabs, host.deviceId, nested],
+	);
 
 	const rows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
-		const listed = sessions.filter(sessionHasContent);
+		const listed = sessions.filter(session => sessionHasContent(session) && !nested?.has(session.path));
 		const listedPaths = new Set(listed.map(session => session.path));
 		const listedIds = new Set(listed.map(session => session.id));
 		const now = new Date().toISOString();
@@ -244,7 +252,7 @@ function DeviceSessions({
 					session.cwd.toLocaleLowerCase().includes(needle),
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
-	}, [sessions, hostTabs, host.deviceId, mode, query]);
+	}, [sessions, hostTabs, host.deviceId, mode, query, nested]);
 
 	const groups = useMemo(() => {
 		if (mode === "chat") return [];

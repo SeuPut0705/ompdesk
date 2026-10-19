@@ -289,3 +289,31 @@ export function openerOfSessions(
 	}
 	return roots;
 }
+
+/**
+ * Tabs on a paired device that a session of this computer opened (`ompdesk_session_open {device}`): child tab id → the
+ * opener's session path. The opener is found by tab id while it is open here, else by the session file a relaunch kept
+ * when that file is one of this computer's (`localSessions`). Such a child is its opener's, like a local one: it nests
+ * under the opener and leaves its device's own list. A tab a session on a paired device opened stays the device's.
+ */
+export function remoteOpenedChildren(
+	tabs: readonly (FamilyTab & { device?: string })[],
+	localSessions: ReadonlySet<string>,
+): Map<string, string> {
+	const children = new Map<string, string>();
+	for (const tab of tabs) {
+		if (tab.device === undefined) continue;
+		const opener =
+			(tab.openedBy ? tabs.find(entry => entry.id === tab.openedBy) : undefined) ??
+			(tab.openedBySession ? tabs.find(entry => entry.sessionPath === tab.openedBySession) : undefined);
+		const path = opener
+			? opener.device === undefined
+				? opener.sessionPath
+				: undefined
+			: tab.openedBySession && localSessions.has(tab.openedBySession)
+				? tab.openedBySession
+				: undefined;
+		if (path) children.set(tab.id, path);
+	}
+	return children;
+}

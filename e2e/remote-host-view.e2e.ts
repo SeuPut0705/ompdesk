@@ -110,10 +110,10 @@ test("the host's own window lists, views and works in a session its paired devic
 					timeout: 30_000,
 				})
 				.toBe(deviceOmp);
-			await a
-				.locator(`[data-device-session=${cssString(sessionPath)}] button`)
-				.first()
-				.click();
+			// The device's agent opened it, so it is a child of the opener there (not a row of PC-B's list): the
+			// agent shows it.
+			await expect(a.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(0);
+			expect((await call("ompdesk_tab_focus", { session: child })).isError).toBe(false);
 			await expect(a.getByText("Hello from the host").first()).toBeVisible({ timeout: 30_000 });
 		});
 
@@ -132,10 +132,11 @@ test("the host's own window lists, views and works in a session its paired devic
 
 		await test.step("the device closes its tab: the host's view ends with no error tab", async () => {
 			const launchedBefore = await launches();
-			// The person on the device closes it (its agent may not: the person typed into it).
-			const deviceRow = a.locator(`[data-device-session=${cssString(sessionPath)}]`);
-			await deviceRow.hover();
-			await deviceRow.locator("[data-device-session-close]").click();
+			// The person on the device closes it (its agent may not: the person typed into it), its tab in front.
+			await expect
+				.poll(async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId)
+				.toBe(child);
+			await a.keyboard.press("ControlOrMeta+w");
 			await expect
 				.poll(async () =>
 					(await a.evaluate(() => window.omp.tabs.list())).some(tab => tab.sessionPath === sessionPath),

@@ -7,6 +7,7 @@ import {
 } from "../components/layout/work-board/opened-children";
 import { ensureAgentReviewSubscription, useAgentReviewItems } from "../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../stores/closed-children";
+import { useRemoteStore } from "../stores/remote";
 import { useTabsStore } from "../stores/tabs";
 
 const NONE: readonly OpenedChildRow[] = [];
@@ -22,6 +23,7 @@ export function useOpenedChildren(tabId: string | null): {
 	const tabs = useTabsStore(state => state.tabs);
 	const review = useAgentReviewItems(tabId);
 	const closed = useClosedChildrenStore(state => state.rows);
+	const hosts = useRemoteStore(state => state.state?.hosts);
 	useEffect(() => {
 		ensureAgentReviewSubscription();
 		ensureClosedChildren();
@@ -29,8 +31,14 @@ export function useOpenedChildren(tabId: string | null): {
 	return useMemo(() => {
 		const parent = tabId ? tabs.find(tab => tab.id === tabId) : undefined;
 		const rows = parent
-			? openedChildRows({ parent, tabs, review: new Map(review.map(item => [item.tabId, item])), closed })
+			? openedChildRows({
+					parent,
+					tabs,
+					review: new Map(review.map(item => [item.tabId, item])),
+					closed,
+					deviceName: id => hosts?.find(host => host.deviceId === id)?.name ?? id,
+				})
 			: NONE;
 		return { rows, counts: openedChildCounts(rows) };
-	}, [tabId, tabs, review, closed]);
+	}, [tabId, tabs, review, closed, hosts]);
 }

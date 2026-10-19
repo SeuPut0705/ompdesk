@@ -368,7 +368,11 @@ test("a paired phone opens and works in sessions of a remote host this computer 
 				(await phone.evaluate(() => window.omp.tabs.list())).find(tab => tab.openedBy === opener)?.sessionPath ??
 				"";
 			expect(childPath).not.toBe("");
-			await (await hostRow(setup as Rig, childPath)).click();
+			// It is the opener's child (one family across computers), never a row of PC-B's own list; finished, it is not
+			// listed at all, as a local child is not. The opener's agent shows it.
+			await openDrawer(phone);
+			await expect(phone.locator(`[data-drawer] [data-device-session=${cssString(childPath)}]`)).toHaveCount(0);
+			expect((await call("ompdesk_tab_focus", { session: child })).isError).toBe(false);
 			await expect(phone.getByText("Run this on the other computer").first()).toBeVisible({ timeout: 30_000 });
 			await expect(phone.getByText("Local fixture reply").first()).toBeVisible({ timeout: 30_000 });
 		});

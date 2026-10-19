@@ -81,6 +81,8 @@ export interface FamilyOpened {
 	stateLabel: string;
 	title: string;
 	age?: string;
+	/** The paired device it runs on, by name; absent = this computer. */
+	device?: string;
 	tooltip: string;
 	selected: boolean;
 	onOpen: () => void;
@@ -414,6 +416,7 @@ function OpenedRow({ child }: { child: FamilyOpened }) {
 		<FamilyRow
 			age={child.age}
 			buttonProps={child.buttonProps}
+			device={child.device}
 			indent={INDENT[0]}
 			kind={child.kind}
 			kindLabel={t(child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session")}

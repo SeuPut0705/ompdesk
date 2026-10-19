@@ -47,6 +47,8 @@ export interface FamilyRowProps {
 	title: string;
 	/** Whole units only ("12s", "10m", "2h", or the sidebar's time ago). */
 	age?: string;
+	/** The paired device a session runs on, by name: a short muted label before the token. */
+	device?: string;
 	/** Native tooltip: the status, folder, model, progress — whatever the one line has no room for. */
 	tooltip: string;
 	selected: boolean;
@@ -66,6 +68,7 @@ export function FamilyRow({
 	stateLabel,
 	title,
 	age,
+	device,
 	tooltip,
 	selected,
 	indent,
@@ -109,6 +112,11 @@ export function FamilyRow({
 						{state ? `, ${stateLabel}` : ""}
 					</span>
 				</button>
+				{device && (
+					<span className="max-w-[8em] shrink-0 truncate text-sc-xs text-(--sc-text-subtle)" data-family-device>
+						{device}
+					</span>
+				)}
 				{state && <FamilyStatus state={state} />}
 				{age && <span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)">{age}</span>}
 			</div>

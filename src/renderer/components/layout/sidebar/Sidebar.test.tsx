@@ -1931,6 +1931,53 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(container.textContent).not.toContain("Plain helper");
 	});
 
+	it("nests a session it opened on a paired device under the opener, named by that device, not in the device's list", async () => {
+		mountFamily({
+			tabsExtra: [
+				{
+					id: "tw",
+					cwd: "C:\\work\\app",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "C:\\s\\remote.jsonl",
+					device: "dev-studio",
+					task: "Build it on Windows",
+					openedBy: "t1",
+				},
+			],
+		});
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+				confirmNewDevices: false,
+			},
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+			forgotten: [],
+		});
+		await mount(<Sidebar />);
+
+		const remote = familyRows().find(row => row.textContent?.includes("Build it on Windows"));
+		expect(remote).toBeDefined();
+		expect(remote?.getAttribute("data-session-path")).toBe("C:\\s\\remote.jsonl");
+		expect(remote?.querySelector('[data-family-status="running"]')).not.toBeNull();
+		expect(remote?.querySelector("[data-family-device]")?.textContent).toBe("studio");
+		// The boss's light counts it among the sessions at work.
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-running]")?.textContent).toBe("3");
+		// It is the boss's child: the device's own list does not repeat it.
+		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(device?.textContent ?? "").not.toContain("Build it on Windows");
+	});
+
 	it("opens an opened session in its own tab on click", async () => {
 		mountFamily();
 		const original = useTabsStore.getState().switchTab;
