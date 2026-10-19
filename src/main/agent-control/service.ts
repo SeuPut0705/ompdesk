@@ -37,6 +37,7 @@ import {
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
+	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
@@ -1249,7 +1250,10 @@ export class AgentControl {
 			answer: session.last ? oneLine(session.last, 240) : "",
 			...(running && session.step ? { step: session.step } : {}),
 			...(running && tab.busySince ? { runningSince: tab.busySince } : {}),
-			...(!running && (tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted")
+			...(!running &&
+			(tab.lastRun?.stopReason === "error" ||
+				tab.lastRun?.stopReason === "aborted" ||
+				parseWorkerResult(session.last)?.kind === "problem")
 				? { failed: true as const }
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
@@ -1376,6 +1380,7 @@ export class AgentControl {
 			settled: session.state?.isSettled !== false,
 			answered: (session.last ?? "").trim() !== "",
 			ended: tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted" ? "failed" : "ok",
+			result: parseWorkerResult(session.last)?.kind ?? "missing",
 			branch,
 			looked: tab.looked === true,
 			userTouched: tab.userTouched === true,

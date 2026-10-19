@@ -33,6 +33,11 @@ describe("worker contract", () => {
 		).toBeUndefined();
 	});
 
+	it("asks the worker to end its answer with a Result line the app reads", () => {
+		expect(WORKER_CONTRACT).toContain("Result: ok");
+		expect(WORKER_CONTRACT).toContain("Result: problem — <reason>");
+	});
+
 	it("leaves a worker's own subagents to its brief", () => {
 		const entries = [{ type: "custom", customType: WORKER_ENTRY }];
 		expect(hook()({ systemPrompt: BASE }, session(entries, "subagent"))).toBeUndefined();

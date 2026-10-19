@@ -29,6 +29,8 @@ export interface AutoCloseFacts {
 	answered: boolean;
 	/** Its last turn ended in an error or was stopped. */
 	ended: "ok" | "failed";
+	/** The verdict line its final answer ends with (`parseWorkerResult`); `missing`: it has none. */
+	result: "ok" | "problem" | "missing";
 	branch: BranchLanding | null;
 	/** The person is looking at it: the focused tab, a visible pane of any window, a viewer on another device. */
 	looked: boolean;
@@ -44,6 +46,7 @@ export type KeepReason =
 	| "working"
 	| "no-answer"
 	| "failed"
+	| "no-result"
 	| "user-touched"
 	| "looked-at"
 	| "not-collected"
@@ -60,11 +63,13 @@ export function autoCloseDecision(facts: AutoCloseFacts): AutoCloseDecision {
 	if (!facts.openedByAgent) return { action: "keep", reason: "not-agent-opened" };
 	if (!facts.idle || !facts.settled) return { action: "keep", reason: "working" };
 	if (!facts.answered) return { action: "keep", reason: "no-answer" };
-	if (facts.ended === "failed") return { action: "keep", reason: "failed" };
+	if (facts.ended === "failed" || facts.result === "problem") return { action: "keep", reason: "failed" };
 	if (facts.userTouched) return { action: "keep", reason: "user-touched" };
 	if (facts.looked) return { action: "keep", reason: "looked-at" };
 	if (!facts.stored) return { action: "keep", reason: "not-stored" };
 	if (!facts.collected) return { action: "keep", reason: "not-collected" };
+	// Only a worker that says its work is fine closes; a missing verdict is done, but left for the person.
+	if (facts.result === "missing") return { action: "keep", reason: "no-result" };
 	const branch = facts.branch;
 	if (!branch) return { action: "close", removeWorktree: false };
 	if (!branch.hasWork) return { action: "keep", reason: "nothing-landed" };

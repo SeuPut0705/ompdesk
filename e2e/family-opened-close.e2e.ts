@@ -108,9 +108,9 @@ test("finished opened sessions fold into one done row and their tabs close; unme
 	test.setTimeout(240_000);
 	const opened = await call("ompdesk_session_open", {
 		sessions: [
-			{ message: "Title: plain task\nread only" },
-			{ message: "attempt b", worktree: true },
-			{ message: "attempt c", worktree: true },
+			{ message: "Title: plain task\nread only fixture:result-ok" },
+			{ message: "attempt b fixture:result-ok", worktree: true },
+			{ message: "attempt c fixture:result-ok", worktree: true },
 		],
 	});
 	expect(opened.isError).toBe(false);

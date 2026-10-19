@@ -1420,7 +1420,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			sessionPath: "/s/kid.jsonl",
 			autoClosable: true,
 			lastRun: { stopReason: "stop" },
-			last: "Done: parser fixed.",
+			last: "Done: parser fixed.\nResult: ok",
 			...options.patch,
 		});
 		return { host, service, child };
@@ -1469,6 +1469,18 @@ describe("autoClose: opened sessions whose work landed", () => {
 		await dirty.service.autoClose("main0001");
 		expect(closes(dirty.host)).toHaveLength(1);
 		expect(dirty.host.removed).toEqual([]);
+	});
+
+	it("closes only on a Result: ok line, whatever the prose says", async () => {
+		for (const [last, closed] of [
+			["All tests failed, nothing works.\nResult: problem — tests failed", false],
+			["Everything is done and checked.", false],
+			["Done.\nResult: ok", true],
+		] as const) {
+			const { host, service } = await finishedChild({ patch: { last } });
+			await service.autoClose("main0001");
+			expect(closes(host), last).toHaveLength(closed ? 1 : 0);
+		}
 	});
 
 	it("keeps a session with unmerged commits or an error ending open", async () => {

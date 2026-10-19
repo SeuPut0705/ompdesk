@@ -9,6 +9,7 @@ const finished: AutoCloseFacts = {
 	settled: true,
 	answered: true,
 	ended: "ok",
+	result: "ok",
 	branch: null,
 	looked: false,
 	userTouched: false,
@@ -59,6 +60,17 @@ describe("autoCloseDecision", () => {
 		expect(autoCloseDecision({ ...finished, ended: "failed", branch: landed })).toEqual({
 			action: "keep",
 			reason: "failed",
+		});
+	});
+
+	it("closes only on a Result: ok line: a problem verdict or no verdict leaves a finished session open", () => {
+		expect(autoCloseDecision({ ...finished, result: "problem", branch: landed })).toEqual({
+			action: "keep",
+			reason: "failed",
+		});
+		expect(autoCloseDecision({ ...finished, result: "missing", branch: landed })).toEqual({
+			action: "keep",
+			reason: "no-result",
 		});
 	});
 

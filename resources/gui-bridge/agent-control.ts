@@ -44,6 +44,7 @@ Another agent opened this session and handed you its first message; the person s
 - Stay inside the files and scope the message names. If the task needs more, say so in your answer rather than widening it.
 - Done means the observable acceptance in the message holds, checked by you, and any requested commit is on your branch.
 - Your final answer is what the other agent reads: what changed (files, commits), how you checked it with the actual result, and anything left undone.
+- End your final answer with one last line: \`Result: ok\` when the acceptance holds and every check you ran passed, else \`Result: problem — <reason>\` (a failed or skipped check, work left undone). The other agent reads that line, not your prose.
 - Keep replying to the person in their language when they write to you.
 </ompdesk-worker>`;
 

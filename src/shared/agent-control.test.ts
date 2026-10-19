@@ -7,6 +7,7 @@ import {
 	agentTaskTitle,
 	isApprovalSelect,
 	parseAgentMessage,
+	parseWorkerResult,
 	wrapAgentMessage,
 } from "./agent-control";
 
@@ -59,5 +60,24 @@ describe("control tool prefs", () => {
 		expect(isApprovalSelect({ ...approval, title: "Pick one" })).toBe(false);
 		expect(isApprovalSelect({ ...approval, method: "confirm" })).toBe(false);
 		expect(AGENT_CARD_PREFIX.startsWith("[OMPdesk]")).toBe(true);
+	});
+});
+
+describe("worker result line", () => {
+	it("reads only the last line, ok or problem with its reason, never prose", () => {
+		expect(parseWorkerResult("Done.\nResult: ok")).toEqual({ kind: "ok" });
+		expect(parseWorkerResult("Done.\n\n**Result: OK**\n")).toEqual({ kind: "ok" });
+		expect(parseWorkerResult("x\nResult: problem — tests failed")).toEqual({
+			kind: "problem",
+			reason: "tests failed",
+		});
+		expect(parseWorkerResult("x\nResult: problem - two checks skipped")).toEqual({
+			kind: "problem",
+			reason: "two checks skipped",
+		});
+		expect(parseWorkerResult("x\nResult: problem")).toEqual({ kind: "problem", reason: "" });
+		expect(parseWorkerResult("Result: ok\nand then some prose")).toBeNull();
+		expect(parseWorkerResult("The tests failed.")).toBeNull();
+		expect(parseWorkerResult(null)).toBeNull();
 	});
 });

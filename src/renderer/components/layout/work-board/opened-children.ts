@@ -63,7 +63,10 @@ export function openedChildRows(input: {
 		if (!opened) continue;
 		const item = review.get(tab.id);
 		const failed =
-			tab.status === "error" || tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted";
+			item?.failed === true ||
+			tab.status === "error" ||
+			tab.lastRun?.stopReason === "error" ||
+			tab.lastRun?.stopReason === "aborted";
 		const unmerged =
 			item !== undefined &&
 			item.branch !== undefined &&

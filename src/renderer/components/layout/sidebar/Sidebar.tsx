@@ -1359,7 +1359,8 @@ export function Sidebar() {
 		const deletable = row.indexed && !row.busy;
 		const lastRun = row.tab?.lastRun;
 		const review = openTabId ? reviewOf.get(openTabId) : undefined;
-		const failed = row.failed || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
+		const failed =
+			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
 		const status = openedChildStatus({
 			waiting: row.waiting !== undefined,
 			running: row.running,

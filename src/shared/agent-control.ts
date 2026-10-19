@@ -277,6 +277,22 @@ export function parseAgentMessage(text: string): AgentMessage | null {
 
 const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="[^"]*">\\n`);
 const WRAPPED_END = new RegExp(`\\n</${AGENT_MESSAGE_TAG}>$`);
+/** What a worker's final answer says about its own work: its last line, `Result: ok` or `Result: problem — <reason>`. */
+export type WorkerResult = { kind: "ok" } | { kind: "problem"; reason: string };
+
+const RESULT_LINE = /^[>*_\s]*Result:[*_\s]*(ok|problem)\b[*_\s]*(?:[—–:-]+\s*(.*?))?[*_\s]*$/i;
+
+/**
+ * The structured verdict a worker (`WORKER_CONTRACT`) ends its answer with; null when the last line is no such line.
+ * Prose is never read: an answer that says "tests failed" without the line has no verdict.
+ */
+export function parseWorkerResult(answer: string | null | undefined): WorkerResult | null {
+	const last = (answer ?? "").trimEnd().split("\n").at(-1) ?? "";
+	const match = RESULT_LINE.exec(last);
+	if (!match) return null;
+	return match[1]?.toLowerCase() === "ok" ? { kind: "ok" } : { kind: "problem", reason: match[2]?.trim() ?? "" };
+}
+
 /** A task line longer than this is cut: it names a row, the transcript holds the rest. */
 const TASK_TITLE_MAX = 120;
 
