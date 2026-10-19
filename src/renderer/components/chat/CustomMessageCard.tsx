@@ -20,10 +20,11 @@ import {
 	XCircle,
 	Zap,
 } from "lucide-react";
-import { createContext, type ReactNode, useContext, useState } from "react";
+import { createContext, type ReactNode, useContext, useId, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
@@ -702,41 +703,113 @@ export function RecapCard({ message }: { message: AgentMessage }) {
 	);
 }
 
+/** Report kinds that wait on this session's decision: shown open until the person closes them. */
+const MAIL_KINDS_OPEN: Record<string, true> = { question: true, blocked: true };
+
 /**
- * A report another session sent this one (`ompdesk_report`, custom type `ompdesk.mail`): one quiet muted line, the
- * sender, the kind and the text; files and checks in the tooltip. Never a card: the work board carries the state.
+ * A report another session sent this one (`ompdesk_report`, custom type `ompdesk.mail`): one quiet muted line (sender
+ * and kind) whose chevron opens the body (text, changed files, checks). A question or blocker starts open with its
+ * warning tint, since it waits on a decision; every other kind starts closed. The person's toggle is remembered per
+ * report id (`lib/mail-open.ts`). Never a card: the work board carries the state. Display only; the model reads the
+ * message content.
  */
 export function MailNote({ message }: { message: AgentMessage }) {
 	const t = useT();
+	const bodyId = useId();
 	const details = resultDetails(message);
 	const text = str(details?.text) ?? "";
-	if (!text) return null;
 	const kind = str(details?.kind) ?? "note";
 	const from = str(details?.fromTitle) || str(details?.from) || "?";
+	const id = str(details?.id) ?? `${str(details?.from) ?? "?"}:${message.timestamp ?? ""}`;
+	const waits = MAIL_KINDS_OPEN[kind] === true;
+	const [open, setOpen] = useState(() => rememberedMailOpen(id) ?? waits);
+	if (!text) return null;
 	const files = Array.isArray(details?.files) ? details.files.filter(item => typeof item === "string") : [];
 	const checks = Array.isArray(details?.checks)
 		? details.checks.flatMap(item =>
 				item && typeof item === "object" && typeof item.command === "string"
-					? [`${item.command} ${item.passed === true ? "✓" : "✕"}`]
+					? [{ command: item.command, passed: item.passed === true }]
 					: [],
 			)
 		: [];
-	const extra = [...files, ...checks].join("\n");
+	const toggle = () => {
+		rememberMailOpen(id, !open);
+		setOpen(!open);
+	};
 	return (
-		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
-			<p
-				className="omp-transcript-content flex min-w-0 items-start gap-1.5 text-sc-sm text-(--sc-text-muted)"
-				data-agent-mail={kind}
-				title={extra || undefined}
+		<div
+			className="omp-custom-turn omp-fade-up flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1"
+			data-agent-mail={kind}
+			data-open={open || undefined}
+		>
+			<button
+				type="button"
+				aria-expanded={open}
+				aria-controls={bodyId}
+				onClick={toggle}
+				className="flex min-h-7 w-fit max-w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-sm) px-1 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
 			>
-				<span className="min-w-0">
-					<span className="font-medium">{t("chat.custom.mail", { from })}</span>{" "}
-					<span className={kind === "question" || kind === "blocked" ? "text-(--sc-warning)" : undefined}>
-						{t(`chat.custom.mail.kind.${kind}`)}
-					</span>
-					: {text}
-				</span>
-			</p>
+				<ChevronRight
+					aria-hidden
+					className={cx(
+						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+						open && "rotate-90",
+					)}
+				/>
+				<span className="min-w-0 truncate font-medium">{t("chat.custom.mail", { from })}</span>
+				<span aria-hidden>·</span>
+				<span className={cx("shrink-0", waits && "text-(--sc-warning)")}>{t(`chat.custom.mail.kind.${kind}`)}</span>
+			</button>
+			{open && (
+				<div
+					id={bodyId}
+					className={cx(
+						"ms-[calc(var(--sc-icon-sm)+0.625rem)] mt-1 flex min-w-0 flex-col gap-1.5 border-s-2 ps-3 text-sc-sm text-(--sc-text-secondary)",
+						waits ? "border-(--sc-warning)" : "border-(--sc-border-subtle)",
+					)}
+					data-agent-mail-body
+				>
+					<MarkdownRenderer content={text} />
+					{files.length > 0 && (
+						<div className="min-w-0">
+							<div className="text-sc-xs text-(--sc-text-muted)">{t("chat.custom.mail.files")}</div>
+							<ul className="min-w-0 font-mono text-sc-xs">
+								{files.map(file => (
+									<li key={file} className="truncate" title={file}>
+										{file}
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+					{checks.length > 0 && (
+						<div className="min-w-0">
+							<div className="text-sc-xs text-(--sc-text-muted)">{t("chat.custom.mail.checks")}</div>
+							<ul className="min-w-0 font-mono text-sc-xs">
+								{checks.map(check => (
+									<li
+										key={check.command}
+										className="flex min-w-0 items-center gap-1.5"
+										data-check-passed={check.passed}
+									>
+										{check.passed ? (
+											<CheckCircle2 aria-hidden className="size-3 shrink-0 text-(--sc-success)" />
+										) : (
+											<XCircle aria-hidden className="size-3 shrink-0 text-(--sc-danger)" />
+										)}
+										<span className="truncate" title={check.command}>
+											{check.command}
+										</span>
+										<span className="sr-only">
+											{t(check.passed ? "chat.custom.mail.passed" : "chat.custom.mail.failed")}
+										</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

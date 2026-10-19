@@ -270,11 +270,12 @@ test.describe("on a paired device", () => {
 		const report = await asChild("ompdesk_report", { kind: "done", text: "Finished on PC-B", dispatch: "d1" });
 		expect(report.isError, report.text).toBe(false);
 		expect(report.text).not.toContain("not opened");
-		// The report reaches the opener on this computer as one mail in its transcript.
+		// The report reaches the opener on this computer as one mail in its transcript, closed until pressed.
 		expect((await call("ompdesk_tab_focus", { session: parentTab })).isError).toBe(false);
-		await expect(app.page.locator("[data-agent-mail='done']").filter({ hasText: "Finished on PC-B" })).toBeVisible({
-			timeout: 30_000,
-		});
+		const mail = app.page.locator("[data-agent-mail='done']").last();
+		await expect(mail).toBeVisible({ timeout: 30_000 });
+		await mail.locator("button[aria-expanded]").click();
+		await expect(mail).toContainText("Finished on PC-B");
 		// The board docks beside the transcript only with room for it (`workBoardFits`).
 		await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
 		// The opener's work board lists it like a local child: one opened-session row with its status, the device's

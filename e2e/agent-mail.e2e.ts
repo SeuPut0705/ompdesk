@@ -139,10 +139,15 @@ test("children report, one asks and is answered, and the parent reacts to each w
 	// The parent never polled: no result wait and no session list was called.
 	const called = (await toolResults()).map(result => result.text);
 	expect(called.some(text => text.startsWith("Still running") || /session[s]? in this window/.test(text))).toBe(false);
-	// The reports show in the parent's transcript as quiet lines.
+	// The reports show in the parent's transcript as quiet lines: a question open, a done closed until pressed.
 	await page.evaluate(id => window.omp.tabs.setActive(id), parent);
-	await expect(page.locator("[data-agent-mail='done']").first()).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator("[data-agent-mail='question']").first()).toBeVisible();
+	await expect(page.locator("[data-agent-mail='question']").first()).toContainText("Keep the old API?", {
+		timeout: 30_000,
+	});
+	const doneA = page.locator("[data-agent-mail='done']").first();
+	await expect(doneA).toBeVisible();
+	await expect(page.getByText("A finished, old API kept")).toHaveCount(0);
+	await doneA.locator("button[aria-expanded]").press("Enter");
 	await expect(page.getByText("A finished, old API kept")).toBeVisible();
 });
 

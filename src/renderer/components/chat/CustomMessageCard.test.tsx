@@ -177,11 +177,12 @@ describe("session report line", () => {
 		timestamp: 1,
 	});
 
-	it("is one quiet line naming the sender and the kind, never the model-facing envelope", () => {
+	it("is one closed line naming the sender and the kind, with no body and never the model-facing envelope", () => {
 		const markup = renderToStaticMarkup(
 			<I18nProvider>
 				<MailNote
 					message={mail({
+						id: "static-done",
 						kind: "done",
 						from: "abc",
 						fromTitle: "Part A",
@@ -194,18 +195,20 @@ describe("session report line", () => {
 		);
 		expect(markup).toContain('data-agent-mail="done"');
 		expect(markup).toContain("Session report · Part A");
-		expect(markup).toContain("A finished");
-		expect(markup).toContain("src/a.ts");
+		expect(markup).toContain('aria-expanded="false"');
+		expect(markup).not.toContain("A finished");
+		expect(markup).not.toContain("src/a.ts");
 		expect(markup).not.toContain("ompdesk-mail");
-		expect(markup).not.toContain("border");
 	});
 
-	it("tints a question that waits on this session", () => {
+	it("opens a question that waits on this session, tinted", () => {
 		const markup = renderToStaticMarkup(
 			<I18nProvider>
-				<MailNote message={mail({ kind: "question", from: "abc", text: "Keep it?" })} />
+				<MailNote message={mail({ id: "static-question", kind: "question", from: "abc", text: "Keep it?" })} />
 			</I18nProvider>,
 		);
+		expect(markup).toContain('aria-expanded="true"');
+		expect(markup).toContain("Keep it?");
 		expect(markup).toContain("--sc-warning");
 	});
 });

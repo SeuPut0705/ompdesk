@@ -335,13 +335,51 @@ function stressMessages(base: number): Record<string, unknown>[] {
 		},
 	];
 }
+/** `?mail=1` appends three session reports (`ompdesk.mail`): a done, a progress and a question waiting here. */
+function mailMessages(base: number): Record<string, unknown>[] {
+	const report = (offset: number, details: Record<string, unknown>) => ({
+		role: "custom",
+		customType: "ompdesk.mail",
+		content: "<ompdesk-mail …>",
+		display: true,
+		details: { from: "child-1", fromTitle: "Settings test race", ...details },
+		timestamp: base + offset,
+	});
+	return [
+		report(0, { id: "mail-progress", kind: "progress", text: "Found four tests that assert straight after mount." }),
+		report(30_000, {
+			id: "mail-done",
+			kind: "done",
+			text: "All four settings tests now wait for their rows. 20 repeats of the settings suite pass.",
+			files: [
+				"src/renderer/components/settings/SettingsPage.test.tsx",
+				"src/renderer/components/settings/Rows.test.tsx",
+			],
+			checks: [
+				{ command: "bunx vitest run src/renderer/components/settings --repeat 20", passed: true },
+				{ command: "bun run check:types", passed: true },
+			],
+		}),
+		report(60_000, {
+			id: "mail-question",
+			kind: "question",
+			from: "child-2",
+			fromTitle: "Composer flake",
+			text: "The composer test also flakes, but fixing it changes a shared helper. Should I change the helper or only the test?",
+		}),
+	];
+}
 
 /** A second session's journal is short: enough for a pane that reads as a conversation. */
 export function entriesFor(tabId: string): Entry[] {
 	if (tabId !== "tab-1") return entriesFixture(tabId).slice(0, 4);
-	const stress = typeof location !== "undefined" && new URLSearchParams(location.search).has("stress");
-	if (!stress) return entriesFixture(tabId);
-	const all = [...entriesFixture(tabId).map(entry => entry.message), ...stressMessages(NOW - 20 * MINUTE)];
+	const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+	if (!params.has("stress") && !params.has("mail")) return entriesFixture(tabId);
+	const all = [
+		...entriesFixture(tabId).map(entry => entry.message),
+		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
+		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
+	];
 	return all.map((message, index) => ({
 		type: "message",
 		id: `${tabId}-entry-${index + 1}`,
