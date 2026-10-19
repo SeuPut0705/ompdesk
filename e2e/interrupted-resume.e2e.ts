@@ -341,6 +341,57 @@ test("@smoke a normal quit asks nothing and continues the running turn on the ne
 	}
 });
 
+/**
+ * v0.41.0's update restart: the quit closed omp's stdin (with memory on, the sidecar's graceful stop) while the
+ * session prepared its next model request, so stock journaled a clean exit record with nothing pending and no reply
+ * after the cut-off message, which its own restore and `/retry` read as a turn that ended (`restored: nothing`). The
+ * bridge closes that turn so stock's restore continues it (restart-core `requestCutAtExit`; on the real omp:
+ * src/main/bridge-restore-request-stock.test.ts). Here the app is killed, which closes omp's stdin the same way (this
+ * profile has no memory, so its quit would SIGTERM omp instead).
+ */
+test("a turn cut while its next model request was prepared continues on the next launch, its prompt sent once", async () => {
+	test.setTimeout(150_000);
+	const profile = await makeProfile("en", "light");
+	let current: ElectronApplication | undefined;
+	try {
+		const first = await launch(profile);
+		current = first.app;
+		const input = first.page.locator(".omp-composer-input").first();
+		// An earlier reply: stock records an exit only for a session that has one.
+		await input.fill("hello");
+		await input.press("Enter");
+		await expect(first.page.getByText("Local fixture reply")).toBeVisible({ timeout: 30_000 });
+		await input.fill("fixture running");
+		await input.press("Enter");
+		await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
+		const sessionPath = (await markers(profile))[0]?.sessionPath ?? "";
+		await crash(first.app);
+		current = undefined;
+		// The journal the report left: the prompt, then stock's clean exit record, nothing after.
+		await expect
+			.poll(async () => {
+				const lines = (await fs.readFile(sessionPath, "utf8")).trim().split("\n");
+				const tail = lines
+					.slice(-2)
+					.map(line => JSON.parse(line) as { message?: { role?: string }; customType?: string });
+				return [tail[0]?.message?.role, tail[1]?.customType];
+			})
+			.toEqual(["user", "session_exit"]);
+
+		const second = await launch(profile, { ready: false });
+		current = second.app;
+		await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
+		// The prompt is answered once, never sent again.
+		await expect(second.page.locator(".omp-user-bubble")).toHaveText([/^hello/, /^fixture running/]);
+		await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
+		await expectOneSession(profile, second.page, sessionPath);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
+
 test("a turn the user stopped is not resumed after a crash", async () => {
 	test.setTimeout(150_000);
 	const profile = await makeProfile("en", "light");

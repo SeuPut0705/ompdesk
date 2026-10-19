@@ -188,6 +188,41 @@ export function runRpcUi(): void {
 	};
 	const appendMessage = (message: AgentMessage) =>
 		append({ type: "message", message }, message.timestamp ?? Date.now());
+	/**
+	 * Stock's `#recordSessionExit("dispose")` as its host closes stdin: a `normal` exit record naming the tool calls
+	 * still without a result, none for a session that never had a reply. Nothing the cut turn would write after it
+	 * (its abort record) reaches the journal: the v0.41.0 update restart's journal.
+	 */
+	const recordSessionExit = () => {
+		const messages = entries.flatMap(entry => (entry.type === "message" ? [entry.message as AgentMessage] : []));
+		const answered = new Set(
+			messages.flatMap(message => (message.role === "toolResult" ? [message.toolCallId] : [])),
+		);
+		const pendingToolCalls = messages.flatMap(message =>
+			message.role === "assistant" && Array.isArray(message.content)
+				? message.content.flatMap(block =>
+						block.type === "toolCall" && !answered.has(block.id)
+							? [{ toolCallId: block.id, toolName: block.name }]
+							: [],
+					)
+				: [],
+		);
+		if (pendingToolCalls.length === 0 && !messages.some(message => message.role === "assistant")) return;
+		const recordedAt = new Date().toISOString();
+		append(
+			{
+				type: "custom",
+				customType: "session_exit",
+				data: {
+					reason: "dispose",
+					kind: "normal",
+					recordedAt,
+					...(pendingToolCalls.length ? { pendingToolCalls } : {}),
+				},
+			},
+			recordedAt,
+		);
+	};
 	const seedLongSession = () => {
 		entries.length = 0;
 		activeLeafId = null;
@@ -1491,10 +1526,15 @@ export function runRpcUi(): void {
 		"composer.restore_interrupted": () => {
 			const autopilotRestore = autopilot.restore();
 			if (autopilotRestore) return autopilotRestore;
-			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn.
+			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn, and a clean exit
+			// record after it with nothing pending (`recordSessionExit`) reads as a turn that ended.
 			const last = [...entries].reverse().find(entry => entry.type === "message");
 			const lastRole = last?.type === "message" ? (last.message as AgentMessage | undefined)?.role : undefined;
-			const cutOff = (lastRole === "user" || lastRole === "toolResult") && !isStreaming;
+			const lastAt = last ? entries.lastIndexOf(last) : -1;
+			const exitAfter = entries.slice(lastAt + 1).findLast(entry => entry.customType === "session_exit");
+			const exitData = exitAfter?.data as { kind?: string; pendingToolCalls?: unknown[] } | undefined;
+			const endedCleanly = exitData?.kind === "normal" && !exitData.pendingToolCalls?.length;
+			const cutOff = (lastRole === "user" || lastRole === "toolResult") && !isStreaming && !endedCleanly;
 			// The bridge's `jobs`: background bash jobs the replaced process left unsettled (restart-core's rule).
 			const journal = entries as readonly RestartJournalEntry[];
 			const stopped = interruptedJobs(journal, performance.timeOrigin);
@@ -5439,6 +5479,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// turn in flight is journaled aborted first.
 			.on("close", () => {
 				autopilot.hangUp();
+				recordSessionExit();
 				process.exit(0);
 			});
 	};
