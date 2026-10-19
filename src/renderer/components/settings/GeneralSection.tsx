@@ -36,7 +36,7 @@ import { ProxyRow } from "./LaunchSettings";
 import { OutputStyleRow } from "./OutputStyleRow";
 import { ProfileSection } from "./ProfileSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
-import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
 import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
@@ -95,32 +95,34 @@ export function GeneralSection() {
 				<OutputStyleRow />
 			</SettingsSection>
 			<SettingsSection title={t("settings.general.notifications")}>
-				<SettingsSwitchRow
-					checked={notifications}
-					description={t("settings.gui.notificationsDesc")}
-					icon={<Bell />}
-					id="setting-gui-notifications"
-					label={t("settings.gui.notifications")}
-					onCheckedChange={next =>
-						void saveGuiPreference("notifications", next, () => useUiStore.getState().setNotifications(next))
-					}
-				/>
-				<SettingsSwitchRow
-					checked={notificationSound}
-					extra={
-						<Button icon={<Play />} onClick={() => playChime(notificationVolume)} size="sm" variant="ghost">
-							{t("settings.gui.notificationSoundTest")}
-						</Button>
-					}
-					icon={<Volume2 />}
-					id="setting-gui-notificationSound"
-					label={t("settings.gui.notificationSound")}
-					onCheckedChange={next =>
-						void saveGuiPreference("notificationSound", next, () =>
-							useUiStore.setState({ notificationSound: next }),
-						)
-					}
-				/>
+				<SettingsTiles>
+					<SettingsSwitchRow
+						checked={notifications}
+						description={t("settings.gui.notificationsDesc")}
+						icon={<Bell />}
+						id="setting-gui-notifications"
+						label={t("settings.gui.notifications")}
+						onCheckedChange={next =>
+							void saveGuiPreference("notifications", next, () => useUiStore.getState().setNotifications(next))
+						}
+					/>
+					<SettingsSwitchRow
+						checked={notificationSound}
+						extra={
+							<Button icon={<Play />} onClick={() => playChime(notificationVolume)} size="sm" variant="ghost">
+								{t("settings.gui.notificationSoundTest")}
+							</Button>
+						}
+						icon={<Volume2 />}
+						id="setting-gui-notificationSound"
+						label={t("settings.gui.notificationSound")}
+						onCheckedChange={next =>
+							void saveGuiPreference("notificationSound", next, () =>
+								useUiStore.setState({ notificationSound: next }),
+							)
+						}
+					/>
+				</SettingsTiles>
 				{notificationSound && (
 					<SettingsRow
 						control={
@@ -236,8 +238,10 @@ export function GeneralSection() {
 					label={t("settings.gui.resumeInterrupted")}
 					onCheckedChange={setResumeInterrupted}
 				/>
-				<DisplayPreferenceRow field="titleState" />
-				<DisplayPreferenceRow field="showProgress" />
+				<SettingsTiles>
+					<DisplayPreferenceRow field="titleState" />
+					<DisplayPreferenceRow field="showProgress" />
+				</SettingsTiles>
 			</SettingsSection>
 			<SidebarShortcutsSection />
 			<GithubAccountSection />
@@ -256,16 +260,18 @@ function SidebarShortcutsSection() {
 	const railPins = useSidebarPrefs(state => state.railPins);
 	return (
 		<SettingsSection id="setting-gui-railPins" title={t("settings.gui.railPins")}>
-			{RAIL_PINS.map(pin => (
-				<SettingsSwitchRow
-					checked={railPins.includes(pin)}
-					id={`setting-gui-railPin-${pin}`}
-					key={pin}
-					icon={createElement(RAIL_PIN_ICONS[pin])}
-					label={t(RAIL_PIN_LABEL_KEYS[pin])}
-					onCheckedChange={() => void useSidebarPrefs.getState().toggleRailPin(pin)}
-				/>
-			))}
+			<SettingsTiles>
+				{RAIL_PINS.map(pin => (
+					<SettingsSwitchRow
+						checked={railPins.includes(pin)}
+						id={`setting-gui-railPin-${pin}`}
+						key={pin}
+						icon={createElement(RAIL_PIN_ICONS[pin])}
+						label={t(RAIL_PIN_LABEL_KEYS[pin])}
+						onCheckedChange={() => void useSidebarPrefs.getState().toggleRailPin(pin)}
+					/>
+				))}
+			</SettingsTiles>
 		</SettingsSection>
 	);
 }

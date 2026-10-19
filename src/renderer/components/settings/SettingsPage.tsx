@@ -68,7 +68,7 @@ import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
 import { SchedulesSection } from "./SchedulesSection";
-import { SettingsScopeProvider, SettingsSection } from "./SettingsLayout";
+import { SettingsScopeProvider, SettingsSection, SettingsTipOnly } from "./SettingsLayout";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
 import {
@@ -89,6 +89,10 @@ import { searchSettings } from "./settings-search";
 import { UpdatesSection } from "./UpdatesSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { WorktreeBranchPrefixRow } from "./WorktreeBranchPrefixRow";
+
+/** The App group's sections read icon + label + control: no intro, every row description behind its info glyph. */
+const isTerse = (section: SettingsSectionId): boolean =>
+	SETTINGS_NAV.find(group => group.id === "app")?.items.includes(section) ?? false;
 
 const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	general: SlidersHorizontal,
@@ -505,11 +509,13 @@ export function SettingsPage() {
 										>
 											{results ? t("settings.search.title") : sectionTitle}
 										</h2>
-										<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
-											{results
-												? t("settings.search.count", { count: results.length })
-												: t(`settings.section.${section}.desc`)}
-										</p>
+										{(results || !isTerse(section)) && (
+											<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
+												{results
+													? t("settings.search.count", { count: results.length })
+													: t(`settings.section.${section}.desc`)}
+											</p>
+										)}
 										{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
 										{!results && host && (
 											<p
@@ -569,14 +575,16 @@ export function SettingsPage() {
 												</div>
 											)}
 											<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-												{/* A section that fails on bad data shows its own error here, never takes the page down. */}
-												<PanelErrorBoundary key={section}>
-													{SECTION_SCOPE[section] === "host" ? (
-														<HostScoped>{renderSection()}</HostScoped>
-													) : (
-														renderSection()
-													)}
-												</PanelErrorBoundary>
+												<SettingsTipOnly value={isTerse(section)}>
+													{/* A section that fails on bad data shows its own error here, never takes the page down. */}
+													<PanelErrorBoundary key={section}>
+														{SECTION_SCOPE[section] === "host" ? (
+															<HostScoped>{renderSection()}</HostScoped>
+														) : (
+															renderSection()
+														)}
+													</PanelErrorBoundary>
+												</SettingsTipOnly>
 											</SettingsScopeProvider>
 										</div>
 									)}

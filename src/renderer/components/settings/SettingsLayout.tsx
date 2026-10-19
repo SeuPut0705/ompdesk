@@ -34,6 +34,18 @@ type SettingsScope = "app" | "host" | "mixed";
 const SettingsScopeContext = createContext<SettingsScope | null>(null);
 export const SettingsScopeProvider = SettingsScopeContext.Provider;
 const SettingsGroupContext = createContext(false);
+/** Inside it, every string description of a row or titled group sits behind the info glyph: rows read icon + label + control. */
+const SettingsTipOnlyContext = createContext(false);
+export const SettingsTipOnly = SettingsTipOnlyContext.Provider;
+
+/** Several compact rows side by side: two or three tiles per line as the column allows. */
+export function SettingsTiles({ children }: { children: ReactNode }) {
+	return (
+		<div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-x-6" data-settings-tiles>
+			{children}
+		</div>
+	);
+}
 
 export interface SettingsSectionProps {
 	id?: string;
@@ -66,7 +78,8 @@ export function SettingsSection({
 	// A nested group's title stays implicit over bare rows, but names the
 	// description and actions it carries: they never float unlabeled.
 	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
-	const { inline, tip, note } = splitDescription(description);
+	const tipOnly = useContext(SettingsTipOnlyContext);
+	const { inline, tip, note } = splitDescription(description, tipOnly && showTitle);
 	// A long description of a titled group moves behind an info glyph; an untitled one stays a line.
 	const tipped = showTitle && tip !== undefined;
 	const line = tipped ? undefined : (inline ?? tip);
@@ -174,7 +187,8 @@ export function SettingsRow({
 }: SettingsRowProps) {
 	const descriptionId = useId();
 	const LabelTag = htmlFor ? "label" : "span";
-	const { inline, tip, note } = splitDescription(description, tipOnly);
+	const tipOnlyContext = useContext(SettingsTipOnlyContext);
+	const { inline, tip, note } = splitDescription(description, tipOnly ?? tipOnlyContext);
 	return (
 		<div className={cx("settings-row scroll-mt-4 py-1", className)} data-setting-row="true" id={id}>
 			<div
