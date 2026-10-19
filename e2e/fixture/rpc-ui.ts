@@ -957,7 +957,10 @@ export function runRpcUi(): void {
 			modelCount: 0,
 		},
 	];
-	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
+	// A first-time user (`OMP_GUI_TEST_SIGNED_OUT`) who signs in to Anthropic gets its models, as stock lists them.
+	const firstRunSignIn = process.env.OMP_GUI_TEST_SIGNED_OUT === "1";
+	const catalogModels = () =>
+		(modelsData || firstRunSignIn) && anthropicSignedIn ? [model, ...claudeModels] : [model];
 	const accountQuota: Record<
 		number,
 		{
@@ -1809,7 +1812,7 @@ export function runRpcUi(): void {
 								authKind: anthropicSignedIn ? "oauth" : undefined,
 								loginAvailable: true,
 								disabled: false,
-								modelCount: modelsData && anthropicSignedIn ? 2 : 0,
+								modelCount: (modelsData || firstRunSignIn) && anthropicSignedIn ? 2 : 0,
 							},
 							...(modelsData
 								? MODELS_PAGE_PROVIDERS.map(row =>
@@ -2273,7 +2276,7 @@ export function runRpcUi(): void {
 				cost: 0,
 			},
 		}),
-		...(modelsData ? modelsPageMethods : {}),
+		...(modelsData || firstRunSignIn ? modelsPageMethods : {}),
 		...autopilot.bridgeMethods,
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
 	};
