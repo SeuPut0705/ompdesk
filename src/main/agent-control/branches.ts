@@ -134,15 +134,27 @@ async function readBase(baseCwd: string): Promise<Base> {
 const contentVerdicts = new Map<string, boolean>();
 const MAX_CONTENT_VERDICTS = 256;
 
-/** The tree a merge of `tip` into `target` would make is `target`'s own tree: merging adds nothing. */
+/**
+ * The tree a merge of `tip` into `target` would make is `target`'s own tree: merging adds nothing. Like
+ * `predictMerge`, the merged trees go to a scratch object store with the repo's as a read-only alternate, so the
+ * landing check (the orphan sweep runs it every 6 h) leaves no objects in the repository.
+ */
 async function mergesAddNothing(cwd: string, target: string, tip: string): Promise<boolean> {
-	// Exit 0 prints the merged tree first; a conflict exits 1, and git older than 2.38 has no `--write-tree`.
-	const merged = await gitRaw(cwd, ["merge-tree", "--write-tree", target, tip]);
-	if (merged.code !== 0) return false;
-	const mergedTree = merged.stdout.toString("utf8").split("\n", 1)[0]?.trim();
-	if (!mergedTree) return false;
-	const targetTree = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
-	return targetTree.code === 0 && targetTree.stdout.toString("utf8").trim() === mergedTree;
+	const scratch = await mkdtemp(join(tmpdir(), "ompdesk-merge-tree-"));
+	try {
+		// Exit 0 prints the merged tree first; a conflict exits 1, and git older than 2.38 has no `--write-tree`.
+		const merged = await gitRaw(cwd, ["merge-tree", "--write-tree", target, tip], {
+			timeoutMs: TIMEOUT_MS,
+			env: { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: await objectStores(cwd) },
+		});
+		if (merged.code !== 0) return false;
+		const mergedTree = merged.stdout.toString("utf8").split("\n", 1)[0]?.trim();
+		if (!mergedTree) return false;
+		const targetTree = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
+		return targetTree.code === 0 && targetTree.stdout.toString("utf8").trim() === mergedTree;
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
 }
 
 /** Every commit of `tip` has a patch-equivalent in `target` (`git cherry` marks each one `-`): a rebase or cherry-pick landed it. */

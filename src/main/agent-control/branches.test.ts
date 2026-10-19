@@ -387,6 +387,17 @@ describe("a branch squash-merged into the parent's main", () => {
 		});
 	});
 
+	it("writes no object into the repository while judging landing by content", async () => {
+		const wt = await agentWorktree("sq0");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await commitIn(repo, "unrelated.ts", "u\n");
+		// A merge of the two would be a new tree: `merge-tree --write-tree` has to build it somewhere.
+		const objects = () => gitSync(repo, "count-objects", "-v");
+		const before = objects();
+		expect((await landingFacts(wt)).landed).toBe(false);
+		expect(objects()).toBe(before);
+	});
+
 	it("lists only the work left in the worktree after the squash", async () => {
 		const wt = await agentWorktree("sq2");
 		await commitIn(wt.path, "a.ts", "a\n");
