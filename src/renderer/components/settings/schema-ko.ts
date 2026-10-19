@@ -872,6 +872,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"computer.maxWidth": { label: "스크린샷 최대 너비", description: "스크린샷의 최대 너비(픽셀)" },
 	"computer.maxHeight": { label: "스크린샷 최대 높이", description: "스크린샷의 최대 높이(픽셀)" },
+	"computer.backgroundFallback": {
+		label: "백그라운드 입력 불가 시 동작",
+		description:
+			"창 입력의 백그라운드 경로를 쓸 수 없을 때의 동작이에요. takeover는 그 호출만 앞으로 가져와 실행한 뒤 내 앱으로 포커스를 돌려주고(macOS, 다른 OS는 단순 전환), refuse는 거부하며 에이전트가 직접 앞으로 가져오거나 macOS 메뉴를 여는 것도 막아요",
+	},
 	"images.questionTimeoutMs": {
 		label: "이미지 질문 타임아웃",
 		description:
@@ -1665,6 +1670,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "스크롤백 재배치",
 		description:
 			"터미널 크기가 안정된 뒤 스크롤백의 트랜스크립트 줄을 갱신하는 방식이에요. append는 기존 기록 아래에 새 너비로 다시 출력하고, rebuild는 스크롤백을 지운 뒤 현재 너비의 트랜스크립트를 다시 출력해요.",
+	},
+	"tui.completeScrollback": {
+		label: "스크롤백으로 바로 보내기",
+		description:
+			"HUD나 대화상자가 커지며 화면 밖으로 밀려난 트랜스크립트 줄을 바로 스크롤백으로 보내요. 줄어들면 새 출력이 채울 때까지 트랜스크립트와 입력창 사이에 빈 줄이 남아요",
 	},
 	"tui.titleSpinner": {
 		label: "터미널 제목 스피너",

@@ -1,5 +1,11 @@
 /** Korean text for backend-provided settings enum labels and descriptions. */
 export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
+	Takeover: "전환해서 실행",
+	"Briefly bring the target forward for that one call, then return focus to your app (on macOS even if you kept typing)":
+		"그 호출 동안만 대상을 잠깐 앞으로 가져온 뒤 내 앱으로 포커스를 돌려줘요(macOS에서는 입력 중이어도 돌려줘요).",
+	Refuse: "거부",
+	"Fail the call; nothing takes over, and the agent's own takeover, raise, activating open, desktop input and macOS menus (context menus, popup and menu buttons; they take your keyboard while open) are refused too":
+		"호출을 실패로 끝내요. 아무것도 전환하지 않고, 에이전트가 직접 하는 전환, 창 올리기, 활성화하며 열기, 데스크톱 입력, macOS 메뉴(컨텍스트 메뉴, 팝업·메뉴 버튼은 열려 있는 동안 키보드를 가져가요)도 거부해요.",
 	"The judge model refines each chart: kind, columns, row names and grouping, scales, which way is better, and its title":
 		"평가 모델이 각 차트의 종류, 열, 행 이름과 그룹, 척도, 좋은 값의 방향, 제목을 다듬어요.",
 	"Full mode name — NORMAL, INSERT, VISUAL, V-LINE, REPLACE":
