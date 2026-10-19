@@ -14,8 +14,7 @@
  */
 
 import { Check, ChevronRight, Pause, X } from "lucide-react";
-import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentReviewItem } from "../../../../shared/agent-control";
+import { lazy, type ReactNode, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
@@ -44,15 +43,18 @@ import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
-import { Button, IconButton, Kbd } from "../../common";
+import { IconButton, Kbd } from "../../common";
 import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
-import type { OpenedChildRow } from "./opened-children";
 import { WorkBoardChip } from "./WorkBoardChip";
 import { liveSubagents, needsReview, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
+
+/** The review and opened-session rows load when a session has such children: most never do. */
+const ReviewSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.ReviewSection })));
+const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
 const TURN_STEPS = 4;
@@ -61,7 +63,7 @@ const TURN_CLOCK_SLACK_MS = 500;
 
 const WAITING_AGENT: Record<string, true> = { parked: true, idle: true };
 
-function Dot({ tone, ring = false }: { tone: "info" | "success" | "warning" | "muted"; ring?: boolean }) {
+export function Dot({ tone, ring = false }: { tone: "info" | "success" | "warning" | "muted"; ring?: boolean }) {
 	return <span aria-hidden className="omp-work-board-dot" data-ring={ring || undefined} data-tone={tone} />;
 }
 
@@ -99,7 +101,7 @@ function Meter({ label, value, text }: { label: string; value: number; text: str
 	);
 }
 
-function BoardSection({
+export function BoardSection({
 	id,
 	title,
 	count,
@@ -151,103 +153,8 @@ function BoardSection({
 	);
 }
 
-/**
- * A session this one's agent opened, once it has finished (or while it still runs): its branch and diff stat, and the
- * person's choices: Review (show its changes), Approve (merge the branch into this checkout; accept a session without
- * one), Discard (close it and remove its worktree, after a second click).
- */
-function ReviewRow({ parentTabId, item }: { parentTabId: string; item: AgentReviewItem }) {
-	const t = useT();
-	const busy = useAgentReviewStore(state => state.busy[item.tabId] === true);
-	const [armed, setArmed] = useState(false);
-	const running = item.state === "running";
-	const hasBranch = item.branch !== undefined;
-	const act = (action: "approve" | "discard") => {
-		setArmed(false);
-		void useAgentReviewStore.getState().act(parentTabId, action, item.tabId);
-	};
-	return (
-		<li className="omp-work-board-item" data-board-review={item.state} data-review-child={item.tabId}>
-			<div className="omp-work-board-row">
-				<span className="omp-work-board-lead">
-					<Dot ring={running} tone={running ? "info" : item.state === "conflict" ? "warning" : "success"} />
-				</span>
-				<span className="flex min-w-0 flex-1 flex-col">
-					<span className="flex min-w-0 items-baseline gap-2">
-						<span className="min-w-0 flex-1 truncate" title={item.title}>
-							{item.title || t("workBoard.review.untitled")}
-						</span>
-						{hasBranch && !running ? (
-							<span className="omp-work-board-meta">
-								{t("workBoard.review.stat", { files: item.files, added: item.added, removed: item.removed })}
-							</span>
-						) : null}
-					</span>
-					<span className="omp-work-board-sub">
-						<span className="truncate">
-							{running
-								? t("workBoard.review.running")
-								: hasBranch
-									? t("workBoard.review.branch", { branch: item.branch ?? "", base: item.baseBranch ?? "—" })
-									: item.answer}
-						</span>
-					</span>
-					{item.state === "conflict" && item.note ? (
-						<span className="omp-work-board-sub" data-review-conflict>
-							{t("workBoard.review.conflict", { files: item.note })}
-						</span>
-					) : null}
-					{!running && item.uncommitted > 0 ? (
-						<span className="omp-work-board-sub">
-							{t("workBoard.review.uncommitted", { count: item.uncommitted })}
-						</span>
-					) : null}
-				</span>
-			</div>
-			{running ? null : (
-				<div className="omp-work-board-actions">
-					<Button
-						onClick={() => {
-							void useTabsStore
-								.getState()
-								.applyAgentView({ tabId: item.tabId, how: "focus" })
-								.then(() => useUiStore.getState().setPanelTab("diff"));
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						{t("workBoard.review.open")}
-					</Button>
-					<Button
-						disabled={busy}
-						onClick={() => act("approve")}
-						size="sm"
-						title={
-							hasBranch
-								? t("workBoard.review.approveTitle", { branch: item.branch ?? "", base: item.baseBranch ?? "" })
-								: undefined
-						}
-						variant="primary"
-					>
-						{hasBranch ? t("workBoard.review.approve") : t("workBoard.review.accept")}
-					</Button>
-					<Button
-						disabled={busy}
-						onBlur={() => setArmed(false)}
-						onClick={() => (armed ? act("discard") : setArmed(true))}
-						size="sm"
-						title={t("workBoard.review.discardTitle")}
-						variant={armed ? "danger" : "ghost"}
-					>
-						{armed ? t("workBoard.review.discardSure") : t("workBoard.review.discard")}
-					</Button>
-				</div>
-			)}
-		</li>
-	);
-}
 /** One row: a lead mark, a label that truncates, a muted figure and an optional second line. */
-function BoardRow({
+export function BoardRow({
 	lead,
 	label,
 	meta,
@@ -435,52 +342,6 @@ function AgentRow({
 				</>
 			}
 			title={`${label}\n${status}${progress?.resolvedModel ? `\n${progress.resolvedModel}` : ""}`}
-		/>
-	);
-}
-
-/** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
-function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
-	const t = useT();
-	const title = row.title || t("workBoard.review.untitled");
-	const status = row.status;
-	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
-	const branch = row.branch ? t("workBoard.review.branch", { branch: row.branch, base: row.base ?? "—" }) : null;
-	const mergeNote = row.merge ? t(`workBoard.opened.merge.${row.merge}`) : null;
-	const note =
-		status === "running" && row.step
-			? row.step
-			: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
-	const open = () => {
-		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
-		else if (row.sessionPath)
-			void useTabsStore.getState().openTab({ cwd: row.cwd, sessionPath: row.sessionPath, kind: "agent" });
-	};
-	return (
-		<BoardRow
-			data={{ "data-board-opened": row.key, "data-status": status ?? "open" }}
-			label={title}
-			lead={
-				status === "done" ? (
-					<Check aria-hidden className="size-3 text-(--sc-success)" />
-				) : status === "problem" ? (
-					<X aria-hidden className="size-3 text-(--sc-danger)" />
-				) : (
-					<Dot
-						ring={status === null}
-						tone={status === "waiting" ? "warning" : status === "running" ? "info" : "muted"}
-					/>
-				)
-			}
-			meta={status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : undefined}
-			onClick={open}
-			sub={
-				<>
-					<span className="min-w-0 flex-1 truncate">{note}</span>
-					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
-				</>
-			}
-			title={`${title}\n${statusLabel}${branch ? `\n${branch}` : ""}`}
 		/>
 	);
 }
@@ -679,11 +540,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			{review.length > 0 && tabId && (
-				<BoardSection count={review.length} id="review" title={t("workBoard.review")}>
-					{review.map(item => (
-						<ReviewRow item={item} key={item.tabId} parentTabId={tabId} />
-					))}
-				</BoardSection>
+				<Suspense fallback={null}>
+					<ReviewSection items={review} parentTabId={tabId} />
+				</Suspense>
 			)}
 
 			{turnActive && (
@@ -759,17 +618,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			{opened.rows.length > 0 && (
-				<BoardSection
-					aside={opened.counts.closed > 0 ? t("workBoard.opened.closed", { count: opened.counts.closed }) : null}
-					count={opened.rows.length}
-					id="opened"
-					title={t("workBoard.opened")}
-					tone={opened.counts.waiting > 0 ? "warning" : undefined}
-				>
-					{opened.rows.map(row => (
-						<OpenedRow key={row.key} now={now} row={row} />
-					))}
-				</BoardSection>
+				<Suspense fallback={null}>
+					<OpenedSection counts={opened.counts} now={now} rows={opened.rows} />
+				</Suspense>
 			)}
 
 			{plan && (

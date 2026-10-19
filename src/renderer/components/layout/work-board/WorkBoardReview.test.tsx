@@ -91,7 +91,10 @@ async function mount(more: Array<Record<string, unknown>> = []): Promise<void> {
 			if (observer.element === (pane as unknown as Element))
 				observer.callback([{ target: pane as unknown as Element, contentRect: { width: 1600 } }]);
 	});
-	await act(async () => {});
+	// The review and opened rows are a lazy chunk: let it load.
+	await act(async () => {
+		await new Promise(resolve => setTimeout(resolve, 30));
+	});
 }
 
 const section = () => pane.querySelector('[data-board-section="review"]');
