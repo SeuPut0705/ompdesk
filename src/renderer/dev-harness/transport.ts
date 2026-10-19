@@ -335,6 +335,15 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return { state: "idle" };
 			case IPC_COMMANDS.UPDATER_CHECK:
 				return { state: "not-available", version: "0.0.0-harness" };
+			case IPC_COMMANDS.LOG_SNAPSHOT:
+				return {
+					lines: [
+						"2026-10-19T09:12:03.104Z INFO  sidecar ready (omp 18.12.2)",
+						"2026-10-19T09:12:04.551Z WARN  retrying request after 529 overloaded",
+						"2026-10-19T09:12:09.020Z ERROR tool bash exited 1: test failed",
+					],
+					nextSequence: 3,
+				};
 			case IPC_COMMANDS.RUNTIME_LOG_TAIL:
 				return RUNTIME_LOG_TAIL;
 			case IPC_COMMANDS.MODELS_SIGNED_IN:
