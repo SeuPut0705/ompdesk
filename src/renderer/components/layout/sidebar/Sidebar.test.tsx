@@ -2198,7 +2198,9 @@ describe("Sidebar device sections", () => {
 
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(section?.getAttribute("data-device-state")).toBe("offline");
-		expect(section?.querySelector("[data-device-offline]")?.textContent).toBe(translate("remote.sidebar.offline"));
+		const badge = section?.querySelector("[data-device-offline]");
+		expect(badge?.textContent).toBe(translate("remote.state.offline"));
+		expect(badge?.getAttribute("title")).toBe(translate("remote.sidebar.offline"));
 		expect(section?.querySelector("[data-device-session]")).toBeNull();
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();

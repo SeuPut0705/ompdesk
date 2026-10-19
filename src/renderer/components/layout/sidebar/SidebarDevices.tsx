@@ -126,7 +126,17 @@ export function SidebarDeviceSection({
 					<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 					<span className="min-w-0 truncate">{host.name}</span>
 					<span aria-hidden className={cx("size-1.5 shrink-0 rounded-full", DOT_CLASS[host.state])} />
-					<span className="sr-only">, {stateLabel}</span>
+					{host.state === "offline" ? (
+						<span
+							className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
+							data-device-offline
+							title={t("remote.sidebar.offline")}
+						>
+							{stateLabel}
+						</span>
+					) : (
+						<span className="sr-only">, {stateLabel}</span>
+					)}
 					{collapsed ? (
 						<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 					) : (
@@ -151,21 +161,12 @@ export function SidebarDeviceSection({
 			{!collapsed &&
 				(online ? (
 					<DeviceSessions host={host} mode={mode} onOpen={openRemote} query={query} />
-				) : (
-					<p
-						className="flex items-center gap-2 px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)"
-						data-device-offline
-					>
-						{host.state === "connecting" ? (
-							<>
-								<Spinner size="sm" />
-								{stateLabel}
-							</>
-						) : (
-							t("remote.sidebar.offline")
-						)}
+				) : host.state === "connecting" ? (
+					<p className="flex items-center gap-2 px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)">
+						<Spinner size="sm" />
+						{stateLabel}
 					</p>
-				))}
+				) : null)}
 		</section>
 	);
 }

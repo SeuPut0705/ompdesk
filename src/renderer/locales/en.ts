@@ -4106,7 +4106,6 @@ export const en: Record<string, string> = {
 	"agentHub.defs.detail.blocking": "Blocking",
 	"agentHub.defs.detail.readSummarize": "Summarized reads",
 	"agentHub.defs.detail.output": "Output schema",
-	"agentHub.defs.footerNote": "Changes apply to subagents started from now on.",
 	"agentHub.defs.roleModel.hint": "This template now picks its model by role.",
 	"agentHub.defs.roleModel.hintEdited": "The model line differs from the current template's.",
 	"agentHub.defs.roleModel.update": "Update to role-based model",

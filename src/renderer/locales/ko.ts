@@ -4090,7 +4090,6 @@ export const ko: Record<string, string> = {
 	"agentHub.defs.detail.readSummarize": "요약 읽기",
 	"agentHub.defs.detail.output": "출력 스키마",
 
-	"agentHub.defs.footerNote": "변경 사항은 이제부터 시작되는 서브에이전트에 적용돼요.",
 	"agentHub.defs.roleModel.hint": "이 템플릿은 이제 모델을 역할로 정해요.",
 	"agentHub.defs.roleModel.hintEdited": "모델 줄이 현재 템플릿과 달라요.",
 	"agentHub.defs.roleModel.update": "역할 기반 모델로 업데이트",
