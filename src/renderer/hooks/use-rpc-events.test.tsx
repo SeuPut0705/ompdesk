@@ -2021,6 +2021,52 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		// runtime and resets its stores wholesale.
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toContain(kept);
 	});
+
+	it("lands a ready status of a tab with no runtime yet in that tab, never in the focused pane", async () => {
+		// A page that just loaded hears a tab's `ready` before that tab's runtime exists, while main still counts that
+		// tab as the window's active one (the renderer's focus already moved on). The focused pane must keep its own
+		// session; the new tab gets its own state.
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		seedTwoTabs();
+		commandForTab.mockImplementation(async (tabId, command) =>
+			success(
+				command.type === "get_state"
+					? {
+							sessionId: `session-of-${tabId}`,
+							sessionName: null,
+							sessionFile: null,
+							cwd: `/cwd/${tabId}`,
+							isStreaming: false,
+							isCompacting: false,
+							contextUsage: null,
+							messageCount: 0,
+							queuedMessageCount: 0,
+							planModeEnabled: false,
+							todoPhases: [],
+						}
+					: command.type === "get_transcript_page"
+						? { messages: [], totalMessages: 0 }
+						: {},
+			),
+		);
+		// `rpc.command` is main's active tab: the tab that just came up.
+		Object.assign(window.omp.rpc, { command: (command: RpcCommand) => commandForTab("t-new", command) });
+		await mount(<RpcEventsProbe />);
+		await flush();
+		const live = sessionRuntimeStore<SessionStore>("t-live", "session")!;
+		live.setState({ sessionId: "session-of-t-live", cwd: "/cwd/t-live" });
+
+		await act(async () => {
+			emitTabStatus({ status: "ready", cwd: "/cwd/t-new" } as IpcSidecarStatusPayload, "t-new");
+		});
+		await flush();
+
+		expect(live.getState()).toMatchObject({ sessionId: "session-of-t-live", cwd: "/cwd/t-live" });
+		expect(sessionRuntimeStore<SessionStore>("t-new", "session")?.getState()).toMatchObject({
+			sessionId: "session-of-t-new",
+			status: "ready",
+		});
+	});
 });
 
 describe("useRpcEvents background tabs", () => {
