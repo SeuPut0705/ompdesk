@@ -15,6 +15,7 @@
 //! instead of touching a real user session.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -600,6 +601,11 @@ pub(crate) trait CommandRunner {
         self.run(program, args)
     }
 
+    /// Wait between service-manager polls. Test doubles record it instead.
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+
     /// The `ai-memory` value under the `Run` key. The default asks
     /// `reg query`, which test doubles script; [`SystemRunner`] reads the
     /// registry directly on Windows.
@@ -1002,20 +1008,30 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    /// Records every call and answers from a script: the first matching
-    /// `(program, first args)` prefix wins, anything else succeeds.
+    /// Records every call and answers from a script: a matching `once` entry
+    /// is consumed first, then the first matching `failing` prefix fails,
+    /// anything else succeeds.
     #[derive(Default)]
     struct FakeRunner {
         calls: RefCell<Vec<String>>,
         failing: Vec<&'static str>,
+        once: RefCell<Vec<(&'static str, bool)>>,
         stdout: Vec<(&'static str, &'static str)>,
+        slept: RefCell<Duration>,
     }
 
     impl CommandRunner for FakeRunner {
         fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutcome> {
             let line = format!("{program} {}", args.join(" "));
             self.calls.borrow_mut().push(line.clone());
-            let success = !self.failing.iter().any(|prefix| line.starts_with(prefix));
+            let scripted = {
+                let mut once = self.once.borrow_mut();
+                once.iter()
+                    .position(|(prefix, _)| line.starts_with(prefix))
+                    .map(|index| once.remove(index).1)
+            };
+            let success = scripted
+                .unwrap_or_else(|| !self.failing.iter().any(|prefix| line.starts_with(prefix)));
             let stdout = self
                 .stdout
                 .iter()
@@ -1030,6 +1046,10 @@ mod tests {
                     "boom".into()
                 },
             })
+        }
+
+        fn sleep(&self, duration: Duration) {
+            *self.slept.borrow_mut() += duration;
         }
     }
 
@@ -1244,6 +1264,8 @@ mod tests {
         // Changed while loaded: booted out first, then bootstrapped again.
         std::fs::write(&unit.path, "stale").unwrap();
         let runner = FakeRunner {
+            failing: vec!["launchctl print"],
+            once: RefCell::new(vec![("launchctl print", true)]),
             stdout: vec![("id -u", "501\n")],
             ..FakeRunner::default()
         };
@@ -1252,6 +1274,90 @@ mod tests {
             runner.calls.borrow().contains(
                 &"launchctl bootout gui/501/com.github.akitaonrails.ai-memory".to_owned()
             )
+        );
+    }
+
+    /// An app update re-points the unit at a newly staged binary. `bootout`
+    /// returns while the old server still drains, and a `bootstrap` sent then
+    /// is refused with "5: Input/output error", leaving nothing loaded. The
+    /// update waits for the old job to leave and tries the bootstrap again.
+    #[test]
+    fn an_updated_launch_agent_waits_for_the_old_job_and_retries_a_refused_bootstrap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let unit = render(ServiceManager::Launchd, &spec(tmp.path())).unwrap();
+        std::fs::create_dir_all(unit.path.parent().unwrap()).unwrap();
+        std::fs::write(&unit.path, "stale").unwrap();
+        let runner = FakeRunner {
+            failing: vec!["launchctl print"],
+            // Loaded before the update, still loaded twice after `bootout`.
+            once: RefCell::new(vec![
+                ("launchctl print", true),
+                ("launchctl print", true),
+                ("launchctl print", true),
+                ("launchctl bootstrap", false),
+            ]),
+            stdout: vec![("id -u", "501\n")],
+            ..FakeRunner::default()
+        };
+        assert_eq!(install(&unit, &runner).unwrap(), ServiceChange::Updated);
+        let plist = unit.path.to_string_lossy().into_owned();
+        let target = "gui/501/com.github.akitaonrails.ai-memory";
+        assert_eq!(
+            runner.calls.borrow().clone(),
+            vec![
+                "id -u".to_owned(),
+                format!("launchctl print {target}"),
+                "id -u".to_owned(),
+                format!("launchctl bootout {target}"),
+                format!("launchctl print {target}"),
+                format!("launchctl print {target}"),
+                format!("launchctl print {target}"),
+                format!("launchctl bootstrap gui/501 {plist}"),
+                format!("launchctl print {target}"),
+                format!("launchctl bootstrap gui/501 {plist}"),
+            ]
+        );
+        assert!(unit.is_current());
+    }
+
+    /// The retries are bounded: a bootstrap launchd keeps refusing fails with
+    /// its output, and a job that never leaves is reported, not waited on.
+    #[test]
+    fn a_launch_agent_that_cannot_be_replaced_fails_within_a_bound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let unit = render(ServiceManager::Launchd, &spec(tmp.path())).unwrap();
+        let runner = FakeRunner {
+            failing: vec!["launchctl print", "launchctl bootstrap"],
+            stdout: vec![("id -u", "501\n")],
+            ..FakeRunner::default()
+        };
+        let err = install(&unit, &runner).unwrap_err();
+        assert!(format!("{err:#}").contains("after 3 attempts"), "{err:#}");
+        assert_eq!(
+            runner
+                .calls
+                .borrow()
+                .iter()
+                .filter(|call| call.starts_with("launchctl bootstrap"))
+                .count(),
+            3
+        );
+
+        std::fs::create_dir_all(unit.path.parent().unwrap()).unwrap();
+        std::fs::write(&unit.path, "stale").unwrap();
+        let runner = FakeRunner {
+            stdout: vec![("id -u", "501\n")],
+            ..FakeRunner::default()
+        };
+        let err = install(&unit, &runner).unwrap_err();
+        assert!(format!("{err:#}").contains("left the job loaded"), "{err:#}");
+        assert!(*runner.slept.borrow() <= Duration::from_secs(31));
+        assert!(
+            !runner
+                .calls
+                .borrow()
+                .iter()
+                .any(|call| call.starts_with("launchctl bootstrap"))
         );
     }
 

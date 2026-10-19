@@ -533,6 +533,68 @@ describe("AiMemoryService", () => {
 			expect(service.state().phase).toBe("ready");
 			expect(commands().slice(-5)).toEqual([PLAN, SETUP, ...generators(rootDir)]);
 		});
+
+		/** What ai-memory's `setup` reported on v0.41.0's update: the old server still drained when it bootstrapped. */
+		const BOOTSTRAP_REFUSED = {
+			code: 1,
+			output:
+				"problem: service: `launchctl bootstrap gui/501 /x.plist` failed: Bootstrap failed: 5: Input/output error\n",
+		};
+
+		it("a setup the service manager refused runs again by itself, logs it, and becomes ready", async () => {
+			const lines: Array<[string, Record<string, unknown>]> = [];
+			const { service, behavior, commands } = await make({
+				retryDelaysMs: [0, 0, 0],
+				log: (message, details) => lines.push([message, details]),
+			});
+			let refusals = 1;
+			behavior.setup = () => (refusals-- > 0 ? BOOTSTRAP_REFUSED : { code: 0, output: "setup done\n" });
+			await service.start();
+			await vi.waitFor(() => expect(service.state().phase).toBe("ready"));
+			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
+			expect(lines.filter(([message]) => message === "retry")).toEqual([
+				["retry", expect.objectContaining({ attempt: 1, of: 3, inMs: 0 })],
+			]);
+		});
+
+		it("the automatic re-runs are bounded: a refusal that never ends stays failed with its reason", async () => {
+			const lines: string[] = [];
+			const { service, behavior, commands } = await make({
+				retryDelaysMs: [0, 0],
+				log: message => lines.push(message),
+			});
+			behavior.setup = () => BOOTSTRAP_REFUSED;
+			await service.start();
+			// The third failure is logged before the (refused) schedule of a fourth pass, in the same turn.
+			await vi.waitFor(() => expect(lines.filter(message => message === "failed")).toHaveLength(3));
+			expect(lines.filter(message => message === "retry")).toHaveLength(2);
+			expect(commands().filter(command => command === SETUP)).toHaveLength(3);
+			expect(service.state()).toMatchObject({ phase: "failed" });
+			expect(service.state().detail).toContain("Bootstrap failed: 5");
+		});
+
+		it("an update whose service step failed still rewrites a stale extension root", async () => {
+			const { service, behavior, rootDir } = await make({ retryDelaysMs: [] });
+			await mkdir(join(rootDir, "skills", "ai-memory-handoff"), { recursive: true });
+			await writeFile(
+				join(rootDir, "index.ts"),
+				`${GENERATED_HEADER} --apply\`.\n// an earlier build's extension\n`,
+			);
+			await writeFile(
+				join(rootDir, ".mcp.json"),
+				JSON.stringify({ mcpServers: { "ai-memory": { command: "/old" } } }),
+			);
+			await writeFile(join(rootDir, "skills", "ai-memory-handoff", "SKILL.md"), SKILL_TEXT);
+			behavior.setup = () => BOOTSTRAP_REFUSED;
+			await service.start();
+			expect(service.state().phase).toBe("failed");
+			expect(await readFile(join(rootDir, "index.ts"), "utf8")).toBe(
+				`${GENERATED_HEADER} --apply\`.\nexport default 1;\n`,
+			);
+			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8"))).toMatchObject({
+				mcpServers: { "ai-memory": { command: BIN } },
+			});
+		});
 	});
 
 	describe("the root is loaded only while memory is on", () => {
