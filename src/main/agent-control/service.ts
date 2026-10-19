@@ -265,6 +265,8 @@ export interface AgentControlHost {
 	markAnswered(tabId: string, byTitle: string): Promise<void>;
 	/** Close a session's tab and delete its saved file (the sidebar's delete). */
 	deleteSession(callerTabId: string, tabId: string): Promise<void>;
+	/** Delete a saved session no tab of this app holds, on the device it is saved on (the sidebar's delete). */
+	deleteStored(session: StoredSession): Promise<void>;
 	/** Git facts of a session's worktree (this computer's sessions only). Rejects with a readable message. */
 	branchFacts(worktree: WorktreeRef): Promise<BranchFacts>;
 	/** Merge the worktree's branch into its parent checkout (local, never pushed). */
@@ -814,7 +816,9 @@ export class AgentControl {
 			}
 			case T.stop: {
 				const args = ARGS[T.stop].parse(raw);
-				return this.#stop(caller, tabs, this.#resolve(tabs, args.session, caller, "stop"), args);
+				const device = args.device === undefined ? undefined : this.#device(args.device);
+				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device);
+				return "busy" in target ? this.#stop(caller, tabs, target, args) : this.#stopStored(caller, target, args);
 			}
 			case T.compare: {
 				const args = ARGS[T.compare].parse(raw ?? {});
@@ -1166,9 +1170,10 @@ export class AgentControl {
 					`No saved session "${args.reopen}" here. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
 				);
 			if (row.hidden) fail("The user hid that session from other agents.");
-			if (row.tabId)
+			const open = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], row);
+			if (open)
 				fail(
-					`That session is already open as ${row.tabId}: use it directly (ompdesk_session_send, ompdesk_session_read).`,
+					`That session is already open as ${open.tabId}: use it directly (ompdesk_session_send, ompdesk_session_read).`,
 				);
 			if (args.device !== undefined && (device ?? undefined) !== row.device)
 				fail("A saved session opens on the device it is saved on; leave device out with reopen.");
@@ -1546,40 +1551,58 @@ export class AgentControl {
 		return matches[0];
 	}
 
-	/** A saved session by stock id or unique prefix: the last stored lists first, then this computer's index. */
-	async #storedSession(session: string): Promise<StoredSession | undefined> {
+	/**
+	 * A saved session by stock id or unique prefix: the last stored lists first, then the index of `device` (this
+	 * computer when undefined or null). A row read with `device` given is that device's only.
+	 */
+	async #storedSession(session: string, device?: ControlDevice | null): Promise<StoredSession | undefined> {
+		const where = device === undefined ? undefined : (device?.id ?? undefined);
 		const find = (): StoredSession | undefined => {
-			const exact = this.#stored.get(session);
+			const rows = [...this.#stored.values()].filter(row => device === undefined || row.device === where);
+			const exact = rows.find(row => row.id === session);
 			if (exact) return exact;
 			if (session.length < SESSION_PREFIX_MIN) return undefined;
-			const matches = [...this.#stored.values()].filter(row => row.id.startsWith(session));
+			const matches = rows.filter(row => row.id.startsWith(session));
 			if (matches.length > 1) fail(`"${session}" matches several saved sessions; use the full id.`);
 			return matches[0];
 		};
 		const known = find();
 		if (known) return known;
-		for (const row of await this.#host.stored(undefined)) this.#stored.set(row.id, row);
+		if (device) this.#online(device);
+		for (const row of await this.#host.stored(where)) this.#stored.set(row.id, row);
 		return find();
 	}
 
-	/** An open session, or a saved one (open in a tab: that tab). */
+	/**
+	 * The tab that has a saved session open now. A listed row's `tabId` is only what was true when it was listed: that
+	 * tab may have closed since (the device closed it), or another tab opened the session after the list.
+	 */
+	#liveTab(tabs: ControlTab[], row: StoredSession): ControlTab | undefined {
+		return (
+			(row.tabId ? tabs.find(tab => tab.tabId === row.tabId) : undefined) ??
+			tabs.find(tab => tab.sessionPath === row.path && tab.device === row.device)
+		);
+	}
+
+	/** An open session, or a saved one (open in a tab: that tab). `device`: where a saved id is looked up. */
 	async #resolveAny(
 		tabs: ControlTab[],
 		session: string,
 		self: ControlTab,
 		verb: string,
+		device?: ControlDevice | null,
 	): Promise<ControlTab | StoredSession> {
 		const tab = this.#lookup(tabs, session);
 		if (tab) {
 			if (tab.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
 			return tab;
 		}
-		const row = await this.#storedSession(session);
+		const row = await this.#storedSession(session, device);
 		if (!row)
 			fail(
-				`No session "${session}" open in this app or saved here. Call ompdesk_sessions (scope app, or scope stored with device for a paired device's).`,
+				`No session "${session}" open in this app or saved ${device ? `on ${device.name}` : "here"}. Call ompdesk_sessions (scope app, or scope stored with device for a paired device's).`,
 			);
-		const open = row.tabId ? tabs.find(entry => entry.tabId === row.tabId) : undefined;
+		const open = this.#liveTab(tabs, row);
 		if (open?.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
 		return open ?? row;
 	}
@@ -1734,6 +1757,32 @@ export class AgentControl {
 		}
 		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
 		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
+	}
+
+	/**
+	 * A saved session no tab holds: nothing runs to stop or close; a delete removes its file on the device it is saved
+	 * on (the sidebar's delete). The caller cannot have it open, so a delete asks unless full control is on.
+	 */
+	async #stopStored(
+		caller: ControlTab,
+		row: StoredSession,
+		args: { close?: boolean; delete?: boolean },
+	): Promise<string> {
+		if (row.hidden) fail("The user hid that session from other agents.");
+		const name = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""})`;
+		if (!args.delete) return `${name} is not open in any tab: nothing to stop or close.`;
+		if (!this.#host.fullEnabled()) {
+			const params = { caller: caller.title || "—", target: storedTitle(row) || row.id };
+			const approved = await this.#host.confirm(
+				caller.tabId,
+				this.#host.text("stopTitle", params),
+				this.#host.text("deleteMessage", params),
+			);
+			if (!approved) return `The user declined: ${name} stays saved. Do not ask again unless they tell you to.`;
+		}
+		await this.#host.deleteStored(row);
+		this.#stored.delete(row.id);
+		return `Deleted ${name}.`;
 	}
 
 	/**

@@ -678,6 +678,7 @@ export class AgentControlRuntime {
 				if (!info?.sessionPath) throw new Error("That session has no saved file yet; closing it is enough.");
 				await deps.deleteSession(info.sessionPath, info.device);
 			},
+			deleteStored: session => deps.deleteSession(session.path, session.device),
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
 			landing: worktree => landingFacts(worktree),

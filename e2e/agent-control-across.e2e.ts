@@ -188,5 +188,34 @@ test.describe("on a paired device", () => {
 		expect(read.isError, read.text).toBe(false);
 		expect(read.text).toContain("saved on PC-B");
 		expect(read.text).toContain("Run this on the other computer");
+
+		// Listed while open, the row names that tab; the device's close releases it at once, so the same row reopens.
+		const reopened = await call("ompdesk_session_open", { reopen: id });
+		expect(reopened.isError, reopened.text).toBe(false);
+		expect(reopened.text).toContain("reopened");
+		const [again] = opened(reopened.text);
+		expect(
+			(await call("ompdesk_sessions", { scope: "stored", device: "PC-B", query: "other computer" })).text,
+		).toContain(`open in tab ${again}`);
+		expect((await call("ompdesk_session_stop", { session: again, close: true })).isError).toBe(false);
+		await expect
+			.poll(async () =>
+				(await client?.page.evaluate(() => window.omp.tabs.list()))?.some(tab => tab.tabId === again),
+			)
+			.toBe(false);
+		const twice = await call("ompdesk_session_open", { reopen: id });
+		expect(twice.isError, twice.text).toBe(false);
+		const [third] = opened(twice.text);
+		expect((await call("ompdesk_session_stop", { session: third, close: true })).isError).toBe(false);
+
+		// A saved session no tab holds is deleted by its stored id and device, on the device.
+		const deleted = await call("ompdesk_session_stop", { session: id, device: "PC-B", delete: true });
+		expect(deleted.isError, deleted.text).toBe(false);
+		expect(deleted.text).toContain("Deleted");
+		await expect
+			.poll(async () => (await call("ompdesk_sessions", { scope: "stored", device: "PC-B" })).text, {
+				timeout: 30_000,
+			})
+			.not.toContain(id);
 	});
 });

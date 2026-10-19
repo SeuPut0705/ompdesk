@@ -122,6 +122,10 @@ class FakeHost implements AgentControlHost {
 		this.deleted.push(tabId);
 		this.tabsById.delete(tabId);
 	};
+	deletedStored: { path: string; device: string | undefined }[] = [];
+	deleteStored = async (row: StoredSession) => {
+		this.deletedStored.push({ path: row.path, device: row.device });
+	};
 	facts = new Map<string, BranchFacts>();
 	mergeResult: MergeOutcome = { merged: true, sha: "abc1234", summary: "2 files changed" };
 	merges: string[] = [];
@@ -1889,10 +1893,94 @@ describe("ompdesk_session_open on a device and reopen", () => {
 		expect(host.spawned).toHaveLength(0);
 	});
 
+	it("reopens a paired device's saved session whose tab was closed after it was listed", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "remo0002", device: desktop.id, deviceName: desktop.name, sessionPath: "C:/s/one.jsonl" },
+		);
+		host.deviceList = [desktop];
+		host.storedRows = [storedRow({ device: desktop.id, path: "C:/s/one.jsonl", tabId: "remo0002" })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored", device: desktop.id });
+		// The device's explicit close released the tab; the row listed before still names it.
+		host.tabsById.delete("remo0002");
+		const result = await service.run("main0001", T.open, { reopen: "11111111-aaaa" });
+		expect(result.text).not.toContain("already open");
+		expect(result.isError).toBe(false);
+		expect(host.spawned[0]).toMatchObject({ sessionPath: "C:/s/one.jsonl", device: desktop.id });
+	});
+
+	it("names the live tab of a saved session listed before it was opened", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		host.storedRows = [storedRow({ device: desktop.id, path: "C:/s/one.jsonl" })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored", device: desktop.id });
+		host.add({ tabId: "remo0003", device: desktop.id, deviceName: desktop.name, sessionPath: "C:/s/one.jsonl" });
+		expect((await service.run("main0001", T.open, { reopen: "11111111-aaaa" })).text).toContain(
+			"already open as remo0003",
+		);
+	});
+
 	it("names an opened session by its task, and an untitled one by its folder", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "bare0002", cwd: "/repo/tools" });
 		const text = (await control(host).run("main0001", T.result, { session: "bare0002" })).text;
 		expect(text).toContain("(untitled, in tools)");
+	});
+});
+
+describe("ompdesk_session_stop of a saved session", () => {
+	it("deletes a paired device's saved session by its stored id and device after its tab closed", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "remo0002", device: desktop.id, deviceName: desktop.name, sessionPath: "C:/s/one.jsonl" },
+		);
+		host.full = true;
+		host.deviceList = [desktop];
+		host.storedRows = [storedRow({ device: desktop.id, path: "C:/s/one.jsonl", tabId: "remo0002" })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored", device: desktop.id });
+		host.tabsById.delete("remo0002");
+		const result = await service.run("main0001", T.stop, { session: "11111111-aaaa", delete: true });
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("Deleted");
+		expect(host.deletedStored).toEqual([{ path: "C:/s/one.jsonl", device: desktop.id }]);
+	});
+
+	it("finds a device's saved session by id with device when it was never listed, and asks before deleting it", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		host.storedRows = [storedRow({ device: desktop.id, path: "C:/s/one.jsonl" })];
+		const service = control(host);
+		const result = await service.run("main0001", T.stop, {
+			session: "11111111-aaaa",
+			device: desktop.name,
+			delete: true,
+		});
+		expect(result.isError).toBe(false);
+		expect(host.cards).toHaveLength(1);
+		expect(host.storedQueries).toContainEqual({ device: desktop.id, query: undefined });
+		expect(host.deletedStored).toEqual([{ path: "C:/s/one.jsonl", device: desktop.id }]);
+		host.cardAnswer = false;
+		host.storedRows = [storedRow({ id: "66666666-ffff", device: desktop.id, path: "C:/s/six.jsonl" })];
+		const declined = await service.run("main0001", T.stop, {
+			session: "66666666-ffff",
+			device: desktop.id,
+			delete: true,
+		});
+		expect(declined.text).toContain("declined");
+		expect(host.deletedStored).toHaveLength(1);
+	});
+
+	it("has nothing to stop or close for a saved session no tab holds", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.storedRows = [storedRow({})];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored" });
+		const result = await service.run("main0001", T.stop, { session: "11111111-aaaa", close: true });
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("not open");
+		expect(host.deletedStored).toEqual([]);
 	});
 });
 

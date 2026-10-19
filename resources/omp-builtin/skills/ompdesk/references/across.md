@@ -3,7 +3,7 @@
 ## Find a session
 
 - `ompdesk_sessions` lists the caller's window. `scope` `app` adds every other window of this app, including sessions that run on a paired device. `device` (a name or id, `local` for this computer) keeps one machine's sessions. `status` (`running`, `waiting`, `idle`), `folder`, `query` (title text) and `mine` (sessions you opened) narrow it; `limit` caps the rows.
-- `scope` `stored` lists saved sessions, closed ones too, newest first: this computer's, or a paired device's with `device`. `query` there also searches the conversations. Each row says whether a tab has it open.
+- `scope` `stored` lists saved sessions, closed ones too, newest first: this computer's, or a paired device's with `device`. `query` there also searches the conversations. Each row says whether a tab has it open. `ompdesk_session_stop` with `delete` removes a saved session by its id whether a tab holds it or not (`device` for a paired device's: the device deletes its own file).
 - The list ends with the paired devices and their state. A device must be online to open on it or read its saved sessions.
 
 ## Read, reopen, steer

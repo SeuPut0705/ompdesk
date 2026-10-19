@@ -478,13 +478,17 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
-			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session. Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
+			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, with device for a paired device's). Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
 		parameters: {
 			type: "object",
 			properties: {
 				session: SESSION,
 				close: { type: "boolean", description: "Also close the tab; default false." },
 				delete: { type: "boolean", description: "Also delete the saved session; default false." },
+				device: {
+					...DEVICE,
+					description: `${DEVICE.description} Where a stored session id is saved; default this computer or the last stored list.`,
+				},
 			},
 			required: ["session"],
 			additionalProperties: false,
@@ -703,7 +707,14 @@ export const ARGS = {
 		.strict(),
 	[T.focus]: z.object({ session: sessionArg, how: placement.optional() }).strict(),
 	[T.notify]: z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(2000).optional() }).strict(),
-	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
+	[T.stop]: z
+		.object({
+			session: sessionArg,
+			close: z.boolean().optional(),
+			delete: z.boolean().optional(),
+			device: deviceArg.optional(),
+		})
+		.strict(),
 	[T.compare]: z
 		.object({
 			sessions: z.array(sessionArg).min(1).optional(),
