@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent, RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import { resetShellModeForTests } from "../hooks/use-shell-mode";
 import { createTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { useUiStore } from "../stores/ui";
@@ -13,9 +14,11 @@ import {
 } from "./panel-auto-open";
 
 const prefs = new Map<string, unknown>();
-(globalThis as Record<string, unknown>).window = {
+const fakeWindow: Record<string, unknown> = {
 	omp: { prefs: { get: async (key: string) => prefs.get(key), set: async () => {} } },
+	location: { search: "" },
 };
+(globalThis as Record<string, unknown>).window = fakeWindow;
 
 const TAB = "t1";
 let fingerprints: Array<string | null> = [];
@@ -340,5 +343,24 @@ describe("Autopilot start → its screen", () => {
 		useUiStore.setState({ panelVisible: true, panelTab: "terminal" });
 		handleAutoOpenEvents(TAB, [started]);
 		expect(useUiStore.getState().panelTab).toBe("terminal");
+	});
+});
+
+describe("on a phone", () => {
+	afterEach(() => {
+		delete (globalThis as Record<string, unknown>).document;
+		fakeWindow.location = { search: "" };
+		resetShellModeForTests();
+	});
+
+	it("opens nothing by itself, whatever the switches say", async () => {
+		(globalThis as Record<string, unknown>).document = { documentElement: { dataset: { platform: "web" } } };
+		fakeWindow.location = { search: "?shell=phone" };
+		resetShellModeForTests();
+		handleAutoOpenEvents(TAB, [{ type: "autopilot_update", status: { active: true, state: "running", run: "p1" } }]);
+		handleAutoOpenEvents(TAB, [bashUpdate("Local: http://localhost:5010/")]);
+		handleAutoOpenEvents(TAB, [AGENT_START, editEnd(), AGENT_END]);
+		await settle();
+		expect(useUiStore.getState()).toMatchObject({ panelVisible: false, previewUrl: null });
 	});
 });

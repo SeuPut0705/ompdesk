@@ -152,8 +152,9 @@ function install(): void {
 	for (const type of ["pointerdown", "keydown", "wheel", "focusin"]) document.addEventListener(type, touch, true);
 }
 
-/** Write the store without moving the composer's focus; the write is the module's own. */
+/** Write the store without moving the composer's focus; the write is the module's own. A phone never opens anything by itself. */
 function openPanel(write: () => void): void {
+	if (currentShellMode() === "phone") return;
 	const dom = typeof document !== "undefined" && typeof HTMLElement !== "undefined";
 	const active = dom ? document.activeElement : null;
 	writing = true;
