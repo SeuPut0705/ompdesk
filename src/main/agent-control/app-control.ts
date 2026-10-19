@@ -4,7 +4,8 @@
  *   1. the action must be in the registry (`app-catalog.ts`); anything else is unknown, nothing falls through;
  *   2. `never` refuses; arguments are validated against the action's schema;
  *   3. `sensitive` raises the `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on (default
- *      on); an action that deletes user data (`deletes`) asks whatever that switch says;
+ *      on); an action whose `manage` rule is `always` (erases data, runs code, credentials, network exposure, ends
+ *      running work) asks whatever that switch says;
  *   4. the action runs with an `ActionContext` whose every primitive re-checks the tier the preference, setting,
  *      command or channel needs (`app-guard.ts`, `app-channels.ts`), so a nested route is refused like a direct one;
  *   5. a change is journaled in the caller's session, shown as a quiet toast and, with a previous value, undoable.
@@ -16,7 +17,7 @@ import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, ty
 import { AGENT_CHANNELS } from "./app-channels";
 import { AppRefusal, covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
 import { validateArgs } from "./app-schema";
-import { SETTING_BY_ID, SETTINGS } from "./app-settings";
+import { SETTING_BY_ID, SETTINGS, settingActionId } from "./app-settings";
 
 export { AppRefusal };
 
@@ -87,7 +88,16 @@ export class AppControl {
 		if (found.length === 0) return "No action matches. Call ompdesk_app_list with no filter to see every area.";
 		const withSchema = found.length <= SCHEMA_LIST_MAX;
 		const rows = found.map(action => {
-			const head = `- ${action.id} [${action.tier}] ${action.description}`;
+			const rule = action.manage;
+			const card =
+				rule === undefined
+					? ""
+					: "lifts" in rule
+						? ", card unless the user lets agents manage"
+						: rule.when
+							? ", always a card for some arguments"
+							: ", always a card";
+			const head = `- ${action.id} [${action.tier}${card}] ${action.description}`;
 			if (action.tier === "never") return `${head} Refused: ${action.neverReason}`;
 			return withSchema ? `${head}\n  args: ${JSON.stringify(action.args)}` : head;
 		});
@@ -116,7 +126,9 @@ export class AppControl {
 		args: Record<string, unknown> | null,
 		what?: string,
 	): Promise<void> {
-		if (tier !== "sensitive" || (this.#ports.manageEnabled() && !action?.deletes)) return;
+		const rule = action?.manage;
+		const forced = rule !== undefined && "always" in rule && (rule.when?.(args ?? {}) ?? true);
+		if (tier !== "sensitive" || (this.#ports.manageEnabled() && !forced)) return;
 		const summary = what ?? this.#summary(action, args);
 		const approved = await this.#ports.confirm(
 			callerTabId,
@@ -193,7 +205,13 @@ export class AppControl {
 		if (!last) throw new AppRefusal("Nothing to undo: your last change had no previous value, or you made none.");
 		const needed = last.undo.kind === "pref" ? prefTier(last.undo.key) : settingTier(last.undo.path);
 		if (needed === "never") refuse("Undoing that change", "never");
-		await this.#confirmed(callerTabId, needed, null, null, `undo "${last.en}"`);
+		const undo = last.undo;
+		const row =
+			undo.kind === "pref"
+				? SETTINGS.find(setting => setting.kind === "pref" && setting.key === undo.key)
+				: SETTING_BY_ID[undo.path];
+		const undone = row ? (this.#registry[settingActionId(row.id)] ?? null) : null;
+		await this.#confirmed(callerTabId, needed, undone, null, `undo "${last.en}"`);
 		const ctx = this.#context(callerTabId, "app.undo", needed === "sensitive" ? "sensitive" : "change");
 		if (last.undo.kind === "pref") {
 			const { key, value: restored } = last.undo;

@@ -180,6 +180,8 @@ export class AgentControlRuntime {
 	readonly control: AgentControl;
 	/** Debounce timers of the review pushes, per parent tab. */
 	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
+	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
+	readonly #reviewSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
 	readonly #userPrompted = new Set<string>();
 	/** When each tab's current turn started. */
@@ -203,6 +205,7 @@ export class AgentControlRuntime {
 				this.#windows.delete(activity.tabId);
 				this.#parents.delete(activity.tabId);
 				this.#busySince.delete(activity.tabId);
+				this.#reviewSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
 				this.#autopilotRuns.delete(activity.tabId);
 				this.control.released(activity.tabId);
@@ -239,11 +242,23 @@ export class AgentControlRuntime {
 		this.#sweepTimers.set(tabId, timer);
 	}
 
-	/** Every opener with children, on the timer: a merge or push outside the app is no tab activity. */
+	/**
+	 * Every opener with children, on the timer: a merge, push or commit outside the app is no tab activity, so
+	 * neither the auto-close pass nor the work board's review list would otherwise notice that a child's work landed
+	 * (it leaves the queue) or appeared (it joins).
+	 */
 	#sweepAll(): void {
 		const openers = new Set<string>();
 		for (const [childId, parent] of this.#parents) if (this.#autoClosable(childId)) openers.add(parent.callerTabId);
-		for (const opener of openers) this.#sweepSoon(opener);
+		for (const opener of openers) {
+			this.#sweepSoon(opener);
+			void this.control.reviewItems(opener).then(
+				items => {
+					if (JSON.stringify(items) !== (this.#reviewSent.get(opener) ?? "[]")) this.#sendReview(opener, items);
+				},
+				() => undefined,
+			);
+		}
 	}
 
 	/** The closed-children list main keeps (`ClosedChild`), newest last; the child's own record is replaced. */
@@ -290,6 +305,7 @@ export class AgentControlRuntime {
 	}
 
 	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
+		this.#reviewSent.set(callerTabId, JSON.stringify(items));
 		const win = this.#win(callerTabId);
 		if (win && !win.isDestroyed())
 			win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);

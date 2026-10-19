@@ -102,7 +102,7 @@ describe("ompdesk_app tiers", () => {
 		expect(ports.writes).toEqual([]);
 	});
 
-	it("runs a sensitive action after the card, and without a card when agentControlManage is on", async () => {
+	it("runs a sensitive action after the card, and without a card when agentControlManage is on and the action lifts", async () => {
 		const ports = new FakePorts();
 		const control = new AppControl(ports);
 		await control.run(CALLER, "settings.cliAutoUpdate", { value: true });
@@ -115,40 +115,62 @@ describe("ompdesk_app tiers", () => {
 		expect(open.cards).toEqual([]);
 		expect(open.prefs.cliAutoUpdate).toBe(true);
 
-		await new AppControl(open).run(CALLER, "updates.apply", {});
-		expect(open.invoked).toEqual([{ channel: IPC_COMMANDS.UPDATER_APPLY, args: [] }]);
+		await new AppControl(open).run(CALLER, "updates.check", {});
+		expect(open.invoked).toEqual([{ channel: IPC_COMMANDS.UPDATER_CHECK, args: [] }]);
 		expect(open.cards).toEqual([]);
 	});
 
-	it("asks for an action that deletes user data even while agentControlManage is on, and a refusal deletes nothing", async () => {
+	/** Each action that asks while agentControlManage is on, with arguments that pass its schema. */
+	const ALWAYS_ASKS: [string, Record<string, unknown>][] = [
+		["sessions.delete", { sessionPath: "/s/a.jsonl" }],
+		["memory.purge", {}],
+		["memory.delete_page", { workspace: "w", project: "p", path: "notes/a.md" }],
+		["memory.sweep", { workspace: "w", project: "p" }],
+		["updates.apply", {}],
+		["app.quit", {}],
+		["accounts.github_sign_in", {}],
+		["accounts.provider_sign_in", { providerId: "anthropic" }],
+		["mobile_web.set_enabled", { enabled: true }],
+		["extensions.install_plugin", { marketplace: "m", plugin: "p" }],
+		["extensions.install_mcp", { name: "x", transport: "stdio", command: "npx", args: ["-y", "x"] }],
+		["remote.pair", {}],
+		["settings.proxy", { value: "http://proxy.example:8080" }],
+	];
+
+	it("asks for code, credentials, network exposure, running work and erased data even while agentControlManage is on", async () => {
 		const ports = new FakePorts();
 		ports.manage = true;
 		ports.approve = false;
 		const control = new AppControl(ports);
-		const deleting: [string, Record<string, unknown>][] = [
-			["sessions.delete", { sessionPath: "/s/a.jsonl" }],
-			["memory.purge", {}],
-			["memory.delete_page", { workspace: "w", project: "p", path: "notes/a.md" }],
-			["memory.sweep", { workspace: "w", project: "p" }],
-		];
-		for (const [id, args] of deleting) {
+		for (const [id, args] of ALWAYS_ASKS) {
 			ports.cards = [];
 			expect(await refusal(control.run(CALLER, id, args)), id).toContain("declined");
 			expect(ports.cards, id).toHaveLength(1);
 		}
+		// A refusal ran nothing and wrote nothing.
 		expect(ports.invoked).toEqual([]);
+		expect(ports.rpcs).toEqual([]);
+		expect(ports.writes).toEqual([]);
 		ports.approve = true;
 		await control.run(CALLER, "sessions.delete", { sessionPath: "/s/a.jsonl" });
 		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.SESSIONS_DELETE, args: [{ sessionPath: "/s/a.jsonl" }] }]);
 	});
 
-	it("marks every action that erases data, so none escapes the card", () => {
-		const marked = Object.values(ACTION_BY_ID)
-			.filter(action => action.deletes)
+	it("asks to turn mobile web on, not to turn it off, while agentControlManage is on", async () => {
+		const ports = new FakePorts();
+		ports.manage = true;
+		await new AppControl(ports).run(CALLER, "mobile_web.set_enabled", { enabled: false });
+		expect(ports.cards).toEqual([]);
+		await new AppControl(ports).run(CALLER, "mobile_web.set_enabled", { enabled: true });
+		expect(ports.cards).toHaveLength(1);
+	});
+
+	it("pins the actions that always ask, so a new one cannot slip in or out unseen", () => {
+		const asking = Object.values(ACTION_BY_ID)
+			.filter(action => action.manage && "always" in action.manage)
 			.map(action => action.id)
 			.sort();
-		expect(marked).toEqual(["memory.delete_page", "memory.purge", "memory.sweep", "sessions.delete"]);
-		for (const id of marked) expect(ACTION_BY_ID[id]?.tier, id).toBe("sensitive");
+		expect(asking).toEqual(ALWAYS_ASKS.map(([id]) => id).sort());
 	});
 
 	it("refuses a never action whatever the switch says", async () => {
@@ -360,7 +382,7 @@ describe("MCP install, pairing and Autopilot", () => {
 		expect(remote.cards[0]?.message).toContain("connects to: https://mcp.example/api");
 	});
 
-	it("declined, nothing is added; with the switch no card; env and headers cannot be set; bad shapes are refused", async () => {
+	it("declined, nothing is added; the manage switch does not lift the card (an MCP server is code); env and headers cannot be set; bad shapes are refused", async () => {
 		const ports = new FakePorts();
 		ports.approve = false;
 		const control = new AppControl(ports);
@@ -371,7 +393,7 @@ describe("MCP install, pairing and Autopilot", () => {
 		open.manage = true;
 		const free = new AppControl(open);
 		await free.run(CALLER, "extensions.install_mcp", { name: "a", transport: "stdio", command: "x" });
-		expect(open.cards).toEqual([]);
+		expect(open.cards).toHaveLength(1);
 		expect(
 			await refusal(
 				free.run(CALLER, "extensions.install_mcp", {

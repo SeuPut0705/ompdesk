@@ -50,7 +50,7 @@ test.beforeEach(async () => {
 		desktop,
 		agent,
 		profile: root,
-		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record },
+		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_AGENT_SWEEP_MS: "500" },
 	});
 	page = await app.firstWindow();
 	errors = [];
@@ -143,9 +143,11 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	expect(compared.text).toContain("final answer: Local fixture reply");
 	expect(compared.text).toContain("Compare runs no tests");
 
-	// The board lists the three finished children with their diff stat.
+	// The board lists the three children with work to review and their diff stat. Before the commits above a finished,
+	// untouched child had nothing to review and was off the board (the user's rule: a finished clean child
+	// disappears); the commits were made outside the app, so the timer's sweep (500 ms here) brings them in.
 	await expect(reviewSection()).toBeVisible({ timeout: 30_000 });
-	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(3);
+	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(3, { timeout: 30_000 });
 	await expect(reviewSection()).toContainText("1 files · +2 −0");
 
 	// Approve on the board: the person's click merges, without a card.

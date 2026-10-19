@@ -50,6 +50,17 @@ describe("action registry", () => {
 		}
 	});
 
+	it("makes every sensitive action decide, with a reason, whether agentControlManage lifts its card or it always asks", () => {
+		for (const action of APP_ACTIONS) {
+			if (action.tier === "sensitive") {
+				const rule = action.manage;
+				expect(rule, `${action.id} needs a manage rule (lifts or always, with the reason)`).toBeDefined();
+				const reason = rule && ("always" in rule ? rule.always : rule.lifts);
+				expect(reason?.length ?? 0, action.id).toBeGreaterThan(20);
+			} else expect(action.manage, `${action.id} is not sensitive: no manage rule`).toBeUndefined();
+		}
+	});
+
 	it("keeps its copies of the renderer's lists equal", () => {
 		expect([...AGENT_PANEL_TABS]).toEqual([...PANEL_TABS]);
 		expect([...SETTINGS_SECTIONS]).toEqual([...SETTINGS_SECTION_IDS]);

@@ -14,7 +14,7 @@ import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE } from "../../shared/mobile-we
 import type { RpcCommand } from "../../shared/rpc-types";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
-import { type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
+import { type ManageRule, type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
 
 /** What an action returns: text for the agent, and, when it changed something, what to journal and toast. */
 export interface ActionResult {
@@ -62,8 +62,8 @@ export interface AppAction {
 	tier: Tier;
 	/** Why a `never` action exists: shown to the agent so it does not try another route. */
 	neverReason?: string;
-	/** The action erases user data for good: it asks for its card even while `agentControlManage` is on. */
-	deletes?: true;
+	/** Required on a `sensitive` action: whether `agentControlManage` lifts its card, or it always asks, and why. */
+	manage?: ManageRule;
 	/** What the confirmation card says is about to happen, in full (exact command, url, arguments). */
 	describe?: (args: Record<string, unknown>) => string;
 	/** Absent for a `never` action. */
@@ -150,6 +150,7 @@ function settingAction(row: Setting): AppAction {
 		description: `Set "${row.en}".${hint}`,
 		args: objectSchema({ value: row.schema }, ["value"]),
 		tier: row.tier,
+		...(row.manage ? { manage: row.manage } : {}),
 		run: (ctx, args) => writeSetting(ctx, row, args.value),
 	};
 }
@@ -379,7 +380,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Delete a saved session file for good.",
 		args: objectSchema({ sessionPath: SESSION_PATH }, ["sessionPath"]),
 		tier: "sensitive",
-		deletes: true,
+		manage: { always: "deleting a saved session is irreversible" },
 		run: async (ctx, args) => {
 			await ctx.invoke(C.SESSIONS_DELETE, { sessionPath: String(args.sessionPath) });
 			return {
@@ -408,6 +409,9 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Check for a new OMPdesk version now (contacts the release server).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: {
+			lifts: "only contacts the release server; nothing is downloaded into use or applied (updates.apply asks)",
+		},
 		run: async ctx => {
 			await ctx.invoke(C.UPDATER_CHECK);
 			return { text: "Update check started; read updates.status for the result." };
@@ -419,6 +423,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Install the downloaded OMPdesk update and restart the app (every running turn ends).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "installs new code and restarts, ending every running turn" },
 		run: async ctx => {
 			await ctx.invoke(C.UPDATER_APPLY);
 			return { text: "Applying the update; OMPdesk restarts." };
@@ -430,6 +435,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Quit OMPdesk (every running turn ends).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "quitting ends every running turn" },
 		run: async ctx => {
 			ctx.fire(C.APP_QUIT);
 			return { text: "Quitting OMPdesk." };
@@ -459,6 +465,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: `Start GitHub sign-in. ${SIGN_IN_NOTE}`,
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "signing in connects the person's account (a credential)" },
 		run: async ctx => {
 			await ctx.invoke(C.GITHUB_AUTH_LOGIN_START);
 			return { text: "GitHub sign-in started: the person finishes it in the window." };
@@ -470,6 +477,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: `Start sign-in for a model provider. ${SIGN_IN_NOTE}`,
 		args: objectSchema({ providerId: { type: "string", minLength: 1, maxLength: 100 } }, ["providerId"]),
 		tier: "sensitive",
+		manage: { always: "signing in connects the person's account (a credential)" },
 		run: async (ctx, args) => {
 			await ctx.rpc({ type: "login", providerId: String(args.providerId) });
 			return { text: `Sign-in for ${String(args.providerId)} started: the person finishes it in the window.` };
@@ -493,6 +501,10 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Turn the phone page on or off (it exposes this computer's sessions to the person's tailnet).",
 		args: objectSchema({ enabled: { type: "boolean" } }, ["enabled"]),
 		tier: "sensitive",
+		manage: {
+			always: "turning it on exposes this computer's sessions on the network (turning it off exposes nothing)",
+			when: args => args.enabled === true,
+		},
 		run: async (ctx, args) => {
 			await ctx.invoke(MOBILE_WEB_COMMAND, { action: args.enabled === true ? "enable" : "disable" });
 			return {
@@ -513,6 +525,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["marketplace", "plugin"],
 		),
 		tier: "sensitive",
+		manage: { always: "a plugin is arbitrary code that runs in every session" },
 		run: async (ctx, args) => {
 			await ctx.rpc({
 				type: "marketplace_action",
@@ -532,7 +545,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Erase the user's memory for good: every page, handoff and recorded session.",
 		args: NO_ARGS,
 		tier: "sensitive",
-		deletes: true,
+		manage: { always: "erasing the memory is irreversible" },
 		run: async ctx => {
 			await ctx.invoke(C.AI_MEMORY_PURGE);
 			return { text: "Memory erased.", change: { en: "Memory", ko: "메모리", value: "erased" } };
@@ -551,7 +564,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["workspace", "project", "path"],
 		),
 		tier: "sensitive",
-		deletes: true,
+		manage: { always: "deleting a memory page erases the person's data" },
 		describe: args =>
 			`Delete the memory page ${String(args.path)} of ${String(args.workspace)}/${String(args.project)}`,
 		run: async (ctx, args) => {
@@ -578,7 +591,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["workspace", "project"],
 		),
 		tier: "sensitive",
-		deletes: true,
+		manage: { always: "the sweep evicts memory pages: it erases the person's data" },
 		run: async (ctx, args) => {
 			const result = await ctx.invoke(
 				C.AI_MEMORY_SWEEP,
@@ -635,6 +648,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["name", "transport"],
 		),
 		tier: "sensitive",
+		manage: { always: "an MCP server is arbitrary code (stdio) or a network reach (http/sse) for every session" },
 		describe: args => {
 			const where =
 				args.transport === "stdio"
@@ -673,6 +687,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			"Start pairing another computer: opens Settings › Devices & connections, where this computer's pairing code is shown and the person types the other one's. You never give or read a pairing code.",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "pairing gives another computer access to this one's sessions" },
 		describe: () => "start pairing another computer (opens Devices & connections; the person completes it there)",
 		run: async ctx => {
 			ctx.ui({ kind: "settings", section: "connections", sub: "remote" });

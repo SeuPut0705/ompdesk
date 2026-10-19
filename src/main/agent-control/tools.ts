@@ -504,7 +504,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.app,
 		label: "OMPdesk app action",
 		description:
-			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; sensitive actions need no card by default (the user may turn that off), but an action that erases data (a saved session, memory) always asks first; some are never available. See skill://ompdesk/references/app-control.md.",
+			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; some actions ask the user first whatever their settings say (they erase data, install code, start a sign-in, change the proxy, expose the computer or end running work); some are never available. See skill://ompdesk/references/app-control.md.",
 		parameters: {
 			type: "object",
 			properties: {

@@ -34,6 +34,15 @@ import type { PropSchema } from "./app-schema";
 
 export type SettingTier = "change" | "sensitive";
 
+/**
+ * What `agentControlManage` ("Let agents manage other sessions", default on) does to a `sensitive` action's card.
+ * Every sensitive action decides, with the reason (`app-catalog.test.ts` fails on one that does not):
+ *   `lifts`   the switch skips the card; the reason says why that is safe.
+ *   `always`  the card appears whatever the switch says; the reason says what it protects (erased data, code that
+ *             runs, credentials, network exposure, running work). `when` narrows it to calls that need it.
+ */
+export type ManageRule = { always: string; when?: (args: Record<string, unknown>) => boolean } | { lifts: string };
+
 interface Described {
 	/** The Settings catalog row id (`GUI_SEARCH_ITEMS`), or the stock path of a curated schema row. */
 	id: string;
@@ -42,6 +51,8 @@ interface Described {
 	ko: string;
 	tier: SettingTier;
 	schema: PropSchema;
+	/** Required on a `sensitive` row. */
+	manage?: ManageRule;
 }
 
 export interface PrefSetting extends Described {
@@ -70,7 +81,7 @@ function pref(
 	ko: string,
 	schema: PropSchema = bool,
 	tier: SettingTier = "change",
-	extra: Partial<Pick<PrefSetting, "mirror" | "redact">> = {},
+	extra: Partial<Pick<PrefSetting, "mirror" | "redact" | "manage">> = {},
 ): PrefSetting {
 	return { kind: "pref", id, key, area, en, ko, schema, tier, ...extra };
 }
@@ -216,7 +227,10 @@ export const SETTINGS: readonly Setting[] = [
 		"네트워크 프록시",
 		{ type: "string", maxLength: 300 },
 		"sensitive",
-		{ redact: true },
+		{
+			redact: true,
+			manage: { always: "the proxy sees all of this app's traffic and may carry credentials" },
+		},
 	),
 	pref(
 		"appAutoUpdate",
@@ -226,6 +240,9 @@ export const SETTINGS: readonly Setting[] = [
 		"OMPdesk 자동 업데이트",
 		bool,
 		"sensitive",
+		{
+			manage: { lifts: "only the person's own update schedule; installing one now (updates.apply) still asks" },
+		},
 	),
 	pref(
 		"ompAutoUpdate",
@@ -235,6 +252,9 @@ export const SETTINGS: readonly Setting[] = [
 		"omp 자동 업데이트",
 		bool,
 		"sensitive",
+		{
+			manage: { lifts: "only the person's own update schedule; running turns keep the code they loaded" },
+		},
 	),
 	pref(
 		"cliAutoUpdate",
@@ -244,6 +264,9 @@ export const SETTINGS: readonly Setting[] = [
 		"도구 CLI 자동 업데이트",
 		bool,
 		"sensitive",
+		{
+			manage: { lifts: "updates tools the person already signed in to; a switch they can flip back at once" },
+		},
 	),
 	pref(
 		"extensionAutoUpdate",
@@ -253,8 +276,13 @@ export const SETTINGS: readonly Setting[] = [
 		"확장 자동 업데이트",
 		bool,
 		"sensitive",
+		{
+			manage: { lifts: "updates extensions the person already installed; installing a new one still asks" },
+		},
 	),
-	pref("builtinRea", REA_PREF, "tools", "Built-in REA tools", "내장 REA 도구", bool, "sensitive"),
+	pref("builtinRea", REA_PREF, "tools", "Built-in REA tools", "내장 REA 도구", bool, "sensitive", {
+		manage: { lifts: "switches a bundled tool pack on or off; it adds no code the app does not ship" },
+	}),
 	pref(
 		"rotation",
 		ACCOUNT_ROTATION_PREF,
@@ -263,6 +291,9 @@ export const SETTINGS: readonly Setting[] = [
 		"계정 순환",
 		options("quota", "even"),
 		"sensitive",
+		{
+			manage: { lifts: "picks which signed-in account a session uses next; no credential is read or changed" },
+		},
 	),
 	stock("steeringMode", "agent", "Steering mode", "스티어링 방식", options("all", "one-at-a-time")),
 	stock("followUpMode", "agent", "Follow-up mode", "후속 메시지 방식", options("all", "one-at-a-time")),

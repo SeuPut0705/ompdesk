@@ -3,6 +3,7 @@ import {
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
+	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
@@ -34,6 +35,8 @@ function setup(
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
 		autopilot?: AgentControlHostDeps["autopilot"];
+		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
+		sweepMs?: number;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 	} = {},
@@ -95,6 +98,7 @@ function setup(
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
 		autopilot: options.autopilot,
+		sweepMs: options.sweepMs,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
@@ -206,6 +210,34 @@ describe("AgentControlRuntime", () => {
 		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
 	});
 
+	it("brings a change nobody announced onto the work board: the sweep timer pushes the review list when it differs", async () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, win } = setup({ tabs: [{ tabId: "main0001" }, { tabId: "new00003" }], sweepMs: 20 });
+			const opening = runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(60_000);
+			await opening;
+			let current: unknown[] = [{ tabId: "new00003" }];
+			vi.spyOn(runtime.control, "reviewItems").mockImplementation(async () => current as never);
+			const frames = () =>
+				win.sent
+					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
+					.map(([, payload]) => JSON.stringify(payload));
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [{ tabId: "new00003" }] }));
+			// Unchanged: the timer sends nothing more than it did.
+			const before = frames().length;
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames()).toHaveLength(before);
+			// A commit or push outside the app changed the list: the next sweep sends it.
+			current = [];
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [] }));
+			expect(frames()).toHaveLength(before + 1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("starts Autopilot through the coordinator and records the run as the caller's child", async () => {
 		const sent: { tabId: string; command: unknown }[] = [];
 		const { runtime, win, openers, prefs } = setup({
