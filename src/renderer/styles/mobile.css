@@ -1456,6 +1456,13 @@ html[data-shell] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-grou
 		min-height: 36px;
 	}
 
+	/* The header's buttons reach 2 px past the bar's foot; the bar stacks above the transcript so a step chip or row
+	   scrolled up to that edge never takes their taps. */
+	html[data-shell="phone"] .omp-titlebar {
+		position: relative;
+		z-index: 1;
+	}
+
 	/* The strip sits 2 px under the header's buttons, whose reach ends there: it cannot reach past its own box, so it
 	   is the 36 px itself (8 px of the 390 px height, its bottom margin given back). */
 	html[data-shell="phone"] .omp-work-chip {
