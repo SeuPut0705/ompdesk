@@ -53,6 +53,7 @@ import type {
 	SessionInfo,
 } from "../../shared/ipc-types";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import {
 	type AgentMessage,
 	BLOCKING_UI_METHODS,
@@ -196,6 +197,14 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 	return at < 0
 		? { branchPrefix: "", name: branch }
 		: { branchPrefix: branch.slice(0, at + 1), name: branch.slice(at + 1) };
+}
+
+/** A stored ship policy (this computer's `autopilotShip`, or a host's as its idle `get_autopilot` reports it) as a level. */
+function shipLevel(stored: Partial<AutopilotShipPolicy> | undefined): { level: ShipLevel; remote: string } {
+	return {
+		level: stored?.autoRelease?.on ? "release" : stored?.autoPush ? "push" : "commit",
+		remote: typeof stored?.remote === "string" && stored.remote ? stored.remote : "origin",
+	};
 }
 
 export class AgentControlRuntime {
@@ -515,15 +524,30 @@ export class AgentControlRuntime {
 		return device ? this.#remote().request<T>(device, method, params, GIT_REQUEST_TIMEOUT_MS) : local();
 	}
 
-	/** `Autopilot.handleCommand` for one run tab, as the Autopilot screen sends it; a failure throws its readable message. */
+	/**
+	 * `Autopilot.handleCommand` for one tab, as the Autopilot screen sends it; a failure throws its readable message.
+	 * A paired host's tab goes through its own link: that host's coordinator answers (`LocalHostServices`), so a run
+	 * of a host folder is the host's (worktree, guard, shipping, restart) and its start counts against this device's
+	 * daily requests there.
+	 */
 	async #autopilotCommand(
 		win: ClientWindow,
 		tabId: string,
 		command: { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction),
-	): Promise<AutopilotStatus> {
+	): Promise<AutopilotStatus & { tabId?: string; sessionPath?: string }> {
 		const autopilot = this.#deps.autopilot;
 		if (!autopilot) throw new Error("Autopilot is not available here.");
-		const response = await autopilot.command(win, this.#sidecar(tabId), tabId, command);
+		const sidecar = this.#sidecar(tabId);
+		const response = sidecar.device
+			? await this.#deps.dispatch(
+					win,
+					sidecar,
+					tabId,
+					command as RpcCommand,
+					// A start makes the worktree and waits for the run's omp on the host.
+					command.type === "set_autopilot" ? MAX_RPC_COMMAND_TIMEOUT_MS : undefined,
+				)
+			: await autopilot.command(win, sidecar, tabId, command);
 		if (!response.success) throw new Error(response.error ?? "Autopilot refused.");
 		return response.data as AutopilotStatus;
 	}
@@ -532,13 +556,6 @@ export class AgentControlRuntime {
 		const deps = this.#deps;
 		const autopilot = deps.autopilot;
 		if (!autopilot) return undefined;
-		const shipPref = (): { level: ShipLevel; remote: string } => {
-			const stored = deps.prefs.get("autopilotShip") as Partial<AutopilotShipPolicy> | undefined;
-			return {
-				level: stored?.autoRelease?.on ? "release" : stored?.autoPush ? "push" : "commit",
-				remote: typeof stored?.remote === "string" && stored.remote ? stored.remote : "origin",
-			};
-		};
 		const winFor = (tabId: string): ClientWindow => {
 			const win = this.#win(tabId) ?? [...this.#windows.values()][0];
 			if (!win) throw new Error("That session's window is gone.");
@@ -546,7 +563,15 @@ export class AgentControlRuntime {
 		};
 		return {
 			plan: async sourceTabId => {
-				const { level, remote } = shipPref();
+				// A paired host's folder follows that host's stored ship level and its repository's default branch.
+				if (this.#sidecar(sourceTabId).device) {
+					const idle = await this.#autopilotCommand(winFor(sourceTabId), sourceTabId, { type: "get_autopilot" });
+					return {
+						defaultShip: shipLevel(idle.ship?.policy).level,
+						defaultBranch: idle.branches?.defaultBranch ?? null,
+					};
+				}
+				const { level, remote } = shipLevel(deps.prefs.get("autopilotShip") as Partial<AutopilotShipPolicy>);
 				const defaultBranch = await autopilot
 					.defaultBranch(this.#sidecar(sourceTabId).cwd, remote)
 					.catch(() => null);
@@ -554,17 +579,32 @@ export class AgentControlRuntime {
 			},
 			start: async (callerTabId, sourceTabId, options) => {
 				const win = winFor(callerTabId);
-				const started = (await this.#autopilotCommand(win, sourceTabId, {
+				const device = this.#sidecar(sourceTabId).device;
+				const started = await this.#autopilotCommand(win, sourceTabId, {
 					type: "set_autopilot",
 					action: "start",
 					...options,
-				})) as AutopilotStatus & { tabId: string };
+				});
+				let tabId = started.tabId;
+				if (!tabId) throw new Error("Autopilot named no session for the run.");
+				// The run is a tab of the host; here it is that session, opened as a view of the host's tab (one omp).
+				if (device) {
+					const host = deps.deviceName(device);
+					if (!started.sessionPath)
+						throw new Error(
+							`The run started on ${host}, but its session file is unknown, so it cannot be shown here.`,
+						);
+					const shown = await deps.spawnTab(win, { device, sessionPath: started.sessionPath });
+					if (!shown?.tabId)
+						throw new Error(`The run started on ${host}, but its session could not be opened here.`);
+					tabId = shown.tabId;
+				}
 				// The run is the caller's child like a session it opened: family nesting, the review queue, stop without a card.
-				this.#windows.set(started.tabId, win);
-				this.#parents.set(started.tabId, { callerTabId });
-				this.#autopilotRuns.add(started.tabId);
-				deps.pool.setTabOpener(started.tabId, callerTabId);
-				return started;
+				this.#windows.set(tabId, win);
+				this.#parents.set(tabId, { callerTabId });
+				this.#autopilotRuns.add(tabId);
+				deps.pool.setTabOpener(tabId, callerTabId);
+				return { ...started, tabId };
 			},
 			status: tabId => this.#autopilotCommand(winFor(tabId), tabId, { type: "get_autopilot" }),
 			stop: (tabId, now) =>

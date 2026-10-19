@@ -320,6 +320,56 @@ describe("AgentControlRuntime", () => {
 		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(2);
 	});
 
+	it("starts a run on a paired host through that host's coordinator and shows it here as a view of its session", async () => {
+		const local = vi.fn(async () => ({ type: "response", success: false, error: "local" }) as RpcResponse);
+		const { runtime, win, deps, prefs, spawned, openers, sidecars } = setup({
+			tabs: [
+				{ tabId: "main0001", title: "Boss", device: "dev1", cwd: "/h/repo" },
+				{ tabId: "new00003", title: "Run", device: "dev1", cwd: "/h/wt" },
+			],
+			autopilot: { command: local, defaultBranch: async () => "local-only" },
+		});
+		sidecars.set("main0001", { cwd: "/h/repo", device: "dev1" });
+		sidecars.set("new00003", { cwd: "/h/wt", device: "dev1" });
+		const sent: { tabId: string; command: RpcCommand; timeoutMs?: number }[] = [];
+		deps.dispatch = async (_win, _sidecar, tabId, command, timeoutMs) => {
+			sent.push({ tabId, command, ...(timeoutMs ? { timeoutMs } : {}) });
+			if (command.type === "get_autopilot" && tabId === "main0001")
+				return ok({
+					active: false,
+					ship: { policy: { autoPush: true, autoRelease: { on: false }, remote: "origin" }, queue: [] },
+					branches: { repo: "/h/repo", remote: "origin", defaultBranch: "trunk", suggested: "x", branches: [] },
+				});
+			if (command.type === "set_autopilot" && command.action === "start")
+				return ok({ active: true, state: "running", tabId: "hostrun9", sessionPath: "/h/sessions/run.jsonl" });
+			if (command.type === "agent_control_confirm") return ok({ approved: true });
+			return ok({ active: true, state: "stopping" });
+		};
+		prefs.agentControlManage = true;
+		prefs.agentControlFull = false;
+		const started = await runtime.run(win, "main0001", T.autopilot, { action: "start" });
+		expect(started.isError, started.text).toBe(false);
+		// The host's default branch decides the card: trunk is the default there, so naming it asks.
+		const branchCard = await runtime.run(win, "main0001", T.autopilot, {
+			action: "start",
+			branch: { kind: "existing", name: "trunk" },
+		});
+		expect(branchCard.isError, branchCard.text).toBe(false);
+		expect(sent.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(1);
+		expect(local).not.toHaveBeenCalled();
+		const start = sent.find(entry => entry.command.type === "set_autopilot");
+		expect(start?.tabId).toBe("main0001");
+		expect(start?.command).toEqual({ type: "set_autopilot", action: "start" });
+		expect(start?.timeoutMs).toBeGreaterThanOrEqual(960_000);
+		expect(spawned[0]).toEqual({ device: "dev1", sessionPath: "/h/sessions/run.jsonl" });
+		expect(started.text).toContain("new00003");
+		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "main0001" });
+		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
+		const status = await runtime.run(win, "main0001", T.autopilot, { action: "status", session: "new00003" });
+		expect(status.isError, status.text).toBe(false);
+		expect(sent.at(-1)).toMatchObject({ tabId: "new00003", command: { type: "get_autopilot" } });
+	});
+
 	it("rejects a worktree base that is not HEAD or default, and a folder that does not exist", async () => {
 		const { runtime, win, spawned } = setup();
 		expect((await runtime.run(win, "main0001", T.open, { worktree: { base: "feature/x" } })).text).toMatch(
