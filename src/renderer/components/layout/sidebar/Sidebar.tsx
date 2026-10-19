@@ -829,10 +829,42 @@ export function Sidebar() {
 		() => new Map(Object.values(reviewByTab).flatMap(items => items.map(item => [item.tabId, item]))),
 		[reviewByTab],
 	);
+	// A window viewing an opener another window holds (a phone or tablet viewing a desktop's session) holds no tab of
+	// the sessions its agent opened: main's review list, pushed to every window showing the opener, is all it knows of
+	// them. Child session file → its item, and → the opener's file (exact, where the brief only names a title that may
+	// have changed since).
+	const reviewOfPath = useMemo(
+		() =>
+			new Map(
+				Object.values(reviewByTab).flatMap(items =>
+					items.flatMap(item => (item.sessionPath ? [[item.sessionPath, item] as const] : [])),
+				),
+			),
+		[reviewByTab],
+	);
+	const recordedOpeners = useMemo(() => {
+		const openers = new Map(closedOpeners);
+		for (const [openerTabId, items] of Object.entries(reviewByTab)) {
+			const opener = localTabs.find(tab => tab.id === openerTabId)?.sessionPath;
+			if (!opener) continue;
+			for (const item of items) if (item.sessionPath) openers.set(item.sessionPath, opener);
+		}
+		return openers;
+	}, [closedOpeners, reviewByTab, localTabs]);
 	useEffect(() => {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
 	}, []);
+	// A tab this window views (another window or device holds it) learns its children's states only from main's
+	// pushes, which come when a child starts or ends: ask once for each, so a page that just opened sees them now.
+	const viewedTabIds = localTabs
+		.filter(tab => tab.shared)
+		.map(tab => tab.id)
+		.join("\n");
+	useEffect(() => {
+		for (const tabId of viewedTabIds ? viewedTabIds.split("\n") : [])
+			void useAgentReviewStore.getState().refresh(tabId);
+	}, [viewedTabIds]);
 	const familyRootOf = useMemo(() => {
 		const roots = openerOfSessions(
 			localTabs,
@@ -845,12 +877,12 @@ export function Sidebar() {
 				firstMessage: session.promptOriginDevice ? undefined : session.firstMessage,
 				created: session.created,
 			})),
-			closedOpeners,
+			recordedOpeners,
 		);
 		// An Autopilot child keeps its run's row, whoever its brief names.
 		for (const path of runParentOf.keys()) roots.delete(path);
 		return roots;
-	}, [localTabs, codeSessions, closedOpeners, runParentOf]);
+	}, [localTabs, codeSessions, recordedOpeners, runParentOf]);
 	// A closed session an agent opened, whose opener row is not in the list, still is no row of its own and no
 	// "parallel work" group: it folds into its project's group. Session path → that project's main checkout. The agent
 	// brief and the record are what tell; an `omp/agent/…` worktree is the last resort for a file with neither.
@@ -1585,17 +1617,20 @@ export function Sidebar() {
 			t(row.indexed ? "sidebar.untitled" : "sidebar.newSession");
 		const deletable = row.indexed && !row.busy;
 		const lastRun = row.tab?.lastRun;
-		const review = openTabId ? reviewOf.get(openTabId) : undefined;
+		// No tab here and none a paired device runs: another window holds it, and main's review list says how it is.
+		const elsewhere = row.tab === undefined && row.hosted === undefined ? reviewOfPath.get(child.path) : undefined;
+		const review = openTabId ? reviewOf.get(openTabId) : elsewhere;
 		const failed =
 			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
 		const status = openedChildStatus({
-			waiting: row.waiting !== undefined,
-			running: row.running,
-			finished:
-				lastRun !== undefined ||
-				closedTitleOf.has(child.path) ||
-				(row.tab === undefined && row.hosted === undefined) ||
-				(!row.busy && child.messageCount >= 2),
+			waiting: row.waiting !== undefined || elsewhere?.waiting === true,
+			running: elsewhere ? elsewhere.state === "running" : row.running,
+			finished: elsewhere
+				? elsewhere.state !== "running"
+				: lastRun !== undefined ||
+					closedTitleOf.has(child.path) ||
+					(row.tab === undefined && row.hosted === undefined) ||
+					(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged:
 				review?.branch !== undefined &&
@@ -1607,7 +1642,11 @@ export function Sidebar() {
 				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
 				: status === "done"
 					? t("tabs.done")
-					: (row.statusLabel ?? "");
+					: status === "waiting" && row.waiting === undefined
+						? t("sidebar.row.needsInput")
+						: status === "running" && !row.running
+							? t("sidebar.signal.running")
+							: (row.statusLabel ?? "");
 		// A closed one keeps what main recorded when it closed it.
 		const usage = childUsage[child.path] ?? closedChildren.find(row => row.path === child.path);
 		return {
@@ -1659,13 +1698,14 @@ export function Sidebar() {
 				"data-session-kind": child.kind ?? "agent",
 				"data-session-path": child.path,
 				"data-sidebar-opened-session": true,
-				"data-signal": row.waiting
-					? "waiting"
-					: row.running
-						? "running"
-						: status === "problem"
-							? "error"
-							: undefined,
+				"data-signal":
+					status === "waiting"
+						? "waiting"
+						: status === "running"
+							? "running"
+							: status === "problem"
+								? "error"
+								: undefined,
 				"data-child-status": status ?? undefined,
 			},
 		};

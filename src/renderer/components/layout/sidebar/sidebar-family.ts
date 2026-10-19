@@ -267,9 +267,10 @@ function briefOpenerOf(child: FamilySession, sessions: readonly FamilySession[])
 /**
  * Which session each opened session nests under: child session path → the path of the session that started the chain.
  * A tab names its opener by tab id while both live, and by the opener's session file after a relaunch (every tab id is
- * new then, and the opener needs no tab: its stored session is enough). A session without a tab (main closed it after
- * its work landed, or the person closed it) is found by the record naming the opener's file, else, for one opened
- * before either was kept, by the sender its first message's agent brief names. Whatever its folder or worktree, an
+ * new then, and the opener needs no tab: its stored session is enough). A session without a tab here is found by what
+ * main recorded naming the opener's file (`recordedOpeners`: the closed-children record for one main closed after its
+ * work landed, the review list for one another window holds), else, for one opened before either was kept, by the
+ * sender its first message's agent brief names (a title, which may have changed since). Whatever its folder or worktree, an
  * opened session goes under its opener; one opened by an opened session goes under the first of them, so the family
  * is one level deep. A session whose opener is not in the list (deleted, or in another lane) is not nested, and a
  * cycle nests nothing.
@@ -277,7 +278,7 @@ function briefOpenerOf(child: FamilySession, sessions: readonly FamilySession[])
 export function openerOfSessions(
 	tabs: readonly FamilyTab[],
 	sessions: readonly FamilySession[],
-	closedOpeners: ReadonlyMap<string, string> = new Map(),
+	recordedOpeners: ReadonlyMap<string, string> = new Map(),
 ): Map<string, string> {
 	const tabOf = (session: FamilySession): FamilyTab | undefined =>
 		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
@@ -302,7 +303,7 @@ export function openerOfSessions(
 	}
 	for (const session of sessions) {
 		if (direct.has(session.path)) continue;
-		const opener = closedOpeners.get(session.path);
+		const opener = recordedOpeners.get(session.path);
 		if (opener && opener !== session.path && known.has(opener)) {
 			direct.set(session.path, opener);
 			continue;

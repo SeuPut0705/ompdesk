@@ -195,6 +195,11 @@ export const AGENT_CONTROL_REVIEW = "agent-control:review";
 
 export interface AgentReviewItem {
 	tabId: string;
+	/**
+	 * Its session file, once omp has one: a window that holds no tab of it (a phone or tablet viewing the opener a
+	 * desktop window holds) ties the sidebar's stored row to this item by it.
+	 */
+	sessionPath?: string;
 	title: string;
 	/** `running`: still working (shown as progress); `needs-review`: finished; `conflict`: Approve found a merge conflict (`note` names the files). */
 	state: "running" | "needs-review" | "conflict";

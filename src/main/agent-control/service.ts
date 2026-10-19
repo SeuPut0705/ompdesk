@@ -2135,6 +2135,7 @@ export class AgentControl {
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
+			...(tab.sessionPath ? { sessionPath: tab.sessionPath } : {}),
 			title: tab.title || tab.task || "",
 			state: running ? "running" : conflict ? "conflict" : "needs-review",
 			commitsAhead: 0,

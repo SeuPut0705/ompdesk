@@ -113,6 +113,7 @@ export function openedChildRows(input: {
 		rows.push({
 			key: item.tabId,
 			tabId: item.tabId,
+			...(item.sessionPath ? { sessionPath: item.sessionPath } : {}),
 			title: item.title,
 			status: openedChildStatus({
 				waiting: item.waiting === true,
