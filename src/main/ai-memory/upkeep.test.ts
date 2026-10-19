@@ -345,22 +345,15 @@ describe("MemoryUpkeep.tick", () => {
 		expect(created[0]?.body).toContain("_Replaces [[_rules/세션-수-상한-8개.md]]._");
 	});
 
-	it("without a named page the code rule supersedes the similar same-kind title and leaves an unrelated one", async () => {
+	it("without a named page nothing is superseded, however similar a title is", async () => {
 		const { client, retired } = fakeClient(
 			[{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }],
-			[
-				{ path: "decisions/use-sqlite-for-the-cache.md", title: "Use SQLite for the cache" },
-				{ path: "decisions/tailscale-only.md", title: "Computers share over Tailscale only" },
-			],
+			[{ path: "_rules/run-the-checks-before-pushing.md", title: "Run the checks before pushing" }],
 		);
-		const decision = { ...rule, kind: "decision", title: "Use SQLite for the session cache" };
-		const other = { ...rule, kind: "decision", title: "Pin the judge model to 1.14" };
-		const outcome = await upkeep(client, { model: async () => answer([decision, other]) }).tick();
-		expect(outcome).toMatchObject({
-			created: ["decisions/use-sqlite-for-the-session-cache.md", "decisions/pin-the-judge-model-to-1-14.md"],
-			superseded: ["decisions/use-sqlite-for-the-cache.md → decisions/use-sqlite-for-the-session-cache.md"],
-		});
-		expect(retired.map(entry => entry.path)).toEqual(["decisions/use-sqlite-for-the-cache.md"]);
+		const similar = { ...rule, title: "Run the checks before merging" };
+		const outcome = await upkeep(client, { model: async () => answer([similar]) }).tick();
+		expect(outcome).toMatchObject({ created: ["_rules/run-the-checks-before-merging.md"], superseded: [] });
+		expect(retired).toEqual([]);
 	});
 
 	it("never supersedes when the new page was not written, nor a page its owner pinned", async () => {
