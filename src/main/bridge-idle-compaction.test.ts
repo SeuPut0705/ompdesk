@@ -6,9 +6,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	IDLE_COMPACTION_CACHE_LEAD_MS,
 	IdleCompactionTimer,
 	type IdleSession,
 	type IdleSettings,
+	type PromptCacheEntry,
 } from "../../resources/gui-bridge/idle-compaction-core";
 
 interface FakeSession extends IdleSession {
@@ -16,6 +18,7 @@ interface FakeSession extends IdleSession {
 	isCompacting: boolean;
 	tokens: number;
 	runs: number;
+	promptCacheEntry?: PromptCacheEntry;
 }
 
 function fakeSession(tokens = 250_000): FakeSession {
@@ -35,9 +38,15 @@ function fakeSession(tokens = 250_000): FakeSession {
 let settings: IdleSettings;
 const read = () => settings;
 
+// Stock `getCacheWarmingDelayMs` (session/cache-warmer.ts); the bridge gets the real one, pinned by
+// bridge-idle-compaction-stock.test.ts.
+const cacheWarmingDelayMs = (ttlMs: number) =>
+	ttlMs <= 10_000 ? undefined : Math.max(1, Math.floor(Math.min(ttlMs * 0.9, ttlMs - 10_000)));
+const HOUR = 3_600_000;
+
 beforeEach(() => {
 	vi.useFakeTimers();
-	settings = { idleEnabled: true, idleThresholdTokens: 200_000, idleTimeoutSeconds: 300 };
+	settings = { idleEnabled: true, idleThresholdTokens: 200_000, idleTimeoutSeconds: 300, cacheWarmingDelayMs };
 });
 
 afterEach(() => {
@@ -90,6 +99,47 @@ describe("idle compaction timer", () => {
 		expect(session.runs).toBe(1);
 		vi.advanceTimersByTime(1_000);
 		expect(session.runs).toBe(2);
+	});
+
+	it("compacts just before a 1-hour prompt cache entry lapses, and at once past that point", async () => {
+		const session = fakeSession();
+		const timer = new IdleCompactionTimer(read);
+		// The turn's last request wrote a long-tier entry 2 minutes ago: compaction waits for the entry, not the setting.
+		session.promptCacheEntry = { tier: "long", ttlMs: HOUR, touchedAt: Date.now() - 120_000 };
+		const due = (cacheWarmingDelayMs(HOUR) ?? 0) - 120_000 - IDLE_COMPACTION_CACHE_LEAD_MS;
+		await timer.onEvent({ type: "agent_end" }, session);
+		vi.advanceTimersByTime(300_000);
+		expect(session.runs).toBe(0);
+		vi.advanceTimersByTime(due - 300_000 - 1);
+		expect(session.runs).toBe(0);
+		vi.advanceTimersByTime(1);
+		expect(session.runs).toBe(1);
+		// A turn that settles after that point but before the entry expires compacts right away.
+		session.promptCacheEntry = {
+			tier: "long",
+			ttlMs: HOUR,
+			touchedAt: Date.now() - (cacheWarmingDelayMs(HOUR) ?? 0),
+		};
+		await timer.onEvent({ type: "agent_end" }, session);
+		vi.advanceTimersByTime(0);
+		expect(session.runs).toBe(2);
+	});
+
+	it("keeps the configured delay for a 5-minute entry, an expired one and one with no known lifetime", async () => {
+		for (const entry of [
+			{ tier: "short", ttlMs: 300_000, touchedAt: Date.now() },
+			{ tier: "long", ttlMs: HOUR, touchedAt: Date.now() - HOUR - 1 },
+			{ tier: "long", ttlMs: 5_000, touchedAt: Date.now() },
+		] satisfies PromptCacheEntry[]) {
+			const session = fakeSession();
+			session.promptCacheEntry = entry;
+			const timer = new IdleCompactionTimer(read);
+			await timer.onEvent({ type: "agent_end" }, session);
+			vi.advanceTimersByTime(299_999);
+			expect(session.runs, entry.tier).toBe(0);
+			vi.advanceTimersByTime(1);
+			expect(session.runs, entry.tier).toBe(1);
+		}
 	});
 
 	it("cancels on agent_start and auto-compaction, and re-checks state when it fires", async () => {

@@ -1001,11 +1001,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"@oh-my-pi/pi-tui/overlays/model-browser": ["resolveRoleAssignments()"],
 		},
 	},
-	/** idle-compaction.ts: the TUI's idle timer re-armed on the live session; stock does the work. */
+	/**
+	 * idle-compaction.ts: the TUI's idle timer re-armed on the live session; stock does the work. `promptCacheEntry`
+	 * (omp ≥ 18.12.2, when stock's own timer started compacting ahead of a 1-hour cache entry) is read when present;
+	 * without it the timer keeps the configured delay, as stock's did.
+	 */
 	idleCompaction: {
 		session: ["subscribe()", "settings", "isStreaming", "isCompacting", "getContextUsage()", "runIdleCompaction()"],
 		modules: {
 			[`${AGENT}/session/context-settings`]: ["cfgCompaction.get()"],
+			[`${AGENT}/session/cache-warmer`]: ["getCacheWarmingDelayMs()"],
 		},
 	},
 	/**
