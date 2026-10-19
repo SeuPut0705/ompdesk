@@ -1,10 +1,10 @@
 /**
  * Region A views on the fake omp (MixA6/MixA7):
- * - file cards (A26/A111, cc765fa): the composer cards each `@path` the draft
- *   names (a PDF's first page, a workbook's rows, a text file's lines; a word
- *   that names no file gets none) and × takes the mention out; a reply's
- *   Excel, CSV and PowerPoint files get cards under it, a removed one reads
- *   "Deleted";
+ * - file cards (A26/A111, cc765fa): the composer chips each `@path` the draft
+ *   names with its name, its type and size in the tooltip and no preview (the
+ *   compact chips of 15a52353; a word that names no file gets none) and × takes
+ *   the mention out; a reply's Excel, CSV and PowerPoint files get cards under
+ *   it, a removed one reads "Deleted" (a reply's PDF page: chat-media.e2e.ts);
  * - the side panel's Subagent view (A81): a sidebar subagent row dragged onto
  *   the session opens its transcript in the side panel, and the row menu's
  *   "Open in side panel" does the same for another agent;
@@ -134,10 +134,17 @@ for (const language of variants(["en", "ko"] as const))
 					timeout: 15_000,
 				});
 				await expect(draftCards.locator("[data-file-card]")).toHaveCount(3);
-				await expect(draftCards.locator('[data-file-card="pdf"] canvas')).toBeVisible();
-				await expect(draftCards.locator('[data-file-card="spreadsheet"]')).toContainText("Excel · ");
-				await expect(draftCards.locator('[data-file-card="spreadsheet"] table')).toContainText("Ada");
-				await expect(draftCards.locator('[data-file-card="text"] pre')).toContainText("Ship the cards");
+				// Compact chips: the type and size are the tooltip; no chip reads or draws a preview.
+				await expect(draftCards.locator('[data-file-card="pdf"]')).toHaveAttribute(
+					"title",
+					/^docs\/spec\.pdf\nPDF · /,
+				);
+				await expect(draftCards.locator('[data-file-card="spreadsheet"]')).toHaveAttribute(
+					"title",
+					/^docs\/q3\.xlsx\nExcel · /,
+				);
+				await expect(draftCards.locator('[data-file-card="text"]')).toContainText("notes.txt");
+				await expect(draftCards.locator("canvas, table, pre")).toHaveCount(0);
 				await capture(page, `${language}-${theme}-composer-cards`);
 				if (language === "en" && theme === "dark") {
 					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(720, 860));
