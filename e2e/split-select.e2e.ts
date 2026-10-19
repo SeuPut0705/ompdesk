@@ -310,6 +310,8 @@ for (const [language, theme] of variants(RUNS)) {
 			// 4. Leave to Gamma, relaunch: the remembered split is still there.
 			await pick(page, "Gamma");
 			await expect(page.locator(".omp-session-pane")).toHaveCount(1);
+			// The relaunch restores main's layout: quit only once main has the pick (the pane count is the renderer's).
+			await expect.poll(() => activeName(page)).toBe("Gamma");
 			await exitApp(launched.app);
 			launched = await launch(root, language, theme, true);
 			page = launched.page;
