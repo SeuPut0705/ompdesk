@@ -1,13 +1,14 @@
 /**
- * "Save diagnostic bundle": stock's `/dump all|anon` zip of one open session, with OMPdesk's own redacted
- * diagnostics text (the report Settings › Updates & about › Copy diagnostics copies) added as
+ * "Save diagnostic bundle": stock's `/dump all|anon` zip of one open session, every member redacted, with OMPdesk's
+ * own redacted diagnostics text (the report Settings › Updates & about › Copy diagnostics copies) added as
  * `ompdesk-diagnostics.txt`, saved where the person chose.
  *
  * The tab's own omp writes stock's archive (`dump_session_archive`, local handler `src/main/local/session-dump.ts`
  * over the bridge's `session_dump`), so a tab on a paired host dumps on the host through the ordinary tab RPC path
- * and its bytes come back over `host.fs.readBinary`, the route a remote tab's file viewer reads with. The archive
- * is deleted on the machine that wrote it (`discard_session_archive`) whether the save worked or not. The bundle is
- * one zip: jszip (bundled into main, `MAIN_BUNDLED_DEPS`) opens stock's archive and adds the member.
+ * and its bytes come back over `host.fs.readBinary`, the route a remote tab's file viewer reads with. That handler
+ * redacts every member on the machine that wrote it; an archive not marked `redacted` (an older host) is refused,
+ * never saved. The archive is deleted on the machine that wrote it (`discard_session_archive`) whether the save
+ * worked or not. The bundle is one zip: jszip (bundled into main, `MAIN_BUNDLED_DEPS`) opens it and adds the member.
  *
  * Electron-free: the dialog, the Downloads folder, the pool and the host link come in as `DiagnosticBundleDeps`.
  */
@@ -74,6 +75,8 @@ const Archive = z.object({
 	files: z.array(z.string()),
 	subagentCount: z.number().int().nonnegative(),
 	anonymized: z.boolean(),
+	redacted: z.literal(true),
+	dropped: z.array(z.string()).optional(),
 	subagentError: z.string().optional(),
 });
 
@@ -127,9 +130,11 @@ async function bundledBytes(
 	const response = await client.command(dump, timeoutForCommand(dump));
 	if (!response.success) return failure(isIpcErrorCode(response.code) ? response.code : undefined, response.error);
 	const archive = Archive.safeParse(response.data);
-	if (!archive.success)
-		return failure("remote_protocol", "The omp answered the dump in a form this app does not know");
+	const written = z.object({ path: z.string().min(1) }).safeParse(response.data);
 	try {
+		// An older host answers its raw, unredacted archive: refused unread (and still deleted below).
+		if (!archive.success)
+			return failure("remote_protocol", "The omp answered the dump in a form this app does not know");
 		const bytes = await archiveBytes(deps, tab, archive.data.path);
 		if ("ok" in bytes) return bytes;
 		const zip = await JSZip.loadAsync(bytes);
@@ -137,8 +142,10 @@ async function bundledBytes(
 		return { archive: archive.data, zip: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }) };
 	} finally {
 		// Best effort: a link that dropped meanwhile leaves the host's temp file to its own cleanup.
-		const discard: RpcCommand = { type: "discard_session_archive", path: archive.data.path };
-		await client.command(discard).catch(() => undefined);
+		if (written.success) {
+			const discard: RpcCommand = { type: "discard_session_archive", path: written.data.path };
+			await client.command(discard).catch(() => undefined);
+		}
 	}
 }
 
@@ -187,6 +194,7 @@ export async function saveDiagnosticBundle(
 			subagentCount: archive.subagentCount,
 			anonymized: archive.anonymized,
 			...(archive.subagentError ? { subagentError: archive.subagentError } : {}),
+			...(archive.dropped?.length ? { dropped: archive.dropped } : {}),
 		};
 	} catch (error) {
 		return failure(ipcErrorCode(error), error instanceof Error ? error.message : String(error));

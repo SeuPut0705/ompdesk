@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactDiagnosticsText as redact } from "./redactor";
+import { redactDiagnosticsText as redact, redactDiagnosticsFile } from "./redactor";
 
 describe("redactDiagnosticsText: credentials", () => {
 	it("redacts GitHub tokens in every prefix", () => {
@@ -169,5 +169,44 @@ describe("redactDiagnosticsText: a runtime log line", () => {
 		expect(out).toContain("<email>");
 		expect(out).toContain("<token>");
 		expect(JSON.parse(out)).toBeTruthy();
+	});
+});
+
+describe("redactDiagnosticsFile: a diagnostic bundle's members", () => {
+	const request = {
+		systemPrompt: "cwd /Users/jane/proj",
+		apiKey: "hunter2-hunter2",
+		credentials: { type: "oauth", tokens: 3 },
+		maxTokens: 4096,
+		messages: [{ content: "mail jane@example.com" }],
+	};
+
+	it("keeps a .json member valid JSON in stock's layout, blanking a field that names a secret", () => {
+		const text = `${JSON.stringify(request, null, 2)}\n`;
+		const out = redactDiagnosticsFile("llm-request.json", text);
+		expect(JSON.parse(out)).toEqual({
+			systemPrompt: "cwd ~/proj",
+			apiKey: "<secret>",
+			credentials: { type: "oauth", tokens: 3 },
+			maxTokens: 4096,
+			messages: [{ content: "mail <email>" }],
+		});
+		expect(out).toMatch(/^\{\n {2}"systemPrompt"/);
+		expect(out.endsWith("}\n")).toBe(true);
+		// Plain text redaction would have broken the object under `credentials`.
+		expect(() => JSON.parse(redact(text))).toThrow();
+	});
+
+	it("redacts a .jsonl member line by line, and a line that is not JSON as text", () => {
+		const out = redactDiagnosticsFile("session.jsonl", `${JSON.stringify(request)}\nraw /Users/jane/x\n`);
+		const [first, second, last] = out.split("\n");
+		expect(JSON.parse(first ?? "")).toMatchObject({ apiKey: "<secret>", systemPrompt: "cwd ~/proj" });
+		expect(second).toBe("raw ~/x");
+		expect(last).toBe("");
+	});
+
+	it("redacts a .json member that does not parse, and any other member, as text", () => {
+		expect(redactDiagnosticsFile("llm-request.json", '{"cut": "/Users/jane/x')).toBe('{"cut": "~/x');
+		expect(redactDiagnosticsFile("session.md", "token=abc123def from /Users/jane")).toBe("token=<secret> from ~");
 	});
 });

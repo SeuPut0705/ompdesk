@@ -1,7 +1,7 @@
 /**
- * "Save diagnostic bundle": stock's `/dump all|anon` zip of one open session plus OMPdesk's own redacted
- * diagnostics text, saved where the person chose. Dependency-free: main, the renderer and a paired web page's shim
- * share these shapes and the default file name.
+ * "Save diagnostic bundle": stock's `/dump all|anon` zip of one open session, every member redacted, plus OMPdesk's
+ * own redacted diagnostics text, saved where the person chose. Dependency-free: main, the renderer and a paired web
+ * page's shim share these shapes and the default file name.
  */
 import type { IpcErrorCode } from "./ipc-error-codes";
 
@@ -44,16 +44,23 @@ export type DiagnosticBundleResult =
 			anonymized: boolean;
 			/** Why stock could not collect subagent transcripts; the main transcript is archived regardless. */
 			subagentError?: string;
+			/** Stock members left out because they are not text (only text can be redacted). */
+			dropped?: string[];
 	  }
 	| { ok: false; cancelled: true }
 	| { ok: false; cancelled?: undefined; error: string; code?: IpcErrorCode };
 
-/** What the tab's omp answers to `dump_session_archive` (stock's `SessionDumpArchive` with `anonymized` always set). */
+/**
+ * What the tab's omp answers to `dump_session_archive`: stock's `SessionDumpArchive` repacked with every text member
+ * redacted (`redacted`, so a client never takes an older host's raw archive) and non-text members `dropped`.
+ */
 export interface SessionArchive {
 	path: string;
 	files: string[];
 	subagentCount: number;
 	anonymized: boolean;
+	redacted: true;
+	dropped?: string[];
 	subagentError?: string;
 }
 

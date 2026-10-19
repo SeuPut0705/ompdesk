@@ -1,6 +1,7 @@
 /**
- * Redacts what a copied diagnostics report must not carry (Settings › Updates & about ›
- * Copy diagnostics, `diagnostics.ts`). Pure text in, text out; nothing is read or sent.
+ * Redacts what a copied diagnostics report or a saved diagnostic bundle must not carry (Settings › Updates &
+ * about › Copy diagnostics, `diagnostics.ts`; every member of the bundle zip, `local/session-dump.ts`). Pure
+ * text in, text out; nothing is read or sent.
  *
  * Rule groups, applied in this order:
  *  1. credentials: URL userinfo, PEM blocks, JWTs, vendor tokens (`gh*_`, `github_pat_`, `sk-`, `xox*-`,
@@ -37,12 +38,18 @@ const VENDOR_TOKEN = new RegExp(
 	"g",
 );
 const BEARER = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi;
+/** A key or field name that names a secret. `tokens` (a count) does not. */
+const SECRET_NAME =
+	"[\\w.-]*(?:api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret|token(?!s\\b)|passw(?:or)?d|passwd|pwd|credentials?|authorization|cookie)[\\w.-]*";
+const SECRET_FIELD = new RegExp(`^${SECRET_NAME}$`, "i");
 /**
  * A key that names a secret, `=` or `:`, then its value (quoted, or up to a delimiter). Also matches
- * a key inside an escaped JSON string (`\"token\":\"x\"`). `tokens` (a count) is not a secret.
+ * a key inside an escaped JSON string (`\"token\":\"x\"`).
  */
-const KEY_VALUE =
-	/(\\?["']?\b[\w.-]*(?:api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret|token(?!s\b)|passw(?:or)?d|passwd|pwd|credentials?|authorization|cookie)[\w.-]*\\?["']?[ \t]*[:=][ \t]*)("[^"\n]*"|'[^'\n]*'|\\?"?[^\s"'\\,;&}]+)/gi;
+const KEY_VALUE = new RegExp(
+	`(\\\\?["']?\\b${SECRET_NAME}\\\\?["']?[ \\t]*[:=][ \\t]*)("[^"\\n]*"|'[^'\\n]*'|\\\\?"?[^\\s"'\\\\,;&}]+)`,
+	"gi",
+);
 const LONG_HEX = /(?<![\w-])[0-9a-fA-F]{32,}(?![\w-])/g;
 const LONG_BASE64 = /(?<![\w+=-])[A-Za-z0-9_+=-]{32,}(?![\w+=-])/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
@@ -93,4 +100,47 @@ export function redactDiagnosticsText(text: string): string {
 		.replace(IPV6_LINK_LOCAL, "<lan-ip>")
 		.replace(WINDOWS_HOME, "~")
 		.replace(POSIX_HOME, "~");
+}
+
+/** A JSON value with every string redacted, and a string under a field that names a secret blanked whole. */
+function redactJsonValue(value: unknown, secretField: boolean): unknown {
+	if (typeof value === "string") return secretField && !isInertValue(value) ? SECRET : redactDiagnosticsText(value);
+	if (Array.isArray(value)) return value.map(item => redactJsonValue(item, secretField));
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, item]) => [
+			redactDiagnosticsText(key),
+			redactJsonValue(item, SECRET_FIELD.test(key)),
+		]),
+	);
+}
+
+/** One JSON document redacted value by value (so it stays valid JSON), in stock's own layout; null when it is not JSON. */
+function redactJsonText(text: string, indent: number): string | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	return JSON.stringify(redactJsonValue(parsed, false), null, indent);
+}
+
+/**
+ * A text file of a diagnostic bundle (stock's `/dump all|anon` members). `.json` and `.jsonl` are redacted value by
+ * value so the file still parses; a document or line that is not JSON, and every other file, as plain text.
+ */
+export function redactDiagnosticsFile(name: string, text: string): string {
+	if (/\.jsonl$/i.test(name)) {
+		return text
+			.split("\n")
+			.map(line => (line.trim() === "" ? line : (redactJsonText(line, 0) ?? redactDiagnosticsText(line))))
+			.join("\n");
+	}
+	if (/\.json$/i.test(name)) {
+		const body = text.replace(/\n$/, "");
+		const redacted = redactJsonText(body, /^[[{]\n/.test(body) ? 2 : 0);
+		return redacted === null ? redactDiagnosticsText(text) : `${redacted}${text.endsWith("\n") ? "\n" : ""}`;
+	}
+	return redactDiagnosticsText(text);
 }

@@ -48,8 +48,10 @@ async function membersOf(file: string): Promise<Record<string, string>> {
 	return members;
 }
 
-/** A tab's omp: the local handlers over a bridge that writes stock's members into `dumpDir`. */
-function fakeTab(options: { dumpDir: string; messages?: boolean; device?: string }) {
+type Members = Record<string, string | Uint8Array>;
+
+/** A tab's omp: the local handlers over a bridge that writes stock's members (or `members`) into `dumpDir`. */
+function fakeTab(options: { dumpDir: string; messages?: boolean; device?: string; members?: Members }) {
 	const commands: RpcCommand[] = [];
 	const asked: { anonymized: boolean }[] = [];
 	const bridge: LocalCommandContext["bridge"] = {
@@ -61,17 +63,16 @@ function fakeTab(options: { dumpDir: string; messages?: boolean; device?: string
 				typeof params === "object" && params !== null && "anonymized" in params && params.anonymized === true;
 			asked.push({ anonymized });
 			if (options.messages === false) return null as T;
+			const members: Members =
+				options.members ??
+				(anonymized
+					? { "session.jsonl": '{"type":"session"}\n' }
+					: { "session.md": "# transcript\n", "llm-request.json": "{}\n" });
 			const zip = new JSZip();
-			if (anonymized) zip.file("session.jsonl", '{"type":"session"}\n');
-			else zip.file("session.md", "# transcript\n").file("llm-request.json", "{}\n");
+			for (const [name, content] of Object.entries(members)) zip.file(name, content);
 			const file = path.join(options.dumpDir, `omp-dump-${anonymized ? "anon-" : ""}${asked.length}.zip`);
 			await fs.writeFile(file, await zip.generateAsync({ type: "nodebuffer" }));
-			return {
-				path: file,
-				files: anonymized ? ["session.jsonl"] : ["session.md", "llm-request.json"],
-				subagentCount: 0,
-				anonymized,
-			} as T;
+			return { path: file, files: Object.keys(members), subagentCount: 0, anonymized } as T;
 		},
 	};
 	const ctx: LocalCommandContext = {
@@ -106,7 +107,13 @@ const caller = (browserWindow: boolean): IpcCaller => ({
 	sender: { id: 1, once: () => undefined },
 });
 
-function setup(options: { dumpDir: string; messages?: boolean; device?: string; chosen?: string | null }) {
+function setup(options: {
+	dumpDir: string;
+	messages?: boolean;
+	device?: string;
+	chosen?: string | null;
+	members?: Members;
+}) {
 	const fake = fakeTab(options);
 	const dialogs: string[] = [];
 	const remoteReads: string[] = [];
@@ -344,7 +351,8 @@ describe("a tab on a paired host", () => {
 			DIAGNOSTICS_MEMBER,
 			"session.md",
 		]);
-		expect(remoteReads).toEqual([path.join(root, "omp-dump-1.zip")]);
+		expect(remoteReads).toEqual([expect.stringMatching(/ompdesk-dump-[\w-]+\.zip$/)]);
+		expect(path.dirname(remoteReads[0] ?? "")).toBe(root);
 		expect(commands.map(command => command.type)).toEqual(["dump_session_archive", "discard_session_archive"]);
 		expect(result.path).toBe(target);
 		expect(dialogs).toHaveLength(1);
@@ -367,6 +375,85 @@ describe("a tab on a paired host", () => {
 		await expect(
 			saveDiagnosticBundle(deps, caller(true), { tabId: "tab-1", anonymized: false }),
 		).resolves.toMatchObject({ ok: false, code: "file_too_large" });
+		expect(commands.map(command => command.type)).toEqual(["dump_session_archive", "discard_session_archive"]);
+		expect(await fs.readdir(root)).toEqual([]);
+	});
+
+	it("gets every member redacted by the host before it reads a byte, the binary one left out, both variants", async () => {
+		const secrets = [
+			`ghp_${"a1B2".repeat(9)}`,
+			"sk-proj-0123456789abcdefABCDEF",
+			"8f14e45fceea167a",
+			"jane.doe@example.com",
+			"100.101.102.103",
+			"192.168.1.23",
+			"/Users/janedoe",
+			"hunter2-hunter2",
+		];
+		const line = `use ${secrets[0]} or ${secrets[1]}; Authorization: Bearer ${secrets[2]}; ${secrets[3]} at ${secrets[4]} / ${secrets[5]} in ${secrets[6]}/proj`;
+		const members: Members = {
+			"session.md": `# Session\n\n${line}\n`,
+			"llm-request.json": `${JSON.stringify({ systemPrompt: line, provider: { apiKey: secrets[7] }, messages: [{ content: line }] }, null, 2)}\n`,
+			"subagents/Probe/Helper.md": `# Subagent\n${line}\n`,
+			"session.jsonl": `${JSON.stringify({ type: "message", text: line, password: secrets[7] })}\n`,
+			"capture.bin": new Uint8Array([0xff, 0xfe, 0x00, 0x9c, ...Buffer.from(secrets[0] ?? "")]),
+		};
+		for (const anonymized of [false, true]) {
+			const root = await tmp();
+			const target = path.join(root, "bundle.zip");
+			const { deps, remoteReads } = setup({ dumpDir: root, device: "host-1", chosen: target, members });
+			deps.readHostFile = async (_tab, file) => {
+				remoteReads.push(file);
+				const data = await fs.readFile(file);
+				// What crosses the link is already clean.
+				for (const text of Object.values(await membersOf(file)))
+					for (const secret of secrets) expect(text).not.toContain(secret);
+				return { ok: true, data, mime: "application/zip", size: data.length, truncated: false };
+			};
+
+			const result = ok(await saveDiagnosticBundle(deps, caller(true), { tabId: "tab-1", anonymized }));
+
+			const saved = await membersOf(target);
+			expect(Object.keys(saved).sort()).toEqual(
+				["llm-request.json", DIAGNOSTICS_MEMBER, "session.jsonl", "session.md", "subagents/Probe/Helper.md"].sort(),
+			);
+			for (const [name, text] of Object.entries(saved))
+				for (const secret of secrets) expect(text, `${name} holds ${secret}`).not.toContain(secret);
+			expect(JSON.parse(saved["llm-request.json"] ?? "")).toMatchObject({ provider: { apiKey: "<secret>" } });
+			expect(JSON.parse(saved["session.jsonl"] ?? "")).toMatchObject({ type: "message", password: "<secret>" });
+			expect(result.dropped).toEqual(["capture.bin"]);
+			expect(result.files).not.toContain("capture.bin");
+			expect(remoteReads).toHaveLength(1);
+			expect(await fs.readdir(root)).toEqual(["bundle.zip"]);
+		}
+	});
+
+	it("refuses an older host's unredacted archive without saving it, and still has the host delete it", async () => {
+		const root = await tmp();
+		const raw = path.join(root, "omp-dump-raw.zip");
+		await fs.writeFile(raw, await new JSZip().file("session.md", "secret").generateAsync({ type: "nodebuffer" }));
+		const commands: RpcCommand[] = [];
+		const { deps, remoteReads } = setup({ dumpDir: root, device: "host-1", chosen: path.join(root, "x.zip") });
+		deps.tabFor = () => ({
+			tabId: "tab-1",
+			sidecar: {
+				cwd: "/repo",
+				device: "host-1",
+				rpcClient: {
+					command: async (command: RpcCommand): Promise<RpcResponse> => {
+						commands.push(command);
+						if (command.type === "discard_session_archive") await fs.rm(raw);
+						const data = { path: raw, files: ["session.md"], subagentCount: 0, anonymized: false };
+						return { id: "1", type: "response", command: command.type, success: true, data };
+					},
+				},
+			},
+		});
+
+		await expect(
+			saveDiagnosticBundle(deps, caller(true), { tabId: "tab-1", anonymized: false }),
+		).resolves.toMatchObject({ ok: false, code: "remote_protocol" });
+		expect(remoteReads).toEqual([]);
 		expect(commands.map(command => command.type)).toEqual(["dump_session_archive", "discard_session_archive"]);
 		expect(await fs.readdir(root)).toEqual([]);
 	});

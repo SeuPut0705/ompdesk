@@ -87,7 +87,7 @@ export type RpcCommand =
 	| { id?: string; type: "queue_clear"; lane?: "steering" | "followUp" }
 	| { id?: string; type: "get_session_stats" }
 	| { id?: string; type: "export_html"; outputPath?: string }
-	// Stock's `/dump all|anon` zip written to os.tmpdir() (gui-bridge session-dump.ts); the answer is a `SessionArchive` (shared/diagnostic-bundle.ts), an error `no_messages` while the session is empty.
+	// Stock's `/dump all|anon` zip (gui-bridge session-dump.ts) repacked with every member redacted in os.tmpdir() (local/session-dump.ts); the answer is a `SessionArchive` (shared/diagnostic-bundle.ts), an error `no_messages` while the session is empty.
 	| { id?: string; type: "dump_session_archive"; anonymized?: boolean }
 	// Deletes an archive `dump_session_archive` produced once it has been copied; only those paths.
 	| { id?: string; type: "discard_session_archive"; path: string }
