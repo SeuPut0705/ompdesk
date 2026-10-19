@@ -97,3 +97,18 @@ export async function listAllSessions(_storage: FileSessionStorage, root: string
 		)
 	).flat();
 }
+
+/** session-loader `loadSessionMessagesReadOnly`: the file's message entries in order (the fake journal has no branches). */
+export async function loadSessionMessagesReadOnly(file: string): Promise<unknown[]> {
+	const messages: unknown[] = [];
+	for (const line of (await readFile(file, "utf8")).split("\n")) {
+		if (!line) continue;
+		try {
+			const entry = JSON.parse(line) as { type?: string; message?: unknown };
+			if (entry.type === "message" && entry.message) messages.push(entry.message);
+		} catch {
+			// A torn last line, as stock skips it.
+		}
+	}
+	return messages;
+}

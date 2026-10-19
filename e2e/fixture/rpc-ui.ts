@@ -1132,6 +1132,24 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		// `ompdesk_compare` with criteria: the judge ranks the sessions in the order the evidence names them and
+		// picks the first, so a spec can tell the verdict reached the agent.
+		"agent_control.judge": params => {
+			const ids = [...String(params.user ?? "").matchAll(/<session id="([^"]+)">/g)].map(match => match[1]);
+			return {
+				text: JSON.stringify({
+					ranking: ids.map((session, index) => ({
+						session,
+						score: 90 - index * 20,
+						criteria: [{ criterion: "fixture criterion", met: index === 0 ? "yes" : "no", why: "fixture" }],
+						reasons: `fixture rank ${index + 1}`,
+					})),
+					winner: ids[0] ?? null,
+					why: "fixture judge picks the first",
+				}),
+				model: "fixture/judge",
+			};
+		},
 		// gui-bridge prompt-origin.ts: main names the device of the next prompt with this text (a paired web device).
 		prompt_origin_set: params => {
 			const origin = params.origin as { deviceId: string; name: string };
