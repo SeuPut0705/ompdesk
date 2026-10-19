@@ -27,7 +27,7 @@ import {
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
-import { capture, captureTo, exitApp, variants } from "./harness";
+import { capture, captureTo, cssString, exitApp, variants } from "./harness";
 
 const TEXT = {
 	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot", docOnly: "docs only" },
@@ -116,7 +116,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("[data-titlebar-worktree]")).toHaveText(TEXT[language].autopilot);
 				await expect(page.locator(".omp-titlebar-project").first()).toHaveText(project);
 				await expect(page.locator("[data-board-project]")).toHaveText(worktreeName);
-				await expect(page.locator(`[data-worktree-group="${project}"]`).first()).toHaveText(
+				await expect(page.locator(`[data-worktree-group=${cssString(project)}]`).first()).toHaveText(
 					TEXT[language].autopilot,
 				);
 				await expect.poll(() => page.title()).toContain(worktreeName);
@@ -125,7 +125,7 @@ for (const language of variants(["en", "ko"] as const))
 				expect(await page.title()).not.toMatch(/gui-2026|gui-agent/);
 				expect(
 					await page
-						.locator(`[data-worktree-group="${project}"]`)
+						.locator(`[data-worktree-group=${cssString(project)}]`)
 						.first()
 						.locator("button[title]")
 						.getAttribute("title"),

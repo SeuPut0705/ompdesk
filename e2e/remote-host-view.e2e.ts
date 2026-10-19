@@ -10,7 +10,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { capture, controlToolCaller, exitApp, openedSessions, readRecords } from "./harness";
+import { capture, controlToolCaller, cssString, exitApp, openedSessions, readRecords } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 test("the host's own window lists, views and works in a session its paired device opened there", async () => {
@@ -70,10 +70,13 @@ test("the host's own window lists, views and works in a session its paired devic
 		});
 		const sessionPath = (await b.evaluate(() => window.omp.sessions.hosted()))[0]?.sessionPath ?? "";
 		expect(sessionPath).not.toBe("");
-		const hostRow = b.locator(`.omp-sidebar-session-row[data-session-path="${sessionPath}"]`);
-		await expect(b.locator(`[data-session-group="${hostProfile.project}"]`).locator(hostRow)).toHaveCount(1, {
-			timeout: 30_000,
-		});
+		const hostRow = b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`);
+		await expect(b.locator(`[data-session-group=${cssString(hostProfile.project)}]`).locator(hostRow)).toHaveCount(
+			1,
+			{
+				timeout: 30_000,
+			},
+		);
 		await expect(hostRow).toHaveCount(1);
 		await capture(b, "host-lists-device-session");
 
@@ -107,7 +110,10 @@ test("the host's own window lists, views and works in a session its paired devic
 					timeout: 30_000,
 				})
 				.toBe(deviceOmp);
-			await a.locator(`[data-device-session="${sessionPath}"] button`).first().click();
+			await a
+				.locator(`[data-device-session=${cssString(sessionPath)}] button`)
+				.first()
+				.click();
 			await expect(a.getByText("Hello from the host").first()).toBeVisible({ timeout: 30_000 });
 		});
 
@@ -127,7 +133,7 @@ test("the host's own window lists, views and works in a session its paired devic
 		await test.step("the device closes its tab: the host's view ends with no error tab", async () => {
 			const launchedBefore = await launches();
 			// The person on the device closes it (its agent may not: the person typed into it).
-			const deviceRow = a.locator(`[data-device-session="${sessionPath}"]`);
+			const deviceRow = a.locator(`[data-device-session=${cssString(sessionPath)}]`);
 			await deviceRow.hover();
 			await deviceRow.locator("[data-device-session-close]").click();
 			await expect
@@ -174,7 +180,7 @@ test("the host's own window lists, views and works in a session its paired devic
 		let deviceTab = "";
 		await test.step("the device opens it: it views the host window's omp, no second omp", async () => {
 			const launchedBefore = await launches();
-			const deviceRow = a.locator(`[data-device-session="${hostSession}"]`);
+			const deviceRow = a.locator(`[data-device-session=${cssString(hostSession)}]`);
 			await expect(deviceRow).toHaveCount(1, { timeout: 30_000 });
 			await deviceRow.locator("button").first().click();
 			await expect
