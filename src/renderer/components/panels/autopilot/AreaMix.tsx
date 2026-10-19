@@ -3,6 +3,7 @@ import { AUTOPILOT_AREAS, type AutopilotArea } from "../../../../../resources/gu
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
+import { SettingInfo } from "../../common";
 import { AreaIcon } from "./AreaIcon";
 import { areaMix } from "./autopilot-view";
 import { useAutopilotActions } from "./use-autopilot-actions";
@@ -67,9 +68,7 @@ export function AreaMix() {
 	return (
 		<section className="flex flex-col gap-2 border-t border-(--sc-divider) px-3 py-3" data-autopilot-mix>
 			<h3 className="text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">{t("autopilot.mix")}</h3>
-			{mix.total === 0 ? (
-				<p className="text-sc-sm text-(--sc-text-muted)">{t("autopilot.mixEmpty")}</p>
-			) : (
+			{mix.total > 0 && (
 				<ul className="flex flex-col gap-1">
 					{mix.rows.map(row => (
 						<li className="flex items-center gap-2 text-sc-xs" data-mix-area={row.area} key={row.area}>
@@ -92,7 +91,10 @@ export function AreaMix() {
 				</ul>
 			)}
 			<div className="flex flex-col gap-1.5">
-				<span className="text-sc-xs text-(--sc-text-muted)">{t("autopilot.focus.next")}</span>
+				<span className="flex items-center gap-1 text-sc-xs text-(--sc-text-muted)">
+					{t("autopilot.sheet.focus")}
+					<SettingInfo text={t("autopilot.focus.next")} />
+				</span>
 				<FocusChips
 					disabled={state === "ended" || pending === "configure"}
 					focus={current}

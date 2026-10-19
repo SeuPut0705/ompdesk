@@ -170,9 +170,7 @@ export function AutopilotTimeline() {
 					</Badge>
 				</div>
 			)}
-			{shown.length === 0 && !now ? (
-				<p className="text-sc-sm text-(--sc-text-muted)">{t("autopilot.timelineEmpty")}</p>
-			) : (
+			{shown.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
 					{shown.map(cycle => (
 						<CycleRow cycle={cycle} key={cycle.n} onRevert={setReverting} />

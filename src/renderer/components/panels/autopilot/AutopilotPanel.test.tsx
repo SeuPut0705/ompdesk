@@ -215,6 +215,16 @@ describe("Autopilot screen", () => {
 		expect($("[data-ship-procedure]")?.textContent).toContain("AGENTS.md › Change workflow › Release");
 	});
 
+	it("keeps a fresh run's screen to one-line rows: no empty-state sentences, explanations behind (i)", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply({ ...status, cycles: [], backlog: [], now: { n: 1, startedAt: Date.now() } });
+		await mount(<AutopilotPanel />);
+		for (const section of ["[data-autopilot-mix]", "[data-autopilot-backlog]"]) {
+			expect(all(`${section} p`), section).toHaveLength(0);
+			expect($(`${section} [data-setting-info]`), section).not.toBeNull();
+		}
+	});
+
 	it("shows the picked item, what a cycle changed and why a reported green was not taken", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({

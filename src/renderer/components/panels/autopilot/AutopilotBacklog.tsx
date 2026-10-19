@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
-import { Button, IconButton, Input } from "../../common";
+import { Button, IconButton, Input, SettingInfo } from "../../common";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 /** Items the user pinned: the agent takes them before any rotation pick. Done ones stay with the cycle that did them. */
@@ -21,10 +21,11 @@ export function AutopilotBacklog() {
 	};
 	return (
 		<section className="flex flex-col gap-2 border-t border-(--sc-divider) px-3 py-3" data-autopilot-backlog>
-			<h3 className="text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+			<h3 className="flex items-center gap-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
 				{t("autopilot.backlog")}
+				<SettingInfo text={t("autopilot.sheet.backlogHint")} />
 			</h3>
-			{backlog && backlog.length > 0 ? (
+			{backlog && backlog.length > 0 && (
 				<ul className="flex flex-col gap-0.5">
 					{backlog.map(item => (
 						<li
@@ -60,8 +61,6 @@ export function AutopilotBacklog() {
 						</li>
 					))}
 				</ul>
-			) : (
-				<p className="text-sc-sm text-(--sc-text-muted)">{t("autopilot.backlogEmpty")}</p>
 			)}
 			{!ended && (
 				<form
