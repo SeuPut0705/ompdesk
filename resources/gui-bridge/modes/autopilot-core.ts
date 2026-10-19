@@ -4,6 +4,7 @@
  * No omp imports (not even types): the GUI's vitest loads this file directly
  * (src/main/bridge-autopilot-core.test.ts); ./autopilot.ts wires it to the session.
  */
+import { AGENT_MESSAGE_START } from "../agent-control-contracts";
 import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_BACKLOG_ENTRY,
@@ -277,7 +278,6 @@ export function inFlightAfter(
 // "Push now" / "release now" quotes
 // ---------------------------------------------------------------------------------------------
 
-const AGENT_WRAP = /^\s*<ompdesk-agent-message[\s>]/;
 const INTENT: Record<"push" | "release", RegExp> = {
 	push: /push|푸시|올려|업로드|upload|send it|ship/i,
 	release: /release|ship|deploy|publish|배포|릴리스|릴리즈|출시/i,
@@ -303,7 +303,7 @@ export function realUserText(message: unknown): string | undefined {
 	if (m.role !== "user" || m.synthetic === true) return undefined;
 	if (m.attribution !== undefined && m.attribution !== "user") return undefined;
 	const text = textOf(m.content);
-	return text.trim() === "" || AGENT_WRAP.test(text) ? undefined : text;
+	return text.trim() === "" || AGENT_MESSAGE_START.test(text) ? undefined : text;
 }
 
 /** The user's real messages since the last finished cycle (what a quote may come from). */

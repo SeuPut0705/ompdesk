@@ -7,6 +7,12 @@
 export const MAIL_CUSTOM_TYPE = "ompdesk.mail";
 
 /**
+ * The start of a message another session's agent sent (src/shared/agent-control.ts `wrapAgentMessage`): a prompt an
+ * agent wrote, never a person, whatever the session.
+ */
+export const AGENT_MESSAGE_START = /^\s*<ompdesk-agent-message[\s>]/;
+
+/**
  * Whether a session's journal already holds the report `id`: stock journals a `sendMessage` as a
  * `{type: "custom_message", customType, details, …}` entry (`CustomMessageEntry`, session/session-entries.ts).
  */
