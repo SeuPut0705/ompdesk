@@ -151,8 +151,7 @@ export const en: Record<string, string> = {
 	"quickOpen.truncated": "Showing the first {count} files of a large folder",
 
 	// Worktree create dialog (tab × worktree, plan/20)
-	"worktree.baseScope":
-		"The new checkout starts from a committed revision. Uncommitted changes in this checkout are not copied.",
+	"worktree.baseScope": "Uncommitted changes here are not copied.",
 	"worktree.openFailed":
 		"Worktree created at {path}, but the tab couldn't open. Retry to open this existing worktree.",
 	"worktree.retryOpen": "Open created worktree",
@@ -188,8 +187,7 @@ export const en: Record<string, string> = {
 
 	// Per-session worktrees (worktree.onStart / worktree.onExit, omp 18.8.6+)
 	"worktreeLifecycle.startTitle": "Create a worktree for this session?",
-	"worktreeLifecycle.startBody":
-		"Work happens on a new branch in its own folder (wt/… unless you set a prefix in Settings); this checkout stays untouched.",
+	"worktreeLifecycle.startBody": "Works on a new branch in its own folder; this checkout stays untouched.",
 	"settings.worktrees": "Worktrees",
 	"settings.worktreeBranchPrefix": "Worktree branch prefix",
 	"settings.worktreeBranchPrefix.desc":
@@ -819,8 +817,7 @@ export const en: Record<string, string> = {
 	"modelRestore.title": "Session model unavailable",
 	"modelRestore.message":
 		"This session last used {model}, which isn't available right now — its provider may have been removed or signed out.",
-	"modelRestore.offer":
-		"Open it with your current model, {model}? Earlier turns stay as they are; new replies come from {model}.",
+	"modelRestore.offer": "Open it with {model}? Earlier turns stay as they are.",
 	"modelRestore.noCurrent": "Pick or configure a model first, then open the session again.",
 	"modelRestore.openWith": "Open with {model}",
 	"modelRestore.bootFallback": "Session model {model} is unavailable — resumed on your default model instead.",
@@ -1911,8 +1908,7 @@ export const en: Record<string, string> = {
 
 	// Handoff dialog
 	"handoff.title": "Hand off to a new session",
-	"handoff.desc":
-		"Summarize this session into a document and continue in a new session. The current session stays available.",
+	"handoff.desc": "Summarize this session and continue in a new one.",
 	"handoff.instructionsLabel": "Custom instructions (optional)",
 	"handoff.instructionsHint": "Passed to the agent when it writes the handoff document.",
 	"handoff.instructionsPlaceholder": "e.g. Focus on the auth refactor and keep the list of failing tests.",
@@ -1975,7 +1971,7 @@ export const en: Record<string, string> = {
 	"import.notConnected": "omp isn't connected",
 	"import.sourceUnavailable": "Can't read {source} sessions",
 	"import.failedN": "{count} sessions couldn't be imported",
-	"import.background": "Importing continues in the background. A message shows when it's done.",
+	"import.background": "Continues in the background.",
 	"import.progress": "Importing {done} of {total}",
 	"import.selectAll": "Select all ({count})",
 	"import.project": "Project",
@@ -2743,8 +2739,7 @@ export const en: Record<string, string> = {
 	"debug.noResult": "No debugger result yet.",
 	"debug.sessions": "Sessions",
 	"debug.noSessions": "No active debug session.",
-	"debug.noSessionsHint":
-		"Launch a program or attach to a process to start debugging — fill an example request below, or ask the agent to start debugging for you.",
+	"debug.noSessionsHint": "Launch a program, attach to a process, or ask the agent.",
 	"debug.fillLaunch": "Fill launch example",
 	"debug.fillAttach": "Fill attach example",
 	"debug.active": "Active",
@@ -2845,8 +2840,7 @@ export const en: Record<string, string> = {
 
 	// Busy-session switch dialog (new tab / new window vs abort-and-switch)
 	"sessionSwitch.title": "Session is running",
-	"sessionSwitch.body":
-		'The current session is still running. Switching to "{name}" here will stop it. You can open it in a new tab instead.',
+	"sessionSwitch.body": 'The current session is still running. Switching to "{name}" here stops it.',
 	"sessionSwitch.openNewTab": "Open in new tab",
 	"sessionSwitch.openNewWindow": "Open in new window",
 	"sessionSwitch.switchAnyway": "Stop and switch",
@@ -2960,8 +2954,7 @@ export const en: Record<string, string> = {
 	// Stats frustration route
 	// Feedback dialog
 	"feedback.title": "Send feedback",
-	"feedback.intro":
-		"Describe what happened in as much detail as you can: what you did, what you expected, and what you saw instead. No session content is included.",
+	"feedback.intro": "Describe what happened. No session content is included.",
 	"feedback.kind": "Type",
 	"feedback.kind.bug": "Bug",
 	"feedback.kind.feature": "Feature request",
@@ -2976,8 +2969,7 @@ export const en: Record<string, string> = {
 	"feedback.includeErrors": "Include recent error log (app errors only, never session content)",
 	"feedback.errorsPreview": "Preview the {count} lines that would be attached",
 	"feedback.errorsEmpty": "(no errors recorded)",
-	"feedback.note":
-		"Submitting opens a prefilled GitHub issue in your browser — review it there and post with your GitHub account. Nothing leaves the app before that.",
+	"feedback.note": "Submitting opens a prefilled GitHub issue in your browser; nothing is sent before that.",
 	"feedback.cancel": "Cancel",
 	"feedback.submit": "Continue on GitHub",
 
@@ -5048,7 +5040,7 @@ export const en: Record<string, string> = {
 	"starter.step.model.tour": "This chip shows the model your next message goes to. Click it to pick another one.",
 	"starter.step.prompt.title": "Send your first prompt",
 	"starter.step.prompt.hint": "Done when you send a message.",
-	"starter.step.prompt.tour": "Describe what you want done and press Enter. The agent works in the session's folder.",
+	"starter.step.prompt.tour": "Describe the task and press Enter.",
 	"starter.step.project.title": "Open a project",
 	"starter.step.project.hint": "Done when a session runs in a project folder.",
 	"starter.step.project.tour":
@@ -5960,15 +5952,14 @@ export const en: Record<string, string> = {
 	"providerList.login.pasteHint":
 		"Only needed when the browser ends on a page that won't load. Paste the code it shows, or that page's full address.",
 	"setup.title": "Set up OMPdesk",
-	"setup.subtitle": "Connect one model provider and you're ready to send your first request.",
+	"setup.subtitle": "Connect one model provider to start.",
 	"setup.steps": "Setup steps",
 	"setup.step.connect": "Connect a provider",
 	"setup.step.model": "Choose a default model",
 	"setup.step.prompt": "Send your first request",
 	"setup.stepDone": "(done)",
 	"setup.connect.title": "Which provider do you use?",
-	"setup.connect.description":
-		"Sign in with a subscription or paste an API key. Credentials stay in omp on this machine.",
+	"setup.connect.description": "Sign in or paste an API key. Credentials stay on this machine.",
 	"setup.custom.title": "Running your own endpoint?",
 	"setup.custom.description":
 		"Add an OpenAI- or Anthropic-compatible server (Ollama, LM Studio, a proxy) by URL and model ID.",
@@ -5983,7 +5974,7 @@ export const en: Record<string, string> = {
 	"setup.model.use": "Start with this model",
 	"setup.model.saveFailed": "Couldn't save the default model",
 	"setup.test.action": "Test connection",
-	"setup.test.hint": "Sends one short request to check the model answers (uses a few tokens).",
+	"setup.test.hint": "Sends one short request (uses a few tokens).",
 	"setup.test.ok": "The model answered. You're good to go.",
 	"setup.test.okIn": "The model answered in {ms} ms. You're good to go.",
 	"setup.test.failed": "The test request failed. Check the key or endpoint, then try again.",
@@ -6009,12 +6000,10 @@ export const en: Record<string, string> = {
 	"githubAuth.version": "gh {version}",
 	"githubAuth.missing.title":
 		"The GitHub CLI isn't installed, and this launch of OMPdesk doesn't install tools by itself. Install it, then check again.",
-	"githubAuth.missing.autoInstall":
-		"Signing in installs the GitHub CLI first, then carries on — nothing to download yourself.",
+	"githubAuth.missing.autoInstall": "Signing in installs the GitHub CLI first.",
 	"githubAuth.missing.download": "Download gh",
 	"githubAuth.recheck": "Check again",
-	"githubAuth.signedOut.description":
-		"Sign in once so pull requests and pushes work without a terminal. If Git has no name or email yet, OMPdesk fills them in from your account.",
+	"githubAuth.signedOut.description": "Pull requests and pushes work without a terminal.",
 	"githubAuth.signIn": "Sign in with GitHub",
 	"githubAuth.starting": "Starting the sign-in…",
 	"githubAuth.code.label": "One-time code",
@@ -6112,11 +6101,9 @@ export const en: Record<string, string> = {
 	"panel.terminal.lease.claim": "Fit it here",
 	"setup.step.install": "Install omp",
 	"machineSetup.install.title": "Installing omp on this computer",
-	"machineSetup.install.description":
-		"OMPdesk installs what omp needs on its own. There's nothing for you to do; this page follows along.",
+	"machineSetup.install.description": "OMPdesk installs what omp needs on its own.",
 	"machineSetup.update.title": "Updating omp on this computer",
-	"machineSetup.update.description":
-		"The omp on this computer is older than OMPdesk needs, so OMPdesk is updating it on its own. There's nothing for you to do; this page follows along.",
+	"machineSetup.update.description": "omp is older than OMPdesk needs, so OMPdesk is updating it.",
 	"machineSetup.stopped.title": "{name} isn't installed yet",
 	"machineSetup.stopped.outdatedTitle": "{name} needs an update",
 	"machineSetup.stopped.description":

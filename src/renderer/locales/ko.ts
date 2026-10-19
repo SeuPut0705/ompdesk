@@ -148,8 +148,7 @@ export const ko: Record<string, string> = {
 	"quickOpen.truncated": "큰 폴더라서 처음 {count}개 파일만 보여요",
 
 	// Worktree create dialog (tab × worktree, plan/20)
-	"worktree.baseScope":
-		"새 체크아웃은 커밋된 리비전에서 시작해요. 현재 체크아웃의 커밋되지 않은 변경 사항은 복사되지 않아요.",
+	"worktree.baseScope": "커밋하지 않은 변경 사항은 복사되지 않아요.",
 	"worktree.openFailed": "{path}에 워크트리를 만들었지만 탭을 열 수 없어요. 다시 시도하면 기존 워크트리를 열어요.",
 	"worktree.retryOpen": "만든 워크트리 열기",
 	"worktree.title": "새 워크트리 탭",
@@ -184,8 +183,7 @@ export const ko: Record<string, string> = {
 
 	// Per-session worktrees (worktree.onStart / worktree.onExit, omp 18.8.6+)
 	"worktreeLifecycle.startTitle": "이 세션용 워크트리를 만들까요?",
-	"worktreeLifecycle.startBody":
-		"별도 폴더의 새 브랜치에서 작업해요(설정에서 접두사를 정하지 않으면 wt/…). 지금 체크아웃은 그대로 둬요.",
+	"worktreeLifecycle.startBody": "별도 폴더의 새 브랜치에서 작업해요. 지금 체크아웃은 그대로예요.",
 	"settings.worktrees": "워크트리",
 	"settings.worktreeBranchPrefix": "워크트리 브랜치 접두사",
 	"settings.worktreeBranchPrefix.desc":
@@ -807,8 +805,7 @@ export const ko: Record<string, string> = {
 	"modelRestore.title": "세션 모델을 사용할 수 없음",
 	"modelRestore.message":
 		"이 세션은 마지막으로 {model} 모델을 사용했지만 지금은 사용할 수 없어요 — 프로바이더가 제거되었거나 로그아웃되었을 수 있어요.",
-	"modelRestore.offer":
-		"현재 모델인 {model} 모델로 열까요? 이전 턴은 그대로 유지되고 새 답변은 {model} 모델이 작성해요.",
+	"modelRestore.offer": "{model} 모델로 열까요? 이전 턴은 그대로예요.",
 	"modelRestore.noCurrent": "먼저 모델을 선택하거나 구성한 뒤 세션을 다시 여세요.",
 	"modelRestore.openWith": "{model} 모델로 열기",
 	"modelRestore.bootFallback": "{model} 모델을 사용할 수 없어 기본 모델로 재개했어요.",
@@ -1897,7 +1894,7 @@ export const ko: Record<string, string> = {
 
 	// Handoff dialog
 	"handoff.title": "새 세션으로 핸드오프",
-	"handoff.desc": "이 세션을 문서로 요약해 새 세션에서 이어가요. 현재 세션은 그대로 남아 나중에 다시 열 수 있어요.",
+	"handoff.desc": "이 세션을 요약해 새 세션에서 이어가요.",
 	"handoff.instructionsLabel": "사용자 지정 지침 (선택)",
 	"handoff.instructionsHint": "에이전트가 핸드오프 문서를 작성할 때 전달돼요.",
 	"handoff.instructionsPlaceholder": "예: 인증 리팩터링에 집중하고 실패하는 테스트 목록을 유지해 주세요.",
@@ -1960,7 +1957,7 @@ export const ko: Record<string, string> = {
 	"import.notConnected": "omp가 연결되지 않았어요",
 	"import.sourceUnavailable": "{source} 세션을 읽을 수 없어요",
 	"import.failedN": "세션 {count}개를 가져오지 못했어요",
-	"import.background": "가져오기는 백그라운드에서 계속돼요. 끝나면 알려 드려요.",
+	"import.background": "백그라운드에서 계속해요.",
 	"import.progress": "{total}개 중 {done}개 가져오는 중",
 	"import.selectAll": "모두 선택({count})",
 	"import.project": "프로젝트",
@@ -2723,8 +2720,7 @@ export const ko: Record<string, string> = {
 	"debug.noResult": "아직 디버거 결과가 없어요.",
 	"debug.sessions": "세션",
 	"debug.noSessions": "활성 디버그 세션이 없어요.",
-	"debug.noSessionsHint":
-		"프로그램을 실행하거나 프로세스에 연결해 디버깅을 시작하세요. 아래 예시 요청을 채우거나 에이전트에게 디버깅을 시작해 달라고 요청하세요.",
+	"debug.noSessionsHint": "프로그램을 실행하거나 프로세스에 연결하거나 에이전트에게 맡기세요.",
 	"debug.fillLaunch": "launch 예시 채우기",
 	"debug.fillAttach": "attach 예시 채우기",
 	"debug.active": "활성",
@@ -2825,8 +2821,7 @@ export const ko: Record<string, string> = {
 
 	// Busy-session switch dialog (new tab / new window vs abort-and-switch)
 	"sessionSwitch.title": "세션 실행 중",
-	"sessionSwitch.body":
-		'현재 세션이 아직 실행 중이에요. 여기서 "{name}" 세션으로 전환하면 중단돼요. 대신 새 탭에서 열 수 있어요.',
+	"sessionSwitch.body": '현재 세션이 실행 중이에요. 여기서 "{name}"(으)로 전환하면 중단돼요.',
 	"sessionSwitch.openNewTab": "새 탭에서 열기",
 	"sessionSwitch.openNewWindow": "새 창에서 열기",
 	"sessionSwitch.switchAnyway": "중단하고 전환",
@@ -2940,8 +2935,7 @@ export const ko: Record<string, string> = {
 	// Stats frustration route
 	// Feedback dialog
 	"feedback.title": "피드백 보내기",
-	"feedback.intro":
-		"무엇을 했는지, 무엇을 기대했는지, 실제로 무엇이 보였는지 최대한 자세히 설명하세요. 세션 내용은 포함되지 않아요.",
+	"feedback.intro": "무슨 일이 있었는지 적어 주세요. 세션 내용은 포함되지 않아요.",
 	"feedback.kind": "유형",
 	"feedback.kind.bug": "버그",
 	"feedback.kind.feature": "기능 요청",
@@ -2956,8 +2950,7 @@ export const ko: Record<string, string> = {
 	"feedback.includeErrors": "최근 오류 로그 포함 (앱 오류만, 세션 내용은 포함 안 됨)",
 	"feedback.errorsPreview": "첨부될 {count}줄 미리보기",
 	"feedback.errorsEmpty": "(기록된 오류 없음)",
-	"feedback.note":
-		"제출하면 브라우저에서 미리 채워진 GitHub 이슈가 열려요. 거기서 검토한 뒤 GitHub 계정으로 게시하세요. 그 전에는 앱 밖으로 아무것도 전송되지 않아요.",
+	"feedback.note": "제출하면 브라우저에 미리 채운 GitHub 이슈가 열려요. 그 전엔 아무것도 보내지 않아요.",
 	"feedback.cancel": "취소",
 	"feedback.submit": "GitHub에서 계속",
 
@@ -5034,7 +5027,7 @@ export const ko: Record<string, string> = {
 	"starter.step.model.tour": "다음 메시지를 받을 모델이 여기 표시돼요. 눌러서 다른 모델을 고를 수 있어요.",
 	"starter.step.prompt.title": "첫 프롬프트 보내기",
 	"starter.step.prompt.hint": "메시지를 보내면 완료돼요.",
-	"starter.step.prompt.tour": "원하는 작업을 적고 Enter를 누르세요. 에이전트는 세션 폴더에서 작업해요.",
+	"starter.step.prompt.tour": "할 일을 적고 Enter를 누르세요.",
 	"starter.step.project.title": "프로젝트 열기",
 	"starter.step.project.hint": "프로젝트 폴더에서 세션을 시작하면 완료돼요.",
 	"starter.step.project.tour":
@@ -5934,15 +5927,14 @@ export const ko: Record<string, string> = {
 	"providerList.login.pasteHint":
 		"브라우저가 열리지 않는 페이지에서 멈췄을 때만 필요해요. 화면에 보이는 코드나 그 페이지의 전체 주소를 붙여 넣어 주세요.",
 	"setup.title": "OMPdesk 시작하기",
-	"setup.subtitle": "모델 프로바이더를 하나 연결하면 바로 첫 요청을 보낼 수 있어요.",
+	"setup.subtitle": "모델 프로바이더를 하나 연결하면 시작할 수 있어요.",
 	"setup.steps": "설정 단계",
 	"setup.step.connect": "프로바이더 연결",
 	"setup.step.model": "기본 모델 선택",
 	"setup.step.prompt": "첫 요청 보내기",
 	"setup.stepDone": "(완료)",
 	"setup.connect.title": "어떤 프로바이더를 쓰시나요?",
-	"setup.connect.description":
-		"구독 계정으로 로그인하거나 API 키를 붙여 넣으세요. 자격 증명은 이 기기의 omp에만 저장돼요.",
+	"setup.connect.description": "로그인하거나 API 키를 붙여 넣으세요. 자격 증명은 이 기기에만 저장돼요.",
 	"setup.custom.title": "직접 운영하는 엔드포인트가 있나요?",
 	"setup.custom.description":
 		"OpenAI·Anthropic 호환 서버(Ollama, LM Studio, 프록시 등)를 주소와 모델 ID로 추가하세요.",
@@ -5957,7 +5949,7 @@ export const ko: Record<string, string> = {
 	"setup.model.use": "이 모델로 시작",
 	"setup.model.saveFailed": "기본 모델을 저장하지 못했어요",
 	"setup.test.action": "연결 테스트",
-	"setup.test.hint": "짧은 요청을 한 번 보내 모델이 응답하는지 확인해요 (토큰이 조금 사용돼요).",
+	"setup.test.hint": "짧은 요청을 한 번 보내요 (토큰이 조금 들어요).",
 	"setup.test.ok": "모델이 응답했어요. 바로 시작할 수 있어요.",
 	"setup.test.okIn": "모델이 {ms}ms 만에 응답했어요. 바로 시작할 수 있어요.",
 	"setup.test.failed": "테스트 요청이 실패했어요",
@@ -5983,12 +5975,10 @@ export const ko: Record<string, string> = {
 	"githubAuth.version": "gh {version}",
 	"githubAuth.missing.title":
 		"GitHub CLI가 설치되어 있지 않고, 이번 OMPdesk 실행은 도구를 스스로 설치하지 않아요. 직접 설치한 뒤 다시 확인하세요.",
-	"githubAuth.missing.autoInstall":
-		"로그인하면 GitHub CLI를 먼저 설치하고 이어서 진행해요. 직접 내려받을 필요 없어요.",
+	"githubAuth.missing.autoInstall": "로그인하면 GitHub CLI를 먼저 설치해요.",
 	"githubAuth.missing.download": "gh 내려받기",
 	"githubAuth.recheck": "다시 확인",
-	"githubAuth.signedOut.description":
-		"한 번만 로그인하면 풀 리퀘스트와 푸시가 터미널 없이 돼요. Git 이름이나 이메일이 비어 있으면 계정 정보로 채워 드려요.",
+	"githubAuth.signedOut.description": "풀 리퀘스트와 푸시를 터미널 없이 해요.",
 	"githubAuth.signIn": "GitHub로 로그인",
 	"githubAuth.starting": "로그인을 시작하고 있어요…",
 	"githubAuth.code.label": "일회용 코드",
@@ -6086,11 +6076,9 @@ export const ko: Record<string, string> = {
 	"panel.terminal.lease.claim": "여기서 맞추기",
 	"setup.step.install": "omp 설치",
 	"machineSetup.install.title": "이 컴퓨터에 omp를 설치하고 있어요",
-	"machineSetup.install.description":
-		"OMPdesk가 omp에 필요한 것을 알아서 설치해요. 따로 하실 일은 없고, 이 화면에서 진행 상황을 볼 수 있어요.",
+	"machineSetup.install.description": "OMPdesk가 omp에 필요한 것을 알아서 설치해요.",
 	"machineSetup.update.title": "이 컴퓨터의 omp를 업데이트하고 있어요",
-	"machineSetup.update.description":
-		"이 컴퓨터의 omp가 OMPdesk에 필요한 버전보다 오래돼서 OMPdesk가 알아서 업데이트해요. 따로 하실 일은 없고, 이 화면에서 진행 상황을 볼 수 있어요.",
+	"machineSetup.update.description": "omp가 오래돼서 OMPdesk가 업데이트하고 있어요.",
 	"machineSetup.stopped.title": "{name} 설치가 아직 끝나지 않았어요",
 	"machineSetup.stopped.outdatedTitle": "{name} 업데이트가 필요해요",
 	"machineSetup.stopped.description":
