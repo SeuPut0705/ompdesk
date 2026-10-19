@@ -294,24 +294,28 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 
 			{composerMode && (
 				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
-					<span className="inline-flex">
-						<Badge variant={composerMode === "bash" ? "info" : "warning"}>
-							{composerMode === "bash"
-								? t(composerExcluded ? "input.mode.bash.badgeExcluded" : "input.mode.bash.badge")
-								: t(composerExcluded ? "input.mode.python.badgeExcluded" : "input.mode.python.badge")}
+					<span className="omp-composer-badge inline-flex min-w-0">
+						<Badge className="min-w-0 shrink!" variant={composerMode === "bash" ? "info" : "warning"}>
+							<span className="truncate">
+								{composerMode === "bash"
+									? t(composerExcluded ? "input.mode.bash.badgeExcluded" : "input.mode.bash.badge")
+									: t(composerExcluded ? "input.mode.python.badgeExcluded" : "input.mode.python.badge")}
+							</span>
 						</Badge>
 					</span>
 				</Tooltip>
 			)}
 			{queued && (
 				<Tooltip content={t("input.queue.title")}>
-					<span className="inline-flex">
-						<Badge variant="warning">
-							{queueSplitCount > 1
-								? t("input.queue.badgeSplit", { count: queueSplitCount })
-								: stoppable
-									? t("input.queue.badge")
-									: t("input.queue.badgeIdle")}
+					<span className="omp-composer-badge inline-flex min-w-0">
+						<Badge className="min-w-0 shrink!" variant="warning">
+							<span className="truncate">
+								{queueSplitCount > 1
+									? t("input.queue.badgeSplit", { count: queueSplitCount })
+									: stoppable
+										? t("input.queue.badge")
+										: t("input.queue.badgeIdle")}
+							</span>
 						</Badge>
 					</span>
 				</Tooltip>

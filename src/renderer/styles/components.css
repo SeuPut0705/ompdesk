@@ -3483,9 +3483,11 @@ button.omp-file-chip-name:hover {
 }
 
 /* Below this a reserved slot costs the row its Send (a pane split in four, a 200 % zoom): the slots that are off give
-   their room back, and only there does the row move when a turn starts. */
+   their room back, and only there does the row move when a turn starts. The bash/python and queue badges go too
+   (wider up, they truncate): the draft's own `!`/`->` prefix still says it, and Stop and Send stay in the box. */
 @container omp-toolbar (max-width: 440px) {
-	.omp-composer-slot[data-off] {
+	.omp-composer-slot[data-off],
+	.omp-composer-badge {
 		display: none;
 	}
 }
