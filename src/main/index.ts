@@ -78,6 +78,7 @@ import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { RecallStateFile } from "./ai-memory/recall-state";
 import { AiMemoryService } from "./ai-memory/service";
+import { MemorySync, servePull, servePush } from "./ai-memory/sync";
 import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification } from "./app-icon";
@@ -403,6 +404,7 @@ let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
 let aiMemoryService: AiMemoryService | null = null;
 let aiMemoryUpkeep: MemoryUpkeep | null = null;
+let aiMemorySync: MemorySync | null = null;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
@@ -1057,6 +1059,8 @@ app.whenReady().then(() => {
 	// "service" is a pid file) stands in for the OS service.
 	const aiMemoryBinary = process.env.OMP_GUI_AI_MEMORY_BIN || null;
 	const aiMemoryUnitPidFile = process.env.OMP_GUI_AI_MEMORY_UNIT_PIDFILE || null;
+	/** The phase memory last reported (`onState`): a sync catches up when it turns `ready`. */
+	let aiMemoryPhase: string | null = null;
 	const aiMemory = new AiMemoryService({
 		platform,
 		arch: process.arch,
@@ -1102,17 +1106,21 @@ app.whenReady().then(() => {
 			if (state.phase === "ready") aiMemoryUpkeep?.ready();
 			else aiMemoryUpkeep?.pause();
 			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null, state.enabled);
+			// Memory just came up: catch up with the computers this one is connected to.
+			if (state.phase === "ready" && aiMemoryPhase !== "ready") aiMemorySync?.syncAll();
+			aiMemoryPhase = state.phase;
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	aiMemoryService = aiMemory;
 	// Memory's own quality upkeep (src/main/ai-memory/upkeep.ts): repairs old titles and child handoffs once per launch,
 	// and learns decisions/rules/gotchas from a person's paused conversations on the user's cheap model (`aiMemoryLearn`).
+	const memoryClient = new AiMemoryClient({
+		url: () => aiMemory.state().serverUrl,
+		dataDir: () => aiMemory.state().dataDir,
+	});
 	aiMemoryUpkeep = new MemoryUpkeep({
-		client: new AiMemoryClient({
-			url: () => aiMemory.state().serverUrl,
-			dataDir: () => aiMemory.state().dataDir,
-		}),
+		client: memoryClient,
 		learn: () => prefs.get(AI_MEMORY_LEARN_PREF) !== false,
 		model: async message => {
 			const omp = await systemOmp();
@@ -1122,6 +1130,29 @@ app.whenReady().then(() => {
 		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
 	});
+	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages only, over the
+	// remote link. This computer serves `host.memory.*` to the devices allowed to use it, and syncs with every host it
+	// is connected to when the link comes up, when memory comes up, and every few minutes.
+	const memoryReady = (): boolean => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)) && aiMemory.state().phase === "ready";
+	const memoryHost = { store: memoryClient, ready: memoryReady, selfId: () => devices.deviceId };
+	hostServices.attachMemory({
+		pull: (peer, params) => servePull(memoryHost, peer, params),
+		push: (peer, params) => servePush(memoryHost, peer, params),
+		allows: deviceId => devices.allowsPeer(deviceId),
+	});
+	aiMemorySync = new MemorySync({
+		...memoryHost,
+		onlineHosts: () => devices.onlineHosts(),
+		request: (host, method, params, timeoutMs) => devices.request(host, method, params, timeoutMs),
+		stateFile: join(app.getPath("userData"), "ai-memory", "sync.json"),
+		log: (message, details) => writeRuntimeLog({ source: "memory-sync", message, details }),
+		// e2e: the memory-sync spec waits seconds, not minutes.
+		...(Number(process.env.OMP_GUI_TEST_MEMORY_SYNC_MS) > 0
+			? { intervalMs: Number(process.env.OMP_GUI_TEST_MEMORY_SYNC_MS) }
+			: {}),
+	});
+	devices.onHostOnline(host => aiMemorySync?.hostOnline(host));
+	aiMemorySync.start();
 	registerAiMemoryIpc(ipc, aiMemory, {
 		openExternal: url => shell.openExternal(url),
 		openPath: path => shell.openPath(path),
@@ -1552,6 +1583,7 @@ installQuitGuard(
 			["cli-updater", () => cliUpdater?.dispose()],
 			["extension-updater", () => extensionUpdater?.dispose()],
 			["setup", () => setupService?.dispose()],
+			["ai-memory-sync", () => aiMemorySync?.dispose()],
 			["ai-memory-upkeep", () => aiMemoryUpkeep?.dispose()],
 			["ai-memory", () => aiMemoryService?.dispose()],
 			["github-auth", () => githubAuthService?.dispose()],

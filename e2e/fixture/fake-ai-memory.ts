@@ -30,7 +30,8 @@
  * - `__serve <data dir>`: the server: `/healthz`, then (bearer token) `/admin/status` and `/api/v1/…`: two projects
  *   (alpha: four pages, two sessions (one with 60 observations), an open and an accepted handoff; beta: one page),
  *   search over the pages (global or scoped), overview, observations by offset, the profile, and a STATEFUL wiki:
- *   `/admin/write-page`, `/admin/delete-page` (returns `pre_checkpoint`), `/admin/restore-page`, `/admin/lint`,
+ *   `/admin/write-page` (keeps `origin_device` in the page's frontmatter, as OMPdesk's server does), `/admin/delete-page`
+ *   (returns `pre_checkpoint`), `/admin/restore-page`, `/admin/lint`,
  *   `/admin/forget-sweep`, and MCP `tools/call` on `/mcp` for `memory_handoff_cancel` and `memory_feedback`. POSTs are
  *   logged with their body, and `/mcp` calls with the tool name, in `FAKE_AI_MEMORY_LOG + ".requests"`.
  */
@@ -257,6 +258,8 @@ interface FakePage {
 	updated_at: string;
 	body: string;
 	tags: string[];
+	/** Frontmatter `origin_device`: the computer this page is a copy from. */
+	origin?: string;
 }
 interface FakeHandoff {
 	id: string;
@@ -569,6 +572,8 @@ function serve(): void {
 				);
 				next.pinned = body.pinned === true;
 				next.tags = Array.isArray(body.tags) ? (body.tags as string[]) : [];
+				if (typeof body.origin_device === "string" && body.origin_device.trim())
+					next.origin = body.origin_device.trim();
 				PAGES[String(body.project)] = [next, ...list.filter(entry => entry.path !== body.path)];
 				checkpoints.push(`rev-${++revCounter}`);
 				return json({ page_id: next.id, path: next.path });
@@ -701,7 +706,11 @@ function serve(): void {
 					pinned: found.pinned,
 					created_at: found.updated_at,
 					updated_at: found.updated_at,
-					frontmatter: { tags: found.tags, summary: "1 prompt" },
+					frontmatter: {
+						tags: found.tags,
+						summary: "1 prompt",
+						...(found.origin ? { origin_device: found.origin } : {}),
+					},
 					body_markdown: found.body,
 				});
 			}
