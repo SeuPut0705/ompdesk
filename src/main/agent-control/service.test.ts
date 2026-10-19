@@ -9,7 +9,7 @@ import type {
 	RpcResponse,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
-import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef } from "./branches";
+import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
@@ -136,12 +136,14 @@ class FakeHost implements AgentControlHost {
 	};
 	landings = new Map<string, LandingFacts>();
 	removed: string[] = [];
+	/** What `removeSafeWorktree` does: by default the work landed and the tree is clean. */
+	removal: WorktreeRemoval = "removed";
 	closedRecords: ClosedChild[] = [];
 	landing = async (worktree: WorktreeRef): Promise<LandingFacts> =>
 		this.landings.get(worktree.branch) ?? { hasWork: false, landed: false, clean: true };
-	removeLandedWorktree = async (worktree: WorktreeRef) => {
-		this.removed.push(worktree.branch);
-		return true;
+	removeSafeWorktree = async (worktree: WorktreeRef): Promise<WorktreeRemoval> => {
+		if (this.removal) this.removed.push(worktree.branch);
+		return this.removal;
 	};
 	recordClosed = (child: ClosedChild) => {
 		this.closedRecords.push(child);
@@ -957,6 +959,26 @@ async function withWorktreeChildren() {
 	}
 	return { host, service, ids: ids as [string, string] };
 }
+
+describe("ompdesk_session_stop delete on a worktree child it opened", () => {
+	it("removes the worktree and branch when nothing would be lost", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const result = await service.run("main0001", T.stop, { session: ids[0], delete: true });
+		expect(result.text).toContain("Removed its worktree /wt/omp/agent/a and branch omp/agent/a.");
+		expect(host.removed).toEqual(["omp/agent/a"]);
+	});
+
+	it("keeps unlanded or dirty work and says what is there", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.removal = null;
+		const result = await service.run("main0001", T.stop, { session: ids[0], delete: true });
+		expect(host.deleted).toEqual([ids[0]]);
+		expect(host.removed).toEqual([]);
+		expect(result.text).toContain(
+			"Kept its worktree /wt/omp/agent/a and branch omp/agent/a: 2 commit(s) not in the base or its upstream, 1 untracked file(s).",
+		);
+	});
+});
 
 describe("ompdesk_compare", () => {
 	it("gives each worktree child's branch, diff stat, uncommitted work and final answer, and runs no tests", async () => {

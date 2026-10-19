@@ -69,7 +69,7 @@ import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
-import { branchFacts, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
+import { branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "./branches";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -681,7 +681,7 @@ export class AgentControlRuntime {
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
 			landing: worktree => landingFacts(worktree),
-			removeLandedWorktree: worktree => removeLandedWorktree(worktree),
+			removeSafeWorktree: worktree => removeSafeWorktree(worktree),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: () => {
 				const service = deps.schedules?.();

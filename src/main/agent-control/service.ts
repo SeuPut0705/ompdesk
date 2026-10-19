@@ -59,7 +59,14 @@ import type {
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
-import { type BranchFacts, type LandingFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
+import {
+	type BranchFacts,
+	type LandingFacts,
+	type MergeOutcome,
+	mergeProblem,
+	type WorktreeRef,
+	type WorktreeRemoval,
+} from "./branches";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import {
 	type AnswerArgs,
@@ -264,8 +271,8 @@ export interface AgentControlHost {
 	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
 	/** What git says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
 	landing(worktree: WorktreeRef): Promise<LandingFacts>;
-	/** Remove a landed, clean worktree and its branch (never forced); false when anything held it back. */
-	removeLandedWorktree(worktree: WorktreeRef): Promise<boolean>;
+	/** Remove a clean worktree whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
+	removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
 	/** The Schedules service (Settings › Schedules), or null where there is none. */
@@ -1718,9 +1725,34 @@ export class AgentControl {
 		} finally {
 			this.#closing.delete(target.tabId);
 		}
-		if (args.delete) return `Stopped, closed and deleted ${label(target)}.`;
+		if (args.delete) {
+			const done = `Stopped, closed and deleted ${label(target)}.`;
+			return own && target.worktree && !target.deviceName
+				? `${done} ${await this.#dropWorktree(target.worktree)}`
+				: done;
+		}
 		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
 		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
+	}
+
+	/**
+	 * A deleted child's worktree and branch go only when nothing would be lost (clean tree, untracked files included,
+	 * branch tip in the parent's HEAD or upstream); otherwise both stay and the answer says what is unlanded.
+	 */
+	async #dropWorktree(worktree: WorktreeRef): Promise<string> {
+		const removal = await this.#host.removeSafeWorktree(worktree).catch(() => null);
+		if (removal === "removed") return `Removed its worktree ${worktree.path} and branch ${worktree.branch}.`;
+		if (removal === "branch-kept")
+			return `Removed its worktree ${worktree.path}; git kept branch ${worktree.branch} (not merged into the parent checkout's HEAD).`;
+		const facts = await this.#host.branchFacts(worktree).catch(() => null);
+		const unlanded = facts
+			? [
+					facts.merged ? null : `${facts.commitsAhead} commit(s) not in the base or its upstream`,
+					facts.uncommitted ? `${facts.uncommitted} uncommitted file(s)` : null,
+					facts.untracked ? `${facts.untracked} untracked file(s)` : null,
+				].filter(Boolean)
+			: [];
+		return `Kept its worktree ${worktree.path} and branch ${worktree.branch}${unlanded.length ? `: ${unlanded.join(", ")}` : ""}. Land it with git there, or remove it yourself if the work is not wanted.`;
 	}
 
 	/** A close is journaled as one quiet line in both sessions (best effort: a line never blocks the close). */
@@ -2066,7 +2098,7 @@ export class AgentControl {
 			if (this.#host.tabs(caller.tabId)?.some(entry => entry.tabId === tab.tabId)) return;
 			const removed =
 				removeWorktree && tab.worktree
-					? await this.#host.removeLandedWorktree(tab.worktree).catch(() => false)
+					? (await this.#host.removeSafeWorktree(tab.worktree).catch(() => null)) !== null
 					: false;
 			this.#host.recordClosed({
 				path: tab.sessionPath as string,

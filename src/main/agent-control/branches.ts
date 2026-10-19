@@ -185,26 +185,29 @@ export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts>
 	};
 }
 
+/** What a safe removal did: worktree and branch gone, the worktree gone but `branch -d` kept the branch, or nothing. */
+export type WorktreeRemoval = "removed" | "branch-kept" | null;
+
 /**
- * Remove the worktree of a session whose work landed, and its branch, losing nothing: only a registered linked
- * worktree whose branch is landed and whose files are clean goes (`worktree remove` without `--force` refuses a
- * dirty one too), and the branch only with `branch -d`, which refuses an unmerged one. A branch `-d` keeps is left alone.
- * Returns false when anything held it back.
+ * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
+ * uncommitted or untracked file whose branch tip is in the parent's HEAD or upstream (an untouched branch is) goes
+ * (`worktree remove` without `--force` refuses a dirty one too), and the branch only with `branch -d`, which refuses
+ * an unmerged one. Null when anything held it back.
  */
-export async function removeLandedWorktree(worktree: WorktreeRef): Promise<boolean> {
+export async function removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
 	const facts = await landingFacts(worktree);
-	if (!facts.hasWork || !facts.landed || !facts.clean) return false;
+	if (!facts.landed || !facts.clean) return null;
 	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
 		.split("\n")
 		.filter(line => line.startsWith("worktree "))
 		.map(line => line.slice("worktree ".length));
 	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
 	const wanted = await realpath(worktree.path).catch(() => worktree.path);
-	if (!linked.includes(wanted)) return false;
+	if (!linked.includes(wanted)) return null;
 	const removed = await gitRaw(primary ?? worktree.baseCwd, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
-	if (removed.code !== 0) return false;
-	await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
-	return true;
+	if (removed.code !== 0) return null;
+	const branch = await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
+	return branch.code === 0 ? "removed" : "branch-kept";
 }
 
 /** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */

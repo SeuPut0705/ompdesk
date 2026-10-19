@@ -3,14 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
-import {
-	BranchError,
-	branchFacts,
-	landingFacts,
-	mergeBranch,
-	removeLandedWorktree,
-	type WorktreeRef,
-} from "./branches";
+import { BranchError, branchFacts, landingFacts, mergeBranch, removeSafeWorktree, type WorktreeRef } from "./branches";
 
 let root: string;
 let repo: string;
@@ -234,33 +227,35 @@ describe("landingFacts", () => {
 	});
 });
 
-describe("removeLandedWorktree", () => {
-	it("removes the worktree and deletes the merged branch without forcing", async () => {
+describe("removeSafeWorktree", () => {
+	it("removes a merged worktree and its branch without forcing, and an untouched one too", async () => {
 		const wt = await agentWorktree("j");
 		await commitIn(wt.path, "a.ts", "a\n");
 		await mergeBranch(wt, "Worker");
-		expect(await removeLandedWorktree(wt)).toBe(true);
+		expect(await removeSafeWorktree(wt)).toBe("removed");
 		await expect(fs.stat(wt.path)).rejects.toThrow();
 		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
+
+		// Nothing was ever done there: removing it loses nothing.
+		const untouched = await agentWorktree("m");
+		expect(await removeSafeWorktree(untouched)).toBe("removed");
+		await expect(fs.stat(untouched.path)).rejects.toThrow();
 	});
 
-	it("keeps everything for unmerged commits, uncommitted or untracked files, an untouched branch and a main checkout", async () => {
+	it("keeps everything for unmerged commits, uncommitted or untracked files and a main checkout", async () => {
 		const unmerged = await agentWorktree("k");
 		await commitIn(unmerged.path, "a.ts", "a\n");
-		expect(await removeLandedWorktree(unmerged)).toBe(false);
+		expect(await removeSafeWorktree(unmerged)).toBeNull();
+		await fs.stat(unmerged.path);
 
 		const dirty = await agentWorktree("l");
 		await commitIn(dirty.path, "b.ts", "b\n");
 		await mergeBranch(dirty, "Worker");
 		await fs.writeFile(path.join(dirty.path, "scratch.txt"), "unsaved");
-		expect(await removeLandedWorktree(dirty)).toBe(false);
+		expect(await removeSafeWorktree(dirty)).toBeNull();
 		expect(await fs.readFile(path.join(dirty.path, "scratch.txt"), "utf8")).toBe("unsaved");
 		expect(gitSync(repo, "branch", "--list", dirty.branch)).toContain(dirty.branch);
 
-		const untouched = await agentWorktree("m");
-		expect(await removeLandedWorktree(untouched)).toBe(false);
-		await fs.stat(untouched.path);
-
-		expect(await removeLandedWorktree({ path: repo, branch: "main", baseCwd: repo })).toBe(false);
+		expect(await removeSafeWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
 	});
 });
