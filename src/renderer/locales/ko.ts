@@ -3193,7 +3193,6 @@ export const ko: Record<string, string> = {
 	"chat.custom.memoryRecall.kind.preference": "취향",
 	"chat.custom.memoryRecall.kind.profile": "프로필",
 	"chat.custom.memoryRecall.kind.note": "메모",
-	"chat.custom.memoryRecall.kind.session": "이전 세션",
 	"chat.custom.memoryRecall.kind.conclusion": "이전 결론",
 	"chat.custom.ircAuto": "자동",
 	"chat.custom.ircReply": "답장",

@@ -244,7 +244,6 @@ const FOLDER_KINDS: Record<string, MemoryRecallKind> = {
 	procedures: "procedure",
 	preferences: "preference",
 	profile: "profile",
-	sessions: "session",
 };
 
 /** Snippets come HTML-marked (`<mark>…</mark>`) and with line breaks of the page body. */
@@ -273,8 +272,7 @@ function candidateTitle(raw: unknown, fallback: string): string {
 
 /**
  * The candidates in a `memory_query` answer (the JSON its MCP text part carries): `hits` and `global_scope_hits`
- * (the `_global` preferences every project sees) as pages, `conclusion_hits` as conclusions. A session page whose
- * session also has a conclusion is left out: the conclusion says what that session ended on.
+ * (the `_global` preferences every project sees) as durable pages, `conclusion_hits` as conclusions.
  */
 export function recallCandidates(response: unknown): RecallCandidate[] {
 	const pages: RecallCandidate[] = [];
@@ -287,18 +285,17 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 	for (const hit of [...rows("hits"), ...rows("global_scope_hits")]) {
 		const path = text(field(hit, "path"));
 		const snippet = plain(text(field(hit, "snippet")));
-		if (!path || field(hit, "superseded") === true || seen.has(path)) continue;
+		// A session page is never a candidate: its list of prompts and tool counts matched almost every prompt (the
+		// replay's false injections came from one 32 KB orchestrator page), and what a session settled is its conclusion.
+		if (!path || path.startsWith("sessions/") || field(hit, "superseded") === true || seen.has(path)) continue;
 		const title = candidateTitle(field(hit, "title"), snippet || path.replace(/^.*\//, "").replace(/\.md$/, ""));
 		if (!title) continue;
 		seen.add(path);
-		const kind = FOLDER_KINDS[path.split("/", 1)[0]] ?? "note";
-		const sessionId = kind === "session" ? /^sessions\/(.+)\.md$/.exec(path)?.[1] : undefined;
 		pages.push({
-			kind,
+			kind: FOLDER_KINDS[path.split("/", 1)[0]] ?? "note",
 			title,
 			text: snippet,
 			path,
-			...(sessionId ? { sessionId } : {}),
 			order: pages.length,
 		});
 	}
@@ -318,15 +315,14 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 			order: 0,
 		});
 	}
-	const kept = pages.filter(page => !(page.kind === "session" && page.sessionId && concluded.has(page.sessionId)));
-	return [...kept, ...conclusions].map((candidate, order) => ({ ...candidate, order }));
+	return [...pages, ...conclusions].map((candidate, order) => ({ ...candidate, order }));
 }
 
 // ---------------------------------------------------------------------------------------------
 // Choice
 // ---------------------------------------------------------------------------------------------
 
-/** Durable pages first, then what a session concluded, then plain notes, then session pages. */
+/** Durable pages first, then what a session concluded, then plain notes. */
 const KIND_RANK: Record<MemoryRecallKind, number> = {
 	decision: 0,
 	rule: 0,
@@ -336,7 +332,6 @@ const KIND_RANK: Record<MemoryRecallKind, number> = {
 	profile: 0,
 	conclusion: 1,
 	note: 2,
-	session: 3,
 };
 
 /**
@@ -459,7 +454,6 @@ const KIND_LABEL: Record<MemoryRecallKind, string> = {
 	preference: "Preference",
 	profile: "Profile",
 	note: "Note",
-	session: "Earlier session",
 	conclusion: "Earlier conclusion",
 };
 

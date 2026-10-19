@@ -120,16 +120,15 @@ describe("Korean stems", () => {
 });
 
 describe("candidates", () => {
-	it("reads pages, the _global preferences and conclusions; a concluded session's page gives way", () => {
+	it("reads durable pages, the _global preferences and conclusions; a session page is never a candidate", () => {
 		const candidates = recallCandidates(ANSWER);
 		expect(candidates.map(candidate => [candidate.kind, candidate.path ?? candidate.sessionId])).toEqual([
-			["session", "sessions/s-unrelated.md"],
 			["decision", "decisions/remote-sharing.md"],
 			["preference", "preferences/settings.md"],
 			["conclusion", "s-remote"],
 		]);
-		expect(candidates[1].text).toBe("테일스케일 신원으로만 연결하고 페어링 코드는 제거한다");
-		expect(candidates[3].at).toBe("2026-10-18T10:12:00Z");
+		expect(candidates[0].text).toBe("테일스케일 신원으로만 연결하고 페어링 코드는 제거한다");
+		expect(candidates[2].at).toBe("2026-10-18T10:12:00Z");
 	});
 	it("names a conclusion by its task, never by the protocol its first prompt arrived in", () => {
 		const excerpt = "Jev가 확실히 나아요. omp는 이미 Jev를 자동으로 쓰고 있어요. 92.4% vs 74.2%로 더 정확했어요.";
@@ -147,15 +146,6 @@ describe("candidates", () => {
 			"Jev 비교",
 			"Fix the parser",
 		]);
-	});
-
-	it("names a session page with a junk title by its snippet", () => {
-		const [page] = recallCandidates({
-			hits: [
-				{ path: "sessions/s1.md", title: "Complete assignment thoroughly:", snippet: "<mark>파서</mark> 수정" },
-			],
-		});
-		expect(page.title).toBe("파서 수정");
 	});
 
 	it("reads an older server's answer (no conclusion_hits) and anything malformed as nothing", () => {
@@ -196,7 +186,7 @@ describe("the code rule", () => {
 describe("with a judge", () => {
 	it("takes the judge's choice over the code rule when it decided", async () => {
 		const candidates = recallCandidates(ANSWER);
-		const selection = await selectRecall(PROMPT, candidates, async () => [0.1, 0.4, 0.95, RECALL_JUDGE_MIN]);
+		const selection = await selectRecall(PROMPT, candidates, async () => [0.4, 0.95, RECALL_JUDGE_MIN]);
 		expect(selection.judged).toBe(true);
 		expect(selection.items.map(candidate => candidate.path ?? candidate.sessionId)).toEqual([
 			"preferences/settings.md",

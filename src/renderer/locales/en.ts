@@ -3208,7 +3208,6 @@ export const en: Record<string, string> = {
 	"chat.custom.memoryRecall.kind.preference": "Preference",
 	"chat.custom.memoryRecall.kind.profile": "Profile",
 	"chat.custom.memoryRecall.kind.note": "Note",
-	"chat.custom.memoryRecall.kind.session": "Earlier session",
 	"chat.custom.memoryRecall.kind.conclusion": "Earlier conclusion",
 	"chat.custom.ircAuto": "Auto",
 	"chat.custom.ircReply": "Reply",

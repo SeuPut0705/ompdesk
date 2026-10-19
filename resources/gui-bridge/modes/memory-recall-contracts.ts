@@ -55,10 +55,10 @@ export const RECALL_TIMEOUT_MS = 600;
 export const RECALL_MAX_TOKENS = 600;
 
 /**
- * Probability of "this snippet holds what the prompt needs" from which the judge keeps a candidate. Measured 20 Oct
- * 2026 on the user's real data (16 prompts: 11 answerable, 5 negative controls; time-filtered store copies; Jev 1.14):
- * 0.5 put the answer in 7/11 with 3/5 false injections, 0.6 in 5/11 with 2/5, 0.4 in 7/11 with 4/5, 0.7 in 5/11 with
- * 2/5 (fewer found). 0.5 buys two answers for one false injection; n is small, so measure again as data grows.
+ * Probability of "this snippet holds what the prompt needs" from which the judge keeps a candidate. Chosen 20 Oct 2026
+ * on the user's real data (time-filtered store copies; Jev 1.14): 0.5 put the answer in 7/11 against 5/11 at 0.6. With
+ * session pages out of the candidates, the replay's 12 typed prompts with nothing to recall got no false injection at
+ * 0.5 (answer present 5/9 typed prompts). n is small, so measure again as data grows.
  */
 export const RECALL_JUDGE_MIN = 0.5;
 
@@ -70,7 +70,6 @@ export type MemoryRecallKind =
 	| "preference"
 	| "profile"
 	| "note"
-	| "session"
 	| "conclusion";
 
 /** One note the model was given, as the transcript line names it. */
@@ -79,7 +78,7 @@ export interface MemoryRecallItem {
 	kind: MemoryRecallKind;
 	/** A page's path in its project's wiki. */
 	path?: string;
-	/** A conclusion's (or session page's) session. */
+	/** A conclusion's session. */
 	sessionId?: string;
 	/** When it was recorded (ISO-8601), when the server says. */
 	at?: string;
@@ -100,7 +99,6 @@ const KINDS: Record<MemoryRecallKind, true> = {
 	preference: true,
 	profile: true,
 	note: true,
-	session: true,
 	conclusion: true,
 };
 
