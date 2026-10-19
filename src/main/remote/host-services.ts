@@ -105,6 +105,10 @@ import {
 	encodeBinaryRead,
 	GIT_METHODS,
 	MEMORY_METHODS,
+	MemoryConclusionPullParams,
+	type MemoryConclusionPullReply,
+	MemoryConclusionPushParams,
+	type MemoryConclusionPushReply,
 	MemoryPullParams,
 	type MemoryPullReply,
 	MemoryPushParams,
@@ -139,10 +143,15 @@ const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
 
-/** The memory pages this computer shares with the devices that use it (ai-memory/sync.ts `servePull`/`servePush`). */
+/**
+ * The memory pages and session conclusions this computer shares with the devices that use it (ai-memory/sync.ts
+ * `servePull`/`servePush`, `serveConclusionPull`/`serveConclusionPush`).
+ */
 export interface HostMemory {
 	pull(peerId: string, params: MemoryPullParams): Promise<MemoryPullReply>;
 	push(peerId: string, params: MemoryPushParams): Promise<MemoryPushReply>;
+	conclusionsPull(peerId: string, params: MemoryConclusionPullParams): Promise<MemoryConclusionPullReply>;
+	conclusionsPush(peerId: string, params: MemoryConclusionPushParams): Promise<MemoryConclusionPushReply>;
 	/** The device may still use this computer: paired, its node not blocked. */
 	allows(peerId: string): boolean;
 }
@@ -878,11 +887,22 @@ export class LocalHostServices implements HostServices {
 				const input = parse(GitWorktreeCreateParams, method, params);
 				return createWorktree(input.baseCwd, input, this.#deps.worktreeLocation ?? tablessWorktreeBridge);
 			}
-			// Memory: only durable pages, through this computer's own server; a device no longer allowed gets nothing.
+			// Memory: durable pages and session conclusions, through this computer's own server; a device no longer
+			// allowed gets nothing.
 			case MEMORY_METHODS.pull:
 				return this.#memoryFor(peer).pull(peer.deviceId, parse(MemoryPullParams, method, params));
 			case MEMORY_METHODS.push:
 				return this.#memoryFor(peer).push(peer.deviceId, parse(MemoryPushParams, method, params));
+			case MEMORY_METHODS.conclusionsPull:
+				return this.#memoryFor(peer).conclusionsPull(
+					peer.deviceId,
+					parse(MemoryConclusionPullParams, method, params),
+				);
+			case MEMORY_METHODS.conclusionsPush:
+				return this.#memoryFor(peer).conclusionsPush(
+					peer.deviceId,
+					parse(MemoryConclusionPushParams, method, params),
+				);
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}

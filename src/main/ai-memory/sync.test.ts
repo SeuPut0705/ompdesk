@@ -3,12 +3,31 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
-import { MEMORY_METHODS, MemoryPullParams, MemoryPushParams } from "../remote/app-protocol";
+import {
+	MEMORY_METHODS,
+	MemoryConclusionPullParams,
+	MemoryConclusionPushParams,
+	MemoryPullParams,
+	MemoryPushParams,
+} from "../remote/app-protocol";
 import { RM_TEMP } from "../test-fake-omp";
-import type { MemoryPageCopy } from "./client";
-import { type MemoryStore, MemorySync, pageHash, servePull, servePush } from "./sync";
+import type { MemoryConclusionCopy, MemoryPageCopy } from "./client";
+import {
+	type MemoryStore,
+	MemorySync,
+	pageHash,
+	serveConclusionPull,
+	serveConclusionPush,
+	servePull,
+	servePush,
+} from "./sync";
 
 type Stored = MemoryPageCopy & { at: string };
+type StoredConclusion = Omit<MemoryConclusionCopy, "seq">;
+
+/** A secret shaped like the vendor tokens the redactor knows (`ghp_…`). */
+const TOKEN = `ghp_${"a1B2c3D4e5F6g7H8i9J0k1L2m3N4"}`;
+const QUIET = { pulled: 0, pushed: 0, conflicts: 0, conclusions: { pulled: 0, pushed: 0 } };
 
 /** A memory server: pages by (workspace, project, path), each write a new `updated_at` from the shared clock. */
 class FakeServer {
@@ -19,6 +38,17 @@ class FakeServer {
 	readonly failOnce = new Set<string>();
 	/** Runs once at the start of the next copy write, before its precondition is checked (a change racing it). */
 	beforeWrite: (() => void) | undefined;
+	/** Conclusions this server captured itself (a Stop observation with a body): `seq` is the position. */
+	readonly native: StoredConclusion[] = [];
+	/** Conclusions it holds from other computers, each naming its origin; unique per (project, origin, id). */
+	readonly synced: StoredConclusion[] = [];
+	/** Every `writeConclusions` call that reached this server, whether it wrote or not. */
+	conclusionCalls: { project: string; origin: string; ids: string[] }[] = [];
+	conclusionReads = 0;
+	/** Ids whose next write throws once (the server answering 500); the whole call writes nothing. */
+	readonly failConclusionOnce = new Set<string>();
+	/** An ai-memory without the conclusion routes (a plain 404). */
+	noConclusionRoutes = false;
 	#version = 0;
 	constructor(
 		readonly now: () => string,
@@ -30,6 +60,19 @@ class FakeServer {
 	/** What a person or an agent writes here: no origin, a page of this computer's own. */
 	edit(path: string, body: string, project = "app", extra: Partial<MemoryPageCopy> = {}): void {
 		this.#put({ ...page(path, body, project), ...extra }, undefined);
+	}
+
+	/** What omp's Stop excerpt leaves in this server: a conclusion of its own, with no origin. */
+	capture(id: string, body: string, project = "app", title = `Session ${id}`): void {
+		this.native.push({
+			workspace: "default",
+			project,
+			id,
+			sessionId: `s-${id}`,
+			title,
+			body,
+			at: this.now(),
+		});
 	}
 
 	#put(copy: MemoryPageCopy, origin: string | undefined): void {
@@ -100,6 +143,38 @@ class FakeServer {
 			this.#put(copy, origin);
 			return true;
 		},
+		conclusions: async (source, after, limit) => {
+			if (this.noConclusionRoutes) throw new Error("Memory answered 404");
+			this.conclusionReads++;
+			const all = (source === "native" ? this.native : this.synced).map((row, index) => ({
+				...row,
+				seq: index + 1,
+			}));
+			const rows = all.filter(row => row.seq > after);
+			const page = rows.slice(0, limit);
+			return { rows: structuredClone(page), next: page.at(-1)?.seq ?? after, more: rows.length > page.length };
+		},
+		writeConclusions: async (project, origin, items) => {
+			if (this.noConclusionRoutes) throw new Error("Memory answered 404");
+			this.conclusionCalls.push({ project: project.project, origin, ids: items.map(item => item.id) });
+			for (const item of items) {
+				if (this.failConclusionOnce.delete(item.id)) throw new Error("Memory answered 500");
+			}
+			return items.map(item => {
+				if (!item.body.trim()) return "skipped";
+				const held = this.synced.some(
+					row => row.project === project.project && row.origin === origin && row.id === item.id,
+				);
+				if (held) return "same";
+				this.synced.push({
+					...structuredClone(item),
+					workspace: project.workspace,
+					project: project.project,
+					origin,
+				});
+				return "written";
+			});
+		},
 	};
 }
 
@@ -129,6 +204,8 @@ describe("memory sync between two computers", () => {
 	let hostMethods: Set<string>;
 	/** Pages that crossed the link, either way. */
 	let crossed: number;
+	/** Conclusions that crossed the link, either way. */
+	let conclusionsCrossed: number;
 	/** Runs on the host just before it serves a push (a change made there mid-round). */
 	let beforePush: (() => void) | undefined;
 
@@ -150,6 +227,16 @@ describe("memory sync between two computers", () => {
 					crossed += reply.pages.length;
 					return JSON.parse(JSON.stringify(reply)) as T;
 				}
+				if (method === MEMORY_METHODS.conclusionsPull) {
+					const reply = await serveConclusionPull(hostDeps, "mac", MemoryConclusionPullParams.parse(wire));
+					conclusionsCrossed += reply.conclusions.length;
+					return JSON.parse(JSON.stringify(reply)) as T;
+				}
+				if (method === MEMORY_METHODS.conclusionsPush) {
+					const push = MemoryConclusionPushParams.parse(wire);
+					conclusionsCrossed += push.conclusions.length;
+					return JSON.parse(JSON.stringify(await serveConclusionPush(hostDeps, "mac", push))) as T;
+				}
 				const push = MemoryPushParams.parse(wire);
 				crossed += push.pages.length;
 				beforePush?.();
@@ -168,6 +255,7 @@ describe("memory sync between two computers", () => {
 		logs = [];
 		hostMethods = new Set(Object.values(MEMORY_METHODS));
 		crossed = 0;
+		conclusionsCrossed = 0;
 		beforePush = undefined;
 		sync = connect(win);
 	});
@@ -183,7 +271,12 @@ describe("memory sync between two computers", () => {
 		mac.edit("_rules/style.md", "One line per row.", "_global");
 		mac.edit("sessions/s2.md", "raw session");
 
-		expect(await sync.sync("win")).toEqual({ pulled: 1, pushed: 1, conflicts: 0 });
+		expect(await sync.sync("win")).toEqual({
+			pulled: 1,
+			pushed: 1,
+			conflicts: 0,
+			conclusions: { pulled: 0, pushed: 0 },
+		});
 
 		expect(mac.body("decisions/jev.md")).toBe("Pin Jev 1.14.");
 		expect(win.body("_rules/style.md", "_global")).toBe("One line per row.");
@@ -203,8 +296,8 @@ describe("memory sync between two computers", () => {
 		win.writes = [];
 		crossed = 0;
 
-		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
-		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
+		expect(await sync.sync("win")).toEqual(QUIET);
+		expect(await sync.sync("win")).toEqual(QUIET);
 		expect(crossed).toBe(0);
 		expect(mac.writes).toEqual([]);
 		expect(win.writes).toEqual([]);
@@ -254,7 +347,7 @@ describe("memory sync between two computers", () => {
 		expect(await sync.sync("win")).toMatchObject({ pushed: 1 });
 		expect(win.body("decisions/a.md")).toBe("first");
 		crossed = 0;
-		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
+		expect(await sync.sync("win")).toEqual(QUIET);
 		expect(crossed).toBe(0);
 	});
 
@@ -325,7 +418,7 @@ describe("memory sync between two computers", () => {
 		mac.edit("decisions/a.md", "Same words.");
 		win.edit("decisions/a.md", "Same words.");
 
-		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
+		expect(await sync.sync("win")).toEqual(QUIET);
 		expect(mac.writes).toEqual([]);
 		expect(win.writes).toEqual([]);
 	});
@@ -429,6 +522,329 @@ describe("memory sync between two computers", () => {
 		hostMethods = new Set(Object.values(MEMORY_METHODS));
 		sync.hostOnline("win");
 		await expect.poll(() => mac.body("decisions/b.md")).toBe("there");
+	});
+
+	describe("session conclusions", () => {
+		const stored = (server: FakeServer) => server.synced.map(row => `${row.origin}:${row.id}`).sort();
+		const hostDeps = () => ({ store: win.store, ready: () => win.ready, selfId: () => "win" });
+
+		it("goes both ways, each stored under the computer that captured it", async () => {
+			mac.capture("m1", "Mac: the pairing fix is shipped.", "app", "Pairing fix");
+			win.capture("w1", "Windows: all tests are green.", "other");
+
+			const report = await sync.sync("win");
+			expect(report?.conclusions).toEqual({ pulled: 1, pushed: 1 });
+			expect(win.synced).toEqual([
+				{
+					workspace: "default",
+					project: "app",
+					id: "m1",
+					sessionId: "s-m1",
+					title: "Pairing fix",
+					body: "Mac: the pairing fix is shipped.",
+					at: mac.native[0]?.at,
+					origin: "mac",
+				},
+			]);
+			expect(mac.synced).toMatchObject([{ project: "other", id: "w1", origin: "win", sessionId: "s-w1" }]);
+			expect(logs.filter(line => line.message === "round")).toEqual([
+				expect.objectContaining({ details: expect.objectContaining({ conclusions: { pulled: 1, pushed: 1 } }) }),
+			]);
+		});
+
+		it("never writes one back to the computer it came from, and later rounds write nothing", async () => {
+			mac.capture("m1", "Mac conclusion.");
+			win.capture("w1", "Windows conclusion.");
+			await sync.sync("win");
+			win.conclusionCalls = [];
+			mac.conclusionCalls = [];
+			conclusionsCrossed = 0;
+
+			for (let round = 0; round < 3; round++) expect(await sync.sync("win")).toEqual(QUIET);
+			expect(conclusionsCrossed).toBe(0);
+			expect(win.conclusionCalls).toEqual([]);
+			expect(mac.conclusionCalls).toEqual([]);
+			expect(stored(win)).toEqual(["mac:m1"]);
+			expect(stored(mac)).toEqual(["win:w1"]);
+		});
+
+		it("passes a third computer's conclusions on, and never offers a computer its own back", async () => {
+			win.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "t1",
+				sessionId: "s-t1",
+				title: "T1",
+				body: "From the tablet.",
+				at: "2026-10-19T00:00:01Z",
+				origin: "tab",
+			});
+			mac.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "t2",
+				sessionId: "s-t2",
+				title: "T2",
+				body: "Also from the tablet.",
+				at: "2026-10-19T00:00:02Z",
+				origin: "tab",
+			});
+			// A conclusion of the Mac's that the host holds, and one of the host's that the Mac holds.
+			win.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "m-old",
+				sessionId: "s-m",
+				title: "M",
+				body: "The Mac's own.",
+				at: "2026-10-19T00:00:03Z",
+				origin: "mac",
+			});
+			mac.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "w-old",
+				sessionId: "s-w",
+				title: "W",
+				body: "The host's own.",
+				at: "2026-10-19T00:00:04Z",
+				origin: "win",
+			});
+
+			expect((await sync.sync("win"))?.conclusions).toEqual({ pulled: 1, pushed: 1 });
+			expect(stored(mac)).toEqual(["tab:t1", "tab:t2", "win:w-old"]);
+			expect(stored(win)).toEqual(["mac:m-old", "tab:t1", "tab:t2"]);
+			// What it pulled from the host is offered back too (a third computer's row, not the host's own): "same".
+			expect(win.conclusionCalls).toEqual([{ project: "app", origin: "tab", ids: ["t2", "t1"] }]);
+			expect(mac.conclusionCalls).toEqual([{ project: "app", origin: "tab", ids: ["t1"] }]);
+		});
+
+		it("sends many in batches and reads the host's native stream before the ones it holds", async () => {
+			for (let index = 0; index < 450; index++) win.capture(`w${index}`, `Host answer ${index}`);
+			win.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "t1",
+				sessionId: "s-t1",
+				title: "T1",
+				body: "From the tablet.",
+				at: "2026-10-19T00:00:01Z",
+				origin: "tab",
+			});
+			for (let index = 0; index < 430; index++) mac.capture(`m${index}`, `Mac answer ${index}`);
+
+			expect((await sync.sync("win"))?.conclusions).toEqual({ pulled: 451, pushed: 430 });
+			expect(mac.synced).toHaveLength(451);
+			expect(win.synced.filter(row => row.origin === "mac")).toHaveLength(430);
+			expect(await sync.sync("win")).toEqual(QUIET);
+		});
+
+		it("redacts a secret on the way out and on receipt, and cuts a long one on a character boundary", async () => {
+			mac.capture("m1", `Deployed with ${TOKEN} just now`, "app", `Key ${TOKEN}`);
+			win.capture("w1", `The host used ${TOKEN} too`);
+			mac.capture("m2", "é".repeat(1500));
+			await sync.sync("win");
+
+			for (const row of [...win.synced, ...mac.synced]) {
+				expect(`${row.title}\n${row.body}`).not.toContain(TOKEN);
+			}
+			expect(win.synced.find(row => row.id === "m1")?.body).toBe("Deployed with <token> just now");
+			expect(mac.synced[0]?.body).toBe("The host used <token> too");
+			const cut = win.synced.find(row => row.id === "m2")?.body ?? "";
+			expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(2000);
+			expect(cut).toBe("é".repeat(1000));
+
+			// A push that carries one (an older or hostile device) is redacted by the host before it is written.
+			const reply = await serveConclusionPush(hostDeps(), "mac", {
+				conclusions: [
+					{
+						workspace: "default",
+						project: "app",
+						id: "x1",
+						sessionId: "s-x",
+						title: "t",
+						body: `token ${TOKEN}`,
+						at: "2026-10-19T00:00:09Z",
+						origin: "win",
+					},
+					{
+						workspace: "default",
+						project: "app",
+						id: "x2",
+						sessionId: "s-x",
+						title: "t",
+						body: `token ${TOKEN}`,
+						at: "2026-10-19T00:00:09Z",
+						origin: "tab",
+					},
+				],
+			});
+			expect(reply).toEqual({ memory: true, results: [{ status: "same" }, { status: "written" }] });
+			expect(win.synced.find(row => row.id === "x2")?.body).toBe("token <token>");
+			expect(win.synced.some(row => row.id === "x1")).toBe(false);
+
+			// A host that sends one unredacted is not trusted either.
+			const hostile = new MemorySync({
+				store: mac.store,
+				ready: () => true,
+				selfId: () => "mac",
+				onlineHosts: () => ["win"],
+				request: async <T>(_host: string, method: string): Promise<T> => {
+					if (method === MEMORY_METHODS.pull) return { memory: true, pages: [], next: null, more: false } as T;
+					if (method === MEMORY_METHODS.conclusionsPull)
+						return {
+							memory: true,
+							conclusions: [
+								{
+									workspace: "default",
+									project: "app",
+									id: "h1",
+									sessionId: "s-h",
+									title: `Key ${TOKEN}`,
+									body: `leaks ${TOKEN}`,
+									at: "2026-10-19T00:00:10Z",
+									origin: "win",
+								},
+							],
+							next: { native: 1, synced: 0 },
+							more: false,
+						} as T;
+					return { memory: true, results: [] } as T;
+				},
+				stateFile: join(dir, "hostile.json"),
+				log: () => {},
+			});
+			await hostile.sync("win");
+			hostile.dispose();
+			const taken = mac.synced.find(row => row.id === "h1");
+			expect(taken?.body).toBe("leaks <token>");
+			expect(taken?.title).toBe("Key <token>");
+		});
+
+		it("serves nothing and writes nothing while memory is off", async () => {
+			win.capture("w1", "Host conclusion.");
+			win.ready = false;
+			expect(await serveConclusionPull(hostDeps(), "mac", { since: { native: 3, synced: 4 } })).toEqual({
+				memory: false,
+				conclusions: [],
+				next: { native: 3, synced: 4 },
+				more: false,
+			});
+			const push = [
+				{
+					workspace: "default",
+					project: "app",
+					id: "x",
+					sessionId: "s",
+					title: "t",
+					body: "b",
+					at: "2026-10-19T00:00:09Z",
+					origin: "tab",
+				},
+			];
+			expect(await serveConclusionPush(hostDeps(), "mac", { conclusions: push })).toEqual({
+				memory: false,
+				results: [],
+			});
+			expect(win.conclusionReads).toBe(0);
+			expect(win.conclusionCalls).toEqual([]);
+
+			mac.capture("m1", "Mac conclusion.");
+			expect(await sync.sync("win")).toBeNull();
+			win.ready = true;
+			mac.ready = false;
+			expect(await sync.sync("win")).toBeNull();
+			expect(mac.conclusionReads + win.conclusionReads).toBe(0);
+			expect(mac.conclusionCalls).toEqual([]);
+			expect(win.conclusionCalls).toEqual([]);
+		});
+
+		it("does not send again after a relaunch", async () => {
+			mac.capture("m1", "Mac conclusion.");
+			win.capture("w1", "Windows conclusion.");
+			await sync.sync("win");
+			sync.dispose();
+			win.conclusionCalls = [];
+			mac.conclusionCalls = [];
+			conclusionsCrossed = 0;
+			sync = connect(win);
+
+			expect(await sync.sync("win")).toEqual(QUIET);
+			expect(conclusionsCrossed).toBe(0);
+			expect(win.conclusionCalls).toEqual([]);
+			expect(mac.conclusionCalls).toEqual([]);
+		});
+
+		it("a conclusion that failed to write is offered again next round, in order", async () => {
+			mac.capture("m1", "In app.", "app");
+			mac.capture("m2", "In other.", "other");
+			mac.capture("m3", "In app again.", "app");
+			win.failConclusionOnce.add("m2");
+
+			expect((await sync.sync("win"))?.conclusions.pushed).toBe(2);
+			expect(stored(win)).toEqual(["mac:m1", "mac:m3"]);
+
+			expect((await sync.sync("win"))?.conclusions.pushed).toBe(1);
+			expect(stored(win)).toEqual(["mac:m1", "mac:m2", "mac:m3"]);
+			win.conclusionCalls = [];
+			expect(await sync.sync("win")).toEqual(QUIET);
+			expect(win.conclusionCalls).toEqual([]);
+		});
+
+		it("an older host without the conclusion methods still syncs pages, and is asked again when its link returns", async () => {
+			hostMethods = new Set([MEMORY_METHODS.pull, MEMORY_METHODS.push]);
+			win.edit("decisions/b.md", "there");
+			win.capture("w1", "Windows conclusion.");
+			mac.capture("m1", "Mac conclusion.");
+
+			expect(await sync.sync("win")).toMatchObject({ pulled: 1, conclusions: { pulled: 0, pushed: 0 } });
+			expect(await sync.sync("win")).toEqual(QUIET);
+			expect(mac.body("decisions/b.md")).toBe("there");
+			expect(logs.filter(line => line.message === "conclusions-unsupported")).toHaveLength(1);
+			expect(logs.filter(line => line.message === "unsupported")).toEqual([]);
+			expect(mac.synced).toEqual([]);
+
+			win.edit("decisions/c.md", "page while old");
+			expect(await sync.sync("win")).toMatchObject({ pulled: 1 });
+
+			hostMethods = new Set(Object.values(MEMORY_METHODS));
+			sync.hostOnline("win");
+			await expect.poll(() => [...stored(mac), ...stored(win)]).toEqual(["win:w1", "mac:m1"]);
+		});
+
+		it("a server without the conclusion routes fails only that step, and pages still sync", async () => {
+			mac.noConclusionRoutes = true;
+			win.edit("decisions/b.md", "there");
+			mac.edit("decisions/a.md", "here");
+			win.capture("w1", "Windows conclusion.");
+
+			expect(await sync.sync("win")).toMatchObject({ pulled: 1, pushed: 1, conclusions: { pulled: 0, pushed: 0 } });
+			expect(mac.body("decisions/b.md")).toBe("there");
+			expect(win.body("decisions/a.md")).toBe("here");
+			expect(logs.filter(line => line.message === "failed")).toEqual([
+				expect.objectContaining({ details: expect.objectContaining({ step: "conclusions" }) }),
+			]);
+
+			mac.noConclusionRoutes = false;
+			expect((await sync.sync("win"))?.conclusions.pulled).toBe(1);
+			expect(stored(mac)).toEqual(["win:w1"]);
+		});
+
+		it("skips a conclusion that cannot cross, and goes on past it", async () => {
+			win.native.push({
+				workspace: "default",
+				project: "app",
+				id: "bad id",
+				sessionId: "s-bad",
+				title: "t",
+				body: "whitespace in the id",
+				at: "2026-10-19T00:00:05Z",
+			});
+			win.capture("w2", "Good one.");
+			expect((await sync.sync("win"))?.conclusions.pulled).toBe(1);
+			expect(stored(mac)).toEqual(["win:w2"]);
+			expect(await sync.sync("win")).toEqual(QUIET);
+		});
 	});
 
 	it("hashes what a page holds, not where it came from or when", () => {

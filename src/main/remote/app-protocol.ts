@@ -45,6 +45,11 @@
  *   device itself sent), `host.memory.push {pages}` → MemoryPushReply (written through the host's own server, each
  *   only while the host still holds the version the device last saw). A host with memory off answers
  *   `{memory: false}` and reads or writes nothing; a device no longer allowed here is refused `remote_blocked`.
+ * - Session conclusions (a turn's final-answer excerpt, `MEMORY_CONCLUSION_MAX_BYTES`, redacted; same sync, same
+ *   gate): `host.memory.conclusions.pull {since: {native, synced}}` → MemoryConclusionPullReply (the host's own
+ *   conclusions then those it holds from other computers, none the asking device itself sent),
+ *   `host.memory.conclusions.push {conclusions}` → MemoryConclusionPushReply (insert-if-absent on the host's
+ *   server: `written`, `same`, `skipped`, or `failed`). A host with memory off answers `{memory: false}`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`
  * and `host.schedules.changed`.
@@ -140,7 +145,12 @@ export const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
 export const NameParams = z.object({ name: DeviceNameSchema });
 
 /** Memory sync (ai-memory/sync.ts): the device drives both directions over its link to the host. */
-export const MEMORY_METHODS = { pull: "host.memory.pull", push: "host.memory.push" } as const;
+export const MEMORY_METHODS = {
+	pull: "host.memory.pull",
+	push: "host.memory.push",
+	conclusionsPull: "host.memory.conclusions.pull",
+	conclusionsPush: "host.memory.conclusions.push",
+} as const;
 /** A pull or push batch reads and writes pages on both servers: more than the link's default 30 s. */
 export const MEMORY_REQUEST_TIMEOUT_MS = 120_000;
 /**
@@ -158,6 +168,8 @@ export const DURABLE_MEMORY_FOLDERS = [
 ] as const;
 /** A page body larger than this stays on its computer (a durable page is a few KB). */
 export const MEMORY_PAGE_MAX_BYTES = 256 * 1024;
+/** A session conclusion's body: the Stop excerpt cap (`conclusionExcerpt`), UTF-8 bytes. */
+export const MEMORY_CONCLUSION_MAX_BYTES = 2000;
 
 export function isDurablePath(path: string): boolean {
 	const parts = path.split("/");
@@ -234,6 +246,40 @@ export const MemoryPushResult = z.object({
 });
 export const MemoryPushReply = z.object({ memory: z.boolean(), results: z.array(MemoryPushResult) });
 export type MemoryPushReply = z.infer<typeof MemoryPushReply>;
+
+/** One session conclusion on the link; `origin` is the OMPdesk device id of the computer that captured it. */
+export const MemoryConclusionWire = z.object({
+	workspace: MemoryName,
+	project: MemoryName,
+	id: z.string().min(1).max(128),
+	sessionId: z.string().min(1).max(64),
+	title: z.string().max(1000),
+	body: z.string().refine(body => Buffer.byteLength(body) <= MEMORY_CONCLUSION_MAX_BYTES, "conclusion too long"),
+	at: MemoryTime,
+	origin: z.string().min(1).max(128),
+});
+export type MemoryConclusionWire = z.infer<typeof MemoryConclusionWire>;
+/** Where a conclusion pull goes on: the host's own stream, then the stream it holds from other computers. */
+export const MemoryConclusionCursor = z.object({ native: z.number().int().min(0), synced: z.number().int().min(0) });
+export type MemoryConclusionCursor = z.infer<typeof MemoryConclusionCursor>;
+export const MemoryConclusionPullParams = z.object({ since: MemoryConclusionCursor });
+export type MemoryConclusionPullParams = z.infer<typeof MemoryConclusionPullParams>;
+export const MemoryConclusionPullReply = z.object({
+	memory: z.boolean(),
+	conclusions: z.array(MemoryConclusionWire).max(200),
+	next: MemoryConclusionCursor,
+	more: z.boolean(),
+});
+export type MemoryConclusionPullReply = z.infer<typeof MemoryConclusionPullReply>;
+export const MemoryConclusionPushParams = z.object({
+	conclusions: z.array(MemoryConclusionWire).min(1).max(200),
+});
+export type MemoryConclusionPushParams = z.infer<typeof MemoryConclusionPushParams>;
+export const MemoryConclusionPushReply = z.object({
+	memory: z.boolean(),
+	results: z.array(z.object({ status: z.enum(["written", "same", "skipped", "failed"]) })),
+});
+export type MemoryConclusionPushReply = z.infer<typeof MemoryConclusionPushReply>;
 
 const SessionKind = z.enum(["agent", "chat"]);
 

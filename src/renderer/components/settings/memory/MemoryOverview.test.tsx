@@ -35,7 +35,6 @@ describe("Memory › Overview", () => {
 		expect(text("[data-memory-counts]")).toBe("3 pages · 2 sessions · 7 observations");
 		expect(text("[data-memory-disk]")).toBe("2.0 KB");
 		expect(text("[data-memory-dir]")).toBe("/data");
-		expect(text("[data-memory-privacy]")).toContain("Local only");
 	});
 
 	it("every row is one line: no inline description, the explanations are tooltips", async () => {

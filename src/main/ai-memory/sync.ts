@@ -4,9 +4,19 @@
  * recalls the Mac's decisions there. Only durable pages cross (`isDurablePath`); session pages and raw observations
  * stay where they were captured. Deletes do not cross.
  *
+ * Session conclusions cross too (each turn's final-answer excerpt, ≤ 2000 bytes, the server's `Stop` observations
+ * with a body), so a session on the other computer can recall them (`memory_query {conclusions: true}`). They are
+ * immutable and written insert-if-absent under the computer that captured them (`origin`); a conclusion is redacted
+ * again before it leaves and again when it arrives, never goes back to its origin, and is forwarded to the other
+ * computers once (a computer sends the ones it captured and the ones it holds from third computers). Deletes do not
+ * cross either; the receiver's own retention applies to what it holds.
+ *
  * The device that connected to a host drives both directions over its link (the link only carries requests that
  * way): `host.memory.pull` brings the host's pages changed after a cursor, `host.memory.push` sends this computer's
- * pages changed since it last looked. The host serves both with `servePull`/`servePush` on its own server.
+ * pages changed since it last looked, `host.memory.conclusions.pull`/`push` do the same for conclusions with
+ * a cursor per stream. The host serves them with `servePull`/`servePush`/`serveConclusionPull`/`serveConclusionPush`
+ * on its own server. A host that answers `unsupported` to the conclusion methods (an older OMPdesk) still syncs
+ * pages; the device leaves its conclusions alone until the link comes up again.
  *
  * Identity: (workspace, project, path). Content: `pageHash` of what the write path stores. A page's two copies are
  * "in agreement" at a pair of hashes (`base`: this computer's, the host's), recorded whenever a sync made them so;
@@ -20,13 +30,21 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import type { AiMemoryPageRef, AiMemoryProjectRef } from "../../shared/ai-memory";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	isDurablePath,
+	MEMORY_CONCLUSION_MAX_BYTES,
 	MEMORY_METHODS,
 	MEMORY_PAGE_MAX_BYTES,
 	MEMORY_REQUEST_TIMEOUT_MS,
+	MemoryConclusionCursor,
+	type MemoryConclusionPullParams,
+	MemoryConclusionPullReply,
+	type MemoryConclusionPushParams,
+	MemoryConclusionPushReply,
+	MemoryConclusionWire,
 	MemoryCursor,
 	MemoryPageWire,
 	type MemoryPullParams,
@@ -34,7 +52,7 @@ import {
 	type MemoryPushParams,
 	MemoryPushReply,
 } from "../remote/app-protocol";
-import type { MemoryPageCopy } from "./client";
+import type { MemoryConclusionCopy, MemoryPageCopy } from "./client";
 
 /** While a host is connected and memory is on, they sync this often (and whenever the link comes up). */
 export const MEMORY_SYNC_INTERVAL_MS = 5 * 60_000;
@@ -45,6 +63,11 @@ const BATCH_BYTES = 1_000_000;
 const MAX_PULL_BATCHES = 40;
 /** Agreement pairs kept per host (a person has hundreds of durable pages, not thousands). */
 const BASE_LIMIT = 10_000;
+/** Conclusions one pull reply or push request carries at most (the wire's cap), and batches one round goes through. */
+const CONCLUSION_BATCH = 200;
+const MAX_CONCLUSION_BATCHES = 40;
+/** A conclusion's title is cut to this many characters (the server's own cut). */
+const CONCLUSION_TITLE_CHARS = 500;
 
 /** The memory server, as the sync reads and writes it (AiMemoryClient). */
 export interface MemoryStore {
@@ -56,6 +79,18 @@ export interface MemoryStore {
 	pageCopy(ref: AiMemoryProjectRef & { path: string }): Promise<MemoryPageCopy>;
 	/** Only over the version `expected` (a `pageCopy` id) or, with `null`, only where nothing is; false: it moved on. */
 	writePageCopy(copy: MemoryPageCopy, origin: string | undefined, expected: string | null): Promise<boolean>;
+	/** One conclusion stream after `after`, `seq` order (`AiMemoryClient.conclusions`). */
+	conclusions(
+		source: "native" | "synced",
+		after: number,
+		limit: number,
+	): Promise<{ rows: MemoryConclusionCopy[]; next: number; more: boolean }>;
+	/** Insert-if-absent under `origin`, a status per item in order (`AiMemoryClient.writeConclusions`). */
+	writeConclusions(
+		project: AiMemoryProjectRef,
+		origin: string,
+		items: Pick<MemoryConclusionCopy, "id" | "sessionId" | "title" | "body" | "at">[],
+	): Promise<("written" | "same" | "skipped")[]>;
 }
 
 type PageRef = AiMemoryProjectRef & { path: string };
@@ -159,6 +194,57 @@ function fromWire(page: MemoryPageWire): MemoryPageCopy {
 	};
 }
 
+/** `text` cut to at most `max` UTF-8 bytes, never inside a character. */
+function cutBytes(text: string, max: number): string {
+	if (Buffer.byteLength(text) <= max) return text;
+	let kept = "";
+	let bytes = 0;
+	for (const char of text.slice(0, max)) {
+		bytes += Buffer.byteLength(char);
+		if (bytes > max) break;
+		kept += char;
+	}
+	return kept;
+}
+
+/**
+ * A conclusion as it may leave or be written: title and body redacted again (an older or hostile peer may not have),
+ * the body cut to the excerpt cap, the title to the server's cut. Null when nothing can be written of it: no text
+ * left, an id the server would refuse, a field past the wire's bounds.
+ */
+function cleanConclusion(
+	row: Pick<MemoryConclusionCopy, "workspace" | "project" | "id" | "sessionId" | "title" | "body" | "at">,
+	origin: string,
+): MemoryConclusionWire | null {
+	const body = cutBytes(redactDiagnosticsText(row.body), MEMORY_CONCLUSION_MAX_BYTES);
+	if (!body.trim() || !/^\S+$/.test(row.id)) return null;
+	const parsed = MemoryConclusionWire.safeParse({
+		workspace: row.workspace,
+		project: row.project,
+		id: row.id,
+		sessionId: row.sessionId,
+		title: [...redactDiagnosticsText(row.title)].slice(0, CONCLUSION_TITLE_CHARS).join(""),
+		body,
+		at: row.at,
+		origin,
+	});
+	return parsed.success ? parsed.data : null;
+}
+
+/** Rows of one (workspace, project, origin), the unit the server writes in one request. */
+function groupConclusions<T extends { workspace: string; project: string; origin: string }>(
+	rows: T[],
+): { workspace: string; project: string; origin: string; rows: T[] }[] {
+	const groups = new Map<string, { workspace: string; project: string; origin: string; rows: T[] }>();
+	for (const row of rows) {
+		const key = `${row.workspace}\u0000${row.project}\u0000${row.origin}`;
+		const group = groups.get(key) ?? { workspace: row.workspace, project: row.project, origin: row.origin, rows: [] };
+		group.rows.push(row);
+		groups.set(key, group);
+	}
+	return [...groups.values()];
+}
+
 /** The host side: this computer's server, whether memory is on, and this computer's device id. */
 export interface MemoryHostDeps {
 	store: MemoryStore;
@@ -248,6 +334,77 @@ export async function servePush(
 	return { memory: true, results };
 }
 
+/**
+ * `host.memory.conclusions.pull`: this computer's own conclusions after `since.native`, then the ones it holds from
+ * other computers after `since.synced`, at most 200 together, none that `peer` captured. Memory off: nothing read.
+ */
+export async function serveConclusionPull(
+	deps: MemoryHostDeps,
+	peer: string,
+	params: MemoryConclusionPullParams,
+): Promise<MemoryConclusionPullReply> {
+	if (!deps.ready()) return { memory: false, conclusions: [], next: params.since, more: false };
+	const self = deps.selfId();
+	const conclusions: MemoryConclusionWire[] = [];
+	const take = (row: MemoryConclusionCopy, origin: string | undefined): void => {
+		if (!origin || origin === peer) return;
+		const wire = cleanConclusion(row, origin);
+		if (wire) conclusions.push(wire);
+	};
+	const next = { ...params.since };
+	const native = await deps.store.conclusions("native", params.since.native, CONCLUSION_BATCH);
+	for (const row of native.rows) take(row, self);
+	next.native = native.next;
+	let more = native.more;
+	if (!more) {
+		const room = CONCLUSION_BATCH - conclusions.length;
+		if (room > 0) {
+			const synced = await deps.store.conclusions("synced", params.since.synced, room);
+			for (const row of synced.rows) take(row, row.origin);
+			next.synced = synced.next;
+			more = synced.more;
+		} else more = true;
+	}
+	return { memory: true, conclusions, next, more };
+}
+
+/**
+ * `host.memory.conclusions.push`: write each conclusion here under the computer that captured it, unless this
+ * computer holds it already (the server answers `same`) or it is this computer's own coming back (`same`, no write).
+ * A group the server refuses or fails on is `failed` for its rows only.
+ */
+export async function serveConclusionPush(
+	deps: MemoryHostDeps,
+	_peer: string,
+	params: MemoryConclusionPushParams,
+): Promise<MemoryConclusionPushReply> {
+	if (!deps.ready()) return { memory: false, results: [] };
+	const self = deps.selfId();
+	const results: MemoryConclusionPushReply["results"] = params.conclusions.map(() => ({ status: "failed" }));
+	const writable: (MemoryConclusionWire & { index: number })[] = [];
+	for (const [index, row] of params.conclusions.entries()) {
+		if (row.origin === self) results[index] = { status: "same" };
+		else {
+			const clean = cleanConclusion(row, row.origin);
+			if (clean) writable.push({ ...clean, index });
+			else results[index] = { status: "skipped" };
+		}
+	}
+	for (const group of groupConclusions(writable)) {
+		try {
+			const statuses = await deps.store.writeConclusions(
+				{ workspace: group.workspace, project: group.project },
+				group.origin,
+				group.rows.map(({ id, sessionId, title, body, at }) => ({ id, sessionId, title, body, at })),
+			);
+			for (const [at, row] of group.rows.entries()) results[row.index] = { status: statuses[at] ?? "failed" };
+		} catch {
+			// Left `failed`: the device offers these rows again.
+		}
+	}
+	return { memory: true, results };
+}
+
 const HostState = z.object({
 	/** Where the next pull of this host's pages goes on. */
 	pull: MemoryCursor.nullable(),
@@ -259,19 +416,36 @@ const HostState = z.object({
 	remote: z.record(z.string()),
 	/** Keys to offer again whatever their time: a push that failed or lost a conflict it then won. */
 	pending: z.array(z.string()),
+	/**
+	 * Where the next pull of this host's conclusions goes on, per stream (its own, then the ones it holds from
+	 * other computers). A sync.json written before conclusions existed has none: they start from the beginning.
+	 */
+	conclusions: MemoryConclusionCursor.default(() => ({ native: 0, synced: 0 })),
+	/** The last row of each of this computer's streams (its own, the ones it holds) the host has answered for. */
+	conclusionsSent: MemoryConclusionCursor.default(() => ({ native: 0, synced: 0 })),
 });
 type HostState = z.infer<typeof HostState>;
 const SyncFile = z.object({ v: z.literal(1), hosts: z.record(HostState) });
 type SyncFile = z.infer<typeof SyncFile>;
 
 function freshHost(): HostState {
-	return { pull: null, push: "", base: {}, remote: {}, pending: [] };
+	return {
+		pull: null,
+		push: "",
+		base: {},
+		remote: {},
+		pending: [],
+		conclusions: { native: 0, synced: 0 },
+		conclusionsSent: { native: 0, synced: 0 },
+	};
 }
 
 export interface MemorySyncReport {
 	pulled: number;
 	pushed: number;
 	conflicts: number;
+	/** Session conclusions written here (pulled) and written on the host (pushed) this round. */
+	conclusions: { pulled: number; pushed: number };
 }
 
 export interface MemorySyncDeps {
@@ -301,6 +475,8 @@ export class MemorySync {
 	readonly #running = new Map<string, Promise<MemorySyncReport | null>>();
 	/** Hosts whose OMPdesk has no memory sync (older): left alone until their link comes up again. */
 	readonly #unsupported = new Set<string>();
+	/** Hosts that sync pages but have no conclusion methods (older): asked again when their link comes up. */
+	readonly #conclusionsUnsupported = new Set<string>();
 	#timer: NodeJS.Timeout | undefined;
 	#disposed = false;
 
@@ -313,9 +489,10 @@ export class MemorySync {
 		this.#timer.unref?.();
 	}
 
-	/** A host's link came up: it may run a newer OMPdesk now, and its pages may have changed meanwhile. */
+	/** A host's link came up: it may run a newer OMPdesk now, and its pages and conclusions may have changed meanwhile. */
 	hostOnline(host: string): void {
 		this.#unsupported.delete(host);
+		this.#conclusionsUnsupported.delete(host);
 		void this.sync(host);
 	}
 
@@ -323,7 +500,7 @@ export class MemorySync {
 		for (const host of this.#deps.onlineHosts()) void this.sync(host);
 	}
 
-	/** One round with `host`: pull, then push. Null when nothing ran (memory off on either side, an older host). */
+	/** One round with `host`: pages, then conclusions, each pull then push. Null when nothing ran (memory off, an older host). */
 	sync(host: string): Promise<MemorySyncReport | null> {
 		const running = this.#running.get(host);
 		if (running) return running;
@@ -341,26 +518,35 @@ export class MemorySync {
 	async #round(host: string): Promise<MemorySyncReport | null> {
 		const started = Date.now();
 		const state = await this.#hostState(host);
-		const report: MemorySyncReport = { pulled: 0, pushed: 0, conflicts: 0 };
+		const report: MemorySyncReport = { pulled: 0, pushed: 0, conflicts: 0, conclusions: { pulled: 0, pushed: 0 } };
 		let step = "pull";
 		try {
 			await this.#pull(host, state, report);
 			step = "push";
 			await this.#push(host, state, report);
+			step = "conclusions";
+			await this.#conclusions(host, state, report);
 		} catch (error) {
 			if (error instanceof MemoryOff) return null;
-			if (ipcErrorCode(error) === "unsupported") {
+			const unsupported = ipcErrorCode(error) === "unsupported";
+			// Pages are done by now: a host or server that cannot do conclusions costs only them.
+			if (step === "conclusions" && unsupported) {
+				this.#conclusionsUnsupported.add(host);
+				this.#deps.log("conclusions-unsupported", { host });
+			} else if (unsupported) {
 				this.#unsupported.add(host);
 				this.#deps.log("unsupported", { host });
 				return null;
+			} else {
+				this.#deps.log("failed", { host, step, error: error instanceof Error ? error.message : String(error) });
+				if (step !== "conclusions") return null;
 			}
-			this.#deps.log("failed", { host, step, error: error instanceof Error ? error.message : String(error) });
-			return null;
 		} finally {
 			this.#trim(state);
 			await this.#save();
 		}
-		if (report.pulled + report.pushed + report.conflicts > 0)
+		const { pulled, pushed } = report.conclusions;
+		if (report.pulled + report.pushed + report.conflicts + pulled + pushed > 0)
 			this.#deps.log("round", { host, ...report, ms: Date.now() - started });
 		return report;
 	}
@@ -502,6 +688,90 @@ export class MemorySync {
 		state.push = newest;
 		// A page deleted here since it was left pending has nothing more to offer.
 		state.pending = state.pending.filter(key => local.has(key));
+	}
+
+	/** Conclusions, after the pages: the host's first, then this computer's two streams. */
+	async #conclusions(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
+		if (this.#conclusionsUnsupported.has(host)) return;
+		await this.#pullConclusions(host, state, report);
+		await this.#pushConclusions(host, state, report);
+	}
+
+	async #pullConclusions(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
+		const self = this.#deps.selfId();
+		for (let batch = 0; batch < MAX_CONCLUSION_BATCHES; batch++) {
+			const reply = MemoryConclusionPullReply.parse(
+				await this.#deps.request(
+					host,
+					MEMORY_METHODS.conclusionsPull,
+					{ since: state.conclusions },
+					MEMORY_REQUEST_TIMEOUT_MS,
+				),
+			);
+			if (!reply.memory) throw new MemoryOff();
+			// This computer's own coming back is never written; whatever the host says, nothing unredacted is.
+			const rows: MemoryConclusionWire[] = [];
+			for (const row of reply.conclusions) {
+				const clean = row.origin === self ? null : cleanConclusion(row, row.origin);
+				if (clean) rows.push(clean);
+			}
+			// A group that fails throws before the cursor moves: the batch is read again, the written rows answer `same`.
+			for (const group of groupConclusions(rows)) {
+				const statuses = await this.#deps.store.writeConclusions(
+					{ workspace: group.workspace, project: group.project },
+					group.origin,
+					group.rows,
+				);
+				report.conclusions.pulled += statuses.filter(status => status === "written").length;
+			}
+			state.conclusions = reply.next;
+			if (!reply.more) return;
+		}
+	}
+
+	/** Offer the host what it lacks of this computer's streams; the cursor stops at the first row it did not take. */
+	async #pushConclusions(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
+		const self = this.#deps.selfId();
+		for (const source of ["native", "synced"] as const) {
+			for (let batch = 0; batch < MAX_CONCLUSION_BATCHES; batch++) {
+				const page = await this.#deps.store.conclusions(source, state.conclusionsSent[source], CONCLUSION_BATCH);
+				// The host's own conclusions never go back to it, and a computer's neither (`origin`).
+				const entries = page.rows.map(row => {
+					const origin = source === "native" ? self : row.origin;
+					return { seq: row.seq, wire: origin && origin !== host ? cleanConclusion(row, origin) : null };
+				});
+				const wires = entries.flatMap(entry => (entry.wire ? [entry.wire] : []));
+				let results: MemoryConclusionPushReply["results"] = [];
+				if (wires.length > 0) {
+					const reply = MemoryConclusionPushReply.parse(
+						await this.#deps.request(
+							host,
+							MEMORY_METHODS.conclusionsPush,
+							{ conclusions: wires },
+							MEMORY_REQUEST_TIMEOUT_MS,
+						),
+					);
+					if (!reply.memory) throw new MemoryOff();
+					results = reply.results;
+					report.conclusions.pushed += results.filter(result => result.status === "written").length;
+				}
+				let answered = 0;
+				let reached = state.conclusionsSent[source];
+				let stalled = false;
+				for (const entry of entries) {
+					if (entry.wire) {
+						const status = results[answered++]?.status;
+						if (status === undefined || status === "failed") {
+							stalled = true;
+							break;
+						}
+					}
+					reached = entry.seq;
+				}
+				state.conclusionsSent[source] = stalled ? reached : page.next;
+				if (stalled || !page.more) break;
+			}
+		}
 	}
 
 	#unpend(state: HostState, key: string): void {

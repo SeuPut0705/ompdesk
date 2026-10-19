@@ -76,7 +76,7 @@ import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { RecallStateFile } from "./ai-memory/recall-state";
 import { AiMemoryService } from "./ai-memory/service";
-import { MemorySync, servePull, servePush } from "./ai-memory/sync";
+import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
 import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification } from "./app-icon";
@@ -1132,14 +1132,16 @@ app.whenReady().then(() => {
 		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
 	});
-	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages only, over the
-	// remote link. This computer serves `host.memory.*` to the devices allowed to use it, and syncs with every host it
-	// is connected to when the link comes up, when memory comes up, and every few minutes.
+	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages and session
+	// conclusions, over the remote link. This computer serves `host.memory.*` to the devices allowed to use it, and
+	// syncs with every host it is connected to when the link comes up, when memory comes up, and every few minutes.
 	const memoryReady = (): boolean => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)) && aiMemory.state().phase === "ready";
 	const memoryHost = { store: memoryClient, ready: memoryReady, selfId: () => devices.deviceId };
 	hostServices.attachMemory({
 		pull: (peer, params) => servePull(memoryHost, peer, params),
 		push: (peer, params) => servePush(memoryHost, peer, params),
+		conclusionsPull: (peer, params) => serveConclusionPull(memoryHost, peer, params),
+		conclusionsPush: (peer, params) => serveConclusionPush(memoryHost, peer, params),
 		allows: deviceId => devices.allowsPeer(deviceId),
 	});
 	aiMemorySync = new MemorySync({

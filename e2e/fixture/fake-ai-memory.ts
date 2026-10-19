@@ -33,8 +33,21 @@
  *   `/admin/write-page` (keeps `origin_device` and `expires_at` in the page's frontmatter, as OMPdesk's server does; an
  *   expired page is left out of the page list unless `include_expired=true`), `/admin/delete-page`
  *   (returns `pre_checkpoint`), `/admin/restore-page`, `/admin/lint`,
- *   `/admin/forget-sweep`, and MCP `tools/call` on `/mcp` for `memory_handoff_cancel` and `memory_feedback`. POSTs are
- *   logged with their body, and `/mcp` calls with the tool name, in `FAKE_AI_MEMORY_LOG + ".requests"`.
+ *   `/admin/forget-sweep`, and MCP `tools/call` on `/mcp` for `memory_handoff_cancel`, `memory_feedback` and
+ *   `memory_query`. POSTs are logged with their body, and `/mcp` calls with the tool name, in
+ *   `FAKE_AI_MEMORY_LOG + ".requests"`.
+ * - Session conclusions (what OMPdesk shares between paired computers, src/main/ai-memory/sync.ts), stateful for the
+ *   life of the server process. NATIVE ones are the Stop observations this server captured: seed them with
+ *   `FAKE_AI_MEMORY_CONCLUSIONS=<JSON array of {project, id, session_id, title?, body, created_at?}>` at launch, or
+ *   add one later with an authorized `POST /__fake/capture` (same fields). SYNCED ones arrive by
+ *   `POST /admin/write-conclusions` and are kept in their own table. `GET /admin/conclusions?source=native|synced&
+ *   after&limit` pages either by `seq` (the row's position, 1-based) and answers 422 on a bad query;
+ *   `/admin/write-conclusions` validates the whole request first (422, nothing written), scrubs `ghp_…`/`sk-…`
+ *   tokens out of the body and cuts it to 2000 bytes, and is insert-if-absent per (workspace, project, id): `written`,
+ *   `same` or `skipped` (empty body). `memory_query {conclusions: true}` answers `conclusion_hits` from the native
+ *   and synced rows of the named project: a row matches when it holds every whitespace-separated term of the query
+ *   (case-insensitive substring of title or body), one hit per session, the snippet is the body with the terms in
+ *   `<mark>`; `hits` is always empty.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -440,6 +453,44 @@ const SESSIONS: Record<string, Record<string, unknown>[]> = {
 			]
 		: [],
 };
+
+interface FakeConclusion {
+	seq: number;
+	workspace: string;
+	project: string;
+	id: string;
+	session_id: string;
+	title: string;
+	body: string;
+	created_at: string;
+	origin_device?: string;
+}
+/** Stop observations captured here, then conclusions written by another computer (`origin_device`). */
+const NATIVE: FakeConclusion[] = [];
+const SYNCED: FakeConclusion[] = [];
+function capture(row: Record<string, unknown>): void {
+	NATIVE.push({
+		seq: NATIVE.length + 1,
+		workspace: WORKSPACE,
+		project: String(row.project),
+		id: String(row.id),
+		session_id: String(row.session_id),
+		title: String(row.title ?? row.session_id),
+		body: String(row.body),
+		created_at: String(row.created_at ?? new Date().toISOString()),
+	});
+}
+for (const row of JSON.parse(process.env.FAKE_AI_MEMORY_CONCLUSIONS ?? "[]") as Record<string, unknown>[]) capture(row);
+const CONCLUSION_BODY_BYTES = 2000;
+const scrubbed = (text: string): string => text.replace(/\b(?:gh[pousr]_|sk-)[A-Za-z0-9_-]{16,}/g, "<token>");
+function cutBytes(text: string, max: number): string {
+	let kept = "";
+	for (const char of text) {
+		if (Buffer.byteLength(kept + char) > max) break;
+		kept += char;
+	}
+	return kept;
+}
 let revCounter = 0;
 const checkpoints: string[] = ["rev-0"];
 
@@ -587,6 +638,86 @@ function serve(): void {
 				checkpoints.push(`rev-${++revCounter}`);
 				return json({ page_id: next.id, path: next.path });
 			}
+			if (url.pathname === "/__fake/capture") {
+				capture(body);
+				return json({ seq: NATIVE.length });
+			}
+			if (url.pathname === "/admin/conclusions") {
+				const source = url.searchParams.get("source");
+				const after = Number(url.searchParams.get("after") ?? 0);
+				const limit = Number(url.searchParams.get("limit") ?? 200);
+				if (
+					(source !== "native" && source !== "synced") ||
+					!Number.isInteger(after) ||
+					after < 0 ||
+					!Number.isInteger(limit) ||
+					limit < 1 ||
+					limit > 500
+				)
+					return json({ error: "invalid conclusions query" }, 422);
+				const rows = (source === "native" ? NATIVE : SYNCED).filter(row => row.seq > after);
+				const page = rows.slice(0, limit);
+				return json({
+					conclusions: page.map(
+						({ seq, workspace, project, id, session_id, title, body, created_at, origin_device }) => ({
+							seq,
+							workspace,
+							project,
+							id,
+							session_id,
+							title,
+							body,
+							created_at,
+							...(source === "synced" ? { origin_device } : {}),
+						}),
+					),
+					next: page.at(-1)?.seq ?? after,
+					more: rows.length > page.length,
+				});
+			}
+			if (url.pathname === "/admin/write-conclusions") {
+				const items = Array.isArray(body.conclusions) ? (body.conclusions as Record<string, unknown>[]) : [];
+				const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+				const origin = body.origin_device;
+				const valid =
+					text(body.workspace) &&
+					text(body.project) &&
+					text(origin) &&
+					origin.length <= 128 &&
+					items.length >= 1 &&
+					items.length <= 500 &&
+					items.every(
+						item =>
+							text(item.id) &&
+							item.id.length <= 128 &&
+							!/\s/.test(item.id) &&
+							text(item.session_id) &&
+							typeof item.title === "string" &&
+							typeof item.body === "string" &&
+							text(item.created_at) &&
+							!Number.isNaN(Date.parse(item.created_at)),
+					);
+				if (!valid) return json({ error: "invalid conclusions" }, 422);
+				const results = items.map(item => {
+					const stored = cutBytes(scrubbed(String(item.body)), CONCLUSION_BODY_BYTES);
+					if (!stored.trim()) return { id: item.id, status: "skipped" };
+					if (SYNCED.some(row => row.project === body.project && row.id === item.id))
+						return { id: item.id, status: "same" };
+					SYNCED.push({
+						seq: SYNCED.length + 1,
+						workspace: String(body.workspace),
+						project: String(body.project),
+						id: String(item.id),
+						session_id: String(item.session_id),
+						title: [...scrubbed(String(item.title))].slice(0, 500).join(""),
+						body: stored,
+						created_at: String(item.created_at),
+						origin_device: String(origin),
+					});
+					return { id: item.id, status: "written" };
+				});
+				return json({ results });
+			}
 			if (url.pathname === "/admin/delete-page") {
 				const key = String(body.project);
 				const list = PAGES[key] ?? [];
@@ -643,6 +774,41 @@ function serve(): void {
 					);
 					PAGES[key] = [next, ...list.filter(entry => entry.path !== args.path)];
 					return reply({ page_id: next.id, path: next.path });
+				}
+				if (tool === "memory_query") {
+					const terms = String(args.query ?? "")
+						.toLowerCase()
+						.split(/\s+/)
+						.filter(Boolean);
+					const hits: Record<string, unknown>[] = [];
+					if (args.conclusions === true) {
+						const seen = new Set<string>();
+						for (const row of [...NATIVE, ...SYNCED]) {
+							if (row.project !== args.project || seen.has(row.session_id)) continue;
+							const haystack = `${row.title} ${row.body}`.toLowerCase();
+							if (terms.length === 0 || !terms.every(term => haystack.includes(term))) continue;
+							seen.add(row.session_id);
+							const marked = terms.reduce(
+								(text, term) =>
+									text.replace(
+										new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+										"<mark>$&</mark>",
+									),
+								row.body,
+							);
+							hits.push({
+								session_id: row.session_id,
+								title: row.title,
+								excerpt: marked,
+								created_at: row.created_at,
+								rank: -1,
+							});
+						}
+					}
+					return reply({
+						hits: [],
+						...(hits.length ? { conclusion_hits: hits.slice(0, Number(args.limit ?? 10)) } : {}),
+					});
 				}
 				if (tool === "memory_feedback") return reply({ ok: true, path: args.path, signal: args.signal });
 				return json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "unknown tool" } });

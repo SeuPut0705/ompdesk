@@ -2,13 +2,17 @@
  * Memory shared between two paired computers (src/main/ai-memory/sync.ts) on the built app: two apps on the fake
  * Tailscale, each with its own fake ai-memory server (e2e/fixture/fake-ai-memory.ts). The device connects to the host;
  * a decision written on either side becomes readable on the other, marked with the computer it came from, and is never
- * written back. The rules (hashes, conflicts, durable folders, memory off, a blocked device) are pinned by
- * src/main/ai-memory/sync.test.ts and the host.memory case of src/main/remote/host-services.test.ts.
+ * written back. So do the session conclusions each server captured (its seeded Stop observations): they reach the
+ * other server through `/admin/write-conclusions` under the capturing computer's id, answer its `memory_query
+ * {conclusions: true}`, and no later round writes one back or twice. The rules (hashes, conflicts, durable folders,
+ * memory off, a blocked device, redaction, cursors) are pinned by src/main/ai-memory/sync.test.ts and the host.memory
+ * cases of src/main/remote/host-services.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { z } from "zod";
 import { phaseIs } from "./fixture/ai-memory-rig";
 import { type FixtureAiMemory, fixtureAiMemory } from "./fixture/fake-ai-memory-install";
 import { exitApp } from "./harness";
@@ -22,7 +26,12 @@ interface Computer {
 }
 
 /** One computer: its own HOME, fake ai-memory server and fake Tailscale; a device takes its host's `port` to probe. */
-async function computer(parent: string, name: string, port?: number): Promise<Computer> {
+async function computer(
+	parent: string,
+	name: string,
+	seeded: Record<string, string>[],
+	port?: number,
+): Promise<Computer> {
 	const home = path.join(parent, `${name}-home`);
 	await fs.mkdir(home);
 	const memory = await fixtureAiMemory(path.join(parent, `${name}-memory`));
@@ -37,6 +46,7 @@ async function computer(parent: string, name: string, port?: number): Promise<Co
 			PI_CONFIG_DIR: "omp-config",
 			OMP_GUI_AI_MEMORY_UNIT_PIDFILE: path.join(home, ".fake-ai-memory", "server.pid"),
 			OMP_GUI_TEST_MEMORY_SYNC_MS: "1000",
+			FAKE_AI_MEMORY_CONCLUSIONS: JSON.stringify(seeded),
 		},
 	});
 	return { memory, app: await launchRemote(profile) };
@@ -55,15 +65,75 @@ const readBody = (page: Page, file: string) =>
 const writes = async (memory: FixtureAiMemory, file: string) =>
 	(await memory.requests()).filter(request => request.path === "/admin/write-page" && request.body?.path === file);
 
+const WriteConclusions = z.object({
+	origin_device: z.string(),
+	conclusions: z.array(z.object({ id: z.string() })),
+});
+const QueryAnswer = z.object({ result: z.object({ content: z.array(z.object({ text: z.string() })) }) });
+const QueryHits = z.object({ conclusion_hits: z.array(z.object({ session_id: z.string() })).optional() });
+
+/** One entry per `/admin/write-conclusions` request a computer's server got: who captured them, which ids. */
+const conclusionWrites = async (memory: FixtureAiMemory) =>
+	(await memory.requests())
+		.filter(request => request.path === "/admin/write-conclusions")
+		.map(request => WriteConclusions.parse(request.body))
+		.map(body => ({ origin: body.origin_device, ids: body.conclusions.map(item => item.id) }));
+
+/** A computer's own memory server and its root token, as a session in it would reach them. */
+async function serverOf(computer: Computer): Promise<{ url: string; headers: Record<string, string> }> {
+	const { serverUrl, dataDir } = await computer.app.page.evaluate(() => window.omp.aiMemory.getState());
+	const token = (await fs.readFile(path.join(String(dataDir), "auth-tokens", "default"), "utf8")).trim();
+	return {
+		url: String(serverUrl),
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+		},
+	};
+}
+
+/** The sessions `memory_query {conclusions: true}` answers on a computer's own server. */
+async function conclusionHits(computer: Computer, query: string): Promise<string[]> {
+	const server = await serverOf(computer);
+	const response = await fetch(`${server.url}/mcp`, {
+		method: "POST",
+		headers: server.headers,
+		body: JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "memory_query", arguments: { ...ALPHA, query, conclusions: true, limit: 8 } },
+		}),
+	});
+	const text = QueryAnswer.parse(await response.json()).result.content[0]?.text ?? "{}";
+	return (QueryHits.parse(JSON.parse(text)).conclusion_hits ?? []).map(hit => hit.session_id);
+}
+
+const HOST_CONCLUSION = {
+	project: "alpha",
+	id: "obs-win-1",
+	session_id: "s-win-1",
+	title: "Pairing fix",
+	body: "Host finished the pairing fix: Tailscale identity only.",
+};
+const DEVICE_CONCLUSION = {
+	project: "alpha",
+	id: "obs-mac-1",
+	session_id: "s-mac-1",
+	title: "Sync retries",
+	body: "Device settled the retry backoff for memory sync.",
+};
+
 test("a decision made on one computer is in the other's memory, and never comes back", async () => {
 	test.setTimeout(240_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-memory-sync-")));
 	let host: Computer | undefined;
 	let device: Computer | undefined;
 	try {
-		const win = await computer(parent, "win");
+		const win = await computer(parent, "win", [HOST_CONCLUSION]);
 		host = win;
-		const mac = await computer(parent, "mac", win.app.profile.port);
+		const mac = await computer(parent, "mac", [DEVICE_CONCLUSION], win.app.profile.port);
 		device = mac;
 		await phaseIs(host.app.page, "ready");
 		await phaseIs(device.app.page, "ready");
@@ -135,6 +205,36 @@ test("a decision made on one computer is in the other's memory, and never comes 
 		expect(await listed(mac.app.page)).not.toContain("decisions/sharing.md");
 		// The copy the device's push wrote, then the retire: nothing after.
 		expect(await writes(host.memory, "decisions/sharing.md")).toHaveLength(2);
+
+		// Each computer's own conclusion is in the other's server exactly once, under the computer that captured it,
+		// and answers its memory_query. Nothing was written back to where it came from in all the rounds above.
+		expect(await conclusionWrites(host.memory)).toEqual([{ origin: deviceId, ids: ["obs-mac-1"] }]);
+		expect(await conclusionWrites(device.memory)).toEqual([{ origin: hostId, ids: ["obs-win-1"] }]);
+		expect(await conclusionHits(host, "backoff")).toEqual(["s-mac-1"]);
+		expect(await conclusionHits(device, "pairing")).toEqual(["s-win-1"]);
+
+		// One captured later on the host follows, and again no round repeats or returns anything.
+		const hostServer = await serverOf(win);
+		const captured = await fetch(`${hostServer.url}/__fake/capture`, {
+			method: "POST",
+			headers: hostServer.headers,
+			body: JSON.stringify({
+				project: "alpha",
+				id: "obs-win-2",
+				session_id: "s-win-2",
+				title: "Windows build",
+				body: "Host fixed the installer signing.",
+			}),
+		});
+		expect(captured.ok).toBe(true);
+		await expect.poll(() => conclusionHits(mac, "installer"), { timeout: 30_000 }).toEqual(["s-win-2"]);
+		const afterLate = await rounds();
+		await expect.poll(rounds, { timeout: 30_000 }).toBeGreaterThanOrEqual(afterLate + 4);
+		expect(await conclusionWrites(host.memory)).toEqual([{ origin: deviceId, ids: ["obs-mac-1"] }]);
+		expect(await conclusionWrites(device.memory)).toEqual([
+			{ origin: hostId, ids: ["obs-win-1"] },
+			{ origin: hostId, ids: ["obs-win-2"] },
+		]);
 		expect(host.app.errors).toEqual([]);
 		expect(device.app.errors).toEqual([]);
 	} finally {

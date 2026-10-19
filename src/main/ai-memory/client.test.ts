@@ -736,4 +736,102 @@ describe("AiMemoryClient (Memory page)", () => {
 		routes[`${BASE}/pages?include_expired=true`] = json([{ path: "decisions/old.md", title: "Old" }]);
 		expect((await client.allPages(PROJECT)).map(page => page.path)).toEqual(["decisions/old.md"]);
 	});
+
+	it("reads a conclusion stream after a cursor and parses its rows, the origin only on synced ones", async () => {
+		routes["/admin/conclusions?source=native&after=0&limit=200"] = json({
+			conclusions: [
+				{
+					seq: 4,
+					workspace: "w",
+					project: "p",
+					id: "obs-1",
+					session_id: "s-1",
+					title: "Sharing plan",
+					body: "Done: Tailscale identity only.",
+					created_at: "2026-10-19T10:00:00Z",
+				},
+			],
+			next: 4,
+			more: true,
+		});
+		expect(await client.conclusions("native", 0, 200)).toEqual({
+			rows: [
+				{
+					seq: 4,
+					...PROJECT,
+					id: "obs-1",
+					sessionId: "s-1",
+					title: "Sharing plan",
+					body: "Done: Tailscale identity only.",
+					at: "2026-10-19T10:00:00Z",
+				},
+			],
+			next: 4,
+			more: true,
+		});
+		expect(sent.at(-1)?.method).toBe("GET");
+		routes["/admin/conclusions?source=synced&after=9&limit=5"] = json({
+			conclusions: [
+				{
+					seq: 10,
+					workspace: "w",
+					project: "p",
+					id: "o-2",
+					session_id: "s-2",
+					title: "T",
+					body: "B",
+					created_at: "2026-10-19T11:00:00Z",
+					origin_device: "win-1",
+				},
+			],
+			next: 10,
+			more: false,
+		});
+		const synced = await client.conclusions("synced", 9, 5);
+		expect(synced.rows[0]?.origin).toBe("win-1");
+		routes["/admin/conclusions?source=synced&after=10&limit=5"] = json({ conclusions: [], next: 10, more: false });
+		expect(await client.conclusions("synced", 10, 5)).toEqual({ rows: [], next: 10, more: false });
+		routes["/admin/conclusions?source=native&after=7&limit=5"] = json({ conclusions: [] });
+		expect((await client.conclusions("native", 7, 5)).next).toBe(7);
+		routes["/admin/conclusions?source=native&after=8&limit=5"] = json({ error: "not found" }, 404);
+		await expect(client.conclusions("native", 8, 5)).rejects.toThrow("not found");
+	});
+
+	it("writes conclusions with their origin and answers one status per item", async () => {
+		routes["/admin/write-conclusions"] = json({
+			results: [
+				{ id: "a", status: "written" },
+				{ id: "b", status: "same" },
+				{ id: "c", status: "skipped" },
+			],
+		});
+		const item = (id: string) => ({
+			id,
+			sessionId: "s-1",
+			title: "T",
+			body: "Body",
+			at: "2026-10-19T10:00:00Z",
+		});
+		expect(await client.writeConclusions(PROJECT, "mac-1", [item("a"), item("b"), item("c")])).toEqual([
+			"written",
+			"same",
+			"skipped",
+		]);
+		expect(sent.at(-1)?.method).toBe("POST");
+		expect(sent.at(-1)?.body).toEqual({
+			...PROJECT,
+			origin_device: "mac-1",
+			conclusions: ["a", "b", "c"].map(id => ({
+				id,
+				session_id: "s-1",
+				title: "T",
+				body: "Body",
+				created_at: "2026-10-19T10:00:00Z",
+			})),
+		});
+		routes["/admin/write-conclusions"] = json({ results: [{ id: "a", status: "written" }] });
+		await expect(client.writeConclusions(PROJECT, "mac-1", [item("a"), item("b")])).rejects.toThrow("unknown");
+		routes["/admin/write-conclusions"] = json({ error: "invalid conclusion" }, 422);
+		await expect(client.writeConclusions(PROJECT, "mac-1", [item("a")])).rejects.toThrow("invalid conclusion");
+	});
 });

@@ -25,7 +25,7 @@ import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-ty
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
-import { servePull, servePush } from "../ai-memory/sync";
+import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
@@ -35,6 +35,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
 	decodeBinaryRead,
+	MemoryConclusionPullReply,
 	MemoryPullReply,
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
@@ -2355,6 +2356,8 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 			]),
 			pageCopy: vi.fn(async () => decision),
 			writePageCopy: vi.fn(async () => true),
+			conclusions: vi.fn(async () => ({ rows: [], next: 0, more: false })),
+			writeConclusions: vi.fn(async () => []),
 		};
 		const deps = { store, ready: () => ready, selfId: () => "this-host" };
 		const pull = { since: null };
@@ -2362,6 +2365,8 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 		services.attachMemory({
 			pull: (id, params) => servePull(deps, id, params),
 			push: (id, params) => servePush(deps, id, params),
+			conclusionsPull: (id, params) => serveConclusionPull(deps, id, params),
+			conclusionsPush: (id, params) => serveConclusionPush(deps, id, params),
 			allows: id => id !== "device-blocked",
 		});
 
@@ -2398,5 +2403,117 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 		const session = { pages: [{ page: { ...sent, path: "sessions/s1.md" }, expect: null }] };
 		await expect(services.call(x.peer, "host.memory.push", session, x)).rejects.toThrow(/Invalid host.memory.push/);
 		expect(store.writePageCopy).not.toHaveBeenCalled();
+	});
+});
+
+describe("LocalHostServices host.memory.conclusions.*: session conclusions shared with the other computers", () => {
+	const wire = {
+		workspace: "default",
+		project: "app",
+		id: "obs-1",
+		sessionId: "s-1",
+		title: "Sharing plan",
+		body: "Done: Tailscale identity only.",
+		at: "2026-10-19T10:00:00Z",
+		origin: "device-x",
+	};
+
+	function attach(services: LocalHostServices, ready: () => boolean) {
+		const store = {
+			projects: vi.fn(async () => []),
+			allPages: vi.fn(async () => []),
+			pageCopy: vi.fn(),
+			writePageCopy: vi.fn(async () => true),
+			conclusions: vi.fn(async (source: "native" | "synced") => ({
+				rows:
+					source === "native"
+						? [
+								{
+									seq: 4,
+									workspace: "default",
+									project: "app",
+									id: "obs-9",
+									sessionId: "s-9",
+									title: "T",
+									body: "Host answer.",
+									at: "2026-10-19T09:00:00Z",
+								},
+							]
+						: [],
+				next: source === "native" ? 4 : 0,
+				more: false,
+			})),
+			writeConclusions: vi.fn(async (_project: unknown, _origin: string, items: unknown[]) =>
+				items.map(() => "written" as const),
+			),
+		};
+		const deps = { store, ready, selfId: () => "this-host" };
+		services.attachMemory({
+			pull: (id, params) => servePull(deps, id, params),
+			push: (id, params) => servePush(deps, id, params),
+			conclusionsPull: (id, params) => serveConclusionPull(deps, id, params),
+			conclusionsPush: (id, params) => serveConclusionPush(deps, id, params),
+			allows: id => id !== "device-blocked",
+		});
+		return store;
+	}
+
+	it("serves a device still allowed here, refuses a blocked one, and answers memory:false while off", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const blocked = new FakeConnection(peer("device-blocked"));
+		const pull = { since: { native: 0, synced: 0 } };
+		const push = { conclusions: [{ ...wire, origin: "device-blocked" }] };
+		await expect(services.call(x.peer, "host.memory.conclusions.pull", pull, x)).rejects.toThrow(/\[unsupported\]/);
+		let ready = true;
+		const store = attach(services, () => ready);
+
+		const reply = await services.call(x.peer, "host.memory.conclusions.pull", pull, x);
+		expect(MemoryConclusionPullReply.parse(reply)).toEqual({
+			memory: true,
+			conclusions: [expect.objectContaining({ id: "obs-9", origin: "this-host", body: "Host answer." })],
+			next: { native: 4, synced: 0 },
+			more: false,
+		});
+		await expect(services.call(x.peer, "host.memory.conclusions.push", { conclusions: [wire] }, x)).resolves.toEqual({
+			memory: true,
+			results: [{ status: "written" }],
+		});
+		expect(store.writeConclusions).toHaveBeenCalledWith({ workspace: "default", project: "app" }, "device-x", [
+			expect.objectContaining({ id: "obs-1" }),
+		]);
+
+		store.conclusions.mockClear();
+		store.writeConclusions.mockClear();
+		await expect(services.call(blocked.peer, "host.memory.conclusions.pull", pull, blocked)).rejects.toThrow(
+			/\[remote_blocked\]/,
+		);
+		await expect(services.call(blocked.peer, "host.memory.conclusions.push", push, blocked)).rejects.toThrow(
+			/\[remote_blocked\]/,
+		);
+		expect(store.conclusions).not.toHaveBeenCalled();
+		expect(store.writeConclusions).not.toHaveBeenCalled();
+
+		ready = false;
+		await expect(services.call(x.peer, "host.memory.conclusions.pull", pull, x)).resolves.toEqual({
+			memory: false,
+			conclusions: [],
+			next: { native: 0, synced: 0 },
+			more: false,
+		});
+		await expect(services.call(x.peer, "host.memory.conclusions.push", { conclusions: [wire] }, x)).resolves.toEqual({
+			memory: false,
+			results: [],
+		});
+		expect(store.conclusions).not.toHaveBeenCalled();
+		expect(store.writeConclusions).not.toHaveBeenCalled();
+
+		// A conclusion past the wire's bounds never reaches the store.
+		ready = true;
+		const long = { conclusions: [{ ...wire, body: "x".repeat(2001) }] };
+		await expect(services.call(x.peer, "host.memory.conclusions.push", long, x)).rejects.toThrow(
+			/Invalid host.memory.conclusions.push/,
+		);
+		expect(store.writeConclusions).not.toHaveBeenCalled();
 	});
 });

@@ -2,6 +2,7 @@
  * Access to the local ai-memory server. Reads: `/healthz`, `/admin/status` and the `/api/v1` REST surface the server
  * mounts with `--enable-web` (which is read-only by construction). Writes go through the server's own write path, never
  * to its files: `/admin/write-page`, `/admin/delete-page`, `/admin/restore-page`, `/admin/lint`, `/admin/forget-sweep`,
+ * `/admin/write-conclusions` (and `/admin/conclusions` reads the streams sync.ts shares between computers),
  * and the two actions the REST surface lacks (`memory_feedback`, `memory_handoff_cancel`) as MCP `tools/call` on
  * `/mcp`. The bearer token is the root token `init` wrote into `<data dir>/auth-tokens/default` (owner-only); it is
  * read here in main and never reaches the renderer.
@@ -687,6 +688,66 @@ export class AiMemoryClient {
 			updatedAt: str(row.updated_at) || null,
 		}));
 	}
+
+	/**
+	 * One stream of session conclusions (Stop observations with a body) in `seq` order, for sync.ts: `native` is what
+	 * this server captured, `synced` what it holds from the person's other computers (each row names its origin).
+	 * `next` is the seq of the last row returned (`after` when none); `more`: rows are left after it.
+	 */
+	async conclusions(
+		source: "native" | "synced",
+		after: number,
+		limit: number,
+	): Promise<{ rows: MemoryConclusionCopy[]; next: number; more: boolean }> {
+		const body = record(await this.#get(`/admin/conclusions?source=${source}&after=${after}&limit=${limit}`));
+		return {
+			rows: rows(body.conclusions).map(row => ({
+				seq: num(row.seq),
+				workspace: str(row.workspace),
+				project: str(row.project),
+				id: str(row.id),
+				sessionId: str(row.session_id),
+				title: str(row.title),
+				body: str(row.body),
+				at: str(row.created_at),
+				...(str(row.origin_device) ? { origin: str(row.origin_device) } : {}),
+			})),
+			next: typeof body.next === "number" ? body.next : after,
+			more: body.more === true,
+		};
+	}
+
+	/**
+	 * Inserts conclusions captured on the computer `origin`, each only where this server holds none with that id
+	 * (never overwritten): `written`, `same` (held already) or `skipped` (nothing left of it after the server's own
+	 * scrubbing). Results are in the order of `items`.
+	 */
+	async writeConclusions(
+		project: AiMemoryProjectRef,
+		origin: string,
+		items: Pick<MemoryConclusionCopy, "id" | "sessionId" | "title" | "body" | "at">[],
+	): Promise<("written" | "same" | "skipped")[]> {
+		const reply = record(
+			await this.#post("/admin/write-conclusions", {
+				...projectOf(project),
+				origin_device: origin,
+				conclusions: items.map(item => ({
+					id: item.id,
+					session_id: item.sessionId,
+					title: item.title,
+					body: item.body,
+					created_at: item.at,
+				})),
+			}),
+		);
+		const results = rows(reply.results);
+		return items.map((_, index) => {
+			const status = results[index]?.status;
+			if (status !== "written" && status !== "same" && status !== "skipped")
+				throw new Error("Memory answered an unknown conclusion status");
+			return status;
+		});
+	}
 }
 
 /** The write path's own frontmatter fields (beside kind, title, tags and pin), as a page stores them. */
@@ -696,6 +757,21 @@ export interface MemoryPageMetadata {
 	relations?: Record<string, string[]>;
 	applies_to?: string[];
 	enforced_by?: string;
+}
+
+/** A session conclusion as `conclusions` reads it (a Stop observation's body, ≤ 2000 bytes, already redacted). */
+export interface MemoryConclusionCopy extends AiMemoryProjectRef {
+	/** Position in its stream (`source`): the cursor sync.ts goes on from. */
+	seq: number;
+	/** The observation id (native) or the id the row was written with (synced). */
+	id: string;
+	sessionId: string;
+	title: string;
+	body: string;
+	/** When it was captured, RFC 3339. */
+	at: string;
+	/** Synced rows only: the OMPdesk device id of the computer that captured it. */
+	origin?: string;
 }
 
 /** A page as `pageCopy` reads it and `writePageCopy` writes it. */
