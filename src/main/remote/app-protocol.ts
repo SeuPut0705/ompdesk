@@ -40,6 +40,11 @@
  *   {worktree, label}` → MergeOutcome (never pushed), `host.git.removeWorktree {worktree}` → WorktreeRemoval,
  *   `host.git.worktreeCreate {baseCwd, name, branchPrefix?, baseRef}` → RpcWorktreeCreateResult. Free: no model
  *   call, no quota.
+ * - Memory shared between the person's computers (ai-memory/sync.ts; durable pages only, `isDurablePath`):
+ *   `host.memory.pull {since}` → MemoryPullReply (the host's pages changed after the cursor, none the asking
+ *   device itself sent), `host.memory.push {pages}` → MemoryPushReply (written through the host's own server, each
+ *   only while the host still holds the version the device last saw). A host with memory off answers
+ *   `{memory: false}` and reads or writes nothing; a device no longer allowed here is refused `remote_blocked`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`
  * and `host.schedules.changed`.
@@ -133,6 +138,100 @@ export const WorktreeCreateReply = z
 /** A device name on the link: trimmed, 1–64 characters. */
 export const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
 export const NameParams = z.object({ name: DeviceNameSchema });
+
+/** Memory sync (ai-memory/sync.ts): the device drives both directions over its link to the host. */
+export const MEMORY_METHODS = { pull: "host.memory.pull", push: "host.memory.push" } as const;
+/** A pull or push batch reads and writes pages on both servers: more than the link's default 30 s. */
+export const MEMORY_REQUEST_TIMEOUT_MS = 120_000;
+/**
+ * The page folders that cross between computers: decisions, rules, gotchas, procedures, preferences and the
+ * profile, of any project (`_global` included). Never `sessions/`, never raw observations: those stay on the
+ * computer that captured them.
+ */
+export const DURABLE_MEMORY_FOLDERS = [
+	"decisions",
+	"_rules",
+	"gotchas",
+	"procedures",
+	"preferences",
+	"profile",
+] as const;
+/** A page body larger than this stays on its computer (a durable page is a few KB). */
+export const MEMORY_PAGE_MAX_BYTES = 256 * 1024;
+
+export function isDurablePath(path: string): boolean {
+	const parts = path.split("/");
+	return (
+		parts.length >= 2 &&
+		(DURABLE_MEMORY_FOLDERS as readonly string[]).includes(parts[0] ?? "") &&
+		path.endsWith(".md") &&
+		!parts.some(part => part === "" || part === "." || part === "..") &&
+		!path.includes("\\")
+	);
+}
+
+const MemoryName = z.string().min(1).max(200);
+const MemoryHash = z.string().regex(/^[0-9a-f]{64}$/);
+const MemoryTime = z.string().max(64);
+/** Where a pull goes on: the last page it examined, by the host's `updated_at` then key. */
+export const MemoryCursor = z.object({ at: MemoryTime, key: z.string().max(1200) });
+export type MemoryCursor = z.infer<typeof MemoryCursor>;
+/** One durable page on the link, whole, with its content hash (sync.ts `pageHash`) and the computer it came from. */
+export const MemoryPageWire = z.object({
+	workspace: MemoryName,
+	project: MemoryName,
+	path: z.string().min(1).max(512).refine(isDurablePath, "not a durable page"),
+	title: z.string().max(1000),
+	kind: z.string().max(64).optional(),
+	tier: z.string().min(1).max(32),
+	body: z.string().max(MEMORY_PAGE_MAX_BYTES),
+	tags: z.array(z.string().max(200)).max(64),
+	pinned: z.boolean(),
+	metadata: z.object({
+		entities: z.array(z.string().max(200)).max(32).optional(),
+		abstract: z.string().max(4000).optional(),
+		relations: z.record(z.array(z.string().max(1024)).max(64)).optional(),
+		applies_to: z.array(z.string().max(64)).max(32).optional(),
+		enforced_by: z.string().max(1000).optional(),
+	}),
+	/** The OMPdesk device id of the computer the page was made or last edited on. */
+	origin: MemoryName,
+	updatedAt: MemoryTime,
+	hash: MemoryHash,
+});
+export type MemoryPageWire = z.infer<typeof MemoryPageWire>;
+export const MemoryPullParams = z.object({ since: MemoryCursor.nullable() });
+export type MemoryPullParams = z.infer<typeof MemoryPullParams>;
+export const MemoryPullReply = z.object({
+	memory: z.boolean(),
+	pages: z.array(MemoryPageWire),
+	/** Pull again from here; null when nothing was examined. */
+	next: MemoryCursor.nullable(),
+	more: z.boolean(),
+});
+export type MemoryPullReply = z.infer<typeof MemoryPullReply>;
+export const MemoryPushParams = z.object({
+	pages: z
+		.array(
+			z.object({
+				page: MemoryPageWire,
+				/** The host's hash of this page as the device last saw it; null when it saw none. */
+				expect: MemoryHash.nullable(),
+			}),
+		)
+		.max(100),
+});
+export type MemoryPushParams = z.infer<typeof MemoryPushParams>;
+export const MemoryPushResult = z.object({
+	/** `written`: saved here; `same`: already held; `conflict`: changed here since the device looked; `failed`. */
+	status: z.enum(["written", "same", "conflict", "failed"]),
+	/** The host's hash of the page after the call; null when it holds none. */
+	hash: MemoryHash.nullable(),
+	/** With `conflict`: the host's version, so the device settles it at once (the later change wins). */
+	page: MemoryPageWire.optional(),
+});
+export const MemoryPushReply = z.object({ memory: z.boolean(), results: z.array(MemoryPushResult) });
+export type MemoryPushReply = z.infer<typeof MemoryPushReply>;
 
 const SessionKind = z.enum(["agent", "chat"]);
 
