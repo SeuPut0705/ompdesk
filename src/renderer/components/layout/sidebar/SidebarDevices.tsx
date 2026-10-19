@@ -15,6 +15,7 @@ import {
 	FolderPlus,
 	MessageCircle,
 	Monitor,
+	MoreHorizontal,
 	Plus,
 	Trash2,
 	X,
@@ -23,6 +24,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
+import { useShellInput } from "../../../hooks/use-shell-mode";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -36,6 +38,7 @@ import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -187,6 +190,12 @@ function DeviceSessions({
 	const { sessions, isLoading, error, refresh, deleteSession } = useSessionList("global", host.deviceId);
 	const [pendingDelete, setPendingDelete] = useState<DeviceSession | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	// A finger has no hover, so Close and Delete would sit on every row for good: one ⋯ opens them as an action sheet
+	// instead, as on this computer's own rows (Sidebar.tsx).
+	const touchInput = useShellInput() === "touch";
+	const [rowMenu, setRowMenu] = useState<{ x: number; y: number; items: ContextMenuItem[]; label: string } | null>(
+		null,
+	);
 	const allTabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const destination = useUiStore(state => state.destination);
@@ -305,34 +314,68 @@ function DeviceSessions({
 			);
 		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
 		const deletable = !session.path.startsWith("tab:") && !signal?.running;
+		const closeSession = () => {
+			if (tab) void useTabsStore.getState().closeTab(tab.id);
+		};
+		const menuItems: ContextMenuItem[] = [
+			...(tab ? [{ id: "close", label: t("sidebar.menu.closeSession"), icon: X, onSelect: closeSession }] : []),
+			...(deletable
+				? [
+						{
+							id: "delete",
+							label: t("sidebar.delete"),
+							icon: Trash2,
+							danger: true,
+							onSelect: () => setPendingDelete(session),
+						},
+					]
+				: []),
+		];
 		return (
 			<ListRow
 				actions={
-					<>
-						{tab && (
+					touchInput ? (
+						menuItems.length > 0 && (
 							<IconButton
-								data-device-session-close
-								icon={<X />}
-								label={t("sidebar.menu.closeSession")}
-								onClick={() => void useTabsStore.getState().closeTab(tab.id)}
+								data-sidebar-row-menu
+								icon={<MoreHorizontal />}
+								label={t("sidebar.sessionMenu")}
+								onClick={event => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
+								}}
 								size="sm"
 								tabIndex={-1}
 							/>
-						)}
-						{deletable && (
-							<IconButton
-								data-device-session-delete
-								icon={<Trash2 />}
-								label={t("sidebar.delete")}
-								onClick={() => setPendingDelete(session)}
-								size="sm"
-								tabIndex={-1}
-							/>
-						)}
-					</>
+						)
+					) : (
+						<>
+							{tab && (
+								<IconButton
+									data-device-session-close
+									icon={<X />}
+									label={t("sidebar.menu.closeSession")}
+									onClick={closeSession}
+									size="sm"
+									tabIndex={-1}
+								/>
+							)}
+							{deletable && (
+								<IconButton
+									data-device-session-delete
+									icon={<Trash2 />}
+									label={t("sidebar.delete")}
+									onClick={() => setPendingDelete(session)}
+									size="sm"
+									tabIndex={-1}
+								/>
+							)}
+						</>
+					)
 				}
-				actionCount={(tab ? 1 : 0) + (deletable ? 1 : 0)}
-				actionsOnHover
+				actionCount={touchInput ? Math.min(menuItems.length, 1) : menuItems.length}
+				actionsAtRest={touchInput}
+				actionsOnHover={!touchInput}
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
 				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 				key={session.path}
@@ -405,23 +448,40 @@ function DeviceSessions({
 		);
 	}
 	const dialog = (
-		<ConfirmDialog
-			busy={deleting}
-			message={
-				pendingDelete
-					? t("remote.sidebar.deleteMessage", {
-							name: sessionDisplayTitle(pendingDelete, t("sidebar.untitled")),
-							device: host.name,
-						})
-					: ""
-			}
-			onCancel={() => setPendingDelete(null)}
-			onConfirm={() => {
-				if (pendingDelete) void confirmDelete(pendingDelete);
-			}}
-			open={pendingDelete !== null}
-			title={t("sidebar.deleteConfirm")}
-		/>
+		<>
+			<ConfirmDialog
+				busy={deleting}
+				message={
+					pendingDelete
+						? t("remote.sidebar.deleteMessage", {
+								name: sessionDisplayTitle(pendingDelete, t("sidebar.untitled")),
+								device: host.name,
+							})
+						: ""
+				}
+				onCancel={() => setPendingDelete(null)}
+				onConfirm={() => {
+					if (pendingDelete) void confirmDelete(pendingDelete);
+				}}
+				open={pendingDelete !== null}
+				title={t("sidebar.deleteConfirm")}
+			/>
+			{rowMenu && (
+				<ContextMenu
+					ariaLabel={rowMenu.label}
+					items={rowMenu.items.map(item => ({
+						...item,
+						onSelect: () => {
+							setRowMenu(null);
+							item.onSelect();
+						},
+					}))}
+					onClose={() => setRowMenu(null)}
+					x={rowMenu.x}
+					y={rowMenu.y}
+				/>
+			)}
+		</>
 	);
 	if (mode === "chat") {
 		return (

@@ -5,6 +5,7 @@
  */
 
 import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-contracts";
+import type { SkippedPreferred } from "../../resources/gui-bridge/model-role-contracts";
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -2321,6 +2322,8 @@ export interface ModelRoleEffective {
 	via?: string;
 	/** The role holds a value no available model matches. */
 	unavailable?: boolean;
+	/** An empty built-in role whose stock-preferred candidate has no credentials while another kind of model answers. */
+	skipped?: SkippedPreferred;
 }
 
 export interface ModelRolesResult {

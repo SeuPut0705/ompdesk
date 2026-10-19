@@ -2,13 +2,19 @@
  * The security dashboard over the live session: stock `SecurityStore` scans and
  * the `SecurityCoordinator` operations. Ported from the fork's rpc-operations.ts.
  * Wire shapes match `src/shared/rpc-types.ts`.
+ *
+ * Operations go through stock's `security_scan` tool, never `security/coordinator`: omp's bundle does not export
+ * that subpath, so a bridge import of it loads a second copy whose setting handles (`security.enabled`, the task
+ * agent overrides) read other settings' slots, and whose operations live apart from the session's own.
  */
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { SecurityFinding, SecurityScanBundle } from "@oh-my-pi/pi-coding-agent/security/contracts";
-import { getSecurityCoordinator, type SecurityOperationSnapshot } from "@oh-my-pi/pi-coding-agent/security/coordinator";
+import type { SecurityOperationSnapshot } from "@oh-my-pi/pi-coding-agent/security/coordinator";
 import type { SecurityTargetRequest } from "@oh-my-pi/pi-coding-agent/security/preflight";
 import { SecurityStore } from "@oh-my-pi/pi-coding-agent/security/store";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import { SecurityScanTool } from "@oh-my-pi/pi-coding-agent/tools/security-scan";
 import * as vcs from "@oh-my-pi/pi-natives/vcs";
 import { prompt } from "@oh-my-pi/pi-utils";
 import { guard } from "./health";
@@ -16,17 +22,85 @@ import { ompPrompt } from "./modes/shared";
 import { asRecord, requiredString } from "./params";
 import type { BridgeMethods } from "./types";
 
-function securityCoordinator(session: AgentSession) {
-	return getSecurityCoordinator({
+type SecurityScanParams = Parameters<SecurityScanTool["execute"]>[1];
+
+interface ToolDetails {
+	plan?: { id: string };
+	operation?: SecurityOperationSnapshot;
+	cancelled?: boolean;
+}
+
+/**
+ * Operations this bridge started, per stock coordinator key (cwd + session), until their scan's bundle names them.
+ * The tool has no listing, so the dashboard asks `status` for these and for every stored scan's operation: stock's
+ * `status` runs the coordinator's own recovery first, as `listOperations` does.
+ */
+const startedOperations = new Map<string, string[]>();
+
+function coordinatorKey(session: AgentSession): string {
+	return `${session.sessionManager.getCwd()}\u0000${session.sessionId}`;
+}
+
+/** Stock's `security_scan` tool over this session; it reaches stock's own coordinator for the session. */
+async function runSecurityTool(session: AgentSession, params: SecurityScanParams): Promise<ToolDetails> {
+	// The members the tool reads (tools/security-scan.ts `coordinatorForSession`), as stock's ToolSession has them.
+	const toolSession = {
 		cwd: session.sessionManager.getCwd(),
 		settings: session.settings,
-		authStorage: session.modelRegistry.authStorage,
 		modelRegistry: session.modelRegistry,
-		activeModel: session.model,
-		sessionId: session.sessionId,
-		agentId: session.getAgentId(),
+		authStorage: session.modelRegistry.authStorage,
+		getActiveModel: () => session.model,
+		getSessionId: () => session.sessionId,
+		getAgentId: () => session.getAgentId(),
 		asyncJobManager: session.asyncJobManager,
-	});
+	} satisfies Partial<ToolSession>;
+	const result = await new SecurityScanTool(toolSession as ToolSession).execute("ompdesk-security", params);
+	return (result.details ?? {}) as ToolDetails;
+}
+
+function toolTarget(target: SecurityTargetRequest): SecurityScanParams {
+	return {
+		target_kind: target.kind,
+		...("includePaths" in target && target.includePaths ? { include_paths: target.includePaths } : {}),
+		...("excludePaths" in target && target.excludePaths ? { exclude_paths: target.excludePaths } : {}),
+		...("baseRevision" in target ? { base_revision: target.baseRevision } : {}),
+		...("headRevision" in target ? { head_revision: target.headRevision } : {}),
+	} as SecurityScanParams;
+}
+
+/** Stock's `listOperations`, through the tool: each operation a stored scan or this bridge names, newest first. */
+async function listOperations(
+	session: AgentSession,
+	bundles: readonly SecurityScanBundle[],
+): Promise<SecurityOperationSnapshot[]> {
+	// Where stock's coordinator keeps a scan's operation (security/coordinator.ts `operationIdFromBundle`).
+	const stored = bundles.map(bundle => bundle.scan.provenance.metadata?.operationId);
+	const ids = new Set(
+		[...(startedOperations.get(coordinatorKey(session)) ?? []), ...stored].filter(
+			(id): id is string => typeof id === "string" && id.length > 0,
+		),
+	);
+	const snapshots = await Promise.all(
+		[...ids].map(id =>
+			runSecurityTool(session, { action: "status", operation_id: id }).then(
+				details => details.operation,
+				() => undefined,
+			),
+		),
+	);
+	return snapshots
+		.filter((operation): operation is SecurityOperationSnapshot => operation !== undefined)
+		.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+async function startOperation(session: AgentSession, target: SecurityTargetRequest) {
+	const { plan } = await runSecurityTool(session, { action: "preflight", ...toolTarget(target) });
+	if (!plan) throw new Error("Security preflight returned no plan");
+	const { operation } = await runSecurityTool(session, { action: "start", plan_id: plan.id });
+	if (!operation) throw new Error("Security scan did not start");
+	const key = coordinatorKey(session);
+	startedOperations.set(key, [...(startedOperations.get(key) ?? []), operation.operationId]);
+	return operation;
 }
 
 function projectFinding(finding: SecurityFinding) {
@@ -87,15 +161,19 @@ async function securityDashboard(session: AgentSession) {
 	const cwd = session.sessionManager.getCwd();
 	const store = await SecurityStore.openForCwd(cwd);
 	const repository = vcs.git(cwd);
-	const [summaries, operations, branch, sha] = await Promise.all([
-		store.listScans(),
-		securityCoordinator(session).listOperations(),
+	const readBundles = async () =>
+		(await Promise.all((await store.listScans()).map(summary => store.getBundle(summary.id)))).filter(
+			(bundle): bundle is SecurityScanBundle => bundle !== null,
+		);
+	const [stored, branch, sha] = await Promise.all([
+		readBundles(),
 		repository?.currentBranch() ?? null,
 		repository?.headSha() ?? null,
 	]);
-	const bundles = (await Promise.all(summaries.map(summary => store.getBundle(summary.id)))).filter(
-		(bundle): bundle is SecurityScanBundle => bundle !== null,
-	);
+	const operations = await listOperations(session, stored);
+	// Stock's recovery (run by the first `status`) marks a scan an earlier process left running as failed and writes
+	// its bundle, so the scans shown are read after it, never before.
+	const bundles = operations.length > 0 ? await readBundles() : stored;
 	const revision = [branch, sha?.slice(0, 7)].filter(Boolean).join(" · ");
 	const model = session.model;
 	return {
@@ -146,13 +224,16 @@ async function setDisposition(session: AgentSession, params: unknown) {
 export const methods: BridgeMethods = guard("security", {
 	security_dashboard: async (_params, env) => securityDashboard(env.session()),
 	security_scan: async (params, env) => securityScan(env.session(), requiredString(params, "scanId")),
-	security_start: async (params, env) => {
-		const coordinator = securityCoordinator(env.session());
-		const plan = await coordinator.preflight({ target: asRecord(params).target as SecurityTargetRequest });
-		return projectOperation(await coordinator.start({ planId: plan.id }));
-	},
+	security_start: async (params, env) =>
+		projectOperation(await startOperation(env.session(), asRecord(params).target as SecurityTargetRequest)),
 	security_cancel: async (params, env) => ({
-		cancelled: await securityCoordinator(env.session()).cancel(requiredString(params, "operationId")),
+		cancelled:
+			(
+				await runSecurityTool(env.session(), {
+					action: "cancel",
+					operation_id: requiredString(params, "operationId"),
+				})
+			).cancelled === true,
 	}),
 	security_set_disposition: async (params, env) => setDisposition(env.session(), params),
 	security_validation_prompt: async (params, env) => {

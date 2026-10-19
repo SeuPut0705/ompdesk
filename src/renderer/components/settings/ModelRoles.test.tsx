@@ -18,6 +18,7 @@ import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { useUiStore } from "../../stores/ui";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -103,6 +104,15 @@ const PROVIDERS: ProviderInfo[] = [
 		modelCount: 3,
 	},
 	{ id: "openai", name: "OpenAI", authenticated: false, loginAvailable: true, disabled: false, modelCount: 5 },
+	{ id: "typesafe", name: "TypeSafe", authenticated: false, loginAvailable: true, disabled: false, modelCount: 2 },
+	{
+		id: "openrouter",
+		name: "OpenRouter",
+		authenticated: false,
+		loginAvailable: true,
+		disabled: false,
+		modelCount: 900,
+	},
 ];
 
 const USAGE = {
@@ -179,6 +189,7 @@ afterEach(async () => {
 	delete (window as unknown as { omp?: unknown }).omp;
 	useSessionStore.getState().reset();
 	useModelStore.setState({ providers: [] });
+	useUiStore.setState({ providerFocus: null, destination: "session", settingsTab: "general" });
 	vi.restoreAllMocks();
 });
 
@@ -357,5 +368,75 @@ describe("Model roles grouped by purpose", () => {
 		await act(async () => button("Add", dialog)?.click());
 
 		expect(defineModelRole).toHaveBeenCalledWith("release", { name: "Release", description: "Ships the build." });
+	});
+
+	describe("a stock-preferred model the role cannot use for want of a key", () => {
+		const SKIPPED = {
+			name: "Jev 1.14",
+			model: "typesafe/jev-1.14",
+			kind: "judge",
+			providers: ["typesafe", "openrouter"],
+		};
+		const judge = (extra: Partial<ModelRoleEntry["effective"]> = {}) =>
+			role("judge", "Judge", {
+				section: "kind",
+				effective: { model: "openai/gpt", name: "GPT", source: "fallback", ...extra },
+			});
+
+		it("shows one muted line naming the model and each provider that would lift the skip, as links to their cards", async () => {
+			installRpc({}, [...ROLES, judge({ skipped: SKIPPED })]);
+			await mount();
+
+			const hint = row("judge")?.querySelector<HTMLElement>("[data-role-skipped]");
+			expect(hint?.dataset.roleSkipped).toBe("typesafe/jev-1.14");
+			expect(hint?.textContent).toContain("Jev 1.14 needs a key from TypeSafe or OpenRouter");
+			expect(
+				[...(hint?.querySelectorAll("button[data-provider-link]") ?? [])].map(link => link.textContent),
+			).toEqual(["TypeSafe", "OpenRouter"]);
+			// The benefit is behind the (i), never in the line: a native judge is cheaper; stock claims nothing about speed.
+			expect(hint?.textContent).toContain(translate("modelRoles.skipped.infoJudge"));
+			expect(hint?.textContent).toContain("GPT answers instead");
+			expect(hint?.querySelectorAll("[data-setting-info]")).toHaveLength(1);
+			// No other row carries it.
+			expect(document.body.querySelectorAll("[data-role-skipped]")).toHaveLength(1);
+		});
+
+		it("opens that provider's card in Providers & accounts from its link", async () => {
+			installRpc({}, [...ROLES, judge({ skipped: SKIPPED })]);
+			await mount();
+
+			await act(async () => button("OpenRouter", row("judge") ?? document.body)?.click());
+
+			expect(useUiStore.getState().providerFocus).toEqual({ id: "openrouter" });
+			expect(useUiStore.getState().destination).toBe("settings");
+			expect(useUiStore.getState().settingsTab).toBe("models");
+		});
+
+		it("shows nothing when the bridge reports no skipped model, and no link for a provider the list does not know", async () => {
+			installRpc({}, [...ROLES, judge()]);
+			await mount();
+			expect(document.body.querySelector("[data-role-skipped]")).toBeNull();
+			await act(async () => root.unmount());
+
+			installRpc({}, [...ROLES, judge({ skipped: { ...SKIPPED, providers: ["typesafe", "elsewhere"] } })]);
+			await mount();
+			const hint = row("judge")?.querySelector<HTMLElement>("[data-role-skipped]");
+			expect(hint?.textContent).toContain("Jev 1.14 needs a key from TypeSafe or elsewhere");
+			expect(
+				[...(hint?.querySelectorAll("button[data-provider-link]") ?? [])].map(link => link.textContent),
+			).toEqual(["TypeSafe"]);
+		});
+
+		it("has the line and its tooltips in English and Korean with every slot the row fills", () => {
+			for (const messages of [en, ko] as const) {
+				const text = messages as Record<string, string>;
+				expect(text["modelRoles.skipped"]).toContain("{model}");
+				expect(text["modelRoles.skipped"]).toContain("{providers}");
+				expect(text["modelRoles.skipped.info"]).toContain("{model}");
+				expect(text["modelRoles.skipped.info"]).toContain("{using}");
+				expect(text["modelRoles.skipped.open"]).toContain("{provider}");
+				expect(text["modelRoles.skipped.infoJudge"]?.length).toBeGreaterThan(10);
+			}
+		});
 	});
 });

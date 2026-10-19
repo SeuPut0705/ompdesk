@@ -262,7 +262,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.appendCustomEntry()",
 		],
 		modules: {
-			[`${AGENT}/goals/settings`]: ["cfgGoalEnabled.get()"],
+			// `goal.enabled` through stock's registry: omp's bundle does not export `goals/settings` (see COPY_SAFE).
+			[`${AGENT}/config/registry`]: ["lookup()"],
 			[UTILS]: ["prompt.render()"],
 		},
 		prompts: ["goals/guided-goal-interview.md"],
@@ -439,8 +440,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * thinking-default.ts: OMPdesk's runtime-override defaults (`auto` for `defaultThinkingLevel`,
 	 * "rpc" in `goal.continuationModes`, token usage, LSP diagnostics/format, ast_grep, the advisor;
 	 * index.ts applies them before the first session, settings.ts re-checks them). Every handle is
-	 * reached through `lookup` and a missing one is skipped (warned), so only the thinking level, its
-	 * ceiling and goal continuation are probed here: the `session/settings` and `goals/settings` entries.
+	 * reached through `lookup` and a missing one is skipped (warned), so only the thinking level and its
+	 * ceiling are probed here: the `session/settings` entries (`goal.continuationModes` is `lookup` only).
 	 */
 	thinkingDefault: {
 		pkg: ["Settings.instance.getGlobalSettings()", "Settings.instance.getProjectSettings()"],
@@ -457,13 +458,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"cfgProvidersAutoThinkingMaxEffort.isConfigured()",
 				"cfgProvidersAutoThinkingMaxEffort.override()",
 				"cfgProvidersAutoThinkingMaxEffort.clearOverride()",
-			],
-			[`${AGENT}/goals/settings`]: [
-				"cfgGoalContinuationModes.id",
-				"cfgGoalContinuationModes.segments",
-				"cfgGoalContinuationModes.isConfigured()",
-				"cfgGoalContinuationModes.override()",
-				"cfgGoalContinuationModes.clearOverride()",
 			],
 		},
 	},
@@ -593,12 +587,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/capability`]: ["loadCapability()", "reset()"],
 			[`${AGENT}/capability/context-file`]: ["contextFileCapability.id", "contextFileCapability.toExtensionId()"],
 			[`${AGENT}/capability/hook`]: ["hookCapability.id"],
-			[`${AGENT}/autolearn/managed-skills`]: [
-				"deleteManagedSkill()",
-				"MANAGED_SKILLS_PROVIDER_ID",
-				"sanitizeSkillName()",
-				"writeManagedSkill()",
-			],
+			[`${AGENT}/autolearn/managed-skills`]: ["MANAGED_SKILLS_PROVIDER_ID", "sanitizeSkillName()"],
+			// Writes go through stock's tool: the session's own per-skill mutation chain (see COPY_SAFE).
+			[`${AGENT}/tools/manage-skill`]: ["ManageSkillTool.prototype.execute()"],
 			[`${AGENT}/config/prompt-templates`]: ["templateUsesInlineArgPlaceholders()"],
 			[`${AGENT}/config/registry`]: [
 				"lookup()",
@@ -723,8 +714,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"CHAT_MODEL_ROLE_IDS",
 			],
 			[`${AGENT}/config/model-resolver`]: [
+				"disabledProviderIds()",
 				"extractExplicitThinkingSelector()",
 				"resolveModelOverride()",
+				"resolveRoleChain()",
 				"resolveRoleSelection()",
 			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
@@ -771,13 +764,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			"@oh-my-pi/pi-natives/vcs": ["git()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
-			[`${AGENT}/security/coordinator`]: [
-				"getSecurityCoordinator()",
-				"SecurityCoordinator.prototype.listOperations()",
-				"SecurityCoordinator.prototype.preflight()",
-				"SecurityCoordinator.prototype.start()",
-				"SecurityCoordinator.prototype.cancel()",
-			],
+			// Operations through stock's tool, which holds the session's coordinator (`security/coordinator` is not
+			// in omp's bundle: an import of it is a second copy with its own settings registry).
+			[`${AGENT}/tools/security-scan`]: ["SecurityScanTool.prototype.execute()"],
 			[`${AGENT}/security/store`]: [
 				"SecurityStore.openForCwd()",
 				"SecurityStore.prototype.listScans()",
@@ -819,9 +808,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/stt/asr-client`]: ["sttClient.transcribe()"],
 			[`${AGENT}/stt/downloader`]: ["downloadSttModel()", "isSttModelCached()"],
 			[`${AGENT}/stt/models`]: ["resolveSttModelSpec()"],
-			[`${AGENT}/tts/models`]: ["DEFAULT_TTS_VOICE"],
+			[`${AGENT}/tts/models`]: ["DEFAULT_TTS_VOICE", "TTS_LOCAL_MODELS"],
 			[`${AGENT}/tts/tts-client`]: ["ttsClient.synthesize()"],
-			[`${AGENT}/tts/vocalizer`]: ["resolveLocalSpeechModelId()"],
+			[`${AGENT}/tools/tts`]: ["resolveSpeechCandidates()"],
 			[`${AGENT}/tts/wav`]: ["encodeWav()"],
 		},
 	},
@@ -996,7 +985,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/judgment`]: ["resolveJudge()", "sharedJudgmentCache()", "journalJudgmentUsage()"],
 			[`${AGENT}/tiny/message-preproc`]: ["preprocessTinyMessage()"],
 			[`${AGENT}/plan-mode/settings`]: ["cfgPlanEnabled.get()"],
-			[`${AGENT}/goals/settings`]: ["cfgGoalEnabled.get()"],
+			[`${AGENT}/config/registry`]: ["lookup()"],
 		},
 	},
 	compactionLimits: {
@@ -1081,7 +1070,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		// provider_accounts (settings.ts): each account's token-free identity key, the
 		// string `task.agentAccountPools` matches.
 		modules: {
-			"@oh-my-pi/pi-ai/auth-storage": ["resolveCredentialIdentityKey()"],
+			"@oh-my-pi/pi-ai": ["resolveCredentialIdentityKey()"],
 		},
 	},
 	worktreeLifecycle: {
@@ -1140,6 +1129,55 @@ export function hasPath(root: unknown, path: string): boolean {
 	}
 }
 
+/** omp's scheme for a bridge import it serves from the running omp's own bundle (`extensibility/plugins/legacy-pi-compat.ts`). */
+export const BUNDLED_SCHEME = "omp-legacy-pi-bundled:";
+
+/**
+ * Stock modules the bridge may load as a separate copy, each with why that is harmless.
+ *
+ * omp rewrites a bridge's `@oh-my-pi/*` import onto the running omp's module only when its bundle registers that
+ * subpath; any other subpath falls back to the package's source file, a second module graph with its own settings
+ * registry, settings singleton and module state. A copy's setting handles read other settings' slots of the live
+ * session (`goal.enabled` read `[]` on omp 18.12.2), so a copy is allowed only when it reads no setting and the
+ * bridge needs none of its state shared with the session. Anything else goes through a bundled module (the registry's
+ * `lookup`, a package root, a stock tool), and a new copy fails bridge-stock-settings-stock.test.ts.
+ */
+export const COPY_SAFE: Readonly<Record<string, string>> = {
+	"@oh-my-pi/pi-ai/auth/blocks": "block-scope constants and key helpers: no setting, no state",
+	"@oh-my-pi/pi-ai/auth/rank": "the usage-ranking comparator: pure, imports nothing",
+	"@oh-my-pi/pi-ai/auth/usage-report": "usage-window arithmetic: pure",
+	[`${AGENT}/autolearn/managed-skills`]:
+		"only the provider id and the name sanitizer (pure); writes go through stock's `manage_skill` tool, never the copy's own per-skill mutation chain",
+	[`${AGENT}/config`]:
+		"the `.omp` config dirs only: the copy's provider switches are unbound defaults and `.omp` is never a switchable foreign provider",
+	[`${AGENT}/sdk`]: "presence probe only: the stock helper loads it from omp's package in its own process",
+	[`${AGENT}/security/store`]: "scan files on disk under stock's file lock: no setting",
+	[`${AGENT}/skillshare/client`]: "presence probe only: the stock helper loads it in its own process",
+	[`${AGENT}/skillshare/installer`]: "presence probe only: the stock helper loads it in its own process",
+	[`${AGENT}/skillshare/manifest`]: "presence probe only: the stock helper loads it in its own process",
+	[`${AGENT}/tiny/message-preproc`]: "text cleanup: pure",
+	[`${AGENT}/tiny/text`]: "title text helpers: pure",
+	[`${AGENT}/tts/models`]: "the local voice and model tables: data",
+	[`${AGENT}/tts/tts-client`]:
+		"NOT harmless, kept for want of a route: omp's bundle has no `tts/*` at all and only stock's `tts` tool reaches its client, falling through to cloud voices the speech role lists (read-aloud stays local). The copy runs its own worker and, uninitialised, takes the tiny-model device and dtype from the environment instead of `providers.tinyModel*` (needs `tts/*` in omp's bundle upstream)",
+	[`${AGENT}/tts/wav`]: "the WAV encoder: pure",
+};
+
+/**
+ * Specifiers whose loader reached a separate copy, from each loader's import target as omp rewrote it. On an omp run
+ * from source nothing is bundled and every import shares one graph, so nothing counts as a copy there.
+ */
+export function separateCopies(targets: Readonly<Record<string, string>>): string[] {
+	const entries = Object.entries(targets);
+	if (!entries.some(([, target]) => target.startsWith(BUNDLED_SCHEME))) return [];
+	return entries.filter(([, target]) => !target.startsWith(BUNDLED_SCHEME)).map(([specifier]) => specifier);
+}
+
+/** The copies a probe refuses: every separate copy not in COPY_SAFE. */
+export function unsafeCopies(targets: Readonly<Record<string, string>>): Set<string> {
+	return new Set(separateCopies(targets).filter(specifier => !(specifier in COPY_SAFE)));
+}
+
 /** What a probe reads; fakes in tests, live omp objects in health.ts. */
 export interface ProbeSources {
 	/** The live AgentSession; `undefined` skips session requirements (none attached yet). */
@@ -1151,6 +1189,8 @@ export interface ProbeSources {
 	hasPrompt(relative: string): boolean;
 	/** Labels reported missing even when present (`OMP_GUI_BRIDGE_PROBE_HIDE`). */
 	hidden?: ReadonlySet<string>;
+	/** Specifiers that loaded a separate copy of stock, not the running omp's module (`unsafeCopies`). */
+	copies?: ReadonlySet<string>;
 }
 
 const label = (owner: string, path: string) => `${owner}${path.endsWith("()") ? path.slice(0, -2) : path}`;
@@ -1168,6 +1208,10 @@ export function missingFor(requirement: FeatureRequirement, sources: ProbeSource
 	}
 	for (const path of requirement.pkg ?? []) check(hasPath(sources.pkg, path), label("pi.", path));
 	for (const [specifier, paths] of Object.entries(requirement.modules ?? {})) {
+		if (sources.copies?.has(specifier)) {
+			missing.push(`${specifier} (separate copy, not this omp's module)`);
+			continue;
+		}
 		if (!sources.modules.has(specifier)) {
 			missing.push(specifier);
 			continue;

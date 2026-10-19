@@ -128,6 +128,76 @@ export default function (pi) {
 }
 `;
 
+const JUDGE_PROBE = `
+import { methods } from "./settings";
+import { modelKind } from "@oh-my-pi/pi-catalog/types";
+import { resolveRoleChain } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
+import { hasNativeJudge } from "@oh-my-pi/pi-coding-agent/judgment";
+export default function (pi) {
+ pi.on("session_start", async () => {
+  try {
+   const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+   const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
+   const { settings, modelRegistry } = session;
+   const sel = model => model.provider + "/" + model.id;
+   const roles = (await methods.model_roles({}, env)).roles;
+   const accepts = getRoleInfo("judge", settings).accepts;
+   const preferred = resolveRoleChain("judge", settings, modelRegistry.getAll("all").filter(model => accepts(model)));
+   const usable = resolveRoleChain("judge", settings, roleCandidatePool("judge", settings, modelRegistry));
+   const judgeKind = modelKind(preferred[0].model);
+   console.error("JUDGE_PROBE=" + JSON.stringify({
+    effective: roles.find(role => role.id === "judge").effective,
+    native: hasNativeJudge(settings, modelRegistry),
+    preferred: sel(preferred[0].model),
+    preferredKind: judgeKind,
+    preferredProviders: [...new Set(preferred.filter(candidate => modelKind(candidate.model) === judgeKind).map(candidate => candidate.model.provider))],
+    answering: sel(usable[0].model),
+    skippedRoles: roles.filter(role => role.effective?.skipped).map(role => role.id),
+   }));
+   process.exit(0);
+  } catch (error) {
+   console.error("JUDGE_PROBE_FAILED " + (error instanceof Error ? error.stack : String(error)));
+   process.exit(1);
+  }
+ });
+}
+`;
+
+/** Runs `source` as a bridge extension on the installed omp in an empty private agent dir; `OPENAI_API_KEY` is the only credential unless `env` adds one. */
+function runProbe(source: string, name: string, env: Record<string, string> = {}): Record<string, unknown> {
+	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-roles-"));
+	chmodSync(isolated, 0o700);
+	try {
+		cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
+		const extension = join(isolated, "bridge", "model-roles-probe.ts");
+		writeFileSync(extension, source);
+		const spawnEnv: Record<string, string | undefined> = {
+			...process.env,
+			PI_CODING_AGENT_DIR: isolated,
+			PI_CONFIG_DIR: isolated,
+			OMP_PROFILE: "",
+			PI_PROFILE: "",
+			OPENAI_API_KEY: "probe-not-a-real-key",
+			...env,
+		};
+		const credentials = ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+		for (const key of [...credentials, "OPENROUTER_API_KEY", "TYPESAFE_API_KEY"]) {
+			if (!(key in env)) Reflect.deleteProperty(spawnEnv, key);
+		}
+		const result = spawnSync(
+			omp,
+			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			{ env: spawnEnv, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
+		);
+		const line = result.stderr.split("\n").find(value => value.startsWith(name));
+		expect(line, result.stderr.slice(-2500)).toMatch(new RegExp(`^${name}=`));
+		return JSON.parse(line?.slice(name.length + 1) ?? "{}") as Record<string, unknown>;
+	} finally {
+		rmSync(isolated, { recursive: true, force: true });
+	}
+}
+
 interface Effective {
 	model?: string;
 	source: string;
@@ -137,104 +207,113 @@ interface Effective {
 
 describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
 	it("reports each role's effective model as stock resolves it and runs template agents on their preset role", () => {
-		const isolated = mkdtempSync(join(tmpdir(), "ompdesk-roles-"));
-		chmodSync(isolated, 0o700);
-		try {
-			cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
-			const extension = join(isolated, "bridge", "model-roles-probe.ts");
-			writeFileSync(extension, PROBE);
-			const env: Record<string, string | undefined> = {
-				...process.env,
-				PI_CODING_AGENT_DIR: isolated,
-				PI_CONFIG_DIR: isolated,
-				OMP_PROFILE: "",
-				PI_PROFILE: "",
-				OPENAI_API_KEY: "probe-not-a-real-key",
-				ROLES_PROBE_TEMPLATES: JSON.stringify(
-					AGENT_TEMPLATES.map(template => ({ name: template.name, model: template.model })),
-				),
-			};
-			for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) {
-				Reflect.deleteProperty(env, key);
-			}
-			const result = spawnSync(
-				omp,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
-				{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
-			);
-			const line = result.stderr.split("\n").find(value => value.startsWith("ROLES_PROBE"));
-			expect(line, result.stderr.slice(-2500)).toMatch(/^ROLES_PROBE=/);
-			const probe = JSON.parse(line?.slice("ROLES_PROBE=".length) ?? "{}") as Record<string, unknown> & {
-				A: string;
-				B: string;
-			};
-			const { A, B } = probe;
-			expect(A).not.toBe(B);
+		const probe = runProbe(PROBE, "ROLES_PROBE", {
+			ROLES_PROBE_TEMPLATES: JSON.stringify(
+				AGENT_TEMPLATES.map(template => ({ name: template.name, model: template.model })),
+			),
+		}) as Record<string, unknown> & { A: string; B: string };
+		const { A, B } = probe;
+		expect(A).not.toBe(B);
 
-			// Stock's 15 built-ins are flagged; the six presets are listed while empty.
-			expect((probe.builtin as string[]).sort()).toEqual(
-				[
-					"advisor",
-					"commit",
-					"default",
-					"dictation",
-					"image",
-					"judge",
-					"memory",
-					"plan",
-					"slow",
-					"smol",
-					"speech",
-					"task",
-					"tiny",
-					"vision",
-					"web",
-				].sort(),
-			);
-			expect(probe.ids).toEqual(expect.arrayContaining(["explore", "review", "debug", "docs", "test", "design"]));
-			expect((probe.presetsListedEmpty as [string, string | null][]).every(([, source]) => source !== null)).toBe(
-				true,
-			);
+		// Stock's 15 built-ins are flagged; the six presets are listed while empty.
+		expect((probe.builtin as string[]).sort()).toEqual(
+			[
+				"advisor",
+				"commit",
+				"default",
+				"dictation",
+				"image",
+				"judge",
+				"memory",
+				"plan",
+				"slow",
+				"smol",
+				"speech",
+				"task",
+				"tiny",
+				"vision",
+				"web",
+			].sort(),
+		);
+		expect(probe.ids).toEqual(expect.arrayContaining(["explore", "review", "debug", "docs", "test", "design"]));
+		expect((probe.presetsListedEmpty as [string, string | null][]).every(([, source]) => source !== null)).toBe(true);
 
-			// Every chain role equals stock's own resolver, empty and as roles fill in.
-			expect(probe.oracleEmpty).toEqual([]);
-			expect(probe.oracleSmol).toEqual([]);
-			expect(probe.oracleSlow).toEqual([]);
+		// Every chain role equals stock's own resolver, empty and as roles fill in.
+		expect(probe.oracleEmpty).toEqual([]);
+		expect(probe.oracleSmol).toEqual([]);
+		expect(probe.oracleSlow).toEqual([]);
 
-			// Empty Tiny and Memory follow Fast; Plan keeps the session's model.
-			const smol = probe.smol as Effective;
-			expect(smol).toMatchObject({ model: A, source: "configured" });
-			expect(probe.tiny).toMatchObject({ model: A, source: "fallback" });
-			expect(probe.memory).toMatchObject({ model: A, source: "fallback" });
-			expect(probe.plan).toBe("session");
-			// Advisor follows the configured Thinking role.
-			expect(probe.advisor).toMatchObject({ model: B, source: "fallback" });
+		// Empty Tiny and Memory follow Fast; Plan keeps the session's model.
+		const smol = probe.smol as Effective;
+		expect(smol).toMatchObject({ model: A, source: "configured" });
+		expect(probe.tiny).toMatchObject({ model: A, source: "fallback" });
+		expect(probe.memory).toMatchObject({ model: A, source: "fallback" });
+		expect(probe.plan).toBe("session");
+		// Advisor follows the configured Thinking role.
+		expect(probe.advisor).toMatchObject({ model: B, source: "fallback" });
 
-			// An empty custom role follows the next role its agents list: review → slow (B), test → task (A).
-			expect(probe.reviewEmpty).toMatchObject({ model: B, source: "fallback", via: "slow" });
-			expect(probe.testEmpty).toMatchObject({ model: A, source: "fallback", via: "task" });
-			expect(probe.agentsEmpty).toEqual({ review: B, debug: B, test: A, design: A });
+		// An empty custom role follows the next role its agents list: review → slow (B), test → task (A).
+		expect(probe.reviewEmpty).toMatchObject({ model: B, source: "fallback", via: "slow" });
+		expect(probe.testEmpty).toMatchObject({ model: A, source: "fallback", via: "task" });
+		expect(probe.agentsEmpty).toEqual({ review: B, debug: B, test: A, design: A });
 
-			// Assigned, the role is the agent's model.
-			expect(probe.reviewOwn).toMatchObject({ model: A, source: "configured" });
-			expect(probe.testOwn).toMatchObject({ model: B, source: "configured" });
-			expect(probe.agentsOwn).toEqual({ review: A, test: B, debug: B });
+		// Assigned, the role is the agent's model.
+		expect(probe.reviewOwn).toMatchObject({ model: A, source: "configured" });
+		expect(probe.testOwn).toMatchObject({ model: B, source: "configured" });
+		expect(probe.agentsOwn).toEqual({ review: A, test: B, debug: B });
 
-			// A user's own role: defined, assigned, renamed (the description follows what is passed), forgotten everywhere.
-			expect(probe.mine).toMatchObject({
-				label: "My role",
-				name: "My role",
-				description: "My own agents",
-				builtin: false,
-				effective: { model: B, source: "configured" },
-			});
-			expect(probe.renamed).toEqual({ label: "Renamed", description: null });
-			expect(probe.forgot).toEqual({ listed: false, role: null, cycle: ["smol", "slow"] });
-			expect(probe.refusedBuiltin).toMatch(/cannot be a custom role id \(builtin\)/);
-			expect(probe.designTag).toBe("Look and feel");
-			expect(probe.designReset).toBeNull();
-		} finally {
-			rmSync(isolated, { recursive: true, force: true });
-		}
+		// A user's own role: defined, assigned, renamed (the description follows what is passed), forgotten everywhere.
+		expect(probe.mine).toMatchObject({
+			label: "My role",
+			name: "My role",
+			description: "My own agents",
+			builtin: false,
+			effective: { model: B, source: "configured" },
+		});
+		expect(probe.renamed).toEqual({ label: "Renamed", description: null });
+		expect(probe.forgot).toEqual({ listed: false, role: null, cycle: ["smol", "slow"] });
+		expect(probe.refusedBuiltin).toMatch(/cannot be a custom role id \(builtin\)/);
+		expect(probe.designTag).toBe("Look and feel");
+		expect(probe.designReset).toBeNull();
 	}, 130_000);
+
+	it("reports the judge's stock-preferred native model when no provider holds credentials for it, and nothing once one does", () => {
+		const probeJudge = (env: Record<string, string>) =>
+			runProbe(JUDGE_PROBE, "JUDGE_PROBE", env) as {
+				effective: {
+					model: string;
+					source: string;
+					skipped?: { model: string; kind: string; providers: string[] };
+				};
+				native: boolean;
+				preferred: string;
+				preferredKind: string;
+				preferredProviders: string[];
+				answering: string;
+				skippedRoles: string[];
+			};
+
+		// No key: stock's judge chain answers with a prompted model (`hasNativeJudge` false), so the native model
+		// stock lists first is reported as skipped, with every provider stock lists it under.
+		const none = probeJudge({});
+		expect(none.native).toBe(false);
+		expect(none.preferredKind).toBe("judge");
+		expect(none.effective.model).toBe(none.answering);
+		expect(none.effective.skipped).toEqual({
+			name: expect.any(String),
+			model: none.preferred,
+			kind: none.preferredKind,
+			providers: none.preferredProviders,
+		});
+		expect(none.preferredProviders.length).toBeGreaterThan(1);
+		expect(none.skippedRoles).toEqual(["judge"]);
+
+		// A key for any one provider that holds it: stock now routes to a native judge, and the row reports nothing.
+		for (const provider of none.preferredProviders) {
+			const keyed = probeJudge({ [`${provider.toUpperCase()}_API_KEY`]: "probe-not-a-real-key" });
+			expect(keyed.native, provider).toBe(true);
+			expect(keyed.effective.skipped, provider).toBeUndefined();
+			expect(keyed.skippedRoles, provider).toEqual([]);
+		}
+	}, 400_000);
 });

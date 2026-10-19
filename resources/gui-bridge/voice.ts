@@ -10,9 +10,9 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import { sttClient } from "@oh-my-pi/pi-coding-agent/stt/asr-client";
 import { downloadSttModel, isSttModelCached } from "@oh-my-pi/pi-coding-agent/stt/downloader";
 import { resolveSttModelSpec } from "@oh-my-pi/pi-coding-agent/stt/models";
-import { DEFAULT_TTS_VOICE } from "@oh-my-pi/pi-coding-agent/tts/models";
+import { resolveSpeechCandidates } from "@oh-my-pi/pi-coding-agent/tools/tts";
+import { DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS } from "@oh-my-pi/pi-coding-agent/tts/models";
 import { ttsClient } from "@oh-my-pi/pi-coding-agent/tts/tts-client";
-import { resolveLocalSpeechModelId } from "@oh-my-pi/pi-coding-agent/tts/vocalizer";
 import { encodeWav } from "@oh-my-pi/pi-coding-agent/tts/wav";
 import { guard } from "./health";
 import { asRecord, requiredString } from "./params";
@@ -54,11 +54,23 @@ async function transcribe(session: AgentSession, audioBase64: string) {
 	return { text: await sttClient.transcribe(modelKey, samples, { language: language || undefined }) };
 }
 
+/**
+ * Stock `resolveLocalSpeechModelId` (tts/vocalizer.ts), on the speech chain stock's `tools/tts` resolves (with
+ * `wantsMp3` false it is that function's own `resolveRoleChain` over `roleCandidatePool`): omp's bundle does not
+ * export `tts/vocalizer`, and an import of it is a second copy whose role chain reads other settings' slots.
+ */
+function localSpeechModelId(session: Pick<AgentSession, "settings" | "modelRegistry">): string {
+	const local = resolveSpeechCandidates(session.settings, session.modelRegistry, false).find(
+		candidate => candidate.model.api === "local-inference",
+	);
+	return local?.model.id ?? TTS_LOCAL_MODELS[0].key;
+}
+
 async function synthesize(session: AgentSession, rawText: string) {
 	const text = rawText.trim();
 	if (!text) return { audioBase64: "", mimeType: "audio/wav" };
 	const voice = (lookup("speech.voice")?.get(session.settings) as string | undefined) || DEFAULT_TTS_VOICE;
-	const modelKey = resolveLocalSpeechModelId({ settings: session.settings, registry: session.modelRegistry });
+	const modelKey = localSpeechModelId(session);
 	const audio = await ttsClient.synthesize(modelKey, text, { voice });
 	if (!audio) throw new Error("Local TTS model is unavailable — download it from the TUI speech settings first");
 	return {

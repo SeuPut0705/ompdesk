@@ -49,6 +49,21 @@ export function roleGroup(id: string, stockSection: "chat" | "kind", builtin: bo
 	return ROLE_GROUPS.find(group => group.roles.includes(id))?.id ?? (stockSection === "kind" ? "io" : "agent");
 }
 
+/**
+ * The candidate stock prefers first for an empty built-in role when no provider holds credentials for it, so the
+ * role runs on a later one (`role-effective.ts`). Stock's own chain and catalog supply every field.
+ */
+export interface SkippedPreferred {
+	/** The preferred candidate's display name (stock's catalog name, else its id). */
+	name: string;
+	/** `provider/id`. */
+	model: string;
+	/** Stock's `modelKind` of that class of candidate (`judge` for a native judge model). */
+	kind: string;
+	/** Provider ids that hold the preferred class of candidate, in stock's preference order; a key for any one of them lifts the skip. */
+	providers: string[];
+}
+
 /** A role an OMPdesk agent template consumes. */
 export interface PresetRole {
 	/** The `modelRoles` key; agents select it as `@id`. */

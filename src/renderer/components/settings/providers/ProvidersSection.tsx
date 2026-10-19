@@ -340,6 +340,37 @@ export function ProvidersSection({
 		setReturnTo(null);
 	}, [providerForm, returnTo, customConfigs, reloading]);
 
+	/**
+	 * A request to show one provider's card (`focusProvider`, from a Model roles row that needs its key): a
+	 * provider not connected yet sits in the picker, which stays folded while others are connected, so open it,
+	 * then scroll to the card and focus its button. A provider with no card here lands on the section.
+	 */
+	const providerFocus = useUiStore(state => state.providerFocus);
+	const clearProviderFocus = useUiStore(state => state.clearProviderFocus);
+	useEffect(() => {
+		if (!providerFocus || providerForm) return;
+		if (providers.length === 0 && !catalog.error) return;
+		const provider = providers.find(row => row.id === providerFocus.id);
+		const folded = !(pickerOpen ?? !providers.some(row => row.authenticated));
+		if (provider && !provider.authenticated && provider.loginAvailable && folded) {
+			setPickerOpen(true);
+			return;
+		}
+		const section = document.getElementById("settings-models-accounts");
+		const card = Array.from(
+			section?.querySelectorAll<HTMLElement>(
+				"[data-provider-row], [data-featured-provider], [data-provider-connect]",
+			) ?? [],
+		).find(
+			item =>
+				(item.dataset.providerRow ?? item.dataset.featuredProvider ?? item.dataset.providerConnect) ===
+				providerFocus.id,
+		);
+		(card ?? section)?.scrollIntoView({ block: "center" });
+		(card?.querySelector<HTMLElement>("button") ?? card)?.focus({ preventScroll: true });
+		clearProviderFocus();
+	}, [providerFocus, providerForm, providers, catalog.error, pickerOpen, clearProviderFocus]);
+
 	/** Provider-wide sign-out: every stored account. One account is removed from its own row. */
 	const logout = async (provider: ProviderInfo) => {
 		setPendingLogout(null);

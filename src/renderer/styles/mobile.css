@@ -486,16 +486,25 @@ html[data-gpu="software"] .omp-work-chip-chevron {
 	transition: none;
 }
 
-/* A menu or popover shown inside the action sheet: the sheet is the surface, so the inner one is bare. */
+/* A menu or popover shown inside the action sheet: the sheet is the surface, so the inner one is bare. The sheet is
+   also the one scroller: the inner surface neither caps its height nor scrolls (a touch hit area reaching past its
+   edge made it a second scroller, drawn as a second scrollbar beside the sheet's). */
 .omp-action-sheet .omp-action-sheet-list,
 .omp-action-sheet .omp-action-sheet-surface {
 	width: 100%;
 	min-width: 0;
 	max-width: none;
 	max-height: none;
+	overflow: visible;
 	border: 0;
 	background: transparent;
 	box-shadow: none;
+}
+
+/* A list that caps its own height on the desktop (the queue's `max-h-72` list) is part of the sheet's one scroll. */
+.omp-action-sheet .omp-action-sheet-surface .overflow-y-auto {
+	max-height: none;
+	overflow-y: visible;
 }
 
 /* The left-edge strip that opens the drawer (SidebarDrawer.tsx): touch only, so a mouse never meets it. */
@@ -582,10 +591,13 @@ html[data-shell="phone"] [data-setting-desc] {
 /* A switch (a settings row, the Mode popover, a dialog), the info glyph and the form checkboxes keep their small
    look; the touch block at the end gives each a finger-sized hit area. */
 
-/* Tab rows (center pages, filters) scroll sideways instead of pushing the page wider than the screen. */
+/* Tab rows (center pages, filters) scroll sideways instead of pushing the page wider than the screen; never
+   vertically (a sideways scroller's `overflow-y` would otherwise compute to auto, and the tabs' 44 px hit areas
+   made it scroll a few pixels up and down). */
 html[data-shell="phone"] [role="tablist"] {
 	max-width: 100%;
 	overflow-x: auto;
+	overflow-y: hidden;
 	scrollbar-width: none;
 }
 

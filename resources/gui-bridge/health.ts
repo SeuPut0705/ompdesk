@@ -13,8 +13,10 @@ import {
 	type FeatureId,
 	parseHidden,
 	REQUIREMENTS,
+	separateCopies,
 	type UnavailableFeature,
 	UnsupportedOmpError,
+	unsafeCopies,
 } from "./capabilities";
 import { ompPromptPath } from "./modes/shared";
 import type { BridgeEnv, BridgeMethods } from "./types";
@@ -36,7 +38,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-tui/tools/read": () => import("@oh-my-pi/pi-tui/tools/read"),
 	"@oh-my-pi/pi-agent-core": () => import("@oh-my-pi/pi-agent-core"),
 	"@oh-my-pi/pi-ai": () => import("@oh-my-pi/pi-ai"),
-	"@oh-my-pi/pi-ai/auth-storage": () => import("@oh-my-pi/pi-ai/auth-storage"),
 	"@oh-my-pi/pi-ai/auth/blocks": () => import("@oh-my-pi/pi-ai/auth/blocks"),
 	"@oh-my-pi/pi-ai/auth/rank": () => import("@oh-my-pi/pi-ai/auth/rank"),
 	"@oh-my-pi/pi-ai/auth/usage-report": () => import("@oh-my-pi/pi-ai/auth/usage-report"),
@@ -75,7 +76,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/extensibility/plugins/git-url"),
 	"@oh-my-pi/pi-coding-agent/extensibility/settings": () => import("@oh-my-pi/pi-coding-agent/extensibility/settings"),
 	"@oh-my-pi/pi-coding-agent/extensibility/skills": () => import("@oh-my-pi/pi-coding-agent/extensibility/skills"),
-	"@oh-my-pi/pi-coding-agent/goals/settings": () => import("@oh-my-pi/pi-coding-agent/goals/settings"),
 	"@oh-my-pi/pi-coding-agent/internal-urls": () => import("@oh-my-pi/pi-coding-agent/internal-urls"),
 	"@oh-my-pi/pi-coding-agent/internal-urls/router": () => import("@oh-my-pi/pi-coding-agent/internal-urls/router"),
 	"@oh-my-pi/pi-coding-agent/internal-urls/local-protocol": () =>
@@ -114,7 +114,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/registry/agent-lifecycle"),
 	"@oh-my-pi/pi-coding-agent/registry/agent-registry": () =>
 		import("@oh-my-pi/pi-coding-agent/registry/agent-registry"),
-	"@oh-my-pi/pi-coding-agent/security/coordinator": () => import("@oh-my-pi/pi-coding-agent/security/coordinator"),
 	"@oh-my-pi/pi-coding-agent/security/store": () => import("@oh-my-pi/pi-coding-agent/security/store"),
 	"@oh-my-pi/pi-coding-agent/session/blob-store": () => import("@oh-my-pi/pi-coding-agent/session/blob-store"),
 	"@oh-my-pi/pi-coding-agent/session/credential-pin": () => import("@oh-my-pi/pi-coding-agent/session/credential-pin"),
@@ -171,12 +170,14 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tools/builtin-names": () => import("@oh-my-pi/pi-coding-agent/tools/builtin-names"),
 	"@oh-my-pi/pi-coding-agent/tools/debug": () => import("@oh-my-pi/pi-coding-agent/tools/debug"),
 	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () => import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),
+	"@oh-my-pi/pi-coding-agent/tools/manage-skill": () => import("@oh-my-pi/pi-coding-agent/tools/manage-skill"),
 	"@oh-my-pi/pi-coding-agent/tools/path-utils": () => import("@oh-my-pi/pi-coding-agent/tools/path-utils"),
 	"@oh-my-pi/pi-coding-agent/tools/resolve": () => import("@oh-my-pi/pi-coding-agent/tools/resolve"),
+	"@oh-my-pi/pi-coding-agent/tools/security-scan": () => import("@oh-my-pi/pi-coding-agent/tools/security-scan"),
 	"@oh-my-pi/pi-coding-agent/tools/todo": () => import("@oh-my-pi/pi-coding-agent/tools/todo"),
+	"@oh-my-pi/pi-coding-agent/tools/tts": () => import("@oh-my-pi/pi-coding-agent/tools/tts"),
 	"@oh-my-pi/pi-coding-agent/tts/models": () => import("@oh-my-pi/pi-coding-agent/tts/models"),
 	"@oh-my-pi/pi-coding-agent/tts/tts-client": () => import("@oh-my-pi/pi-coding-agent/tts/tts-client"),
-	"@oh-my-pi/pi-coding-agent/tts/vocalizer": () => import("@oh-my-pi/pi-coding-agent/tts/vocalizer"),
 	"@oh-my-pi/pi-coding-agent/tts/wav": () => import("@oh-my-pi/pi-coding-agent/tts/wav"),
 	"@oh-my-pi/pi-coding-agent/utils/atomic-file": () => import("@oh-my-pi/pi-coding-agent/utils/atomic-file"),
 	"@oh-my-pi/pi-coding-agent/utils/tool-choice": () => import("@oh-my-pi/pi-coding-agent/utils/tool-choice"),
@@ -200,6 +201,25 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-ai/utils/schema": () => import("@oh-my-pi/pi-ai/utils/schema"),
 };
 
+/**
+ * Each loader's import target as omp rewrote this file's source (a bundled `omp-legacy-pi-bundled:` key, or the
+ * `file://` URL of a separate copy). Read from the loader's own source text: the rewrite happens before load, so
+ * the transpiled thunk names exactly what its `import()` reaches.
+ */
+const TARGETS: Readonly<Record<string, string>> = Object.fromEntries(
+	Object.entries(LOADERS).map(([specifier, load]) => [
+		specifier,
+		String(load).match(/import\(\s*["'`]([^"'`]+)["'`]/)?.[1] ?? specifier,
+	]),
+);
+
+/** Loaded stock modules that are not this omp's own; capabilities.ts `COPY_SAFE` says which are harmless. */
+export function stockCopies(): string[] {
+	return separateCopies(TARGETS);
+}
+
+const COPIES = unsafeCopies(TARGETS);
+
 /** Settled imports by specifier; `undefined` when this omp has no such module. */
 const imports = new Map<string, Promise<unknown>>();
 
@@ -207,7 +227,8 @@ function importOnce(specifier: string): Promise<unknown> {
 	let pending = imports.get(specifier);
 	if (!pending) {
 		const load = LOADERS[specifier];
-		pending = load ? load().catch(() => undefined) : Promise.resolve(undefined);
+		// A refused copy is never loaded: its top level would register a second settings registry for nothing.
+		pending = load && !COPIES.has(specifier) ? load().catch(() => undefined) : Promise.resolve(undefined);
 		imports.set(specifier, pending);
 	}
 	return pending;
@@ -240,6 +261,7 @@ export async function probe(
 		modules,
 		hasPrompt: relative => fs.existsSync(ompPromptPath(relative)),
 		hidden: HIDDEN,
+		copies: COPIES,
 	});
 }
 

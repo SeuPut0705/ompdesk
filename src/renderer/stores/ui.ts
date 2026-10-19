@@ -200,6 +200,8 @@ interface UiStore {
 	liveOpen: boolean;
 	/** Inline custom-endpoint form in Settings › Models & providers (`edit` null = add). */
 	providerForm: { edit: CustomProviderView | null } | null;
+	/** A provider whose card Providers & accounts should show: it scrolls to the card and clears this. A new object per ask, so asking again for the same provider shows it again. */
+	providerFocus: { id: string } | null;
 	renameDialogOpen: boolean;
 	/** Worktree-create dialog (plan/20): non-null opens it; baseCwd pins the
 	 * repo when invoked from a Sidebar group (default = active session cwd). */
@@ -296,6 +298,9 @@ interface UiStore {
 	setSettingsSection: (tab: string) => void;
 	/** Settings › Models & providers. */
 	openProviders: () => void;
+	/** Settings › Models & accounts › Providers & accounts, scrolled to that provider's card. */
+	focusProvider: (id: string) => void;
+	clearProviderFocus: () => void;
 	feedbackOpen: boolean;
 	/** Error text carried in from a crash/error surface; shown read-only in the dialog. */
 	feedbackPrefill: { error?: string; title?: string; description?: string } | null;
@@ -598,6 +603,11 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({ providerForm: null });
 		get().openSettings("models:accounts");
 	},
+	focusProvider: id => {
+		set({ providerForm: null, providerFocus: { id } });
+		get().openSettings("models");
+	},
+	clearProviderFocus: () => set({ providerFocus: null }),
 	feedbackOpen: false,
 	feedbackPrefill: null,
 	openFeedback: prefill => set({ feedbackOpen: true, feedbackPrefill: prefill ?? null }),
@@ -652,6 +662,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	openLive: () => set({ liveOpen: true }),
 	closeLive: () => set({ liveOpen: false }),
 	providerForm: null,
+	providerFocus: null,
 	openProviderConfig: editProvider => {
 		set({ providerForm: { edit: editProvider ?? null } });
 		get().openSettings("models");

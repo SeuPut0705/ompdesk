@@ -10,12 +10,20 @@
 import { CircleDashed, Pencil, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import { BUILTIN_ROLE_IDS, presetRole } from "../../../../resources/gui-bridge/model-role-contracts";
-import type { CompactionPoint, ModelRoleEntry, ProviderInfo, UsageReport } from "../../../shared/rpc-types";
+import type {
+	CompactionPoint,
+	ModelRoleEffective,
+	ModelRoleEntry,
+	ProviderInfo,
+	UsageReport,
+} from "../../../shared/rpc-types";
 import { THINKING_LEVEL_VALUES } from "../../../shared/rpc-types";
-import { useT } from "../../lib/i18n";
+import { useLang, useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { inUseReport, tightestLimit } from "../../lib/usage-reports";
+import { useUiStore } from "../../stores/ui";
 import { Badge, IconButton, ProgressBar } from "../common";
+import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { ProviderMark } from "./providers/ProviderMark";
@@ -146,6 +154,68 @@ function EffectiveLine({
 				{levelName ? t("modelRoles.thinking", { level: levelName }) : t("modelRoles.thinkingSession")}
 			</span>
 			{compaction && <CompactsAt className="text-(--sc-text-muted)" compact point={compaction} />}
+		</p>
+	);
+}
+
+/**
+ * What stock prefers for an empty role but cannot use for want of a key (`effective.skipped`): one muted line whose
+ * provider names, each a link to its card in Providers & accounts, are the ones that would lift the skip. Names come
+ * from the catalog and the provider list, never from this file. The benefit sits behind the (i): stock marks a native
+ * judge model as cheaper than a prompted completion for classification (`prompts/system/workflow-notice.md`) and
+ * never lets a prompted model stand in for one (`judgment/index.ts` `textJudgeRoleChain`), but says nothing about speed.
+ */
+function SkippedLine({
+	effective,
+	providers,
+	t,
+}: {
+	effective: ModelRoleEffective;
+	providers: readonly ProviderInfo[];
+	t: Translate;
+}) {
+	const { lang } = useLang();
+	const skipped = effective.skipped;
+	if (!skipped) return null;
+	const slot = "\u0001";
+	const [before = "", after = ""] = t("modelRoles.skipped", { model: skipped.name, providers: slot }).split(slot);
+	const listed = skipped.providers.map(id => providers.find(provider => provider.id === id));
+	const parts = new Intl.ListFormat(lang, { type: "disjunction" }).formatToParts(
+		skipped.providers.map((id, index) => listed[index]?.name ?? id),
+	);
+	const info = [
+		t("modelRoles.skipped.info", { model: skipped.name, using: effective.name ?? effective.model ?? "" }),
+		skipped.kind === "judge" ? t("modelRoles.skipped.infoJudge") : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+	let element = 0;
+	return (
+		<p className="text-sc-xs text-(--sc-text-muted)" data-role-skipped={skipped.model}>
+			{before}
+			{parts.map(part => {
+				if (part.type === "literal") return part.value;
+				const index = element++;
+				const id = skipped.providers[index] ?? "";
+				return listed[index] ? (
+					<button
+						className="inline cursor-pointer rounded-(--sc-radius-sm) text-(--sc-accent) underline-offset-2 hover:underline focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+						data-provider-link={id}
+						key={id}
+						onClick={() => useUiStore.getState().focusProvider(id)}
+						title={t("modelRoles.skipped.open", { provider: part.value })}
+						type="button"
+					>
+						{part.value}
+					</button>
+				) : (
+					<span key={id}>{part.value}</span>
+				);
+			})}
+			{after}
+			<span className="ms-1 inline-flex align-middle">
+				<SettingInfo text={info} />
+			</span>
 		</p>
 	);
 }
@@ -282,6 +352,7 @@ export function ModelRoleRow({
 					t={t}
 					usage={usage}
 				/>
+				{entry.effective?.skipped && <SkippedLine effective={entry.effective} providers={providers} t={t} />}
 				{agents && (
 					<p className="text-sc-xs text-(--sc-text-muted)">
 						{agents.installed.length > 0 && (

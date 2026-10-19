@@ -1447,6 +1447,12 @@ export const ko: Record<string, string> = {
 	"modelRoles.unavailable": "사용할 수 없음",
 	"modelRoles.unavailableHint":
 		"{model} 모델을 지금은 쓸 수 없어요. 프로바이더에 로그인되어 있지 않거나 모델이 사라졌어요.",
+	"modelRoles.skipped": "{model}: {providers} 키가 필요해요",
+	"modelRoles.skipped.info":
+		"omp는 이 역할에 먼저 {model} 모델을 쓰지만, 목록의 프로바이더가 하나도 로그인되어 있지 않아 지금은 {using} 모델이 대신 답해요. 그중 하나만 연결하면 바로 넘어가요.",
+	"modelRoles.skipped.infoJudge":
+		"네이티브 판정 모델은 짧은 판정을 요청 한 번으로 처리하고, 채팅 모델에 프롬프트로 묻는 것보다 저렴해요. 쓸 수 있게 되면 채팅 모델은 더 이상 대신하지 않아요.",
+	"modelRoles.skipped.open": "프로바이더와 계정에서 {provider} 열기",
 	"modelRoles.account.signedIn": "로그인됨",
 	"modelRoles.account.signedOut": "로그인 안 됨",
 	"modelRoles.account.off": "프로바이더 꺼짐",

@@ -92,16 +92,17 @@ export function install(): void {
 		import("@oh-my-pi/pi-coding-agent/judgment"),
 		import("@oh-my-pi/pi-coding-agent/tiny/message-preproc"),
 		import("@oh-my-pi/pi-coding-agent/plan-mode/settings"),
-		import("@oh-my-pi/pi-coding-agent/goals/settings"),
+		import("@oh-my-pi/pi-coding-agent/config/registry"),
 	]);
 }
 
+/** `goal.enabled` comes through stock's registry: omp's bundle has no `goals/settings` (an import is a copy). */
 async function enabledByStock(session: AgentSession): Promise<{ plan: boolean; goal: boolean }> {
-	const [{ cfgPlanEnabled }, { cfgGoalEnabled }] = await Promise.all([
+	const [{ cfgPlanEnabled }, { lookup }] = await Promise.all([
 		import("@oh-my-pi/pi-coding-agent/plan-mode/settings"),
-		import("@oh-my-pi/pi-coding-agent/goals/settings"),
+		import("@oh-my-pi/pi-coding-agent/config/registry"),
 	]);
-	return { plan: cfgPlanEnabled.get(session.settings), goal: cfgGoalEnabled.get(session.settings) };
+	return { plan: cfgPlanEnabled.get(session.settings), goal: lookup("goal.enabled")?.get(session.settings) === true };
 }
 
 /** Ask the judge role's cheapest available model; throws when none answers. */

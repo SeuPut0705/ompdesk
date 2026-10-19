@@ -12,8 +12,10 @@ import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/o
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
 import {
+	disabledProviderIds,
 	extractExplicitThinkingSelector,
 	resolveModelOverride,
+	resolveRoleChain,
 	resolveRoleSelection,
 } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import {
@@ -668,7 +670,8 @@ type IdentityKeyResolver = (provider: string, credential: { type: string }) => s
  */
 async function identityKeyResolver(env: BridgeEnv): Promise<IdentityKeyResolver | undefined> {
 	if ((await probe(env, ["accountPools"])).length > 0) return undefined;
-	const auth: Rec = await import("@oh-my-pi/pi-ai/auth-storage");
+	// The package root: omp's bundle does not export `pi-ai/auth-storage`, whose import would be a second copy.
+	const auth: Rec = await import("@oh-my-pi/pi-ai");
 	const resolve = auth.resolveCredentialIdentityKey;
 	return typeof resolve === "function"
 		? (provider, credential) => {
@@ -815,6 +818,23 @@ function roleStock(session: AgentSession): RoleStock {
 		chatRoleIds: CHAT_MODEL_ROLE_IDS,
 		configured: role => settings.getModelRole(role)?.trim() || undefined,
 		sessionModel: () => session.model,
+		chains: role => {
+			const info = getRoleInfo(role, settings);
+			const off = disabledProviderIds(settings);
+			const chain = (models: Parameters<typeof resolveRoleChain>[2]) =>
+				resolveRoleChain(role, settings, models).map(({ model }) => ({
+					provider: model.provider,
+					id: model.id,
+					name: model.name,
+					kind: modelKind(model),
+				}));
+			return {
+				preferred: chain(
+					modelRegistry.getAll("all").filter(model => info.accepts(model) && !off.has(model.provider)),
+				),
+				usable: chain(pool(role)),
+			};
+		},
 	};
 }
 

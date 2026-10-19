@@ -257,6 +257,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, { jobs: [] });
 			case "get_queue":
 				return respond(command, { steering: [], followUp: [] });
+			case "agent_control_review":
+				return respond(command, { items: [] });
 			case "get_git_fingerprint":
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":

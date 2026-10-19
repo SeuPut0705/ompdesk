@@ -185,16 +185,21 @@ html[data-mica="true"] .omp-session-sidebar {
 	--omp-scrollbar-size: 9px;
 }
 
-::-webkit-scrollbar {
+/* Mouse and trackpad only. Any `::-webkit-scrollbar` rule that matches turns
+   Chrome's overlay scrollbar into a drawn 9 px track, which a phone then shows
+   beside its content (Chrome on Android, a paired phone's Run sheet); touch
+   keeps the platform's overlay bar, matching `--omp-scrollbar-size: 0` in
+   mobile.css. `:where` keeps the selectors' specificity at the pseudo-element. */
+:where(html:not([data-input="touch"])) ::-webkit-scrollbar {
 	width: 9px;
 	height: 9px;
 }
 
-::-webkit-scrollbar-track {
+:where(html:not([data-input="touch"])) ::-webkit-scrollbar-track {
 	background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
+:where(html:not([data-input="touch"])) ::-webkit-scrollbar-thumb {
 	background-color: var(--omp-scrollbar-thumb);
 	border-radius: 99px;
 	border: 2px solid transparent;
@@ -202,11 +207,11 @@ html[data-mica="true"] .omp-session-sidebar {
 	transition: background-color var(--omp-motion-fast) var(--omp-ease);
 }
 
-::-webkit-scrollbar-thumb:hover {
+:where(html:not([data-input="touch"])) ::-webkit-scrollbar-thumb:hover {
 	background-color: var(--omp-muted);
 }
 
-::-webkit-scrollbar-corner {
+:where(html:not([data-input="touch"])) ::-webkit-scrollbar-corner {
 	background: transparent;
 }
 
