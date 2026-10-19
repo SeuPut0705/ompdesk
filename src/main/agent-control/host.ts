@@ -15,6 +15,10 @@ import type {
 	AutopilotStatus,
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
+	MAX_NEXT_PROMPT_CHILDREN,
+	type NextPromptChild,
+} from "../../../resources/gui-bridge/modes/next-prompt-contracts";
+import {
 	AGENT_CARD_PREFIX,
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APP,
@@ -184,6 +188,8 @@ export class AgentControlRuntime {
 	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
 	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
 	readonly #reviewSent = new Map<string, string>();
+	/** The running or waiting children last told to each parent's prompt suggestions (JSON). */
+	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
 	readonly #userPrompted = new Set<string>();
 	/** When each tab's current turn started. */
@@ -208,6 +214,7 @@ export class AgentControlRuntime {
 				this.#parents.delete(activity.tabId);
 				this.#busySince.delete(activity.tabId);
 				this.#reviewSent.delete(activity.tabId);
+				this.#childrenSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
 				this.#autopilotRuns.delete(activity.tabId);
 				this.control.released(activity.tabId);
@@ -311,6 +318,23 @@ export class AgentControlRuntime {
 		const win = this.#win(callerTabId);
 		if (win && !win.isDestroyed())
 			win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
+		this.#sendChildren(callerTabId, items);
+	}
+
+	/**
+	 * The opener's prompt suggestions learn which sessions it opened still run or wait (bridge next-prompt): those run
+	 * in their own tabs, so the opener's omp lists none of them as running work, and a suggestion once told the user
+	 * to approve work a child was already doing.
+	 */
+	#sendChildren(callerTabId: string, items: AgentReviewItem[]): void {
+		const children: NextPromptChild[] = items
+			.filter(item => item.state === "running" || item.waiting)
+			.slice(0, MAX_NEXT_PROMPT_CHILDREN)
+			.map(item => ({ title: item.title.slice(0, 200), ...(item.waiting ? { waiting: true } : {}) }));
+		const json = JSON.stringify(children);
+		if (json === (this.#childrenSent.get(callerTabId) ?? "[]")) return;
+		this.#childrenSent.set(callerTabId, json);
+		void this.#hostCommand(callerTabId, { type: "set_next_prompt_children", children });
 	}
 
 	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */

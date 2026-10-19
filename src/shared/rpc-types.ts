@@ -10,6 +10,7 @@ import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridg
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type {
 	InlineCompletion,
+	NextPromptChild,
 	NextPromptConfigFrame,
 	NextPromptRefreshReason,
 	NextPromptState,
@@ -262,6 +263,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_next_prompt" }
 	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
 	| { id?: string; type: "refresh_next_prompt"; reason: NextPromptRefreshReason }
+	| { id?: string; type: "set_next_prompt_children"; children: NextPromptChild[] }
 	| { id?: string; type: "cancel_next_prompt"; scope: "suggest" | "inline" | "all" }
 	| { id?: string; type: "complete_inline"; draft: string; requestId: string }
 	// Which device typed the next prompt of a tab several windows show: gui-bridge prompt-origin.ts (main only)

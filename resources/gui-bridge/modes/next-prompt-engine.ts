@@ -24,7 +24,9 @@ import {
 	INLINE_MAX_DRAFT_CHARS,
 	type InlineCompletion,
 	inlineEffective,
+	MAX_NEXT_PROMPT_CHILDREN,
 	NEXT_PROMPT_REFRESH_REASONS,
+	type NextPromptChild,
 	type NextPromptConfigFrame,
 	type NextPromptModelUsed,
 	type NextPromptSettings,
@@ -35,6 +37,7 @@ import {
 	parseNextPromptEnv,
 } from "./next-prompt-contracts";
 import {
+	awaitsDecision,
 	buildAppState,
 	buildInlineRequest,
 	buildSuggestionRequest,
@@ -417,8 +420,12 @@ function sessionExtras(session: NextPromptSession): SessionExtras {
 				}
 			: {}),
 		...(jobs ? { runningJobs: jobs.running } : {}),
+		...(openedChildren.length > 0 ? { openedSessions: openedChildren } : {}),
 	};
 }
+
+/** The sessions this omp's main agent opened that still run or wait (main pushes them, `next_prompt_children`). */
+let openedChildren: NextPromptChild[] = [];
 
 /** Set by a compaction until the next suggestion consumes it. */
 let compactedSinceSuggestion = false;
@@ -478,7 +485,11 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		compactedSinceSuggestion = false;
 		remember(key, stateKey);
 		lastModel = resolved.used;
-		const candidates = cleanCandidates(text, { register, sent: new SentMessages(sent) });
+		const candidates = cleanCandidates(text, {
+			register,
+			sent: new SentMessages(sent),
+			decisionPending: awaitsDecision(messages),
+		});
 		const ms = Math.round(performance.now() - started);
 		host?.logger.debug("next-prompt suggestion", {
 			trigger,
@@ -627,6 +638,19 @@ export const handlers: EngineMethods = {
 			throw new Error(`next_prompt_refresh needs {reason: ${NEXT_PROMPT_REFRESH_REASONS.join(" | ")}}`);
 		request(reason === "bash" ? "bash" : reason === "switch" ? "switch" : "refresh");
 		return { requested: settings.suggestions };
+	},
+
+	/** `{children}`: main's list of the sessions the main agent opened that still run or wait for an answer. */
+	next_prompt_children: async (params, env) => {
+		attach(env);
+		const children = record(params).children;
+		if (!Array.isArray(children)) throw new Error("next_prompt_children needs {children: {title, waiting?}[]}");
+		openedChildren = children
+			.filter((child): child is Record<string, unknown> => typeof child === "object" && child !== null)
+			.filter(child => typeof child.title === "string" && child.title.trim() !== "")
+			.slice(0, MAX_NEXT_PROMPT_CHILDREN)
+			.map(child => ({ title: String(child.title), ...(child.waiting === true ? { waiting: true } : {}) }));
+		return { children: openedChildren.length };
 	},
 
 	/** `{scope: "suggest" | "inline" | "all"}`. */
