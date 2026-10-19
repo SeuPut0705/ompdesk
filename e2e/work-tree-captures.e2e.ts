@@ -155,8 +155,8 @@ async function seed(page: Page): Promise<void> {
 				],
 			},
 			usage: {
-				kid1: { tabId: "kid1", model: "openai/gpt-5.5-codex", cost: 0.18 },
-				kid2: { tabId: "kid2", model: "anthropic/claude-sonnet-5", cost: 0.09 },
+				"/s/kid1.jsonl": { model: "openai/gpt-5.5-codex", cost: 0.18 },
+				"C:\\s\\kid2.jsonl": { model: "anthropic/claude-sonnet-5", cost: 0.09 },
 			},
 		});
 		stores.closedChildren.setState({

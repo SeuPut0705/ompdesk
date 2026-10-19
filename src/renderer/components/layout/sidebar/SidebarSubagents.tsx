@@ -69,7 +69,6 @@ import {
 	familyCounts,
 	isShownOpened,
 	subagentFamilyState,
-	subagentUsage,
 } from "./sidebar-family";
 
 /** A session the agent of this family's parent opened, as the sidebar prepared its row. */
@@ -198,7 +197,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
-		childUsageText(subagentUsage(agent)),
+		childUsageText(progress?.resolvedModel, progress?.modelRole, progress?.cost),
 		usage,
 		note,
 	]
@@ -270,14 +269,7 @@ function useFamilyCounts(
 		[slice.subagents, kids, hidden],
 	);
 	// What was spent stays spent: finished and hidden children count in the cost.
-	const cost = useMemo(
-		() =>
-			familyCost(
-				slice.subagents.values(),
-				opened.map(child => ({ cost: child.usage?.cost })),
-			),
-		[slice.subagents, opened],
-	);
+	const cost = useMemo(() => familyCost(slice.subagents.values(), opened), [slice.subagents, opened]);
 	return { counts, cost, hidden, kids };
 }
 
@@ -383,12 +375,7 @@ function FamilyChip({
 					</>
 				)}
 				{/* The family's cost, once: what every child spent, finished ones included ("⑂3 · $0.42", narrow too). */}
-				{cost > 0 && (
-					<span className="inline-flex items-center gap-0.5" data-family-cost={cost.toFixed(4)}>
-						<span aria-hidden>·</span>
-						{formatCost(cost, 2)}
-					</span>
-				)}
+				{cost > 0 && <span data-family-cost="">· {formatCost(cost, 2)}</span>}
 			</button>
 			{menuAt && (
 				<ContextMenu

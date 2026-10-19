@@ -178,8 +178,8 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 			title: typeof title === "string" ? title : "",
 			cwd: typeof cwd === "string" ? cwd : "",
 			closedAt: typeof closedAt === "number" ? closedAt : 0,
-			...(typeof model === "string" && model ? { model } : {}),
-			...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { cost } : {}),
+			...(typeof model === "string" ? { model } : {}),
+			...(typeof cost === "number" ? { cost } : {}),
 		});
 	}
 	return rows.slice(-MAX_CLOSED_CHILDREN);
@@ -223,12 +223,10 @@ export interface AgentReviewItem {
 }
 
 /**
- * What an opened session runs on and has cost so far: stock `get_state`'s model and `get_session_stats`' cost.
- * One per session the parent opened that has a tab, listed on the board or not (a landed one counts in the family's
- * cost too).
+ * What an opened session runs on and has cost so far (stock `get_state`'s model, `get_session_stats`' whole-journal
+ * cost), by its session file: every session the parent opened that has a tab, listed on the board or not.
  */
 export interface AgentChildUsage {
-	tabId: string;
 	/** `provider/id`; absent until its omp answered. */
 	model?: string;
 	cost: number;
@@ -238,13 +236,14 @@ export interface AgentReviewEvent {
 	/** The parent session whose board lists these. */
 	tabId: string;
 	items: AgentReviewItem[];
-	usage?: AgentChildUsage[];
+	/** Session file → what it runs on and has cost. */
+	usage?: Record<string, AgentChildUsage>;
 }
 
 /** What the `agent_control_review` command answers: the opened sessions' list and what each runs on and cost. */
 export interface AgentReviewResult {
 	items: AgentReviewItem[];
-	usage?: AgentChildUsage[];
+	usage?: Record<string, AgentChildUsage>;
 }
 
 /**

@@ -47,8 +47,8 @@ function input(overrides: Partial<WorkTreeInput> = {}): WorkTreeInput {
 		tab("solo", { title: "Alone" }),
 	];
 	const usage: Record<string, AgentChildUsage> = {
-		kid: { tabId: "kid", model: "openai/gpt-z", cost: 0.05 },
-		done: { tabId: "done", cost: 0.02 },
+		"/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 },
+		"/s/done.jsonl": { cost: 0.02 },
 	};
 	const closed: ClosedChild[] = [
 		{ path: "/s/old.jsonl", openedBySession: "/s/boss.jsonl", title: "Old", cwd: "/repo", closedAt: 1, cost: 0.07 },
@@ -65,9 +65,9 @@ function input(overrides: Partial<WorkTreeInput> = {}): WorkTreeInput {
 			],
 			["kid", new Map([["x", agent("x", 1, "running", 0.01)]])],
 		]),
-		review: new Map([
-			["kid", item("kid", { branch: "omp/agent/a", baseBranch: "main", state: "running", commitsAhead: 1 })],
-		]),
+		review: {
+			boss: [item("kid", { branch: "omp/agent/a", baseBranch: "main", state: "running", commitsAhead: 1 })],
+		},
 		usage,
 		closed,
 		hosted: [],

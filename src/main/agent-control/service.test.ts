@@ -1240,6 +1240,8 @@ describe("the review queue", () => {
 			cost: 0.3,
 		});
 		Object.assign(host.tabsById.get(ids[1]) as FakeTab, { cost: 0.12 });
+		for (const [index, id] of ids.entries())
+			Object.assign(host.tabsById.get(id) as FakeTab, { sessionPath: `/s/kid${index}.jsonl` });
 		host.facts.set("omp/agent/a", {
 			...clean,
 			branch: "omp/agent/a",
@@ -1250,10 +1252,10 @@ describe("the review queue", () => {
 		});
 		const review = await service.review("main0001");
 		expect(review.items.map(item => item.tabId)).toEqual([ids[1]]);
-		expect(review.usage).toEqual([
-			{ tabId: ids[0], model: "anthropic/claude-x", cost: 0.3 },
-			{ tabId: ids[1], cost: 0.12 },
-		]);
+		expect(review.usage).toEqual({
+			"/s/kid0.jsonl": { model: "anthropic/claude-x", cost: 0.3 },
+			"/s/kid1.jsonl": { cost: 0.12 },
+		});
 	});
 });
 

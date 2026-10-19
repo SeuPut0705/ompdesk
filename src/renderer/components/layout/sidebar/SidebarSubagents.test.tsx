@@ -557,7 +557,7 @@ describe("a session's family: one-line rows", () => {
 			const chip = toggle();
 			expect(chip?.getAttribute("data-family-compact")).toBe("true");
 			expect(chip?.querySelector("[data-family-running]")?.textContent).toBe("2");
-			expect(chip?.querySelector("[data-family-cost]")?.textContent).toBe("·$0.42");
+			expect(chip?.querySelector("[data-family-cost]")?.textContent).toBe("· $0.42");
 			expect(chip?.getAttribute("aria-label")).toContain(translate("sidebar.family.cost", { cost: "$0.42" }));
 			// Each child row's tooltip (the family is open) names what it runs on and costs.
 			expect(row("r1").querySelector("button")?.getAttribute("title")).toContain(

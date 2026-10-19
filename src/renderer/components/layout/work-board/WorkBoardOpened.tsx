@@ -6,6 +6,8 @@
 import { Check, X } from "lucide-react";
 import { formatCost, formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
 import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
 import { BoardRow, BoardSection, Dot } from "./WorkBoard";
@@ -13,6 +15,10 @@ import { BoardRow, BoardSection, Dot } from "./WorkBoard";
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
 function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	const t = useT();
+	// What it runs on and has cost: main's push for an open one, else what main recorded when it closed it.
+	const live = useAgentReviewStore(state => (row.sessionPath ? state.usage[row.sessionPath] : undefined));
+	const closed = useClosedChildrenStore(state => state.rows.find(entry => entry.path === row.sessionPath));
+	const usage = live ?? closed;
 	const title = row.title || t("workBoard.review.untitled");
 	const status = row.status;
 	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
@@ -63,9 +69,9 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 						</span>
 					) : null}
 					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
-					{row.cost ? (
+					{usage?.cost ? (
 						<span className="shrink-0 tabular-nums" data-board-opened-cost>
-							{formatCost(row.cost, 2)}
+							{formatCost(usage.cost, 2)}
 						</span>
 					) : null}
 				</>
@@ -74,7 +80,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
 				statusLabel,
 				branch,
-				[row.model, row.cost ? formatCost(row.cost, 2) : null].filter(Boolean).join(" · "),
+				[usage?.model, usage?.cost ? formatCost(usage.cost, 2) : null].filter(Boolean).join(" · "),
 			]
 				.filter(Boolean)
 				.join("\n")}

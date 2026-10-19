@@ -252,7 +252,7 @@ describe("AgentControlRuntime", () => {
 			await vi.advanceTimersByTimeAsync(60_000);
 			await opening;
 			let current: unknown[] = [{ tabId: "new00003" }];
-			const usage = [{ tabId: "new00003", cost: 0.25 }];
+			const usage = { "/s/new.jsonl": { cost: 0.25 } };
 			vi.spyOn(runtime.control, "review").mockImplementation(async () => ({ items: current, usage }) as never);
 			const frames = () =>
 				win.sent

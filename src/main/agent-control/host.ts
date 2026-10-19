@@ -307,7 +307,7 @@ export class AgentControlRuntime {
 			this.#sweepSoon(opener);
 			void this.control.review(opener).then(
 				review => {
-					const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: [] });
+					const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: {} });
 					if (JSON.stringify(review) !== last) this.#sendReview(opener, review);
 				},
 				() => undefined,
@@ -345,7 +345,7 @@ export class AgentControlRuntime {
 	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
-		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: [] };
+		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: {} };
 		return this.control.review(callerTabId);
 	}
 

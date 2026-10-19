@@ -11,7 +11,7 @@ import type { AgentChildUsage, AgentReviewEvent, AgentReviewItem, AgentReviewRes
 interface AgentReviewStore {
 	/** Parent tab → the sessions it opened that still wait or run. */
 	byTab: Readonly<Record<string, readonly AgentReviewItem[]>>;
-	/** Child tab → what it runs on and has cost (from whichever parent's push named it last). */
+	/** Child session file → what it runs on and has cost (from whichever parent's push named it last). */
 	usage: Readonly<Record<string, AgentChildUsage>>;
 	apply: (event: AgentReviewEvent) => void;
 	refresh: (tabId: string) => Promise<void>;
@@ -26,9 +26,7 @@ export const useAgentReviewStore = create<AgentReviewStore>()((set, get) => ({
 	apply: event =>
 		set(state => ({
 			byTab: { ...state.byTab, [event.tabId]: event.items },
-			usage: event.usage?.length
-				? { ...state.usage, ...Object.fromEntries(event.usage.map(row => [row.tabId, row])) }
-				: state.usage,
+			usage: { ...state.usage, ...event.usage },
 		})),
 	refresh: async tabId => {
 		// A read that fails (a paired host's link down, a tab starting) keeps what is known; main's next push replaces it.

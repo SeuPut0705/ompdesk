@@ -95,7 +95,7 @@ function useWorkTree(): WorkTreeFamily[] {
 			buildWorkTree({
 				tabs,
 				subagents: rosters,
-				review: new Map(Object.values(review).flatMap(items => items.map(item => [item.tabId, item]))),
+				review,
 				usage,
 				closed,
 				hosted,
@@ -119,7 +119,7 @@ const TreeRow = memo(function TreeRow({ node }: { node: WorkTreeNode }) {
 	const stateLabel = node.state ? t(`workTree.state.${node.state}`) : "";
 	const Icon = KIND_ICON[node.kind];
 	const title = node.title || t("workTree.untitled");
-	const usage = childUsageText(node.usage);
+	const usage = childUsageText(node.usage.model, node.usage.role, node.usage.cost);
 	const branchNote =
 		node.kind === "branch"
 			? [

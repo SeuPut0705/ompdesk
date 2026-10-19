@@ -80,6 +80,7 @@ const tabs = [
 		title: "On the PC",
 		openedBy: "boss",
 		device: "pc1",
+		sessionPath: "C:\\s\\far.jsonl",
 	},
 ] as SessionTab[];
 
@@ -158,7 +159,7 @@ beforeEach(() => {
 	useTabsStore.setState({ tabs, activeTabId: "boss" });
 	useAgentReviewStore.setState({
 		byTab: {},
-		usage: { kid: { tabId: "kid", model: "openai/gpt-z", cost: 0.05 }, far: { tabId: "far", cost: 0.03 } },
+		usage: { "/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 }, "C:\\s\\far.jsonl": { cost: 0.03 } },
 	});
 	useClosedChildrenStore.setState({
 		rows: [

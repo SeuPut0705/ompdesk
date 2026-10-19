@@ -20,7 +20,6 @@ import {
 	openedChildStatus,
 	openerOfSessions,
 	subagentFamilyState,
-	subagentUsage,
 } from "./sidebar-family";
 
 const session = (path: string, extra: Partial<FamilySession> = {}): FamilySession => ({
@@ -179,45 +178,27 @@ describe("familyCost", () => {
 			agent("c", 3, "failed"),
 		];
 		// The opened sessions as the sidebar built them: a running one, a closed (done) one, one with no stats yet.
-		const opened = [{ cost: 0.05 }, { cost: 0.05 }, {}];
+		const opened = [{ usage: { cost: 0.05 } }, { usage: { cost: 0.05 } }, {}];
 		expect(familyCost(roster, opened)).toBeCloseTo(0.42, 10);
 		expect(familyCost([], [])).toBe(0);
-		// A cost stock has not reported (NaN, negative) counts as nothing rather than poisoning the sum.
+		// A cost stock has not reported (NaN, absent) counts as nothing rather than poisoning the sum.
 		expect(
 			familyCost(
 				[agent("x", 1, "running", { progress: { cost: Number.NaN } as SubagentSnapshot["progress"] })],
-				[{ cost: -1 }],
+				[{ usage: {} }],
 			),
 		).toBe(0);
 	});
 });
 
-describe("subagentUsage", () => {
-	it("names the model stock resolved, the role it came from and the cost", () => {
-		const progress = { cost: 0.031, modelRole: "task", resolvedModel: "anthropic/claude-sonnet-5" };
-		expect(subagentUsage(agent("a", 1, "running", { progress: progress as SubagentSnapshot["progress"] }))).toEqual({
-			model: "anthropic/claude-sonnet-5",
-			role: "task",
-			cost: 0.031,
-		});
-		// Before stock resolved it, the requested override is what it runs on; no progress yet says nothing.
-		const pending = { cost: 0, modelOverride: ["@smol", "x/y"] };
-		expect(subagentUsage(agent("b", 2, "pending", { progress: pending as SubagentSnapshot["progress"] }))).toEqual({
-			model: "@smol",
-			cost: 0,
-		});
-		expect(subagentUsage(agent("c", 3, "pending"))).toEqual({});
-	});
-});
-
 describe("childUsageText", () => {
 	it("reads model, role and cost as one tooltip line, leaving out what is unknown", () => {
-		expect(childUsageText({ model: "anthropic/claude-sonnet-5", role: "task", cost: 0.031 })).toBe(
+		expect(childUsageText("anthropic/claude-sonnet-5", "task", 0.031)).toBe(
 			"anthropic/claude-sonnet-5 · @task · $0.03",
 		);
-		expect(childUsageText({ model: "openai/gpt-z", cost: 0 })).toBe("openai/gpt-z");
-		expect(childUsageText({ cost: 1.5 })).toBe("$1.50");
-		expect(childUsageText({})).toBe("");
+		expect(childUsageText("openai/gpt-z", undefined, 0)).toBe("openai/gpt-z");
+		expect(childUsageText(undefined, undefined, 1.5)).toBe("$1.50");
+		expect(childUsageText()).toBe("");
 	});
 });
 

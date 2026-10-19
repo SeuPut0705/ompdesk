@@ -2202,7 +2202,7 @@ export class AgentControl {
 	 */
 	async review(callerTabId: string): Promise<AgentReviewResult> {
 		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return { items: [], usage: [] };
+		if (!tabs) return { items: [], usage: {} };
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
 		const rows = await Promise.all(
@@ -2210,17 +2210,13 @@ export class AgentControl {
 				const [session, cost] = await Promise.all([this.#state(tab), this.#cost(tab)]);
 				const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
 				const model = session.state?.model;
-				const usage: AgentChildUsage = {
-					tabId: tab.tabId,
-					...(model ? { model: `${model.provider}/${model.id}` } : {}),
-					cost,
-				};
-				return { item, usage };
+				const usage: AgentChildUsage = { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
+				return { item, usage, session: tab.sessionPath };
 			}),
 		);
 		return {
 			items: rows.flatMap(row => (row.item ? [row.item] : [])),
-			usage: rows.map(row => row.usage),
+			usage: Object.fromEntries(rows.flatMap(row => (row.session ? [[row.session, row.usage]] : []))),
 		};
 	}
 

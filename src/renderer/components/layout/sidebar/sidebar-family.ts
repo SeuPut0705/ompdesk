@@ -188,25 +188,9 @@ export interface ChildUsage {
 	cost?: number;
 }
 
-/** A subagent's model, role and cost from stock's progress (`AgentProgress`); nothing before its first frame. */
-export function subagentUsage(agent: SubagentSnapshot): ChildUsage {
-	const progress = agent.progress;
-	if (!progress) return {};
-	const override = Array.isArray(progress.modelOverride) ? progress.modelOverride[0] : progress.modelOverride;
-	const model = progress.resolvedModel || override;
-	return {
-		...(model ? { model } : {}),
-		...(progress.modelRole ? { role: progress.modelRole } : {}),
-		cost: progress.cost,
-	};
-}
-
-const usd = (cost: number | undefined): number => (typeof cost === "number" && cost > 0 ? cost : 0);
-
 /** The tooltip line a child's model, role and cost read as ("anthropic/claude-x · @task · $0.03"); "" when unknown. */
-export function childUsageText(usage: ChildUsage): string {
-	const cost = usd(usage.cost);
-	return [usage.model, usage.role && `@${usage.role}`, cost > 0 && formatCost(cost, 2)].filter(Boolean).join(" · ");
+export function childUsageText(model?: string, role?: string, cost?: number): string {
+	return [model, role && `@${role}`, cost && cost > 0 && formatCost(cost, 2)].filter(Boolean).join(" · ");
 }
 
 /**
@@ -214,10 +198,11 @@ export function childUsageText(usage: ChildUsage): string {
  * (they are not listed, but what they spent stays spent, so the total never drops when a child ends). Each child's
  * own cost as stock counts it (a subagent's progress, an opened session's session stats), so nothing is added twice.
  */
-export function familyCost(subagents: Iterable<SubagentSnapshot>, opened: readonly { cost?: number }[]): number {
+export function familyCost(subagents: Iterable<SubagentSnapshot>, opened: readonly { usage?: ChildUsage }[]): number {
 	let total = 0;
-	for (const agent of subagents) total += usd(agent.progress?.cost);
-	for (const child of opened) total += usd(child.cost);
+	// `|| 0`: a cost stock has not reported (absent, NaN) adds nothing.
+	for (const agent of subagents) total += agent.progress?.cost || 0;
+	for (const child of opened) total += child.usage?.cost || 0;
 	return total;
 }
 

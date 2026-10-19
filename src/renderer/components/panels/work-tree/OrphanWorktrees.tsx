@@ -29,6 +29,9 @@ const REMOVABLE: Readonly<Record<RpcOrphanWorktree["state"], boolean>> = {
 };
 
 const ORPHAN_SKELETON_WIDTHS = [62, 48, 70] as const;
+/** A few git reads per worktree; a removal re-lists, then `worktree remove` (src/main/worktree-orphans.ts). */
+const LIST_TIMEOUT_MS = 180_000;
+const REMOVE_TIMEOUT_MS = 360_000;
 
 /** Its name: the branch, else (a detached HEAD) the folder's last segment. */
 function worktreeName(worktree: RpcOrphanWorktree): string {
@@ -50,7 +53,7 @@ export function OrphanWorktrees() {
 		if (!scope.cwd) return;
 		setReading(true);
 		try {
-			const response = await rpc.command({ type: "get_orphan_worktrees" });
+			const response = await rpc.command({ type: "get_orphan_worktrees" }, LIST_TIMEOUT_MS);
 			if (!response.success) {
 				setError(response.error ?? t("workTree.orphans.error"));
 				return;
@@ -77,7 +80,10 @@ export function OrphanWorktrees() {
 		let removed = 0;
 		try {
 			for (const worktree of targets) {
-				const response = await rpc.command({ type: "remove_orphan_worktree", path: worktree.path });
+				const response = await rpc.command(
+					{ type: "remove_orphan_worktree", path: worktree.path },
+					REMOVE_TIMEOUT_MS,
+				);
 				if (response.success) removed++;
 				else
 					toastError({

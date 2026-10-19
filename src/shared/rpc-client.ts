@@ -323,9 +323,6 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	// while the worktree, checkout, or PR still lands.
 	worktree_create: 960_000,
 	worktree_remove: 360_000,
-	// Orphan worktrees (src/main/worktree-orphans.ts): a few git reads per worktree, then re-listing plus `worktree remove`.
-	get_orphan_worktrees: 180_000,
-	remove_orphan_worktree: 360_000,
 	pr_repo: 120_000,
 	pr_list: 180_000,
 	pr_get: 180_000,

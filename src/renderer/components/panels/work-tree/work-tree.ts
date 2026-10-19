@@ -22,7 +22,6 @@ import {
 	type FamilyState,
 	isFoldedSubagent,
 	subagentFamilyState,
-	subagentUsage,
 } from "../../layout/sidebar/sidebar-family";
 import { openedChildRows } from "../../layout/work-board/opened-children";
 import { subagentPrimaryLabel } from "../subagent-graph";
@@ -69,7 +68,9 @@ export interface WorkTreeInput {
 	tabs: readonly SessionTab[];
 	/** Tab → its subagent roster (a tab without a runtime has none). */
 	subagents: ReadonlyMap<string, ReadonlyMap<string, SubagentSnapshot>>;
-	review: ReadonlyMap<string, AgentReviewItem>;
+	/** Parent tab → main's review list of the sessions it opened (`useAgentReviewStore.byTab`). */
+	review: Readonly<Record<string, readonly AgentReviewItem[]>>;
+	/** Session file → what an opened session runs on and has cost (main's review push). */
 	usage: Readonly<Record<string, AgentChildUsage>>;
 	closed: readonly ClosedChild[];
 	/** Sessions paired devices run on this computer. */
@@ -142,7 +143,11 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 				title: subagentPrimaryLabel(agent),
 				state: subagentFamilyState(agent.status),
 				depth: level,
-				usage: subagentUsage(agent),
+				usage: {
+					model: agent.progress?.resolvedModel,
+					role: agent.progress?.modelRole,
+					cost: agent.progress?.cost,
+				},
 				target: { kind: "subagent", tabId: tab.id, agentId: agent.id },
 			});
 			for (const row of buildSubagentFamilyRows(roster, NO_OWNERS).rows)
@@ -153,8 +158,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			for (const child of openedChildRows({
 				parent: tab,
 				tabs: live,
-				review,
-				usage,
+				review: new Map((review[tab.id] ?? []).map(item => [item.tabId, item])),
 				closed,
 				deviceName,
 			})) {
@@ -168,10 +172,11 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 						title: child.title,
 						state: child.status ? CHILD_TOKEN[child.status] : null,
 						depth: depth + 1,
-						usage: {
-							...(child.model ? { model: child.model } : {}),
-							...(child.cost ? { cost: child.cost } : {}),
-						},
+						// Main's push for an open one (by session file), else what it recorded when it closed it.
+						usage:
+							(child.sessionPath
+								? (usage[child.sessionPath] ?? closed.find(row => row.path === child.sessionPath))
+								: undefined) ?? {},
 						...(child.device ? { device: child.device } : {}),
 						target: child.tabId
 							? { kind: "tab", tabId: child.tabId }

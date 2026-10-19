@@ -5,7 +5,7 @@
  * the phone strip, the composer cue and the dock already read (tabs, the review queue main pushes, the closed list).
  */
 
-import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
+import type { AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
 import type { SessionTab } from "../../../stores/tabs";
 import { type ChildStatus, openedChildStatus } from "../sidebar/sidebar-family";
 
@@ -31,9 +31,6 @@ export interface OpenedChildRow {
 	report?: { kind: string; text: string; at: number };
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
-	/** What it runs on and has cost (main's review push, or what main recorded when it closed it). */
-	model?: string;
-	cost?: number;
 }
 
 export interface OpenedChildCounts {
@@ -57,13 +54,11 @@ export function openedChildRows(input: {
 	parent: Pick<SessionTab, "id" | "sessionPath">;
 	tabs: readonly SessionTab[];
 	review: ReadonlyMap<string, AgentReviewItem>;
-	/** Child tab → what it runs on and has cost. */
-	usage?: Readonly<Record<string, AgentChildUsage>>;
 	closed: readonly ClosedChild[];
 	/** A paired device's display name (Settings › Devices) for a child that runs there. */
 	deviceName?: (deviceId: string) => string;
 }): OpenedChildRow[] {
-	const { parent, tabs, review, usage, closed, deviceName } = input;
+	const { parent, tabs, review, closed, deviceName } = input;
 	const rows: OpenedChildRow[] = [];
 	const shown = new Set<string>();
 	for (const tab of tabs) {
@@ -92,7 +87,6 @@ export function openedChildRows(input: {
 			unmerged,
 		});
 		if (tab.sessionPath) shown.add(tab.sessionPath);
-		const spent = usage?.[tab.id];
 		rows.push({
 			key: tab.id,
 			tabId: tab.id,
@@ -106,8 +100,6 @@ export function openedChildRows(input: {
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),
 			...(item?.report ? { report: item.report } : {}),
 			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
-			...(spent?.model ? { model: spent.model } : {}),
-			...(spent?.cost ? { cost: spent.cost } : {}),
 		});
 	}
 	// Children this window holds no tab of: a phone viewing a session a desktop window holds lists only the tabs it
@@ -146,8 +138,6 @@ export function openedChildRows(input: {
 			...(child.cwd ? { cwd: child.cwd } : {}),
 			title: child.title,
 			status: "done",
-			...(child.model ? { model: child.model } : {}),
-			...(child.cost ? { cost: child.cost } : {}),
 		});
 	}
 	return rows.toSorted((a, b) => ORDER[a.status ?? "none"] - ORDER[b.status ?? "none"]);

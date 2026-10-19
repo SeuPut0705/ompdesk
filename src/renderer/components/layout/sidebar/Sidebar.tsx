@@ -819,10 +819,6 @@ export function Sidebar() {
 		[closedChildren],
 	);
 	const closedTitleOf = useMemo(() => new Map(closedChildren.map(row => [row.path, row.title])), [closedChildren]);
-	const closedUsageOf = useMemo(
-		() => new Map(closedChildren.map(row => [row.path, { model: row.model, cost: row.cost }] as const)),
-		[closedChildren],
-	);
 	const childUsage = useAgentReviewStore(s => s.usage);
 	const closedCwdOf = useMemo(
 		() => new Map(closedChildren.flatMap(row => (row.cwd ? [[row.path, row.cwd] as const] : []))),
@@ -1612,7 +1608,8 @@ export function Sidebar() {
 				: status === "done"
 					? t("tabs.done")
 					: (row.statusLabel ?? "");
-		const usage = (openTabId ? childUsage[openTabId] : undefined) ?? closedUsageOf.get(child.path);
+		// A closed one keeps what main recorded when it closed it.
+		const usage = childUsage[child.path] ?? closedChildren.find(row => row.path === child.path);
 		return {
 			key: child.path,
 			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
@@ -1623,7 +1620,9 @@ export function Sidebar() {
 			age: row.indexed ? formatTimeAgo(child.modified) : undefined,
 			usage,
 			// The one line has no room for the status in words, the folder or the model and cost: they are the tooltip.
-			tooltip: [title, statusLabel, origin.tooltip, usage && childUsageText(usage)].filter(Boolean).join("\n"),
+			tooltip: [title, statusLabel, origin.tooltip, usage && childUsageText(usage.model, undefined, usage.cost)]
+				.filter(Boolean)
+				.join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
 			renaming: renamingSessionPath === child.path ? renderRenameField(child, key, openTabId, "pl-3.5") : undefined,
@@ -1707,7 +1706,7 @@ export function Sidebar() {
 						: status === "done"
 							? t("tabs.done")
 							: t("sidebar.row.open");
-		const usage = childUsage[tab.id];
+		const usage = childUsage[tab.sessionPath ?? ""];
 		return {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
@@ -1717,7 +1716,12 @@ export function Sidebar() {
 			title,
 			device,
 			usage,
-			tooltip: [title, statusLabel, `${device} · ${tab.cwd}`, usage && childUsageText(usage)]
+			tooltip: [
+				title,
+				statusLabel,
+				`${device} · ${tab.cwd}`,
+				usage && childUsageText(usage.model, undefined, usage.cost),
+			]
 				.filter(Boolean)
 				.join("\n"),
 			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
