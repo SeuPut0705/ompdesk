@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -15,7 +15,9 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
+import { isNewer } from "../shared/version";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { parseOmpVersion } from "./omp-runtime";
 
 /**
  * A relaunch revives the subagents the last omp was running (bridge `composer.restore_interrupted` → stock
@@ -29,11 +31,21 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  *
  * Reported on v0.37.0/v0.38.1 (18 Oct 2026): a revived subagent went on but its session's own turn did not, so
  * the session sat silent until the subagent finished. Whether the parent's turn ended (v0.38.1) or stock's restore
- * declined to continue it (v0.37.0: the parent was cut off in `wait` and its journal used `eval`, so stock's
- * eval-state-context message ends the transcript and neither `restoreInterruptedTurn` nor `/retry` sees the
- * interrupted turn), the bridge gives the parent one follow-up naming the revived subagents.
+ * declined to continue it (v0.37.0 on omp 18.12.1: the parent was cut off in `wait` and its journal used `eval`, so
+ * stock's eval-state-context message ends the transcript and neither `restoreInterruptedTurn` nor `/retry` sees the
+ * interrupted turn, oh-my-pi#16195), the bridge gives the parent one follow-up naming the revived subagents.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
+/**
+ * First stock omp whose restore continues a turn cut off in a session that used `eval` (oh-my-pi#16195, fixed in
+ * 18.12.2 by `conversationEnd` in `session/turn-recovery.ts`). MIN_OMP_VERSION still admits older omp, where the
+ * bridge's follow-up is what wakes that parent, so the eval case pins whichever behaviour the installed omp has.
+ */
+const STOCK_RESTORES_EVAL_TURN = "18.12.2";
+const installedVersion = existsSync(omp)
+	? parseOmpVersion(execFileSync(omp, ["--version"], { encoding: "utf8" }))
+	: null;
+const restoresEvalTurn = installedVersion !== null && !isNewer(STOCK_RESTORES_EVAL_TURN, installedVersion);
 const SUBTASK = "SUBTASK-MARK: list the files and report";
 /** A line of the bridge's follow-up for revived subagents (restart-core.ts `restartFollowUp`). */
 const NOTICE_MARK = "These background agents you started are working again";
@@ -326,15 +338,31 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		]);
 	}, 240_000);
 
-	it("tells a parent cut off in `wait` whose turn stock's restore did not continue (an eval journal)", async () => {
+	it("continues a parent cut off in `wait` in an eval journal: stock's restore (≥ 18.12.2) or the bridge's follow-up", async () => {
 		// v0.37.0: the parent waited on its background subagent; the update's quit (SIGTERM) cut the `wait`.
-		const { provider, isolated, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "SIGTERM");
-		// Stock leaves the parent's turn alone: its eval-state-context follows the interrupted-turn record.
+		const { provider, isolated, second, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "SIGTERM");
+		// The eval-state-context still follows the interrupted-turn record on every omp.
+		expect(mainJournal(isolated).some(entry => entry.customType === "eval-state-context")).toBe(true);
+		if (restoresEvalTurn) {
+			// Stock looks past it and reruns the cut-off `wait`, so the bridge sends nothing.
+			expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
+			await expect
+				.poll(
+					() =>
+						second.frames.some(
+							frame => frame.type === "tool_execution_start" && JSON.stringify(frame).includes('"wait"'),
+						),
+					{ timeout: 30_000 },
+				)
+				.toBe(true);
+			expect(provider.noticeRequests).toHaveLength(0);
+			expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+			return;
+		}
+		// Older stock leaves the parent's turn alone, so the bridge tells it once.
 		expect(outcome).toMatchObject({ turn: false, subagents: [id], followUp: true });
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
-		const journal = mainJournal(isolated);
-		expect(journal.some(entry => entry.customType === "eval-state-context")).toBe(true);
-		expect(journal.filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
+		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
 	}, 240_000);
 
 	it("sends nothing when stock's restore continues the parent's own turn: its cut-off `wait` reruns", async () => {
