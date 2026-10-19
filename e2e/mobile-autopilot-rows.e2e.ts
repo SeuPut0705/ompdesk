@@ -159,8 +159,15 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.locator("[data-run-settings-trigger]").click();
 		await phone.getByRole("tab", { name: "Autopilot" }).click();
 		await phone.locator("[data-autopilot-start]").click();
-		// The run's panel opens by itself as a sheet over everything; close it to reach the drawer.
-		await expect(phone.locator("[data-autopilot-panel]")).toBeVisible({ timeout: 60_000 });
+		// The screen does not open by itself here: the running Run settings offer it, so open it from there
+		// (a screen that did open is the sheet over everything, as before); close it to reach the drawer.
+		const screen = phone.locator("[data-autopilot-panel]");
+		if (!(await screen.isVisible())) {
+			if (!(await phone.locator("[data-autopilot-open-screen]").isVisible()))
+				await phone.locator("[data-run-settings-trigger]").click();
+			await phone.locator("[data-autopilot-open-screen]").click();
+		}
+		await expect(screen).toBeVisible({ timeout: 60_000 });
 		await phone.getByRole("button", { name: "Close side panel" }).first().click();
 		await expect(phone.locator("[data-autopilot-panel]")).toHaveCount(0);
 
