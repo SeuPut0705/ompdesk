@@ -27,6 +27,7 @@ export const FEATURES = {
 	nextPrompt: "Prompt suggestions (next message, inline completion)",
 	autoTitle: "Automatic session titles (first message, as the work changes, regenerate)",
 	autoMode: "Automatic mode choice (Plan or Goal for a prompt)",
+	judgeAssist: "Judge-model assists (needs-you notifications, title check, preview check)",
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
@@ -963,6 +964,17 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[UTILS]: ["prompt.render()", "logger.info()"],
 		},
 		prompts: ["system/title-system.md"],
+	},
+	judgeAssist: {
+		session: ["settings", "sessionId", "modelRegistry", "sessionManager", "messages"],
+		modules: {
+			[`${AGENT}/judgment`]: [
+				"hasNativeJudge()",
+				"resolveJudge()",
+				"sharedJudgmentCache()",
+				"journalJudgmentUsage()",
+			],
+		},
 	},
 	autoMode: {
 		session: [

@@ -99,6 +99,11 @@ export type RpcCommand =
 	| { id?: string; type: "auto_mode_decide"; message: string }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
 	| { id?: string; type: "auto_mode_end"; mode: "plan" | "goal" }
+	// Judge-model assists (gui-bridge modes/judge-assist.ts): does the last reply wait for the person (a needs-you
+	// notification), does a capture of a page the agent opened show an error or a blank page. `null`/`judged: false`
+	// when no native judge decided: the caller keeps its code rule.
+	| { id?: string; type: "judge_needs_user" }
+	| { id?: string; type: "judge_preview_check"; image: { data: string; mimeType: string } }
 	// An OMPdesk control tool's confirmation card (main/agent-control, gui-bridge agent-control.ts); never from a renderer
 	| { id?: string; type: "agent_control_confirm"; title: string; message: string }
 	| { id?: string; type: "agent_control_note"; text: string }

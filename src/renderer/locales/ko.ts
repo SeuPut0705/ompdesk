@@ -4202,6 +4202,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.nextPrompt": "프롬프트 제안",
 	"bridgeHealth.feature.autoTitle": "세션 제목 자동 생성",
 	"bridgeHealth.feature.autoMode": "자동 모드 선택",
+	"bridgeHealth.feature.judgeAssist": "판단 모델의 작은 판단",
 	"bridgeHealth.feature.autopilot": "오토파일럿",
 	"bridgeHealth.feature.outputStyle": "답변 스타일",
 	"bridgeHealth.feature.userProfile": "프로필(이름, 경험)",

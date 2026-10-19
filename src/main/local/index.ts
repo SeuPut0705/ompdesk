@@ -13,6 +13,7 @@ import { handlers as composer } from "./composer";
 import { handlers as desktopSlot } from "./desktop-slot";
 import { handlers as extensions } from "./extensions";
 import { handlers as git } from "./git";
+import { handlers as judgeAssist } from "./judge-assist";
 import { handlers as misc } from "./misc";
 import { handlers as modes } from "./modes";
 import { handlers as nextPrompt } from "./next-prompt";
@@ -40,6 +41,7 @@ const LOCAL_HANDLERS = mergeHandlers({
 	agentControl,
 	autoTitle,
 	autoMode,
+	judgeAssist,
 	autopilot,
 	desktopSlot,
 	queue,

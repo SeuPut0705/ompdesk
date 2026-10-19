@@ -4214,6 +4214,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.nextPrompt": "Prompt suggestions",
 	"bridgeHealth.feature.autoTitle": "Automatic session titles",
 	"bridgeHealth.feature.autoMode": "Automatic mode choice",
+	"bridgeHealth.feature.judgeAssist": "Judge-model small decisions",
 	"bridgeHealth.feature.autopilot": "Autopilot",
 	"bridgeHealth.feature.outputStyle": "Reply style",
 	"bridgeHealth.feature.userProfile": "Profile (name, experience)",
