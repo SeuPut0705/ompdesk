@@ -85,6 +85,8 @@ test("runs Autopilot in a paired device's repository and changes that device's s
 	expect(runId).not.toBe("");
 	const deviceTabs = (await client.page.evaluate(() => window.omp.tabs.list())).filter(tab => tab.device === deviceId);
 	expect(deviceTabs.map(tab => tab.tabId)).toEqual([runId]);
+	// A's tab of the run is the caller's own opened session.
+	expect((await call("ompdesk_sessions", { mine: true })).text).toContain(runId);
 	// The run is B's: B's window has its tab in a new worktree, B's checkout stays on main, B's omp ran the cycles.
 	expect(git(repo, "branch", "--show-current")).toBe("main");
 	await expect
