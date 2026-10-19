@@ -95,14 +95,18 @@ async function openPhone(options: PhoneOptions = {}): Promise<Page> {
 const runChip = (page: Page): Locator => page.locator(".omp-composer-box [data-run-settings-trigger]");
 const sheetOf = (page: Page): Locator => page.getByRole("dialog", { name: /Run settings|실행 설정/ });
 
-/** Opens the Run sheet and waits for its slide-in to end: measuring mid-animation finds every control below the screen. */
+/** Waits for every animation under the locator (a sheet's slide-in) to finish: measured mid-animation, a sheet is below the screen. */
+async function settled(locator: Locator): Promise<void> {
+	await locator.evaluate(node =>
+		Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished)),
+	);
+}
+
 async function openRun(page: Page): Promise<Locator> {
 	await runChip(page).tap();
 	await expect(page.locator("[data-approval-mode]").first()).toBeVisible();
 	const sheet = sheetOf(page);
-	await sheet.evaluate(node =>
-		Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished)),
-	);
+	await settled(sheet);
 	return sheet;
 }
 
@@ -377,7 +381,7 @@ for (const engine of ["pixel8", "webkit"] as const) {
 				await expect(trigger, `${chip} is in the composer`).toBeVisible();
 				await trigger.tap();
 				await expect(page.locator(SHEET), `${chip} opens a sheet`).toHaveCount(1);
-				await page.waitForTimeout(300);
+				await settled(page.locator(SHEET));
 				const sheet = await sheetScrollers(page);
 				expect(
 					sheet.scrolling.length,
@@ -405,7 +409,7 @@ for (const engine of ["pixel8", "webkit"] as const) {
 			});
 			await page.locator("[data-queue-pill]").tap();
 			await expect(page.locator(SHEET), "the queue pill opens a sheet").toHaveCount(1);
-			await page.waitForTimeout(300);
+			await settled(page.locator(SHEET));
 			const queue = await sheetScrollers(page);
 			expect(queue.scrolling, "the queue sheet has exactly one scroller").toHaveLength(1);
 			expect(

@@ -413,12 +413,16 @@ for (const { engine, device } of variants(
 			// The open row would otherwise show rename and delete for good (touch has no hover to hide them).
 			await expect(current.locator("[data-sidebar-row-menu]")).toHaveCount(1);
 			await expect(
-				sidebar.locator('button[aria-label="Rename session"], button[aria-label="Delete session"]'),
+				sidebar.locator(
+					'button[aria-label="Rename session"], button[aria-label="Delete session"], button[aria-label="Close session"]',
+				),
 			).toHaveCount(0);
-			// Every row carries one (a finger has no hover): a small glyph with a 44 px hit area that leaves the title its width.
+			// Every row carries one (a finger has no hover): this computer's indexed rows and a paired host's rows alike.
+			// A small glyph with a 44 px hit area that leaves the title its width.
 			const menus = sidebar.locator("[data-sidebar-row-menu]");
 			expect(await menus.count()).toBe(
-				await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count(),
+				(await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count()) +
+					(await sidebar.locator("[data-device-session]").count()),
 			);
 			for (const { visual, hit } of await hitSizes(menus)) {
 				// Rows are flush: a row's ⋯ owns a slot of the row's height (36) × 44 px, growing sideways only.
