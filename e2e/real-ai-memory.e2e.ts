@@ -31,7 +31,7 @@ const SECRET_PASSWORD = "password=hunter2hunter2";
 const REPORT = "/tmp/real-ai-memory.json";
 
 function realBinary(): string | null {
-	for (const candidate of [path.resolve("resources/ai-memory-bin/darwin-arm64/ai-memory"), "/tmp/aim/rel/ai-memory"]) {
+	for (const candidate of [path.resolve("resources/ai-memory-bin/darwin-arm64/ai-memory")]) {
 		if (existsSync(candidate)) return candidate;
 	}
 	return null;
@@ -106,10 +106,7 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit: set OMP_GUI_REAL_WORK=1");
 	test.skip(process.platform !== "darwin", "The real-binary run drives macOS's launchd service");
 	const bin = realBinary();
-	test.skip(
-		!bin,
-		"No real ai-memory binary: run `bun run sync:ai-memory` or extract the release to /tmp/aim/rel/ai-memory",
-	);
+	test.skip(!bin, "No real ai-memory binary: run `bun run build:memory`");
 	test.skip(labelLoaded(), `launchd label ${LABEL} is already loaded (the user's own ai-memory): not touching it`);
 	test.skip(await portBusy(), `port ${PORT} is already in use (the user's own ai-memory server): not touching it`);
 	if (!bin) return;

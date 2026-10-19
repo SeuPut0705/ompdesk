@@ -942,7 +942,7 @@ describe("AiMemoryService", () => {
 			await w2.service.start();
 			expect(w2.calls).toEqual([]);
 			expect(w2.service.state()).toMatchObject({ phase: "failed" });
-			expect(w2.service.state().detail).toMatch(/bundled ai-memory is missing/);
+			expect(w2.service.state().detail).toMatch(/Memory is not built/);
 		});
 
 		it("an app that carries no ai-memory folder fails before running anything", async () => {
@@ -955,10 +955,14 @@ describe("AiMemoryService", () => {
 			});
 		});
 
-		it("Windows: a shipped binary that does not match the pin fails with that message and runs nothing", async () => {
+		it("Windows: a shipped binary that does not match its build record fails with that message and runs nothing", async () => {
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
 				await writeFile(join(shipped, "ai-memory.exe"), "not the pinned build");
+				await writeFile(
+					join(shipped, "ai-memory.build.json"),
+					JSON.stringify({ binary: "ai-memory.exe", binarySha256: "0".repeat(64) }),
+				);
 				const { service, calls } = await make({
 					platform: "win32",
 					arch: "x64",
@@ -968,19 +972,23 @@ describe("AiMemoryService", () => {
 				});
 				await service.start();
 				expect(service.state().phase).toBe("failed");
-				expect(service.state().detail).toMatch(/does not match its pin/);
+				expect(service.state().detail).toMatch(/does not match its build record/);
 				expect(calls).toEqual([]);
 			} finally {
 				await rm(shipped, RM_TEMP);
 			}
 		});
 
-		it("macOS: a shipped binary re-signed with OMPdesk's certificate stages although its bytes differ from the pin", async () => {
-			// The 0.38.x macOS releases: mac-sign.cjs re-signs the nested binary after after-pack checked the pin, so its
+		it("macOS: a shipped binary re-signed with OMPdesk's certificate stages although its bytes differ from the build record", async () => {
+			// The 0.38.x macOS releases: mac-sign.cjs re-signs the nested binary after after-pack checked the build record, so its
 			// SHA-256 never matched at run time, staging failed on every launch and memory never started.
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
 				await writeFile(join(shipped, "ai-memory"), "the release, re-signed by the packager");
+				await writeFile(
+					join(shipped, "ai-memory.build.json"),
+					JSON.stringify({ binary: "ai-memory", binarySha256: "0".repeat(64) }),
+				);
 				const checked: string[] = [];
 				const { service, calls, toolsDir, rootDir } = await make({
 					binaryOverride: null,
@@ -992,7 +1000,7 @@ describe("AiMemoryService", () => {
 					},
 				});
 				await service.start();
-				const staged = join(toolsDir, "ai-memory", AI_MEMORY_VERSION, "ai-memory");
+				const staged = join(toolsDir, "ai-memory", `${AI_MEMORY_VERSION}-00000000`, "ai-memory");
 				expect(checked).toEqual([join(shipped, "ai-memory")]);
 				expect(service.state()).toMatchObject({ phase: "ready", source: "bundled", binary: staged });
 				expect(calls.every(call => call.file === staged)).toBe(true);
@@ -1006,6 +1014,10 @@ describe("AiMemoryService", () => {
 			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 			try {
 				await writeFile(join(shipped, "ai-memory"), "signed by someone else");
+				await writeFile(
+					join(shipped, "ai-memory.build.json"),
+					JSON.stringify({ binary: "ai-memory", binarySha256: "0".repeat(64) }),
+				);
 				const { service, calls } = await make({
 					binaryOverride: null,
 					bundledDir: shipped,
@@ -1015,7 +1027,7 @@ describe("AiMemoryService", () => {
 				await service.start();
 				expect(service.state().phase).toBe("failed");
 				expect(service.state().detail).toMatch(
-					/is neither the pinned release .* nor signed with OMPdesk's certificate \(test-requirement: code failed to satisfy specified code requirement\(s\)\)\. Reinstall OMPdesk\.$/,
+					/is neither the built binary .* nor signed with OMPdesk's certificate \(test-requirement: code failed to satisfy specified code requirement\(s\)\)\. Reinstall OMPdesk\.$/,
 				);
 				expect(calls).toEqual([]);
 			} finally {
@@ -1029,6 +1041,10 @@ describe("AiMemoryService", () => {
 				const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
 				try {
 					await writeFile(join(shipped, "ai-memory"), "not signed at all");
+					await writeFile(
+						join(shipped, "ai-memory.build.json"),
+						JSON.stringify({ binary: "ai-memory", binarySha256: "0".repeat(64) }),
+					);
 					const { service, calls } = await make({
 						binaryOverride: null,
 						bundledDir: shipped,

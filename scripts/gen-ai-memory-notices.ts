@@ -1,25 +1,23 @@
 /**
  * Regenerates LICENSES/ai-memory-dependencies.txt: the Rust crates statically linked into
- * the bundled ai-memory binary, with name, version, SPDX license expression, repository, and
- * every distinct license/NOTICE text those crates ship, reproduced once each.
+ * the ai-memory binary OMPdesk builds from native/memory, with name, version, SPDX license expression,
+ * repository, and every distinct license/NOTICE text those crates ship, reproduced once each.
  *
- * Needs `git`, `cargo` and network access. Run it ONLY when the pin in
- * resources/omp-builtin/ai-memory/ai-memory.json is bumped (`bun scripts/gen-ai-memory-notices.ts`),
- * then run `bun run gen:licenses` and commit both outputs. The committed file is what the app
- * ships; `bun run licenses:check` (scripts/generate-third-party-notices.ts) fails when its header
- * version differs from the pin.
+ * Needs `cargo` and network access (crate sources). Run it whenever native/memory/Cargo.lock changes
+ * (`bun scripts/gen-ai-memory-notices.ts`), then run `bun run gen:licenses` and commit both outputs.
+ * The committed file is what the app ships; `bun run licenses:check` (scripts/generate-third-party-notices.ts)
+ * fails when its header's Cargo.lock SHA-256 differs from native/memory/Cargo.lock.
  *
- * Method: shallow-clone the pinned tag v<version> into a temp dir, then `cargo metadata --locked`
- * for each release target (aarch64-apple-darwin, x86_64-pc-windows-msvc) from the crate the
- * release workflow builds (`cargo build --locked --release -p ai-memory-cli`). The set is the
- * union of both targets' graphs, following normal dependency edges only: build-only and dev
- * dependencies are not linked and are skipped, as are proc-macro crates (they run at compile
- * time). The workspace's own crates are covered by ai-memory's license (LICENSES/ai-memory-LICENSE).
+ * Method: `cargo metadata --locked` in native/memory for each release target (aarch64-apple-darwin,
+ * x86_64-pc-windows-msvc) from the crate OMPdesk builds (`cargo build --locked --release -p ai-memory-cli`,
+ * scripts/build-memory.ts). The set is the union of both targets' graphs, following normal dependency edges
+ * only: build-only and dev dependencies are not linked and are skipped, as are proc-macro crates (they run at
+ * compile time). The workspace's own crates are covered by ai-memory's license (LICENSES/ai-memory-LICENSE).
  * Texts are read from the downloaded crate sources, so they are exactly what each crate ships.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,11 +58,17 @@ interface Crate {
 	texts: string[];
 }
 
-export function pinnedVersion(): string {
-	const pin = JSON.parse(readFileSync(join(ROOT, "resources/omp-builtin/ai-memory/ai-memory.json"), "utf8")) as {
-		version: string;
-	};
-	return pin.version;
+const SOURCE = join(ROOT, "native", "memory");
+
+export function sourceVersion(): string {
+	return (JSON.parse(readFileSync(join(SOURCE, "ompdesk.json"), "utf8")) as { version: string }).version;
+}
+
+/** SHA-256 of native/memory/Cargo.lock with line endings normalized: what the committed crate list is made for. */
+export function lockHash(): string {
+	return createHash("sha256")
+		.update(readFileSync(join(SOURCE, "Cargo.lock"), "utf8").replace(/\r\n?/g, "\n"))
+		.digest("hex");
 }
 
 function run(cmd: string, args: string[], cwd?: string): string {
@@ -110,20 +114,9 @@ function texts(pkg: MetaPackage): string[] {
 }
 
 function main(): void {
-	const version = pinnedVersion();
-	const work = mkdtempSync(join(tmpdir(), "ai-memory-notices-"));
-	try {
-		const src = join(work, "src");
-		run("git", [
-			"clone",
-			"--quiet",
-			"--depth",
-			"1",
-			"--branch",
-			`v${version}`,
-			"https://github.com/akitaonrails/ai-memory",
-			src,
-		]);
+	const version = sourceVersion();
+	{
+		const src = SOURCE;
 		const crates = new Map<string, Crate>();
 		const members = new Set<string>();
 		for (const target of TARGETS) {
@@ -175,9 +168,11 @@ function main(): void {
 		const out: string[] = [
 			`ai-memory ${version} statically linked Rust crates`,
 			"",
-			`The ai-memory ${version} binary bundled with OMPdesk (https://github.com/akitaonrails/ai-memory, tag v${version})`,
+			`Cargo.lock SHA-256: ${lockHash()}`,
+			"",
+			`The ai-memory ${version} binary OMPdesk builds from native/memory (https://github.com/akitaonrails/ai-memory)`,
 			"links the crates below. Set: normal dependencies of `ai-memory-cli` for aarch64-apple-darwin and",
-			"x86_64-pc-windows-msvc, per Cargo.lock; build-only and proc-macro crates are not linked. ai-memory's",
+			"x86_64-pc-windows-msvc, per native/memory/Cargo.lock; build-only and proc-macro crates are not linked. ai-memory's",
 			"own workspace crates are under ai-memory's license (LICENSES/ai-memory-LICENSE). Generated by",
 			"scripts/gen-ai-memory-notices.ts; do not edit by hand.",
 			"",
@@ -218,8 +213,6 @@ function main(): void {
 			`Wrote ${OUTPUT}: ${list.length} crates, ${textIds.size} texts, ${flagged.length} without license file.`,
 		);
 		console.log(`Workspace crates skipped: ${[...members].sort().join(", ")}`);
-	} finally {
-		rmSync(work, { recursive: true, force: true });
 	}
 }
 

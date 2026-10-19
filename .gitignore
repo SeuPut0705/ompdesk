@@ -20,5 +20,5 @@ dev-app-update.yml
 playwright-report/
 test-results/
 
-# ai-memory release binaries: bun run sync:ai-memory puts them here from the pin (never committed)
+# ai-memory built from native/memory: bun run build:memory puts the binary and its build record here (never committed)
 resources/ai-memory-bin/

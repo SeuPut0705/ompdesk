@@ -1,13 +1,13 @@
 /**
- * ai-memory (https://github.com/akitaonrails/ai-memory, MIT) is OMPdesk's memory: a release binary shipped inside
- * the app (`resources/ai-memory-bin/`, pinned by `resources/omp-builtin/ai-memory/ai-memory.json`), served by
+ * ai-memory (https://github.com/akitaonrails/ai-memory, MIT) is OMPdesk's memory: built from the source vendored in
+ * `native/memory/` (`bun run build:memory`) and shipped inside the app (`resources/ai-memory-bin/`), served by
  * ai-memory's own per-user service (launchd on macOS, a logon entry on Windows) and loaded into the omp sessions
  * OMPdesk spawns through an app-owned extension root (`<userData>/ai-memory/omp-ext/`, passed with `-e`: the omp
  * extension, MCP entry and skills ai-memory's own generators write). Nothing is written to the user's
  * `~/.omp/agent` unless they press "Also use in the terminal omp". Main side: src/main/ai-memory/.
  * Stock omp's own memory backends are never used and have no Settings rows.
  */
-import pin from "../../resources/omp-builtin/ai-memory/ai-memory.json" with { type: "json" };
+import source from "../../native/memory/ompdesk.json" with { type: "json" };
 
 /** Settings › Memory (ai-memory) switch. Default on: only a stored `false` turns it off. */
 export const AI_MEMORY_PREF = "aiMemory";
@@ -19,13 +19,12 @@ export const AI_MEMORY_PREF = "aiMemory";
 export const AI_MEMORY_TERMINAL_PREF = "aiMemoryTerminal";
 /** `true` while OMPdesk itself installed ai-memory's user service and may stop it; `false` once a service it did not start was found. */
 export const AI_MEMORY_SERVICE_OWNED_PREF = "aiMemoryServiceOwned";
-/** The version the app ships (the pin file is the only place it is written). */
-export const AI_MEMORY_VERSION: string = pin.version;
-/** The pin file's per-platform assets, keyed `<process.platform>-<process.arch>`. */
-export const AI_MEMORY_ASSETS: Record<
-	string,
-	{ archive: string; archiveSha256: string; binary: string; binarySha256: string }
-> = pin.assets;
+/** The ai-memory version the app builds and ships (`native/memory/ompdesk.json`, equal to its Cargo workspace version). */
+export const AI_MEMORY_VERSION: string = source.version;
+/** The shipped binary's file name per `<process.platform>-<process.arch>`: the two builds OMPdesk makes. */
+export const AI_MEMORY_BINARIES: Record<string, string> = { "darwin-arm64": "ai-memory", "win32-x64": "ai-memory.exe" };
+/** The build record `bun run build:memory` writes next to the binary (`{ binary, binarySha256, ... }`). */
+export const AI_MEMORY_BUILD_MANIFEST = "ai-memory.build.json";
 
 export function aiMemoryEnabled(value: unknown): boolean {
 	return value !== false;

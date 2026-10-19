@@ -12,12 +12,12 @@ import { exitApp, fixtureOmp } from "./harness";
 
 // A new macOS user's first launch of the PACKAGED app (dist/mac-arm64, from `bun run package:mac -- --publish never`;
 // OMP_GUI_E2E_APP points at another OMPdesk binary, e.g. /Applications/OMPdesk.app/Contents/MacOS/OMPdesk) sets its
-// memory up by itself with the shipped ai-memory, re-signed with OMPdesk's pinned certificate: the staged copy in
+// memory up by itself with the memory binary built from native/memory (`bun run build:memory`), re-signed with OMPdesk's pinned certificate: the staged copy in
 // `<userData>/tools`, ai-memory's own launchd service, the app-owned extension root, `ready`, and the `ai-memory` lines
 // of gui-runtime.jsonl. The 0.38.x macOS releases never got there: packaging re-signs the nested binary after
-// after-pack checked it against the pin, and staging compared the signed bytes with the pin, failed on every launch,
+// after-pack checked it against the build record, and staging compared the signed bytes with the record, failed on every launch,
 // and logged nothing. A package signed ad-hoc (no certificate: a release dry run from a branch) is skipped: its
-// binary is neither the pin's bytes nor OMPdesk's signature, so the app refuses it by design.
+// binary is neither the recorded bytes nor OMPdesk's signature, so the app refuses it by design.
 //
 // It runs in a private HOME (ai-memory's data, its plist and the shared skills land there) and a private userData. The
 // launchd label is global to the logged-in user, so the test runs only when that label and ai-memory's port are free,
@@ -87,7 +87,16 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 	]) {
 		Reflect.deleteProperty(env, key);
 	}
-	const staged = path.join(userData, "tools", "ai-memory", AI_MEMORY_VERSION, "ai-memory");
+	const record = JSON.parse(await fs.readFile(path.join(path.dirname(shipped), "ai-memory.build.json"), "utf8")) as {
+		binarySha256: string;
+	};
+	const staged = path.join(
+		userData,
+		"tools",
+		"ai-memory",
+		`${AI_MEMORY_VERSION}-${record.binarySha256.slice(0, 8)}`,
+		"ai-memory",
+	);
 	const rootDir = path.join(userData, "ai-memory", "omp-ext");
 	const runtimeLog = path.join(userData, "logs", "gui-runtime.jsonl");
 	const memoryLines = async () =>

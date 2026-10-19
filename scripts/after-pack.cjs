@@ -33,40 +33,48 @@ async function checkLocales(context) {
 	}
 }
 
-/** The ai-memory pin in the repo (never the packed app); tests point `OMPDESK_AI_MEMORY_PIN` at a fake. */
-const AI_MEMORY_PIN = path.join(__dirname, "..", "resources", "omp-builtin", "ai-memory", "ai-memory.json");
-const AI_MEMORY_KEYS = { darwin: "darwin-arm64", win32: "win32-x64" };
+/** The ai-memory source's version (native/memory/ompdesk.json) and the binary names `bun run build:memory` makes. */
+const AI_MEMORY_SOURCE = path.join(__dirname, "..", "native", "memory", "ompdesk.json");
+const AI_MEMORY_BINARIES = { darwin: "ai-memory", win32: "ai-memory.exe" };
 
 /**
- * Fail the package unless the platform's ai-memory binary is in the packed app's
- * Resources (`ai-memory-bin/`, from `bun run sync:ai-memory`), executable on macOS (checked on a POSIX host only),
- * and byte-identical to the pin's `binarySha256` (this runs before signing).
+ * Fail the package unless the platform's ai-memory binary is in the packed app's Resources (`ai-memory-bin/`, from
+ * `bun run build:memory`), executable on macOS (checked on a POSIX host only), and byte-identical to the SHA-256 the
+ * build recorded next to it (`ai-memory.build.json`; this runs before signing), built from the current source version.
  */
 async function checkAiMemory(context) {
 	const platform = context.electronPlatformName;
-	const key = AI_MEMORY_KEYS[platform];
-	if (!key) return;
-	const pin = JSON.parse(await fs.readFile(process.env.OMPDESK_AI_MEMORY_PIN || AI_MEMORY_PIN, "utf8"));
-	const entry = pin.assets?.[key];
-	if (!entry) throw new Error(`the ai-memory pin has no ${key} entry`);
+	const binary = AI_MEMORY_BINARIES[platform];
+	if (!binary) return;
+	const source = JSON.parse(await fs.readFile(AI_MEMORY_SOURCE, "utf8"));
 	const resources =
 		platform === "darwin"
 			? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources")
 			: path.join(context.appOutDir, "resources");
-	const file = path.join(resources, "ai-memory-bin", entry.binary);
+	const directory = path.join(resources, "ai-memory-bin");
+	const file = path.join(directory, binary);
 	let bytes;
+	let record;
 	try {
 		bytes = await fs.readFile(file);
+		record = JSON.parse(await fs.readFile(path.join(directory, "ai-memory.build.json"), "utf8"));
 	} catch {
-		throw new Error(`${file} is missing; run \`bun run sync:ai-memory\` before packaging`);
+		throw new Error(`${file} or its build record is missing; run \`bun run build:memory\` before packaging`);
+	}
+	if (record.binary !== binary)
+		throw new Error(`${directory}/ai-memory.build.json describes ${record.binary}, not ${binary}`);
+	if (record.version !== source.version) {
+		throw new Error(
+			`ai-memory was built from version ${record.version}, native/memory is ${source.version}; run \`bun run build:memory\``,
+		);
 	}
 	// The execute bit exists only on a POSIX file system; a Windows host cannot express it (every file reads as 0o666),
-	// so the mode is tested only where it means something. The pinned hash below is checked everywhere.
+	// so the mode is tested only where it means something. The recorded hash below is checked everywhere.
 	if (platform === "darwin" && process.platform !== "win32" && ((await fs.stat(file)).mode & 0o111) === 0)
 		throw new Error(`${file} is not executable`);
 	const actual = crypto.createHash("sha256").update(bytes).digest("hex");
-	if (actual !== entry.binarySha256) {
-		throw new Error(`${file} hashes to ${actual}; the pin (ai-memory ${pin.version}) expects ${entry.binarySha256}`);
+	if (actual !== record.binarySha256) {
+		throw new Error(`${file} hashes to ${actual}; its build record expects ${record.binarySha256}`);
 	}
 }
 

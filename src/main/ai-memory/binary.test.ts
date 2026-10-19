@@ -6,28 +6,27 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
-import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
+import { AI_MEMORY_BINARIES, AI_MEMORY_BUILD_MANIFEST, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { RM_TEMP } from "../test-fake-omp";
 import {
 	AI_MEMORY_REQUIREMENT,
+	type BuiltAsset,
 	codeRequirementProblem,
 	externalCandidates,
 	newerExternal,
-	type PinnedAsset,
 	parseAiMemoryVersion,
-	pinnedAsset,
 	pruneStaged,
+	readBuiltAsset,
 	sha256File,
 	stageBinary,
 	stagedBinaryPath,
+	stageKey,
 	stagingRoot,
 } from "./binary";
 
 const CONTENT = "#!/bin/sh\necho ai-memory fake\n";
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
-const ASSET: PinnedAsset = {
-	archive: "ai-memory-test.tar.gz",
-	archiveSha256: "0".repeat(64),
+const ASSET: BuiltAsset = {
 	binary: "ai-memory",
 	binarySha256: sha(CONTENT),
 };
@@ -48,47 +47,51 @@ afterEach(async () => {
 	await rm(root, RM_TEMP);
 });
 
-describe("the pin file", () => {
-	it("names darwin-arm64 and win32-x64 with 64-hex hashes and the shipped version", () => {
-		expect(Object.keys(AI_MEMORY_ASSETS).sort()).toEqual(["darwin-arm64", "win32-x64"]);
+describe("the build record", () => {
+	it("names the two platforms' binaries and the source's version", async () => {
+		expect(Object.keys(AI_MEMORY_BINARIES).sort()).toEqual(["darwin-arm64", "win32-x64"]);
 		expect(AI_MEMORY_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-		for (const asset of Object.values(AI_MEMORY_ASSETS)) {
-			expect(asset.archiveSha256).toMatch(/^[0-9a-f]{64}$/);
-			expect(asset.binarySha256).toMatch(/^[0-9a-f]{64}$/);
-			expect(asset.archive).toMatch(/\.(tar\.gz|zip)$/);
-		}
-		expect(AI_MEMORY_ASSETS["darwin-arm64"]?.binary).toBe("ai-memory");
-		expect(AI_MEMORY_ASSETS["win32-x64"]?.binary).toBe("ai-memory.exe");
-	});
-
-	it("reads its version from the pin json itself", async () => {
-		const pin = JSON.parse(
-			await readFile(join(process.cwd(), "resources/omp-builtin/ai-memory/ai-memory.json"), "utf8"),
-		);
-		expect(pin.version).toBe(AI_MEMORY_VERSION);
-		expect(pin.assets).toEqual(AI_MEMORY_ASSETS);
+		expect(AI_MEMORY_BINARIES["darwin-arm64"]).toBe("ai-memory");
+		expect(AI_MEMORY_BINARIES["win32-x64"]).toBe("ai-memory.exe");
+		const source = JSON.parse(await readFile(join(process.cwd(), "native/memory/ompdesk.json"), "utf8"));
+		expect(source.version).toBe(AI_MEMORY_VERSION);
 	});
 });
 
-describe("pinnedAsset", () => {
-	it("finds the supported platforms and refuses the rest", () => {
-		expect(pinnedAsset("darwin", "arm64")).toEqual(AI_MEMORY_ASSETS["darwin-arm64"]);
-		expect(pinnedAsset("win32", "x64")).toEqual(AI_MEMORY_ASSETS["win32-x64"]);
-		expect(pinnedAsset("darwin", "x64")).toBeNull();
-		expect(pinnedAsset("linux", "x64")).toBeNull();
-		expect(pinnedAsset("win32", "arm64")).toBeNull();
+describe("readBuiltAsset", () => {
+	const record = (binary: string, binarySha256: string) =>
+		writeFile(join(root, "shipped", AI_MEMORY_BUILD_MANIFEST), JSON.stringify({ binary, binarySha256 }));
+
+	it("reads the recorded hash for the supported platforms and refuses the rest", async () => {
+		const dir = join(root, "shipped");
+		await record("ai-memory", sha("a"));
+		expect(await readBuiltAsset(dir, "darwin", "arm64")).toEqual({ binary: "ai-memory", binarySha256: sha("a") });
+		expect(await readBuiltAsset(dir, "darwin", "x64")).toBeNull();
+		expect(await readBuiltAsset(dir, "linux", "x64")).toBeNull();
+		expect(await readBuiltAsset(dir, "win32", "arm64")).toBeNull();
+	});
+
+	it("says to build when there is no record, and rejects a record of another binary or a bad hash", async () => {
+		const dir = join(root, "shipped");
+		await expect(readBuiltAsset(dir, "darwin", "arm64")).rejects.toThrow(
+			/Memory is not built .*bun run build:memory/,
+		);
+		await record("ai-memory.exe", sha("a"));
+		await expect(readBuiltAsset(dir, "darwin", "arm64")).rejects.toThrow(/not a build record of ai-memory/);
+		await record("ai-memory", "xyz");
+		await expect(readBuiltAsset(dir, "darwin", "arm64")).rejects.toThrow(/not a build record/);
 	});
 });
 
 describe("stageBinary", () => {
 	it("copies the shipped binary into <tools>/ai-memory/<version>/ and makes it executable", async () => {
 		const staged = await stageBinary({ source, asset: ASSET, toolsDir });
-		expect(staged).toBe(join(toolsDir, "ai-memory", AI_MEMORY_VERSION, "ai-memory"));
+		expect(staged).toBe(join(toolsDir, "ai-memory", stageKey(ASSET), "ai-memory"));
 		expect(staged).toBe(stagedBinaryPath(toolsDir, ASSET));
 		expect(await readFile(staged, "utf8")).toBe(CONTENT);
 		if (process.platform !== "win32") expect((await stat(staged)).mode & 0o111).not.toBe(0);
 		// Atomic: the temp directory was renamed into place, nothing else is left beside the version.
-		expect(await readdir(stagingRoot(toolsDir))).toEqual([AI_MEMORY_VERSION]);
+		expect(await readdir(stagingRoot(toolsDir))).toEqual([stageKey(ASSET)]);
 	});
 
 	it("reuses a matching staged copy without reading the shipped file", async () => {
@@ -99,12 +102,12 @@ describe("stageBinary", () => {
 		expect(await readFile(again, "utf8")).toBe(CONTENT);
 	});
 
-	it("refuses a shipped binary whose SHA-256 differs from the pin, and stages nothing", async () => {
+	it("refuses a shipped binary whose SHA-256 differs from the build record, and stages nothing", async () => {
 		await writeFile(source, "tampered");
 		await expect(stageBinary({ source, asset: ASSET, toolsDir })).rejects.toThrow(
-			new RegExp(`does not match its pin \\(expected ${ASSET.binarySha256}, got ${sha("tampered")}\\)`),
+			new RegExp(`does not match its build record \\(expected ${ASSET.binarySha256}, got ${sha("tampered")}\\)`),
 		);
-		expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(AI_MEMORY_VERSION);
+		expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(stageKey(ASSET));
 	});
 
 	it("says so when the shipped binary is missing", async () => {
@@ -165,17 +168,17 @@ describe("stageBinary", () => {
 			expect(await readFile(staged, "utf8")).toBe(`${SIGNED}# signed again\n`);
 		});
 
-		it("refuses a binary that is neither the pin's bytes nor satisfies the requirement, and stages nothing", async () => {
+		it("refuses a binary that is neither the recorded bytes nor satisfies the requirement, and stages nothing", async () => {
 			await writeFile(source, "tampered");
 			await expect(
 				stageBinary({ source, asset: ASSET, toolsDir, requirement: async () => "failed to satisfy" }),
 			).rejects.toThrow(
-				`The bundled ai-memory is neither the pinned release (expected ${ASSET.binarySha256}, got ${sha("tampered")}) nor signed with OMPdesk's certificate (failed to satisfy). Reinstall OMPdesk.`,
+				`The bundled ai-memory is neither the built binary (expected ${ASSET.binarySha256}, got ${sha("tampered")}) nor signed with OMPdesk's certificate (failed to satisfy). Reinstall OMPdesk.`,
 			);
-			expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(AI_MEMORY_VERSION);
+			expect(await readdir(stagingRoot(toolsDir)).catch(() => [] as string[])).not.toContain(stageKey(ASSET));
 		});
 
-		it("the pin's own bytes (a dev build's synced copy) stage by hash, without asking codesign", async () => {
+		it("the recorded bytes (a dev build's own copy) stage by hash, without asking codesign", async () => {
 			const checked: string[] = [];
 			const staged = await stageBinary({
 				source,
@@ -199,13 +202,13 @@ describe("pruneStaged", () => {
 		await mkdir(join(stagingDir, "3.0.0"), { recursive: true });
 		await writeFile(join(stagingDir, "3.0.0", "ai-memory"), "old");
 		await mkdir(join(stagingDir, ".stage-123-456"), { recursive: true });
-		await pruneStaged(toolsDir);
-		expect(await readdir(stagingDir)).toEqual([AI_MEMORY_VERSION]);
+		await pruneStaged(toolsDir, ASSET);
+		expect(await readdir(stagingDir)).toEqual([stageKey(ASSET)]);
 		expect(await readFile(stagedBinaryPath(toolsDir, ASSET), "utf8")).toBe(CONTENT);
 	});
 
 	it("does nothing when nothing was ever staged", async () => {
-		await expect(pruneStaged(toolsDir)).resolves.toBeUndefined();
+		await expect(pruneStaged(toolsDir, ASSET)).resolves.toBeUndefined();
 	});
 });
 
@@ -236,19 +239,21 @@ describe.runIf(process.platform === "darwin")("the macOS signing requirement, wi
 	});
 
 	const release = join(process.cwd(), "resources", "ai-memory-bin", "darwin-arm64", "ai-memory");
-	const pinned = AI_MEMORY_ASSETS["darwin-arm64"];
-	it.runIf(existsSync(release) && pinned)(
-		"the real release (`bun run sync:ai-memory`) stages by its pin; an ad-hoc re-signed copy of it is refused",
+	it.runIf(existsSync(release))(
+		"the real build (`bun run build:memory`) stages by its record; an ad-hoc re-signed copy of it is refused",
 		async () => {
-			if (!pinned) return;
-			const staged = await stageBinary({ source: release, asset: pinned, toolsDir, requirement: check });
-			expect(await sha256File(staged)).toBe(pinned.binarySha256);
+			const built = await readBuiltAsset(
+				join(process.cwd(), "resources", "ai-memory-bin", "darwin-arm64"),
+				"darwin",
+				"arm64",
+			);
+			if (!built) throw new Error("no darwin-arm64 build record");
+			const staged = await stageBinary({ source: release, asset: built, toolsDir, requirement: check });
+			expect(await sha256File(staged)).toBe(built.binarySha256);
 			await rm(toolsDir, RM_TEMP);
 			await expect(
-				stageBinary({ source: await adHocCopy(release), asset: pinned, toolsDir, requirement: check }),
-			).rejects.toThrow(
-				/neither the pinned release .* nor signed with OMPdesk's certificate \(.*failed to satisfy/s,
-			);
+				stageBinary({ source: await adHocCopy(release), asset: built, toolsDir, requirement: check }),
+			).rejects.toThrow(/neither the built binary .* nor signed with OMPdesk's certificate \(.*failed to satisfy/s);
 		},
 	);
 });

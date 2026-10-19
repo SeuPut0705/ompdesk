@@ -41,7 +41,7 @@ const BUILD_SCRIPTS = [
 const INPUT_DIRS = ["src", "resources"];
 const TEST_FILE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const RENDERER_DIR = `src${path.sep}renderer${path.sep}`;
-/** ai-memory's release binaries (bun run sync:ai-memory): packaged as extraResources, never read by the build. */
+/** The memory binaries built from native/memory (bun run build:memory): packaged as extraResources, never read by the build. */
 const AI_MEMORY_BIN = path.join("resources", "ai-memory-bin");
 /**
  * Env electron-vite and its plugins read at build time: Vite's mode and

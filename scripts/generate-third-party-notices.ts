@@ -15,7 +15,8 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import aiMemoryPin from "../resources/omp-builtin/ai-memory/ai-memory.json" with { type: "json" };
+import aiMemorySource from "../native/memory/ompdesk.json" with { type: "json" };
+import { lockHash } from "./gen-ai-memory-notices";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = join(ROOT, "THIRD_PARTY_NOTICES.txt");
@@ -212,12 +213,12 @@ function vendoredSections(): string {
 			"     (repairAdjacentStrongPunctuation, trimAutolinkCjkSuffix)",
 		].join("\n"),
 		[
-			`ai-memory ${aiMemoryPin.version} (https://github.com/${aiMemoryPin.repository}, tag v${aiMemoryPin.version})`,
-			"The prebuilt, unmodified ai-memory release binary (ai-memory / ai-memory.exe, from the release",
-			"assets pinned in resources/omp-builtin/ai-memory/ai-memory.json) ships inside the app under",
-			"resources/ai-memory-bin/ as OMPdesk's built-in memory. Licensed under the MIT License (full text",
-			"below and in LICENSES/ai-memory-LICENSE). The binary statically links the Rust crates listed in",
-			"section 3, each under its own license.",
+			`ai-memory ${aiMemorySource.version} (https://github.com/akitaonrails/ai-memory, tag ${aiMemorySource.upstreamTag})`,
+			"The source (vendored in native/memory/, with OMPdesk's changes) is built by OMPdesk into the binary",
+			"(ai-memory / ai-memory.exe) that ships inside the app under resources/ai-memory-bin/ as its memory.",
+			"Licensed under the MIT License (full text below, in LICENSES/ai-memory-LICENSE and in",
+			"native/memory/LICENSE). The binary statically links the Rust crates listed in section 3, each under",
+			"its own license.",
 			"",
 			aiMemoryLicense,
 		].join("\n"),
@@ -282,10 +283,10 @@ function aiMemoryDependencies(): string {
 	const text = readFileSync(join(ROOT, "LICENSES", "ai-memory-dependencies.txt"), "utf8")
 		.replace(/\r\n?/g, "\n")
 		.trim();
-	const header = `ai-memory ${aiMemoryPin.version} statically linked Rust crates`;
-	if (!text.startsWith(header)) {
+	const header = `ai-memory ${aiMemorySource.version} statically linked Rust crates`;
+	if (!text.startsWith(header) || !text.includes(`Cargo.lock SHA-256: ${lockHash()}`)) {
 		throw new Error(
-			`LICENSES/ai-memory-dependencies.txt is not for ai-memory ${aiMemoryPin.version}: run bun scripts/gen-ai-memory-notices.ts (needs cargo and network).`,
+			`LICENSES/ai-memory-dependencies.txt is not for native/memory ${aiMemorySource.version} with its current Cargo.lock: run bun scripts/gen-ai-memory-notices.ts (needs cargo and network).`,
 		);
 	}
 	return text;
@@ -355,7 +356,7 @@ function generate(): { text: string; flagged: string[] } {
 	out.push(RULE, "2. Vendored and bundled non-npm components", RULE, "", vendoredSections(), "");
 	out.push(
 		RULE,
-		`3. Rust crates linked into the bundled ai-memory ${aiMemoryPin.version} binary`,
+		`3. Rust crates linked into the bundled ai-memory ${aiMemorySource.version} binary`,
 		RULE,
 		"",
 		aiMemoryDependencies(),

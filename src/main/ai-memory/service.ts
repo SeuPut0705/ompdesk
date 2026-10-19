@@ -26,6 +26,7 @@ import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+	AI_MEMORY_BINARIES,
 	AI_MEMORY_VERSION,
 	type AiMemoryHandoff,
 	type AiMemoryPage,
@@ -41,13 +42,13 @@ import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import {
 	AI_MEMORY_REQUIREMENT,
 	type AiMemoryPlatform,
+	type BuiltAsset,
 	codeRequirementProblem,
 	type ExternalInstall,
 	newerExternal,
-	type PinnedAsset,
-	pinnedAsset,
 	probeVersion,
 	pruneStaged,
+	readBuiltAsset,
 	stageBinary,
 	stagedBinaryPath,
 	stagingRoot,
@@ -135,8 +136,8 @@ interface Resolved {
 	bin: string;
 	version: string | null;
 	source: "bundled" | "external";
-	/** The staged copy's folder is pruned of older versions once wiring points at it. */
-	staged: boolean;
+	/** The staged copy's folder is pruned of older builds once wiring points at it; null when nothing was staged. */
+	staged: BuiltAsset | null;
 }
 
 /** `problem:` lines of `setup`'s summary. */
@@ -238,7 +239,7 @@ export class AiMemoryService {
 	get #platformOk(): boolean {
 		return (
 			this.#deps.platform !== "other" &&
-			(!!this.#deps.binaryOverride || pinnedAsset(this.#deps.platform, this.#deps.arch) !== null)
+			(!!this.#deps.binaryOverride || !!AI_MEMORY_BINARIES[`${this.#deps.platform}-${this.#deps.arch}`])
 		);
 	}
 
@@ -493,33 +494,42 @@ export class AiMemoryService {
 				bin: binaryOverride,
 				version: await probeVersion(binaryOverride, env),
 				source: "bundled",
-				staged: false,
+				staged: null,
 			};
 		}
 		if (platform === "other") throw new StepError("ai-memory has no build for this platform.");
-		const asset = pinnedAsset(platform, arch);
-		if (!asset) throw new StepError("ai-memory has no build for this platform.");
 		if (!bundledDir) throw new StepError("The app carries no ai-memory binary. Reinstall OMPdesk.");
 		const platformKey: AiMemoryPlatform = platform;
-		const staged = stagedBinaryPath(toolsDir, asset);
+		// An app without a build (a checkout that never ran `bun run build:memory`) still lets a newer install of the
+		// user's own win; only when nothing else is there does the missing build fail.
+		let asset: BuiltAsset | null = null;
+		let buildProblem: Error | null = null;
+		try {
+			asset = await readBuiltAsset(bundledDir, platform, arch);
+		} catch (error) {
+			buildProblem = error instanceof Error ? error : new Error(String(error));
+		}
+		if (!buildProblem && !asset) throw new StepError("ai-memory has no build for this platform.");
 		let external: ExternalInstall | null = null;
 		try {
 			external = await newerExternal({
 				platform: platformKey,
 				home,
 				env,
-				exclude: [staged],
+				exclude: asset ? [stagedBinaryPath(toolsDir, asset)] : [],
 				...(this.#deps.externalProbe ? { probe: this.#deps.externalProbe } : {}),
 			});
 		} catch {
 			external = null;
 		}
-		if (external) return { bin: external.bin, version: external.version, source: "external", staged: false };
+		if (external) return { bin: external.bin, version: external.version, source: "external", staged: null };
+		if (buildProblem) throw new StepError(buildProblem.message);
+		if (!asset) throw new StepError("ai-memory has no build for this platform.");
 		const bin = await this.#stage(asset, join(bundledDir, asset.binary));
-		return { bin, version: AI_MEMORY_VERSION, source: "bundled", staged: true };
+		return { bin, version: AI_MEMORY_VERSION, source: "bundled", staged: asset };
 	}
 
-	async #stage(asset: PinnedAsset, source: string): Promise<string> {
+	async #stage(asset: BuiltAsset, source: string): Promise<string> {
 		try {
 			return await stageBinary({
 				source,
@@ -693,7 +703,7 @@ export class AiMemoryService {
 			this.#downPolls = 0;
 			if (up) await this.#readStats();
 			this.#startPolling();
-			if (resolved.staged) void pruneStaged(this.#deps.toolsDir);
+			if (resolved.staged) void pruneStaged(this.#deps.toolsDir, resolved.staged);
 		} catch (error) {
 			this.#fail(error);
 		}

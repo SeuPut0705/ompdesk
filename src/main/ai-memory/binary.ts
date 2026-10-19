@@ -1,12 +1,12 @@
 /**
  * Which ai-memory binary OMPdesk runs, and where it lives.
  *
- * The release binary ships in the app (`<resources>/ai-memory-bin/`, pinned by `AI_MEMORY_ASSETS`). It is never run from
+ * The binary OMPdesk builds ships in the app (`<resources>/ai-memory-bin/`, built by OMPdesk from `native/memory`, recorded in `AI_MEMORY_BUILD_MANIFEST`). It is never run from
  * inside the app: the launchd unit, the Windows logon entry and omp's MCP entry all record the binary's absolute path,
  * and the app's own folder is the wrong home for that (a Windows update replaces the install folder while the server
  * still holds its .exe open; a macOS app can be moved or run from a disk image). `stageBinary` therefore verifies the
- * shipped file (its bytes are the pin's, or on macOS its signature satisfies OMPdesk's `AI_MEMORY_REQUIREMENT`) and
- * copies it once into the managed tools dir as `<tools>/ai-memory/<version>/`. A new app version stages a new directory, so
+ * shipped file (its bytes are the build record's, or on macOS its signature satisfies OMPdesk's `AI_MEMORY_REQUIREMENT`) and
+ * copies it once into the managed tools dir as `<tools>/ai-memory/<version>-<first 8 hex of the recorded SHA-256>/`. A new app version stages a new directory, so
  * ai-memory's own `setup` sees a changed unit path and restarts the service on the new binary; the old directory is
  * removed afterwards.
  *
@@ -17,25 +17,44 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
-import { AI_MEMORY_ASSETS, AI_MEMORY_VERSION } from "../../shared/ai-memory";
+import { AI_MEMORY_BINARIES, AI_MEMORY_BUILD_MANIFEST, AI_MEMORY_VERSION } from "../../shared/ai-memory";
 import { compareVersions } from "../../shared/version";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 
 export type AiMemoryPlatform = "darwin" | "win32";
 
-export interface PinnedAsset {
-	archive: string;
-	archiveSha256: string;
+/** What the build (`bun run build:memory`) recorded next to the shipped binary: its name and the SHA-256 of its bytes. */
+export interface BuiltAsset {
 	binary: string;
 	binarySha256: string;
 }
 
-/** The pin's asset for this machine, or null when the app has no build for it. */
-export function pinnedAsset(platform: string, arch: string): PinnedAsset | null {
-	return AI_MEMORY_ASSETS[`${platform}-${arch}`] ?? null;
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/**
+ * The binary this app was built with for `platform`/`arch`: null when OMPdesk builds none for it. Throws a message
+ * for the person when the folder carries no (valid) build record, i.e. a development checkout that never ran
+ * `bun run build:memory` (which needs Rust) or a damaged install.
+ */
+export async function readBuiltAsset(bundledDir: string, platform: string, arch: string): Promise<BuiltAsset | null> {
+	const binary = AI_MEMORY_BINARIES[`${platform}-${arch}`];
+	if (!binary) return null;
+	const file = join(bundledDir, AI_MEMORY_BUILD_MANIFEST);
+	let record: { binary?: unknown; binarySha256?: unknown };
+	try {
+		record = JSON.parse(await readFile(file, "utf8"));
+	} catch {
+		throw new Error(
+			`Memory is not built (${file} is missing). Run \`bun run build:memory\` (needs Rust) or reinstall OMPdesk.`,
+		);
+	}
+	if (record.binary !== binary || typeof record.binarySha256 !== "string" || !HEX64.test(record.binarySha256)) {
+		throw new Error(`${file} is not a build record of ${binary}. Run \`bun run build:memory\` or reinstall OMPdesk.`);
+	}
+	return { binary, binarySha256: record.binarySha256 };
 }
 
 export async function sha256File(file: string): Promise<string> {
@@ -49,14 +68,23 @@ export function stagingRoot(toolsDir: string): string {
 	return join(toolsDir, "ai-memory");
 }
 
-export function stagedBinaryPath(toolsDir: string, asset: PinnedAsset, version = AI_MEMORY_VERSION): string {
-	return join(stagingRoot(toolsDir), version, asset.binary);
+/**
+ * The folder name a build stages under: the version and the first 8 hex of the recorded SHA-256, so a rebuilt binary of
+ * the same version (OMPdesk edits the source) gets a new path, the service unit then points at it and ai-memory's own
+ * `setup` restarts the server on the new bytes, instead of replacing a file under a running server.
+ */
+export function stageKey(asset: BuiltAsset): string {
+	return `${AI_MEMORY_VERSION}-${asset.binarySha256.slice(0, 8)}`;
+}
+
+export function stagedBinaryPath(toolsDir: string, asset: BuiltAsset): string {
+	return join(stagingRoot(toolsDir), stageKey(asset), asset.binary);
 }
 
 /**
- * macOS: the designated requirement of the shipped binary in a release. Packaging re-signs it (`scripts/mac-sign.cjs`
- * through `@electron/osx-sign`) after `scripts/after-pack.cjs` held its bytes to the pin, so its bytes are no longer
- * the release's; what names it afterwards is this requirement: codesign identifies an unbundled Mach-O by its file
+ * macOS: the designated requirement of the shipped binary of a packaged build. Packaging re-signs it (`scripts/mac-sign.cjs`
+ * through `@electron/osx-sign`) after `scripts/after-pack.cjs` held its bytes to the build record, so its bytes are no longer
+ * the built ones; what names it afterwards is this requirement: codesign identifies an unbundled Mach-O by its file
  * name, and every release is signed with OMPdesk's pinned certificate (`scripts/mac-signing.json`). Any other
  * signature, ad-hoc or not (`/usr/bin/true`, a re-signed copy), fails it.
  */
@@ -78,16 +106,16 @@ export function codeRequirementProblem(file: string, requirement: string): Promi
 }
 
 /**
- * Verify the shipped binary and copy it into `<tools>/ai-memory/<version>/` (atomically: a temp directory renamed
- * into place). Returns the staged path. The shipped file is accepted when its bytes are the pin's (Windows ships the
- * release unsigned; a dev build's `resources/ai-memory-bin` copy) or, with `requirement` (macOS), when its signature
- * satisfies it (a release re-signed with OMPdesk's certificate). A staged copy is trusted only by bytes: it is reused
- * when it is the pin's (without reading the shipped file) or byte-identical to the shipped file just verified, and
+ * Verify the shipped binary and copy it into `<tools>/ai-memory/<version>-<first 8 hex of the recorded SHA-256>/` (atomically: a temp directory renamed
+ * into place). Returns the staged path. The shipped file is accepted when its bytes are the build record's (Windows ships the
+ * binary unsigned; a dev build's `resources/ai-memory-bin` copy) or, with `requirement` (macOS), when its signature
+ * satisfies it (re-signed with OMPdesk's certificate). A staged copy is trusted only by bytes: it is reused
+ * when it is the recorded one (without reading the shipped file) or byte-identical to the shipped file just verified, and
  * replaced otherwise (a torn copy, tampering, another app version's signature).
  */
 export async function stageBinary(options: {
 	source: string;
-	asset: PinnedAsset;
+	asset: BuiltAsset;
 	toolsDir: string;
 	/** Why the shipped file fails OMPdesk's signing requirement, or null (`codeRequirementProblem`). */
 	requirement?: (file: string) => Promise<string | null>;
@@ -100,11 +128,12 @@ export async function stageBinary(options: {
 	if (actual === null) throw new Error(`The bundled ai-memory is missing (${source}). Reinstall OMPdesk.`);
 	if (actual !== asset.binarySha256) {
 		const pinned = `expected ${asset.binarySha256}, got ${actual}`;
-		if (!requirement) throw new Error(`The bundled ai-memory does not match its pin (${pinned}). Reinstall OMPdesk.`);
+		if (!requirement)
+			throw new Error(`The bundled ai-memory does not match its build record (${pinned}). Reinstall OMPdesk.`);
 		const problem = await requirement(source);
 		if (problem !== null) {
 			throw new Error(
-				`The bundled ai-memory is neither the pinned release (${pinned}) nor signed with OMPdesk's certificate (${problem}). Reinstall OMPdesk.`,
+				`The bundled ai-memory is neither the built binary (${pinned}) nor signed with OMPdesk's certificate (${problem}). Reinstall OMPdesk.`,
 			);
 		}
 	}
@@ -116,8 +145,8 @@ export async function stageBinary(options: {
 		const copy = join(temp, asset.binary);
 		await copyFile(source, copy);
 		await chmod(copy, 0o755);
-		await rm(join(root, AI_MEMORY_VERSION), { recursive: true, force: true });
-		await rename(temp, join(root, AI_MEMORY_VERSION));
+		await rm(join(root, stageKey(asset)), { recursive: true, force: true });
+		await rename(temp, join(root, stageKey(asset)));
 	} catch (error) {
 		await rm(temp, { recursive: true, force: true }).catch(() => undefined);
 		throw error;
@@ -129,12 +158,12 @@ export async function stageBinary(options: {
  * Remove staged versions other than the current one, and leftover temp directories. Best effort: on Windows the
  * previous version's .exe stays locked until its server has exited, and the next launch tries again.
  */
-export async function pruneStaged(toolsDir: string): Promise<void> {
+export async function pruneStaged(toolsDir: string, asset: BuiltAsset): Promise<void> {
 	const root = stagingRoot(toolsDir);
 	const names = await readdir(root).catch(() => [] as string[]);
 	await Promise.all(
 		names
-			.filter(name => name !== AI_MEMORY_VERSION)
+			.filter(name => name !== stageKey(asset))
 			.map(name => rm(join(root, name), { recursive: true, force: true }).catch(() => undefined)),
 	);
 }

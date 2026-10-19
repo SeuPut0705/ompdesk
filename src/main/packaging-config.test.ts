@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
@@ -68,12 +68,12 @@ async function fakeLocales(appOutDir: string, platform: string, names: string[])
 	}
 }
 
-const AI_MEMORY_PIN_FILE = path.join(PACKAGE_ROOT, "resources/omp-builtin/ai-memory/ai-memory.json");
+const AI_MEMORY_SOURCE_FILE = path.join(PACKAGE_ROOT, "native/memory/ompdesk.json");
 const AI_MEMORY_PLATFORMS: Record<string, { key: string; binary: string; builderConfig: string }> = {
 	darwin: { key: "darwin-arm64", binary: "ai-memory", builderConfig: "electron-builder.yml" },
 	win32: { key: "win32-x64", binary: "ai-memory.exe", builderConfig: "electron-builder.win.yml" },
 };
-/** A tiny stand-in for the 40 MB release binary, and a pin that names it (the seam is `OMPDESK_AI_MEMORY_PIN`). */
+/** A tiny stand-in for the 40 MB built binary; `fakeAiMemory` writes it with the build record `bun run build:memory` makes. */
 const FAKE_AI_MEMORY = Buffer.from("#!/bin/sh\necho fake ai-memory\n");
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
@@ -93,6 +93,11 @@ async function fakeAiMemory(
 	await fs.promises.rm(file, { force: true });
 	await fs.promises.writeFile(file, bytes, { mode });
 	await fs.promises.chmod(file, mode);
+	const source = JSON.parse(fs.readFileSync(AI_MEMORY_SOURCE_FILE, "utf8")) as { version: string };
+	await fs.promises.writeFile(
+		path.join(path.dirname(file), "ai-memory.build.json"),
+		JSON.stringify({ version: source.version, binary: path.basename(file), binarySha256: sha256(FAKE_AI_MEMORY) }),
+	);
 	return file;
 }
 
@@ -113,26 +118,6 @@ function macConfigs(): { file: string; config: BuilderConfig }[] {
 		}))
 		.filter(entry => entry.config.mac);
 }
-
-/** The real `afterPack` runs against fake app directories: its ai-memory pin points at a fake binary's hash. */
-let pinDirectory = "";
-let previousPin: string | undefined;
-beforeAll(() => {
-	pinDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-ai-memory-pin-"));
-	const pin = JSON.parse(fs.readFileSync(AI_MEMORY_PIN_FILE, "utf8")) as {
-		assets: Record<string, { binarySha256: string }>;
-	};
-	for (const entry of Object.values(pin.assets)) entry.binarySha256 = sha256(FAKE_AI_MEMORY);
-	const file = path.join(pinDirectory, "ai-memory.json");
-	fs.writeFileSync(file, JSON.stringify(pin));
-	previousPin = process.env.OMPDESK_AI_MEMORY_PIN;
-	process.env.OMPDESK_AI_MEMORY_PIN = file;
-});
-afterAll(() => {
-	if (previousPin === undefined) delete process.env.OMPDESK_AI_MEMORY_PIN;
-	else process.env.OMPDESK_AI_MEMORY_PIN = previousPin;
-	fs.rmSync(pinDirectory, { recursive: true, force: true });
-});
 
 describe("mac bundle configs", () => {
 	const configs = macConfigs();
@@ -211,9 +196,7 @@ describe("mac bundle configs", () => {
 	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
-		// `ai-memory/` holds only the version pin (scripts and the main process read it; no extension code).
-		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "pstack", "rea", "skills"]);
-		expect(fs.readdirSync(path.join(root, "ai-memory"))).toEqual(["ai-memory.json"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);
@@ -411,28 +394,21 @@ describe("mac bundle configs", () => {
 			}
 		});
 
-		it("pins a semver release with both platforms' archive and binary hashes, and keeps the binaries untracked", () => {
-			const pin = JSON.parse(fs.readFileSync(AI_MEMORY_PIN_FILE, "utf8")) as {
+		it("builds from the vendored source's version for both platforms and keeps the binaries untracked", () => {
+			const source = JSON.parse(fs.readFileSync(AI_MEMORY_SOURCE_FILE, "utf8")) as {
 				version: string;
-				repository: string;
-				assets: Record<string, { archive: string; archiveSha256: string; binary: string; binarySha256: string }>;
+				upstreamTag: string;
 			};
-			expect(pin.version).toMatch(/^\d+\.\d+\.\d+$/);
-			expect(pin.repository).toBe("akitaonrails/ai-memory");
-			expect(Object.keys(pin.assets).sort()).toEqual(["darwin-arm64", "win32-x64"]);
-			expect(pin.assets["darwin-arm64"]?.archive).toBe("ai-memory-macos-aarch64.tar.gz");
-			expect(pin.assets["darwin-arm64"]?.binary).toBe("ai-memory");
-			expect(pin.assets["win32-x64"]?.archive).toBe("ai-memory-windows-x86_64.zip");
-			expect(pin.assets["win32-x64"]?.binary).toBe("ai-memory.exe");
-			for (const entry of Object.values(pin.assets)) {
-				expect(entry.archiveSha256).toMatch(/^[0-9a-f]{64}$/);
-				expect(entry.binarySha256).toMatch(/^[0-9a-f]{64}$/);
-			}
+			expect(source.version).toMatch(/^\d+\.\d+\.\d+$/);
+			expect(source.upstreamTag).toMatch(/^v\d+\.\d+\.\d+$/);
+			const cargo = fs.readFileSync(path.join(PACKAGE_ROOT, "native/memory/Cargo.toml"), "utf8");
+			expect(/\[workspace\.package\][^[]*?\nversion = "([^"]+)"/s.exec(cargo)?.[1]).toBe(source.version);
 			const ignored = fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n");
 			expect(ignored).toContain("resources/ai-memory-bin/");
+			expect(fs.existsSync(path.join(PACKAGE_ROOT, "native/memory/LICENSE"))).toBe(true);
 		});
 
-		it("fails the package when the platform's binary is missing, not executable or not the pinned bytes", async () => {
+		it("fails the package when the platform's binary is missing, not executable or not the bytes its build record names", async () => {
 			const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
 			for (const platform of ["darwin", "win32"]) {
 				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-ai-memory-pack-"));
@@ -450,11 +426,11 @@ describe("mac bundle configs", () => {
 						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
 					);
 					await expect(run(), `${platform} without the binary`).rejects.toThrow(
-						/ai-memory-bin.*is missing; run `bun run sync:ai-memory`/,
+						/ai-memory-bin.*or its build record is missing; run `bun run build:memory`/,
 					);
 					await fakeAiMemory(directory, platform, Buffer.from("not the pinned bytes"));
 					await expect(run(), `${platform} with other bytes`).rejects.toThrow(
-						/hashes to [0-9a-f]{64}; the pin .* expects/,
+						/hashes to [0-9a-f]{64}; its build record expects/,
 					);
 					// The execute bit exists only on a POSIX file system (after-pack.cjs checks it there only).
 					if (platform === "darwin" && process.platform !== "win32") {
@@ -512,10 +488,10 @@ describe("release assets", () => {
 		expect(["true", "false"]).toContain(release.env.LEGACY_UPDATE_FEED);
 	});
 
-	it("syncs the ai-memory binary before packaging on both platforms and verifies it in the package", () => {
+	it("builds the memory binary from native/memory before packaging on both platforms and verifies it in the package", () => {
 		for (const job of ["mac", "win"]) {
 			const steps = release.jobs[job]?.steps ?? [];
-			const sync = steps.findIndex(step => step.run === "bun run sync:ai-memory");
+			const sync = steps.findIndex(step => step.run === "bun run build:memory");
 			const pack = steps.findIndex(step => step.name === "Package");
 			expect(sync, job).toBeGreaterThanOrEqual(0);
 			expect(sync, job).toBeLessThan(pack);

@@ -166,7 +166,7 @@ function Assert-PerUserInstall {
 	Ok "installed in $installDir"
 	$memory = Join-Path $installDir 'resources\ai-memory-bin\ai-memory.exe'
 	if (-not (Test-Path -LiteralPath $memory)) { Fail "$memory is missing (the bundled ai-memory)" }
-	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\resources\omp-builtin\ai-memory\ai-memory.json') | ConvertFrom-Json).version
+	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\native\memory\ompdesk.json') | ConvertFrom-Json).version
 	$memoryVersion = (& $memory --version | Out-String).Trim()
 	if ($LASTEXITCODE -ne 0 -or $memoryVersion -notlike "*$pinned*") { Fail "$memory --version printed '$memoryVersion' (exit $LASTEXITCODE), expected $pinned" }
 	Ok "bundled ai-memory runs: $memoryVersion"
@@ -223,9 +223,10 @@ function Assert-AiMemoryService {
 	$env:AI_MEMORY_DATA_DIR = $data
 	Start-Process -FilePath $exe | Out-Null
 	Remove-Item Env:AI_MEMORY_DATA_DIR
-	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\resources\omp-builtin\ai-memory\ai-memory.json') | ConvertFrom-Json).version
-	$staged = Join-Path $tools "$pinned\ai-memory.exe"
-	Wait-Until { Test-Path -LiteralPath $staged } 240 "the bundled ai-memory.exe to be staged as $staged"
+	$pinned = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\native\memory\ompdesk.json') | ConvertFrom-Json).version
+	$stagedGlob = Join-Path $tools "$pinned-*\ai-memory.exe"
+	Wait-Until { Test-Path -Path $stagedGlob } 240 "the bundled ai-memory.exe to be staged as $stagedGlob"
+	$staged = (Get-Item -Path $stagedGlob | Select-Object -First 1).FullName
 	Ok "staged: $staged"
 	Wait-Until { $v = (Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory' -ErrorAction SilentlyContinue).'ai-memory'; $v -and $v -like "*$staged*" } 240 "the ai-memory logon entry to run the staged copy"
 	Ok "logon entry: $((Get-ItemProperty -Path $aiMemoryRun -Name 'ai-memory').'ai-memory')"
