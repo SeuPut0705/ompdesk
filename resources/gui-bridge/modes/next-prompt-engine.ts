@@ -277,6 +277,14 @@ async function ask(
 		message = await call(undefined);
 	}
 	if (message.stopReason === "error") throw new Error(message.errorMessage ?? "The model request failed");
+	// A deadline ends the stream with stopReason "aborted" and no text: an empty answer would read as one. Worded as a
+	// timeout so `classifyFailure` calls it offline; a caller's own abort is the caller's to ignore.
+	if (message.stopReason === "aborted")
+		throw new Error(
+			options.signal.aborted
+				? (message.errorMessage ?? "The model request was aborted")
+				: `The model request timed out after ${Math.round((options.deadlineMs ?? REQUEST_DEADLINE_MS) / 1000)} s`,
+		);
 	const text = message.content
 		.map(block => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
 		.join("");

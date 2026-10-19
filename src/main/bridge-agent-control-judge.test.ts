@@ -215,6 +215,19 @@ describe("agent_control.judge model choice", () => {
 		expect(world.calls).toHaveLength(0);
 	});
 
+	it("rejects a reply its deadline cut off instead of answering with empty text", async () => {
+		world.chains.advisor = [GPT];
+		world.keys.add(ref(GPT));
+		const stock: NextPromptStock = {
+			completeSimple: async () => ({ content: [], stopReason: "aborted", errorMessage: "Request was aborted" }),
+			roleCandidatePool: () => [],
+			resolveRoleChain: role => (world.chains[role] ?? []).map(m => ({ model: m })),
+			shouldSkipHistory: () => false,
+		};
+		setNextPromptStock(stock);
+		await expect(world.judge(ask)).rejects.toThrow("The model request timed out after 170 s");
+	});
+
 	it("rejects when no role resolves to a model", async () => {
 		await expect(world.judge(ask)).rejects.toThrow("resolves to no available model");
 	});
