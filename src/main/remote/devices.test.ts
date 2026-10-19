@@ -40,6 +40,7 @@ describe("RemoteDevices host settings", () => {
 			services: services as unknown as LocalHostServices,
 			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
 			offlineMessage: () => "offline",
+			stalledMessage: device => `${device} stalled`,
 			powerSaveBlocker: { start: () => 1, stop: () => {} },
 		});
 		devices.hostNextPromptChanged();
@@ -58,6 +59,7 @@ describe("RemoteDevices auto-title setting", () => {
 			services: services as unknown as LocalHostServices,
 			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
 			offlineMessage: () => "offline",
+			stalledMessage: device => `${device} stalled`,
 			powerSaveBlocker: { start: () => 1, stop: () => {} },
 		});
 		devices.hostAutoTitleChanged();

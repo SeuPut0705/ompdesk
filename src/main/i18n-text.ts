@@ -298,6 +298,11 @@ export const MAIN_TEXT = {
 		en: "The device running this session is offline. Reconnecting…",
 		ko: "이 세션을 실행하는 기기가 오프라인이에요. 다시 연결하는 중이에요…",
 	},
+	// Status of a host tab the paired device did not bring up in time (src/main/remote/remote-sidecar.ts).
+	"remote.tabStalled": {
+		en: "{device} has not started this session after {seconds} s. Restart to try again.",
+		ko: "{device}에서 이 세션이 {seconds}초가 지나도 시작되지 않았어요. 다시 시작해 보세요.",
+	},
 	// Stats bridge failures that reach the renderer (toasts, the stats page).
 	"stats.notReady": {
 		en: "OMPdesk keeps starting it in the background. Stats appear here as soon as it answers.",

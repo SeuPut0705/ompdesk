@@ -49,7 +49,7 @@ import { type Identity, loadIdentity } from "./identity";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { PeerQuota } from "./peer-quota";
 import { PeerStore } from "./peers-store";
-import { PendingTabCloses, RemoteSidecar } from "./remote-sidecar";
+import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 
 /** Startup listen window that refreshes paired hosts' addresses from their beacons. */
 const STARTUP_DISCOVERY_MS = 10_000;
@@ -89,6 +89,12 @@ export interface RemoteDevicesDeps {
 	machineInfo: () => HostMachineInfo;
 	/** Status message of a tab whose host is unreachable, in the UI language. */
 	offlineMessage: () => string;
+	/** Status message of a host tab that did not come up in `seconds`, naming the host, in the UI language. */
+	stalledMessage: (device: string, seconds: number) => string;
+	/** How long a host tab may take to come up before it says so; default `REMOTE_START_TIMEOUT_MS`. */
+	startTimeoutMs?: number;
+	/** A host tab's bring-up step, for the runtime log (`remote-tab`). */
+	logTab?: RemoteSidecarOptions["log"];
 	/** Electron `powerSaveBlocker` held while devices use this computer. */
 	powerSaveBlocker: KeepAwakeBlocker;
 }
@@ -366,6 +372,9 @@ export class RemoteDevices {
 				if (link.tabs.get(rtab) === sidecar) link.tabs.delete(rtab);
 			},
 			deferClose: closing => link.closes.defer(closing),
+			stalledMessage: seconds => this.#deps.stalledMessage(link.client.host.name, seconds),
+			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
+			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
 		});
 		link.tabs.set(rtab, sidecar);
 		return sidecar;

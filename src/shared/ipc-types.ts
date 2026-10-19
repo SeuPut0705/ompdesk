@@ -459,6 +459,11 @@ export type RuntimeErrorSource =
 	 * (`update`, `outdated`, `resync-failed`, `chunk-load-failed`, `error-boundary`, …), sent on the next connect.
 	 */
 	| "web-reload"
+	/**
+	 * A tab on a paired host coming up (src/main/remote/remote-sidecar.ts): `message` is open, start, ready, stalled or
+	 * failed, `details` the device, rtab, `ms` since the bring-up began and, when it stalled or failed, the `step`.
+	 */
+	| "remote-tab"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

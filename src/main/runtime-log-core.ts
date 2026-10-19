@@ -32,6 +32,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"ai-memory",
 	"main-thread-hang",
 	"web-reload",
+	"remote-tab",
 	"unknown",
 ]);
 
