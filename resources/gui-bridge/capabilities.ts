@@ -760,6 +760,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"lookup()",
 				"Setting.prototype.override()",
 				"Setting.prototype.clearOverride()",
+				// `modelPresets` changes end a `/modelpreset save` step-aside (ompdesk-roles.ts).
+				"Setting.prototype.listen()",
 			],
 			// The security reviewer's tier holds only while stock's bundled agent has no model line.
 			[`${AGENT}/task/agents`]: ["getBundledAgent()"],

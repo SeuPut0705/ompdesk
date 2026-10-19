@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 /**
  * OMPdesk's own model roles and agent tiers on the installed omp, in an empty private agent dir (a throwaway
@@ -159,41 +160,139 @@ interface Probe {
 	hookOwn: unknown;
 }
 
-function runProbe(config: string): Probe {
+/** The private agent dir's environment: a throwaway OpenAI key is the only credential. */
+function isolatedEnv(isolated: string): Record<string, string | undefined> {
+	const env: Record<string, string | undefined> = {
+		...process.env,
+		PI_CODING_AGENT_DIR: isolated,
+		PI_CONFIG_DIR: isolated,
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		OPENAI_API_KEY: "probe-not-a-real-key",
+		OMP_GUI_OMPDESK_ROLES: join(isolated, "ompdesk-roles.json"),
+		ROLES_PROBE_TMP: isolated,
+	};
+	for (const key of [
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_OAUTH_TOKEN",
+		"CLAUDE_CODE_OAUTH_TOKEN",
+		"OPENROUTER_API_KEY",
+		"TYPESAFE_API_KEY",
+	])
+		Reflect.deleteProperty(env, key);
+	return env;
+}
+
+function isolatedBridge(source: string, name: string): { isolated: string; extension: string } {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-own-roles-"));
 	chmodSync(isolated, 0o700);
+	cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
+	const extension = join(isolated, "bridge", name);
+	writeFileSync(extension, source);
+	return { isolated, extension };
+}
+
+const RPC_ARGS = ["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e"];
+
+function runProbe(config: string): Probe {
+	const { isolated, extension } = isolatedBridge(PROBE, "ompdesk-roles-probe.ts");
 	try {
-		cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
-		const extension = join(isolated, "bridge", "ompdesk-roles-probe.ts");
-		writeFileSync(extension, PROBE);
 		if (config) writeFileSync(join(isolated, "config.yml"), config);
-		const env: Record<string, string | undefined> = {
-			...process.env,
-			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
-			OMP_PROFILE: "",
-			PI_PROFILE: "",
-			OPENAI_API_KEY: "probe-not-a-real-key",
-			OMP_GUI_OMPDESK_ROLES: join(isolated, "ompdesk-roles.json"),
-			ROLES_PROBE_TMP: isolated,
-		};
-		for (const key of [
-			"ANTHROPIC_API_KEY",
-			"ANTHROPIC_OAUTH_TOKEN",
-			"CLAUDE_CODE_OAUTH_TOKEN",
-			"OPENROUTER_API_KEY",
-			"TYPESAFE_API_KEY",
-		])
-			Reflect.deleteProperty(env, key);
-		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
-			{ env, cwd: isolated, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
-		);
+		const result = spawnSync(omp, [...RPC_ARGS, extension], {
+			env: isolatedEnv(isolated),
+			cwd: isolated,
+			encoding: "utf8",
+			timeout: 120_000,
+			maxBuffer: 4 * 1024 * 1024,
+			input: "",
+		});
 		const line = result.stderr.split("\n").find(value => value.startsWith("OMPDESK_ROLES_PROBE"));
 		expect(line, result.stderr.slice(-2500)).toMatch(/^OMPDESK_ROLES_PROBE=/);
 		return JSON.parse(line?.slice("OMPDESK_ROLES_PROBE=".length) ?? "{}") as Probe;
 	} finally {
+		rmSync(isolated, { recursive: true, force: true });
+	}
+}
+
+/** The bridge's hooks installed as index.ts does, a review pick, then `/modelpreset` over stock's own RPC input path. */
+const PRESET_PROBE = `
+import { methods } from "./settings";
+import { install } from "./ompdesk-roles";
+import { modelKind } from "@oh-my-pi/pi-catalog/types";
+import { resolveModelOverride } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+export default function (pi) {
+ install(pi);
+ const session = () => pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+ const sel = model => model.provider + "/" + model.id;
+ pi.on("input", async event => {
+  if (event.text !== "PROBE_AFTER") return undefined;
+  const { model } = resolveModelOverride(["@review"], session().modelRegistry, session().settings);
+  await session().settings.flush();
+  console.error("PRESET_PROBE=" + JSON.stringify({ review: model ? sel(model) : null }));
+  process.exit(0);
+ });
+ pi.on("session_start", async () => {
+  const env = { pi, session, context: () => undefined, emit: () => {} };
+  const chat = session().modelRegistry.getAvailable().filter(model => modelKind(model) === "chat");
+  const A = sel(chat[0]);
+  await methods.model_role_set({ role: "review", modelId: A }, env);
+  console.error("PRESET_READY=" + JSON.stringify({ A }));
+ });
+}
+`;
+
+/** Runs PRESET_PROBE, sends `/modelpreset save mine`, then `switch mine`, then reads the probe and config.yml. */
+async function runPresetSession(): Promise<{ A: string; review: string | null; config: Record<string, unknown> }> {
+	const { isolated, extension } = isolatedBridge(PRESET_PROBE, "ompdesk-roles-preset-probe.ts");
+	const child = spawn(omp, [...RPC_ARGS, extension], { env: isolatedEnv(isolated), cwd: isolated });
+	let stderr = "";
+	let stdout = "";
+	const waiting: Array<{ test: () => boolean; done: () => void }> = [];
+	const check = () => {
+		for (const entry of [...waiting]) {
+			if (!entry.test()) continue;
+			waiting.splice(waiting.indexOf(entry), 1);
+			entry.done();
+		}
+	};
+	const until = (test: () => boolean) => {
+		const { promise, resolve: done } = Promise.withResolvers<void>();
+		waiting.push({ test, done });
+		check();
+		return promise;
+	};
+	child.stderr.setEncoding("utf8").on("data", chunk => {
+		stderr += chunk;
+		check();
+	});
+	child.stdout.setEncoding("utf8").on("data", chunk => {
+		stdout += chunk;
+		check();
+	});
+	const exited = new Promise<void>(done => child.once("exit", () => done()));
+	const outputs = () => stdout.split("\n").filter(line => line.includes('"command_output"')).length;
+	const send = (message: string) => child.stdin.write(`${JSON.stringify({ type: "prompt", message })}\n`);
+	try {
+		await until(() => stderr.includes("PRESET_READY="));
+		send("/modelpreset save mine");
+		await until(() => outputs() >= 1);
+		send("/modelpreset switch mine");
+		await until(() => outputs() >= 2);
+		send("PROBE_AFTER");
+		await exited;
+		const ready = stderr.split("\n").find(line => line.startsWith("PRESET_READY="));
+		const after = stderr.split("\n").find(line => line.startsWith("PRESET_PROBE="));
+		expect(after, stderr.slice(-2500)).toBeDefined();
+		const configFile = join(isolated, "config.yml");
+		return {
+			A: JSON.parse(ready?.slice("PRESET_READY=".length) ?? "{}").A,
+			review: JSON.parse(after?.slice("PRESET_PROBE=".length) ?? "{}").review,
+			config: existsSync(configFile)
+				? ((parse(readFileSync(configFile, "utf8")) ?? {}) as Record<string, unknown>)
+				: {},
+		};
+	} finally {
+		child.kill();
 		rmSync(isolated, { recursive: true, force: true });
 	}
 }
@@ -269,4 +368,15 @@ describe.skipIf(!existsSync(omp))("OMPdesk roles on stock omp", () => {
 		expect(probe.configUnchangedAfterClear).toBe(true);
 		expect(probe.clearedGlobalReview).toBe(own);
 	}, 260_000);
+
+	it("keeps a held review out of a saved preset and out of config.yml through /modelpreset save and switch", async () => {
+		const { A, review, config } = await runPresetSession();
+		const presets = config.modelPresets as Record<string, { modelRoles?: Record<string, string> }> | undefined;
+		// The save landed (the command ran), without review; switching back to it wrote no review either.
+		expect(presets?.mine, JSON.stringify(config)).toBeDefined();
+		expect(Object.keys(presets?.mine?.modelRoles ?? {})).not.toContain("review");
+		expect(Object.keys((config.modelRoles as Record<string, string> | undefined) ?? {})).not.toContain("review");
+		// The held pick is back once the commands are done.
+		expect(review).toBe(A);
+	}, 130_000);
 });
