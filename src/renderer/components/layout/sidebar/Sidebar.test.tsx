@@ -1988,7 +1988,8 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		);
 
 	it("keeps a closed session under its opener's done fold after a relaunch, never in a parallel-work group", async () => {
-		mountFamily();
+		// A family left open stays open across a relaunch (remembered): this one was folded.
+		mountFamily({ open: false });
 		relaunchedWith("t0", "t1");
 		await mount(<Sidebar />);
 		// The store reads the pref once on mount: the record is what main wrote.
@@ -2030,7 +2031,9 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	});
 
 	it("folds a session opened before provenance was kept under the opener its agent brief names", async () => {
+		// A family left open stays open across a relaunch (remembered): this one was folded.
 		mountFamily({
+			open: false,
 			sessionsExtra: [
 				session("/work/alpha/legacy.jsonl", "/work/alpha", {
 					title: null,

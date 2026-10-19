@@ -1027,9 +1027,10 @@ export function Sidebar() {
 		}
 		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
 		useSidebarFolds.getState().pruneGroups(key => folders.has(key) || folders.has(key.replace(/#agent$/, "")));
-		const known = new Set(sessions.map(session => session.path));
+		// A session an open tab holds stays known even before the index lists its file.
+		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
 		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
-	}, [listLive, allGroups, sessions, projectName]);
+	}, [listLive, allGroups, sessions, heldByTab, projectName]);
 	const hostsLoaded = useRemoteStore(s => s.state !== null);
 	useEffect(() => {
 		if (hostsLoaded) useSidebarFolds.getState().pruneDevices(new Set(hosts.map(host => host.deviceId)));
