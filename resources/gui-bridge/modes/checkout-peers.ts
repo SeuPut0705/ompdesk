@@ -8,6 +8,7 @@
  *   others which files are this session's.
  * One module state per omp: the main agent and its subagents share the checkout, so they share the guard.
  */
+import * as fs from "node:fs";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { guard } from "../health";
 import { registerPromptSection } from "../prompt-sections";
@@ -20,7 +21,10 @@ import {
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "./checkout-peers-contracts";
-import { checkoutRefusal, checkoutSection, rememberFiles } from "./checkout-peers-core";
+import { canonicalPath, checkoutRefusal, checkoutSection, rememberFiles } from "./checkout-peers-core";
+
+/** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
+const real = (path: string) => fs.realpathSync(path);
 
 let peers: CheckoutPeers | undefined;
 let ownFiles: string[] = [];
@@ -33,7 +37,7 @@ export function install(pi: ExtensionAPI): void {
 		if (written.length > 0)
 			ownFiles = rememberFiles(
 				ownFiles,
-				written.map(file => normalizePath(file, ctx.cwd)),
+				written.map(file => canonicalPath(normalizePath(file, ctx.cwd), real)),
 				CHECKOUT_FILES_MAX,
 			);
 		if (!peers || event.toolName !== "bash") return undefined;
@@ -41,9 +45,10 @@ export function install(pi: ExtensionAPI): void {
 		if (typeof input.command !== "string") return undefined;
 		const reason = checkoutRefusal(
 			input.command,
-			normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd),
+			canonicalPath(normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd), real),
 			peers,
 			ownFiles,
+			real,
 		);
 		return reason ? { block: true, reason } : undefined;
 	});

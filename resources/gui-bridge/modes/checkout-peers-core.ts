@@ -262,11 +262,14 @@ export function checkoutRefusal(
 	cwd: string,
 	peers: CheckoutPeers,
 	ownFiles: readonly string[],
+	realpath?: (path: string) => string,
 ): string | undefined {
 	const repoPeers = [...peers.worktree, ...peers.repo];
 	if (repoPeers.length === 0) return undefined;
 	for (const git of gitInvocations(command, cwd)) {
-		const refusal = judge(git, peers, repoPeers, ownFiles);
+		// A `cd` or `-C` through a symlink lands in main's spelling of the checkout too.
+		const at = realpath && !git.cwd.startsWith("\u0000") ? { ...git, cwd: canonicalPath(git.cwd, realpath) } : git;
+		const refusal = judge(at, peers, repoPeers, ownFiles);
 		if (refusal) return refusal;
 	}
 	return undefined;
@@ -347,4 +350,23 @@ export function checkoutSection(peers: CheckoutPeers | undefined): string | unde
 export function rememberFiles(files: readonly string[], added: readonly string[], max: number): string[] {
 	const fresh = [...new Set(added)];
 	return [...fresh, ...files.filter(file => !fresh.includes(file))].slice(0, max);
+}
+
+/**
+ * `path` (absolute) in the spelling main compares against: the real path of its nearest existing ancestor, the rest
+ * as written (a file a write is about to create does not exist yet). Main resolves top levels with `realpath`, and a
+ * session's own cwd may run through a symlink (macOS `/var/folders` is `/private/var/folders`); without this the
+ * guard took a git run there for one in another repository and judged nothing.
+ */
+export function canonicalPath(path: string, realpath: (path: string) => string): string {
+	const parts = normalizePath(path, "/").split("/");
+	for (let cut = parts.length; cut > 1; cut--) {
+		const head = parts.slice(0, cut).join("/");
+		try {
+			return normalizePath([realpath(head), ...parts.slice(cut)].join("/"), "/");
+		} catch {
+			// Not there (yet): try its parent.
+		}
+	}
+	return normalizePath(path, "/");
 }
