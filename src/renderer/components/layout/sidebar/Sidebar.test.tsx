@@ -2413,6 +2413,77 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await setTab("tc", { status: "ready" });
 		expect(edge()).toBeNull();
 	});
+
+	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {
+		// A web page viewing the boss holds only the boss's tab: the sessions its agent opened are tabs of the desktop
+		// window that opened them, so main's review list is all this window knows of them. The index names the child's
+		// opener by a title the boss has since changed, so only the review list ties them.
+		const omp = installMockOmp([
+			session("/wt/x.jsonl", WT_A, {
+				title: null,
+				firstMessage: wrapAgentMessage("Title: Fix the upload\nDetails follow.", "An older title"),
+				created: "2026-02-01T00:00:00Z",
+				modified: "2026-02-01T00:00:00Z",
+			}),
+			...LIST,
+		]);
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: BOSS,
+					shared: true,
+				},
+			] as never,
+			activeTabId: "t1",
+			bundles: new Map(),
+		});
+		ensureTabRuntime("t1");
+		useSidebarSubagentsStore.setState({ expanded: new Set([BOSS]) });
+		const item = {
+			tabId: "desk-child",
+			sessionPath: "/wt/x.jsonl",
+			title: "Fix the upload",
+			state: "running" as const,
+			commitsAhead: 0,
+			files: 0,
+			added: 0,
+			removed: 0,
+			uncommitted: 0,
+			answer: "",
+		};
+		// The page just opened: no push has come yet, so it asks main for the viewed tab's list.
+		const ask = vi.fn(async (tabId: string, command: { type: string }) => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: tabId === "t1" && command.type === "agent_control_review" ? { items: [item], usage: {} } : {},
+		}));
+		(omp.rpc as unknown as Record<string, unknown>).commandForTab = ask;
+		await mount(<Sidebar />);
+		const boss = () => rowFor("Session /work/alpha/two");
+		const child = () =>
+			container.querySelector(`[data-sidebar-family="${BOSS}"] [data-session-path="/wt/x.jsonl"]`) as Element | null;
+		expect(boss().getAttribute("data-signal")).toBeNull();
+		expect(boss().querySelector(".omp-live-edge")?.getAttribute("data-live-edge")).toBe("background");
+		expect(child()?.getAttribute("data-child-status")).toBe("running");
+
+		// It waits on the person: no light on the idle boss, the child keeps its warning look.
+		act(() => useAgentReviewStore.setState({ byTab: { t1: [{ ...item, waiting: true }] } }));
+		await flush();
+		expect(boss().querySelector(".omp-live-edge")).toBeNull();
+		expect(child()?.getAttribute("data-child-status")).toBe("waiting");
+
+		// It finished and its work landed (main drops the item): nothing runs behind the boss.
+		act(() => useAgentReviewStore.setState({ byTab: { t1: [] } }));
+		await flush();
+		expect(boss().querySelector(".omp-live-edge")).toBeNull();
+	});
 });
 
 describe("Sidebar device sections", () => {
