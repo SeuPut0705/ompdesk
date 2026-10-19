@@ -52,6 +52,7 @@ import type {
 } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
+import { createCheckoutFake } from "./checkout-peers";
 import { FIXTURE_MIN_OMP_VERSION, FIXTURE_OMP_VERSION } from "./version";
 
 /** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
@@ -782,6 +783,8 @@ export function runRpcUi(): void {
 		const frame = `${JSON.stringify({ event })}\n`;
 		for (const socket of bridgeClients) socket.write(frame);
 	};
+	/** Sessions sharing a checkout (./checkout-peers.ts): main's pushes, and agent turns played through the bridge's guard. */
+	const checkout = createCheckoutFake({ write, appendMessage, endTurn, model });
 	/** Autopilot's bridge methods, frames and Goal continuation (./autopilot.ts; `OMP_GUI_TEST_AUTOPILOT` scripts the cycles). */
 	const autopilot = createAutopilotFake({
 		write,
@@ -2340,6 +2343,7 @@ export function runRpcUi(): void {
 		}),
 		...(modelsData || firstRunSignIn ? modelsPageMethods : {}),
 		...autopilot.bridgeMethods,
+		...checkout.bridgeMethods,
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
 	};
 	const serveBridge = (socket: net.Socket, line: string) => {
@@ -4036,6 +4040,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			};
 			clearInterval(streamTimer);
 			streamTimer = setInterval(streamTick, 16);
+		} else if (message.startsWith("fixture checkout:")) {
+			void checkout.run(user, JSON.parse(message.slice("fixture checkout:".length)));
 		} else if (message === "fixture steps") {
 			// A run of separate assistant messages, each thinking then calling a
 			// tool, with gaps between them — the shape that used to mount a new

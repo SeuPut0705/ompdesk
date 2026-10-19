@@ -30,7 +30,14 @@ import {
 	type PromptOriginLabel,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
-import { AGENT_CONTROL_PREF, isAgentControlTool, parseAgentMessage } from "../shared/agent-control";
+import {
+	AGENT_CONTROL_PREF,
+	AGENT_HIDDEN_PREFS_KEY,
+	agentControlEnabled,
+	agentHiddenPaths,
+	isAgentControlTool,
+	parseAgentMessage,
+} from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -98,6 +105,12 @@ import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
 import { readBranchFacts } from "./autopilot-branches";
+import {
+	CHECKOUT_PEERS_SWEEP_MS,
+	type CheckoutMember,
+	CheckoutPeerCoordinator,
+	readCheckoutPlace,
+} from "./checkout-peers";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { openInExternalEditor } from "./editor";
@@ -105,7 +118,7 @@ import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
-import { readProjectOrigin } from "./local/git/origin";
+import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
@@ -192,6 +205,7 @@ export interface IpcDeps {
 		| "runEvents"
 		| "endRun"
 		| "attachRunLookup"
+		| "checkoutMembers"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -940,9 +954,45 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (root) deps.hostedTabs.runEvents(root, events);
 		});
 	};
+	// Sessions of this computer that share a git checkout learn of each other (src/main/checkout-peers.ts): the tabs of
+	// its windows and those it runs for paired devices. A paired host's tab is that host's to coordinate.
+	const checkoutPeers = new CheckoutPeerCoordinator({
+		members: () => {
+			const canMessage = agentControlEnabled(prefsStore.get(AGENT_CONTROL_PREF));
+			const seen = new Set<string>();
+			const members: CheckoutMember[] = [];
+			for (const win of sidecarPool.tabWindows())
+				for (const info of sidecarPool.tabsForWindow(win)) {
+					const sidecar = sidecarPool.sidecarOf(info.tabId);
+					const request = sidecar?.bridgeRequest?.bind(sidecar);
+					if (seen.has(info.tabId) || info.device || !request || sidecar?.status !== "ready") continue;
+					seen.add(info.tabId);
+					members.push({
+						key: info.tabId,
+						id: info.tabId,
+						title: info.title || info.task || "",
+						cwd: sidecar.cwd,
+						...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
+						canMessage,
+						request,
+					});
+				}
+			return [...members, ...deps.hostedTabs.checkoutMembers()];
+		},
+		place: cwd => readCheckoutPlace(cwd, readOriginFacts),
+		hiddenPaths: () => agentHiddenPaths(prefsStore.get(AGENT_HIDDEN_PREFS_KEY)),
+	});
+	const refreshCheckoutPeers = () => void checkoutPeers.refresh();
+	setInterval(
+		refreshCheckoutPeers,
+		Number(process.env.OMP_GUI_TEST_CHECKOUT_PEERS_MS) || CHECKOUT_PEERS_SWEEP_MS,
+	).unref();
+	deps.hostedTabs.onHostedSessionsChange(refreshCheckoutPeers);
+
 	sidecarPool.observeTabs(activity => {
 		autopilot.observeActivity(activity);
 		desktopSlot.observeActivity(activity);
+		if (activity.type === "busy" || activity.type === "idle" || activity.type === "released") refreshCheckoutPeers();
 	});
 
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
@@ -994,6 +1044,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			showNotification(win.webContents.id, { title, body, tabId });
 		},
 		deleteSession: deleteStoredSession,
+		checkoutPeers: tabId => checkoutPeers.peersOf(tabId),
 		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
 		// `ompdesk_app` runs the app's own handlers as the calling session's window would.
 		app: {

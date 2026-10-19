@@ -27,7 +27,8 @@ async function out(cwd: string, args: string[]): Promise<string | null> {
 	return result?.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
 }
 
-async function readFacts(cwd: string): Promise<OriginFacts | null> {
+/** What git says about `cwd`'s checkout (common dir, git dir, branch, top level), uncached; null outside a repository. */
+export async function readOriginFacts(cwd: string): Promise<OriginFacts | null> {
 	const dirs = await out(cwd, ["rev-parse", "--git-common-dir", "--git-dir"]);
 	const [commonRaw, gitDirRaw] = dirs?.split(/\r?\n/) ?? [];
 	if (!commonRaw || !gitDirRaw) return null;
@@ -49,7 +50,7 @@ async function readFacts(cwd: string): Promise<OriginFacts | null> {
 }
 
 async function lookup(cwd: string): Promise<ProjectOrigin | null> {
-	const facts = await readFacts(cwd);
+	const facts = await readOriginFacts(cwd);
 	const origin = facts ? deriveProjectOrigin(facts) : null;
 	if (!origin) return null;
 	// One spelling of the main checkout whichever worktree asked (macOS /var vs /private/var).

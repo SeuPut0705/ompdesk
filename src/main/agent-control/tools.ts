@@ -171,7 +171,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.report,
 		label: "Report to OMPdesk opener",
 		description:
-			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked. kind: progress (a short status; coalesced), done (the work is finished: summary, changed files, checks you ran), question or blocked (you need its decision; it arrives between its steps and wakes it; do not guess meanwhile), review (ready for its review), note (to a sibling: e.g. 'I changed X, rebase'). Only for a session another session opened. See skill://ompdesk.",
+			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. kind: progress (a short status; coalesced), done (the work is finished: summary, changed files, checks you ran), question or blocked (you need its decision; it arrives between its steps and wakes it only when idle; do not guess meanwhile), review (ready for its review), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes it). See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -190,7 +190,8 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				},
 				to: {
 					type: "string",
-					description: "A sibling's session id (opened by the same session); default the session that opened you.",
+					description:
+						"A sibling's session id (opened by the same session), or a session working in the same checkout; default the session that opened you.",
 				},
 				dispatch: {
 					type: "string",

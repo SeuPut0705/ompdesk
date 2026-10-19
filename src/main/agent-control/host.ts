@@ -170,6 +170,8 @@ export interface AgentControlHostDeps {
 	text: AgentControlHost["text"];
 	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
 	sweepMs?: number;
+	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
+	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
@@ -649,6 +651,7 @@ export class AgentControlRuntime {
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
 				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			checkoutPeers: tabId => deps.checkoutPeers?.(tabId) ?? [],
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => {

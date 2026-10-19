@@ -61,6 +61,7 @@ import type { TerminalOperation } from "../../shared/terminal-types";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
+import type { CheckoutMember } from "../checkout-peers";
 import { deletedSessions } from "../deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
@@ -580,6 +581,28 @@ export class LocalHostServices implements HostServices {
 			sessions.push(session);
 		}
 		return sessions;
+	}
+
+	/** The omps here that run for paired devices, as members of a shared checkout (`checkout-peers.ts`). */
+	checkoutMembers(): CheckoutMember[] {
+		return [...this.#tabs].flatMap(([key, tab]) => {
+			const { sidecar } = tab;
+			const request = sidecar.bridgeRequest?.bind(sidecar);
+			if (tab.viewsWindow || !request || sidecar.status !== "ready") return [];
+			return [
+				{
+					key: `hosted:${key}`,
+					// Its control tools answer on the device, which knows nothing of this computer's checkouts.
+					id: null,
+					title: tab.title ?? "",
+					cwd: sidecar.cwd,
+					...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
+					device: tab.origin.name,
+					canMessage: false,
+					request,
+				},
+			];
+		});
 	}
 
 	/** Called whenever `hostedSessions` changed; returns the unsubscribe. */

@@ -234,6 +234,8 @@ export interface AgentControlHost {
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
 	parentOf(tabId: string): string | undefined;
+	/** The sessions working in `tabId`'s checkout or another worktree of its repository on this computer (`checkout-peers.ts`); `ompdesk_report` may go to them. */
+	checkoutPeers?(tabId: string): readonly string[];
 	/** Put one report into a session as a stock custom message (`ompdesk.mail`), delivered per `delivery`. */
 	mail(tabId: string, content: string, details: Record<string, unknown>, delivery: MailDelivery): Promise<void>;
 	/** A child's report changed what its opener's work board shows. */
@@ -1470,16 +1472,36 @@ export class AgentControl {
 		};
 	}
 
-	/** `ompdesk_report`: an opened session tells its opener (or a sibling) about its work. */
+	/**
+	 * `ompdesk_report`: an opened session tells its opener (or a sibling) about its work; any session tells another one
+	 * working in the same checkout or repository (`host.checkoutPeers`) what it is about to do, or asks it to hold or commit.
+	 */
 	async #report(caller: ControlTab, tabs: ControlTab[], args: ReportArgs): Promise<string> {
 		const parent = this.#host.parentOf(caller.tabId);
-		if (!parent)
+		const target = args.to ? this.#resolve(tabs, args.to, caller, "report to") : undefined;
+		const peer =
+			target !== undefined &&
+			target.tabId !== parent &&
+			(this.#host.checkoutPeers?.(caller.tabId) ?? []).includes(target.tabId);
+		if (peer) this.#refuseHidden(target, caller);
+		else if (!parent)
 			fail(
-				"ompdesk_report is for a session another session opened; nobody opened this one. Use ompdesk_session_send to write to a session.",
+				"ompdesk_report goes to the session that opened you, a sibling it opened, or a session working in the same checkout (the <shared-checkout> section names those); nobody opened this one, and it shares no checkout with that session. Use ompdesk_session_send to write to a session.",
 			);
-		const to = args.to ? this.#resolve(tabs, args.to, caller, "report to").tabId : parent;
-		if (to !== parent && this.#host.parentOf(to) !== parent)
-			fail("You can report only to the session that opened you or to a sibling it opened.");
+		else if (target && target.tabId !== parent && this.#host.parentOf(target.tabId) !== parent)
+			fail(
+				"You can report only to the session that opened you, to a sibling it opened, or to a session working in the same checkout.",
+			);
+		const to = target?.tabId ?? (parent as string);
+		// A peer is woken only by a question or a blocker (and only when idle: a busy one gets it as an aside); every
+		// other report reaches it as a note with no turn.
+		const kind = peer
+			? args.kind === "question" || args.kind === "blocked"
+				? args.kind
+				: "note"
+			: to === parent
+				? args.kind
+				: "note";
 		const mail: Mail = {
 			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
 			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
@@ -1501,7 +1523,7 @@ export class AgentControl {
 			from: caller.tabId,
 			fromTitle: caller.title,
 			to,
-			kind: to === parent ? args.kind : "note",
+			kind,
 			text: args.text,
 			...(args.files ? { files: args.files } : {}),
 			...(args.checks ? { checks: args.checks } : {}),
@@ -1511,7 +1533,7 @@ export class AgentControl {
 		if (!this.#mailbox.knows(caller.tabId))
 			this.#mailbox.seed(caller.tabId, (await this.#journalMarks(caller.tabId)).dispatch);
 		const outcome = await this.#mailbox.post(mail);
-		this.#host.reviewChanged?.(parent);
+		if (parent) this.#host.reviewChanged?.(parent);
 		switch (outcome) {
 			case "duplicate":
 				return `Report ${mail.id} was already delivered; nothing sent again.`;

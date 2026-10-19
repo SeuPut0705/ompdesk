@@ -229,6 +229,9 @@ class FakeHost implements AgentControlHost {
 
 	parents = new Map<string, string>();
 	parentOf = (tabId: string) => this.parents.get(tabId);
+	/** Sessions sharing each tab's checkout (main's checkout-peers coordinator). */
+	peers = new Map<string, string[]>();
+	checkoutPeers = (tabId: string) => this.peers.get(tabId) ?? [];
 	mails: { to: string; content: string; details: Record<string, unknown>; delivery: MailDelivery }[] = [];
 	mail = async (to: string, content: string, details: Record<string, unknown>, delivery: MailDelivery) => {
 		this.mails.push({ to, content, details, delivery });
@@ -2533,9 +2536,36 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		await service.run(a, T.report, { kind: "done", to: b, text: "I changed X, rebase" });
 		expect(host.mails[0]).toMatchObject({ to: b, details: { kind: "note" } });
 		expect((await service.run(a, T.report, { kind: "note", to: "else0009", text: "hi" })).text).toMatch(
-			/only to the session that opened you or to a sibling/,
+			/only to the session that opened you, to a sibling it opened, or to a session working in the same checkout/,
 		);
 		expect((await service.run("boss0001", T.report, { kind: "done", text: "x" })).text).toMatch(/nobody opened/);
+	});
+
+	it("lets any session reach one working in the same checkout: a question wakes it only when idle, a note never", async () => {
+		const host = new FakeHost(
+			{ tabId: "mine0001", title: "Validation" },
+			{ tabId: "peer0002", title: "Rename helper" },
+			{ tabId: "priv0003", hidden: true },
+			{ tabId: "else0004" },
+		);
+		host.peers.set("mine0001", ["peer0002", "priv0003"]);
+		const service = control(host);
+		await service.run("mine0001", T.report, {
+			kind: "question",
+			to: "peer0002",
+			text: "May I commit src/a.ts first?",
+		});
+		await service.run("mine0001", T.report, { kind: "done", to: "peer0002", text: "Committing src/a.ts now" });
+		expect(host.mails.map(mail => [mail.to, mail.details.kind, mail.delivery])).toEqual([
+			["peer0002", "question", { triggerTurn: true, deliverAs: "aside" }],
+			["peer0002", "note", { triggerTurn: false }],
+		]);
+		expect((await service.run("mine0001", T.report, { kind: "note", to: "priv0003", text: "x" })).text).toMatch(
+			/hid this session/,
+		);
+		expect((await service.run("mine0001", T.report, { kind: "note", to: "else0004", text: "x" })).text).toMatch(
+			/shares no checkout/,
+		);
 	});
 
 	it("sends with a request id once and returns the first receipt on a repeat", async () => {

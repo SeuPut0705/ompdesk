@@ -15,7 +15,7 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 - `ompdesk_session_result` — `session` or `sessions`, `wait`, `until` (`all`, `any`), `timeout_seconds`.
 - `ompdesk_session_read` — `session` (open or saved), `limit`, `before`: transcript pages, newest first.
 - `ompdesk_session_answer` — `session`, `request`, `choice` / `approve` / `text` / `answers`.
-- `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`. `ompdesk_report` (as a child) — `kind` (`progress`, `done`, `blocked`, `question`, `review`, `note`), `text`, `files`, `checks`, `to`, `dispatch`, `id`.
+- `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`. `ompdesk_report` (as a child, or to a session working in the same checkout) — `kind` (`progress`, `done`, `blocked`, `question`, `review`, `note`), `text`, `files`, `checks`, `to`, `dispatch`, `id`.
 - `ompdesk_session_stop` — `session`, `close`, `delete`, `device` (where a saved id is).
 - `ompdesk_compare` — `sessions`, `criteria`: evidence and a ranked verdict; `ompdesk_merge`: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — `action`, `device`: recurring runs on this computer or a paired one: skill://ompdesk/references/schedules.md
