@@ -37,10 +37,6 @@ export const READ_DEFAULT_MESSAGES = 12;
 export const READ_MAX_MESSAGES = 40;
 /** A message another session receives is at most this long. */
 export const MESSAGE_MAX_CHARS = 50_000;
-/** Sessions one `ompdesk_session_result` call may wait on. */
-export const RESULT_MAX_SESSIONS = 8;
-/** `ompdesk_compare` judges against at most this many criteria. */
-export const JUDGE_MAX_CRITERIA = 12;
 
 const SESSION = {
 	type: "string",
@@ -225,7 +221,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				sessions: {
 					type: "array",
 					items: { type: "string" },
-					description: `Several session ids (at most ${RESULT_MAX_SESSIONS}); instead of session.`,
+					description: `Several session ids; instead of session.`,
 				},
 				wait: { type: "boolean", description: "Wait for the state change first; default false." },
 				until: {
@@ -332,12 +328,12 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				sessions: {
 					type: "array",
 					items: { type: "string" },
-					description: `Session ids, open or stored (at most ${RESULT_MAX_SESSIONS}); default every worktree session you opened.`,
+					description: `Session ids, open or stored; default every worktree session you opened.`,
 				},
 				criteria: {
 					type: "array",
 					items: { type: "string" },
-					description: `Acceptance criteria to judge against (at most ${JUDGE_MAX_CRITERIA}); without them nothing is judged.`,
+					description: `Acceptance criteria to judge against; without them nothing is judged.`,
 				},
 			},
 			additionalProperties: false,
@@ -545,7 +541,7 @@ const autopilotAdvanced = z
 			.regex(/^[^\s-][^\s]{0,99}$/, "remote is a git remote name")
 			.optional(),
 		notify: z.enum(AUTOPILOT_NOTIFY_MODES).optional(),
-		backlog: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+		backlog: z.array(z.string().trim().min(1).max(500)).optional(),
 		limits: z
 			.object({
 				tokens: positive.optional(),
@@ -665,7 +661,7 @@ export const ARGS = {
 	[T.result]: z
 		.object({
 			session: sessionArg.optional(),
-			sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional(),
+			sessions: z.array(sessionArg).min(1).optional(),
 			wait: z.boolean().optional(),
 			until: z.enum(["all", "any"]).optional(),
 			timeout_seconds: z.number().int().min(1).max(RESULT_WAIT_MAX_SECONDS).optional(),
@@ -693,12 +689,11 @@ export const ARGS = {
 					z
 						.object({
 							id: z.string().min(1).max(200).optional(),
-							selected: z.array(z.string().max(500)).max(20).optional(),
+							selected: z.array(z.string().max(500)).optional(),
 							text: z.string().max(20_000).optional(),
 						})
 						.strict(),
 				)
-				.max(20)
 				.optional(),
 		})
 		.strict(),
@@ -707,8 +702,8 @@ export const ARGS = {
 	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
 	[T.compare]: z
 		.object({
-			sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional(),
-			criteria: z.array(z.string().trim().min(1).max(1000)).min(1).max(JUDGE_MAX_CRITERIA).optional(),
+			sessions: z.array(sessionArg).min(1).optional(),
+			criteria: z.array(z.string().trim().min(1).max(1000)).min(1).optional(),
 		})
 		.strict(),
 	[T.merge]: z.object({ session: sessionArg }).strict(),

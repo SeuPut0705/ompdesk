@@ -63,7 +63,6 @@ import {
 	type AnswerArgs,
 	ARGS,
 	type AutopilotArgs,
-	JUDGE_MAX_CRITERIA,
 	type ListArgs,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
@@ -1800,7 +1799,7 @@ export class AgentControl {
 		const per = Math.floor(JUDGE_EVIDENCE_CHARS / evidence.length);
 		const user = [
 			"Acceptance criteria:",
-			...criteria.slice(0, JUDGE_MAX_CRITERIA).map((criterion, index) => `${index + 1}. ${criterion}`),
+			...criteria.map((criterion, index) => `${index + 1}. ${criterion}`),
 			"",
 			...evidence.map(entry =>
 				[
