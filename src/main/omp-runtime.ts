@@ -19,16 +19,16 @@ import { isExecutableFile, launcherNames, needsShell, spawnArgs, spawnCommand } 
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
- * against. The 18.11.0 floor was set for stock's project-scoped memory backend call
- * (`MemoryBackend.buildDeveloperInstructions(agentDir, cwd, …)`), which OMPdesk no
- * longer uses (ai-memory replaced stock's backends); no other feature is documented
- * as needing 18.11.0, so the value stays until a newer requirement or an audit moves
- * it. Earlier floors: the stock internals the bridge reuses instead of keeping
+ * against. 18.12.2 is the first omp whose `@oh-my-pi/pi-ai` root exports
+ * `nativeJudgmentImageBounds` (the judge-model preview check, `capabilities.ts`
+ * `judgeAssist`) and whose judge chain starts with a native decision model.
+ * Earlier floors: the stock internals the bridge reuses instead of keeping
  * OMPdesk copies (session listing and transcript, worktree root, provider catalog,
  * account matching…), `worktree.onStart`/`onExit` (18.8.6), per-model compaction
- * limits and account identity keys (18.8.7).
+ * limits and account identity keys (18.8.7), stock's project-scoped memory backend
+ * call (18.11.0).
  */
-export const MIN_OMP_VERSION = "18.11.0";
+export const MIN_OMP_VERSION = "18.12.2";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
