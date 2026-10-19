@@ -8,7 +8,12 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import type { CheckoutPeer, CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
-import { canonicalPath, checkoutRefusal, checkoutSection } from "../../resources/gui-bridge/modes/checkout-peers-core";
+import {
+	canonicalPath,
+	checkoutRefusal,
+	checkoutSection,
+	writeRefusal,
+} from "../../resources/gui-bridge/modes/checkout-peers-core";
 
 const REPO = "/work/app";
 const OTHER_WORKTREE = "/work/wt/app-feature";
@@ -107,6 +112,16 @@ describe("checkout guard: one worktree's files and index", () => {
 			"cd docs && git add .",
 		])
 			expect(refused(sharing, command), command).toBe(false);
+	});
+
+	it("refuses writing a file the other session changed whole, from the shell or the write tool, and points to the edit tool", () => {
+		for (const command of ["echo 'x' > src/b.ts", "cat > src/b.ts <<'EOF'\nx\nEOF", "cd src && printf x >> b.ts"])
+			expect(checkoutRefusal(command, REPO, sharing, own), command).toContain("edit tool");
+		expect(writeRefusal([`${REPO}/src/b.ts`], sharing, own)).toContain("writing src/b.ts whole with the write tool");
+		// Its own files, new files and scratch output stay free.
+		for (const command of ["echo x > src/a.ts", "echo x > src/new.ts", "bun test > /tmp/out.txt 2>&1"])
+			expect(refused(sharing, command), command).toBe(false);
+		expect(writeRefusal([`${REPO}/src/a.ts`, `${REPO}/src/new.ts`], sharing, own)).toBeUndefined();
 	});
 
 	it("does not judge worktree steps for a session in another worktree, nor git runs in another repository", () => {

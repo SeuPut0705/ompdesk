@@ -91,9 +91,13 @@ test("one session's bulk stage is refused, it commits its own file, and the othe
 	const answer = await play(first, [
 		{ wait: "peers" },
 		{ write: "src/a.ts", content: "export const a = 2;\n" },
+		{ write: "src/b.ts", content: "export const b = 'mine';\n" },
+		{ bash: "echo 'export const b = 3;' > src/b.ts" },
 		{ bash: "git add -A" },
 		{ bash: "git add -- src/a.ts && git -c user.email=t@t -c user.name=t commit -q -m 'a' -- src/a.ts" },
 	]);
+	expect(answer).toContain("Refused while other sessions work here: writing src/b.ts whole with the write tool");
+	expect(answer).toContain("Refused while other sessions work here: writing src/b.ts whole from the shell");
 	expect(answer).toContain("Refused while other sessions work here: `git add -A`");
 
 	// Only a.ts went into the commit; b.ts is still the second session's own, unstaged change.

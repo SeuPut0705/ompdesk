@@ -21,7 +21,7 @@ import {
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "./checkout-peers-contracts";
-import { canonicalPath, checkoutRefusal, checkoutSection, rememberFiles } from "./checkout-peers-core";
+import { canonicalPath, checkoutRefusal, checkoutSection, rememberFiles, writeRefusal } from "./checkout-peers-core";
 
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
 const real = (path: string) => fs.realpathSync.native(path);
@@ -33,13 +33,14 @@ let ownFiles: string[] = [];
 export function install(pi: ExtensionAPI): void {
 	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(peers));
 	pi.on("tool_call", (event, ctx) => {
-		const written = fileToolPaths(event.toolName, event.input);
-		if (written.length > 0)
-			ownFiles = rememberFiles(
-				ownFiles,
-				written.map(file => canonicalPath(normalizePath(file, ctx.cwd), real)),
-				CHECKOUT_FILES_MAX,
-			);
+		const written = fileToolPaths(event.toolName, event.input).map(file =>
+			canonicalPath(normalizePath(file, ctx.cwd), real),
+		);
+		if (peers && event.toolName === "write") {
+			const reason = writeRefusal(written, peers, ownFiles);
+			if (reason) return { block: true, reason };
+		}
+		if (written.length > 0) ownFiles = rememberFiles(ownFiles, written, CHECKOUT_FILES_MAX);
 		if (!peers || event.toolName !== "bash") return undefined;
 		const input = event.input as { command?: unknown; cwd?: unknown };
 		if (typeof input.command !== "string") return undefined;

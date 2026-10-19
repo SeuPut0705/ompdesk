@@ -3,13 +3,14 @@
  * other sessions and how to reach them, and the `tool_call` guard that refuses a git command which would take,
  * overwrite or hide another session's work. Pure; the bridge module (checkout-peers.ts) and the GUI's tests call it.
  *
- * The guard reads `bash` with Autopilot's own shell parser (`gitInvocations`) and judges each git run by one table
+ * The guard reads `bash` with Autopilot's own shell parser (`shellEffects`) and judges each git run by one table
  * (`GIT_RULES`): a repository-wide step (stash, deleting or moving a branch) is refused while any other session works
  * in any worktree of the repository; a worktree step (switching or resetting the checkout, cleaning, bulk staging,
- * `commit -a`) while another session works in the same worktree; a step on named paths only when a path is broad
- * (`.`, a directory, a glob) or names a file another session changed. A session working alone is never judged.
+ * `commit -a`, a commit without paths) while another session works in the same worktree; a step on named paths only
+ * when a path is broad (`.`, a directory, a glob) or names a file another session changed. Writing a file another
+ * session changed whole (a shell redirect, the `write` tool) is refused too. A session working alone is never judged.
  */
-import { type GitInvocation, gitInvocations, isInside, normalizePath } from "./autopilot-guard-core";
+import { type GitInvocation, isInside, normalizePath, shellEffects } from "./autopilot-guard-core";
 import type { CheckoutPeer, CheckoutPeers } from "./checkout-peers-contracts";
 
 /** What one git run does to shared state, before knowing who else works here. */
@@ -266,13 +267,73 @@ export function checkoutRefusal(
 ): string | undefined {
 	const repoPeers = [...peers.worktree, ...peers.repo];
 	if (repoPeers.length === 0) return undefined;
-	for (const git of gitInvocations(command, cwd)) {
+	const effects = shellEffects(command, cwd);
+	for (const git of effects.git) {
 		// A `cd` or `-C` through a symlink lands in main's spelling of the checkout too.
 		const at = realpath && !git.cwd.startsWith("\u0000") ? { ...git, cwd: canonicalPath(git.cwd, realpath) } : git;
 		const refusal = judge(at, peers, repoPeers, ownFiles);
 		if (refusal) return refusal;
 	}
+	const written = effects.writes.map(path => (realpath ? canonicalPath(path, realpath) : path));
+	return overwriteRefusal(written, "from the shell", peers, ownFiles);
+}
+
+/**
+ * Why a `write` tool call (it replaces a file whole) must not run, or undefined: measured, two sessions changing one
+ * file kept overwriting each other's uncommitted lines this way, while the edit tool applies only its own lines and
+ * refuses an edit whose lines moved underneath.
+ */
+export function writeRefusal(
+	paths: readonly string[],
+	peers: CheckoutPeers,
+	ownFiles: readonly string[],
+): string | undefined {
+	return overwriteRefusal(paths, "with the write tool", peers, ownFiles);
+}
+
+function overwriteRefusal(
+	paths: readonly string[],
+	how: string,
+	peers: CheckoutPeers,
+	ownFiles: readonly string[],
+): string | undefined {
+	for (const path of paths) {
+		const endangered = peers.worktree.filter(peer =>
+			peer.files?.some(file => isInside(file, path) && isInside(path, file)),
+		);
+		if (endangered.length === 0) continue;
+		return refusalText(
+			`writing ${relative(path, peers.toplevel)} whole ${how} would drop the other session's uncommitted changes to it`,
+			"Change it with the edit tool: it applies only your lines and refuses an edit whose lines moved under you.",
+			endangered,
+			true,
+			peers,
+			ownFiles,
+		);
+	}
 	return undefined;
+}
+
+function refusalText(
+	what: string,
+	instead: string,
+	endangered: CheckoutPeer[],
+	files: boolean,
+	peers: CheckoutPeers,
+	ownFiles: readonly string[],
+): string {
+	const own = ownFiles.length
+		? ` Files you changed: ${ownFiles
+				.slice(0, 12)
+				.map(file => relative(file, peers.toplevel))
+				.join(", ")}.`
+		: "";
+	return [
+		`Refused while other sessions work here: ${what}.`,
+		...endangered.map(peer => peerLine(peer, peers.toplevel, files)),
+		`${instead}${own}`,
+		askLine(endangered, peers.canMessage),
+	].join("\n");
 }
 
 function judge(
@@ -293,18 +354,14 @@ function judge(
 	} else endangered = hazard.scope === "repo" ? repoPeers : peers.worktree;
 	if (endangered.length === 0) return undefined;
 	const command = `git ${[git.sub, ...git.args].join(" ")}`.slice(0, 120);
-	const own = ownFiles.length
-		? ` Files you changed: ${ownFiles
-				.slice(0, 12)
-				.map(file => relative(file, toplevel))
-				.join(", ")}.`
-		: "";
-	return [
-		`Refused while other sessions work here: \`${command}\`: ${hazard.what}.`,
-		...endangered.map(peer => peerLine(peer, toplevel, hazard.scope !== "repo")),
-		`${hazard.instead}${own}`,
-		askLine(endangered, peers.canMessage),
-	].join("\n");
+	return refusalText(
+		`\`${command}\`: ${hazard.what}`,
+		hazard.instead,
+		endangered,
+		hazard.scope !== "repo",
+		peers,
+		ownFiles,
+	);
 }
 
 /**
@@ -329,7 +386,7 @@ export function checkoutSection(peers: CheckoutPeers | undefined): string | unde
 	}
 	lines.push(
 		peers.worktree.length > 0
-			? "- Stage and commit only files you changed, by name (git add -- <file>, git commit -m <message> -- <file>): the index is shared, so a commit without paths takes what they staged. Never git add -A or ., commit -a, stash, reset, clean, switch, or checkout/restore of files you did not change: a guard refuses them while others work here. Run formatters and fixers on your own files only (prettier --write <file>), never on the whole tree."
+			? "- Stage and commit only files you changed, by name (git add -- <file>, git commit -m <message> -- <file>): the index is shared, so a commit without paths takes what they staged. Never git add -A or ., commit -a, stash, reset, clean, switch, or checkout/restore of files you did not change: a guard refuses them while others work here. Change a file they also work on with the edit tool, never by writing it whole (write, a shell `>`). Run formatters and fixers on your own files only (prettier --write <file>), never on the whole tree."
 			: "- Never use git stash, and never delete or move a branch you did not create: a guard refuses them while others work in this repository.",
 	);
 	const reachable = [...peers.worktree, ...peers.repo].filter(peer => peer.id);

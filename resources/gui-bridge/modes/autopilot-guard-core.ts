@@ -331,8 +331,8 @@ interface Scope {
 	defaultBranch: string;
 	/** Paths cannot be judged (an approver card has no worktree). */
 	paths: boolean;
-	/** Read-only walk (`gitInvocations`): every git invocation is handed here instead of judged, and nothing stops the walk. */
-	collect?: (git: GitInvocation) => void;
+	/** Read-only walk (`shellEffects`): every git run and output redirect is handed here instead of judged, and nothing stops the walk. */
+	collect?: { git(git: GitInvocation): void; write(path: string): void };
 }
 
 /** One `git` run a command line makes: where it runs (after `cd` and `-C`), its subcommand and the rest. */
@@ -340,6 +340,13 @@ export interface GitInvocation {
 	cwd: string;
 	sub: string;
 	args: string[];
+}
+
+/** What a command line does that another session in the checkout could feel: its git runs and the files it redirects output into. */
+export interface ShellEffects {
+	git: GitInvocation[];
+	/** Absolute targets of `>`, `>>`, `&>` (a target naming a variable or `~` is left out: it cannot be resolved here). */
+	writes: string[];
 }
 
 const RESERVED = new Set([
@@ -912,6 +919,11 @@ function unwrap(argv: string[]): { argv: string[]; reason?: string } {
 
 function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth: number): string | undefined {
 	if (cmd.argv[0] === TOO_DEEP) return "the command is nested too deeply to verify";
+	if (scope.collect)
+		for (const target of cmd.redirects) {
+			const resolved = resolveWord(target, state.cwd);
+			if (resolved.path) scope.collect.write(resolved.path);
+		}
 	if (scope.paths) {
 		for (const target of cmd.redirects) {
 			const problem = writePathProblem(target, state.cwd, scope.root, true);
@@ -951,7 +963,7 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 	if (name === "git") {
 		if (!scope.collect) return gitCommand(argv, scope, state.cwd);
 		const git = parseGit(argv, state.cwd);
-		scope.collect({ cwd: git.cwd ?? state.cwd, sub: git.sub, args: git.args });
+		scope.collect.git({ cwd: git.cwd ?? state.cwd, sub: git.sub, args: git.args });
 		return undefined;
 	}
 	if (name === "gh") return ghCommand(argv, scope);
@@ -1047,12 +1059,17 @@ export function bashViolation(command: string, options: BanScanOptions & { cwd?:
 }
 
 /**
- * Every `git` run in a shell command line, read with the guard's own parser (quotes, `cd`, `sh -c`, `eval`, wrappers
- * such as `env`/`xargs`/`timeout`, `find -exec`). A `cd` it cannot resolve leaves `cwd` as "\u0000unresolvable".
+ * Every `git` run and output redirect in a shell command line, read with the guard's own parser (quotes, `cd`,
+ * `sh -c`, `eval`, wrappers such as `env`/`xargs`/`timeout`, `find -exec`). A `cd` it cannot resolve leaves a git
+ * run's `cwd` as "\u0000unresolvable".
  */
-export function gitInvocations(command: string, cwd: string): GitInvocation[] {
-	const found: GitInvocation[] = [];
-	analyzeScript(command, { ...scopeFrom({}), collect: git => found.push(git) }, { cwd: normalizePath(cwd, "/") }, 0);
+export function shellEffects(command: string, cwd: string): ShellEffects {
+	const found: ShellEffects = { git: [], writes: [] };
+	const collect = {
+		git: (git: GitInvocation) => found.git.push(git),
+		write: (path: string) => found.writes.push(path),
+	};
+	analyzeScript(command, { ...scopeFrom({}), collect }, { cwd: normalizePath(cwd, "/") }, 0);
 	return found;
 }
 

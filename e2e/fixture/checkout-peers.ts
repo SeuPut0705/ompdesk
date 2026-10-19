@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
-import { checkoutRefusal, rememberFiles } from "../../resources/gui-bridge/modes/checkout-peers-core";
+import { checkoutRefusal, rememberFiles, writeRefusal } from "../../resources/gui-bridge/modes/checkout-peers-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
@@ -87,6 +87,8 @@ export function createCheckoutFake(host: Host) {
 
 	function writeFile(path: string, content: string): { text: string; isError: boolean } {
 		const file = nodePath.resolve(cwd, path);
+		const refusal = peers ? writeRefusal([normalizePath(file, "/")], peers, ownFiles) : undefined;
+		if (refusal) return { text: refusal, isError: true };
 		fs.mkdirSync(nodePath.dirname(file), { recursive: true });
 		fs.writeFileSync(file, content);
 		ownFiles = rememberFiles(ownFiles, [normalizePath(file, "/")], 40);
@@ -106,7 +108,11 @@ export function createCheckoutFake(host: Host) {
 				}
 			} else if ("write" in step) {
 				const content = step.content ?? "";
-				call(turn, index, "write", { path: step.write, content }, () => writeFile(step.write, content));
+				call(turn, index, "write", { path: step.write, content }, () => {
+					const outcome = writeFile(step.write, content);
+					if (outcome.text.startsWith("Refused")) refused.push(outcome.text.split("\n", 1)[0] ?? "");
+					return outcome;
+				});
 			} else
 				call(turn, index, "bash", { command: step.bash }, () => {
 					const outcome = bash(step.bash);
