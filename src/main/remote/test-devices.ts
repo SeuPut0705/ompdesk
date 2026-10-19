@@ -174,7 +174,16 @@ export class DevicesRig {
 }
 
 export function studioNode(patch: Partial<TailnetNode> = {}): TailnetNode {
-	return { nodeId: "nSTUDIO", name: "studio", ips: [LOOPBACK], os: "macOS", online: true, login: LOGIN, ...patch };
+	return {
+		nodeId: "nSTUDIO",
+		name: "studio",
+		ips: [LOOPBACK],
+		os: "macOS",
+		online: true,
+		login: LOGIN,
+		endpoints: [],
+		...patch,
+	};
 }
 
 /** Resolves once `done` holds for the computer's state, checked on every broadcast; the timer is only a failure deadline. */

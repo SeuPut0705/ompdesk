@@ -45,8 +45,21 @@ describe("Tailnet", () => {
 		expect(WHOIS_CACHE_MAX).toBe(256);
 	});
 
-	it("reads the tailnet's nodes and this computer's addresses, cached briefly", async () => {
-		const { tailnet, calls, clock, scenario } = rig({ selfIps: ["100.64.0.5"], selfStableId: "nSELF" });
+	it("reads the tailnet's nodes (with their LAN endpoint) and this computer's addresses, cached briefly", async () => {
+		const iphone = {
+			hostName: "iphone",
+			os: "iOS",
+			online: true,
+			userId: 1001,
+			ip: "100.64.0.9",
+			stableId: "nIPHONE1CNTRL",
+			curAddr: "192.168.0.2:41641",
+		};
+		const { tailnet, calls, clock, scenario } = rig({
+			selfIps: ["100.64.0.5"],
+			selfStableId: "nSELF",
+			peers: [iphone],
+		});
 		const status = await tailnet.status();
 		expect(status).toMatchObject({ selfIps: ["100.64.0.5"], selfNodeId: "nSELF" });
 		expect(status?.peers).toEqual([
@@ -57,6 +70,7 @@ describe("Tailnet", () => {
 				os: "iOS",
 				online: true,
 				login: "seuput@example.com",
+				endpoints: ["192.168.0.2"],
 			},
 		]);
 		await tailnet.status();

@@ -33,6 +33,10 @@ const PeerSchema = z.object({
 	Online: lenient(z.boolean()),
 	UserID: lenient(z.number()),
 	TailscaleIPs: lenient(z.array(z.string())),
+	/** The peer's current direct endpoint (`ip:port`, often its LAN address); empty when relayed. */
+	CurAddr: lenient(z.string()),
+	/** Every endpoint the peer advertises (`ip:port`). */
+	Addrs: lenient(z.array(z.string())),
 });
 
 const StatusSchema = z.object({
@@ -101,6 +105,8 @@ export interface TailnetNode {
 	online: boolean;
 	/** The node's user's login; null for a tagged node or a user the document does not list. */
 	login: string | null;
+	/** The hosts of the node's current and advertised endpoints (its LAN or public addresses, not tailnet ones). */
+	endpoints: string[];
 }
 
 const BACKENDS: Record<string, BackendKind> = {
@@ -115,6 +121,16 @@ const BACKENDS: Record<string, BackendKind> = {
 
 /** Peers that count as the user's phone or tablet. */
 const MOBILE_OS = /^(ios|ipados|android)$/i;
+
+/** The host parts of `ip:port` / `[v6]:port` endpoints, without repeats. */
+function endpointHosts(endpoints: string[]): string[] {
+	const hosts = new Set<string>();
+	for (const endpoint of endpoints) {
+		const host = /^\[([^\]]+)\]:\d+$/.exec(endpoint)?.[1] ?? /^([^:]+):\d+$/.exec(endpoint)?.[1];
+		if (host) hosts.add(host);
+	}
+	return [...hosts];
+}
 
 /** The status document in `stdout`, or null when it is not one. */
 export function parseStatus(stdout: string): TailscaleStatus | null {
@@ -142,6 +158,7 @@ export function parseStatus(stdout: string): TailscaleStatus | null {
 				os: peer.OS ?? null,
 				online: peer.Online === true,
 				login: loginOf(peer.UserID),
+				endpoints: endpointHosts([peer.CurAddr ?? "", ...(peer.Addrs ?? [])]),
 			});
 		}
 		if (userId === null) continue;

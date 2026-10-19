@@ -58,6 +58,8 @@ export interface FakeTailscaleScenario {
 		ip?: string;
 		stableId?: string;
 		login?: string;
+		/** The node's direct endpoint (`ip:port`), as `status --json` `CurAddr` reports it (a LAN address). */
+		curAddr?: string;
 	}>;
 	/** What `serve status --json` answers. Starts with the user's own `443 → http://127.0.0.1:3010`. */
 	serve: FakeServeConfig;
@@ -137,6 +139,7 @@ function statusJson(s: FakeTailscaleScenario): string {
 				UserID: peer.userId,
 				Online: peer.online,
 				TailscaleIPs: peer.ip ? [peer.ip] : [],
+				CurAddr: peer.curAddr ?? "",
 			},
 		]),
 	);

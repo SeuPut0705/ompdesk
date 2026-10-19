@@ -33,6 +33,7 @@ describe("parseStatus", () => {
 					os: "iOS",
 					online: true,
 					login: "seuput@example.com",
+					endpoints: [],
 				},
 			],
 		});

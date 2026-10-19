@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { generateKeyPair } from "./crypto";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
@@ -114,7 +115,8 @@ describe("ports", () => {
 			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
 		);
 		await b.devices.setHostEnabled(true);
-		expect(b.devices.state().host.port).toBe(port + 1);
+		// A successor of its list (another process may hold the next one too).
+		expect(b.devices.state().host.port).toBeGreaterThan(port);
 		const a = await rig.computer("Laptop", fakeTailnet({ peers: [studioNode()] }));
 		expect((await a.devices.watchTailnet(1, true))[0]?.state).toBe("available");
 		await a.devices.connect("nSTUDIO");
@@ -176,6 +178,63 @@ describe("code-paired computers", () => {
 
 		a.devices.dismissForgotten();
 		expect(a.devices.state().forgotten).toEqual([]);
+	});
+
+	it("keeps a host code pairing stored by its LAN address and old ports, and reaches it at its tailnet address", async () => {
+		// The real case: the Mac stored only `192.168.0.2:54155` and `:56613` (LAN address, ephemeral ports of the old
+		// fallback); after a reboot the PC listens on its tailnet address and the usual port, and Tailscale reports the
+		// LAN address only as the node's endpoint (`CurAddr`), never among its TailscaleIPs.
+		await rig.pickPort();
+		const bDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-b-"));
+		const aDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-a-"));
+		dirs.push(bDir, aDir);
+		const hostIdentity = loadIdentity(bDir);
+		const deviceIdentity = loadIdentity(aDir);
+		new PeerStore(bDir).put({
+			deviceId: deviceIdentity.deviceId,
+			name: "Laptop",
+			staticPub: deviceIdentity.publicKey,
+			nodeId: null,
+			login: null,
+			pairedAt: 1,
+		});
+		const hosts = new HostStore(aDir);
+		const legacy = { staticPub: generateKeyPair().publicKey, nodeId: null, pairedAt: 1, addresses: [] };
+		hosts.put({
+			deviceId: hostIdentity.deviceId,
+			name: "Office PC",
+			staticPub: hostIdentity.publicKey,
+			nodeId: null,
+			addresses: ["192.168.0.2:54155", "192.168.0.2:56613"],
+			pairedAt: 1,
+		});
+		// Found by its announced name only (case aside); its key is checked at its first connection.
+		hosts.put({ ...legacy, deviceId: "named", name: "DESKTOP-91ID999" });
+
+		const b = await rig.computer(
+			"Office PC",
+			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
+			{ userData: bDir },
+		);
+		await b.devices.setHostEnabled(true);
+		const a = await rig.computer(
+			"Laptop",
+			fakeTailnet({
+				peers: [
+					studioNode({ nodeId: "nPC", name: "office", endpoints: ["192.168.0.2"] }),
+					studioNode({ nodeId: "nNAMED", name: "desktop-91id999", ips: ["100.64.0.77"] }),
+				],
+			}),
+			{ userData: aDir },
+		);
+		a.devices.start();
+
+		await until(a, next => next.hosts.find(host => host.deviceId === hostIdentity.deviceId)?.state === "online");
+		expect(a.devices.state().forgotten).toEqual([]);
+		const kept = new HostStore(aDir);
+		expect(kept.get(hostIdentity.deviceId)).toMatchObject({ nodeId: "nPC" });
+		expect(kept.get(hostIdentity.deviceId)?.addresses[0]).toMatch(/^127\.0\.0\.1:\d+$/);
+		expect(kept.get("named")?.nodeId).toBe("nNAMED");
 	});
 });
 

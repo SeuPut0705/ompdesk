@@ -539,18 +539,29 @@ export class RemoteDevices {
 	}
 
 	/**
-	 * Hosts an older release paired by code have no node: each is matched to the tailnet node at one of its
-	 * addresses and kept, the rest are forgotten (named once in Settings). Runs once Tailscale is up.
+	 * Hosts an older release paired by code have no node. Each is matched to a tailnet node by, in order: a stored
+	 * address that is one of the node's tailnet addresses; a stored address that is one of its endpoints (`CurAddr`/
+	 * `Addrs`: code pairing stored LAN addresses, which Tailscale reports only as the node's endpoint); its announced
+	 * name equal to the node's (case aside). A match is kept and verified at its first connection (the client pins
+	 * the node, the host its key: a different key is refused); the rest are forgotten (named once in Settings). Runs
+	 * once Tailscale is up.
 	 */
 	#migrateHosts(status: TailscaleStatus): void {
 		if (typeof this.#deps.prefs.get(MIGRATED_KEY) === "number") return;
 		const forgotten: string[] = [];
+		const candidates = status.peers.filter(peer => peer.login !== null);
 		for (const host of this.#hosts.list()) {
 			if (host.nodeId !== null) continue;
-			const ips = new Set(host.addresses.map(address => parseAddress(address)?.host).filter(Boolean));
-			const node = status.peers.find(peer => peer.login !== null && peer.ips.some(ip => ips.has(ip)));
+			const stored = new Set(host.addresses.map(address => parseAddress(address)?.host).filter(Boolean));
+			const name = host.name.trim().toLowerCase();
+			const node =
+				candidates.find(peer => peer.ips.some(ip => stored.has(ip))) ??
+				candidates.find(peer => peer.endpoints.some(endpoint => stored.has(endpoint))) ??
+				candidates.find(peer => peer.name.trim().toLowerCase() === name);
 			if (node) {
-				this.#hosts.update(host.deviceId, { nodeId: node.nodeId });
+				// Its stored addresses (LAN, old ports) are of no use any more: the node's tailnet address is.
+				this.#hosts.update(host.deviceId, { nodeId: node.nodeId, addresses: [] });
+				this.#links.get(host.deviceId)?.client.connect();
 				continue;
 			}
 			this.#unlink(host.deviceId);
@@ -714,16 +725,21 @@ export class RemoteDevices {
 		this.#deps.broadcast(IPC_EVENTS.REMOTE_TAILNET, this.#computers);
 	}
 
-	/** A known host's addresses now: its node's tailnet address at the port it answered last, then the candidates. */
+	/**
+	 * A known host's addresses now: its node's current tailnet address on the port it answered on in this run, then
+	 * on every candidate port. Stored addresses and ports are never dialed: a reboot moves the port, code pairing
+	 * stored LAN addresses, and a host now listens on its tailnet address only. A host with no node yet (code-paired,
+	 * not migrated) has nothing to dial until the migration finds its node.
+	 */
 	async #hostAddresses(host: PairedHost): Promise<string[]> {
 		if (!host.nodeId) return [];
 		const status = await this.#deps.tailnet.status();
 		const node = status?.peers.find(peer => peer.nodeId === host.nodeId);
 		const ip = node?.ips.find(candidate => isIPv4(candidate)) ?? node?.ips[0];
+		if (!ip) return [];
 		const found = this.#found.get(host.nodeId);
-		const known = host.addresses.map(address => parseAddress(address)?.port).filter(port => port !== undefined);
-		const ports = [...new Set([...known, ...remotePortCandidates()])];
-		return [...(found ? [found] : []), ...(ip ? ports.map(port => formatAddress({ host: ip, port })) : [])];
+		const addresses = remotePortCandidates().map(port => formatAddress({ host: ip, port }));
+		return found && addresses.includes(found) ? [found, ...addresses.filter(a => a !== found)] : addresses;
 	}
 
 	#link(deviceId: string): void {

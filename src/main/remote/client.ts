@@ -338,10 +338,11 @@ export class RemoteClient {
 		this.#emitter.emit("state", state);
 	}
 
+	/** The resolver's answer when there is one (it decides whether stored addresses count), else the stored ones. */
 	async #addresses(): Promise<string[]> {
 		const stored = this.#opts.hosts?.get(this.deviceId) ?? this.#host;
-		const current = this.#opts.addresses ? await this.#opts.addresses(stored).catch(() => []) : [];
-		return [...new Set([...current, ...stored.addresses])];
+		if (!this.#opts.addresses) return stored.addresses;
+		return this.#opts.addresses(stored).catch(() => []);
 	}
 
 	async #attempt(): Promise<void> {
