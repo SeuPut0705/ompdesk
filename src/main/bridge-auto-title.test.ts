@@ -14,7 +14,9 @@ import {
 	type TitleModel,
 	type TitleSession,
 } from "../../resources/gui-bridge/modes/auto-title-engine";
+import { setJudgeAssistEnabled, setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
 import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
+import { type FakeJudge, fakeJudge, titleAnswer } from "./test-fake-judge";
 
 interface Entry {
 	type: "title_change";
@@ -708,5 +710,132 @@ describe("plain titles (title.icons: boring)", () => {
 		await attach(world.session);
 		expect(world.manager.setSessionName).not.toHaveBeenCalled();
 		expect(world.manager.getSessionName()).toBe("🔑 PWERR: 로그인 오류");
+	});
+});
+
+describe("evolving title with the judge's title check (judge assist)", () => {
+	const messages = Array.from({ length: 6 }, (_, index) => [
+		{ role: "user", content: `request ${index}` },
+		{ role: "assistant", content: [{ type: "text", text: `reply ${index}` }] },
+	]).flat();
+	let fake: FakeJudge;
+
+	const evolving = () => {
+		const world = build({ name: "🐛 Fix login bug", source: "auto" });
+		Object.assign(world.session, { messages });
+		return world;
+	};
+	const withJudge = (choice: "A" | "B" | "same") => {
+		fake = fakeJudge(async () => titleAnswer(choice));
+		setJudgeAssistStockLoader(async () => fake.stock);
+	};
+	const evolve = async (world: ReturnType<typeof evolving>) => {
+		await attach(world.session);
+		await turn(world.session, "edit");
+		await turn(world.session, "edit", "write");
+	};
+
+	afterEach(() => {
+		setJudgeAssistStockLoader(undefined);
+		setJudgeAssistEnabled(true);
+	});
+
+	it("writes the new title when the judge picks it, asking with both titles and the last four exchanges", async () => {
+		const world = evolving();
+		withJudge("B");
+		await evolve(world);
+		expect(world.manager.getSessionName()).toBe("Migrate build to Vite");
+		expect(world.manager.setSessionName).toHaveBeenLastCalledWith("Migrate build to Vite", "auto", TITLE_TRIGGER);
+		expect(fake.requests).toHaveLength(1);
+		const request = fake.requests[0] as {
+			state: { recentTurns: Array<{ user: string; assistant: string }>; titleA: string; titleB: string };
+		};
+		expect([request.state.titleA, request.state.titleB]).toEqual(["🐛 Fix login bug", "Migrate build to Vite"]);
+		expect(request.state.recentTurns).toEqual([
+			{ user: "request 2", assistant: "reply 2" },
+			{ user: "request 3", assistant: "reply 3" },
+			{ user: "request 4", assistant: "reply 4" },
+			{ user: "request 5", assistant: "reply 5" },
+		]);
+		expect((fake.deps[0] as { purpose: string }).purpose).toBe("ompdesk-title-check");
+	});
+
+	it.each(["A", "same"] as const)("keeps the current title when the judge says %s", async choice => {
+		const world = evolving();
+		withJudge(choice);
+		await evolve(world);
+		expect(fake.requests).toHaveLength(1);
+		expect(world.manager.setSessionName).not.toHaveBeenCalled();
+		expect(world.manager.getSessionName()).toBe("🐛 Fix login bug");
+		expect(frames).toEqual([]);
+	});
+
+	it.each([
+		["no native judge", () => (fake.native.current = false)],
+		["the switch off", () => setJudgeAssistEnabled(false)],
+		[
+			"a judge that throws",
+			() => {
+				fake.answer.current = async () => {
+					throw new Error("provider down");
+				};
+			},
+		],
+		[
+			"an unreadable answer",
+			() => {
+				fake.answer.current = async () => ({ better: { choice: "C" } });
+			},
+		],
+	])("writes the new title as before with %s", async (_label, disable) => {
+		const world = evolving();
+		withJudge("A");
+		disable();
+		await evolve(world);
+		expect(world.manager.getSessionName()).toBe("Migrate build to Vite");
+		expect(world.manager.setSessionName).toHaveBeenLastCalledWith("Migrate build to Vite", "auto", TITLE_TRIGGER);
+	});
+
+	it("writes as before when no judge is installed at all, and when the session has no transcript to read", async () => {
+		const world = build({ name: "🐛 Fix login bug", source: "auto" });
+		await evolve(world);
+		expect(world.manager.getSessionName()).toBe("Migrate build to Vite");
+	});
+
+	it("lets a name typed while the judge answers win", async () => {
+		const world = evolving();
+		fake = fakeJudge(async () => {
+			await world.manager.setSessionName("Typed mid-judgment", "user");
+			return titleAnswer("B");
+		});
+		setJudgeAssistStockLoader(async () => fake.stock);
+		await evolve(world);
+		expect(world.manager.getSessionName()).toBe("Typed mid-judgment");
+		expect(world.manager.setSessionName).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks nothing for a first title, a typed name, a reworded title or the regenerate button", async () => {
+		withJudge("A");
+		const first = build();
+		Object.assign(first.session, { messages });
+		await attach(first.session);
+		await send(first.session, { type: "message_end", message: operator("fix the login bug") });
+		await flush();
+		expect(first.manager.getSessionName()).toBe("🐛 Fix login bug");
+
+		const typed = build({ name: "My own name", source: "user" });
+		Object.assign(typed.session, { messages });
+		await attach(typed.session);
+		for (let i = 0; i < 4; i++) await turn(typed.session, "edit", "edit", "edit");
+
+		const reworded = build({ name: "Fix the login bug", source: "auto" });
+		Object.assign(reworded.session, { messages });
+		reworded.script.retitle.mockResolvedValue("fix login bug");
+		await evolve(reworded);
+
+		const regenerated = evolving();
+		await attach(regenerated.session);
+		expect(await regenerate(regenerated.session)).toEqual({ title: "Migrate build to Vite" });
+		expect(fake.requests).toEqual([]);
 	});
 });

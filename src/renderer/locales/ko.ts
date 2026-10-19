@@ -1379,6 +1379,7 @@ export const ko: Record<string, string> = {
 	"modelRoles.default": "기본값(카탈로그)",
 	"modelRoles.notSet": "지정 안 함",
 	"modelRoles.sourceProject": "이 프로젝트에서 설정했어요",
+	"modelRoles.judgeSmallDecisions": "판단 모델이 하는 작은 판단",
 	"modelRoles.notConnected": "omp가 연결되지 않았어요",
 	"modelRoles.notConnectedHint": "omp에 연결되면 모델 역할을 불러와요.",
 	"modelRoles.set": '"{role}" 역할을 {model} 모델로 설정했어요',
@@ -4487,6 +4488,8 @@ export const ko: Record<string, string> = {
 	"panel.preview.link": "이 시각화가 {url} 주소를 열려고 했어요. 시각화는 스스로 페이지를 벗어나지 않아요.",
 	"panel.preview.linkOpen": "새 탭에서 열기",
 	"panel.preview.unresponsive": "이 페이지가 응답하지 않아요.",
+	"panel.preview.check.error": "이 페이지에 오류가 보여요",
+	"panel.preview.check.blank": "이 페이지가 비어 보여요",
 	"panel.preview.problemsCopy": "문제 복사하기",
 	"panel.preview.problemError": "오류:",
 	"panel.preview.problemWarning": "경고:",
@@ -5677,6 +5680,9 @@ export const ko: Record<string, string> = {
 	"settings.agent.automation": "스마트 자동화",
 	"settings.gui.scheduledRetry": "일시 오류 뒤 자동 재시도",
 	"settings.gui.scheduledRetryDesc": "30초, 2분, 10분 간격으로 최대 3번 다시 시도해요",
+	"settings.gui.judgeAssist": "작은 판단에 판단 모델 쓰기",
+	"settings.gui.judgeAssistDesc":
+		"판단 모델이 전용 판단 모델이면, OMPdesk가 한 단어로 답하는 질문을 몇 가지 물어봐요. 끝난 턴이 내 답을 기다리는지, 새 세션 제목이 어울리는지, 에이전트가 연 페이지에 오류가 보이는지요. 질문 하나에 약 $0.00004, 0.5초 안쪽이에요. 다른 판단 모델이면 아무것도 달라지지 않아요.",
 	"settings.gui.pstack": "pstack 엔지니어링 모드",
 	"settings.gui.pstackDesc":
 		"모든 대화에 엔지니어링 플레이북과 원칙(Lauren Tan의 pstack, MIT)을 적용해요. 간단한 질문엔 그냥 답해요. 끄면 pstack 스킬과 규칙을 쓰지 않아요.",

@@ -6,6 +6,7 @@ import { AutopilotSettingsRows } from "./AutopilotRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
+import { JudgeAssistRow } from "./JudgeAssistRow";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { PstackRow } from "./PstackRow";
@@ -70,6 +71,7 @@ export function AgentSection() {
 				<AutoChangesRow />
 				<BatchNotificationsRow />
 				<ScheduledRetryRow />
+				<JudgeAssistRow />
 				<AutoModeRow />
 				<PstackRow />
 				<AutopilotSettingsRows />

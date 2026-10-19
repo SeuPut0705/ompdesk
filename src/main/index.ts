@@ -28,6 +28,7 @@ import {
 	autoTitleFromPrefs,
 } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF } from "../../resources/gui-bridge/modes/delegation-contracts";
+import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import {
 	NEXT_PROMPT_INLINE_PREF,
 	NEXT_PROMPT_PREF,
@@ -615,6 +616,7 @@ app.whenReady().then(() => {
 			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),
 		autoTitlePrefs: () =>
 			autoTitleFromPrefs(prefsStore().get(AUTO_TITLE_PREF), prefsStore().get(AUTO_TITLE_EVOLVE_PREF)),
+		judgeAssistPref: () => judgeAssistEnabled(prefsStore().get(JUDGE_ASSIST_PREF)),
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),

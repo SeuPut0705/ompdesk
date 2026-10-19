@@ -166,6 +166,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 	syncUserProfile(): void {}
 	syncNextPrompt(): void {}
 	syncAutoTitle(): void {}
+	syncJudgeAssist(): void {}
 	syncHostTools(): void {}
 	syncAccountRotation(): void {}
 

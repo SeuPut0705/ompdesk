@@ -25,6 +25,7 @@ import { useUiStore } from "../../stores/ui";
 import { Badge, IconButton, ProgressBar } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
+import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { ProviderMark } from "./providers/ProviderMark";
 import { SettingsRow } from "./SettingsLayout";
@@ -353,6 +354,19 @@ export function ModelRoleRow({
 					usage={usage}
 				/>
 				{entry.effective?.skipped && <SkippedLine effective={entry.effective} providers={providers} t={t} />}
+				{entry.id === "judge" && (
+					// Quiet pointer to what OMPdesk asks this role (Settings › Agent behavior), never a notice about the model.
+					<p className="text-sc-xs">
+						<button
+							className="cursor-pointer rounded-(--sc-radius-sm) text-(--sc-accent) underline-offset-2 hover:underline focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+							data-judge-assist-link=""
+							onClick={() => useUiStore.getState().openSettings(JUDGE_ASSIST_SETTING_TARGET)}
+							type="button"
+						>
+							{t("modelRoles.judgeSmallDecisions")}
+						</button>
+					</p>
+				)}
 				{agents && (
 					<p className="text-sc-xs text-(--sc-text-muted)">
 						{agents.installed.length > 0 && (

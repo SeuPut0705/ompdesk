@@ -40,6 +40,7 @@ describe("localSidecarFactory", () => {
 			delegationPref: () => undefined,
 			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
 			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
 			launchProfilesPref: () => stored,
@@ -71,6 +72,7 @@ describe("localSidecarFactory", () => {
 			userProfilePref: () => undefined,
 			nextPromptPrefs: () => stored,
 			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
 			delegationPref: () => undefined,
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
@@ -102,6 +104,7 @@ describe("localSidecarFactory", () => {
 			userProfilePref: () => undefined,
 			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
 			autoTitlePrefs: () => stored,
+			judgeAssistPref: () => true,
 			delegationPref: () => undefined,
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
@@ -116,6 +119,38 @@ describe("localSidecarFactory", () => {
 			stored = { enabled: true, evolve: false, suppressed: false };
 			expect(options.autoTitle?.()).toEqual({ enabled: true, evolve: false, suppressed: false });
 			stored = { enabled: true, evolve: true, suppressed: false };
+		}
+	});
+
+	it("hands every tab the judge-assist switch, read per use, so a hosted tab follows this machine's pref", () => {
+		let stored = true;
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => undefined,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => stored,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+		});
+
+		create("/w/alpha", "agent", false);
+		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+		expect(created).toHaveLength(2);
+		for (const options of created) {
+			stored = true;
+			expect(options.judgeAssist?.()).toBe(true);
+			stored = false;
+			expect(options.judgeAssist?.()).toBe(false);
 		}
 	});
 
@@ -138,6 +173,7 @@ describe("localSidecarFactory", () => {
 			userProfilePref: () => undefined,
 			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
 			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
 			delegationPref: () => undefined,
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
@@ -163,6 +199,7 @@ describe("localSidecarFactory", () => {
 			userProfilePref: () => undefined,
 			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
 			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
 			delegationPref: () => undefined,
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",

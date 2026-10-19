@@ -968,6 +968,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	judgeAssist: {
 		session: ["settings", "sessionId", "modelRegistry", "sessionManager", "messages"],
 		modules: {
+			"@oh-my-pi/pi-ai": ["nativeJudgmentImageBounds()"],
 			[`${AGENT}/judgment`]: [
 				"hasNativeJudge()",
 				"resolveJudge()",

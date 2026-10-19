@@ -20,6 +20,7 @@
  * - The user's own `next-prompt` extension is detected through the loaded extension list; the renderer then
  *   ignores its widget. Its own request cannot be stopped from here.
  */
+import { lastReplyText, replyNeedsUser } from "./judge-assist-engine";
 import {
 	INLINE_MAX_DRAFT_CHARS,
 	type InlineCompletion,
@@ -430,14 +431,21 @@ let openedChildren: NextPromptChild[] = [];
 /** Set by a compaction until the next suggestion consumes it. */
 let compactedSinceSuggestion = false;
 
-/** The moment a suggestion is made for: the `<app-state>` section and the state key it is remembered by. */
-function moment(session: NextPromptSession): { appState: string; key: string } {
-	const facts = extractFacts(session.messages, {
+/**
+ * The moment a suggestion is made for: the `<app-state>` section and the state key it is remembered by. `judged`
+ * (the judge's reading of the last reply, undefined without one) changes only the section: the key is always the
+ * code rule's, because the gate asks for it before the judge has answered and a key moving with the judge's answer
+ * would regenerate an unchanged moment.
+ */
+function moment(session: NextPromptSession, judged?: boolean): { appState: string; key: string } {
+	const extras = {
 		...sessionExtras(session),
 		...(compactedSinceSuggestion ? { compacted: true } : {}),
-	});
-	const appState = buildAppState(facts);
-	return { appState, key: suggestionStateKey(session.messages, appState) };
+	};
+	const rule = buildAppState(extractFacts(session.messages, extras));
+	const appState =
+		judged === undefined ? rule : buildAppState(extractFacts(session.messages, { ...extras, replyAsksUser: judged }));
+	return { appState, key: suggestionStateKey(session.messages, rule) };
 }
 
 async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promise<void> {
@@ -445,7 +453,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 	if (!session) return;
 	const key = sessionKey(session);
 	const messages = session.messages;
-	const { appState, key: stateKey } = moment(session);
+	const { appState: ruleAppState, key: stateKey } = moment(session);
 	const gate = gateSuggestion({
 		enabled: settings.suggestions,
 		idle: idle(session),
@@ -462,9 +470,13 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 	}
 	const started = performance.now();
 	try {
+		// Asked early so it runs beside the model lookup; never blocks the gate, never throws.
+		const judging = replyNeedsUser(session, lastReplyText(messages));
 		const stock = await loadStock();
 		const resolved = await resolveSmol(session, stock);
+		const judged = await judging;
 		if (signal.aborted) return;
+		const appState = judged === undefined ? ruleAppState : moment(session, judged).appState;
 		requests.suggest++;
 		const sent = sentTexts(messages);
 		const register = userRegister(sent);
@@ -488,7 +500,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		const candidates = cleanCandidates(text, {
 			register,
 			sent: new SentMessages(sent),
-			decisionPending: awaitsDecision(messages),
+			decisionPending: awaitsDecision(messages, judged),
 		});
 		const ms = Math.round(performance.now() - started);
 		host?.logger.debug("next-prompt suggestion", {

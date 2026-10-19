@@ -10,6 +10,7 @@
  */
 import { AUTO_MODE_PREF } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../../resources/gui-bridge/modes/auto-title-contracts";
+import { JUDGE_ASSIST_PREF } from "../../../resources/gui-bridge/modes/judge-assist-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
@@ -137,6 +138,13 @@ export const SETTINGS: readonly Setting[] = [
 	pref("nextPromptInline", NEXT_PROMPT_INLINE_PREF, "agent", "Inline completion", "이어서 완성"),
 	pref("autoTitle", AUTO_TITLE_PREF, "agent", "Automatic session titles", "세션 제목 자동 생성"),
 	pref("autoTitleEvolve", AUTO_TITLE_EVOLVE_PREF, "agent", "Keep titles current", "제목 최신으로 유지"),
+	pref(
+		"judgeAssist",
+		JUDGE_ASSIST_PREF,
+		"agent",
+		"Use the judge model for small decisions",
+		"작은 판단에 판단 모델 쓰기",
+	),
 	pref(
 		"worktreeAutoClean",
 		WORKTREE_AUTO_CLEAN_PREF,

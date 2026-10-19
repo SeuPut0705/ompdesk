@@ -585,6 +585,65 @@ describe("SidecarManager spawn env", () => {
 		}
 	}, 20_000);
 
+	it('passes the judge-assist switch as OMP_GUI_JUDGE_ASSIST ("1"/"0"), pushes it on connect and on syncJudgeAssist(), and passes nothing without the option', async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-judge-assist-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const envPath = path.join(tempDir, "judge-assist.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`${loggingBridgeOmp(logPath)}\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.OMP_GUI_JUDGE_ASSIST ?? "unset");`,
+		);
+		let enabled = true;
+		const create = (withOption: boolean) =>
+			new SidecarManager({
+				omp: async () => ({
+					ok: true,
+					runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+				}),
+				cwd: tempDir,
+				bridgeDir: tempDir,
+				...(withOption ? { judgeAssist: () => enabled } : {}),
+			});
+		const requests = () => bridgeRequests(logPath, "judge_assist_set");
+		const sidecar = create(true);
+		try {
+			sidecar.start();
+			await expect.poll(requests, { timeout: 5_000, interval: 25 }).toEqual([{ enabled: true }]);
+			expect(await fs.readFile(envPath, "utf8")).toBe("1");
+			enabled = false;
+			sidecar.syncJudgeAssist();
+			await expect.poll(requests, { timeout: 5_000, interval: 25 }).toEqual([{ enabled: true }, { enabled: false }]);
+		} finally {
+			sidecar.dispose();
+		}
+
+		const off = create(true);
+		try {
+			await fs.rm(logPath, { force: true });
+			off.start();
+			await expect.poll(requests, { timeout: 5_000, interval: 25 }).toEqual([{ enabled: false }]);
+			expect(await fs.readFile(envPath, "utf8")).toBe("0");
+		} finally {
+			off.dispose();
+		}
+
+		// Without the option the bridge keeps its own default (on): no env and no push.
+		const bare = create(false);
+		try {
+			await fs.rm(logPath, { force: true });
+			await fs.rm(envPath, { force: true });
+			bare.start();
+			await expect
+				.poll(() => fs.readFile(envPath, "utf8").catch(() => ""), { timeout: 5_000, interval: 25 })
+				.toBe("unset");
+			bare.syncJudgeAssist();
+			expect(await requests()).toEqual([]);
+		} finally {
+			bare.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	}, 20_000);
+
 	it("passes a chosen delegation strength as OMP_GUI_DELEGATION, read on every spawn, and nothing for default", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-delegation-"));
 		const envPath = path.join(tempDir, "delegation.txt");

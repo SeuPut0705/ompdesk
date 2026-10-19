@@ -4,6 +4,8 @@
  * (typing, a new run, a newer trigger, the feature off). Against the real stock: bridge-next-prompt-stock.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { JUDGE_ASSIST_TIMEOUT_MS } from "../../resources/gui-bridge/modes/judge-assist-contracts";
+import { setJudgeAssistEnabled, setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
 import type {
 	NextPromptConfigFrame,
 	NextPromptState,
@@ -20,6 +22,7 @@ import {
 	resetNextPromptState,
 	setNextPromptStock,
 } from "../../resources/gui-bridge/modes/next-prompt-engine";
+import { type FakeJudge, fakeJudge, needsAnswer } from "./test-fake-judge";
 
 type BridgeEvent = NextPromptUpdate | NextPromptConfigFrame;
 type BridgeEnv = EngineEnv;
@@ -721,5 +724,140 @@ describe("inline completion", () => {
 	it("validates its params", async () => {
 		await expect(handlers.next_prompt_inline({ draft: 1 }, world.env)).rejects.toThrow("draft");
 		await expect(handlers.next_prompt_inline({ draft: "x", requestId: "" }, world.env)).rejects.toThrow("requestId");
+	});
+});
+
+describe("the judge's reading of the last reply (judge assist)", () => {
+	/** Rule says nothing is asked (no question mark, no pattern), a person would still have to pick. */
+	const MISSED = "Both fixes work. Tell me your pick and I will take it from there.";
+	/** Rule says a question is asked, though it is only rhetorical. */
+	const RHETORICAL = "The build passes now. Should I celebrate?";
+	const DECISION_LINE = "last-reply: asks the user to decide or answer something";
+	const DONE_LINE = "last-reply: reports work done or underway; it asks the user nothing";
+	let fake: FakeJudge;
+
+	const lastAssistant = (replyText: string) => {
+		world.session.messages.push(
+			{ role: "user", content: "which fix?", timestamp: 3 },
+			{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: replyText }], timestamp: 4 },
+		);
+	};
+	const prompt = () => world.calls[0]?.context.messages[0]?.content ?? "";
+	const withJudge = (probability: number) => {
+		fake = fakeJudge(async () => needsAnswer(probability));
+		setJudgeAssistStockLoader(async () => fake.stock);
+	};
+
+	afterEach(() => {
+		setJudgeAssistStockLoader(undefined);
+		setJudgeAssistEnabled(true);
+	});
+
+	it("a reply the rule misses but the judge says waits: app-state says decision and an approval-only candidate stays", async () => {
+		lastAssistant(MISSED);
+		world.reply.current = async () => text("1. yes, go ahead\n2. use the first one\n3. run the tests");
+		withJudge(0.7);
+		await turnEnds();
+		expect(prompt()).toContain(DECISION_LINE);
+		expect(prompt()).not.toContain(DONE_LINE);
+		expect(updates(world)[0]?.candidates).toEqual(["yes, go ahead", "use the first one", "run the tests"]);
+		expect((fake.requests[0] as { state: { reply: string } }).state.reply).toBe(MISSED);
+		expect((fake.deps[0] as { purpose: string }).purpose).toBe("ompdesk-needs-user");
+	});
+
+	it("a reply ending in a question the judge says waits for nothing: app-state says done and the approval is dropped", async () => {
+		lastAssistant(RHETORICAL);
+		world.reply.current = async () => text("1. yes, go ahead\n2. run the tests\n3. push it");
+		withJudge(0.69);
+		await turnEnds();
+		expect(prompt()).toContain(DONE_LINE);
+		expect(prompt()).not.toContain(DECISION_LINE);
+		expect(updates(world)[0]?.candidates).toEqual(["run the tests", "push it"]);
+	});
+
+	it("an ask still open counts as a decision whatever the judge says", async () => {
+		world.session.messages.push(
+			{ role: "user", content: "set it up", timestamp: 3 },
+			{
+				role: "assistant",
+				stopReason: "toolUse",
+				content: [{ type: "toolCall", id: "a", name: "ask", arguments: { questions: [] } }],
+				timestamp: 4,
+			},
+		);
+		world.reply.current = async () => text("1. yes, go ahead\n2. run the tests\n3. push it");
+		withJudge(0.01);
+		await turnEnds();
+		expect(prompt()).toContain(DECISION_LINE);
+		expect(updates(world)[0]?.candidates).toContain("yes, go ahead");
+	});
+
+	it("keeps one suggestion per moment: a judged state does not move the state key", async () => {
+		lastAssistant(MISSED);
+		withJudge(0.9);
+		await turnEnds();
+		await turnEnds();
+		expect(world.calls).toHaveLength(1);
+		expect(updates(world)).toHaveLength(1);
+	});
+
+	it.each([
+		["no native judge", () => (fake.native.current = false)],
+		["the switch off", () => setJudgeAssistEnabled(false)],
+		[
+			"a judge that throws",
+			() => {
+				fake.answer.current = async () => {
+					throw new Error("provider down");
+				};
+			},
+		],
+		[
+			"an unreadable answer",
+			() => {
+				fake.answer.current = async () => ({});
+			},
+		],
+	])("with %s the rule decides, exactly as without a judge", async (_label, disable) => {
+		const results: Array<{ prompt: string; candidates: string[] | undefined }> = [];
+		for (const judged of [false, true]) {
+			world = build();
+			lastAssistant(RHETORICAL);
+			world.reply.current = async () => text("1. yes, go ahead\n2. run the tests\n3. push it");
+			if (judged) {
+				withJudge(0.01);
+				disable();
+			}
+			await turnEnds();
+			results.push({ prompt: prompt(), candidates: updates(world)[0]?.candidates });
+			resetNextPromptState();
+			setJudgeAssistStockLoader(undefined);
+			setJudgeAssistEnabled(true);
+		}
+		expect(results[1]).toEqual(results[0]);
+		expect(results[0]?.prompt).toContain(DECISION_LINE);
+		expect(results[0]?.candidates).toContain("yes, go ahead");
+	});
+
+	it("a judge that never answers costs one limit, then the rule decides", async () => {
+		lastAssistant(RHETORICAL);
+		world.reply.current = async () => text("1. yes, go ahead\n2. run the tests\n3. push it");
+		fake = fakeJudge(() => Promise.withResolvers<never>().promise);
+		setJudgeAssistStockLoader(async () => fake.stock);
+		await turnEnds();
+		expect(updates(world)).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(JUDGE_ASSIST_TIMEOUT_MS);
+		await flush();
+		expect(prompt()).toContain(DECISION_LINE);
+		expect(updates(world)[0]?.candidates).toContain("yes, go ahead");
+	});
+
+	it("never asks the judge for an inline completion", async () => {
+		lastAssistant(MISSED);
+		withJudge(0.9);
+		await handlers.next_prompt_set({ suggestions: true, inline: true }, world.env);
+		await handlers.next_prompt_inline({ draft: "please fix the", requestId: "r1" }, world.env);
+		expect(world.calls).toHaveLength(1);
+		expect(fake.requests).toEqual([]);
 	});
 });

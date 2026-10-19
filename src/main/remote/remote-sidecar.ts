@@ -286,6 +286,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The host's own automatic-title switches apply to the omp it runs; this machine's are not sent. */
 	syncAutoTitle(): void {}
 
+	/** The host's own judge-assist switch applies to the omp it runs; this machine's is not sent. */
+	syncJudgeAssist(): void {}
+
 	/** The control tools run in the app that owns the omp; a host's tab gets them from the host. */
 	syncHostTools(): void {}
 

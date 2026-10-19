@@ -495,6 +495,11 @@ export class RemoteDevices {
 		this.#deps.services.syncAutoTitle();
 	}
 
+	/** This machine's judge-assist switch changed: tabs it hosts for devices follow it. */
+	hostJudgeAssistChanged(): void {
+		this.#deps.services.syncJudgeAssist();
+	}
+
 	/** This machine's account-rotation setting changed: tabs it hosts for devices follow it. */
 	hostAccountRotationChanged(): void {
 		this.#deps.services.syncAccountRotation();

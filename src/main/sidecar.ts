@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
+import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
@@ -253,6 +254,12 @@ export interface SidecarOptions {
 	 * Absent: the bridge's default (on).
 	 */
 	autoTitle?: () => AutoTitleSettings;
+	/**
+	 * Whether judge-model assists are on (pref `judgeAssist`, default on), passed as `OMP_GUI_JUDGE_ASSIST` ("0" or
+	 * "1") on every spawn and pushed by `syncJudgeAssist()`. The bridge still asks the judge only while stock's
+	 * `hasNativeJudge` holds. Absent: the bridge's default (on).
+	 */
+	judgeAssist?: () => boolean;
 	/**
 	 * The paired device a host tab runs for (and this host's name), passed as
 	 * JSON in `OMP_GUI_PROMPT_ORIGIN`: the bridge journals it per user message
@@ -546,6 +553,7 @@ export class SidecarManager extends EventEmitter {
 		args.push(...stripDenylistedFlags(userFlags));
 		this.#titleSuppressed = titleSuppressedByEnv({ ...process.env, ...this.#shellEnvVars });
 		const autoTitle = this.#options.autoTitle?.();
+		const judgeAssist = this.#options.judgeAssist?.();
 
 		const bin = runtime.bin;
 		console.log(`[sidecar] spawning omp ${runtime.version} (${args.length} args, cwd: ${cwd})`);
@@ -570,6 +578,7 @@ export class SidecarManager extends EventEmitter {
 					...(autoTitle
 						? { OMP_GUI_AUTO_TITLE: JSON.stringify({ ...autoTitle, suppressed: this.#titleSuppressed }) }
 						: {}),
+					...(judgeAssist === undefined ? {} : { [JUDGE_ASSIST_ENV]: judgeAssist ? "1" : "0" }),
 					...(this.#options.promptOrigin
 						? { OMP_GUI_PROMPT_ORIGIN: JSON.stringify(this.#options.promptOrigin) }
 						: {}),
@@ -860,6 +869,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncUserProfile();
 							this.syncNextPrompt();
 							this.syncAutoTitle();
+							this.syncJudgeAssist();
 							this.syncAccountRotation();
 							void bridge
 								.request("stream_metadata.start")
@@ -1103,6 +1113,25 @@ export class SidecarManager extends EventEmitter {
 				})
 				.catch(() => {});
 		}
+	}
+
+	/**
+	 * Push the judge-assist switch to this omp (gui-bridge `judge_assist_set`). Fire-and-forget like syncAutoTitle:
+	 * an unconnected bridge syncs on connect, and an omp without the feature refuses it and stays stock.
+	 */
+	syncJudgeAssist(): void {
+		const enabled = this.#options.judgeAssist?.();
+		if (enabled !== undefined) void this.#bridge?.request(JUDGE_ASSIST_SET, { enabled }).catch(() => {});
+	}
+
+	/**
+	 * A direct request to this omp's own bridge, not through the RPC client: main-side assists that must not meter a
+	 * paired device's quota or name it the tab's driver (notify-triage.ts). Rejects while no bridge is connected.
+	 */
+	bridgeRequest(method: string, params?: unknown): Promise<unknown> {
+		return this.#bridge
+			? this.#bridge.request(method, params)
+			: Promise.reject(new Error("gui-bridge not connected"));
 	}
 
 	/**
