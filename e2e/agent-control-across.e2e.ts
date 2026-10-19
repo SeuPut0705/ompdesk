@@ -290,6 +290,46 @@ test.describe("on a paired device", () => {
 		await expect(hostList.filter({ hasText: "remote part" })).toHaveCount(0);
 	});
 
+	test("the opener's board and sidebar follow a session running on the paired device, live", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, call, client: app } = await pairApps();
+		await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
+		const parentTab = (await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		const open = await call("ompdesk_session_open", { device: "PC-B" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		// A turn that stays open on the host's omp (the fake holds "fixture running" until `fixture:finish`).
+		await app.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+			child as string,
+		);
+
+		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		await expect(row).toHaveAttribute("data-status", "running", { timeout: 30_000 });
+		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
+		// Its clock runs while the turn on the host does.
+		await expect(row).toContainText(/\d+s/, { timeout: 15_000 });
+		// The opener's sidebar row counts it among its children at work, and the opener wears the background light.
+		const opener = app.page.locator(".omp-sidebar-session-row", { has: app.page.locator("[data-family-running]") });
+		await expect(opener.locator("[data-family-running]")).toHaveText("1", { timeout: 30_000 });
+		await expect(opener.locator("[data-live-edge]")).toHaveCount(1);
+
+		// A report from the child on the host shows on the row while it still runs.
+		const asChild = await caller(app.page, hostProfile.record, child);
+		const report = await asChild("ompdesk_report", { kind: "progress", text: "Halfway on PC-B", dispatch: "d1" });
+		expect(report.isError, report.text).toBe(false);
+		await expect(row).toHaveAttribute("data-board-report", "progress", { timeout: 30_000 });
+		await expect(row).toContainText("Halfway on PC-B");
+
+		// The turn on the host ends: the row stops running and the opener's count drops.
+		await app.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
+			child as string,
+		);
+		await expect(row).not.toHaveAttribute("data-status", "running", { timeout: 30_000 });
+		expect(parentTab).not.toBe(child);
+	});
+
 	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {
 		test.setTimeout(180_000);
 		const { hostProfile, clientProfile, deviceId, call, client: app } = await pairApps();

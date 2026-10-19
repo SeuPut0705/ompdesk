@@ -1878,6 +1878,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		ensureTabRuntime("t1");
 		useSidebarSubagentsStore.setState({ expanded: open ? new Set([BOSS]) : new Set() });
+		return omp;
 	}
 
 	const familyRows = () => [
@@ -1976,6 +1977,57 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		// It is the boss's child: the device's own list does not repeat it.
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(device?.textContent ?? "").not.toContain("Build it on Windows");
+	});
+
+	it("leaves another device's session at the same path in that device's list", async () => {
+		const omp = mountFamily({
+			tabsExtra: [
+				{
+					id: "tw",
+					cwd: "C:\\work\\app",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "C:\\s\\remote.jsonl",
+					device: "dev-studio",
+					task: "Build it on Windows",
+					openedBy: "t1",
+				},
+			],
+		});
+		// Two Windows PCs keep sessions under the same user path.
+		const local = omp.sessions.list.getMockImplementation();
+		omp.sessions.list.mockImplementation(async (scope, device) =>
+			device === "dev-other"
+				? [session("C:\\s\\remote.jsonl", "C:\\work\\app", { title: "Other PC work", device: "dev-other" })]
+				: device === undefined && local
+					? local(scope, device)
+					: [],
+		);
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+				confirmNewDevices: false,
+			},
+			hosts: [
+				{ deviceId: "dev-studio", name: "studio", state: "online" },
+				{ deviceId: "dev-other", name: "other", state: "online" },
+			],
+			forgotten: [],
+		});
+		await mount(<Sidebar />);
+
+		const other = container.querySelector('[data-sidebar-device="dev-other"]');
+		expect(other?.textContent ?? "").toContain("Other PC work");
 	});
 
 	it("opens an opened session in its own tab on click", async () => {

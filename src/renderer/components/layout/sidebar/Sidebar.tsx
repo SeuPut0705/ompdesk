@@ -880,15 +880,18 @@ export function Sidebar() {
 		}
 		return byRoot;
 	}, [tabs, remoteChildTabs, familyRootOf]);
-	// What the device sections leave out: those children's tabs and session files.
+	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
+	// a session at the same path).
 	const nestedRemote = useMemo(() => {
-		const keys = new Set<string>();
-		for (const tab of tabs)
-			if (remoteChildTabs.has(tab.id)) {
-				keys.add(tab.id);
-				if (tab.sessionPath) keys.add(tab.sessionPath);
-			}
-		return keys;
+		const byDevice = new Map<string, Set<string>>();
+		for (const tab of tabs) {
+			if (tab.device === undefined || !remoteChildTabs.has(tab.id)) continue;
+			const keys = byDevice.get(tab.device) ?? new Set<string>();
+			keys.add(tab.id);
+			if (tab.sessionPath) keys.add(tab.sessionPath);
+			byDevice.set(tab.device, keys);
+		}
+		return byDevice;
 	}, [tabs, remoteChildTabs]);
 	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
@@ -2436,7 +2439,7 @@ export function Sidebar() {
 							host={host}
 							key={host.deviceId}
 							mode={mode}
-							nested={nestedRemote}
+							nested={nestedRemote.get(host.deviceId)}
 							query={query}
 						/>
 					))}
