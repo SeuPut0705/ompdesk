@@ -2,13 +2,13 @@
 
 OMPdesk is built mostly on macOS. This page lists what a developer (or an agent) needs on Windows and what does not work there.
 
-5. Turn on **Developer Mode** (Settings › System › For developers). About 20 test files create file symlinks (`fs.symlinkSync` without `"junction"`: `open-path`, `server`, `models-config`, `cli-tools/detect`, `ext-update/mcp-owner`, `visuals`, `host-actions`, …), and Windows refuses them with `EPERM` otherwise. CI runners run as admin, so CI does not catch this. App code (worktree seeding) makes directory junctions and needs no privilege.
 ## Setup
 
 1. Install [Bun](https://bun.sh) (`irm bun.sh/install.ps1 | iex`), so `bun.exe` and `bunx.exe` are on PATH. A Bun installed through npm only has `.cmd` shims; it works through the lock wrapper, but prefer the official installer.
 2. Install [Git for Windows](https://git-scm.com/download/win). Its Git Bash is the supported shell for anything written in POSIX shell.
 3. Install stock omp: `bun install -g @oh-my-pi/pi-coding-agent` (or let the app's machine setup do it).
 4. Clone, then `bun install`. `.gitattributes` forces LF on checkout (`* text=auto eol=lf`), which biome needs; do not override it with `core.autocrlf`.
+5. Turn on **Developer Mode** (Settings › System › For developers). About 20 test files create file symlinks (`fs.symlinkSync` without `"junction"`: `open-path`, `server`, `models-config`, `cli-tools/detect`, `ext-update/mcp-owner`, `visuals`, `host-actions`, …), and Windows refuses them with `EPERM` otherwise. CI runners run as admin, so CI does not catch this. App code (worktree seeding) makes directory junctions and needs no privilege.
 
 ## Shells
 
