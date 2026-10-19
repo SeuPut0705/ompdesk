@@ -30,6 +30,8 @@ import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
+import { tabReady } from "../../../stores/tab-ready-gate";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
 interface LoginPrompt {
@@ -100,6 +102,7 @@ export interface ProviderLogin {
 /** Run `login` for one provider at a time and answer its prompts inline. */
 export function useProviderLogin(onConnected: (providerId: string) => Promise<void> | void): ProviderLogin {
 	const tabRpc = useTabRpc();
+	const tabId = useRuntimeTabId();
 	const sendResponse = useExtensionUiResponder();
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const arrivedAt = useExtensionUiStore(state => state.arrivedAt);
@@ -181,6 +184,16 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			const current = ++attempt.current;
 			beginInlineLogin();
 			setState({ ...IDLE, providerId, running: true, since: Date.now() });
+			// A starting omp would get `login` the moment it is ready (tab-runtime holds it), after a Cancel that had
+			// nothing to cancel yet: wait here instead, and send nothing for an attempt that was cancelled meanwhile.
+			const starting = tabId === null ? null : tabReady(tabId);
+			if (starting) {
+				await starting;
+				if (current !== attempt.current) {
+					endInlineLogin();
+					return false;
+				}
+			}
 			let outcome: { ok: true } | { ok: false; error: string | null };
 			try {
 				const response = await tabRpc.login(providerId);
@@ -205,7 +218,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			await onConnected(providerId);
 			return live;
 		},
-		[beginInlineLogin, endInlineLogin, onConnected, sendResponse, tabRpc],
+		[beginInlineLogin, endInlineLogin, onConnected, sendResponse, tabId, tabRpc],
 	);
 
 	const submit = useCallback(
