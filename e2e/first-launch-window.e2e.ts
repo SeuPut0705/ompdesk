@@ -276,6 +276,20 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 		);
 	}
 	const ownedKeys = new Set(owned.map(process => `${process.pid}@${process.created}`));
+	// The user's own omp sessions run ai-memory bridges too: one whose live parent was outside the app's tree
+	// before the quit is theirs. An orphan the app left behind has no live parent, so it still counts.
+	const foreign = new Set(
+		before
+			.filter(process =>
+				before.some(
+					parent =>
+						parent.pid === process.ppid &&
+						Number(parent.created) <= Number(process.created) &&
+						!ownedKeys.has(`${parent.pid}@${parent.created}`),
+				),
+			)
+			.map(process => `${process.pid}@${process.created}`),
+	);
 	const after = windowsProcesses();
 	const lower = (text: string | null) => (text ?? "").toLowerCase();
 	const survivors = after.filter(
@@ -283,7 +297,9 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 			ownedKeys.has(`${process.pid}@${process.created}`) ||
 			lower(process.exe) === lower(exe) ||
 			lower(process.commandLine).includes(lower(profile)) ||
-			(/^ai-memory(\.exe)?$/i.test(process.name) && !isAiMemoryService(process)),
+			(/^ai-memory(\.exe)?$/i.test(process.name) &&
+				!isAiMemoryService(process) &&
+				!foreign.has(`${process.pid}@${process.created}`)),
 	);
 	expect(survivors.map(describeProcess), `${how}: processes OMPdesk started outlived it`).toEqual([]);
 }
