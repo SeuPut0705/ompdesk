@@ -18,8 +18,8 @@
  * {@link RECALL_TIMEOUT_MS}, an older server, nothing relevant. The prompt goes on unchanged and only a debug line says
  * why. Never on a subagent, another agent's message or an Autopilot run (its prompts are the run's, not a person's).
  */
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { type JournalEntry, lastStateEntry } from "./autopilot-core";
 import { type JudgeSession, recallRelevance } from "./judge-assist-engine";
 import {
@@ -28,12 +28,14 @@ import {
 	type MemoryEnv,
 	parseMemoryEnv,
 	RECALL_QUERY_LIMIT,
+	RECALL_TERMS_FILE,
 	RECALL_TIMEOUT_MS,
 } from "./memory-recall-contracts";
 import {
 	field,
 	type RecallCandidate,
 	type RecallScope,
+	type RecallTermStats,
 	recallCandidates,
 	recallDetails,
 	recallQuery,
@@ -103,6 +105,36 @@ async function callTool(
 	return toolAnswer(name, await response.json());
 }
 
+/** The corpus file's parse by path, valid while its mtime and size hold (one parse per change, not per prompt). */
+const termsCache = new Map<string, { key: string; stats: RecallTermStats | undefined }>();
+
+/** The term corpus main keeps beside the state file; a missing or malformed file is no stats. */
+async function readTermStats(stateFile: string): Promise<RecallTermStats | undefined> {
+	const file = join(dirname(stateFile), RECALL_TERMS_FILE);
+	try {
+		const info = await stat(file);
+		const key = `${info.mtimeMs}:${info.size}`;
+		const cached = termsCache.get(file);
+		if (cached?.key === key) return cached.stats;
+		const value: unknown = JSON.parse(await readFile(file, "utf8"));
+		const n = field(value, "n");
+		const df = field(value, "df");
+		const stats =
+			typeof n === "number" && n > 0 && df !== null && typeof df === "object" && !Array.isArray(df)
+				? {
+						n,
+						df: Object.fromEntries(
+							Object.entries(df).filter(([, v]) => typeof v === "number" && v > 0),
+						) as Record<string, number>,
+					}
+				: undefined;
+		termsCache.set(file, { key, stats });
+		return stats;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: RecallHost): void {
 	const stateFile = process.env[MEMORY_ENV];
@@ -149,16 +181,18 @@ export function install(pi: RecallHost): void {
 					conclusions: true,
 				}),
 			);
+			const stats = await readTermStats(stateFile);
 			const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
 			const judge = session
 				? (prompt: string, list: readonly RecallCandidate[]) => recallRelevance(session, prompt, list)
 				: undefined;
-			const { items, judged } = await selectRecall(event.prompt, candidates, judge);
+			const { items, judged } = await selectRecall(event.prompt, candidates, judge, stats);
 			pi.logger.debug("gui-bridge: memory recall", {
 				ms: Date.now() - started,
 				candidates: candidates.length,
 				items: items.length,
 				judged,
+				terms: stats?.n ?? 0,
 			});
 			if (!items.length) return undefined;
 			return {

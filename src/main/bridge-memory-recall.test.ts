@@ -220,3 +220,44 @@ describe("memory recall hook", () => {
 		expect(queries()).toHaveLength(1);
 	});
 });
+
+describe("memory recall hook, term corpus", () => {
+	const conclusionAnswer = {
+		hits: [],
+		conclusion_hits: [
+			{
+				session_id: "s-1",
+				title: "원격 연결 정리",
+				excerpt: "테일스케일 신원으로만 연결하고 페어링 코드는 삭제했다",
+				created_at: "2026-10-01T00:00:00Z",
+			},
+		],
+	};
+	const run = async () => {
+		reply = body =>
+			toolName(body) === "memory_status"
+				? toolResult({ scope: { workspace: "default", project: "ompdesk", resolved_by: "session" } })
+				: toolResult(conclusionAnswer);
+		return (await hook()({ prompt: PROMPT }, ctx())) as { message?: unknown } | undefined;
+	};
+
+	it("works with no terms file", async () => {
+		expect(await run()).toMatchObject({ message: { customType: MEMORY_RECALL_MESSAGE_TYPE } });
+	});
+
+	it("drops a conclusion whose shared words the sibling terms file says are common", async () => {
+		// The prompt's rare word (기기연결) is not in the conclusion; every word it does share is everyday.
+		const common = Object.fromEntries(["테일스케일", "페어링", "삭제", "신원", "연결", "코드"].map(t => [t, 90]));
+		common["기기연결"] = 1;
+		await writeFile(
+			join(dir, "recall-terms.json"),
+			JSON.stringify({ v: 1, store: "s", native: 1, synced: 0, n: 100, df: common }),
+		);
+		expect(await run()).toBeUndefined();
+	});
+
+	it("ignores a malformed terms file", async () => {
+		await writeFile(join(dir, "recall-terms.json"), "{not json");
+		expect(await run()).toMatchObject({ message: { customType: MEMORY_RECALL_MESSAGE_TYPE } });
+	});
+});

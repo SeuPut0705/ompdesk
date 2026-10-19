@@ -128,7 +128,7 @@ const STOPWORDS: Record<string, true> = Object.fromEntries(
 			" ",
 		),
 		..."please just now again ok okay yes no want need make get let lets also still really any some all".split(" "),
-		..."지금 그거 이거 저거 그냥 다시 어케 어떻게 이제 아까 혹시 진짜 정말 그리고 근데 그럼 그래서 해줘 해주세요 했어 했잖아 하자 하고 하는 하면 해서 해도 있어 없어 같아 같은데 거야 건가 할까 나한테 우리 제가 내가 이렇게 그렇게 이건 그건 뭐야 뭔가 했던 하기로 한거야 됐어 되나 되는 확인 부탁 안녕 고마워 감사".split(
+		..."지금 그거 이거 저거 그냥 다시 어케 어떻게 이제 아까 혹시 진짜 정말 그리고 근데 그럼 그래서 해줘 해주세요 했어 했잖아 하자 하고 하는 하면 해서 해도 있어 없어 같아 같은데 거야 건가 할까 나한테 우리 제가 내가 이렇게 그렇게 이건 그건 뭐야 뭔가 했던 하기로 한거야 됐어 되나 되는 확인 부탁 안녕 고마워 감사 아니 그걸 맞아 맞지 하나 전부".split(
 			" ",
 		),
 	].map(word => [word, true]),
@@ -352,19 +352,82 @@ function byRank(a: RecallCandidate, b: RecallCandidate): number {
 }
 
 /**
+ * Corpus statistics over conclusion bodies: `n` conclusions, `df[term]` how many of them hold the term (counted once
+ * per conclusion). Main builds them (src/main/ai-memory/recall-terms.ts) and the bridge reads them from a file.
+ */
+export interface RecallTermStats {
+	n: number;
+	df: Record<string, number>;
+}
+
+/** Adds one conclusion body to `stats` (mutated and returned): each distinct content term once. */
+export function addConclusionTerms(stats: RecallTermStats, body: string): RecallTermStats {
+	stats.n++;
+	for (const term of new Set(contentTerms(body))) stats.df[term] = (stats.df[term] ?? 0) + 1;
+	return stats;
+}
+
+/** A conclusion must cover at least this share of the prompt's IDF mass (over the terms the corpus has seen). */
+export const MIN_CONCLUSION_COVERAGE = 0.2;
+/**
+ * And one shared term must be distinctive: in at most a tenth of the conclusions (idf ≥ ln 10). Coverage alone is
+ * relative, so a prompt made only of common words would be fully covered by any conclusion repeating them.
+ */
+export const MIN_DISTINCT_IDF = Math.LN10;
+
+/** Conclusions holding a term: the sum of `df` over every key it matches (prefix rule), capped at `n`. */
+function documentFrequency(term: string, stats: RecallTermStats): number {
+	let total = 0;
+	for (const [key, count] of Object.entries(stats.df)) if (termsMatch(term, key)) total += count;
+	return Math.min(total, stats.n);
+}
+
+/**
+ * Whether a conclusion's terms cover enough of the prompt: over the prompt's seen terms S (document frequency above
+ * zero), it shares at least {@link MIN_SHARED_TERMS} of them, one of them distinctive ({@link MIN_DISTINCT_IDF}),
+ * and their IDF mass is at least {@link MIN_CONCLUSION_COVERAGE} of S's. Nothing seen (a greeting) keeps nothing.
+ */
+function coversPrompt(seen: readonly { term: string; idf: number }[], terms: readonly string[]): boolean {
+	const total = seen.reduce((sum, entry) => sum + entry.idf, 0);
+	if (total <= 0) return false;
+	const shared = seen.filter(entry => terms.some(other => termsMatch(entry.term, other)));
+	return (
+		shared.length >= MIN_SHARED_TERMS &&
+		shared.some(entry => entry.idf >= MIN_DISTINCT_IDF) &&
+		shared.reduce((sum, entry) => sum + entry.idf, 0) / total >= MIN_CONCLUSION_COVERAGE
+	);
+}
+
+/**
  * The code rule, used whenever the judge did not decide: candidates sharing enough content terms with the prompt
  * (title and text, Korean words stemmed on both sides), durable kinds and conclusions before session pages, more shared
- * terms first, newest first on ties, then the server's order; the best {@link RECALL_MAX_ITEMS}.
+ * terms first, newest first on ties, then the server's order; the best {@link RECALL_MAX_ITEMS}. With corpus `stats`
+ * a conclusion must also pass the IDF coverage gate ({@link coversPrompt}); pages and notes do not.
  */
-export function codeRuleSelect(prompt: string, candidates: readonly RecallCandidate[]): RecallCandidate[] {
+export function codeRuleSelect(
+	prompt: string,
+	candidates: readonly RecallCandidate[],
+	stats?: RecallTermStats,
+): RecallCandidate[] {
 	const query = contentTerms(prompt);
 	const needed = requiredTerms(query.length);
+	const seen =
+		stats && stats.n > 0
+			? query
+					.map(term => ({ term, df: documentFrequency(term, stats) }))
+					.filter(entry => entry.df > 0)
+					.map(entry => ({ term: entry.term, idf: Math.log(stats.n / (1 + entry.df)) }))
+			: undefined;
 	return candidates
-		.map(candidate => ({
-			candidate,
-			shared: sharedTermCount(query, contentTerms(`${candidate.title} ${candidate.text}`)),
-		}))
-		.filter(entry => entry.shared >= needed)
+		.map(candidate => {
+			const terms = contentTerms(`${candidate.title} ${candidate.text}`);
+			return { candidate, terms, shared: sharedTermCount(query, terms) };
+		})
+		.filter(
+			entry =>
+				entry.shared >= needed &&
+				(!seen || entry.candidate.kind !== "conclusion" || coversPrompt(seen, entry.terms)),
+		)
 		.sort(
 			(a, b) =>
 				KIND_RANK[a.candidate.kind] - KIND_RANK[b.candidate.kind] ||
@@ -391,17 +454,18 @@ export interface RecallSelection {
 
 /**
  * The notes to recall for `prompt`: with a judge that decided, those it gives at least {@link RECALL_JUDGE_MIN}, most
- * likely first; otherwise the code rule. Never more than {@link RECALL_MAX_ITEMS}; empty means no message.
+ * likely first; otherwise the code rule (given the corpus `stats`). Never more than {@link RECALL_MAX_ITEMS}; empty means no message.
  */
 export async function selectRecall(
 	prompt: string,
 	candidates: readonly RecallCandidate[],
 	judge?: RecallJudge,
+	stats?: RecallTermStats,
 ): Promise<RecallSelection> {
 	if (!candidates.length) return { items: [], judged: false };
 	const probabilities = judge ? await judge(prompt, candidates) : undefined;
 	if (!probabilities?.some(p => p !== undefined)) {
-		return { items: codeRuleSelect(prompt, candidates), judged: false };
+		return { items: codeRuleSelect(prompt, candidates, stats), judged: false };
 	}
 	const items = candidates
 		.map((candidate, index) => ({ candidate, p: probabilities[index] }))

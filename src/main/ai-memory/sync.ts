@@ -350,7 +350,7 @@ export async function servePush(
  * came from and while it is not past the stream's end; otherwise the page is read from 0 (`after: 0`). Offering rows
  * again is safe: a server answers `same` to a conclusion it holds.
  */
-async function readConclusions(
+export async function readConclusions(
 	store: MemoryStore,
 	source: "native" | "synced",
 	after: number,

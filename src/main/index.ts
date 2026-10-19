@@ -4,6 +4,7 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir, release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -30,6 +31,7 @@ import {
 } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
+import { RECALL_TERMS_FILE } from "../../resources/gui-bridge/modes/memory-recall-contracts";
 import {
 	NEXT_PROMPT_INLINE_PREF,
 	NEXT_PROMPT_PREF,
@@ -75,6 +77,7 @@ import { AiMemoryClient } from "./ai-memory/client";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { RecallStateFile } from "./ai-memory/recall-state";
+import { RecallTermsIndex } from "./ai-memory/recall-terms";
 import { AiMemoryService } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
 import { pidFileControl } from "./ai-memory/unit";
@@ -407,6 +410,8 @@ let cliUpdater: CliUpdater | null = null;
 let aiMemoryService: AiMemoryService | null = null;
 let aiMemoryUpkeep: MemoryUpkeep | null = null;
 let aiMemorySync: MemorySync | null = null;
+let recallTerms: RecallTermsIndex | null = null;
+const RECALL_TERMS_REFRESH_MS = 10 * 60_000;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
@@ -612,6 +617,7 @@ app.whenReady().then(() => {
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
 	const memoryRecallState = new RecallStateFile(join(app.getPath("userData"), "ai-memory", "recall.json"));
+	const recallTermsFile = join(app.getPath("userData"), "ai-memory", RECALL_TERMS_FILE);
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -1109,7 +1115,11 @@ app.whenReady().then(() => {
 			else aiMemoryUpkeep?.pause();
 			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null, state.enabled);
 			// Memory just came up: catch up with the computers this one is connected to.
-			if (state.phase === "ready" && aiMemoryPhase !== "ready") aiMemorySync?.syncAll();
+			if (state.phase === "ready" && aiMemoryPhase !== "ready") {
+				aiMemorySync?.syncAll();
+				void recallTerms?.refresh();
+			}
+			if (!state.enabled) void rm(recallTermsFile, { force: true });
 			aiMemoryPhase = state.phase;
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
@@ -1157,6 +1167,15 @@ app.whenReady().then(() => {
 	});
 	devices.onHostOnline(host => aiMemorySync?.hostOnline(host));
 	aiMemorySync.start();
+	// The term corpus of memory recall's coverage gate: read at memory-ready (onState above) and every ten minutes.
+	recallTerms = new RecallTermsIndex({
+		store: memoryClient,
+		file: recallTermsFile,
+		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
+	});
+	setInterval(() => {
+		if (memoryReady()) void recallTerms?.refresh();
+	}, RECALL_TERMS_REFRESH_MS).unref();
 	registerAiMemoryIpc(ipc, aiMemory, {
 		openExternal: url => shell.openExternal(url),
 		openPath: path => shell.openPath(path),

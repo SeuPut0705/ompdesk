@@ -36,6 +36,12 @@ export function parseMemoryEnv(raw: string | undefined): MemoryEnv | undefined {
 	}
 }
 
+/**
+ * The term corpus main keeps beside the state file (`recall.json`): `{v: 1, store, native, synced, n, df}`, the document
+ * frequencies of conclusion terms the code rule's coverage gate reads (src/main/ai-memory/recall-terms.ts).
+ */
+export const RECALL_TERMS_FILE = "recall-terms.json";
+
 /** `customType` of the recall message (the renderer's `MemoryRecallNote`). */
 export const MEMORY_RECALL_MESSAGE_TYPE = "ompdesk-memory-recall";
 
