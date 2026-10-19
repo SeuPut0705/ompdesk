@@ -64,11 +64,26 @@ test("@smoke a message sent while a turn runs steers it from Enter, the Send but
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
 		const input = page.locator("textarea").first();
+		const send = page.getByRole("button", { name: "Send", exact: true });
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-		// The send-mode chip reads Steer: nothing has switched it to follow-ups.
+		// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then; before it,
+		// Stop only withdraws the pending prompt, and a message sent now is a prompt, not a steer).
+		await expect(page.locator("[data-send-mode]")).toBeVisible();
+		// The chip reads Steer: nothing has switched it to follow-ups.
 		await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
+
+		/**
+		 * Type `message` once the composer takes it. Send stays disabled while the previous message is still being
+		 * delivered (the prompt's reply, or a steer's), and Enter and the chords read the same state: a key pressed
+		 * before then is dropped and the draft stays, as a person sees it. Windows' slower IPC makes that window
+		 * longer than the test's next step.
+		 */
+		const draft = async (message: string) => {
+			await input.fill(message);
+			await expect(send).toBeEnabled();
+		};
 
 		/** The stock command the fake omp received for `message`. */
 		const sentAs = async (message: string, type: "steer" | "follow_up") => {
@@ -78,15 +93,15 @@ test("@smoke a message sent while a turn runs steers it from Enter, the Send but
 				.toBe(type);
 		};
 
-		await input.fill("steer by enter");
+		await draft("steer by enter");
 		await input.press("Enter");
 		await sentAs("steer by enter", "steer");
 
-		await input.fill("steer by button");
-		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await draft("steer by button");
+		await send.click();
 		await sentAs("steer by button", "steer");
 
-		await input.fill("steer by chord");
+		await draft("steer by chord");
 		await input.press(SEND_CHORD);
 		await sentAs("steer by chord", "steer");
 
@@ -96,7 +111,7 @@ test("@smoke a message sent while a turn runs steers it from Enter, the Send but
 			followUp: [],
 		});
 
-		await input.fill("later by chord");
+		await draft("later by chord");
 		await input.press(FOLLOW_UP_CHORD);
 		await sentAs("later by chord", "follow_up");
 		expect((await lanes(page)).followUp).toEqual(["later by chord"]);
@@ -130,6 +145,8 @@ for (const language of ["en", "ko"] as const) {
 			const input = page.locator("textarea").first();
 			await input.fill("fixture running");
 			await input.press("Enter");
+			// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then).
+			await expect(page.locator("[data-send-mode]")).toBeVisible();
 			await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
 
 			const rows = page.locator("[data-queue-row]");
@@ -154,6 +171,8 @@ for (const language of ["en", "ko"] as const) {
 					},
 					[PNG, caption] as const,
 				);
+				// Send stays disabled while the previous message is being delivered, and Enter reads the same state.
+				await expect(page.locator('[data-slot="send"] button')).toBeEnabled();
 				await input.press("Enter");
 				// The next send waits for this one to reach the queue (a send in flight ignores Enter).
 				await expect.poll(queued).toBe(rowsAfter);
@@ -200,6 +219,8 @@ test("queued messages sit in one toolbar pill: the transcript and the composer n
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+		// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then).
+		await expect(page.locator("[data-send-mode]")).toBeVisible();
 		await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
 
 		const pane = page.locator('.omp-session-pane[data-active="true"]');
@@ -222,6 +243,8 @@ test("queued messages sit in one toolbar pill: the transcript and the composer n
 		const queue = async (text: string, chord?: string) => {
 			const before = await queueCount();
 			await input.fill(text);
+			// Send stays disabled while the previous message is being delivered, and Enter and the chords read the same state.
+			await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 			await input.press(chord ?? "Enter");
 			await expect(input).toHaveValue("");
 			await expect.poll(queueCount).toBe(before + 1);
