@@ -61,4 +61,26 @@ describe("transitionView", () => {
 		finish();
 		await finished;
 	});
+
+	it("applies a swap asked for during a transition after that transition's own update, never before it", async () => {
+		// Chromium runs the update callback later, once the old view is captured: a swap asked for meanwhile (a row
+		// click's close, then ⌘,) must not land first and be undone by it.
+		let runUpdate: () => void = () => {};
+		const updateDone = Promise.withResolvers<void>();
+		const start = vi.fn((callback: () => void) => {
+			runUpdate = () => {
+				callback();
+				updateDone.resolve();
+			};
+			return { finished: new Promise<void>(() => {}), updateCallbackDone: updateDone.promise };
+		});
+		install({ startViewTransition: start });
+		const order: string[] = [];
+		transitionView(() => order.push("close"));
+		transitionView(() => order.push("open"));
+		runUpdate();
+		await updateDone.promise;
+		await Promise.resolve();
+		expect(order).toEqual(["close", "open"]);
+	});
 });

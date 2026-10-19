@@ -9,12 +9,25 @@
 import { flushSync } from "react-dom";
 
 interface TransitionDocument {
-	startViewTransition?: (update: () => void) => { finished: Promise<unknown> };
+	startViewTransition?: (update: () => void) => { finished: Promise<unknown>; updateCallbackDone?: Promise<unknown> };
 }
 
 let running = false;
+/** The running transition's update until it has run: Chromium calls it later, once the old view is captured. */
+let pendingUpdate: Promise<unknown> | null = null;
 
 export function transitionView(update: () => void): void {
+	// A swap asked for before the running transition applied its own update goes after it: run at once, it would land
+	// first and be undone (a row click's close, then ⌘, opened Settings and closed it again).
+	if (pendingUpdate) {
+		const queued = pendingUpdate.then(update, update);
+		pendingUpdate = queued;
+		const clear = () => {
+			if (pendingUpdate === queued) pendingUpdate = null;
+		};
+		queued.then(clear, clear);
+		return;
+	}
 	const doc = (typeof document === "undefined" ? undefined : document) as (Document & TransitionDocument) | undefined;
 	if (
 		!doc ||
@@ -28,9 +41,20 @@ export function transitionView(update: () => void): void {
 		return;
 	}
 	running = true;
-	const transition = doc.startViewTransition(() => flushSync(update));
+	let applied = false;
+	const transition = doc.startViewTransition(() => {
+		applied = true;
+		flushSync(update);
+	});
 	const release = () => {
 		running = false;
 	};
 	transition.finished.then(release, release);
+	if (applied || !transition.updateCallbackDone) return;
+	const done = transition.updateCallbackDone;
+	pendingUpdate = done;
+	const clear = () => {
+		if (pendingUpdate === done) pendingUpdate = null;
+	};
+	done.then(clear, clear);
 }
