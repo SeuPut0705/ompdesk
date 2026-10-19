@@ -657,6 +657,7 @@ describe("AiMemoryClient (Memory page)", () => {
 
 	it("a page copy carries what the write path takes, and its origin only when given one", async () => {
 		routes[`${BASE}/pages/decisions/sharing%20plan.md`] = json({
+			id: "pg-7",
 			title: "Sharing",
 			kind: "decision",
 			tier: "semantic",
@@ -688,10 +689,11 @@ describe("AiMemoryClient (Memory page)", () => {
 				relations: { supersedes: ["decisions/codes.md"] },
 			},
 			origin: "mac-1",
+			id: "pg-7",
 			updatedAt: "2026-10-19T10:00:00Z",
 		});
 		routes["/admin/write-page"] = json({ page_id: "id" });
-		await client.writePageCopy(copy, "mac-1");
+		expect(await client.writePageCopy(copy, "mac-1", "pg-7")).toBe(true);
 		expect(sent.at(-1)?.body).toEqual({
 			...PROJECT,
 			path: "decisions/sharing plan.md",
@@ -705,9 +707,17 @@ describe("AiMemoryClient (Memory page)", () => {
 			abstract: "Who may connect.",
 			relations: { supersedes: ["decisions/codes.md"] },
 			origin_device: "mac-1",
+			expected_page_id: "pg-7",
 		});
-		await client.writePageCopy(copy, undefined);
+		await client.writePageCopy(copy, undefined, null);
 		expect(sent.at(-1)?.body).not.toHaveProperty("origin_device");
+		expect(sent.at(-1)?.body).toMatchObject({ create_only: true });
+		expect(sent.at(-1)?.body).not.toHaveProperty("expected_page_id");
+		// The page moved on between the read and the write: nothing written, false, not an error.
+		routes["/admin/write-page"] = json({ error: "precondition failed for decisions/x.md: latest is pg-8" }, 409);
+		expect(await client.writePageCopy(copy, undefined, "pg-7")).toBe(false);
+		routes["/admin/write-page"] = json({}, 500);
+		await expect(client.writePageCopy(copy, undefined, "pg-7")).rejects.toThrow("answered 500");
 	});
 
 	it("a retired page's copy carries its expiry both ways, and the full list asks for expired pages too", async () => {
@@ -720,7 +730,7 @@ describe("AiMemoryClient (Memory page)", () => {
 		const copy = await client.pageCopy({ ...PROJECT, path: "decisions/old.md" });
 		expect(copy.expiresAt).toBe("2026-10-19T12:00:00Z");
 		routes["/admin/write-page"] = json({ page_id: "id" });
-		await client.writePageCopy(copy, "win-1");
+		await client.writePageCopy(copy, "win-1", null);
 		expect(sent.at(-1)?.body).toMatchObject({ expires_at: "2026-10-19T12:00:00Z", origin_device: "win-1" });
 
 		routes[`${BASE}/pages?include_expired=true`] = json([{ path: "decisions/old.md", title: "Old" }]);

@@ -565,6 +565,11 @@ function serve(): void {
 			if (url.pathname === "/admin/write-page") {
 				const list = PAGES[String(body.project)] ?? [];
 				const existing = list.find(entry => entry.path === body.path);
+				// As OMPdesk's server: only over the version named, or only where nothing is yet; else 409.
+				const moved =
+					(body.create_only === true && existing !== undefined) ||
+					(typeof body.expected_page_id === "string" && existing?.id !== body.expected_page_id);
+				if (moved) return json({ error: `precondition failed for ${String(body.path)}` }, 409);
 				const next = page(
 					String(body.path),
 					String(body.title ?? existing?.title ?? body.path),

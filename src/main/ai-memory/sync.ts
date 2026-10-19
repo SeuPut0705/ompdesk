@@ -54,7 +54,8 @@ export interface MemoryStore {
 		project: AiMemoryProjectRef,
 	): Promise<Pick<AiMemoryPageRef, "workspace" | "project" | "path" | "updatedAt">[]>;
 	pageCopy(ref: AiMemoryProjectRef & { path: string }): Promise<MemoryPageCopy>;
-	writePageCopy(copy: MemoryPageCopy, origin: string | undefined): Promise<void>;
+	/** Only over the version `expected` (a `pageCopy` id) or, with `null`, only where nothing is; false: it moved on. */
+	writePageCopy(copy: MemoryPageCopy, origin: string | undefined, expected: string | null): Promise<boolean>;
 }
 
 type PageRef = AiMemoryProjectRef & { path: string };
@@ -226,7 +227,19 @@ export async function servePush(
 				results.push({ status: "conflict", hash: currentHash, ...(theirs ? { page: theirs } : {}) });
 				continue;
 			}
-			await deps.store.writePageCopy(incoming, page.origin === self ? undefined : page.origin);
+			// Only over the version just judged: a change landing in between (a retire) is never overwritten.
+			if (
+				!(await deps.store.writePageCopy(
+					incoming,
+					page.origin === self ? undefined : page.origin,
+					current?.id ?? null,
+				))
+			) {
+				const moved = await deps.store.pageCopy(page);
+				const theirs = toWire(moved, moved.origin ?? self, moved.updatedAt ?? "");
+				results.push({ status: "conflict", hash: pageHash(moved), ...(theirs ? { page: theirs } : {}) });
+				continue;
+			}
 			results.push({ status: "written", hash: pageHash(await deps.store.pageCopy(page)) });
 		} catch {
 			results.push({ status: "failed", hash: null });
@@ -382,15 +395,16 @@ export class MemorySync {
 		// The host's copy has not changed since the two agreed: anything changed here goes out with the push.
 		if (base && base[1] === page.hash) return;
 		const held = local.get(key);
-		if (!held) return this.#write(state, page, report);
-		const mine = pageHash(await this.#deps.store.pageCopy(held.ref));
+		if (!held) return this.#write(state, page, report, null);
+		const copy = await this.#deps.store.pageCopy(held.ref);
+		const mine = pageHash(copy);
 		if (mine === page.hash) {
 			state.base[key] = [mine, page.hash];
 			this.#unpend(state, key);
 			return;
 		}
 		// Changed only there.
-		if (base && base[0] === mine) return this.#write(state, page, report);
+		if (base && base[0] === mine) return this.#write(state, page, report, copy.id ?? null);
 		// Changed on both (or first met with different content): the one changed last wins.
 		report.conflicts++;
 		const theirs = page.updatedAt > held.at;
@@ -403,16 +417,23 @@ export class MemorySync {
 			hereAt: held.at,
 			hostAt: page.updatedAt,
 		});
-		if (theirs) return this.#write(state, page, report);
+		if (theirs) return this.#write(state, page, report, copy.id ?? null);
 		if (!state.pending.includes(key)) state.pending.push(key);
 	}
 
-	async #write(state: HostState, page: MemoryPageWire, report: MemorySyncReport): Promise<void> {
+	/**
+	 * Write the host's page here over the version just judged (`expected`; `null`: none was here). When this page
+	 * changed in between (a retire, an edit), nothing is written: that change is newer and goes out with the push.
+	 */
+	async #write(
+		state: HostState,
+		page: MemoryPageWire,
+		report: MemorySyncReport,
+		expected: string | null,
+	): Promise<void> {
 		const key = pageKey(page);
-		await this.#deps.store.writePageCopy(
-			fromWire(page),
-			page.origin === this.#deps.selfId() ? undefined : page.origin,
-		);
+		const origin = page.origin === this.#deps.selfId() ? undefined : page.origin;
+		if (!(await this.#deps.store.writePageCopy(fromWire(page), origin, expected))) return;
 		state.base[key] = [pageHash(await this.#deps.store.pageCopy(page)), page.hash];
 		this.#unpend(state, key);
 		report.pulled++;

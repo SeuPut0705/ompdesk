@@ -2354,7 +2354,7 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 				{ workspace: "default", project: "app", path: "sessions/s1.md", updatedAt: "2026-10-19T10:01:00Z" },
 			]),
 			pageCopy: vi.fn(async () => decision),
-			writePageCopy: vi.fn(async () => {}),
+			writePageCopy: vi.fn(async () => true),
 		};
 		const deps = { store, ready: () => ready, selfId: () => "this-host" };
 		const pull = { since: null };

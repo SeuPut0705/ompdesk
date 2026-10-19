@@ -642,6 +642,7 @@ export class AiMemoryClient {
 			metadata,
 			...(origin ? { origin } : {}),
 			...(expiresAt ? { expiresAt } : {}),
+			...(str(row.id) ? { id: str(row.id) } : {}),
 			updatedAt: str(row.updated_at) || null,
 		};
 	}
@@ -649,22 +650,30 @@ export class AiMemoryClient {
 	/**
 	 * Writes a copy of a page another computer holds, through the server's write path: a new version here with the
 	 * same title, kind, tier, tags, pin and metadata, marked `origin_device` with the computer it came from (omitted:
-	 * the page is this computer's own).
+	 * the page is this computer's own). Only over the version `expected` names (the id `pageCopy` read), or, with
+	 * `null`, only where nothing is yet; false when the page moved on meanwhile and nothing was written.
 	 */
-	async writePageCopy(copy: MemoryPageCopy, origin: string | undefined): Promise<void> {
-		await this.#post("/admin/write-page", {
-			...projectOf(copy),
-			path: copy.path,
-			body: copy.body,
-			title: copy.title,
-			...(copy.kind ? { kind: copy.kind } : {}),
-			tier: copy.tier,
-			tags: copy.tags,
-			pinned: copy.pinned,
-			...copy.metadata,
-			...(origin ? { origin_device: origin } : {}),
-			...(copy.expiresAt ? { expires_at: copy.expiresAt } : {}),
-		});
+	async writePageCopy(copy: MemoryPageCopy, origin: string | undefined, expected: string | null): Promise<boolean> {
+		try {
+			await this.#post("/admin/write-page", {
+				...projectOf(copy),
+				path: copy.path,
+				body: copy.body,
+				title: copy.title,
+				...(copy.kind ? { kind: copy.kind } : {}),
+				tier: copy.tier,
+				tags: copy.tags,
+				pinned: copy.pinned,
+				...copy.metadata,
+				...(origin ? { origin_device: origin } : {}),
+				...(copy.expiresAt ? { expires_at: copy.expiresAt } : {}),
+				...(expected === null ? { create_only: true } : { expected_page_id: expected }),
+			});
+			return true;
+		} catch (error) {
+			if (error instanceof Error && /precondition/i.test(error.message)) return false;
+			throw error;
+		}
 	}
 
 	/** Every latest page of a project, expired (retired) ones too, which the page list hides: for sync.ts. */
@@ -703,5 +712,7 @@ export interface MemoryPageCopy extends AiMemoryProjectRef {
 	origin?: string;
 	/** Frontmatter `expires_at`: set on a page retired by a newer one (or written with a time limit). */
 	expiresAt?: string;
+	/** The version read (the server's page id): a copy written over this page names it, so a change in between wins. */
+	id?: string;
 	updatedAt: string | null;
 }

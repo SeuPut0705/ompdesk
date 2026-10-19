@@ -17,6 +17,9 @@ class FakeServer {
 	ready = true;
 	/** Paths whose next read fails once (the server answering 500, a timeout). */
 	readonly failOnce = new Set<string>();
+	/** Runs once at the start of the next copy write, before its precondition is checked (a change racing it). */
+	beforeWrite: (() => void) | undefined;
+	#version = 0;
 	constructor(
 		readonly now: () => string,
 		readonly normalize: (copy: MemoryPageCopy) => MemoryPageCopy = copy => copy,
@@ -30,11 +33,12 @@ class FakeServer {
 	}
 
 	#put(copy: MemoryPageCopy, origin: string | undefined): void {
-		const { origin: _dropped, ...rest } = this.normalize(structuredClone(copy));
+		const { origin: _dropped, id: _id, ...rest } = this.normalize(structuredClone(copy));
 		const at = this.now();
 		this.pages.set(`${copy.project}/${copy.path}`, {
 			...rest,
 			...(origin && this.keepsOrigin ? { origin } : {}),
+			id: `v${++this.#version}`,
 			updatedAt: at,
 			at,
 		});
@@ -48,7 +52,7 @@ class FakeServer {
 	retire(path: string, project = "app"): void {
 		const stored = this.pages.get(`${project}/${path}`);
 		if (!stored) throw new Error("no page to retire");
-		const { at: _at, origin: _origin, ...copy } = stored;
+		const { at: _at, origin: _origin, id: _id, ...copy } = stored;
 		this.#put(
 			{
 				...copy,
@@ -85,9 +89,16 @@ class FakeServer {
 			const { at: _at, ...copy } = structuredClone(stored);
 			return copy;
 		},
-		writePageCopy: async (copy, origin) => {
+		// As the server's write path: only over the version named, or only where nothing is (`null`).
+		writePageCopy: async (copy, origin, expected) => {
+			const race = this.beforeWrite;
+			this.beforeWrite = undefined;
+			race?.();
+			const current = this.pages.get(`${copy.project}/${copy.path}`)?.id ?? null;
+			if (expected !== undefined && expected !== current) return false;
 			this.writes.push(copy.path);
 			this.#put(copy, origin);
+			return true;
 		},
 	};
 }
@@ -267,6 +278,34 @@ describe("memory sync between two computers", () => {
 		expect(mac.writes).toEqual([]);
 		expect(win.writes).toEqual([]);
 		expect(win.listed()).toEqual([]);
+	});
+
+	it("a retire on the host between its check of a push and the write is never overwritten", async () => {
+		mac.edit("decisions/jev-auto.md", "Jev updates itself.");
+		await sync.sync("win");
+		mac.edit("decisions/jev-auto.md", "Jev updates itself, edited.");
+		// The host has read its page and judged the push; the retire lands before the write.
+		win.beforeWrite = () => win.retire("decisions/jev-auto.md");
+
+		await sync.sync("win");
+		await sync.sync("win");
+		expect(win.listed()).toEqual([]);
+		expect(mac.listed()).toEqual([]);
+		expect(win.body("decisions/jev-auto.md")).toContain("Superseded");
+	});
+
+	it("a retire here between the check of a pulled page and the write is never overwritten", async () => {
+		win.edit("decisions/jev-auto.md", "Jev updates itself.");
+		await sync.sync("win");
+		win.edit("decisions/jev-auto.md", "Jev updates itself, edited on the host.");
+		// This computer has read its copy and judged the host's change; the retire lands before the write.
+		mac.beforeWrite = () => mac.retire("decisions/jev-auto.md");
+
+		await sync.sync("win");
+		await sync.sync("win");
+		expect(mac.listed()).toEqual([]);
+		expect(win.listed()).toEqual([]);
+		expect(mac.body("decisions/jev-auto.md")).toContain("Superseded");
 	});
 
 	it("a computer that never saw the retire cannot bring a retired page back live", async () => {
