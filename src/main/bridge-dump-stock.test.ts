@@ -1,10 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import type { SessionArchive } from "../shared/diagnostic-bundle";
+import { handlers } from "./local/session-dump";
+import type { LocalCommandContext } from "./local/types";
 
 /**
  * "Save diagnostic bundle" on the installed omp (bridge `session_dump`, resources/gui-bridge/session-dump.ts), in
@@ -18,9 +21,9 @@ const SEED = `
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 const user = content => ({ role: "user", content, timestamp: Date.now() });
 const reply = text => ({ role: "assistant", content: [{ type: "text", text }], api: "openai-responses", provider: "openai", model: "gpt-probe", usage, stopReason: "stop", timestamp: Date.now() });
-async function seed(session) {
+async function seed(session, text = "dump probe question") {
  const sm = session.sessionManager;
- const question = user([{ type: "text", text: "dump probe question" }]);
+ const question = user([{ type: "text", text }]);
  const answer = reply("dump probe answer");
  sm.appendMessage(question);
  sm.appendMessage(answer);
@@ -58,6 +61,62 @@ export default function (pi) {
  });
 }
 `;
+
+/** Fake secrets of every kind the redactor knows; none needs escaping inside JSON. */
+const SECRETS = [
+	`ghp_${"a1B2".repeat(9)}`,
+	"sk-proj-0123456789abcdefABCDEF",
+	"8f14e45fceea167a",
+	"jane.doe@example.com",
+	"100.101.102.103",
+	"192.168.1.23",
+	"/Users/janedoe",
+];
+const SECRET_LINE = `deploy with ${SECRETS[0]} and ${SECRETS[1]}, header Bearer ${SECRETS[2]}, mail ${SECRETS[3]}, host ${SECRETS[4]} or ${SECRETS[5]}, files in ${SECRETS[6]}/proj`;
+
+/** The main transcript and one subagent transcript (stored next to the session file, as stock keeps them) carry every secret. */
+const PRIVACY_PROBE = `
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { methods } from "./session-dump";
+${SEED}
+export default function (pi) {
+ pi.on("session_start", async () => {
+  try {
+   const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+   const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
+   await seed(session, ${JSON.stringify(`MAIN ${SECRET_LINE}`)});
+   const file = session.sessionManager.getSessionFile();
+   const dir = file.slice(0, -6);
+   mkdirSync(dir, { recursive: true });
+   writeFileSync(dir + "/Probe.jsonl", readFileSync(file, "utf8").replaceAll("MAIN ", "SUBAGENT "));
+   const all = await methods.session_dump({}, env);
+   const anon = await methods.session_dump({ anonymized: true }, env);
+   console.error("DUMP_PROBE=" + JSON.stringify({ all, anon }));
+  } catch (err) {
+   console.error("DUMP_PROBE_ERROR=" + String((err && err.stack) || err));
+  }
+  process.exit(0);
+ });
+}
+`;
+
+async function texts(file: string): Promise<Record<string, string>> {
+	const zip = await JSZip.loadAsync(await readFile(file));
+	const out: Record<string, string> = {};
+	for (const [name, entry] of Object.entries(zip.files)) if (!entry.dir) out[name] = await entry.async("string");
+	return out;
+}
+
+/** `dump_session_archive` (the step on the machine that runs the omp) over a bridge that answers with `archive`. */
+function handlerOver(archive: Omit<SessionArchive, "redacted">) {
+	const ctx = {
+		cwd: "/repo",
+		bridge: { connected: true, onEvent: () => () => {}, request: async () => archive },
+	} as unknown as LocalCommandContext;
+	const handler = handlers.dump_session_archive;
+	if (!handler) throw new Error("no dump_session_archive handler");
+	return handler({ type: "dump_session_archive", anonymized: archive.anonymized }, ctx) as Promise<SessionArchive>;
+}
 
 interface Archive {
 	path: string;
@@ -141,6 +200,33 @@ describe.skipIf(!existsSync(omp))("session dump on stock omp", () => {
 			expect(Object.keys(output ?? {}).sort()).toEqual(["text", "type"]);
 			expect(frames.some(frame => "path" in frame && String(frame.path).endsWith(".zip"))).toBe(false);
 			expect(temp).toBeTruthy();
+		});
+	}, 130_000);
+
+	it("hides every secret in every member of both bundles, and leaves no stock archive behind", async () => {
+		await isolatedRun(PRIVACY_PROBE, "privacy-probe.ts", "", async (_dirs, { stderr }) => {
+			const line = stderr.split("\n").find(value => value.startsWith("DUMP_PROBE="));
+			expect(line, stderr.slice(-2500)).toMatch(/^DUMP_PROBE=/);
+			const out = JSON.parse(line?.slice("DUMP_PROBE=".length) ?? "{}") as { all: Archive; anon: Archive };
+
+			// Stock's own `/dump all` carries them in the transcript, the subagent transcript and the LLM request.
+			const raw = await texts(out.all.path);
+			expect(Object.keys(raw).sort()).toEqual(["llm-request.json", "session.md", "subagents/Probe.md"]);
+			for (const text of Object.values(raw)) expect(text).toContain(SECRETS[3]);
+
+			for (const stock of [out.all, out.anon]) {
+				const bundle = await handlerOver(stock);
+				const members = await texts(bundle.path);
+				expect(Object.keys(members).sort()).toEqual([...bundle.files].sort());
+				for (const [name, text] of Object.entries(members)) {
+					for (const secret of [...SECRETS, homedir()])
+						expect(text, `${name} holds ${secret}`).not.toContain(secret);
+					if (name.endsWith(".json")) expect(() => JSON.parse(text)).not.toThrow();
+					if (name.endsWith(".jsonl"))
+						for (const row of text.split("\n").filter(Boolean)) expect(() => JSON.parse(row)).not.toThrow();
+				}
+				await expect(access(stock.path)).rejects.toThrow();
+			}
 		});
 	}, 130_000);
 });
