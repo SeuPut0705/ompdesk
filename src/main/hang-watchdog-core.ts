@@ -73,15 +73,54 @@ export function createHangDetector(config: HangDetectionConfig): HangDetector {
 	};
 }
 
+/** What main was doing: launching, running, quitting (the teardown), or applying an update. */
+export const MAIN_PHASES = ["startup", "running", "quit", "update"] as const;
+export type MainPhase = (typeof MAIN_PHASES)[number];
+/** Steps a marker names: the stalled one last, the ones before it for context. */
+export const HANG_STEP_HISTORY = 8;
+
+export interface MainSteps {
+	phase: MainPhase;
+	/** `<phase>:<step>`, oldest first. */
+	steps: string[];
+}
+
+/**
+ * The worker's copy of main's last steps. Main posts each step before running it, and the worker gets the
+ * message even while main is blocked, so the last entry at a hang is the step that never returned.
+ */
+export function createStepRing(size = HANG_STEP_HISTORY): {
+	enter(phase: MainPhase, step: string): void;
+	snapshot(): MainSteps;
+} {
+	let phase: MainPhase = "startup";
+	const steps: string[] = [];
+	return {
+		enter(next, step) {
+			phase = next;
+			steps.push(`${next}:${step}`);
+			if (steps.length > size) steps.splice(0, steps.length - size);
+		},
+		snapshot: () => ({ phase, steps: [...steps] }),
+	};
+}
+
 export interface HangMarker {
 	detectedAt: number;
 	pid: number;
 	unresponsiveMs: number;
 	/** False for a marker the stall never cleared (a deadlock, or the app was killed during it). */
 	selfRecovered: boolean;
+	/** Main's phase and last steps when the stall was detected (absent in markers older builds wrote). */
+	phase?: MainPhase;
+	steps?: string[];
 }
 
-export type MainToHangWorkerMessage = { type: "heartbeat" } | { type: "resume" } | { type: "shutdown" };
+export type MainToHangWorkerMessage =
+	| { type: "heartbeat" }
+	| { type: "resume" }
+	| { type: "shutdown" }
+	| { type: "step"; phase: MainPhase; step: string };
 
 export interface HangWorkerData {
 	pid: number;
@@ -102,11 +141,17 @@ function parseMarker(raw: string): HangMarker | null {
 		return null;
 	}
 	if (typeof value !== "object" || value === null) return null;
-	const { detectedAt, pid, unresponsiveMs, selfRecovered } = value as Record<string, unknown>;
+	const { detectedAt, pid, unresponsiveMs, selfRecovered, phase, steps } = value as Record<string, unknown>;
 	if (typeof detectedAt !== "number" || !Number.isFinite(detectedAt)) return null;
 	if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null;
 	if (typeof unresponsiveMs !== "number" || !Number.isFinite(unresponsiveMs) || unresponsiveMs < 0) return null;
-	return { detectedAt, pid, unresponsiveMs, selfRecovered: selfRecovered === true };
+	const marker: HangMarker = { detectedAt, pid, unresponsiveMs, selfRecovered: selfRecovered === true };
+	const knownPhase = MAIN_PHASES.find(name => name === phase);
+	if (knownPhase && Array.isArray(steps) && steps.every(step => typeof step === "string")) {
+		marker.phase = knownPhase;
+		marker.steps = steps.slice(-HANG_STEP_HISTORY);
+	}
+	return marker;
 }
 
 /** Reads and removes the previous run's marker; null when there is none or it is unreadable. */

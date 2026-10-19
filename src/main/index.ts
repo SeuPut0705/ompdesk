@@ -92,7 +92,7 @@ import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
-import { installHangWatchdog, reportPreviousHang } from "./hang-watchdog";
+import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
@@ -1455,24 +1455,32 @@ app.on("window-all-closed", () => {
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
 	() => {
-		void statsServer?.kill();
-		ompUpdater?.dispose();
-		cliUpdater?.dispose();
-		extensionUpdater?.dispose();
-		setupService?.dispose();
-		aiMemoryUpkeep?.dispose();
-		aiMemoryService?.dispose();
-		githubAuthService?.dispose();
-		scheduleService?.dispose();
-		workAwakePolicy?.dispose();
-		worktreeAutoClean?.stop();
-		sidecarPool?.disposeAll();
-		void remoteDevices?.dispose();
-		mobileWebService?.dispose();
-		void webHost?.stop();
-		sessionIndex?.stop();
-		logWatcher?.stop();
-		destroyTray();
+		// Each step is named to the hang watchdog first: a stalled quit then names the step that never returned.
+		const steps: Array<[string, () => void]> = [
+			["stats-server", () => void statsServer?.kill()],
+			["omp-updater", () => ompUpdater?.dispose()],
+			["cli-updater", () => cliUpdater?.dispose()],
+			["extension-updater", () => extensionUpdater?.dispose()],
+			["setup", () => setupService?.dispose()],
+			["ai-memory-upkeep", () => aiMemoryUpkeep?.dispose()],
+			["ai-memory", () => aiMemoryService?.dispose()],
+			["github-auth", () => githubAuthService?.dispose()],
+			["schedules", () => scheduleService?.dispose()],
+			["work-awake", () => workAwakePolicy?.dispose()],
+			["worktree-auto-clean", () => worktreeAutoClean?.stop()],
+			["sidecars", () => sidecarPool?.disposeAll()],
+			["remote-devices", () => void remoteDevices?.dispose()],
+			["mobile-web", () => mobileWebService?.dispose()],
+			["web-host", () => void webHost?.stop()],
+			["session-index", () => sessionIndex?.stop()],
+			["log-watcher", () => logWatcher?.stop()],
+			["tray", () => destroyTray()],
+		];
+		for (const [name, run] of steps) {
+			markMainStep("quit", `teardown:${name}`);
+			run();
+		}
+		markMainStep("quit", "teardown:done");
 	},
 	async () => {
 		const lifecycle = worktreeLifecycle;

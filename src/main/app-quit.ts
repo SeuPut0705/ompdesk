@@ -6,6 +6,7 @@
  * on, those runs continue after the next launch and the quit asks nothing.
  */
 import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
+import { markMainStep } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { assessQuitRisk, QuitLatch, type QuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
 import { QuitWatchdog, type QuitWatchdogReason } from "./quit-watchdog";
@@ -133,6 +134,7 @@ export function installQuitGuard(
 			}
 			return;
 		}
+		markMainStep("quit", "before-quit");
 		if (latch.proceed(teardown)) {
 			// The quit is committed: finalize (which may ask the user) is over and the teardown ran.
 			quitWatchdog.arm("quit");
@@ -148,8 +150,10 @@ export function installQuitGuard(
 	// Squirrel then closes every window before `before-quit`, and a closing
 	// window takes its tabs and their saved layout with it.
 	autoUpdater.on("before-quit-for-update", () => {
+		markMainStep("update", "before-quit-for-update");
 		finalizing = "done";
 		latch.proceedForUpdate(teardown);
+		markMainStep("update", "teardown-done: closing windows for the installer");
 		quitWatchdog.arm("update");
 	});
 }

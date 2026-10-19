@@ -7,6 +7,7 @@
  * written once per launch; e2e/first-run-no-omp.e2e.ts reads them.
  */
 import { isRendererStartupMark, type StartupMark } from "../shared/startup-timing";
+import { markMainStep } from "./hang-watchdog";
 import { writeRuntimeLog } from "./runtime-log";
 
 const written = new Set<StartupMark>();
@@ -14,6 +15,8 @@ const written = new Set<StartupMark>();
 export function markStartup(mark: StartupMark, details: Record<string, string | number | boolean> = {}): void {
 	if (written.has(mark)) return;
 	written.add(mark);
+	// The first-run check is the last launch mark: from there main is running.
+	markMainStep(mark === "first-run-check" ? "running" : "startup", mark);
 	writeRuntimeLog({
 		source: "startup-timing",
 		message: mark,

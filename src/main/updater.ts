@@ -44,6 +44,7 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
 import { confirmQuit, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import { writeRuntimeLog } from "./runtime-log";
@@ -709,6 +710,7 @@ export function restartIntoUpdate(trigger: InstallTrigger): void {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
+		markMainStep("update", "relaunch-swap: quit");
 		beginInstall(trigger);
 		relaunchAfterSwap = true;
 		requestQuit();
@@ -717,6 +719,7 @@ export function restartIntoUpdate(trigger: InstallTrigger): void {
 	// Once approved, quitAndInstall() emits before-quit-for-update and the
 	// quit guard runs ⌘Q's teardown.
 	if (current.mode === "automatic") {
+		markMainStep("update", "quit-and-install");
 		beginInstall(trigger);
 		noteInstallHelper("nsis", trigger);
 		autoUpdater.quitAndInstall();

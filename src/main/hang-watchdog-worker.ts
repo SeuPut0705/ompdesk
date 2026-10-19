@@ -6,7 +6,9 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import {
 	createHangDetector,
+	createStepRing,
 	type HangWorkerData,
+	type MainSteps,
 	type MainToHangWorkerMessage,
 	writeHangMarker,
 } from "./hang-watchdog-core";
@@ -27,6 +29,9 @@ function isWorkerData(value: unknown): value is HangWorkerData {
 if (!isMainThread && parentPort && isWorkerData(workerData)) {
 	const config = workerData;
 	const port = parentPort;
+	const ring = createStepRing();
+	// The steps at the moment of the hang: a recovered stall's rewrite still names the step that stalled.
+	let atHang: MainSteps = ring.snapshot();
 	const record = (unresponsiveMs: number, selfRecovered: boolean): void => {
 		try {
 			writeHangMarker(config.markerPath, {
@@ -34,6 +39,7 @@ if (!isMainThread && parentPort && isWorkerData(workerData)) {
 				pid: config.pid,
 				unresponsiveMs,
 				selfRecovered,
+				...atHang,
 			});
 		} catch {
 			// Best effort: a marker that cannot be written must not stop the watchdog.
@@ -43,13 +49,17 @@ if (!isMainThread && parentPort && isWorkerData(workerData)) {
 		timeoutMs: config.timeoutMs,
 		checkIntervalMs: config.checkIntervalMs,
 		now: () => Date.now(),
-		onHang: ms => record(ms, false),
+		onHang: ms => {
+			atHang = ring.snapshot();
+			record(ms, false);
+		},
 		// Rewriting the marker keeps one record per stall.
 		onResolved: ms => record(ms, true),
 	});
 	const timer = setInterval(() => detector.tick(), config.checkIntervalMs);
 	port.on("message", (message: MainToHangWorkerMessage) => {
 		if (message.type === "heartbeat") detector.heartbeat();
+		else if (message.type === "step") ring.enter(message.phase, message.step);
 		else if (message.type === "resume") detector.reset();
 		else {
 			clearInterval(timer);
