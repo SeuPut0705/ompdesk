@@ -57,6 +57,57 @@ describe.skipIf(!stockRoot)("SessionIndex first prompt", () => {
 		expect(info?.firstMessage).toBe("Create the file notes.txt containing alpha.");
 	});
 
+	// A paired device's agent opened the session on this computer: its first prompt is that agent's brief and stock's
+	// prompt-origin entry names the device. The sidebar must tell it from a child of a session listed here.
+	it("reports the device the first prompt came from, in front of a long notice or not", async () => {
+		agent = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-first-prompt-"));
+		await fs.chmod(agent, 0o700);
+		process.env.PI_CODING_AGENT_DIR = agent;
+		const dir = path.join(agent, "sessions");
+		const project = path.join(dir, "project-x");
+		await fs.mkdir(project, { recursive: true });
+		const notice = {
+			type: "custom_message",
+			customType: "xdev-mount-notice",
+			content: `<system-notice>\n${"- xd://tool — Analyze\n".repeat(400)}</system-notice>`,
+			display: false,
+		};
+		const brief = '<ompdesk-agent-message from="Mac session">\nTitle: Measure\n\nDo it.\n</ompdesk-agent-message>';
+		const journal = (id: string, withNotice: boolean, origin: boolean) =>
+			[
+				{ type: "title", v: 1, title: "" },
+				{ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: dir },
+				...(withNotice ? [notice] : []),
+				...(origin
+					? [
+							{
+								type: "custom",
+								customType: "ompdesk.prompt-origin",
+								data: { deviceId: "mac-1", name: "Mac", timestamp: 1 },
+							},
+						]
+					: []),
+				{ type: "message", id: "u1", message: { role: "user", content: [{ type: "text", text: brief }] } },
+				{
+					type: "message",
+					id: "a1",
+					message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Ok." }] },
+				},
+			]
+				.map(line => JSON.stringify(line))
+				.join("\n");
+		await fs.writeFile(path.join(project, "long.jsonl"), `${journal("long", true, true)}\n`);
+		await fs.writeFile(path.join(project, "short.jsonl"), `${journal("short", false, true)}\n`);
+		await fs.writeFile(path.join(project, "here.jsonl"), `${journal("here", true, false)}\n`);
+		index = new SessionIndex(dir, dir);
+		const rows = await index.list("global");
+		const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+		expect(byId.long?.promptOriginDevice).toBe("mac-1");
+		expect(byId.short?.promptOriginDevice).toBe("mac-1");
+		expect(byId.here?.promptOriginDevice).toBeUndefined();
+		expect(byId.long?.firstMessage).toContain("ompdesk-agent-message");
+	});
+
 	// The file stock writes when the last chat is deleted and the next one starts (header and
 	// settings entries only). Stock's listing reads "(no messages)", which the sidebar took for
 	// content, so the row came back after every delete.

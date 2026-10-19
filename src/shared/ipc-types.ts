@@ -1539,6 +1539,11 @@ export interface SessionInfo {
 	parentSessionPath?: string;
 	/** Paired host deviceId the session file lives on; absent = this device. */
 	device?: string;
+	/**
+	 * The paired device the session's first prompt came from (its agent opened the session on this computer); absent
+	 * when it was typed here. Read by the stock helper only for a first prompt that is an agent brief.
+	 */
+	promptOriginDevice?: string;
 }
 
 // ============================================================================

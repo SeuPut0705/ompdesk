@@ -2321,6 +2321,24 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(openedPaths('[data-sidebar-loose-children="group:/work/alpha"]')).toEqual(["/work/alpha/broken.jsonl"]);
 	});
 
+	it("lists a finished session a paired device's agent opened here: its opener is on that device", async () => {
+		mountFamily({
+			sessionsExtra: [
+				session("/work/alpha/from-mac.jsonl", "/work/alpha", {
+					title: null,
+					firstMessage: wrapAgentMessage("Title: Measure memory\nDetails.", "A session on the Mac"),
+					promptOriginDevice: "mac-1",
+					created: "2026-02-06T00:00:00Z",
+					modified: "2026-02-06T00:00:00Z",
+				}),
+			],
+		});
+		relaunchedWith("t0", "t1");
+		await mount(<Sidebar />);
+		const rows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
+		expect(rows.map(row => row.getAttribute("data-session-path"))).toContain("/work/alpha/from-mac.jsonl");
+	});
+
 	it("reads an opened session as its task while the index lists it without a first message", async () => {
 		mountFamily({
 			sessionsExtra: [

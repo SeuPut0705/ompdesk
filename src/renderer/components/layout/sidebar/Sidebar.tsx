@@ -814,7 +814,8 @@ export function Sidebar() {
 				id: session.id,
 				liveTabId: session.liveTabId,
 				title: sessionDisplayTitle(session, ""),
-				firstMessage: session.firstMessage,
+				// A paired device's agent opened it here: the session its brief names is on that device, never a row here.
+				firstMessage: session.promptOriginDevice ? undefined : session.firstMessage,
 				created: session.created,
 			})),
 			closedOpeners,
@@ -838,7 +839,9 @@ export function Sidebar() {
 			const origin = projectName(gone && recorded !== undefined ? recorded : session.cwd);
 			if (
 				closedOpeners.has(session.path) ||
-				agentMessageSender(session.firstMessage) !== null ||
+				// The opener of a session a paired device's agent opened here is on that device: on this computer the
+				// session is the person's only way in, so it stays a row of its own.
+				(!session.promptOriginDevice && agentMessageSender(session.firstMessage) !== null) ||
 				origin.worktree?.worktree?.kind === "agent"
 			)
 				roots.set(session.path, origin.root);

@@ -19,6 +19,7 @@ const sessionRows = z.array(
 		status: z.enum(["complete", "interrupted", "aborted", "error", "pending", "unknown"]).default("unknown"),
 		firstMessage: z.string(),
 		parentSessionPath: z.string().optional(),
+		promptOriginDevice: z.string().optional(),
 	}),
 );
 

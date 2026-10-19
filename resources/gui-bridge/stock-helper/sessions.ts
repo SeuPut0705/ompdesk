@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { PROMPT_ORIGIN_ENTRY } from "../prompt-origin-contracts";
 import { NO_TEXT_PROMPT } from "../session-list-contracts";
 
 /** The fields of stock's `SessionInfo` this helper reads; the rest pass through untouched. */
@@ -7,6 +8,8 @@ interface StockSessionInfo {
 	size: number;
 	modified: Date | string;
 	firstMessage: string;
+	/** OMPdesk's: the paired device the first prompt came from (stock's journal holds OMPdesk's prompt-origin entry). */
+	promptOriginDevice?: string;
 }
 
 interface StockSessions {
@@ -118,10 +121,12 @@ const HEADER_ENTRY_TYPES = new Set([
 	"custom_message",
 ]);
 /**
- * What a "(no messages)" row resolves to, keyed by path, valid for one `modified:size` stamp:
- * the first prompt, "" for a file read to its end without one, or null to keep stock's row.
+ * What a scanned row resolves to, keyed by path, valid for one `modified:size` stamp: the first prompt ("" for a
+ * file read to its end without one, null to keep stock's), and the device that prompt came from.
  */
-const firstPrompts = new Map<string, { stamp: string; firstMessage: string | null }>();
+const firstPrompts = new Map<string, { stamp: string; firstMessage: string | null; origin: string | undefined }>();
+/** A first prompt that is another session's agent brief (`wrapAgentMessage`): the opener may be on another device. */
+const AGENT_BRIEF = "<ompdesk-agent-message ";
 
 /**
  * Stock lists a session's first prompt from a 4 KB prefix only. Anything stock
@@ -132,22 +137,28 @@ const firstPrompts = new Map<string, { stamp: string; firstMessage: string | nul
  * session (stock writes one when a chat is deleted and the next one starts):
  * its first message becomes "", so the sidebar treats it as empty instead of
  * listing the English placeholder as a conversation that comes back after every delete.
+ * A row whose first prompt is an agent brief is streamed too, for the prompt-origin entry journaled in front of
+ * that prompt: a session a paired device's agent opened here has its opener on that device, not in this list.
  */
 async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionInfo[]> {
-	if (!rows.some(row => row.firstMessage === NO_MESSAGES)) return rows;
+	const scanned = (row: StockSessionInfo) =>
+		row.firstMessage === NO_MESSAGES || row.firstMessage.startsWith(AGENT_BRIEF);
+	if (!rows.some(scanned)) return rows;
 	firstPromptLoaded ??= loadStockFirstPrompt();
 	const stock = await firstPromptLoaded;
 	if (!stock) return rows;
 	await Promise.all(
 		rows.map(async row => {
-			if (row.firstMessage !== NO_MESSAGES) return;
+			if (!scanned(row)) return;
 			const stamp = `${new Date(row.modified).getTime()}:${row.size}`;
+			const apply = (found: { firstMessage: string | null; origin: string | undefined }) => {
+				if (found.firstMessage !== null && row.firstMessage === NO_MESSAGES) row.firstMessage = found.firstMessage;
+				if (found.origin) row.promptOriginDevice = found.origin;
+			};
 			const cached = firstPrompts.get(row.path);
-			if (cached?.stamp === stamp) {
-				if (cached.firstMessage !== null) row.firstMessage = cached.firstMessage;
-				return;
-			}
+			if (cached?.stamp === stamp) return apply(cached);
 			let text = "";
+			let origin: string | undefined;
 			// Only a journal of header/settings entries is an empty session. A message of any role
 			// (an image-only prompt has no text), a shown custom message or an unknown entry type
 			// is conversation: stock's messageCount comes from the same 4 KB prefix, so clearing such
@@ -162,6 +173,17 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 							return undefined;
 						}
 						if (entry.type !== "message") {
+							if (
+								entry.type === "custom" &&
+								"customType" in entry &&
+								entry.customType === PROMPT_ORIGIN_ENTRY &&
+								"data" in entry &&
+								typeof entry.data === "object" &&
+								entry.data !== null &&
+								"deviceId" in entry.data &&
+								typeof entry.data.deviceId === "string"
+							)
+								origin = entry.data.deviceId;
 							if (!HEADER_ENTRY_TYPES.has(String(entry.type))) conversation = true;
 							else if (entry.type === "custom_message" && !("display" in entry && entry.display === false))
 								conversation = true;
@@ -186,8 +208,9 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 			// No text but conversation (an image-only prompt) or too large to tell: label it so it stays listed;
 			// only a header-only file read to its end is empty.
 			const firstMessage = text || (!conversation && row.size <= FIRST_PROMPT_READ_LIMIT ? "" : NO_TEXT_LABEL);
-			firstPrompts.set(row.path, { stamp, firstMessage });
-			if (firstMessage !== null) row.firstMessage = firstMessage;
+			const found = { stamp, firstMessage, origin };
+			firstPrompts.set(row.path, found);
+			apply(found);
 		}),
 	);
 	return rows;
