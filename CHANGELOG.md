@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.41.0] - 2026-10-19
+
+컴퓨터끼리 공유가 Tailscale 계정만으로 페어링 코드 없이 이어지고, 컴퓨터를 다시 켜도 끊기지 않아요.
+
+### 새로 생긴 것
+- 컴퓨터 공유가 Tailscale 전용이 됐어요. 설정 › 기기 및 연결에 같은 Tailscale 계정의 컴퓨터가 보이고, "연결"만 누르면 돼요. 페어링 코드와 주소 입력은 없어요. 공유하는 컴퓨터는 Tailscale 주소에서만 연결을 받고, 허용 계정과 차단은 휴대폰 웹과 함께 관리해요.
+- 이미 코드로 연결해 둔 컴퓨터는 업데이트 때 Tailscale 기기로 자동으로 옮겨져서 다시 연결할 필요가 없어요.
+- 메모리를 OMPdesk 안에서 직접 빌드해요. 외부 배포판을 받아 오지 않아요.
+- 설정 › 모델 역할의 판단 모델 줄이 더 빠르고 저렴한 판단 모델(Jev)을 못 쓸 때 이유와 연결할 곳을 알려 줘요.
+
+### 고친 것
+- 컴퓨터를 다시 켜면 공유 연결이 다시 이어지지 않던 것을 고쳤어요. 기억해 둔 임시 포트 대신 매번 컴퓨터의 현재 Tailscale 주소로 찾아가요.
+- 휴대폰 웹에서 원격 컴퓨터의 세션이 끝없이 로딩되던 것을 고쳤어요. 60초 안에 열리지 않으면 이유와 "다시 시작"이 보이고, 대화를 불러오지 못하면 "다시 시도"가 보여요.
+- omp가 "이 세션 동안 허용"을 함께 묻는 도구 승인을 승인 카드로 알아보지 못해서, 알림과 오토파일럿 자동 승인에서 빠지던 것을 고쳤어요. 승인 카드에 "이 세션 동안 허용"이 생겼어요.
+- OMPdesk가 일부 omp 설정을 실행 중인 omp가 아닌 다른 복사본에서 읽어 잘못된 값을 쓰던 것을 고쳤어요(목표 모드 켜기 등).
+- 대화 자동 압축이 1시간짜리 캐시가 만료되기 직전에 일어나도록 omp에 맞췄어요.
+- 자동 모드의 계획 판단이 한국어 요청을 더 잘 알아봐요.
+- 휴대폰 아래쪽 창에 스크롤바가 두 개 보이던 것을 고쳤어요.
+- 휴대폰에서 원격 컴퓨터 세션 줄의 닫기·삭제 버튼이 그대로 드러나던 것을 ⋯ 메뉴 하나로 정리했어요.
+- 작업판의 열린 세션 중 답을 기다리는 줄만 강조돼요. 목록 전체가 경고 색이 되지 않아요.
+- 보안 검사 화면이 재시작 직후 중단된 검사를 "실행 중"으로 보여 주던 것을 고쳤어요.
+
+<!-- en -->
+
+Sharing between computers now runs on your Tailscale account alone, with no pairing code, and survives a restart.
+
+### Added
+- Computer sharing is Tailscale-only: Settings › Devices & connections lists the computers on your Tailscale account, and Connect is all it takes. No pairing code, no address field. A sharing computer accepts connections only on its Tailscale address, and allowed accounts and blocks are shared with mobile web.
+- Computers already paired by code move over to their Tailscale node on update, with no reconnect needed.
+- Memory is built by OMPdesk itself; no upstream release download.
+- Settings › Model roles' judge row says when the faster, cheaper judge model (Jev) is skipped and where to connect it.
+
+### Fixed
+- A shared computer reconnects after a restart: the client always dials the computer's current Tailscale address instead of a remembered temporary port.
+- A remote computer's session on the phone no longer loads forever: after 60 s it names the computer with Restart, and a failed transcript read offers Retry.
+- Tool approvals that also offer "Approve for this session" are recognised as approvals again (notifications, Autopilot's approver), and the card offers that choice.
+- Some omp settings were read from a second copy of omp's modules instead of the running omp (goal mode and others); they now read the real values.
+- Idle compaction now happens just before a 1-hour prompt cache expires, matching omp.
+- Auto mode recognises Korean planning requests better.
+- Bottom sheets on a phone show one scrollbar, not two.
+- On touch, a remote computer's session row keeps Close and Delete behind one ⋯.
+- On the work board, only the opened session that waits on you is tinted, not the whole list.
+- The security dashboard no longer shows an interrupted scan as running right after a restart.
+
 ## [0.40.0] - 2026-10-19
 
 화면 전체의 군더더기 설명을 걷어 내고, 에이전트가 OMPdesk를 확인 카드 없이 다룰 수 있게 했어요. 원격 세션은 이제 어느 쪽에서 열어도 하나로 이어져요.
