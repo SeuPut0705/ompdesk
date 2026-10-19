@@ -56,6 +56,9 @@ export default defineConfig({
 					// env edits, so each file keeps its own process (`forks`).
 					name: "node",
 					sequence: { groupOrder: 1 },
+					// Starting a process costs several times more on Windows, and the git-driven tests
+					// (autopilot audit/ship, workspace walk) spawn dozens: 5 s timed them out on windows-latest.
+					testTimeout: process.platform === "win32" ? 20_000 : 5_000,
 					exclude: [...configDefaults.exclude, RENDERER],
 				},
 			},
