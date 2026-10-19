@@ -548,7 +548,9 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		tier: "change",
 		run: async (ctx, args) => {
 			const result = (await ctx.invoke(C.SESSIONS_DUMP_BUNDLE, {
-				...(typeof args.session === "string" ? { sessionPath: args.session } : { tabId: ctx.callerTabId }),
+				...(typeof args.session === "string"
+					? { sessionPath: args.session, ...(ctx.device ? { device: ctx.device } : {}) }
+					: { tabId: ctx.callerTabId }),
 				anonymized: args.anonymized !== false,
 				destination: typeof args.path === "string" ? { kind: "path", path: args.path } : { kind: "downloads" },
 				forAgent: true,

@@ -588,6 +588,21 @@ describe("sessions.dump_bundle", () => {
 		expect(text).not.toContain("anonymized");
 	});
 
+	it("names the paired host for a session file of a caller that runs there", async () => {
+		const ports = dumpPorts();
+		ports.devices[CALLER] = "dev-studio";
+		await new AppControl(ports).run(CALLER, "sessions.dump_bundle", { session: "C:/s/other.jsonl" });
+		expect(ports.invoked[0]?.args).toEqual([
+			{
+				sessionPath: "C:/s/other.jsonl",
+				device: "dev-studio",
+				anonymized: true,
+				destination: { kind: "downloads" },
+				forAgent: true,
+			},
+		]);
+	});
+
 	it("turns a failed save into a refusal the agent reads", async () => {
 		const ports = dumpPorts({ ok: false, error: "There's nothing to save yet.", code: "no_messages" });
 		expect(await refusal(new AppControl(ports).run(CALLER, "sessions.dump_bundle", {}))).toBe(
