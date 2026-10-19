@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.39.0] - 2026-10-19
+
+세션이 겹치거나 지운 세션이 되살아나던 문제를 고친 안정판이에요. 앱이 로딩 화면 없이 바로 뜨고, 휴대폰 입력창과 메모리 페이지가 새로 바뀌었어요.
+
+### 새로 생긴 것
+- 설정 › 메모리가 한 페이지로 바뀌었어요. 개요, 검색, 페이지(읽기·편집·고정·삭제·되살리기), 인계, 세션, 프로필, 관리를 한곳에서 다뤄요. 사이드 패널에는 요약만 보여요.
+- 왼쪽 사이드바가 열고 닫은 상태를 기억해요. 사이드바 표시 여부와 프로젝트·폴더·기기 묶음, 하위 작업 묶음의 접힘이 앱을 다시 켜도 그대로예요.
+- 앱이 켜지는 첫 화면부터 실제 화면 모양으로 떠요. 세션 목록, 대화, 탭, 모델, 사용량, 패널이 마지막으로 본 내용으로 바로 보이고 회전하는 로딩 표시가 없어요.
+- 입력창을 새로 다듬었어요. 실행 설정을 칩 하나로 모았고, 대기 중인 메시지는 버튼 하나로 보여요. @ 목록이 저장소 전체 파일을 찾고, 붙여넣기·받아쓰기·되돌리기가 더 정확해졌어요. omp가 아직 켜지는 중이어도 입력하고 보낼 수 있어요.
+- 휴대폰 입력창은 항상 열려 있고, 모든 버튼이 입력창 상자 안에 있어요. 터치 키보드의 Enter는 줄을 바꾸고 보내기 버튼으로만 보내요.
+- 작업 카드가 테스트 결과, 오류 원인, 미리보기를 칩으로 보여 주고, 같은 의도의 단계를 한 줄로 묶어요.
+- 에이전트가 연 세션이 하위 에이전트처럼 여는 세션 아래에 접히고, 끝나면 스스로 닫혀요. 세션끼리 보고를 주고받을 수 있고, 다른 창·연결된 기기·저장된 세션도 다룰 수 있어요.
+- 에이전트가 세션을 열거나 메시지를 보내는 횟수 제한을 없앴어요.
+- 원격 기기의 세션을 사이드바에서 닫거나 삭제할 수 있어요.
+
+### 바뀐 것
+- 패널(변경 사항, 미리보기 등)이 저절로 열리지 않아요. 개발 서버 주소가 나오면 "미리보기 열기" 링크가 보여요.
+- 제목 표시줄의 보는 사람 표시를 없앴어요.
+
+### 고친 것
+- 지운 세션이 재시작이나 다른 기기를 거쳐 다시 나타나던 것을 고쳤어요. 지운 기록이 모든 복원 경로를 막아요. 처음 대화를 이어 하는 기능은 그대로예요.
+- 원격 컴퓨터에서 같은 대화가 탭 여러 개로 열리던 것을 고쳤어요. 한 세션 파일에는 omp가 하나만 돌아요.
+- 이미 main에 반영된 작업이 "검토가 필요해요"에 파일 수천 줄짜리로 뜨던 것을 고쳤어요.
+- 앱을 다시 켜면 직전에 고른 탭 대신 그 전 탭이 열리던 것을 고쳤어요.
+- 앱을 다시 켠 뒤 에이전트가 연 세션이 여는 세션과의 관계를 잃던 것을 고쳤어요. 쉬고 있는 세션의 탭을 닫을 때 확인 카드가 뜨지 않아요.
+- 휴대폰 웹 화면이 연결이 끊긴 뒤 스스로 새로고침되던 것을 고쳤어요. 저장 안 된 내용이 있으면 업데이트를 미뤄요.
+- 좁은 창이나 200 % 확대에서 보내기·중지 버튼이 화면 밖으로 밀리던 것을 고쳤어요.
+- 받는 쪽이 닫힌 콘솔에 쓸 때 앱이 오류 창과 함께 꺼지던 것을 고쳤어요.
+- Windows에서 작업 폴더 준비, 명령 실행, 테스트가 실패하던 여러 문제를 고쳤어요.
+
+<!-- en -->
+
+A stable release that stops sessions from duplicating and deleted sessions from coming back. The app now opens without loading screens, and the phone composer and the Memory page are new.
+
+### Added
+- Settings › Memory is one page: overview, search, pages (read, edit, pin, delete, restore), handoffs, sessions, profile and maintenance. The side panel shows a summary.
+- The left sidebar remembers what was open or closed: whether it is shown, and the folds of projects, folders, devices and sub-task families survive a relaunch.
+- The first frame is the real layout: the session list, transcript, tabs, models, usage and panels paint from what you last saw, with no spinners.
+- A reworked composer: one Run chip for run settings, a queue pill, @ finds every file in the repository, and paste, dictation and undo are more precise. You can type and send while omp is still starting.
+- The phone composer is always open with every control inside its box. On a touch keyboard Enter adds a line and only Send sends.
+- Work cards show test results, the cause of an error and a preview as chips, and group steps of one intent on one row.
+- Sessions an agent opened fold under their opener like subagents and close themselves when done. Sessions can report to each other, and agents can work with other windows, paired devices and saved sessions.
+- No more limits on how many sessions or messages an agent can open or send.
+- Close or delete a remote device's session from the sidebar.
+
+### Changed
+- Panels (Changes, Preview and others) no longer open by themselves; a dev-server address shows an "Open Preview" link.
+- The viewers chip is gone from the title bar.
+
+### Fixed
+- A deleted session no longer comes back through a restart or another device; a deletion record blocks every restore path, and a first conversation still resumes.
+- A remote computer no longer opens one conversation in several tabs; one session file runs one omp.
+- Work that already landed on main no longer shows under "Needs review" with thousands of lines.
+- A relaunch opens the tab you picked last, not the one before it.
+- Sessions an agent opened keep their opener after a relaunch, and closing a resting session's tab asks nothing.
+- The phone web page no longer reloads itself after a dropped connection, and waits with updates while anything is unsaved.
+- Send and Stop no longer slide off screen in a narrow pane or at 200 % zoom.
+- A write to a closed console no longer crashes the app with an error dialog.
+- Several Windows failures in worktree setup, running commands and tests.
+
 ## [0.38.2] - 2026-10-18
 
 Mac에서 메모리(ai-memory)가 켜지지 않던 문제를 고쳤어요.
