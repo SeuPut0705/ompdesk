@@ -8,6 +8,7 @@ import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { AUTOPILOT_FRAME_TYPES } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
+import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { normalizeUserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
@@ -66,6 +67,11 @@ export interface LocalSidecarDeps {
 	gracefulStopMs?: () => number;
 	/** `-e <root>` of ai-memory (OMPdesk's own extension root) while memory is on, read at every spawn; absent: none. */
 	aiMemoryExtensionArgs?: () => Promise<string[]>;
+	/**
+	 * The file memory's address is kept in (src/main/ai-memory/recall-state.ts), passed as `OMP_GUI_MEMORY` at every spawn
+	 * for the bridge's memory recall; absent: no recall (tests).
+	 */
+	memoryStateFile?: string;
 	/**
 	 * Autopilot's coordinator (src/main/autopilot.ts), read per frame: it does not exist yet when the factory is
 	 * made. Absent or null: autopilot frames pass through untouched.
@@ -130,7 +136,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					args: [...own, ...rea, ...pstack, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
 					// A chat (no project) keeps the pack's root but not its section text.
-					env: { OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0" },
+					env: {
+						OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0",
+						...(deps.memoryStateFile ? { [MEMORY_ENV]: deps.memoryStateFile } : {}),
+					},
 				};
 			},
 			hostTools: () => deps.agentControlPref !== undefined && agentControlEnabled(deps.agentControlPref()),

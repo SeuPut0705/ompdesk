@@ -56,9 +56,9 @@ export const en: Record<string, string> = {
 	"memory.overview.terminal.done": "Terminal omp connected",
 	"memory.overview.terminal.removed": "Terminal omp disconnected",
 	"memory.overview.privacy": "Privacy",
-	"memory.overview.privacy.line": "Local only. Prompts and tool activity, scrubbed.",
+	"memory.overview.privacy.line": "Local only. Prompts, tool activity and each turn's last reply, scrubbed.",
 	"memory.overview.privacy.info":
-		"Everything stays on this computer: a local server, no telemetry, no model or embedding provider. For each omp session OMPdesk runs it records your prompts, tool calls with arguments and results, and the start and end; replies are not recorded. Keys, tokens, private keys and passwords in URLs are stripped before saving, best effort: free text like “my password is …” is not detected. To keep files out, add a .ai-memory.toml with [capture] ignore_paths to the project; that covers file and shell tools only, not prompts.",
+		"Everything stays on this computer: a local server, no telemetry, no model or embedding provider. For each omp session OMPdesk runs it records your prompts, tool calls with arguments and results, the start and end, and the last reply of each turn (at most 2 KB, secrets removed). When you type a prompt, earlier decisions and conclusions that match it are handed to the model, and one quiet line in the conversation names them. Keys, tokens, private keys and passwords in URLs are stripped before saving, best effort: free text like “my password is …” is not detected. To keep files out, add a .ai-memory.toml with [capture] ignore_paths to the project; that covers file and shell tools only, not prompts.",
 };
 export const ko: Record<string, string> = {
 	"memory.phase.off": "꺼짐",
@@ -117,7 +117,8 @@ export const ko: Record<string, string> = {
 	"memory.overview.terminal.done": "터미널 omp를 연결했어요",
 	"memory.overview.terminal.removed": "터미널 omp 연결을 걷어냈어요",
 	"memory.overview.privacy": "개인정보",
-	"memory.overview.privacy.line": "이 컴퓨터에만 저장해요. 프롬프트와 도구 활동을 기록해요.",
+	"memory.overview.privacy.line":
+		"이 컴퓨터에만 저장해요. 프롬프트, 도구 활동, 턴마다 마지막 답변을 비밀을 지우고 기록해요.",
 	"memory.overview.privacy.info":
-		"모든 것이 이 컴퓨터에 남아요. 로컬 서버만 쓰고, 텔레메트리도 모델이나 임베딩 프로바이더도 없어요. OMPdesk가 실행하는 omp 세션마다 입력한 프롬프트, 도구 호출의 인자와 결과, 시작과 끝을 기록하고 답변은 기록하지 않아요. API 키, 토큰, 개인 키, URL 안의 비밀번호는 저장 전에 지우지만 완벽하지는 않아요. “내 비밀번호는 …” 같은 일반 문장은 찾지 못해요. 파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml을 두고 [capture] ignore_paths에 적으세요. 파일과 셸 도구에만 적용되고 프롬프트에는 적용되지 않아요.",
+		"모든 것이 이 컴퓨터에 남아요. 로컬 서버만 쓰고, 텔레메트리도 모델이나 임베딩 프로바이더도 없어요. OMPdesk가 실행하는 omp 세션마다 입력한 프롬프트, 도구 호출의 인자와 결과, 시작과 끝, 그리고 턴마다 마지막 답변(2 KB 이하, 비밀은 지움)을 기록해요. 프롬프트를 입력하면 그와 맞는 이전 결정과 결론을 모델에 건네고, 대화에 조용한 한 줄로 무엇을 썼는지 보여 줘요. API 키, 토큰, 개인 키, URL 안의 비밀번호는 저장 전에 지우지만 완벽하지는 않아요. “내 비밀번호는 …” 같은 일반 문장은 찾지 못해요. 파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml을 두고 [capture] ignore_paths에 적으세요. 파일과 셸 도구에만 적용되고 프롬프트에는 적용되지 않아요.",
 };

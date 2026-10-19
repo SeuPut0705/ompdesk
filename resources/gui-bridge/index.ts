@@ -60,6 +60,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/goal", features: ["goalMode"], load: () => import("./modes/goal") },
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
 	{ name: "modes/next-prompt", features: ["nextPrompt"], load: () => import("./modes/next-prompt") },
+	{ name: "modes/memory-recall", features: ["memoryRecall"], load: () => import("./modes/memory-recall") },
 	{ name: "modes/auto-title", features: ["autoTitle"], load: () => import("./modes/auto-title") },
 	{ name: "modes/auto-mode", features: ["autoMode"], load: () => import("./modes/auto-mode") },
 	{ name: "modes/judge-assist", features: ["judgeAssist"], load: () => import("./modes/judge-assist") },

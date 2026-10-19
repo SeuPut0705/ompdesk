@@ -12,6 +12,7 @@
 import {
 	AlertTriangle,
 	ArrowRightLeft,
+	Brain,
 	CheckCircle2,
 	ChevronRight,
 	History,
@@ -21,6 +22,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { createContext, type ReactNode, useContext, useId, useState } from "react";
+import { memoryRecallDetails } from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -705,6 +707,43 @@ export function RecapCard({ message }: { message: AgentMessage }) {
 
 /** Report kinds that wait on this session's decision: shown open until the person closes them. */
 const MAIL_KINDS_OPEN: Record<string, true> = { question: true, blocked: true };
+
+/**
+ * Memory the bridge handed the model for this prompt (modes/memory-recall.ts, custom type `ompdesk-memory-recall`):
+ * one quiet muted line naming how many and their titles; each one's kind and date in the tooltip. The notes' text is
+ * the model's, never shown.
+ */
+export function MemoryRecallNote({ message }: { message: AgentMessage }) {
+	const t = useT();
+	const recall = memoryRecallDetails(resultDetails(message));
+	if (!recall) return null;
+	const titles = recall.items.map(item => item.title);
+	const tooltip = recall.items
+		.map(item => {
+			const when = item.at?.slice(0, 10);
+			return `${t(`chat.custom.memoryRecall.kind.${item.kind}`)} · ${item.title}${when ? ` · ${when}` : ""}`;
+		})
+		.join("\n");
+	return (
+		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
+			<p
+				className="omp-transcript-content flex min-w-0 items-center gap-1.5 text-sc-sm text-(--sc-text-muted)"
+				data-memory-recall={recall.items.length}
+				title={tooltip}
+			>
+				<Brain aria-hidden className={HEADER_ICON_CLASS} />
+				<span className="min-w-0 truncate">
+					<span className="font-medium">
+						{t(recall.items.length === 1 ? "chat.custom.memoryRecall.one" : "chat.custom.memoryRecall.other", {
+							count: recall.items.length,
+						})}
+					</span>
+					{titles.map(title => ` · ${title}`).join("")}
+				</span>
+			</p>
+		</div>
+	);
+}
 
 /**
  * A report another session sent this one (`ompdesk_report`, custom type `ompdesk.mail`): one quiet muted line (sender

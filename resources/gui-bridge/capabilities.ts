@@ -28,6 +28,7 @@ export const FEATURES = {
 	autoTitle: "Automatic session titles (first message, as the work changes, regenerate)",
 	autoMode: "Automatic mode choice (Plan or Goal for a prompt)",
 	judgeAssist: "Judge-model assists (needs-you notifications, title check, preview check)",
+	memoryRecall: "Memory recall (earlier decisions and conclusions for a typed prompt)",
 	outputStyle: "Output style (concise, detailed, minimal)",
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
@@ -1027,6 +1028,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"journalJudgmentUsage()",
 			],
 		},
+	},
+	/**
+	 * modes/memory-recall.ts: the public `before_agent_start` hook (its `message` result) and the main session for the
+	 * judge (judge-assist-engine.ts `recallRelevance`, whose stock imports `judgeAssist` lists; without them the code
+	 * rule chooses).
+	 */
+	memoryRecall: {
+		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()", "MAIN_AGENT_ID"],
+		session: ["settings", "sessionId", "modelRegistry", "sessionManager"],
 	},
 	autoMode: {
 		session: [

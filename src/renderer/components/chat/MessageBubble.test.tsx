@@ -529,6 +529,49 @@ describe("MessageBubble restart notice", () => {
 	});
 });
 
+describe("MessageBubble memory recall line", () => {
+	const recall = (details: unknown): AgentMessage => ({
+		role: "custom",
+		customType: "ompdesk-memory-recall",
+		content:
+			"<memory-recall>\nNotes from this person's earlier sessions…\n1. Decision · 테일스케일로만 · decisions/remote.md\nSECRET_BODY\n</memory-recall>",
+		details,
+		display: true,
+		attribution: "agent",
+		timestamp: "2026-10-19T10:00:00.000Z",
+	});
+	const render = (message: AgentMessage) =>
+		renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={message} />
+			</I18nProvider>,
+		);
+	const visible = (html: string) => html.replace(/<[^>]+>/g, "");
+	const items = [
+		{ title: "Jev 1.14 고정", kind: "decision", path: "decisions/jev.md" },
+		{ title: "테일스케일 신원으로만", kind: "conclusion", sessionId: "s1", at: "2026-10-18T10:12:00Z" },
+	];
+
+	it("is one quiet line with the count and the titles, sources on hover, never the notes' text", () => {
+		const html = render(recall({ v: 1, items, judged: true }));
+		expect(html).toContain('data-memory-recall="2"');
+		expect(visible(html)).toBe("Used 2 memories · Jev 1.14 고정 · 테일스케일 신원으로만");
+		expect(html).toContain("Decision · Jev 1.14 고정");
+		expect(html).toContain("Earlier conclusion · 테일스케일 신원으로만 · 2026-10-18");
+		expect(html).not.toContain("SECRET_BODY");
+		expect(html).not.toContain("memory-recall&gt;");
+		expect(html).not.toContain("border");
+	});
+
+	it("says one memory for one, and nothing for unreadable details or a hidden message", () => {
+		expect(visible(render(recall({ v: 1, items: items.slice(0, 1), judged: false })))).toBe(
+			"Used 1 memory · Jev 1.14 고정",
+		);
+		expect(render(recall({ v: 2, items }))).toBe("");
+		expect(render({ ...recall({ v: 1, items, judged: true }), display: false })).toBe("");
+	});
+});
+
 describe("MessageBubble noise filtering", () => {
 	const at = "2026-08-02T12:00:00.000Z";
 

@@ -2,6 +2,7 @@ import { Archive, ChevronRight, FileText, GitBranch, MoreHorizontal, Terminal } 
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import { MAIL_CUSTOM_TYPE } from "../../../../resources/gui-bridge/agent-control-contracts";
+import { MEMORY_RECALL_MESSAGE_TYPE } from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
 import { parseAgentMessage } from "../../../shared/agent-control";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { useShellInput } from "../../hooks/use-shell-mode";
@@ -23,7 +24,7 @@ import type { GalleryImage } from "../common/ZoomableImage";
 import { referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
-import { CustomMessageCard, isCustomMessageCardType, MailNote, RecapCard } from "./CustomMessageCard";
+import { CustomMessageCard, isCustomMessageCardType, MailNote, MemoryRecallNote, RecapCard } from "./CustomMessageCard";
 import { ReplyFiles } from "./ReplyFiles";
 import { isRestartNote, RestartNote } from "./RestartNote";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -367,6 +368,7 @@ export const MessageBubble = memo(function MessageBubble({
 		if (isRestartNote(message.customType)) return <RestartNote message={message} />;
 		if (message.customType === "recap") return <RecapCard message={message} />;
 		if (message.customType === MAIL_CUSTOM_TYPE) return <MailNote message={message} />;
+		if (message.customType === MEMORY_RECALL_MESSAGE_TYPE) return <MemoryRecallNote message={message} />;
 		// Dedicated cards for the TUI customType set; unknown types fall through
 		// to the generic label + content bubble below.
 		if (isCustomMessageCardType(message.customType)) {

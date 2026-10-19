@@ -25,6 +25,7 @@
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import type { MemoryEnv } from "../../../resources/gui-bridge/modes/memory-recall-contracts";
 import {
 	AI_MEMORY_BINARIES,
 	AI_MEMORY_VERSION,
@@ -568,6 +569,16 @@ export class AiMemoryService {
 		if (!(await rootComplete(this.#deps.rootDir))) return [];
 		if ((await readTerminalWiring(this.#deps.agentDir())).extension) return [];
 		return ["-e", this.#deps.rootDir];
+	}
+
+	/**
+	 * Where a spawned omp reads memory itself (the bridge's memory recall, via recall-state.ts): the server's URL and the
+	 * data dir its token is in, while memory is on and its setup pass has found the data dir; null otherwise.
+	 */
+	recallEnv(): MemoryEnv | null {
+		if (!this.#deps.automatic || !this.#platformOk || !this.#deps.enabled()) return null;
+		const { dataDir, serverUrl } = this.#state;
+		return dataDir ? { url: serverUrl ?? DEFAULT_SERVER_URL, dataDir } : null;
 	}
 
 	get #unit(): ServiceControl {

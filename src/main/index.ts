@@ -75,6 +75,7 @@ import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { AiMemoryClient } from "./ai-memory/client";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
+import { RecallStateFile } from "./ai-memory/recall-state";
 import { AiMemoryService } from "./ai-memory/service";
 import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
@@ -603,6 +604,8 @@ app.whenReady().then(() => {
 	const autopilotRef: { current: Autopilot | null } = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
+	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
+	const memoryRecallState = new RecallStateFile(join(app.getPath("userData"), "ai-memory", "recall.json"));
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -627,6 +630,7 @@ app.whenReady().then(() => {
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
 		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),
 		aiMemoryExtensionArgs: () => aiMemoryService?.extensionArgs() ?? Promise.resolve([]),
+		memoryStateFile: memoryRecallState.path,
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});
@@ -1091,6 +1095,7 @@ app.whenReady().then(() => {
 			// The repair and the learning run only while the server answers.
 			if (state.phase === "ready") aiMemoryUpkeep?.ready();
 			else aiMemoryUpkeep?.pause();
+			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null, state.enabled);
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
