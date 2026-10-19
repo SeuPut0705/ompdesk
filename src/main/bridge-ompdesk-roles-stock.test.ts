@@ -13,8 +13,8 @@ import { describe, expect, it } from "vitest";
  * - a pick through `model_role_set` is held at runtime and stored in the shared picks file: config.yml keeps its
  *   bytes, a runtime role set by someone else (a CLI flag) survives, clearing the pick returns to the chain;
  * - a value the user's config.yml sets for `review` or for the security reviewer's model wins and is not overridden;
- * - stock's bundled `security-reviewer` (no `model:` line) runs on `@review` instead of the parent's model, and a
- *   user's own agent file of that name keeps its model line.
+ * - stock's bundled `security-reviewer` (no `model:` line) runs on `@slow`, then `@review`, instead of the parent's
+ *   model, and a user's own agent file of that name keeps its model line.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
@@ -39,11 +39,13 @@ export default function (pi) {
    const chat = modelRegistry.getAvailable().filter(model => modelKind(model) === "chat");
    const A = sel(chat[0]);
    const B = sel(chat.find(model => sel(model) !== A));
-   const PARENT = sel(chat.find(model => sel(model) !== A && sel(model) !== B));
    const resolve = patterns => {
     const { model } = resolveModelOverride(patterns, modelRegistry, settings);
     return model ? sel(model) : null;
    };
+   const SLOW = resolve(["@slow"]);
+   // The parent session's model: one no role here resolves to, so inheriting it would show.
+   const PARENT = sel(chat.find(model => ![A, B, SLOW].includes(sel(model))));
    const roles = async () => Object.fromEntries((await methods.model_roles({}, env)).roles.map(role => [role.id, role]));
    const set = (role, value) => methods.model_role_set({ role, modelId: value }, env);
    const picks = () => (fs.existsSync(process.env.OMP_GUI_OMPDESK_ROLES) ? JSON.parse(fs.readFileSync(process.env.OMP_GUI_OMPDESK_ROLES, "utf8")) : null);
@@ -58,7 +60,7 @@ export default function (pi) {
     return { model: resolve(patterns), role: role ?? null };
    };
    const row = all => all.review ? { origin: all.review.origin, model: all.review.model ?? null, effective: all.review.effective } : null;
-   const out = { A, B, PARENT, chat: chat.map(sel) };
+   const out = { A, B, PARENT, SLOW, chat: chat.map(sel) };
    const configBefore = bytes();
    // A runtime role from someone else (stock's --plan flag does this): must survive every OMPdesk write.
    settings.overrideModelRoles({ plan: B });
@@ -130,6 +132,7 @@ interface Probe {
 	A: string;
 	B: string;
 	PARENT: string;
+	SLOW: string | null;
 	chat: string[];
 	ids: string[];
 	empty: Row | null;
@@ -211,8 +214,10 @@ describe.skipIf(!existsSync(omp))("OMPdesk roles on stock omp", () => {
 		expect(probe.empty?.effective.model).toBe(probe.emptyReview);
 		expect(probe.emptyAgent).toBe(probe.emptyReview);
 		expect(probe.knownHasReview).toBe(true);
-		// Bundled security-reviewer: before, the parent's model; now `@review`.
-		expect(probe.securityEmpty).toEqual({ model: probe.emptyReview, role: "review" });
+		// Bundled security-reviewer: before, the parent's model; now the Thinking role (measured best here), a pick
+		// for review only matters when Thinking has no model.
+		expect(probe.SLOW).not.toBeNull();
+		expect(probe.securityEmpty).toEqual({ model: probe.SLOW, role: "slow" });
 		expect(probe.securityEmpty.model).not.toBe(PARENT);
 
 		// A pick: held at runtime, seen by a subagent's overlay, stored in the picks file, config.yml untouched.
@@ -223,7 +228,7 @@ describe.skipIf(!existsSync(omp))("OMPdesk roles on stock omp", () => {
 		});
 		expect(probe.pickedReview).toBe(A);
 		expect(probe.pickedChild).toBe(A);
-		expect(probe.securityPicked).toEqual({ model: A, role: "review" });
+		expect(probe.securityPicked).toEqual({ model: probe.SLOW, role: "slow" });
 		expect(probe.picks).toEqual({ review: A });
 		expect(probe.configUnchanged).toBe(true);
 		expect(probe.globalReview).toBeNull();

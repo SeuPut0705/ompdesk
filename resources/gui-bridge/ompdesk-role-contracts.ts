@@ -33,10 +33,12 @@ export const OMPDESK_ROLE_IDS: readonly string[] = OMPDESK_ROLES.map(role => rol
 
 /**
  * Bundled stock agents that ship without a `model:` line and so run on the parent session's model, held to a
- * tier through stock's `task.agentModelOverrides` (agent name → model list, first available wins).
+ * tier through stock's `task.agentModelOverrides` (agent name → model list, first available wins). The security
+ * reviewer leads with Thinking: on the P5 eval it found more than the review role's cross-family model (1.000 vs
+ * 0.933, within noise), and a cheap parent model must never run a security review.
  */
 export const AGENT_TIERS: Readonly<Record<string, readonly string[]>> = {
-	"security-reviewer": ["@review", "@slow"],
+	"security-reviewer": ["@slow", "@review"],
 };
 
 /** Env var naming the picks file (absolute path) for every omp OMPdesk spawns. */

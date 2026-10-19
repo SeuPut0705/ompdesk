@@ -1438,7 +1438,7 @@ export const en: Record<string, string> = {
 	"modelRoles.use.dictation": "Turns what you say into text with the microphone.",
 	"modelRoles.use.judge": "Short judgments: picking the thinking level in auto mode and semantic find.",
 	"modelRoles.use.review":
-		"Code review: the code-reviewer and security-reviewer agents run on it. A model of another family than the one writing the code catches more.",
+		"Code review: the code-reviewer agent runs on it, and the security reviewer when Thinking has no model. A model of another family than the one writing the code gives a second view.",
 	"modelRoles.fallback.default": "Empty: omp picks from the models you're signed in to.",
 	"modelRoles.fallback.slow": "Empty: follows Default, then omp's built-in thinking list.",
 	"modelRoles.fallback.smol": "Empty: follows Default, then omp's built-in fast list.",

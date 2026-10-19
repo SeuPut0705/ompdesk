@@ -1422,7 +1422,7 @@ export const ko: Record<string, string> = {
 	"modelRoles.use.dictation": "마이크로 말한 내용을 글로 바꿔요.",
 	"modelRoles.use.judge": "자동 사고 수준 선택과 의미 기반 찾기처럼 짧은 판정에 써요.",
 	"modelRoles.use.review":
-		"코드 리뷰에 써요. 코드 리뷰어와 보안 리뷰어 에이전트가 이 모델로 돌아요. 코드를 쓰는 모델과 다른 계열이면 더 많이 잡아요.",
+		"코드 리뷰에 써요. 코드 리뷰어 에이전트가 이 모델로 돌고, 사고 모델이 비어 있으면 보안 리뷰어도 이 모델을 써요. 코드를 쓰는 모델과 다른 계열이면 다른 눈으로 봐요.",
 	"modelRoles.fallback.default": "비어 있으면 omp가 로그인된 모델 중에서 골라요.",
 	"modelRoles.fallback.slow": "비어 있으면 기본 모델을 따르고, 없으면 omp 내장 추론 모델 목록에서 골라요.",
 	"modelRoles.fallback.smol": "비어 있으면 기본 모델을 따르고, 없으면 omp 내장 빠른 모델 목록에서 골라요.",
