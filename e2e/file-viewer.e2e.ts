@@ -151,7 +151,7 @@ test("file viewer renders pdf, image, csv, code, office and binary files", async
 		if (!paneBox || !viewerBox) throw new Error("expected layout boxes");
 		expect(viewerBox.x).toBeGreaterThanOrEqual(paneBox.x);
 		expect(viewerBox.x + viewerBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
-		await expect(page.getByRole("button", { name: "New session" })).toBeVisible();
+		await expect(page.getByRole("searchbox", { name: "Filter sessions" })).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(viewer).toHaveCount(0);
 		expect(errors).toEqual([]);

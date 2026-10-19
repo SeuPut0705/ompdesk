@@ -122,7 +122,7 @@ describe("sidebar-prefs store", () => {
 		}
 	});
 
-	it("archives and restores sessions by id, persisting the set and the flat-recent grouping", async () => {
+	it("archives and restores sessions by id, persisting the set", async () => {
 		await useSidebarPrefs.getState().setSessionsArchived(["s1", "s2"], true);
 		await useSidebarPrefs.getState().setSessionsArchived(["s2", "s3"], true);
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s1", "s2", "s3"]);
@@ -130,14 +130,28 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s1", "s3"]);
 		expect(set).toHaveBeenLastCalledWith("sidebar", expect.objectContaining({ archivedSessions: ["s1", "s3"] }));
 
-		await useSidebarPrefs.getState().setGrouping("recent");
-		expect(set).toHaveBeenLastCalledWith("sidebar", expect.objectContaining({ grouping: "recent" }));
-
 		useSidebarPrefs.getState().reset();
-		get.mockResolvedValueOnce({ archivedSessions: ["s9", 4], grouping: "sideways" });
+		get.mockResolvedValueOnce({ archivedSessions: ["s9", 4] });
 		await useSidebarPrefs.getState().hydrate();
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s9"]);
-		expect(useSidebarPrefs.getState().grouping).toBe("projects");
+	});
+
+	it("drops the retired recent grouping from the stored blob once, keeping everything else", async () => {
+		useSidebarPrefs.getState().reset();
+		get.mockResolvedValueOnce({ pinnedGroups: ["/work/a"], archivedSessions: ["s1"], grouping: "recent" });
+		await useSidebarPrefs.getState().hydrate();
+		expect(set).toHaveBeenCalledTimes(1);
+		const [key, saved] = set.mock.calls[0] ?? [];
+		expect(key).toBe("sidebar");
+		expect(saved).toMatchObject({ pinnedGroups: ["/work/a"], archivedSessions: ["s1"] });
+		expect(saved).not.toHaveProperty("grouping");
+
+		// A blob without it is left alone.
+		set.mockClear();
+		useSidebarPrefs.getState().reset();
+		get.mockResolvedValueOnce({ pinnedGroups: ["/work/a"] });
+		await useSidebarPrefs.getState().hydrate();
+		expect(set).not.toHaveBeenCalled();
 	});
 
 	it("rolls back an archive the prefs store refused to save", async () => {
@@ -226,7 +240,6 @@ describe("sidebar-prefs store with unreadable prefs", () => {
 		await useSidebarPrefs.getState().setGroupAlias("/work/a", "Renamed");
 		await useSidebarPrefs.getState().setGroupOrder(["/work/a"]);
 		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
-		await useSidebarPrefs.getState().setGrouping("recent");
 		await useSidebarPrefs.getState().toggleRailPin("usage");
 		useSidebarPrefs.getState().touchWorkspace("/work/new");
 

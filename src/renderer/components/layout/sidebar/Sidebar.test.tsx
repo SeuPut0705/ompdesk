@@ -3,7 +3,7 @@
  * New session, filter, sessions by project, Agents/Insights/Settings + help
  * footer), Code/Work lanes, first-class global chats, project group context
  * menu (8 items), session row context menu (11 items), archive/restore,
- * recent grouping, move to project, pinned-first ordering,
+ * move to project, pinned-first ordering,
  * per-session busy gates, status as icon + text, and tab-first opening (an
  * untouched empty tab is replaced instead of left behind).
  * Same linkedom + react-dom harness as TabBar.test.tsx.
@@ -547,7 +547,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rows[1]).toContain("Session /work/alpha/two");
 	});
 
-	it("an active chat opens the Chat lane, whose New button starts a chat; Code starts agents", async () => {
+	it("keeps each lane's header to one line: its search, then one icon (Code: open folder; Chat: new chat)", async () => {
 		const omp = installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "chat", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
@@ -558,42 +558,35 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
+		const headerRow = () => container.querySelector("[data-sidebar-header-row]");
+		const rowControls = () =>
+			[...(headerRow()?.querySelectorAll("input, button") ?? [])].map(
+				element => element.getAttribute("aria-label") ?? "",
+			);
+
+		// An active chat opens the Chat lane: [Find chats] [New chat].
 		expect(modeTab("chat")?.getAttribute("aria-selected")).toBe("true");
-		expect(container.querySelector("[data-sidebar-open-project]")).toBeNull();
-		await fire(container.querySelector("[data-sidebar-new-agent]"), "onClick");
+		expect(headerRow()?.getAttribute("data-sidebar-header-row")).toBe("chat");
+		expect(rowControls()).toEqual([translate("sidebar.filterChats"), translate("sidebar.newChat")]);
+		expect(headerRow()?.querySelector("input")?.getAttribute("placeholder")).toBe(
+			translate("sidebar.filterChatsPlaceholder"),
+		);
+		await fire(container.querySelector("[data-sidebar-header-row] [data-sidebar-new-chat]"), "onClick");
 		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
 			expect.objectContaining({ kind: "chat", sessionPath: undefined }),
 		);
 
+		// Code: [Find sessions] [open project folder], and no New session button anywhere in the header.
 		await fire(modeTab("code"), "onClick");
 		expect(modeTab("code")?.getAttribute("aria-selected")).toBe("true");
-		expect(container.querySelector("[data-sidebar-open-project]")).not.toBeNull();
-	});
-
-	it("creates an agent tab from New session even when the active tab is chat", async () => {
-		const omp = installMockOmp(LIST);
-		useSessionStore.setState({ sessionId: "chat", cwd: "/work/alpha", isStreaming: false });
-		useTabsStore.setState({
-			tabs: [{ id: "chat", cwd: "/work/alpha", status: "ready", kind: "chat", unreadDone: false }],
-			activeTabId: "chat",
-			bundles: new Map(),
-		});
-		await mount(<Sidebar />);
-
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
-		await fire(container.querySelector("[data-sidebar-new-agent]"), "onClick");
-		const currentWorkspace = [...document.body.querySelectorAll('[role="dialog"] button')].find(button =>
-			(button.textContent ?? "").includes("/work/alpha"),
+		expect(headerRow()?.getAttribute("data-sidebar-header-row")).toBe("code");
+		expect(rowControls()).toEqual([translate("sidebar.filter"), translate("sidebar.project.newFolder")]);
+		expect(headerRow()?.querySelector("input")?.getAttribute("placeholder")).toBe(
+			translate("sidebar.filterPlaceholder"),
 		);
-		await fire(currentWorkspace as Element, "onClick");
-
-		expect(omp.tabs.spawn).toHaveBeenCalledWith({
-			cwd: "/work/alpha",
-			kind: "agent",
-			sessionPath: undefined,
-			worktree: undefined,
-		});
-		expect(omp.sidecar.setProject).not.toHaveBeenCalled();
+		const controls = container.querySelector(".omp-sidebar-controls")?.textContent ?? "";
+		expect(controls).not.toContain(translate("sidebar.newSession"));
+		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
 	});
 
 	it("shows status as an icon plus text only when there is something to say", async () => {
@@ -2583,7 +2576,7 @@ describe("Sidebar device sections", () => {
 	});
 });
 
-describe("Sidebar archive, grouping and move", () => {
+describe("Sidebar archive and move", () => {
 	const archivedSection = () => container.querySelector("[data-sidebar-archived]");
 	const archivedHeader = () => archivedSection()?.querySelector("button[aria-expanded]") ?? null;
 	// Stored rows only: the focused tab's untouched session keeps a live `tab:` row of its own.
@@ -2717,38 +2710,6 @@ describe("Sidebar archive, grouping and move", () => {
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/beta/three.jsonl");
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/two.jsonl");
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
-	});
-
-	it("the grouping toggle lists Code sessions by recent activity, each naming its project", async () => {
-		const omp = installMockOmp(LIST);
-		seedStores();
-		useSidebarPrefs.setState({ hydrated: true, groupAliases: { "/work/beta": "Beta app" } });
-		await mount(<Sidebar />);
-		const toggle = container.querySelector("[data-sidebar-grouping]");
-		expect(toggle?.getAttribute("aria-pressed")).toBe("false");
-
-		await fire(toggle, "onClick");
-		expect(useSidebarPrefs.getState().grouping).toBe("recent");
-		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ grouping: "recent" }));
-		expect(container.querySelector("[data-workspace-group]")).toBeNull();
-		const rows = [...container.querySelectorAll("[data-recent-lane] .omp-sidebar-session-row")].filter(
-			row => row.getAttribute("data-live") === null,
-		);
-		expect(rows.map(row => row.getAttribute("data-session-path"))).toEqual([
-			"/work/beta/three.jsonl",
-			"/work/alpha/one.jsonl",
-			"/work/alpha/two.jsonl",
-		]);
-		expect(rows.map(row => row.querySelector("[data-sidebar-row-project]")?.textContent)).toEqual([
-			"Beta app",
-			"alpha",
-			"alpha",
-		]);
-		expect(container.querySelector("[data-sidebar-grouping]")?.getAttribute("aria-pressed")).toBe("true");
-
-		await fire(container.querySelector("[data-sidebar-grouping]"), "onClick");
-		expect(container.querySelector("[data-recent-lane]")).toBeNull();
-		expect(container.querySelector("[data-workspace-group]")).not.toBeNull();
 	});
 
 	it("Move to project… moves a stored session through sessions.move and keeps its pin", async () => {

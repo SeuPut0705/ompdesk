@@ -29,7 +29,6 @@ import {
 	GitBranch,
 	GitBranchPlus,
 	GitFork,
-	History,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -49,7 +48,6 @@ import {
 	SearchX,
 	Settings,
 	Sparkles,
-	SquarePen,
 	SquareTerminal,
 	Trash2,
 	X,
@@ -557,7 +555,6 @@ export function Sidebar() {
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
-	const grouping = useSidebarPrefs(s => s.grouping);
 	const {
 		sessions,
 		isLoading,
@@ -1014,31 +1011,6 @@ export function Sidebar() {
 				: allGroups,
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
-	// Recent grouping: the Code lane as one list by last activity, project shown per row. A session another one
-	// opened is in that one's family, not a row of its own; one no opener holds is listed only while it needs a look.
-	const recentCodeSessions = useMemo(
-		() =>
-			grouping === "recent"
-				? codeSessions
-						.filter(
-							session =>
-								!familyRootOf.has(session.path) &&
-								!foldedRootOf.has(session.path) &&
-								matchesFamilyFilter(session),
-						)
-						.toSorted(byPinThenRecency)
-				: [],
-		[grouping, codeSessions, familyRootOf, foldedRootOf, matchesFamilyFilter, byPinThenRecency],
-	);
-	const recentFolded = useMemo(
-		() =>
-			grouping === "recent"
-				? codeSessions
-						.filter(session => foldedRootOf.has(session.path) && matchesFilter(session))
-						.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1))
-				: [],
-		[grouping, codeSessions, foldedRootOf, matchesFilter],
-	);
 	// Archived sessions of this lane that no tab holds, newest first.
 	const archivedRows = sessions
 		.filter(
@@ -1052,17 +1024,12 @@ export function Sidebar() {
 		)
 		.filter(matchesFilter)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
-	const totalCount =
-		mode === "chat"
-			? chatLaneSessions.length
-			: grouping === "recent"
-				? recentCodeSessions.length + recentFolded.length
-				: groups.length;
+	const totalCount = mode === "chat" ? chatLaneSessions.length : groups.length;
 	// An empty lane must not read as "no sessions at all" while the other lane
 	// holds some (e.g. the open code session while 채팅 is selected).
 	const codeTotal = codeSessions.length;
 	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
-	const visibleGroups = mode === "code" && grouping === "projects" ? groups : [];
+	const visibleGroups = mode === "code" ? groups : [];
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
 	// in view.
 	const openTabCwds = useMemo(
@@ -1200,29 +1167,6 @@ export function Sidebar() {
 			}
 		}
 		await openTab({ cwd: target, kind: "agent" });
-	};
-	const startNew = () => {
-		if (mode === "chat") {
-			startChat();
-			return;
-		}
-		// A remote tab's folder is on its host: the new session opens there too.
-		if (activeTab?.device !== undefined && activeTab.kind !== "chat") {
-			useUiStore.getState().closeDestination();
-			void openTab({ device: activeTab.device });
-			return;
-		}
-		const target = activeTab?.kind === "chat" ? null : cwd;
-		if (!target) {
-			setWorkspaceDialog("new-session");
-			return;
-		}
-		if (activeTabUntouched() && activeTab?.kind !== "chat") {
-			useUiStore.getState().closeDestination();
-			focusComposer();
-			return;
-		}
-		void goToProject(target);
 	};
 	const startChat = () => {
 		useUiStore.getState().closeDestination();
@@ -1726,8 +1670,8 @@ export function Sidebar() {
 		};
 	};
 
-	/** `archived`: a row of the Archived section; `recent`: a row of the flat recent list, which names its project. */
-	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
+	/** `archived`: a row of the Archived section. */
+	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived") => {
 		const key = `session:${session.path}`;
 		const {
 			isCurrent,
@@ -1874,13 +1818,6 @@ export function Sidebar() {
 						},
 					}}
 					className={cx("omp-sidebar-session-row", runChild && "omp-sidebar-session-run-child")}
-					description={
-						variant === "recent" && session.cwd ? (
-							<span data-sidebar-row-project title={projectName(session.cwd).tooltip}>
-								{groupAliases[session.cwd] ?? projectName(session.cwd, session.title).name}
-							</span>
-						) : undefined
-					}
 					meta={
 						marker || age ? (
 							<span className="inline-flex items-center gap-1.5" data-sidebar-row-end>
@@ -2161,47 +2098,40 @@ export function Sidebar() {
 						]}
 						variant="segmented"
 					/>
-					<div className="flex items-center gap-1">
-						<Button
-							className="min-w-0 flex-1 justify-start gap-2.5 px-2.5"
-							data-sidebar-new-agent
-							icon={mode === "chat" ? <MessageSquarePlus /> : <SquarePen />}
-							onClick={startNew}
-							variant="ghost"
-						>
-							<span className="min-w-0 flex-1 truncate text-left">
-								{mode === "chat" ? t("sidebar.newChat") : t("sidebar.newSession")}
-							</span>
-						</Button>
-						{mode === "code" && (
-							<>
-								<IconButton
-									data-sidebar-grouping
-									icon={<History />}
-									label={t("sidebar.grouping.recent")}
-									onClick={() =>
-										void useSidebarPrefs.getState().setGrouping(grouping === "recent" ? "projects" : "recent")
-									}
-									pressed={grouping === "recent"}
-									variant="ghost"
-								/>
-								<IconButton
-									data-sidebar-open-project
-									icon={<FolderPlus />}
-									label={t("sidebar.project.newFolder")}
-									onClick={() => void openProjectFolder()}
-									variant="ghost"
-								/>
-							</>
+					{/* One line per lane, the same geometry on both: the lane's search, then one icon (Code: open a
+					    project folder; Chat: new chat). New code sessions start from a project row's +, ⌘N, the
+					    palette, the menu and the tray. */}
+					<div className="flex items-center gap-1" data-sidebar-header-row={mode}>
+						<div className="min-w-0 flex-1">
+							<SearchField
+								controlSize="lg"
+								data-sidebar-filter
+								label={mode === "chat" ? t("sidebar.filterChats") : t("sidebar.filter")}
+								onValueChange={setFilter}
+								placeholder={
+									mode === "chat" ? t("sidebar.filterChatsPlaceholder") : t("sidebar.filterPlaceholder")
+								}
+								value={filter}
+							/>
+						</div>
+						{mode === "chat" ? (
+							<IconButton
+								data-sidebar-new-chat
+								icon={<MessageSquarePlus />}
+								label={t("sidebar.newChat")}
+								onClick={startChat}
+								variant="ghost"
+							/>
+						) : (
+							<IconButton
+								data-sidebar-open-project
+								icon={<FolderPlus />}
+								label={t("sidebar.project.newFolder")}
+								onClick={() => void openProjectFolder()}
+								variant="ghost"
+							/>
 						)}
 					</div>
-					<SearchField
-						controlSize="sm"
-						label={t("sidebar.filter")}
-						onValueChange={setFilter}
-						placeholder={t("sidebar.filterPlaceholder")}
-						value={filter}
-					/>
 				</div>
 
 				<div
@@ -2368,17 +2298,6 @@ export function Sidebar() {
 									</SortableContext>
 								</DndContext>
 							)}
-							{mode === "code" &&
-								grouping === "recent" &&
-								recentCodeSessions.length + recentFolded.length > 0 && (
-									<div className="space-y-px" data-recent-lane>
-										{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
-										<SidebarLooseChildren
-											foldKey="recent"
-											opened={recentFolded.map(child => familyChildFor(child))}
-										/>
-									</div>
-								)}
 							{archivedRows.length > 0 && (
 								<section className="mt-3" data-sidebar-archived ref={archivedRef}>
 									<div

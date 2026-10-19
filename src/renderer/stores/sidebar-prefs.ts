@@ -2,8 +2,7 @@
  * Sidebar presentation prefs: pinned workspaces/sessions, workspace display
  * aliases (rename), the dragged project order, archived sessions (by id; stock
  * has no archive flag, so archiving only hides a session from the lists), the
- * projects-or-recent grouping, the shortcuts pinned to the sidebar footer, and
- * the workspace MRU clock the workspace
+ * shortcuts pinned to the sidebar footer, and the workspace MRU clock the workspace
  * picker sorts by. Persisted as one JSON blob under the "sidebar" prefs key
  * via window.omp.prefs (electron-store in main); hydrate once at App mount.
  * Recency bookkeeping writes fire-and-forget; the pins, aliases and archive
@@ -25,7 +24,6 @@ interface SidebarPrefsBlob {
 	workspaceLastUsed?: Record<string, number>;
 	groupOrder?: string[];
 	archivedSessions?: string[];
-	grouping?: SidebarGrouping;
 	railPins?: string[];
 	/** Session files the user hid from other agents (the OMPdesk control tools; main reads this field too). */
 	agentHidden?: string[];
@@ -72,8 +70,8 @@ function validRailPins(value: unknown): RailPin[] {
 	return RAIL_PINS.filter(pin => value.includes(pin));
 }
 
-/** Code sessions grouped under their project, or one list by recent activity. */
-export type SidebarGrouping = "projects" | "recent";
+/** The retired "list by recent activity" grouping; a blob that still names it is rewritten once without it. */
+const RETIRED_KEYS = ["grouping"] as const;
 
 interface SidebarPrefsStore {
 	pinnedGroups: string[];
@@ -84,7 +82,6 @@ interface SidebarPrefsStore {
 	groupOrder: string[];
 	/** Ids of sessions hidden from the lists until restored. */
 	archivedSessions: string[];
-	grouping: SidebarGrouping;
 	/** Footer shortcuts in `RAIL_PINS` order. */
 	railPins: RailPin[];
 	/** Session files hidden from other agents (`ompdesk_*` tools refuse them). */
@@ -97,7 +94,6 @@ interface SidebarPrefsStore {
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
 	setSessionsArchived: (ids: readonly string[], archived: boolean) => Promise<void>;
-	setGrouping: (grouping: SidebarGrouping) => Promise<void>;
 	toggleRailPin: (pin: RailPin) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
 	reset: () => void;
@@ -140,7 +136,6 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		workspaceLastUsed: state.workspaceLastUsed,
 		groupOrder: state.groupOrder,
 		archivedSessions: state.archivedSessions,
-		grouping: state.grouping,
 		railPins: state.railPins,
 		agentHidden: state.agentHidden,
 	};
@@ -175,7 +170,6 @@ function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
 		archivedSessions: Array.isArray(blob?.archivedSessions)
 			? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
 			: [],
-		grouping: blob?.grouping === "recent" ? "recent" : "projects",
 		railPins: validRailPins(blob?.railPins),
 		agentHidden: Array.isArray(blob?.agentHidden)
 			? blob.agentHidden.filter((path): path is string => typeof path === "string" && path.length > 0)
@@ -195,6 +189,9 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		// The write path's own read may have landed while a boot read slept.
 		if (!read.ok || get().hydrated) return;
 		set({ ...stateFromBlob(read.value), hydrated: true });
+		// Every write saves only the fields above, so one write drops a retired key for good.
+		const stored = read.value;
+		if (stored && typeof stored === "object" && RETIRED_KEYS.some(key => key in stored)) persist(get);
 	};
 
 	/**
@@ -226,7 +223,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		workspaceLastUsed: {},
 		groupOrder: [],
 		archivedSessions: [],
-		grouping: "projects",
 		railPins: [...DEFAULT_RAIL_PINS],
 		agentHidden: [],
 		hydrated: false,
@@ -271,8 +267,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 					: state.archivedSessions.filter(id => !ids.includes(id)),
 			})),
 
-		setGrouping: grouping => write("sidebar.groupingFailed", () => ({ grouping })),
-
 		toggleRailPin: pin =>
 			write("sidebar.pinFailed", state => ({
 				railPins: state.railPins.includes(pin)
@@ -298,7 +292,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				groupOrder: [],
 				archivedSessions: [],
 				agentHidden: [],
-				grouping: "projects",
 				railPins: [...DEFAULT_RAIL_PINS],
 				hydrated: false,
 			}),
