@@ -1,5 +1,5 @@
 /**
- * The one-time repair of what the old prompt-first-line titling left behind (src/shared/memory-prompt.ts): session pages
+ * The one-time repair of what the old prompt-first-line titling left behind (resources/gui-bridge/memory-prompt.ts): session pages
  * filed under `<ompdesk-agent-message from="…">` or "Complete assignment thoroughly:", and the open handoffs a
  * subagent or an agent-opened session left for the next session of the folder.
  *
@@ -9,8 +9,9 @@
  * same prompt (`promptTitle`), read from the session's first prompt; a page whose session has no usable prompt is left
  * as it is and counted.
  */
+
+import { isAgentPrompt, isJunkTitle, promptTitle } from "../../../resources/gui-bridge/memory-prompt";
 import type { AiMemoryHandoff, AiMemoryPage, AiMemoryProjectRef } from "../../shared/ai-memory";
-import { isAgentPrompt, isJunkTitle, promptTitle } from "../../shared/memory-prompt";
 import type { AiMemoryClient } from "./client";
 
 /** The client calls the repair makes (a fake implements exactly these). */

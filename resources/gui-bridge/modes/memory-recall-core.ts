@@ -9,6 +9,7 @@
  * - the model text and the transcript line's details (`recallText`, `recallDetails`).
  */
 import { AGENT_MESSAGE_START } from "../agent-control-contracts";
+import { isJunkTitle, promptTitle } from "../memory-prompt";
 import {
 	type MemoryRecallDetails,
 	type MemoryRecallItem,
@@ -16,7 +17,6 @@ import {
 	RECALL_JUDGE_MIN,
 	RECALL_MAX_ITEMS,
 	RECALL_MAX_TOKENS,
-	taskTitle,
 } from "./memory-recall-contracts";
 
 // ---------------------------------------------------------------------------------------------
@@ -259,13 +259,13 @@ function plain(value: string): string {
 const FALLBACK_TITLE_CHARS = 60;
 
 /**
- * A candidate's name in the transcript line and the model text: the task its title names (`taskTitle`: a conclusion's
- * title is its session's first prompt, so it can be stock's subagent prefix or another agent's wrapper), else the
- * start of `fallback` (the excerpt or snippet).
+ * A candidate's name in the transcript line and the model text: the task its title names (the shared session-title
+ * rule, `promptTitle`/`isJunkTitle` in ../memory-prompt.ts: a conclusion's title is its session's first prompt, so it
+ * can be stock's subagent prefix or another agent's wrapper), else the start of `fallback` (the excerpt or snippet).
  */
 function candidateTitle(raw: unknown, fallback: string): string {
-	const title = taskTitle(text(raw).replace(/<\/?mark>/g, ""));
-	if (title) return title;
+	const title = promptTitle(text(raw).replace(/<\/?mark>/g, ""));
+	if (title && !isJunkTitle(title)) return title;
 	return fallback.length > FALLBACK_TITLE_CHARS
 		? `${fallback.slice(0, FALLBACK_TITLE_CHARS - 1).trimEnd()}…`
 		: fallback;

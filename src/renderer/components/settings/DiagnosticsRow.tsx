@@ -1,7 +1,7 @@
 /**
  * Settings › Updates & about › Copy diagnostics: opens a preview of the redacted report main builds
  * (`window.omp.runtime.diagnostics()`: versions, machine setup, the last runtime-log lines, private
- * details hidden by `src/main/redactor.ts`) with a Copy button for the clipboard. The report is read
+ * details hidden by `resources/gui-bridge/redactor.ts`) with a Copy button for the clipboard. The report is read
  * again every time the preview opens, so it holds what happened since. Nothing is uploaded. The download menu
  * beside Preview saves a diagnostic bundle of the focused tab (lib/diagnostic-bundle.ts): stock's `/dump` zip
  * plus this same text, anonymized with Option/Alt or its own item.

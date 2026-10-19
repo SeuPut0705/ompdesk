@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { assignmentHeadline, assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
-import { agentTaskTitle, wrapAgentMessage } from "./agent-control";
 import {
 	CONCLUSION_MAX_BYTES,
 	childMarker,
@@ -12,7 +10,9 @@ import {
 	nextAgentDriven,
 	promptTitle,
 	unwrapPrompt,
-} from "./memory-prompt";
+} from "../../resources/gui-bridge/memory-prompt";
+import { assignmentHeadline, assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
+import { agentTaskTitle, wrapAgentMessage } from "../shared/agent-control";
 
 const stock = (assignment: string) => `Complete assignment thoroughly:\n\n${assignment}`;
 

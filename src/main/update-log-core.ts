@@ -4,7 +4,7 @@
  * Electron-free; `updater.ts` writes the lines through the runtime log.
  */
 
-import { redactDiagnosticsText } from "../shared/redactor";
+import { redactDiagnosticsText } from "../../resources/gui-bridge/redactor";
 
 export type UpdateLogDetails = Record<string, string | number | boolean>;
 

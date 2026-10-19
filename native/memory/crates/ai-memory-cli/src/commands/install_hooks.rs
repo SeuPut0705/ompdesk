@@ -5656,7 +5656,7 @@ async function bootstrapMcpBridge(pi: any): Promise<void> {
 "#
 }
 
-/// The one import `src/shared/memory-prompt.ts` makes; the extension embeds the redactor above it instead.
+/// The one import `resources/gui-bridge/memory-prompt.ts` makes; the extension embeds the redactor above it instead.
 const OMP_SHARED_PROMPT_IMPORT: &str = "import { redactDiagnosticsText } from \"./redactor\";";
 
 fn build_omp_extension(
@@ -6029,14 +6029,14 @@ export default function AiMemoryExtension(api: any): void {{
 }
 
 /// OMPdesk's own TypeScript the omp extension carries, in one module scope with the template: the shared redactor,
-/// then `src/shared/memory-prompt.ts` without its import of it.
+/// then `resources/gui-bridge/memory-prompt.ts` without its import of it.
 fn omp_shared_modules() -> String {
-    const REDACTOR: &str = include_str!("../../../../../../src/shared/redactor.ts");
-    const MEMORY_PROMPT: &str = include_str!("../../../../../../src/shared/memory-prompt.ts");
+    const REDACTOR: &str = include_str!("../../../../../../resources/gui-bridge/redactor.ts");
+    const MEMORY_PROMPT: &str = include_str!("../../../../../../resources/gui-bridge/memory-prompt.ts");
     assert_eq!(
         MEMORY_PROMPT.matches(OMP_SHARED_PROMPT_IMPORT).count(),
         1,
-        "src/shared/memory-prompt.ts must import the redactor exactly once and nothing else"
+        "resources/gui-bridge/memory-prompt.ts must import the redactor exactly once and nothing else"
     );
     format!(
         "{REDACTOR}\n{}",
@@ -12205,8 +12205,8 @@ model = "gpt-5"
     #[test]
     fn omp_extension_names_prompts_and_keeps_children_out_of_handoffs() {
         let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
-        // The shared module (src/shared/memory-prompt.ts) is embedded byte for byte but for its one import line.
-        let prompt = include_str!("../../../../../../src/shared/memory-prompt.ts").replacen(
+        // The shared module (resources/gui-bridge/memory-prompt.ts) is embedded byte for byte but for its one import line.
+        let prompt = include_str!("../../../../../../resources/gui-bridge/memory-prompt.ts").replacen(
             OMP_SHARED_PROMPT_IMPORT,
             "",
             1,
@@ -12230,7 +12230,7 @@ model = "gpt-5"
     fn omp_extension_records_the_turn_conclusion() {
         let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
         // The shared redactor is embedded above memory-prompt.ts, whose import of it is gone.
-        let redactor = include_str!("../../../../../../src/shared/redactor.ts");
+        let redactor = include_str!("../../../../../../resources/gui-bridge/redactor.ts");
         let at_redactor = extension.find(redactor).expect("the redactor is embedded");
         let at_excerpt = extension
             .find("export function conclusionExcerpt(")

@@ -62,58 +62,6 @@ export const RECALL_MAX_TOKENS = 600;
  */
 export const RECALL_JUDGE_MIN = 0.5;
 
-// The session-title rule of src/shared/memory-prompt.ts (`unwrapPrompt`, `promptTitle`, `isJunkTitle`), copied: this
-// folder ships outside the app's bundle, where src/shared is not, and memory-prompt.ts is embedded into ai-memory's
-// generated extension as it is. src/main/bridge-memory-recall-title.test.ts holds the copy to the shared rule.
-const WRAPPED_START = /^<ompdesk-agent-message from="[^"]*">[ \t]*(?:\r?\n|$)/;
-const WRAPPED_END = /(?:\r?\n|^)[ \t]*<\/ompdesk-agent-message>[ \t]*$/;
-const STOCK_PREFIX = /^Complete assignment thoroughly:[ \t]*(?:\r?\n|$)/i;
-const SUBAGENT_PREAMBLE = /^You are a subagent spawned by another session\.[ \t]*(?:\r?\n|$)/i;
-const TITLE_LINE = /^[ \t]*Title:[ \t]*(\S[^\r\n]*?)[ \t]*(?:\r?\n|$)/;
-const TITLE_MAX = 120;
-const NOISE_LINE = /^(?:<\/?[A-Za-z][\w:-]*(?:\s[^>]*)?>|[-*_=~]{3,}|`{3,}.*)$/;
-
-function firstLine(text: string): string | undefined {
-	for (const raw of text.split(/\r?\n/)) {
-		const line = raw.trim();
-		if (!line || NOISE_LINE.test(line)) continue;
-		const bare = line
-			.replace(/^[ \t]*Title:[ \t]*/i, "")
-			.replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)/, "")
-			.trim();
-		if (!bare || NOISE_LINE.test(bare)) continue;
-		const flat = bare.replaceAll(/\s+/g, " ");
-		return flat.length > TITLE_MAX ? `${flat.slice(0, TITLE_MAX - 1).trimEnd()}…` : flat;
-	}
-	return undefined;
-}
-
-/**
- * What a session's first prompt (the title the server files a conclusion under) says the task is: the `Title:` line,
- * else the first meaningful line, once the agent-message wrapper and stock's subagent prefix are gone. Undefined when
- * nothing is left or what is left names no task (`isJunkTitle`).
- */
-export function taskTitle(raw: string): string | undefined {
-	let body = raw.trim();
-	for (let round = 0; round < 4; round++) {
-		const start = WRAPPED_START.exec(body);
-		const stock = start ? undefined : (STOCK_PREFIX.exec(body) ?? SUBAGENT_PREAMBLE.exec(body));
-		if (start) body = body.slice(start[0].length).replace(WRAPPED_END, "").trim();
-		else if (stock) body = body.slice(stock[0].length).trim();
-		else break;
-	}
-	const explicit = TITLE_LINE.exec(body)?.[1];
-	const title = explicit && explicit.length <= TITLE_MAX ? explicit : firstLine(body);
-	if (!title) return undefined;
-	const junk =
-		/^<\/?ompdesk-agent-message/.test(title) ||
-		/^Complete assignment thoroughly:?$/i.test(title) ||
-		/^You are a subagent spawned by another session\.?$/i.test(title) ||
-		/^Session [0-9a-f]{8}-[0-9a-f]{4}-/i.test(title) ||
-		title === "session";
-	return junk ? undefined : title;
-}
-
 export type MemoryRecallKind =
 	| "decision"
 	| "rule"

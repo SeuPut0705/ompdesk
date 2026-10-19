@@ -7,8 +7,9 @@
  *
  * The pure parts live here (what is read, what is asked, what is accepted); the schedule and the I/O are `distill-job.ts`.
  */
+
+import { isAgentPrompt, unwrapPrompt } from "../../../resources/gui-bridge/memory-prompt";
 import type { AiMemoryObservation } from "../../shared/ai-memory";
-import { isAgentPrompt, unwrapPrompt } from "../../shared/memory-prompt";
 
 /** A window needs this many new prompts a person typed before it is worth a model call. */
 export const DISTILL_MIN_PROMPTS = 6;

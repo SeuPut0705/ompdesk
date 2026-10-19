@@ -309,7 +309,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'src/shared/memory-prompt.ts', 'src/shared/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
@@ -391,7 +391,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'src/shared/memory-prompt.ts', 'src/shared/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
@@ -473,7 +473,7 @@ jobs:
           set -euo pipefail
           if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BASE" HEAD -- native/memory scripts/build-memory.ts src/shared/memory-prompt.ts src/shared/redactor.ts; then
+          elif git diff --quiet "$BASE" HEAD -- native/memory scripts/build-memory.ts resources/gui-bridge/memory-prompt.ts resources/gui-bridge/redactor.ts; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::native/memory did not change: not built."
           else
@@ -492,7 +492,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'src/shared/memory-prompt.ts', 'src/shared/redactor.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
       - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:

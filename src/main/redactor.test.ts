@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactDiagnosticsText as redact, redactDiagnosticsFile } from "./redactor";
+import { redactDiagnosticsText as redact, redactDiagnosticsFile } from "../../resources/gui-bridge/redactor";
 
 describe("redactDiagnosticsText: credentials", () => {
 	it("redacts GitHub tokens in every prefix", () => {

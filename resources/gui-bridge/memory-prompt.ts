@@ -5,8 +5,9 @@
  *
  * Imports only `./redactor` on purpose: the ai-memory build embeds both files into the omp extension it generates
  * (`native/memory` `install_hooks.rs`, `include_str!`; the extension drops this one import line, the redactor sits
- * above it), main imports this file for the one-time retitle of existing session pages, and the tests import it. The
- * wrapper tag, the `Title:` label and stock's subagent prefix are the same protocol lines `agent-control.ts` and
+ * above it). It lives in the gui-bridge folder so every side reads the one rule: the bridge (memory recall names a
+ * recalled conclusion by it), main (the one-time retitle, the learning pass) and the tests. The wrapper tag, the
+ * `Title:` label and stock's subagent prefix are the same protocol lines `agent-control.ts` and
  * `subagent-title-contracts.ts` read; `memory-prompt.test.ts` keeps the three in step.
  */
 import { redactDiagnosticsText } from "./redactor";

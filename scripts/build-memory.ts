@@ -36,7 +36,7 @@ export const BUILD_MANIFEST = "ai-memory.build.json";
 export const BINARIES: Record<string, string> = { "darwin-arm64": "ai-memory", "win32-x64": "ai-memory.exe" };
 /** OMPdesk's own files the memory CLI compiles in (install_hooks.rs `include_str!`), outside native/memory. */
 export const EMBEDDED_SOURCES = ["memory-prompt.ts", "redactor.ts"].map(name =>
-	path.join(REPO_ROOT, "src", "shared", name),
+	path.join(REPO_ROOT, "resources", "gui-bridge", name),
 );
 
 export interface BuildRecord {
@@ -88,7 +88,7 @@ function check(
 			`the binary was built from ${record.version} (${record.upstreamCommit}), native/memory is ${source.version} (${source.upstreamCommit}).`,
 		);
 	if (record.embeddedSha256 !== embeddedSha256)
-		fail("the binary embeds other src/shared files than this checkout's; run `bun run build:memory`.");
+		fail("the binary embeds other gui-bridge files than this checkout's; run `bun run build:memory`.");
 	const actual = createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 	if (actual !== record.binarySha256)
 		fail(`${binary} hashes to ${actual}; its build record expects ${record.binarySha256}.`);
