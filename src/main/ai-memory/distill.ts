@@ -123,6 +123,12 @@ function clip(text: string): string {
 	return flat.length > PROMPT_CHARS ? `${flat.slice(0, PROMPT_CHARS)}…` : flat;
 }
 
+/** A prompt as the person typed it (line breaks and spacing kept, so a quote can be copied exactly), cut to length. */
+function asTyped(text: string): string {
+	const kept = text.trim();
+	return kept.length > PROMPT_CHARS ? `${[...kept].slice(0, PROMPT_CHARS).join("")}…` : kept;
+}
+
 export interface Digest {
 	text: string;
 	/** The prompt numbers the digest shows (what a proposal may cite). */
@@ -134,7 +140,7 @@ export interface Digest {
 /** What the model reads: the window's prompts, numbered, and the titles of the tasks delegated meanwhile. */
 export function buildDigest(prompts: readonly DigestPrompt[], tasks: readonly string[]): Digest {
 	const window = prompts.slice(-WINDOW_PROMPTS);
-	const lines = window.map(prompt => `[${prompt.n}] ${clip(prompt.text)}`);
+	const lines = window.map(prompt => `[${prompt.n}] ${asTyped(prompt.text)}`);
 	const work = tasks.slice(0, TASK_TITLES).map(title => `- ${clip(unwrapPrompt(title).body || title)}`);
 	const text = [
 		"## What the person said (their own words, in order)",
@@ -230,7 +236,9 @@ const titleKey = (title: string): string => flat(title).toLowerCase();
 /**
  * The proposals a model's answer holds that pass the checks: a known kind, a real title and body, cited prompts,
  * confidence, and a quote that is the owner's own words (required for a preference or correction, checked on any page
- * that gives one). A `supersedes` that names no page the model was shown, in the page's own scope, is dropped.
+ * that gives one): an exact substring of a prompt as typed, no whitespace folding or Unicode normalization (C7, omp
+ * `sharpshooter`'s rule); only the quote's own leading and trailing whitespace is dropped, which leaves it a substring.
+ * A `supersedes` that names no page the model was shown, in the page's own scope, is dropped.
  */
 export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, known: readonly KnownPage[]): Parsed {
 	const parsed: Parsed = { proposals: [], refused: [] };
@@ -241,7 +249,6 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 		return parsed;
 	}
 	const shown = digest.prompts.map(prompt => prompt.n);
-	const said = digest.prompts.map(prompt => ({ n: prompt.n, text: flat(prompt.text) }));
 	const taken = new Set(known.map(page => titleKey(page.title)));
 	const accepted: Proposal[] = [];
 	// Read past the page limit so a correction late in the answer is weighed before the limit cuts.
@@ -254,9 +261,11 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 		const evidence = Array.isArray(item.evidence)
 			? item.evidence.filter((value): value is number => Number.isInteger(value) && shown.includes(value as number))
 			: [];
-		const quote = typeof item.quote === "string" ? flat(item.quote) : "";
+		const quote = typeof item.quote === "string" ? item.quote.trim() : "";
 		const quoted =
-			quote.length >= QUOTE_MIN && quote.length <= QUOTE_MAX ? said.find(p => p.text.includes(quote)) : undefined;
+			quote.length >= QUOTE_MIN && quote.length <= QUOTE_MAX
+				? digest.prompts.find(prompt => prompt.text.includes(quote))
+				: undefined;
 		const label = title || kind || "page";
 		const layout = KIND_LAYOUT[kind as DistillKind] as (typeof KIND_LAYOUT)[DistillKind] | undefined;
 		if (!layout) parsed.refused.push(`${label}: unknown kind`);
@@ -315,7 +324,7 @@ export function proposalMarkdown(proposal: Proposal, sessionId: string, replaces
 		"",
 		proposal.body,
 		"",
-		...(proposal.quote ? [`> ${proposal.quote}`, ""] : []),
+		...(proposal.quote ? [...proposal.quote.split("\n").map(line => `> ${line}`), ""] : []),
 		...(replaces ? [`_Replaces [[${replaces}]]._`, ""] : []),
 		`_Source: the owner's messages ${cited}, session \`${sessionId}\` (memory upkeep)._`,
 		"",

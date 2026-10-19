@@ -169,22 +169,31 @@ const preference = {
 	kind: "preference",
 	title: "새 설정 항목을 만들지 않는다",
 	body: "기능을 더할 때 설정 토글을 새로 만들지 않는다.\n소유자는 설정을 최소로 두길 원한다.",
-	quote: "설정은 최소로 해줘. 새 토글 만들지 마",
+	quote: "설정은 최소로 해줘.\n새 토글 만들지 마",
 	gist_en: "Do not add new settings; keep settings minimal.",
 	confidence: 0.8,
 	evidence: [28],
 };
 
 describe("parseProposals: the owner's preferences and corrections", () => {
-	it("accepts a preference whose quote is the owner's own words (whitespace aside) and keeps the quote and gist", () => {
+	it("accepts a preference whose quote is an exact substring of what the owner typed, line break included, and keeps it as typed", () => {
 		const parsed = parseProposals(JSON.stringify({ pages: [preference] }), window, []);
 		expect(parsed.refused).toEqual([]);
 		expect(parsed.proposals[0]).toMatchObject({
 			kind: "preference",
-			quote: "설정은 최소로 해줘. 새 토글 만들지 마",
+			quote: "설정은 최소로 해줘.\n새 토글 만들지 마",
 			gist: "Do not add new settings; keep settings minimal.",
 			evidence: [28],
 		});
+	});
+
+	it("the page carries a multi-line quote as one blockquote, every line marked", () => {
+		const [proposal] = parseProposals(JSON.stringify({ pages: [preference] }), window, []).proposals;
+		expect(proposal && proposalMarkdown(proposal, "s")).toContain("\n> 설정은 최소로 해줘.\n> 새 토글 만들지 마\n");
+	});
+
+	it("the model reads the owner's prompts with their own line breaks and spacing, so it can copy them exactly", () => {
+		expect(window.text).toContain("[28] 아니 그게 아니라,   설정은 최소로 해줘.\n새 토글 만들지 마");
 	});
 
 	it("refuses a quote that is not a substring of what the owner typed, on any kind, and a preference without one", () => {
@@ -192,6 +201,8 @@ describe("parseProposals: the owner's preferences and corrections", () => {
 			JSON.stringify({
 				pages: [
 					{ ...preference, quote: "설정은 최소로 해 주세요" },
+					{ ...preference, title: "공백이 바뀜", quote: "설정은 최소로 해줘. 새 토글 만들지 마" },
+					{ ...preference, title: "정규화된 인용", quote: "그게 아니라, 설정은 최소로" },
 					{ ...preference, kind: "correction", title: "교정", quote: "토글" },
 					{ ...good, quote: "제한은 모두 없앨 것" },
 					{ ...preference, title: "인용 없음", quote: undefined },
@@ -203,6 +214,8 @@ describe("parseProposals: the owner's preferences and corrections", () => {
 		expect(parsed.proposals).toEqual([]);
 		expect(parsed.refused).toEqual([
 			`${preference.title}: quote is not the owner's words`,
+			"공백이 바뀜: quote is not the owner's words",
+			"정규화된 인용: quote is not the owner's words",
 			"교정: quote is not the owner's words",
 			`${good.title}: quote is not the owner's words`,
 			"인용 없음: quotes no evidence",
