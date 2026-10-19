@@ -113,13 +113,20 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	const made = await children();
 	expect(made).toHaveLength(3);
 
-	// The children's folders (`gui-agent-<id>-<hash>`) never show: each group sits under the project, named by what it is.
-	await expect(page.locator("[data-worktree-group]")).toHaveCount(1, { timeout: 30_000 });
-	for (const label of await page.locator("[data-worktree-group]").allTextContents())
-		expect(label.trim()).toBe("Parallel work");
-	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);
 	for (const child of made) expect(child.branch).toMatch(/^omp\/agent\//);
 	await call("ompdesk_session_result", { sessions: made.map(child => child.tabId), wait: true, timeout_seconds: 90 });
+
+	// Sessions an agent opened live in its opener's family, whatever their folder: no "Parallel work" group, and the
+	// children's folders (`gui-agent-<id>-<hash>`) never show.
+	const chip = page.locator("[data-sidebar-subagents-toggle]");
+	await expect(chip).toHaveCount(1, { timeout: 30_000 });
+	if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+	const family = page.locator("[data-sidebar-family] [data-sidebar-opened-session]");
+	await expect(family).toHaveCount(3, { timeout: 30_000 });
+	for (const label of ["attempt a", "attempt b", "attempt c"])
+		await expect(family.filter({ hasText: label })).toHaveCount(1);
+	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
+	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);
 
 	// The fake children do not edit; commit a file in each checkout the way a real child's work would land.
 	for (const [index, child] of made.entries()) {
