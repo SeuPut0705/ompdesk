@@ -85,7 +85,7 @@ function CopyLinkButton({ url }: { url: string }) {
 export function MobileWebConnect({ state, url }: { state: MobileWebState; url: string }) {
 	const t = useT();
 	return (
-		<SettingsSection description={t("mobileWeb.linkDesc")} title={t("mobileWeb.connect.title")}>
+		<SettingsSection title={t("mobileWeb.connect.title")}>
 			<div className="settings-row flex min-w-0 flex-wrap items-center gap-4 py-3" data-mobile-web-link>
 				<div className="flex min-w-0 flex-1 basis-56 flex-col gap-3">
 					<span

@@ -273,7 +273,7 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 export function MobileWebBlocked({ blocked }: { blocked: WebBlockedInfo[] }) {
 	const t = useT();
 	return (
-		<SettingsSection description={t("mobileWeb.blocked.desc")} title={t("mobileWeb.blocked.title")}>
+		<SettingsSection title={t("mobileWeb.blocked.title")}>
 			<div className="flex flex-col gap-px py-2" data-mobile-web-blocked>
 				{blocked.map(entry => {
 					const user = entry.tailscaleLogin ?? "";

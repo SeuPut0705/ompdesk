@@ -5,7 +5,7 @@
  * and that the next check retries. OMPdesk's own update stays manual (the
  * section above).
  */
-import { RefreshCw } from "lucide-react";
+import { RefreshCcw, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { OMP_AUTO_UPDATE_PREF, type OmpUpdateFailure, type OmpUpdateState } from "../../../shared/omp-update";
 import { saveGuiPreference } from "../../lib/display-preferences";
@@ -54,8 +54,10 @@ export function OmpUpdateRows() {
 	return (
 		<>
 			<SettingsSwitchRow
+				icon={<RefreshCcw />}
 				checked={state?.enabled ?? true}
 				description={t("ompUpdate.autoDesc")}
+				tipOnly
 				disabled={state === null}
 				id="setting-gui-ompAutoUpdate"
 				label={t("ompUpdate.auto")}

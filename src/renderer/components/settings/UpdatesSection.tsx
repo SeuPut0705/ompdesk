@@ -304,6 +304,7 @@ export function UpdatesSection() {
 			<SettingsRow
 				control={<ProductStar />}
 				description={t("about.repoDesc")}
+				tipOnly
 				icon={<Star />}
 				id="setting-about-star"
 				label={t("about.repo")}
@@ -417,6 +418,7 @@ export function HostOmpUpdateRow({
 				)
 			}
 			description={t("updates.core.hostDescription", { device: hostName })}
+			tipOnly
 			footer={
 				<>
 					<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
@@ -535,6 +537,7 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 			badge={<DeviceChip deviceId={deviceId} />}
 			control={control}
 			description={t("updates.host.description")}
+			tipOnly
 			footer={
 				<>
 					<p className="mt-1 text-sc-xs text-(--sc-text-muted)" data-host-desktop-version>
@@ -622,6 +625,7 @@ function PluginDoctorRow() {
 					</div>
 				}
 				description={t("diagnostics.description")}
+				tipOnly
 				footer={
 					error ? (
 						<div className="mt-2 text-sc-xs text-(--sc-danger)" role="alert">
@@ -715,6 +719,7 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 				)
 			}
 			description={t("updates.auth.description")}
+			tipOnly
 			footer={
 				<div className="mt-2 flex flex-col gap-2">
 					{info?.canStore === false ? (

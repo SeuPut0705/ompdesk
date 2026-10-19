@@ -241,6 +241,8 @@ export interface SettingsSwitchRowProps {
 	extra?: ReactNode;
 	/** The value that needs an explicit "Accept risk" before it is written, and why. */
 	risk?: { value: boolean; warning: ReactNode };
+	/** Every string description goes behind the info glyph (see `SettingsRow`). */
+	tipOnly?: boolean;
 }
 
 export function SettingsSwitchRow({
@@ -255,6 +257,7 @@ export function SettingsSwitchRow({
 	footer,
 	extra,
 	risk,
+	tipOnly,
 }: SettingsSwitchRowProps) {
 	const t = useT();
 	const switchId = useId();
@@ -274,6 +277,7 @@ export function SettingsSwitchRow({
 				</span>
 			}
 			description={description}
+			tipOnly={tipOnly}
 			footer={
 				<>
 					{asking && risk && (

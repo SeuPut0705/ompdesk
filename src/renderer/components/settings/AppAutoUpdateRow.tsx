@@ -1,3 +1,4 @@
+import { Download } from "lucide-react";
 /**
  * Settings › Updates & about › OMPdesk: "Install updates automatically" (pref `appAutoUpdate`, default off).
  * On, a downloaded update installs and restarts by itself at a quiet moment (main `app-auto-update.ts`);
@@ -27,8 +28,10 @@ export function AppAutoUpdateRow() {
 	const unavailable = mode === "manual";
 	return (
 		<SettingsSwitchRow
+			icon={<Download />}
 			checked={enabled && !unavailable}
 			description={unavailable ? t("updates.appAutoManual") : t("updates.appAutoDesc")}
+			tipOnly={!unavailable}
 			disabled={mode === undefined || unavailable}
 			id="setting-gui-appAutoUpdate"
 			label={t("updates.appAuto")}

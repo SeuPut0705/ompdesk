@@ -77,6 +77,7 @@ export function DiagnosticsRow() {
 				</Button>
 			}
 			description={t("about.diagnosticsDesc")}
+			tipOnly
 			icon={<ClipboardList />}
 			id="setting-about-diagnostics"
 			label={t("about.diagnostics")}

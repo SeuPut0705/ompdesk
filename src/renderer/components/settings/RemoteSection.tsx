@@ -16,7 +16,7 @@
  *
  * Main owns the state; every action answers with the whole new RemoteState.
  */
-import { Monitor, Plus, RefreshCw } from "lucide-react";
+import { Coffee, Monitor, MonitorSmartphone, Palette, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
 import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
@@ -102,7 +102,12 @@ function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: numb
 	});
 
 	return (
-		<SettingsRow description={t("remote.host.codeDesc")} id="settings-remote-code" label={t("remote.host.code")}>
+		<SettingsRow
+			description={t("remote.host.codeDesc")}
+			tipOnly
+			id="settings-remote-code"
+			label={t("remote.host.code")}
+		>
 			<div className="flex flex-wrap items-center gap-3" data-remote-code>
 				{code ? <CopyableValue large value={code} /> : <Spinner size="sm" />}
 				{expiresAt !== null && (
@@ -182,6 +187,7 @@ function KeepAwakeRow({ host }: { host: RemoteHostState }) {
 	}
 	return (
 		<SettingsSwitchRow
+			icon={<Coffee />}
 			checked={host.keepAwake}
 			description={<span data-remote-keep-awake-state>{description}</span>}
 			disabled={saving}
@@ -204,8 +210,10 @@ function HostAppearanceRow() {
 	const setEnabled = useHostAppearanceStore(state => state.setEnabled);
 	return (
 		<SettingsSwitchRow
+			icon={<Palette />}
 			checked={enabled}
 			description={t("remote.hosts.useHostAppearanceDesc")}
+			tipOnly
 			id="setting-remote-host-appearance"
 			label={t("remote.hosts.useHostAppearance")}
 			onCheckedChange={next => void setEnabled(next)}
@@ -269,8 +277,10 @@ export function RemoteSection() {
 		<div className="flex flex-col gap-8" data-remote-section>
 			<SettingsSection title={t("remote.host.title")}>
 				<SettingsSwitchRow
+					icon={<MonitorSmartphone />}
 					checked={host.enabled}
 					description={t("remote.host.toggleDesc")}
+					tipOnly
 					disabled={toggling}
 					id="settings-remote-host"
 					label={t("remote.host.toggle")}
@@ -285,7 +295,7 @@ export function RemoteSection() {
 					<>
 						<KeepAwakeRow host={host} />
 						<DeviceNameRow name={host.name} />
-						<SettingsRow description={t("remote.host.addressesDesc")} label={t("remote.host.addresses")}>
+						<SettingsRow description={t("remote.host.addressesDesc")} tipOnly label={t("remote.host.addresses")}>
 							{host.addresses.length > 0 ? (
 								<ul className="flex flex-col gap-1" data-remote-addresses>
 									{host.addresses.map(address => (
