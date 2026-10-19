@@ -98,7 +98,8 @@ export function deleteSessionRuntime(tabId: string): void {
 	if (focusedTabId === tabId) setFocusedSessionRuntime(null);
 }
 
-function onSessionRuntimesChange(listener: () => void): () => void {
+/** Called after a tab's runtime is created, replaced or closed. */
+export function onSessionRuntimesChange(listener: () => void): () => void {
 	registryListeners.add(listener);
 	return () => registryListeners.delete(listener);
 }

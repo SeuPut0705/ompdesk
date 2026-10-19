@@ -51,7 +51,12 @@ test.beforeEach(async () => {
 		desktop,
 		agent,
 		profile: root,
-		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_AGENT_SWEEP_MS: "500" },
+		env: {
+			OMP_GUI_HEADLESS: "1",
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_AGENT_SWEEP_MS: "500",
+			OMP_GUI_TEST_SESSION_COST: "0.25",
+		},
 	});
 	page = await app.firstWindow();
 	errors = [];
@@ -149,6 +154,13 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	await expect(page.locator("[data-review-child]")).toHaveCount(0);
 	await expect(page.getByText("Needs review")).toHaveCount(0);
 	await expect(page.locator(".omp-work-board-actions")).toHaveCount(0);
+	// Each child's row says what it costs, and its tooltip what it runs on (main's review push, AgentChildUsage).
+	await expect(page.locator("[data-board-opened-cost]")).toHaveCount(3);
+	await expect(page.locator("[data-board-opened-cost]").first()).toHaveText("$0.25");
+	for (const title of await page
+		.locator("[data-board-opened]")
+		.evaluateAll(rows => rows.map(row => row.getAttribute("title"))))
+		expect(title).toMatch(/\/local-fixture · \$0\.25/);
 
 	// The agent lands the first through the tool: with full control (the default) it merges at once, without a card.
 	const first = made[0] as { tabId: string; path: string; branch: string };

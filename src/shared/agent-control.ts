@@ -104,6 +104,7 @@ export const AGENT_PANEL_TABS = [
 	"logs",
 	"queue",
 	"tree",
+	"work",
 	"memory",
 ] as const;
 

@@ -66,6 +66,7 @@ import {
 	WEB_BLOCKS,
 	WEB_DEVICES,
 } from "./fixture-settings";
+import { orphanWorktrees } from "./fixture-work-tree";
 
 type Listener = (data: unknown) => void;
 
@@ -266,6 +267,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, { steering: [], followUp: [] });
 			case "agent_control_review":
 				return respond(command, { items: [] });
+			case "get_orphan_worktrees":
+				return respond(command, orphanWorktrees());
+			case "remove_orphan_worktree":
+				return respond(command, { removal: "removed" });
 			case "get_git_fingerprint":
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":

@@ -16,6 +16,7 @@ import { QueuePanel } from "../panels/QueuePanel";
 import { SessionTreePanel } from "../panels/SessionTreePanel";
 import { SubagentPanel } from "../panels/SubagentPanel";
 import { TerminalPanel } from "../panels/TerminalPanel";
+import { WorkTreePanel } from "../panels/work-tree/WorkTreePanel";
 
 export interface PanelViewProps {
 	panelTab: PanelViewId;
@@ -33,6 +34,7 @@ export function PanelView({ panelTab, subagent }: PanelViewProps) {
 			{panelTab === "logs" && <LogPanel />}
 			{panelTab === "queue" && <QueuePanel />}
 			{panelTab === "tree" && <SessionTreePanel />}
+			{panelTab === "work" && <WorkTreePanel />}
 			{panelTab === "memory" && <AiMemoryPanel />}
 			{panelTab === "jobs" && <JobsPanel />}
 			{panelTab === "subagent" && <SubagentPanel subagent={subagent} />}

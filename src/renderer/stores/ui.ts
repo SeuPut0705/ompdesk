@@ -19,6 +19,7 @@ export const PANEL_TABS = [
 	"logs",
 	"queue",
 	"tree",
+	"work",
 	"memory",
 ] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];

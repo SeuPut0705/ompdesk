@@ -139,6 +139,8 @@ const [
 	updater,
 	settings,
 	model,
+	agentReview,
+	closedChildren,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -158,6 +160,8 @@ const [
 	import("../stores/updater").then(module => module.useUpdaterStore),
 	import("../stores/settings").then(module => module.useSettingsStore),
 	import("../stores/model").then(module => module.useModelStore),
+	import("../stores/agent-review").then(module => module.useAgentReviewStore),
+	import("../stores/closed-children").then(module => module.useClosedChildrenStore),
 ]);
 window.__stores = {
 	ui,
@@ -178,6 +182,8 @@ window.__stores = {
 	updater,
 	settings,
 	model,
+	agentReview,
+	closedChildren,
 };
 
 declare global {

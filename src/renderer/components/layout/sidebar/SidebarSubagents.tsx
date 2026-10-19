@@ -382,8 +382,8 @@ function FamilyChip({
 						)}
 					</>
 				)}
-				{/* The family's cost, once: what every child spent, finished ones included. Not in the narrow pill. */}
-				{cost > 0 && !compact && (
+				{/* The family's cost, once: what every child spent, finished ones included ("⑂3 · $0.42", narrow too). */}
+				{cost > 0 && (
 					<span className="inline-flex items-center gap-0.5" data-family-cost={cost.toFixed(4)}>
 						<span aria-hidden>·</span>
 						{formatCost(cost, 2)}

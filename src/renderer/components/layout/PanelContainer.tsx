@@ -10,6 +10,7 @@ import {
 	ListOrdered,
 	MoreHorizontal,
 	MoreVertical,
+	Network,
 	Rocket,
 	ScrollText,
 	Terminal,
@@ -79,6 +80,7 @@ const VIEWS = [
 	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
 	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
 	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
+	{ id: "work", labelKey: "panel.tabs.work", icon: Network },
 	{ id: "memory", labelKey: "panel.tabs.memory", icon: Brain },
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 /** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */

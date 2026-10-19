@@ -1984,7 +1984,8 @@ export function runRpcUi(): void {
 			orchestrationOutput: 0,
 			orchestrationCacheRead: 0,
 			premiumRequests: 0,
-			cost: 0,
+			// `OMP_GUI_TEST_SESSION_COST`: what the session's journal has cost (family cost, work tree).
+			cost: Number(process.env.OMP_GUI_TEST_SESSION_COST ?? 0),
 			sampledAt: Date.now(),
 		}),
 		"workspace.directories": () => ({ directories: [] }),

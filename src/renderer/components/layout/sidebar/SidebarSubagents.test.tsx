@@ -532,6 +532,42 @@ describe("a session's family: one-line rows", () => {
 		}
 	});
 
+	it("adds the family's cost once beside the running pill, finished children and opened sessions included", async () => {
+		const progress = (cost: number) => ({ cost, modelRole: "task", resolvedModel: "anthropic/claude-x" });
+		seed([
+			snap({ id: "r1", index: 1, status: "running", progress: progress(0.1) as SubagentSnapshot["progress"] }),
+			snap({ id: "r2", index: 2, status: "completed", progress: progress(0.2) as SubagentSnapshot["progress"] }),
+		]);
+		const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+			this: HTMLElement,
+		) {
+			return { width: this.className?.includes?.("omp-session-sidebar") ? 248 : 0 } as DOMRect;
+		});
+		try {
+			await mount(
+				<div className="omp-session-sidebar">
+					<Session
+						kids={[
+							opened({ key: "/wt/a.jsonl", state: "running", usage: { model: "openai/gpt-z", cost: 0.05 } }),
+							opened({ key: "/wt/b.jsonl", status: "done", usage: { cost: 0.07 } }),
+						]}
+					/>
+				</div>,
+			);
+			const chip = toggle();
+			expect(chip?.getAttribute("data-family-compact")).toBe("true");
+			expect(chip?.querySelector("[data-family-running]")?.textContent).toBe("2");
+			expect(chip?.querySelector("[data-family-cost]")?.textContent).toBe("·$0.42");
+			expect(chip?.getAttribute("aria-label")).toContain(translate("sidebar.family.cost", { cost: "$0.42" }));
+			// Each child row's tooltip (the family is open) names what it runs on and costs.
+			expect(row("r1").querySelector("button")?.getAttribute("title")).toContain(
+				"anthropic/claude-x · @task · $0.10",
+			);
+		} finally {
+			rect.mockRestore();
+		}
+	});
+
 	it("keeps the whole chip at a width with room, and with nothing running", async () => {
 		seed([snap({ id: "r1", index: 1, status: "parked" })]);
 		const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (

@@ -129,7 +129,7 @@ describe("PanelContainer", () => {
 			const views = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(button =>
 				button.textContent?.trim(),
 			);
-			expect(views).toEqual(["Background tasks", "Plan", "Logs", "Queue", "Tree", "Memory"]);
+			expect(views).toEqual(["Background tasks", "Plan", "Logs", "Queue", "Tree", "Work tree", "Memory"]);
 			for (const label of ["Terminal", "Changes", "Preview", "Files"]) {
 				const button = document.querySelector(`button[aria-label="${label}"]`);
 				expect(button).not.toBeNull();
