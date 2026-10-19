@@ -1386,7 +1386,6 @@ export const ko: Record<string, string> = {
 	"providers.featured.connect": "연결",
 	"providers.featured.apiKeyAction": "API 키로 대신 연결",
 	"providers.other.title": "다른 프로바이더",
-	"providers.custom.empty": "아직 없어요. OpenAI·Anthropic 호환 서버라면 무엇이든 추가할 수 있어요.",
 
 	// Model roles (Settings › Models)
 	"modelRoles.default": "기본값(카탈로그)",

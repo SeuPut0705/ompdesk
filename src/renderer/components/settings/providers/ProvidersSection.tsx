@@ -207,11 +207,7 @@ function CustomEndpoints({
 			title={t("settings.models.custom")}
 		>
 			{catalog.configError && <InlineNotice title={catalog.configError} tone="warning" />}
-			{configs.length === 0 ? (
-				!catalog.configError && (
-					<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("providers.custom.empty")}</p>
-				)
-			) : (
+			{configs.length > 0 && (
 				<ul>
 					{configs.map(config => {
 						const provider = listed.get(config.id);

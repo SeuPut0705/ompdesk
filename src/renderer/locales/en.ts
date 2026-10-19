@@ -1401,7 +1401,6 @@ export const en: Record<string, string> = {
 	"providers.featured.connect": "Connect",
 	"providers.featured.apiKeyAction": "Use an API key instead",
 	"providers.other.title": "Other providers",
-	"providers.custom.empty": "None yet. Add any OpenAI- or Anthropic-compatible server.",
 
 	// Model roles (Settings › Models)
 	"modelRoles.default": "Default (catalog)",
