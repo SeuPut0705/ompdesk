@@ -3,7 +3,9 @@
  * on a timer while OMPdesk is open (src/main/schedules.ts). Lists each schedule
  * with its repeat, project, next start and last outcome; a master switch holds
  * them all, each has its own switch, Run now / Stop, Edit and Delete; recent
- * runs show their status, length and captured log.
+ * runs show their status, length and captured log. While the focused tab runs
+ * on a paired host the section is that host's (SECTION_SCOPE `host`): every
+ * read and change goes to its own ScheduleService and its pushes keep it live.
  */
 import {
 	CalendarClock,
@@ -29,6 +31,7 @@ import type {
 import { AnsiText } from "../../lib/ansi";
 import { basename, durationBetween, formatClock, formatTimeAgo } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
 import {
@@ -81,6 +84,8 @@ export function frequencySummary(frequency: ScheduleFrequency): string {
 export function SchedulesSection() {
 	const t = useT();
 	const cwd = useSessionStore(state => state.cwd);
+	// A tab on a paired host shows and edits that host's schedules: they run on the host, in its folders.
+	const device = useFocusedTabDevice();
 	const [state, setState] = useState<SchedulesState | null>(null);
 	const [loadError, setLoadError] = useState<unknown>(null);
 	const [editing, setEditing] = useState<{ schedule: Schedule | null } | null>(null);
@@ -91,27 +96,37 @@ export function SchedulesSection() {
 	const load = useCallback(async () => {
 		setLoadError(null);
 		try {
-			setState(await window.omp.schedules.command({ action: "get" }));
+			setState(await window.omp.schedules.command({ action: "get" }, device));
 		} catch (error) {
 			setLoadError(error);
 		}
-	}, []);
+	}, [device]);
 	useEffect(() => {
-		const unsubscribe = window.omp.schedules.onState(setState);
+		// Another machine's schedules never paint over this one's while it loads.
+		setState(null);
+		setOpenLog(null);
+		const unsubscribe =
+			device === undefined
+				? window.omp.schedules.onState(setState)
+				: window.omp.schedules.onHostState((from, next) => {
+						if (from === device) setState(next);
+					});
 		void load();
 		return unsubscribe;
-	}, [load]);
+	}, [load, device]);
 
 	const send = async (request: SchedulesRequest): Promise<void> => {
 		try {
-			setState(await window.omp.schedules.command(request));
+			setState(await window.omp.schedules.command(request, device));
 		} catch (error) {
 			toastError({ title: t("schedules.actionFailed"), error });
 		}
 	};
 	const save = async (draft: ScheduleDraft) => {
 		const id = editing?.schedule?.id;
-		setState(await window.omp.schedules.command(id ? { action: "save", id, draft } : { action: "save", draft }));
+		setState(
+			await window.omp.schedules.command(id ? { action: "save", id, draft } : { action: "save", draft }, device),
+		);
 		setEditing(null);
 	};
 
@@ -272,6 +287,7 @@ export function SchedulesSection() {
 								onToggleLog={() => setOpenLog(current => (current === run.id ? null : run.id))}
 								open={openLog === run.id}
 								run={run}
+								device={device}
 							/>
 						))}
 					</ul>
@@ -285,6 +301,7 @@ export function SchedulesSection() {
 
 			<ScheduleDialog
 				defaultCwd={cwd ?? ""}
+				device={device}
 				onClose={() => setEditing(null)}
 				onSave={save}
 				open={editing !== null}
@@ -312,12 +329,14 @@ function RunRow({
 	open,
 	onToggleLog,
 	onStop,
+	device,
 }: {
 	run: ScheduleRun;
 	name: string;
 	open: boolean;
 	onToggleLog: () => void;
 	onStop: () => void;
+	device: string | undefined;
 }) {
 	const t = useT();
 	const [log, setLog] = useState<{ text: string } | { error: unknown } | null>(null);
@@ -327,14 +346,14 @@ function RunRow({
 		if (!open) return;
 		let cancelled = false;
 		setLog(null);
-		window.omp.schedules.readLog(run.id).then(
+		window.omp.schedules.readLog(run.id, device).then(
 			text => !cancelled && setLog({ text }),
 			error => !cancelled && setLog({ error }),
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, [open, run.id, run.status]);
+	}, [open, run.id, run.status, device]);
 	const duration = run.status === "skipped" ? null : durationBetween(run.startedAt, run.endedAt);
 	const Chevron = open ? ChevronDown : ChevronRight;
 	return (

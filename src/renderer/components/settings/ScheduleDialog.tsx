@@ -78,6 +78,7 @@ export function ScheduleDialog({
 	open,
 	schedule,
 	defaultCwd,
+	device,
 	onClose,
 	onSave,
 }: {
@@ -85,6 +86,8 @@ export function ScheduleDialog({
 	/** The schedule to edit; null creates one. */
 	schedule: Schedule | null;
 	defaultCwd: string;
+	/** The paired host the schedule runs on (its folders); absent = this computer. */
+	device?: string;
 	onClose: () => void;
 	/** Resolves once main saved it; a rejection keeps the dialog open with the reason. */
 	onSave: (draft: ScheduleDraft) => Promise<void>;
@@ -179,7 +182,7 @@ export function ScheduleDialog({
 						<Button
 							icon={<FolderOpen />}
 							onClick={async () => {
-								const picked = await pickWorkspaceDirectory({ title: t("schedules.field.project") });
+								const picked = await pickWorkspaceDirectory({ title: t("schedules.field.project"), device });
 								if (picked) set("cwd", picked);
 							}}
 							size="sm"

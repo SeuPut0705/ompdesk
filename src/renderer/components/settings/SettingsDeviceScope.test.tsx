@@ -52,6 +52,12 @@ Object.assign(window as unknown as Record<string, unknown>, {
 			getSettingsSchema: vi.fn(async () => notConnected),
 			getSettings: vi.fn(async () => notConnected),
 		},
+		schedules: {
+			command: vi.fn(async () => ({ paused: false, schedules: [], runs: [], nextRuns: {} })),
+			readLog: vi.fn(async () => ""),
+			onState: vi.fn(() => () => {}),
+			onHostState: vi.fn(() => () => {}),
+		},
 	},
 });
 
@@ -166,6 +172,23 @@ describe("Settings for a tab on a paired host", () => {
 				node.getAttribute("data-settings-group-scope"),
 			),
 		).toEqual(["app", "host", "app"]);
+	});
+
+	it("shows Schedules as the selected host's, read from that host, and its offline notice", async () => {
+		focusTab(HOST_ID);
+		await openSettings("schedules");
+		expect(navTag("schedules")).toBe(false);
+		const scope = query("[data-settings-section-scope]");
+		expect(scope?.getAttribute("data-settings-section-scope")).toBe("host");
+		expect(scope?.textContent).toBe("Selected host: Studio");
+		expect(window.omp.schedules.command).toHaveBeenLastCalledWith({ action: "get" }, HOST_ID);
+		await act(async () => {
+			root?.unmount();
+		});
+		focusTab(HOST_ID, "offline");
+		await openSettings("schedules");
+		expect(query("[data-host-offline]")?.textContent).toContain("Studio is offline");
+		expect(query("[data-schedules-master]")).toBeNull();
 	});
 
 	it("keeps this device's settings available while the host is offline", async () => {
