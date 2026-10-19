@@ -101,7 +101,15 @@ import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import { HostedTabView } from "./remote/hosted-view";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
-import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "./sidecar-run-state";
+import {
+	idleRun,
+	type RunState,
+	type RunTracking,
+	runBusy,
+	runSettling,
+	settleRun,
+	trackRunEvent,
+} from "./sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
@@ -831,8 +839,14 @@ export class SidecarPool {
 		});
 		const settle = (settled: boolean): void => {
 			const wasBusy = runBusy(entry.run);
+			const wasSettling = runSettling(entry.run);
 			settleRun(entry.run, settled);
-			if (runBusy(entry.run) === wasBusy) return;
+			if (runBusy(entry.run) === wasBusy) {
+				// Still busy, but the turn's end now reads as background work (or the other way round).
+				if (runSettling(entry.run) !== wasSettling)
+					this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+				return;
+			}
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 			this.#announceRun(entry);
@@ -849,6 +863,7 @@ export class SidecarPool {
 		// keep background async work represented as running until it is quiet.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			const wasBusy = runBusy(entry.run);
+			const wasSettling = runSettling(entry.run);
 			const wasPlaceholder = entry.placeholder;
 			// A plan proposal blocks a hidden tab's session on the user: it goes to
 			// that tab's runtime here (the full channel carries it for a shown tab).
@@ -883,7 +898,7 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
-			if (busyChanged || entry.placeholder !== wasPlaceholder) {
+			if (busyChanged || runSettling(entry.run) !== wasSettling || entry.placeholder !== wasPlaceholder) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 			if (busyChanged) {
@@ -2150,6 +2165,8 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 		// reports its connection state even with a dead in-flight run.
 		status: entry.run.running && entry.status === "ready" ? "running" : entry.status,
 	};
+	// The turn ended; stock's background work (subagents, async jobs) keeps the session unsettled.
+	if (payload.status === "running" && runSettling(entry.run)) payload.settling = true;
 	if (entry.run.compacting !== undefined) payload.compacting = entry.run.compacting;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;

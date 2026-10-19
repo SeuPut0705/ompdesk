@@ -58,32 +58,12 @@ export class TabPoll<T> {
 		if (feed.listeners.size === 0 && feed.readers.size === 0 && this.#feeds.get(key) === feed)
 			this.#feeds.delete(key);
 	}
-
-	/** The tab's value while some surface polls it, else the initial one: a value nobody re-reads is no fact. */
-	polledValue(key: string): T {
-		const feed = this.#feeds.get(key);
-		return feed?.poller ? feed.value : this.initial;
-	}
-
-	subscribe(key: string, listener: () => void): () => void {
-		const feed = this.feed(key);
-		feed.listeners.add(listener);
-		return () => {
-			feed.listeners.delete(listener);
-			this.release(key, feed);
-		};
-	}
 }
 
 function show<T>(feed: Feed<T>, update: (current: T) => T): void {
 	const value = update(feed.value);
 	if (Object.is(value, feed.value)) return;
 	feed.value = value;
-	notify(feed);
-}
-
-/** Every surface showing the feed re-reads it; one that selects the same value does not re-render. */
-function notify<T>(feed: Feed<T>): void {
 	for (const listener of feed.listeners) listener();
 }
 
@@ -111,38 +91,33 @@ export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (val
 		// The first surface starts the poll; each later one reads once more, as a surface did on its own mount
 		// (the work board mounts mid-turn, after the sidebar's read, and must not wait for the next poll).
 		if (feed.poller) feed.poller.read();
-		else {
+		else
 			feed.poller = poll.start(
 				() => feed.readers.values().next().value?.rpc,
 				update => show(feed, update),
 			);
-			// Surfaces that only peek (`useTabPollPeek`) see the value again now that it is re-read.
-			notify(feed);
-		}
 		return () => {
 			feed.readers.delete(reader);
 			if (feed.readers.size === 0) {
 				feed.poller?.stop();
 				feed.poller = null;
-				notify(feed);
 			}
 			poll.release(key, feed);
 		};
 	}, [poll, key, active, rpc]);
 
-	const subscribe = useCallback((listener: () => void) => poll.subscribe(key, listener), [poll, key]);
+	const subscribe = useCallback(
+		(listener: () => void) => {
+			const feed = poll.feed(key);
+			feed.listeners.add(listener);
+			return () => {
+				feed.listeners.delete(listener);
+				poll.release(key, feed);
+			};
+		},
+		[poll, key],
+	);
 	// A static render (renderToString in tests) reads the same value.
 	const snapshot = () => select(poll.value(key));
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
-}
-
-/**
- * `select` of `key`'s value of `poll` without polling it: the value while another surface of that tab polls it (the
- * tab's pane is on screen), else the initial one. For a list of many tabs (the sidebar) that must not start a poll
- * per tab and must not show a value nobody re-reads any more.
- */
-export function useTabPollPeek<T, S>(poll: TabPoll<T>, key: string, select: (value: T) => S): S {
-	const subscribe = useCallback((listener: () => void) => poll.subscribe(key, listener), [poll, key]);
-	const snapshot = () => select(poll.polledValue(key));
 	return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

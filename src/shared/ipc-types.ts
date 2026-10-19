@@ -1369,6 +1369,12 @@ export interface IpcTabInfo {
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
+	/**
+	 * `status` is `running` only because stock's background work (subagents, async jobs) keeps the session unsettled
+	 * after its turn ended (`prompt_result.sessionSettled: false` until `session_settled`): the session cards show the
+	 * `background` light, not the turn's. Resume, Stop and the quit guard still read `running`.
+	 */
+	settling?: true;
 }
 
 /**
@@ -1442,8 +1448,10 @@ export interface IpcHostedSession {
 	title?: string;
 	cwd: string;
 	kind: SessionKind;
-	/** The tab's status, `running` while a turn runs. */
+	/** The tab's status, `running` while a turn runs or its background work keeps the session unsettled. */
 	status: TabStatus;
+	/** `running` only for background work after the turn ended (as {@link IpcTabInfo.settling}). */
+	settling?: true;
 	/** An ask or approval of the omp waits for an answer (from the device or a window here). */
 	awaitingInput?: true;
 	/** The paired device's name. */

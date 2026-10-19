@@ -1727,6 +1727,24 @@ describe("Sidebar subagents", () => {
 		await flush();
 		expect(edge()).toBeNull();
 	});
+
+	it("draws a running tab whose turn ended but whose background work keeps it unsettled in the background form", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		// No roster entry runs: main's `settling` (stock's background work, shells included) is the only fact.
+		setSubagentStatus("aborted");
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		await mount(<Sidebar />);
+		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, settling: true as const } : tab)),
+			}));
+		});
+		await flush();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+	});
 });
 
 describe("Sidebar families: the sessions an agent opened", () => {
@@ -2681,9 +2699,12 @@ describe("Sidebar with a split on screen", () => {
 		expect(rowFor("Pane B").getAttribute("data-pane-focus")).toBe("true");
 		expect(rowFor("Pane A").getAttribute("data-pane-focus")).toBeNull();
 		expect(rowFor("Pane C").getAttribute("data-pane-focus")).toBeNull();
-		// A pane is not "open elsewhere": it is on screen.
-		expect(rowFor("Pane A").querySelector("[data-sidebar-open-tab]")).toBeNull();
-		expect(rowFor("Outside D").querySelector("[data-sidebar-open-tab]")).not.toBeNull();
+		// A pane is not "open elsewhere": it is on screen. The open tab elsewhere is said in words only (tooltip,
+		// screen-reader text): no dot leads a row.
+		const open = translate("sidebar.row.open");
+		expect(rowFor("Pane A").textContent).not.toContain(open);
+		expect(rowFor("Outside D").textContent).toContain(open);
+		expect(rowFor("Outside D").querySelector("[data-sidebar-session-icon]")?.childElementCount).toBe(0);
 	});
 
 	it("shows no pane cue while a session is alone", async () => {

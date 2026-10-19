@@ -138,6 +138,17 @@ describe("ComposerLiveEdge", () => {
 		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 	});
 
+	it("shows `background` while main reports the tab unsettled after its turn, with nothing in its own lists", async () => {
+		await mount();
+		expect(edge()).toBeNull();
+		await act(async () =>
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => ({ ...tab, status: "running", settling: true as const })),
+			})),
+		);
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+	});
+
 	it("stays off while a question waits on the user, whatever else runs", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
 		await mount();

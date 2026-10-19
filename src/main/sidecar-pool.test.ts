@@ -454,6 +454,38 @@ describe("SidecarPool tabs", () => {
 		expect((pool.tabsForWindow(fw.win)[0] as IpcTabStatusPayload).status).toBe("ready");
 	});
 
+	it("tells a turn from background work that keeps the session unsettled after it, in every push", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const sidecar = sidecars[0];
+		sidecar?.emitStatus("ready");
+		fw.sent.length = 0;
+		const pushed = () =>
+			fw.sentTo(IPC_EVENTS.TAB_STATUS).map(sent => {
+				const payload = sent.data as IpcTabStatusPayload;
+				return payload.settling ? `${payload.status}+settling` : payload.status;
+			});
+		const listed = () => pool.tabsForWindow(fw.win)[0] as IpcTabStatusPayload;
+
+		sidecar?.emitAgentEvents(["agent_start"]);
+		expect(listed().settling).toBeUndefined();
+		// The turn ends having started a background subagent: stock says the session is not settled.
+		sidecar?.emitAgentEvents(["agent_end"]);
+		sidecar?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		expect(listed()).toMatchObject({ status: "running", settling: true });
+		// Its result wakes the session: a turn runs in front again.
+		sidecar?.emitAgentEvents(["agent_start"]);
+		expect(listed().settling).toBeUndefined();
+		// prompt_result first, then the batched turn (EventBatcher's order): background once the turn ended.
+		sidecar?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		sidecar?.emitAgentEvents(["agent_end"]);
+		expect(listed()).toMatchObject({ status: "running", settling: true });
+		sidecar?.emit("sessionSettled", { type: "session_settled" });
+		expect(listed().status).toBe("ready");
+		expect(pushed()).toEqual(["running", "ready", "running+settling", "running", "running+settling", "ready"]);
+	});
+
 	it("re-wires forwarding on switch without duplicating listeners", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

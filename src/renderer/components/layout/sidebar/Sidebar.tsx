@@ -9,6 +9,7 @@ import {
 	ArrowUp,
 	BarChart3,
 	Bot,
+	Check,
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
@@ -1468,6 +1469,8 @@ export function Sidebar() {
 		const waiting =
 			(isCurrent ? awaitedInput : null) ?? tab?.awaitingInput ?? (hosted?.awaitingInput ? "input" : undefined);
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
+		// Of `running`: its turn ended and only stock's background work keeps it on (the light's `background`).
+		const settling = running && (tab?.settling === true || hosted?.settling === true);
 		const failed =
 			!waiting &&
 			!running &&
@@ -1497,6 +1500,7 @@ export function Sidebar() {
 			indexed,
 			waiting,
 			running,
+			settling,
 			failed,
 			done,
 			openElsewhere,
@@ -1638,9 +1642,9 @@ export function Sidebar() {
 			indexed,
 			waiting,
 			running,
+			settling,
 			failed,
 			done,
-			openElsewhere,
 			busy,
 			waitingLabel,
 			statusLabel,
@@ -1663,7 +1667,9 @@ export function Sidebar() {
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
-		// The state is drawn on the row's left edge (sidebar.css `data-signal`), not as a leading glyph.
+		// The state is the row's light (`SessionLiveEdge`) or its left-edge bar (sidebar.css `data-signal`), its words the
+		// tooltip and screen-reader text: no leading dot. An unseen finish has no light or bar, so it keeps one mark, a ✓
+		// (a shape, not a colour alone).
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const leading: ReactNode =
 			session.kind === "chat" && !done ? (
@@ -1678,17 +1684,7 @@ export function Sidebar() {
 					className="flex size-(--sc-icon-md) items-center justify-center"
 					data-sidebar-session-icon
 				>
-					{done ? (
-						<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-success)" data-sidebar-done />
-					) : (
-						openElsewhere &&
-						!signal && (
-							<span
-								className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)"
-								data-sidebar-open-tab
-							/>
-						)
-					)}
+					{done && <Check className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />}
 				</span>
 			);
 		const openTabId = tab?.id;
@@ -1811,6 +1807,7 @@ export function Sidebar() {
 						<SessionLiveEdge
 							opened={opened.filter(child => child.status === "running").length}
 							running={signal === "running"}
+							settling={settling}
 							tabId={openTabId ?? null}
 							waiting={signal === "waiting"}
 						/>

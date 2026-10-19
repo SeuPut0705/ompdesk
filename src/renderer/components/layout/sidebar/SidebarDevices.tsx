@@ -39,7 +39,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
-import { SessionLiveEdge } from "../SessionLiveEdge";
+import { TabLiveEdge } from "../SessionLiveEdge";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -382,9 +382,9 @@ function DeviceSessions({
 				key={session.path}
 				leading={leading}
 				live={
-					<SessionLiveEdge
-						opened={0}
+					<TabLiveEdge
 						running={signal?.running === true && tab?.awaitingInput === undefined}
+						settling={tab?.settling === true}
 						tabId={tab?.id ?? null}
 						waiting={tab?.awaitingInput !== undefined}
 					/>

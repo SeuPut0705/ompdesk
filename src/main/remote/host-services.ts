@@ -68,7 +68,15 @@ import type { SessionIndex } from "../session-index";
 import { deleteSession, moveSession, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarPool } from "../sidecar-pool";
-import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "../sidecar-run-state";
+import {
+	idleRun,
+	type RunState,
+	type RunTracking,
+	runBusy,
+	runSettling,
+	settleRun,
+	trackRunEvent,
+} from "../sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { stockHelperRequest } from "../stock-helper";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
@@ -399,6 +407,7 @@ export class LocalHostServices implements HostServices {
 				status: tab.run.running && sidecar.status === "ready" ? "running" : sidecar.status,
 				device: tab.origin.name,
 			};
+			if (session.status === "running" && runSettling(tab.run)) session.settling = true;
 			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
 			if (tab.title) session.title = tab.title;
 			if (tab.asks.size > 0) session.awaitingInput = true;

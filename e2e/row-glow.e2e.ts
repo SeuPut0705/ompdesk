@@ -3,8 +3,9 @@
  * fourth sits idle in front. Their sidebar rows carry the light (two transform-only bars over a still 1 px accent
  * edge), the idle row does not; split with one of them, the running pane's header carries it and the idle pane's
  * does not; when that pane's turn ends while a subagent it started still works, its row and header keep the light in
- * its fainter, slower form until the subagents finish; under reduced motion nothing moves and the still edge stays.
- * `OMP_GUI_ROW_GLOW=<dir>` writes captures.
+ * its fainter, slower form until the subagents finish, and so does a tab stock reports unsettled after its turn
+ * (`prompt_result.sessionSettled: false`, main's `settling`); under reduced motion nothing moves and the still edge
+ * stays. `OMP_GUI_ROW_GLOW=<dir>` writes captures.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -164,6 +165,22 @@ test("three running tabs light their rows and a split's running pane header, the
 		for (const id of ["sa-explore", "sa-nested"]) await fixture(`fixture:subagents:finish:${id}`);
 		await expect(row(page, behind).locator(".omp-live-edge")).toHaveCount(0);
 		await expect(header(behind).locator(".omp-live-edge")).toHaveCount(0);
+
+		// Stock's own case: a turn spawns a background subagent and ends, and `prompt_result` says the session is not
+		// settled. Main still reports the tab running (resume, Stop), marked `settling`: the idle pane's row and header
+		// wear the background form, never the turn's.
+		await page.evaluate(
+			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture background subagent" }),
+			idle,
+		);
+		await expect(page.getByText("Watcher is on the release build in the background.")).toBeVisible();
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === idle))
+			.toMatchObject({ status: "running", settling: true });
+		await expect(row(page, idle).locator('.omp-live-edge[data-live-edge="background"]')).toHaveCount(1);
+		await expect(header(idle).locator('.omp-live-edge[data-live-edge="background"]')).toHaveCount(1);
+		await expect(header(idle)).not.toHaveAttribute("data-pane-running", "true");
+		await captureTo(CAPTURES, page, "electron-settling");
 
 		// Reduced motion: nothing moves in a row's or a header's light (the composer's own is pinned by
 		// composer-live.e2e.ts); the still edge stays.
