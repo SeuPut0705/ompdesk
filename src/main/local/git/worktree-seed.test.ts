@@ -119,6 +119,22 @@ describe("seedWorktree", () => {
 		expect(await pathExists(path.join(target, "link"))).toBe(false);
 		expect(await pathExists(path.join(target, "via", ".env"))).toBe(false);
 	});
+	it("recreates an ignored folder link inside the checkout as a link in the worktree", async () => {
+		await fs.mkdir(path.join(repo, "store"));
+		await fs.writeFile(path.join(repo, "store", "pkg.js"), "x\n");
+		await fs.writeFile(path.join(repo, ".gitignore"), "store/\nmodules\n");
+		gitSync(repo, "commit", "-qam", "ignore");
+		// A junction on Windows (no privilege needed, as pnpm makes them); a folder symlink elsewhere.
+		await fs.symlink(path.join(repo, "store"), path.join(repo, "modules"), "junction");
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "modules\n");
+		const target = await freshWorktree("junction");
+
+		const report = await seedWorktree(repo, target);
+
+		expect(report?.skipped).toEqual([]);
+		expect((await fs.lstat(path.join(target, "modules"))).isSymbolicLink()).toBe(true);
+		expect(await fs.readFile(path.join(target, "modules", "pkg.js"), "utf8")).toBe("x\n");
+	});
 	it("leaves a force-added tracked file inside an ignored folder out, even when the target branch lacks it", async () => {
 		await fs.writeFile(path.join(repo, ".gitignore"), "cache/\n");
 		await fs.mkdir(path.join(repo, "cache"));

@@ -171,7 +171,12 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 			return;
 		}
 		await fs.mkdir(path.dirname(to), { recursive: true });
-		await fs.symlink(await fs.readlink(from), to);
+		const link = await fs.readlink(from);
+		// A directory link on Windows becomes a junction: a symlink there needs Developer Mode or admin, a junction
+		// needs neither (pnpm's node_modules are junctions). A junction takes an absolute target.
+		if (process.platform === "win32" && (await fs.stat(from)).isDirectory())
+			await fs.symlink(path.resolve(path.dirname(to), link), to, "junction");
+		else await fs.symlink(link, to);
 		return;
 	}
 	if (state.files + 1 > SEED_MAX_FILES || state.bytes + stat.size > SEED_MAX_BYTES) {
