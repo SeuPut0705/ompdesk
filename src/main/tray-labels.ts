@@ -31,6 +31,7 @@ export const TRAY_LABELS = {
 	approvalYolo: { en: "Full access", ko: "전체 접근" },
 	approvalWrite: { en: "Auto-edit", ko: "자동 편집" },
 	approvalAsk: { en: "Ask every time", ko: "항상 묻기" },
+	approvalRemember: { en: "Ask and remember", ko: "묻고 기억하기" },
 	context: { en: "Context", ko: "컨텍스트" },
 	tokens: { en: "tokens", ko: "토큰" },
 	noModel: { en: "No model", ko: "모델 없음" },
@@ -83,10 +84,15 @@ export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
 	return streaming ? "streaming" : (waiting ?? "idle");
 }
 
+const APPROVAL_KEYS: Record<TrayApprovalMode, TrayLabelKey> = {
+	yolo: "approvalYolo",
+	write: "approvalWrite",
+	"always-ask-cached": "approvalRemember",
+	"always-ask": "approvalAsk",
+};
+
 export function approvalLabel(lang: TrayLang, mode: TrayApprovalMode): string {
-	if (mode === "yolo") return t(lang, "approvalYolo");
-	if (mode === "write") return t(lang, "approvalWrite");
-	return t(lang, "approvalAsk");
+	return t(lang, APPROVAL_KEYS[mode]);
 }
 
 const THINKING_KEYS: Record<string, TrayLabelKey> = {

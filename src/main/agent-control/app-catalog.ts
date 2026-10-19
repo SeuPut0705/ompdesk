@@ -22,6 +22,7 @@ import {
 	type WebDeviceInfo,
 } from "../../shared/mobile-web";
 import type { RpcCommand } from "../../shared/rpc-types";
+import { APPROVAL_MODES } from "../../shared/tool-approval";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
 import { type ManageRule, SETTINGS, type Setting, settingActionId } from "./app-settings";
@@ -813,7 +814,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			{
 				switch: { type: "string", enum: Object.keys(POWER_SWITCHES) },
 				on: { type: "boolean" },
-				mode: { type: "string", enum: ["yolo", "write", "always-ask"] },
+				mode: { type: "string", enum: [...APPROVAL_MODES] },
 			},
 			["switch"],
 		),

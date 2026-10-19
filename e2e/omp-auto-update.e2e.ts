@@ -3,10 +3,10 @@
  * fake installer (`OMP_GUI_TEST_OMP_UPDATES=1`, `OMP_GUI_TEST_INSTALLER`; both are
  * needed for a test launch to check at all). The check runs on the fixture omp
  * with that omp's folder first on PATH and reports 18.13.0
- * (`OMP_GUI_TEST_LATEST_OMP`), newer than the fixture (18.12.2), so main runs the
+ * (`OMP_GUI_TEST_LATEST_OMP`), newer than the fixture (18.12.3), so main runs the
  * omp-update plan on its own while the tab keeps its process and its draft; once
  * the installer reports the new version, main re-detects omp, restarts the idle
- * tab on it (the boot log shows 18.12.2 then 18.13.0), shows one "omp updated to
+ * tab on it (the boot log shows 18.12.3 then 18.13.0), shows one "omp updated to
  * 18.13.0" toast, and the restarted bridge's capabilities probe names a feature
  * the new omp lacks. With the pref off nothing checks on its own, and "Update
  * now" still works.
@@ -117,7 +117,7 @@ async function releaseInstaller(launched: Launched): Promise<void> {
 async function expectUpdated(launched: Launched): Promise<void> {
 	const { page } = launched;
 	await expect(page.getByText("omp updated to 18.13.0")).toBeVisible({ timeout: 30_000 });
-	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.2", "18.13.0"]);
+	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.3", "18.13.0"]);
 	await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	await expect(page.locator(".omp-composer-input").first()).toHaveValue(DRAFT);
 	// The restarted bridge answered the capabilities probe for 18.13.0; planMode is missing there.
@@ -146,11 +146,11 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 		const { page } = launched;
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 		await page.locator(".omp-composer-input").first().fill(DRAFT);
-		// Nobody clicked: main found 18.13.0 > 18.12.2 and runs the installer, which waits for `go`.
+		// Nobody clicked: main found 18.13.0 > 18.12.3 and runs the installer, which waits for `go`.
 		await expect.poll(() => updatePhase(page), { timeout: 30_000 }).toBe("updating");
 		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
 		// The install never touches the running tab: same process, still ready.
-		expect(await boots(launched)).toEqual(["18.12.2"]);
+		expect(await boots(launched)).toEqual(["18.12.3"]);
 		expect(await sidecarStatus(page)).toBe("ready");
 		await releaseInstaller(launched);
 		await expectUpdated(launched);
@@ -200,7 +200,7 @@ for (const [language, themeName] of [
 			await shot("1-updating-settings");
 			await page.keyboard.press("Escape");
 			await releaseInstaller(launched);
-			await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.2", "18.13.0"]);
+			await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.3", "18.13.0"]);
 			await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 			await expect(page.locator("[role='status'], [role='alert']").first()).toBeVisible({ timeout: 30_000 });
 			await shot("2-updated-toast");

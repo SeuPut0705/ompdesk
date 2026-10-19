@@ -1,11 +1,10 @@
 import { createStore } from "zustand/vanilla";
 import type { RpcSessionState, SettingProvenance } from "../../shared/rpc-types";
+import { type ApprovalMode, isApprovalMode } from "../../shared/tool-approval";
 import { translate } from "../lib/i18n";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 import { toastError } from "./toast";
 
-export type ApprovalMode = "always-ask" | "write" | "yolo";
-const APPROVAL_MODES = new Set<string>(["always-ask", "write", "yolo"]);
 export interface SettingsStore {
 	approvalMode: ApprovalMode;
 	steeringMode: "all" | "one-at-a-time";
@@ -100,7 +99,7 @@ async function syncApprovalMode(
 		if (provenance?.layers.length === 0) {
 			const pref = await window.omp.prefs.get("approvalMode");
 			if (!isCurrent()) return;
-			if (typeof pref === "string" && APPROVAL_MODES.has(pref)) {
+			if (isApprovalMode(pref)) {
 				const migrated = await command({ type: "set_setting", path: "tools.approvalMode", value: pref });
 				if (!migrated.success) return;
 				await window.omp.prefs.set("approvalMode", null);
@@ -110,7 +109,7 @@ async function syncApprovalMode(
 		if (!isCurrent()) return;
 		if (res.success) {
 			const value = (res.data as { values?: Record<string, unknown> } | undefined)?.values?.["tools.approvalMode"];
-			if (typeof value === "string" && APPROVAL_MODES.has(value)) set({ approvalMode: value as ApprovalMode });
+			if (isApprovalMode(value)) set({ approvalMode: value });
 		}
 	} catch {
 		// Settings unreadable - keep the current value.
@@ -215,8 +214,7 @@ export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 					if (version !== approvalSyncVersion) return;
 					if (!res.success) throw new Error(res.error);
 					const data = res.data as { value?: unknown; provenance?: SettingProvenance } | undefined;
-					if (data?.provenance && typeof data.value === "string" && APPROVAL_MODES.has(data.value))
-						set({ approvalMode: data.value as ApprovalMode });
+					if (data?.provenance && isApprovalMode(data.value)) set({ approvalMode: data.value });
 					else await syncApproval();
 				} catch (error) {
 					if (version === approvalSyncVersion) toastError({ title: translate("settings.saveFailed"), error });

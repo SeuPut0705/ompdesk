@@ -60,6 +60,7 @@ import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
 import type { TerminalApi } from "./terminal-types";
+import type { ApprovalMode } from "./tool-approval";
 import type { UiLanguage } from "./ui-language";
 
 // ============================================================================
@@ -616,7 +617,7 @@ export type DeepLinkPayload = { action: "new-session" } | { action: "switch-sess
 
 /** Optional payload carried alongside a MenuAction (approval mode / project cwd). */
 export interface MenuActionPayload {
-	approvalMode?: "always-ask" | "write" | "yolo";
+	approvalMode?: ApprovalMode;
 	cwd?: string;
 }
 
@@ -701,7 +702,7 @@ export interface TrayState {
 	modelId: string | null;
 	thinkingLevel: string;
 	fastMode: boolean;
-	approvalMode: "always-ask" | "write" | "yolo";
+	approvalMode: ApprovalMode;
 	contextPercent: number | null;
 	contextTokens: number | null;
 	workspaces: { cwd: string; name: string; current: boolean }[];

@@ -14,6 +14,7 @@ import winTray from "../../resources/brand/tray.png?inline";
 import macTemplate2x from "../../resources/brand/trayTemplate@2x.png?inline";
 import macTemplate from "../../resources/brand/trayTemplate.png?inline";
 import { IPC_EVENTS, type MenuAction, type MenuActionPayload, type TrayState } from "../shared/ipc-types";
+import { APPROVAL_MODES } from "../shared/tool-approval";
 import { UI_LANGUAGE_NAMES } from "../shared/ui-language";
 import {
 	approvalLabel,
@@ -144,7 +145,7 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 			},
 			{
 				label: t(lang, "approval"),
-				submenu: (["yolo", "write", "always-ask"] as const).map(mode => ({
+				submenu: APPROVAL_MODES.map(mode => ({
 					label: approvalLabel(lang, mode),
 					type: "radio" as const,
 					checked: state?.approvalMode === mode,

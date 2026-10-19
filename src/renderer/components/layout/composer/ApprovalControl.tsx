@@ -12,19 +12,23 @@
  * `FullAccessConfirmDialog` — never a dialog on top of the popover.
  */
 
-import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, ShieldEllipsis, ShieldQuestion } from "lucide-react";
+import { APPROVAL_MODES, type ApprovalMode } from "../../../../shared/tool-approval";
 import { useT } from "../../../lib/i18n";
-import { type ApprovalMode, useSettingsStore } from "../../../stores/settings";
+import { useSettingsStore } from "../../../stores/settings";
 import { ConfirmDialog } from "../../common";
 import { ChoiceRow } from "./ChoiceRow";
 
-export const APPROVAL_MODES: readonly ApprovalMode[] = ["yolo", "write", "always-ask"];
-
 /** The shield glyph of each mode: the segment's, and the Run chip's status glyph. */
-export const APPROVAL_ICONS = { yolo: ShieldAlert, write: Shield, "always-ask": ShieldCheck } as const;
+export const APPROVAL_ICONS = {
+	yolo: ShieldAlert,
+	write: Shield,
+	"always-ask-cached": ShieldEllipsis,
+	"always-ask": ShieldCheck,
+} as const satisfies Record<ApprovalMode, unknown>;
 
 /**
- * One line: the shield, the three modes as a segmented row of short names (full name as tooltip and accessible name),
+ * One line: the shield, stock's modes as a segmented row of short names (full name as tooltip and accessible name),
  * the held mode's description behind (i). Full access asks first (the host's confirm dialog), the rest apply at once.
  */
 export function ApprovalModeField({ onRequestFullAccess }: { onRequestFullAccess: () => void }) {

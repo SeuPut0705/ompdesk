@@ -11,6 +11,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcCommand, RpcResponse } from "../../../../shared/rpc-types";
+import type { ApprovalMode } from "../../../../shared/tool-approval";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useSettingsStore } from "../../../stores/settings";
 import { useToastStore } from "../../../stores/toast";
@@ -53,7 +54,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
 
 const roots: Root[] = [];
 
-async function mountControl(mode: "yolo" | "write" | "always-ask"): Promise<void> {
+async function mountControl(mode: ApprovalMode): Promise<void> {
 	useSettingsStore.setState({ approvalMode: mode });
 	const host = document.createElement("div");
 	document.body.appendChild(host);
@@ -81,7 +82,7 @@ function heldMode(): string | null | undefined {
 }
 
 /** Tap one segment of the row. */
-async function chooseMode(mode: "yolo" | "write" | "always-ask"): Promise<void> {
+async function chooseMode(mode: ApprovalMode): Promise<void> {
 	const option = approvalField()?.querySelector(`[data-approval-option="${mode}"]`) as HTMLButtonElement | null;
 	if (!option) throw new Error("approval option missing");
 	await act(async () => option.click());
@@ -134,5 +135,20 @@ describe("Run settings tool approval", () => {
 
 		expect(writes()).toEqual([{ type: "set_setting", path: "tools.approvalMode", value: "always-ask" }]);
 		expect(document.body.textContent ?? "").not.toContain(translate("input.approval.yoloConfirmTitle"));
+	});
+
+	it("offers Ask and remember, applies it at once and shows it held with its own description", async () => {
+		await mountControl("write");
+		const option = approvalField()?.querySelector('[data-approval-option="always-ask-cached"]');
+		expect(option?.getAttribute("aria-label") ?? option?.getAttribute("title")).toBe(
+			translate("input.approval.always-ask-cached"),
+		);
+		expect(option?.textContent).toContain(translate("input.approval.short.always-ask-cached"));
+
+		await chooseMode("always-ask-cached");
+
+		expect(writes()).toEqual([{ type: "set_setting", path: "tools.approvalMode", value: "always-ask-cached" }]);
+		expect(heldMode()).toBe("always-ask-cached");
+		expect(approvalField()?.innerHTML ?? "").toContain(translate("input.approval.always-ask-cached.desc"));
 	});
 });

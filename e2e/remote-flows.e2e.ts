@@ -331,11 +331,11 @@ for (const language of variants(["en", "ko"] as const))
 			let client: RemoteInstance | null = null;
 			try {
 				const versionFile = path.join(parent, "host-omp-version");
-				await fs.writeFile(versionFile, "18.12.2\n");
+				await fs.writeFile(versionFile, "18.12.3\n");
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: hostLanguage,
 					theme: hostTheme,
-					// B's omp: signed in to Anthropic with Sonnet as the default role, at 18.12.2 (the floor) with 18.13.0 out.
+					// B's omp: signed in to Anthropic with Sonnet as the default role, at 18.12.3 (the floor) with 18.13.0 out.
 					env: {
 						OMP_GUI_TEST_LOGIN: "1",
 						OMP_GUI_TEST_MODELS: "1",
@@ -422,7 +422,7 @@ for (const language of variants(["en", "ko"] as const))
 						.locator("[data-setting-row]")
 						.filter({ hasText: t("updates.core.hostDescription", { device: "Host B" }) });
 					await expect(ompRow.locator(`[data-device-chip="${deviceId}"]`)).toBeVisible();
-					await expect(ompRow).toContainText("18.12.2", { timeout: 30_000 });
+					await expect(ompRow).toContainText("18.12.3", { timeout: 30_000 });
 					await expect(ompRow).toContainText("18.13.0");
 					await expect(ompRow.getByRole("button", { name: t("updates.core.update") })).toBeVisible();
 					// B26: the host's OMPdesk, with the version the host reports (the app's own, package.json).
