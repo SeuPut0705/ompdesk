@@ -3260,8 +3260,6 @@ export const en: Record<string, string> = {
 	"chat.promptFromOtherDevice": "another device",
 	"chat.agentSent": "Sent by an agent",
 	"chat.agentSentFrom": "Sent by an agent · {session}",
-	"viewers.chipOne": "Also open on 1 other device",
-	"viewers.chipMany": "Also open on {count} other devices",
 	"viewers.composerOne": "Shared with 1 other device",
 	"viewers.composerMany": "Shared with {count} other devices",
 	"viewers.composerViewer": "Also open on another computer",

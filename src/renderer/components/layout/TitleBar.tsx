@@ -60,7 +60,6 @@ import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
 import { ForkParent } from "./ForkParent";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
-import { ViewersChip } from "./ViewersChip";
 
 /** `pending`: the connection is coming up or back (starting, waiting, reconnecting): a still hollow dot, never a spinner. */
 type StatusTone = "ready" | "busy" | "pending" | "attention" | "error";
@@ -396,7 +395,6 @@ export function TitleBar() {
 						<DeviceChip deviceId={device} />
 					</span>
 				)}
-				<ViewersChip />
 				<Tooltip
 					content={
 						cwd && !isChat ? `${t("titlebar.switchProject")} · ${shown.tooltip}` : t("titlebar.switchProject")

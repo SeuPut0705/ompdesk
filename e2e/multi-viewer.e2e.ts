@@ -27,7 +27,6 @@ interface Shown {
 
 const composer = (page: Page): Locator => page.locator(".omp-composer-input").first();
 const userBubbles = (page: Page): Locator => page.locator(".omp-user-bubble");
-const viewersChip = (page: Page): Locator => page.locator("[data-viewers-chip]");
 
 async function send(page: Page, text: string): Promise<void> {
 	await composer(page).fill(text);
@@ -119,17 +118,15 @@ test("two windows view one tab: echo, first answer wins, drafts, one notificatio
 	] as const);
 	expect(spawned).toMatchObject({ tabId: tab.tabId, attached: true });
 
-	// Both windows say the tab is open elsewhere too, and B can switch to it.
-	await expect(viewersChip(a)).toHaveAttribute("data-viewers-count", "1");
+	// Both windows say the tab is shared (one quiet line under each composer; the title bar has no chip), and B can switch to it.
+	await expect(a.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
 	const row = b.locator(`[data-session-path="${tab.file}"], [data-session-path="tab:${tab.tabId}"]`).first();
 	await row.locator("button[data-roving-item]").click();
-	await expect(viewersChip(b)).toHaveAttribute("data-viewers-count", "1");
 	await expect(userBubbles(b)).toHaveCount(1);
-	// Under each composer one quiet line says the tab is shared, in the chip's words.
-	await expect(a.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
 	await expect(b.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
-	await captureTo(captures, a, "viewers-a-chip");
-	await captureTo(captures, b, "viewers-b-chip");
+	await expect(a.locator("[data-viewers-chip]")).toHaveCount(0);
+	await captureTo(captures, a, "viewers-a-shared");
+	await captureTo(captures, b, "viewers-b-shared");
 
 	// Echo: B's prompt is B's own echo there, delivered once, and in A it is another viewer's message — not absorbed.
 	await send(b, "bravo says hi");

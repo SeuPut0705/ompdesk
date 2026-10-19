@@ -3236,8 +3236,6 @@ export const ko: Record<string, string> = {
 	"chat.promptFromOtherDevice": "다른 기기",
 	"chat.agentSent": "에이전트가 보냄",
 	"chat.agentSentFrom": "에이전트가 보냄 · {session}",
-	"viewers.chipOne": "다른 기기 1대에서도 보는 중",
-	"viewers.chipMany": "다른 기기 {count}대에서도 보는 중",
 	"viewers.composerOne": "다른 기기 1대와 함께 쓰는 중",
 	"viewers.composerMany": "다른 기기 {count}대와 함께 쓰는 중",
 	"viewers.composerViewer": "다른 컴퓨터에서도 열려 있어요",
