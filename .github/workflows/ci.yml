@@ -483,10 +483,9 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
+      # Electron's binary stays: licenses:check reads node_modules/electron/dist/LICENSE.
       - if: steps.changed.outputs.changed == 'true'
         run: bun install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - if: steps.changed.outputs.changed == 'true'
         id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
