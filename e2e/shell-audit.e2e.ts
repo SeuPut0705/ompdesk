@@ -198,7 +198,7 @@ for (const language of ["en", "ko"] as const)
 				for (const [name, trigger] of [
 					["titlebar-status", main.getByRole("button", { name: /Session status|세션 상태/ })],
 					["titlebar-actions", main.getByRole("button", { name: /Session actions|세션 메뉴/ })],
-					["context-usage", page.getByRole("toolbar").first().locator("button").filter({ hasText: "%" })],
+					["context-usage", page.locator(".omp-context-usage-trigger")],
 					["help-menu", page.getByRole("complementary").getByRole("button", { name: /^(Help|도움말)$/ })],
 				] as const) {
 					if ((await trigger.count()) === 0) continue;

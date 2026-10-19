@@ -1,6 +1,7 @@
 /**
  * The toolbar on a phone: one row under the full-width field, every control inside the box (+, the Run chip, the model
- * chip, the context chip, Stop/Send) and no ⋯ fold toggle; the empty Send slot is the mic while dictation is on (1 tap); every touch control keeps focus
+ * chip, the context ring, Stop/Send) and no ⋯ fold toggle; Thinking and Delegation live in the Run sheet, never as
+ * icons of their own; the empty Send slot is the mic while dictation is on (1 tap); every touch control keeps focus
  * in the field (a cancelled `mousedown`). The layout itself (grid, 44 px reach) is
  * measured in e2e/mobile-composer.e2e.ts.
  */
@@ -165,25 +166,24 @@ describe("phone toolbar", () => {
 		expect(menuItems().some(label => label.includes(translate("input.model")))).toBe(false);
 	});
 
-	it("shows every run control in the box's one row: Run chip, model chip, context, no ⋯ toggle", async () => {
+	it("shows every run control in the box's one row: Run chip, model chip, context ring, no ⋯ toggle", async () => {
+		useSessionStore.setState({ contextUsage: { contextWindow: 200_000, percent: 30, tokens: 60_000 } });
 		await render();
 		expect(q("[data-run-settings-trigger]")).not.toBeNull();
 		expect(q("[data-model-chip]")).not.toBeNull();
-		expect(q("[data-chip=context]")?.closest(".omp-composer-send-cluster")).not.toBeNull();
+		const ring = q(".omp-context-usage-trigger");
+		expect(ring).not.toBeNull();
+		expect(ring?.closest(".omp-composer-send-cluster")).not.toBeNull();
+		// A ring, no percentage text; the reading is its name.
+		expect(ring?.textContent).toBe("");
+		expect(ring?.getAttribute("aria-label")).toBe(
+			translate("contextUsage.ring", { percent: 30, used: "60.0k", window: "200.0k" }),
+		);
+		expect(await cancelsMouseDown(ring)).toBe(true);
 		expect(q("[data-run-more]")).toBeNull();
 	});
 
-	it("gives Delegation its own chip in the row, which opens its field and keeps the field's focus", async () => {
-		useSessionStore.setState({ status: "ready" });
-		await render();
-		const chip = q("[data-chip=delegation]");
-		expect(chip).not.toBeNull();
-		expect(await cancelsMouseDown(chip)).toBe(true);
-		await act(async () => chip?.click());
-		expect(document.querySelector("[data-composer-sheet] [data-delegation-option]")).not.toBeNull();
-	});
-
-	it("is icon first: Thinking is the brain and the level's short name, Delegation the network and its subagent count, the model its provider mark", async () => {
+	it("draws no Thinking or Delegation icon beside the Run chip: both are in its sheet and its name", async () => {
 		useSessionStore.setState({ status: "ready" });
 		useModelStore.setState({
 			model: { provider: "acme", id: "m", name: "Model" } as never,
@@ -197,15 +197,15 @@ describe("phone toolbar", () => {
 		omp.rpc.getDelegation.mockResolvedValue(ok({ mode: "assisted" }));
 		await render();
 		await act(async () => {});
-		const thinking = q("[data-chip=thinking]");
-		expect(thinking?.querySelector("[data-chip-badge]")?.textContent).toBe(translate("input.thinking.short.medium"));
-		// The full level is the accessible name, never a visible word.
-		expect(thinking?.getAttribute("aria-label")).toBe(
-			`${translate("input.runSettings.thinking")}: ${translate("input.thinking.name.medium")}`,
+		expect(q(".lucide-brain")).toBeNull();
+		expect(q(".lucide-network")).toBeNull();
+		const run = q("[data-run-settings-trigger]");
+		expect(run?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.assisted"));
+		expect(run?.getAttribute("aria-label")).toContain(
+			translate("input.runSettings.summaryThinking", { level: translate("input.thinking.name.medium") }),
 		);
-		const delegation = q("[data-chip=delegation]");
-		expect(delegation?.textContent).toBe("2");
-		expect(delegation?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.assisted"));
+		await act(async () => run?.click());
+		expect(document.querySelector("[data-delegation-option]")).not.toBeNull();
 		expect(q("[data-model-chip] [data-provider-mark]")).not.toBeNull();
 	});
 

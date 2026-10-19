@@ -915,9 +915,9 @@ html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
 	}
 }
 
-/* The Run chip is its glyph on a phone (a mode's icon, the name while one is on): the approval shield, delegation and
-   speed glyphs would crowd the row (the sheet shows all three, and the accessible name spells them). Full access, the
-   one standing risk, stays visible as a warning pip. */
+/* The Run chip is its glyph on a phone (a mode's icon, the name while one is on): the approval shield and speed
+   glyphs would crowd the row (the sheet shows both, and the accessible name spells them). Full access, the one
+   standing risk, stays visible as a warning pip. */
 html[data-shell="phone"] .omp-composer-glyphs {
 	display: none;
 }
@@ -936,58 +936,6 @@ html[data-shell="phone"] [data-run-settings-trigger][data-approval="yolo"]::befo
 html[data-shell="phone"] .omp-composer-fold-2[data-active] .omp-composer-control-label {
 	display: inline;
 	max-width: 5em;
-}
-
-/* The context share as a compact chip in the phone toolbar (its breakdown is a bottom sheet). */
-html[data-shell="phone"] .omp-status-chip {
-	display: inline-flex;
-	flex: 0 0 auto;
-	align-items: center;
-	gap: var(--sc-space-1);
-	height: 28px;
-	max-width: 70vw;
-	padding-inline: 7px;
-	border: 1px solid var(--sc-border-subtle);
-	border-radius: var(--sc-radius-full);
-	background: var(--sc-surface-1);
-	color: var(--sc-text-secondary);
-	font-size: var(--sc-font-sm);
-	white-space: nowrap;
-}
-
-html[data-shell="phone"] .omp-status-chip > svg {
-	flex: 0 0 auto;
-	width: var(--sc-icon-sm);
-	height: var(--sc-icon-sm);
-}
-
-/* The Thinking and Delegation chips are their glyph and a tiny badge (the level's short name, the subagent count);
-   the full value is the accessible name. */
-html[data-shell="phone"] .omp-status-chip[data-compact] {
-	gap: var(--sc-space-1);
-	padding-inline: 6px;
-}
-
-html[data-shell="phone"] .omp-status-chip [data-chip-badge] {
-	font-size: 11px;
-	font-weight: 600;
-	line-height: 1;
-	font-variant-numeric: tabular-nums;
-	color: var(--sc-text-muted);
-}
-
-html[data-shell="phone"] .omp-status-chip:is([data-active], [aria-pressed="true"]) [data-chip-badge] {
-	color: inherit;
-}
-
-html[data-shell="phone"] .omp-status-chip:is([data-active], [aria-pressed="true"]) {
-	border-color: var(--sc-accent);
-	background: var(--sc-accent-soft);
-	color: var(--sc-accent);
-}
-
-html[data-shell="phone"] .omp-status-chip[data-approval="yolo"] {
-	border-color: var(--sc-warning);
 }
 
 /* Transcript rhythm on a phone: a turn boundary is 24 px, not the desktop's 42; prompts hug their replies. The action

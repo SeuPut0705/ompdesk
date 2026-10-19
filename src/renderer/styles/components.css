@@ -3397,7 +3397,7 @@ button.omp-file-chip-name:hover {
 	color: var(--sc-danger);
 }
 
-/* The Run chip's status glyphs (approval shield, delegation, speed) and the count of active modes. */
+/* The Run chip's status glyphs (approval shield, speed) and the count of active modes. */
 .omp-composer-glyphs {
 	display: inline-flex;
 	align-items: center;
@@ -3409,6 +3409,27 @@ button.omp-file-chip-name:hover {
 	width: var(--sc-icon-sm);
 	height: var(--sc-icon-sm);
 	flex-shrink: 0;
+}
+
+/* The context ring beside Send: its arc and colour ease once to a new reading, nothing loops. Reduced motion and
+   software compositing jump straight to it. */
+.omp-context-ring {
+	transition: color var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-context-ring > circle {
+	transition: stroke-dasharray var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-context-ring,
+	.omp-context-ring > circle {
+		transition: none;
+	}
+}
+
+html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
+	transition: none;
 }
 
 .omp-composer-count {

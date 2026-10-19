@@ -8,8 +8,8 @@
  * window's.
  *
  * On a phone the composer is always open: the field is a full-width row and this toolbar is one compact row under it,
- * inside the box, with every control the tablet has (+, the Run chip for mode and approval, its own Thinking and
- * Delegation chips (`PhoneRunChips`), the model chip, the context ring, Stop/Send), labels folded to icons by the toolbar's width and any overflow scrolling
+ * inside the box, with every control the tablet has (+, the Run chip for mode, thinking, approval and delegation, the
+ * model chip, the context ring, Stop/Send), labels folded to icons by the toolbar's width and any overflow scrolling
  * sideways inside the row (mobile.css); nothing folds the composer away. The empty Send slot is the
  * mic while dictation is on. Touch controls keep focus in the field (`keepFocus`: a cancelled `mousedown`, never
  * `pointerdown`). Memoised: its props are scalars and stable callbacks, so a keystroke in the field re-renders it only
@@ -52,7 +52,6 @@ import { ComposerModeExtras } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import type { DictationPhase } from "./DictationOverlay";
 import { keepFocus } from "./keep-focus";
-import { PhoneDelegationChip, PhoneThinkingChip } from "./PhoneRunChips";
 import { RunChip } from "./RunChip";
 import { useThinkingName } from "./RunSettings";
 
@@ -290,8 +289,6 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 
 			<RunChip />
 			<ComposerModeExtras />
-			{phone && <PhoneThinkingChip />}
-			{phone && <PhoneDelegationChip />}
 
 			{composerMode && (
 				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
@@ -360,7 +357,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						)}
 					</Button>
 				</Tooltip>
-				{!settingUp && <ContextUsagePopover variant={phone ? "chip" : "ring"} />}
+				{!settingUp && <ContextUsagePopover variant={phone ? "sheet" : "ring"} />}
 				{micAtOldSpot && (
 					<IconButton
 						{...hold}

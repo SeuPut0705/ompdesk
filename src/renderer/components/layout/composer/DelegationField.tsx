@@ -12,7 +12,6 @@ import { useEffect, useState } from "react";
 import {
 	DELEGATION_MODES,
 	DELEGATION_PREF,
-	DELEGATION_PRESETS,
 	type DelegationMode,
 	isDelegationMode,
 } from "../../../../../resources/gui-bridge/modes/delegation-contracts";
@@ -29,15 +28,8 @@ function replyMode(data: unknown): DelegationMode | null {
 	return isDelegationMode(data.mode) ? data.mode : null;
 }
 
-/** The phone chip's badge: how many subagents run at a time ("0" for Solo); nothing for "your settings". */
-export function delegationCount(mode: DelegationMode): string | null {
-	if (mode === "default") return null;
-	if (mode === "solo") return "0";
-	return String(DELEGATION_PRESETS[mode]["task.maxConcurrency"]);
-}
-
 export interface DelegationState {
-	/** The tab's held strength; `null` while unknown or when the omp cannot report one (no section, no glyph). */
+	/** The tab's held strength; `null` while unknown or when the omp cannot report one (no section). */
 	mode: DelegationMode | null;
 	/** A switch is in flight. */
 	pending: boolean;

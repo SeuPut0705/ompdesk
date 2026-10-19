@@ -13,15 +13,17 @@ import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../../shared/rpc-types";
 import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { buildCurrentCommandMenu } from "../../../lib/command-registry";
-import { contextUsageView } from "../../../lib/context-usage";
+import { useCompactionPoints } from "../../../lib/compaction-limits";
+import { type ContextTone, contextTone, contextUsageView } from "../../../lib/context-usage";
 import { cx, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { openHandoffDialog } from "../../../stores/fork-handoff";
+import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, Spinner } from "../../common";
+import { Button, Spinner, Tooltip } from "../../common";
 import { popoverTabStops, tabOutOfPopover } from "../../common/popover-focus";
 import { ComposerSheet } from "./ComposerSheet";
 import { keepFocus } from "./keep-focus";
@@ -48,21 +50,27 @@ function approximateTokens(tokens: number): string {
 }
 
 /**
- * Compact context control beside Send: a ring only (the percent is in the aria-label and the breakdown; the ring
- * turns warning at 80 % and danger at 95 %). A hover or a click or Enter/Space reveals the native
- * provider-anchored token breakdown without opening the full context-report modal. Keyboard focus alone never
- * opens it; an Enter/Space open moves focus into the breakdown, Tab past its last control closes it and goes on to
- * the next toolbar control, Escape closes it and returns to the ring.
+ * Compact context control beside Send, the same on every shell: a ring that fills with the used share of the window
+ * and turns warning near the compaction point and danger at it (`contextTone`). Its numbers ("Context 62% · 124k /
+ * 200k · compacts at 160k") are the accessible name and the tooltip, never text on the toolbar. A hover or a click or
+ * Enter/Space reveals the native provider-anchored token breakdown without opening the full context-report modal
+ * (the tooltip stays off while it shows: the breakdown says the same). Keyboard focus alone never opens it; an
+ * Enter/Space open moves focus into the breakdown, Tab past its last control closes it and goes on to the next toolbar
+ * control, Escape closes it and returns to the ring.
  */
-export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "chip" }) {
-	/** The phone's toolbar chip: the breakdown is a bottom sheet (no floating card, no hover), the trigger a chip. */
-	const chip = variant === "chip";
+export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "sheet" }) {
+	/** The phone: the breakdown is a bottom sheet (no floating card, no hover) and the ring keeps the field's focus. */
+	const sheet = variant === "sheet";
 	const t = useT();
 	const rpc = useTabRpc();
 	const contextUsage = useSessionStore(state => state.contextUsage);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const compacting = useSessionStore(state => state.isCompacting);
+	const model = useModelStore(state => state.model);
+	const points = useCompactionPoints(sidecarReady);
+	/** Stock's resolved auto-compaction trigger for this model, in tokens; absent while auto-compaction is off. */
+	const compactAt = model ? points?.bySelector.get(`${model.provider}/${model.id}`)?.tokens : undefined;
 	const [open, setOpen] = useState(false);
 	const [pinned, setPinned] = useState(false);
 	const [anchor, setAnchor] = useState<AnchorPosition | null>(null);
@@ -138,7 +146,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 	};
 
 	useEffect(() => {
-		if (!open || chip) return;
+		if (!open || sheet) return;
 		const onViewportChange = () => updateAnchor();
 		const onPointerDown = (event: PointerEvent) => {
 			const target = event.target as Node | null;
@@ -162,7 +170,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown);
 		};
-	}, [chip, dismiss, open, updateAnchor]);
+	}, [sheet, dismiss, open, updateAnchor]);
 
 	const [attempt, setAttempt] = useState(0);
 
@@ -226,17 +234,27 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 
 	if (!contextUsage) return null;
 
-	const triggerLabel = capacityKnown
-		? t("contextUsage.open", { percent: Math.round(percent) })
-		: t("contextUsage.windowUnknown");
-	const ringPercent = capacityKnown ? percent : null;
+	const tone = contextTone(view, compactAt);
+	const used = formatTokens(usedTokens);
+	const capacity = formatTokens(contextWindow);
+	const percentRounded = Math.round(percent);
+	const label = !capacityKnown
+		? t("contextUsage.ringUnknown", { used })
+		: compactAt
+			? t("contextUsage.ringCompacts", {
+					percent: percentRounded,
+					used,
+					window: capacity,
+					point: formatTokens(compactAt),
+				})
+			: t("contextUsage.ring", { percent: percentRounded, used, window: capacity });
 
 	const popoverStyle: CSSProperties | undefined = anchor
 		? { bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: anchor.width }
 		: undefined;
 
 	const frame = (panel: ReactElement) =>
-		chip ? (
+		sheet ? (
 			<ComposerSheet label={t("contextUsage.title")} onClose={dismiss} open={open}>
 				{panel}
 			</ComposerSheet>
@@ -247,78 +265,70 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 	return (
 		<div
 			className="relative shrink-0"
-			onMouseEnter={chip ? undefined : reveal}
-			onMouseLeave={chip ? undefined : scheduleClose}
+			onMouseEnter={sheet ? undefined : reveal}
+			onMouseLeave={sheet ? undefined : scheduleClose}
 		>
-			<button
-				{...(chip ? keepFocus : {})}
-				aria-controls={mounted ? "omp-context-usage-popover" : undefined}
-				aria-expanded={open}
-				aria-haspopup="dialog"
-				aria-label={triggerLabel}
-				data-chip={chip ? "context" : undefined}
-				className={cx(
-					chip
-						? "omp-status-chip"
-						: "omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center justify-center rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
-					!chip &&
-						(open
+			<Tooltip content={label} describe={false} hidden={open}>
+				<button
+					{...(sheet ? keepFocus : {})}
+					aria-controls={mounted ? "omp-context-usage-popover" : undefined}
+					aria-expanded={open}
+					aria-haspopup="dialog"
+					aria-label={label}
+					className={cx(
+						"omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center justify-center rounded-(--sc-radius-sm) px-1.5 transition-colors duration-(--sc-duration-instant)",
+						open
 							? "bg-(--sc-selected) text-(--sc-text)"
-							: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"),
-				)}
-				data-context-ring={
-					ringPercent === null ? "unknown" : ringPercent >= 95 ? "danger" : ringPercent >= 80 ? "warning" : "ok"
-				}
-				onBlur={chip ? undefined : closeOnFocusOut}
-				onClick={event => {
-					if (chip) {
-						if (open) dismiss();
-						else reveal();
-						return;
-					}
-					if (open && pinned) {
-						dismiss();
-						return;
-					}
-					reveal();
-					setPinned(true);
-					// Enter or Space (a click without a pointer): the keyboard user's focus goes into the breakdown.
-					if (event.detail === 0) focusPanel.current = true;
-				}}
-				ref={buttonRef}
-				type="button"
-			>
-				{chip ? (
-					<span className="tabular-nums">{ringPercent === null ? "—" : `${Math.round(ringPercent)} %`}</span>
-				) : (
-					<ContextRing percent={ringPercent} />
-				)}
-			</button>
+							: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
+					)}
+					data-context-ring={tone}
+					onBlur={sheet ? undefined : closeOnFocusOut}
+					onClick={event => {
+						if (sheet) {
+							if (open) dismiss();
+							else reveal();
+							return;
+						}
+						if (open && pinned) {
+							dismiss();
+							return;
+						}
+						reveal();
+						setPinned(true);
+						// Enter or Space (a click without a pointer): the keyboard user's focus goes into the breakdown.
+						if (event.detail === 0) focusPanel.current = true;
+					}}
+					ref={buttonRef}
+					type="button"
+				>
+					<ContextRing percent={capacityKnown ? percent : null} tone={tone} />
+				</button>
+			</Tooltip>
 
-			{(chip ? open : mounted && anchor) &&
+			{(sheet ? open : mounted && anchor) &&
 				frame(
 					<div
 						aria-hidden={closing || undefined}
-						aria-label={chip ? undefined : t("contextUsage.title")}
+						aria-label={sheet ? undefined : t("contextUsage.title")}
 						className={cx(
-							chip
+							sheet
 								? "px-3 pt-1 pb-1 break-keep text-(--sc-text)"
 								: "fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-4 pt-4 pb-2 break-keep text-(--sc-text) shadow-(--sc-shadow-md)",
-							!chip && (closing ? "omp-scale-out pointer-events-none" : "omp-pop-in"),
+							!sheet && (closing ? "omp-scale-out pointer-events-none" : "omp-pop-in"),
 						)}
 						id="omp-context-usage-popover"
 						inert={closing}
-						onBlur={chip ? undefined : closeOnFocusOut}
-						onFocus={chip ? undefined : cancelScheduledClose}
+						onBlur={sheet ? undefined : closeOnFocusOut}
+						onFocus={sheet ? undefined : cancelScheduledClose}
 						onKeyDown={event => {
 							const panel = popoverRef.current;
 							if (panel && tabOutOfPopover(event, panel, buttonRef.current)) dismiss();
 						}}
-						onMouseEnter={chip ? undefined : cancelScheduledClose}
-						onMouseLeave={chip ? undefined : scheduleClose}
+						onMouseEnter={sheet ? undefined : cancelScheduledClose}
+						onMouseLeave={sheet ? undefined : scheduleClose}
 						ref={popoverRef}
-						role={chip ? undefined : pinned ? "dialog" : "group"}
-						style={chip ? undefined : popoverStyle}
+						role={sheet ? undefined : pinned ? "dialog" : "group"}
+						style={sheet ? undefined : popoverStyle}
 					>
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-sc-md font-medium text-(--sc-text)">
@@ -333,6 +343,11 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 									: approximateTokens(usedTokens)}
 							</span>
 						</div>
+						{capacityKnown && compactAt !== undefined && (
+							<p className="mt-1 text-sc-xs text-(--sc-text-muted)" data-context-compacts>
+								{t("contextUsage.compactsAt", { point: formatTokens(compactAt) })}
+							</p>
+						)}
 
 						{capacityKnown && (
 							<div
@@ -416,13 +431,13 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
 						<div
 							className={
-								chip
+								sheet
 									? "-mx-1 mt-3 flex flex-col gap-0.5 border-t border-(--sc-divider) pt-2"
 									: "-mx-4 mt-3 flex flex-wrap gap-1 border-t border-(--sc-divider) px-2 pt-2"
 							}
 						>
 							<Button
-								className={chip ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
+								className={sheet ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
 								disabled={compacting || !sidecarReady}
 								icon={<Minimize2 aria-hidden className="text-(--sc-text-muted)" />}
 								loading={compacting}
@@ -433,7 +448,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 								{t("contextUsage.compact")}
 							</Button>
 							<Button
-								className={chip ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
+								className={sheet ? "min-h-(--sc-row-action) w-full justify-start" : undefined}
 								disabled={compacting || !sidecarReady}
 								icon={<GitFork aria-hidden className="text-(--sc-text-muted)" />}
 								onClick={() => {
@@ -446,7 +461,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 								{t("contextUsage.handoff")}
 							</Button>
 							<Button
-								className={cx("w-full justify-start", chip && "min-h-(--sc-row-action)")}
+								className={cx("w-full justify-start", sheet && "min-h-(--sc-row-action)")}
 								icon={<BarChart3 aria-hidden className="text-(--sc-text-muted)" />}
 								onClick={() => {
 									dismiss();
@@ -465,36 +480,40 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 	);
 }
 
+const RING_TONE: Record<ContextTone, string> = {
+	unknown: "text-(--sc-text-muted)",
+	ok: "text-(--sc-text-secondary)",
+	warning: "text-(--sc-warning)",
+	danger: "text-(--sc-danger)",
+};
+
 /**
- * The composer's context meter glyph: a ring that fills with the share of the
- * context window in use, turning warning near the limit and danger at it. No
- * known capacity draws the empty track only — a share would be invented.
+ * The composer's context meter glyph: a ring whose arc is the used share of the window, coloured by `tone`. No known
+ * capacity draws the empty track only — a share would be invented. The arc and colour ease to a new value once
+ * (`.omp-context-ring` in components.css); nothing loops, and reduced motion or software compositing jumps.
  */
-function ContextRing({ percent }: { percent: number | null }) {
+function ContextRing({ percent, tone }: { percent: number | null; tone: ContextTone }) {
 	const radius = 5.5;
 	const circumference = 2 * Math.PI * radius;
 	const filled = percent === null ? 0 : (Math.min(100, Math.max(0, percent)) / 100) * circumference;
-	const tone =
-		percent === null
-			? "text-(--sc-text-muted)"
-			: percent >= 95
-				? "text-(--sc-danger)"
-				: percent >= 80
-					? "text-(--sc-warning)"
-					: "text-(--sc-text-secondary)";
 	return (
-		<svg aria-hidden className={cx("size-(--sc-icon-sm) shrink-0 -rotate-90", tone)} viewBox="0 0 14 14">
+		<svg
+			aria-hidden
+			className={cx("omp-context-ring size-(--sc-icon-md) shrink-0 -rotate-90", RING_TONE[tone])}
+			viewBox="0 0 14 14"
+		>
 			{/* The track must read as a gauge, not a loading spinner: a solid ring
 			    under the fill, at full border contrast. */}
 			<circle cx="7" cy="7" fill="none" r={radius} stroke="var(--sc-border)" strokeWidth="2" />
 			<circle
 				cx="7"
 				cy="7"
+				data-context-arc={percent === null ? undefined : Math.round(percent)}
 				fill="none"
 				r={radius}
 				stroke="currentColor"
 				strokeDasharray={`${filled} ${circumference}`}
-				strokeLinecap="round"
+				strokeLinecap={filled > 0 ? "round" : "butt"}
 				strokeWidth="2"
 			/>
 		</svg>

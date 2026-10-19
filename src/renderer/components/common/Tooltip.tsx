@@ -73,11 +73,13 @@ export interface TooltipProps {
 	side?: TooltipSide;
 	/** Expose the text as the trigger's aria-describedby (default true). */
 	describe?: boolean;
+	/** Keep the bubble off while another surface beside the trigger already shows the same text (a hover card). */
+	hidden?: boolean;
 	/** A single element that accepts pointer/focus handlers (a button, usually). */
 	children: ReactElement<TriggerProps>;
 }
 
-export function Tooltip({ content, shortcut, side = "top", describe = true, children }: TooltipProps) {
+export function Tooltip({ content, shortcut, side = "top", describe = true, hidden = false, children }: TooltipProps) {
 	const id = useId();
 	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 	const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
@@ -154,7 +156,7 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, chil
 	const fingerDown = (event: PointerEvent<HTMLElement>) => touch && event.pointerType === "touch";
 	const stopPress = () => clearTimeout(pressRef.current);
 	const trigger = cloneElement(children, {
-		"aria-describedby": describe && anchor ? id : props["aria-describedby"],
+		"aria-describedby": describe && anchor && !hidden ? id : props["aria-describedby"],
 		onPointerEnter: (event: PointerEvent<HTMLElement>) => {
 			props.onPointerEnter?.(event);
 			if (fingerDown(event)) return;
@@ -220,6 +222,7 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, chil
 		<>
 			{trigger}
 			{anchor &&
+				!hidden &&
 				createPortal(
 					<div
 						className="fixed z-(--sc-z-tooltip)"

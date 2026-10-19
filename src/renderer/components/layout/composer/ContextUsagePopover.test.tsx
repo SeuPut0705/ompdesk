@@ -6,6 +6,7 @@ import type { RpcContextReportResult, RpcResponse } from "../../../../shared/rpc
 import { OVERLAY_EXIT_MS } from "../../../hooks/use-overlay-presence";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useForkHandoffStore } from "../../../stores/fork-handoff";
+import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
 
@@ -45,6 +46,14 @@ Object.defineProperty(HTMLElement.prototype, "focus", {
 	},
 });
 Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
+// linkedom's selector engine has no :focus-visible; every focus here is a keyboard landing (what Tooltip asks).
+const nativeMatches = HTMLElement.prototype.matches;
+Object.defineProperty(HTMLElement.prototype, "matches", {
+	configurable: true,
+	value(this: HTMLElement, selector: string) {
+		return selector === ":focus-visible" || nativeMatches.call(this, selector);
+	},
+});
 
 const report: RpcContextReportResult = {
 	contextWindow: 1_000_000,
@@ -67,9 +76,29 @@ const getContextReport: Mock<() => Promise<RpcResponse>> = vi.fn(async () => ({
 	success: true,
 	data: report,
 }));
-(window as unknown as { omp: { rpc: { getContextReport: typeof getContextReport } } }).omp = {
-	rpc: { getContextReport },
-};
+/** No `compaction.modelThresholds` in the live settings (no compaction point) unless a test says otherwise. */
+let thresholdsKnown = false;
+const getSettings = vi.fn(async () => ({
+	type: "response",
+	command: "get_settings",
+	success: true,
+	data: { values: thresholdsKnown ? { "compaction.modelThresholds": {} } : {} },
+}));
+const getCompactionPoints = vi.fn(async () => ({
+	type: "response",
+	command: "get_compaction_points",
+	success: true,
+	data: {
+		models: [{ selector: "acme/m", point: { tokens: 80_000, percent: 80, source: "default" } }],
+		roles: [],
+	},
+}));
+Object.assign(window, {
+	omp: {
+		rpc: { getContextReport, getSettings, getCompactionPoints },
+		events: { onConfigUpdate: () => () => {} },
+	},
+});
 
 const { createRoot } = await import("react-dom/client");
 const { ContextUsagePopover } = await import("./ContextUsagePopover");
@@ -103,6 +132,8 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
 	getContextReport.mockReset();
+	thresholdsKnown = false;
+	useModelStore.setState({ model: null });
 	useSessionStore.getState().reset();
 	useUiStore.getState().closeSessionOverlays();
 });
@@ -128,7 +159,9 @@ describe("ContextUsagePopover", () => {
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
 		// A ring only: the reading is in the name and the breakdown, never beside the ring.
 		expect(trigger.textContent).toBe("");
-		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.windowUnknown"));
+		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.ringUnknown", { used: "16.0k" }));
+		expect(trigger.getAttribute("data-context-ring")).toBe("unknown");
+		expect(trigger.querySelector("[data-context-arc]")).toBeNull();
 		expect(container.textContent).not.toContain("0%");
 
 		await act(async () => trigger.click());
@@ -153,7 +186,9 @@ describe("ContextUsagePopover", () => {
 		await mount();
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
-		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.open", { percent: 16 }));
+		expect(trigger.getAttribute("aria-label")).toBe(
+			translate("contextUsage.ring", { percent: 16, used: "161.9k", window: "1.0M" }),
+		);
 		// The resting control is the ring alone; the share is in its name, the token counts in the popover.
 		expect(trigger.textContent).toBe("");
 		expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
@@ -225,9 +260,13 @@ describe("ContextUsagePopover", () => {
 		await moveFocus(outside, trigger);
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 		expect(popover()).toBeNull();
+		// Only the reading, as the tooltip: the ring's own words.
+		expect(document.querySelector("[role=tooltip]")?.textContent).toBe(trigger.getAttribute("aria-label"));
 
 		await act(async () => trigger.click());
 		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		// The breakdown says the same: no tooltip over it.
+		expect(document.querySelector("[role=tooltip]")).toBeNull();
 		const inside = [...(popover()?.querySelectorAll("button") ?? [])].at(-1);
 		expect(inside).toBeDefined();
 		await moveFocus(trigger, inside);
@@ -289,7 +328,7 @@ describe("ContextUsagePopover", () => {
 		next.remove();
 	});
 
-	it("tints the ring warning at 80% and danger at 95%", async () => {
+	it("without a compaction point warns at 80% of the window and turns danger at 95%", async () => {
 		useSessionStore.setState({
 			contextUsage: { contextWindow: 100_000, percent: 80, tokens: 80_000 },
 			sessionId: "session-ring",
@@ -306,6 +345,47 @@ describe("ContextUsagePopover", () => {
 			useSessionStore.setState({ contextUsage: { contextWindow: 100_000, percent: 40, tokens: 40_000 } }),
 		);
 		expect(trigger.getAttribute("data-context-ring")).toBe("ok");
+	});
+
+	it("fills its arc by the used share, turns warning near the compaction point and danger at it, and names the point", async () => {
+		thresholdsKnown = true;
+		useModelStore.setState({ model: { provider: "acme", id: "m", name: "Model" } as never });
+		useSessionStore.setState({
+			contextUsage: { contextWindow: 200_000, percent: 20, tokens: 40_000 },
+			sessionId: "session-compaction",
+			status: "ready",
+		});
+		await mount();
+		await act(async () => {});
+		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
+		const arc = () => trigger.querySelector("[data-context-arc]");
+		const dash = () => Number.parseFloat(arc()?.getAttribute("stroke-dasharray") ?? "0");
+		expect(trigger.getAttribute("aria-label")).toBe(
+			translate("contextUsage.ringCompacts", { percent: 20, used: "40.0k", window: "200.0k", point: "80.0k" }),
+		);
+		expect(trigger.textContent).toBe("");
+		expect(arc()?.getAttribute("data-context-arc")).toBe("20");
+		const quarter = dash();
+		expect(trigger.getAttribute("data-context-ring")).toBe("ok");
+
+		// 70k of a point at 80k: one more long turn may compact.
+		await act(async () =>
+			useSessionStore.setState({ contextUsage: { contextWindow: 200_000, percent: 35, tokens: 70_000 } }),
+		);
+		expect(trigger.getAttribute("data-context-ring")).toBe("warning");
+		expect(arc()?.getAttribute("data-context-arc")).toBe("35");
+		expect(dash()).toBeCloseTo(quarter * (35 / 20), 5);
+
+		// At the point, though only 40% of the window is in use.
+		await act(async () =>
+			useSessionStore.setState({ contextUsage: { contextWindow: 200_000, percent: 40, tokens: 80_000 } }),
+		);
+		expect(trigger.getAttribute("data-context-ring")).toBe("danger");
+
+		await act(async () => trigger.click());
+		expect(document.querySelector("[data-context-compacts]")?.textContent).toBe(
+			translate("contextUsage.compactsAt", { point: "80.0k" }),
+		);
 	});
 
 	it("closes a pinned popover from its trigger, Escape, and an outside pointer", async () => {

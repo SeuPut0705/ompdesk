@@ -18,7 +18,7 @@ import { hitSizes, variants } from "./harness";
 /**
  * The phone composer, end to end on the dev harness (390x844, touch input, Chromium iPhone 15 / Pixel 8 and WebKit):
  * one always-open box (a full-width field row, then one row of every control inside the box: +, the Run chip, the
- * model chip, the context chip, Stop/Send | mic), no row above it but the prompt suggestions, settings that move nothing,
+ * model chip, the context ring, Stop/Send | mic), no row above it but the prompt suggestions, settings that move nothing,
  * Korean that wraps only at the box's inner width, and a field that keeps focus through every control.
  *
  * The keyboard is emulated by shrinking the viewport to 508 px (what an iPhone leaves above a 336 px keyboard).
@@ -159,7 +159,7 @@ async function openPhone(engine: Engine, options: PhoneOptions = {}): Promise<Pa
 const field = (page: Page): Locator => page.locator("textarea[data-composer-input]").first();
 const runChip = (page: Page): Locator => page.locator(".omp-composer-box [data-run-settings-trigger]");
 const modelChip = (page: Page): Locator => page.locator(".omp-composer-box [data-model-chip]");
-const contextChip = (page: Page): Locator => page.locator(".omp-composer-box [data-chip=context]");
+const contextRing = (page: Page): Locator => page.locator(".omp-composer-box .omp-context-usage-trigger");
 /** The Run chip, then its settings (mode, approval, delegation) are up. */
 async function openRun(page: Page): Promise<void> {
 	await runChip(page).tap();
@@ -294,10 +294,9 @@ for (const engine of ENGINES) {
 						const plusBox = await boxOf(plus(page));
 						const moreBox = await boxOf(runChip(page));
 						const modelBox = await boxOf(modelChip(page));
-						const contextBox = await boxOf(contextChip(page));
-						// Thinking and Delegation are chips of the row too (it scrolls sideways when it does not fit).
-						await expect(page.locator(".omp-composer-box [data-chip=thinking]")).toBeAttached();
-						await expect(page.locator(".omp-composer-box [data-chip=delegation]")).toBeAttached();
+						const contextBox = await boxOf(contextRing(page));
+						// Thinking and Delegation live in the Run sheet: no icon of their own in the row.
+						await expect(page.locator(".omp-composer-box :is(.lucide-brain, .lucide-network)")).toHaveCount(0);
 						const sendBox = await boxOf(sendSlot(page).locator("button").first());
 						const fieldBox = await boxOf(field(page));
 						// Always open: the field is a full-width row, the controls one row under it.
@@ -360,7 +359,7 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("opens the Run settings and the context breakdown without moving anything, and the context chip returns focus to the field", async () => {
+				test("opens the Run settings and the context breakdown without moving anything, and the context ring returns focus to the field", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
 						await field(page).focus();
@@ -376,7 +375,7 @@ for (const engine of ENGINES) {
 						await expect(page.locator("[data-approval-option]")).toHaveCount(0);
 						expectSameLayout(before, await layout(page), "run settings closed");
 						await field(page).focus();
-						await contextChip(page).tap();
+						await contextRing(page).tap();
 						await expect(page.locator("[data-composer-sheet]")).toBeVisible();
 						await capture(page, "sheet-context", engine, theme, lang);
 						await page.keyboard.press("Escape");
@@ -416,8 +415,8 @@ for (const engine of ENGINES) {
 						await page.locator("[data-approval-option='always-ask']").tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_setting");
 						await page.keyboard.press("Escape");
-						// Delegation: its own chip in the row, then one tap on a strength.
-						await page.locator(".omp-composer-box [data-chip=delegation]").tap();
+						// Delegation: the Run chip, then one tap on a strength.
+						await openRun(page);
 						await page.locator("[data-delegation-option='solo']").tap();
 						await expect.poll(() => called(page, "set_delegation")).toBe(true);
 						await page.keyboard.press("Escape");
@@ -451,8 +450,8 @@ for (const engine of ENGINES) {
 					const page = await openPhone(engine, { lang, theme, stt: true });
 					try {
 						await field(page).focus();
-						await contextChip(page).tap();
-						expect(await focusedIsField(page), "context chip").toBe(true);
+						await contextRing(page).tap();
+						expect(await focusedIsField(page), "context ring").toBe(true);
 						await page.keyboard.press("Escape");
 						await page.waitForTimeout(150);
 						expect(await focusedIsField(page), "context closed").toBe(true);
@@ -549,7 +548,7 @@ for (const engine of ENGINES) {
 						// The Run chip sits 4 px from +: its reach stops at the midpoint, so + is 30 px wide.
 						await reach(plus(page), "+", 30);
 						await reach(sendSlot(page).locator("button"), "Send/mic", 44);
-						for (const locator of [runChip(page), modelChip(page), contextChip(page)]) {
+						for (const locator of [runChip(page), modelChip(page), contextRing(page)]) {
 							await reach(locator, "row chip", 30);
 							for (const size of await hitSizes(locator)) expect(size.visual.height).toBeLessThanOrEqual(28.5);
 						}

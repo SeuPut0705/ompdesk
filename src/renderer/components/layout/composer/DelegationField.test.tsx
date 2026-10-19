@@ -70,7 +70,6 @@ function trigger(): HTMLButtonElement | null {
 	return container.querySelector("[data-run-settings-trigger]") as unknown as HTMLButtonElement | null;
 }
 
-const glyph = () => container.querySelector("[data-delegation]");
 const section = () => document.querySelector("[data-delegation-section]");
 
 function option(mode: string): HTMLButtonElement {
@@ -101,7 +100,8 @@ describe("Delegation in the Run popover", () => {
 		expect(trigger()?.getAttribute("aria-label")).toContain(
 			`${translate("input.delegation.title")}: ${translate("input.delegation.mode.collaborative")}`,
 		);
-		expect(glyph()?.getAttribute("data-delegation")).toBe("collaborative");
+		// Named, never drawn: the chip carries no delegation glyph whatever the strength.
+		expect(trigger()?.querySelector(".lucide-network")).toBeNull();
 		await act(async () => trigger()?.click());
 		expect(section()).not.toBeNull();
 		for (const mode of DELEGATION_MODES) {
@@ -118,10 +118,9 @@ describe("Delegation in the Run popover", () => {
 		expect(option("swarm").getAttribute("aria-checked")).toBe("false");
 	});
 
-	it("draws no glyph for your own settings, but names it", async () => {
+	it("names your own settings on the chip too", async () => {
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
-		expect(glyph()).toBeNull();
 		expect(trigger()?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.default"));
 	});
 
@@ -132,7 +131,7 @@ describe("Delegation in the Run popover", () => {
 		await act(async () => option("solo").click());
 		expect(setDelegation).toHaveBeenCalledWith("solo");
 		expect(prefs.set).toHaveBeenCalledWith("delegationMode", "solo");
-		expect(glyph()?.getAttribute("data-delegation")).toBe("solo");
+		expect(trigger()?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.solo"));
 		expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
 		expect(option("solo").getAttribute("aria-checked")).toBe("true");
 	});
@@ -149,7 +148,7 @@ describe("Delegation in the Run popover", () => {
 		await act(async () => trigger()?.click());
 		await act(async () => option("swarm").click());
 		expect(prefs.set).not.toHaveBeenCalled();
-		expect(glyph()).toBeNull();
+		expect(trigger()?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.default"));
 		expect(useToastStore.getState().toasts.length).toBeGreaterThan(0);
 	});
 

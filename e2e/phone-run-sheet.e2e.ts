@@ -191,8 +191,7 @@ async function expectRowClear(page: Page, what: string): Promise<void> {
 	for (const selector of [
 		".omp-composer-scroll [aria-haspopup='menu']",
 		"[data-run-settings-trigger]",
-		"[data-chip=thinking]",
-		"[data-chip=delegation]",
+		".omp-context-usage-trigger",
 		"[data-model-chip]",
 		"[data-slot=send] button",
 	]) {
@@ -371,9 +370,7 @@ for (const engine of ["pixel8", "webkit"] as const) {
 			await page.keyboard.press("Escape");
 			await expect(page.locator(SHEET)).toHaveCount(0);
 			for (const chip of [
-				"[data-chip=thinking]",
-				"[data-chip=delegation]",
-				"[data-chip=context]",
+				".omp-context-usage-trigger",
 				"[data-model-chip]",
 				'button[aria-label="첨부 및 더 보기"]',
 			]) {

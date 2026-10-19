@@ -38,3 +38,22 @@ export function formatContextUsage(view: ContextUsageView): string {
 		? `${formatTokens(view.usedTokens)}/${formatTokens(view.contextWindow)}`
 		: formatTokens(view.usedTokens);
 }
+
+/** The ring turns warning from this share of the compaction point on: one more long turn may compact. */
+export const NEAR_COMPACTION = 0.85;
+
+export type ContextTone = "unknown" | "ok" | "warning" | "danger";
+
+/**
+ * The composer ring's tone. With an auto-compaction point (`compactAt`, stock's resolved trigger in tokens) it is
+ * danger at that point and warning near it; with auto-compaction off the window's own limit is the only edge left,
+ * so warning from 80 % of it and danger from 95 %. No known window: nothing to compare against.
+ */
+export function contextTone(view: ContextUsageView, compactAt?: number): ContextTone {
+	if (!view.capacityKnown) return "unknown";
+	if (compactAt !== undefined && compactAt > 0) {
+		if (view.usedTokens >= compactAt) return "danger";
+		return view.usedTokens >= compactAt * NEAR_COMPACTION ? "warning" : "ok";
+	}
+	return view.percent >= 95 ? "danger" : view.percent >= 80 ? "warning" : "ok";
+}

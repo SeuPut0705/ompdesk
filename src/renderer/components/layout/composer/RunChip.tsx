@@ -4,14 +4,15 @@
  * Advanced and Model roles. It replaces the three triggers (Mode, Run settings, Delegation) the toolbar used to carry.
  *
  * The chip says the state without opening: its text is the active modes ("Plan · Goal"), else the Run settings
- * title; trailing glyphs show the tool-approval shield, a delegation glyph while it is not "your settings", and
- * fast/slow; it paints accent while a mode is on (`data-active`, plain CSS in components.css: never a class tied
- * against the Button's own variant classes); its accessible name spells the whole state. `useUiStore.openModes(tab)`
+ * title; trailing glyphs show the tool-approval shield and fast/slow. Thinking and Delegation draw nothing on it (the
+ * popover holds both and the accessible name spells them); it paints accent while a mode is on (`data-active`, plain
+ * CSS in components.css: never a class tied against the Button's own variant classes); its accessible name spells the
+ * whole state. `useUiStore.openModes(tab)`
  * (palette, goal dock, Settings › Features) opens the popover on that mode in the focused pane; closing clears it.
  * Granting full access closes the popover first and then confirms in a Dialog.
  */
 
-import { ChevronDown, Network, SlidersHorizontal, Turtle, Zap } from "lucide-react";
+import { ChevronDown, SlidersHorizontal, Turtle, Zap } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
@@ -118,9 +119,6 @@ export function RunChip() {
 					{modes.shown.length > 1 && <span className="omp-composer-count">{modes.shown.length}</span>}
 					<span className="omp-composer-glyphs">
 						<ApprovalGlyph aria-hidden data-approval={approvalMode} />
-						{delegation.mode !== null && delegation.mode !== "default" && (
-							<Network aria-hidden data-delegation={delegation.mode} />
-						)}
 						{speed.fast && (
 							<Zap
 								aria-hidden
