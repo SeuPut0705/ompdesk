@@ -542,7 +542,7 @@ export function RemoteSection() {
 			{host.enabled && mobileWeb && <MobileWebAllowedUsers state={mobileWeb} />}
 			{host.enabled && blocked && blocked.length > 0 && <MobileWebBlocked blocked={blocked} />}
 
-			<SettingsSection title={t("remote.hosts.title")}>
+			<SettingsSection description={t("remote.hosts.desc")} title={t("remote.hosts.title")}>
 				{hosts.length > 0 ? (
 					<div className="flex flex-col gap-px py-2" data-remote-hosts>
 						{hosts.map(entry => (

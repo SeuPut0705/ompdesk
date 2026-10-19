@@ -5602,6 +5602,7 @@ export const en: Record<string, string> = {
 	"remote.host.keepingAwakeFor": "Keeping awake now · used by {names}",
 	"remote.host.keepAwakeFailed": "Couldn't change the keep-awake setting",
 	"remote.hosts.title": "Other devices",
+	"remote.hosts.desc": "Computers this device runs sessions on, over Tailscale.",
 	"remote.hosts.empty": "This device doesn't use another computer yet.",
 	"remote.hosts.useHostAppearance": "Use the host computer's theme and language",
 	"remote.hosts.useHostAppearanceDesc": "While that computer's tab is focused. Your own settings stay unchanged.",

@@ -299,7 +299,10 @@ test("refuses a login the host does not allow and a blocked node, finds a host o
 		const b = host.page;
 		await b.evaluate(() => window.omp.remote.setDeviceName("Host B"));
 		await b.evaluate(() => window.omp.remote.setHostEnabled(true));
-		await expect.poll(async () => (await b.evaluate(() => window.omp.remote.getState())).host.port).toBe(base + 1);
+		// The next free one of its list (a parallel test may hold a successor too).
+		await expect
+			.poll(async () => (await b.evaluate(() => window.omp.remote.getState())).host.port ?? 0)
+			.toBeGreaterThan(base);
 
 		client = await launchRemote(clientProfile);
 		const a = client.page;

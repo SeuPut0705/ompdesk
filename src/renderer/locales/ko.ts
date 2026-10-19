@@ -5590,6 +5590,7 @@ export const ko: Record<string, string> = {
 	"remote.host.keepingAwakeFor": "지금 잠자기를 막고 있어요 · {names}에서 사용 중",
 	"remote.host.keepAwakeFailed": "잠자기 방지 설정을 바꾸지 못했어요",
 	"remote.hosts.title": "다른 기기",
+	"remote.hosts.desc": "이 기기가 Tailscale로 세션을 실행하는 컴퓨터예요.",
 	"remote.hosts.empty": "이 기기는 아직 다른 컴퓨터를 쓰지 않아요.",
 	"remote.hosts.useHostAppearance": "호스트 컴퓨터의 테마와 언어 사용",
 	"remote.hosts.useHostAppearanceDesc": "그 컴퓨터의 탭에 있을 때만 적용돼요. 내 설정은 바뀌지 않아요.",
