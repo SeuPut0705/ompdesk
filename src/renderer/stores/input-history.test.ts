@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionRpcClient } from "../../shared/rpc-client";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { promptKey, useInputHistoryStore } from "./input-history";
+import { createTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { useToastStore } from "./toast";
 
 beforeEach(() => {
@@ -127,5 +128,26 @@ describe("stock prompt history adapter", () => {
 		await Promise.resolve();
 		expect(useToastStore.getState().toasts).toEqual([]);
 		expect(useInputHistoryStore.getState().prev("draft", { cwd: "/repo", owner: "local" })).toBe("ship it");
+	});
+	it("logs no failure for a read its tab's replaced runtime refused, and still logs a real one", async () => {
+		const { prefs } = installHistory();
+		const report = vi.fn();
+		(globalThis as Record<string, unknown>).window = {
+			omp: { rpc: { commandForTab: vi.fn() }, prefs, runtime: { report } },
+		};
+		// The tab's session changed (or the tab closed) while its composer read the history: the old runtime refuses.
+		const old = createTabRuntime("t-history");
+		replaceTabRuntime("t-history");
+		await useInputHistoryStore.getState().hydrate(createSessionRpcClient(old.command), "host");
+		expect(report).not.toHaveBeenCalled();
+
+		const failing = createSessionRpcClient(async () => ({
+			type: "response" as const,
+			command: "history_recent",
+			success: false as const,
+			error: "history store unreadable",
+		}));
+		await useInputHistoryStore.getState().hydrate(failing, "host");
+		expect(report).toHaveBeenCalledTimes(1);
 	});
 });
