@@ -43,6 +43,34 @@ async function commitIn(dir: string, file: string, content: string): Promise<voi
 	gitSync(dir, "commit", "-q", "-m", `edit ${file}`);
 }
 
+/**
+ * The parent tracks a bare remote (`main` → `origin/main`, no `origin/HEAD`), and another clone pushed three commits
+ * there that the parent fetched but never pulled: its local main is stale, as a checkout agents push past is.
+ */
+async function staleParentMain(): Promise<void> {
+	const remote = path.join(root, "remote.git");
+	gitSync(root, "init", "-q", "--bare", "-b", "main", remote);
+	gitSync(repo, "remote", "add", "origin", remote);
+	gitSync(repo, "push", "-q", "-u", "origin", "main");
+	const other = path.join(root, "other");
+	gitSync(root, "clone", "-q", remote, other);
+	gitSync(other, "config", "user.email", "other@example.com");
+	gitSync(other, "config", "user.name", "Other");
+	for (const name of ["x.ts", "y.ts", "z.ts"]) await commitIn(other, name, `${name}\n`);
+	gitSync(other, "push", "-q", "origin", "main");
+	gitSync(repo, "fetch", "-q", "origin");
+	// Newer git records `origin/HEAD` on fetch; drop it so only `main@{upstream}` can name the remote's main.
+	gitSync(repo, "update-ref", "--no-deref", "-d", "refs/remotes/origin/HEAD");
+}
+
+/** A child cut from the parent's stale HEAD that rebased onto the remote's main (`git fetch && git rebase origin/main`). */
+async function childOnRemoteMain(name: string): Promise<WorktreeRef> {
+	const wt = await agentWorktree(name);
+	gitSync(wt.path, "rebase", "-q", "origin/main");
+	await commitIn(wt.path, "own.ts", "own\n");
+	return wt;
+}
+
 describe("branchFacts", () => {
 	it("reports commits, changed files with counts, uncommitted and untracked work", async () => {
 		const wt = await agentWorktree("a");
@@ -73,6 +101,58 @@ describe("branchFacts", () => {
 		expect((await branchFacts(wt)).merged).toBe(true);
 		await fs.writeFile(path.join(repo, "README.md"), "changed\n");
 		expect((await branchFacts(wt)).baseUncommitted).toBe(1);
+	});
+});
+
+describe("branchFacts against a stale parent checkout", () => {
+	it("counts a child that pushed its work to the remote's main as landed, with nothing to review", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("pushed");
+		gitSync(wt.path, "push", "-q", "origin", "HEAD:main");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [],
+			uncommitted: 0,
+			untracked: 0,
+			merged: true,
+		});
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: true, clean: true });
+		// The parent checkout was only read: its local main still sits where it was.
+		expect(gitSync(repo, "rev-list", "--count", "main..origin/main")).toBe("4");
+	});
+
+	it("measures an unpushed commit against the remote's main: one commit, its own file only", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("unpushed");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 1,
+			files: [{ path: "own.ts", added: 1, removed: 0 }],
+			merged: false,
+		});
+		expect((await landingFacts(wt)).landed).toBe(false);
+	});
+
+	it("shows only the uncommitted or untracked work a landed child left behind", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("leftover");
+		gitSync(wt.path, "push", "-q", "origin", "HEAD:main");
+		await fs.writeFile(path.join(wt.path, "own.ts"), "own\nmore\n");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [{ path: "own.ts", added: 1, removed: 0 }],
+			uncommitted: 1,
+			untracked: 0,
+			merged: true,
+		});
+		gitSync(wt.path, "checkout", "-q", "--", "own.ts");
+		await fs.writeFile(path.join(wt.path, "scratch.txt"), "x");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [],
+			uncommitted: 0,
+			untracked: 1,
+			merged: true,
+		});
 	});
 });
 

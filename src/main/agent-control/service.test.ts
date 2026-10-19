@@ -976,6 +976,33 @@ describe("the review queue", () => {
 		expect((await service.review("main0001", "list")).items.map(item => item.tabId)).not.toContain("other004");
 	});
 
+	it("leaves out a landed, clean, idle child and lists a landed one only for the files it left over", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const landed: BranchFacts = { ...clean, commitsAhead: 0, files: [], untracked: 0, merged: true };
+		host.facts.set("omp/agent/a", { ...landed, branch: "omp/agent/a" });
+		host.facts.set("omp/agent/b", {
+			...landed,
+			branch: "omp/agent/b",
+			files: [{ path: "src/x.ts", added: 1, removed: 0 }],
+			uncommitted: 1,
+		});
+		const { items } = await service.review("main0001", "list");
+		expect(items.map(item => item.tabId)).toEqual([ids[1]]);
+		expect(items[0]).toMatchObject({ commitsAhead: 0, files: 1, added: 1, removed: 0, uncommitted: 1 });
+
+		host.facts.set("omp/agent/b", { ...landed, branch: "omp/agent/b", untracked: 2 });
+		expect((await service.review("main0001", "list")).items).toMatchObject([
+			{ tabId: ids[1], commitsAhead: 0, files: 0, uncommitted: 2 },
+		]);
+
+		// Still working: listed as running, whatever its branch says.
+		host.facts.set("omp/agent/b", { ...landed, branch: "omp/agent/b" });
+		(host.tabsById.get(ids[1]) as FakeTab).busy = true;
+		expect((await service.review("main0001", "list")).items).toMatchObject([{ tabId: ids[1], state: "running" }]);
+		(host.tabsById.get(ids[1]) as FakeTab).busy = false;
+		expect((await service.review("main0001", "list")).items).toEqual([]);
+	});
+
 	it("Approve merges without asking (the click is the confirmation) and a conflict keeps the item with its files", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
 		host.mergeResult = { merged: false, reason: "conflict", files: ["src/a.ts"] };
@@ -1456,7 +1483,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(closes(host)).toHaveLength(1);
 	});
 
-	it("removes the worktree of a merged, clean branch and keeps a dirty one, never forcing either", async () => {
+	it("removes the worktree of a landed, clean branch and keeps a landed one with files left over open", async () => {
 		const merged = await finishedChild({ worktree: true });
 		merged.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
 		await merged.service.autoClose("main0001");
@@ -1467,8 +1494,21 @@ describe("autoClose: opened sessions whose work landed", () => {
 		const dirty = await finishedChild({ worktree: true });
 		dirty.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: false });
 		await dirty.service.autoClose("main0001");
-		expect(closes(dirty.host)).toHaveLength(1);
+		expect(closes(dirty.host)).toHaveLength(0);
 		expect(dirty.host.removed).toEqual([]);
+	});
+
+	it("never closes a landed, clean child that still runs a turn or waits on an ask", async () => {
+		for (const patch of [
+			{ busy: true },
+			{ asks: [select("Allow tool: bash", ["Approve", "Deny"])] },
+		] satisfies Partial<FakeTab>[]) {
+			const { host, service } = await finishedChild({ worktree: true, patch });
+			host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+			await service.autoClose("main0001");
+			expect(closes(host), JSON.stringify(Object.keys(patch))).toHaveLength(0);
+			expect(host.removed).toEqual([]);
+		}
 	});
 
 	it("closes only on a Result: ok line, whatever the prose says", async () => {

@@ -23,11 +23,18 @@ describe("autoCloseDecision", () => {
 		expect(autoCloseDecision(finished)).toEqual({ action: "close", removeWorktree: false });
 	});
 
-	it("closes a merged branch and removes its worktree only when that is clean", () => {
+	it("closes a landed, clean branch and removes its worktree; a landed one with files left over stays open", () => {
 		expect(autoCloseDecision({ ...finished, branch: landed })).toEqual({ action: "close", removeWorktree: true });
 		expect(autoCloseDecision({ ...finished, branch: { ...landed, clean: false } })).toEqual({
-			action: "close",
-			removeWorktree: false,
+			action: "keep",
+			reason: "uncommitted",
+		});
+	});
+
+	it("never closes a landed, clean branch while the session still works", () => {
+		expect(autoCloseDecision({ ...finished, idle: false, branch: landed })).toEqual({
+			action: "keep",
+			reason: "working",
 		});
 	});
 

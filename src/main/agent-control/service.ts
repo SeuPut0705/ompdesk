@@ -1886,7 +1886,12 @@ export class AgentControl {
 		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.`;
 	}
 
-	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem> {
+	/**
+	 * A child's review item, or null when nothing is left to review: an idle child whose branch landed (its tip is in the
+	 * parent's branch or the upstream it tracks) with no uncommitted or untracked file, which ended well and waits on
+	 * no answer. A landed child with files left over lists only those files.
+	 */
+	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem | null> {
 		const session = await this.#state(tab);
 		const running = tab.busy || tab.asks.length > 0 || (tab.status !== "ready" && tab.status !== "running");
 		const conflict = this.#conflicts.get(tab.tabId);
@@ -1914,6 +1919,11 @@ export class AgentControl {
 		if (!tab.worktree || tab.deviceName) return item;
 		try {
 			const facts = await this.#host.branchFacts(tab.worktree);
+			const clean = facts.uncommitted === 0 && facts.untracked === 0;
+			if (facts.merged && clean && !running && !item.failed && !item.waiting) {
+				this.#conflicts.delete(tab.tabId);
+				return null;
+			}
 			return {
 				...item,
 				branch: facts.branch,
@@ -1922,7 +1932,8 @@ export class AgentControl {
 				files: facts.files.length,
 				added: facts.files.reduce((sum, file) => sum + file.added, 0),
 				removed: facts.files.reduce((sum, file) => sum + file.removed, 0),
-				uncommitted: facts.uncommitted,
+				// Untracked files are work the branch does not hold yet either.
+				uncommitted: facts.uncommitted + facts.untracked,
 			};
 		} catch {
 			return { ...item, branch: tab.worktree.branch };
@@ -1935,7 +1946,8 @@ export class AgentControl {
 		if (!tabs) return [];
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !this.#reviewed.has(tab.tabId) && !tab.hidden);
-		return Promise.all(children.map(tab => this.#reviewItem(tab)));
+		const items = await Promise.all(children.map(tab => this.#reviewItem(tab)));
+		return items.filter(item => item !== null);
 	}
 
 	/**

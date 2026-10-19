@@ -183,6 +183,7 @@ export interface AgentReviewItem {
 	files: number;
 	added: number;
 	removed: number;
+	/** Files the branch does not hold yet: tracked edits plus untracked files in the worktree. */
 	uncommitted: number;
 	/** The start of its last answer. */
 	answer: string;
