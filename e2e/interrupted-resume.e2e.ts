@@ -416,8 +416,10 @@ for (const language of variants(["en", "ko"] as const))
 				current = app;
 				const errors: string[] = [];
 				page.on("pageerror", error => errors.push(error.message));
-				await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+				// The window's `offline` listener mounts with React, which can come after the sidecar is ready.
 				const input = page.locator(".omp-composer-input").first();
+				await expect(input).toBeVisible();
+				await page.evaluate(() => window.dispatchEvent(new Event("offline")));
 				await input.fill("fixture network error");
 				await input.press("Enter");
 
@@ -446,8 +448,9 @@ test("Cancel on the waiting row shows the failure and nothing resumes when the c
 	try {
 		const { app, page } = await launch(profile);
 		current = app;
-		await page.evaluate(() => window.dispatchEvent(new Event("offline")));
 		const input = page.locator(".omp-composer-input").first();
+		await expect(input).toBeVisible();
+		await page.evaluate(() => window.dispatchEvent(new Event("offline")));
 		await input.fill("fixture network error");
 		await input.press("Enter");
 		const wait = page.locator("[data-connection-wait]");
