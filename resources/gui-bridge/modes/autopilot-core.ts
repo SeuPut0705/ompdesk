@@ -445,6 +445,12 @@ export function lastStateEntry(entries: readonly JournalEntry[]): AutopilotState
 	return customEntries<AutopilotStateEntry>(entries, AUTOPILOT_STATE_ENTRY).at(-1);
 }
 
+/** True while the journal's last Autopilot state entry is running or stopping (a run's parent or a child session). */
+export function autopilotRunning(entries: readonly JournalEntry[]): boolean {
+	const state = lastStateEntry(entries)?.state;
+	return state === "running" || state === "stopping";
+}
+
 /** Every cycle record, one per cycle number: a later entry with the same `n` (an amendment, a revert mark) replaces the earlier one. */
 export function cycleRecords(entries: readonly JournalEntry[]): AutopilotCycleRecord[] {
 	const byNumber = new Map<number, AutopilotCycleRecord>();

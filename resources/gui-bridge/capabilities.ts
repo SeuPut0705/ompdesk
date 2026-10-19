@@ -68,6 +68,7 @@ export const FEATURES = {
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
 	pstack: "pstack engineering mode (always-on playbook section)",
+	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 } as const;
 
@@ -362,6 +363,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	pstack: {
 		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
 		session: ["getPlanModeState()", "getActiveToolNames()", "sessionManager.getBranch()"],
+	},
+	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
+	backgroundChecks: {
+		pkg: ["Settings.instance"],
+		session: ["sessionManager.getBranch()"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+		},
 	},
 	/** modes/user-profile.ts: the same public hook as the reply language. */
 	userProfile: {},

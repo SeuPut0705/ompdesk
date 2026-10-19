@@ -16,6 +16,7 @@ import {
 	parseAutoTitleEnv,
 	titleEffective,
 } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { autopilotRunning } from "../../resources/gui-bridge/modes/autopilot-core";
 import { parseJudgeAssistEnv } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import {
 	type NextPromptModelUsed,
@@ -26,7 +27,7 @@ import {
 	normalizeNextPrompt,
 	parseNextPromptEnv,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
-import { autopilotRunning, PSTACK_ENV, pstackText, pstackVariant } from "../../resources/gui-bridge/modes/pstack-core";
+import { PSTACK_ENV, pstackText, pstackVariant } from "../../resources/gui-bridge/modes/pstack-core";
 import {
 	labelPromptOrigins,
 	PROMPT_ORIGIN_ENTRY,

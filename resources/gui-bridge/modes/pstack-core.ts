@@ -11,7 +11,7 @@
  * No omp imports (not even types): the GUI's vitest loads this file directly.
  */
 import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
-import { lastStateEntry } from "./autopilot-core";
+import { autopilotRunning } from "./autopilot-core";
 import { PSTACK_AUTOPILOT_SECTION, PSTACK_SECTION, PSTACK_SECTION_SOLO } from "./pstack-text";
 
 /** Env `OMP_GUI_PSTACK` main sets at spawn: `1` on, anything else off. */
@@ -48,12 +48,6 @@ const TEXTS: Readonly<Record<PstackVariant, string>> = {
 /** The section text for `variant`, byte-identical on every call (the provider's prompt cache holds). */
 export function pstackText(variant: PstackVariant | undefined): string | undefined {
 	return variant ? TEXTS[variant] : undefined;
-}
-
-/** True while the journal's last Autopilot state entry is running or stopping. */
-export function autopilotRunning(entries: Parameters<typeof lastStateEntry>[0]): boolean {
-	const state = lastStateEntry(entries)?.state;
-	return state === "running" || state === "stopping";
 }
 
 /** The slice of the main session the gate reads. */

@@ -67,6 +67,11 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/delegation", features: ["delegation"], load: () => import("./modes/delegation") },
 	{ name: "modes/visuals", features: ["visuals"], load: () => import("./modes/visuals") },
 	{ name: "modes/pstack", features: ["pstack"], load: () => import("./modes/pstack") },
+	{
+		name: "modes/background-checks",
+		features: ["backgroundChecks"],
+		load: () => import("./modes/background-checks"),
+	},
 	{ name: "account-rotation", features: ["accountRotation"], load: () => import("./account-rotation") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 	{ name: "compaction-limits", features: ["compactionLimits"], load: () => import("./compaction-limits") },

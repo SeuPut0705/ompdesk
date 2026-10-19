@@ -4215,6 +4215,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
+	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",
