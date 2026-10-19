@@ -5564,6 +5564,9 @@ export const en: Record<string, string> = {
 	"remote.limits.todayOf": "Today: {requests}/{requestsLimit} requests · {tokens}/{tokensLimit} tokens",
 	"remote.limits.saveFailed": "Couldn't save the limits",
 	"remote.removeFailed": "Couldn't remove the device",
+	"remote.rename": "Rename {name}",
+	"remote.renameOffline": "{name} must be online to rename it",
+	"remote.renameFailed": "Couldn't rename the device",
 	"remote.removeTitle": "Remove {name}?",
 	"remote.removePeerBody":
 		"{name} can no longer open sessions on this computer. To use it again, pair it with a new code.",

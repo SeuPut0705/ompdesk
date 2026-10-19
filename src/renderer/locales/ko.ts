@@ -5549,6 +5549,9 @@ export const ko: Record<string, string> = {
 	"remote.limits.todayOf": "오늘: 요청 {requests}/{requestsLimit}회 · 토큰 {tokens}/{tokensLimit}",
 	"remote.limits.saveFailed": "한도를 저장하지 못했어요",
 	"remote.removeFailed": "기기를 제거하지 못했어요",
+	"remote.rename": "{name} 이름 바꾸기",
+	"remote.renameOffline": "이름을 바꾸려면 {name} 기기가 연결되어 있어야 해요",
+	"remote.renameFailed": "기기 이름을 바꾸지 못했어요",
 	"remote.removeTitle": "{name} 기기를 제거할까요?",
 	"remote.removePeerBody":
 		"{name}에서 더 이상 이 컴퓨터의 세션을 열 수 없어요. 다시 쓰려면 새 코드로 페어링해야 해요.",

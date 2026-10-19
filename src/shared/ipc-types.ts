@@ -402,6 +402,10 @@ export const IPC_COMMANDS = {
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
+	/** Rename a paired host ({deviceId, name}): the host sets its own device name */
+	REMOTE_RENAME_HOST: "remote:rename-host",
+	/** Rename a connected device that uses this computer ({deviceId, name}): it renames itself */
+	REMOTE_RENAME_PEER: "remote:rename-peer",
 	/** Start or stop LAN discovery (pushes REMOTE_DISCOVERED) */
 	REMOTE_DISCOVER: "remote:discover",
 	/** Pair with a host by address and code */
@@ -1905,6 +1909,10 @@ export interface OmpApi {
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Daily model-use limits for a paired device; `{}` removes them. */
 		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
+		/** Rename a paired host (it sets its own name). Throws `remote_offline` while it is unreachable. */
+		renameHost(deviceId: string, name: string): Promise<RemoteState>;
+		/** Ask a connected device that uses this computer to rename itself. Throws `remote_offline` when not connected. */
+		renamePeer(deviceId: string, name: string): Promise<RemoteState>;
 		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */
 		discover(action: "start" | "stop"): Promise<RemoteDiscoveredDevice[]>;
 		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */

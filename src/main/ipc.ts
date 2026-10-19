@@ -1938,6 +1938,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_PEER, (_caller, payload: unknown) => remoteDevices.renamePeer(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_caller, action: unknown) => remoteDevices.discover(action));
 	ipc.handle(IPC_COMMANDS.REMOTE_PAIR, (_caller, payload: unknown) => remoteDevices.pair(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_caller, deviceId: unknown) => remoteDevices.removeHost(deviceId));

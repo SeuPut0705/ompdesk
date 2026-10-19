@@ -971,6 +971,14 @@ All three bridge features (prompt suggestions, automatic titles, automatic mode)
 - Host tool calls (`gui_open_url`, notify, clipboard) always run on A.
 - `OMP_GUI_REMOTE_PORT` (TCP, default 47821, `0` = ephemeral) and `OMP_GUI_REMOTE_DISCOVERY_PORT` (UDP beacon, default 47822) let parallel instances coexist.
 
+### Device names
+- **One name per device, the one it announces** (the user's rule, 19 Oct 2026; never a per-computer alias). This computer's is pref `remote.deviceName` (default the OS hostname; the OS computer name is never changed). Settings › Devices & connections shows the field always, sharing on or off (it was hidden while sharing was off, so a device that only connects to others could not rename itself).
+- Renamable at any time from either side (`RemoteDevices`): `setDeviceName` saves and announces live, to every connected device as the event `host.name` (`RemoteHost.announceName`) and to every host this computer is connected to as the request `peer.name` (served by `RemoteHost` itself, it updates `remote-peers.json`); offline ones learn it from the next hello (which already carried the name, so before this a rename reached others only on reconnect). The beacon reads the name live.
+- A host row's Rename (`REMOTE_RENAME_HOST` → request `host.rename`, served by `RemoteHost`, logged on the host) makes the host rename itself; a paired-device row's Rename (`REMOTE_RENAME_PEER`) sends that device the event `device.rename` and it renames itself; refused `remote_offline` while it is not connected (the button is disabled with the reason). Names are 1–64 characters (`DeviceNameSchema` in `app-protocol.ts`).
+- A phone-page device's name is this computer's record of it (`devices-store.ts` `rename`, `WEB_DEVICES_RENAME`); Tailscale's node name is only the default.
+- Agents rename through `ompdesk_app` `remote.devices` (read), `remote.rename_this_computer`, `remote.rename_host`, `remote.rename_device`, `mobile_web.rename_device` (change); `ompdesk_sessions` `device` resolves by id or current name.
+- Inline field: `settings/DeviceNameField.tsx`, shared by the remote and phone-page rows. Pinned by `remote/devices-rename.test.ts` (two `RemoteDevices` over real sockets), `RemoteSection.test.tsx`, `e2e/device-rename.e2e.ts` (`OMP_GUI_DEVICE_RENAME=<dir>` + `_THEME` captures in Korean).
+
 ### Per-device model limit
 - A paired device's per-day model limit (`remote/peer-quota.ts`, prefs on the peer in `remote-peers.json`) covers every RPC command that calls a model on the host, plus `host.bench.run` (models × runs requests) and `host.modelSetup.run`.
 - `remote/quota-commands.ts` classifies **every** `RpcCommand` type as model, conditional (`switch_leaf` with `summarize`; `plan_approval` that runs or sends feedback; `set_goal` with an objective or `resume`) or free. A compile-time check and `quota-commands.test.ts` fail when a new command type is in none of the lists, and a type no list knows counts.

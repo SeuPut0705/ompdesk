@@ -439,6 +439,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.REMOTE_ROTATE_CODE]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_RENAME_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_RENAME_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_DISCOVER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_PAIR]: {
 		dir: "invoke",

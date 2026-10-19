@@ -9,8 +9,14 @@
 
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
-import { IPC_COMMANDS } from "../../shared/ipc-types";
-import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE } from "../../shared/mobile-web";
+import { IPC_COMMANDS, type RemoteState } from "../../shared/ipc-types";
+import {
+	MOBILE_WEB_COMMAND,
+	MOBILE_WEB_GET_STATE,
+	WEB_DEVICES_LIST,
+	WEB_DEVICES_RENAME,
+	type WebDeviceInfo,
+} from "../../shared/mobile-web";
 import type { RpcCommand } from "../../shared/rpc-types";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
@@ -789,6 +795,94 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			return {
 				text: "Pairing started: Settings › Devices & connections is open; the person completes it. You cannot see or enter the code.",
 			};
+		},
+	},
+	{
+		id: "remote.devices",
+		area: "connections",
+		description:
+			"List this computer's device name, the paired computers it connects to (hosts) and the devices that use it (peers), with ids and online state.",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => {
+			const state = (await ctx.invoke(C.REMOTE_GET_STATE)) as RemoteState;
+			return {
+				text: [
+					`This computer: ${state.host.name}`,
+					...state.hosts.map(host => `host ${host.deviceId}: ${host.name} (${host.state})`),
+					...state.host.peers.map(
+						peer => `device ${peer.deviceId}: ${peer.name} (${peer.online ? "online" : "offline"})`,
+					),
+				].join("\n"),
+			};
+		},
+	},
+	{
+		id: "remote.rename_this_computer",
+		area: "connections",
+		description: "Change this computer's device name; every paired computer and device sees it at once.",
+		args: objectSchema({ name: { type: "string", minLength: 1, maxLength: 64 } }, ["name"]),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_SET_DEVICE_NAME, String(args.name));
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "remote.rename_host",
+		area: "connections",
+		description:
+			"Rename a paired computer this one connects to (deviceId from remote.devices): it changes its own device name. It must be online.",
+		args: objectSchema(
+			{
+				deviceId: { type: "string", minLength: 1, maxLength: 64 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["deviceId", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_RENAME_HOST, { deviceId: String(args.deviceId), name: String(args.name) });
+			return { text: "Renamed.", change: { en: "Computer name", ko: "컴퓨터 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "remote.rename_device",
+		area: "connections",
+		description:
+			"Rename a device that uses this computer (deviceId from remote.devices): it is asked to rename itself, so it must be connected.",
+		args: objectSchema(
+			{
+				deviceId: { type: "string", minLength: 1, maxLength: 64 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["deviceId", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_RENAME_PEER, { deviceId: String(args.deviceId), name: String(args.name) });
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "mobile_web.rename_device",
+		area: "mobile_web",
+		description: "Rename a phone or tablet that uses the phone page, by its current name or id.",
+		args: objectSchema(
+			{
+				device: { type: "string", minLength: 1, maxLength: 128 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["device", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const devices = (await ctx.invoke(WEB_DEVICES_LIST)) as WebDeviceInfo[];
+			const wanted = String(args.device);
+			const device = devices.find(entry => entry.id === wanted) ?? devices.find(entry => entry.name === wanted);
+			if (!device) throw new AppRefusal(`No phone-page device named ${wanted}.`);
+			await ctx.invoke(WEB_DEVICES_RENAME, device.id, String(args.name));
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
 		},
 	},
 	{

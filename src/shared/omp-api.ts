@@ -560,6 +560,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
 			setPeerLimits: (deviceId: string, limits: PeerLimits) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
+			renameHost: (deviceId: string, name: string) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_HOST, { deviceId, name }) as Promise<RemoteState>,
+			renamePeer: (deviceId: string, name: string) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_PEER, { deviceId, name }) as Promise<RemoteState>,
 			discover: (action: "start" | "stop") =>
 				transport.invoke(IPC_COMMANDS.REMOTE_DISCOVER, action) as Promise<RemoteDiscoveredDevice[]>,
 			pair: (payload: IpcRemotePairPayload) =>
