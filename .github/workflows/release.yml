@@ -272,14 +272,15 @@ jobs:
       # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
       # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
       # Both are cached by everything that decides their bytes (native/memory with its Cargo.lock and rust-toolchain.toml,
-      # scripts/build-memory.ts) per OS and arch: a hit skips the 7-9 min build, `--check` then recomputes the binary's
+      # scripts/build-memory.ts, and src/shared/memory-prompt.ts, which the CLI embeds with include_str! into the omp
+      # extension it generates) per OS and arch: a hit skips the 7-9 min build, `--check` then recomputes the binary's
       # SHA-256 against the record and runs its --version, and after-pack checks the packaged bytes again. Saved right
       # after the build, so a later failing step still keeps it.
       - id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'src/shared/memory-prompt.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
@@ -513,7 +514,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'src/shared/memory-prompt.ts') }}
       - if: steps.memory-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
