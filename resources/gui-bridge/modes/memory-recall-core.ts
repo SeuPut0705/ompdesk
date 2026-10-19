@@ -16,6 +16,7 @@ import {
 	RECALL_JUDGE_MIN,
 	RECALL_MAX_ITEMS,
 	RECALL_MAX_TOKENS,
+	taskTitle,
 } from "./memory-recall-contracts";
 
 // ---------------------------------------------------------------------------------------------
@@ -254,6 +255,22 @@ function plain(value: string): string {
 		.trim();
 }
 
+/** A fallback name is the first this many characters of a text, cut with an ellipsis. */
+const FALLBACK_TITLE_CHARS = 60;
+
+/**
+ * A candidate's name in the transcript line and the model text: the task its title names (`taskTitle`: a conclusion's
+ * title is its session's first prompt, so it can be stock's subagent prefix or another agent's wrapper), else the
+ * start of `fallback` (the excerpt or snippet).
+ */
+function candidateTitle(raw: unknown, fallback: string): string {
+	const title = taskTitle(text(raw).replace(/<\/?mark>/g, ""));
+	if (title) return title;
+	return fallback.length > FALLBACK_TITLE_CHARS
+		? `${fallback.slice(0, FALLBACK_TITLE_CHARS - 1).trimEnd()}…`
+		: fallback;
+}
+
 /**
  * The candidates in a `memory_query` answer (the JSON its MCP text part carries): `hits` and `global_scope_hits`
  * (the `_global` preferences every project sees) as pages, `conclusion_hits` as conclusions. A session page whose
@@ -269,15 +286,17 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 	};
 	for (const hit of [...rows("hits"), ...rows("global_scope_hits")]) {
 		const path = text(field(hit, "path"));
-		const title = plain(text(field(hit, "title")));
-		if (!path || !title || field(hit, "superseded") === true || seen.has(path)) continue;
+		const snippet = plain(text(field(hit, "snippet")));
+		if (!path || field(hit, "superseded") === true || seen.has(path)) continue;
+		const title = candidateTitle(field(hit, "title"), snippet || path.replace(/^.*\//, "").replace(/\.md$/, ""));
+		if (!title) continue;
 		seen.add(path);
 		const kind = FOLDER_KINDS[path.split("/", 1)[0]] ?? "note";
 		const sessionId = kind === "session" ? /^sessions\/(.+)\.md$/.exec(path)?.[1] : undefined;
 		pages.push({
 			kind,
 			title,
-			text: plain(text(field(hit, "snippet"))),
+			text: snippet,
 			path,
 			...(sessionId ? { sessionId } : {}),
 			order: pages.length,
@@ -292,7 +311,7 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 		const at = text(field(hit, "created_at"));
 		conclusions.push({
 			kind: "conclusion",
-			title: plain(text(field(hit, "title"))) || excerpt.slice(0, 60),
+			title: candidateTitle(field(hit, "title"), excerpt),
 			text: excerpt,
 			sessionId,
 			...(at ? { at } : {}),

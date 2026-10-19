@@ -131,6 +131,32 @@ describe("candidates", () => {
 		expect(candidates[1].text).toBe("테일스케일 신원으로만 연결하고 페어링 코드는 제거한다");
 		expect(candidates[3].at).toBe("2026-10-18T10:12:00Z");
 	});
+	it("names a conclusion by its task, never by the protocol its first prompt arrived in", () => {
+		const excerpt = "Jev가 확실히 나아요. omp는 이미 Jev를 자동으로 쓰고 있어요. 92.4% vs 74.2%로 더 정확했어요.";
+		const titles = recallCandidates({
+			conclusion_hits: [
+				{ session_id: "a", title: "Complete assignment thoroughly:", excerpt },
+				{ session_id: "b", title: '<ompdesk-agent-message from="오케스트레이터">', excerpt },
+				{ session_id: "c", title: '<ompdesk-agent-message from="x">\nTitle: Jev 비교\nCompare.', excerpt },
+				{ session_id: "d", title: "Complete assignment thoroughly:\n\n# Fix the parser", excerpt },
+			],
+		}).map(candidate => candidate.title);
+		expect(titles).toEqual([
+			"Jev가 확실히 나아요. omp는 이미 Jev를 자동으로 쓰고 있어요. 92.4% vs 74.2%로 더 정…",
+			"Jev가 확실히 나아요. omp는 이미 Jev를 자동으로 쓰고 있어요. 92.4% vs 74.2%로 더 정…",
+			"Jev 비교",
+			"Fix the parser",
+		]);
+	});
+
+	it("names a session page with a junk title by its snippet", () => {
+		const [page] = recallCandidates({
+			hits: [
+				{ path: "sessions/s1.md", title: "Complete assignment thoroughly:", snippet: "<mark>파서</mark> 수정" },
+			],
+		});
+		expect(page.title).toBe("파서 수정");
+	});
 
 	it("reads an older server's answer (no conclusion_hits) and anything malformed as nothing", () => {
 		const { conclusion_hits: _dropped, ...older } = ANSWER;
