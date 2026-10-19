@@ -81,7 +81,6 @@ export function OpenedSection({
 			count={rows.length}
 			id="opened"
 			title={t("workBoard.opened")}
-			tone={counts.waiting > 0 ? "warning" : undefined}
 		>
 			{rows.map(row => (
 				<OpenedRow key={row.key} now={now} row={row} />
