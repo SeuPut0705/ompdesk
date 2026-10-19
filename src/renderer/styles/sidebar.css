@@ -205,19 +205,6 @@ html[data-gpu="software"] .omp-sidebar-session-row[data-signal="running"]::befor
 	outline-offset: -1px;
 }
 
-/* The account this tab uses: a quiet straight edge, nothing coloured (an inset shadow on the rounded line
-   would follow its corners and read as a parenthesis). */
-.omp-sidebar-usage-line[data-in-use]::before {
-	content: "";
-	position: absolute;
-	inset-block: 5px;
-	inset-inline-start: 0;
-	width: 2px;
-	border-radius: var(--sc-radius-full);
-	background: var(--sc-text-subtle);
-	pointer-events: none;
-}
-
 .omp-sidebar-usage-more {
 	padding: 2px var(--sc-space-2-5, 10px);
 	border-radius: var(--sc-radius-md);
