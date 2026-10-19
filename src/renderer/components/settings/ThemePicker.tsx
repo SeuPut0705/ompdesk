@@ -148,7 +148,6 @@ function SystemThemeRows({
 						{options(LIGHT_THEME_NAMES)}
 					</Select>
 				}
-				description={t("themePicker.systemLightDesc")}
 				htmlFor={lightId}
 				icon={<Sun />}
 				id="setting-gui-systemLightTheme"
@@ -167,7 +166,6 @@ function SystemThemeRows({
 						{options(DARK_THEME_NAMES)}
 					</Select>
 				}
-				description={t("themePicker.systemDarkDesc")}
 				htmlFor={darkId}
 				icon={<Moon />}
 				id="setting-gui-systemDarkTheme"

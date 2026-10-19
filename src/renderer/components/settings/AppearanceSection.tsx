@@ -192,7 +192,6 @@ export function AppearanceSection() {
 							))}
 						</Select>
 					}
-					description={t("settings.gui.fontSizeDesc")}
 					htmlFor={fontSizeId}
 					icon={<Type />}
 					id="setting-gui-fontSize"
@@ -208,7 +207,6 @@ export function AppearanceSection() {
 				/>
 				<SettingsSwitchRow
 					checked={colorBlindMode}
-					description={t("settings.gui.colorBlindModeDesc")}
 					icon={<Eye />}
 					id="setting-gui-colorBlindMode"
 					label={t("settings.gui.colorBlindMode")}
@@ -268,7 +266,6 @@ export function AppearanceSection() {
 				/>
 				<SettingsSwitchRow
 					checked={codeLineNumbers}
-					description={t("codeblock.lineNumbersDesc")}
 					icon={<ListOrdered />}
 					id="setting-gui-lineNumbers"
 					label={t("codeblock.lineNumbers")}

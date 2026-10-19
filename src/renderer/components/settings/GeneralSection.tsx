@@ -86,7 +86,6 @@ export function GeneralSection() {
 							value={lang}
 						/>
 					}
-					description={t("settings.gui.languageDesc")}
 					htmlFor={languageId}
 					icon={<Languages />}
 					id="setting-gui-language"
@@ -108,7 +107,6 @@ export function GeneralSection() {
 				/>
 				<SettingsSwitchRow
 					checked={notificationSound}
-					description={t("settings.gui.notificationSoundDesc")}
 					extra={
 						<Button icon={<Play />} onClick={() => playChime(notificationVolume)} size="sm" variant="ghost">
 							{t("settings.gui.notificationSoundTest")}
@@ -149,7 +147,6 @@ export function GeneralSection() {
 								</span>
 							</span>
 						}
-						description={t("settings.gui.notificationVolumeDesc")}
 						htmlFor={volumeId}
 						icon={<Volume2 />}
 						id="setting-gui-notificationVolume"
@@ -171,7 +168,6 @@ export function GeneralSection() {
 							value={migrateDefaultPanelTab(panelTab)}
 						/>
 					}
-					description={t("settings.gui.panelDefaultDesc")}
 					htmlFor={panelId}
 					icon={<LayoutPanelLeft />}
 					id="setting-gui-panelDefault"
@@ -259,11 +255,7 @@ function SidebarShortcutsSection() {
 	const t = useT();
 	const railPins = useSidebarPrefs(state => state.railPins);
 	return (
-		<SettingsSection
-			description={t("settings.gui.railPinsDesc")}
-			id="setting-gui-railPins"
-			title={t("settings.gui.railPins")}
-		>
+		<SettingsSection id="setting-gui-railPins" title={t("settings.gui.railPins")}>
 			{RAIL_PINS.map(pin => (
 				<SettingsSwitchRow
 					checked={railPins.includes(pin)}
