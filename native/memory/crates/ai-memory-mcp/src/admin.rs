@@ -8212,7 +8212,15 @@ struct WritePageAdminRequest {
     /// Pin the page so the decay sweep skips it.
     #[serde(default)]
     pinned: bool,
+    /// OMPdesk: the computer this page is a copy from (an OMPdesk device id),
+    /// stored as frontmatter `origin_device` so the copy is never sent back
+    /// there. Absent or blank: the page is this computer's own. At most 200
+    /// characters, no control characters.
+    #[serde(default)]
+    origin_device: Option<String>,
 }
+
+const MAX_ORIGIN_DEVICE_LEN: usize = 200;
 
 fn default_write_tier() -> String {
     "semantic".to_string()
@@ -8247,6 +8255,19 @@ async fn handle_write_page(
             Json(serde_json::json!({ "error": e.to_string() })),
         )
     })?;
+    let origin_device = match req.origin_device.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(origin)
+            if origin.chars().count() > MAX_ORIGIN_DEVICE_LEN
+                || origin.chars().any(char::is_control) =>
+        {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": "invalid origin_device" })),
+            ));
+        }
+        Some(origin) => Some(origin.to_string()),
+    };
     let tier: Tier = req.tier.parse().map_err(|_| {
         (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -8307,6 +8328,9 @@ async fn handle_write_page(
     }
     if req.pinned {
         fm.insert("pinned".into(), serde_json::Value::Bool(true));
+    }
+    if let Some(origin) = origin_device {
+        fm.insert("origin_device".into(), serde_json::Value::String(origin));
     }
     let frontmatter = if fm.is_empty() {
         serde_json::Value::Null

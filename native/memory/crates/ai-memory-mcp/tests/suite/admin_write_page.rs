@@ -459,6 +459,70 @@ async fn write_page_metadata_roundtrip_and_total_replacement() {
     );
 }
 
+/// OMPdesk copies durable pages between a person's paired computers and marks
+/// a copy with the computer it came from, so the copy is never sent back there.
+/// Any later write without the field (an edit on this computer) makes the page
+/// this computer's own again.
+#[tokio::test]
+async fn write_page_origin_device_marks_a_copy_until_the_next_write() {
+    let tmp = TempDir::new().unwrap();
+    let state = make_state(&tmp).await;
+    let ws = state
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let proj = state
+        .writer
+        .get_or_create_project(ws, "scratch", None)
+        .await
+        .unwrap();
+    let path = ai_memory_core::PagePath::new("decisions/sharing.md").unwrap();
+    let mut request = json!({
+        "workspace": "default", "project": "scratch", "path": path.as_str(),
+        "body": "# Sharing\n\nTailscale identity only.", "kind": "decision",
+        "origin_device": " mac-1 "
+    });
+    let resp = post_json(state.clone(), "/admin/write-page", request.clone()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let md = state.wiki.read_page(ws, proj, &path).unwrap();
+    assert_eq!(md.frontmatter["origin_device"], "mac-1");
+
+    for bad in ["", "   ", "a\u{0007}b", &"x".repeat(201)] {
+        request["origin_device"] = json!(bad);
+        let status = post_json(state.clone(), "/admin/write-page", request.clone())
+            .await
+            .status();
+        if bad.trim().is_empty() {
+            assert_eq!(status, StatusCode::OK, "blank origin is no origin");
+        } else {
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad:?}");
+        }
+    }
+    let md = state.wiki.read_page(ws, proj, &path).unwrap();
+    assert!(md.frontmatter.get("origin_device").is_none());
+
+    request["origin_device"] = json!("mac-1");
+    assert_eq!(
+        post_json(state.clone(), "/admin/write-page", request.clone())
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    request.as_object_mut().unwrap().remove("origin_device");
+    assert_eq!(
+        post_json(state.clone(), "/admin/write-page", request)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let md = state.wiki.read_page(ws, proj, &path).unwrap();
+    assert!(
+        md.frontmatter.get("origin_device").is_none(),
+        "an edit on this computer makes the page its own"
+    );
+}
+
 #[tokio::test]
 async fn write_page_metadata_admin_legacy_kind_matches_base() {
     let tmp = TempDir::new().unwrap();
