@@ -194,6 +194,8 @@ export const MemoryPageWire = z.object({
 		applies_to: z.array(z.string().max(64)).max(32).optional(),
 		enforced_by: z.string().max(1000).optional(),
 	}),
+	/** Frontmatter `expires_at`: a retired (superseded) page carries the moment it left recall. */
+	expiresAt: MemoryTime.optional(),
 	/** The OMPdesk device id of the computer the page was made or last edited on. */
 	origin: MemoryName,
 	updatedAt: MemoryTime,

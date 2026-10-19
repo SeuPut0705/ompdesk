@@ -44,13 +44,37 @@ class FakeServer {
 		return this.pages.get(`${project}/${path}`)?.body;
 	}
 
+	/** What the memory upkeep's supersede does (`AiMemoryClient.retirePage`): the page again, expired now. */
+	retire(path: string, project = "app"): void {
+		const stored = this.pages.get(`${project}/${path}`);
+		if (!stored) throw new Error("no page to retire");
+		const { at: _at, origin: _origin, ...copy } = stored;
+		this.#put(
+			{
+				...copy,
+				body: `${copy.body}\n\n_Superseded by [[decisions/new.md]]._`,
+				tags: [...copy.tags, "superseded"],
+				expiresAt: this.now(),
+			},
+			undefined,
+		);
+	}
+
+	/** What a reader lists (the page list, recall): an expired page is hidden, an exact read still answers. */
+	listed(project = "app"): string[] {
+		return [...this.pages.values()]
+			.filter(p => p.project === project && !p.expiresAt)
+			.map(p => p.path)
+			.sort();
+	}
+
 	readonly store: MemoryStore = {
 		projects: async () => {
 			const seen = new Map<string, { workspace: string; project: string }>();
 			for (const p of this.pages.values()) seen.set(p.project, { workspace: p.workspace, project: p.project });
 			return [...seen.values()];
 		},
-		pages: async ref =>
+		allPages: async ref =>
 			[...this.pages.values()]
 				.filter(p => p.workspace === ref.workspace && p.project === ref.project)
 				.map(p => ({ workspace: p.workspace, project: p.project, path: p.path, updatedAt: p.at })),
@@ -221,6 +245,41 @@ describe("memory sync between two computers", () => {
 		crossed = 0;
 		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
 		expect(crossed).toBe(0);
+	});
+
+	it("a page retired on one computer leaves the other's listing too, both ways, and stays retired", async () => {
+		mac.edit("decisions/jev-auto.md", "Jev updates itself.");
+		win.edit("decisions/net-auto.md", "Any network.");
+		await sync.sync("win");
+		expect(mac.listed()).toEqual(["decisions/jev-auto.md", "decisions/net-auto.md"]);
+
+		win.retire("decisions/jev-auto.md");
+		mac.retire("decisions/net-auto.md");
+		await sync.sync("win");
+		expect(mac.listed()).toEqual([]);
+		expect(win.listed()).toEqual([]);
+		expect(mac.pages.get("app/decisions/jev-auto.md")?.tags).toContain("superseded");
+		expect(win.pages.get("app/decisions/net-auto.md")?.expiresAt).toBeTruthy();
+
+		mac.writes = [];
+		win.writes = [];
+		for (let round = 0; round < 3; round++) await sync.sync("win");
+		expect(mac.writes).toEqual([]);
+		expect(win.writes).toEqual([]);
+		expect(win.listed()).toEqual([]);
+	});
+
+	it("a computer that never saw the retire cannot bring a retired page back live", async () => {
+		// The Mac's live copy is older than the host's retire, and the Mac has no sync history (a fresh pairing).
+		mac.edit("decisions/jev-auto.md", "Jev updates itself.");
+		win.edit("decisions/jev-auto.md", "Jev updates itself (host).");
+		win.retire("decisions/jev-auto.md");
+
+		await sync.sync("win");
+		await sync.sync("win");
+		expect(win.listed()).toEqual([]);
+		expect(mac.listed()).toEqual([]);
+		expect(win.pages.get("app/decisions/jev-auto.md")?.expiresAt).toBeTruthy();
 	});
 
 	it("writes nothing for a page both computers already hold the same", async () => {

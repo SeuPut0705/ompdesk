@@ -49,7 +49,10 @@ const BASE_LIMIT = 10_000;
 /** The memory server, as the sync reads and writes it (AiMemoryClient). */
 export interface MemoryStore {
 	projects(): Promise<AiMemoryProjectRef[]>;
-	pages(project: AiMemoryProjectRef): Promise<Pick<AiMemoryPageRef, "workspace" | "project" | "path" | "updatedAt">[]>;
+	/** Every latest page, expired ones too: a retired page must cross as retired, never be missed and re-created. */
+	allPages(
+		project: AiMemoryProjectRef,
+	): Promise<Pick<AiMemoryPageRef, "workspace" | "project" | "path" | "updatedAt">[]>;
 	pageCopy(ref: AiMemoryProjectRef & { path: string }): Promise<MemoryPageCopy>;
 	writePageCopy(copy: MemoryPageCopy, origin: string | undefined): Promise<void>;
 }
@@ -60,8 +63,13 @@ export function pageKey(ref: PageRef): string {
 	return `${ref.workspace}\u0000${ref.project}\u0000${ref.path}`;
 }
 
-/** What a page holds, independent of where it lives, when it changed, its pin and where it came from. */
-export function pageHash(page: Pick<MemoryPageCopy, "title" | "kind" | "tier" | "body" | "tags" | "metadata">): string {
+/**
+ * What a page holds, independent of where it lives, when it changed, its pin and where it came from. Its expiry
+ * counts (a retired page is a change); a page without one hashes as it did before expiry was carried.
+ */
+export function pageHash(
+	page: Pick<MemoryPageCopy, "title" | "kind" | "tier" | "body" | "tags" | "metadata" | "expiresAt">,
+): string {
 	const meta = page.metadata;
 	const relations = Object.entries(meta.relations ?? {})
 		.filter(([, targets]) => targets.length > 0)
@@ -77,6 +85,7 @@ export function pageHash(page: Pick<MemoryPageCopy, "title" | "kind" | "tier" | 
 		relations,
 		meta.applies_to ?? [],
 		meta.enforced_by ?? "",
+		...(page.expiresAt ? [page.expiresAt] : []),
 	]);
 	return createHash("sha256").update(canonical).digest("hex");
 }
@@ -92,7 +101,7 @@ interface IndexEntry {
 async function durableIndex(store: MemoryStore): Promise<Map<string, IndexEntry>> {
 	const index = new Map<string, IndexEntry>();
 	for (const project of await store.projects()) {
-		for (const page of await store.pages({ workspace: project.workspace, project: project.project })) {
+		for (const page of await store.allPages({ workspace: project.workspace, project: project.project })) {
 			if (!isDurablePath(page.path)) continue;
 			const ref = { workspace: page.workspace, project: page.project, path: page.path };
 			index.set(pageKey(ref), { key: pageKey(ref), ref, at: page.updatedAt ?? "" });
@@ -120,6 +129,7 @@ function toWire(copy: MemoryPageCopy, origin: string, at: string): MemoryPageWir
 		tags: copy.tags,
 		pinned: copy.pinned,
 		metadata: copy.metadata,
+		...(copy.expiresAt ? { expiresAt: copy.expiresAt } : {}),
 		origin,
 		updatedAt: at,
 		hash: pageHash(copy),
@@ -143,6 +153,7 @@ function fromWire(page: MemoryPageWire): MemoryPageCopy {
 		tags: page.tags,
 		pinned: page.pinned,
 		metadata,
+		...(page.expiresAt ? { expiresAt: page.expiresAt } : {}),
 		updatedAt: page.updatedAt || null,
 	};
 }

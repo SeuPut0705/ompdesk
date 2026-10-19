@@ -2349,7 +2349,7 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 		let ready = true;
 		const store = {
 			projects: vi.fn(async () => [{ workspace: "default", project: "app" }]),
-			pages: vi.fn(async () => [
+			allPages: vi.fn(async () => [
 				decision,
 				{ workspace: "default", project: "app", path: "sessions/s1.md", updatedAt: "2026-10-19T10:01:00Z" },
 			]),

@@ -30,7 +30,8 @@
  * - `__serve <data dir>`: the server: `/healthz`, then (bearer token) `/admin/status` and `/api/v1/…`: two projects
  *   (alpha: four pages, two sessions (one with 60 observations), an open and an accepted handoff; beta: one page),
  *   search over the pages (global or scoped), overview, observations by offset, the profile, and a STATEFUL wiki:
- *   `/admin/write-page` (keeps `origin_device` in the page's frontmatter, as OMPdesk's server does), `/admin/delete-page`
+ *   `/admin/write-page` (keeps `origin_device` and `expires_at` in the page's frontmatter, as OMPdesk's server does; an
+ *   expired page is left out of the page list unless `include_expired=true`), `/admin/delete-page`
  *   (returns `pre_checkpoint`), `/admin/restore-page`, `/admin/lint`,
  *   `/admin/forget-sweep`, and MCP `tools/call` on `/mcp` for `memory_handoff_cancel` and `memory_feedback`. POSTs are
  *   logged with their body, and `/mcp` calls with the tool name, in `FAKE_AI_MEMORY_LOG + ".requests"`.
@@ -260,6 +261,8 @@ interface FakePage {
 	tags: string[];
 	/** Frontmatter `origin_device`: the computer this page is a copy from. */
 	origin?: string;
+	/** Frontmatter `expires_at`: past it the page leaves the page list (a retired page). */
+	expires?: string;
 }
 interface FakeHandoff {
 	id: string;
@@ -574,6 +577,7 @@ function serve(): void {
 				next.tags = Array.isArray(body.tags) ? (body.tags as string[]) : [];
 				if (typeof body.origin_device === "string" && body.origin_device.trim())
 					next.origin = body.origin_device.trim();
+				if (typeof body.expires_at === "string" && body.expires_at.trim()) next.expires = body.expires_at.trim();
 				PAGES[String(body.project)] = [next, ...list.filter(entry => entry.path !== body.path)];
 				checkpoints.push(`rev-${++revCounter}`);
 				return json({ page_id: next.id, path: next.path });
@@ -643,7 +647,12 @@ function serve(): void {
 				const [, name = "", rest = ""] = project;
 				const list = PAGES[name] ?? [];
 				if (rest === "recent") return json(list.slice(0, 20).map(viewOf));
-				if (rest === "pages") return json(list.map(viewOf));
+				if (rest === "pages") {
+					const expired = (entry: FakePage) =>
+						entry.expires !== undefined && Date.parse(entry.expires) <= Date.now();
+					const all = url.searchParams.get("include_expired") === "true";
+					return json(list.filter(entry => all || !expired(entry)).map(viewOf));
+				}
 				if (rest === "handoffs") return json({ handoffs: HANDOFFS[name] ?? [] });
 				if (rest.startsWith("overview")) {
 					return json({
@@ -710,6 +719,7 @@ function serve(): void {
 						tags: found.tags,
 						summary: "1 prompt",
 						...(found.origin ? { origin_device: found.origin } : {}),
+						...(found.expires ? { expires_at: found.expires } : {}),
 					},
 					body_markdown: found.body,
 				});

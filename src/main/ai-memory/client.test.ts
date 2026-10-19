@@ -709,4 +709,21 @@ describe("AiMemoryClient (Memory page)", () => {
 		await client.writePageCopy(copy, undefined);
 		expect(sent.at(-1)?.body).not.toHaveProperty("origin_device");
 	});
+
+	it("a retired page's copy carries its expiry both ways, and the full list asks for expired pages too", async () => {
+		routes[`${BASE}/pages/decisions/old.md`] = json({
+			title: "Old",
+			tier: "semantic",
+			body_markdown: "Old.\n\n_Superseded by [[decisions/new.md]]._",
+			frontmatter: { tags: ["superseded"], expires_at: "2026-10-19T12:00:00Z" },
+		});
+		const copy = await client.pageCopy({ ...PROJECT, path: "decisions/old.md" });
+		expect(copy.expiresAt).toBe("2026-10-19T12:00:00Z");
+		routes["/admin/write-page"] = json({ page_id: "id" });
+		await client.writePageCopy(copy, "win-1");
+		expect(sent.at(-1)?.body).toMatchObject({ expires_at: "2026-10-19T12:00:00Z", origin_device: "win-1" });
+
+		routes[`${BASE}/pages?include_expired=true`] = json([{ path: "decisions/old.md", title: "Old" }]);
+		expect((await client.allPages(PROJECT)).map(page => page.path)).toEqual(["decisions/old.md"]);
+	});
 });

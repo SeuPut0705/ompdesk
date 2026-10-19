@@ -106,6 +106,35 @@ test("a decision made on one computer is in the other's memory, and never comes 
 		] as const) {
 			expect(await writes(memory, file)).toHaveLength(1);
 		}
+
+		// The host retires the device's decision, as the memory upkeep's supersede does: written again expired now.
+		const { serverUrl, dataDir } = await win.app.page.evaluate(() => window.omp.aiMemory.getState());
+		const token = (await fs.readFile(path.join(String(dataDir), "auth-tokens", "default"), "utf8")).trim();
+		const retired = await fetch(`${serverUrl}/admin/write-page`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+			body: JSON.stringify({
+				...ALPHA,
+				path: "decisions/sharing.md",
+				title: "Sharing",
+				kind: "decision",
+				body: "Tailscale only.\n\n_Superseded by [[decisions/sharing-v2.md]]._",
+				tags: ["superseded"],
+				expires_at: new Date().toISOString(),
+			}),
+		});
+		expect(retired.ok).toBe(true);
+		const listed = (page: Page) =>
+			page.evaluate(ref => window.omp.aiMemory.pages(ref).then(pages => pages.map(found => found.path)), ALPHA);
+		await expect.poll(() => listed(mac.app.page), { timeout: 30_000 }).not.toContain("decisions/sharing.md");
+		expect((await writes(device.memory, "decisions/sharing.md")).at(-1)?.body?.expires_at).toBeTruthy();
+		// Retired on both, and no round brings it back live.
+		const settled = await rounds();
+		await expect.poll(rounds, { timeout: 30_000 }).toBeGreaterThanOrEqual(settled + 4);
+		expect(await listed(win.app.page)).not.toContain("decisions/sharing.md");
+		expect(await listed(mac.app.page)).not.toContain("decisions/sharing.md");
+		// The copy the device's push wrote, then the retire: nothing after.
+		expect(await writes(host.memory, "decisions/sharing.md")).toHaveLength(2);
 		expect(host.app.errors).toEqual([]);
 		expect(device.app.errors).toEqual([]);
 	} finally {

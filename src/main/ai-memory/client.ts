@@ -629,6 +629,7 @@ export class AiMemoryClient {
 		if (str(frontmatter.enforced_by)) metadata.enforced_by = str(frontmatter.enforced_by);
 		const kind = str(row.kind) || str(frontmatter.kind);
 		const origin = str(frontmatter.origin_device).trim();
+		const expiresAt = str(frontmatter.expires_at).trim();
 		return {
 			...projectOf(ref),
 			path: ref.path,
@@ -640,6 +641,7 @@ export class AiMemoryClient {
 			pinned: row.pinned === true,
 			metadata,
 			...(origin ? { origin } : {}),
+			...(expiresAt ? { expiresAt } : {}),
 			updatedAt: str(row.updated_at) || null,
 		};
 	}
@@ -661,7 +663,20 @@ export class AiMemoryClient {
 			pinned: copy.pinned,
 			...copy.metadata,
 			...(origin ? { origin_device: origin } : {}),
+			...(copy.expiresAt ? { expires_at: copy.expiresAt } : {}),
 		});
+	}
+
+	/** Every latest page of a project, expired (retired) ones too, which the page list hides: for sync.ts. */
+	async allPages(project: AiMemoryProjectRef): Promise<AiMemoryPageRef[]> {
+		return rows(await this.#get(`${this.#projectPath(project)}/pages?include_expired=true`)).map(row => ({
+			...project,
+			path: str(row.path),
+			title: str(row.title),
+			kind: str(row.kind) || undefined,
+			tier: str(row.tier) || null,
+			updatedAt: str(row.updated_at) || null,
+		}));
 	}
 }
 
@@ -686,5 +701,7 @@ export interface MemoryPageCopy extends AiMemoryProjectRef {
 	metadata: MemoryPageMetadata;
 	/** The computer (OMPdesk device id) this copy came from; absent on a page made or edited here. */
 	origin?: string;
+	/** Frontmatter `expires_at`: set on a page retired by a newer one (or written with a time limit). */
+	expiresAt?: string;
 	updatedAt: string | null;
 }
