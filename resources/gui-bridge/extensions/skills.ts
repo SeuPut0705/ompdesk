@@ -5,12 +5,12 @@
 
 import { MANAGED_SKILLS_PROVIDER_ID, sanitizeSkillName } from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
 import { loadCapability, reset as resetCapabilities } from "@oh-my-pi/pi-coding-agent/capability";
-import { ManageSkillTool } from "@oh-my-pi/pi-coding-agent/tools/manage-skill";
 import { type ContextFile, contextFileCapability } from "@oh-my-pi/pi-coding-agent/capability/context-file";
 import { type Hook, hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
 import type { Skill } from "@oh-my-pi/pi-coding-agent/capability/skill";
 import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { ManageSkillTool } from "@oh-my-pi/pi-coding-agent/tools/manage-skill";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
