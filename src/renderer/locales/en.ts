@@ -192,12 +192,9 @@ export const en: Record<string, string> = {
 	"settings.worktreeBranchPrefix.example": "Example: {branch}",
 	"settings.worktreeBranchPrefix.invalid":
 		"Use letters, digits, . _ - and /, end with /, - or _, and don't start a folder with a dot.",
-	"settings.agentWorktrees.auto": "Clean up orphaned worktrees automatically",
-	"settings.agentWorktrees.autoDesc":
-		"On this computer, at launch and every 6 hours, omp removes the worktrees it made that are left over: crashed task sandboxes and PR checkouts whose repository or branch is gone. Live ones are never touched.",
 	"settings.agentWorktrees": "Agent worktrees",
 	"settings.agentWorktrees.desc":
-		"Worktrees omp made under ~/.omp/wt for PR checkouts and isolated tasks (omp worktree list). Clean up removes only the orphaned ones.",
+		"Worktrees omp made under ~/.omp/wt for PR checkouts and isolated tasks (omp worktree list). Clean up removes only the orphaned ones. Agent worktrees whose work has landed are removed by themselves at launch and every 6 hours.",
 	"settings.agentWorktrees.clear": "Clean up now",
 	"settings.agentWorktrees.refresh": "Refresh agent worktrees",
 	"settings.agentWorktrees.none": "No agent worktrees.",

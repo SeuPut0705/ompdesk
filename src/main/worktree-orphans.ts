@@ -5,8 +5,12 @@
  * Local only: git runs on the computer this module runs on, which is where a paired device's tab answers too (local
  * handlers run where the tab's omp runs). The listing and the removal read the repository again each time; the
  * caller's word is never taken for a state. Nothing here forces: `worktree remove` without `--force`, `branch -d`.
+ *
+ * `sweepLandedWorktrees` runs the same rule over every repository with a worktree under stock's worktree root, at
+ * launch and every six hours (index.ts): what the Work tree view's cleanup would offer goes by itself, branch kept.
  */
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import type {
 	OrphanWorktreeState,
@@ -212,6 +216,7 @@ export async function removeOrphanWorktree(
 	cwd: string,
 	worktreePath: string,
 	deps: OrphanDeps,
+	options: { keepBranch?: boolean } = {},
 ): Promise<RpcOrphanWorktreeRemoval> {
 	if (!(await repoRoot(cwd))) throw new LocalCommandError(`Not a git repository: ${cwd}`, "not_a_repo");
 	const primary = await primaryRoot(cwd);
@@ -240,7 +245,7 @@ export async function removeOrphanWorktree(
 				? (await removeLinkedWorktree(primary, entry.path))
 					? ("removed" as const)
 					: null
-				: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }),
+				: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }, options),
 		);
 		if (!removal) {
 			throw new LocalCommandError(
@@ -250,4 +255,134 @@ export async function removeOrphanWorktree(
 		}
 		return { removal };
 	});
+}
+
+/** One worktree the sweep removed (or, in a dry run, would remove). */
+export interface SweptWorktree {
+	path: string;
+	repo: string;
+	branch: string | null;
+	state: OrphanWorktreeState;
+	squashed?: true;
+}
+
+export interface SweepReport {
+	root: string;
+	removed: SweptWorktree[];
+	/** Orphans the rule keeps: uncommitted or untracked files, or commits nothing else holds. */
+	kept: SweptWorktree[];
+	failed: { path: string; error: string }[];
+}
+
+/**
+ * Remove every orphaned worktree under stock's worktree root whose work is landed (or never begun), keeping its
+ * branch: the repositories are the primary checkouts the root's `gui-` folders belong to, each listed and removed by
+ * `listOrphanWorktrees` / `removeOrphanWorktree`, so in use, dirty, unlanded, locked, the primary checkout and
+ * anything outside the repository's own root stay. `dryRun` removes nothing and reports what would go.
+ */
+export async function sweepLandedWorktrees(deps: OrphanDeps, options: { dryRun?: boolean } = {}): Promise<SweepReport> {
+	// The root without a repository: stock's global `worktree.base` (a repository's own base is read per repository).
+	const { root } = await stockWorktreeLocation(deps.bridge, os.homedir());
+	const report: SweepReport = { root, removed: [], kept: [], failed: [] };
+	const names = await fs.readdir(root).catch(() => [] as string[]);
+	const repos = new Set<string>();
+	for (const name of names) {
+		if (!name.startsWith("gui-")) continue;
+		// A folder git cannot place (a removed repository, a stray directory) holds nothing this rule may judge.
+		const primary = await primaryRoot(path.join(root, name)).catch(() => null);
+		if (primary) repos.add(realFolder(primary));
+	}
+	for (const repo of repos) {
+		const listed = await listOrphanWorktrees(repo, deps).catch((error: unknown) => {
+			report.failed.push({ path: repo, error: error instanceof Error ? error.message : String(error) });
+			return null;
+		});
+		for (const worktree of listed?.worktrees ?? []) {
+			const swept: SweptWorktree = {
+				path: worktree.path,
+				repo: worktree.repo,
+				branch: worktree.branch,
+				state: worktree.state,
+				...(worktree.squashed ? { squashed: true as const } : {}),
+			};
+			if (!REMOVABLE.includes(worktree.state)) {
+				report.kept.push(swept);
+				continue;
+			}
+			if (options.dryRun) {
+				report.removed.push(swept);
+				continue;
+			}
+			try {
+				await removeOrphanWorktree(repo, worktree.path, deps, { keepBranch: true });
+				report.removed.push(swept);
+			} catch (error) {
+				report.failed.push({ path: worktree.path, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
+	}
+	return report;
+}
+
+/** The first sweep waits for the restored tabs to register their folders; then one every six hours. */
+export const SWEEP_FIRST_DELAY_MS = 60_000;
+export const SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
+
+export interface WorktreeSweeperDeps {
+	sweep(): Promise<SweepReport>;
+	/** One line per removed worktree and per failure (gui-runtime.jsonl). */
+	log(message: string, details: Record<string, unknown>): void;
+}
+
+/** Runs {@link sweepLandedWorktrees} at launch and every six hours, one at a time; a failed sweep is logged and the next still comes. */
+export class WorktreeSweeper {
+	#deps: WorktreeSweeperDeps;
+	#timer: NodeJS.Timeout | undefined;
+	#running: Promise<void> | null = null;
+	#stopped = false;
+
+	constructor(deps: WorktreeSweeperDeps) {
+		this.#deps = deps;
+	}
+
+	start(): void {
+		this.#stopped = false;
+		this.#schedule(SWEEP_FIRST_DELAY_MS);
+	}
+
+	/** No further sweeps (quit); a sweep already running finishes. */
+	stop(): void {
+		this.#stopped = true;
+		clearTimeout(this.#timer);
+		this.#timer = undefined;
+	}
+
+	/** One sweep now (tests and the timer); resolves when it ends. */
+	runOnce(): Promise<void> {
+		if (this.#running) return this.#running;
+		const run = this.#sweep().finally(() => {
+			this.#running = null;
+		});
+		this.#running = run;
+		return run;
+	}
+
+	#schedule(ms: number): void {
+		clearTimeout(this.#timer);
+		if (this.#stopped) return;
+		this.#timer = setTimeout(() => {
+			void this.runOnce().then(() => this.#schedule(SWEEP_INTERVAL_MS));
+		}, ms);
+		this.#timer.unref?.();
+	}
+
+	async #sweep(): Promise<void> {
+		try {
+			const report = await this.#deps.sweep();
+			for (const worktree of report.removed) this.#deps.log("removed", { ...worktree, branchKept: true });
+			for (const failure of report.failed) this.#deps.log("failed", failure);
+		} catch (error) {
+			this.#deps.log("failed", { error: error instanceof Error ? error.message : String(error) });
+		}
+	}
 }

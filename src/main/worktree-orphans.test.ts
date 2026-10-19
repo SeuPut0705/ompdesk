@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcOrphanWorktree } from "../shared/rpc-types";
 import { gitSync, initRepo } from "./local/git/test-repos";
 import { LocalCommandError } from "./local/types";
@@ -10,8 +10,13 @@ import {
 	listOrphanWorktrees,
 	type OrphanFacts,
 	removeOrphanWorktree,
+	SWEEP_FIRST_DELAY_MS,
+	SWEEP_INTERVAL_MS,
+	type SweepReport,
 	sessionOpenFolders,
 	setOpenFoldersSource,
+	sweepLandedWorktrees,
+	WorktreeSweeper,
 } from "./worktree-orphans";
 import { realFolder } from "./worktree-removals";
 
@@ -303,6 +308,137 @@ describe("removeOrphanWorktree", () => {
 		},
 		SLOW,
 	);
+});
+
+describe("sweepLandedWorktrees", () => {
+	const branches = () =>
+		gitSync(repo, "branch", "--list", "omp/gui/*", "--format=%(refname:short)").split("\n").filter(Boolean).sort();
+
+	it(
+		"removes every landed, squash-merged, untouched and detached orphan and keeps its branch",
+		async () => {
+			const dirs = await scene();
+			const before = branches();
+			const report = await sweepLandedWorktrees(deps);
+			expect(report.root).toBe(wtRoot);
+			expect(report.failed).toEqual([]);
+			expect(report.removed.map(worktree => worktree.path).sort()).toEqual(
+				[dirs.landed, dirs.squashed, dirs.untouched, dirs.detached].sort(),
+			);
+			for (const key of ["landed", "squashed", "untouched", "detached"]) {
+				await expect(fs.stat(dirs[key] as string)).rejects.toThrow();
+				expect(listedWorktrees()).not.toContain(realFolder(dirs[key] as string));
+			}
+			// Every branch stays, merged or not.
+			expect(branches()).toEqual(before);
+		},
+		SLOW,
+	);
+
+	it(
+		"keeps a dirty, an unlanded, an in-use, an outside-the-root and a non-OMPdesk worktree and the primary checkout",
+		async () => {
+			const dirs = await scene();
+			const unlandedTip = gitSync(repo, "rev-parse", "omp/gui/unlanded");
+			const report = await sweepLandedWorktrees(deps);
+			expect(report.kept.map(worktree => worktree.state).sort()).toEqual(["dirty", "unlanded"]);
+			for (const key of ["dirty", "unlanded", "inUse", "outside", "notGui"])
+				expect(listedWorktrees(), key).toContain(realFolder(dirs[key] as string));
+			expect(listedWorktrees()).toContain(realFolder(repo));
+			expect(await fs.readFile(path.join(dirs.dirty, "scratch.txt"), "utf8")).toBe("unsaved");
+			expect(gitSync(repo, "rev-parse", "omp/gui/unlanded")).toBe(unlandedTip);
+		},
+		SLOW,
+	);
+
+	it(
+		"finds every repository with a worktree under the root and skips a folder git cannot place",
+		async () => {
+			const other = path.join(root, "other");
+			await initRepo(other);
+			const theirs = path.join(wtRoot, `gui-theirs-${HASH}`);
+			gitSync(other, "worktree", "add", "-q", "-b", "omp/gui/theirs", theirs, "main");
+			const ours = addWorktree("ours");
+			await fs.mkdir(path.join(wtRoot, `gui-stray-${HASH}`));
+			const report = await sweepLandedWorktrees(deps);
+			expect(report.failed).toEqual([]);
+			expect(report.removed.map(worktree => worktree.path).sort()).toEqual(
+				[realFolder(theirs), realFolder(ours)].sort(),
+			);
+			await fs.stat(path.join(wtRoot, `gui-stray-${HASH}`));
+		},
+		SLOW,
+	);
+
+	it(
+		"removes nothing in a dry run and reports what would go",
+		async () => {
+			const dirs = await scene();
+			const report = await sweepLandedWorktrees(deps, { dryRun: true });
+			expect(report.removed.map(worktree => worktree.path).sort()).toEqual(
+				[dirs.landed, dirs.squashed, dirs.untouched, dirs.detached].sort(),
+			);
+			for (const key of ["landed", "squashed", "untouched", "detached"]) await fs.stat(dirs[key] as string);
+		},
+		SLOW,
+	);
+});
+
+describe("WorktreeSweeper", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("sweeps a minute after launch and then every 6 hours, logs each removal, and stops for good", async () => {
+		vi.useFakeTimers();
+		const report: SweepReport = {
+			root: "/wt",
+			removed: [{ path: "/wt/gui-a", repo: "/repo", branch: "omp/gui/a", state: "landed" }],
+			kept: [],
+			failed: [{ path: "/wt/gui-b", error: "git refused" }],
+		};
+		let sweeps = 0;
+		const log: [string, Record<string, unknown>][] = [];
+		const sweeper = new WorktreeSweeper({
+			sweep: async () => {
+				sweeps++;
+				return report;
+			},
+			log: (message, details) => log.push([message, details]),
+		});
+		sweeper.start();
+		await vi.advanceTimersByTimeAsync(SWEEP_FIRST_DELAY_MS - 1);
+		expect(sweeps).toBe(0);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(sweeps).toBe(1);
+		expect(log).toEqual([
+			["removed", { path: "/wt/gui-a", repo: "/repo", branch: "omp/gui/a", state: "landed", branchKept: true }],
+			["failed", { path: "/wt/gui-b", error: "git refused" }],
+		]);
+		await vi.advanceTimersByTimeAsync(SWEEP_INTERVAL_MS);
+		expect(sweeps).toBe(2);
+		sweeper.stop();
+		await vi.advanceTimersByTimeAsync(SWEEP_INTERVAL_MS * 2);
+		expect(sweeps).toBe(2);
+	});
+
+	it("logs a sweep that throws and still sweeps again", async () => {
+		vi.useFakeTimers();
+		let sweeps = 0;
+		const log: string[] = [];
+		const sweeper = new WorktreeSweeper({
+			sweep: async () => {
+				sweeps++;
+				throw new Error("no omp");
+			},
+			log: (message, details) => log.push(`${message}: ${String(details.error)}`),
+		});
+		sweeper.start();
+		await vi.advanceTimersByTimeAsync(SWEEP_FIRST_DELAY_MS + SWEEP_INTERVAL_MS);
+		expect(sweeps).toBe(2);
+		expect(log).toEqual(["failed: no omp", "failed: no omp"]);
+		sweeper.stop();
+	});
 });
 
 describe("sessionOpenFolders", () => {

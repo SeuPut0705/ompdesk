@@ -469,6 +469,11 @@ export type RuntimeErrorSource =
 	| "app-update"
 	/** ai-memory's service (src/main/ai-memory/service.ts `log`): `message` is launch, binary, phase or failed. */
 	| "ai-memory"
+	/**
+	 * The automatic sweep of landed agent worktrees (src/main/worktree-orphans.ts `WorktreeSweeper`): `message` is
+	 * removed (`details`: path, repo, branch, state; the branch is kept) or failed.
+	 */
+	| "worktree-cleanup"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
 	/**

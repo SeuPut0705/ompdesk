@@ -1,8 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	AgentWorktreeAutoClean,
-	AUTO_CLEAN_FIRST_DELAY_MS,
-	AUTO_CLEAN_INTERVAL_MS,
 	clearAgentWorktrees,
 	listAgentWorktrees,
 	parseAgentWorktreeClear,
@@ -25,11 +22,6 @@ const CLEAR_REPORT = JSON.stringify({
 		{ path: "/home/u/.omp/wt/b", ok: false, error: "EBUSY" },
 	],
 });
-
-afterEach(() => {
-	vi.useRealTimers();
-});
-
 describe("parseAgentWorktrees", () => {
 	it("reads stock's WorktreeEntry[] and drops rows of another shape", () => {
 		const stdout = JSON.stringify([
@@ -87,69 +79,6 @@ describe("list / clear", () => {
 
 		const broken = fakeOmp(async () => ({ code: 2, stdout: "", stderr: "line 1\nUnknown command: worktree" }));
 		await expect(listAgentWorktrees(broken)).rejects.toThrow("Unknown command: worktree");
-	});
-});
-
-describe("AgentWorktreeAutoClean", () => {
-	function harness(enabled: { value: boolean }) {
-		const runs: string[][] = [];
-		const log: string[] = [];
-		const cleaner = new AgentWorktreeAutoClean({
-			enabled: () => enabled.value,
-			omp: async () =>
-				fakeOmp(async args => {
-					runs.push(args);
-					return { code: 0, stdout: CLEAR_REPORT, stderr: "" };
-				}),
-			log: message => log.push(message),
-		});
-		return { cleaner, runs, log };
-	}
-
-	it("clears a minute after launch, then every 6 hours, while the pref is on", async () => {
-		vi.useFakeTimers();
-		const enabled = { value: true };
-		const { cleaner, runs, log } = harness(enabled);
-		cleaner.start();
-		await vi.advanceTimersByTimeAsync(AUTO_CLEAN_FIRST_DELAY_MS - 1);
-		expect(runs).toHaveLength(0);
-		await vi.advanceTimersByTimeAsync(1);
-		expect(runs).toEqual([["worktree", "clear", "--json"]]);
-		expect(log).toEqual(["worktree auto-clean: 1 removed, 1 failed"]);
-		await vi.advanceTimersByTimeAsync(AUTO_CLEAN_INTERVAL_MS);
-		expect(runs).toHaveLength(2);
-
-		// Off: no further runs.
-		enabled.value = false;
-		cleaner.prefChanged();
-		await vi.advanceTimersByTimeAsync(AUTO_CLEAN_INTERVAL_MS * 2);
-		expect(runs).toHaveLength(2);
-		cleaner.stop();
-	});
-
-	it("does nothing while the pref is off and cleans at once when it is switched on", async () => {
-		vi.useFakeTimers();
-		const enabled = { value: false };
-		const { cleaner, runs } = harness(enabled);
-		cleaner.start();
-		await vi.advanceTimersByTimeAsync(AUTO_CLEAN_FIRST_DELAY_MS * 2);
-		expect(runs).toHaveLength(0);
-		enabled.value = true;
-		cleaner.prefChanged();
-		await vi.advanceTimersByTimeAsync(0);
-		expect(runs).toHaveLength(1);
-		cleaner.stop();
-	});
-
-	it("logs a failed run and keeps going", async () => {
-		const log: string[] = [];
-		const cleaner = new AgentWorktreeAutoClean({
-			enabled: () => true,
-			omp: async () => fakeOmp(async () => ({ code: 1, stdout: "", stderr: "boom" })),
-			log: message => log.push(message),
-		});
-		await cleaner.runOnce();
-		expect(log).toEqual(["worktree auto-clean failed: boom"]);
 	});
 });
 

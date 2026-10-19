@@ -449,14 +449,18 @@ export async function removeLinkedWorktree(baseCwd: string, worktreePath: string
  * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
  * uncommitted or untracked file whose work has landed in the parent's HEAD or upstream (an untouched branch has; a
  * squash-merged one has by content) goes (`worktree remove` without `--force` refuses a dirty one too), and the branch
- * only with `branch -d`, which refuses an unmerged one: a squash-merged branch keeps it (`branch-kept`). Null when
- * anything held it back.
+ * only with `branch -d`, which refuses an unmerged one: a squash-merged branch keeps it (`branch-kept`). `keepBranch`
+ * leaves the branch whatever it holds (`branch-kept`). Null when anything held it back.
  */
-export async function removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
+export async function removeSafeWorktree(
+	worktree: WorktreeRef,
+	options: { keepBranch?: boolean } = {},
+): Promise<WorktreeRemoval> {
 	const facts = await landingFacts(worktree);
 	if (!facts.landed || !facts.clean) return null;
 	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
 	if (!primary) return null;
+	if (options.keepBranch) return "branch-kept";
 	const branch = await gitRaw(primary, ["branch", "-d", worktree.branch]);
 	return branch.code === 0 ? "removed" : "branch-kept";
 }

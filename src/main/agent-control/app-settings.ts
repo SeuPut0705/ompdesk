@@ -25,7 +25,6 @@ import {
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
 	SCHEDULED_RETRY_PREF,
-	WORKTREE_AUTO_CLEAN_PREF,
 } from "../../shared/desktop-prefs";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../../shared/extension-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
@@ -145,13 +144,6 @@ export const SETTINGS: readonly Setting[] = [
 		"agent",
 		"Use the judge model for small decisions",
 		"작은 판단에 판단 모델 쓰기",
-	),
-	pref(
-		"worktreeAutoClean",
-		WORKTREE_AUTO_CLEAN_PREF,
-		"workspace",
-		"Clean orphaned worktrees",
-		"남은 워크트리 자동 정리",
 	),
 	pref("theme", "themeName", "appearance", "Theme", "테마", options("system", ...THEME_NAMES), "change", {
 		mirror: { theme: value => (value === "system" ? "system" : DARK_THEMES.has(String(value)) ? "dark" : "light") },

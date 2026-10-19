@@ -57,7 +57,6 @@ import {
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
 	SCHEDULED_RETRY_PREF,
-	WORKTREE_AUTO_CLEAN_PREF,
 } from "../shared/desktop-prefs";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
@@ -72,7 +71,6 @@ import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
-import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { AiMemoryClient } from "./ai-memory/client";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
@@ -103,6 +101,7 @@ import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { migrateLegacyUserData } from "./legacy-user-data";
+import { tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { LocalMachine } from "./machine-services";
@@ -164,7 +163,7 @@ import {
 	WorktreePrompts,
 	type WorktreeWindows,
 } from "./worktree-lifecycle";
-import { setOpenFoldersSource } from "./worktree-orphans";
+import { sessionOpenFolders, setOpenFoldersSource, sweepLandedWorktrees, WorktreeSweeper } from "./worktree-orphans";
 
 // App identity: the dev run shows "Electron" in the dock otherwise; packaged
 // builds get the name from the bundle via electron-builder. The name also picks
@@ -289,6 +288,9 @@ function prefsStore(): Store<MainPrefs> {
 		// The model pool was removed; its saved presets (pref `modelPool`) are dropped once. The journal's
 		// `ompdesk.model-pool` entries stay in old sessions and are ignored.
 		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("modelPool");
+		// Agent worktrees are now swept by OMPdesk's own landed rule, always (worktree-orphans.ts); the switch that ran
+		// stock's `omp worktree clear` on a timer is gone.
+		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("worktreeAutoClean");
 		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
 		// stored pref never names a missing theme and the saved window opens in the right scheme.
 		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
@@ -410,8 +412,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
-/** Orphaned agent worktree cleanup (Settings › Projects & launch › Worktrees). */
-let worktreeAutoClean: AgentWorktreeAutoClean | null = null;
+/** Landed agent worktrees removed at launch and every 6 h (worktree-orphans.ts). */
+let worktreeSweeper: WorktreeSweeper | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -1347,17 +1349,20 @@ app.whenReady().then(() => {
 		turnResume.sync();
 	};
 	hostServices.attachResume(turnResume);
-	// Settings › Projects & launch › Worktrees: stock `omp worktree clear` (orphaned only) on a timer.
-	const autoClean = new AgentWorktreeAutoClean({
-		enabled: () => prefs.get(WORKTREE_AUTO_CLEAN_PREF) === true,
-		omp: async () => {
-			const resolution = await systemOmp();
-			return resolution.ok ? resolution.runtime : null;
-		},
-		log: message => console.warn(`[worktrees] ${message}`),
+	// Finished agent worktrees go by themselves: the Work tree view's landed rule, branch kept, every 6 h. Only the
+	// packaged app outside a test run: a dev or test instance sees none of the real app's open sessions, so their
+	// worktrees would look unused to it.
+	const sweeper = new WorktreeSweeper({
+		sweep: () => sweepLandedWorktrees({ bridge: tablessWorktreeBridge, openFolders: sessionOpenFolders }),
+		log: (message, details) =>
+			writeRuntimeLog({
+				source: "worktree-cleanup",
+				message,
+				details: { level: message === "removed" ? "info" : "error", ...details },
+			}),
 	});
-	worktreeAutoClean = autoClean;
-	autoClean.start();
+	worktreeSweeper = sweeper;
+	if (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") sweeper.start();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
@@ -1387,7 +1392,6 @@ app.whenReady().then(() => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
-			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
@@ -1589,7 +1593,7 @@ installQuitGuard(
 			["github-auth", () => githubAuthService?.dispose()],
 			["schedules", () => scheduleService?.dispose()],
 			["work-awake", () => workAwakePolicy?.dispose()],
-			["worktree-auto-clean", () => worktreeAutoClean?.stop()],
+			["worktree-sweep", () => worktreeSweeper?.stop()],
 			["sidecars", () => sidecarPool?.disposeAll()],
 			["remote-devices", () => void remoteDevices?.dispose()],
 			["mobile-web", () => mobileWebService?.dispose()],

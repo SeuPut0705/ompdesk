@@ -146,15 +146,4 @@ describe("AgentWorktreesRows", () => {
 		expect(text).toContain("Unknown command: worktree");
 		expect(text).not.toContain(translate("settings.agentWorktrees.none"));
 	});
-
-	it("saves the auto-clean switch as the pref main reads", async () => {
-		getAgentWorktrees.mockResolvedValue(ok("get_agent_worktrees", { entries: [] }));
-		await mount();
-		expect(document.body.textContent ?? "").toContain(translate("settings.agentWorktrees.none"));
-		const toggle = document.querySelector("#setting-gui-worktreeAutoClean [role='switch']") as HTMLButtonElement;
-		await act(async () => {
-			toggle.click();
-		});
-		expect(prefsSet).toHaveBeenCalledWith("worktreeAutoClean", true);
-	});
 });

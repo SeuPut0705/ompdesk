@@ -1,13 +1,10 @@
 /**
- * Agent-managed worktrees under `~/.omp/wt/` (B58 auto-clean): stock
- * `omp worktree list --json` lists them and `omp worktree clear --json`
- * removes the orphaned ones (crashed task isolations, PR checkouts whose repo
- * or branch is gone). Stock decides what counts as orphaned and does the
- * removal; OMPdesk never passes `--all`, so a live checkout or a sandbox a
- * running omp still owns is never touched.
- *
- * With prefs `worktreeAutoClean` on, main runs that clear once shortly after
- * launch, then every six hours while the app stays open.
+ * Agent-managed worktrees under `~/.omp/wt/` (B58): stock `omp worktree list --json` lists them and
+ * `omp worktree clear --json` removes the orphaned ones (crashed task isolations, PR checkouts whose repo
+ * or branch is gone), only when the user clicks it in Settings › Projects & launch › Worktrees: stock's
+ * clear deletes those folders outright. Stock decides what counts as orphaned and does the removal;
+ * OMPdesk never passes `--all`. What goes by itself is OMPdesk's own rule (worktree-orphans.ts
+ * `sweepLandedWorktrees`).
  */
 import type { RpcAgentWorktree, RpcAgentWorktreeClear } from "../shared/rpc-types";
 import { LocalCommandError, type OmpRuntime } from "./local/types";
@@ -22,9 +19,6 @@ const KINDS: Record<string, RpcAgentWorktree["kind"]> = {
 	empty: "empty",
 	stray: "stray",
 };
-
-export const AUTO_CLEAN_FIRST_DELAY_MS = 60_000;
-export const AUTO_CLEAN_INTERVAL_MS = 6 * 60 * 60_000;
 
 function optionalString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -110,76 +104,4 @@ export function listAgentWorktrees(omp: OmpRuntime, cwd?: string): Promise<RpcAg
 /** `omp worktree clear --json`: stock removes the orphaned entries only. */
 export function clearAgentWorktrees(omp: OmpRuntime, cwd?: string): Promise<RpcAgentWorktreeClear> {
 	return runWorktreeCli(omp, "clear", CLEAR_TIMEOUT_MS, parseAgentWorktreeClear, cwd);
-}
-
-export interface AgentWorktreeAutoCleanDeps {
-	/** prefs `worktreeAutoClean` === true. */
-	enabled: () => boolean;
-	omp: () => Promise<OmpRuntime | null>;
-	log: (message: string) => void;
-}
-
-/**
- * Runs stock's clear while the pref is on: once {@link AUTO_CLEAN_FIRST_DELAY_MS}
- * after launch (or right after the pref is switched on), then every
- * {@link AUTO_CLEAN_INTERVAL_MS}. One run at a time; a failed run is logged and
- * the next one still comes.
- */
-export class AgentWorktreeAutoClean {
-	#deps: AgentWorktreeAutoCleanDeps;
-	#timer: NodeJS.Timeout | undefined;
-	#running: Promise<void> | null = null;
-
-	constructor(deps: AgentWorktreeAutoCleanDeps) {
-		this.#deps = deps;
-	}
-
-	start(): void {
-		this.#schedule(AUTO_CLEAN_FIRST_DELAY_MS);
-	}
-
-	/** The pref changed: on → clean now and resume the interval; off → stop. */
-	prefChanged(): void {
-		this.#schedule(0);
-	}
-
-	stop(): void {
-		clearTimeout(this.#timer);
-		this.#timer = undefined;
-	}
-
-	/** One clear now (tests and the timer); resolves when it ends. */
-	runOnce(): Promise<void> {
-		if (this.#running) return this.#running;
-		const run = this.#clean().finally(() => {
-			this.#running = null;
-		});
-		this.#running = run;
-		return run;
-	}
-
-	#schedule(ms: number): void {
-		this.stop();
-		if (!this.#deps.enabled()) return;
-		this.#timer = setTimeout(() => {
-			this.#timer = undefined;
-			void this.runOnce().then(() => {
-				if (this.#timer === undefined) this.#schedule(AUTO_CLEAN_INTERVAL_MS);
-			});
-		}, ms);
-	}
-
-	async #clean(): Promise<void> {
-		if (!this.#deps.enabled()) return;
-		try {
-			const omp = await this.#deps.omp();
-			if (!omp) return;
-			const report = await clearAgentWorktrees(omp);
-			if (report.removed > 0 || report.failed > 0) {
-				this.#deps.log(`worktree auto-clean: ${report.removed} removed, ${report.failed} failed`);
-			}
-		} catch (err) {
-			this.#deps.log(`worktree auto-clean failed: ${err instanceof Error ? err.message : String(err)}`);
-		}
-	}
 }
