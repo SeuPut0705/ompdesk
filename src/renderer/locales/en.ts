@@ -62,7 +62,6 @@ export const en: Record<string, string> = {
 	"security.empty.unscanned": "This project has not been scanned",
 	"security.empty.failed": "The selected scan failed",
 	"security.empty.incomplete": "The selected scan did not complete",
-	"security.empty.notVerified": "A completed scan is required before its result can be assessed.",
 	"tools.ask.selected": "Selected",
 	"tools.ask.timedOut": "Automatically selected after the question timed out.",
 	"tools.ask.chatRedirect": "Answered in chat instead.",
@@ -1582,10 +1581,7 @@ export const en: Record<string, string> = {
 	"invPanel.scope.user": "user",
 	"invPanel.scope.project": "project",
 	"invPanel.pluginToggleFailed": "Couldn't update plugin",
-	"invPanel.footer.plugins": "Plugin enable/disable applies immediately and persists to the plugin's scope.",
 	"invPanel.plugins.empty": "No plugins installed.",
-	"invPanel.plugins.emptyHint":
-		"Add a marketplace, then install plugins from its catalog. Installed plugins will appear here with controls for scope, features, and settings.",
 	"invPanel.plugins.browseMarketplaces": "Browse marketplaces",
 	"invPanel.marketplaces.empty": "No marketplaces configured.",
 	"invPanel.marketplaces.emptyHint": "Add a catalog source above to discover and install extensions for this project.",
@@ -2217,15 +2213,11 @@ export const en: Record<string, string> = {
 	"settings.resources.description":
 		"Manage installed plugins and marketplaces, and inspect prompt templates, from one durable home.",
 	"settings.skills.title": "Skills",
-	"settings.skills.description":
-		"Inspect every skill available to this project, control model access, and maintain isolated managed skills without touching authored or plugin files.",
 	"settings.skills.new": "New managed skill",
 	"settings.skills.count": "{shown} of {total} skills",
 	"settings.skills.refresh": "Refresh skills",
 	"settings.skills.empty": "No skills match this view",
 	"settings.skills.none": "No skills yet",
-	"settings.skills.noneDesc":
-		"Skills from your project, plugins, and managed skills show up here. Create a managed skill to get started.",
 	"settings.skills.selectHint": "Select a skill to inspect its instructions.",
 	"settings.skills.enabled": "Enabled",
 	"settings.skills.disabled": "Disabled",
@@ -2500,7 +2492,6 @@ export const en: Record<string, string> = {
 
 	// Settings › Project folders (/dirs /add-dir /remove-dir /move)
 	"workspaceDirs.empty": "No folders in this session",
-	"workspaceDirs.emptyDescription": "Add a folder so the agent can read and edit files in it.",
 	"workspaceDirs.primary": "Primary",
 	"workspaceDirs.add": "Add folder…",
 	"workspaceDirs.added": "Added {path}",
@@ -5498,7 +5489,6 @@ export const en: Record<string, string> = {
 	"schedules.masterDesc": "Off holds every schedule without changing it.",
 	"schedules.new": "New schedule",
 	"schedules.empty": "No schedules yet",
-	"schedules.emptyDesc": "Have omp check, tidy or report on a project every day or every few hours.",
 	"schedules.loading": "Loading schedules…",
 	"schedules.loadFailed": "Couldn't load schedules",
 	"schedules.actionFailed": "Couldn't update the schedule",

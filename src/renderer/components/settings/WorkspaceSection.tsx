@@ -172,13 +172,7 @@ export function WorkspaceSection() {
 				</div>
 			) : (
 				showEmpty && (
-					<EmptyState
-						actions={addButton}
-						description={t("workspaceDirs.emptyDescription")}
-						icon={<FolderGit2 />}
-						size="sm"
-						title={t("workspaceDirs.empty")}
-					/>
+					<EmptyState actions={addButton} icon={<FolderGit2 />} size="sm" title={t("workspaceDirs.empty")} />
 				)
 			)}
 			{busy && sidecarReady && (

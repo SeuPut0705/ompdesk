@@ -334,7 +334,7 @@ function PluginsTab({
 	return (
 		<TabPanel
 			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: plugins.length, total }) : undefined}
-			footer={t("invPanel.footer.plugins")}
+			footer={undefined}
 			label={t("invPanel.tabs.plugins")}
 			resource={resource}
 			visible={visible}
@@ -349,7 +349,6 @@ function PluginsTab({
 										{t("invPanel.plugins.browseMarketplaces")}
 									</Button>
 								}
-								description={t("invPanel.plugins.emptyHint")}
 								icon={<PackageOpen />}
 								size="sm"
 								title={t("invPanel.plugins.empty")}

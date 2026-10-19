@@ -472,9 +472,7 @@ export function SecuritySection() {
 						{findings.length === 0 ? (
 							<div role="status">
 								<EmptyState
-									description={t(
-										emptyState === "clear" ? "security.empty.description" : "security.empty.notVerified",
-									)}
+									description={emptyState === "clear" ? t("security.empty.description") : undefined}
 									icon={
 										emptyState === "clear" ? (
 											<ShieldCheck className="text-(--sc-success)" />
