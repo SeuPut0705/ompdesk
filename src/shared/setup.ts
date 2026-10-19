@@ -39,9 +39,26 @@ export type SetupPlatform = "darwin" | "win32" | "other";
  */
 export type GitShellProblem = { kind: "mandatory-aslr" } | { kind: "spawn-failed"; detail: string };
 
-/** What detection found. `path` is the executable (or install root) it found. */
+/** Setup's Git Mandatory ASLR override (src/main/setup/git-aslr.ts): set it, or remove it again. */
+export type GitAslrAction = "fix" | "undo";
+export type GitAslrResult = { ok: true; images: number } | { ok: false; detail: string };
+
+export function isGitAslrAction(value: unknown): value is GitAslrAction {
+	return value === "fix" || value === "undo";
+}
+
+/**
+ * What detection found. `path` is the executable (or install root) it found. `gitAslrOverride`: Windows holds
+ * setup's Mandatory ASLR override for this Git's sh.exe (it can be undone).
+ */
 export type SetupPresence =
-	| { kind: "present"; version: string | null; path: string | null; gitShell?: GitShellProblem }
+	| {
+			kind: "present";
+			version: string | null;
+			path: string | null;
+			gitShell?: GitShellProblem;
+			gitAslrOverride?: boolean;
+	  }
 	| { kind: "missing" }
 	| { kind: "outdated"; version: string; minimum: string; path: string | null }
 	| { kind: "broken"; detail: string; path: string | null };

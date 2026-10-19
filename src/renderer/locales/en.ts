@@ -6128,6 +6128,13 @@ export const en: Record<string, string> = {
 	"machineSetup.presence.gitShellAslr":
 		"Git Bash can't start other programs (Windows error 0xC0000142): Mandatory ASLR is on in Windows Security › App & browser control › Exploit protection › System settings › Force randomization for images. Git hooks, interactive rebase and pushes to a local folder fail; the agent's shell commands still run.",
 	"machineSetup.presence.gitShellFailed": "Git Bash can't start other programs: {detail}",
+	"machineSetup.gitAslr.fix": "Fix",
+	"machineSetup.gitAslr.undo": "Undo",
+	"machineSetup.gitAslr.fixDetail":
+		"Fix turns Force randomization off for this Git's own MSYS programs only (its usr folder), never for Windows or other apps. Windows asks for permission once.",
+	"machineSetup.gitAslr.applied":
+		"Force randomization is off for this Git's MSYS programs only (set by OMPdesk). Undo puts them back under the system setting.",
+	"machineSetup.gitAslr.failed": "The change did not go through.",
 	"machineSetup.command": "Command",
 	"machineSetup.location": "Installs to",
 	"machineSetup.prompt.uac": "Windows will ask for permission to make changes. Choose Yes to continue.",

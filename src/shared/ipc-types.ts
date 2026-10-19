@@ -54,7 +54,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import type { SchedulesApi } from "./schedules";
-import type { SetupItemId, SetupState } from "./setup";
+import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
@@ -331,6 +331,8 @@ export const IPC_COMMANDS = {
 	SETUP_RETRY: "setup:retry",
 	/** Cancel the running setup install (kills its process tree) */
 	SETUP_CANCEL: "setup:cancel",
+	/** Git for Windows' Mandatory ASLR override for its MSYS executables ("fix" | "undo"; anything else is refused). Elevated: a UAC prompt. */
+	SETUP_GIT_ASLR: "setup:git-aslr",
 	/** omp's automatic update (src/main/omp-updater.ts): whole OmpUpdateState snapshot */
 	OMP_UPDATE_GET_STATE: "omp-update:get-state",
 	/** Check npm and update omp now, whatever the pref says (runs in the background) */
@@ -1751,6 +1753,8 @@ export interface OmpApi {
 		retry(item: SetupItemId): Promise<void>;
 		/** Cancel the running install; false when nothing runs. */
 		cancel(): Promise<boolean>;
+		/** Set ("fix") or remove ("undo") the Git item's Mandatory ASLR override, then detect again; one UAC prompt. */
+		gitAslr(action: GitAslrAction): Promise<GitAslrResult>;
 		onState(callback: (state: SetupState) => void): () => void;
 	};
 	/** omp's automatic update on this computer (a paired host updates its own omp under its own pref). */

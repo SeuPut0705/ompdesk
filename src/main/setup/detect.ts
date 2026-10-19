@@ -15,6 +15,7 @@ import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { execFileExecutor } from "../tailscale/cli";
 import { locateTailscale, systemLocateDeps } from "../tailscale/locate";
+import { readGitAslrOverride } from "./git-aslr";
 import { findGitBash } from "./paths";
 
 export interface Detection {
@@ -110,21 +111,29 @@ async function detectGit(platform: SetupPlatform, pathEnv: string, env: NodeJS.P
 		if (!bash) return { kind: "missing" };
 		const root = dirname(dirname(bash));
 		const git = join(root, "cmd", "git.exe");
-		const [found, gitShell] = await Promise.all([
+		const hasSh = existsSync(join(root, "usr", "bin", "sh.exe"));
+		const [found, gitShell, gitAslrOverride] = await Promise.all([
 			existsSync(git)
 				? versionOf(git, env, platform)
 				: Promise.resolve<SetupPresence>({ kind: "present", version: null, path: root }),
-			existsSync(join(root, "usr", "bin", "sh.exe")) ? probeGitShell(root, env) : Promise.resolve(null),
+			hasSh ? probeGitShell(root, env) : Promise.resolve(null),
+			hasSh ? readGitAslrOverride(root) : Promise.resolve(false),
 		]);
 		if (found.kind !== "present") return found;
-		if (!gitShell) return { ...found, path: root };
-		writeRuntimeLog({
-			level: "warn",
-			source: "setup",
-			message: "Git's sh cannot start a child process",
-			details: { root, ...gitShell },
-		});
-		return { ...found, path: root, gitShell };
+		if (gitShell) {
+			writeRuntimeLog({
+				level: "warn",
+				source: "setup",
+				message: "Git's sh cannot start a child process",
+				details: { root, ...gitShell },
+			});
+		}
+		return {
+			...found,
+			path: root,
+			...(gitShell ? { gitShell } : {}),
+			...(gitAslrOverride ? { gitAslrOverride } : {}),
+		};
 	}
 	// /usr/bin/git is a stub until the Command Line Tools exist; running it then
 	// opens Apple's install dialog, so ask xcode-select before touching it.

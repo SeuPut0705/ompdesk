@@ -6103,6 +6103,13 @@ export const ko: Record<string, string> = {
 	"machineSetup.presence.gitShellAslr":
 		"Git Bash가 다른 프로그램을 실행하지 못해요(Windows 오류 0xC0000142). Windows 보안 › 앱 및 브라우저 컨트롤 › Exploit protection › 시스템 설정 › 이미지에 임의 지정 강제(필수 ASLR)가 켜져 있어요. Git 훅, 대화형 rebase, 로컬 폴더로의 push가 실패하고, 에이전트의 셸 명령은 그대로 실행돼요.",
 	"machineSetup.presence.gitShellFailed": "Git Bash가 다른 프로그램을 실행하지 못해요: {detail}",
+	"machineSetup.gitAslr.fix": "고치기",
+	"machineSetup.gitAslr.undo": "되돌리기",
+	"machineSetup.gitAslr.fixDetail":
+		"고치기는 이 Git의 MSYS 프로그램(usr 폴더)에만 이미지에 임의 지정 강제를 꺼요. Windows와 다른 앱은 그대로예요. Windows가 권한을 한 번 물어봐요.",
+	"machineSetup.gitAslr.applied":
+		"이 Git의 MSYS 프로그램에만 이미지에 임의 지정 강제가 꺼져 있어요(OMPdesk가 설정). 되돌리기를 누르면 시스템 설정을 다시 따라요.",
+	"machineSetup.gitAslr.failed": "변경이 적용되지 않았어요.",
 	"machineSetup.command": "명령",
 	"machineSetup.location": "설치 위치",
 	"machineSetup.prompt.uac": "Windows가 변경 권한을 물어볼 거예요. 계속하려면 예를 선택해 주세요.",

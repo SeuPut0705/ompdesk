@@ -152,7 +152,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
-import type { SetupItemId, SetupState } from "./setup";
+import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -388,6 +388,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			getState: () => transport.invoke(IPC_COMMANDS.SETUP_GET_STATE) as Promise<SetupState>,
 			retry: (item: SetupItemId) => transport.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,
 			cancel: () => transport.invoke(IPC_COMMANDS.SETUP_CANCEL) as Promise<boolean>,
+			gitAslr: (action: GitAslrAction) =>
+				transport.invoke(IPC_COMMANDS.SETUP_GIT_ASLR, action) as Promise<GitAslrResult>,
 			onState: (callback: (state: SetupState) => void) => subscribe<SetupState>(IPC_EVENTS.SETUP_STATE, callback),
 		},
 

@@ -156,12 +156,12 @@ export function psQuote(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
 
-function powershell(ctx: PlanContext): string {
+function powershell(ctx: Pick<PlanContext, "systemRoot">): string {
 	return join(ctx.systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 }
 
 /** `-EncodedCommand` (UTF-16LE base64): the script reaches PowerShell without any command-line quoting. */
-function powershellScript(ctx: PlanContext, script: string): SpawnSpec {
+export function powershellScript(ctx: Pick<PlanContext, "systemRoot">, script: string): SpawnSpec {
 	return {
 		file: powershell(ctx),
 		args: [

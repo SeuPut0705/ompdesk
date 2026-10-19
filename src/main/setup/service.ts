@@ -11,10 +11,12 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { OmpUpdateFailure } from "../../shared/omp-update";
 import {
+	type GitAslrAction,
+	type GitAslrResult,
 	isSetupItemId,
 	SETUP_ITEMS,
 	SETUP_OUTPUT_TAIL,
@@ -28,10 +30,12 @@ import {
 } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
 import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
+import { writeRuntimeLog } from "../runtime-log";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
+import { gitAslrSpawn } from "./git-aslr";
 import { refreshPath } from "./paths";
 import {
 	type ArchiveRelease,
@@ -416,6 +420,53 @@ export class SetupService {
 		if (!this.#runner.running) return false;
 		this.#stopPipeline = true;
 		return this.#runner.cancel();
+	}
+
+	/**
+	 * The Git item's Mandatory ASLR override (git-aslr.ts), only ever on the user's click: one elevated step for
+	 * the MSYS executables of the Git setup detected, the list it touched logged, then a fresh detection that
+	 * shows the probe's new result.
+	 */
+	gitAslr(action: GitAslrAction): Promise<GitAslrResult> {
+		const { promise, resolve } = Promise.withResolvers<GitAslrResult>();
+		void this.#enqueue(async () => {
+			const git = this.#items.git.presence;
+			const root = git?.kind === "present" ? git.path : null;
+			if (this.#deps.platform !== "win32" || !root) {
+				resolve({ ok: false, detail: "Git for Windows was not found" });
+				return;
+			}
+			const log = join(dirname(this.#deps.statePath), "git-aslr.log");
+			let output = "";
+			const outcome = await this.#runner.run(
+				gitAslrSpawn(this.#deps.systemRoot, root, action, log),
+				await this.#deps.spawnEnv(),
+				chunk => {
+					output = (output + chunk).slice(-SETUP_OUTPUT_TAIL);
+				},
+			);
+			const images = (await readFile(log, "utf8").catch(() => ""))
+				.split(/\r?\n/)
+				.map(line => line.replace(/^\uFEFF/, "").trim())
+				.filter(Boolean);
+			await rm(log, { force: true });
+			writeRuntimeLog({
+				level: outcome.kind === "succeeded" ? "info" : "warn",
+				source: "setup",
+				message: `Git Mandatory ASLR override ${action}: ${outcome.kind}`,
+				details: { root, action, outcome: outcome.kind, images, output: updateDetail(output) ?? null },
+			});
+			await this.#detect();
+			resolve(
+				outcome.kind === "succeeded"
+					? { ok: true, images: images.length }
+					: {
+							ok: false,
+							detail: updateDetail(output) ?? (outcome.kind === "failed" ? (outcome.detail ?? "") : ""),
+						},
+			);
+		}).catch(error => resolve({ ok: false, detail: error instanceof Error ? error.message : String(error) }));
+		return promise;
 	}
 
 	/** App quit: stop the running download or installer tree and start nothing new. */

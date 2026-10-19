@@ -359,6 +359,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.SETUP_GET_STATE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.SETUP_RETRY]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.SETUP_CANCEL]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.SETUP_GIT_ASLR]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.OMP_UPDATE_GET_STATE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.OMP_UPDATE_NOW]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.HOST_OMP_UPDATE_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },

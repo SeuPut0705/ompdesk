@@ -180,6 +180,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.SETUP_GET_STATE]: never(OPERATOR),
 	[C.SETUP_RETRY]: never(OPERATOR),
 	[C.SETUP_CANCEL]: never(OPERATOR),
+	[C.SETUP_GIT_ASLR]: never(DENY),
 	[C.OMP_UPDATE_GET_STATE]: never(DENY),
 	[C.OMP_UPDATE_NOW]: never(OPERATOR),
 	[C.HOST_OMP_UPDATE_GET]: never(DENY),
