@@ -8,7 +8,7 @@ import { SURFACES } from "./responsive-surfaces";
 // The default run's one responsive smoke: a phone (390) and a portrait tablet (834), en light, a handful of key
 // surfaces (session, drawer, Mode popover, model picker, a side panel, Settings, Agents, a card, toasts). Nothing
 // may scroll the page sideways, escape the viewport or open a popover off screen, and on the phone the idle
-// session's app chrome (header + dock + composer, the hardware insets excluded) stays within 16 % of the screen.
+// session's app chrome (header + dock + composer, the hardware insets excluded) stays within 19.4 % of the screen.
 // The full matrix (every surface × width × orientation × theme × language) is e2e/responsive-audit.e2e.ts, behind
 // OMP_GUI_RESPONSIVE=<dir>.
 
@@ -34,11 +34,11 @@ const KEY_SURFACES = [
 const HARD = new Set(["overflow-page", "overflow-el", "offscreen-popover"]);
 
 /**
- * The phone's app chrome budget at rest, percent of the screen height (header + work chip + dock + composer + the
- * status chip row above it): AGENTS.md's 22 % budget; 21.0 % measured at 390x844. It was 16 % before the status
- * row put the live run state (model, plan, approval, context) on screen without opening anything.
+ * The phone's app chrome budget at rest, percent of the screen height (header + work chip + dock + composer): the
+ * always-open composer (a full-width field row over one row of every control, all inside the box) measured 18.4 % at
+ * 390x844, plus one point. The user chose the open composer over a lower share.
  */
-const CHROME_SHARE_MAX = 22;
+const CHROME_SHARE_MAX = 19.4;
 
 let server: ViteDevServer | undefined;
 let origin = "";

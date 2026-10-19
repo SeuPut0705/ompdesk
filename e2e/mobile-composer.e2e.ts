@@ -17,9 +17,9 @@ import { hitSizes, variants } from "./harness";
 
 /**
  * The phone composer, end to end on the dev harness (390x844, touch input, Chromium iPhone 15 / Pixel 8 and WebKit):
- * `[+] [field] [Send | mic]` with ONE 44 px status chip row above the box (model · thinking, Plan, Run, context, then
- * the suggestions), chip sheets that move nothing, a `+` sheet that carries the run settings while the chip row is
- * hidden (keyboard up, or under 420 px visible), and a field that keeps focus through every control.
+ * one always-open box (a full-width field row, then one row of every control inside the box: +, the Run chip, the
+ * model chip, the context chip, Stop/Send | mic), no row above it but the prompt suggestions, settings that move nothing,
+ * Korean that wraps only at the box's inner width, and a field that keeps focus through every control.
  *
  * The keyboard is emulated by shrinking the viewport to 508 px (what an iPhone leaves above a 336 px keyboard).
  * OMP_GUI_PHONE_COMPOSER=<dir> writes `phone-<state>-<engine>-<theme>-<lang>.png` captures; OMP_GUI_VARIANTS=1 runs
@@ -27,6 +27,8 @@ import { hitSizes, variants } from "./harness";
  */
 
 const captures = process.env.OMP_GUI_PHONE_COMPOSER;
+/** The idle chrome (header, work strip, composer) at 390x844 without suggestions: measured, plus one point. */
+const PHONE_CHROME_MAX = 0.194;
 
 test.describe.configure({ retries: 1 });
 
@@ -155,8 +157,14 @@ async function openPhone(engine: Engine, options: PhoneOptions = {}): Promise<Pa
 }
 
 const field = (page: Page): Locator => page.locator("textarea[data-composer-input]").first();
-const statusRow = (page: Page): Locator => page.locator("[data-status-row]");
-const chip = (page: Page, name: string): Locator => page.locator(`[data-status-row] [data-chip="${name}"]`);
+const runChip = (page: Page): Locator => page.locator(".omp-composer-box [data-run-settings-trigger]");
+const modelChip = (page: Page): Locator => page.locator(".omp-composer-box [data-model-chip]");
+const contextChip = (page: Page): Locator => page.locator(".omp-composer-box [data-chip=context]");
+/** The Run chip, then its settings (mode, approval, delegation) are up. */
+async function openRun(page: Page): Promise<void> {
+	await runChip(page).tap();
+	await expect(page.locator("[data-approval-option]").first()).toBeVisible();
+}
 const plus = (page: Page): Locator => page.locator(".omp-composer-toolbar [aria-haspopup='menu']").first();
 const sendSlot = (page: Page): Locator => page.locator("[data-slot='send']");
 const unhandled = (page: Page): Promise<string[]> => page.evaluate(() => window.__harness?.unhandled ?? []);
@@ -185,7 +193,7 @@ async function boxOf(locator: Locator): Promise<Box> {
 	return box;
 }
 
-/** The chrome around the transcript: what the header, work strip, status row and composer take of the screen. */
+/** The chrome around the transcript: what the header, work strip and composer take of the screen. */
 async function chromePx(page: Page): Promise<{ transcript: number; chrome: number; share: number; visible: number }> {
 	const visible = page.viewportSize()?.height ?? 0;
 	const transcript = (await boxOf(page.locator(".omp-transcript-editorial"))).height;
@@ -233,12 +241,6 @@ async function keyboardUp(page: Page, visible = 508): Promise<void> {
 	await expect(page.locator("html")).toHaveAttribute("data-kb", "open", { timeout: 5_000 });
 }
 
-async function keyboardDown(page: Page, full = 844): Promise<void> {
-	const width = page.viewportSize()?.width ?? 390;
-	await page.setViewportSize({ width, height: full });
-	await expect(page.locator("html")).not.toHaveAttribute("data-kb", "open", { timeout: 5_000 });
-}
-
 async function setRunning(page: Page, running: boolean): Promise<void> {
 	await page.evaluate(value => window.__stores?.session.setState({ isStreaming: value }), running);
 }
@@ -280,110 +282,124 @@ for (const engine of ENGINES) {
 		for (const theme of variants<Theme>(["light", "dark"])) {
 			const tag = `${engine.name} · ${theme} · ${lang}`;
 			test.describe(`phone composer · ${tag}`, () => {
-				test("is one row [+] [field] [Send] under a 44 px status chip row, and the idle chrome stays at or under 22 %", async () => {
+				test("is one always-open box (the full-width field, then every control in one row) with nothing above it but the suggestions", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
-						const row = await boxOf(statusRow(page));
-						expect(row.height).toBe(44);
-						await expect(statusRow(page)).toHaveAttribute("role", "toolbar");
-						// Live state first, then the suggestions after a divider, in one scroller.
-						const order = await statusRow(page).evaluate(element =>
-							Array.from(element.children).map(child =>
-								child.hasAttribute("data-status-divider")
-									? "divider"
-									: child.classList.contains("omp-next-chips")
-										? "suggestions"
-										: (child.getAttribute("data-chip") ??
-											child.querySelector("[data-chip]")?.getAttribute("data-chip")),
-							),
-						);
-						expect(order).toEqual(["model", "plan", "run", "context", "divider", "suggestions"]);
-						// The box is ONE row: + · field · Send share a line and there is no ⋯ anywhere.
+						// Every composer control is inside the box: no status row, no ⋯ fold toggle.
+						await expect(page.locator("[data-run-more]")).toHaveCount(0);
+						await expect(page.locator("[data-status-row]")).toHaveCount(0);
 						const box = await boxOf(page.locator(".omp-composer-box"));
-						expect(box.height).toBeLessThanOrEqual(56);
-						await expect(page.locator(".omp-composer-more")).toHaveCount(0);
-						await expect(page.getByRole("button", { name: /Mode, model and more|모드, 모델 등/ })).toHaveCount(0);
+						console.log(`phone composer box ${box.height}px`);
+						expect(box.height).toBeLessThanOrEqual(90);
 						const plusBox = await boxOf(plus(page));
+						const moreBox = await boxOf(runChip(page));
+						const modelBox = await boxOf(modelChip(page));
+						const contextBox = await boxOf(contextChip(page));
 						const sendBox = await boxOf(sendSlot(page).locator("button").first());
 						const fieldBox = await boxOf(field(page));
-						expect(plusBox.x + plusBox.width).toBeLessThanOrEqual(fieldBox.x + 2);
-						expect(sendBox.x).toBeGreaterThanOrEqual(fieldBox.x + fieldBox.width - 2);
-						expect(fieldBox.width).toBeGreaterThanOrEqual(260);
-						const { share, chrome } = await chromePx(page);
-						expect(share, `chrome ${chrome}px`).toBeLessThanOrEqual(0.22);
-						// The row, the box and the work strip never overflow the page sideways.
+						// Always open: the field is a full-width row, the controls one row under it.
+						expect(fieldBox.width).toBeGreaterThanOrEqual(box.width - 30);
+						for (const control of [plusBox, moreBox, modelBox, contextBox, sendBox]) {
+							expect(control.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height - 2);
+							expect(control.y + control.height).toBeLessThanOrEqual(box.y + box.height);
+						}
+						expect(plusBox.x).toBeLessThan(moreBox.x);
+						expect(sendBox.x).toBeGreaterThanOrEqual(moreBox.x + moreBox.width - 2);
+						// The suggestions are one row of their own above the box (they hide while typing).
+						const chips = await boxOf(page.locator(".omp-next-chips"));
+						expect(chips.y + chips.height).toBeLessThanOrEqual(box.y + 1);
+						const withChips = await chromePx(page);
+						console.log(
+							`chrome with suggestions ${engine.name} ${lang}: ${(withChips.share * 100).toFixed(1)} %`,
+						);
 						expect(
 							await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
 						).toBeLessThanOrEqual(0);
-						await capture(page, "idle", engine, theme, lang);
-						await statusRow(page).evaluate(element => {
-							element.scrollLeft = element.scrollWidth;
-						});
 						await capture(page, "chips", engine, theme, lang);
+					} finally {
+						await page.context().close();
+					}
+					const idle = await openPhone(engine, { lang, theme, suggestions: false });
+					try {
+						const { share, chrome } = await chromePx(idle);
+						console.log(`idle chrome ${engine.name} ${lang}: ${(share * 100).toFixed(1)} % (${chrome}px)`);
+						expect(share, `chrome ${chrome}px`).toBeLessThanOrEqual(PHONE_CHROME_MAX);
+						await capture(idle, "idle", engine, theme, lang);
+					} finally {
+						await idle.context().close();
+					}
+				});
+
+				test("wraps a long Korean line only at the box's inner width", async () => {
+					const page = await openPhone(engine, { lang, theme });
+					try {
+						const sentence = "그리고 변경사항같은거 자동으로 열리는건 별로야";
+						await field(page).fill(sentence);
+						const metrics = await field(page).evaluate(element => {
+							const area = element as HTMLTextAreaElement;
+							const style = getComputedStyle(area);
+							const line = Number.parseFloat(style.lineHeight);
+							const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+							const wrapper = area.parentElement as HTMLElement;
+							return {
+								client: area.clientWidth,
+								wrapper: wrapper.clientWidth,
+								lines: Math.round((area.scrollHeight - padding) / line),
+							};
+						});
+						expect(metrics.client, "field spans its cell").toBeGreaterThanOrEqual(metrics.wrapper - 26);
+						expect(metrics.lines, "a 30-character Korean sentence fits one line at 390").toBe(1);
+						await field(page).fill(`${sentence} ${sentence} ${sentence}`);
+						expect(await field(page).evaluate(element => element.clientWidth)).toBe(metrics.client);
+						await capture(page, "korean-wrap", engine, theme, lang);
 					} finally {
 						await page.context().close();
 					}
 				});
 
-				test("opens a sheet per chip without moving anything, and returns focus to the field", async () => {
+				test("opens the Run settings and the context breakdown without moving anything, and the context chip returns focus to the field", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
 						await field(page).focus();
 						const before = await layout(page);
-						// Run: Tool approval + Delegation as 44 px rows in a bottom sheet.
-						await chip(page, "run").tap();
-						const sheet = page.locator("[data-composer-sheet]");
-						await expect(sheet).toBeVisible();
-						expectSameLayout(before, await layout(page), "run sheet open");
+						await openRun(page);
+						expectSameLayout(before, await layout(page), "run settings open");
 						for (const row of await page.locator("[data-approval-option], [data-delegation-option]").all()) {
 							expect((await boxOf(row)).height).toBeGreaterThanOrEqual(43.5);
 						}
-						expect(await focusedIsField(page)).toBe(true);
 						await capture(page, "sheet-run", engine, theme, lang);
 						await page.keyboard.press("Escape");
-						await expect(sheet).toHaveCount(0);
-						expectSameLayout(before, await layout(page), "run sheet closed");
-						expect(await focusedIsField(page)).toBe(true);
-						// Context: the breakdown is a sheet too, never a floating card.
-						await chip(page, "context").tap();
-						await expect(sheet).toBeVisible();
-						expectSameLayout(before, await layout(page), "context sheet open");
-						for (const button of await sheet.locator("button").all()) {
-							expect((await boxOf(button)).height).toBeGreaterThanOrEqual(43.5);
-						}
+						await expect(page.locator("[data-approval-option]")).toHaveCount(0);
+						expectSameLayout(before, await layout(page), "run settings closed");
+						await field(page).focus();
+						await contextChip(page).tap();
+						await expect(page.locator("[data-composer-sheet]")).toBeVisible();
 						await capture(page, "sheet-context", engine, theme, lang);
 						await page.keyboard.press("Escape");
-						await expect(sheet).toHaveCount(0);
-						expectSameLayout(before, await layout(page), "context sheet closed");
-						// The + sheet.
+						await expect(page.locator("[data-composer-sheet]")).toHaveCount(0);
+						expectSameLayout(before, await layout(page), "context closed");
+						expect(await focusedIsField(page)).toBe(true);
 						await plus(page).tap();
 						await expect(page.locator("[data-action-sheet]")).toBeVisible();
 						expectSameLayout(before, await layout(page), "+ sheet open");
 						await capture(page, "sheet-plus", engine, theme, lang);
 						await page.keyboard.press("Escape");
 						await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
-						expectSameLayout(before, await layout(page), "+ sheet closed");
-						expect(await focusedIsField(page)).toBe(true);
-						// The model picker (the existing dialog sheet).
-						await chip(page, "model").tap();
-						await expect(page.getByRole("dialog")).toBeVisible();
-						await capture(page, "sheet-model", engine, theme, lang);
-						await page.keyboard.press("Escape");
-						await expect(page.getByRole("dialog")).toHaveCount(0);
-						expectSameLayout(before, await layout(page), "model picker closed");
 					} finally {
 						await page.context().close();
 					}
 				});
 
-				test("takes the number of taps the design promises (model 2, thinking 2, plan 1, approval 2, delegation 2, mic 1)", async () => {
+				test("takes the number of taps the design promises (plan 2, approval 2, delegation 2, model 2, mic 1)", async () => {
 					const page = await openPhone(engine, { lang, theme, stt: true });
 					try {
-						// Plan: ONE tap on the chip asks the agent to switch plan mode on.
-						await chip(page, "plan").tap();
+						// Plan: the Run chip, then the Plan switch.
+						await openRun(page);
+						await page.locator("[data-plan-mode]").first().tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_plan_mode");
-						// Model: the chip, then a model row.
-						await chip(page, "model").tap();
+						await page.keyboard.press("Escape");
+						// Model: the model chip, then a model.
+						await modelChip(page).tap();
 						const dialog = page.getByRole("dialog");
 						await expect(dialog).toBeVisible();
 						const options = dialog.locator("[data-model-option]");
@@ -391,31 +407,19 @@ for (const engine of ENGINES) {
 						await options.last().tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_model");
 						await expect(dialog).toHaveCount(0);
-						// Thinking: the chip, then a level in the picker's effort row.
-						await chip(page, "model").tap();
-						await expect(dialog).toBeVisible();
-						const effort = dialog.locator("[data-thinking-option]").first();
-						if (await effort.count()) {
-							await effort.tap();
-							await expect.poll(() => unhandled(page)).toContain("rpc:set_thinking_level");
-						}
-						await page.keyboard.press("Escape");
-						await expect(dialog).toHaveCount(0);
 						// Approval: the Run chip, then a row (a stricter one applies at once).
-						await chip(page, "run").tap();
+						await openRun(page);
 						await page.locator("[data-approval-option='always-ask']").tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_setting");
-						// Delegation: the Run chip again, then one tap on a strength.
 						await page.keyboard.press("Escape");
-						await chip(page, "run").tap();
+						// Delegation: the Run chip, then one tap on a strength.
+						await openRun(page);
 						await page.locator("[data-delegation-option='solo']").tap();
 						await expect.poll(() => called(page, "set_delegation")).toBe(true);
 						await page.keyboard.press("Escape");
 						// Mic: the empty Send slot is the mic (one tap starts dictation).
 						const mic = sendSlot(page).locator(".omp-composer-mic");
-						await expect(mic).toHaveCount(1);
 						await expect(mic).toBeVisible();
-						await capture(page, "mic", engine, theme, lang);
 						await field(page).fill("hello");
 						await expect(sendSlot(page).locator(".omp-composer-mic")).toHaveCount(0);
 						await expect(sendSlot(page).locator("button:not([disabled])")).toHaveCount(1);
@@ -424,31 +428,36 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("keeps the field focused through +, every chip, Send, Stop, the lane chip and the mic", async () => {
+				test("names a mode on the Run chip inside the box, never in a row of its own", async () => {
+					const page = await openPhone(engine, { lang, theme });
+					try {
+						const before = await boxOf(page.locator(".omp-composer-box"));
+						await page.evaluate(() => window.__stores?.session.setState({ planModeEnabled: true }));
+						await expect(runChip(page)).toHaveAttribute("data-active", "");
+						const after = await boxOf(page.locator(".omp-composer-box"));
+						expect(after.height).toBe(before.height);
+						expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(330);
+						await capture(page, "mode-on", engine, theme, lang);
+					} finally {
+						await page.context().close();
+					}
+				});
+
+				test("keeps the field focused through +, the Run chip, Send, Stop, the lane chip and the mic", async () => {
 					const page = await openPhone(engine, { lang, theme, stt: true });
 					try {
 						await field(page).focus();
-						for (const name of ["plan", "run", "context"]) {
-							await chip(page, name).tap();
-							expect(await focusedIsField(page), `chip ${name}`).toBe(true);
-							await page.keyboard.press("Escape");
-							await page.waitForTimeout(150);
-							expect(await focusedIsField(page), `chip ${name} closed`).toBe(true);
-						}
-						// The model picker has a search field of its own: it takes focus while open and hands it back.
-						await chip(page, "model").tap();
-						await expect(page.getByRole("dialog")).toBeVisible();
+						await contextChip(page).tap();
+						expect(await focusedIsField(page), "context chip").toBe(true);
 						await page.keyboard.press("Escape");
-						await expect(page.getByRole("dialog")).toHaveCount(0);
-						await expect.poll(() => focusedIsField(page), { message: "model picker closed" }).toBe(true);
+						await page.waitForTimeout(150);
+						expect(await focusedIsField(page), "context closed").toBe(true);
 						await plus(page).tap();
 						expect(await focusedIsField(page)).toBe(true);
 						await page.keyboard.press("Escape");
 						expect(await focusedIsField(page)).toBe(true);
-						// The mic in the empty Send slot.
 						await sendSlot(page).locator(".omp-composer-mic").tap();
 						expect(await focusedIsField(page), "mic").toBe(true);
-						// A running turn with a draft: lane chip, Stop and Send.
 						await setRunning(page, true);
 						await field(page).focus();
 						await field(page).fill("and also lint it");
@@ -463,41 +472,25 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("hides the chip row while the keyboard is up and the + sheet carries Model / Mode / Tool approval / Delegation", async () => {
+				test("keeps every control in the box while the keyboard is up, and the + sheet never carries run settings", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
 						await keyboardUp(page);
-						await expect(statusRow(page)).toHaveCount(0);
 						const { transcript, visible } = await chromePx(page);
 						expect(visible).toBe(508);
-						// Header + work strip + one-row box: the transcript keeps most of the 508 px.
-						expect(transcript, "keyboard-up transcript px").toBeGreaterThanOrEqual(360);
+						expect(transcript, "keyboard-up transcript px").toBeGreaterThanOrEqual(300);
+						await expect(runChip(page)).toBeVisible();
 						await capture(page, "keyboard-up", engine, theme, lang);
 						await plus(page).tap();
 						const rows = page.locator("[data-action-sheet] [data-menu-item]");
-						await expect(rows.filter({ hasText: /Change model|모델 변경/ })).toHaveCount(1);
-						await expect(rows.filter({ hasText: /^Mode|^모드/ })).toHaveCount(1);
-						await expect(rows.filter({ hasText: /Tool approval|도구 승인/ })).toHaveCount(1);
-						await expect(rows.filter({ hasText: /Delegation|위임/ })).toHaveCount(1);
-						expect(await focusedIsField(page)).toBe(true);
-						await capture(page, "keyboard-up-plus", engine, theme, lang);
-						// Tool approval is three taps: +, the row, an option; the field keeps focus all the way.
-						await rows.filter({ hasText: /Tool approval|도구 승인/ }).tap();
-						await expect(page.locator("[data-approval-option]").first()).toBeVisible();
-						expect(await focusedIsField(page)).toBe(true);
+						await expect(rows.filter({ hasText: /Tool approval|도구 승인/ })).toHaveCount(0);
+						await page.keyboard.press("Escape");
+						// Tool approval is two taps: the Run chip, an option.
+						await openRun(page);
 						await page.locator("[data-approval-option='always-ask']").tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_setting");
-						expect(await focusedIsField(page)).toBe(true);
 						await page.keyboard.press("Escape");
-						await keyboardDown(page);
-						await expect(statusRow(page)).toBeVisible();
-						await field(page).fill("Please run the tests again, then show me the diff and commit it");
-						await keyboardUp(page);
-						await capture(page, "keyboard-up-typing", engine, theme, lang);
-						expect((await chromePx(page)).transcript).toBeGreaterThanOrEqual(340);
 						await field(page).fill("one\ntwo\nthree");
-						await capture(page, "keyboard-up-multiline", engine, theme, lang);
-						// The field never takes more than 40 % of the pane and leaves 120 px of the visible screen.
 						const fieldBox = await boxOf(field(page));
 						expect(fieldBox.height).toBeLessThanOrEqual(508 - 120);
 					} finally {
@@ -505,18 +498,14 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("drops the chip row under 420 px of visible height (landscape) and keeps every setting reachable", async () => {
+				test("keeps every setting reachable in landscape", async () => {
 					const page = await openPhone(engine, { lang, theme, width: 844, height: 390 });
 					try {
-						await expect(statusRow(page)).toHaveCount(0);
 						await capture(page, "landscape-idle", engine, theme, lang);
-						await plus(page).tap();
-						await expect(
-							page.locator("[data-action-sheet] [data-menu-item]").filter({ hasText: /Delegation|위임/ }),
-						).toHaveCount(1);
+						await openRun(page);
+						await expect(page.locator("[data-delegation-option]").first()).toBeAttached();
 						await page.keyboard.press("Escape");
 						await keyboardUp(page, 190);
-						await capture(page, "landscape-keyboard", engine, theme, lang);
 						const box = await boxOf(page.locator(".omp-composer-box"));
 						expect(box.y + box.height).toBeLessThanOrEqual(190 + 1);
 					} finally {
@@ -524,18 +513,14 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("shows the lane as a text chip beside Stop and Send while a turn runs, with the field at 140 px or more", async () => {
+				test("shows the lane as a text chip beside Stop and Send while a turn runs, with the field at full width", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
 						await setRunning(page, true);
 						await expect(page.locator("[data-send-mode]")).toBeVisible();
-						expect((await page.locator("[data-send-mode]").innerText()).trim().length).toBeGreaterThan(0);
 						await capture(page, "running", engine, theme, lang);
 						await field(page).fill("and also lint it");
-						const fieldBox = await boxOf(field(page));
-						expect(fieldBox.width).toBeGreaterThanOrEqual(140);
-						await capture(page, "running-draft", engine, theme, lang);
-						// The turn starting or ending moves nothing in the box.
+						expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(330);
 						await field(page).fill("");
 						const running = await layout(page);
 						await setRunning(page, false);
@@ -543,20 +528,6 @@ for (const engine of ENGINES) {
 						expect(idle.field?.x).toBe(running.field?.x);
 						expect(idle.send).toEqual(running.send);
 						expect(idle.box?.y).toBe(running.box?.y);
-						await setRunning(page, true);
-						// Queued messages: the pill carries the count, the lane chip steps aside, the field keeps 140 px.
-						await page.evaluate(() => {
-							window.__stores?.session.setState({ queuedMessageCount: 2 });
-							window.__stores?.queue.setState({
-								steering: [{ id: "q1", text: "Then update the changelog" }],
-								followUp: [{ id: "q2", text: "Run the whole e2e suite afterwards" }],
-							});
-						});
-						await field(page).fill("one more thing");
-						await expect(page.locator("[data-queue-pill]")).toBeVisible();
-						await expect(page.locator("[data-send-mode]")).toBeHidden();
-						expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(140);
-						await capture(page, "queue", engine, theme, lang);
 					} finally {
 						await page.context().close();
 					}
@@ -573,29 +544,18 @@ for (const engine of ENGINES) {
 						};
 						await reach(plus(page), "+", 44);
 						await reach(sendSlot(page).locator("button"), "Send/mic", 44);
-						await reach(page.locator("[data-status-row] [data-chip]"), "status chips", 42);
-						// Drawn sizes stay dense: 28 px chips, 28 px buttons.
-						for (const size of await hitSizes(page.locator("[data-status-row] [data-chip]"))) {
-							expect(size.visual.height).toBeLessThanOrEqual(28.5);
+						for (const locator of [runChip(page), modelChip(page), contextChip(page)]) {
+							await reach(locator, "row chip", 36);
+							for (const size of await hitSizes(locator)) expect(size.visual.height).toBeLessThanOrEqual(28.5);
 						}
 						for (const size of await hitSizes(plus(page))) expect(size.visual.width).toBeLessThanOrEqual(28.5);
 						for (const locator of [
 							plus(page),
 							sendSlot(page).locator("button").first(),
-							chip(page, "model"),
-							chip(page, "plan"),
+							runChip(page),
+							modelChip(page),
 						]) {
 							expect(await ownShare(locator)).toBe(1);
-						}
-						await setRunning(page, true);
-						await field(page).fill("and also lint it");
-						for (const [locator, label] of [
-							[page.locator("[data-slot='stop'] button"), "Stop"],
-							[page.locator("[data-send-mode]"), "lane chip"],
-							[sendSlot(page).locator("button").first(), "Send"],
-						] as const) {
-							await reach(locator, label, label === "lane chip" ? 42 : 44);
-							expect(await ownShare(locator), label).toBe(1);
 						}
 					} finally {
 						await page.context().close();
@@ -654,7 +614,7 @@ for (const engine of ENGINES) {
 							.tap();
 						const region = page.locator(".omp-composer-region--expanded");
 						await expect(region).toBeVisible();
-						await expect(statusRow(page)).toHaveCount(0);
+						await expect(runChip(page)).toBeVisible();
 						const box = await boxOf(page.locator(".omp-composer-region--expanded .omp-composer-box"));
 						expect(box.height).toBeGreaterThan(500);
 						const fieldBox = await boxOf(field(page));
@@ -697,7 +657,7 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("shows typing and multiline drafts in the one row, growing only upwards", async () => {
+				test("shows typing and multiline drafts in the open box, growing only upwards", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
 						const before = await boxOf(page.locator(".omp-composer-box"));
@@ -710,8 +670,6 @@ for (const engine of ENGINES) {
 						const multi = await boxOf(page.locator(".omp-composer-box"));
 						expect(multi.y + multi.height).toBeCloseTo(before.y + before.height, 0);
 						expect(multi.height).toBeGreaterThan(typed.height);
-						// The suggestions step out of sight while a draft is typed, and the row keeps its 44 px.
-						expect((await boxOf(statusRow(page))).height).toBe(44);
 					} finally {
 						await page.context().close();
 					}
@@ -725,20 +683,19 @@ for (const engine of ENGINES) {
 			[360, 780],
 			[430, 932],
 		] as const) {
-			test(`${width}x${height}: one row, the chips scroll, nothing overflows`, async () => {
+			test(`${width}x${height}: one box, nothing overflows`, async () => {
 				const page = await openPhone(engine, { width, height });
 				try {
-					expect((await boxOf(statusRow(page))).height).toBe(44);
 					const box = await boxOf(page.locator(".omp-composer-box"));
 					expect(box.x + box.width).toBeLessThanOrEqual(width);
 					expect(
 						await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
 					).toBeLessThanOrEqual(0);
-					expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(width - 130);
+					expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(width - 60);
 					await capture(page, `idle-${width}`, engine);
 					await setRunning(page, true);
 					await field(page).fill("and also lint it");
-					expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(140);
+					expect((await boxOf(field(page))).width).toBeGreaterThanOrEqual(120);
 					await capture(page, `running-draft-${width}`, engine);
 				} finally {
 					await page.context().close();

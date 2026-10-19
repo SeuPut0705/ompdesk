@@ -23,7 +23,7 @@ export const APPROVAL_MODES: readonly ApprovalMode[] = ["yolo", "write", "always
 
 /**
  * `select` (default): the labelled Select of the Run popover. `radios`: the three modes as 44 px rows with their
- * descriptions, one tap each (the phone's Run sheet); the same requests to the host and the store either way.
+ * descriptions, one tap each (the Run settings on a phone); the same requests to the host and the store either way.
  */
 export function ApprovalModeField({
 	onRequestFullAccess,

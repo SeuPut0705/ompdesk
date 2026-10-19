@@ -55,7 +55,7 @@ function approximateTokens(tokens: number): string {
  * the next toolbar control, Escape closes it and returns to the ring.
  */
 export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "chip" }) {
-	/** The phone's status-row chip: the breakdown is a bottom sheet (no floating card, no hover), the trigger a chip. */
+	/** The phone's toolbar chip: the breakdown is a bottom sheet (no floating card, no hover), the trigger a chip. */
 	const chip = variant === "chip";
 	const t = useT();
 	const rpc = useTabRpc();

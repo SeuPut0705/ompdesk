@@ -156,10 +156,8 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), ap.project);
 		await phone.reload();
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
-		// A phone's composer is one row: the Run chip of the status row opens its sheet, and "All run settings" the
-		// mode picker.
-		await phone.locator("[data-chip=run]").click();
-		await phone.locator("[data-run-sheet-more]").click();
+		// The Run chip in the phone composer's control row opens the Run settings with the modes.
+		await phone.locator("[data-run-settings-trigger]").click();
 		await phone.getByRole("tab", { name: "Autopilot" }).click();
 		await phone.locator("[data-autopilot-start]").click();
 		// The run's panel opens by itself as a sheet over everything; close it to reach the drawer.

@@ -13,6 +13,7 @@
 
 import { ChevronDown, Network, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Snail, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useShellMode } from "../../../hooks/use-shell-mode";
 import { useT } from "../../../lib/i18n";
 import { actionKbd, formatShortcut } from "../../../lib/keymap";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -29,6 +30,8 @@ import { ThinkingLevelField } from "./ThinkingControl";
 const APPROVAL_GLYPHS = { yolo: ShieldAlert, write: Shield, "always-ask": ShieldCheck } as const;
 
 export function RunChip() {
+	/** A phone takes the approval modes as one-tap 44 px rows (its Run settings open as a bottom sheet). */
+	const phone = useShellMode() === "phone";
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -147,6 +150,7 @@ export function RunChip() {
 							close();
 							setConfirmFullAccess(true);
 						}}
+						variant={phone ? "radios" : "select"}
 					/>
 					{delegation.mode !== null && (
 						<DelegationField mode={delegation.mode} onPick={next => void delegation.pick(next)} />

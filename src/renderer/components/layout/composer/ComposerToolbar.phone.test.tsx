@@ -1,8 +1,7 @@
 /**
- * The toolbar on a phone: `[+] [field] [Send | mic]` and nothing else of its own. No ⋯ toggle, no model chip, context
- * ring, Run chip trigger copies in the visible row; the empty Send slot is the mic while dictation is on (1 tap); while
- * the status chip row has no room (soft keyboard up) the `+` sheet carries Model / Mode / Tool approval / Delegation;
- * every touch control keeps focus in the field (a cancelled `mousedown`). The layout itself (grid, 44 px reach) is
+ * The toolbar on a phone: one row under the full-width field, every control inside the box (+, the Run chip, the model
+ * chip, the context chip, Stop/Send) and no ⋯ fold toggle; the empty Send slot is the mic while dictation is on (1 tap); every touch control keeps focus
+ * in the field (a cancelled `mousedown`). The layout itself (grid, 44 px reach) is
  * measured in e2e/mobile-composer.e2e.ts.
  */
 
@@ -76,7 +75,6 @@ const baseProps: ComposerToolbarProps = {
 	sendDisabled: true,
 	onStop: () => {},
 	onSend: () => {},
-	onOpenRunSheet: () => {},
 };
 
 async function render(props: Partial<ComposerToolbarProps> = {}): Promise<void> {
@@ -117,16 +115,6 @@ async function cancelsMouseDown(element: Element | null): Promise<boolean> {
 }
 
 describe("phone toolbar", () => {
-	it("has no ⋯ toggle and none of the controls the status chip row owns", async () => {
-		await render();
-		expect(q(".omp-composer-more")).toBeNull();
-		expect(q("[data-more-open]")).toBeNull();
-		expect(q("[data-model-chip]")).toBeNull();
-		expect(q(".omp-context-usage-trigger")).toBeNull();
-		expect(q("[data-auto-mode-chip]")).toBeNull();
-		expect(container.querySelector('[aria-label="Mode, model and more"]')).toBeNull();
-	});
-
 	it("shows a mic in the empty Send slot while dictation is on, and Send once there is a draft", async () => {
 		useSettingsStore.setState({ sttEnabled: true });
 		const onMic = vi.fn();
@@ -169,53 +157,20 @@ describe("phone toolbar", () => {
 	const menuItems = () =>
 		Array.from(document.querySelectorAll("[role='menu'] [data-menu-item]")).map(item => item.textContent ?? "");
 
-	it("leaves the run settings out of the + sheet while the chip row has room", async () => {
+	it("never puts the run settings in the + sheet, even with the keyboard up", async () => {
+		document.documentElement.setAttribute("data-kb", "open");
 		await render();
 		await act(async () => plus().click());
 		expect(menuItems().some(label => label.includes(translate("input.runSettings.approval")))).toBe(false);
-		expect(menuItems().some(label => label.includes(translate("input.delegation.title")))).toBe(false);
+		expect(menuItems().some(label => label.includes(translate("input.model")))).toBe(false);
 	});
 
-	it("offers Model / Mode / Tool approval / Delegation in the + sheet while the chip row is hidden", async () => {
-		document.documentElement.setAttribute("data-kb", "open");
-		useSettingsStore.setState({ approvalMode: "write" });
-		const onOpenRunSheet = vi.fn();
-		await render({ onOpenRunSheet });
-		await act(async () => plus().click());
-		const labels = menuItems();
-		for (const key of [
-			"input.model",
-			"input.modes.label",
-			"input.runSettings.approval",
-			"input.delegation.title",
-		] as const) {
-			expect(
-				labels.some(label => label.includes(translate(key))),
-				key,
-			).toBe(true);
-		}
-		// The live values ride on the rows.
-		expect(labels.find(label => label.includes(translate("input.runSettings.approval")))).toContain(
-			translate("input.approval.write"),
-		);
-		const rows = Array.from(document.querySelectorAll("[role='menu'] [data-menu-item]")) as unknown as HTMLElement[];
-		const find = (key: Parameters<typeof translate>[0]) =>
-			rows.find(row => row.textContent?.includes(translate(key)));
-		await act(async () => find("input.delegation.title")?.click());
-		expect(onOpenRunSheet).toHaveBeenCalledTimes(1);
-	});
-
-	it("opens the model picker and the Mode popover from the + sheet's rows", async () => {
-		document.documentElement.setAttribute("data-kb", "open");
+	it("shows every run control in the box's one row: Run chip, model chip, context, no ⋯ toggle", async () => {
 		await render();
-		await act(async () => plus().click());
-		const rows = Array.from(document.querySelectorAll("[role='menu'] [data-menu-item]")) as unknown as HTMLElement[];
-		await act(async () => rows.find(row => row.textContent?.includes(translate("input.model")))?.click());
-		expect(useUiStore.getState().modelPickerOpen).toBe(true);
-		await act(async () => plus().click());
-		const again = Array.from(document.querySelectorAll("[role='menu'] [data-menu-item]")) as unknown as HTMLElement[];
-		await act(async () => again.find(row => row.textContent?.includes(translate("input.modes.label")))?.click());
-		expect(useUiStore.getState().modesOpen).toBe(true);
+		expect(q("[data-run-settings-trigger]")).not.toBeNull();
+		expect(q("[data-model-chip]")).not.toBeNull();
+		expect(q("[data-chip=context]")?.closest(".omp-composer-send-cluster")).not.toBeNull();
+		expect(q("[data-run-more]")).toBeNull();
 	});
 
 	it("keeps the + sheet from taking focus (its overlay cancels mousedown too)", async () => {
