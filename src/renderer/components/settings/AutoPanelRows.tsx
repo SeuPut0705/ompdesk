@@ -2,7 +2,7 @@
  * Settings › Agent behavior › Smart automation: the two switches for the side panel opening by
  * itself (`lib/panel-auto-open.ts`). `autoPreviewDevServer`: a dev server's address in a bash
  * result opens the Preview; `autoOpenChanges`: a turn that edited files opens Changes at its end
- * while the panel is closed. Both default on and are read when the event happens.
+ * while the panel is closed. Both default off (only a stored `true` turns one on; a phone never auto-opens) and are read when the event happens.
  */
 
 import { FileDiff, MonitorPlay } from "lucide-react";
@@ -13,7 +13,7 @@ import { SettingsSwitchRow } from "./SettingsLayout";
 
 export function AutoPreviewRow() {
 	const t = useT();
-	const [on, setOn] = useMainPreference(AUTO_PREVIEW_DEV_SERVER_PREF, true);
+	const [on, setOn] = useMainPreference(AUTO_PREVIEW_DEV_SERVER_PREF, false);
 	return (
 		<SettingsSwitchRow
 			checked={on}
@@ -28,7 +28,7 @@ export function AutoPreviewRow() {
 
 export function AutoChangesRow() {
 	const t = useT();
-	const [on, setOn] = useMainPreference(AUTO_OPEN_CHANGES_PREF, true);
+	const [on, setOn] = useMainPreference(AUTO_OPEN_CHANGES_PREF, false);
 	return (
 		<SettingsSwitchRow
 			checked={on}

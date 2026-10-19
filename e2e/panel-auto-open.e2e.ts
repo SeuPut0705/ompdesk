@@ -6,8 +6,9 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp } from "./harness";
 
-// The side panel opening by itself on the fake omp's `fixture flow` run: a turn that edited files opens
-// Changes at its end, never mid-stream, through the real event path. The rest of the rules (the dev server
+// The side panel opening by itself on the fake omp's `fixture flow` run, which is opt-in (`autoOpenChanges`
+// off by default): with the switch on, a turn that edited files opens Changes at its end, never mid-stream,
+// through the real event path; with the default, it stays closed. The rest of the rules (the dev server
 // Preview, once per address, the off switches, staying closed after the user closed it) are unit-tested in
 // src/renderer/lib/panel-auto-open.test.ts.
 test.describe.configure({ mode: "parallel" });
@@ -83,8 +84,8 @@ async function withApp(prefs: Record<string, unknown>, body: (launched: Launched
 	}
 }
 
-test("an edit turn opens Changes at its end, not before", async () => {
-	await withApp({}, async ({ page, tab }) => {
+test("an edit turn opens Changes at its end, not before, once the switch is on", async () => {
+	await withApp({ autoOpenChanges: true }, async ({ page, tab }) => {
 		const flow = driver(page, tab);
 		await flow.start();
 		await flow.op({ op: "call", id: "e1", name: "edit", args: { path: "a.txt" } });
@@ -94,5 +95,17 @@ test("an edit turn opens Changes at its end, not before", async () => {
 		await flow.op({ op: "reply", text: "done" });
 		await expect(panel(page)).toBeVisible();
 		await expect(page.getByText("a.txt").first()).toBeVisible();
+	});
+});
+
+test("by default an edit turn leaves the panel closed", async () => {
+	await withApp({}, async ({ page, tab }) => {
+		const flow = driver(page, tab);
+		await flow.start();
+		await flow.op({ op: "call", id: "e1", name: "edit", args: { path: "a.txt" } });
+		await flow.op({ op: "end", id: "e1", text: "Edited a.txt" });
+		await flow.op({ op: "reply", text: "done" });
+		await page.waitForTimeout(1500);
+		await expect(panel(page)).toHaveCount(0);
 	});
 });

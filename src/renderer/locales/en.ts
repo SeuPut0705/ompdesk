@@ -3523,6 +3523,7 @@ export const en: Record<string, string> = {
 	"tools.ask.answered": "Answered: {answer}",
 	"tools.bash.exit": "exit {code}",
 	"tools.bash.running": "running…",
+	"tools.bash.openPreview": "Open Preview",
 	"tools.bash.failed": "Command failed",
 	"tools.bash.timedOut": "timed out",
 	"tools.bash.wallTime": "Wall time",

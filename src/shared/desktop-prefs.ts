@@ -23,20 +23,20 @@ export const KEEP_AWAKE_WORKING_PREF = "keepAwakeWhileWorking";
 /** Remove orphaned agent worktrees (stock `omp worktree clear`) at launch and every 6 h (default off). */
 export const WORKTREE_AUTO_CLEAN_PREF = "worktreeAutoClean";
 
-/** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */
+/** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default off; only `true` turns it on). */
 export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
 /** Install a downloaded OMPdesk update and restart by itself at a quiet moment (Settings › Updates & about; default off; only `true` turns it on). */
 export const APP_AUTO_UPDATE_PREF = "appAutoUpdate";
 
-/** Retry a turn that ended in a transient error after 30 s, 2 min, 10 min (default on; only `false` turns it off). */
+/** Retry a turn that ended in a transient error after 30 s, 2 min, 10 min (default off; only `true` turns it on). */
 export const SCHEDULED_RETRY_PREF = "scheduledRetry";
 
-/** Fold several tabs finishing within seconds into one notification (default on; only `false` turns it off). */
+/** Fold several tabs finishing within seconds into one notification (default off; only `true` turns it on). */
 export const BATCH_NOTIFICATIONS_PREF = "batchNotifications";
 
-/** A dev server's address in a bash result opens the Preview for the focused tab (default on; only `false` turns it off). */
+/** A dev server's address in a bash result opens the Preview for the focused tab (default off; only `true` turns it on). */
 export const AUTO_PREVIEW_DEV_SERVER_PREF = "autoPreviewDevServer";
 
-/** A turn that edited files opens Changes at its end while the side panel is closed (default on; only `false` turns it off). */
+/** A turn that edited files opens Changes at its end while the side panel is closed (default off; only `true` turns it on). */
 export const AUTO_OPEN_CHANGES_PREF = "autoOpenChanges";

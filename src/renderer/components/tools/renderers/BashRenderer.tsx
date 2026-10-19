@@ -1,7 +1,9 @@
+import { AppWindow } from "lucide-react";
 import { memo, useState } from "react";
 import { AnsiText, hasAnsi } from "../../../lib/ansi";
 import { cx, extractImageDataUrls, formatDuration, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { devServerUrl } from "../../../lib/panel-auto-open";
 import { PREVIEW_SCROLL_MD } from "../../../lib/preview";
 import { detectLocalPreviewUrls } from "../../../lib/preview-browser";
 import { useUiStore } from "../../../stores/ui";
@@ -245,6 +247,8 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 	const images = extractImageDataUrls(effective);
 	const hasOutput = parsed.output.length > 0;
 	const liveOutput = livePreview ? liveOutputOf(command, parsed.output) : parsed.output;
+	// A server the command started: offered as a quiet link, never opened by itself (panel-auto-open.ts is opt-in).
+	const devServer = devServerUrl({ toolName: "bash", command, text: parsed.output });
 	// Nothing printed yet: the live stage shows the command line alone, never an empty terminal.
 	const silent = !!livePreview && command !== "" && liveOutput === "" && images.length === 0;
 	const outputLines = livePreview ? liveOutput.split("\n") : null;
@@ -319,6 +323,18 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 					</div>
 				)}
 			</div>
+			{devServer && !isPartial && (
+				<button
+					className="omp-bash-open-preview inline-flex w-fit items-center gap-1 rounded-(--sc-radius-xs) px-1 text-sc-xs text-(--omp-md-link) hover:bg-(--sc-hover)"
+					data-bash-open-preview
+					onClick={() => useUiStore.getState().openPreview(devServer)}
+					title={devServer}
+					type="button"
+				>
+					<AppWindow aria-hidden size={12} />
+					{t("tools.bash.openPreview")}
+				</button>
+			)}
 			<ResultImages images={images} livePreview={livePreview} />
 			{notes.length > 0 && (
 				<div className="omp-bash-notes text-sc-xs text-(--sc-text-subtle)">{notes.join(" · ")}</div>

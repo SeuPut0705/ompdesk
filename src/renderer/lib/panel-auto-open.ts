@@ -13,6 +13,7 @@
 import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AUTO_OPEN_CHANGES_PREF, AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
 import type { AgentSessionEvent, RpcGitFingerprint, RpcGitStatus } from "../../shared/rpc-types";
+import { currentShellMode } from "../hooks/use-shell-mode";
 import type { SessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
@@ -112,9 +113,11 @@ function gate(): PanelGate {
 	};
 }
 
+/** Both automations are opt-in: only a stored `true` turns one on, and a phone's shell never opens anything. */
 async function prefOn(key: string): Promise<boolean> {
+	if (currentShellMode() === "phone") return false;
 	try {
-		return (await window.omp.prefs.get(key)) !== false;
+		return (await window.omp.prefs.get(key)) === true;
 	} catch {
 		return false;
 	}

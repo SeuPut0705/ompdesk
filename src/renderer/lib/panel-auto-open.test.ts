@@ -78,6 +78,8 @@ async function settle(): Promise<void> {
 
 beforeEach(() => {
 	prefs.clear();
+	prefs.set("autoPreviewDevServer", true);
+	prefs.set("autoOpenChanges", true);
 	commands.length = 0;
 	fingerprints = ["a"];
 	repoChanges = 1;
@@ -195,6 +197,13 @@ describe("dev server → Preview", () => {
 			null,
 			null,
 		]);
+	});
+	it("opens nothing while the switches were never turned on", async () => {
+		prefs.clear();
+		handleAutoOpenEvents(TAB, [bashUpdate("Local: http://localhost:5009/")]);
+		handleAutoOpenEvents(TAB, [AGENT_START, editEnd(), AGENT_END]);
+		await settle();
+		expect(useUiStore.getState()).toMatchObject({ panelVisible: false, previewUrl: null });
 	});
 	it("takes a passive view only after it sat idle", async () => {
 		vi.useFakeTimers();
