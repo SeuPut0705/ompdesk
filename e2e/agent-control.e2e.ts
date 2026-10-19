@@ -121,8 +121,10 @@ test("create a session, send it a message, wait for it and read its result", asy
 	await expect(page.getByText("ompdesk-agent-message")).toHaveCount(0);
 });
 
-test("deleting a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
+test("with full control off, deleting a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
 	test.setTimeout(150_000);
+	// Settings › Tools & extensions › "Give agents full control of OMPdesk" off, as the person would store it.
+	await page.evaluate(() => window.omp.prefs.set("agentControlFull", false));
 	// A second tab the user opened (⌘T): not the agent's.
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
@@ -154,4 +156,16 @@ test("deleting a session the agent did not open needs the user's confirmation ca
 		.click();
 	// Approved, the delete runs (a ⌘T tab has no saved file yet, so main says closing is enough).
 	expect((await approved).text).toMatch(/Stopped, closed and deleted|no saved file yet/);
+});
+
+test("by default (full control) the agent deletes a session it did not open with no card", async () => {
+	test.setTimeout(150_000);
+	const before = (await tabs()).map(tab => tab.tabId);
+	await page.keyboard.press("ControlOrMeta+t");
+	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
+	const theirs = (await tabs()).find(tab => !before.includes(tab.tabId))?.tabId ?? "";
+	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
+	const result = await call("ompdesk_session_stop", { session: theirs, delete: true });
+	expect(result.text).toMatch(/Stopped, closed and deleted|no saved file yet/);
+	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 });

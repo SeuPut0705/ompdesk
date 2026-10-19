@@ -64,6 +64,8 @@ export interface AppAction {
 	neverReason?: string;
 	/** Required on a `sensitive` action: whether `agentControlManage` lifts its card, or it always asks, and why. */
 	manage?: ManageRule;
+	/** Present on an action that runs only while the person gave agents full control (`agentControlFull`); why it is refused otherwise. */
+	fullOnly?: string;
 	/** What the confirmation card says is about to happen, in full (exact command, url, arguments). */
 	describe?: (args: Record<string, unknown>) => string;
 	/** Absent for a `never` action. */
@@ -193,6 +195,86 @@ const SESSION_PATH = {
 	maxLength: 4096,
 	description: "Session file path (.jsonl) from sessions.saved.",
 } as const;
+
+/**
+ * What `agent_power.set` can switch under full control: the switches that bound an agent's own power. A pref goes
+ * through `PREFS_SET`, a stock setting through `set_setting`, and the two memory switches through ai-memory's own
+ * channel (they start or stop its service, which a bare pref write would not).
+ */
+const POWER_SWITCHES: Record<
+	string,
+	{ en: string; ko: string } & (
+		| { kind: "pref"; key: string }
+		| { kind: "stock"; path: string }
+		| { kind: "channel"; channel: string; key: string }
+	)
+> = {
+	agentControl: { en: "OMPdesk control tools", ko: "OMPdesk 제어 도구", kind: "pref", key: "agentControl" },
+	agentControlFull: {
+		en: "Give agents full control of OMPdesk",
+		ko: "에이전트에게 OMPdesk 모든 권한",
+		kind: "pref",
+		key: "agentControlFull",
+	},
+	agentControlManage: {
+		en: "Let agents manage other sessions",
+		ko: "에이전트가 다른 세션 관리하기",
+		kind: "pref",
+		key: "agentControlManage",
+	},
+	agentControlApprove: {
+		en: "Let agents approve for other sessions",
+		ko: "에이전트가 다른 세션 승인 대신하기",
+		kind: "pref",
+		key: "agentControlApprove",
+	},
+	pstack: { en: "Engineering mode (pstack)", ko: "엔지니어링 모드 (pstack)", kind: "pref", key: "pstack" },
+	aiMemoryLearn: { en: "Learn from conversations", ko: "대화에서 배우기", kind: "pref", key: "aiMemoryLearn" },
+	aiMemory: {
+		en: "Memory",
+		ko: "메모리",
+		kind: "channel",
+		channel: IPC_COMMANDS.AI_MEMORY_SET_ENABLED,
+		key: "aiMemory",
+	},
+	aiMemoryTerminal: {
+		en: "Memory in the terminal omp",
+		ko: "터미널 omp에서도 메모리 쓰기",
+		kind: "channel",
+		channel: IPC_COMMANDS.AI_MEMORY_SET_TERMINAL,
+		key: "aiMemoryTerminal",
+	},
+	"computer.enabled": { en: "Computer use", ko: "컴퓨터 사용", kind: "stock", path: "computer.enabled" },
+	"tools.approvalMode": { en: "Tool approval", ko: "도구 승인", kind: "stock", path: "tools.approvalMode" },
+};
+
+async function setPowerSwitch(ctx: ActionContext, args: Record<string, unknown>): Promise<ActionResult> {
+	const name = String(args.switch);
+	const entry = POWER_SWITCHES[name];
+	if (!entry) throw new AppRefusal(`Unknown switch ${name}.`);
+	const value = name === "tools.approvalMode" ? args.mode : args.on;
+	if (name === "tools.approvalMode" ? typeof value !== "string" : typeof value !== "boolean")
+		throw new AppRefusal(name === "tools.approvalMode" ? "tools.approvalMode needs mode." : `${name} needs on.`);
+	const previous =
+		entry.kind === "stock"
+			? await readStock(ctx, entry.path)
+			: entry.kind === "pref"
+				? ctx.getPref(entry.key)
+				: undefined;
+	if (entry.kind === "pref") await ctx.setPref(entry.key, value);
+	else if (entry.kind === "stock") await ctx.rpc({ type: "set_setting", path: entry.path, value });
+	else await ctx.invoke(entry.channel, value);
+	const undo =
+		previous === undefined || previous === null || entry.kind === "channel"
+			? undefined
+			: entry.kind === "pref"
+				? ({ kind: "pref", key: entry.key, value: previous } as const)
+				: ({ kind: "setting", path: entry.path, value: previous } as const);
+	return {
+		text: `${entry.en} is now ${shown(value)}.`,
+		change: { en: entry.en, ko: entry.ko, value: shown(value), ...(undo ? { undo } : {}) },
+	};
+}
 const SCOPE = {
 	type: "string",
 	enum: ["local", "global"],
@@ -613,12 +695,25 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		tier: "change",
 		run: ctx => ctx.undoLast(),
 	},
-	never(
-		"agent_power.set",
-		"permissions",
-		"Change what agents may do: control tools, approval mode, who may approve, memory or computer-use switches.",
-		"These switches bound the agent's own power. Only the person changes them, in Settings.",
-	),
+	{
+		id: "agent_power.set",
+		area: "permissions",
+		description:
+			"Change what agents may do: OMPdesk control tools, full control, managing or approving for other sessions, tool approval mode, memory, engineering mode or computer use. Booleans take on; tools.approvalMode takes mode.",
+		args: objectSchema(
+			{
+				switch: { type: "string", enum: Object.keys(POWER_SWITCHES) },
+				on: { type: "boolean" },
+				mode: { type: "string", enum: ["yolo", "write", "always-ask"] },
+			},
+			["switch"],
+		),
+		tier: "sensitive",
+		fullOnly:
+			"These switches bound the agent's own power. Only the person changes them, in Settings, unless they give agents full control of OMPdesk.",
+		manage: { always: "these switches bound what every agent may do; only full control lets an agent change them" },
+		run: setPowerSwitch,
+	},
 	never(
 		"cards.answer",
 		"permissions",

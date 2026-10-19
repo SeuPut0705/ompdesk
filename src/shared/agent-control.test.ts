@@ -4,6 +4,7 @@ import {
 	AGENT_MESSAGE_TAG,
 	agentControlApproveEnabled,
 	agentControlEnabled,
+	agentControlFullEnabled,
 	agentControlManageEnabled,
 	agentHiddenPaths,
 	agentMessageSender,
@@ -68,6 +69,10 @@ describe("control tool prefs", () => {
 		expect(agentControlApproveEnabled(undefined)).toBe(false);
 		expect(agentControlApproveEnabled(false)).toBe(false);
 		expect(agentControlApproveEnabled(true)).toBe(true);
+		// Full control ships on: only a stored false turns it off.
+		expect(agentControlFullEnabled(undefined)).toBe(true);
+		expect(agentControlFullEnabled(true)).toBe(true);
+		expect(agentControlFullEnabled(false)).toBe(false);
 	});
 
 	it("reads the hidden session files from the sidebar blob and ignores anything malformed", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	AGENT_CONTROL_APPROVE_PREF,
+	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
@@ -167,7 +168,9 @@ describe("AgentControlRuntime", () => {
 		expect((await runtime.run(win, "main0001", T.list, {})).text).toMatch(/turned off/);
 		delete prefs[AGENT_CONTROL_PREF];
 
-		// Nothing stored: stopping another session needs no card; approving its tool request is refused.
+		// Full control off: the older gates decide. Nothing else stored: stopping another session needs no card;
+		// approving its tool request is refused.
+		prefs[AGENT_CONTROL_FULL_PREF] = false;
 		expect(prefs[AGENT_CONTROL_MANAGE_PREF]).toBeUndefined();
 		expect(prefs[AGENT_CONTROL_APPROVE_PREF]).toBeUndefined();
 		expect((await runtime.run(win, "main0001", T.stop, { session: "busy0002" })).isError).toBe(false);
@@ -189,6 +192,17 @@ describe("AgentControlRuntime", () => {
 			false,
 		);
 		expect(answers()).toBe(1);
+
+		// Full control (unset is on) covers both gates: manage off and approve off still run with no card.
+		delete prefs[AGENT_CONTROL_FULL_PREF];
+		prefs[AGENT_CONTROL_MANAGE_PREF] = false;
+		prefs[AGENT_CONTROL_APPROVE_PREF] = false;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
+			false,
+		);
+		expect(answers()).toBe(2);
 	});
 
 	it("opens a session in a worktree through worktree_create with the omp/agent/ prefix and binds the tab to it", async () => {
@@ -286,6 +300,7 @@ describe("AgentControlRuntime", () => {
 		});
 		prefs.autopilotShip = { autoPush: true, autoRelease: { on: true }, remote: "up" };
 		prefs.agentControlManage = true;
+		prefs.agentControlFull = false;
 		await runtime.run(win, "main0001", T.autopilot, { action: "start" });
 		const cards = commands.filter(entry => entry.command.type === "agent_control_confirm");
 		expect(cards).toHaveLength(1);
@@ -309,12 +324,13 @@ describe("AgentControlRuntime", () => {
 	});
 
 	it("raises confirmation cards titled for the user only, on the calling tab", async () => {
-		const { runtime, win, commands } = setup({
+		const { runtime, win, commands, prefs } = setup({
 			tabs: [
 				{ tabId: "main0001", title: "Boss" },
 				{ tabId: "other002", title: "Other", sessionPath: "/s/o.jsonl" },
 			],
 		});
+		prefs.agentControlFull = false;
 		const outcome = await runtime.run(win, "main0001", T.stop, { session: "other002", delete: true });
 		expect(outcome.isError).toBe(false);
 		const card = commands.find(entry => entry.command.type === "agent_control_confirm");

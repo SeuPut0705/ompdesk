@@ -163,9 +163,25 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(2);
 	await expect(page.getByText("Merged the work of").first()).toBeVisible();
 
-	// The tool needs no card by default ("Let agents manage other sessions" is on unless stored off; the decline
-	// path with the switch off is unit-tested in service.test.ts): it merges at once.
+	// With full control and "Let agents manage other sessions" stored off the tool asks first; a refusal merges
+	// nothing.
 	const second = made[1] as { tabId: string; path: string; branch: string };
+	await page.evaluate(async () => {
+		await window.omp.prefs.set("agentControlFull", false);
+		await window.omp.prefs.set("agentControlManage", false);
+	});
+	const asked = call("ompdesk_merge", { session: second.tabId });
+	await page
+		.getByRole("button", { name: /Needs input/ })
+		.first()
+		.click({ timeout: 30_000 });
+	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
+	await page.getByRole("button", { name: /^Deny/ }).first().click();
+	expect((await asked).text).toContain("declined");
+	await expect(fs.readFile(path.join(project, "part-b.txt"), "utf8")).rejects.toThrow();
+
+	// Full control on again (the default): the tool merges at once with no card.
+	await page.evaluate(() => window.omp.prefs.set("agentControlFull", true));
 	const mergedResult = await call("ompdesk_merge", { session: second.tabId });
 	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 	expect(mergedResult.isError).toBe(false);

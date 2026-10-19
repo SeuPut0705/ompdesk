@@ -64,7 +64,6 @@ const OWN_TOOLS =
 	"the agent already has its own tools for this (read, edit, bash, browser) or it acts outside the session";
 const SESSION_TOOLS = "the ompdesk_session_* tools cover sessions and tabs";
 const OPERATOR = "credentials, pairing, network exposure, installs or machine setup: the person does this in Settings";
-const USER_ONLY = "a switch that gates what an agent may do or run; only the person changes it";
 const CREDENTIALS = "reveals a password or opens the person's private data";
 const DENY = "no agent action for this channel; refused by default";
 
@@ -271,10 +270,10 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[WEB_DEVICE_CONNECTED]: never(PUSH),
 	[WEB_PAIRING_REQUEST]: never(PUSH),
 	[C.AI_MEMORY_GET_STATE]: never(DENY),
-	[C.AI_MEMORY_SET_ENABLED]: never(USER_ONLY),
+	[C.AI_MEMORY_SET_ENABLED]: sensitive("agent_power.set"),
 	[C.AI_MEMORY_RETRY]: never(DENY),
 	[C.AI_MEMORY_PURGE]: sensitive("memory.purge"),
-	[C.AI_MEMORY_SET_TERMINAL]: never(USER_ONLY),
+	[C.AI_MEMORY_SET_TERMINAL]: sensitive("agent_power.set"),
 	[C.AI_MEMORY_OPEN_WEB]: never(CREDENTIALS),
 	[C.AI_MEMORY_COPY_WEB_PASSWORD]: never(CREDENTIALS),
 	[C.AI_MEMORY_REVEAL_DATA]: never(CREDENTIALS),

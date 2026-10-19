@@ -39,6 +39,15 @@ export const AGENT_CONTROL_APPROVE_PREF = "agentControlApprove";
  */
 export const AGENT_CONTROL_MANAGE_PREF = "agentControlManage";
 
+/**
+ * Prefs key, default ON (unset counts as on; only a stored `false` is off): "Give agents full control of OMPdesk".
+ * While on, no control tool or app action raises an `[OMPdesk]` card (the `always` set, a foreign delete and
+ * Autopilot release or main included), an agent may approve another session's tool approval, and it may change the
+ * agent-power switches themselves. Secrets stay unreadable and cards stay unanswerable whatever it says. Off: the
+ * manage, approve and `always` rules apply as before.
+ */
+export const AGENT_CONTROL_FULL_PREF = "agentControlFull";
+
 /** Title prefix of every confirmation card the control tools raise; `ompdesk_session_answer` never answers one. */
 export const AGENT_CARD_PREFIX = "[OMPdesk] ";
 
@@ -58,6 +67,11 @@ export function isApprovalSelect(request: { method: string; title?: unknown; opt
 }
 
 export function agentControlEnabled(value: unknown): boolean {
+	return value !== false;
+}
+
+/** `agentControlFull` as stored: unset is on. */
+export function agentControlFullEnabled(value: unknown): boolean {
 	return value !== false;
 }
 

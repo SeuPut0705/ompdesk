@@ -19,6 +19,7 @@ import {
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APP,
 	AGENT_CONTROL_APPROVE_PREF,
+	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
@@ -32,6 +33,7 @@ import {
 	type AgentReviewResult,
 	agentControlApproveEnabled,
 	agentControlEnabled,
+	agentControlFullEnabled,
 	agentControlManageEnabled,
 	agentHiddenPaths,
 	type ClosedChild,
@@ -501,8 +503,13 @@ export class AgentControlRuntime {
 		const deps = this.#deps;
 		return {
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
-			approveEnabled: () => agentControlApproveEnabled(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)),
-			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
+			approveEnabled: () =>
+				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+				agentControlApproveEnabled(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)),
+			manageEnabled: () =>
+				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => {
@@ -728,6 +735,7 @@ export class AgentControlRuntime {
 			},
 			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
 			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			note: async (tabId, text) => {
 				await this.#hostCommand(tabId, { type: "agent_control_note", text });
 			},

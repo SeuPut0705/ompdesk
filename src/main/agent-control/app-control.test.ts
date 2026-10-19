@@ -12,6 +12,7 @@ const CALLER = "main0001";
 class FakePorts implements AppPorts {
 	prefs: Record<string, unknown> = { themeName: "dark", theme: "dark" };
 	manage = false;
+	full = false;
 	approve = true;
 	cards: { title: string; message: string }[] = [];
 	writes: { key: string; value: unknown }[] = [];
@@ -48,6 +49,7 @@ class FakePorts implements AppPorts {
 		return this.approve;
 	};
 	manageEnabled = (): boolean => this.manage;
+	fullEnabled = (): boolean => this.full;
 	note = async (_tab: string, text: string): Promise<void> => {
 		this.notes.push(text);
 	};
@@ -167,18 +169,52 @@ describe("ompdesk_app tiers", () => {
 
 	it("pins the actions that always ask, so a new one cannot slip in or out unseen", () => {
 		const asking = Object.values(ACTION_BY_ID)
-			.filter(action => action.manage && "always" in action.manage)
+			.filter(action => action.manage && "always" in action.manage && !action.fullOnly)
 			.map(action => action.id)
 			.sort();
 		expect(asking).toEqual(ALWAYS_ASKS.map(([id]) => id).sort());
 	});
 
-	it("refuses a never action whatever the switch says", async () => {
+	it("runs every action that always asks without a card while agents have full control", async () => {
+		const ports = new FakePorts();
+		ports.full = true;
+		ports.approve = false;
+		const control = new AppControl(ports);
+		for (const [id, args] of ALWAYS_ASKS) await control.run(CALLER, id, args);
+		expect(ports.cards).toEqual([]);
+		expect(ports.invoked.map(entry => entry.channel)).toContain(IPC_COMMANDS.SESSIONS_DELETE);
+	});
+
+	it("lets an agent with full control change the agent-power switches, never secrets or cards", async () => {
+		const ports = new FakePorts();
+		ports.full = true;
+		ports.stock["tools.approvalMode"] = "yolo";
+		const control = new AppControl(ports);
+		await control.run(CALLER, "agent_power.set", { switch: "agentControlManage", on: false });
+		await control.run(CALLER, "agent_power.set", { switch: "aiMemory", on: false });
+		await control.run(CALLER, "agent_power.set", { switch: "tools.approvalMode", mode: "always-ask" });
+		expect(ports.prefs.agentControlManage).toBe(false);
+		expect(ports.stock["tools.approvalMode"]).toBe("always-ask");
+		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.AI_MEMORY_SET_ENABLED, args: [false] }]);
+		await control.run(CALLER, "app.undo", {});
+		expect(ports.stock["tools.approvalMode"]).toBe("yolo");
+		expect(ports.cards).toEqual([]);
+		for (const id of ["cards.answer", "credentials.read"])
+			expect(await refusal(control.run(CALLER, id, {})), id).toContain("never available");
+		expect(await refusal(control.run(CALLER, "settings.agentControlManage", { value: true }))).toContain(
+			"Unknown action",
+		);
+	});
+
+	it("refuses a never action, and the agent-power switches, while full control is off whatever manage says", async () => {
 		const ports = new FakePorts();
 		ports.manage = true;
 		const control = new AppControl(ports);
-		for (const id of ["agent_power.set", "cards.answer", "credentials.read"])
+		for (const id of ["cards.answer", "credentials.read"])
 			expect(await refusal(control.run(CALLER, id, {})), id).toContain("never available");
+		expect(await refusal(control.run(CALLER, "agent_power.set", { switch: "agentControlFull", on: true }))).toContain(
+			"never available",
+		);
 		expect(await refusal(control.run(CALLER, "settings.agentControlManage", { value: true }))).toContain(
 			"Unknown action",
 		);

@@ -8,8 +8,9 @@
  *   read       free
  *   change     free, journaled in the caller's session, shown as a toast, undoable when a previous value exists
  *   sensitive  one `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on (default on); the
- *              action's `manage` rule (`app-settings.ts` `ManageRule`) says which ones ask even then
- *   never      refused, whatever the switches: what gates the agent's own power, secrets, the cards
+ *              action's `manage` rule (`app-settings.ts` `ManageRule`) says which ones ask even then. With
+ *              `agentControlFull` on (default) no card at all.
+ *   never      refused: secrets, the cards, and (unless `agentControlFull` is on) what gates the agent's own power
  */
 import type { RpcCommand } from "../../shared/rpc-types";
 import { SETTING_BY_ID, SETTINGS } from "./app-settings";
@@ -39,6 +40,23 @@ export const POWER_PREF =
 export const POWER_SETTING =
 	/^(tools\.approval|secrets\.|security\.|computer|memory\.|mnemopi|hindsight|autolearn|pstack|task\.agentAccountPools|providers\.)/i;
 
+/**
+ * The agent-power switches `agent_power.set` may write while `agentControlFull` is on; `never` otherwise. Secrets
+ * (`token`, `password`, …) are never among them.
+ */
+export const FULL_CONTROL_PREFS: Readonly<Record<string, true>> = {
+	agentControl: true,
+	agentControlFull: true,
+	agentControlManage: true,
+	agentControlApprove: true,
+	pstack: true,
+	aiMemoryLearn: true,
+};
+export const FULL_CONTROL_SETTINGS: Readonly<Record<string, true>> = {
+	"tools.approvalMode": true,
+	"computer.enabled": true,
+};
+
 const PREF_TIER: Record<string, GrantedTier> = {};
 for (const setting of SETTINGS) {
 	if (setting.kind !== "pref") continue;
@@ -46,14 +64,19 @@ for (const setting of SETTINGS) {
 	for (const key of Object.keys(setting.mirror ?? {})) PREF_TIER[key] = setting.tier;
 }
 
-/** The tier a stored preference needs to be written; `never` for a power switch, a secret or a key no row lists. */
-export function prefTier(key: string): Tier {
+/**
+ * The tier a stored preference needs to be written; `never` for a power switch, a secret or a key no row lists. With
+ * `full` (the person's `agentControlFull`) the switches in `FULL_CONTROL_PREFS` need `sensitive` instead.
+ */
+export function prefTier(key: string, full = false): Tier {
+	if (full && Object.hasOwn(FULL_CONTROL_PREFS, key)) return "sensitive";
 	if (POWER_PREF.test(key)) return "never";
 	return PREF_TIER[key] ?? "never";
 }
 
 /** The tier a stock setting needs; `never` for approvals, secrets, memory and the like, and for paths no row lists. */
-export function settingTier(path: string): Tier {
+export function settingTier(path: string, full = false): Tier {
+	if (full && Object.hasOwn(FULL_CONTROL_SETTINGS, path)) return "sensitive";
 	if (POWER_SETTING.test(path)) return "never";
 	const row = SETTING_BY_ID[path];
 	return row?.kind === "stock" ? row.tier : "never";
@@ -68,16 +91,20 @@ function nestsCommand(value: unknown, depth = 0): boolean {
 }
 
 /** RPC commands an action may send; anything else is refused. A function decides by the command's own fields. */
-const RPC_TIER: Record<string, Tier | ((command: RpcCommand) => Tier)> = {
+const RPC_TIER: Record<string, Tier | ((command: RpcCommand, full: boolean) => Tier)> = {
 	get_usage: "read",
 	get_available_models: "read",
-	get_settings: command => {
+	get_settings: (command, full) => {
 		if (command.type !== "get_settings" || !command.paths || command.paths.length === 0) return "never";
-		return command.paths.every(path => !POWER_SETTING.test(path) && SETTING_BY_ID[path]?.kind === "stock")
+		return command.paths.every(
+			path =>
+				(full && Object.hasOwn(FULL_CONTROL_SETTINGS, path)) ||
+				(!POWER_SETTING.test(path) && SETTING_BY_ID[path]?.kind === "stock"),
+		)
 			? "read"
 			: "never";
 	},
-	set_setting: command => (command.type === "set_setting" ? settingTier(command.path) : "never"),
+	set_setting: (command, full) => (command.type === "set_setting" ? settingTier(command.path, full) : "never"),
 	set_model: "change",
 	set_model_role: "change",
 	set_thinking_level: "change",
@@ -88,9 +115,9 @@ const RPC_TIER: Record<string, Tier | ((command: RpcCommand) => Tier)> = {
 };
 
 /** The tier an RPC command needs. A command another command carries, or one not listed, is `never`. */
-export function rpcTier(command: RpcCommand): Tier {
+export function rpcTier(command: RpcCommand, full = false): Tier {
 	if (nestsCommand(command)) return "never";
 	if (!Object.hasOwn(RPC_TIER, command.type)) return "never";
 	const rule = RPC_TIER[command.type];
-	return typeof rule === "function" ? rule(command) : (rule ?? "never");
+	return typeof rule === "function" ? rule(command, full) : (rule ?? "never");
 }

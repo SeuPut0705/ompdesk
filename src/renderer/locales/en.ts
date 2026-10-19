@@ -5683,6 +5683,10 @@ export const en: Record<string, string> = {
 	"settings.gui.agentControl": "OMPdesk control tools",
 	"settings.gui.agentControlDesc":
 		"Let an agent see your other sessions, message them, read their results, answer their questions and show them to you",
+	"settings.gui.agentControlFull": "Give agents full control of OMPdesk",
+	"settings.gui.agentControlFullDesc":
+		"On by default: agents operate everything in OMPdesk with no confirmation card, approve for other sessions and change these switches. Risk: a prompt-injected page or file can then make an agent delete data or install code unasked. Secrets stay hidden from agents; every action is logged.",
+	"settings.gui.agentControlCovered": "Covered by full control while it is on",
 	"settings.gui.agentControlApprove": "Let agents approve for other sessions",
 	"settings.gui.agentControlApproveDesc":
 		"Off by default: only you approve a tool another session asks about, since an agent approving would bypass your approval policy. Agents may still deny or answer other questions.",

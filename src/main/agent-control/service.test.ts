@@ -48,6 +48,7 @@ class FakeHost implements AgentControlHost {
 	cardAnswer = true;
 	approve = false;
 	manage = false;
+	full = false;
 	stopping = new Set<string>();
 	spawned: SpawnRequest[] = [];
 	first: OpenedChild[] = [];
@@ -84,7 +85,8 @@ class FakeHost implements AgentControlHost {
 
 	enabled = () => true;
 	approveEnabled = () => this.approve;
-	manageEnabled = () => this.manage;
+	manageEnabled = () => this.manage || this.full;
+	fullEnabled = () => this.full;
 	tabs = (): ControlTab[] => [...this.tabsById.values()];
 	isStopping = (callerTabId: string) => this.stopping.has(callerTabId);
 	beforeFirstPrompt = async (child: OpenedChild) => {
@@ -828,6 +830,17 @@ describe("ompdesk_session_stop", () => {
 		expect(host.deleted).toEqual(["work0002"]);
 	});
 
+	it("deletes a saved session it did not open without a card while agents have full control", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", busy: true });
+		host.full = true;
+		host.cardAnswer = false;
+		expect((await control(host).run("main0001", T.stop, { session: "work0002", delete: true })).text).toMatch(
+			/deleted/,
+		);
+		expect(host.cards).toEqual([]);
+		expect(host.deleted).toEqual(["work0002"]);
+	});
+
 	it("deletes a session it opened without a card, whatever the manage switch says", async () => {
 		for (const manage of [true, false]) {
 			const host = new FakeHost({ tabId: "main0001" });
@@ -1284,6 +1297,15 @@ describe("ompdesk_autopilot", () => {
 		expect(host.cards).toHaveLength(2);
 		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "main" } });
 		expect(host.cards).toHaveLength(3);
+	});
+
+	it("asks nothing for release or the default branch while agents have full control", async () => {
+		const { host, pilot, service } = setup();
+		host.full = true;
+		await service.run("main0001", T.autopilot, { action: "start", ship: "release" });
+		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "main" } });
+		expect(host.cards).toHaveLength(0);
+		expect(pilot.starts).toHaveLength(2);
 	});
 
 	it("treats a stored release preference as release", async () => {

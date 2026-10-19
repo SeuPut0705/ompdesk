@@ -14,10 +14,12 @@
  *           off), deleting a saved session it did not open (always: a delete cannot be undone), stopping a run it did
  *           not start (off), creating a schedule (off), starting an Autopilot run (off; always for ship release or the
  *           default branch): one card each.
- *   pref    `agentControlManage` (default on; only a stored `false` is off) lifts the cards marked off above;
- *           `agentControlApprove` (default off) lets an agent approve another session's tool approval (without it the
- *           answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
- *   never   accounts, settings, permissions.
+ *   pref    `agentControlFull` ("Give agents full control of OMPdesk", default on; only a stored `false` is off)
+ *           raises no card at all and lets an agent approve another session's tool approval. Off:
+ *           `agentControlManage` (default on) lifts the cards marked off above; `agentControlApprove` (default off)
+ *           lets an agent approve another session's tool approval (without it the answer is "사용자 승인이 필요해요").
+ *           A session the user hid from agents refuses all, whatever the switches.
+ *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -213,9 +215,11 @@ export interface AutopilotSource {
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
-	/** `agentControlApprove`: an agent may approve another session's tool approval. */
+	/** `agentControlFull` (default on): no card at all; implies `approveEnabled` and `manageEnabled`. */
+	fullEnabled(): boolean;
+	/** `agentControlApprove`, or full control: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
-	/** `agentControlManage` (default on): an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open always asks. */
+	/** `agentControlManage` (default on) or full control: an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open asks unless full control is on. */
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
 	parentOf(tabId: string): string | undefined;
@@ -1647,7 +1651,7 @@ export class AgentControl {
 		const harmless = args.close === true && !args.delete && resting;
 		if (args.close && !args.delete && (target.looked || target.userTouched))
 			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
-		if (!own && !harmless && (args.delete === true || !this.#host.manageEnabled())) {
+		if (!own && !harmless && !this.#host.fullEnabled() && (args.delete === true || !this.#host.manageEnabled())) {
 			const approved = await this.#host.confirm(
 				caller.tabId,
 				this.#host.text("stopTitle", params),
@@ -2216,7 +2220,7 @@ export class AgentControl {
 		const opened = this.#openedBy(caller.tabId, tabs);
 		let started: AutopilotStatus & { tabId: string };
 		try {
-			if (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch) {
+			if (!this.#host.fullEnabled() && (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch)) {
 				const branch =
 					args.branch?.kind === "existing"
 						? onDefaultBranch
