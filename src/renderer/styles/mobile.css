@@ -1405,3 +1405,64 @@ html[data-shell] .omp-session-sidebar [data-sidebar-row-menu][data-sidebar-row-m
 html[data-shell] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-group-new] {
 	min-width: 0;
 }
+
+/* A phone turned sideways (844 × 390 and the like): the row has the width the portrait phone lacks, so its controls
+   get their full reach and text back. Chips sit 10 px apart (each one's reach ends half way to its neighbour, 5 px past
+   its edge: the 26 px + is a 36 px tap), the model chip shows its whole name, a chip's badge is 12 px instead of
+   11, and the work strip's line is 36 px high. Portrait
+   phones and tablets keep their own rules above. Pinned by the phone landscape test of e2e/responsive-smoke.e2e.ts. */
+@media (orientation: landscape) {
+	html[data-shell="phone"] .omp-composer-scroll,
+	html[data-shell="phone"] .omp-composer-scroll .omp-composer-send-cluster {
+		gap: 10px;
+		--hit-gap-x: 10px;
+	}
+
+	/* 2 px more padding on each side keeps the first and last chips' 5 px reach inside the scroller's clip. */
+	html[data-shell="phone"] .omp-composer-scroll {
+		padding-inline: 6px;
+		margin-left: -6px;
+		margin-right: 4px;
+	}
+
+	html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
+		max-width: none;
+	}
+
+	html[data-shell="phone"] .omp-status-chip [data-chip-badge] {
+		font-size: 12px;
+	}
+
+	/* Prompt suggestions: the row is 36 px (4 px more than portrait), so each 28 px chip reaches 36. */
+	html[data-shell="phone"] .omp-next-chips[data-touch] {
+		height: 36px;
+		padding-block: 4px;
+		--hit-gap-y: 8px;
+	}
+
+	/* A work card's head and its step chips: the step chips are 28 px boxes 8 px apart in a scroller whose padding
+	   (taken back by its margin) keeps their reach inside its clip; the head's "Steps" row is 36 px high. */
+	html[data-shell="phone"] .omp-live-work-chips {
+		gap: 8px;
+		padding-block: 4px;
+		margin-block: -4px;
+		--hit-gap-x: 8px;
+		--hit-gap-y: 8px;
+	}
+
+	html[data-shell="phone"] .omp-live-work-chip {
+		min-width: 28px;
+		height: 28px;
+	}
+
+	html[data-shell="phone"] :is(.omp-work-head-side, .omp-execution-group-header--embedded) {
+		min-height: 36px;
+	}
+
+	/* The strip sits 2 px under the header's buttons, whose reach ends there: it cannot reach past its own box, so it
+	   is the 36 px itself (8 px of the 390 px height, its bottom margin given back). */
+	html[data-shell="phone"] .omp-work-chip {
+		min-height: 36px;
+		margin-bottom: 0;
+	}
+}

@@ -530,6 +530,22 @@ async function runDay(browser: Browser, rig: Rig, device: DeviceSpec): Promise<S
 		}
 		await cdp?.detach();
 		notes.fromBottomAfterSwipes = await distanceFromBottom(p);
+		// Each mounted row's measured height by kind (ChatStream's `estimateSize` guesses by the same kinds).
+		notes.rowSizes = await p.evaluate(() => {
+			const sizes: Record<string, number[]> = {};
+			for (const row of document.querySelectorAll<HTMLElement>("[data-transcript-kind][data-row-key]")) {
+				const kind =
+					row.dataset.transcriptKind === "message"
+						? row.querySelector(".omp-user-bubble")
+							? "message:user"
+							: "message:assistant"
+						: (row.dataset.transcriptKind ?? "?");
+				const list = sizes[kind] ?? [];
+				list.push(Math.round(row.getBoundingClientRect().height));
+				sizes[kind] = list;
+			}
+			return sizes;
+		});
 		// Older history may still be streaming in above: measure what the page does on its own first.
 		const settled = await topRow(p);
 		if (settled)
@@ -741,6 +757,15 @@ async function runDay(browser: Browser, rig: Rig, device: DeviceSpec): Promise<S
 		}).catch(() => []);
 		notes.landscapeIssues = rotated.length;
 		notes.landscapeIssueKinds = [...new Set(rotated.map(issue => issue.kind))];
+		notes.landscapeIssueList = rotated.map(issue => `${issue.kind} ${issue.at} :: ${issue.detail}`);
+		// A phone turned sideways keeps every control's tap and text (mobile.css's landscape block); safe-area is the
+		// emulator's simulated notch on the long edge, which a rotation does not move.
+		if (device.phone)
+			expect(
+				rotated
+					.filter(issue => issue.kind !== "safe-area")
+					.map(issue => `${issue.kind} ${issue.at} ${issue.detail}`),
+			).toEqual([]);
 		await shot(p, `${device.name}-rotated`);
 		await p.setViewportSize(viewport);
 		await p.waitForTimeout(800);
@@ -897,5 +922,7 @@ test.describe("a day on the phone", () => {
 			for (const browser of Object.values(browsers)) await browser?.close().catch(() => undefined);
 			await stopRig(rig);
 		}
+		// Every step of the day went through (a step's own checks, a phone's landscape findings included).
+		expect(steps.filter(step => !step.ok).map(step => `${step.device} ${step.step}: ${step.error}`)).toEqual([]);
 	});
 });

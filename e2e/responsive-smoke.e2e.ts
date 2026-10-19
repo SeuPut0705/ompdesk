@@ -102,3 +102,33 @@ for (const look of LOOKS) {
 		await page.context().close();
 	});
 }
+
+/**
+ * A phone turned sideways (iPhone 14/15 at 844×390): the session surfaces carry none of the softer findings either
+ * (hit areas, stolen taps, truncated controls, text under 11.5 px). The landscape rules are mobile.css's
+ * `html[data-shell="phone"]` block under `(orientation: landscape)`; portrait phones and tablets keep their own.
+ */
+const PHONE_LANDSCAPE: Look = { width: 844, height: 390, dpr: 3, orientation: "landscape", theme: "light", lang: "en" };
+const LANDSCAPE_SURFACES = ["session-idle", "transcript-stress"];
+
+test("responsive smoke phone landscape: the session's controls keep their taps and text", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const page = await openLook(browser, PHONE_LANDSCAPE, { origin });
+	expect(await page.evaluate(() => document.documentElement.dataset.shell)).toBe("phone");
+	const found: string[] = [];
+	for (const id of LANDSCAPE_SURFACES) {
+		const surface = SURFACES.find(entry => entry.id === id);
+		if (!surface) throw new Error(`no surface ${id}`);
+		if (!(await resetPage(page))) {
+			await page.reload();
+			await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+		}
+		await surface.open(page, PHONE_LANDSCAPE);
+		if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
+		await page.waitForTimeout(surface.settle ?? 450);
+		for (const issue of await measure(page, PHONE_LANDSCAPE))
+			if (issue.kind !== "safe-area") found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
+	}
+	expect(found).toEqual([]);
+	await page.context().close();
+});
