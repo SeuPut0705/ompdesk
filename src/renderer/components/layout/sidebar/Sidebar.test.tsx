@@ -1616,8 +1616,10 @@ describe("Sidebar subagents", () => {
 		// The running subagent does not open the family; the chip counts both and says one runs.
 		const toggle = disclosure();
 		expect(rowFor("Session /work/alpha/two").contains(toggle as unknown as Node)).toBe(true);
-		expect(toggle?.querySelector("[data-family-agents]")?.textContent).toBe("1");
+		// One count: the running pill with the kind glyph, not "1" twice.
+		expect(toggle?.querySelector("[data-family-agents]")).toBeNull();
 		expect(toggle?.querySelector("[data-family-running]")?.textContent).toBe("1");
+		expect(toggle?.querySelector("[data-family-running] svg")).not.toBeNull();
 		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
 		expect(subagentGroup()).toBeNull();
 		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
@@ -1843,8 +1845,8 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
 
 		const boss = rowFor("Session /work/alpha/two");
-		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("2");
-		// Two of them work: the highlighted count.
+		// Two of them work: the one highlighted count (no second, plain one beside it).
+		expect(boss.querySelector("[data-family-sessions]")).toBeNull();
 		expect(boss.querySelector("[data-family-running]")?.textContent).toBe("2");
 		// The family is open (the person opened it), right under the boss's row.
 		const group = boss.nextElementSibling;
@@ -2014,7 +2016,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		// Only the two at work are listed; the closed session and the finished plain helper are not, and no fold says so.
 		expect(doneFold(BOSS)).toBeNull();
 		expect(familyRows().length).toBe(2);
-		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-sessions]")?.textContent).toBe("2");
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-running]")?.textContent).toBe("2");
 		expect(container.textContent).not.toContain("검토 대상 확인");
 		expect(container.textContent).not.toContain("Landed task");
 		expect(container.textContent).not.toContain("Plain helper");

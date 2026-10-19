@@ -147,13 +147,13 @@ for (const surface of SURFACES)
 			for (const row of await running.all()) await expect(row.locator(".omp-live-edge")).toHaveCount(1);
 			// The idle session (tab 3) and everything unlit has no light.
 			expect(await rows.locator(".omp-live-edge").count()).toBe(2 + 0);
-			// The running children wear it too; their dot and the chip's count are still, not breathing.
+			// A running child is a plain row with a still dot: no box, no light; only the 2 top-level rows are lit.
 			const children = sidebar.locator("[data-sidebar-subagent]");
-			for (const child of await children.all()) await expect(child.locator(".omp-live-edge")).toHaveCount(1);
-			// Light = 2 bars per card, a transform each and nothing else; no other animation runs in the sidebar.
+			for (const child of await children.all()) await expect(child.locator(".omp-live-edge")).toHaveCount(0);
+			// Light = 2 bars per lit card, a transform each and nothing else; no other animation runs in the sidebar.
 			const animations = await runningAnimations(page);
-			const lights = animations.filter(animation => animation.inLight || animation.name.startsWith("omp-live-edge"));
-			expect(lights.length).toBeGreaterThanOrEqual(8);
+			const lights = animations.filter(animation => animation.name === "omp-live-edge-run");
+			expect(lights.length).toBe(4);
 			for (const light of lights) expect(light.props).toEqual(["transform"]);
 			const insideSidebar = await sidebar.evaluate(element =>
 				element
@@ -162,14 +162,17 @@ for (const surface of SURFACES)
 					.map(animation => (animation as CSSAnimation).animationName),
 			);
 			expect(insideSidebar.every(name => name === "omp-live-edge-run")).toBe(true);
+			// The family chip shows its count once: the filled running pill with the kind glyph, no plain count beside it.
 			await expect(sidebar.locator("[data-family-running]")).toHaveCount(1);
+			await expect(sidebar.locator("[data-family-agents], [data-family-sessions]")).toHaveCount(0);
+			await expect(sidebar.locator("[data-family-running] svg")).toHaveCount(1);
 			await page.waitForTimeout(700);
 			if (CAPTURES) {
 				await fs.mkdir(CAPTURES, { recursive: true });
 				const frames = surface.name === "desktop" ? 3 : 1;
 				for (let frame = 0; frame < frames; frame++) {
 					await sidebar.screenshot({
-						path: path.join(CAPTURES, `final-${surface.name}-${theme}${frames > 1 ? `-t${frame}` : ""}.png`),
+						path: path.join(CAPTURES, `final2-${surface.name}-${theme}${frames > 1 ? `-t${frame}` : ""}.png`),
 					});
 					await page.waitForTimeout(2600);
 				}
@@ -189,7 +192,7 @@ for (const surface of SURFACES)
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-edge')).toHaveCount(0);
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge')).toHaveCount(1);
 			if (CAPTURES)
-				await sidebar.screenshot({ path: path.join(CAPTURES, `final-${surface.name}-${theme}-waiting.png`) });
+				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-waiting.png`) });
 			await page.context().close();
 		});
 

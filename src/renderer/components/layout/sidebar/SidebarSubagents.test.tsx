@@ -227,8 +227,10 @@ describe("a session's family: the summary chip", () => {
 
 		const chip = toggle();
 		// The finished subagent and the finished session are not counted.
-		expect(chip?.querySelector("[data-family-agents]")?.textContent).toBe("2");
-		expect(chip?.querySelector("[data-family-sessions]")?.textContent).toBe("2");
+		// Something runs: the count shows once, as the filled pill with both kind glyphs (the label keeps the totals).
+		expect(chip?.querySelector("[data-family-agents]")).toBeNull();
+		expect(chip?.querySelector("[data-family-sessions]")).toBeNull();
+		expect(chip?.querySelectorAll("[data-family-running] svg").length).toBe(2);
 		// r1 and the first opened session run: the running count is the highlighted pill.
 		const pill = chip?.querySelector("[data-family-running]");
 		expect(pill?.textContent).toBe("2");
@@ -314,7 +316,8 @@ describe("a session's family: open and closed", () => {
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
 		expect(rowIds()).toEqual(["r2"]);
 		expect(doneFold()).toBeNull();
-		expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("1");
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
 
 		// Nothing left to show: no chip, no group, and the remembered open state is dropped.
 		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "completed" })]);
@@ -493,8 +496,8 @@ describe("a session's family: one-line rows", () => {
 		expect(row("r2").querySelector('[data-family-status="idle"]')).not.toBeNull();
 		expect(row("r1").getAttribute("data-signal")).toBe("running");
 		expect(row("r2").getAttribute("data-signal")).toBeNull();
-		// The running child wears the shared border light and a still dot; the parked one wears neither.
-		expect(first.querySelector(".omp-live-edge[data-live-edge-inside]")).not.toBeNull();
+		// A child is a plain row with a still dot: no light, no pulse; only a top-level session's card wears the light.
+		expect(first.querySelector(".omp-live-edge")).toBeNull();
 		expect(first.querySelector('[data-family-status="running"] .omp-pulse-dot')).toBeNull();
 		expect(row("r2").querySelector(".omp-live-edge")).toBeNull();
 		// Focusable row button in the sidebar's roving list.
@@ -661,7 +664,8 @@ describe("a session's family: finished subagents", () => {
 		expect(row("r4").querySelector('[data-family-status="waiting"]')).not.toBeNull();
 		expect(doneFold()).toBeNull();
 		// The chip counts the four that show, not the three finished ones.
-		expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("4");
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
 	});
 
 	it("lists no finished opened session; running, waiting, problem and not-yet-run ones stay rows", async () => {
@@ -685,8 +689,10 @@ describe("a session's family: finished subagents", () => {
 		expect(doneFold()).toBeNull();
 		expect(groupText()).not.toContain("Done one");
 		// The chip counts only what shows: one subagent, four sessions.
-		expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("1");
-		expect(toggle()?.querySelector("[data-family-sessions]")?.textContent).toBe("4");
+		// Something runs: the count shows once, as the running pill.
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
+		expect(toggle()?.querySelector("[data-family-sessions]")).toBeNull();
 	});
 
 	it("shows no chip and no group when every child finished", async () => {

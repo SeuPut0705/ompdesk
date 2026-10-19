@@ -345,27 +345,33 @@ function FamilyChip({
 				data-family-compact={compact || undefined}
 				ref={chipRef}
 			>
-				{counts.agents > 0 && !compact && (
-					<span className="inline-flex items-center gap-0.5" data-family-agents={counts.agents}>
-						<Bot aria-hidden className="size-(--sc-icon-sm)" />
-						{counts.agents}
-					</span>
-				)}
-				{counts.agents > 0 && counts.sessions > 0 && !compact && <span aria-hidden>·</span>}
-				{counts.sessions > 0 && !compact && (
-					<span className="inline-flex items-center gap-0.5" data-family-sessions={counts.sessions}>
-						<GitBranch aria-hidden className="size-(--sc-icon-sm)" />
-						{counts.sessions}
-					</span>
-				)}
-				{/* The running count, highlighted and still (the user's rule: nothing breathes in the sidebar). */}
-				{counts.running > 0 && (
+				{/* The count shows once. Some running: one filled accent pill, the kind glyph(s) and the running count,
+				    still (nothing breathes in the sidebar). None running: the plain muted counts per kind. */}
+				{counts.running > 0 ? (
 					<span
-						className="ml-0.5 min-w-4 rounded-(--sc-radius-full) bg-(--sc-accent) px-1 text-center text-(--sc-accent-fg)"
+						className="inline-flex min-w-4 items-center justify-center gap-0.5 rounded-(--sc-radius-full) bg-(--sc-accent) px-1.5 text-(--sc-accent-fg)"
 						data-family-running={counts.running}
 					>
+						{counts.agents > 0 && <Bot aria-hidden className="size-(--sc-icon-sm)" />}
+						{counts.sessions > 0 && <GitBranch aria-hidden className="size-(--sc-icon-sm)" />}
 						{counts.running}
 					</span>
+				) : (
+					<>
+						{counts.agents > 0 && (
+							<span className="inline-flex items-center gap-0.5" data-family-agents={counts.agents}>
+								<Bot aria-hidden className="size-(--sc-icon-sm)" />
+								{counts.agents}
+							</span>
+						)}
+						{counts.agents > 0 && counts.sessions > 0 && <span aria-hidden>·</span>}
+						{counts.sessions > 0 && (
+							<span className="inline-flex items-center gap-0.5" data-family-sessions={counts.sessions}>
+								<GitBranch aria-hidden className="size-(--sc-icon-sm)" />
+								{counts.sessions}
+							</span>
+						)}
+					</>
 				)}
 			</button>
 			{menuAt && (

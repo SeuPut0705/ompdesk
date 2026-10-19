@@ -9,7 +9,6 @@ import { Bot, Check, GitBranch, MessageSquare, Pause, TriangleAlert, X } from "l
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 import type { ListRowProps } from "../../common/ListRow";
-import { LiveEdge } from "../../common/LiveEdge";
 import type { FamilyKind, FamilyState } from "./sidebar-family";
 
 const KIND_ICON = { subagent: Bot, worktree: GitBranch, session: MessageSquare } as const;
@@ -23,7 +22,7 @@ export function FamilyStatus({ state }: { state: FamilyState }) {
 			data-family-status={state}
 		>
 			{state === "running" ? (
-				// A still dot: the running state's motion is the row's own `LiveEdge` light.
+				// A still dot: a child is a plain row; only a top-level session's card wears the running light.
 				<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-accent)" />
 			) : state === "waiting" ? (
 				<TriangleAlert className="size-(--sc-icon-sm) text-(--sc-warning)" />
@@ -89,7 +88,6 @@ export function FamilyRow({
 				data-family-kind={kind}
 				data-family-state={state ?? undefined}
 			>
-				{state === "running" && <LiveEdge inside />}
 				<span
 					aria-hidden
 					className="flex size-(--sc-icon-md) shrink-0 items-center justify-center text-(--sc-text-subtle)"
