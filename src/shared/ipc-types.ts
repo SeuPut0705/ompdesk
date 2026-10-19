@@ -1007,6 +1007,9 @@ export interface IpcFsListPayload {
 	maxEntries?: number;
 }
 
+/** The most files one fs:list walk returns; a larger `maxEntries` is cut to it. The `@` list asks for all of it. */
+export const FS_LIST_MAX_ENTRIES = 20_000;
+
 export interface FsTreeEntry {
 	name: string;
 	/** Workspace-relative path using POSIX separators. */

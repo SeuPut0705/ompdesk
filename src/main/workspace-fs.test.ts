@@ -205,16 +205,26 @@ describe("listWorkspace file cap", () => {
 		expect(filesOf(all.entries)).toHaveLength(5);
 	});
 
-	it("lists a real repository's worth of files in one walk, honouring the ignore rules", async () => {
+	it("cuts at the default without a maxEntries, at the caller's cap above it, never past the ceiling; ignored folders count nothing", async () => {
 		mkdirSync(join(root, "node_modules", "dep"), { recursive: true });
 		writeFileSync(join(root, "node_modules", "dep", "index.js"), "");
-		for (let pkg = 0; pkg < 25; pkg++) {
+		for (let pkg = 0; pkg < 3; pkg++) {
 			mkdirSync(join(root, `pkg${pkg}`));
-			for (let file = 0; file < 100; file++) writeFileSync(join(root, `pkg${pkg}`, `file-${file}.ts`), "");
+			for (let file = 0; file < 4; file++) writeFileSync(join(root, `pkg${pkg}`, `file-${file}.ts`), "");
 		}
-		const result = await listWorkspace(root, { maxDepth: 16, maxEntries: 20_000 });
-		expect(result.truncated).toBe(false);
-		expect(filesOf(result.entries)).toHaveLength(2500);
+		// The production pair is 2000 / 20,000 (the `@` list asks for all 20,000): the same rules, scaled down.
+		const caps = { default: 5, max: 10 };
+		const listed = async (maxEntries: number | undefined, fileCaps = caps) => {
+			const result = await listWorkspace(root, { maxDepth: 16, maxEntries }, fileCaps);
+			return { truncated: result.truncated, files: filesOf(result.entries).length };
+		};
+		expect(await listed(undefined)).toEqual({ truncated: true, files: 5 });
+		expect(await listed(9)).toEqual({ truncated: true, files: 9 });
+		expect(await listed(1000)).toEqual({ truncated: true, files: 10 });
+		const all = await listWorkspace(root, { maxDepth: 16, maxEntries: 1000 }, { default: 5, max: 20 });
+		expect(all.truncated).toBe(false);
+		expect(filesOf(all.entries)).toHaveLength(12);
+		expect(filesOf(all.entries).filter(file => file.startsWith("node_modules"))).toEqual([]);
 	});
 
 	it("lists one folder on its own, so a file the cut walk missed is still reachable", async () => {

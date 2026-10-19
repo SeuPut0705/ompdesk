@@ -2,13 +2,13 @@
  * Input area utilities: file handling and command filtering.
  */
 
-import type { FsTreeEntry } from "../../../../shared/ipc-types";
+import { FS_LIST_MAX_ENTRIES, type FsTreeEntry } from "../../../../shared/ipc-types";
 import { pathMatcher } from "../../../lib/fuzzy-score";
 import type { ComposerImage } from "../../../stores/composer";
 
-/** How deep (the tree's own cap) and how many files one `@` listing asks main for. */
+/** How deep (the tree's own cap) and how many files (every file one walk returns) one `@` listing asks main for. */
 export const MENTION_FS_DEPTH = 16;
-export const MENTION_FS_MAX_ENTRIES = 20_000;
+export const MENTION_FS_MAX_ENTRIES = FS_LIST_MAX_ENTRIES;
 
 /** Cap on completion menu items (the `^` model menu). */
 export const MAX_MENU_ITEMS = 8;
