@@ -914,13 +914,17 @@ mod tests {
     }
 
     #[test]
-    fn defaults_turn_the_profile_on_and_shared_for_a_single_operator() {
+    fn defaults_leave_the_profile_off_until_enabled() {
+        // OMPdesk: off by default (its zero-LLM harvest filed a test description as a usual choice).
         let defaults = ProfileSettings::default();
+        assert_eq!(defaults.effective_share(false), None);
+        assert_eq!(defaults.effective_share(true), None);
+        let auto = settings(ProfileEnabled::Auto, ProfileShare::Auto);
         assert_eq!(
-            defaults.effective_share(false),
+            auto.effective_share(false),
             Some(EffectiveProfileShare::Global)
         );
-        assert_eq!(defaults.effective_share(true), None, "multi-user is opt-in");
+        assert_eq!(auto.effective_share(true), None, "multi-user is opt-in");
     }
 
     #[test]
