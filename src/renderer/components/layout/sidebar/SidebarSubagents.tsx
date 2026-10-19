@@ -358,14 +358,10 @@ function FamilyChip({
 						{counts.sessions}
 					</span>
 				)}
-				{/* The running count, highlighted. A folded group still says its children are at work: the pill
-				    pulses on an HTML element (Chromium runs no SVG element's animation on the compositor). */}
+				{/* The running count, highlighted and still (the user's rule: nothing breathes in the sidebar). */}
 				{counts.running > 0 && (
 					<span
-						className={cx(
-							"ml-0.5 min-w-4 rounded-(--sc-radius-full) bg-(--sc-accent) px-1 text-center text-(--sc-accent-fg)",
-							!expanded && "omp-pulse-dot",
-						)}
+						className="ml-0.5 min-w-4 rounded-(--sc-radius-full) bg-(--sc-accent) px-1 text-center text-(--sc-accent-fg)"
 						data-family-running={counts.running}
 					>
 						{counts.running}

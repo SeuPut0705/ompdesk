@@ -82,13 +82,6 @@
 	background-color: var(--sc-pressed);
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.omp-session-sidebar .omp-family-row .omp-pulse-dot,
-	.omp-session-sidebar .omp-family-chip .omp-pulse-dot {
-		animation: none;
-	}
-}
-
 .omp-sidebar-session-row[data-signal="running"]::before {
 	background: var(--sc-accent);
 	opacity: 0.45;
