@@ -695,9 +695,19 @@ export class LocalHostServices implements HostServices {
 			case "host.ompUpdate.now":
 				return this.#deps.machine.startOmpUpdate();
 			// Settings › Schedules and `ompdesk_schedule` of a device: this computer's own service checks the draft
-			// (folder, interval, time) and runs the schedule here, while this OMPdesk is open.
-			case "host.schedules.command":
-				return this.#deps.machine.schedules(parse(SchedulesCommandParams, method, params).request);
+			// (folder, interval, time) and runs the schedule here, while this OMPdesk is open. A run the device starts
+			// now spends one of its daily model requests here; reading and editing the list spends none.
+			case "host.schedules.command": {
+				const { request } = parse(SchedulesCommandParams, method, params);
+				return request.action === "runNow"
+					? this.#metered(
+							peer.deviceId,
+							1,
+							() => this.#deps.machine.schedules(request),
+							() => true,
+						)
+					: this.#deps.machine.schedules(request);
+			}
 			case "host.schedules.log":
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
 			default:

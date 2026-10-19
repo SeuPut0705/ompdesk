@@ -265,22 +265,7 @@ test.describe("on a paired device", () => {
 
 	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {
 		test.setTimeout(180_000);
-		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
-		const clientProfile = await makeRemoteProfile(parent, "client", {
-			language: "en",
-			theme: "light",
-			port: hostProfile.port,
-			prefs: { batchNotifications: false },
-		});
-		host = await launchRemote(hostProfile);
-		client = await launchRemote(clientProfile);
-		const deviceId = await connectHost(host.page, client.page, "PC-B");
-		await expect
-			.poll(async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state, {
-				timeout: 30_000,
-			})
-			.toBe("online");
-		const call = await caller(client.page, clientProfile.record);
+		const { hostProfile, clientProfile, deviceId, call, client: app } = await pairApps();
 		const hostSchedules = async (): Promise<unknown[]> => {
 			const saved: unknown = JSON.parse(
 				await fs.readFile(path.join(hostProfile.desktop, "schedules.json"), "utf8").catch(() => "{}"),
@@ -290,7 +275,7 @@ test.describe("on a paired device", () => {
 				: [];
 		};
 		// Settings › Schedules of a tab on the host hears the host's own changes: each push's count, in order.
-		await client.page.evaluate(id => {
+		await app.page.evaluate(id => {
 			window.omp.schedules.onHostState((from, state) => {
 				if (from !== id) return;
 				document.body.dataset.schedulePushes = `${document.body.dataset.schedulePushes ?? ""}${state.schedules.length}`;
@@ -321,7 +306,7 @@ test.describe("on a paired device", () => {
 		const listed = await call("ompdesk_schedule", { action: "list", device: "PC-B" });
 		expect(listed.text).toContain(`Scheduled runs on PC-B:\n- ${id} “[agent] nightly” every 60 min`);
 		// Settings reads the same list from the host through the device-routed channel.
-		const settings = await client.page.evaluate(
+		const settings = await app.page.evaluate(
 			device => window.omp.schedules.command({ action: "get" }, device),
 			deviceId,
 		);
@@ -330,6 +315,6 @@ test.describe("on a paired device", () => {
 		const cancelled = await call("ompdesk_schedule", { action: "cancel", id, device: "PC-B" });
 		expect(cancelled.text).toBe("Cancelled “[agent] nightly” on PC-B.");
 		await expect.poll(hostSchedules).toEqual([]);
-		await expect.poll(() => client?.page.evaluate(() => document.body.dataset.schedulePushes)).toMatch(/1.*0$/);
+		await expect.poll(() => app.page.evaluate(() => document.body.dataset.schedulePushes)).toMatch(/1.*0$/);
 	});
 });

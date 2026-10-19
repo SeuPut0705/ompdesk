@@ -1015,7 +1015,7 @@ All three bridge features (prompt suggestions, automatic titles, automatic mode)
 - Inline field: `settings/DeviceNameField.tsx`, shared by the remote and phone-page rows. Pinned by `remote/devices-rename.test.ts` (two `RemoteDevices` over real sockets), `RemoteSection.test.tsx`, `e2e/device-rename.e2e.ts` (`OMP_GUI_DEVICE_RENAME=<dir>` + `_THEME` captures in Korean).
 
 ### Per-device model limit
-- A paired device's per-day model limit (`remote/peer-quota.ts`, prefs on the peer in `remote-peers.json`) covers every RPC command that calls a model on the host, plus `host.bench.run` (models × runs requests) and `host.modelSetup.run`.
+- A paired device's per-day model limit (`remote/peer-quota.ts`, prefs on the peer in `remote-peers.json`) covers every RPC command that calls a model on the host, plus `host.bench.run` (models × runs requests), `host.modelSetup.run` and a schedule's `runNow` through `host.schedules.command` (one request; a schedule's timed runs are the host's own and are not counted against the device).
 - `remote/quota-commands.ts` classifies **every** `RpcCommand` type as model, conditional (`switch_leaf` with `summarize`; `plan_approval` that runs or sends feedback; `set_goal` with an objective or `resume`) or free. A compile-time check and `quota-commands.test.ts` fail when a new command type is in none of the lists, and a type no list knows counts.
 - `LocalHostServices` reserves the request (`PeerQuota.reserve`, no await between the check and the count; a weighted reservation that would take the day past its limit is refused whole) and refunds it when the work throws or fails.
 - Terminals (`terminal.request`) and the agent's `bash`/`eval` stay outside the limit.

@@ -583,6 +583,21 @@ describe("LocalHostServices", () => {
 			expect(used(stored)).toBe(1);
 		});
 
+		it("counts a device's 'run now' of a schedule here as one model request and refuses it past the limit", async () => {
+			const { services, machine, stored, x } = limited({ requestsPerDay: 1 });
+			const runNow = { request: { action: "runNow", id: "s1" } };
+			await services.call(x.peer, "host.schedules.command", runNow, x);
+			expect(used(stored)).toBe(1);
+			const refused = await services
+				.call(x.peer, "host.schedules.command", runNow, x)
+				.catch((error: unknown) => error);
+			expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
+			expect(machine.schedules).toHaveBeenCalledTimes(1);
+			// Reading and editing the list spends nothing.
+			await services.call(x.peer, "host.schedules.command", { request: { action: "get" } }, x);
+			expect(machine.schedules).toHaveBeenCalledTimes(2);
+		});
+
 		it("counts a benchmark by its model runs and a model setup as one request, refunding a failed start", async () => {
 			const { services, machine, stored, x } = limited({ requestsPerDay: 100 });
 			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
