@@ -370,12 +370,7 @@ describe("channel policy and grants", () => {
 	it("refuses unknown channels, push channels, the pairing boundary and the wrong direction", async () => {
 		const r = rig();
 		const refused = { t: "res", id: 1, ok: false, e: { code: "web_forbidden" } };
-		for (const channel of [
-			"nope:nothing",
-			IPC_EVENTS.EVENTS_BATCH,
-			WEB_DEVICES_LIST,
-			IPC_COMMANDS.REMOTE_ROTATE_CODE,
-		]) {
+		for (const channel of ["nope:nothing", IPC_EVENTS.EVENTS_BATCH, WEB_DEVICES_LIST]) {
 			expect(await call(r, channel), channel).toMatchObject(refused);
 		}
 		// RUNTIME_ERROR_REPORT is a send channel; SESSIONS_LIST is an invoke channel.
@@ -408,7 +403,6 @@ describe("channel policy and grants", () => {
 	it("never serves pairing-admin, even to a device that somehow holds it", async () => {
 		const r = rig({ grants: ["pairing-admin", "workspace"] });
 		expect(await call(r, WEB_DEVICES_LIST)).toMatchObject({ ok: false, e: { code: "web_forbidden" } });
-		expect(await call(r, IPC_COMMANDS.REMOTE_ROTATE_CODE)).toMatchObject({ ok: false });
 	});
 
 	it("serves a web-only channel with the device's context and its own permission", async () => {
@@ -441,20 +435,14 @@ describe("channel policy and grants", () => {
 		expect(r.router.connectionCount("dev1")).toBe(0);
 	});
 
-	it("takes the pairing code out of the remote state and secret-looking keys out of all preferences", async () => {
+	it("takes secret-looking keys out of all preferences", async () => {
 		const r = rig();
-		r.invoke.mockResolvedValueOnce({
-			host: { enabled: true, code: "ABCD-EFGH", expiresAt: 5, name: "x" },
-			hosts: [],
-		});
-		r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.REMOTE_GET_STATE, a: [] });
 		r.invoke.mockResolvedValueOnce({ theme: "dark", githubToken: "x", apiKey: "y", language: "ko" });
 		r.frame({ t: "inv", id: 2, ch: IPC_COMMANDS.PREFS_GET, a: [{}] });
 		r.invoke.mockResolvedValueOnce("secret-value");
 		r.frame({ t: "inv", id: 3, ch: IPC_COMMANDS.PREFS_GET, a: [{ key: "githubToken" }] });
 		await r.settle();
-		const [state, prefs, keyed] = r.socket.frames("res");
-		expect(state).toMatchObject({ ok: true, v: { host: { code: null, expiresAt: null, name: "x" } } });
+		const [prefs, keyed] = r.socket.frames("res");
 		expect(prefs).toMatchObject({ ok: true, v: { theme: "dark", language: "ko" } });
 		expect((prefs as { v: object }).v).not.toHaveProperty("githubToken");
 		expect(keyed).toMatchObject({ ok: true, v: "secret-value" });
@@ -590,26 +578,17 @@ describe("events", () => {
 		).toEqual(["a", "bc", "t", "b", "c", "message_end", "d"]);
 	});
 
-	it("drops events and pushes meant for the desktop or the page itself, and the pairing code from remote state", () => {
+	it("drops events and pushes meant for the desktop or the page itself", () => {
 		const r = rig();
 		const win = r.windows.windowFor("dev1");
 		win.webContents.send(IPC_EVENTS.MENU_ACTION, { action: "x" });
 		win.webContents.send(WEB_DEVICES_CHANGED, []);
 		win.webContents.send(WEB_PAIRING_REQUEST, {});
 		win.webContents.send("not-a-channel", {});
-		win.webContents.send(IPC_EVENTS.REMOTE_STATE, {
-			host: { code: "ABCD-EFGH", expiresAt: 9, enabled: true },
-			hosts: [],
-		});
+		const state = { tailnet: "ready", host: { enabled: true }, hosts: [], forgotten: [] };
+		win.webContents.send(IPC_EVENTS.REMOTE_STATE, state);
 		r.timers.flush();
-		expect(r.socket.frames("evt")).toEqual([
-			{
-				t: "evt",
-				seq: 1,
-				ch: IPC_EVENTS.REMOTE_STATE,
-				d: { host: { code: null, expiresAt: null, enabled: true }, hosts: [] },
-			},
-		]);
+		expect(r.socket.frames("evt")).toEqual([{ t: "evt", seq: 1, ch: IPC_EVENTS.REMOTE_STATE, d: state }]);
 	});
 
 	it("goes to every connection of the device, and not to another device's", () => {

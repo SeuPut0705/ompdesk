@@ -56,9 +56,10 @@ function PairingRequestDialog({
 		}
 	};
 
+	const computer = request.kind === "computer";
 	return (
 		<Modal
-			description={t("mobileWeb.request.body")}
+			description={t(computer ? "mobileWeb.request.computerBody" : "mobileWeb.request.body")}
 			footer={
 				<>
 					<Button disabled={busy} onClick={() => void respond(false)} variant="secondary">
@@ -78,25 +79,28 @@ function PairingRequestDialog({
 			onClose={() => void respond(false)}
 			open
 			size="sm"
-			title={t("mobileWeb.request.title", { name: request.name })}
+			title={t(computer ? "mobileWeb.request.computerTitle" : "mobileWeb.request.title", { name: request.name })}
 		>
 			<div className="flex flex-col gap-3" data-web-pairing-request={request.id}>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sc-sm">
 					<Detail label={t("mobileWeb.request.device")} value={request.name} />
-					<Detail label={t("mobileWeb.request.browser")} value={request.userAgent} />
+					{!computer && <Detail label={t("mobileWeb.request.browser")} value={request.userAgent} />}
 					{request.tailscaleLogin && <Detail label={t("mobileWeb.request.user")} value={request.tailscaleLogin} />}
 					{request.ip && <Detail label={t("mobileWeb.request.address")} value={request.ip} />}
 				</dl>
-				<Select
-					controlSize="sm"
-					label={t("mobileWeb.request.access")}
-					onChange={event => setTier(event.target.value)}
-					options={[
-						...PRESET_NAMES.map(name => ({ value: name, label: t(`mobileWeb.tier.${name}`) })),
-						...(proposed === "custom" ? [{ value: "custom", label: t("mobileWeb.tier.custom") }] : []),
-					]}
-					value={tier}
-				/>
+				{/* A computer uses this one the way remote devices do (per-device limits, no access tiers). */}
+				{!computer && (
+					<Select
+						controlSize="sm"
+						label={t("mobileWeb.request.access")}
+						onChange={event => setTier(event.target.value)}
+						options={[
+							...PRESET_NAMES.map(name => ({ value: name, label: t(`mobileWeb.tier.${name}`) })),
+							...(proposed === "custom" ? [{ value: "custom", label: t("mobileWeb.tier.custom") }] : []),
+						]}
+						value={tier}
+					/>
+				)}
 			</div>
 		</Modal>
 	);

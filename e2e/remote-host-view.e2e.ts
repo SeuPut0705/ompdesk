@@ -11,24 +11,22 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { capture, controlToolCaller, exitApp, openedSessions, readRecords } from "./harness";
-import { launchRemote, makeRemoteProfile, pair, type RemoteInstance } from "./remote-harness";
+import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 test("the host's own window lists, views and works in a session its paired device opened there", async () => {
 	test.setTimeout(240_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-host-view-")));
-	const base = 46_000 + Math.floor(Math.random() * 1000) * 2;
 	let host: RemoteInstance | undefined;
 	let client: RemoteInstance | undefined;
 	try {
 		const hostProfile = await makeRemoteProfile(parent, "host", {
 			language: "en",
 			theme: "light",
-			discoveryPort: base,
 		});
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: "en",
 			theme: "light",
-			discoveryPort: base + 1,
+			port: hostProfile.port,
 			prefs: { batchNotifications: false },
 		});
 		host = await launchRemote(hostProfile);
@@ -37,7 +35,7 @@ test("the host's own window lists, views and works in a session its paired devic
 		const a = client.page;
 		// The host names the device's sessions after it.
 		await a.evaluate(() => window.omp.remote.setDeviceName("PC-A"));
-		await pair(b, a, "PC-B");
+		await connectHost(b, a, "PC-B");
 		await expect
 			.poll(async () => (await a.evaluate(() => window.omp.remote.getState())).hosts[0]?.state, { timeout: 30_000 })
 			.toBe("online");

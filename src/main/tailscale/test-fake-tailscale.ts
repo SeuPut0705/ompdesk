@@ -45,6 +45,10 @@ export interface FakeTailscaleScenario {
 	httpsCapability: boolean;
 	/** The sign-in page `status --json` and `up` report while `NeedsLogin`. */
 	authUrl: string | null;
+	/** This machine's tailnet addresses while running (`TailscaleIPs`); default `["100.64.0.1"]`. */
+	selfIps?: string[];
+	/** This machine's stable node ID (`Self.ID`); default `nfake`. */
+	selfStableId?: string;
 	/** `ip` is the node's tailnet address (what serve puts in `X-Forwarded-For` and `whois` is asked about). */
 	peers: Array<{
 		hostName: string;
@@ -126,14 +130,27 @@ function statusJson(s: FakeTailscaleScenario): string {
 		s.peers.map((peer, index) => [
 			`nodekey:fake${index}`,
 			{
+				ID: peer.stableId ?? `nFAKE${peer.hostName}`,
 				HostName: peer.hostName,
 				DNSName: `${peer.hostName}.${s.tailnet}.`,
 				OS: peer.os,
 				UserID: peer.userId,
 				Online: peer.online,
+				TailscaleIPs: peer.ip ? [peer.ip] : [],
 			},
 		]),
 	);
+	const users: Record<string, { ID: number; LoginName: string; DisplayName: string }> = {};
+	for (const peer of s.peers) {
+		if (peer.userId !== s.userId) {
+			users[String(peer.userId)] = {
+				ID: peer.userId,
+				LoginName: peer.login ?? "other@example.com",
+				DisplayName: "",
+			};
+		}
+	}
+	users[String(s.userId)] = { ID: s.userId, LoginName: s.login, DisplayName: "Fake User" };
 	return `${JSON.stringify(
 		{
 			Version: `${s.version}-tfake`,
@@ -141,10 +158,10 @@ function statusJson(s: FakeTailscaleScenario): string {
 			BackendState: s.backendState,
 			HaveNodeKey: hasNode,
 			AuthURL: s.backendState === "NeedsLogin" ? (s.authUrl ?? "") : "",
-			TailscaleIPs: running ? ["100.64.0.1"] : null,
+			TailscaleIPs: running ? (s.selfIps ?? ["100.64.0.1"]) : null,
 			Self: hasNode
 				? {
-						ID: "nfake",
+						ID: s.selfStableId ?? "nfake",
 						HostName: "laptop",
 						DNSName: s.dnsName,
 						OS: "macOS",
@@ -159,9 +176,7 @@ function statusJson(s: FakeTailscaleScenario): string {
 			CurrentTailnet: hasNode ? { Name: s.login, MagicDNSSuffix: s.tailnet, MagicDNSEnabled: s.magicDns } : null,
 			CertDomains: running && s.httpsEnabled ? [host] : null,
 			Peer: running ? peers : undefined,
-			User: hasNode
-				? { [String(s.userId)]: { ID: s.userId, LoginName: s.login, DisplayName: "Fake User" } }
-				: undefined,
+			User: hasNode ? users : undefined,
 			ClientVersion: s.latestVersion
 				? { LatestVersion: s.latestVersion, RunningLatest: false }
 				: { RunningLatest: true },

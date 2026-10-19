@@ -13,7 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { exitApp } from "./harness";
-import { launchRemote, makeRemoteProfile, pair, type RemoteInstance } from "./remote-harness";
+import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 const SHOTS = process.env.OMP_GUI_DEVICE_RENAME;
 const THEME = process.env.OMP_GUI_DEVICE_RENAME_THEME === "dark" ? "dark" : "light";
@@ -46,25 +46,23 @@ async function shoot(instance: RemoteInstance, name: string): Promise<void> {
 test("renames the host from the device, the host itself and the device from the host", async () => {
 	test.setTimeout(240_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-device-rename-")));
-	const base = 44_000 + Math.floor(Math.random() * 1000) * 2;
 	let host: RemoteInstance | undefined;
 	let client: RemoteInstance | undefined;
 	try {
 		const hostProfile = await makeRemoteProfile(parent, "host", {
 			language: LANGUAGE,
 			theme: THEME,
-			discoveryPort: base,
 		});
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: LANGUAGE,
 			theme: THEME,
-			discoveryPort: base + 1,
+			port: hostProfile.port,
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const b = host.page;
 		await client.page.evaluate(() => window.omp.remote.setDeviceName("PC-A"));
-		const hostId = await pair(b, client.page, "DESKTOP-91ID999");
+		const hostId = await connectHost(b, client.page, "DESKTOP-91ID999");
 		const hostRow = `[data-remote-host="${hostId}"]`;
 		const online = async (page: Page) =>
 			expect

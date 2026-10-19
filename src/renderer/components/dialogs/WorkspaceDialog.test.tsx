@@ -147,19 +147,21 @@ describe("WorkspaceDialog folder picker", () => {
 	it("browses the host on a remote tab, then re-roots the tab there", async () => {
 		seedTab("dev-studio");
 		useRemoteStore.getState().apply({
+			tailnet: "ready",
 			host: {
 				enabled: false,
 				name: "laptop",
 				port: null,
 				addresses: [],
-				code: null,
-				expiresAt: null,
+				listenError: null,
 				peers: [],
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
+				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+			forgotten: [],
 		});
 		await mount("switch");
 		expect(omp.sessions.list).toHaveBeenCalledWith("global", "dev-studio");

@@ -2188,19 +2188,21 @@ describe("Sidebar device sections", () => {
 
 	function pairHost(state: HostView["state"]): void {
 		useRemoteStore.getState().apply({
+			tailnet: "ready",
 			host: {
 				enabled: false,
 				name: "laptop",
 				port: null,
 				addresses: [],
-				code: null,
-				expiresAt: null,
+				listenError: null,
 				peers: [],
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
+				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state }],
+			forgotten: [],
 		});
 	}
 
@@ -2936,19 +2938,21 @@ describe("Sidebar remembered folds", () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		useRemoteStore.getState().apply({
+			tailnet: "ready",
 			host: {
 				enabled: false,
 				name: "laptop",
 				port: null,
 				addresses: [],
-				code: null,
-				expiresAt: null,
+				listenError: null,
 				peers: [],
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
+				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+			forgotten: [],
 		});
 		await mount(<Sidebar />);
 		expect(container.querySelector('[data-session-group="/work/alpha"]')).not.toBeNull();
@@ -2998,19 +3002,21 @@ describe("Sidebar remembered folds", () => {
 		installMockOmp(LIST);
 		seedStores();
 		useRemoteStore.getState().apply({
+			tailnet: "ready",
 			host: {
 				enabled: false,
 				name: "laptop",
 				port: null,
 				addresses: [],
-				code: null,
-				expiresAt: null,
+				listenError: null,
 				peers: [],
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
+				confirmNewDevices: false,
 			},
 			hosts: [],
+			forgotten: [],
 		});
 		const folds = useSidebarFolds.getState();
 		folds.setGroupFolded("/work/alpha", false);

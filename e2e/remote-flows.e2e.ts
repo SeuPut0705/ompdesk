@@ -19,11 +19,11 @@ import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
 import { capture, exitApp, openDestination, variants } from "./harness";
 import {
+	connectHost,
 	type Language,
 	launchRemote,
 	makeRemoteProfile,
 	openHostFolder,
-	pair,
 	type RemoteInstance,
 	type Theme,
 } from "./remote-harness";
@@ -80,27 +80,25 @@ for (const language of variants(["en", "ko"] as const))
 			test.setTimeout(240_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
 			const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-flows-")));
-			const discovery = 50_000 + Math.floor(Math.random() * 1_000) * 2;
 			let host: RemoteInstance | null = null;
 			let client: RemoteInstance | null = null;
 			try {
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: "en",
 					theme: "dark",
-					discoveryPort: discovery,
 					// Only B's omp reports a context over its window: the inspector shows whose omp it read.
 					env: { OMP_GUI_TEST_CONTEXT_OVER: "1" },
 				});
 				const clientProfile = await makeRemoteProfile(parent, "a", {
 					language,
 					theme,
-					discoveryPort: discovery + 1,
+					port: hostProfile.port,
 				});
 				const origin = await seedHostProject(path.dirname(hostProfile.project), hostProfile.project);
 				host = await launchRemote(hostProfile);
 				client = await launchRemote(clientProfile);
 				const a = client.page;
-				const deviceId = await pair(host.page, a, "Host B");
+				const deviceId = await connectHost(host.page, a, "Host B");
 				const remoteTab = await openHostFolder(a, deviceId, hostProfile.project);
 				const hostFile = (rel: string) => path.join(hostProfile.project, rel);
 				const clientFile = (rel: string) => path.join(clientProfile.project, rel);
@@ -329,7 +327,6 @@ for (const language of variants(["en", "ko"] as const))
 			const hostTheme: Theme = theme === "light" ? "dark" : "light";
 			const tb = (key: string, vars?: Record<string, string | number>) => translate(hostLanguage, key, vars);
 			const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-host-")));
-			const discovery = 51_000 + Math.floor(Math.random() * 1_000) * 2;
 			let host: RemoteInstance | null = null;
 			let client: RemoteInstance | null = null;
 			try {
@@ -338,7 +335,6 @@ for (const language of variants(["en", "ko"] as const))
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: hostLanguage,
 					theme: hostTheme,
-					discoveryPort: discovery,
 					// B's omp: signed in to Anthropic with Sonnet as the default role, at 18.12.0 with 18.13.0 out.
 					env: {
 						OMP_GUI_TEST_LOGIN: "1",
@@ -350,7 +346,7 @@ for (const language of variants(["en", "ko"] as const))
 				const clientProfile = await makeRemoteProfile(parent, "a", {
 					language,
 					theme,
-					discoveryPort: discovery + 1,
+					port: hostProfile.port,
 				});
 				const shared = await seedHostSession(path.join(hostProfile.root, "agent"), hostProfile.project);
 				host = await launchRemote(hostProfile);
@@ -358,7 +354,7 @@ for (const language of variants(["en", "ko"] as const))
 				const a = client.page;
 				const b = host.page;
 				await a.evaluate(() => window.omp.remote.setDeviceName("Laptop A"));
-				const deviceId = await pair(b, a, "Host B");
+				const deviceId = await connectHost(b, a, "Host B");
 				const localTab = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === undefined);
 				if (!localTab) throw new Error("expected A's own tab");
 

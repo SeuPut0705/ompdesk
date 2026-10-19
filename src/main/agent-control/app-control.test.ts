@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentAppEvent } from "../../shared/agent-control";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { WEB_BLOCKS_LIST } from "../../shared/mobile-web";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import { ACTION_BY_ID, type AppAction } from "./app-catalog";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
@@ -36,6 +37,7 @@ class FakePorts implements AppPorts {
 	};
 	invoke = async (_tab: string, channel: string, args: readonly unknown[]): Promise<unknown> => {
 		this.invoked.push({ channel, args });
+		if (channel === WEB_BLOCKS_LIST) return [{ id: "node:nHOST", scope: "node", name: "Studio" }];
 		return [];
 	};
 	fire = (_tab: string, channel: string, args: readonly unknown[]): void => {
@@ -135,7 +137,9 @@ describe("ompdesk_app tiers", () => {
 		["mobile_web.set_enabled", { enabled: true }],
 		["extensions.install_plugin", { marketplace: "m", plugin: "p" }],
 		["extensions.install_mcp", { name: "x", transport: "stdio", command: "npx", args: ["-y", "x"] }],
-		["remote.pair", {}],
+		["remote.connect", { nodeId: "nHOST" }],
+		["remote.unblock", { block: "node:nHOST" }],
+		["remote.set_allowed_users", { users: ["kim@example.com"] }],
 		["settings.proxy", { value: "http://proxy.example:8080" }],
 	];
 
@@ -450,22 +454,27 @@ describe("MCP install, pairing and Autopilot", () => {
 		).toContain("http(s)");
 	});
 
-	it("starts pairing only by opening Settings after the card; the agent can neither give nor read a code", async () => {
+	it("connects to a tailnet computer after its card, with no card under full control, and blocks a device without one while manage is on", async () => {
 		const ports = new FakePorts();
-		const control = new AppControl(ports);
-		await control.run(CALLER, "remote.pair", {});
+		await new AppControl(ports).run(CALLER, "remote.connect", { nodeId: "nHOST" });
 		expect(ports.cards).toHaveLength(1);
-		expect(ports.events).toContainEqual({ kind: "settings", section: "connections", sub: "remote" });
-		expect(ports.invoked).toEqual([]);
-		expect(ports.rpcs).toEqual([]);
-		expect(await refusal(control.run(CALLER, "remote.pair", { code: "123456", address: "10.0.0.2" }))).toContain(
-			"unknown argument",
-		);
+		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.REMOTE_CONNECT, args: ["nHOST"] }]);
+
+		const full = new FakePorts();
+		full.full = true;
+		await new AppControl(full).run(CALLER, "remote.connect", { nodeId: "nHOST" });
+		expect(full.cards).toEqual([]);
 
 		const declined = new FakePorts();
 		declined.approve = false;
-		await refusal(new AppControl(declined).run(CALLER, "remote.pair", {}));
-		expect(declined.events).toEqual([]);
+		await refusal(new AppControl(declined).run(CALLER, "remote.connect", { nodeId: "nHOST" }));
+		expect(declined.invoked).toEqual([]);
+
+		const managed = new FakePorts();
+		managed.manage = true;
+		await new AppControl(managed).run(CALLER, "remote.block", { deviceId: "dev1" });
+		expect(managed.cards).toEqual([]);
+		expect(managed.invoked).toEqual([{ channel: IPC_COMMANDS.REMOTE_BLOCK_PEER, args: ["dev1"] }]);
 	});
 
 	it("routes Autopilot through ompdesk_autopilot (its card and folder rules), never through set_autopilot", async () => {

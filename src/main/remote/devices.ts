@@ -1,20 +1,23 @@
 /**
- * Remote devices in the main process: both roles of this computer.
+ * Remote devices in the main process: both roles of this computer, over Tailscale only.
  *
- * Host (B): when prefs `remote.hostEnabled` is on, a RemoteHost listens and
- * beacons, and paired devices run tabs here through LocalHostServices. While
- * a device is connected or one of its tabs still runs a turn, this computer
- * is kept awake (prefs `remote.keepAwake`, default on; see keep-awake.ts).
+ * Host (B): when prefs `remote.hostEnabled` is on, a RemoteHost listens on this computer's tailnet addresses (never
+ * LAN or 0.0.0.0) and lets in the devices Tailscale vouches for: `tailscale whois` of the connection's address
+ * must name a node of an allowed login (the list Mobile web uses) that is not blocked (Mobile web's blocks, by
+ * node). Each device is pinned to its node and key on first contact; "approve new devices" asks first. While a
+ * device is connected or one of its tabs still runs a turn, this computer is kept awake (prefs `remote.keepAwake`,
+ * default on; see keep-awake.ts).
  *
- * Client (A): one RemoteClient per paired host, reconnecting on its own. Tabs
- * on a host are RemoteSidecars created through `createSidecar` (the pool's
- * factory calls it for a tab with a `device`); each client's `tab.event`s are
- * routed to its tabs by rtab, and its link state becomes their status. A host's
- * `sessions.changed`, and every link coming online, make the renderer refetch
- * the session lists.
+ * Client (A): the computers of the tailnet are probed while a view watches them; Connect pins one and keeps a
+ * RemoteClient to it, reconnecting on its own at its node's current tailnet address. Tabs on a host are
+ * RemoteSidecars created through `createSidecar` (the pool's factory calls it for a tab with a `device`); each
+ * client's `tab.event`s are routed to its tabs by rtab, and its link state becomes their status. A host's
+ * `sessions.changed`, and every link coming online, make the renderer refetch the session lists.
  *
  * The whole picture goes to every window as `remote:state` on each change.
  */
+
+import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import { z } from "zod";
 import { codedError, type IpcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
@@ -23,11 +26,17 @@ import {
 	IPC_EVENTS,
 	type IpcHostOmpUpdate,
 	type RemoteDirListing,
-	type RemoteDiscoveredDevice,
 	type RemoteState,
+	type RemoteTailnetPhase,
+	type TailnetComputer,
 } from "../../shared/ipc-types";
 import type { OmpUpdateState } from "../../shared/omp-update";
+import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
+import { isTailnetAddress } from "../tailscale/tailnet";
+import type { TailnetPeer } from "../tailscale/whois";
 import type { ResumeMarker } from "../turn-resume";
+import type { WebBlocks } from "../web/blocks-store";
+import { formatAddress, parseAddress, remotePortCandidates } from "./address";
 import {
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
@@ -40,21 +49,17 @@ import {
 	TAB_EVENT,
 	TabEventMessage,
 } from "./app-protocol";
-import { pairWithHost, RemoteClient, RemoteError } from "./client";
-import { BeaconListener, type DiscoveredHost } from "./discovery";
-import { type HostMachineInfo, RemoteHost } from "./host-server";
+import { connectFirst, type ProbeResult, probeHost, RemoteClient, RemoteError } from "./client";
+import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { PeerQuota } from "./peer-quota";
 import { PeerStore } from "./peers-store";
+import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 
-/** Startup listen window that refreshes paired hosts' addresses from their beacons. */
-const STARTUP_DISCOVERY_MS = 10_000;
-/** A discovered host that stopped beaconing (2 s cadence) leaves the list after this. */
-const DISCOVERY_STALE_MS = 8_000;
 const RenamePayload = z.object({ deviceId: z.string().min(1), name: z.string() });
 /** Usage counters reach the Settings view at most this often. */
 const QUOTA_BROADCAST_MS = 1_000;
@@ -63,19 +68,39 @@ const PeerLimitsPayload = z.object({
 	deviceId: z.string().min(1),
 	limits: z.object({ requestsPerDay: Limit, tokensPerDay: Limit }),
 });
+/** Tailscale's side (up, signed in, this computer's addresses) is read this often; also when a view watches. */
+export const TAILNET_POLL_MS = 15_000;
+/** The tailnet's computers are probed this often while a view shows them. */
+export const TAILNET_SCAN_MS = 5_000;
+const PROBE_CONCURRENCY = 8;
+/** A device paired by code that never connected again is forgotten this long after the switch to Tailscale. */
+export const LEGACY_PEER_GRACE_MS = 30 * 24 * 60 * 60_000;
 
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
 const KEEP_AWAKE_KEY = "remote.keepAwake";
+const CONFIRM_KEY = "remote.confirmNewDevices";
+/** When code-paired hosts were matched to tailnet nodes (epoch ms); unset = not yet. */
+const MIGRATED_KEY = "remote.tailnetMigratedAt";
+/** Names of code-paired hosts that were not found on the tailnet and were forgotten (until the user read it). */
+const FORGOTTEN_KEY = "remote.forgottenHosts";
 
-/** Pairing failures the renderer localizes; anything else reads as a protocol failure. */
-const PAIR_ERROR_CODES: Record<string, IpcErrorCode> = {
-	wrong_code: "remote_wrong_code",
-	expired: "remote_expired",
-	locked: "remote_locked",
-	unreachable: "remote_unreachable",
-	protocol: "remote_protocol",
-};
+/** Phones and tablets run no OMPdesk: never probed. */
+const MOBILE_OS = /^(ios|ipados|android)$/i;
+
+/** A refusal (or this side's verdict) as the error code the renderer localizes. */
+function remoteErrorCode(code: string): IpcErrorCode {
+	const mapped = `remote_${code}`;
+	if ((REFUSAL_CODES as readonly string[]).includes(code) && isIpcErrorCode(mapped)) return mapped;
+	return code === "unreachable" ? "remote_unreachable" : "remote_protocol";
+}
+
+/** The parts of the Tailscale side computer sharing reads (src/main/tailscale/tailnet.ts). */
+export interface TailnetAccess {
+	status(): Promise<TailscaleStatus | null>;
+	phase(): Promise<RemoteTailnetPhase>;
+	whois(ip: string): Promise<TailnetPeer | null>;
+}
 
 export interface RemoteDevicesDeps {
 	userData: string;
@@ -97,6 +122,25 @@ export interface RemoteDevicesDeps {
 	logTab?: RemoteSidecarOptions["log"];
 	/** Electron `powerSaveBlocker` held while devices use this computer. */
 	powerSaveBlocker: KeepAwakeBlocker;
+	tailnet: TailnetAccess;
+	/** Tailscale logins allowed to use this computer: Mobile web's list (one list for both). */
+	allowedUsers: () => readonly string[];
+	/** This computer's own login, read from Tailscale: allowed by default (Mobile web keeps the list). */
+	adoptLogin: (login: string) => void;
+	/** Mobile web's blocks (by Tailscale node): a blocked node is refused here too. Null before they exist. */
+	blocks: () => WebBlocks | null;
+	/** Ask on this computer whether a new device may use it (only while "approve new devices" is on). */
+	confirm: (details: { name: string; login: string; ip: string; nodeName: string | null }) => Promise<boolean>;
+	/** Get Tailscale going: Mobile web's own install and start-the-app steps. */
+	tailscaleAction: (action: "install" | "start-app") => Promise<void>;
+	/**
+	 * Tests only (an unpackaged build with `OMP_GUI_TEST_REMOTE_LOOPBACK=1`): a loopback address counts as a tailnet
+	 * address, so two apps on one machine can share through the fake Tailscale CLI.
+	 */
+	loopback?: boolean;
+	/** A line in the runtime log (`source: "remote"`). */
+	log?: (event: string, details: Record<string, unknown>) => void;
+	now?: () => number;
 }
 
 interface HostLink {
@@ -107,31 +151,34 @@ interface HostLink {
 	closes: PendingTabCloses;
 }
 
-interface Discovery {
-	listener: BeaconListener;
-	/** The connect dialog asked for it (vs. the startup address refresh only). */
-	ui: boolean;
-	seen: Map<string, { device: RemoteDiscoveredDevice; seenAt: number }>;
-	startupTimer: NodeJS.Timeout | undefined;
-	pruneTimer: NodeJS.Timeout | undefined;
-}
-
 export class RemoteDevices {
 	readonly #deps: RemoteDevicesDeps;
+	readonly #now: () => number;
 	readonly #identity: Identity;
 	readonly #peers: PeerStore;
 	readonly #hosts: HostStore;
 	readonly #links = new Map<string, HostLink>();
 	#host: RemoteHost | null = null;
-	#discovery: Discovery | null = null;
 	#disposed = false;
 	readonly #keepAwake: KeepAwakePolicy;
 	readonly #unwatchRunning: () => void;
 	readonly #quota: PeerQuota;
 	#quotaTimer: NodeJS.Timeout | undefined;
+	#phase: RemoteTailnetPhase = "not-running";
+	#pollTimer: NodeJS.Timeout | undefined;
+	/** Views watching the tailnet's computers (a window id each). */
+	readonly #watchers = new Set<number>();
+	#scanTimer: NodeJS.Timeout | undefined;
+	#scanning: Promise<TailnetComputer[]> | null = null;
+	#computers: TailnetComputer[] = [];
+	/** Where each node's host answered last (`ip:port`). */
+	readonly #found = new Map<string, string>();
+	/** This computer's name on the tailnet: the device name until the user picks one. */
+	#tailnetName: string | null = null;
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
+		this.#now = deps.now ?? Date.now;
 		this.#identity = loadIdentity(deps.userData);
 		this.#peers = new PeerStore(deps.userData);
 		this.#hosts = new HostStore(deps.userData);
@@ -145,30 +192,34 @@ export class RemoteDevices {
 		deps.services.attachQuota(this.#quota);
 	}
 
-	/** Launch: the host role per prefs, a link to every paired host, and a brief beacon listen for new addresses. */
+	/** Launch: the host role per prefs, a link to every known host, and the Tailscale poll. */
 	start(): void {
 		if (this.#deps.prefs.get(HOST_ENABLED_KEY) === true) void this.#startHost();
 		for (const host of this.#hosts.list()) this.#link(host.deviceId);
-		if (this.#hosts.list().length > 0) void this.#listen(false);
+		this.#forgetStaleLegacyPeers();
+		void this.#poll();
+		this.#pollTimer = setInterval(() => void this.#poll(), TAILNET_POLL_MS);
+		this.#pollTimer.unref?.();
 	}
 
 	state(): RemoteState {
 		const host = this.#host;
-		const code = host?.port != null ? host.pairingCode() : null;
 		const online = new Set((host?.connections() ?? []).map(peer => peer.deviceId));
 		const using = new Set([...online, ...this.#deps.services.runningPeers()]);
 		const peers = this.#peers.list();
+		const forgotten = this.#deps.prefs.get(FORGOTTEN_KEY);
 		return {
+			tailnet: this.#phase,
 			host: {
 				enabled: this.#deps.prefs.get(HOST_ENABLED_KEY) === true,
 				name: this.deviceName(),
 				port: host?.port ?? null,
 				addresses: host?.addresses() ?? [],
-				code: code?.code ?? null,
-				expiresAt: code?.expiresAt ?? null,
+				listenError: host?.listenError ?? null,
 				peers: peers.map(peer => ({
 					deviceId: peer.deviceId,
 					name: peer.name,
+					login: peer.login,
 					online: online.has(peer.deviceId),
 					lastSeenAt: peer.lastSeenAt ?? null,
 					limits: peer.limits ?? {},
@@ -177,17 +228,19 @@ export class RemoteDevices {
 				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
 				keepingAwake: this.#keepAwake.held,
 				usedBy: peers.filter(peer => using.has(peer.deviceId)).map(peer => peer.name),
+				confirmNewDevices: this.#deps.prefs.get(CONFIRM_KEY) === true,
 			},
 			hosts: this.#hosts
 				.list()
 				.map(paired => this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name)),
+			forgotten: Array.isArray(forgotten) ? forgotten.filter(name => typeof name === "string") : [],
 		};
 	}
 
 	deviceName(): string {
 		const stored = this.#deps.prefs.get(DEVICE_NAME_KEY);
 		if (typeof stored === "string" && stored.trim()) return stored;
-		return hostname().replace(/\.local$/i, "");
+		return this.#tailnetName ?? hostname().replace(/\.local$/i, "");
 	}
 
 	async setHostEnabled(enabled: boolean): Promise<RemoteState> {
@@ -217,7 +270,7 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	/** Rename a paired host: it sets its own name (`host.rename`) and announces it back. */
+	/** Rename a known host: it sets its own name (`host.rename`) and announces it back. */
 	async renameHost(payload: unknown): Promise<RemoteState> {
 		const { deviceId, name } = parseRename(payload);
 		await this.request(deviceId, NAME_METHODS.hostRename, { name });
@@ -240,11 +293,12 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	rotateCode(): RemoteState {
-		this.#host?.rotateCode();
+	setConfirmNewDevices(on: unknown): RemoteState {
+		this.#deps.prefs.set(CONFIRM_KEY, on === true);
 		return this.#broadcastState();
 	}
 
+	/** Forget a device: it may come back while its login is allowed (a block keeps it out). */
 	async revokePeer(deviceId: unknown): Promise<RemoteState> {
 		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
 		if (this.#host) await this.#host.revoke(deviceId);
@@ -253,7 +307,22 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	/** Daily model-use limits for a paired device (D65); `{}` removes them. */
+	/** Keep a device out: block its node (its login when it never bound one), then forget it. */
+	async blockPeer(deviceId: unknown): Promise<RemoteState> {
+		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
+		const peer = this.#peers.get(deviceId);
+		if (!peer) throw codedError("remote_unknown_device", "Unknown device");
+		const blocks = this.#deps.blocks();
+		if (!blocks) throw codedError("remote_tailscale_off", "Blocks are not available yet");
+		if (peer.nodeId) {
+			blocks.add({ scope: "node", key: peer.nodeId, name: peer.name, tailscaleLogin: peer.login });
+		} else if (peer.login) {
+			blocks.add({ scope: "login", key: peer.login, name: peer.name, tailscaleLogin: peer.login });
+		}
+		return this.revokePeer(deviceId);
+	}
+
+	/** Daily model-use limits for a device (D65); `{}` removes them. */
 	setPeerLimits(payload: unknown): RemoteState {
 		const parsed = PeerLimitsPayload.safeParse(payload);
 		if (!parsed.success) throw codedError("remote_unknown_device", "Invalid device limits");
@@ -263,55 +332,73 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	/** Start or stop the connect dialog's LAN discovery; resolves with what is known now. */
-	async discover(action: unknown): Promise<RemoteDiscoveredDevice[]> {
-		if (action === "start") {
-			await this.#listen(true);
-			return this.#discovered();
+	/** A view shows (`true`) or stops showing the tailnet's computers; resolves with what is known now. */
+	async watchTailnet(watcher: number, on: unknown): Promise<TailnetComputer[]> {
+		if (on === true) {
+			this.#watchers.add(watcher);
+			if (!this.#scanTimer) {
+				this.#scanTimer = setInterval(() => void this.#scan(), TAILNET_SCAN_MS);
+				this.#scanTimer.unref?.();
+			}
+			return this.#scan();
 		}
-		const discovery = this.#discovery;
-		if (discovery) {
-			discovery.ui = false;
-			clearInterval(discovery.pruneTimer);
-			discovery.pruneTimer = undefined;
-			discovery.seen.clear();
-			if (!discovery.startupTimer) this.#stopListening();
+		this.#watchers.delete(watcher);
+		if (this.#watchers.size === 0) {
+			clearInterval(this.#scanTimer);
+			this.#scanTimer = undefined;
 		}
-		return [];
+		return this.#computers.map(computer => ({ ...computer }));
 	}
 
-	async pair(payload: unknown): Promise<HostView> {
-		const { address, code } = (payload ?? {}) as { address?: unknown; code?: unknown };
-		if (typeof address !== "string" || !address.trim()) throw codedError("remote_unreachable", "Missing address");
-		if (typeof code !== "string") throw codedError("remote_wrong_code", "Missing code");
+	/** Connect to a computer of the tailnet by its Tailscale node; pins its key (`key_mismatch` for another one). */
+	async connect(nodeId: unknown): Promise<HostView> {
+		if (typeof nodeId !== "string" || !nodeId) throw codedError("remote_unreachable", "Missing computer");
+		const status = await this.#deps.tailnet.status();
+		if (status?.backend !== "running") throw codedError("remote_tailscale_off", "Tailscale is not running");
+		const node = status.peers.find(peer => peer.nodeId === nodeId);
+		if (!node) throw codedError("remote_unreachable", "That computer is not on the tailnet");
+		const found = await this.#probeNode(node);
+		if (!found.address) throw codedError("remote_unreachable", "OMPdesk does not answer on that computer");
+		if (!found.probe.ok) throw codedError(remoteErrorCode(found.probe.code), found.probe.code);
 		let paired: PairedHost;
 		try {
-			paired = await pairWithHost({
+			paired = await connectFirst({
 				identity: this.#identity,
-				address: address.trim(),
-				code,
+				address: found.address,
 				name: this.deviceName(),
 				appVersion: this.#deps.appVersion,
+				nodeId,
 				hosts: this.#hosts,
 			});
 		} catch (error) {
-			const remoteCode = error instanceof RemoteError ? error.code : "protocol";
-			const message = error instanceof Error ? error.message : String(error);
-			throw codedError(PAIR_ERROR_CODES[remoteCode] ?? "remote_protocol", message);
+			const code = error instanceof RemoteError ? error.code : "protocol";
+			throw codedError(remoteErrorCode(code), error instanceof Error ? error.message : String(error));
 		}
-		// A re-pair replaces the old key: the old link must not keep using it.
+		this.#found.set(nodeId, found.address);
 		this.#unlink(paired.deviceId);
 		this.#link(paired.deviceId);
-		const discovered = this.#discovery?.seen.get(paired.deviceId);
-		if (discovered) discovered.device.paired = true;
+		this.#markComputers();
 		this.#broadcastState();
 		return this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name);
+	}
+
+	async tailscaleAction(action: unknown): Promise<RemoteState> {
+		if (action !== "install" && action !== "start-app") throw new Error("Unknown Tailscale action");
+		await this.#deps.tailscaleAction(action);
+		await this.#poll();
+		return this.state();
+	}
+
+	dismissForgotten(): RemoteState {
+		this.#deps.prefs.set(FORGOTTEN_KEY, []);
+		return this.#broadcastState();
 	}
 
 	removeHost(deviceId: unknown): RemoteState {
 		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
 		this.#unlink(deviceId);
 		this.#hosts.remove(deviceId);
+		this.#markComputers();
 		this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
 		return this.#broadcastState();
 	}
@@ -325,9 +412,8 @@ export class RemoteDevices {
 	}
 
 	/**
-	 * One host-level request on a paired host. Failures surface as coded
-	 * errors: `remote_offline` while the link is down, `remote_unknown_device`
-	 * for a host that is not paired, and the host's own code otherwise.
+	 * One host-level request on a known host. Failures surface as coded errors: `remote_offline` while the link
+	 * is down, `remote_unknown_device` for a host this device does not know, and the host's own code otherwise.
 	 */
 	async request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T> {
 		const link = this.#links.get(deviceId);
@@ -345,9 +431,8 @@ export class RemoteDevices {
 	}
 
 	/**
-	 * A turn this computer ran for a paired device when it last crashed or quit (turn-resume.ts):
-	 * its tab again, waiting for the device to reconnect. Null while hosting is off or the
-	 * device is no longer paired.
+	 * A turn this computer ran for a device when it last crashed or quit (turn-resume.ts): its tab again, waiting
+	 * for the device to reconnect. Null while hosting is off or the device is no longer known.
 	 */
 	reviveHostTab(deviceId: string, marker: ResumeMarker): string | null {
 		if (this.#deps.prefs.get(HOST_ENABLED_KEY) !== true) return null;
@@ -355,7 +440,7 @@ export class RemoteDevices {
 		return peer ? this.#deps.services.reviveTab(peer, marker) : null;
 	}
 
-	/** A tab on a paired host; throws `remote_unknown_device` when the host is not paired. */
+	/** A tab on a known host; throws `remote_unknown_device` when the host is not known. */
 	createSidecar(deviceId: string, rtab: string, cwd: string, kind: "agent" | "chat", fresh: boolean): RemoteSidecar {
 		const link = this.#links.get(deviceId);
 		if (!link) throw codedError("remote_unknown_device", "The device is not paired");
@@ -427,12 +512,97 @@ export class RemoteDevices {
 		this.#disposed = true;
 		this.#unwatchRunning();
 		clearTimeout(this.#quotaTimer);
+		clearInterval(this.#pollTimer);
+		clearInterval(this.#scanTimer);
 		this.#keepAwake.dispose();
-		this.#stopListening();
 		for (const deviceId of [...this.#links.keys()]) this.#unlink(deviceId);
 		this.#deps.services.disposeAll();
 		await this.#host?.stop();
 		this.#host = null;
+	}
+
+	/** Read Tailscale's side: phase, this computer's login, the host's addresses, the code-paired hosts. */
+	async #poll(): Promise<void> {
+		if (this.#disposed) return;
+		const phase = await this.#deps.tailnet.phase().catch((): RemoteTailnetPhase => "not-running");
+		const status = phase === "ready" ? await this.#deps.tailnet.status() : null;
+		if (status?.login) this.#deps.adoptLogin(status.login);
+		if (status?.selfName) this.#tailnetName = status.selfName;
+		if (status) this.#migrateHosts(status);
+		await this.#host?.rebind();
+		if (phase !== this.#phase) {
+			this.#phase = phase;
+			// Back on the tailnet: known hosts are reachable at their nodes again.
+			if (phase === "ready") for (const link of this.#links.values()) link.client.connect();
+		}
+		this.#broadcastState();
+	}
+
+	/**
+	 * Hosts an older release paired by code have no node: each is matched to the tailnet node at one of its
+	 * addresses and kept, the rest are forgotten (named once in Settings). Runs once Tailscale is up.
+	 */
+	#migrateHosts(status: TailscaleStatus): void {
+		if (typeof this.#deps.prefs.get(MIGRATED_KEY) === "number") return;
+		const forgotten: string[] = [];
+		for (const host of this.#hosts.list()) {
+			if (host.nodeId !== null) continue;
+			const ips = new Set(host.addresses.map(address => parseAddress(address)?.host).filter(Boolean));
+			const node = status.peers.find(peer => peer.login !== null && peer.ips.some(ip => ips.has(ip)));
+			if (node) {
+				this.#hosts.update(host.deviceId, { nodeId: node.nodeId });
+				continue;
+			}
+			this.#unlink(host.deviceId);
+			this.#hosts.remove(host.deviceId);
+			forgotten.push(host.name);
+		}
+		this.#deps.prefs.set(MIGRATED_KEY, this.#now());
+		if (forgotten.length > 0) {
+			this.#deps.prefs.set(FORGOTTEN_KEY, forgotten);
+			this.#deps.log?.("migration", { forgotten: forgotten.length });
+		}
+	}
+
+	/** A device an older release paired by code that never connected over Tailscale goes after the grace period. */
+	#forgetStaleLegacyPeers(): void {
+		const migratedAt = this.#deps.prefs.get(MIGRATED_KEY);
+		if (typeof migratedAt !== "number" || this.#now() - migratedAt < LEGACY_PEER_GRACE_MS) return;
+		for (const peer of this.#peers.list()) {
+			if (peer.nodeId === null) this.#peers.remove(peer.deviceId);
+		}
+	}
+
+	/** Who may connect, from Tailscale: a tailnet address, a node of an allowed login, not blocked. */
+	async #gate(ip: string): Promise<GateResult> {
+		const loopback = this.#deps.loopback === true && (ip === "127.0.0.1" || ip === "::1");
+		if (!isTailnetAddress(ip) && !loopback) return { ok: false, code: "not_tailnet" };
+		const peer = await this.#deps.tailnet.whois(ip);
+		if (!peer?.nodeId || !peer.login) return { ok: false, code: "no_identity" };
+		const login = peer.login.trim().toLowerCase();
+		// Unset list: this computer's own account, as Mobile web reads it (its poll may not have stored it yet).
+		const listed = this.#deps.allowedUsers();
+		const users = listed.length > 0 ? listed : [(await this.#deps.tailnet.status())?.login ?? ""];
+		const allowed = users.map(user => user.trim().toLowerCase()).filter(Boolean);
+		if (!allowed.includes(login)) return { ok: false, code: "not_allowed" };
+		const blocked = this.#deps.blocks()?.check({ nodeId: peer.nodeId, login: peer.login });
+		if (blocked) return { ok: false, code: "blocked" };
+		return { ok: true, visitor: { nodeId: peer.nodeId, login: peer.login, nodeName: peer.nodeName, ip } };
+	}
+
+	async #admit(visitor: TailnetVisitor, name: string): Promise<boolean> {
+		if (this.#deps.prefs.get(CONFIRM_KEY) !== true) return true;
+		return this.#deps
+			.confirm({ name, login: visitor.login, ip: visitor.ip, nodeName: visitor.nodeName })
+			.catch(() => false);
+	}
+
+	/** This computer's tailnet addresses: the only ones the host listens on. */
+	async #bindHosts(): Promise<string[]> {
+		const status = await this.#deps.tailnet.status();
+		if (status?.backend !== "running") return [];
+		const loopback = (ip: string) => this.#deps.loopback === true && (ip === "127.0.0.1" || ip === "::1");
+		return status.selfIps.filter(ip => isTailnetAddress(ip) || loopback(ip));
 	}
 
 	async #startHost(): Promise<void> {
@@ -445,12 +615,16 @@ export class RemoteDevices {
 				name: () => this.deviceName(),
 				appVersion: this.#deps.appVersion,
 				hello: this.#deps.machineInfo,
+				bindHosts: () => this.#bindHosts(),
+				gate: ip => this.#gate(ip),
+				admit: (visitor, name) => this.#admit(visitor, name),
+				log: this.#deps.log,
 				renameSelf: (name, by) => {
 					console.info(`[remote] ${by.name} (${by.deviceId}) renamed this computer to "${name}"`);
 					this.setDeviceName(name);
 				},
 			});
-			for (const event of ["peersChanged", "connectionsChanged", "codeChanged"] as const) {
+			for (const event of ["peersChanged", "connectionsChanged", "listenChanged"] as const) {
 				host.on(event, () => this.#broadcastState());
 			}
 			this.#host = host;
@@ -470,6 +644,88 @@ export class RemoteDevices {
 		await host?.stop();
 	}
 
+	/** Where a node's host answers: the first candidate port that answers a probe, on the node's address. */
+	async #probeNode(node: TailnetNode): Promise<{ address: string | null; probe: ProbeResult }> {
+		const ip = node.ips.find(candidate => isIPv4(candidate)) ?? node.ips.find(candidate => isIP(candidate) !== 0);
+		let probe: ProbeResult = { ok: false, code: "unreachable" };
+		if (!ip) return { address: null, probe };
+		const last = this.#found.get(node.nodeId);
+		const candidates = remotePortCandidates().map(port => formatAddress({ host: ip, port }));
+		const addresses = last && candidates.includes(last) ? [last, ...candidates.filter(a => a !== last)] : candidates;
+		for (const address of addresses) {
+			try {
+				probe = await probeHost(address);
+			} catch {
+				continue;
+			}
+			// This computer itself (a test's two apps on one address).
+			if (probe.ok && probe.deviceId === this.#identity.deviceId) continue;
+			this.#found.set(node.nodeId, address);
+			return { address, probe };
+		}
+		this.#found.delete(node.nodeId);
+		return { address: null, probe };
+	}
+
+	/** Probe every computer of the tailnet (not phones) and push the list while views watch it. */
+	#scan(): Promise<TailnetComputer[]> {
+		this.#scanning ??= this.#scanOnce().finally(() => {
+			this.#scanning = null;
+		});
+		return this.#scanning;
+	}
+
+	async #scanOnce(): Promise<TailnetComputer[]> {
+		const status = await this.#deps.tailnet.status();
+		const nodes =
+			status?.backend === "running"
+				? status.peers.filter(peer => peer.online && !(peer.os && MOBILE_OS.test(peer.os)))
+				: [];
+		const results: TailnetComputer[] = new Array(nodes.length);
+		let next = 0;
+		const worker = async (): Promise<void> => {
+			while (next < nodes.length) {
+				const index = next++;
+				const node = nodes[index];
+				if (!node) continue;
+				const { probe, address } = await this.#probeNode(node);
+				results[index] = {
+					nodeId: node.nodeId,
+					name: probe.ok ? probe.name : node.name,
+					login: node.login,
+					state: address === null ? "absent" : probe.ok ? "available" : "refused",
+					refusal: address !== null && !probe.ok ? probe.code : null,
+					deviceId: probe.ok ? probe.deviceId : null,
+					connected: false,
+				};
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, nodes.length) }, worker));
+		this.#computers = results.filter(Boolean);
+		this.#markComputers();
+		return this.#computers.map(computer => ({ ...computer }));
+	}
+
+	/** Mark the computers this device already uses, and push the list. */
+	#markComputers(): void {
+		for (const computer of this.#computers) {
+			computer.connected = this.#hosts.byNode(computer.nodeId) !== undefined;
+		}
+		this.#deps.broadcast(IPC_EVENTS.REMOTE_TAILNET, this.#computers);
+	}
+
+	/** A known host's addresses now: its node's tailnet address at the port it answered last, then the candidates. */
+	async #hostAddresses(host: PairedHost): Promise<string[]> {
+		if (!host.nodeId) return [];
+		const status = await this.#deps.tailnet.status();
+		const node = status?.peers.find(peer => peer.nodeId === host.nodeId);
+		const ip = node?.ips.find(candidate => isIPv4(candidate)) ?? node?.ips[0];
+		const found = this.#found.get(host.nodeId);
+		const known = host.addresses.map(address => parseAddress(address)?.port).filter(port => port !== undefined);
+		const ports = [...new Set([...known, ...remotePortCandidates()])];
+		return [...(found ? [found] : []), ...(ip ? ports.map(port => formatAddress({ host: ip, port })) : [])];
+	}
+
 	#link(deviceId: string): void {
 		const paired = this.#hosts.get(deviceId);
 		if (!paired || this.#links.has(deviceId) || this.#disposed) return;
@@ -479,6 +735,7 @@ export class RemoteDevices {
 			appVersion: this.#deps.appVersion,
 			name: () => this.deviceName(),
 			hosts: this.#hosts,
+			addresses: host => this.#hostAddresses(host),
 		});
 		const link: HostLink = { client, tabs: new Map(), closes: new PendingTabCloses() };
 		client.on("state", state => {
@@ -539,74 +796,6 @@ export class RemoteDevices {
 			view.home = client.hello.home;
 		}
 		return view;
-	}
-
-	async #listen(ui: boolean): Promise<void> {
-		if (!this.#discovery) {
-			const listener = new BeaconListener({ ignoreDeviceId: this.#identity.deviceId });
-			listener.on("beacon", beacon => this.#onBeacon(beacon));
-			this.#discovery = { listener, ui: false, seen: new Map(), startupTimer: undefined, pruneTimer: undefined };
-			if (!(await listener.start())) console.warn("[remote] discovery port busy; LAN discovery is off");
-		}
-		const discovery = this.#discovery;
-		if (!discovery) return;
-		if (ui) {
-			discovery.ui = true;
-			discovery.pruneTimer ??= setInterval(() => this.#prune(), DISCOVERY_STALE_MS / 2);
-		} else {
-			clearTimeout(discovery.startupTimer);
-			discovery.startupTimer = setTimeout(() => {
-				discovery.startupTimer = undefined;
-				if (!discovery.ui) this.#stopListening();
-			}, STARTUP_DISCOVERY_MS);
-		}
-	}
-
-	#stopListening(): void {
-		const discovery = this.#discovery;
-		if (!discovery) return;
-		this.#discovery = null;
-		clearTimeout(discovery.startupTimer);
-		clearInterval(discovery.pruneTimer);
-		discovery.listener.stop();
-	}
-
-	#onBeacon(beacon: DiscoveredHost): void {
-		// A paired host may have moved: dial the address it beacons from now.
-		if (this.#hosts.get(beacon.deviceId)) {
-			this.#hosts.rememberAddress(beacon.deviceId, beacon.address);
-			this.#links.get(beacon.deviceId)?.client.connect();
-		}
-		const discovery = this.#discovery;
-		if (!discovery?.ui) return;
-		const previous = discovery.seen.get(beacon.deviceId)?.device;
-		const device: RemoteDiscoveredDevice = {
-			deviceId: beacon.deviceId,
-			name: beacon.name,
-			address: beacon.address,
-			paired: this.#hosts.get(beacon.deviceId) !== undefined,
-		};
-		discovery.seen.set(beacon.deviceId, { device, seenAt: Date.now() });
-		if (previous?.name !== device.name || previous.address !== device.address || previous.paired !== device.paired) {
-			this.#deps.broadcast(IPC_EVENTS.REMOTE_DISCOVERED, this.#discovered());
-		}
-	}
-
-	#prune(): void {
-		const discovery = this.#discovery;
-		if (!discovery) return;
-		const cutoff = Date.now() - DISCOVERY_STALE_MS;
-		let changed = false;
-		for (const [deviceId, entry] of discovery.seen) {
-			if (entry.seenAt >= cutoff) continue;
-			discovery.seen.delete(deviceId);
-			changed = true;
-		}
-		if (changed) this.#deps.broadcast(IPC_EVENTS.REMOTE_DISCOVERED, this.#discovered());
-	}
-
-	#discovered(): RemoteDiscoveredDevice[] {
-		return [...(this.#discovery?.seen.values() ?? [])].map(entry => ({ ...entry.device }));
 	}
 
 	/** Every change lands here, so this is also where the keep-awake policy sees it. */

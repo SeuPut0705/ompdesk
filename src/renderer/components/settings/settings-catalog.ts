@@ -538,7 +538,7 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		sub: "remote",
 		rowId: "settings-connections-remote",
 		labelKey: "settings.connections.sharing",
-		aliases: "remote pairing address sharing keep awake 원격 기기 페어링 주소 공유 잠자기",
+		aliases: "remote tailscale tailnet share computer address block keep awake 원격 기기 테일스케일 공유 차단 잠자기",
 	},
 	{
 		id: "mobileWeb",

@@ -1,27 +1,30 @@
 /**
- * Remote-device ports, their environment overrides, and `host:port` address
- * strings. E2E runs parallel instances, so both ports can be overridden.
+ * The remote-device port, its environment override, and `host:port` address
+ * strings. E2E runs parallel instances, so the port can be overridden.
  */
 import { isIPv6 } from "node:net";
 
 export const DEFAULT_REMOTE_PORT = 47821;
-export const DEFAULT_DISCOVERY_PORT = 47822;
-
-function envPort(name: string): number | null {
-	const raw = process.env[name]?.trim();
-	if (!raw || !/^\d+$/.test(raw)) return null;
-	const port = Number(raw);
-	return port >= 0 && port <= 65535 ? port : null;
-}
+/**
+ * A host takes the first free port of `remotePort()` and its successors; a device looking for it probes the same
+ * list. No other fallback: a host whose ports are all taken says so instead of listening somewhere nobody looks.
+ */
+export const REMOTE_PORT_SPAN = 5;
 
 /** Host TCP port: `OMP_GUI_REMOTE_PORT`, else 47821. */
 export function remotePort(): number {
-	return envPort("OMP_GUI_REMOTE_PORT") ?? DEFAULT_REMOTE_PORT;
+	const raw = process.env.OMP_GUI_REMOTE_PORT?.trim();
+	if (!raw || !/^\d+$/.test(raw)) return DEFAULT_REMOTE_PORT;
+	const port = Number(raw);
+	return port <= 65535 ? port : DEFAULT_REMOTE_PORT;
 }
 
-/** Beacon UDP port: `OMP_GUI_REMOTE_DISCOVERY_PORT`, else 47822. */
-export function discoveryPort(): number {
-	return envPort("OMP_GUI_REMOTE_DISCOVERY_PORT") ?? DEFAULT_DISCOVERY_PORT;
+/** The ports a host tries in order, and a device probes: `remotePort()` and its successors; `[0]` for port 0. */
+export function remotePortCandidates(base = remotePort()): number[] {
+	if (base === 0) return [0];
+	const ports: number[] = [];
+	for (let i = 0; i < REMOTE_PORT_SPAN && base + i <= 65535; i++) ports.push(base + i);
+	return ports;
 }
 
 export interface HostPort {

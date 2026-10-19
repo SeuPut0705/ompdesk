@@ -1,11 +1,10 @@
 /**
- * Remote-device crypto primitives (node:crypto only): Crockford base32 ids
- * and pairing codes, X25519 keys as base64url raw public keys, transcript
- * hashes, and the HKDF/HMAC derivations of the pairing and auth handshakes.
+ * Remote-device crypto primitives (node:crypto only): Crockford base32 ids,
+ * X25519 keys as base64url raw public keys, transcript hashes, and the HKDF
+ * derivation of the auth handshake.
  */
 import {
 	createHash,
-	createHmac,
 	createPrivateKey,
 	createPublicKey,
 	diffieHellman,
@@ -13,12 +12,9 @@ import {
 	hkdfSync,
 	type KeyObject,
 	randomBytes,
-	randomInt,
-	timingSafeEqual,
 } from "node:crypto";
 
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-export const CODE_LENGTH = 8;
 
 /** Crockford base32 of `bytes`, lowercase, unpadded. */
 export function base32(bytes: Uint8Array): string {
@@ -36,29 +32,6 @@ export function base32(bytes: Uint8Array): string {
 	}
 	if (bits > 0) out += CROCKFORD[(buffer << (5 - bits)) & 31];
 	return out.toLowerCase();
-}
-
-/** A fresh pairing code: 8 Crockford chars (40 bits), unformatted. */
-export function generateCode(): string {
-	let code = "";
-	for (let i = 0; i < CODE_LENGTH; i++) code += CROCKFORD[randomInt(32)];
-	return code;
-}
-
-/** `XXXX-XXXX` for display. */
-export function formatCode(code: string): string {
-	return `${code.slice(0, 4)}-${code.slice(4)}`;
-}
-
-/**
- * The canonical code a user typed: case-insensitive, dashes and spaces
- * ignored, I/L read as 1 and O as 0. Null unless it is 8 Crockford chars.
- */
-export function normalizeCode(input: string): string | null {
-	const code = input.toUpperCase().replace(/[\s-]/g, "").replace(/[IL]/g, "1").replace(/O/g, "0");
-	if (code.length !== CODE_LENGTH) return null;
-	for (const char of code) if (!CROCKFORD.includes(char)) return null;
-	return code;
 }
 
 export interface KeyPair {
@@ -113,32 +86,10 @@ export function transcriptHash(label: string, fields: readonly string[]): Buffer
 		.digest();
 }
 
-const PAIR_INFO = "ompdesk-pair-v1";
-const AUTH_INFO = "ompdesk-auth-v1";
-
-/** `HKDF-SHA256(X25519(eph, eph'), salt = code, info = "ompdesk-pair-v1" || transcript hash)`. */
-export function pairKey(ephemeralSecret: Buffer, normalizedCode: string, transcript: Buffer): Buffer {
-	const info = Buffer.concat([Buffer.from(PAIR_INFO), transcript]);
-	return Buffer.from(hkdfSync("sha256", ephemeralSecret, Buffer.from(normalizedCode), info, 32));
-}
-
-export function pairTranscript(fields: readonly string[]): Buffer {
-	return transcriptHash(PAIR_INFO, fields);
-}
+const AUTH_INFO = "ompdesk-auth-v2";
 
 export function authTranscript(fields: readonly string[]): Buffer {
 	return transcriptHash(AUTH_INFO, fields);
-}
-
-/** HMAC-SHA256(k, role), base64url: the client proves with "A", the host answers with "B". */
-export function pairMac(key: Buffer, role: "A" | "B"): string {
-	return createHmac("sha256", key).update(role).digest("base64url");
-}
-
-export function macEquals(expected: string, actual: string): boolean {
-	const a = Buffer.from(expected);
-	const b = Buffer.from(actual);
-	return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export interface DirectionKeys {

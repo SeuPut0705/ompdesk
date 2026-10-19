@@ -22,6 +22,19 @@ describe("parseStatus", () => {
 			keyExpiry: "2027-04-01T00:00:00Z",
 			updateAvailable: false,
 			phones: ["iphone"],
+			selfIps: ["100.64.0.1"],
+			selfNodeId: "nfake",
+			selfName: "laptop",
+			peers: [
+				{
+					nodeId: "nIPHONE1CNTRL",
+					name: "iphone",
+					ips: ["100.64.0.9"],
+					os: "iOS",
+					online: true,
+					login: "seuput@example.com",
+				},
+			],
 		});
 		expect(httpsProblem(status as NonNullable<typeof status>)).toBeNull();
 	});

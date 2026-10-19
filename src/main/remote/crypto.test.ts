@@ -1,28 +1,12 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_DISCOVERY_PORT, DEFAULT_REMOTE_PORT, discoveryPort, parseAddress, remotePort } from "./address";
-import { authKeys, dh, formatCode, generateCode, generateKeyPair, normalizeCode } from "./crypto";
+import { DEFAULT_REMOTE_PORT, parseAddress, remotePort, remotePortCandidates } from "./address";
+import { authKeys, dh, generateKeyPair } from "./crypto";
 import { HostStore } from "./hosts-store";
 import { identityFile, loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
-
-describe("pairing codes", () => {
-	it("generates 8 Crockford chars shown as XXXX-XXXX", () => {
-		const code = generateCode();
-		expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
-		expect(formatCode(code)).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
-	});
-
-	it("normalizes case, dashes, spaces and the I/L/O look-alikes", () => {
-		expect(normalizeCode("ab1c-d0ef")).toBe("AB1CD0EF");
-		expect(normalizeCode(" abIc dOef ")).toBe("AB1CD0EF");
-		expect(normalizeCode("ablc-doef")).toBe("AB1CD0EF");
-		expect(normalizeCode("ABCD-EFG")).toBeNull();
-		expect(normalizeCode("ABCD-EFGU")).toBeNull();
-	});
-});
 
 describe("key agreement", () => {
 	it("derives the same direction keys on both sides of DH(eA,eB)||DH(sA,eB)||DH(eA,sB)", () => {
@@ -51,15 +35,10 @@ describe("key agreement", () => {
 });
 
 describe("addresses and ports", () => {
-	const saved = { port: process.env.OMP_GUI_REMOTE_PORT, discovery: process.env.OMP_GUI_REMOTE_DISCOVERY_PORT };
+	const saved = process.env.OMP_GUI_REMOTE_PORT;
 	afterEach(() => {
-		for (const [name, value] of [
-			["OMP_GUI_REMOTE_PORT", saved.port],
-			["OMP_GUI_REMOTE_DISCOVERY_PORT", saved.discovery],
-		] as const) {
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
+		if (saved === undefined) delete process.env.OMP_GUI_REMOTE_PORT;
+		else process.env.OMP_GUI_REMOTE_PORT = saved;
 	});
 
 	it("parses host, host:port and IPv6 forms", () => {
@@ -72,15 +51,16 @@ describe("addresses and ports", () => {
 		expect(parseAddress("")).toBeNull();
 	});
 
-	it("reads the port overrides from the environment", () => {
+	it("reads the port override from the environment, and offers it with its successors", () => {
 		delete process.env.OMP_GUI_REMOTE_PORT;
-		delete process.env.OMP_GUI_REMOTE_DISCOVERY_PORT;
 		expect(remotePort()).toBe(DEFAULT_REMOTE_PORT);
-		expect(discoveryPort()).toBe(DEFAULT_DISCOVERY_PORT);
+		expect(remotePortCandidates()).toEqual([47821, 47822, 47823, 47824, 47825]);
 		process.env.OMP_GUI_REMOTE_PORT = "50111";
-		process.env.OMP_GUI_REMOTE_DISCOVERY_PORT = "50112";
 		expect(remotePort()).toBe(50111);
-		expect(discoveryPort()).toBe(50112);
+		expect(remotePortCandidates()).toEqual([50111, 50112, 50113, 50114, 50115]);
+		expect(remotePortCandidates(65534)).toEqual([65534, 65535]);
+		process.env.OMP_GUI_REMOTE_PORT = "0";
+		expect(remotePortCandidates()).toEqual([0]);
 		process.env.OMP_GUI_REMOTE_PORT = "nope";
 		expect(remotePort()).toBe(DEFAULT_REMOTE_PORT);
 	});
@@ -110,21 +90,36 @@ describe("identity and stores", () => {
 		expect(dh(again.privateKey, peer.publicKey).equals(dh(peer.privateKey, first.publicKey))).toBe(true);
 	});
 
-	it("writes peers and hosts atomically with mode 0600", () => {
+	it("writes peers and hosts atomically with mode 0600, and reads an older record as not yet bound to a node", () => {
 		const staticPub = generateKeyPair().publicKey;
 		const peers = new PeerStore(dir);
-		peers.put({ deviceId: "a", name: "A", staticPub, pairedAt: 1 });
+		peers.put({ deviceId: "a", name: "A", staticPub, nodeId: "nA", login: "me@x", pairedAt: 1 });
 		peers.update("a", { lastSeenAt: 2 });
-		expect(new PeerStore(dir).get("a")).toEqual({ deviceId: "a", name: "A", staticPub, pairedAt: 1, lastSeenAt: 2 });
+		expect(new PeerStore(dir).get("a")).toEqual({
+			deviceId: "a",
+			name: "A",
+			staticPub,
+			nodeId: "nA",
+			login: "me@x",
+			pairedAt: 1,
+			lastSeenAt: 2,
+		});
+		expect(new PeerStore(dir).byNode("nA")?.deviceId).toBe("a");
 		expectOwnerOnly(join(dir, "remote-peers.json"));
 		expect(peers.remove("a")).toBe(true);
 		expect(new PeerStore(dir).list()).toEqual([]);
 
 		const hosts = new HostStore(dir);
-		hosts.put({ deviceId: "b", name: "B", staticPub, addresses: ["10.0.0.1:47821"], pairedAt: 1 });
+		hosts.put({ deviceId: "b", name: "B", staticPub, nodeId: "nB", addresses: ["10.0.0.1:47821"], pairedAt: 1 });
 		hosts.rememberAddress("b", "10.0.0.2:47821");
 		hosts.rememberAddress("b", "10.0.0.1:47821");
 		expect(new HostStore(dir).get("b")?.addresses).toEqual(["10.0.0.1:47821", "10.0.0.2:47821"]);
 		expectOwnerOnly(join(dir, "remote-hosts.json"));
+
+		writeFileSync(
+			join(dir, "remote-peers.json"),
+			JSON.stringify({ v: 1, peers: [{ deviceId: "old", name: "Old", staticPub, pairedAt: 1 }] }),
+		);
+		expect(new PeerStore(dir).get("old")).toMatchObject({ nodeId: null, login: null });
 	});
 });

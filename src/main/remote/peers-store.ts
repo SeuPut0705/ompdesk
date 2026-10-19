@@ -1,7 +1,8 @@
 /**
- * The host's paired devices (B side): `<userData>/remote-peers.json`, mode
- * 0600, rewritten atomically on every change. Removing a peer is revoking it:
- * its next auth attempt is refused as unpaired.
+ * The devices that use this computer (B side): `<userData>/remote-peers.json`, mode 0600, rewritten atomically on
+ * every change. A device is recorded the first time Tailscale vouches for it, pinned to its Tailscale node and its
+ * static key. Removing it forgets that pin: the node may connect again (with any key) while its login is allowed;
+ * a block is what keeps it out.
  */
 import { join } from "node:path";
 import { z } from "zod";
@@ -14,6 +15,13 @@ export interface PeerInfo {
 	name: string;
 	/** The peer's long-term X25519 public key, base64url. */
 	staticPub: string;
+	/**
+	 * The Tailscale node (`whois` stable ID) the device connects from. Null only for a device paired with a code
+	 * by an older release: its first connection binds it, if the key still matches.
+	 */
+	nodeId: string | null;
+	/** The node's Tailscale login when it was bound. */
+	login: string | null;
 	pairedAt: number;
 	/** Last authenticated connect or disconnect. */
 	lastSeenAt?: number;
@@ -29,6 +37,9 @@ const StoredPeer = z.object({
 	deviceId: z.string().min(1),
 	name: z.string(),
 	staticPub: z.string().refine(isRawKey),
+	// Absent in a record an older release wrote.
+	nodeId: z.string().min(1).nullable().default(null),
+	login: z.string().nullable().default(null),
 	pairedAt: z.number(),
 	lastSeenAt: z.number().optional(),
 	limits: z.object({ requestsPerDay: Count.optional(), tokensPerDay: Count.optional() }).optional(),
@@ -38,5 +49,10 @@ const StoredPeer = z.object({
 export class PeerStore extends TrustStore<PeerInfo> {
 	constructor(userData: string) {
 		super(join(userData, "remote-peers.json"), "peers", StoredPeer, peer => ({ ...peer }));
+	}
+
+	/** The device pinned to a Tailscale node; a node holds at most one. */
+	byNode(nodeId: string): PeerInfo | undefined {
+		return this.list().find(peer => peer.nodeId === nodeId);
 	}
 }

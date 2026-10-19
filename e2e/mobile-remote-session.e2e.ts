@@ -18,14 +18,15 @@ import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Page, test } from "@playwright/test";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { defaultTailscaleScenario } from "./fixture/tailscale-scenario";
 import { controlToolCaller, cssString, exitApp, openedSessions, readRecords } from "./harness";
 import {
+	connectHost,
 	freePort,
 	type LinkProxy,
 	launchRemote,
 	linkProxy,
 	makeRemoteProfile,
-	pair,
 	type RemoteInstance,
 	type RemoteProfile,
 } from "./remote-harness";
@@ -165,17 +166,24 @@ async function rig(
 	seed: (hostAgent: string, hostProfile: RemoteProfile, clientProfile: RemoteProfile) => Promise<void>,
 ): Promise<Rig> {
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-phone-remote-")));
-	const discovery = 48_000 + Math.floor(Math.random() * 1000) * 2;
 	const tailscaleDir = path.join(parent, "tailscale");
 	await fs.mkdir(tailscaleDir);
-	const tailscale = await fixtureTailscale(tailscaleDir, { backendState: "Running" });
+	// This computer's Tailscale: the phone's node (Mobile web) and the host at 127.0.0.1 (computer sharing).
+	const defaults = defaultTailscaleScenario();
+	const tailscale = await fixtureTailscale(tailscaleDir, {
+		backendState: "Running",
+		selfIps: ["127.0.0.1"],
+		peers: [
+			...defaults.peers,
+			{ hostName: "peer", os: "macOS", online: true, userId: defaults.userId, ip: "127.0.0.1", stableId: "n-host" },
+		],
+	});
 	const hostPort = await freePort();
 	const hostAgent = path.join(parent, "host-home", "C:\\Users\\admin\\.omp\\agent");
 	await fs.mkdir(hostAgent, { recursive: true });
 	const hostProfile = await makeRemoteProfile(parent, "host", {
 		language: "en",
 		theme: "light",
-		discoveryPort: discovery,
 		port: hostPort,
 		env: { PI_CODING_AGENT_DIR: hostAgent, ...options.hostEnv },
 	});
@@ -183,7 +191,7 @@ async function rig(
 	const clientProfile = await makeRemoteProfile(parent, "client", {
 		language: "en",
 		theme: "light",
-		discoveryPort: discovery + 1,
+		port: Number(link.address.split(":")[1]),
 		env: { ...tailscale.env, ...options.clientEnv },
 	});
 	await seed(hostAgent, hostProfile, clientProfile);
@@ -198,7 +206,7 @@ async function rig(
 	};
 	const host = await launchHost({ ready: options.hostReady !== false });
 	const client = await launchRemote(clientProfile);
-	const deviceId = await pair(host.page, client.page, "PC-B", link.address);
+	const deviceId = await connectHost(host.page, client.page, "PC-B");
 	await hostOnline(client);
 	await client.page.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
 	await mobileWebReady(client);

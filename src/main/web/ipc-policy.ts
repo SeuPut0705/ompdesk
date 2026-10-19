@@ -422,12 +422,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.GITHUB_PRODUCT_STAR]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
 
 	// Desktop-to-desktop remote devices.
-	[C.REMOTE_GET_STATE]: {
-		dir: "invoke",
-		permission: "workspace",
-		mode: "web",
-		web: "The pairing code and key fields removed",
-	},
+	[C.REMOTE_GET_STATE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.REMOTE_SET_HOST_ENABLED]: {
 		dir: "invoke",
 		permission: "host-admin",
@@ -436,18 +431,21 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[C.REMOTE_SET_DEVICE_NAME]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_SET_KEEP_AWAKE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.REMOTE_ROTATE_CODE]: { dir: "invoke", permission: "pairing-admin", mode: "boundary" },
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_BLOCK_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_SET_CONFIRM_NEW_DEVICES]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.REMOTE_DISCOVER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.REMOTE_PAIR]: {
+	[C.REMOTE_WATCH_TAILNET]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_CONNECT]: {
 		dir: "invoke",
 		permission: "host-admin",
 		mode: "web",
 		web: "Waits for a confirmation on the computer",
 	},
+	[C.REMOTE_TAILSCALE_ACTION]: { dir: "invoke", permission: "host-admin", mode: "pass" },
+	[C.REMOTE_DISMISS_FORGOTTEN]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_REMOVE_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_LIST_DIRS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 
@@ -484,8 +482,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[E.UPDATER_STATUS]: { dir: "push", mode: "pass" },
 	[E.BRIDGE_HEALTH]: { dir: "push", mode: "pass" },
-	[E.REMOTE_STATE]: { dir: "push", mode: "transform", web: "The pairing code and key fields removed" },
-	[E.REMOTE_DISCOVERED]: { dir: "push", mode: "pass" },
+	[E.REMOTE_STATE]: { dir: "push", mode: "pass" },
+	[E.REMOTE_TAILNET]: { dir: "push", mode: "pass" },
 	[E.WORKTREE_PROMPTS]: { dir: "push", mode: "pass" },
 	[E.WORKTREE_NOTICE]: { dir: "push", mode: "pass" },
 	[E.SETUP_STATE]: { dir: "push", mode: "pass" },

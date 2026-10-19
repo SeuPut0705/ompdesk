@@ -193,19 +193,21 @@ const HOST_ID = "host-studio";
 /** One focused tab on the paired host "Studio" (or, with `undefined`, on this device). */
 function focusTab(device: string | undefined): void {
 	const remote: RemoteState = {
+		tailnet: "ready",
 		host: {
 			enabled: false,
 			name: "laptop",
 			port: null,
 			addresses: [],
-			code: null,
-			expiresAt: null,
+			listenError: null,
 			peers: [],
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
+			confirmNewDevices: false,
 		},
 		hosts: [{ deviceId: HOST_ID, name: "Studio", state: "online" }],
+		forgotten: [],
 	};
 	useRemoteStore.getState().apply(remote);
 	useTabsStore.setState({

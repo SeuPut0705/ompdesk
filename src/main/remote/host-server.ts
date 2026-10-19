@@ -1,16 +1,17 @@
 /**
- * The host side (B) of remote devices: a TCP server that pairs new devices
- * with the short-lived code and serves authenticated peers' requests through
- * `HostServices`, plus the LAN beacon while it runs. No Electron imports.
+ * The host side (B) of remote devices: a TCP server on this computer's tailnet addresses only, that lets in the
+ * devices Tailscale vouches for and serves their requests through `HostServices`. No Electron imports.
+ *
+ * Who may connect is decided per connection by `gate` (the integration asks `tailscale whois` about the peer's
+ * address: an allowed login, a node that is not blocked). The first authenticated connection of a device pins its
+ * static key to its Tailscale node; later ones must come from that node with that key. A node holds one device.
  */
 import { EventEmitter } from "node:events";
 import { type AddressInfo, createServer, type Server, type Socket } from "node:net";
-import { networkInterfaces } from "node:os";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { formatAddress, remotePort } from "./address";
+import { formatAddress, remotePortCandidates } from "./address";
 import { DEVICE_RENAME_EVENT, HOST_NAME_EVENT, NAME_METHODS, NameParams } from "./app-protocol";
-import { authKeys, dh, formatCode, generateCode, generateKeyPair, macEquals, pairKey, pairMac } from "./crypto";
-import { BeaconBroadcaster } from "./discovery";
+import { authKeys, dh, generateKeyPair } from "./crypto";
 import type { Identity } from "./identity";
 import type { PeerInfo, PeerStore } from "./peers-store";
 import {
@@ -20,18 +21,12 @@ import {
 	HANDSHAKE_VERSION,
 	HelloVersion,
 	Opening,
-	type PairChallenge,
-	PairInit,
-	PairProof,
 	PROTOCOL_VERSION,
-	pairTranscriptOf,
+	type RefusalCode,
 	WireRequest,
 } from "./protocol";
 import { Link, type WireMessage } from "./wire";
 
-export const CODE_TTL_MS = 10 * 60_000;
-/** Wrong codes allowed before the code rotates; the last one is answered `locked`. */
-export const MAX_CODE_FAILURES = 5;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
 /** What the host tells an authenticated client in its hello. */
@@ -60,10 +55,21 @@ export interface HostConnection {
 	close(): void;
 }
 
-export interface PairingCode {
-	/** `XXXX-XXXX`. */
-	code: string;
-	expiresAt: number;
+/** Who Tailscale says connects (the gate let it through). */
+export interface TailnetVisitor {
+	nodeId: string;
+	login: string;
+	/** The node's name, for the approval question. */
+	nodeName: string | null;
+	ip: string;
+}
+
+export type GateResult = { ok: true; visitor: TailnetVisitor } | { ok: false; code: RefusalCode };
+
+/** Why the host listens nowhere (`port_in_use`: every candidate port is taken on a tailnet address). */
+export interface ListenError {
+	code: "port_in_use";
+	ports: number[];
 }
 
 export interface RemoteHostOptions {
@@ -71,27 +77,27 @@ export interface RemoteHostOptions {
 	peers: PeerStore;
 	services: HostServices;
 	name: () => string;
-	/** TCP port; defaults to `OMP_GUI_REMOTE_PORT` or 47821, falling back to an ephemeral port when busy. */
+	/** This computer's tailnet addresses: the only ones it listens on. None = not listening (Tailscale is down). */
+	bindHosts: () => Promise<string[]>;
+	/** First port tried; defaults to `OMP_GUI_REMOTE_PORT` or 47821, then its successors (address.ts). */
 	port?: number;
-	/**
-	 * Address to listen on; every interface when omitted. Tests that dial 127.0.0.1 bind it: macOS lets an
-	 * IPv4 socket of another process share the port of a `::` listener and take its 127.0.0.1 connections.
-	 */
-	bindHost?: string;
-	/** Beacon UDP port; defaults to `OMP_GUI_REMOTE_DISCOVERY_PORT` or 47822. */
-	discoveryPort?: number;
+	/** Decide who connects, from the peer's address (`::ffff:` already stripped). */
+	gate: (ip: string) => Promise<GateResult>;
+	/** A device the host never saw: may it be recorded? Resolves false to refuse it `declined`. */
+	admit: (visitor: TailnetVisitor, name: string) => Promise<boolean>;
 	appVersion: string;
 	hello: () => HostMachineInfo;
 	/**
-	 * A paired device asked to rename this computer (`host.rename`). Applies and announces the name, or
-	 * throws a coded error the device shows.
+	 * A device asked to rename this computer (`host.rename`). Applies and announces the name, or throws a coded
+	 * error the device shows.
 	 */
 	renameSelf?: (name: string, by: PeerInfo) => void;
-	/** Clock for code expiry (tests). */
+	/** Something worth a line in the runtime log (a port other than the first, a refusal). */
+	log?: (event: string, details: Record<string, unknown>) => void;
 	now?: () => number;
 }
 
-export type RemoteHostEvent = "peersChanged" | "connectionsChanged" | "codeChanged";
+export type RemoteHostEvent = "peersChanged" | "connectionsChanged" | "listenChanged";
 
 class PeerConnection implements HostConnection {
 	readonly link: Link;
@@ -121,7 +127,7 @@ function errorPayload(error: unknown): { code: string; message: string } {
 	return { code: ipcErrorCode(error) ?? own ?? "remote_error", message };
 }
 
-function listen(server: Server, port: number, host: string | undefined): Promise<number> {
+function listen(server: Server, port: number, host: string): Promise<number> {
 	const { promise, resolve, reject } = Promise.withResolvers<number>();
 	server.once("error", reject);
 	server.listen(port, host, () => {
@@ -131,100 +137,127 @@ function listen(server: Server, port: number, host: string | undefined): Promise
 	return promise;
 }
 
+function close(server: Server): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	server.close(() => resolve());
+	return promise;
+}
+
+function addressInUse(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
+}
+
 export class RemoteHost {
 	readonly #opts: RemoteHostOptions;
 	readonly #now: () => number;
 	readonly #emitter = new EventEmitter();
 	readonly #links = new Set<Link>();
 	readonly #connections = new Set<PeerConnection>();
-	#server: Server | null = null;
-	#starting: Promise<{ port: number }> | null = null;
-	#beacon: BeaconBroadcaster | null = null;
+	#servers: Server[] = [];
+	#bound: string[] = [];
 	#port: number | null = null;
-	#code: { code: string; expiresAt: number };
-	#failures = 0;
+	#listenError: ListenError | null = null;
+	#running = false;
+	#binding: Promise<void> | null = null;
+	#loggedPort: number | null = null;
 
 	constructor(opts: RemoteHostOptions) {
 		this.#opts = opts;
 		this.#now = opts.now ?? Date.now;
-		this.#code = { code: generateCode(), expiresAt: this.#now() + CODE_TTL_MS };
 	}
 
-	/** The listening TCP port, or null while stopped. */
+	/** The listening TCP port, or null while not listening. */
 	get port(): number | null {
 		return this.#port;
 	}
 
-	/** Listen and beacon; concurrent and repeated calls share one start. */
-	start(): Promise<{ port: number }> {
-		this.#starting ??= this.#start().catch(error => {
-			this.#starting = null;
-			throw error;
-		});
-		return this.#starting;
+	/** Why it listens nowhere although started with tailnet addresses; null otherwise. */
+	get listenError(): ListenError | null {
+		return this.#listenError;
 	}
 
-	async #start(): Promise<{ port: number }> {
-		const wanted = this.#opts.port ?? remotePort();
-		let server = this.#createServer();
-		let port: number;
-		try {
-			port = await listen(server, wanted, this.#opts.bindHost);
-		} catch (error) {
-			if (wanted === 0 || !(error instanceof Error && "code" in error && error.code === "EADDRINUSE")) throw error;
-			server = this.#createServer();
-			port = await listen(server, 0, this.#opts.bindHost);
-		}
-		this.#server = server;
-		this.#port = port;
-		const beacon = new BeaconBroadcaster({
-			port: this.#opts.discoveryPort,
-			beacon: () => ({ deviceId: this.#opts.identity.deviceId, name: this.#opts.name(), port }),
+	/** Listen on the tailnet addresses; the integration calls `rebind` when they may have changed. */
+	async start(): Promise<void> {
+		this.#running = true;
+		await this.rebind();
+	}
+
+	/**
+	 * Listen on exactly the current tailnet addresses (Tailscale came up, went down, or the address changed), or
+	 * try the ports again after they were all taken. Concurrent calls share one pass.
+	 */
+	rebind(): Promise<void> {
+		this.#binding ??= this.#rebind().finally(() => {
+			this.#binding = null;
 		});
-		this.#beacon = beacon;
-		await beacon.start();
-		return { port };
+		return this.#binding;
+	}
+
+	async #rebind(): Promise<void> {
+		if (!this.#running) return;
+		const wanted = [...new Set(await this.#opts.bindHosts().catch(() => []))].sort();
+		if (!this.#running) return;
+		const same = wanted.length === this.#bound.length && wanted.every((host, i) => host === this.#bound[i]);
+		if (same && (this.#servers.length > 0 || wanted.length === 0)) return;
+		await this.#closeServers();
+		this.#listenError = null;
+		if (wanted.length > 0) await this.#listenOn(wanted);
+		this.#emitter.emit("listenChanged");
+	}
+
+	/** The first candidate port free on every address; the same port everywhere, so a device probes one list. */
+	async #listenOn(hosts: string[]): Promise<void> {
+		const candidates = this.#opts.port === undefined ? remotePortCandidates() : remotePortCandidates(this.#opts.port);
+		for (const candidate of candidates) {
+			const servers: Server[] = [];
+			let port = candidate;
+			try {
+				for (const host of hosts) {
+					const server = createServer(socket => this.#accept(socket));
+					servers.push(server);
+					// Port 0 (tests): the first address picks, the others follow it.
+					port = await listen(server, port, host);
+				}
+			} catch (error) {
+				await Promise.all(servers.map(server => (server.listening ? close(server) : Promise.resolve())));
+				if (addressInUse(error)) continue;
+				// Not a busy port (the address left this computer meanwhile): the next rebind tries again.
+				this.#opts.log?.("listen-failed", { message: error instanceof Error ? error.message : String(error) });
+				return;
+			}
+			this.#servers = servers;
+			this.#bound = hosts;
+			this.#port = port;
+			if (candidate !== candidates[0] && this.#loggedPort !== port) {
+				this.#loggedPort = port;
+				this.#opts.log?.("port", { port, wanted: candidates[0] });
+			}
+			return;
+		}
+		this.#listenError = { code: "port_in_use", ports: candidates };
+	}
+
+	async #closeServers(): Promise<void> {
+		const servers = this.#servers;
+		this.#servers = [];
+		this.#bound = [];
+		this.#port = null;
+		await Promise.all(servers.map(close));
 	}
 
 	async stop(): Promise<void> {
-		await this.#starting?.catch(() => undefined);
-		this.#starting = null;
-		const server = this.#server;
-		this.#server = null;
-		this.#port = null;
-		this.#beacon?.stop();
-		this.#beacon = null;
+		this.#running = false;
+		await this.#binding?.catch(() => undefined);
 		for (const link of [...this.#links]) link.destroy();
-		if (!server) return;
-		const { promise, resolve } = Promise.withResolvers<void>();
-		server.close(() => resolve());
-		await promise;
+		await this.#closeServers();
+		this.#listenError = null;
 	}
 
-	/** The current code; an expired one is replaced first. */
-	pairingCode(): PairingCode {
-		if (this.#now() >= this.#code.expiresAt) return this.rotateCode();
-		return { code: formatCode(this.#code.code), expiresAt: this.#code.expiresAt };
-	}
-
-	rotateCode(): PairingCode {
-		this.#code = { code: generateCode(), expiresAt: this.#now() + CODE_TTL_MS };
-		this.#failures = 0;
-		this.#emitter.emit("codeChanged");
-		return { code: formatCode(this.#code.code), expiresAt: this.#code.expiresAt };
-	}
-
-	/** `ip:port` for each non-internal IPv4 interface while listening. */
+	/** `ip:port` for each tailnet address it listens on. */
 	addresses(): string[] {
 		const port = this.#port;
 		if (port === null) return [];
-		const out: string[] = [];
-		for (const infos of Object.values(networkInterfaces())) {
-			for (const info of infos ?? []) {
-				if (info.family === "IPv4" && !info.internal) out.push(formatAddress({ host: info.address, port }));
-			}
-		}
-		return out;
+		return this.#bound.map(host => formatAddress({ host, port }));
 	}
 
 	/** Peers with at least one live authenticated connection. */
@@ -234,11 +267,16 @@ export class RemoteHost {
 		return [...peers.values()];
 	}
 
-	/** Unpair a device and drop its live connections. */
+	/** Forget a device and drop its live connections. */
 	async revoke(deviceId: string): Promise<void> {
 		const removed = this.#opts.peers.remove(deviceId);
-		for (const conn of [...this.#connections]) if (conn.peer.deviceId === deviceId) conn.link.destroy();
+		this.drop(deviceId);
 		if (removed) this.#emitter.emit("peersChanged");
+	}
+
+	/** Drop a device's live connections (it was blocked, or its login is no longer allowed). */
+	drop(deviceId: string): void {
+		for (const conn of [...this.#connections]) if (conn.peer.deviceId === deviceId) conn.link.destroy();
 	}
 
 	on(event: RemoteHostEvent, fn: () => void): void {
@@ -249,18 +287,21 @@ export class RemoteHost {
 		this.#emitter.off(event, fn);
 	}
 
-	#createServer(): Server {
-		return createServer(socket => this.#accept(socket));
-	}
-
 	#accept(socket: Socket): void {
+		const ip = (socket.remoteAddress ?? "").replace(/^::ffff:/i, "");
 		const link = new Link(socket);
 		this.#links.add(link);
 		link.onClose(() => this.#links.delete(link));
-		this.#handshake(link).catch(() => link.destroy());
+		this.#handshake(link, ip).catch(() => link.destroy());
 	}
 
-	async #handshake(link: Link): Promise<void> {
+	#refuse(link: Link, t: "auth-fail" | "error", code: RefusalCode, ip: string): void {
+		this.#opts.log?.("refused", { code, ip });
+		link.send({ t, code });
+		link.close();
+	}
+
+	async #handshake(link: Link, ip: string): Promise<void> {
 		const first = await link.receive(HANDSHAKE_TIMEOUT_MS);
 		const opening = Opening.safeParse(first);
 		if (!opening.success) {
@@ -272,55 +313,75 @@ export class RemoteHost {
 			link.close();
 			return;
 		}
-		if (opening.data.t === "pair-init") await this.#pair(link, PairInit.parse(first));
-		else await this.#auth(link, AuthInit.parse(first));
+		const gate = await this.#opts.gate(ip);
+		if (opening.data.t === "probe") {
+			if (!gate.ok) return this.#refuse(link, "error", gate.code, ip);
+			link.send({
+				t: "probe-ok",
+				deviceId: this.#opts.identity.deviceId,
+				name: this.#opts.name(),
+				appVersion: this.#opts.appVersion,
+			});
+			link.close();
+			return;
+		}
+		const init = AuthInit.parse(first);
+		if (!gate.ok) return this.#refuse(link, "auth-fail", gate.code, ip);
+		const bound = await this.#bindDevice(init, gate.visitor);
+		if (typeof bound === "string") return this.#refuse(link, "auth-fail", bound, ip);
+		await this.#auth(link, init, bound);
 	}
 
-	/** Pairing, host side: the client proves the code first; B answers only a correct proof. */
-	async #pair(link: Link, init: PairInit): Promise<void> {
+	/**
+	 * The device record for this connection, pinned per node: a node already holding another device or key is
+	 * refused until that record is removed here, so nobody gets a fresh record (and quota) by changing keys. A
+	 * record from a code-paired release (no node yet) binds to the first node it connects from with its old key.
+	 */
+	async #bindDevice(init: AuthInit, visitor: TailnetVisitor): Promise<PeerInfo | RefusalCode> {
+		const { peers } = this.#opts;
+		const conflict = (): boolean => {
+			const held = peers.byNode(visitor.nodeId);
+			return held !== undefined && (held.deviceId !== init.deviceId || held.staticPub !== init.staticPub);
+		};
+		if (conflict()) return "key_mismatch";
+		const known = peers.get(init.deviceId);
+		if (known) {
+			if (known.staticPub !== init.staticPub) return "key_mismatch";
+			if (known.nodeId !== null && known.nodeId !== visitor.nodeId) return "key_mismatch";
+			if (known.nodeId === null) {
+				const bound = peers.update(known.deviceId, { nodeId: visitor.nodeId, login: visitor.login });
+				this.#emitter.emit("peersChanged");
+				return bound ?? known;
+			}
+			return known;
+		}
+		if (!(await this.#opts.admit(visitor, init.name))) return "declined";
+		// Another connection of this node may have been recorded while the user was asked.
+		if (conflict() || peers.get(init.deviceId)) return "key_mismatch";
+		const peer: PeerInfo = {
+			deviceId: init.deviceId,
+			name: init.name,
+			staticPub: init.staticPub,
+			nodeId: visitor.nodeId,
+			login: visitor.login,
+			pairedAt: this.#now(),
+		};
+		peers.put(peer);
+		this.#emitter.emit("peersChanged");
+		return peer;
+	}
+
+	/** Auth, host side: key agreement over both static and both ephemeral keys, then hellos. */
+	async #auth(link: Link, init: AuthInit, peer: PeerInfo): Promise<void> {
 		const { identity, peers } = this.#opts;
 		const eph = generateKeyPair();
-		const challenge: PairChallenge = {
-			t: "pair-challenge",
+		link.send({
+			t: "auth-resp",
 			deviceId: identity.deviceId,
 			name: this.#opts.name(),
 			ephPub: eph.publicKey,
 			staticPub: identity.publicKey,
-		};
-		link.send(challenge);
-		const proof = PairProof.parse(await link.receive(HANDSHAKE_TIMEOUT_MS));
-		const now = this.#now();
-		const fail = (code: "wrong_code" | "expired" | "locked") => {
-			link.send({ t: "pair-fail", code });
-			link.close();
-		};
-		if (now >= this.#code.expiresAt) return fail("expired");
-		const key = pairKey(dh(eph.privateKey, init.ephPub), this.#code.code, pairTranscriptOf(init, challenge));
-		if (!macEquals(pairMac(key, "A"), proof.mac)) {
-			this.#failures++;
-			if (this.#failures < MAX_CODE_FAILURES) return fail("wrong_code");
-			this.rotateCode();
-			return fail("locked");
-		}
-		// Single use: the next device needs the next code.
-		this.rotateCode();
-		peers.put({ deviceId: init.deviceId, name: init.name, staticPub: init.staticPub, pairedAt: now });
-		this.#emitter.emit("peersChanged");
-		link.send({ t: "pair-ok", mac: pairMac(key, "B") });
-		link.close();
-	}
-
-	/** Auth, host side: KK-like key agreement over both static and ephemeral keys, then hellos. */
-	async #auth(link: Link, init: AuthInit): Promise<void> {
-		const { identity, peers } = this.#opts;
-		const peer = peers.get(init.deviceId);
-		if (!peer) {
-			link.send({ t: "auth-fail", code: "unpaired" });
-			link.close();
-			return;
-		}
-		const eph = generateKeyPair();
-		link.send({ t: "auth-resp", deviceId: identity.deviceId, ephPub: eph.publicKey });
+		});
 		// DH(eA,eB) || DH(sA,eB) || DH(eA,sB), computed from B's side.
 		const ikm = Buffer.concat([
 			dh(eph.privateKey, init.ephPub),
@@ -343,7 +404,7 @@ export class RemoteHost {
 			return;
 		}
 		const hello = ClientHello.parse(first);
-		// Revoked while the handshake ran.
+		// Removed or blocked while the handshake ran.
 		if (!peers.get(peer.deviceId)) {
 			link.destroy();
 			return;

@@ -1,68 +1,192 @@
+/**
+ * Sharing a computer over Tailscale, end to end in one process: a host B and a device A (RemoteDevices each, real
+ * sockets on 127.0.0.1, a fake Tailscale per computer; test-devices.ts).
+ */
 import * as fs from "node:fs/promises";
+import { createServer, type Server } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RemoteDevices } from "./devices";
-import type { LocalHostServices } from "./host-services";
+import { afterEach, describe, expect, it } from "vitest";
+import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { HostStore } from "./hosts-store";
+import { loadIdentity } from "./identity";
+import { PeerStore } from "./peers-store";
+import { DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
 
-let userData: string;
-let devices: RemoteDevices | undefined;
-
-beforeEach(async () => {
-	userData = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-devices-"));
-});
+const rig = new DevicesRig();
+const servers: Server[] = [];
+const dirs: string[] = [];
 
 afterEach(async () => {
-	await devices?.dispose();
-	devices = undefined;
-	await fs.rm(userData, { recursive: true, force: true });
+	await rig.dispose();
+	for (const server of servers.splice(0)) server.close();
+	for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
 });
 
-/** The slice of LocalHostServices the constructor, dispose and the host-setting fan-outs touch. */
-function fakeServices() {
-	return {
-		onRunningChange: vi.fn(() => () => {}),
-		attachQuota: vi.fn(),
-		disposeAll: vi.fn(),
-		syncNextPrompt: vi.fn(),
-		syncAutoTitle: vi.fn(),
-	};
+async function rejectionCode(promise: Promise<unknown>): Promise<string | undefined> {
+	try {
+		await promise;
+	} catch (error) {
+		return ipcErrorCode(error);
+	}
+	throw new Error("expected a rejection");
 }
 
-describe("RemoteDevices host settings", () => {
-	it("pushes this machine's prompt-suggestion switches to the tabs it hosts for paired devices", () => {
-		const services = fakeServices();
-		devices = new RemoteDevices({
-			userData,
-			appVersion: "1.0.0",
-			prefs: { get: () => undefined, set: () => {} },
-			broadcast: () => {},
-			services: services as unknown as LocalHostServices,
-			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
-			offlineMessage: () => "offline",
-			stalledMessage: device => `${device} stalled`,
-			powerSaveBlocker: { start: () => 1, stop: () => {} },
+function hold(port: number): Promise<void> {
+	const server = createServer(socket => socket.destroy());
+	servers.push(server);
+	const { promise, resolve, reject } = Promise.withResolvers<void>();
+	server.once("error", reject);
+	server.listen(port, LOOPBACK, () => resolve());
+	return promise;
+}
+
+describe("computers of the tailnet", () => {
+	it("lists the host, connects to it without a code, and marks it connected", async () => {
+		const { a, b } = await rig.pair();
+		const [listed] = await a.devices.watchTailnet(1, true);
+		expect(listed).toEqual({
+			nodeId: "nSTUDIO",
+			name: "Studio",
+			login: LOGIN,
+			state: "available",
+			refusal: null,
+			deviceId: expect.any(String),
+			connected: false,
 		});
-		devices.hostNextPromptChanged();
-		expect(services.syncNextPrompt).toHaveBeenCalledTimes(1);
+		const view = await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+		const peers = (await until(b, state => state.host.peers[0]?.online === true)).host.peers;
+		expect(peers).toMatchObject([{ name: "Laptop", login: LOGIN }]);
+		expect(view.name).toBe("Studio");
+		expect(a.tailnet.pushed).toMatchObject([{ nodeId: "nSTUDIO", connected: true }]);
+	});
+
+	it("never probes a phone, an offline node, or this computer itself", async () => {
+		const { a } = await rig.pair();
+		a.fake.peers.push(studioNode({ nodeId: "nPHONE", os: "iOS" }), studioNode({ nodeId: "nOFF", online: false }));
+		const listed = await a.devices.watchTailnet(1, true);
+		expect(listed.map(computer => computer.nodeId)).toEqual(["nSTUDIO"]);
+	});
+
+	it("shows a host that refuses this device's login, and refuses the connection with the reason", async () => {
+		const { a, b } = await rig.pair();
+		b.allowed.splice(0, 1, "someone-else@example.com");
+		const [listed] = await a.devices.watchTailnet(1, true);
+		expect(listed).toMatchObject({ state: "refused", refusal: "not_allowed", deviceId: null });
+		expect(await rejectionCode(a.devices.connect("nSTUDIO"))).toBe("remote_not_allowed");
+		expect(b.devices.state().host.peers).toEqual([]);
+	});
+
+	it("asks the host's person about a new device when approval is on, and refuses a declined one", async () => {
+		const { a, b } = await rig.pair();
+		b.prefs.set("remote.confirmNewDevices", true);
+		b.confirm.answer = false;
+		expect(await rejectionCode(a.devices.connect("nSTUDIO"))).toBe("remote_declined");
+		expect(b.confirm.asked).toEqual(["Laptop"]);
+		expect(b.devices.state().host.peers).toEqual([]);
 	});
 });
 
-describe("RemoteDevices auto-title setting", () => {
-	it("pushes this machine's automatic-title switches to the tabs it hosts for paired devices", () => {
-		const services = fakeServices();
-		devices = new RemoteDevices({
-			userData,
-			appVersion: "1.0.0",
-			prefs: { get: () => undefined, set: () => {} },
-			broadcast: () => {},
-			services: services as unknown as LocalHostServices,
-			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
-			offlineMessage: () => "offline",
-			stalledMessage: device => `${device} stalled`,
-			powerSaveBlocker: { start: () => 1, stop: () => {} },
+describe("blocking", () => {
+	it("blocks the device's node: it drops, is refused, and connects again once unblocked", async () => {
+		const { a, b } = await rig.connected();
+		const peerId = b.devices.state().host.peers[0]?.deviceId ?? "";
+		await b.devices.blockPeer(peerId);
+		expect(b.blocks.list()).toMatchObject([{ id: "node:nLAPTOP", scope: "node", tailscaleLogin: LOGIN }]);
+		expect(b.devices.state().host.peers).toEqual([]);
+		await until(a, state => state.hosts[0]?.state !== "online");
+		expect((await a.devices.watchTailnet(1, true))[0]).toMatchObject({ state: "refused", refusal: "blocked" });
+
+		b.blocks.remove("node:nLAPTOP");
+		await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+		await until(b, state => state.host.peers[0]?.online === true);
+	});
+});
+
+describe("ports", () => {
+	it("finds a host that took the next port when the first was busy", async () => {
+		const port = await rig.pickPort();
+		await hold(port);
+		const b = await rig.computer(
+			"Studio",
+			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
+		);
+		await b.devices.setHostEnabled(true);
+		expect(b.devices.state().host.port).toBe(port + 1);
+		const a = await rig.computer("Laptop", fakeTailnet({ peers: [studioNode()] }));
+		expect((await a.devices.watchTailnet(1, true))[0]?.state).toBe("available");
+		await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+	});
+
+	it("says which ports are taken instead of listening somewhere a device would not look", async () => {
+		const port = await rig.pickPort();
+		const held = [port, port + 1, port + 2, port + 3, port + 4];
+		try {
+			for (const busy of held) await hold(busy);
+		} catch {
+			return; // Another process holds one of them: nothing to check on this run.
+		}
+		const b = await rig.computer("Studio", fakeTailnet());
+		const state = await b.devices.setHostEnabled(true);
+		expect(state.host.port).toBeNull();
+		expect(state.host.listenError).toEqual({ code: "port_in_use", ports: held });
+	});
+});
+
+describe("code-paired computers", () => {
+	it("keeps a host found on the tailnet, forgets the rest once, and binds a code-paired device on first contact", async () => {
+		const port = await rig.pickPort();
+		const bDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-b-"));
+		const aDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-a-"));
+		dirs.push(bDir, aDir);
+		const hostIdentity = loadIdentity(bDir);
+		const deviceIdentity = loadIdentity(aDir);
+		new PeerStore(bDir).put({
+			deviceId: deviceIdentity.deviceId,
+			name: "Laptop",
+			staticPub: deviceIdentity.publicKey,
+			nodeId: null,
+			login: null,
+			pairedAt: 1,
+			limits: { requestsPerDay: 9 },
 		});
-		devices.hostAutoTitleChanged();
-		expect(services.syncAutoTitle).toHaveBeenCalledTimes(1);
+		const hosts = new HostStore(aDir);
+		const legacy = { staticPub: hostIdentity.publicKey, nodeId: null, pairedAt: 1 };
+		hosts.put({ ...legacy, deviceId: hostIdentity.deviceId, name: "Studio", addresses: [`${LOOPBACK}:${port}`] });
+		hosts.put({ ...legacy, deviceId: "gone", name: "Old desk", addresses: ["192.168.1.20:47821"] });
+
+		const b = await rig.computer(
+			"Studio",
+			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
+			{ userData: bDir },
+		);
+		await b.devices.setHostEnabled(true);
+		const a = await rig.computer("Laptop", fakeTailnet({ peers: [studioNode()] }), { userData: aDir });
+		a.devices.start();
+
+		const state = await until(a, next => next.hosts.length === 1 && next.hosts[0]?.state === "online");
+		expect(state.forgotten).toEqual(["Old desk"]);
+		expect(new HostStore(aDir).get(hostIdentity.deviceId)?.nodeId).toBe("nSTUDIO");
+		const peers = (await until(b, next => next.host.peers[0]?.online === true)).host.peers;
+		expect(new PeerStore(bDir).get(deviceIdentity.deviceId)).toMatchObject({ nodeId: "nLAPTOP", login: LOGIN });
+		expect(peers[0]?.limits).toEqual({ requestsPerDay: 9 });
+
+		a.devices.dismissForgotten();
+		expect(a.devices.state().forgotten).toEqual([]);
+	});
+});
+
+describe("Tailscale's side", () => {
+	it("reports Tailscale missing or signed out, and a host listens nowhere then", async () => {
+		const b = await rig.computer("Studio", fakeTailnet({ phase: "needs-login" }));
+		b.devices.start();
+		await until(b, state => state.tailnet === "needs-login");
+		const state = await b.devices.setHostEnabled(true);
+		expect(state.host.port).toBeNull();
+		expect(state.host.listenError).toBeNull();
+		expect(await rejectionCode(b.devices.connect("nSTUDIO"))).toBe("remote_tailscale_off");
 	});
 });

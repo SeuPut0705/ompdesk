@@ -154,7 +154,6 @@ test("a report repeated after a relaunch arrives once: the receiver's journal is
 	const relaunchProfile = await makeRemoteProfile(parentDir, "one", {
 		language: "en",
 		theme: "light",
-		discoveryPort: 48_000 + Math.floor(Math.random() * 1000),
 		prefs: { batchNotifications: false },
 	});
 	record = relaunchProfile.record;

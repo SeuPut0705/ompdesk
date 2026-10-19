@@ -130,6 +130,7 @@ import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layo
 import { execFileExecutor, startTailscaleApp } from "./tailscale/cli";
 import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/locate";
 import { MobileWebService } from "./tailscale/service";
+import { Tailnet } from "./tailscale/tailnet";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
@@ -726,6 +727,22 @@ app.whenReady().then(() => {
 	void systemOmp().then(resolution => {
 		if (resolution.ok) hostOmpVersion = resolution.runtime.version;
 	});
+	// Tailscale, read-only: computer sharing (src/main/remote/) works over the tailnet only and asks Tailscale who
+	// connects. `OMP_GUI_TAILSCALE` (tests) names a fake CLI; Mobile web below locates the same way.
+	const tailscaleOs = platform === "other" ? null : platform;
+	const stringPref = (key: string): string | null => {
+		const value = prefs.get(key);
+		return typeof value === "string" && value.trim() ? value : null;
+	};
+	const locateTs = async () =>
+		tailscaleOs
+			? locateTailscale(
+					systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
+						readBundleId(mac, execFileExecutor),
+					),
+				)
+			: null;
+	const tailnet = new Tailnet({ locate: locateTs, exec: execFileExecutor });
 	const devices = new RemoteDevices({
 		userData: app.getPath("userData"),
 		appVersion: app.getVersion(),
@@ -746,6 +763,27 @@ app.whenReady().then(() => {
 			start: () => powerSaveBlocker.start("prevent-app-suspension"),
 			stop: id => powerSaveBlocker.stop(id),
 		},
+		tailnet,
+		allowedUsers: () => mobileWebService?.allowedUsers() ?? [],
+		adoptLogin: login => mobileWebService?.adoptLogin(login),
+		blocks: () => webHost?.blocks ?? null,
+		confirm: async details => {
+			const confirmations = webHost?.confirmations;
+			if (!confirmations) return false;
+			const outcome = await confirmations.request({
+				kind: "computer",
+				name: details.name,
+				userAgent: details.nodeName ?? "",
+				tailscaleLogin: details.login,
+				ip: details.ip,
+			});
+			return outcome.approved;
+		},
+		tailscaleAction: async action => {
+			await mobileWebService?.request({ action });
+		},
+		loopback: !app.isPackaged && process.env.OMP_GUI_TEST_REMOTE_LOOPBACK === "1",
+		log: (message, details) => writeRuntimeLog({ source: "remote", message, details }),
 	});
 	remoteDevices = devices;
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
@@ -1309,11 +1347,6 @@ app.whenReady().then(() => {
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
 	// address. The server it starts is the WebHost above. `OMP_GUI_TEST_TAILSCALE_OPEN` is a test's stand-in
 	// for "start the Tailscale app" (the fake CLI of e2e/fixture/fake-tailscale.ts), never set by users.
-	const tailscaleOs = platform === "other" ? null : platform;
-	const stringPref = (key: string): string | null => {
-		const value = prefs.get(key);
-		return typeof value === "string" && value.trim() ? value : null;
-	};
 	const mobileWeb = new MobileWebService({
 		platform,
 		prefs: {
@@ -1336,14 +1369,7 @@ app.whenReady().then(() => {
 		},
 		serveSecret: () => host.serveSecret(),
 		setup,
-		locate: async () =>
-			tailscaleOs
-				? locateTailscale(
-						systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
-							readBundleId(mac, execFileExecutor),
-						),
-					)
-				: null,
+		locate: locateTs,
 		exec: execFileExecutor,
 		startApp: located =>
 			tailscaleOs

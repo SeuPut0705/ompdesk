@@ -88,7 +88,7 @@ describe("IPC channel policy", () => {
 
 	it("refuses only the pairing boundary, and grants pairing-admin nowhere else", () => {
 		const boundary = Object.entries(IPC_POLICY).filter(([, policy]) => policy.mode === "boundary");
-		const expected = [IPC_COMMANDS.REMOTE_ROTATE_CODE, ...mobileWeb.MOBILE_WEB_ADMIN_CHANNELS].sort();
+		const expected = [...mobileWeb.MOBILE_WEB_ADMIN_CHANNELS].sort();
 		expect(boundary.map(([channel]) => channel).sort()).toEqual(expected);
 		const pairing = Object.entries(IPC_POLICY).filter(
 			([, policy]) => policy.dir !== "push" && policy.permission === "pairing-admin",

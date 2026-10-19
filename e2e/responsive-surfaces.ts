@@ -530,16 +530,6 @@ export const SURFACES: readonly Surface[] = [
 		settle: 700,
 	},
 	{
-		id: "dialog-remote-connect",
-		area: "B",
-		title: "Settings › Connections › Connect to a device dialog",
-		open: async page => {
-			await openSettings(page, "connections");
-			await page.locator("[data-remote-connect]").first().click();
-		},
-		settle: 700,
-	},
-	{
 		id: "settings-mobile-web-devices",
 		area: "B",
 		title: "Settings › Connections scrolled to Mobile web's devices and the device's push row",

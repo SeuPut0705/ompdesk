@@ -241,12 +241,22 @@ export class MobileWebService {
 		};
 	}
 
-	/** Logins allowed to reach the page: the pref, or this computer's own while it is unset. Never an untrusted shape. */
+	/**
+	 * Logins allowed to reach this computer, for Mobile web and for other OMPdesk computers alike: the pref, or this
+	 * computer's own while it is unset. Never an untrusted shape.
+	 */
 	allowedUsers(): string[] {
 		const stored = this.#deps.prefs.get(MOBILE_WEB_PREFS.allowedUsers);
 		const users = Array.isArray(stored) ? cleanLogins(stored) : [];
 		if (users.length === 0 && this.#user) return [this.#user];
 		return users;
+	}
+
+	/** This computer's tailnet login as computer sharing read it (Mobile web may be off): allowed by default. */
+	adoptLogin(login: string): void {
+		if (this.#user === login) return;
+		this.#adoptUser(login);
+		this.#emit();
 	}
 
 	/** At launch: pick the switch up where the last run left it. */
@@ -560,7 +570,7 @@ export class MobileWebService {
 		this.#version = status.version;
 		this.#updateAvailable = status.updateAvailable;
 		this.#phones = status.phones;
-		this.#adoptUser(status);
+		this.#adoptUser(status.login);
 		if (status.backend !== "starting" && status.backend !== "no-state") this.#unreachableSince = null;
 		if (status.backend !== "running") {
 			this.#published = false;
@@ -802,12 +812,12 @@ export class MobileWebService {
 	}
 
 	/** This computer's tailnet user: allowed by default, so the allow list is never empty once it is known. */
-	#adoptUser(status: TailscaleStatus): void {
-		if (!status.login) return;
-		this.#user = status.login;
+	#adoptUser(login: string | null): void {
+		if (!login) return;
+		this.#user = login;
 		const stored = this.#deps.prefs.get(MOBILE_WEB_PREFS.allowedUsers);
 		if (!Array.isArray(stored) || cleanLogins(stored).length === 0) {
-			this.#deps.prefs.set(MOBILE_WEB_PREFS.allowedUsers, [status.login]);
+			this.#deps.prefs.set(MOBILE_WEB_PREFS.allowedUsers, [login]);
 		}
 	}
 

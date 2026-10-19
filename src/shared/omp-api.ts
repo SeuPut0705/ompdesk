@@ -60,7 +60,6 @@ import type {
 	IpcOpenExtensionRequest,
 	IpcOpenPathResult,
 	IpcPrefsChangedPayload,
-	IpcRemotePairPayload,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSetTabViewPayload,
@@ -84,13 +83,13 @@ import type {
 	OmpApi,
 	PeerLimits,
 	RemoteDirListing,
-	RemoteDiscoveredDevice,
 	RemoteState,
 	RunProgressState,
 	RuntimeErrorReport,
 	SessionContentMatch,
 	SessionInfo,
 	SystemInfo,
+	TailnetComputer,
 	TrayState,
 	UpdateStatus,
 } from "./ipc-types";
@@ -555,26 +554,31 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, name) as Promise<RemoteState>,
 			setKeepAwake: (enabled: boolean) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, enabled) as Promise<RemoteState>,
-			rotateCode: () => transport.invoke(IPC_COMMANDS.REMOTE_ROTATE_CODE) as Promise<RemoteState>,
 			revokePeer: (deviceId: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
+			blockPeer: (deviceId: string) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_BLOCK_PEER, deviceId) as Promise<RemoteState>,
+			setConfirmNewDevices: (on: boolean) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_SET_CONFIRM_NEW_DEVICES, on) as Promise<RemoteState>,
 			setPeerLimits: (deviceId: string, limits: PeerLimits) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
 			renameHost: (deviceId: string, name: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_HOST, { deviceId, name }) as Promise<RemoteState>,
 			renamePeer: (deviceId: string, name: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_PEER, { deviceId, name }) as Promise<RemoteState>,
-			discover: (action: "start" | "stop") =>
-				transport.invoke(IPC_COMMANDS.REMOTE_DISCOVER, action) as Promise<RemoteDiscoveredDevice[]>,
-			pair: (payload: IpcRemotePairPayload) =>
-				transport.invoke(IPC_COMMANDS.REMOTE_PAIR, payload) as Promise<HostView>,
+			watchTailnet: (on: boolean) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_WATCH_TAILNET, on) as Promise<TailnetComputer[]>,
+			connect: (nodeId: string) => transport.invoke(IPC_COMMANDS.REMOTE_CONNECT, nodeId) as Promise<HostView>,
+			tailscaleAction: (action: "install" | "start-app") =>
+				transport.invoke(IPC_COMMANDS.REMOTE_TAILSCALE_ACTION, action) as Promise<RemoteState>,
+			dismissForgotten: () => transport.invoke(IPC_COMMANDS.REMOTE_DISMISS_FORGOTTEN) as Promise<RemoteState>,
 			removeHost: (deviceId: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_REMOVE_HOST, deviceId) as Promise<RemoteState>,
 			listDirs: (deviceId: string, path?: string, query?: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_LIST_DIRS, { deviceId, path, query }) as Promise<RemoteDirListing>,
 			onState: (callback: (state: RemoteState) => void) => subscribe<RemoteState>(IPC_EVENTS.REMOTE_STATE, callback),
-			onDiscovered: (callback: (devices: RemoteDiscoveredDevice[]) => void) =>
-				subscribe<RemoteDiscoveredDevice[]>(IPC_EVENTS.REMOTE_DISCOVERED, callback),
+			onTailnet: (callback: (computers: TailnetComputer[]) => void) =>
+				subscribe<TailnetComputer[]>(IPC_EVENTS.REMOTE_TAILNET, callback),
 		},
 
 		stats: {

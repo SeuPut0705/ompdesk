@@ -11,6 +11,8 @@ import { sanitizeGrants } from "./devices-store";
 export const PAIRING_CONFIRM_TIMEOUT_MS = 60_000;
 
 export interface PairingDetails {
+	/** Another OMPdesk computer (src/main/remote/) rather than a browser; absent = a browser. */
+	kind?: "computer";
 	name: string;
 	userAgent: string;
 	tailscaleLogin: string | null;
