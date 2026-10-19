@@ -5,7 +5,7 @@
  * so the palette, the side panel and a search result can land on one. Every section reads through
  * `useMemoryRead` (last known value at the first frame) and writes through `window.omp.aiMemory`.
  */
-import { useEffect, useMemo } from "react";
+import { type CSSProperties, useEffect, useMemo } from "react";
 import type { AiMemoryProject, AiMemoryProjectRef } from "../../../../shared/ai-memory";
 import { useT } from "../../../lib/i18n";
 import { useAiMemoryStore } from "../../../stores/ai-memory";
@@ -98,13 +98,10 @@ export function MemorySection({ sub }: { sub?: string }) {
 		<SettingsSection id="settings-memory" scope="app">
 			{usable && (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2" data-memory-bar>
-					<Tabs
-						activeId={tab}
-						ariaLabel={t("memory.title")}
-						className="w-full min-w-0 sm:w-auto sm:flex-1"
-						onChange={open}
-						tabs={tabs}
-					/>
+					{/* Seven tabs 4 px apart (Tabs: gap-1): each one's touch reach stops at half that gap (mobile.css). */}
+					<div className="w-full min-w-0 sm:w-auto sm:flex-1" style={{ "--hit-gap-x": "4px" } as CSSProperties}>
+						<Tabs activeId={tab} ariaLabel={t("memory.title")} onChange={open} tabs={tabs} />
+					</div>
 					{tab !== "overview" && tab !== "profile" && (projects.data?.length ?? 0) > 0 && project && (
 						<Select
 							aria-label={t("memory.project")}

@@ -4,7 +4,7 @@
  * version), pin, rate, delete and, from the Deleted group, restore. Master-detail: on a phone the list, then the page.
  */
 import { ChevronDown, ChevronRight, Pin, PinOff, RotateCcw, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
 	AI_MEMORY_KINDS,
 	type AiMemoryPage,
@@ -242,7 +242,12 @@ function PageReader({ target, onClose }: { target: MemoryPageTarget; onClose: ()
 					{page.pinned && <Badge variant="accent">{t("memory.pages.pinned")}</Badge>}
 				</p>
 			</header>
-			<div className="flex flex-wrap items-center gap-x-1 gap-y-4 pb-2" data-memory-actions>
+			<div
+				className="flex flex-wrap items-center gap-x-1 gap-y-4 pb-2"
+				data-memory-actions
+				// The touch hit area of each button reaches half the gap to its neighbours, no further (mobile.css).
+				style={{ "--hit-gap-x": "4px", "--hit-gap-y": "16px" } as CSSProperties}
+			>
 				{draft === null ? (
 					<>
 						<Button
