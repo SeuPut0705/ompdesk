@@ -39,7 +39,7 @@
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
-import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
+import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
 import type { IpcHostedSession } from "../../shared/ipc-types";
@@ -69,7 +69,7 @@ import { deleteSession, moveSession, renameSession } from "../session-mutations"
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarPool } from "../sidecar-pool";
 import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "../sidecar-run-state";
-import type { SidecarLike } from "../sidecar-types";
+import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { stockHelperRequest } from "../stock-helper";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
@@ -103,7 +103,7 @@ import {
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
-import { HostedTabView } from "./hosted-view";
+import { HostedTabView, labelForHost } from "./hosted-view";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -144,7 +144,7 @@ export interface HostServicesDeps {
 	 */
 	localTabs: Pick<
 		SidecarPool,
-		"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab" | "allSidecars"
+		"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab" | "allSidecars" | "viewForDevice"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -183,6 +183,11 @@ interface HostTab extends RunTracking {
 	origin: PromptOriginEnv;
 	/** Windows of this computer that show the tab (`viewSession`). */
 	views: Set<HostedTabView>;
+	/**
+	 * The tab shows a window of this computer's own tab (`localTabs.viewForDevice`): its sidecar is that omp's view,
+	 * so its resume, updates and sidebar row are the window's, and its close only leaves.
+	 */
+	viewsWindow?: true;
 	/** Asks answered, by request id → who answered first; the other side's late answer is refused. */
 	answered: Map<string, "device" | "host">;
 	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
@@ -330,7 +335,8 @@ export class LocalHostServices implements HostServices {
 
 	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
 	resumeFacts(): ResumeFact[] {
-		return [...this.#tabs.values()].map(tab => {
+		return [...this.#tabs.values()].flatMap(tab => {
+			if (tab.viewsWindow) return [];
 			const fact: ResumeFact = {
 				tabId: tab.resumeId,
 				winId: 0,
@@ -345,7 +351,7 @@ export class LocalHostServices implements HostServices {
 			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
 			if (tab.lastRun) fact.lastRun = tab.lastRun;
 			if (tab.retry) fact.retry = tab.retry;
-			return fact;
+			return [fact];
 		});
 	}
 
@@ -384,7 +390,7 @@ export class LocalHostServices implements HostServices {
 	hostedSessions(): IpcHostedSession[] {
 		const sessions: IpcHostedSession[] = [];
 		for (const tab of this.#tabs.values()) {
-			if (tab.sessionFile === undefined) continue;
+			if (tab.sessionFile === undefined || tab.viewsWindow) continue;
 			const { sidecar } = tab;
 			const session: IpcHostedSession = {
 				sessionPath: tab.sessionFile,
@@ -425,7 +431,8 @@ export class LocalHostServices implements HostServices {
 		if (!tab) return null;
 		const view: HostedTabView = new HostedTabView({
 			sidecar: tab.sidecar,
-			origin: tab.origin,
+			promptOrigin: { deviceId: PROMPT_ORIGIN_HOST_ID, name: tab.origin.hostName },
+			labelTranscript: data => labelForHost(data, tab.origin),
 			start: () => this.#start(tab),
 			answer: frame => this.#answer(tab, frame, "host", view),
 			stopped: () => this.noteStopped(tab.resumeId),
@@ -807,6 +814,21 @@ export class LocalHostServices implements HostServices {
 		}
 		// A session deleted on this computer is never reopened for a device whose layout still names it.
 		if (deletedSessions().has(params.sessionPath)) throw codedError("session_deleted", "Session was deleted");
+		// A window of this computer runs the session: the device views that omp, never a second one on the file.
+		const view = params.sessionPath
+			? this.#deps.localTabs.viewForDevice(
+					params.sessionPath,
+					{ deviceId: peer.deviceId, name: peer.name },
+					this.#deps.hostName(),
+				)
+			: null;
+		if (view && params.sessionPath) {
+			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, view);
+			this.#emit(tab, "status", this.#statusArg(view, view.statusPayload));
+			this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
+			this.#emit(tab, "awaitingConnection", false);
+			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
+		}
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
 		const cwd = await directory(params.cwd);
 		const kind =
@@ -875,9 +897,11 @@ export class LocalHostServices implements HostServices {
 		fresh: boolean,
 		sessionPath: string | undefined,
 		conn: HostConnection | null,
+		/** A window's tab the device views (`localTabs.viewForDevice`) instead of an omp of its own. */
+		view?: SidecarLike,
 	): HostTab {
 		const origin: PromptOriginEnv = { deviceId: peer.deviceId, name: peer.name, hostName: this.#deps.hostName() };
-		const sidecar = this.#deps.createSidecar(cwd, kind, fresh, origin);
+		const sidecar = view ?? this.#deps.createSidecar(cwd, kind, fresh, origin);
 		const tab: HostTab = {
 			peerId: peer.deviceId,
 			rtab,
@@ -899,6 +923,16 @@ export class LocalHostServices implements HostServices {
 		this.#trackRun(tab);
 		this.#wire(tab);
 		this.#trackForWindows(tab);
+		if (view) {
+			tab.viewsWindow = true;
+			// The window's omp may hold asks already: the device's tab gets them as its open set.
+			sidecar.on("openAsks", (asks: ExtensionUIRequest[]) => {
+				for (const ask of asks) tab.asks.set(ask.id, ask);
+				this.#emit(tab, "openAsks", asks);
+			});
+			// The window closed its tab: the device heard `viewEnded` (#wire), and its tab here goes.
+			sidecar.on(VIEW_ENDED_EVENT, () => this.#closeTab(this.#key(tab.peerId, tab.rtab)));
+		}
 		return tab;
 	}
 
@@ -1034,7 +1068,7 @@ export class LocalHostServices implements HostServices {
 	restartOnNewOmp(): void {
 		for (const tab of this.#tabs.values()) {
 			const decision = ompRestartDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
-			if (decision === "skip") continue;
+			if (decision === "skip" || tab.viewsWindow) continue;
 			if (decision === "wait") tab.ompRestartPending = true;
 			else tab.sidecar.restart(undefined, tab.sessionFile);
 		}
@@ -1061,7 +1095,7 @@ export class LocalHostServices implements HostServices {
 		let waiting = 0;
 		for (const tab of this.#tabs.values()) {
 			const decision = extensionApplyDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
-			if (decision === "skip") continue;
+			if (decision === "skip" || tab.viewsWindow) continue;
 			if (decision === "wait") {
 				tab.extensionPending = tab.extensionPending ? mergeApplyPlans(tab.extensionPending, plan) : plan;
 				waiting++;
@@ -1209,6 +1243,9 @@ export class LocalHostServices implements HostServices {
 	 * release: an idle one is closed and waited for, one running a turn refuses.
 	 */
 	async #deleteSession(peer: PeerInfo, sessionPath: string): Promise<null> {
+		// A window of this computer works in it: the device cannot take it away (the window's own delete can).
+		if (this.#deps.localTabs.sessionOwnerIsLive(sessionPath))
+			throw codedError("session_running", "Session is open on the host");
 		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
 		if (held.some(tab => (tab.peerId !== peer.deviceId && tab.sidecar.processAlive) || runBusy(tab.run)))
 			throw codedError("session_running", "Session is open on the host");

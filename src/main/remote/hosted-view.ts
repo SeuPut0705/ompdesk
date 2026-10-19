@@ -8,9 +8,13 @@
  * - the omp's stream reaches the window, except its host tool calls and URI reads, which the device
  *   answers (a second answer from here would race it);
  * - the window's commands go to the same omp; a prompt, steer or follow-up typed here is journaled as
- *   this computer's (`prompt_origin_set` with `PROMPT_ORIGIN_HOST_ID`) unless a paired web page that
- *   views this window's tab named its own device first, and a transcript page is relabelled for this
- *   computer (`labelForHost`);
+ *   the viewer's (`prompt_origin_set` with `promptOrigin`) unless a paired web page that views this
+ *   window's tab named its own device first, and a transcript page is relabelled for the viewer
+ *   (`labelTranscript`).
+ *
+ * The same view serves the other direction: a paired device viewing a tab a window of this computer
+ * owns (`SidecarPool.viewForDevice`), with the device as `promptOrigin` and the pool deciding the
+ * first answer;
  * - an answer to an ask goes through LocalHostServices, where the first of the device and this
  *   computer's windows wins and the other's card closes as answered elsewhere (`answered:<id>`);
  * - a window that joins gets the asks open now and the session's identity (next microtask, once the
@@ -19,7 +23,7 @@
  *   the view (`VIEW_ENDED_EVENT`) before its omp goes.
  */
 import { EventEmitter } from "node:events";
-import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
+import type { PromptOrigin, PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../../shared/ipc-error-codes";
 import type {
 	ExtensionUIRequest,
@@ -56,8 +60,10 @@ const VIEW_EVENTS = [
 /** What a view needs from its hosted tab; LocalHostServices keeps the rules behind it. */
 export interface HostedTabPort {
 	readonly sidecar: SidecarLike;
-	/** The tab's prompt origin: the device it serves and this computer's name, as its omp was spawned with. */
-	readonly origin: PromptOriginEnv;
+	/** Who types through this view: its prompts are journaled as theirs. */
+	readonly promptOrigin: PromptOrigin;
+	/** A transcript page as the omp labelled it, relabelled for the viewer. */
+	labelTranscript(data: unknown): unknown;
 	/** Spawn the tab's omp if it has not run yet (a revived tab). */
 	start(): void;
 	/** Deliver the window's side-channel frame; an answer the device gave first throws `already_answered`. */
@@ -79,6 +85,8 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 	/** The text a `prompt_origin_set` from the window just named: its prompt carries that origin, not this computer's. */
 	#namedOrigin: string | undefined;
 	#left = false;
+	/** Another party works in this omp too: the host decides steer/follow-up. */
+	readonly shared = true;
 
 	constructor(port: HostedTabPort) {
 		super();
@@ -185,14 +193,14 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 			const named = this.#namedOrigin === command.message;
 			this.#namedOrigin = undefined;
 			if (!named) {
-				const origin = { deviceId: PROMPT_ORIGIN_HOST_ID, name: this.#port.origin.hostName };
+				const origin = this.#port.promptOrigin;
 				await client.command({ type: "prompt_origin_set", origin, text: command.message }).catch(() => undefined);
 			}
 		}
 		if (STOP_COMMANDS[command.type]) this.#port.stopped();
 		const response = await client.command(command, timeoutMs);
 		if (command.type !== "get_transcript_page" || !response.success) return response;
-		return { ...response, data: labelForHost(response.data, this.#port.origin) };
+		return { ...response, data: this.#port.labelTranscript(response.data) };
 	}
 }
 
@@ -202,7 +210,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
  * with this computer's name there), the device's named after it. Untouched while no prompt is labelled
  * (one device typed them all).
  */
-function labelForHost(data: unknown, origin: PromptOriginEnv): unknown {
+export function labelForHost(data: unknown, origin: PromptOriginEnv): unknown {
 	const page = data as { messages?: Array<{ role?: unknown; promptFrom?: string }> } | undefined;
 	if (!Array.isArray(page?.messages) || !page.messages.some(message => message.promptFrom !== undefined)) return data;
 	return {

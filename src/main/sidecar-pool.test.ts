@@ -2754,3 +2754,72 @@ describe("SidecarPool hosted views (a window here showing a paired device's tab 
 		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).not.toHaveProperty("answeredElsewhere");
 	});
 });
+
+describe("SidecarPool device views (a paired device viewing a tab of a window here)", () => {
+	const MAC = { deviceId: "mac", name: "Mac" };
+	function viewed() {
+		const { pool, sidecars } = fakePool();
+		const desktop = fakeWindow(1);
+		pool.acquire("/a", desktop.win, "tab-a", "/s/a.jsonl");
+		const [sidecar] = sidecars;
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.emitStatus("ready");
+		const view = pool.viewForDevice("/s/a.jsonl", MAC, "Host B");
+		if (!view) throw new Error("no view");
+		desktop.sent.length = 0;
+		return { pool, sidecar, desktop, view };
+	}
+
+	it("hands the device the tab's omp: its stream but never its host tool calls, the tab counts it as a viewer", async () => {
+		const { pool, sidecar, desktop, view } = viewed();
+		expect(pool.viewForDevice("/s/none.jsonl", MAC, "Host B")).toBeNull();
+		const seen: string[] = [];
+		for (const name of ["events", "hostToolCall", "hostUriRequest"]) view.on(name, () => seen.push(name));
+		sidecar.emitAgentEvents(["agent_start"]);
+		sidecar.emitHostToolCall("h1");
+		sidecar.emitHostUriRequest("u1");
+		expect(seen).toEqual(["events"]);
+		expect(pool.tabsForWindow(desktop.win)[0]).toMatchObject({ tabId: "tab-a", viewerCount: 1 });
+		expect(pool.deviceViewing("/s/a.jsonl")).toBe(true);
+		await view.rpcClient?.command({ type: "prompt", message: "hi" });
+		expect(sidecar.rpcCommands).toEqual([
+			{ type: "prompt_origin_set", origin: MAC, text: "hi" },
+			{ type: "prompt", message: "hi" },
+		]);
+		// The device leaving takes only its listeners.
+		view.removeAllListeners();
+		view.dispose();
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.deviceViewing("/s/a.jsonl")).toBe(false);
+	});
+
+	it("takes the first answer to an ask from the device or a window, and refuses the other's", async () => {
+		const { pool, sidecar, desktop, view } = viewed();
+		sidecar.emitExtensionUi("req-1");
+		const yes = { type: "extension_ui_response", id: "req-1", confirmed: true };
+		await view.sendSideChannel(yes);
+		expect(sidecar.sentFrames).toEqual([yes]);
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({ answeredElsewhere: true });
+		await expect(
+			pool.routeSideChannel("req-1", { ...yes, confirmed: false }, undefined, desktop.win),
+		).rejects.toThrow("[already_answered]");
+
+		const ui: Array<{ id?: string }> = [];
+		view.on("extensionUi", (request: { id?: string }) => ui.push(request));
+		sidecar.emitExtensionUi("req-2");
+		const no = { type: "extension_ui_response", id: "req-2", confirmed: false };
+		expect(await pool.routeSideChannel("req-2", no, undefined, desktop.win)).toBe(true);
+		expect(ui.at(-1)).toMatchObject({ id: "answered:req-2", method: "cancel", targetId: "req-2" });
+		expect(() => view.sendSideChannel({ ...no, confirmed: true })).toThrow("[already_answered]");
+		expect(sidecar.sentFrames).toEqual([yes, no]);
+	});
+
+	it("ends the device's view when the window closes the tab, before its omp goes", () => {
+		const { pool, sidecar, view } = viewed();
+		const ended = vi.fn(() => expect(sidecar.disposed).toBe(false));
+		view.on(VIEW_ENDED_EVENT, ended);
+		pool.releaseTab("tab-a");
+		expect(ended).toHaveBeenCalledTimes(1);
+		expect(sidecar.disposed).toBe(true);
+	});
+});

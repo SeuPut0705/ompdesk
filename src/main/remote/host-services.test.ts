@@ -30,6 +30,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { decodeBinaryRead, OMP_UPDATE_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
+import type { HostedTabView } from "./hosted-view";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 
@@ -145,6 +146,9 @@ function fakeLocalTabs() {
 	const tab = new FakeHostSidecar("/local", "agent");
 	const owned = new Map<string, { tabId: string; winId: number }>();
 	const closed: string[] = [];
+	/** Views of a window's tab a device may get, by session file, and who asked. */
+	const views = new Map<string, FakeHostSidecar>();
+	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
@@ -156,8 +160,14 @@ function fakeLocalTabs() {
 			return true;
 		},
 		allSidecars: () => [tab as unknown as SidecarLike],
+		viewForDevice: (path, origin, hostName) => {
+			const view = views.get(path);
+			if (!view) return null;
+			viewed.push({ origin, hostName });
+			return view as unknown as HostedTabView;
+		},
 	};
-	return { tab, owned, closed, localTabs };
+	return { tab, owned, closed, views, viewed, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -647,19 +657,22 @@ describe("LocalHostServices", () => {
 		expect(local.tab.accountRotationSyncs).toBe(0);
 	});
 
-	it("renames a session through this machine's own live tab, and a delete closes that tab, then deletes the file", async () => {
+	it("renames a session through this machine's own live tab, and refuses a delete while that tab runs it", async () => {
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		local.owned.set("/s/local.jsonl", { tabId: "local-1", winId: 1 });
 		local.tab.setStatus("ready");
 
 		await services.call(x.peer, "sessions.rename", { sessionPath: "/s/local.jsonl", name: " New " }, x);
-		await services.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x);
-		// No replacement session: the tab closes and the stored file goes.
+		const refused = await services
+			.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x)
+			.catch((error: unknown) => error);
+		// The person at this computer works in it: the device cannot take it away.
+		expect(ipcErrorCode(refused)).toBe("session_running");
 		expect(local.tab.commands).toEqual([{ type: "set_session_name", name: "New", sessionPath: "/s/local.jsonl" }]);
 		expect(renameStoredSession).not.toHaveBeenCalled();
-		expect(local.closed).toEqual(["local-1"]);
-		expect(deleteSession).toHaveBeenCalledWith("/s/local.jsonl");
+		expect(local.closed).toEqual([]);
+		expect(deleteSession).not.toHaveBeenCalled();
 	});
 
 	it("falls back to the stored file when no live tab holds the session, closing a sleeping tab", async () => {
@@ -1577,6 +1590,65 @@ describe("LocalHostServices for this computer's own windows", () => {
 		view.dispose();
 		vi.advanceTimersByTime(1_000);
 		expect(sidecar.disposed).toBe(true);
+	});
+});
+
+describe("LocalHostServices: a device opening a session a window of this computer runs", () => {
+	const SESSION = "/s/local.jsonl";
+
+	async function viewing() {
+		const context = setup();
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set(SESSION, view);
+		const x = new FakeConnection(peer("device-x"));
+		const opened = await context.services.call(
+			x.peer,
+			"tab.open",
+			{ rtab: "t1", cwd: workDir, sessionPath: SESSION },
+			x,
+		);
+		return { ...context, view, x, opened };
+	}
+
+	it("attaches the device to that window's omp: no second omp, prompts named after the device", async () => {
+		const { services, sidecars, local, view, x, opened } = await viewing();
+		expect(opened).toEqual({ cwd: workDir, kind: "agent", attached: true, viewing: true });
+		expect(sidecars).toHaveLength(0);
+		expect(local.viewed).toEqual([{ origin: { deviceId: "device-x", name: "device-x" }, hostName: "Host B" }]);
+		// Attached: the device starts nothing and gets the live status at once.
+		expect(x.tabEvents().find(event => event.name === "status")?.arg).toMatchObject({ status: "ready" });
+		view.emit("events", [{ type: "agent_start" }]);
+		expect(x.tabEvents().at(-1)).toMatchObject({ name: "events" });
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x);
+		expect(view.commands).toEqual([{ type: "get_state" }]);
+		// The window's tab is the computer's own: never listed as a device's, never resumed or restarted as one.
+		expect(services.hostedSessions()).toEqual([]);
+		expect(services.resumeFacts()).toEqual([]);
+		services.restartOnNewOmp();
+		expect(view.started).toEqual([]);
+	});
+
+	it("the device's close only leaves; the window's close ends the device's tab quietly", async () => {
+		const first = await viewing();
+		await first.services.call(first.x.peer, "tab.close", { rtab: "t1" }, first.x);
+		expect(first.view.disposed).toBe(true);
+
+		const { services, view, x } = await viewing();
+		view.emit(VIEW_ENDED_EVENT);
+		expect(x.tabEvents().at(-1)).toMatchObject({ rtab: "t1", name: "viewEnded" });
+		expect(view.disposed).toBe(true);
+		const gone = await services
+			.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+	});
+
+	it("hands the device the asks the window's omp has open when it attaches", async () => {
+		const { view, x } = await viewing();
+		const ask = { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "?", message: "" };
+		view.emit("openAsks", [ask]);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "openAsks", arg: [ask] });
 	});
 });
 

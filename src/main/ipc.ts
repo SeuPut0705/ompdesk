@@ -382,8 +382,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	 * device's tab on this computer runs is refused, as the host refuses a device the other's live tab.
 	 */
 	const deleteStoredSession = async (sessionPath: string, device: string | undefined): Promise<void> => {
-		if (!device && deps.hostedTabs.hostedSessions().some(session => session.sessionPath === sessionPath))
-			throw codedError("session_running", "A paired device is using this session");
+		const usedByDevice =
+			deps.hostedTabs.hostedSessions().some(session => session.sessionPath === sessionPath) ||
+			sidecarPool.deviceViewing(sessionPath);
+		if (!device && usedByDevice) throw codedError("session_running", "A paired device is using this session");
 		await deleteSession(sidecarPool, sessionPath, device, () =>
 			device
 				? remoteDevices.request(device, "sessions.delete", { sessionPath })

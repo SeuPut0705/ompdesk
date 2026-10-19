@@ -33,6 +33,11 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly device?: string;
 	/** True while a remote sidecar's link to its host is down (commands fail with `remote_offline`). */
 	readonly offline?: boolean;
+	/**
+	 * Another party works in the same omp (a hosted view, or a paired host's tab that views a window of that host):
+	 * the tab lists as shared, so the host decides steer/follow-up and closing it only leaves.
+	 */
+	readonly shared?: boolean;
 	/** True while a paired host's tab emits a status it derived from its link (down, reconnecting) rather
 	 * than one the host's omp reported: that omp, and the asks it holds, may still be alive. */
 	readonly statusFromLink?: boolean;
