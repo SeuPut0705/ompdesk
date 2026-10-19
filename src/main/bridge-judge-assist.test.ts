@@ -236,6 +236,45 @@ describe("how stock is called", () => {
 		expect(await replyNeedsUser(session(), "And which one after that?")).toBe(true);
 		expect(judge.requests).toHaveLength(3);
 	});
+
+	it("does not reuse a settled answer for the same session and reply: each later ask passes the live gate", async () => {
+		install(async () => needsAnswer(0.9));
+		const live = session();
+		const reply = "Which one do you want?";
+		expect(await replyNeedsUser(live, reply)).toBe(true);
+		setJudgeAssistEnabled(false);
+		expect(await replyNeedsUser(live, reply)).toBeUndefined();
+		setJudgeAssistEnabled(true);
+		judge.native.current = false;
+		expect(await replyNeedsUser(live, reply)).toBeUndefined();
+		expect(judge.requests).toHaveLength(1);
+	});
+
+	it("decides again once the judge is back after a reply it could not judge", async () => {
+		install(async () => needsAnswer(0.9));
+		const live = session();
+		const reply = "Which one do you want?";
+		judge.native.current = false;
+		expect(await replyNeedsUser(live, reply)).toBeUndefined();
+		judge.native.current = true;
+		expect(await replyNeedsUser(live, reply)).toBe(true);
+		setJudgeAssistEnabled(false);
+		expect(await replyNeedsUser(live, reply)).toBeUndefined();
+		setJudgeAssistEnabled(true);
+		expect(await replyNeedsUser(live, reply)).toBe(true);
+	});
+
+	it("decides again after a timed-out ask for the same reply", async () => {
+		vi.useFakeTimers();
+		let calls = 0;
+		install(() => (++calls === 1 ? new Promise<never>(() => {}) : Promise.resolve(needsAnswer(0.9))));
+		const live = session();
+		const reply = "Which one do you want?";
+		const stuck = replyNeedsUser(live, reply);
+		await vi.advanceTimersByTimeAsync(JUDGE_ASSIST_TIMEOUT_MS);
+		expect(await stuck).toBeUndefined();
+		expect(await replyNeedsUser(live, reply)).toBe(true);
+	});
 });
 
 describe("title check", () => {

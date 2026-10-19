@@ -194,16 +194,27 @@ export async function judgeAvailable(session: JudgeSession, forImages = false): 
 	}
 }
 
-/** The judgment in flight for one reply: the notification and the suggestion engine ask about the same reply. */
+/**
+ * The judgment in flight for one reply: the notification and the suggestion engine ask about the same reply at the
+ * same moment. Only while it is in flight: once settled it is forgotten, so a later ask passes the live gate again
+ * (the switch turned off, a key removed or restored), and stock's answer cache serves a repeat at no cost.
+ */
 let pendingReply: { session: JudgeSession; reply: string; answer: Promise<boolean | undefined> } | undefined;
 
 /** Does `reply` (the last assistant text) end by waiting for the person? Undefined: the judge did not decide. */
 export function replyNeedsUser(session: JudgeSession, reply: string): Promise<boolean | undefined> {
 	if (!reply.trim()) return Promise.resolve(undefined);
 	if (pendingReply && pendingReply.session === session && pendingReply.reply === reply) return pendingReply.answer;
-	const answer = ask(session, "ompdesk-needs-user", () => needsUserRequest(reply)).then(needsUserFrom);
-	pendingReply = { session, reply, answer };
-	return answer;
+	const entry = {
+		session,
+		reply,
+		answer: ask(session, "ompdesk-needs-user", () => needsUserRequest(reply)).then(needsUserFrom),
+	};
+	pendingReply = entry;
+	void entry.answer.finally(() => {
+		if (pendingReply === entry) pendingReply = undefined;
+	});
+	return entry.answer;
 }
 
 /**
