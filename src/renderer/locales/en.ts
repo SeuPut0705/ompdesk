@@ -1390,6 +1390,13 @@ export const en: Record<string, string> = {
 	"providers.models": "{count} models",
 	"providers.modelOne": "1 model",
 	"providers.add": "Add a provider",
+	"providers.featured.title": "Popular providers",
+	"providers.featured.subscription": "Sign in with your subscription",
+	"providers.featured.apiKey": "Use an API key",
+	"providers.featured.signIn": "Sign in",
+	"providers.featured.connect": "Connect",
+	"providers.featured.apiKeyAction": "Use an API key instead",
+	"providers.other.title": "Other providers",
 	"providers.custom.empty": "None yet. Add any OpenAI- or Anthropic-compatible server.",
 
 	// Model roles (Settings › Models)

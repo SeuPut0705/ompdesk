@@ -1373,6 +1373,13 @@ export const ko: Record<string, string> = {
 	"providers.models": "모델 {count}개",
 	"providers.modelOne": "모델 1개",
 	"providers.add": "프로바이더 추가",
+	"providers.featured.title": "주요 프로바이더",
+	"providers.featured.subscription": "구독 계정으로 로그인",
+	"providers.featured.apiKey": "API 키로 연결",
+	"providers.featured.signIn": "로그인",
+	"providers.featured.connect": "연결",
+	"providers.featured.apiKeyAction": "API 키로 대신 연결",
+	"providers.other.title": "다른 프로바이더",
 	"providers.custom.empty": "아직 없어요. OpenAI·Anthropic 호환 서버라면 무엇이든 추가할 수 있어요.",
 
 	// Model roles (Settings › Models)

@@ -111,6 +111,15 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
 		await expect(setup).toBeVisible();
 		await expect(setup.getByRole("searchbox", { name: "Search providers" })).toBeVisible();
+		// The popular providers are their own group on top, each with stock's own login id, and the rest follow.
+		const featured = setup.locator("[data-featured-provider]");
+		await expect(featured).toHaveCount(5);
+		expect(
+			await featured.evaluateAll(items => items.map(item => item.getAttribute("data-featured-provider"))),
+		).toEqual(["openai-codex", "anthropic", "openrouter", "google-gemini-cli", "xai-oauth"]);
+		await expect(setup.getByRole("button", { name: "Connect ChatGPT (Plus/Pro)", exact: true })).toBeVisible();
+		await expect(setup.getByRole("button", { name: "Connect Claude (Pro/Max)", exact: true })).toBeVisible();
+		await expect(setup.getByRole("heading", { name: "Other providers", exact: true })).toBeVisible();
 		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
 		await expect(setup).toHaveCount(0);
 		const runtime = await app.evaluate(({ app }) => ({

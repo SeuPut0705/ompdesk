@@ -27,7 +27,11 @@ export const RECOMMENDED_PROVIDER_IDS: readonly string[] = RECOMMENDED_PROVIDERS
  * after machine setup installed it): the recommended providers, signed out.
  * The live catalog replaces them as soon as the session is ready.
  */
-export const STARTER_PROVIDERS: readonly ProviderInfo[] = RECOMMENDED_PROVIDERS.map(([id, name]) => ({
+export const STARTER_PROVIDERS: readonly ProviderInfo[] = [
+	...RECOMMENDED_PROVIDERS,
+	["xai-oauth", "xAI Grok OAuth"] as const,
+	["xai", "xAI API"] as const,
+].map(([id, name]) => ({
 	id,
 	name,
 	authenticated: false,
@@ -35,6 +39,28 @@ export const STARTER_PROVIDERS: readonly ProviderInfo[] = RECOMMENDED_PROVIDERS.
 	disabled: false,
 	modelCount: 0,
 }));
+
+/**
+ * The providers the sign-in pickers put on top as their own group, in this order. Ids and login
+ * kinds are stock's (pi-catalog `auth/*.kdl`, `/login` roster): `openai-codex` and `anthropic` are
+ * subscription OAuth, `google-gemini-cli` is Google's own browser sign-in (stock's plain `google`
+ * has no login), `openrouter` yields a durable API key (browser sign-in or paste), and Grok has
+ * both: `xai-oauth` (SuperGrok / X Premium+ device-code sign-in, primary) and `xai` (xAI API key).
+ * `label` is the card's name (stock's names are long); `kind` picks the one-line description.
+ */
+export const FEATURED_PROVIDERS: readonly {
+	id: string;
+	label: string;
+	kind: "subscription" | "apiKey";
+	/** A second stock login for the same company, offered as the card's quieter second action. */
+	apiKeyId?: string;
+}[] = [
+	{ id: "openai-codex", label: "ChatGPT (Plus/Pro)", kind: "subscription" },
+	{ id: "anthropic", label: "Claude (Pro/Max)", kind: "subscription" },
+	{ id: "openrouter", label: "OpenRouter", kind: "apiKey" },
+	{ id: "google-gemini-cli", label: "Google (Gemini)", kind: "subscription" },
+	{ id: "xai-oauth", label: "Grok (SuperGrok)", kind: "subscription", apiKeyId: "xai" },
+];
 
 /**
  * Smallest context window a coding session can work in. A system prompt plus

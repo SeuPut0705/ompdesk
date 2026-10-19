@@ -586,7 +586,7 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click());
 		const status = () => document.querySelector("[data-login-progress]")?.textContent ?? "";
 		expect(status()).toBe(translate("providerList.login.starting"));
 
@@ -714,7 +714,9 @@ describe("ProvidersSection", () => {
 					{extra}
 				</>,
 			);
-			await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
+			await act(async () =>
+				button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click(),
+			);
 			await act(async () => {
 				useExtensionUiStore.getState().pushRequest(openUrl);
 				useExtensionUiStore.getState().pushRequest({
@@ -860,7 +862,9 @@ describe("ProvidersSection", () => {
 			// A new sign-in starts clean: it waits for the browser again.
 			pendingLogin = Promise.withResolvers<RpcResponse>();
 			login.mockReturnValueOnce(pendingLogin.promise);
-			await act(async () => button(translate("providers.picker.connect", { provider: "Anthropic" }))?.click());
+			await act(async () =>
+				button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click(),
+			);
 			await act(async () => useExtensionUiStore.getState().pushRequest(openUrl));
 			expect(progress()).toBe(translate("providerList.login.waiting"));
 		});

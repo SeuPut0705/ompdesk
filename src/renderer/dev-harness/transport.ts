@@ -66,6 +66,25 @@ import {
 
 type Listener = (data: unknown) => void;
 
+/**
+ * `?firstrun=1`: a computer with no credential, so the first-run provider step shows. The rows are stock's
+ * sign-in providers (ids as `omp /login` lists them), all signed out.
+ */
+const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
+const FIRST_RUN_PROVIDERS = [
+	["anthropic", "Anthropic (Claude Pro/Max)"],
+	["cerebras", "Cerebras"],
+	["deepseek", "DeepSeek"],
+	["github-copilot", "GitHub Copilot"],
+	["google-gemini-cli", "Google Cloud Code Assist (Gemini CLI)"],
+	["groq", "Groq"],
+	["mistral", "Mistral"],
+	["openai-codex", "ChatGPT Plus/Pro (Codex Subscription)"],
+	["openrouter", "OpenRouter"],
+	["xai", "xAI API"],
+	["xai-oauth", "xAI Grok OAuth (SuperGrok or X Premium+)"],
+].map(([id, name]) => ({ id, name, authenticated: false, loginAvailable: true, disabled: false, modelCount: 0 }));
+
 export interface Harness {
 	emit(channel: string, payload: unknown): void;
 	/** Channels and commands the fixture has no answer for, in order of first call. */
@@ -179,19 +198,19 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_state":
 				return respond(command, stateFixture(tabId));
 			case "get_transcript_page": {
-				const messages = transcriptFor(tabId);
+				const messages = FIRST_RUN ? [] : transcriptFor(tabId);
 				return respond(command, { messages, totalMessages: messages.length });
 			}
 			case "get_transcript":
-				return respond(command, { messages: transcriptFor(tabId) });
+				return respond(command, { messages: FIRST_RUN ? [] : transcriptFor(tabId) });
 			case "get_delegation":
 			case "set_delegation":
 				return respond(command, { mode: "assisted" });
 			case "get_available_models":
 			case "get_providers":
 				return respond(command, {
-					models: MODELS,
-					providers: PROVIDERS,
+					models: FIRST_RUN ? [] : MODELS,
+					providers: FIRST_RUN ? FIRST_RUN_PROVIDERS : PROVIDERS,
 					discoveryStates: [],
 					refreshPending: false,
 					generation: 1,
@@ -314,7 +333,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.RUNTIME_LOG_TAIL:
 				return RUNTIME_LOG_TAIL;
 			case IPC_COMMANDS.MODELS_SIGNED_IN:
-				return true;
+				return !FIRST_RUN;
 			case IPC_COMMANDS.GITHUB_AUTH_REFRESH:
 				return EMPTY_GITHUB_AUTH_STATE;
 			case IPC_COMMANDS.MODELS_PROVIDERS_LIST:

@@ -877,6 +877,18 @@ export function runRpcUi(): void {
 		{ ...model, id: "claude-opus-4-1", name: "Claude Opus 4.1", provider: "anthropic", contextWindow: 200000 },
 		{ ...model, id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", contextWindow: 1000000 },
 	];
+	/** `OMP_GUI_TEST_FEATURED=1` (with OMP_GUI_TEST_LOGIN): the catalog's sign-in rows beside Anthropic, signed out, as stock lists them (Grok has both its SuperGrok `xai-oauth` and API-key `xai` logins). */
+	const FEATURED_PAGE_PROVIDERS = [
+		...MODELS_PAGE_PROVIDERS,
+		{
+			id: "xai-oauth",
+			name: "xAI Grok OAuth (SuperGrok or X Premium+)",
+			authenticated: false,
+			loginAvailable: true,
+			disabled: false,
+			modelCount: 0,
+		},
+	];
 	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
 	const accountQuota: Record<
 		number,
@@ -1633,7 +1645,9 @@ export function runRpcUi(): void {
 								? MODELS_PAGE_PROVIDERS.map(row =>
 										apiKeyProviders.has(row.id) ? { ...row, authenticated: true, authKind: "apikey" } : row,
 									)
-								: []),
+								: process.env.OMP_GUI_TEST_FEATURED === "1"
+									? FEATURED_PAGE_PROVIDERS
+									: []),
 						]
 					: []),
 			],

@@ -236,7 +236,12 @@ function ConnectStep() {
 				</Banner>
 			)}
 			{catalog.configError && <Banner variant="warning">{t("setup.configReadFailed")}</Banner>}
-			<ProviderPicker catalog={catalog} login={login} onAddCustom={() => setCustomForm(true)} />
+			<ProviderPicker
+				catalog={catalog}
+				login={login}
+				onAddCustom={() => setCustomForm(true)}
+				showConnectedFeatured
+			/>
 			{login.state.providerId !== null && (
 				<div data-login-panel>
 					<ProviderLoginPanel
