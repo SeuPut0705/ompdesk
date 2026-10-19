@@ -51,7 +51,7 @@ export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> 
 	workspace: "host",
 	// Runs this computer's omp: a paired host's tab never moves them.
 	schedules: "app",
-	// ai-memory runs on this computer for every omp OMPdesk starts here: a paired host's tab never moves it.
+	// Memory runs on this computer for every omp OMPdesk starts here: a paired host's tab never moves it.
 	memory: "app",
 	connections: "mixed",
 	updates: "mixed",

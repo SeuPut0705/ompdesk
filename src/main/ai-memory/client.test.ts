@@ -121,7 +121,7 @@ describe("AiMemoryClient", () => {
 	});
 
 	it("searches with the query, an optional project, and strips <mark> from the snippet", async () => {
-		routes["/api/v1/search?q=code+name&limit=20&workspace=my+ws&project=a%2Fb"] = json([
+		routes["/api/v1/search?q=code+name&limit=30&workspace=my+ws&project=a%2Fb"] = json([
 			{
 				workspace: "my ws",
 				project: "a/b",
@@ -137,6 +137,8 @@ describe("AiMemoryClient", () => {
 				project: "a/b",
 				path: "sessions/s1.md",
 				title: "S1",
+				kind: undefined,
+				tier: null,
 				updatedAt: "2026-02-02T00:00:00Z",
 				snippet: "the code name",
 			},
@@ -158,6 +160,8 @@ describe("AiMemoryClient", () => {
 				project: "a/b?",
 				path: "decisions/0007-db.md",
 				title: "DB",
+				kind: "decision",
+				tier: "t",
 				updatedAt: "2026-02-01T00:00:00Z",
 			},
 		]);
@@ -216,6 +220,8 @@ describe("AiMemoryClient", () => {
 				agent: "omp",
 				createdAt: "2026-02-01T00:00:00Z",
 				summary: "Did X",
+				openQuestions: [],
+				nextSteps: [],
 				state: "open",
 			},
 		]);
@@ -241,7 +247,13 @@ describe("AiMemoryClient", () => {
 			path: "sessions/a b#c.md",
 			title: "Page",
 			updatedAt: "2026-02-01T00:00:00Z",
+			kind: undefined,
+			tier: null,
 			markdown: "# Hello",
+			id: "",
+			pinned: false,
+			createdAt: null,
+			tags: [],
 		});
 	});
 
@@ -250,13 +262,13 @@ describe("AiMemoryClient", () => {
 		expect((await client.page({ workspace: "w", project: "p", path: "x.md" })).title).toBe("x.md");
 	});
 
-	it("says ai-memory answered <status> for a non-2xx and 'not running' for a network failure or no url", async () => {
+	it("says Memory answered <status> for a non-2xx and 'not running' for a network failure or no url", async () => {
 		routes["/api/v1/projects"] = json({}, 401);
-		await expect(client.projects()).rejects.toThrow("ai-memory answered 401");
+		await expect(client.projects()).rejects.toThrow("Memory answered 401");
 		delete routes["/api/v1/projects"];
-		await expect(client.projects()).rejects.toThrow("ai-memory is not running");
+		await expect(client.projects()).rejects.toThrow("Memory is not running");
 		const offline = new AiMemoryClient({ url: () => null, dataDir: () => dataDir });
-		await expect(offline.projects()).rejects.toThrow("ai-memory is not running");
+		await expect(offline.projects()).rejects.toThrow("Memory is not running");
 	});
 
 	it("sends no authorization header before a token exists", async () => {
@@ -271,5 +283,303 @@ describe("AiMemoryClient", () => {
 		});
 		await tokenless.projects();
 		expect(calls[0]?.authorization).toBeUndefined();
+	});
+});
+
+interface Sent {
+	path: string;
+	method: string;
+	body: unknown;
+	headers: Headers;
+}
+
+describe("AiMemoryClient (Memory page)", () => {
+	let dataDir: string;
+	let sent: Sent[];
+	let routes: Record<string, (body: unknown) => Response>;
+	let client: AiMemoryClient;
+	const PROJECT = { workspace: "w", project: "p" };
+	const BASE = "/api/v1/workspaces/w/projects/p";
+
+	const json =
+		(body: unknown, status = 200) =>
+		() =>
+			Response.json(body, { status });
+	const mcp = (payload: unknown) =>
+		json({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } });
+
+	beforeEach(async () => {
+		dataDir = await mkdtemp(join(tmpdir(), "ai-memory-page-client-"));
+		await mkdir(join(dataDir, "auth-tokens"));
+		await writeFile(join(dataDir, "auth-tokens", "default"), "tok\n");
+		sent = [];
+		routes = {};
+		client = new AiMemoryClient({
+			url: () => URL_BASE,
+			dataDir: () => dataDir,
+			fetch: async (url, init) => {
+				const path = url.slice(URL_BASE.length);
+				const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+				sent.push({ path, method: init.method ?? "GET", body, headers: new Headers(init.headers) });
+				const route = routes[path];
+				if (!route) throw new TypeError(`unexpected ${url}`);
+				return route(body);
+			},
+		});
+	});
+
+	afterEach(async () => {
+		await rm(dataDir, RM_TEMP);
+	});
+
+	it("lists a project's pages with kind and tier, newest first", async () => {
+		routes[`${BASE}/pages`] = json([
+			{ path: "a.md", title: "A", kind: "note", tier: "semantic", updated_at: "2026-10-01T00:00:00Z" },
+			{ path: "b.md", title: "B", updated_at: "2026-10-02T00:00:00Z" },
+		]);
+		expect(await client.pages(PROJECT)).toEqual([
+			{ ...PROJECT, path: "b.md", title: "B", kind: undefined, tier: null, updatedAt: "2026-10-02T00:00:00Z" },
+			{ ...PROJECT, path: "a.md", title: "A", kind: "note", tier: "semantic", updatedAt: "2026-10-01T00:00:00Z" },
+		]);
+	});
+
+	it("search fills tier and time from the pages of the projects the hits sit in, and survives a failing list", async () => {
+		routes["/api/v1/search?q=x&limit=30"] = json([
+			{ workspace: "w", project: "p", path: "a.md", title: "A", kind: "note", snippet: "<mark>x</mark> y" },
+			{ workspace: "w", project: "gone", path: "z.md", title: "Z", snippet: "" },
+		]);
+		routes[`${BASE}/pages`] = json([
+			{ path: "a.md", title: "A", kind: "note", tier: "semantic", updated_at: "2026-10-01T00:00:00Z" },
+		]);
+		const hits = await client.search("x");
+		expect(hits[0]).toMatchObject({
+			path: "a.md",
+			tier: "semantic",
+			updatedAt: "2026-10-01T00:00:00Z",
+			snippet: "x y",
+		});
+		expect(hits[1]).toMatchObject({ path: "z.md", tier: null, updatedAt: null });
+	});
+
+	it("maps the project overview", async () => {
+		routes[`${BASE}/overview?limit=1`] = json({
+			briefing: {
+				counts: { pages_latest: 4, sessions: 2, observations: 17 },
+				activity_7d: { sessions: 1, observations: 9, pages_updated: 3 },
+				last_observation_at: "2026-10-18T10:00:00Z",
+				pending_handoff_count: 2,
+			},
+			health: { stale: 1, duplicates: 2, contradictions: 0, orphans: 3 },
+		});
+		expect(await client.overview(PROJECT)).toEqual({
+			pages: 4,
+			sessions: 2,
+			observations: 17,
+			lastCaptureAt: "2026-10-18T10:00:00Z",
+			openHandoffs: 2,
+			activity7d: { sessions: 1, observations: 9, pagesUpdated: 3 },
+			health: { stale: 1, duplicates: 2, contradictions: 0, orphans: 3 },
+		});
+		routes[`${BASE}/overview?limit=1`] = json({});
+		expect((await client.overview(PROJECT)).lastCaptureAt).toBeNull();
+	});
+
+	it("lists sessions and reads one session's observations by offset", async () => {
+		routes[`${BASE}/sessions?limit=30&include_open=true`] = json({
+			sessions: [
+				{
+					session_id: "s1",
+					cwd: "/a/b",
+					agent_kind: "omp",
+					started_at: "t0",
+					ended_at: null,
+					observation_count: 60,
+					consolidation: { state: "failed", attempts: 2 },
+				},
+			],
+		});
+		expect(await client.sessions(PROJECT)).toEqual([
+			{
+				id: "s1",
+				cwd: "/a/b",
+				agent: "omp",
+				startedAt: "t0",
+				endedAt: null,
+				observations: 60,
+				consolidation: "failed",
+			},
+		]);
+		routes[`${BASE}/sessions/s%2F1/observations?limit=50&offset=50&body_max_chars=2000`] = json({
+			session: { session_id: "s/1", observation_count: 60 },
+			observations: [{ id: "o1", kind: "user-prompt", title: "Prompt", body: "hi", created_at: "t1" }],
+			total: 60,
+			offset: 50,
+		});
+		const page = await client.observations(PROJECT, "s/1", 50);
+		expect(page.total).toBe(60);
+		expect(page.offset).toBe(50);
+		expect(page.observations).toEqual([
+			{ id: "o1", kind: "user-prompt", title: "Prompt", body: "hi", createdAt: "t1" },
+		]);
+	});
+
+	it("reads the profile status and entries", async () => {
+		routes["/admin/profile/status"] = json({
+			enabled: "auto",
+			effective_share: "global",
+			inject_on_session_start: true,
+			digest_bytes: 120,
+		});
+		routes["/admin/profile/list"] = json({
+			scope: { workspace: "default", project: "_global" },
+			entries: [
+				{
+					path: "profile/tools/pnpm.md",
+					category: "tools",
+					statement: "Use pnpm.",
+					applies_to: ["javascript"],
+					enforced_by: null,
+				},
+			],
+		});
+		expect(await client.profile()).toEqual({
+			enabled: true,
+			injected: true,
+			digestBytes: 120,
+			scope: { workspace: "default", project: "_global" },
+			entries: [
+				{
+					path: "profile/tools/pnpm.md",
+					category: "tools",
+					statement: "Use pnpm.",
+					appliesTo: ["javascript"],
+					enforcedBy: null,
+				},
+			],
+		});
+		routes["/admin/profile/status"] = json({ enabled: "off", effective_share: "off" });
+		routes["/admin/profile/list"] = json({ scope: null, entries: [] });
+		expect(await client.profile()).toMatchObject({ enabled: false, scope: null, entries: [] });
+	});
+
+	it("lint is a dry rule-based run; sweep passes dry_run and counts what it reports", async () => {
+		routes["/admin/lint"] = json({
+			findings: [{ kind: "duplicate", severity: "warning", message: "m", pages: ["a.md"] }],
+		});
+		expect(await client.lint(PROJECT)).toEqual([
+			{ kind: "duplicate", severity: "warning", message: "m", pages: ["a.md"] },
+		]);
+		expect(sent.at(-1)).toMatchObject({ method: "POST", body: { ...PROJECT, dry_run: true, no_llm: true } });
+		routes["/admin/forget-sweep"] = json({
+			dry_run: true,
+			candidates_evaluated: 9,
+			evicted: [{}, {}],
+			compacted: [],
+			merged: [{}],
+			expired: [],
+			observations_prunable: 5,
+			observations_pruned: 0,
+		});
+		expect(await client.sweep(PROJECT, true)).toEqual({
+			dryRun: true,
+			evaluated: 9,
+			evicted: 2,
+			compacted: 0,
+			merged: 1,
+			expired: 0,
+			observationsPruned: 5,
+		});
+		expect(sent.at(-1)?.body).toEqual({ ...PROJECT, dry_run: true });
+		routes["/admin/forget-sweep"] = json({
+			dry_run: false,
+			candidates_evaluated: 9,
+			evicted: [{}],
+			observations_prunable: 5,
+			observations_pruned: 4,
+		});
+		expect((await client.sweep(PROJECT, false)).observationsPruned).toBe(4);
+	});
+
+	it("writePage posts the body with only the fields it was given, with the bearer token", async () => {
+		routes["/admin/write-page"] = json({ page_id: "id" });
+		await client.writePage({
+			...PROJECT,
+			path: "notes/a.md",
+			body: "text",
+			title: "A",
+			kind: "note",
+			tier: "semantic",
+			tags: ["t"],
+			pinned: true,
+		});
+		expect(sent.at(-1)).toMatchObject({
+			path: "/admin/write-page",
+			method: "POST",
+			body: {
+				...PROJECT,
+				path: "notes/a.md",
+				body: "text",
+				title: "A",
+				kind: "note",
+				tier: "semantic",
+				tags: ["t"],
+				pinned: true,
+			},
+		});
+		expect(sent.at(-1)?.headers.get("authorization")).toBe("Bearer tok");
+		expect(sent.at(-1)?.headers.get("content-type")).toBe("application/json");
+		await client.writePage({ ...PROJECT, path: "notes/a.md", body: "text" });
+		expect(sent.at(-1)?.body).toEqual({ ...PROJECT, path: "notes/a.md", body: "text" });
+	});
+
+	it("deletePage returns the pre-delete checkpoint, else the head checkpoint, else fails", async () => {
+		routes["/admin/checkpoints?limit=1"] = json([{ oid: "head1" }]);
+		routes["/admin/delete-page"] = json({ path: "a.md", deleted: true, pre_checkpoint: "pre1" });
+		const first = await client.deletePage({ ...PROJECT, path: "a.md", title: "A" });
+		expect(first).toMatchObject({ ...PROJECT, path: "a.md", title: "A", rev: "pre1" });
+		expect(sent.at(-1)?.body).toEqual({ ...PROJECT, path: "a.md" });
+		routes["/admin/delete-page"] = json({ path: "a.md", deleted: true });
+		expect((await client.deletePage({ ...PROJECT, path: "a.md" })).rev).toBe("head1");
+		routes["/admin/checkpoints?limit=1"] = json([]);
+		await expect(client.deletePage({ ...PROJECT, path: "a.md" })).rejects.toThrow("no checkpoint");
+	});
+
+	it("restorePage posts the revision", async () => {
+		routes["/admin/restore-page"] = json({ page_id: "x" });
+		await client.restorePage({ ...PROJECT, path: "a.md" }, "rev9");
+		expect(sent.at(-1)?.body).toEqual({ ...PROJECT, path: "a.md", rev: "rev9" });
+	});
+
+	it("feedback and cancelHandoff are MCP tools/call requests", async () => {
+		routes["/mcp"] = mcp({ ok: true });
+		await client.feedback({ ...PROJECT, path: "a.md" }, "helpful");
+		expect(sent.at(-1)?.headers.get("accept")).toContain("text/event-stream");
+		expect(sent.at(-1)?.body).toMatchObject({
+			jsonrpc: "2.0",
+			method: "tools/call",
+			params: { name: "memory_feedback", arguments: { ...PROJECT, path: "a.md", signal: "helpful" } },
+		});
+		routes["/mcp"] = mcp({ handoff_id: "h-1", cancelled: true, state: "expired" });
+		await client.cancelHandoff(PROJECT, "h-1");
+		expect(sent.at(-1)?.body).toMatchObject({
+			params: { name: "memory_handoff_cancel", arguments: { ...PROJECT, handoff_id: "h-1" } },
+		});
+		routes["/mcp"] = mcp({ handoff_id: "h-1", cancelled: false, state: "accepted" });
+		await expect(client.cancelHandoff(PROJECT, "h-1")).rejects.toThrow("no longer open");
+	});
+
+	it("surfaces a JSON-RPC error, a tool error and the server's error text", async () => {
+		routes["/mcp"] = json({ jsonrpc: "2.0", id: 1, error: { code: -32603, message: "page not found" } });
+		await expect(client.feedback({ ...PROJECT, path: "a.md" }, "helpful")).rejects.toThrow("page not found");
+		routes["/mcp"] = json({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { isError: true, content: [{ type: "text", text: "nope" }] },
+		});
+		await expect(client.feedback({ ...PROJECT, path: "a.md" }, "helpful")).rejects.toThrow("nope");
+		routes["/admin/write-page"] = json({ error: "path escapes the wiki" }, 400);
+		await expect(client.writePage({ ...PROJECT, path: "x", body: "y" })).rejects.toThrow("path escapes the wiki");
+		routes["/admin/write-page"] = json({}, 500);
+		await expect(client.writePage({ ...PROJECT, path: "x", body: "y" })).rejects.toThrow("answered 500");
 	});
 });

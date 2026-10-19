@@ -99,7 +99,7 @@ describe("resolveSettingsTarget", () => {
 	});
 });
 
-describe("Settings › Memory (ai-memory)", () => {
+describe("Settings › Memory", () => {
 	const STOCK_MEMORY_ROWS = [
 		["memory.backend", "memory"],
 		["memories.enabled", "memory"],
@@ -117,8 +117,8 @@ describe("Settings › Memory (ai-memory)", () => {
 		expect(agent?.items).toContain("memory");
 		expect(SETTINGS_SECTION_IDS).toContain("memory");
 		expect(resolveSettingsTarget("memory")).toEqual({ section: "memory", sub: undefined });
-		expect(en["settings.section.memory"]).toBe("Memory (ai-memory)");
-		expect(ko["settings.section.memory"]).toBe("메모리 (ai-memory)");
+		expect(en["settings.section.memory"]).toBe("Memory");
+		expect(ko["settings.section.memory"]).toBe("메모리");
 	});
 
 	it("lists no stock memory row in any section, Advanced included", () => {

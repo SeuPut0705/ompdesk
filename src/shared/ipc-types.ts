@@ -6,12 +6,21 @@
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
+	AiMemoryDeleted,
+	AiMemoryFeedback,
 	AiMemoryHandoff,
+	AiMemoryLintFinding,
+	AiMemoryObservations,
+	AiMemoryOverview,
 	AiMemoryPage,
 	AiMemoryPageRef,
+	AiMemoryProfile,
 	AiMemoryProject,
 	AiMemoryProjectRef,
+	AiMemorySession,
 	AiMemoryState,
+	AiMemorySweep,
+	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -344,6 +353,18 @@ export const IPC_COMMANDS = {
 	AI_MEMORY_RECENT: "ai-memory:recent",
 	AI_MEMORY_HANDOFFS: "ai-memory:handoffs",
 	AI_MEMORY_READ_PAGE: "ai-memory:read-page",
+	AI_MEMORY_OVERVIEW: "ai-memory:overview",
+	AI_MEMORY_PAGES: "ai-memory:pages",
+	AI_MEMORY_SESSIONS: "ai-memory:sessions",
+	AI_MEMORY_OBSERVATIONS: "ai-memory:observations",
+	AI_MEMORY_PROFILE: "ai-memory:profile",
+	AI_MEMORY_LINT: "ai-memory:lint",
+	AI_MEMORY_SWEEP: "ai-memory:sweep",
+	AI_MEMORY_WRITE_PAGE: "ai-memory:write-page",
+	AI_MEMORY_DELETE_PAGE: "ai-memory:delete-page",
+	AI_MEMORY_RESTORE_PAGE: "ai-memory:restore-page",
+	AI_MEMORY_FEEDBACK: "ai-memory:feedback",
+	AI_MEMORY_CANCEL_HANDOFF: "ai-memory:cancel-handoff",
 	/** The extensions' automatic updates (src/main/ext-update/): whole ExtensionUpdateState snapshot */
 	EXTENSION_UPDATE_GET_STATE: "extension-update:get-state",
 	/** Check and update one row (an ExtensionRow key) or all now, whatever the pref says (runs in the background) */
@@ -1746,6 +1767,24 @@ export interface OmpApi {
 		recent(project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
 		handoffs(project?: AiMemoryProjectRef): Promise<AiMemoryHandoff[]>;
 		readPage(ref: AiMemoryProjectRef & { path: string }): Promise<AiMemoryPage>;
+		overview(project: AiMemoryProjectRef): Promise<AiMemoryOverview>;
+		pages(project: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
+		sessions(project: AiMemoryProjectRef): Promise<AiMemorySession[]>;
+		/** One session's raw observations, read-only, 50 from `offset`. */
+		observations(project: AiMemoryProjectRef, sessionId: string, offset?: number): Promise<AiMemoryObservations>;
+		/** The cross-project profile every session starts with. */
+		profile(): Promise<AiMemoryProfile>;
+		/** Rule-based audit of a project; writes no report page. */
+		lint(project: AiMemoryProjectRef): Promise<AiMemoryLintFinding[]>;
+		/** The retention sweep; \`dryRun\` changes nothing. */
+		sweep(project: AiMemoryProjectRef, dryRun: boolean): Promise<AiMemorySweep>;
+		/** Saves a page through the server's write path (a new version). */
+		writePage(input: AiMemoryWriteInput): Promise<void>;
+		/** Deletes a page; the result is what \`restorePage\` needs. */
+		deletePage(ref: AiMemoryProjectRef & { path: string; title?: string }): Promise<AiMemoryDeleted>;
+		restorePage(ref: AiMemoryProjectRef & { path: string }, rev: string): Promise<void>;
+		feedback(ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback): Promise<void>;
+		cancelHandoff(project: AiMemoryProjectRef, id: string): Promise<void>;
 		onState(callback: (state: AiMemoryState) => void): () => void;
 	};
 	/** This computer's marketplaces, plugins, skills and MCP servers, kept current by its own updater. */

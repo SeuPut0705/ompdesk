@@ -53,7 +53,6 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
 import { AgentWorktreesRows } from "./AgentWorktreesRow";
-import { AiMemorySection } from "./AiMemorySection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
@@ -62,6 +61,7 @@ import { LaunchProfileSection } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
 import { MobileWebSection } from "./MobileWebSection";
 import { ModelsSection } from "./ModelsSection";
+import { MemorySection } from "./memory/MemorySection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
 import { AdvancedSchemaSettings, OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
@@ -351,7 +351,7 @@ export function SettingsPage() {
 					</>
 				);
 			case "memory":
-				return <AiMemorySection />;
+				return <MemorySection sub={sub} />;
 			case "schedules":
 				return <SchedulesSection />;
 			case "connections":

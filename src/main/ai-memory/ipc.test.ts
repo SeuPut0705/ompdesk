@@ -22,6 +22,18 @@ function setup(webUrl: string | null = "http://127.0.0.1:49374/web") {
 		recent: vi.fn(async (_project?: unknown) => []),
 		handoffs: vi.fn(async (_project?: unknown) => []),
 		readPage: vi.fn(async (_ref: unknown) => ({}) as never),
+		pages: vi.fn(async (_project: unknown) => []),
+		overview: vi.fn(async (_project: unknown) => ({}) as never),
+		sessions: vi.fn(async (_project: unknown) => []),
+		observations: vi.fn(async (_project: unknown, _id: string, _offset?: number) => ({}) as never),
+		profile: vi.fn(async () => ({}) as never),
+		lint: vi.fn(async (_project: unknown) => []),
+		sweep: vi.fn(async (_project: unknown, _dryRun: boolean) => ({}) as never),
+		writePage: vi.fn(async (_input: unknown) => {}),
+		deletePage: vi.fn(async (_ref: unknown) => ({}) as never),
+		restorePage: vi.fn(async (_ref: unknown, _rev: string) => {}),
+		feedback: vi.fn(async (_ref: unknown, _signal: string) => {}),
+		cancelHandoff: vi.fn(async (_project: unknown, _id: string) => {}),
 		token: vi.fn(async () => "tok" as string | null),
 	} satisfies Service;
 	let clipboard = "";
@@ -117,7 +129,7 @@ describe("ai-memory IPC", () => {
 				await expect(call(IPC_COMMANDS.AI_MEMORY_OPEN_WEB)).rejects.toThrow("Refusing to open a non-local address");
 				expect(deps.openExternal).not.toHaveBeenCalled();
 			}
-			await expect(setup(null).call(IPC_COMMANDS.AI_MEMORY_OPEN_WEB)).rejects.toThrow("ai-memory is not running");
+			await expect(setup(null).call(IPC_COMMANDS.AI_MEMORY_OPEN_WEB)).rejects.toThrow("Memory is not running");
 		});
 	});
 
@@ -145,7 +157,7 @@ describe("ai-memory IPC", () => {
 		it("refuses while there is no token yet and writes nothing", async () => {
 			const { service, call, clipboard } = setup();
 			service.token.mockResolvedValueOnce(null);
-			await expect(call(IPC_COMMANDS.AI_MEMORY_COPY_WEB_PASSWORD)).rejects.toThrow("ai-memory has no token yet");
+			await expect(call(IPC_COMMANDS.AI_MEMORY_COPY_WEB_PASSWORD)).rejects.toThrow("Memory has no token yet");
 			expect(clipboard()).toBe("");
 		});
 	});
@@ -214,6 +226,118 @@ describe("ai-memory IPC", () => {
 			await call(IPC_COMMANDS.AI_MEMORY_READ_PAGE, { ...PROJECT, path: "sessions/a.md", extra: "dropped" });
 			expect(service.readPage).toHaveBeenCalledOnce();
 			expect(service.readPage).toHaveBeenCalledWith({ ...PROJECT, path: "sessions/a.md" });
+		});
+	});
+
+	describe("memory page", () => {
+		const PROJECT = { workspace: "w", project: "p" };
+		const PAGE = { ...PROJECT, path: "notes/a.md" };
+
+		it("project reads need a project and pass it on", async () => {
+			const { service, call } = setup();
+			const reads = [
+				[IPC_COMMANDS.AI_MEMORY_OVERVIEW, service.overview],
+				[IPC_COMMANDS.AI_MEMORY_PAGES, service.pages],
+				[IPC_COMMANDS.AI_MEMORY_SESSIONS, service.sessions],
+				[IPC_COMMANDS.AI_MEMORY_LINT, service.lint],
+			] as const;
+			for (const [channel, method] of reads) {
+				await expect(call(channel)).rejects.toThrow("Invalid project");
+				await expect(call(channel, { workspace: "w" })).rejects.toThrow("Invalid project");
+				await call(channel, PROJECT);
+				expect(method).toHaveBeenCalledWith(PROJECT);
+			}
+			await call(IPC_COMMANDS.AI_MEMORY_PROFILE);
+			expect(service.profile).toHaveBeenCalledOnce();
+		});
+
+		it("observations take a session id and a numeric offset", async () => {
+			const { service, call } = setup();
+			await expect(call(IPC_COMMANDS.AI_MEMORY_OBSERVATIONS, PROJECT, "")).rejects.toThrow(
+				"Invalid argument: sessionId",
+			);
+			await expect(call(IPC_COMMANDS.AI_MEMORY_OBSERVATIONS, PROJECT, "s1", "5")).rejects.toThrow(
+				"Invalid argument: offset",
+			);
+			await call(IPC_COMMANDS.AI_MEMORY_OBSERVATIONS, PROJECT, "s1", 50);
+			await call(IPC_COMMANDS.AI_MEMORY_OBSERVATIONS, PROJECT, "s1");
+			expect(service.observations.mock.calls).toEqual([
+				[PROJECT, "s1", 50],
+				[PROJECT, "s1", 0],
+			]);
+		});
+
+		it("sweep needs a boolean dryRun", async () => {
+			const { service, call } = setup();
+			for (const bad of ["true", 1, null, undefined]) {
+				await expect(call(IPC_COMMANDS.AI_MEMORY_SWEEP, PROJECT, bad)).rejects.toThrow("Invalid argument: dryRun");
+			}
+			await call(IPC_COMMANDS.AI_MEMORY_SWEEP, PROJECT, true);
+			await call(IPC_COMMANDS.AI_MEMORY_SWEEP, PROJECT, false);
+			expect(service.sweep.mock.calls).toEqual([
+				[PROJECT, true],
+				[PROJECT, false],
+			]);
+		});
+
+		it("page refs refuse an absolute path and a parent segment", async () => {
+			const { service, call } = setup();
+			for (const path of ["/etc/passwd", "../x.md", "a/../../x.md", ""]) {
+				await expect(call(IPC_COMMANDS.AI_MEMORY_DELETE_PAGE, { ...PROJECT, path })).rejects.toThrow(
+					"Invalid page",
+				);
+				await expect(call(IPC_COMMANDS.AI_MEMORY_RESTORE_PAGE, { ...PROJECT, path }, "rev")).rejects.toThrow(
+					"Invalid page",
+				);
+			}
+			expect(service.deletePage).not.toHaveBeenCalled();
+			expect(service.restorePage).not.toHaveBeenCalled();
+		});
+
+		it("write-page validates its fields and passes only the known ones", async () => {
+			const { service, call } = setup();
+			await expect(call(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, { ...PAGE })).rejects.toThrow("Invalid argument: body");
+			await expect(call(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, { ...PAGE, body: "x", tags: "a" })).rejects.toThrow(
+				"Invalid argument: tags",
+			);
+			await expect(call(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, { ...PAGE, body: "x", pinned: "yes" })).rejects.toThrow(
+				"Invalid argument: pinned",
+			);
+			await call(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, {
+				...PAGE,
+				body: "hi",
+				title: "T",
+				kind: "note",
+				tier: "semantic",
+				tags: ["a"],
+				pinned: true,
+				extra: 1,
+			});
+			expect(service.writePage).toHaveBeenCalledOnce();
+			expect(service.writePage).toHaveBeenCalledWith({
+				...PAGE,
+				body: "hi",
+				title: "T",
+				kind: "note",
+				tier: "semantic",
+				tags: ["a"],
+				pinned: true,
+			});
+		});
+
+		it("delete, restore, feedback and cancel pass their arguments", async () => {
+			const { service, call } = setup();
+			await call(IPC_COMMANDS.AI_MEMORY_DELETE_PAGE, { ...PAGE, title: "T", extra: 1 });
+			expect(service.deletePage).toHaveBeenCalledWith({ ...PAGE, title: "T" });
+			await expect(call(IPC_COMMANDS.AI_MEMORY_RESTORE_PAGE, PAGE, "")).rejects.toThrow("Invalid argument: rev");
+			await call(IPC_COMMANDS.AI_MEMORY_RESTORE_PAGE, PAGE, "abc");
+			expect(service.restorePage).toHaveBeenCalledWith(PAGE, "abc");
+			await expect(call(IPC_COMMANDS.AI_MEMORY_FEEDBACK, PAGE, "stale")).rejects.toThrow("Invalid argument: signal");
+			await call(IPC_COMMANDS.AI_MEMORY_FEEDBACK, PAGE, "not_helpful");
+			expect(service.feedback).toHaveBeenCalledWith(PAGE, "not_helpful");
+			await expect(call(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, PROJECT, "")).rejects.toThrow("Invalid argument: id");
+			await call(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, PROJECT, "h-1");
+			expect(service.cancelHandoff).toHaveBeenCalledWith(PROJECT, "h-1");
 		});
 	});
 });

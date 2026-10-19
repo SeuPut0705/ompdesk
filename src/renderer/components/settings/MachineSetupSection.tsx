@@ -27,6 +27,7 @@ import {
 } from "../onboarding/MachineSetupView";
 import { CliUpdateRows } from "./CliUpdateRows";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
+import { MemoryComponentRow } from "./memory/MemoryComponentRow";
 import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
@@ -161,6 +162,7 @@ export function MachineSetupSection() {
 			)}
 			{state && <CliUpdateRows />}
 			{state && <ExtensionUpdateRows />}
+			{state && <MemoryComponentRow />}
 		</SettingsSection>
 	);
 }

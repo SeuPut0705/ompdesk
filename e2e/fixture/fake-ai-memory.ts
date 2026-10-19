@@ -26,8 +26,12 @@
  *   managed skills, and a planted Claude Code `<HOME>/.claude/settings.json` that mentions ai-memory).
  * - `uninstall --apply --yes [--purge-data]`: removes all of that (the planted Claude Code hooks too: an app that ever
  *   ran it would fail the spec that plants them), kills the server; `--purge-data` also empties the data dir.
- * - `__serve <data dir>`: the server: `/healthz`, then (bearer token) `/admin/status` and `/api/v1/…` with canned
- *   data: two projects, a search hit for "sqlite", recent pages, an open handoff and a page body.
+ * - `__serve <data dir>`: the server: `/healthz`, then (bearer token) `/admin/status` and `/api/v1/…`: two projects
+ *   (alpha: four pages, two sessions (one with 60 observations), an open and an accepted handoff; beta: one page),
+ *   search over the pages (global or scoped), overview, observations by offset, the profile, and a STATEFUL wiki:
+ *   `/admin/write-page`, `/admin/delete-page` (returns `pre_checkpoint`), `/admin/restore-page`, `/admin/lint`,
+ *   `/admin/forget-sweep`, and MCP `tools/call` on `/mcp` for `memory_handoff_cancel` and `memory_feedback`. POSTs are
+ *   logged with their body, and `/mcp` calls with the tool name, in `FAKE_AI_MEMORY_LOG + ".requests"`.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -232,38 +236,86 @@ function uninstall(purge: boolean): void {
 	console.log(purge ? "uninstalled, data purged" : "uninstalled");
 }
 
+interface FakePage {
+	path: string;
+	title: string;
+	kind: string;
+	tier: string;
+	pinned: boolean;
+	id: string;
+	updated_at: string;
+	body: string;
+	tags: string[];
+}
+interface FakeHandoff {
+	id: string;
+	agent: string;
+	at: string;
+	state: string;
+	summary: string;
+	open_questions: string[];
+	next_steps: string[];
+}
+
+const WORKSPACE = "fixture";
 const PROJECTS = [
-	{ workspace_name: "fixture", project_name: "alpha", page_count: 3, last_updated: "2026-10-17T10:00:00Z" },
-	{ workspace_name: "fixture", project_name: "beta", page_count: 1, last_updated: "2026-10-01T10:00:00Z" },
+	{ workspace_name: WORKSPACE, project_name: "alpha", page_count: 4, last_updated: "2026-10-17T10:00:00Z" },
+	{ workspace_name: WORKSPACE, project_name: "beta", page_count: 1, last_updated: "2026-10-01T10:00:00Z" },
 ];
-const RECENT: Record<string, unknown[]> = {
+let idCounter = 0;
+const page = (path: string, title: string, kind: string, tier: string, updated: string, body: string): FakePage => ({
+	path,
+	title,
+	kind,
+	tier,
+	pinned: false,
+	id: `v${++idCounter}`,
+	updated_at: updated,
+	body,
+	tags: [],
+});
+/** The stateful wiki: write, delete and restore change it for the life of the server process. */
+const PAGES: Record<string, FakePage[]> = {
 	alpha: [
-		{
-			path: "sessions/s1.md",
-			title: "Session: fix the cache",
-			kind: "session",
-			tier: "episodic",
-			updated_at: "2026-10-17T10:00:00Z",
-		},
-		{
-			path: "decisions/0007-db.md",
-			title: "Use SQLite for the cache",
-			kind: "decision",
-			tier: "semantic",
-			updated_at: "2026-10-16T10:00:00Z",
-		},
+		page(
+			"sessions/s1.md",
+			"Session: fix the cache",
+			"session",
+			"episodic",
+			"2026-10-17T10:00:00Z",
+			"# Session\n\nFixed the cache.",
+		),
+		page(
+			"decisions/0007-db.md",
+			"Use SQLite for the cache",
+			"decision",
+			"semantic",
+			"2026-10-16T10:00:00Z",
+			"# Use SQLite for the cache\n\nWe chose SQLite for the cache because it ships with Bun.",
+		),
+		page(
+			"_rules/style.md",
+			"Keep functions short",
+			"rule",
+			"semantic",
+			"2026-10-15T10:00:00Z",
+			"# Keep functions short\n\nUnder forty lines.",
+		),
+		page("notes/ideas.md", "Ideas", "note", "semantic", "2026-10-14T10:00:00Z", "# Ideas\n\nTry a ring buffer."),
 	],
 	beta: [
-		{
-			path: "notes/readme.md",
-			title: "Beta notes",
-			kind: "note",
-			tier: "semantic",
-			updated_at: "2026-10-01T10:00:00Z",
-		},
+		page(
+			"notes/readme.md",
+			"Beta notes",
+			"note",
+			"semantic",
+			"2026-10-01T10:00:00Z",
+			"# Beta notes\n\nSQLite is also used here.",
+		),
 	],
 };
-const HANDOFFS: Record<string, unknown[]> = {
+const DELETED: Record<string, FakePage> = {};
+const HANDOFFS: Record<string, FakeHandoff[]> = {
 	alpha: [
 		{
 			id: "h-1",
@@ -271,10 +323,52 @@ const HANDOFFS: Record<string, unknown[]> = {
 			at: "2026-10-17T10:00:00Z",
 			state: "open",
 			summary: "Cache fix half done; next: add the eviction test.",
+			open_questions: ["Which eviction policy?"],
+			next_steps: ["Add the eviction test"],
+		},
+		{
+			id: "h-0",
+			agent: "omp",
+			at: "2026-10-10T10:00:00Z",
+			state: "accepted",
+			summary: "Earlier work.",
+			open_questions: [],
+			next_steps: [],
 		},
 	],
 	beta: [],
 };
+const SESSIONS: Record<string, Record<string, unknown>[]> = {
+	alpha: [
+		{
+			session_id: "s-big",
+			cwd: "/work/alpha",
+			agent_kind: "omp",
+			started_at: "2026-10-17T09:00:00Z",
+			ended_at: "2026-10-17T10:00:00Z",
+			observation_count: 60,
+			actor_user: null,
+			consolidation: null,
+		},
+		{
+			session_id: "s-open",
+			cwd: "/work/alpha",
+			agent_kind: "omp",
+			started_at: "2026-10-17T11:00:00Z",
+			ended_at: null,
+			observation_count: 2,
+			actor_user: null,
+			consolidation: { state: "running", attempts: 1 },
+		},
+	],
+	beta: [],
+};
+let revCounter = 0;
+const checkpoints: string[] = ["rev-0"];
+
+function viewOf(entry: FakePage) {
+	return { path: entry.path, title: entry.title, kind: entry.kind, tier: entry.tier, updated_at: entry.updated_at };
+}
 
 function serve(): void {
 	const dir = argv[1] ?? dataDir;
@@ -282,13 +376,25 @@ function serve(): void {
 	const token = readFileSync(join(dir, "auth-tokens", "default"), "utf8").trim();
 	const [hostname, port] = [bind.slice(0, bind.lastIndexOf(":")), Number(bind.slice(bind.lastIndexOf(":") + 1))];
 	const json = (body: unknown, status = 200) => Response.json(body, { status });
+	const logRequest = (entry: Record<string, unknown>) => {
+		if (logFile) appendFileSync(`${logFile}.requests`, `${JSON.stringify(entry)}\n`);
+	};
 	Bun.serve({
 		hostname,
 		port,
-		fetch(request) {
+		async fetch(request) {
 			const url = new URL(request.url);
 			const authorized = request.headers.get("authorization") === `Bearer ${token}`;
-			if (logFile) appendFileSync(`${logFile}.requests`, `${JSON.stringify({ path: url.pathname, authorized })}\n`);
+			const body: Record<string, unknown> = request.method === "POST" ? await request.json().catch(() => ({})) : {};
+			const tool =
+				url.pathname === "/mcp" && typeof (body.params as { name?: unknown } | undefined)?.name === "string"
+					? (body.params as { name: string }).name
+					: undefined;
+			logRequest({
+				path: url.pathname,
+				authorized,
+				...(request.method === "POST" ? { method: "POST", tool, body } : {}),
+			});
 			if (url.pathname === "/healthz") return new Response("ok");
 			if (!authorized) return json({ error: "unauthorized" }, 401);
 			if (url.pathname === "/admin/status") {
@@ -298,35 +404,195 @@ function serve(): void {
 					storage: { database_bytes: 8192 },
 				});
 			}
-			if (url.pathname === "/api/v1/projects") return json(PROJECTS);
-			if (url.pathname === "/api/v1/search") {
-				const query = (url.searchParams.get("q") ?? "").toLowerCase();
+			if (url.pathname === "/api/v1/projects") {
 				return json(
-					query.includes("sqlite")
-						? [
-								{
-									workspace: "fixture",
-									project: "alpha",
-									path: "decisions/0007-db.md",
-									title: "Use SQLite for the cache",
-									updated_at: "2026-10-16T10:00:00Z",
-									snippet: "We chose <mark>SQLite</mark> for the cache",
-								},
-							]
-						: [],
+					PROJECTS.map(project => ({ ...project, page_count: PAGES[project.project_name]?.length ?? 0 })),
 				);
 			}
-			const project = /^\/api\/v1\/workspaces\/fixture\/projects\/([^/]+)\/(recent|handoffs|pages\/.+)$/.exec(
-				url.pathname,
-			);
+			if (url.pathname === "/api/v1/search") {
+				const query = (url.searchParams.get("q") ?? "").toLowerCase();
+				const scope = url.searchParams.get("project");
+				const hits: unknown[] = [];
+				for (const [name, list] of Object.entries(PAGES)) {
+					if (scope && scope !== name) continue;
+					for (const entry of list) {
+						if (!query || !`${entry.title} ${entry.body}`.toLowerCase().includes(query)) continue;
+						const at = entry.body.toLowerCase().indexOf(query);
+						const snippet =
+							`${entry.body.slice(0, at)}<mark>${entry.body.slice(at, at + query.length)}</mark>${entry.body.slice(at + query.length)}`
+								.replace(/^#.*\n+/, "")
+								.slice(0, 120);
+						hits.push({
+							workspace: WORKSPACE,
+							project: name,
+							path: entry.path,
+							title: entry.title,
+							kind: entry.kind,
+							snippet,
+							rank: -1,
+						});
+					}
+				}
+				return json(hits);
+			}
+			if (url.pathname === "/admin/checkpoints")
+				return json(checkpoints.slice(-1).map(oid => ({ oid, short_oid: oid, time: 0, summary: "" })));
+			if (url.pathname === "/admin/profile/status") {
+				return json({
+					enabled: "auto",
+					effective_share: "global",
+					inject_on_session_start: true,
+					digest_bytes: 64,
+				});
+			}
+			if (url.pathname === "/admin/profile/list") {
+				return json({
+					scope: { workspace: "default", project: "_global" },
+					entries: [
+						{
+							path: "profile/tools/bun.md",
+							category: "tools",
+							statement: "Use Bun, not npm.",
+							applies_to: ["javascript"],
+							enforced_by: null,
+						},
+					],
+				});
+			}
+			if (url.pathname === "/admin/lint") {
+				return json({
+					findings: [
+						{
+							kind: "orphan",
+							severity: "warning",
+							message: "Nothing links to Ideas",
+							pages: ["notes/ideas.md"],
+							detail: null,
+						},
+					],
+				});
+			}
+			if (url.pathname === "/admin/forget-sweep") {
+				const dry = body.dry_run === true;
+				return json({
+					dry_run: dry,
+					candidates_evaluated: 4,
+					evicted: dry ? [{ path: "notes/ideas.md" }] : [],
+					compacted: [],
+					merged: [],
+					expired: [],
+					observations_prunable: 0,
+					observations_pruned: 0,
+				});
+			}
+			if (url.pathname === "/admin/write-page") {
+				const list = PAGES[String(body.project)] ?? [];
+				const existing = list.find(entry => entry.path === body.path);
+				const next = page(
+					String(body.path),
+					String(body.title ?? existing?.title ?? body.path),
+					String(body.kind ?? existing?.kind ?? "note"),
+					String(body.tier ?? existing?.tier ?? "semantic"),
+					new Date().toISOString(),
+					String(body.body),
+				);
+				next.pinned = body.pinned === true;
+				next.tags = Array.isArray(body.tags) ? (body.tags as string[]) : [];
+				PAGES[String(body.project)] = [next, ...list.filter(entry => entry.path !== body.path)];
+				checkpoints.push(`rev-${++revCounter}`);
+				return json({ page_id: next.id, path: next.path });
+			}
+			if (url.pathname === "/admin/delete-page") {
+				const key = String(body.project);
+				const list = PAGES[key] ?? [];
+				const found = list.find(entry => entry.path === body.path);
+				if (!found) return json({ error: "page not found" }, 404);
+				const pre = `rev-pre-${++revCounter}`;
+				DELETED[pre] = found;
+				PAGES[key] = list.filter(entry => entry !== found);
+				return json({ path: found.path, deleted: true, pre_checkpoint: pre });
+			}
+			if (url.pathname === "/admin/restore-page") {
+				const found = DELETED[String(body.rev)];
+				if (!found) return json({ error: "unknown revision" }, 404);
+				const key = String(body.project);
+				PAGES[key] = [
+					{ ...found, id: `v${++idCounter}`, updated_at: new Date().toISOString() },
+					...(PAGES[key] ?? []),
+				];
+				return json({ page_id: "restored", path: found.path, restored_from: body.rev });
+			}
+			if (url.pathname === "/mcp") {
+				const args = ((body.params as { arguments?: Record<string, unknown> } | undefined)?.arguments ??
+					{}) as Record<string, unknown>;
+				const reply = (payload: unknown) =>
+					json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { content: [{ type: "text", text: JSON.stringify(payload) }], isError: false },
+					});
+				if (tool === "memory_handoff_cancel") {
+					const entry = (HANDOFFS[String(args.project)] ?? []).find(item => item.id === args.handoff_id);
+					if (!entry)
+						return json({ jsonrpc: "2.0", id: body.id, error: { code: -32603, message: "handoff not found" } });
+					const open = entry.state === "open";
+					if (open) entry.state = "expired";
+					return reply({ handoff_id: entry.id, cancelled: open, state: entry.state });
+				}
+				if (tool === "memory_feedback") return reply({ ok: true, path: args.path, signal: args.signal });
+				return json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "unknown tool" } });
+			}
+			const project = /^\/api\/v1\/workspaces\/fixture\/projects\/([^/]+)\/(.+)$/.exec(url.pathname);
 			if (project) {
 				const [, name = "", rest = ""] = project;
-				if (rest === "recent") return json(RECENT[name] ?? []);
+				const list = PAGES[name] ?? [];
+				if (rest === "recent") return json(list.slice(0, 20).map(viewOf));
+				if (rest === "pages") return json(list.map(viewOf));
 				if (rest === "handoffs") return json({ handoffs: HANDOFFS[name] ?? [] });
+				if (rest.startsWith("overview")) {
+					return json({
+						briefing: {
+							counts: { pages_latest: list.length, sessions: 2, observations: 17 },
+							activity_7d: { days: 7, sessions: 2, observations: 17, pages_updated: list.length },
+							last_observation_at: "2026-10-17T10:30:00Z",
+							pending_handoff_count: (HANDOFFS[name] ?? []).filter(item => item.state === "open").length,
+						},
+						health: { stale: 0, duplicates: 0, contradictions: 0, orphans: 1 },
+					});
+				}
+				if (rest.startsWith("sessions") && !rest.includes("/")) return json({ sessions: SESSIONS[name] ?? [] });
+				const observations = /^sessions\/([^/]+)\/observations$/.exec(rest);
+				if (observations) {
+					const sessionId = decodeURIComponent(observations[1] ?? "");
+					const session = (SESSIONS[name] ?? []).find(item => item.session_id === sessionId);
+					if (!session) return json({ error: "not found" }, 404);
+					const offset = Number(url.searchParams.get("offset") ?? 0);
+					const limit = Number(url.searchParams.get("limit") ?? 50);
+					const count = Number(session.observation_count);
+					const rows = Array.from({ length: Math.max(0, Math.min(limit, count - offset)) }, (_, index) => ({
+						id: `o-${offset + index}`,
+						session_id: sessionId,
+						kind: offset + index === 0 ? "user-prompt" : "post-tool-use",
+						title: `Observation ${offset + index + 1}`,
+						body: `body ${offset + index + 1}`,
+						importance: 3,
+						created_at: "2026-10-17T09:30:00Z",
+					}));
+					return json({ session, observations: rows, total: count, offset, limit, order: "asc" });
+				}
+				const path = decodeURIComponent(rest.replace(/^pages\//, ""));
+				const found = list.find(entry => entry.path === path);
+				if (!found) return json({ error: "not found" }, 404);
 				return json({
-					title: "Use SQLite for the cache",
-					updated_at: "2026-10-16T10:00:00Z",
-					body_markdown: "# Use SQLite for the cache\n\nWe chose SQLite for the cache because it ships with Bun.",
+					id: found.id,
+					title: found.title,
+					kind: found.kind,
+					tier: found.tier,
+					pinned: found.pinned,
+					created_at: found.updated_at,
+					updated_at: found.updated_at,
+					frontmatter: { tags: found.tags },
+					body_markdown: found.body,
 				});
 			}
 			return json({ error: "not found" }, 404);

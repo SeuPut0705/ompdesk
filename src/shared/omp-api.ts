@@ -14,12 +14,21 @@ import {
 	type AgentReviewEvent,
 } from "./agent-control";
 import type {
+	AiMemoryDeleted,
+	AiMemoryFeedback,
 	AiMemoryHandoff,
+	AiMemoryLintFinding,
+	AiMemoryObservations,
+	AiMemoryOverview,
 	AiMemoryPage,
 	AiMemoryPageRef,
+	AiMemoryProfile,
 	AiMemoryProject,
 	AiMemoryProjectRef,
+	AiMemorySession,
 	AiMemoryState,
+	AiMemorySweep,
+	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -406,6 +415,34 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_HANDOFFS, project) as Promise<AiMemoryHandoff[]>,
 			readPage: (ref: AiMemoryProjectRef & { path: string }) =>
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_READ_PAGE, ref) as Promise<AiMemoryPage>,
+			overview: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_OVERVIEW, project) as Promise<AiMemoryOverview>,
+			pages: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_PAGES, project) as Promise<AiMemoryPageRef[]>,
+			sessions: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SESSIONS, project) as Promise<AiMemorySession[]>,
+			observations: (project: AiMemoryProjectRef, sessionId: string, offset?: number) =>
+				transport.invoke(
+					IPC_COMMANDS.AI_MEMORY_OBSERVATIONS,
+					project,
+					sessionId,
+					offset,
+				) as Promise<AiMemoryObservations>,
+			profile: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_PROFILE) as Promise<AiMemoryProfile>,
+			lint: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_LINT, project) as Promise<AiMemoryLintFinding[]>,
+			sweep: (project: AiMemoryProjectRef, dryRun: boolean) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SWEEP, project, dryRun) as Promise<AiMemorySweep>,
+			writePage: (input: AiMemoryWriteInput) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, input) as Promise<void>,
+			deletePage: (ref: AiMemoryProjectRef & { path: string; title?: string }) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_DELETE_PAGE, ref) as Promise<AiMemoryDeleted>,
+			restorePage: (ref: AiMemoryProjectRef & { path: string }, rev: string) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_RESTORE_PAGE, ref, rev) as Promise<void>,
+			feedback: (ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_FEEDBACK, ref, signal) as Promise<void>,
+			cancelHandoff: (project: AiMemoryProjectRef, id: string) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, project, id) as Promise<void>,
 			onState: (callback: (state: AiMemoryState) => void) =>
 				subscribe<AiMemoryState>(IPC_EVENTS.AI_MEMORY_STATE, callback),
 		},

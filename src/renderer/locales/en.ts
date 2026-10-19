@@ -1,3 +1,4 @@
+import { memoryEn } from "./memory";
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
 	"mcp.rea.description":
@@ -1119,7 +1120,7 @@ export const en: Record<string, string> = {
 	"cmd.reloadPlugins": "Reload plugins",
 	"cmd.reloadPlugins.desc": "Reload all plugins",
 	"cmd.memory": "Memory",
-	"cmd.memory.desc": "Open the memory panel",
+	"cmd.memory.desc": "Open the Memory page",
 	"cmd.security": "Security scans",
 	"cmd.security.desc": "Plan, run, and review security scans",
 	"cmd.security.plan": "New scan plan",
@@ -1587,92 +1588,6 @@ export const en: Record<string, string> = {
 	"invPanel.templates.emptyHint":
 		"Templates discovered from Markdown files, skills, extensions, and MCP prompts will appear here.",
 
-	// ai-memory: Settings › Memory (ai-memory), the side panel's Memory view and /memory
-	"aiMemory.title": "Memory (ai-memory)",
-	"aiMemory.desc":
-		"ai-memory is built into OMPdesk. It writes down what happens in the omp sessions OMPdesk runs and hands the next session in the same folder what it needs to carry on.",
-	"aiMemory.switch.label": "Remember across sessions",
-	"aiMemory.switch.desc":
-		"On: every omp session OMPdesk runs loads ai-memory. Off: OMPdesk stops loading it. The server stops too if OMPdesk started it and nothing else uses it. What it stored stays.",
-	"aiMemory.status": "Status",
-	"aiMemory.phase.off": "Off",
-	"aiMemory.phase.starting": "Starting",
-	"aiMemory.phase.startingStep": "Starting: {step}",
-	"aiMemory.phase.ready": "Running",
-	"aiMemory.phase.unreachable": "Not answering",
-	"aiMemory.phase.failed": "Failed",
-	"aiMemory.phase.unsupported": "Not available on this system",
-	"aiMemory.step.stage": "preparing the program",
-	"aiMemory.step.wire": "setting up the server and OMPdesk's extension",
-	"aiMemory.step.unwire": "turning it off",
-	"aiMemory.step.terminal": "changing the terminal omp",
-	"aiMemory.step.purge": "deleting the data",
-	"aiMemory.step.check": "checking the server",
-	"aiMemory.source.bundled": "built in",
-	"aiMemory.source.external": "your own install",
-	"aiMemory.retry": "Try again",
-	"aiMemory.data": "Data location",
-	"aiMemory.unknown": "Not known yet",
-	"aiMemory.reveal": "Reveal",
-	"aiMemory.copyPath": "Copy path",
-	"aiMemory.stats": "{pages} pages · {sessions} sessions · {observations} observations · {size}",
-	"aiMemory.console": "Console",
-	"aiMemory.console.desc": "The local server's web page: browse and search everything ai-memory holds.",
-	"aiMemory.openConsole": "Open console",
-	"aiMemory.password": "Console password",
-	"aiMemory.password.desc": "The sign-in password of the console page. Enter it with any username.",
-	"aiMemory.copyPassword": "Copy console password",
-	"aiMemory.passwordCopied": "Console password copied",
-	"aiMemory.purge.label": "Delete all memory",
-	"aiMemory.purge.desc": "Erases everything ai-memory stored on this computer.",
-	"aiMemory.purge": "Delete all memory",
-	"aiMemory.purge.title": "Delete all memory?",
-	"aiMemory.purge.confirm":
-		"This erases every page, handoff, recorded session and observation ai-memory holds on this computer, for all projects.",
-	"aiMemory.purge.warning": "This can't be undone.",
-	"aiMemory.purged": "All memory deleted",
-	"aiMemory.actionFailed": "Memory action failed",
-	"aiMemory.privacy.title": "Privacy",
-	"aiMemory.privacy.local":
-		"Everything stays on this computer: a local server on 127.0.0.1:49374, no telemetry, and no LLM or embedding provider is configured (search is full-text, with no model download), so nothing is sent anywhere.",
-	"aiMemory.privacy.recorded":
-		"For every omp session OMPdesk runs it records the prompts you type, the tool calls with their arguments and results, and the session's start and end. They become readable pages and a handoff for the next session in the same folder.",
-	"aiMemory.privacy.secrets":
-		"Credentials such as API keys, bearer tokens, private keys and passwords in URLs are stripped before storage, on a best-effort basis: free text like “my password is …” is not detected.",
-	"aiMemory.privacy.replies": "The assistant's replies are not recorded.",
-	"aiMemory.privacy.ignore":
-		'To keep files out of capture, put a .ai-memory.toml in the project with a [capture] section that lists ignore_paths (for example ["**/.env*"]). That covers file and shell tool activity only; prompts are always recorded unless capture runs in allowlist mode.',
-	"aiMemory.terminal.label": "Terminal omp",
-	"aiMemory.terminal.desc":
-		"The omp you run in a terminal is separate: OMPdesk loads ai-memory only into its own sessions and writes nothing to ~/.omp. To record those sessions too, connect it here; this runs ai-memory's own setup for omp and adds one extension and one MCP entry to omp's agent folder.",
-	"aiMemory.terminal.connected":
-		"Connected: the terminal omp records to ai-memory too. Removing takes out only that extension and MCP entry.",
-	"aiMemory.terminal.connect": "Also use in the terminal omp",
-	"aiMemory.terminal.remove": "Remove from the terminal omp",
-	"aiMemory.terminal.done": "Terminal omp connected",
-	"aiMemory.terminal.removed": "Terminal omp disconnected",
-	"aiMemory.privacy.off":
-		"Turning memory off stops OMPdesk from loading it and stops the server when OMPdesk started it and nothing else uses it. Other agents' ai-memory setups and the terminal omp's are never touched. The data stays until you delete it here.",
-	"aiMemoryPanel.loadFailed": "Couldn't read memory",
-	"aiMemoryPanel.pageFailed": "Couldn't read this page",
-	"aiMemoryPanel.back": "Back to the lists",
-	"aiMemoryPanel.project": "Project",
-	"aiMemoryPanel.allProjects": "All projects",
-	"aiMemoryPanel.projectsFailed": "Couldn't list the projects.",
-	"aiMemoryPanel.search": "Search memory",
-	"aiMemoryPanel.searchPlaceholder": "Search memory…",
-	"aiMemoryPanel.results": "Search results",
-	"aiMemoryPanel.noResults": "No pages match.",
-	"aiMemoryPanel.recent": "Recent pages",
-	"aiMemoryPanel.noRecent": "No pages yet.",
-	"aiMemoryPanel.handoffs": "Handoffs",
-	"aiMemoryPanel.noHandoffs": "No handoffs yet.",
-	"aiMemoryPanel.handoffFrom": "From {agent}",
-	"aiMemoryPanel.unavailable.off": "Memory is off. Turn it on in Settings › Memory (ai-memory).",
-	"aiMemoryPanel.unavailable.starting": "Memory is starting…",
-	"aiMemoryPanel.unavailable.unreachable": "The memory server isn't answering. OMPdesk keeps trying.",
-	"aiMemoryPanel.unavailable.failed": "Memory couldn't start. Try again in Settings › Memory (ai-memory).",
-	"aiMemoryPanel.unavailable.unsupported": "Memory isn't available on this system.",
 	"invPanel.notConnected": "omp isn't connected",
 
 	// Marketplace management (inventory window)
@@ -5622,7 +5537,7 @@ export const en: Record<string, string> = {
 	"settings.section.workspace.desc": "Project folders, worktrees and launch profiles.",
 	"settings.section.schedules": "Schedules",
 	"settings.section.schedules.desc": "Prompts omp runs in a project on a timer, with omp -p, while OMPdesk is open.",
-	"settings.section.memory": "Memory (ai-memory)",
+	"settings.section.memory": "Memory",
 	"settings.section.memory.desc":
 		"What OMPdesk remembers from your sessions on this computer, and what it hands to the next one.",
 	"schedules.note":
@@ -6723,4 +6638,5 @@ export const en: Record<string, string> = {
 	"hostUi.update.running":
 		"{count} sessions are running. Restarting stops them; each continues by itself when OMPdesk is back.",
 	"hostUi.update.confirm": "Restart and update",
+	...memoryEn,
 };

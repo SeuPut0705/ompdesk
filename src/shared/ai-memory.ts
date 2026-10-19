@@ -85,9 +85,17 @@ export interface AiMemoryPageRef extends AiMemoryProjectRef {
 	path: string;
 	title: string;
 	updatedAt: string | null;
+	/** `rule`, `decision`, `gotcha`, `procedure`, `session`, `note`, `concept`, `slot` or `fact` (ai-memory's own contract). */
+	kind?: string;
+	/** `working`, `episodic`, `semantic` or `procedural`. */
+	tier?: string | null;
 	/** Search hits only. */
 	snippet?: string;
 }
+
+/** The kinds the Pages list groups by, in display order. */
+export const AI_MEMORY_KINDS = ["rule", "decision", "gotcha", "procedure", "session", "note"] as const;
+export type AiMemoryKind = (typeof AI_MEMORY_KINDS)[number];
 
 export interface AiMemoryHandoff extends AiMemoryProjectRef {
 	id: string;
@@ -95,10 +103,109 @@ export interface AiMemoryHandoff extends AiMemoryProjectRef {
 	createdAt: string | null;
 	/** The handoff body's first lines (what the next session is told). */
 	summary: string;
+	openQuestions: string[];
+	nextSteps: string[];
 	/** `open` (waiting for the next session in that folder), `accepted`, or another state ai-memory reports. */
 	state: string;
 }
 
 export interface AiMemoryPage extends AiMemoryPageRef {
 	markdown: string;
+	/** The latest version's id; changes with every write. */
+	id: string;
+	pinned: boolean;
+	createdAt: string | null;
+	tags: string[];
+}
+
+/** One project's counts and health, from the server's overview. Null fields: the server did not say. */
+export interface AiMemoryOverview {
+	pages: number;
+	sessions: number;
+	observations: number;
+	lastCaptureAt: string | null;
+	openHandoffs: number;
+	activity7d: { sessions: number; observations: number; pagesUpdated: number };
+	health: { stale: number; duplicates: number; contradictions: number; orphans: number };
+}
+
+export interface AiMemorySession {
+	id: string;
+	cwd: string;
+	agent: string;
+	startedAt: string | null;
+	endedAt: string | null;
+	observations: number;
+	/** The consolidation job's state (`pending`, `running`, `completed`, `failed`, `superseded`), or null. */
+	consolidation: string | null;
+}
+
+export interface AiMemoryObservation {
+	id: string;
+	kind: string;
+	title: string;
+	body: string;
+	createdAt: string | null;
+}
+
+export interface AiMemoryObservations {
+	session: AiMemorySession;
+	observations: AiMemoryObservation[];
+	total: number;
+	offset: number;
+}
+
+export interface AiMemoryProfileEntry {
+	path: string;
+	category: string;
+	statement: string;
+	appliesTo: string[];
+	enforcedBy: string | null;
+}
+
+/** The cross-project profile every session starts with. `scope` is the project holding its pages (null: none yet). */
+export interface AiMemoryProfile {
+	enabled: boolean;
+	injected: boolean;
+	digestBytes: number;
+	scope: AiMemoryProjectRef | null;
+	entries: AiMemoryProfileEntry[];
+}
+
+export interface AiMemoryLintFinding {
+	kind: string;
+	severity: string;
+	message: string;
+	pages: string[];
+}
+
+/** What the retention sweep evicted (or, on a dry run, would). */
+export interface AiMemorySweep {
+	dryRun: boolean;
+	evaluated: number;
+	evicted: number;
+	compacted: number;
+	merged: number;
+	expired: number;
+	observationsPruned: number;
+}
+
+/** A page deleted from the Pages list: `rev` is the checkpoint that still holds it, which Restore reads it back from. */
+export interface AiMemoryDeleted extends AiMemoryProjectRef {
+	path: string;
+	title: string;
+	rev: string;
+	deletedAt: string;
+}
+
+export type AiMemoryFeedback = "helpful" | "not_helpful";
+
+export interface AiMemoryWriteInput extends AiMemoryProjectRef {
+	path: string;
+	body: string;
+	title?: string;
+	kind?: string;
+	tier?: string;
+	tags?: string[];
+	pinned?: boolean;
 }

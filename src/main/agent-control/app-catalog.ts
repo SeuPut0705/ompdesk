@@ -526,12 +526,64 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "memory.purge",
 		area: "memory",
-		description: "Erase the user's ai-memory for good.",
+		description: "Erase the user's memory for good: every page, handoff and recorded session.",
 		args: NO_ARGS,
 		tier: "sensitive",
 		run: async ctx => {
 			await ctx.invoke(C.AI_MEMORY_PURGE);
 			return { text: "Memory erased.", change: { en: "Memory", ko: "메모리", value: "erased" } };
+		},
+	},
+	{
+		id: "memory.delete_page",
+		area: "memory",
+		description: "Delete one memory page (the Memory page's Restore can bring it back).",
+		args: objectSchema(
+			{
+				workspace: { type: "string", minLength: 1, maxLength: 200 },
+				project: { type: "string", minLength: 1, maxLength: 200 },
+				path: { type: "string", minLength: 1, maxLength: 500 },
+			},
+			["workspace", "project", "path"],
+		),
+		tier: "sensitive",
+		describe: args =>
+			`Delete the memory page ${String(args.path)} of ${String(args.workspace)}/${String(args.project)}`,
+		run: async (ctx, args) => {
+			await ctx.invoke(C.AI_MEMORY_DELETE_PAGE, {
+				workspace: String(args.workspace),
+				project: String(args.project),
+				path: String(args.path),
+			});
+			return {
+				text: `Deleted ${String(args.path)}.`,
+				change: { en: "Memory page", ko: "메모리 페이지", value: `deleted ${String(args.path)}` },
+			};
+		},
+	},
+	{
+		id: "memory.sweep",
+		area: "memory",
+		description: "Run the memory retention sweep for one project (evicts pages the aging rules let go).",
+		args: objectSchema(
+			{
+				workspace: { type: "string", minLength: 1, maxLength: 200 },
+				project: { type: "string", minLength: 1, maxLength: 200 },
+			},
+			["workspace", "project"],
+		),
+		tier: "sensitive",
+		run: async (ctx, args) => {
+			const result = await ctx.invoke(
+				C.AI_MEMORY_SWEEP,
+				{ workspace: String(args.workspace), project: String(args.project) },
+				false,
+			);
+			const evicted = result && typeof result === "object" ? (result as { evicted?: unknown }).evicted : 0;
+			return {
+				text: `Memory sweep done: ${typeof evicted === "number" ? evicted : 0} evicted.`,
+				change: { en: "Memory", ko: "메모리", value: "swept" },
+			};
 		},
 	},
 	{

@@ -1,3 +1,4 @@
+import { memoryKo } from "./memory";
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (기본 제공)",
 	"mcp.rea.description":
@@ -1105,7 +1106,7 @@ export const ko: Record<string, string> = {
 	"cmd.reloadPlugins": "플러그인 다시 불러오기",
 	"cmd.reloadPlugins.desc": "모든 플러그인 다시 불러오기",
 	"cmd.memory": "메모리",
-	"cmd.memory.desc": "메모리 패널 열기",
+	"cmd.memory.desc": "메모리 페이지 열기",
 	"cmd.security": "보안 스캔",
 	"cmd.security.desc": "보안 스캔 계획, 실행, 검토",
 	"cmd.security.plan": "새 스캔 계획",
@@ -1569,91 +1570,6 @@ export const ko: Record<string, string> = {
 	"invPanel.templates.empty": "프롬프트 템플릿이 없어요.",
 	"invPanel.templates.emptyHint": "Markdown 파일, 스킬, 확장, MCP 프롬프트에서 발견된 템플릿이 여기에 표시돼요.",
 
-	// ai-memory: 설정 › 메모리 (ai-memory), 사이드 패널의 메모리 보기, /memory
-	"aiMemory.title": "메모리 (ai-memory)",
-	"aiMemory.desc":
-		"ai-memory는 OMPdesk에 내장돼 있어요. OMPdesk가 실행하는 omp 세션에서 일어난 일을 적어 두고, 같은 폴더의 다음 세션이 이어서 작업할 수 있게 핸드오프를 넘겨요.",
-	"aiMemory.switch.label": "세션 사이에 기억하기",
-	"aiMemory.switch.desc":
-		"켜면 OMPdesk가 실행하는 모든 omp 세션이 ai-memory를 불러와요. 끄면 OMPdesk가 더 이상 불러오지 않고, OMPdesk가 시작한 서버를 다른 곳에서 쓰지 않을 때는 서버도 멈춰요. 저장된 내용은 남아요.",
-	"aiMemory.status": "상태",
-	"aiMemory.phase.off": "꺼짐",
-	"aiMemory.phase.starting": "시작하는 중",
-	"aiMemory.phase.startingStep": "시작하는 중: {step}",
-	"aiMemory.phase.ready": "실행 중",
-	"aiMemory.phase.unreachable": "응답 없음",
-	"aiMemory.phase.failed": "실패",
-	"aiMemory.phase.unsupported": "이 시스템에서는 쓸 수 없어요",
-	"aiMemory.step.stage": "프로그램을 준비하는 중",
-	"aiMemory.step.wire": "서버와 OMPdesk 확장을 준비하는 중",
-	"aiMemory.step.unwire": "끄는 중",
-	"aiMemory.step.terminal": "터미널 omp를 바꾸는 중",
-	"aiMemory.step.purge": "데이터를 지우는 중",
-	"aiMemory.step.check": "서버를 확인하는 중",
-	"aiMemory.source.bundled": "내장",
-	"aiMemory.source.external": "직접 설치한 것",
-	"aiMemory.retry": "다시 시도",
-	"aiMemory.data": "데이터 위치",
-	"aiMemory.unknown": "아직 알 수 없어요",
-	"aiMemory.reveal": "폴더 열기",
-	"aiMemory.copyPath": "경로 복사",
-	"aiMemory.stats": "페이지 {pages}개 · 세션 {sessions}개 · 관찰 {observations}개 · {size}",
-	"aiMemory.console": "콘솔",
-	"aiMemory.console.desc": "로컬 서버의 웹 페이지예요. ai-memory가 가진 모든 내용을 둘러보고 검색할 수 있어요.",
-	"aiMemory.openConsole": "콘솔 열기",
-	"aiMemory.password": "콘솔 비밀번호",
-	"aiMemory.password.desc": "콘솔 페이지의 로그인 비밀번호예요. 사용자 이름은 아무거나 넣어도 돼요.",
-	"aiMemory.copyPassword": "콘솔 비밀번호 복사",
-	"aiMemory.passwordCopied": "콘솔 비밀번호를 복사했어요",
-	"aiMemory.purge.label": "모든 메모리 삭제",
-	"aiMemory.purge.desc": "ai-memory가 이 컴퓨터에 저장한 모든 내용을 지워요.",
-	"aiMemory.purge": "모든 메모리 삭제",
-	"aiMemory.purge.title": "모든 메모리를 삭제할까요?",
-	"aiMemory.purge.confirm":
-		"ai-memory가 이 컴퓨터에 가진 모든 페이지, 핸드오프, 기록된 세션과 관찰을 모든 프로젝트에 걸쳐 지워요.",
-	"aiMemory.purge.warning": "되돌릴 수 없어요.",
-	"aiMemory.purged": "모든 메모리를 삭제했어요",
-	"aiMemory.actionFailed": "메모리 작업에 실패했어요",
-	"aiMemory.privacy.title": "개인정보",
-	"aiMemory.privacy.local":
-		"모든 내용은 이 컴퓨터에만 남아요. 127.0.0.1:49374의 로컬 서버만 쓰고, 텔레메트리는 없으며, LLM이나 임베딩 프로바이더를 설정하지 않아(검색은 전문 검색이고 모델을 내려받지 않아요) 어디로도 전송되지 않아요.",
-	"aiMemory.privacy.recorded":
-		"OMPdesk가 실행하는 모든 omp 세션에서 입력한 프롬프트, 인수와 결과를 포함한 도구 호출, 세션의 시작과 끝을 기록해요. 이것이 읽기 쉬운 페이지와, 같은 폴더의 다음 세션을 위한 핸드오프가 돼요.",
-	"aiMemory.privacy.secrets":
-		"API 키, 베어러 토큰, 개인 키, URL 속 비밀번호 같은 자격 증명은 저장하기 전에 가능한 한 제거해요. “내 비밀번호는 …”처럼 글 속에 적은 것은 찾아내지 못해요.",
-	"aiMemory.privacy.replies": "어시스턴트의 답변은 기록하지 않아요.",
-	"aiMemory.privacy.ignore":
-		'파일을 기록에서 빼려면 프로젝트에 .ai-memory.toml 파일을 두고 [capture] 섹션의 ignore_paths에 경로를 적어요(예: ["**/.env*"]). 파일과 셸 도구 활동에만 적용되며, 캡처가 허용 목록 모드가 아니면 프롬프트는 항상 기록돼요.',
-	"aiMemory.terminal.label": "터미널 omp",
-	"aiMemory.terminal.desc":
-		"터미널에서 실행하는 omp는 별개예요. OMPdesk는 자기 세션에만 ai-memory를 불러오고 ~/.omp에는 아무것도 쓰지 않아요. 터미널 세션도 기록하려면 여기서 연결하세요. ai-memory 자체의 omp 설정을 실행해 omp 에이전트 폴더에 확장 하나와 MCP 항목 하나를 추가해요.",
-	"aiMemory.terminal.connected": "연결됨: 터미널 omp도 ai-memory에 기록해요. 제거하면 그 확장과 MCP 항목만 빠져요.",
-	"aiMemory.terminal.connect": "터미널 omp에서도 사용",
-	"aiMemory.terminal.remove": "터미널 omp에서 제거",
-	"aiMemory.terminal.done": "터미널 omp를 연결했어요",
-	"aiMemory.terminal.removed": "터미널 omp 연결을 걷어냈어요",
-	"aiMemory.privacy.off":
-		"메모리를 끄면 OMPdesk가 더 이상 불러오지 않고, OMPdesk가 시작한 서버는 다른 곳에서 쓰지 않을 때 멈춰요. 다른 에이전트의 ai-memory 설정과 터미널 omp의 설정은 건드리지 않아요. 데이터는 여기서 삭제하기 전까지 남아요.",
-	"aiMemoryPanel.loadFailed": "메모리를 읽지 못했어요",
-	"aiMemoryPanel.pageFailed": "이 페이지를 읽지 못했어요",
-	"aiMemoryPanel.back": "목록으로 돌아가기",
-	"aiMemoryPanel.project": "프로젝트",
-	"aiMemoryPanel.allProjects": "모든 프로젝트",
-	"aiMemoryPanel.projectsFailed": "프로젝트 목록을 읽지 못했어요.",
-	"aiMemoryPanel.search": "메모리 검색",
-	"aiMemoryPanel.searchPlaceholder": "메모리 검색…",
-	"aiMemoryPanel.results": "검색 결과",
-	"aiMemoryPanel.noResults": "일치하는 페이지가 없어요.",
-	"aiMemoryPanel.recent": "최근 페이지",
-	"aiMemoryPanel.noRecent": "아직 페이지가 없어요.",
-	"aiMemoryPanel.handoffs": "핸드오프",
-	"aiMemoryPanel.noHandoffs": "아직 핸드오프가 없어요.",
-	"aiMemoryPanel.handoffFrom": "{agent}에서",
-	"aiMemoryPanel.unavailable.off": "메모리가 꺼져 있어요. 설정 › 메모리 (ai-memory)에서 켤 수 있어요.",
-	"aiMemoryPanel.unavailable.starting": "메모리를 시작하는 중이에요…",
-	"aiMemoryPanel.unavailable.unreachable": "메모리 서버가 응답하지 않아요. OMPdesk가 계속 시도해요.",
-	"aiMemoryPanel.unavailable.failed": "메모리를 시작하지 못했어요. 설정 › 메모리 (ai-memory)에서 다시 시도해 보세요.",
-	"aiMemoryPanel.unavailable.unsupported": "이 시스템에서는 메모리를 쓸 수 없어요.",
 	"invPanel.notConnected": "omp가 연결되지 않았어요",
 
 	// Marketplace management (inventory window)
@@ -5602,7 +5518,7 @@ export const ko: Record<string, string> = {
 	"settings.section.workspace.desc": "프로젝트 폴더, 워크트리와 실행 프로필을 관리해요.",
 	"settings.section.schedules": "예약 실행",
 	"settings.section.schedules.desc": "OMPdesk가 열려 있는 동안 정한 때에 프로젝트에서 omp -p로 프롬프트를 실행해요.",
-	"settings.section.memory": "메모리 (ai-memory)",
+	"settings.section.memory": "메모리",
 	"settings.section.memory.desc": "이 컴퓨터에서 한 세션을 OMPdesk가 어떻게 기억하고 다음 세션에 넘기는지 정해요.",
 	"schedules.note":
 		"예약은 OMPdesk가 열려 있을 때만 실행돼요. 닫혀 있는 동안 지난 시각은 건너뛰고, OMPdesk를 종료하면 진행 중인 실행도 멈춰요.",
@@ -6690,4 +6606,5 @@ export const ko: Record<string, string> = {
 	"hostUi.update.running":
 		"세션 {count}개가 실행 중이에요. 다시 시작하면 멈추고, OMPdesk가 돌아오면 각각 저절로 이어서 해요.",
 	"hostUi.update.confirm": "다시 시작하고 업데이트",
+	...memoryKo,
 };
