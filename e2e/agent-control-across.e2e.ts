@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,11 +10,24 @@ import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } fro
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
 // sessions read and reopened without a tab, a judged compare of two sessions, and sessions on a paired device: one
 // opened there whose prompt runs on that device's omp, whose saved transcript is read back (paged), reopened after its
-// tab closed and deleted by its saved id; one that is shown, notifies and reports to its opener across the link; and a
-// schedule created, listed and cancelled there, kept in that device's own schedules.json. The fake omp calls
-// a tool with `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge
-// (`agent_control.judge`) ranks the sessions in evidence order. The rules behind each answer are unit-tested in
-// src/main/agent-control/service.test.ts and host.test.ts.
+// tab closed and deleted by its saved id; one that is shown, notifies and reports to its opener across the link; a
+// schedule created, listed and cancelled there, kept in that device's own schedules.json; and a worktree session on
+// that device compared and merged there with real git. The fake omp calls a tool with
+// `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge (`agent_control.judge`)
+// ranks the sessions in evidence order. The rules behind each answer are unit-tested in
+// src/main/agent-control/service.test.ts, host.test.ts and src/main/remote/host-services.test.ts (host.git.*).
+
+const GIT_ENV = {
+	...process.env,
+	GIT_AUTHOR_NAME: "Test",
+	GIT_AUTHOR_EMAIL: "test@example.com",
+	GIT_COMMITTER_NAME: "Test",
+	GIT_COMMITTER_EMAIL: "test@example.com",
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_CONFIG_NOSYSTEM: "1",
+};
+const git = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8" }).trim();
 
 test.describe("on this computer", () => {
 	let app: ElectronApplication;
@@ -316,5 +330,69 @@ test.describe("on a paired device", () => {
 		expect(cancelled.text).toBe("Cancelled “[agent] nightly” on PC-B.");
 		await expect.poll(hostSchedules).toEqual([]);
 		await expect.poll(() => app.page.evaluate(() => document.body.dataset.schedulePushes)).toMatch(/1.*0$/);
+	});
+
+	test("opens a worktree session on a paired device, then compares and merges it there", async () => {
+		test.setTimeout(240_000);
+		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+		const repo = hostProfile.project;
+		git(repo, "init", "-q", "-b", "main");
+		await fs.writeFile(path.join(repo, "README.md"), "hello\n");
+		git(repo, "add", ".");
+		git(repo, "commit", "-q", "-m", "init");
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+			prefs: { batchNotifications: false },
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		await connectHost(host.page, client.page, "PC-B");
+		await expect
+			.poll(async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state, {
+				timeout: 30_000,
+			})
+			.toBe("online");
+		const call = await caller(client.page, clientProfile.record);
+
+		// ompdesk_session_open: the worktree is made on the device, beside its repository, and the tab opens in it.
+		const open = await call("ompdesk_session_open", {
+			device: "PC-B",
+			folder: repo,
+			worktree: true,
+			message: "Change it on the other computer",
+		});
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		const tab = (await client.page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === child);
+		const worktree = tab?.worktree;
+		expect(worktree?.baseCwd).toBe(repo);
+		expect(git(repo, "worktree", "list", "--porcelain")).toContain(`branch refs/heads/${worktree?.branch}`);
+		expect(
+			(await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 })).text,
+		).toContain("Local fixture reply");
+
+		// The fake child does not edit: commit in its checkout on the device the way a real child's work lands.
+		const checkout = worktree?.path ?? "";
+		await fs.writeFile(path.join(checkout, "remote.txt"), "made on PC-B\n");
+		git(checkout, "add", "remote.txt");
+		git(checkout, "commit", "-q", "-m", "add remote.txt");
+
+		// ompdesk_compare reads the branch with the device's git.
+		const compared = await call("ompdesk_compare", { sessions: [child] });
+		expect(compared.isError, compared.text).toBe(false);
+		expect(compared.text).toContain(
+			`branch ${worktree?.branch} → main: 1 commit(s) ahead, 1 file(s) changed (+1 −0)`,
+		);
+		expect(compared.text).toContain("ready to merge with ompdesk_merge");
+
+		// ompdesk_merge merges into the device's parent checkout, never pushed.
+		const merged = await call("ompdesk_merge", { session: child });
+		expect(merged.isError, merged.text).toBe(false);
+		expect(merged.text).toContain(`Merged ${worktree?.branch} into ${repo}`);
+		expect(merged.text).toContain("Nothing was pushed");
+		expect(await fs.readFile(path.join(repo, "remote.txt"), "utf8")).toBe("made on PC-B\n");
+		expect(git(repo, "log", "-1", "--format=%s")).toContain(`Merge ${worktree?.branch} into main`);
 	});
 });
