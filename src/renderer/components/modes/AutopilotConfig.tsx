@@ -10,24 +10,16 @@ import { useEffect, useRef, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_BRANCH_PREF,
-	AUTOPILOT_LIMITS_PREF,
-	AUTOPILOT_NOTIFY_MODES,
-	AUTOPILOT_NOTIFY_PREF,
 	AUTOPILOT_SHIP_PREF,
 	AUTOPILOT_SHIP_PRESETS,
 	type AutopilotArea,
 	type AutopilotBranchChoice,
 	type AutopilotBranchEntry,
 	type AutopilotGuideInfo,
-	type AutopilotNotifyMode,
-	type AutopilotReleaseCadence,
 	type AutopilotShipPolicy,
 	type AutopilotShipPreset,
 	type AutopilotStatus,
 	DEFAULT_AUTOPILOT_SETTINGS,
-	DEFAULT_RELEASE_EVERY,
-	MAX_PARALLEL_CHILDREN,
-	shipPolicyForPreset,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { branchProblem, initialChoice, isDefaultBranchChoice, viaWorkBranch } from "../../../shared/autopilot-branch";
 import { cx } from "../../lib/format";
@@ -52,12 +44,9 @@ import {
 import { FocusChips } from "../panels/autopilot/AreaMix";
 import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
 import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
-import { limitsFromText, presetOfPolicy, startBlock } from "../panels/autopilot/autopilot-view";
+import { presetOfPolicy, startBlock } from "../panels/autopilot/autopilot-view";
 import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
-
-const PARALLEL_CHOICES = Array.from({ length: MAX_PARALLEL_CHILDREN + 1 }, (_, n) => n);
-const EVERY_CHOICES = [3, 5, 10];
 
 /** The picker's value for "a new branch"; an existing branch's value is `EXISTING_PREFIX` + its name. */
 const NEW_BRANCH = "new";
@@ -86,12 +75,12 @@ async function rememberChoice(repo: string, choice: AutopilotBranchChoice): Prom
 	}
 }
 
-function isPreset(value: unknown): value is AutopilotShipPreset {
-	return (AUTOPILOT_SHIP_PRESETS as readonly unknown[]).includes(value);
-}
+/** The sheet's shipping choice: a preset, or `auto` (main decides from the repository; nothing is sent). */
+const AUTO = "auto";
+type ShipChoice = AutopilotShipPreset | typeof AUTO;
 
-function isNotifyMode(value: unknown): value is AutopilotNotifyMode {
-	return (AUTOPILOT_NOTIFY_MODES as readonly unknown[]).includes(value);
+function isShipChoice(value: unknown): value is ShipChoice {
+	return value === AUTO || (AUTOPILOT_SHIP_PRESETS as readonly unknown[]).includes(value);
 }
 
 function isIdleStatus(value: unknown): value is AutopilotStatus {
@@ -134,48 +123,16 @@ function savedPolicy(value: unknown): AutopilotShipPolicy | null {
 	};
 }
 
-function cadenceValue(cadence: AutopilotReleaseCadence): string {
-	return cadence.kind === "agent" ? "agent" : `every:${cadence.n}`;
-}
-
-function parseCadence(value: string): AutopilotReleaseCadence {
-	if (value === "agent") return { kind: "agent" };
-	const n = Number(value.slice("every:".length));
-	return { kind: "every", n: Number.isFinite(n) && n > 0 ? n : DEFAULT_RELEASE_EVERY };
-}
-
-interface StartDefaults {
-	loaded: boolean;
-	policy: AutopilotShipPolicy | null;
-	notify: AutopilotNotifyMode | null;
-	limits: Record<"tokens" | "minutes" | "cycles" | "usd", string> | null;
-}
-
-/** The sheet's starting values: the saved defaults (Settings), else "local only", every ceiling off, notify on stops. */
-function useStartDefaults(): StartDefaults {
-	const [state, setState] = useState<StartDefaults>({
-		loaded: false,
-		policy: null,
-		notify: null,
-		limits: null,
-	});
+/** The shipping level Settings stored, else Automatic; `loaded` once the read landed. */
+function useStoredShip(): { loaded: boolean; choice: ShipChoice } {
+	const [state, setState] = useState<{ loaded: boolean; choice: ShipChoice }>({ loaded: false, choice: AUTO });
 	useEffect(() => {
 		let live = true;
-		void Promise.all([
-			window.omp.prefs.get(AUTOPILOT_SHIP_PREF),
-			window.omp.prefs.get(AUTOPILOT_NOTIFY_PREF),
-			window.omp.prefs.get(AUTOPILOT_LIMITS_PREF),
-		])
-			.then(([ship, notify, limits]) => {
-				if (!live) return;
-				const stored = typeof limits === "object" && limits !== null ? (limits as Record<string, unknown>) : {};
-				const text = (key: string) => (typeof stored[key] === "number" ? String(stored[key]) : "");
-				setState({
-					loaded: true,
-					policy: savedPolicy(ship),
-					notify: isNotifyMode(notify) ? notify : null,
-					limits: { tokens: text("tokens"), minutes: text("minutes"), cycles: text("cycles"), usd: text("usd") },
-				});
+		void window.omp.prefs
+			.get(AUTOPILOT_SHIP_PREF)
+			.then(ship => {
+				const policy = savedPolicy(ship);
+				if (live) setState({ loaded: true, choice: policy ? presetOfPolicy(policy) : AUTO });
 			})
 			.catch(() => live && setState(current => ({ ...current, loaded: true })));
 		return () => {
@@ -290,18 +247,12 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const planMode = useSessionStore(s => s.planModeEnabled);
 	const hasGoal = useSessionStore(s => s.goal !== null);
 	const isRepo = useIsRepo();
-	const defaults = useStartDefaults();
+	const storedShip = useStoredShip();
 	const branches = useAutopilotStore(s => s.status.branches);
 	const { run, pending } = useAutopilotActions();
 
 	const [focus, setFocus] = useState<AutopilotArea[]>([]);
-	const [preset, setPreset] = useState<AutopilotShipPreset>("local");
-	const [cadence, setCadence] = useState<AutopilotReleaseCadence>(DEFAULT_AUTOPILOT_SETTINGS.ship.autoRelease.cadence);
-	// Empty: the remote is detected (the sheet's placeholder shows which), so `ship.remote` is sent only when typed.
-	const [remoteName, setRemoteName] = useState("");
-	const [parallel, setParallel] = useState(DEFAULT_AUTOPILOT_SETTINGS.maxParallel);
-	const [limits, setLimits] = useState({ tokens: "", minutes: "", cycles: "", usd: "" });
-	const [notify, setNotify] = useState<AutopilotNotifyMode>(DEFAULT_AUTOPILOT_SETTINGS.notify);
+	const [preset, setPreset] = useState<ShipChoice>(AUTO);
 	const [backlog, setBacklog] = useState("");
 	const [guideText, setGuideText] = useState("");
 	const [guideEdited, setGuideEdited] = useState(false);
@@ -332,17 +283,11 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			.finally(() => setDrafting(false));
 	}, [live, remote, isRepo, guide, rpc, tabId]);
 
-	// The saved defaults seed the sheet once they are read; what the user then changes is theirs.
+	// The shipping level Settings stored seeds the sheet once it is read; what the user then picks is theirs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the read lands once.
 	useEffect(() => {
-		if (!defaults.loaded) return;
-		if (defaults.policy) {
-			setPreset(presetOfPolicy(defaults.policy));
-			setCadence(defaults.policy.autoRelease.cadence);
-		}
-		if (defaults.notify) setNotify(defaults.notify);
-		if (defaults.limits) setLimits(defaults.limits);
-	}, [defaults.loaded]);
+		if (storedShip.loaded) setPreset(storedShip.choice);
+	}, [storedShip.loaded]);
 
 	// The branch list is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {
@@ -380,12 +325,12 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const block = startBlock({ remote, isRepo, planMode, hasGoal });
 	const procedure = detected?.releaseProcedure;
 	const releaseUnavailable = !procedure || detected?.releaseBlocked !== undefined;
-	const releaseChosen = preset === "release";
-	const typedRemote = remoteName.trim();
-	const everyChoices =
-		cadence.kind === "every" && !EVERY_CHOICES.includes(cadence.n)
-			? [...EVERY_CHOICES, cadence.n].sort((a, b) => a - b)
-			: EVERY_CHOICES;
+	const shipNote =
+		preset === AUTO
+			? branches?.remote
+				? t("autopilot.ship.preset.auto.descRemote", { remote: branches.remote })
+				: t("autopilot.ship.preset.auto.desc")
+			: t(`autopilot.ship.preset.${preset}.desc`);
 
 	// The choice this sheet would send: a new branch (named only when the user changed the suggestion) or an existing one.
 	const pickedBranch = branchSel.startsWith(EXISTING_PREFIX) ? branchSel.slice(EXISTING_PREFIX.length) : "";
@@ -409,23 +354,15 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const onDefaultBranch = branches ? isDefaultBranchChoice(choice, branches.branches) : false;
 	const viaTarget = branches ? viaWorkBranch(choice, branches.branches) !== null : false;
 	const start = async () => {
-		const base = shipPolicyForPreset(preset);
 		const items = backlog
 			.split("\n")
 			.map(line => line.trim())
 			.filter(Boolean);
+		// Only what the user chose is sent: main decides the rest (shipping from the repository, fan-out, notifications).
 		const started = await run({
 			action: "start",
-			focus,
-			preset,
-			ship: {
-				autoPush: base.autoPush,
-				autoRelease: { ...base.autoRelease, cadence },
-				...(typedRemote ? { remote: typedRemote } : {}),
-			},
-			limits: limitsFromText(limits),
-			maxParallel: parallel,
-			notify,
+			...(focus.length > 0 ? { focus } : {}),
+			...(preset !== AUTO ? { preset } : {}),
 			...(branches ? { branch: choice } : {}),
 			...(items.length > 0 ? { backlog: items } : {}),
 			...(guideText.trim() && guide?.tooLarge !== true ? { guide: guideText } : {}),
@@ -458,114 +395,113 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 					/>
 				</SettingsRow>
 
-				<SettingsRow
-					badge={<SettingInfo text={t(`autopilot.ship.preset.${preset}.desc`)} />}
-					compactControl
-					control={
-						<span className="flex items-center gap-1.5">
-							{releaseUnavailable ? (
-								<ProcedureGlyph text={t("autopilot.ship.noProcedure")} tone="warning" />
-							) : (
-								procedure && (
-									<ProcedureGlyph
-										text={t("autopilot.ship.procedure", {
-											file: procedure.file,
-											anchors: procedure.anchors.join(" › "),
-										})}
-										tone="ok"
-									/>
-								)
-							)}
-							<Tabs
-								activeId={preset}
-								ariaLabel={t("autopilot.sheet.ship")}
-								compact
-								onChange={id => isPreset(id) && setPreset(id)}
-								tabs={AUTOPILOT_SHIP_PRESETS.map(id => ({
-									id,
-									label: t(`autopilot.ship.preset.${id}`),
-									disabled: id === "release" && releaseUnavailable,
-								}))}
-								variant="segmented"
-							/>
-						</span>
-					}
-					label={t("autopilot.sheet.ship")}
-				/>
-
-				{branches && (
-					<>
-						<SettingsRow
-							badge={
-								<SettingInfo
-									text={
-										branchSel === NEW_BRANCH
-											? t("autopilot.branch.hintNew", { remote: branches.remote })
-											: t("autopilot.branch.hintExisting", { remote: branches.remote })
-									}
+				<SettingsAdvanced>
+					<SettingsRow
+						badge={<SettingInfo text={shipNote} />}
+						compactControl
+						control={
+							<span className="flex items-center gap-1.5">
+								{releaseUnavailable ? (
+									<ProcedureGlyph text={t("autopilot.ship.noProcedure")} tone="warning" />
+								) : (
+									procedure && (
+										<ProcedureGlyph
+											text={t("autopilot.ship.procedure", {
+												file: procedure.file,
+												anchors: procedure.anchors.join(" › "),
+											})}
+											tone="ok"
+										/>
+									)
+								)}
+								<Tabs
+									activeId={preset}
+									ariaLabel={t("autopilot.sheet.ship")}
+									compact
+									onChange={id => isShipChoice(id) && setPreset(id)}
+									tabs={[AUTO, ...AUTOPILOT_SHIP_PRESETS].map(id => ({
+										id,
+										label: t(`autopilot.ship.preset.${id}`),
+										disabled: id === "release" && releaseUnavailable,
+									}))}
+									variant="segmented"
 								/>
-							}
-							compactControl
-							control={
-								<div className="w-48" data-autopilot-branch>
-									<Select
-										aria-label={t("autopilot.sheet.branch")}
-										controlSize="sm"
-										onChange={event => setBranchSel(event.target.value)}
-										options={[
-											{ value: NEW_BRANCH, label: t("autopilot.branch.new") },
-											...branches.branches.map(entry => ({
-												value: `${EXISTING_PREFIX}${entry.name}`,
-												label: branchLabel(entry, t),
-											})),
-										]}
-										value={branchSel}
-									/>
-								</div>
-							}
-							label={t("autopilot.sheet.branch")}
-						/>
-						{branchSel === NEW_BRANCH && (
+							</span>
+						}
+						label={t("autopilot.sheet.ship")}
+					/>
+
+					{branches && (
+						<>
 							<SettingsRow
+								badge={
+									<SettingInfo
+										text={
+											branchSel === NEW_BRANCH
+												? t("autopilot.branch.hintNew", { remote: branches.remote })
+												: t("autopilot.branch.hintExisting", { remote: branches.remote })
+										}
+									/>
+								}
 								compactControl
 								control={
-									<div className="w-48">
-										<Input
-											aria-label={t("autopilot.branch.name")}
+									<div className="w-48" data-autopilot-branch>
+										<Select
+											aria-label={t("autopilot.sheet.branch")}
 											controlSize="sm"
-											data-autopilot-branch-name
-											error={branchProblemText ?? undefined}
-											onChange={event => setBranchName(event.target.value)}
-											value={shownName}
+											onChange={event => setBranchSel(event.target.value)}
+											options={[
+												{ value: NEW_BRANCH, label: t("autopilot.branch.new") },
+												...branches.branches.map(entry => ({
+													value: `${EXISTING_PREFIX}${entry.name}`,
+													label: branchLabel(entry, t),
+												})),
+											]}
+											value={branchSel}
 										/>
 									</div>
 								}
-								label={t("autopilot.branch.name")}
+								label={t("autopilot.sheet.branch")}
 							/>
-						)}
-						{onDefaultBranch && (
-							<span
-								className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-warning)"
-								data-autopilot-branch-warning
-							>
-								<TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								<span>{t("autopilot.branch.defaultWarning", { branch: pickedBranch })}</span>
-							</span>
-						)}
-						{viaTarget && (
-							<span
-								className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-text-muted)"
-								data-autopilot-branch-via
-							>
-								<span className="truncate">
-									{t("autopilot.branch.viaLine", { work: branches.suggested, target: pickedBranch })}
+							{branchSel === NEW_BRANCH && (
+								<SettingsRow
+									compactControl
+									control={
+										<div className="w-48">
+											<Input
+												aria-label={t("autopilot.branch.name")}
+												controlSize="sm"
+												data-autopilot-branch-name
+												error={branchProblemText ?? undefined}
+												onChange={event => setBranchName(event.target.value)}
+												value={shownName}
+											/>
+										</div>
+									}
+									label={t("autopilot.branch.name")}
+								/>
+							)}
+							{onDefaultBranch && (
+								<span
+									className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-warning)"
+									data-autopilot-branch-warning
+								>
+									<TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									<span>{t("autopilot.branch.defaultWarning", { branch: pickedBranch })}</span>
 								</span>
-							</span>
-						)}
-					</>
-				)}
-
-				<SettingsAdvanced>
+							)}
+							{viaTarget && (
+								<span
+									className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-text-muted)"
+									data-autopilot-branch-via
+								>
+									<span className="truncate">
+										{t("autopilot.branch.viaLine", { work: branches.suggested, target: pickedBranch })}
+									</span>
+								</span>
+							)}
+						</>
+					)}
 					<SettingsRow
 						badge={<SettingInfo text={t("autopilot.sheet.focusHint", { count: AUTOPILOT_AREAS.length })} />}
 						label={t("autopilot.sheet.focus")}
@@ -580,83 +516,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 							}
 						/>
 					</SettingsRow>
-					<SettingsRow
-						badge={<SettingInfo text={t("autopilot.sheet.parallelHint")} />}
-						compactControl
-						control={
-							<div className="w-48">
-								<Select
-									aria-label={t("autopilot.sheet.parallel")}
-									controlSize="sm"
-									onChange={event => setParallel(Number(event.target.value))}
-									options={PARALLEL_CHOICES.map(n => ({
-										value: String(n),
-										label: n === MAX_PARALLEL_CHILDREN ? t("autopilot.sheet.parallelAuto", { n }) : String(n),
-									}))}
-									value={String(parallel)}
-								/>
-							</div>
-						}
-						label={t("autopilot.sheet.parallel")}
-					/>
-					{releaseChosen && (
-						<SettingsRow
-							compactControl
-							control={
-								<div className="w-48">
-									<Select
-										aria-label={t("autopilot.ship.cadence")}
-										controlSize="sm"
-										onChange={event => setCadence(parseCadence(event.target.value))}
-										options={[
-											{ value: "agent", label: t("autopilot.ship.cadenceAgent") },
-											...everyChoices.map(n => ({
-												value: `every:${n}`,
-												label: t("autopilot.ship.cadenceEvery", { n }),
-											})),
-										]}
-										value={cadenceValue(cadence)}
-									/>
-								</div>
-							}
-							label={t("autopilot.ship.cadence")}
-						/>
-					)}
-					{preset !== "local" && (
-						<SettingsRow
-							compactControl
-							control={
-								<div className="w-32">
-									<Input
-										aria-label={t("autopilot.sheet.remote")}
-										controlSize="sm"
-										onChange={event => setRemoteName(event.target.value)}
-										placeholder={branches?.remote ?? t("autopilot.sheet.remoteAuto")}
-										value={remoteName}
-									/>
-								</div>
-							}
-							label={t("autopilot.sheet.remote")}
-						/>
-					)}
-					<SettingsRow
-						compactControl
-						control={
-							<div className="w-40">
-								<Select
-									aria-label={t("autopilot.sheet.notify")}
-									controlSize="sm"
-									onChange={event => isNotifyMode(event.target.value) && setNotify(event.target.value)}
-									options={AUTOPILOT_NOTIFY_MODES.map(mode => ({
-										value: mode,
-										label: t(`autopilot.notify.${mode}`),
-									}))}
-									value={notify}
-								/>
-							</div>
-						}
-						label={t("autopilot.sheet.notify")}
-					/>
 					<SettingsRow
 						badge={<SettingInfo text={t("autopilot.sheet.backlogHint")} />}
 						compactControl
@@ -673,22 +532,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 						}
 						label={t("autopilot.sheet.backlog")}
 					/>
-					<SettingsRow label={t("autopilot.sheet.limits")}>
-						<div className="grid grid-cols-2 gap-2 pb-1" data-autopilot-limits>
-							{(["tokens", "minutes", "cycles", "usd"] as const).map(key => (
-								<Input
-									controlSize="sm"
-									key={key}
-									label={t(`autopilot.limit.${key}`)}
-									min={0}
-									onChange={event => setLimits(current => ({ ...current, [key]: event.target.value }))}
-									placeholder={t("autopilot.limit.off")}
-									type="number"
-									value={limits[key]}
-								/>
-							))}
-						</div>
-					</SettingsRow>
 				</SettingsAdvanced>
 			</fieldset>
 

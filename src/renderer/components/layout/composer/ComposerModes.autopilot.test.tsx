@@ -201,7 +201,7 @@ describe("Autopilot start sheet", () => {
 		await flush();
 	}
 
-	it("starts with explicit cautious values: local only, every ceiling off, three children", async () => {
+	it("sends only what the user chose: Start on the closed sheet leaves shipping, fan-out, notifications and ceilings to main", async () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
 		await openSheet();
@@ -211,17 +211,20 @@ describe("Autopilot start sheet", () => {
 		await flush();
 		expect(setAutopilot).toHaveBeenCalledTimes(1);
 		const action = setAutopilot.mock.calls[0]?.[0];
-		expect(action).toMatchObject({
-			action: "start",
-			focus: [],
-			preset: "local",
-			maxParallel: 4,
-			notify: "stops",
-			limits: { tokens: null, minutes: null, cycles: null, usd: null },
-			ship: { autoPush: false, autoRelease: { on: false, cadence: { kind: "agent" } } },
-		});
-		// The remote is auto: nothing is sent unless the user typed one.
-		expect(action?.action === "start" ? action.ship : null).not.toHaveProperty("remote");
+		expect(action).toEqual({ action: "start" });
+	});
+
+	it("sends a shipping level picked in Advanced", async () => {
+		installMockOmp();
+		await mount(<ComposerModes />);
+		await openSheet();
+		const local = [...document.querySelectorAll("[data-autopilot-sheet] [role='tab']")].find(
+			tab => tab.textContent === translate("autopilot.ship.preset.local"),
+		) as unknown as HTMLElement | undefined;
+		await act(async () => local?.click());
+		await act(async () => $("button[data-autopilot-start]")?.click());
+		await flush();
+		expect(setAutopilot.mock.calls[0]?.[0]).toEqual({ action: "start", preset: "local" });
 	});
 
 	it("is one dense row per setting: no paragraphs, a short warning line, the details behind (i) glyphs", async () => {
@@ -231,7 +234,7 @@ describe("Autopilot start sheet", () => {
 		const count = (selector: string) => document.querySelectorAll(`[data-autopilot-sheet] ${selector}`).length;
 		// Descriptions ride tooltips; the only paragraph left sits inside the closed ceilings disclosure.
 		expect(count("p:not(details p)")).toBe(0);
-		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(7);
+		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(4);
 		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(4);
 		expect($("[data-autopilot-warning] .truncate")?.textContent).toBe(translate("autopilot.sheet.warningShort"));
 		// The release procedure is a glyph with the sentence as its name, not a line of text.
@@ -242,7 +245,7 @@ describe("Autopilot start sheet", () => {
 		expect($("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
-	it("shows only the guide, Shipping, the Branch row and Start with Advanced closed; the rest sits in that one disclosure", async () => {
+	it("shows only the guide and Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
@@ -265,37 +268,42 @@ describe("Autopilot start sheet", () => {
 		const outside = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const inside = rows.filter(row => row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const has = (list: string[], key: string) => list.some(text => text.includes(translate(key)));
-		for (const key of ["autopilot.sheet.guide", "autopilot.sheet.ship", "autopilot.sheet.branch"]) {
-			expect(has(outside, key), key).toBe(true);
-		}
+		expect(outside).toHaveLength(1);
+		expect(has(outside, "autopilot.sheet.guide")).toBe(true);
 		for (const key of [
+			"autopilot.sheet.ship",
+			"autopilot.sheet.branch",
 			"autopilot.sheet.focus",
-			"autopilot.sheet.parallel",
-			"autopilot.sheet.notify",
 			"autopilot.sheet.backlog",
-			"autopilot.sheet.limits",
 		]) {
-			expect(has(outside, key), `${key} outside`).toBe(false);
 			expect(has(inside, key), `${key} inside`).toBe(true);
 		}
+		// Nothing to cap or limit: no parallel picker, no notifications, no ceilings, no remote field.
+		expect(sheet.querySelectorAll("select")).toHaveLength(1);
+		expect(sheet.querySelectorAll("input[type='number']")).toHaveLength(0);
 		expect($("button[data-autopilot-start]")).not.toBeNull();
 	});
 
-	it("opens Advanced on the defaults: all areas, the agent decides the parallel sessions, notify on stops, remote auto, no ceilings", async () => {
+	it("opens Shipping on Automatic and says where the run will push", async () => {
 		installMockOmp();
+		useAutopilotStore.getState().apply({
+			active: false,
+			guide: { exists: true, text: "# Ours\n" },
+			branches: {
+				repo: "/work/app",
+				remote: "origin",
+				defaultBranch: "main",
+				suggested: "autopilot/2026-10-18",
+				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
+			},
+		});
 		await mount(<ComposerModes />);
 		await openSheet();
-		const parallel = $(
-			`select[aria-label='${translate("autopilot.sheet.parallel")}']`,
-		) as unknown as HTMLSelectElement;
-		expect(parallel.value).toBe("4");
-		const labels = [...document.querySelectorAll("[data-autopilot-sheet] option")].map(option => option.textContent);
-		expect(labels).toContain(translate("autopilot.sheet.parallelAuto", { n: 4 }));
-		const notify = $(`select[aria-label='${translate("autopilot.sheet.notify")}']`) as unknown as HTMLSelectElement;
-		expect(notify.value).toBe("stops");
-		expect(document.querySelectorAll("[data-autopilot-limits] input[type='number']")).toHaveLength(4);
-		for (const input of document.querySelectorAll("[data-autopilot-limits] input"))
-			expect((input as unknown as HTMLInputElement).value).toBe("");
+		const selected = document.querySelector("[data-autopilot-sheet] [role='tab'][aria-selected='true']");
+		expect(selected?.textContent).toBe(translate("autopilot.ship.preset.auto"));
+		expect(document.body.textContent).toContain(
+			translate("autopilot.ship.preset.auto.descRemote", { remote: "origin" }),
+		);
 	});
 
 	it("changes no layout on blur: the guide box and the Branch name keep their rows and the sheet its row count", async () => {

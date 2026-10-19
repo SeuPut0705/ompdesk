@@ -35,7 +35,6 @@ import {
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DUPLICATE_WINDOW,
 	isAutopilotArea,
-	MAX_PARALLEL_CHILDREN,
 	RECENT_CYCLES,
 } from "./autopilot-contracts";
 
@@ -390,7 +389,12 @@ export function mergeSettings(
 			cycles: "cycles" in limits ? limitValue(limits.cycles, base.limits.cycles) : base.limits.cycles,
 			usd: "usd" in limits ? limitValue(limits.usd, base.limits.usd) : base.limits.usd,
 		},
-		maxParallel: clampInt(patch.maxParallel, 0, MAX_PARALLEL_CHILDREN, base.maxParallel),
+		maxParallel:
+			typeof patch.maxParallel === "number" && Number.isFinite(patch.maxParallel)
+				? Math.max(0, Math.round(patch.maxParallel))
+				: patch.maxParallel === null
+					? null
+					: base.maxParallel,
 		notify:
 			patch.notify === "stops" || patch.notify === "cycles" || patch.notify === "off" ? patch.notify : base.notify,
 	};
@@ -678,7 +682,7 @@ export function followupAge(records: readonly AutopilotCycleRecord[], text: stri
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
 export function beginHints(
 	records: readonly AutopilotCycleRecord[],
-	facts: { open: readonly string[]; backlog: number; maxParallel: number },
+	facts: { open: readonly string[]; backlog: number; maxParallel: number | null },
 ): string[] {
 	const hints: string[] = [];
 	const carried = facts.open
@@ -699,7 +703,7 @@ export function beginHints(
 	) {
 		hints.push("The last cycle changed documentation only: pick code, tests or a bug unless nothing else is left.");
 	}
-	if (facts.maxParallel > 0 && facts.backlog + facts.open.length >= 2) {
+	if (facts.maxParallel !== 0 && facts.backlog + facts.open.length >= 2) {
 		hints.push(
 			"Fan-out pays only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Small items are faster and cheaper one after the other.",
 		);

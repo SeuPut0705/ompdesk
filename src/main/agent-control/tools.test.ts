@@ -76,7 +76,8 @@ describe("ompdesk_autopilot arguments", () => {
 		expect(() => args.parse({ action: "start", session: "abcd" })).toThrow();
 		expect(() => args.parse({ action: "start", ship: "force" })).toThrow();
 		expect(() => args.parse({ action: "start", branch: { kind: "existing" } })).toThrow();
-		expect(() => args.parse({ action: "start", advanced: { parallel: 9 } })).toThrow();
+		expect(() => args.parse({ action: "start", advanced: { parallel: -1 } })).toThrow();
+		expect(args.parse({ action: "start", advanced: { parallel: 9 } })).toMatchObject({ advanced: { parallel: 9 } });
 		expect(() => args.parse({ action: "start", advanced: { limits: { usd: -1 } } })).toThrow();
 	});
 });

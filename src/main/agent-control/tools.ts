@@ -5,11 +5,7 @@
  * lists every host tool in the session's xd:// device notice.
  */
 import { z } from "zod";
-import {
-	AUTOPILOT_AREAS,
-	AUTOPILOT_NOTIFY_MODES,
-	MAX_PARALLEL_CHILDREN,
-} from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import { AUTOPILOT_AREAS, AUTOPILOT_NOTIFY_MODES } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { MAIL_KINDS } from "./mail";
@@ -425,7 +421,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 						},
 						parallel: {
 							type: "integer",
-							description: `Child sessions per cycle, 0-${MAX_PARALLEL_CHILDREN}.`,
+							description: "Most child sessions per cycle (0 = none); default the agent decides, no cap.",
 						},
 						cadence: {
 							type: "integer",
@@ -534,7 +530,7 @@ const autopilotBranch = z.discriminatedUnion("kind", [
 const autopilotAdvanced = z
 	.object({
 		focus: z.array(z.enum(AUTOPILOT_AREAS)).max(AUTOPILOT_AREAS.length).optional(),
-		parallel: z.number().int().min(0).max(MAX_PARALLEL_CHILDREN).optional(),
+		parallel: z.number().int().min(0).optional(),
 		cadence: z.number().int().min(1).max(100).optional(),
 		remote: z
 			.string()

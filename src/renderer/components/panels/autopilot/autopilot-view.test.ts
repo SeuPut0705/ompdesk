@@ -10,7 +10,6 @@ import {
 	autopilotChip,
 	autopilotProgress,
 	autopilotStep,
-	limitsFromText,
 	overnightSummary,
 	presetOfPolicy,
 	ratePrediction,
@@ -248,26 +247,6 @@ describe("presetOfPolicy", () => {
 		expect(presetOfPolicy({ autoPush: false, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("local");
 		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("push");
 		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: true, cadence }, remote: "origin" })).toBe("release");
-	});
-});
-
-describe("limitsFromText", () => {
-	it("keeps every ceiling off by default and for an empty, zero or invalid field", () => {
-		expect(limitsFromText({ tokens: "", minutes: "0", cycles: "abc", usd: "-3" })).toEqual({
-			tokens: null,
-			minutes: null,
-			cycles: null,
-			usd: null,
-		});
-	});
-
-	it("parses a positive number, whole for tokens, minutes and cycles", () => {
-		expect(limitsFromText({ tokens: "2000000.7", minutes: "90", cycles: "12", usd: "7.5" })).toEqual({
-			tokens: 2_000_000,
-			minutes: 90,
-			cycles: 12,
-			usd: 7.5,
-		});
 	});
 });
 

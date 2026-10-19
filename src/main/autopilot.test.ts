@@ -341,8 +341,9 @@ describe("pure helpers", () => {
 			autoRelease: { on: true },
 		});
 		expect(startSettings({ ship: { remote: "up" } }, {}).ship.remote).toBe("up");
-		expect(startSettings({ maxParallel: 9 }, {}).maxParallel).toBe(4);
+		expect(startSettings({ maxParallel: 9 }, {}).maxParallel).toBe(9);
 		expect(startSettings({ maxParallel: -2 }, {}).maxParallel).toBe(0);
+		expect(startSettings({}, {}).maxParallel).toBeNull();
 		expect(startSettings({}, { notify: "cycles" }).notify).toBe("cycles");
 		expect(startSettings({ notify: "off" }, { notify: "cycles" }).notify).toBe("off");
 		expect(
@@ -374,9 +375,6 @@ describe("pure helpers", () => {
 			}),
 		).toBe(true);
 		expect(validAutopilotPref("autopilotShip", "origin")).toBe(false);
-		expect(validAutopilotPref("autopilotLimits", { tokens: null, minutes: 30, cycles: null, usd: 5 })).toBe(true);
-		expect(validAutopilotPref("autopilotLimits", { tokens: -1, minutes: null, cycles: null, usd: null })).toBe(false);
-		expect(validAutopilotPref("autopilotLimits", undefined)).toBe(true);
 	});
 });
 
@@ -400,6 +398,31 @@ describe("start", () => {
 			settings: { focus: ["tests"], ship: { autoPush: true } },
 		});
 		expect(await fs.stat(path.join(tmp, "wt-2026-10-17"))).toBeTruthy();
+	});
+
+	describe("the ship level nobody chose", () => {
+		const armedPolicy = () => {
+			const arm = world.calls.find(call => call.tab === "ap-1" && call.name === AUTOPILOT_BRIDGE_METHODS.arm);
+			const settings = arm?.params?.settings;
+			return settings && typeof settings === "object" && "ship" in settings ? settings.ship : undefined;
+		};
+		it("stays local in a repository without a remote", async () => {
+			gitSync(main, "remote", "remove", "origin");
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
+		});
+		it("pushes the run's own new branch when the repository has a remote, never releases", async () => {
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: false }, remote: "origin" });
+		});
+		it("stays local when the run would push the default branch", async () => {
+			await start({ type: "set_autopilot", action: "start", branch: { kind: "existing", name: "main" } });
+			expect(armedPolicy()).toMatchObject({ autoPush: false });
+		});
+		it("an explicit level wins", async () => {
+			await start({ type: "set_autopilot", action: "start", preset: "local" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false });
+		});
 	});
 
 	it("pins the sheet's backlog items once the run is armed and before the goal exists", async () => {
@@ -1086,7 +1109,7 @@ describe("a cycle's end", () => {
 		await autopilot.idle();
 		expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
 		build();
-		await start();
+		await start({ type: "set_autopilot", action: "start", preset: "local" });
 		await commit(path.join(tmp, "wt-2026-10-17-2"), "b.txt").catch(() => undefined);
 		autopilot.frame(world.sidecars.get("ap-2") as unknown as SidecarLike, {
 			type: "autopilot_cycle_end",

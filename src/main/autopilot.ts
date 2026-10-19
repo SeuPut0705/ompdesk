@@ -48,7 +48,6 @@ import {
 	type AutopilotStopRequest,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DEFAULT_SHIP_POLICY,
-	MAX_PARALLEL_CHILDREN,
 	NO_LIMITS,
 	type ShipQueueItem,
 	shipPolicyForPreset,
@@ -276,10 +275,11 @@ export function startSettings(options: AutopilotStartOptions, stored: Partial<Au
 		autoRelease: options.ship?.autoRelease ?? preset.autoRelease,
 		remote,
 	};
-	const maxParallel = Math.min(
-		MAX_PARALLEL_CHILDREN,
-		Math.max(0, Math.floor(options.maxParallel ?? DEFAULT_AUTOPILOT_SETTINGS.maxParallel)),
-	);
+	const asked = options.maxParallel;
+	const maxParallel =
+		typeof asked === "number" && Number.isFinite(asked)
+			? Math.max(0, Math.floor(asked))
+			: DEFAULT_AUTOPILOT_SETTINGS.maxParallel;
 	return {
 		focus: options.focus ?? stored.focus ?? [],
 		ship,
@@ -309,18 +309,12 @@ export async function ghRunStatus(
 	}
 }
 
-/** Whether `value` may be stored under one of the autopilot prefs (`autopilotShip`, `autopilotNotify`, `autopilotLimits`). */
+/** Whether `value` may be stored under one of the autopilot prefs (`autopilotShip`, `autopilotNotify`, `autopilotBranch`). */
 export function validAutopilotPref(key: string, value: unknown): boolean {
 	if (value === undefined) return true;
 	if (key === "autopilotNotify") return value === "stops" || value === "cycles" || value === "off";
 	const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 	if (!record) return false;
-	if (key === "autopilotLimits") {
-		return ["tokens", "minutes", "cycles", "usd"].every(name => {
-			const limit = record[name];
-			return limit === null || (typeof limit === "number" && Number.isFinite(limit) && limit > 0);
-		});
-	}
 	if (key === AUTOPILOT_BRANCH_PREF) return validBranchPref(value);
 	if (key !== "autopilotShip") return false;
 	const release = record.autoRelease as { on?: unknown; cadence?: { kind?: unknown; n?: unknown } } | null | undefined;
@@ -582,7 +576,12 @@ export class Autopilot {
 		}
 		const stored = this.#storedSettings();
 		const remoteChosen = options.ship?.remote ?? stored.ship?.remote ?? (await this.#detectRemote(cwd));
-		const settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
+		const shipUndecided =
+			options.preset === undefined &&
+			options.ship?.autoPush === undefined &&
+			options.ship?.autoRelease === undefined &&
+			stored.ship === undefined;
+		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
 		const release = await this.#releaseFor(toplevel);
 		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
@@ -598,6 +597,14 @@ export class Autopilot {
 		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
 		this.#refuseBranch(choice, entries);
 		const target = viaWorkBranch(choice, entries);
+		// Nobody chose a level: push the run's own branch when the repository has a remote, unless that branch is the
+		// default branch (only an explicit choice pushes there). Never a release. Pushing is ShipRunner's fast-forward of a
+		// branch the run owns, so it is safe on a protected main and with or without CI.
+		if (shipUndecided) {
+			const pushes = target ?? (choice.kind === "existing" ? choice.name : null);
+			const hasRemote = (await this.#gitText(cwd, ["remote"])).trim() !== "";
+			settings = { ...settings, ship: { ...settings.ship, autoPush: hasRemote && pushes !== defaultBranch } };
+		}
 		const mode = worktreeModeFor(choice, entries);
 		const taken = new Set(entries.map(entry => entry.name));
 		// A target another worktree holds (main in the user's folder): work on a branch of our own cut from it.
@@ -1202,7 +1209,7 @@ export class Autopilot {
 		const run = this.#runs.get(child.callerTabId);
 		if (!run) throw new Error("Autopilot is not running in the session that opened this one.");
 		if (run.stopping) throw new Error("Autopilot is ending: start nothing new.");
-		if (run.children.size >= run.settings.maxParallel) {
+		if (run.settings.maxParallel !== null && run.children.size >= run.settings.maxParallel) {
 			throw new Error(`Autopilot allows at most ${run.settings.maxParallel} parallel sessions per cycle.`);
 		}
 		const root = child.worktree?.path ?? this.#deps.pool.sidecarOf(child.tabId)?.cwd ?? run.root;
@@ -1646,17 +1653,14 @@ export class Autopilot {
 		return this.#storedSettings().ship ?? DEFAULT_SHIP_POLICY;
 	}
 
-	/** The prefs the start sheet prefilled (`autopilotShip`, `autopilotNotify`, `autopilotLimits`), trusted only in shape. */
+	/** The prefs Settings stores (`autopilotShip`, `autopilotNotify`), trusted only in shape. */
 	#storedSettings(): Partial<AutopilotSettings> {
 		const ship = this.#deps.prefs.get("autopilotShip");
 		const notify = this.#deps.prefs.get("autopilotNotify");
-		const limits = this.#deps.prefs.get("autopilotLimits");
 		const out: Partial<AutopilotSettings> = {};
 		if (ship && typeof ship === "object")
 			out.ship = { ...DEFAULT_SHIP_POLICY, ...(ship as Partial<AutopilotShipPolicy>) };
 		if (notify === "stops" || notify === "cycles" || notify === "off") out.notify = notify;
-		if (limits && typeof limits === "object")
-			out.limits = { ...NO_LIMITS, ...(limits as Partial<AutopilotSettings["limits"]>) };
 		return out;
 	}
 
