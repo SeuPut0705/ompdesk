@@ -86,6 +86,8 @@ import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
+import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
+import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
@@ -127,7 +129,7 @@ import { SidebarRenameField } from "./SidebarRenameField";
 import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
-import { openerOfSessions } from "./sidebar-family";
+import { CHILD_TOKEN, openedChildStatus, openerOfSessions } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -711,7 +713,29 @@ export function Sidebar() {
 	}, [codeSessions, localTabs, projectName]);
 	// A session another session's agent opened (`ompdesk_session_open`, a worktree or not) nests under its opener, one
 	// level in like a subagent, whatever its folder: opened-session path → the session that started the chain.
-	const familyRootOf = useMemo(() => openerOfSessions(localTabs, codeSessions), [localTabs, codeSessions]);
+	const closedChildren = useClosedChildrenStore(s => s.rows);
+	const closedOpeners = useMemo(
+		() => new Map(closedChildren.map(row => [row.path, row.openedBySession])),
+		[closedChildren],
+	);
+	const closedTitleOf = useMemo(() => new Map(closedChildren.map(row => [row.path, row.title])), [closedChildren]);
+	const closedCwdOf = useMemo(
+		() => new Map(closedChildren.flatMap(row => (row.cwd ? [[row.path, row.cwd] as const] : []))),
+		[closedChildren],
+	);
+	const reviewByTab = useAgentReviewStore(s => s.byTab);
+	const reviewOf = useMemo(
+		() => new Map(Object.values(reviewByTab).flatMap(items => items.map(item => [item.tabId, item]))),
+		[reviewByTab],
+	);
+	useEffect(() => {
+		ensureClosedChildren();
+		ensureAgentReviewSubscription();
+	}, []);
+	const familyRootOf = useMemo(
+		() => openerOfSessions(localTabs, codeSessions, closedOpeners),
+		[localTabs, codeSessions, closedOpeners],
+	);
 	// The opener's path → what it opened, in the order it opened them.
 	const familyChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SidebarSession[]>();
@@ -919,6 +943,12 @@ export function Sidebar() {
 	const openSession = (session: SidebarSession) => {
 		useUiStore.getState().closeDestination();
 		if (isCurrentSession(session)) return;
+		// A session main closed after its work landed may have lost its worktree: it reopens in the checkout it came from.
+		const recordedCwd = closedCwdOf.get(session.path);
+		const reopened =
+			recordedCwd && projectName(session.cwd).gone && session.liveTabId === undefined
+				? { ...session, cwd: recordedCwd }
+				: session;
 		// Already open in a tab: go there. An untouched empty tab is replaced
 		// instead of left behind; anything else keeps its tab and the session
 		// opens next to it.
@@ -928,10 +958,10 @@ export function Sidebar() {
 			return;
 		}
 		if (activeTabUntouched()) {
-			requestSessionSwitch(session);
+			requestSessionSwitch(reopened);
 			return;
 		}
-		void openTab({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
+		void openTab({ cwd: reopened.cwd, sessionPath: reopened.path, kind: reopened.kind ?? "agent" });
 	};
 	/** Start in `target`: re-root the untouched tab, else open a new one. */
 	const goToProject = async (target: string) => {
@@ -1318,18 +1348,47 @@ export function Sidebar() {
 		const key = `session:${child.path}`;
 		const row = sessionRowState(child);
 		const origin = projectName(child.cwd);
-		const title = sessionDisplayTitle(child, row.indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const openTabId = row.tab?.id;
+		// An opened session reads as its task until it has a title, even when the index lists it without its first
+		// message yet; a closed one keeps the title main recorded.
+		const title =
+			sessionDisplayTitle(child, "") ||
+			row.tab?.task ||
+			closedTitleOf.get(child.path) ||
+			t(row.indexed ? "sidebar.untitled" : "sidebar.newSession");
 		const deletable = row.indexed && !row.busy;
+		const lastRun = row.tab?.lastRun;
+		const review = openTabId ? reviewOf.get(openTabId) : undefined;
+		const failed = row.failed || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
+		const status = openedChildStatus({
+			waiting: row.waiting !== undefined,
+			running: row.running,
+			finished:
+				lastRun !== undefined ||
+				closedTitleOf.has(child.path) ||
+				(row.tab !== undefined && !row.busy && child.messageCount >= 2),
+			failed,
+			unmerged:
+				review?.branch !== undefined &&
+				review.state !== "running" &&
+				(review.commitsAhead > 0 || review.uncommitted > 0),
+		});
+		const statusLabel =
+			status === "problem"
+				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
+				: status === "done"
+					? t("tabs.done")
+					: (row.statusLabel ?? "");
 		return {
 			key: child.path,
 			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
-			state: row.waiting ? "waiting" : row.running ? "running" : row.failed ? "failed" : row.done ? "done" : null,
-			stateLabel: row.statusLabel ?? "",
+			status,
+			state: status ? CHILD_TOKEN[status] : null,
+			stateLabel: statusLabel,
 			title,
 			age: row.indexed ? formatTimeAgo(child.modified) : undefined,
 			// The one line has no room for the status in words or the folder: they are the tooltip.
-			tooltip: [title, row.statusLabel, origin.tooltip].filter(Boolean).join("\n"),
+			tooltip: [title, statusLabel, origin.tooltip].filter(Boolean).join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
 			renaming:
@@ -1369,7 +1428,14 @@ export function Sidebar() {
 				"data-session-kind": child.kind ?? "agent",
 				"data-session-path": child.path,
 				"data-sidebar-opened-session": true,
-				"data-signal": row.waiting ? "waiting" : row.running ? "running" : row.failed ? "error" : undefined,
+				"data-signal": row.waiting
+					? "waiting"
+					: row.running
+						? "running"
+						: status === "problem"
+							? "error"
+							: undefined,
+				"data-child-status": status ?? undefined,
 			},
 		};
 	};
@@ -1398,7 +1464,8 @@ export function Sidebar() {
 			variant === "archived"
 				? []
 				: (familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child, nested));
-		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const title =
+			sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.

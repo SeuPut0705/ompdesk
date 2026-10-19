@@ -11,10 +11,12 @@
  */
 import { type ComponentProps, type ReactElement, type ReactNode, useSyncExternalStore } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { Tooltip } from "../../common";
 import { type ComposerLiveState, composerLiveState, workingAgentCount } from "./composer-live";
@@ -34,7 +36,9 @@ export function useComposerLive(): { state: ComposerLiveState | null; background
 		s => s.pendingRequests.filter(request => isUserBlockingRequest(s, request)).length,
 	);
 	const proposal = usePlanApprovalStore(s => s.pending !== null);
-	const background = agents + shells;
+	const tabId = useRuntimeTabId();
+	const sessions = useOpenedChildren(tabId).counts.running;
+	const background = agents + shells + sessions;
 	return {
 		state: composerLiveState({ streaming, waiting: blocking + (proposal ? 1 : 0), background }),
 		background,

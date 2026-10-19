@@ -990,6 +990,14 @@ export class SidecarPool {
 		} satisfies IpcTabListChangedPayload);
 	}
 
+	/** A window last reported a non-empty composer draft for the tab (`noteDraft`). */
+	hasDraft(tabId: string): boolean {
+		const reports = this.#byTabId.get(tabId)?.drafts?.get("set_next_prompt_draft");
+		if (!reports) return false;
+		for (const empty of reports.values()) if (!empty) return true;
+		return false;
+	}
+
 	/**
 	 * A window reports whether its composer draft for the tab is empty (`DRAFT_COMMANDS`). Every window
 	 * showing the tab has its own draft, so the tab's omp hears "empty" only once all of them are; the
@@ -1599,6 +1607,8 @@ export class SidecarPool {
 			if (entry.retry) fact.retry = entry.retry;
 			if (entry.touched) fact.touched = entry.touched;
 			if (entry.unsavedPrompt !== undefined) fact.unsavedPrompt = entry.unsavedPrompt;
+			if (entry.openedBy) fact.openedBy = entry.openedBy;
+			if (entry.openedBySession) fact.openedBySession = entry.openedBySession;
 			return fact;
 		});
 	}

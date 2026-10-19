@@ -32,6 +32,7 @@ import {
 	type AgentReviewOutcome,
 	type AgentReviewResult,
 	agentTaskTitle,
+	type ClosedChild,
 	isApprovalSelect,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
@@ -39,7 +40,7 @@ import {
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
-import type { IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
+import type { IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -55,7 +56,8 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
-import { type BranchFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
+import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
+import { type BranchFacts, type LandingFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
 import { AgentLimits, LimitError, PENDING_RUN } from "./limits";
 import {
 	type AnswerArgs,
@@ -92,6 +94,20 @@ export interface ControlTab {
 	/** The user hid this session from agents (Sidebar › Hide from other agents). */
 	hidden: boolean;
 	worktree?: IpcTabWorktree;
+	/** The session file; absent until the session has one. */
+	sessionPath?: string;
+	/** What an agent opened the session for (`agentTaskTitle`) until it has a title. */
+	task?: string;
+	/** How its last finished turn ended; absent while one runs or before the first. */
+	lastRun?: IpcTabRunOutcome;
+	/** Opened by an agent's control tools, and not an Autopilot run or child (those close with their run). */
+	autoClosable?: boolean;
+	/** The person is looking at it: the focused tab, a visible pane, a viewer in another window or on a phone. */
+	looked?: boolean;
+	/** The person typed a draft into it or sent it a prompt of their own. */
+	userTouched?: boolean;
+	/** When its current turn started (epoch ms). */
+	busySince?: number;
 }
 
 /** What `host.spawn` is asked for. */
@@ -193,6 +209,12 @@ export interface AgentControlHost {
 	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
 	/** Remove a closed session's worktree and branch. */
 	discardWorktree(worktree: WorktreeRef): Promise<void>;
+	/** What git says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
+	landing(worktree: WorktreeRef): Promise<LandingFacts>;
+	/** Remove a landed, clean worktree and its branch (never forced); false when anything held it back. */
+	removeLandedWorktree(worktree: WorktreeRef): Promise<boolean>;
+	/** Remember a session closed after its work landed, so its opener's family still lists it. */
+	recordClosed(child: ClosedChild): void;
 	/** The Schedules service (Settings › Schedules), or null where there is none. */
 	schedules(): ScheduleSource | null;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
@@ -245,6 +267,8 @@ const SUMMARY_CHARS = 200;
 const SESSION_PREFIX_MIN = 4;
 const TOOL_RESULT_CHARS = 300;
 const MESSAGE_CHARS = 1_500;
+/** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
+const AUTO_CLOSE_WAIT_MS = 2_000;
 
 class ToolError extends Error {}
 
@@ -439,6 +463,10 @@ export class AgentControl {
 	readonly #reviewed = new Set<string>();
 	/** Files a child's last merge conflicted in, until it merges. */
 	readonly #conflicts = new Map<string, string[]>();
+	/** Opened sessions whose answer the opener read (a result, a read, a compare, a merge) since they last ran. */
+	readonly #collected = new Set<string>();
+	/** Callers whose `autoClose` pass is in flight. */
+	readonly #sweeping = new Set<string>();
 
 	readonly #app: AppControl | null;
 
@@ -467,6 +495,8 @@ export class AgentControl {
 		this.#app?.released(tabId);
 		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
+		this.#collected.delete(tabId);
+		this.#sweeping.delete(tabId);
 		this.#closing.delete(tabId);
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
@@ -967,6 +997,9 @@ export class AgentControl {
 			const ready = args.until === "any" ? done > 0 : done === summaries.length;
 			const timedOut = Date.now() >= deadline;
 			if (!args.wait || ready || timedOut) {
+				// The opener has the answer now: the session may close once its work landed.
+				for (const [index, summary] of summaries.entries())
+					if (summary.settled) this.#collected.add((current[index] as ControlTab).tabId);
 				const note =
 					args.wait && timedOut && !ready
 						? `Still running after waiting ${seconds} s (${done}/${summaries.length} finished).\n`
@@ -1010,6 +1043,7 @@ export class AgentControl {
 		const more = page.prevCursor
 			? `\nEarlier messages: ompdesk_session_read {"session":"${target.tabId}","before":"${page.prevCursor}"}.`
 			: "";
+		this.#collected.add(target.tabId);
 		return `${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
 	}
 
@@ -1146,6 +1180,7 @@ export class AgentControl {
 		if (targets.length === 0)
 			fail("No worktree sessions to compare. Open sessions with worktree: true, or pass sessions.");
 		const blocks = await Promise.all(targets.map(tab => this.#describe(caller, tab)));
+		for (const tab of targets) this.#collected.add(tab.tabId);
 		return `${blocks.join("\n")}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer.`;
 	}
 
@@ -1194,6 +1229,7 @@ export class AgentControl {
 		}
 		this.#conflicts.delete(target.tabId);
 		this.#reviewed.add(target.tabId);
+		this.#collected.add(target.tabId);
 		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.`;
 	}
 
@@ -1203,7 +1239,7 @@ export class AgentControl {
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
-			title: tab.title,
+			title: tab.title || tab.task || "",
 			state: running ? "running" : conflict ? "conflict" : "needs-review",
 			commitsAhead: 0,
 			files: 0,
@@ -1211,6 +1247,11 @@ export class AgentControl {
 			removed: 0,
 			uncommitted: 0,
 			answer: session.last ? oneLine(session.last, 240) : "",
+			...(running && session.step ? { step: session.step } : {}),
+			...(running && tab.busySince ? { runningSince: tab.busySince } : {}),
+			...(!running && (tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted")
+				? { failed: true as const }
+				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
 		};
 		if (!tab.worktree || tab.deviceName) return item;
@@ -1288,10 +1329,81 @@ export class AgentControl {
 	}
 
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
-	async #whenGone(callerTabId: string, tabId: string): Promise<void> {
-		const deadline = Date.now() + 10_000;
+	async #whenGone(callerTabId: string, tabId: string, waitMs = 10_000): Promise<void> {
+		const deadline = Date.now() + waitMs;
 		while (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
 			await this.#nextChange(Math.min(500, deadline - Date.now()));
+	}
+
+	/**
+	 * Close the sessions `callerTabId` opened whose work has landed and that nobody is using (`autoCloseDecision`):
+	 * the tab closes the way the person's close does (the window refuses it for a tab in use), the session file stays
+	 * and the opener's family keeps a row for it; the worktree goes only when its branch is merged and it is clean.
+	 * Called on tab activity and on a timer by `AgentControlRuntime`; one pass per caller at a time.
+	 */
+	async autoClose(callerTabId: string): Promise<void> {
+		if (!this.#host.enabled() || this.#sweeping.has(callerTabId)) return;
+		const tabs = this.#host.tabs(callerTabId);
+		const caller = tabs?.find(tab => tab.tabId === callerTabId);
+		if (!tabs || !caller?.sessionPath) return;
+		this.#sweeping.add(callerTabId);
+		try {
+			const openerIdle = !caller.busy && caller.asks.length === 0;
+			for (const tab of tabs) {
+				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
+				if (tab.busy || tab.asks.length > 0) {
+					this.#collected.delete(tab.tabId);
+					continue;
+				}
+				if (!tab.autoClosable || tab.hidden || tab.deviceName || tab.status !== "ready" || !tab.lastRun) continue;
+				const decision = autoCloseDecision(await this.#autoCloseFacts(tab, openerIdle));
+				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
+			}
+		} finally {
+			this.#sweeping.delete(callerTabId);
+		}
+	}
+
+	async #autoCloseFacts(tab: ControlTab, openerIdle: boolean): Promise<AutoCloseFacts> {
+		const session = await this.#state(tab);
+		const branch = tab.worktree
+			? await this.#host.landing(tab.worktree).catch(() => ({ hasWork: false, landed: false, clean: false }))
+			: null;
+		return {
+			openedByAgent: tab.autoClosable === true,
+			stored: typeof tab.sessionPath === "string",
+			idle: session.state !== null && session.state.isStreaming !== true,
+			settled: session.state?.isSettled !== false,
+			answered: (session.last ?? "").trim() !== "",
+			ended: tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted" ? "failed" : "ok",
+			branch,
+			looked: tab.looked === true,
+			userTouched: tab.userTouched === true,
+			collected: openerIdle || this.#collected.has(tab.tabId),
+		};
+	}
+
+	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
+		this.#closing.add(tab.tabId);
+		try {
+			this.#host.view(caller.tabId, { tabId: tab.tabId, how: "close", auto: true });
+			await this.#whenGone(caller.tabId, tab.tabId, AUTO_CLOSE_WAIT_MS);
+			// The window kept it (the person came to it meanwhile): nothing else changes.
+			if (this.#host.tabs(caller.tabId)?.some(entry => entry.tabId === tab.tabId)) return;
+			const removed =
+				removeWorktree && tab.worktree
+					? await this.#host.removeLandedWorktree(tab.worktree).catch(() => false)
+					: false;
+			this.#host.recordClosed({
+				path: tab.sessionPath as string,
+				openedBySession: caller.sessionPath as string,
+				title: tab.title || tab.task || "",
+				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
+				closedAt: Date.now(),
+			});
+		} finally {
+			this.#closing.delete(tab.tabId);
+		}
 	}
 
 	/** `ompdesk_schedule`: create, list or cancel the runs an agent put on the Schedules service. */

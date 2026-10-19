@@ -62,6 +62,7 @@ function setup(
 			startTab: vi.fn(() => null),
 			setTabTask: vi.fn(),
 			setTabOpener: openers,
+			hasDraft: () => false,
 		},
 		dispatch: async (_win, _sidecar, tabId, command) => {
 			commands.push({ tabId, command });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
+	type ClosedChild,
 	MAX_AGENT_AUTOPILOT_RUNS,
 	MAX_AGENT_SCHEDULES,
 	MAX_AGENT_SESSIONS,
@@ -16,7 +17,7 @@ import type {
 	RpcResponse,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
-import type { BranchFacts, MergeOutcome, WorktreeRef } from "./branches";
+import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef } from "./branches";
 import { AgentLimits } from "./limits";
 import {
 	AgentControl,
@@ -139,6 +140,18 @@ class FakeHost implements AgentControlHost {
 	};
 	discardWorktree = async (worktree: WorktreeRef) => {
 		this.discarded.push(worktree.branch);
+	};
+	landings = new Map<string, LandingFacts>();
+	removed: string[] = [];
+	closedRecords: ClosedChild[] = [];
+	landing = async (worktree: WorktreeRef): Promise<LandingFacts> =>
+		this.landings.get(worktree.branch) ?? { hasWork: false, landed: false, clean: true };
+	removeLandedWorktree = async (worktree: WorktreeRef) => {
+		this.removed.push(worktree.branch);
+		return true;
+	};
+	recordClosed = (child: ClosedChild) => {
+		this.closedRecords.push(child);
 	};
 	scheduleRows: ScheduleRow[] = [];
 	scheduleSource: ScheduleSource | null = {
@@ -1391,5 +1404,123 @@ describe("ompdesk_autopilot", () => {
 		host.manage = true;
 		await service.run("main0001", T.autopilot, { action: "start" });
 		expect(service.childrenOf("main0001")).toEqual(["apr10000"]);
+	});
+});
+
+describe("autoClose: opened sessions whose work landed", () => {
+	/** The caller opens one session; its tab then reads as a finished, agent-opened child with a stored file. */
+	async function finishedChild(options: { worktree?: boolean; patch?: Partial<FakeTab> } = {}) {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		const service = control(host);
+		await service.run("main0001", T.open, { message: "do it", ...(options.worktree ? { worktree: true } : {}) });
+		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+		Object.assign(child, {
+			busy: false,
+			title: "Fix the parser",
+			sessionPath: "/s/kid.jsonl",
+			autoClosable: true,
+			lastRun: { stopReason: "stop" },
+			last: "Done: parser fixed.",
+			...options.patch,
+		});
+		return { host, service, child };
+	}
+
+	const closes = (host: FakeHost) => host.views.filter(view => view.how === "close");
+
+	it("closes a finished session without a branch, records it under its opener and keeps the file", async () => {
+		const { host, service, child } = await finishedChild();
+		await service.autoClose("main0001");
+		expect(host.views).toContainEqual({ tabId: child.tabId, how: "close", auto: true });
+		expect(host.closedRecords).toEqual([
+			{
+				path: "/s/kid.jsonl",
+				openedBySession: "/s/boss.jsonl",
+				title: "Fix the parser",
+				cwd: "/repo",
+				closedAt: expect.any(Number),
+			},
+		]);
+		expect(host.deleted).toEqual([]);
+		expect(host.removed).toEqual([]);
+	});
+
+	it("waits while the opener runs until it has read the answer", async () => {
+		const { host, service, child } = await finishedChild();
+		const opener = host.tabsById.get("main0001") as FakeTab;
+		opener.busy = true;
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(0);
+		await service.run("main0001", T.result, { sessions: [child.tabId] });
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(1);
+	});
+
+	it("removes the worktree of a merged, clean branch and keeps a dirty one, never forcing either", async () => {
+		const merged = await finishedChild({ worktree: true });
+		merged.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+		await merged.service.autoClose("main0001");
+		expect(merged.host.removed).toEqual(["omp/agent/w"]);
+		expect(merged.host.closedRecords[0]?.cwd).toBe("/repo");
+		expect(merged.host.discarded).toEqual([]);
+
+		const dirty = await finishedChild({ worktree: true });
+		dirty.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: false });
+		await dirty.service.autoClose("main0001");
+		expect(closes(dirty.host)).toHaveLength(1);
+		expect(dirty.host.removed).toEqual([]);
+	});
+
+	it("keeps a session with unmerged commits or an error ending open", async () => {
+		const unmerged = await finishedChild({ worktree: true });
+		unmerged.host.landings.set("omp/agent/w", { hasWork: true, landed: false, clean: true });
+		await unmerged.service.autoClose("main0001");
+		expect(closes(unmerged.host)).toHaveLength(0);
+
+		for (const stopReason of ["error", "aborted"]) {
+			const failed = await finishedChild({ patch: { lastRun: { stopReason } } });
+			await failed.service.autoClose("main0001");
+			expect(closes(failed.host)).toHaveLength(0);
+		}
+	});
+
+	it("never closes a tab the person looks at or typed into, one still working, or one the person opened", async () => {
+		for (const patch of [
+			{ looked: true },
+			{ userTouched: true },
+			{ busy: true },
+			{ asks: [select("Allow tool: bash", ["Approve", "Deny"])] },
+			{ autoClosable: false },
+			{ hidden: true },
+			{ last: "" },
+		] satisfies Partial<FakeTab>[]) {
+			const { host, service } = await finishedChild({ patch });
+			await service.autoClose("main0001");
+			expect(closes(host), JSON.stringify(Object.keys(patch))).toHaveLength(0);
+		}
+		// A tab the caller never opened is no child, whatever its facts say.
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{
+				tabId: "user0002",
+				sessionPath: "/s/u.jsonl",
+				autoClosable: true,
+				lastRun: { stopReason: "stop" },
+				last: "x",
+			},
+		);
+		await control(host).autoClose("main0001");
+		expect(closes(host)).toHaveLength(0);
+	});
+
+	it("leaves everything as it was when the window keeps the tab open", async () => {
+		const { host, service } = await finishedChild({ worktree: true });
+		host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+		host.view = (_caller, event) => {
+			host.views.push(event);
+		};
+		await service.autoClose("main0001");
+		expect(host.closedRecords).toEqual([]);
+		expect(host.removed).toEqual([]);
 	});
 });

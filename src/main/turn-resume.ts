@@ -79,6 +79,9 @@ export interface ResumeFact {
 	touched?: number;
 	/** The run's prompt while the new session has no file yet (see {@link ResumeMarker.prompt}). */
 	unsavedPrompt?: string;
+	/** The tab whose agent opened this one (`ompdesk_session_open`), and that opener's session file. */
+	openedBy?: string;
+	openedBySession?: string;
 }
 
 /**
@@ -315,6 +318,17 @@ export interface ResumeDeps {
 }
 
 export type ResumeLogDetails = Record<string, string | number | boolean>;
+
+/**
+ * Sessions this tab's agent opened that run now (they are children of it like its subagents, and continue on their
+ * own marker): the resume's log says how many stand beside the tab it continues.
+ */
+export function openedRunning(facts: readonly ResumeFact[], tabId: string): number {
+	const file = facts.find(fact => fact.tabId === tabId)?.sessionFile;
+	return facts.filter(
+		fact => fact.running && (fact.openedBy === tabId || (file !== undefined && fact.openedBySession === file)),
+	).length;
+}
 
 /** What stock's `restore_interrupted` found, in a word: the cut-off turn, what it revived, or nothing. */
 function restoreSummary(data: Record<string, unknown> | undefined): string {
@@ -740,6 +754,7 @@ export class TurnResume {
 				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
 			}
 		}
+		const opened = openedRunning(this.#deps.pool.resumeFacts(), tabId);
 		this.#deps.log?.("continue", {
 			tab: tabId,
 			action,
@@ -749,6 +764,7 @@ export class TurnResume {
 			goal: goalResumed,
 			started,
 			...(restored?.followUp === true ? { followUp: true } : {}),
+			...(opened > 0 ? { opened } : {}),
 			...failures,
 			...(cancelled() ? { cancelled: true } : {}),
 		});

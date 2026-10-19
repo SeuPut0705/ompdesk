@@ -16,6 +16,7 @@ import type {
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
+	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APP,
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
@@ -31,6 +32,9 @@ import {
 	type AgentReviewResult,
 	agentControlEnabled,
 	agentHiddenPaths,
+	type ClosedChild,
+	MAX_CLOSED_CHILDREN,
+	parseClosedChildren,
 } from "../../shared/agent-control";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabWorktree } from "../../shared/ipc-types";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
@@ -49,7 +53,7 @@ import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
-import { branchFacts, discardWorktree, mergeBranch } from "./branches";
+import { branchFacts, discardWorktree, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
 import { AgentLimits } from "./limits";
 import {
 	AgentControl,
@@ -69,6 +73,10 @@ const CARD_TIMEOUT_MS = 10 * 60_000;
 const WORKTREE_PREFIX = "omp/agent/";
 /** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
 const REVIEW_SETTLE_MS = 400;
+/** A burst of tab activity becomes one auto-close pass after this. */
+const SWEEP_SETTLE_MS = 1_000;
+/** Opened sessions are looked at this often even without activity (a merge or push elsewhere moves no tab). */
+const SWEEP_INTERVAL_MS = 10_000;
 
 export interface AgentControlHostDeps {
 	pool: Pick<
@@ -82,6 +90,7 @@ export interface AgentControlHostDeps {
 		| "startTab"
 		| "setTabTask"
 		| "setTabOpener"
+		| "hasDraft"
 	>;
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -92,7 +101,8 @@ export interface AgentControlHostDeps {
 		timeoutMs?: number,
 	) => Promise<RpcResponse>;
 	spawnTab: (win: ClientWindow, payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>;
-	prefs: { get(key: string): unknown };
+	/** `set`/`changed` persist a list main owns (closed opened sessions) and tell every window; absent where there is no store. */
+	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void; changed?(key: string): void };
 	/** A paired host's display name for a deviceId. */
 	deviceName: (deviceId: string) => string;
 	/** An OS notification; a click opens the tab. */
@@ -100,6 +110,8 @@ export interface AgentControlHostDeps {
 	/** Close a session's tab and delete its saved file (the sidebar's delete). */
 	deleteSession: (sessionPath: string, device: string | undefined) => Promise<void>;
 	text: AgentControlHost["text"];
+	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
+	sweepMs?: number;
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
@@ -145,26 +157,83 @@ export class AgentControlRuntime {
 	readonly control: AgentControl;
 	/** Debounce timers of the review pushes, per parent tab. */
 	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
+	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
+	readonly #userPrompted = new Set<string>();
+	/** When each tab's current turn started. */
+	readonly #busySince = new Map<string, number>();
+	/** Run tabs `ompdesk_autopilot` started: they end with their run, not with the rules for opened sessions. */
+	readonly #autopilotRuns = new Set<string>();
+	/** Debounce timers of the auto-close passes, per opener tab. */
+	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
 
 	constructor(deps: AgentControlHostDeps, limits: AgentLimits = new AgentLimits()) {
 		this.#deps = deps;
 		this.control = new AgentControl(this.#host(), limits);
 		deps.pool.observeTabs(activity => {
-			if (activity.type === "busy") this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
+			if (activity.type === "busy") {
+				this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
+				this.#busySince.set(activity.tabId, Date.now());
+			} else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#parents.get(activity.tabId)?.callerTabId;
 			if (parent) this.#pushReview(parent);
+			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.
+			this.#sweepSoon(parent ?? activity.tabId);
 			if (activity.type === "released") {
 				this.#turns.delete(activity.tabId);
 				this.#windows.delete(activity.tabId);
 				this.#parents.delete(activity.tabId);
+				this.#busySince.delete(activity.tabId);
+				this.#userPrompted.delete(activity.tabId);
+				this.#autopilotRuns.delete(activity.tabId);
 				this.control.released(activity.tabId);
 			}
 		});
+		const every = deps.sweepMs ?? SWEEP_INTERVAL_MS;
+		if (every > 0) setInterval(() => this.#sweepAll(), every).unref();
 	}
 
 	/** The tab Autopilot (or anyone) opened this one for, if the control tools opened it. */
 	parentOf(tabId: string): { callerTabId: string; tag?: string } | undefined {
 		return this.#parents.get(tabId);
+	}
+
+	/** A person (not an agent) sent `tabId` a prompt: its session never closes by itself again. */
+	noteUserPrompt(tabId: string): void {
+		if (this.#parents.has(tabId)) this.#userPrompted.add(tabId);
+	}
+
+	/** Opened by the control tools' `ompdesk_session_open` (not Autopilot's child or run, not the person). */
+	#autoClosable(tabId: string): boolean {
+		const parent = this.#parents.get(tabId);
+		return parent !== undefined && parent.tag === undefined && !this.#autopilotRuns.has(tabId);
+	}
+
+	/** Look for sessions to close shortly (one pass absorbs a burst of activity). */
+	#sweepSoon(tabId: string): void {
+		if (this.#sweepTimers.has(tabId)) return;
+		const timer = setTimeout(() => {
+			this.#sweepTimers.delete(tabId);
+			void this.control.autoClose(tabId).catch(() => undefined);
+		}, SWEEP_SETTLE_MS);
+		timer.unref();
+		this.#sweepTimers.set(tabId, timer);
+	}
+
+	/** Every opener with children, on the timer: a merge or push outside the app is no tab activity. */
+	#sweepAll(): void {
+		const openers = new Set<string>();
+		for (const [childId, parent] of this.#parents) if (this.#autoClosable(childId)) openers.add(parent.callerTabId);
+		for (const opener of openers) this.#sweepSoon(opener);
+	}
+
+	/** The closed-children list main keeps (`ClosedChild`), newest last; the child's own record is replaced. */
+	#recordClosed(child: ClosedChild): void {
+		const { prefs } = this.#deps;
+		if (!prefs.set) return;
+		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF)).filter(row => row.path !== child.path);
+		rows.push(child);
+		prefs.set(AGENT_CLOSED_CHILDREN_PREF, rows.slice(-MAX_CLOSED_CHILDREN));
+		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
 	}
 
 	/** Execute one control host-tool call made by `callerTabId`'s main agent. */
@@ -176,8 +245,10 @@ export class AgentControlRuntime {
 			tool === "ompdesk_merge" ||
 			tool === "ompdesk_session_stop" ||
 			tool === "ompdesk_autopilot"
-		)
+		) {
 			this.#pushReview(callerTabId);
+			this.#sweepSoon(callerTabId);
+		}
 		return outcome;
 	}
 
@@ -191,7 +262,10 @@ export class AgentControlRuntime {
 		this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
 		const result = await this.control.review(callerTabId, action, child);
-		if (action !== "list") this.#sendReview(callerTabId, result.items);
+		if (action !== "list") {
+			this.#sendReview(callerTabId, result.items);
+			this.#sweepSoon(callerTabId);
+		}
 		return result;
 	}
 
@@ -240,6 +314,13 @@ export class AgentControlRuntime {
 			asks,
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
 			...(info.worktree ? { worktree: info.worktree } : {}),
+			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
+			...(info.task ? { task: info.task } : {}),
+			...(info.lastRun ? { lastRun: info.lastRun } : {}),
+			autoClosable: this.#autoClosable(info.tabId),
+			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
+			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
+			...(this.#busySince.has(info.tabId) ? { busySince: this.#busySince.get(info.tabId) } : {}),
 		};
 	}
 
@@ -349,6 +430,7 @@ export class AgentControlRuntime {
 				// The run is the caller's child like a session it opened: family nesting, the review queue, stop without a card.
 				this.#windows.set(started.tabId, win);
 				this.#parents.set(started.tabId, { callerTabId });
+				this.#autopilotRuns.add(started.tabId);
 				deps.pool.setTabOpener(started.tabId, callerTabId);
 				return started;
 			},
@@ -425,6 +507,9 @@ export class AgentControlRuntime {
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
 			discardWorktree: worktree => discardWorktree(worktree),
+			landing: worktree => landingFacts(worktree),
+			removeLandedWorktree: worktree => removeLandedWorktree(worktree),
+			recordClosed: child => this.#recordClosed(child),
 			schedules: () => {
 				const service = deps.schedules?.();
 				if (!service) return null;

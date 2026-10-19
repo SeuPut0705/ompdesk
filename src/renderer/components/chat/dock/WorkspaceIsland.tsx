@@ -1,5 +1,6 @@
-import { Bot, SquareTerminal } from "lucide-react";
+import { Bot, GitBranch, SquareTerminal } from "lucide-react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -42,8 +43,11 @@ export function WorkspaceIsland() {
 	const openJobs = useUiStore(state => state.openJobs);
 	const shells = useBackgroundJobs().length;
 	const agents = working + waiting;
+	const opened = useOpenedChildren(tabId);
+	// Only sessions at work or waiting: a finished one folds away like a finished subagent.
+	const sessions = opened.counts.running + opened.counts.waiting;
 
-	if (agents === 0 && shells === 0) return null;
+	if (agents === 0 && shells === 0 && sessions === 0) return null;
 
 	return (
 		<section
@@ -78,6 +82,32 @@ export function WorkspaceIsland() {
 							data-island-needs-you
 						>
 							{t("dock.island.needsYou", { count: needsYou })}
+						</span>
+					)}
+				</button>
+			)}
+			{sessions > 0 && (
+				<button
+					className={SEGMENT}
+					data-island-segment="sessions"
+					onClick={() => tabId && revealSidebarSubagents(tabId)}
+					title={t("dock.island.sessionsOpen")}
+					type="button"
+				>
+					<GitBranch aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
+					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.sessions")}</span>
+					{opened.counts.running > 0 && (
+						<span className="flex shrink-0 items-center gap-1 tabular-nums">
+							<span aria-hidden className="omp-pulse-dot size-1.5 rounded-full bg-(--sc-info)" />
+							{t("dock.island.working", { count: opened.counts.running })}
+						</span>
+					)}
+					{opened.counts.waiting > 0 && (
+						<span
+							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning)"
+							data-island-sessions-need-you
+						>
+							{t("dock.island.needsYou", { count: opened.counts.waiting })}
 						</span>
 					)}
 				</button>

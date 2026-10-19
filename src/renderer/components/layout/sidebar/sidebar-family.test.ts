@@ -7,10 +7,13 @@ import {
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import {
 	buildSubagentFamilyRows,
+	CHILD_TOKEN,
+	type ChildFacts,
 	type FamilySession,
 	type FamilyTab,
 	familyCounts,
 	isFoldedSubagent,
+	openedChildStatus,
 	openerOfSessions,
 	subagentFamilyState,
 } from "./sidebar-family";
@@ -164,5 +167,62 @@ describe("the Title: prefix of a task", () => {
 		expect(assignmentHeadline(long)).toBe("a".repeat(130));
 		expect(assignmentHeadline("  \n ")).toBeUndefined();
 		expect(assignmentHeadline(undefined)).toBeUndefined();
+	});
+});
+
+describe("openedChildStatus: one status per opened session", () => {
+	const idle: ChildFacts = { waiting: false, running: false, finished: false, failed: false, unmerged: false };
+	const status = (patch: Partial<ChildFacts>) => openedChildStatus({ ...idle, ...patch });
+
+	it("reads running, waiting, done and problem, and nothing for a session that has not run", () => {
+		expect(status({})).toBeNull();
+		expect(status({ running: true })).toBe("running");
+		expect(status({ waiting: true, running: true })).toBe("waiting");
+		expect(status({ finished: true })).toBe("done");
+	});
+
+	it("keeps a finished session that failed or left unmerged work a problem, never folded as done", () => {
+		expect(status({ finished: true, failed: true })).toBe("problem");
+		expect(status({ finished: true, unmerged: true })).toBe("problem");
+		// Unmerged work of a session still at work is not a verdict yet.
+		expect(status({ running: true, unmerged: true })).toBe("running");
+		expect(status({ unmerged: true })).toBeNull();
+	});
+
+	it("shows each status as its token: a problem is the failed mark", () => {
+		expect(CHILD_TOKEN).toEqual({ running: "running", waiting: "waiting", done: "done", problem: "failed" });
+	});
+});
+
+describe("openerOfSessions: opened sessions main closed", () => {
+	const sessions = [session("/s/boss"), session("/s/a"), session("/s/b"), session("/s/other")];
+
+	it("nests a session with no tab under the opener its closed record names, whatever its folder", () => {
+		const tabs: FamilyTab[] = [{ id: "t1", sessionPath: "/s/boss" }];
+		const closed = new Map([["/s/a", "/s/boss"]]);
+		expect([...openerOfSessions(tabs, sessions, closed)]).toEqual([["/s/a", "/s/boss"]]);
+	});
+
+	it("keeps it there when the person reopens it in a tab of their own, and ignores a record whose opener is gone", () => {
+		const tabs: FamilyTab[] = [
+			{ id: "t1", sessionPath: "/s/boss" },
+			{ id: "t2", sessionPath: "/s/a" },
+		];
+		const closed = new Map([
+			["/s/a", "/s/boss"],
+			["/s/b", "/s/vanished"],
+		]);
+		const roots = openerOfSessions(tabs, sessions, closed);
+		expect(roots.get("/s/a")).toBe("/s/boss");
+		expect(roots.has("/s/b")).toBe(false);
+	});
+
+	it("lets a live tab's own opener win over a record", () => {
+		const tabs: FamilyTab[] = [
+			{ id: "t1", sessionPath: "/s/boss" },
+			{ id: "t2", sessionPath: "/s/other" },
+			{ id: "t3", sessionPath: "/s/a", openedBy: "t2" },
+		];
+		expect(openerOfSessions(tabs, sessions, new Map([["/s/a", "/s/boss"]])).get("/s/a")).toBe("/s/other");
 	});
 });

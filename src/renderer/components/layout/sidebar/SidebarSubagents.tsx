@@ -58,6 +58,7 @@ import {
 import { FamilyRow, type FamilyRowProps } from "./SidebarFamilyRow";
 import {
 	buildSubagentFamilyRows,
+	type ChildStatus,
 	countLiveSubagents,
 	type FamilyCounts,
 	type FamilyState,
@@ -71,7 +72,9 @@ export interface FamilyOpened {
 	key: string;
 	/** A session in a worktree of its own, or a plain one. */
 	kind: "worktree" | "session";
-	/** Null: merely open, no token. */
+	/** What the session is (`openedChildStatus`): "done" folds into the "n done" row; null while it has not run. */
+	status: ChildStatus | null;
+	/** The status as the token the row shows. */
 	state: FamilyState | null;
 	stateLabel: string;
 	title: string;
@@ -479,8 +482,13 @@ function FamilyGroup({
 		: rows
 				.filter(row => subagentFamilyState(row.agent.status) === "waiting")
 				.map(row => ({ ...row, depth: 0 as const }));
-	const shownOpened = expanded ? opened : opened.filter(child => child.state === "waiting");
+	// A finished opened session folds with the finished subagents; a problem stays a row (see `openedChildStatus`).
+	const doneOpened = expanded ? opened.filter(child => child.status === "done") : [];
+	const shownOpened = expanded
+		? opened.filter(child => child.status !== "done")
+		: opened.filter(child => child.status === "waiting");
 	const shownDone = expanded ? done : [];
+	const doneCount = shownDone.length + doneOpened.length;
 	const surfaced = !expanded && shownRows.length + shownOpened.length > 0;
 
 	// The transcript stays open when its agent finishes;
@@ -537,6 +545,26 @@ function FamilyGroup({
 			tabId={tabId}
 		/>
 	);
+	const openedRow = (child: FamilyOpened) =>
+		child.renaming ? (
+			<div key={child.key}>{child.renaming}</div>
+		) : (
+			<FamilyRow
+				age={child.age}
+				buttonProps={child.buttonProps}
+				indent={INDENT[nested ? "nested" : "top"][0]}
+				key={child.key}
+				kind={child.kind}
+				kindLabel={t(child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session")}
+				onOpen={child.onOpen}
+				rowProps={child.rowProps}
+				selected={child.selected}
+				state={child.state}
+				stateLabel={child.stateLabel}
+				title={child.title}
+				tooltip={child.tooltip}
+			/>
+		);
 
 	return (
 		<>
@@ -552,39 +580,18 @@ function FamilyGroup({
 				>
 					<Connector depth={0} nested={nested} />
 					{shownRows.map(row => agentRow(row.agent, row.depth))}
-					{shownOpened.map(child =>
-						child.renaming ? (
-							<div key={child.key}>{child.renaming}</div>
-						) : (
-							<FamilyRow
-								age={child.age}
-								buttonProps={child.buttonProps}
-								indent={INDENT[nested ? "nested" : "top"][0]}
-								key={child.key}
-								kind={child.kind}
-								kindLabel={t(
-									child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session",
-								)}
-								onOpen={child.onOpen}
-								rowProps={child.rowProps}
-								selected={child.selected}
-								state={child.state}
-								stateLabel={child.stateLabel}
-								title={child.title}
-								tooltip={child.tooltip}
-							/>
-						),
-					)}
-					{shownDone.length > 0 && (
+					{shownOpened.map(openedRow)}
+					{doneCount > 0 && (
 						<>
 							<DoneFold
-								count={shownDone.length}
+								count={doneCount}
 								nested={nested}
 								onToggle={() => setDoneOpen(open => !open)}
 								open={doneOpen}
 								sessionKey={sessionKey}
 							/>
 							{doneOpen && shownDone.map(agent => agentRow(agent, 0))}
+							{doneOpen && doneOpened.map(openedRow)}
 						</>
 					)}
 				</div>

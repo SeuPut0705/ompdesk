@@ -13,6 +13,43 @@ export type FamilyKind = "subagent" | "worktree" | "session";
 /** One status token for every kind of child: running pulse, waiting ⚠, done ✓, failed ✕, or paused/nothing. */
 export type FamilyState = "running" | "waiting" | "done" | "failed" | "idle";
 
+/** What an opened session is, as ONE status: the row's token, the fold rule and the chip's counts all read it. */
+export type ChildStatus = "running" | "waiting" | "done" | "problem";
+
+/** The facts a status is derived from (the sidebar reads them off the tab, the session list and the review queue). */
+export interface ChildFacts {
+	/** A question or approval waits for the person. */
+	waiting: boolean;
+	/** A turn, a background task or a subagent runs. */
+	running: boolean;
+	/** It has finished a turn with an answer (or is a stored session whose work is done). */
+	finished: boolean;
+	/** Its last turn ended in an error or was stopped. */
+	failed: boolean;
+	/** Its branch holds commits nothing merged, or uncommitted work. */
+	unmerged: boolean;
+}
+
+/** First rule that holds wins. A session that has not run (merely open) has no status. */
+const CHILD_STATUS_RULES: ReadonlyArray<readonly [when: (facts: ChildFacts) => boolean, status: ChildStatus]> = [
+	[facts => facts.waiting, "waiting"],
+	[facts => facts.running, "running"],
+	[facts => facts.finished && (facts.failed || facts.unmerged), "problem"],
+	[facts => facts.finished, "done"],
+];
+
+export function openedChildStatus(facts: ChildFacts): ChildStatus | null {
+	return CHILD_STATUS_RULES.find(([when]) => when(facts))?.[1] ?? null;
+}
+
+/** The token each status shows: a problem is the failed ✕ (an error ending, or work that has not landed). */
+export const CHILD_TOKEN: Readonly<Record<ChildStatus, FamilyState>> = {
+	running: "running",
+	waiting: "waiting",
+	done: "done",
+	problem: "failed",
+};
+
 /** A subagent's status as the one token a row shows. `stale` (registered, no turn) needs a look like a wait does. */
 export function subagentFamilyState(status: string): FamilyState {
 	switch (status) {
@@ -165,7 +202,11 @@ export interface FamilySession {
  * goes under the first of them, so the family is one level deep. A session whose opener is not in the list (closed, or
  * in another lane) is not nested, and a cycle nests nothing.
  */
-export function openerOfSessions(tabs: readonly FamilyTab[], sessions: readonly FamilySession[]): Map<string, string> {
+export function openerOfSessions(
+	tabs: readonly FamilyTab[],
+	sessions: readonly FamilySession[],
+	closedOpeners: ReadonlyMap<string, string> = new Map(),
+): Map<string, string> {
 	const tabOf = (session: FamilySession): FamilyTab | undefined =>
 		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
 		tabs.find(tab => tab.sessionPath !== undefined && tab.sessionPath === session.path) ??
@@ -184,6 +225,14 @@ export function openerOfSessions(tabs: readonly FamilyTab[], sessions: readonly 
 			(tab.openedBySession ? tabs.find(entry => entry.sessionPath === tab.openedBySession) : undefined);
 		const parent = opener && opener.id !== tab.id ? sessionOf.get(opener.id) : undefined;
 		if (parent && parent.path !== child.path) direct.set(child.path, parent.path);
+	}
+	// A session main closed after its work landed has no tab (or a new one, opened by the person from the "done" row):
+	// the record names the opener's file.
+	const known = new Set(sessions.map(session => session.path));
+	for (const session of sessions) {
+		const opener = closedOpeners.get(session.path);
+		if (opener && opener !== session.path && !direct.has(session.path) && known.has(opener))
+			direct.set(session.path, opener);
 	}
 	const roots = new Map<string, string>();
 	for (const child of direct.keys()) {

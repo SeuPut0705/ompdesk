@@ -1,0 +1,36 @@
+import { useEffect, useMemo } from "react";
+import {
+	type OpenedChildCounts,
+	type OpenedChildRow,
+	openedChildCounts,
+	openedChildRows,
+} from "../components/layout/work-board/opened-children";
+import { ensureAgentReviewSubscription, useAgentReviewItems } from "../stores/agent-review";
+import { ensureClosedChildren, useClosedChildrenStore } from "../stores/closed-children";
+import { useTabsStore } from "../stores/tabs";
+
+const NONE: readonly OpenedChildRow[] = [];
+
+/**
+ * The sessions `tabId`'s agent opened, as rows (`openedChildRows`). Reads the stores the sidebar already fills (tabs,
+ * the review queue main pushes on every child's activity, the closed list); nothing polls.
+ */
+export function useOpenedChildren(tabId: string | null): {
+	rows: readonly OpenedChildRow[];
+	counts: OpenedChildCounts;
+} {
+	const tabs = useTabsStore(state => state.tabs);
+	const review = useAgentReviewItems(tabId);
+	const closed = useClosedChildrenStore(state => state.rows);
+	useEffect(() => {
+		ensureAgentReviewSubscription();
+		ensureClosedChildren();
+	}, []);
+	return useMemo(() => {
+		const parent = tabId ? tabs.find(tab => tab.id === tabId) : undefined;
+		const rows = parent
+			? openedChildRows({ parent, tabs, review: new Map(review.map(item => [item.tabId, item])), closed })
+			: NONE;
+		return { rows, counts: openedChildCounts(rows) };
+	}, [tabId, tabs, review, closed]);
+}

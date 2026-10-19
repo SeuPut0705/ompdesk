@@ -75,9 +75,13 @@ function seed(agents: SubagentSnapshot[], owners: Record<string, string> = {}): 
 	});
 }
 
+const STATUS_OF_STATE = { running: "running", waiting: "waiting", done: "done", failed: "problem" } as const;
+
 function opened(overrides: Partial<FamilyOpened> & { key: string }): FamilyOpened {
+	const state = overrides.state ?? null;
 	return {
 		kind: "worktree",
+		status: state && state in STATUS_OF_STATE ? STATUS_OF_STATE[state as keyof typeof STATUS_OF_STATE] : null,
 		state: null,
 		stateLabel: "",
 		title: overrides.key,
@@ -651,6 +655,35 @@ describe("a session's family: finished subagents", () => {
 		expect(doneFold()?.getAttribute("aria-expanded")).toBe("true");
 		await click(doneFold());
 		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4"]);
+	});
+
+	it("folds finished opened sessions into the same 'n done' row as finished subagents; running, waiting and problem ones stay rows", async () => {
+		seed([snap({ id: "d1", index: 1, status: "completed" }), snap({ id: "r1", index: 2, status: "running" })]);
+		const onOpen = vi.fn();
+		const children = [
+			opened({ key: "/wt/run.jsonl", title: "Running one", state: "running" }),
+			opened({ key: "/wt/wait.jsonl", title: "Waiting one", state: "waiting" }),
+			opened({ key: "/wt/bad.jsonl", title: "Problem one", state: "failed" }),
+			opened({ key: "/wt/done1.jsonl", title: "Done one", state: "done", onOpen }),
+			opened({ key: "/wt/done2.jsonl", kind: "session", title: "Done two", state: "done" }),
+			opened({ key: "/wt/idle.jsonl", title: "Not started", state: null }),
+		];
+		await mount(<Session kids={children} />);
+		const visible = () =>
+			Array.from(document.querySelectorAll("[data-sidebar-opened-session]")).map(element =>
+				element.getAttribute("data-session-path"),
+			);
+		expect(visible()).toEqual(["/wt/run.jsonl", "/wt/wait.jsonl", "/wt/bad.jsonl", "/wt/idle.jsonl"]);
+		expect(openedRow("/wt/bad.jsonl").querySelector('[data-family-status="failed"]')).not.toBeNull();
+		// One subagent and two sessions finished: one row, one count.
+		expect(doneFold()?.textContent).toBe(translate("sidebar.family.done", { count: 3 }));
+
+		await click(doneFold());
+		expect(rowIds()).toEqual(["r1", "d1"]);
+		expect(visible().slice(-2)).toEqual(["/wt/done1.jsonl", "/wt/done2.jsonl"]);
+		expect(openedRow("/wt/done1.jsonl").querySelector('[data-family-status="done"]')).not.toBeNull();
+		await click(openedRow("/wt/done1.jsonl").querySelector("button"));
+		expect(onOpen).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps the transcript sheet of an opened subagent when it finishes", async () => {

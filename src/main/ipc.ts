@@ -30,7 +30,7 @@ import {
 	type PromptOriginLabel,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
-import { AGENT_CONTROL_PREF, isAgentControlTool } from "../shared/agent-control";
+import { AGENT_CONTROL_PREF, isAgentControlTool, parseAgentMessage } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -627,6 +627,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
+		// A person's own prompt (an agent's is wrapped) means the session is theirs now: it never closes by itself.
+		if (
+			issuerTabId &&
+			(cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up") &&
+			parseAgentMessage(cmd.message) === null
+		)
+			agentControl.noteUserPrompt(issuerTabId);
 		// The work board's review queue (src/main/agent-control): answered here, never sent to omp.
 		if (cmd.type === "agent_control_review") {
 			if (!issuerTabId)
@@ -876,7 +883,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				win,
 				payload,
 			),
-		prefs: { get: key => prefsStore.get(key) },
+		prefs: {
+			get: key => prefsStore.get(key),
+			set: (key, value) => prefsStore.set(key, value),
+			changed: key => prefChanged(null, key),
+		},
+		sweepMs: process.env.OMP_GUI_TEST_AGENT_SWEEP_MS ? Number(process.env.OMP_GUI_TEST_AGENT_SWEEP_MS) : undefined,
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });

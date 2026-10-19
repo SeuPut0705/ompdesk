@@ -98,6 +98,68 @@ export async function branchFacts(worktree: WorktreeRef): Promise<BranchFacts> {
 	};
 }
 
+export interface LandingFacts {
+	/** The branch has a commit of its own (its tip is not where it was created); an untouched branch has nothing to land. */
+	hasWork: boolean;
+	/** Its tip is in the parent checkout's HEAD or in the remote's default branch (merged here, pushed or merged there). */
+	landed: boolean;
+	/** No uncommitted or untracked file in the worktree: removing it loses nothing. */
+	clean: boolean;
+}
+
+/** The remote's default branch as last fetched (`refs/remotes/origin/HEAD`), or null without a remote. */
+async function remoteDefault(cwd: string): Promise<string | null> {
+	const result = await gitRaw(cwd, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
+	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
+}
+
+/**
+ * Whether a child's work has landed: its branch tip is an ancestor of the parent's HEAD (a local merge, a
+ * fast-forward, a rebase that kept the tip) or of `origin`'s default branch (pushed to main, or merged there), and
+ * whether the worktree is clean. An untouched branch is trivially an ancestor, so `hasWork` compares the tip with the
+ * commit the branch was created at (its oldest reflog entry); without a reflog nothing counts as work.
+ */
+export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
+	const tipResult = await gitRaw(worktree.baseCwd, ["rev-parse", "--verify", "-q", `refs/heads/${worktree.branch}`]);
+	if (tipResult.code !== 0) return { hasWork: false, landed: false, clean: false };
+	const tip = tipResult.stdout.toString("utf8").trim();
+	const upstream = await remoteDefault(worktree.baseCwd);
+	const [head, remote, reflog, own] = await Promise.all([
+		gitRaw(worktree.baseCwd, ["merge-base", "--is-ancestor", tip, "HEAD"]),
+		upstream ? gitRaw(worktree.baseCwd, ["merge-base", "--is-ancestor", tip, upstream]) : null,
+		gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", `refs/heads/${worktree.branch}`]),
+		dirtiness(worktree.path).catch(() => null),
+	]);
+	const created = reflog.stdout.toString("utf8").split("\n").filter(Boolean).at(-1);
+	return {
+		hasWork: created !== undefined && created !== tip,
+		landed: head.code === 0 || remote?.code === 0,
+		clean: own !== null && own.tracked === 0 && own.untracked === 0,
+	};
+}
+
+/**
+ * Remove the worktree of a session whose work landed, and its branch, losing nothing: only a registered linked
+ * worktree whose branch is landed and whose files are clean goes (`worktree remove` without `--force` refuses a
+ * dirty one too), and the branch only with `branch -d`, which refuses an unmerged one. A branch `-d` keeps is left alone.
+ * Returns false when anything held it back.
+ */
+export async function removeLandedWorktree(worktree: WorktreeRef): Promise<boolean> {
+	const facts = await landingFacts(worktree);
+	if (!facts.hasWork || !facts.landed || !facts.clean) return false;
+	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
+		.split("\n")
+		.filter(line => line.startsWith("worktree "))
+		.map(line => line.slice("worktree ".length));
+	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
+	const wanted = await realpath(worktree.path).catch(() => worktree.path);
+	if (!linked.includes(wanted)) return false;
+	const removed = await gitRaw(primary ?? worktree.baseCwd, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
+	if (removed.code !== 0) return false;
+	await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
+	return true;
+}
+
 /** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */
 export function mergeProblem(worktree: WorktreeRef, facts: BranchFacts): string | null {
 	if (!facts.baseBranch)

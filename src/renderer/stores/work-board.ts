@@ -1,7 +1,16 @@
 import { create } from "zustand";
 
 /** The work board's sections, in the order it lists them. */
-export type WorkBoardSectionId = "autopilot" | "waiting" | "review" | "turn" | "running" | "todos" | "goal" | "last";
+export type WorkBoardSectionId =
+	| "autopilot"
+	| "waiting"
+	| "review"
+	| "turn"
+	| "running"
+	| "opened"
+	| "todos"
+	| "goal"
+	| "last";
 
 const PREF = "workBoardCollapsed";
 
@@ -36,6 +45,7 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 				"review",
 				"turn",
 				"running",
+				"opened",
 				"todos",
 				"goal",
 				"last",

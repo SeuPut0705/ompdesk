@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest";
+import type { AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
+import type { SessionTab } from "../../../stores/tabs";
+import { openedChildCounts, openedChildRows } from "./opened-children";
+
+const tab = (id: string, extra: Partial<SessionTab> = {}): SessionTab => ({
+	id,
+	cwd: "/w",
+	status: "ready",
+	kind: "agent",
+	unreadDone: false,
+	...extra,
+});
+
+const review = (tabId: string, extra: Partial<AgentReviewItem> = {}): AgentReviewItem => ({
+	tabId,
+	title: "",
+	state: "needs-review",
+	commitsAhead: 0,
+	files: 0,
+	added: 0,
+	removed: 0,
+	uncommitted: 0,
+	answer: "",
+	...extra,
+});
+
+const parent = { id: "boss", sessionPath: "/s/boss.jsonl" };
+const stop = { stopReason: "stop" };
+
+describe("openedChildRows: the sessions an agent opened as children of its session", () => {
+	it("reads each child's status, step, clock and branch; waiting first, finished last", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("boss", { sessionPath: "/s/boss.jsonl" }),
+				tab("done", { openedBy: "boss", task: "Finished", lastRun: stop }),
+				tab("run", { openedBy: "boss", status: "running", task: "Running" }),
+				tab("ask", { openedBy: "boss", awaitingInput: "input", title: "Asking" }),
+				tab("bad", { openedBy: "boss", lastRun: { stopReason: "error" }, task: "Broken" }),
+				tab("elsewhere", { openedBy: "someone-else" }),
+			],
+			review: new Map([
+				["run", review("run", { state: "running", step: "running bash (vitest)", runningSince: 1000 })],
+			]),
+			closed: [],
+		});
+		expect(rows.map(row => [row.key, row.status])).toEqual([
+			["ask", "waiting"],
+			["bad", "problem"],
+			["run", "running"],
+			["done", "done"],
+		]);
+		const running = rows.find(row => row.key === "run");
+		expect(running).toMatchObject({ title: "Running", step: "running bash (vitest)", since: 1000 });
+	});
+
+	it("reads a branch's merge state: unmerged commits are a problem, a settled review is merged", () => {
+		const worktree = { name: "w", branch: "omp/agent/w", baseCwd: "/w", path: "/wt/w" };
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("a", { openedBy: "boss", lastRun: stop, worktree }),
+				tab("b", { openedBy: "boss", lastRun: stop, worktree }),
+			],
+			review: new Map([["a", review("a", { branch: "omp/agent/w", baseBranch: "main", commitsAhead: 2 })]]),
+			closed: [],
+		});
+		expect(rows.find(row => row.key === "a")).toMatchObject({
+			status: "problem",
+			merge: "unmerged",
+			branch: "omp/agent/w",
+			base: "main",
+		});
+		// No review item left: it was approved or accepted.
+		expect(rows.find(row => row.key === "b")).toMatchObject({ status: "done", merge: "merged" });
+	});
+
+	it("finds a child by the opener's session file after a relaunch, and adds the stored ones main closed", () => {
+		const closed: ClosedChild[] = [
+			{ path: "/s/landed.jsonl", openedBySession: "/s/boss.jsonl", title: "Landed", cwd: "/w", closedAt: 1 },
+			{ path: "/s/other.jsonl", openedBySession: "/s/someone.jsonl", title: "Not mine", cwd: "/w", closedAt: 2 },
+			{ path: "/s/reopened.jsonl", openedBySession: "/s/boss.jsonl", title: "Reopened", cwd: "/w", closedAt: 3 },
+		];
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("new-id", { openedBy: "old-id", openedBySession: "/s/boss.jsonl", task: "Restored" }),
+				tab("again", { sessionPath: "/s/reopened.jsonl", lastRun: stop }),
+			],
+			review: new Map(),
+			closed,
+		});
+		expect(rows.map(row => [row.key, row.tabId])).toEqual([
+			["new-id", "new-id"],
+			["/s/landed.jsonl", null],
+			["/s/reopened.jsonl", null],
+		]);
+		expect(rows.at(-1)).toMatchObject({ title: "Reopened", cwd: "/w", status: "done" });
+	});
+});
+
+describe("openedChildCounts", () => {
+	it("counts the live children by status and the stored ones apart", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("a", { openedBy: "boss", status: "running" }),
+				tab("b", { openedBy: "boss", status: "running" }),
+				tab("c", { openedBy: "boss", awaitingInput: "approval" }),
+				tab("d", { openedBy: "boss", lastRun: stop }),
+			],
+			review: new Map(),
+			closed: [{ path: "/s/x.jsonl", openedBySession: "/s/boss.jsonl", title: "", cwd: "", closedAt: 0 }],
+		});
+		expect(openedChildCounts(rows)).toEqual({ total: 4, running: 2, waiting: 1, done: 1, closed: 1 });
+	});
+});

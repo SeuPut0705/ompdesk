@@ -41,6 +41,7 @@ import type {
 	IpcSignIn,
 	IpcSpawnTabResult,
 	IpcTabInfo,
+	IpcTabRunOutcome,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
 	SessionInfo,
@@ -57,6 +58,7 @@ import {
 	supersedeTabHydration,
 } from "../hooks/use-rpc-events";
 import { maxSplitPanes } from "../hooks/use-shell-mode";
+import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
@@ -115,6 +117,8 @@ export interface SessionTab {
 	openedBy?: string;
 	/** That opener's session file, which finds it again after a relaunch gave every tab a new id. */
 	openedBySession?: string;
+	/** How its last finished turn ended (main's `lastRun`); what tells a finished opened session from a merely open one. */
+	lastRun?: IpcTabRunOutcome;
 	/** Main-owned transcript identity, available even before session_info_update. */
 	sessionPath?: string;
 	sessionId?: string;
@@ -261,6 +265,7 @@ function projectSessionTab(
 		task: info.task ?? previous?.task,
 		openedBy: info.openedBy ?? previous?.openedBy,
 		openedBySession: info.openedBySession ?? previous?.openedBySession,
+		lastRun: sessionChanged || info.status === "running" ? undefined : (info.lastRun ?? previous?.lastRun),
 		sessionPath: info.sessionPath === undefined ? previous?.sessionPath : (info.sessionPath ?? undefined),
 		sessionId: info.sessionId ?? (sessionChanged ? undefined : previous?.sessionId),
 		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
@@ -1128,13 +1133,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 	},
 
-	applyAgentView: async ({ tabId, how }) => {
+	applyAgentView: async ({ tabId, how, auto }) => {
 		// Main announces a tab it just spawned (TAB_LIST_CHANGED) and then asks to show it; the list may not
 		// have been applied yet, so an unknown tab is reconciled first. Still unknown afterwards: nothing to show.
 		if (!get().tabs.some(tab => tab.id === tabId)) await get().reconcileTabs();
 		const known = get().tabs.some(tab => tab.id === tabId);
 		if (!known || isTabClosed(tabId)) return;
 		if (how === "close") {
+			if (auto && autoCloseHeld(tabId, visibleTabIds(get()))) return;
 			await get().closeTab(tabId);
 			return;
 		}

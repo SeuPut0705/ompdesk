@@ -3,7 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
-import { BranchError, branchFacts, discardWorktree, mergeBranch, type WorktreeRef } from "./branches";
+import {
+	BranchError,
+	branchFacts,
+	discardWorktree,
+	landingFacts,
+	mergeBranch,
+	removeLandedWorktree,
+	type WorktreeRef,
+} from "./branches";
 
 let root: string;
 let repo: string;
@@ -121,5 +129,71 @@ describe("discardWorktree", () => {
 		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
 		await expect(discardWorktree({ path: repo, branch: "main", baseCwd: repo })).rejects.toBeInstanceOf(BranchError);
 		expect(gitSync(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+	});
+});
+
+describe("landingFacts", () => {
+	it("says an untouched branch has no work to land, however trivially it sits in the parent", async () => {
+		const wt = await agentWorktree("g");
+		expect(await landingFacts(wt)).toEqual({ hasWork: false, landed: true, clean: true });
+	});
+
+	it("tells commits nothing merged from commits that were, by a local merge", async () => {
+		const wt = await agentWorktree("h");
+		await commitIn(wt.path, "a.ts", "a\n");
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: false, clean: true });
+		await mergeBranch(wt, "Worker");
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: true, clean: true });
+	});
+
+	it("counts a branch pushed to the remote's default branch as landed, and reads untracked or edited files as unclean", async () => {
+		const remote = path.join(root, "remote.git");
+		gitSync(root, "init", "-q", "--bare", "-b", "main", remote);
+		gitSync(repo, "remote", "add", "origin", remote);
+		gitSync(repo, "push", "-q", "origin", "main");
+		gitSync(repo, "remote", "set-head", "origin", "main");
+		const wt = await agentWorktree("i");
+		await commitIn(wt.path, "b.ts", "b\n");
+		expect((await landingFacts(wt)).landed).toBe(false);
+		gitSync(wt.path, "push", "-q", remote, `${wt.branch}:main`);
+		gitSync(repo, "fetch", "-q", "origin");
+		// The parent's own branch has not moved: only the remote's default knows the commit.
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: true, clean: true });
+		await fs.writeFile(path.join(wt.path, "scratch.txt"), "x");
+		expect((await landingFacts(wt)).clean).toBe(false);
+		await fs.rm(path.join(wt.path, "scratch.txt"));
+		await fs.writeFile(path.join(wt.path, "README.md"), "edited\n");
+		expect((await landingFacts(wt)).clean).toBe(false);
+	});
+});
+
+describe("removeLandedWorktree", () => {
+	it("removes the worktree and deletes the merged branch without forcing", async () => {
+		const wt = await agentWorktree("j");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await mergeBranch(wt, "Worker");
+		expect(await removeLandedWorktree(wt)).toBe(true);
+		await expect(fs.stat(wt.path)).rejects.toThrow();
+		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
+	});
+
+	it("keeps everything for unmerged commits, uncommitted or untracked files, an untouched branch and a main checkout", async () => {
+		const unmerged = await agentWorktree("k");
+		await commitIn(unmerged.path, "a.ts", "a\n");
+		expect(await removeLandedWorktree(unmerged)).toBe(false);
+
+		const dirty = await agentWorktree("l");
+		await commitIn(dirty.path, "b.ts", "b\n");
+		await mergeBranch(dirty, "Worker");
+		await fs.writeFile(path.join(dirty.path, "scratch.txt"), "unsaved");
+		expect(await removeLandedWorktree(dirty)).toBe(false);
+		expect(await fs.readFile(path.join(dirty.path, "scratch.txt"), "utf8")).toBe("unsaved");
+		expect(gitSync(repo, "branch", "--list", dirty.branch)).toContain(dirty.branch);
+
+		const untouched = await agentWorktree("m");
+		expect(await removeLandedWorktree(untouched)).toBe(false);
+		await fs.stat(untouched.path);
+
+		expect(await removeLandedWorktree({ path: repo, branch: "main", baseCwd: repo })).toBe(false);
 	});
 });

@@ -67,9 +67,9 @@ let container: HTMLElement;
 let root: Root;
 let pane: HTMLElement;
 
-async function mount(): Promise<void> {
+async function mount(more: Array<Record<string, unknown>> = []): Promise<void> {
 	useTabsStore.setState({
-		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
+		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }, ...more] as never,
 		activeTabId: "t1",
 		bundles: new Map(),
 	});
@@ -125,12 +125,28 @@ describe("work board review queue", () => {
 		expect(buttons().map(entry => entry.textContent)).toEqual(["Review", "Approve", "Discard"]);
 	});
 
-	it("shows a running child as working with no buttons, and nothing at all without children", async () => {
+	it("keeps a running child out of the review queue, and a finished one with nothing to settle", async () => {
 		await mount();
 		expect(section()).toBeNull();
 		await act(async () => useAgentReviewStore.getState().apply({ tabId: "t1", items: [item({ state: "running" })] }));
-		expect(section()?.textContent).toContain("Working…");
-		expect(buttons()).toHaveLength(0);
+		expect(section()).toBeNull();
+		await act(async () =>
+			useAgentReviewStore.getState().apply({
+				tabId: "t1",
+				items: [item({ branch: undefined, baseBranch: undefined, commitsAhead: 0, uncommitted: 0 })],
+			}),
+		);
+		expect(section()).toBeNull();
+	});
+
+	it("lists a failed ending as an exception", async () => {
+		await mount();
+		await act(async () =>
+			useAgentReviewStore
+				.getState()
+				.apply({ tabId: "t1", items: [item({ branch: undefined, commitsAhead: 0, failed: true })] }),
+		);
+		expect(section()?.textContent).toContain("Alpha");
 	});
 
 	it("Approve sends the approve action for that child, and a merged outcome says so", async () => {
@@ -174,5 +190,77 @@ describe("work board review queue", () => {
 			useAgentReviewStore.getState().apply({ tabId: "t1", items: [item({ state: "conflict", note: "src/a.ts" })] }),
 		);
 		expect(section()?.textContent).toContain("Conflict in src/a.ts. Nothing was merged.");
+	});
+});
+
+describe("work board opened sessions", () => {
+	const opened = () => pane.querySelector('[data-board-section="opened"]');
+	const child = (id: string, extra: Record<string, unknown> = {}) => ({
+		id,
+		cwd: "/w",
+		status: "ready",
+		kind: "agent",
+		unreadDone: false,
+		openedBy: "t1",
+		...extra,
+	});
+
+	it("lists them beside the running agents as children: waiting first, each with its status, step and branch", async () => {
+		listed = [
+			item({ tabId: "c-run", state: "running", step: "running bash (vitest)", runningSince: Date.now() - 5_000 }),
+			item({ tabId: "c-merge", branch: "omp/agent/m", baseBranch: "main", commitsAhead: 1 }),
+		];
+		await mount([
+			child("c-done", { title: "Landed work", lastRun: { stopReason: "stop", text: "ok" } }),
+			child("c-run", { status: "running", task: "Run the suite" }),
+			child("c-ask", { title: "Needs an answer", awaitingInput: "input" }),
+			child("c-merge", {
+				title: "Unmerged work",
+				lastRun: { stopReason: "stop", text: "ok" },
+				worktree: { name: "m", branch: "omp/agent/m", baseCwd: "/w", path: "/wt/m" },
+			}),
+		]);
+		expect(opened()?.textContent).toContain("Opened sessions");
+		const rows = [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
+		expect(rows.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
+			["c-ask", "waiting"],
+			["c-merge", "problem"],
+			["c-run", "running"],
+			["c-done", "done"],
+		]);
+		expect(opened()?.getAttribute("data-tone")).toBe("warning");
+		expect(rows[2]?.textContent).toContain("Run the suite");
+		expect(rows[2]?.textContent).toContain("running bash (vitest)");
+		expect(rows[1]?.textContent).toContain("omp/agent/m → main");
+		expect(rows[1]?.textContent).toContain("Not merged");
+	});
+
+	it("shows four running opened sessions as four one-line rows named by their task, none under Needs review", async () => {
+		const tasks = ["Fix upload", "Port the parser", "Write docs", "Audit deps"];
+		// Main pushes each running child with the stored title still empty.
+		listed = tasks.map((_, index) => item({ tabId: `c${index}`, title: "", state: "running", step: "running bash" }));
+		await mount(tasks.map((task, index) => child(`c${index}`, { status: "running", task })));
+		expect(section()).toBeNull();
+		expect(pane.textContent).not.toContain("Needs review");
+		expect(pane.textContent).not.toContain("Untitled session");
+		const rows = [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
+		expect(rows.map(row => row.getAttribute("data-status"))).toEqual(["running", "running", "running", "running"]);
+		expect(rows.map(row => row.textContent)).toEqual(tasks.map(task => expect.stringContaining(task)));
+		for (const row of rows) expect(row.textContent).toContain("running bash");
+		expect(opened()?.textContent).toContain("4");
+	});
+
+	it("taps a row to show that session, and is absent without children", async () => {
+		const applyAgentView = vi.fn(async () => {});
+		useTabsStore.setState({ applyAgentView } as never);
+		await mount();
+		expect(opened()).toBeNull();
+		await act(async () => root.unmount());
+		container.remove();
+		await mount([child("c1", { title: "One", status: "running" })]);
+		await act(async () =>
+			(opened()?.querySelector("[data-board-opened]") as unknown as HTMLButtonElement | null)?.click(),
+		);
+		expect(applyAgentView).toHaveBeenCalledWith({ tabId: "c1", how: "focus" });
 	});
 });

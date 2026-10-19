@@ -18,6 +18,7 @@ import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, use
 import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { isDrawerMode, useShellMode } from "../../../hooks/use-shell-mode";
 import { saveGuiPreference } from "../../../lib/display-preferences";
@@ -49,8 +50,9 @@ import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panel
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
+import type { OpenedChildRow } from "./opened-children";
 import { WorkBoardChip } from "./WorkBoardChip";
-import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
+import { liveSubagents, needsReview, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
 const TURN_STEPS = 4;
@@ -437,6 +439,52 @@ function AgentRow({
 	);
 }
 
+/** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
+function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
+	const t = useT();
+	const title = row.title || t("workBoard.review.untitled");
+	const status = row.status;
+	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
+	const branch = row.branch ? t("workBoard.review.branch", { branch: row.branch, base: row.base ?? "—" }) : null;
+	const mergeNote = row.merge ? t(`workBoard.opened.merge.${row.merge}`) : null;
+	const note =
+		status === "running" && row.step
+			? row.step
+			: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
+	const open = () => {
+		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
+		else if (row.sessionPath)
+			void useTabsStore.getState().openTab({ cwd: row.cwd, sessionPath: row.sessionPath, kind: "agent" });
+	};
+	return (
+		<BoardRow
+			data={{ "data-board-opened": row.key, "data-status": status ?? "open" }}
+			label={title}
+			lead={
+				status === "done" ? (
+					<Check aria-hidden className="size-3 text-(--sc-success)" />
+				) : status === "problem" ? (
+					<X aria-hidden className="size-3 text-(--sc-danger)" />
+				) : (
+					<Dot
+						ring={status === null}
+						tone={status === "waiting" ? "warning" : status === "running" ? "info" : "muted"}
+					/>
+				)
+			}
+			meta={status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : undefined}
+			onClick={open}
+			sub={
+				<>
+					<span className="min-w-0 flex-1 truncate">{note}</span>
+					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
+				</>
+			}
+			title={`${title}\n${statusLabel}${branch ? `\n${branch}` : ""}`}
+		/>
+	);
+}
+
 function goalNote(
 	status: string | undefined,
 	t: (key: string, params?: Record<string, string | number>) => string,
@@ -455,7 +503,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
-	const review = useAgentReviewItems(tabId);
+	const allReview = useAgentReviewItems(tabId);
+	const review = useMemo(() => allReview.filter(needsReview), [allReview]);
 	useEffect(() => {
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
@@ -475,6 +524,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const subagents = useSubagentsStore(state => state.subagents);
 	const agents = useMemo(() => liveSubagents(subagents), [subagents]);
 	const jobs = useBackgroundJobs();
+	const opened = useOpenedChildren(tabId);
 
 	const phases = useTodoStore(state => state.phases);
 	const planVisible = useTodoStore(selectTodoCardVisible);
@@ -495,7 +545,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const planProposal = usePlanApprovalStore(state => state.pending);
 
 	const lastTurn = useLastTurn(turnActive, turnStartedAt);
-	const running = agents.length + jobs.length;
+	const running = agents.length + jobs.length + opened.counts.running;
 	const now = useNowTick(turnActive || running > 0);
 	const presentedAgents = usePresence(agents, agent => agent.id);
 	const presentedJobs = usePresence(jobs, job => job.id);
@@ -517,7 +567,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		plan !== null ||
 		goal !== null ||
 		showsLast ||
-		review.length > 0;
+		review.length > 0 ||
+		opened.rows.length > 0;
 	const showsRunning = running > 0;
 	const showsTodos = plan !== null;
 	useLayoutEffect(() => {
@@ -534,8 +585,12 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	}, [pane, present, inline, showsRunning, showsTodos]);
 	if (!present) return null;
 
-	const working = agents.filter(agent => !WAITING_AGENT[agent.status]).length + jobs.length + (turnActive ? 1 : 0);
-	const pulse = waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
+	const working =
+		agents.filter(agent => !WAITING_AGENT[agent.status]).length +
+		jobs.length +
+		opened.counts.running +
+		(turnActive ? 1 : 0);
+	const pulse = waiting > 0 || opened.counts.waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -699,6 +754,20 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							sub={t(`jobs.type.${job.type}`)}
 							title={job.label}
 						/>
+					))}
+				</BoardSection>
+			)}
+
+			{opened.rows.length > 0 && (
+				<BoardSection
+					aside={opened.counts.closed > 0 ? t("workBoard.opened.closed", { count: opened.counts.closed }) : null}
+					count={opened.rows.length}
+					id="opened"
+					title={t("workBoard.opened")}
+					tone={opened.counts.waiting > 0 ? "warning" : undefined}
+				>
+					{opened.rows.map(row => (
+						<OpenedRow key={row.key} now={now} row={row} />
 					))}
 				</BoardSection>
 			)}

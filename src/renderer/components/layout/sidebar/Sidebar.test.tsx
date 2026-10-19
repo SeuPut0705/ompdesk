@@ -20,6 +20,8 @@ import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mo
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useMessagesStore } from "../../../stores/messages";
 import { useProjectOrigins } from "../../../stores/project-origins";
@@ -267,6 +269,8 @@ afterEach(async () => {
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
+	useAgentReviewStore.getState().reset();
+	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
 	useUiStore.setState({
@@ -1655,12 +1659,15 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	 */
 	function mountFamily({
 		tabsExtra = [],
+		sessionsExtra = [],
 		open = true,
 	}: {
 		tabsExtra?: Array<Record<string, unknown>>;
+		sessionsExtra?: ReturnType<typeof session>[];
 		open?: boolean;
 	} = {}) {
 		const omp = installMockOmp([
+			...sessionsExtra,
 			session("/wt/a.jsonl", WT_A, {
 				title: null,
 				firstMessage: wrapAgentMessage("Title: OMPdesk 사이드바 정리\nDetails follow.", "휴대폰 테스트"),
@@ -1775,33 +1782,48 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		const group = boss.nextElementSibling;
 		expect(group?.getAttribute("data-sidebar-family")).toBe(BOSS);
 
+		// The two at work are rows; the finished ones fold into one "n done" row, like finished subagents.
 		const rows = familyRows();
-		expect(rows.length).toBe(4);
-		const titles = rows.map(row => row.querySelector("button")?.firstChild?.textContent);
-		// Oldest first: the two stored worktree sessions, the plain one, then the live tab the index has not listed.
+		expect(rows.length).toBe(2);
+		const fold = container.querySelector(`[data-family-done="${BOSS}"]`);
+		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
+		const titleOf = (row: { querySelector: Element["querySelector"] }) =>
+			row.querySelector("button")?.firstChild?.textContent;
+		// Oldest first: the stored worktree session, then the live tab the index has not listed.
 		// The Title: label never shows, whether the message was wrapped or not.
-		expect(titles).toEqual(["OMPdesk 사이드바 정리", "검토 대상 확인", "Plain helper", "Fix the flaky upload test"]);
+		expect(rows.map(titleOf)).toEqual(["OMPdesk 사이드바 정리", "Fix the flaky upload test"]);
 		expect(container.textContent).not.toContain("Title:");
 		for (const row of rows) {
 			// ONE line: a glyph, one button, a token and an age: the folder and the status are the tooltip.
 			expect(row.querySelectorAll("button").length).toBe(1);
 			expect(row.className).toContain("omp-family-row");
 		}
-		expect(rows.map(row => row.querySelector("[data-family-glyph]")?.getAttribute("data-family-glyph"))).toEqual([
-			"worktree",
-			"worktree",
-			"session",
-			"worktree",
-		]);
 		expect(rows[0]?.querySelector('[data-family-status="running"]')).not.toBeNull();
-		expect(rows[2]?.querySelector("[data-family-status]")).toBeNull();
 		expect(rows[0]?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.signal.running"));
 		// They join the roving list right after the boss, so arrow keys walk the family.
 		const roving = [...container.querySelectorAll("[data-roving-item]")].map(item =>
 			item.getAttribute("data-roving-item"),
 		);
 		const bossAt = roving.indexOf(`session:${BOSS}`);
-		expect(roving.slice(bossAt + 1, bossAt + 3)).toEqual(["session:/wt/a.jsonl", "session:/wt/b.jsonl"]);
+		expect(roving[bossAt + 1]).toBe("session:/wt/a.jsonl");
+
+		// The fold opens onto the finished ones, each with its done mark.
+		await fire(fold, "onClick");
+		const all = familyRows();
+		expect(all.map(titleOf)).toEqual([
+			"OMPdesk 사이드바 정리",
+			"Fix the flaky upload test",
+			"검토 대상 확인",
+			"Plain helper",
+		]);
+		expect(all.map(row => row.querySelector("[data-family-glyph]")?.getAttribute("data-family-glyph"))).toEqual([
+			"worktree",
+			"worktree",
+			"worktree",
+			"session",
+		]);
+		expect(all[2]?.querySelector('[data-family-status="done"]')).not.toBeNull();
+		expect(all[3]?.querySelector('[data-family-status="done"]')).not.toBeNull();
 	});
 
 	it("opens an opened session in its own tab on click", async () => {
@@ -1835,7 +1857,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			],
 		});
 		await mount(<Sidebar />);
-		expect(familyRows().length).toBe(4);
+		expect(familyRows().length).toBe(2);
 		const betaRows = [...container.querySelectorAll('[data-session-group="/work/beta"] .omp-sidebar-session-row')];
 		expect(betaRows.length).toBe(1);
 		expect(betaRows[0]?.textContent).toContain("Session /work/beta/three");
@@ -1850,17 +1872,135 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(useSidebarSubagentsStore.getState().expanded.has(BOSS)).toBe(false);
 
 		await fire(boss.querySelector("[data-sidebar-subagents-toggle]"), "onClick");
-		expect(familyRows().length).toBe(4);
+		expect(familyRows().length).toBe(2);
 		act(() => {
 			useTabsStore.setState(state => ({
-				tabs: state.tabs.map(tab => (tab.status === "running" ? { ...tab, status: "ready" } : tab)),
+				tabs: state.tabs.map(tab =>
+					tab.status === "running"
+						? { ...tab, status: "ready", lastRun: { stopReason: "stop", text: "ok" } }
+						: tab,
+				),
 			}));
 		});
 		await flush();
 		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
 		expect(boss.querySelector("[data-family-running]")).toBeNull();
-		// Opened by the person, so still open when the last one finishes.
-		expect(familyRows().length).toBe(4);
+		// Everything it opened is finished: all four fold into the "n done" row, and the family stays open as the person left it.
+		expect(familyRows().length).toBe(0);
+		expect(container.querySelector(`[data-family-done="${BOSS}"]`)?.textContent).toContain(
+			translate("sidebar.family.done", { count: 4 }),
+		);
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).not.toBeNull();
+	});
+
+	it("keeps a finished session that failed as a row with the failed mark, never in the done row", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		act(() => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab =>
+					tab.id === "ta" ? { ...tab, status: "ready", lastRun: { stopReason: "error", text: "boom" } } : tab,
+				),
+			}));
+		});
+		await flush();
+		const failed = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
+		expect(failed?.querySelector('[data-family-status="failed"]')).not.toBeNull();
+		expect(failed?.getAttribute("data-child-status")).toBe("problem");
+		expect(failed?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.row.failed"));
+	});
+
+	it("keeps a finished worktree session with unmerged commits as a row until it is merged", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		act(() => {
+			useAgentReviewStore.setState({
+				byTab: {
+					t1: [
+						{
+							tabId: "ta",
+							title: "x",
+							state: "needs-review",
+							branch: "omp/agent/agent-aaaaaa",
+							baseBranch: "main",
+							commitsAhead: 2,
+							files: 1,
+							added: 3,
+							removed: 0,
+							uncommitted: 0,
+							answer: "",
+						},
+					],
+				},
+			});
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab =>
+					tab.id === "ta" ? { ...tab, status: "ready", lastRun: { stopReason: "stop", text: "ok" } } : tab,
+				),
+			}));
+		});
+		await flush();
+		const row = familyRows().find(entry => entry.getAttribute("data-session-path") === "/wt/a.jsonl");
+		expect(row?.getAttribute("data-child-status")).toBe("problem");
+		expect(row?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.family.unmerged"));
+		// Merged (the review item is gone): it folds like any finished session.
+		act(() => useAgentReviewStore.setState({ byTab: { t1: [] } }));
+		await flush();
+		expect(familyRows().some(entry => entry.getAttribute("data-session-path") === "/wt/a.jsonl")).toBe(false);
+	});
+
+	it("lists a session main closed after its work landed in the done row, and opens it as a stored session", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		act(() => {
+			useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => tab.id !== "tb") }));
+			useClosedChildrenStore.setState({
+				rows: [
+					{ path: "/wt/b.jsonl", openedBySession: BOSS, title: "Landed task", cwd: "/work/alpha", closedAt: 1 },
+				],
+			});
+		});
+		await flush();
+		const fold = container.querySelector(`[data-family-done="${BOSS}"]`);
+		// The closed session and the plain helper (finished, stored) sit behind the fold.
+		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
+		expect(container.querySelector('[data-session-group="/work/alpha"]')?.textContent).not.toContain(
+			"검토 대상 확인",
+		);
+		await fire(fold, "onClick");
+		const closed = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/b.jsonl");
+		expect(closed?.querySelector("button")?.firstChild?.textContent).toBe("검토 대상 확인");
+		expect(closed?.querySelector('[data-family-status="done"]')).not.toBeNull();
+	});
+
+	it("reads an opened session as its task while the index lists it without a first message", async () => {
+		mountFamily({
+			sessionsExtra: [
+				session("/wt/c.jsonl", "/work/alpha", {
+					title: null,
+					firstMessage: "",
+					messageCount: 1,
+					created: "2026-02-03T00:00:00Z",
+					modified: "2026-02-03T00:00:00Z",
+				}),
+			],
+			tabsExtra: [
+				{
+					id: "tf",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/wt/c.jsonl",
+					task: "Rebuild the index",
+					openedBy: "t1",
+				},
+			],
+		});
+		await mount(<Sidebar />);
+		const titles = familyRows().map(row => row.querySelector("button")?.firstChild?.textContent);
+		expect(titles).toContain("Rebuild the index");
+		expect(container.textContent).not.toContain(translate("sidebar.untitled"));
 	});
 
 	it("shows the boss's row, with its family, when only something it opened matches the filter", async () => {
@@ -1875,7 +2015,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
 		expect(rows.some(text => text.includes("Session /work/alpha/two"))).toBe(true);
-		expect(familyRows().length).toBe(4);
+		expect(familyRows().length).toBe(2);
 	});
 });
 

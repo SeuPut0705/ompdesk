@@ -1,12 +1,15 @@
-import { Bot, ChevronDown, SquareTerminal } from "lucide-react";
+import { Bot, ChevronDown, GitBranch, SquareTerminal } from "lucide-react";
 import { type ReactNode, type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
+import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { liveSubagents, todoBoard } from "./work-board";
 
@@ -49,6 +52,9 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 	const subagents = useSubagentsStore(state => state.subagents);
 	const agents = useMemo(() => liveSubagents(subagents), [subagents]);
 	const jobs = useBackgroundJobs();
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const opened = useOpenedChildren(runtimeTabId ?? activeTabId);
 	const goal = useSessionStore(state => state.goal);
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -58,8 +64,8 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 	);
 	const planProposal = usePlanApprovalStore(state => state.pending);
 
-	const waiting = blocking.length + (planProposal ? 1 : 0);
-	const running = agents.length + jobs.length;
+	const waiting = blocking.length + (planProposal ? 1 : 0) + opened.counts.waiting;
+	const running = agents.length + jobs.length + opened.counts.running;
 	const label =
 		waiting > 0
 			? t("workBoard.status.waiting", { count: waiting })
@@ -129,6 +135,12 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 						label
 					)}
 				</span>
+				{opened.counts.total > 0 && (
+					<span aria-hidden className="omp-work-chip-count" data-count="sessions">
+						<GitBranch className="size-(--sc-icon-sm)" />
+						{opened.counts.total}
+					</span>
+				)}
 				{agents.length > 0 && (
 					<span aria-hidden className="omp-work-chip-count" data-count="agents">
 						<Bot className="size-(--sc-icon-sm)" />

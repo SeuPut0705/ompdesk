@@ -140,6 +140,45 @@ export const AGENT_CONTROL_VIEW = "agent-control:view";
 export interface AgentControlViewEvent {
 	tabId: string;
 	how: AgentControlPlacement | "close";
+	/** A close main decided on itself (an opened session's work landed): the window refuses it for a tab the person is using. */
+	auto?: true;
+}
+
+/** Prefs key (written by main): opened sessions whose tab was closed automatically, so the opener's family still lists them. */
+export const AGENT_CLOSED_CHILDREN_PREF = "agentClosedChildren";
+/** Records kept; the oldest go first. */
+export const MAX_CLOSED_CHILDREN = 200;
+
+/** An opened session main closed after its work landed: the session file stays; the opener's "n done" row opens it again. */
+export interface ClosedChild {
+	/** The child's session file. */
+	path: string;
+	/** The opener's session file (a tab id does not survive a relaunch). */
+	openedBySession: string;
+	/** What its row reads. */
+	title: string;
+	/** The folder to open it in: its worktree while that exists, else the checkout it was made from. */
+	cwd: string;
+	closedAt: number;
+}
+
+/** The stored list, tolerating anything else a hand-edited prefs file holds. */
+export function parseClosedChildren(value: unknown): ClosedChild[] {
+	if (!Array.isArray(value)) return [];
+	const rows: ClosedChild[] = [];
+	for (const entry of value) {
+		if (!entry || typeof entry !== "object") continue;
+		const { path, openedBySession, title, cwd, closedAt } = entry as Record<string, unknown>;
+		if (typeof path !== "string" || !path || typeof openedBySession !== "string" || !openedBySession) continue;
+		rows.push({
+			path,
+			openedBySession,
+			title: typeof title === "string" ? title : "",
+			cwd: typeof cwd === "string" ? cwd : "",
+			closedAt: typeof closedAt === "number" ? closedAt : 0,
+		});
+	}
+	return rows.slice(-MAX_CLOSED_CHILDREN);
 }
 
 /**
@@ -166,6 +205,12 @@ export interface AgentReviewItem {
 	uncommitted: number;
 	/** The start of its last answer. */
 	answer: string;
+	/** What a running session is doing now (its transcript's open tool call). */
+	step?: string;
+	/** When its current turn started (epoch ms); absent while idle. */
+	runningSince?: number;
+	/** Its last turn ended in an error or was stopped. */
+	failed?: true;
 	note?: string;
 }
 
