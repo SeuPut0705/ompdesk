@@ -33,7 +33,13 @@ import {
 	diagnosticsCount,
 	type FileDiagnostics,
 } from "../tools/renderers/Diagnostics";
-import { type AsyncResultJob, asyncResultJobs, launchCompletionDaemons } from "./completion-events";
+import {
+	asyncJobResults,
+	asyncResultJobs,
+	completionNoticeText,
+	exitCodeOf,
+	launchCompletionDaemons,
+} from "./completion-events";
 import { agentResultSummary } from "./work/work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */
@@ -376,48 +382,6 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 // ---------------------------------------------------------------------------
 // async-result — completed background bash/task job rows
 // ---------------------------------------------------------------------------
-
-/** Stock's failure notice at the end of a failed bash job's delivered text (pi-tui tools/bash.ts `formatExitCodeNotice`). */
-function exitCodeOf(output: string | undefined): number | undefined {
-	const code = output?.match(/Command exited with code (\d+)/)?.[1];
-	return code === undefined ? undefined : Number(code);
-}
-
-/** Human delivery text shared by completion previews and expanded result parsing. */
-function completionNoticeText(content: string) {
-	return content.replace(/<\/?system-notice\s*>/g, "").trim();
-}
-
-/**
- * Recover each job's result text from the agent-facing message content (a
- * `<system-notice>` block; multi-job batches split on `── Job <id> ──`
- * section headers). Best-effort: jobs without a recoverable section just
- * render their status row.
- */
-function asyncJobResults(content: string, jobs: AsyncResultJob[]): Map<string, string> {
-	const results = new Map<string, string>();
-	const body = completionNoticeText(content);
-	if (!body) return results;
-	const sectionRe = /^── Job (\S+)(?:\s+\([^)]*\))? ──\s*$/gm;
-	const matches = [...body.matchAll(sectionRe)];
-	if (matches.length > 0) {
-		for (let i = 0; i < matches.length; i++) {
-			const match = matches[i];
-			const start = (match.index ?? 0) + match[0].length;
-			const next = matches[i + 1];
-			const end = next ? (next.index ?? body.length) : body.length;
-			const text = body.slice(start, end).trim();
-			if (text && match[1]) results.set(match[1], text);
-		}
-		return results;
-	}
-	// Single job: the first line is the notice sentence, the rest is the result.
-	const firstBreak = body.indexOf("\n");
-	const text = (firstBreak === -1 ? "" : body.slice(firstBreak + 1)).trim();
-	const onlyId = jobs.length === 1 ? jobs[0].jobId : undefined;
-	if (onlyId && text) results.set(onlyId, text);
-	return results;
-}
 
 /** Stock's background job kinds (pi-tui `JobSnapshot["type"]`), named like the tool that started them. */
 const JOB_KIND_LABELS: Record<string, string> = {

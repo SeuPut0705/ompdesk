@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../../../shared/rpc-types";
+import { resultText } from "../../lib/format";
 
 export interface LaunchCompletionDaemon {
 	name: string;
@@ -78,4 +79,93 @@ export function completionFailureCount(message: AgentMessage): number {
 			daemon => daemon.state === "failed" || (daemon.exitCode !== undefined && daemon.exitCode !== 0),
 		).length + asyncResultJobs(message).filter(job => job.status === "failed" && job.type !== "task").length
 	);
+}
+
+/** Stock's failure notice at the end of a failed bash job's delivered text (pi-tui tools/bash.ts `formatExitCodeNotice`). */
+export function exitCodeOf(output: string | undefined): number | undefined {
+	const code = output?.match(/Command exited with code (\d+)/)?.[1];
+	return code === undefined ? undefined : Number(code);
+}
+
+/** Human delivery text shared by completion previews and expanded result parsing. */
+export function completionNoticeText(content: string) {
+	return content.replace(/<\/?system-notice\s*>/g, "").trim();
+}
+
+/**
+ * Recover each job's result text from the agent-facing message content (a
+ * `<system-notice>` block; multi-job batches split on `── Job <id> ──`
+ * section headers). Best-effort: jobs without a recoverable section just
+ * render their status row.
+ */
+export function asyncJobResults(content: string, jobs: AsyncResultJob[]): Map<string, string> {
+	const results = new Map<string, string>();
+	const body = completionNoticeText(content);
+	if (!body) return results;
+	const sectionRe = /^── Job (\S+)(?:\s+\([^)]*\))? ──\s*$/gm;
+	const matches = [...body.matchAll(sectionRe)];
+	if (matches.length > 0) {
+		for (let i = 0; i < matches.length; i++) {
+			const match = matches[i];
+			const start = (match.index ?? 0) + match[0].length;
+			const next = matches[i + 1];
+			const end = next ? (next.index ?? body.length) : body.length;
+			const text = body.slice(start, end).trim();
+			if (text && match[1]) results.set(match[1], text);
+		}
+		return results;
+	}
+	// Single job: the first line is the notice sentence, the rest is the result.
+	const firstBreak = body.indexOf("\n");
+	const text = (firstBreak === -1 ? "" : body.slice(firstBreak + 1)).trim();
+	const onlyId = jobs.length === 1 ? jobs[0].jobId : undefined;
+	if (onlyId && text) results.set(onlyId, text);
+	return results;
+}
+
+export interface BackgroundJobVerdict {
+	failed: boolean;
+	/** The job's delivered output (stock's notice sentence dropped). */
+	text: string;
+	/** The exit code stock recorded, when the delivery carries one (a `wait` snapshot). */
+	exitCode?: number;
+}
+
+const verdictsByList = new WeakMap<readonly AgentMessage[], ReadonlyMap<string, BackgroundJobVerdict>>();
+
+/**
+ * Every settled background job of a session by id: stock delivers a job's outcome either as an `async-result`
+ * message or, when the agent waited for it, in its `wait` call's result (tools/wait.ts, `details.jobs[]` job
+ * snapshots with `status`, `exitCode`, `resultText`/`errorText`; a result `wait` consumed is not delivered again).
+ * Memoized per message list, so every work card of a transcript reads one scan.
+ */
+export function backgroundJobVerdicts(messages: readonly AgentMessage[]): ReadonlyMap<string, BackgroundJobVerdict> {
+	const cached = verdictsByList.get(messages);
+	if (cached) return cached;
+	const verdicts = new Map<string, BackgroundJobVerdict>();
+	const settled = (status: unknown) => status === "completed" || status === "failed";
+	for (const message of messages) {
+		if (message.role === "toolResult" && message.toolName === "wait") {
+			const jobs = (message.details as { jobs?: unknown } | undefined)?.jobs;
+			for (const job of Array.isArray(jobs) ? (jobs as Record<string, unknown>[]) : []) {
+				if (typeof job?.id !== "string" || !settled(job.status)) continue;
+				const text = typeof job.resultText === "string" ? job.resultText : job.errorText;
+				verdicts.set(job.id, {
+					failed: job.status === "failed",
+					text: typeof text === "string" ? text : "",
+					...(typeof job.exitCode === "number" ? { exitCode: job.exitCode } : {}),
+				});
+			}
+			continue;
+		}
+		const jobs = asyncResultJobs(message);
+		if (jobs.length === 0) continue;
+		const texts = asyncJobResults(resultText(message.content), jobs);
+		for (const job of jobs) {
+			if (!job.jobId || !settled(job.status)) continue;
+			verdicts.set(job.jobId, { failed: job.status === "failed", text: texts.get(job.jobId) ?? "" });
+		}
+	}
+	verdictsByList.set(messages, verdicts);
+	return verdicts;
 }

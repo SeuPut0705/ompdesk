@@ -7,6 +7,7 @@ import { useSessionStore } from "../../../stores/session";
 import { useSessionRuntime } from "../../../stores/session-runtime-context";
 import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../../stores/tools";
+import { backgroundJobVerdicts } from "../completion-events";
 import { type AgentCompletion, mergeRunAgents, runTranscript, type TaskCallResult } from "./work-run";
 import { type WorkEvidence, workOutcomes } from "./work-view";
 
@@ -105,10 +106,12 @@ export function useRunAgents(
  * are replayed once so their files and commands count after a reload too.
  */
 export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number) {
-	const { tools, subagents } = useRunStores();
+	const { tools, subagents, messages } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const { agents, completions } = useRunAgents(toolCallIds);
 	const ids = toolCallIds.join("\u0000");
+	// A backgrounded check settles later, in a committed `async-result` or `wait` result; a finished card reads it.
+	const jobVerdicts = useFrameSelector(messages, state => backgroundJobVerdicts(state.messages));
 	const toolsKey = useFrameSelector(tools, state =>
 		toolCallIds
 			.map(id => {
@@ -149,7 +152,7 @@ export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number
 			for (const entry of subagents.getState().surfaces.get(agent.id)?.getState().finishedTools.values() ?? [])
 				entries.push({ entry, agentName: agent.id });
 		}
-		return workOutcomes(entries, stoppedAt, cwd);
-	}, [ids, toolsKey, surfacesKey, agents, stoppedAt, cwd, tools, subagents]);
+		return workOutcomes(entries, stoppedAt, cwd, jobVerdicts);
+	}, [ids, toolsKey, surfacesKey, agents, stoppedAt, cwd, jobVerdicts, tools, subagents]);
 	return { outcome, agents, completions, loading, error };
 }

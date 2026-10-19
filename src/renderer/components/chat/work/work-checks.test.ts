@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { AgentMessage } from "../../../../shared/rpc-types";
+import type { ToolEntry } from "../../../stores/tools";
+import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
 import { checkKind, firstErrorLine, firstFailure, summarizeChecks, testCounts } from "./work-checks";
+import { workOutcomes } from "./work-view";
 
 describe("checkKind", () => {
 	it.each([
@@ -115,4 +119,72 @@ describe("firstFailure", () => {
 				{ command: "bun run build", failed: true, exitCode: 1 },
 			])?.command,
 		).toBe("git push"));
+});
+
+describe("backgrounded checks", () => {
+	const command = "bun test src/renderer";
+	const backgrounded: ToolEntry = {
+		toolName: "bash",
+		args: { command },
+		status: "done",
+		streamingArgs: "",
+		result: {
+			content: [{ type: "text", text: "Backgrounded as job bg_1" }],
+			details: { async: { state: "running", jobId: "bg_1", type: "bash" } },
+		},
+		isError: false,
+		startTime: 1,
+		endTime: 2,
+	};
+	const summary = (verdicts?: ReadonlyMap<string, BackgroundJobVerdict>) =>
+		summarizeChecks(workOutcomes([{ entry: backgrounded }], undefined, "", verdicts).commands);
+
+	it("is not a passed check while the job has not delivered", () => {
+		expect(summary()).toEqual([]);
+		expect(summary(new Map())).toEqual([]);
+	});
+	it("reads a delivered failed job as failed with its cause", () => {
+		const text = [
+			"(fail) renders the card [1.20ms]",
+			"error: expect(received).toBe(expected)",
+			"",
+			" 3 pass",
+			" 1 fail",
+			"Ran 4 tests across 1 file. [88.00ms]",
+			"Command exited with code 1",
+		].join("\n");
+		const [check] = summary(new Map([["bg_1", { failed: true, text }]]));
+		expect(check).toMatchObject({ kind: "test", passed: false, exitCode: 1 });
+		expect(check.cause).toBe("(fail) renders the card [1.20ms]");
+	});
+	it("reads a delivered passing job as passed with its test count", () => {
+		const text = "bun test v1.2.0\n\n 31 pass\n 0 fail\n 52 expect() calls\nRan 31 tests across 4 files. [310.00ms]";
+		expect(summary(new Map([["bg_1", { failed: false, text }]]))).toEqual([
+			{ kind: "test", passed: true, runs: 1, exitCode: 0, tests: { passed: 31 } },
+		]);
+	});
+	it("reads the outcome the agent waited for, which stock does not deliver again", () => {
+		const waited = {
+			role: "toolResult",
+			toolCallId: "w1",
+			toolName: "wait",
+			content: [{ type: "text", text: "bg_1 failed" }],
+			details: {
+				op: "wait",
+				jobs: [
+					{
+						id: "bg_1",
+						type: "bash",
+						status: "failed",
+						exitCode: 1,
+						errorText: "(fail) math > adds [0.40ms]\n 0 pass\n 1 fail\nRan 1 test across 1 file.",
+					},
+				],
+			},
+			isError: false,
+			timestamp: 3,
+		} as unknown as AgentMessage;
+		const [check] = summary(backgroundJobVerdicts([waited]));
+		expect(check).toMatchObject({ kind: "test", passed: false, exitCode: 1, cause: "(fail) math > adds [0.40ms]" });
+	});
 });

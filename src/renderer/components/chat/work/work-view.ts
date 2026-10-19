@@ -9,6 +9,7 @@ import { getToolHeader } from "../../tools/index";
 import { type ChatMediaKind, toolResultMedia } from "../../tools/media/chat-media";
 import { asPerFileResults } from "../../tools/renderers/EditRenderer";
 import { normalizeYieldData } from "../../tools/renderers/task-render-utils";
+import { type BackgroundJobVerdict, exitCodeOf } from "../completion-events";
 import { isInterruptedError } from "./WorkStatus";
 import { checkKind } from "./work-checks";
 
@@ -213,7 +214,12 @@ export interface WorkOutcomes {
  * `stoppedAt`: the actual user-stop timestamp, used only for interrupted top-level calls.
  * Agent conclusions are not outcome rows: the run's lanes carry them (work-run.ts).
  */
-export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: number, cwd = ""): WorkOutcomes {
+export function workOutcomes(
+	entries: readonly WorkEvidence[],
+	stoppedAt?: number,
+	cwd = "",
+	jobVerdicts?: ReadonlyMap<string, BackgroundJobVerdict>,
+): WorkOutcomes {
 	const files = new Map<string, WorkFileOutcome>();
 	// Stock write returns resolvedPath, not a diff or a creation flag. Its content
 	// establishes the post-write line count; stock edit's diff/op then gives net
@@ -318,9 +324,20 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 			}
 		}
 		if (entry.toolName === "bash" && typeof entry.args.command === "string") {
-			const exitCode = typeof details?.exitCode === "number" ? details.exitCode : null;
-			const errored =
-				entry.status !== "aborted" && entry.result != null && (entry.isError || entry.status === "error");
+			// A backgrounded call's own result is only the notice; the delivered job is the outcome.
+			const asyncJob = asRecord(details?.async);
+			const backgroundId = asyncJob?.state === "running" && typeof asyncJob.jobId === "string" ? asyncJob.jobId : "";
+			const verdict = backgroundId ? jobVerdicts?.get(backgroundId) : undefined;
+			const pending = !!backgroundId && !verdict;
+			const delivered = verdict ? (verdict.text.match(/<output>([\s\S]*?)<\/output>/)?.[1] ?? verdict.text) : "";
+			const exitCode = verdict
+				? (verdict.exitCode ?? exitCodeOf(delivered) ?? (verdict.failed ? null : 0))
+				: typeof details?.exitCode === "number"
+					? details.exitCode
+					: null;
+			const errored = verdict
+				? verdict.failed
+				: entry.status !== "aborted" && entry.result != null && (entry.isError || entry.status === "error");
 			if (
 				!errored &&
 				entry.status === "done" &&
@@ -345,14 +362,18 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 						.trim()
 				: "";
 			const failed = errored && !cut;
-			const text =
-				!cut &&
-				Array.isArray(asRecord(entry.result)?.content) &&
-				(failed || exitCode || checkKind(entry.args.command))
+			const text = verdict
+				? failed || exitCode || checkKind(entry.args.command)
+					? delivered.slice(-CHECK_TEXT_MAX)
+					: ""
+				: !cut &&
+						!pending &&
+						Array.isArray(asRecord(entry.result)?.content) &&
+						(failed || exitCode || checkKind(entry.args.command))
 					? resultText(entry.result).slice(-CHECK_TEXT_MAX)
 					: "";
 			const previewUrl =
-				failed || entry.status === "aborted" || entry.result == null
+				failed || pending || entry.status === "aborted" || entry.result == null
 					? null
 					: devServerUrl({ toolName: "bash", command: entry.args.command, text: resultText(entry.result) });
 			commands.push({
@@ -360,7 +381,7 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 				exitCode,
 				failed,
 				...(agentName ? { agentName } : {}),
-				...(entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
+				...(pending || entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
