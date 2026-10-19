@@ -25,6 +25,9 @@ const IMAGE_CANDIDATES: ModelRoleCandidate[] = [
 	{ provider: "openai", id: "gpt-image-1", name: "GPT Image 1", kind: "image" },
 ];
 
+const catalogName = (selector: string): string =>
+	[...CANDIDATES, ...IMAGE_CANDIDATES].find(entry => `${entry.provider}/${entry.id}` === selector)?.name ?? selector;
+
 const role = (
 	id: string,
 	name: string,
@@ -36,9 +39,17 @@ const role = (
 	section,
 	model,
 	source: model ? "settings" : "default",
+	// What stock's resolution answers: a model of the role's own pool, by its catalog name.
 	effective: model
-		? { model, name: model.split("/")[1], source: "configured" }
-		: { model: "anthropic/claude-sonnet-4-5", name: "claude-sonnet-4-5", source: "fallback", via: "default" },
+		? { model, name: catalogName(model), source: "configured" }
+		: section === "kind"
+			? { model: "openai/gpt-image-1", name: catalogName("openai/gpt-image-1"), source: "fallback" }
+			: {
+					model: "anthropic/claude-sonnet-4-5",
+					name: catalogName("anthropic/claude-sonnet-4-5"),
+					source: "fallback",
+					via: "default",
+				},
 	candidates: section === "kind" ? IMAGE_CANDIDATES : CANDIDATES,
 });
 
