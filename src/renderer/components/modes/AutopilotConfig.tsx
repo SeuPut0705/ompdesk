@@ -673,10 +673,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 						}
 						label={t("autopilot.sheet.backlog")}
 					/>
-					<SettingsRow
-						badge={<SettingInfo text={t("autopilot.sheet.limitsHint")} />}
-						label={t("autopilot.sheet.limits")}
-					>
+					<SettingsRow label={t("autopilot.sheet.limits")}>
 						<div className="grid grid-cols-2 gap-2 pb-1" data-autopilot-limits>
 							{(["tokens", "minutes", "cycles", "usd"] as const).map(key => (
 								<Input
