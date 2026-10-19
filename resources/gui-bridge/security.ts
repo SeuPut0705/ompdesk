@@ -161,15 +161,19 @@ async function securityDashboard(session: AgentSession) {
 	const cwd = session.sessionManager.getCwd();
 	const store = await SecurityStore.openForCwd(cwd);
 	const repository = vcs.git(cwd);
-	const [summaries, branch, sha] = await Promise.all([
-		store.listScans(),
+	const readBundles = async () =>
+		(await Promise.all((await store.listScans()).map(summary => store.getBundle(summary.id)))).filter(
+			(bundle): bundle is SecurityScanBundle => bundle !== null,
+		);
+	const [stored, branch, sha] = await Promise.all([
+		readBundles(),
 		repository?.currentBranch() ?? null,
 		repository?.headSha() ?? null,
 	]);
-	const bundles = (await Promise.all(summaries.map(summary => store.getBundle(summary.id)))).filter(
-		(bundle): bundle is SecurityScanBundle => bundle !== null,
-	);
-	const operations = await listOperations(session, bundles);
+	const operations = await listOperations(session, stored);
+	// Stock's recovery (run by the first `status`) marks a scan an earlier process left running as failed and writes
+	// its bundle, so the scans shown are read after it, never before.
+	const bundles = operations.length > 0 ? await readBundles() : stored;
 	const revision = [branch, sha?.slice(0, 7)].filter(Boolean).join(" · ");
 	const model = session.model;
 	return {
