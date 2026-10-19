@@ -174,9 +174,9 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 						depth: depth + 1,
 						// Main's push for an open one (by session file), else what it recorded when it closed it.
 						usage:
-							(child.sessionPath
-								? (usage[child.sessionPath] ?? closed.find(row => row.path === child.sessionPath))
-								: undefined) ?? {},
+							usage[child.sessionPath ?? child.tabId ?? ""] ??
+							closed.find(row => row.path === child.sessionPath) ??
+							{},
 						...(child.device ? { device: child.device } : {}),
 						target: child.tabId
 							? { kind: "tab", tabId: child.tabId }

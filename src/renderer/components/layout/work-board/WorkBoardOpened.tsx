@@ -16,7 +16,7 @@ import { BoardRow, BoardSection, Dot } from "./WorkBoard";
 function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	const t = useT();
 	// What it runs on and has cost: main's push for an open one, else what main recorded when it closed it.
-	const live = useAgentReviewStore(state => (row.sessionPath ? state.usage[row.sessionPath] : undefined));
+	const live = useAgentReviewStore(state => state.usage[row.sessionPath ?? row.tabId ?? ""]);
 	const closed = useClosedChildrenStore(state => state.rows.find(entry => entry.path === row.sessionPath));
 	const usage = live ?? closed;
 	const title = row.title || t("workBoard.review.untitled");

@@ -1706,7 +1706,7 @@ export function Sidebar() {
 						: status === "done"
 							? t("tabs.done")
 							: t("sidebar.row.open");
-		const usage = childUsage[tab.sessionPath ?? ""];
+		const usage = childUsage[tab.sessionPath ?? tab.id];
 		return {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",

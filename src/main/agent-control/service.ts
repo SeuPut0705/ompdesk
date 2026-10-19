@@ -2211,12 +2211,12 @@ export class AgentControl {
 				const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
 				const model = session.state?.model;
 				const usage: AgentChildUsage = { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
-				return { item, usage, session: tab.sessionPath };
+				return { item, usage, key: tab.sessionPath ?? tab.tabId };
 			}),
 		);
 		return {
 			items: rows.flatMap(row => (row.item ? [row.item] : [])),
-			usage: Object.fromEntries(rows.flatMap(row => (row.session ? [[row.session, row.usage]] : []))),
+			usage: Object.fromEntries(rows.map(row => [row.key, row.usage])),
 		};
 	}
 

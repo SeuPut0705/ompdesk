@@ -224,7 +224,8 @@ export interface AgentReviewItem {
 
 /**
  * What an opened session runs on and has cost so far (stock `get_state`'s model, `get_session_stats`' whole-journal
- * cost), by its session file: every session the parent opened that has a tab, listed on the board or not.
+ * cost), by its session file (its tab id until it has one): every session the parent opened that has a tab, listed
+ * on the board or not.
  */
 export interface AgentChildUsage {
 	/** `provider/id`; absent until its omp answered. */
@@ -236,7 +237,7 @@ export interface AgentReviewEvent {
 	/** The parent session whose board lists these. */
 	tabId: string;
 	items: AgentReviewItem[];
-	/** Session file → what it runs on and has cost. */
+	/** Session file (else tab id) → what it runs on and has cost. */
 	usage?: Record<string, AgentChildUsage>;
 }
 
