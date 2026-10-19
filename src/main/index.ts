@@ -35,7 +35,7 @@ import {
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
-import { AGENT_CONTROL_PREF } from "../shared/agent-control";
+import { AGENT_CONTROL_PREF, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../shared/agent-control";
 import {
 	AI_MEMORY_PREF,
 	AI_MEMORY_SERVICE_OWNED_PREF,
@@ -697,6 +697,7 @@ app.whenReady().then(() => {
 		// `devices` is created below; a host tab only opens once it serves connections.
 		hostName: (): string => devices.deviceName(),
 		sessionIndex,
+		agentHidden: () => agentHiddenPaths(prefs.get(AGENT_HIDDEN_PREFS_KEY)),
 		renameStoredSession: async (sessionPath, name) => {
 			const omp = await systemOmp();
 			if (!omp.ok) throw new Error(omp.error);

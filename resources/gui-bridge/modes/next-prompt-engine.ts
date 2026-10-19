@@ -183,28 +183,28 @@ interface Resolved {
 }
 
 /**
- * Stock's `smol` role: its configured value, then its empty-role fallbacks (`resolveRoleChain`), the first
- * model with credentials. Nothing matching, or no credentials, is an `Unavailable`; the main model is never
+ * A stock role (`smol` by default): its configured value, then its empty-role fallbacks (`resolveRoleChain`), the
+ * first model with credentials. Nothing matching, or no credentials, is an `Unavailable`; the main model is never
  * a stand-in.
  */
-async function resolveSmol(session: NextPromptSession, stock: NextPromptStock): Promise<Resolved> {
+async function resolveSmol(session: NextPromptSession, stock: NextPromptStock, role = "smol"): Promise<Resolved> {
 	const registry = session.modelRegistry;
-	const pool = stock.roleCandidatePool("smol", session.settings as never, registry as never);
-	const chain = stock.resolveRoleChain("smol", session.settings as never, pool as never);
-	if (chain.length === 0) throw new Unavailable("no_model", "The smol role resolves to no available model");
+	const pool = stock.roleCandidatePool(role, session.settings as never, registry as never);
+	const chain = stock.resolveRoleChain(role, session.settings as never, pool as never);
+	if (chain.length === 0) throw new Unavailable("no_model", `The ${role} role resolves to no available model`);
 	for (const candidate of chain) {
 		const key = await registry.getApiKey(candidate.model as never, session.sessionId);
 		if (!key) continue;
 		return {
 			model: candidate.model,
-			used: { model: `${candidate.model.provider}/${candidate.model.id}`, role: "smol" },
+			used: { model: `${candidate.model.provider}/${candidate.model.id}`, role },
 			resolver: registry.resolver(candidate.model as never, session.sessionId),
 		};
 	}
 	const first = chain[0]?.model;
 	throw new Unavailable(
 		"no_credentials",
-		`No credentials for ${first ? `${first.provider}/${first.id}` : "the smol model"}`,
+		`No credentials for ${first ? `${first.provider}/${first.id}` : `the ${role} model`}`,
 	);
 }
 
@@ -732,9 +732,10 @@ export interface SmolCompletion {
 }
 
 /**
- * One cheap request on stock's `smol` role for another bridge module (Autopilot's guide draft): same resolution as
- * the suggestions (never the main model), same ceilings, the request in stock's usage ledger under `purpose`. Throws
- * when no smol model or credentials exist or the request fails; the caller owns its fallback.
+ * One request on a stock role (`smol` unless `role` names another) for another bridge module (Autopilot's guide
+ * draft, the control tools' judge on `slow`): same resolution as the suggestions (never the session's model), same
+ * ceilings, the request in stock's usage ledger under `purpose`. Throws when the role has no model or credentials or
+ * the request fails; the caller owns its fallback.
  */
 export async function completeOnSmol(
 	session: NextPromptSession,
@@ -744,11 +745,12 @@ export async function completeOnSmol(
 		maxTokens: number;
 		temperature: number;
 		purpose: string;
+		role?: string;
 		signal?: AbortSignal;
 	},
 ): Promise<SmolCompletion> {
 	const stock = await loadStock();
-	const resolved = await resolveSmol(session, stock);
+	const resolved = await resolveSmol(session, stock, request.role);
 	const asked = await ask(session, stock, resolved, request.system, request.user, {
 		maxTokens: request.maxTokens,
 		temperature: request.temperature,

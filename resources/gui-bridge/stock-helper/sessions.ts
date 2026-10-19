@@ -249,4 +249,17 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 			await manager.close();
 		}
 	},
+	/**
+	 * A stored session's transcript, read-only: stock `loadSessionMessagesReadOnly` (no writer, no lock, safe against a
+	 * file a live omp writes), the messages along the persisted leaf. The control tools' `ompdesk_session_read` pages it.
+	 */
+	"sessions.messages": async params => {
+		const { sessionPath } = paths(params);
+		if (!sessionPath) throw new Error("Invalid session path");
+		const loader = await importFromOmp("@oh-my-pi/pi-coding-agent/session/session-loader");
+		const read = loader.loadSessionMessagesReadOnly;
+		if (typeof read !== "function")
+			throw new Error("This omp cannot read stored sessions (loadSessionMessagesReadOnly).");
+		return (await (read as (path: string) => Promise<unknown[]>)(sessionPath)) ?? [];
+	},
 };

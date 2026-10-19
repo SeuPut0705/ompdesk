@@ -2565,24 +2565,29 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(seen).toEqual([
 			{ type: "busy", tabId: "tab-a" },
 			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "stop", reply: "All done." } },
+			{ type: "turnEnded", tabId: "tab-a" },
 		]);
 	});
 
 	it("announces a fast turn that starts and ends inside one batch as idle", () => {
 		const { a, seen } = observed();
 		a.emitEvents([{ type: "agent_start" }, reply("error", { errorMessage: "boom", content: [] })]);
-		expect(seen).toEqual([{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } }]);
+		expect(seen).toEqual([
+			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } },
+			{ type: "turnEnded", tabId: "tab-a" },
+		]);
 	});
 
-	it("waits for background work: idle comes at session_settled, not at agent_end", () => {
+	it("waits for background work: idle comes at session_settled, the agent turn's end at agent_end", () => {
 		const { a, seen } = observed();
 		a.emitEvents([{ type: "agent_start" }]);
 		a.emit("promptResult", { type: "prompt_result", sessionSettled: false });
 		a.emitEvents([reply("stop")]);
-		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
+		// The run stays busy, yet the agent's turn is over (the control tools' per-turn budget resets on it).
+		expect(seen.map(activity => activity.type)).toEqual(["busy", "turnEnded"]);
 		a.emit("sessionSettled", { type: "session_settled" });
-		expect(seen.map(activity => activity.type)).toEqual(["busy", "idle"]);
-		expect(seen[1]).toMatchObject({ outcome: { stopReason: "stop" } });
+		expect(seen.map(activity => activity.type)).toEqual(["busy", "turnEnded", "idle"]);
+		expect(seen[2]).toMatchObject({ outcome: { stopReason: "stop" } });
 	});
 
 	it("does not announce the middle of an auto-retry saga as settled", () => {
@@ -2592,11 +2597,10 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		a.emitEvents([reply("error", { errorMessage: "529", content: [] })]);
 		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
 		a.emitEvents([{ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded" }]);
-		expect(seen.at(-1)).toEqual({
-			type: "idle",
-			tabId: "tab-a",
-			outcome: { stopReason: "error", errorMessage: "overloaded" },
-		});
+		expect(seen.slice(-2)).toEqual([
+			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "overloaded" } },
+			{ type: "turnEnded", tabId: "tab-a" },
+		]);
 	});
 
 	it("announces an ask when it is raised and when it is answered", async () => {

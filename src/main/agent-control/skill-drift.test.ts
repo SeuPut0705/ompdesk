@@ -49,9 +49,9 @@ describe("ompdesk skill matches the host tools", () => {
 		expect([...tools.keys()].filter(name => !kernel.includes(`\`${name}\``))).toEqual([]);
 	});
 
-	it("documents every parameter", () => {
-		const missing = [...tools].flatMap(([name, { params }]) =>
-			[...params].filter(param => !all.includes(`\`${param}\``)).map(param => `${name}.${param}`),
+	it("documents every parameter and every enum value", () => {
+		const missing = [...tools].flatMap(([name, { params, values }]) =>
+			[...params, ...values].filter(word => !all.includes(`\`${word}\``)).map(word => `${name}.${word}`),
 		);
 		expect(missing).toEqual([]);
 	});

@@ -250,7 +250,9 @@ function setup(graceMs = 60_000) {
 			deleteSession,
 			moveSession: async (path: string) => path,
 			sessionsDir: join(workDir, "sessions"),
+			readMessages: async (path: string) => [{ role: "user", content: `read ${path}`, timestamp: 1 }] as never,
 		},
+		agentHidden: () => new Set(["/hidden/session.jsonl"]),
 		renameStoredSession,
 		defaultWorkspace: () => workDir,
 		launchProfiles: { get: () => undefined, set: () => {} },
@@ -1150,6 +1152,17 @@ describe("LocalHostServices", () => {
 
 		services.dropPeer("device-x");
 		expect(sidecars[0]?.disposed).toBe(true);
+	});
+
+	it("serves a saved session's transcript to a device's agent, never one this computer's user hid", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		expect(await services.call(x.peer, "sessions.messages", { sessionPath: "/s/a.jsonl" }, x)).toEqual([
+			{ role: "user", content: "read /s/a.jsonl", timestamp: 1 },
+		]);
+		await expect(
+			services.call(x.peer, "sessions.messages", { sessionPath: "/hidden/session.jsonl" }, x),
+		).rejects.toThrow("hid that session");
 	});
 
 	it("reports which devices have a host tab running a turn, through settle, restart and close", async () => {

@@ -10,6 +10,7 @@ import type { LocalHandler } from "./types";
 const confirmCommand = z.object({ title: z.string().min(1).max(200), message: z.string().min(1).max(2000) });
 const noteCommand = z.object({ text: z.string().min(1).max(500) });
 const workerCommand = z.object({ from: z.string().min(1).max(200) });
+const judgeCommand = z.object({ system: z.string().min(1).max(20_000), user: z.string().min(1).max(200_000) });
 
 export const handlers: Record<string, LocalHandler> = {
 	agent_control_confirm: async (command, ctx) => {
@@ -27,5 +28,10 @@ export const handlers: Record<string, LocalHandler> = {
 		const { from } = workerCommand.parse(command);
 		await ctx.bridge.request("agent_control.worker", { from });
 		return {};
+	},
+	/** `ompdesk_compare` with criteria: one request on the caller's `slow` role model; main built the evidence. */
+	agent_control_judge: async (command, ctx) => {
+		const { system, user } = judgeCommand.parse(command);
+		return ctx.bridge.request("agent_control.judge", { system, user });
 	},
 };

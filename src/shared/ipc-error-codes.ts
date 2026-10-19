@@ -20,6 +20,7 @@ export const IPC_ERROR_CODES = [
 	"session_owned_elsewhere",
 	"session_kind_mismatch",
 	"session_open_in_tab",
+	"session_hidden",
 	"sidecar_not_connected",
 	"sidecar_not_ready",
 	"no_workspace",

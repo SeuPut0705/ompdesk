@@ -14,11 +14,11 @@ import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./h
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
-function window(): ClientWindow & { sent: [string, unknown][] } {
+function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 	const sent: [string, unknown][] = [];
 	return {
 		sent,
-		webContents: { id: 1, send: (channel: string, payload: unknown) => void sent.push([channel, payload]) },
+		webContents: { id, send: (channel: string, payload: unknown) => void sent.push([channel, payload]) },
 		isDestroyed: () => false,
 		once: () => undefined,
 		removeListener: () => undefined,
@@ -29,28 +29,35 @@ function setup(
 	options: {
 		prefs?: Record<string, unknown>;
 		tabs?: Partial<IpcTabInfo>[];
+		/** Tabs of a second window. */
+		otherTabs?: Partial<IpcTabInfo>[];
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
 		autopilot?: AgentControlHostDeps["autopilot"];
+		sessions?: AgentControlHostDeps["sessions"];
+		remote?: AgentControlHostDeps["remote"];
 	} = {},
 ) {
 	const win = window();
+	const win2 = window(2);
 	const prefs: Record<string, unknown> = { ...options.prefs };
-	const tabs: IpcTabInfo[] = (options.tabs ?? [{ tabId: "main0001" }]).map(tab => ({
+	const info = (tab: Partial<IpcTabInfo>): IpcTabInfo => ({
 		tabId: "x",
 		cwd: "/repo",
 		status: "ready",
 		kind: "agent",
 		...tab,
-	}));
-	const commands: { tabId: string; command: RpcCommand }[] = [];
+	});
+	const tabs: IpcTabInfo[] = (options.tabs ?? [{ tabId: "main0001" }]).map(info);
+	const otherTabs: IpcTabInfo[] = (options.otherTabs ?? []).map(info);
+	const commands: { tabId: string; command: RpcCommand; win: ClientWindow }[] = [];
 	const openers = vi.fn();
 	const spawned: IpcSpawnTabPayload[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
 	const deps: AgentControlHostDeps = {
 		pool: {
-			tabsForWindow: () => tabs,
+			tabsForWindow: target => (target === win2 ? otherTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
 			observeTabs: observer => {
 				activity.push(observer as never);
@@ -63,9 +70,15 @@ function setup(
 			setTabTask: vi.fn(),
 			setTabOpener: openers,
 			hasDraft: () => false,
+			windowOfTab: tabId =>
+				otherTabs.some(tab => tab.tabId === tabId) ? win2 : tabs.some(tab => tab.tabId === tabId) ? win : null,
+			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
+			sessionOwner: () => null,
 		},
-		dispatch: async (_win, _sidecar, tabId, command) => {
-			commands.push({ tabId, command });
+		sessions: options.sessions,
+		remote: options.remote,
+		dispatch: async (target, _sidecar, tabId, command) => {
+			commands.push({ tabId, command, win: target });
 			if (command.type === "worktree_create")
 				return ok({ path: "/wt/agent-1", branch: "omp/agent/agent-1", baseCwd: "/repo" });
 			if (command.type === "agent_control_confirm") return ok({ approved: true });
@@ -84,7 +97,7 @@ function setup(
 		autopilot: options.autopilot,
 	};
 	const runtime = new AgentControlRuntime(deps);
-	return { runtime, win, deps, commands, spawned, tabs, activity, prefs, openers };
+	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
 }
 
 describe("AgentControlRuntime", () => {
@@ -290,5 +303,101 @@ describe("AgentControlRuntime", () => {
 		expect(cancelled.isError).toBe(false);
 		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
 		expect(state.schedules).toEqual([]);
+	});
+
+	it("resets the per-turn open budget at each agent turn's end, even while background work keeps the run busy", async () => {
+		const { runtime, win, deps, tabs, activity } = setup({ prefs: { agentControlManage: true } });
+		let next = 0;
+		deps.spawnTab = async () => {
+			const tabId = `kid${String(++next).padStart(5, "0")}`;
+			tabs.push({ tabId, cwd: "/repo", status: "ready", kind: "agent" });
+			return { tabId };
+		};
+		const announce = (type: string) => {
+			for (const observer of activity) observer({ type, tabId: "main0001" });
+		};
+		announce("busy");
+		expect((await runtime.run(win, "main0001", T.open, { sessions: [{}, {}, {}, {}] })).isError).toBe(false);
+		const capped = await runtime.run(win, "main0001", T.open, {});
+		expect(capped.isError).toBe(true);
+		expect(capped.text).toMatch(/this turn/i);
+		for (const id of ["kid00001", "kid00002", "kid00003", "kid00004"])
+			await runtime.run(win, "main0001", T.stop, { session: id, close: true });
+		// The turn ended, but background work keeps the run busy: no idle → busy edge, only the turn's end.
+		announce("turnEnded");
+		expect((await runtime.run(win, "main0001", T.open, {})).isError).toBe(false);
+	});
+
+	it("lists and steers another window's sessions through that window", async () => {
+		const { runtime, win, win2, commands } = setup({
+			tabs: [{ tabId: "main0001", title: "Boss" }],
+			otherTabs: [{ tabId: "far00002", title: "Far work" }],
+		});
+		expect((await runtime.run(win, "main0001", T.list, {})).text).not.toContain("far00002");
+		expect((await runtime.run(win, "main0001", T.list, { scope: "app" })).text).toContain(
+			'far00002 "Far work" [another window]',
+		);
+		const sent = await runtime.run(win, "main0001", T.send, { session: "far00002", message: "hello" });
+		expect(sent.isError, sent.text).toBe(false);
+		expect(commands.find(entry => entry.command.type === "prompt")?.win).toBe(win2);
+		await runtime.run(win, "main0001", T.focus, { session: "far00002" });
+		expect(win2.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "far00002", how: "focus" }]);
+	});
+
+	it("opens on a paired device with that device's absolute folder, never a worktree or a relative folder", async () => {
+		const { runtime, win, spawned } = setup({
+			remote: {
+				hosts: () => [{ deviceId: "dev-1", name: "DESKTOP-91ID999", state: "online" }],
+				request: vi.fn(),
+			},
+		});
+		await runtime.run(win, "main0001", T.open, { device: "DESKTOP-91ID999", folder: "C:\\work" });
+		expect(spawned[0]).toEqual({ cwd: "C:\\work", device: "dev-1" });
+		await runtime.run(win, "main0001", T.open, { device: "dev-1" });
+		expect(spawned[1]).toEqual({ device: "dev-1" });
+		expect((await runtime.run(win, "main0001", T.open, { device: "dev-1", folder: "rel" })).text).toMatch(
+			/must be absolute/,
+		);
+		expect((await runtime.run(win, "main0001", T.open, { device: "dev-1", worktree: true })).text).toMatch(
+			/worktree is made on the computer/,
+		);
+		expect(spawned).toHaveLength(2);
+	});
+
+	it("lists and reads saved sessions of this computer and of a paired device", async () => {
+		const row = {
+			path: "/s/p/a.jsonl",
+			id: "aaaa1111-x",
+			title: "Saved here",
+			cwd: "/repo",
+			created: "2026-10-01T00:00:00Z",
+			modified: "2026-10-02T00:00:00Z",
+			messageCount: 2,
+			size: 10,
+			status: "complete" as const,
+			firstMessage: "hi",
+		};
+		const request = vi.fn(async (_device: string, method: string) =>
+			method === "sessions.list"
+				? [{ ...row, path: "C:/s/b.jsonl", id: "bbbb2222-y", title: "Saved on PC" }]
+				: [{ role: "assistant", content: "from the PC" }],
+		);
+		const { runtime, win } = setup({
+			sessions: {
+				list: async () => [row],
+				search: async () => [],
+				read: async () => [{ role: "assistant", content: "from here" }] as never,
+			},
+			remote: { hosts: () => [{ deviceId: "dev-1", name: "PC", state: "online" }], request: request as never },
+		});
+		expect((await runtime.run(win, "main0001", T.list, { scope: "stored" })).text).toContain(
+			'aaaa1111-x "Saved here"',
+		);
+		expect((await runtime.run(win, "main0001", T.read, { session: "aaaa1111-x" })).text).toContain("from here");
+		expect((await runtime.run(win, "main0001", T.list, { scope: "stored", device: "PC" })).text).toContain(
+			'bbbb2222-y "Saved on PC"',
+		);
+		expect((await runtime.run(win, "main0001", T.read, { session: "bbbb2222-y" })).text).toContain("from the PC");
+		expect(request).toHaveBeenCalledWith("dev-1", "sessions.messages", { sessionPath: "C:/s/b.jsonl" });
 	});
 });

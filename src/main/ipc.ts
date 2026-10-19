@@ -890,6 +890,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		sweepMs: process.env.OMP_GUI_TEST_AGENT_SWEEP_MS ? Number(process.env.OMP_GUI_TEST_AGENT_SWEEP_MS) : undefined,
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
+		sessions: {
+			list: () => sessionIndex.list("global"),
+			search: (query, paths) => sessionIndex.searchContent(query, paths),
+			read: sessionPath => sessionIndex.readMessages(sessionPath),
+		},
+		remote: {
+			hosts: () => remoteDevices.state().hosts,
+			request: (device, method, params) => remoteDevices.request(device, method, params),
+		},
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });
 		},

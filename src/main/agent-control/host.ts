@@ -36,9 +36,18 @@ import {
 	MAX_CLOSED_CHILDREN,
 	parseClosedChildren,
 } from "../../shared/agent-control";
-import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabWorktree } from "../../shared/ipc-types";
+import type {
+	HostView,
+	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
+	IpcTabInfo,
+	IpcTabWorktree,
+	SessionContentMatch,
+	SessionInfo,
+} from "../../shared/ipc-types";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import {
+	type AgentMessage,
 	BLOCKING_UI_METHODS,
 	type ExtensionUIResponse,
 	isSignInRequest,
@@ -91,7 +100,21 @@ export interface AgentControlHostDeps {
 		| "setTabTask"
 		| "setTabOpener"
 		| "hasDraft"
+		| "windowOfTab"
+		| "tabWindows"
+		| "sessionOwner"
 	>;
+	/** This computer's session index (stored sessions the control tools list, search and read). */
+	sessions?: {
+		list(): Promise<SessionInfo[]>;
+		search(query: string, paths: string[]): Promise<SessionContentMatch[]>;
+		read(sessionPath: string): Promise<AgentMessage[]>;
+	};
+	/** The paired hosts this computer runs sessions on (Settings › Devices) and a request to one of them. */
+	remote?: {
+		hosts(): HostView[];
+		request<T>(deviceId: string, method: string, params: unknown): Promise<T>;
+	};
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
 		win: ClientWindow,
@@ -170,10 +193,12 @@ export class AgentControlRuntime {
 		this.#deps = deps;
 		this.control = new AgentControl(this.#host(), limits);
 		deps.pool.observeTabs(activity => {
-			if (activity.type === "busy") {
+			// The per-turn budget is per agent turn: a turn's end opens the next one even while background work
+			// keeps the run busy (no idle → busy edge then), and a new run starts one too.
+			if (activity.type === "busy" || activity.type === "turnEnded")
 				this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
-				this.#busySince.set(activity.tabId, Date.now());
-			} else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
+			if (activity.type === "busy") this.#busySince.set(activity.tabId, Date.now());
+			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#parents.get(activity.tabId)?.callerTabId;
 			if (parent) this.#pushReview(parent);
 			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.
@@ -289,8 +314,9 @@ export class AgentControlRuntime {
 		this.#reviewTimers.set(callerTabId, timer);
 	}
 
+	/** The window a tab's calls go through: the one remembered for it, else the window that owns it (any window). */
 	#win(tabId: string): ClientWindow | undefined {
-		return this.#windows.get(tabId);
+		return this.#windows.get(tabId) ?? this.#deps.pool.windowOfTab(tabId) ?? undefined;
 	}
 
 	#sidecar(tabId: string): SidecarLike {
@@ -303,16 +329,18 @@ export class AgentControlRuntime {
 		return agentHiddenPaths(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
 	}
 
-	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>): ControlTab {
+	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
 		return {
 			tabId: info.tabId,
-			title: info.title ?? "",
+			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
+			title: info.title || info.task || "",
 			cwd: info.cwd,
-			...(info.device ? { deviceName: this.#deps.deviceName(info.device) } : {}),
+			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
 			busy: this.#deps.pool.tabFacts(info.tabId)?.busy === true,
 			asks,
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
+			here,
 			...(info.worktree ? { worktree: info.worktree } : {}),
 			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
 			...(info.task ? { task: info.task } : {}),
@@ -341,10 +369,26 @@ export class AgentControlRuntime {
 		const win = this.#win(callerTabId);
 		if (!win) throw new Error("This session's window is gone.");
 		const caller = this.#sidecar(callerTabId);
-		const cwd = await this.#folder(caller, request.folder);
+		// `device` absent: the caller's own machine; null: this computer; an id: that paired host.
+		const device = request.device === undefined ? caller.device : (request.device ?? undefined);
+		const elsewhere = device !== caller.device;
+		if (elsewhere && request.worktree)
+			throw new Error(
+				"A worktree is made on the computer the calling session runs on; open it without worktree, or from a session on that device.",
+			);
+		// Another machine's folder is never resolved against the caller's: an absolute path, or that machine's default workspace.
+		const cwd = request.sessionPath
+			? undefined
+			: elsewhere
+				? request.folder && /^([a-zA-Z]:[\\/]|\/)/.test(request.folder)
+					? request.folder
+					: undefined
+				: await this.#folder(caller, request.folder);
+		if (elsewhere && request.folder && cwd === undefined)
+			throw new Error(`On another device the folder must be absolute (got "${request.folder}").`);
 		let worktree: IpcTabWorktree | undefined;
 		let prepared: string | null = null;
-		if (request.worktree) {
+		if (request.worktree && cwd !== undefined) {
 			const base = request.worktree.base;
 			if (base !== undefined && base !== "HEAD" && base !== "default")
 				throw new Error(
@@ -370,10 +414,12 @@ export class AgentControlRuntime {
 			worktree = { name, branch: made.branch, baseCwd: made.baseCwd, path: made.path };
 			prepared = describePreparation(made);
 		}
+		const target = worktree?.path ?? cwd;
 		const result = await this.#deps.spawnTab(win, {
-			cwd: worktree?.path ?? cwd,
+			...(target !== undefined ? { cwd: target } : {}),
+			...(request.sessionPath ? { sessionPath: request.sessionPath } : {}),
 			...(worktree ? { worktree } : {}),
-			...(caller.device ? { device: caller.device } : {}),
+			...(device ? { device } : {}),
 		});
 		if (!result?.tabId) throw new Error("The new session could not be started.");
 		this.#windows.set(result.tabId, win);
@@ -448,21 +494,92 @@ export class AgentControlRuntime {
 			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
 			turn: callerTabId => this.#turns.get(callerTabId) ?? 0,
 			tabs: callerTabId => {
-				const win = this.#win(callerTabId);
-				if (!win || win.isDestroyed()) return null;
-				const infos = deps.pool.tabsForWindow(win);
-				if (!infos.some(info => info.tabId === callerTabId)) return null;
-				const open = deps.pool.openRequests(win);
+				const own = this.#win(callerTabId);
+				if (!own || own.isDestroyed()) return null;
+				if (!deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId)) return null;
 				const hidden = this.#hiddenPaths();
-				return infos.map(info =>
-					this.#controlTab(
-						info,
-						open
+				const seen = new Set<string>();
+				const tabs: ControlTab[] = [];
+				// The caller's window first (its order is the list's), then every other window of this app.
+				for (const win of [own, ...deps.pool.tabWindows().filter(other => other !== own)]) {
+					if (win.isDestroyed()) continue;
+					const open = deps.pool.openRequests(win);
+					for (const info of deps.pool.tabsForWindow(win)) {
+						if (seen.has(info.tabId)) continue;
+						seen.add(info.tabId);
+						const asks = open
 							.filter(entry => entry.tabId === info.tabId && !entry.signIn && askOf(entry.request))
-							.map(entry => ({ id: entry.request.id, request: entry.request })),
-						hidden,
-					),
-				);
+							.map(entry => ({ id: entry.request.id, request: entry.request }));
+						tabs.push(this.#controlTab(info, asks, hidden, win === own));
+					}
+				}
+				return tabs;
+			},
+			devices: () =>
+				(deps.remote?.hosts() ?? []).map(host => ({ id: host.deviceId, name: host.name, state: host.state })),
+			stored: async (device, query) => {
+				const hidden = this.#hiddenPaths();
+				let rows: SessionInfo[];
+				let matches: SessionContentMatch[] | null = null;
+				if (device) {
+					const remote = deps.remote;
+					if (!remote) throw new Error("Paired devices are not available here.");
+					rows = (await remote.request<SessionInfo[]>(device, "sessions.list", { scope: "global" })).map(row => ({
+						...row,
+						device,
+					}));
+					if (query)
+						matches = await remote.request<SessionContentMatch[]>(device, "sessions.search", {
+							query,
+							scope: "global",
+						});
+				} else {
+					const sessions = deps.sessions;
+					if (!sessions) throw new Error("Stored sessions are not available here.");
+					rows = await sessions.list();
+					if (query)
+						matches = await sessions.search(
+							query,
+							rows.map(row => row.path),
+						);
+				}
+				const snippets = new Map((matches ?? []).map(match => [match.path, match.snippet]));
+				const needle = query?.toLowerCase();
+				return rows.flatMap(row => {
+					const named =
+						needle !== undefined && `${row.title ?? ""} ${row.firstMessage}`.toLowerCase().includes(needle);
+					if (matches && !snippets.has(row.path) && !named) return [];
+					const tab = deps.pool.sessionOwner(row.path, device)?.tabId;
+					const snippet = snippets.get(row.path);
+					return [
+						{
+							id: row.id,
+							path: row.path,
+							title: row.title ?? "",
+							firstMessage: row.firstMessage,
+							cwd: row.cwd,
+							modified: row.modified,
+							messages: row.messageCount,
+							status: row.status,
+							hidden: !device && hidden.has(row.path),
+							...(device ? { device, deviceName: deps.deviceName(device) } : {}),
+							...(tab ? { tabId: tab } : {}),
+							...(snippet ? { snippet } : {}),
+						},
+					];
+				});
+			},
+			storedMessages: session => {
+				if (session.device) {
+					const remote = deps.remote;
+					if (!remote) return Promise.reject(new Error("Paired devices are not available here."));
+					return remote.request<AgentMessage[]>(session.device, "sessions.messages", {
+						sessionPath: session.path,
+					});
+				}
+				const sessions = deps.sessions;
+				if (!sessions) return Promise.reject(new Error("Stored sessions are not available here."));
+				return sessions.read(session.path);
 			},
 			command: (tabId, command, timeoutMs) => {
 				const win = this.#win(tabId) ?? [...this.#windows.values()][0];
@@ -480,7 +597,8 @@ export class AgentControlRuntime {
 			start: tabId => void deps.pool.startTab(tabId),
 			setTask: (tabId, task) => deps.pool.setTabTask(tabId, task),
 			view: (callerTabId, event: AgentControlViewEvent) => {
-				const win = this.#win(callerTabId);
+				// The window that holds the session (another window's tab closes or shows there), else the caller's.
+				const win = deps.pool.windowOfTab(event.tabId) ?? this.#win(callerTabId);
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
 			},
 			notify: (callerTabId, title, body) => {
@@ -498,8 +616,8 @@ export class AgentControlRuntime {
 					text: deps.text("answeredBy", { by: byTitle }),
 				});
 			},
-			deleteSession: async (callerTabId, tabId) => {
-				const win = this.#win(callerTabId);
+			deleteSession: async (_callerTabId, tabId) => {
+				const win = this.#win(tabId);
 				const info = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId) : undefined;
 				if (!info?.sessionPath) throw new Error("That session has no saved file yet; closing it is enough.");
 				await deps.deleteSession(info.sessionPath, info.device);

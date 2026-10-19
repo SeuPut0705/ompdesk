@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SessionInfo } from "../shared/ipc-types";
+import type { AgentMessage } from "../shared/rpc-types";
 import { configureStockHelper, stockHelperRequest, stopStockHelper } from "./stock-helper";
 
 const sessionRows = z.array(
@@ -52,6 +53,12 @@ export class StockSessionStore {
 			await stockHelperRequest("sessions.move", { sessionsRoot: this.#sessionsRoot, sessionPath, cwd }),
 		);
 		return result.sessionPath;
+	}
+
+	/** A stored session's transcript (stock `loadSessionMessagesReadOnly` in the helper). */
+	async messages(sessionPath: string): Promise<AgentMessage[]> {
+		const result = await stockHelperRequest("sessions.messages", { sessionsRoot: this.#sessionsRoot, sessionPath });
+		return Array.isArray(result) ? (result as AgentMessage[]) : [];
 	}
 
 	stop(): void {

@@ -113,8 +113,10 @@ export interface HostServicesDeps {
 	hostName: () => string;
 	sessionIndex: Pick<
 		SessionIndex,
-		"list" | "searchContent" | "kindFor" | "deleteSession" | "moveSession" | "sessionsDir"
+		"list" | "searchContent" | "kindFor" | "deleteSession" | "moveSession" | "sessionsDir" | "readMessages"
 	>;
+	/** Session files this computer's user hid from agents (Sidebar › Hide from other agents); a device's agent never reads them. */
+	agentHidden?: () => ReadonlySet<string>;
 	/** Stored-file rename for a session no live tab holds (`omp` on this machine). */
 	renameStoredSession: (sessionPath: string, name: string) => Promise<void>;
 	/** The GUI-owned Work workspace, created on demand. */
@@ -419,6 +421,13 @@ export class LocalHostServices implements HostServices {
 					query,
 					candidates.map(info => info.path),
 				);
+			}
+			case "sessions.messages": {
+				// A paired device's agent reads a stored session here (`ompdesk_session_read`), never one this computer's user hid.
+				const { sessionPath } = parse(SessionPathParams, method, params);
+				if (this.#deps.agentHidden?.().has(sessionPath))
+					throw codedError("session_hidden", "The user hid that session from agents.");
+				return this.#deps.sessionIndex.readMessages(sessionPath);
 			}
 			case "sessions.kindFor":
 				return this.#deps.sessionIndex.kindFor(parse(SessionPathParams, method, params).sessionPath);

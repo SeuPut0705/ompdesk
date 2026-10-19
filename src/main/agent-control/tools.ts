@@ -36,10 +36,18 @@ export const READ_MAX_MESSAGES = 40;
 export const MESSAGE_MAX_CHARS = 50_000;
 /** Sessions one `ompdesk_session_result` call may wait on. */
 export const RESULT_MAX_SESSIONS = 8;
+/** `ompdesk_compare` judges against at most this many criteria. */
+export const JUDGE_MAX_CRITERIA = 12;
 
 const SESSION = {
 	type: "string",
-	description: "Session id as ompdesk_sessions lists it (a unique prefix is enough).",
+	description:
+		"Session id as ompdesk_sessions lists it (a unique prefix is enough); a stored session's id from scope stored too.",
+} as const;
+const DEVICE = {
+	type: "string",
+	description:
+		'A paired device (Settings › Devices) by name or id; "local" is this computer. ompdesk_sessions lists them.',
 } as const;
 const PLACEMENT = ["focus", "split-right", "split-down"] as const;
 
@@ -47,7 +55,17 @@ const OPEN_ONE = {
 	message: { type: "string", description: "First message; the session starts working on it at once." },
 	folder: {
 		type: "string",
-		description: "Working folder (absolute, or relative to yours); default your own folder.",
+		description:
+			"Working folder (absolute, or relative to yours); default your own folder. On another device: absolute, default its workspace.",
+	},
+	device: {
+		...DEVICE,
+		description: `${DEVICE.description} Default: the device your own session runs on.`,
+	},
+	reopen: {
+		type: "string",
+		description:
+			"Open a stored session again instead of a new one: its id from ompdesk_sessions scope stored. folder, worktree and mode do not apply.",
 	},
 	model: {
 		type: "string",
@@ -80,8 +98,31 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.list,
 		label: "OMPdesk sessions",
 		description:
-			"List every session open in this OMPdesk window (not only the ones you opened): id, title, folder, state (running with its current step, waiting for the user's answer, idle), running subagents, todo progress and the start of each one's last answer. Sessions the user hid from agents show as private. See skill://ompdesk.",
-		parameters: { type: "object", properties: {}, additionalProperties: false },
+			"List sessions: those open in this OMPdesk window (default), in every window of this app (scope app, which includes sessions running on paired devices), or the saved sessions on this computer or a paired device (scope stored: closed ones too, with text search). Each with id, title, folder, device, state (running with its current step, waiting for the user's answer, idle), subagents, todos and the start of its last answer; also the paired devices. Sessions the user hid from agents show as private. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: {
+				scope: {
+					type: "string",
+					enum: ["window", "app", "stored"],
+					description: "window (default), app (every window), or stored (saved sessions, open or not).",
+				},
+				device: { ...DEVICE, description: `${DEVICE.description} Only that device's sessions.` },
+				folder: { type: "string", description: "Only sessions whose folder contains this text." },
+				status: {
+					type: "string",
+					enum: ["running", "waiting", "idle"],
+					description: "Open sessions only: running, waiting for the user, or idle.",
+				},
+				mine: { type: "boolean", description: "Only the sessions you opened." },
+				query: {
+					type: "string",
+					description: "Text to find in titles (and, with scope stored, in the conversations).",
+				},
+				limit: { type: "integer", minimum: 1, maximum: 100, description: "Rows at most; default 30." },
+			},
+			additionalProperties: false,
+		},
 	},
 	{
 		name: T.open,
@@ -160,7 +201,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.read,
 		label: "Read OMPdesk session transcript",
 		description:
-			"Read the most recent messages of another session's transcript (user, assistant, tool calls; bounded). Pass the returned before cursor to page further back. Read-only. See skill://ompdesk.",
+			"Read the most recent messages of any session's transcript, open or stored (user, assistant, tool calls; bounded). Pass the returned before cursor to page further back. Read-only. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -238,14 +279,19 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.compare,
 		label: "Compare OMPdesk sessions' work",
 		description:
-			"Compare the work of sessions that run in git worktrees (default: all you opened with worktree): the branch, commits ahead of the parent, changed files with line counts, uncommitted work, and each one's final answer. It does not run tests: ask each session to run them and report, then compare. See skill://ompdesk.",
+			"Compare and judge sessions' work: for each one the final answer, the checks it ran (test, build, lint commands from its transcript, with their outcome) and, for a git worktree, branch, commits ahead, changed files with line counts and uncommitted work. With criteria, a judge model (your slow role) grades each against them and returns a ranked verdict with reasons and a winner. It runs no tests itself. Default: every worktree session you opened. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
 				sessions: {
 					type: "array",
 					items: { type: "string" },
-					description: `Session ids (at most ${RESULT_MAX_SESSIONS}); default every worktree session you opened.`,
+					description: `Session ids, open or stored (at most ${RESULT_MAX_SESSIONS}); default every worktree session you opened.`,
+				},
+				criteria: {
+					type: "array",
+					items: { type: "string" },
+					description: `Acceptance criteria to judge against (at most ${JUDGE_MAX_CRITERIA}); without them nothing is judged.`,
 				},
 			},
 			additionalProperties: false,
@@ -491,30 +537,52 @@ const worktreeArg = z.union([
 		.strict(),
 ]);
 
+const deviceArg = z.string().trim().min(1).max(200);
+
+const openFields = {
+	message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
+	folder: z.string().trim().min(1).max(4096).optional(),
+	device: deviceArg.optional(),
+	reopen: sessionArg.optional(),
+	model: z.string().trim().min(1).max(200).optional(),
+	mode: z.enum(["plan", "goal"]).optional(),
+	worktree: worktreeArg.optional(),
+};
+
+const goalNeedsMessage = [
+	(args: { mode?: string; message?: string }) => args.mode !== "goal" || args.message !== undefined,
+	{ message: "mode goal needs a message: it becomes the goal" },
+] as const;
+const reopenAlone = [
+	(args: { reopen?: string; folder?: string; worktree?: unknown; mode?: string }) =>
+		args.reopen === undefined ||
+		(args.folder === undefined && args.worktree === undefined && args.mode === undefined),
+	{ message: "reopen opens a stored session as it was: give no folder, worktree or mode with it" },
+] as const;
+
 const openOne = z
-	.object({
-		message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
-		folder: z.string().trim().min(1).max(4096).optional(),
-		model: z.string().trim().min(1).max(200).optional(),
-		mode: z.enum(["plan", "goal"]).optional(),
-		worktree: worktreeArg.optional(),
-	})
+	.object(openFields)
 	.strict()
-	.refine(args => args.mode !== "goal" || args.message !== undefined, {
-		message: "mode goal needs a message: it becomes the goal",
-	});
+	.refine(...goalNeedsMessage)
+	.refine(...reopenAlone);
 
 export type OpenOne = z.infer<typeof openOne>;
 
 export const ARGS = {
-	[T.list]: z.object({}).strict(),
+	[T.list]: z
+		.object({
+			scope: z.enum(["window", "app", "stored"]).optional(),
+			device: deviceArg.optional(),
+			folder: z.string().trim().min(1).max(4096).optional(),
+			status: z.enum(["running", "waiting", "idle"]).optional(),
+			mine: z.boolean().optional(),
+			query: z.string().trim().min(1).max(500).optional(),
+			limit: z.number().int().min(1).max(100).optional(),
+		})
+		.strict(),
 	[T.open]: z
 		.object({
-			message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
-			folder: z.string().trim().min(1).max(4096).optional(),
-			model: z.string().trim().min(1).max(200).optional(),
-			mode: z.enum(["plan", "goal"]).optional(),
-			worktree: worktreeArg.optional(),
+			...openFields,
 			sessions: z.array(openOne).min(1).max(MAX_OPENS_PER_TURN).optional(),
 			show: z.enum(["background", ...PLACEMENT]).optional(),
 		})
@@ -522,16 +590,11 @@ export const ARGS = {
 		.refine(
 			args =>
 				args.sessions === undefined ||
-				(args.message === undefined &&
-					args.folder === undefined &&
-					args.model === undefined &&
-					args.mode === undefined &&
-					args.worktree === undefined),
+				Object.keys(openFields).every(key => args[key as keyof typeof openFields] === undefined),
 			{ message: "give either the single-session fields or sessions, not both" },
 		)
-		.refine(args => args.mode !== "goal" || args.message !== undefined, {
-			message: "mode goal needs a message: it becomes the goal",
-		}),
+		.refine(...goalNeedsMessage)
+		.refine(...reopenAlone),
 	[T.send]: z
 		.object({
 			session: sessionArg,
@@ -582,7 +645,12 @@ export const ARGS = {
 	[T.focus]: z.object({ session: sessionArg, how: placement.optional() }).strict(),
 	[T.notify]: z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(2000).optional() }).strict(),
 	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
-	[T.compare]: z.object({ sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional() }).strict(),
+	[T.compare]: z
+		.object({
+			sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional(),
+			criteria: z.array(z.string().trim().min(1).max(1000)).min(1).max(JUDGE_MAX_CRITERIA).optional(),
+		})
+		.strict(),
 	[T.merge]: z.object({ session: sessionArg }).strict(),
 	[T.schedule]: z
 		.object({
@@ -621,6 +689,8 @@ export const ARGS = {
 		.strict(),
 	[T.app]: z.object({ action: z.string().trim().min(1).max(100), args: z.record(z.unknown()).optional() }).strict(),
 } as const;
+
+export type ListArgs = z.infer<(typeof ARGS)[typeof T.list]>;
 
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;
 

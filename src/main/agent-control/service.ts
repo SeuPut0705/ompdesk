@@ -16,6 +16,7 @@
  *           tool approval (without it the answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
  *   never   accounts, settings, permissions.
  */
+import { z } from "zod";
 import type {
 	AutopilotShipPreset,
 	AutopilotStartOptions,
@@ -64,6 +65,8 @@ import {
 	type AnswerArgs,
 	ARGS,
 	type AutopilotArgs,
+	JUDGE_MAX_CRITERIA,
+	type ListArgs,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
 	READ_MAX_CHARS,
@@ -79,13 +82,14 @@ export interface ControlAsk {
 	request: ExtensionUIRequest;
 }
 
-/** One tab of the calling session's window, as the pool knows it. */
+/** One open tab of this app (any window), as the pool knows it. */
 export interface ControlTab {
 	tabId: string;
 	/** "" while the session has no title. */
 	title: string;
 	cwd: string;
-	/** The paired host's name when the tab runs there. */
+	/** The paired host's deviceId and name when the tab runs there. */
+	device?: string;
 	deviceName?: string;
 	status: TabStatus;
 	/** A turn runs (stock run state as the pool tracks it). */
@@ -94,6 +98,8 @@ export interface ControlTab {
 	asks: ControlAsk[];
 	/** The user hid this session from agents (Sidebar › Hide from other agents). */
 	hidden: boolean;
+	/** In the calling session's window (the default list); other windows' tabs are listed with scope app. */
+	here: boolean;
 	worktree?: IpcTabWorktree;
 	/** The session file; absent until the session has one. */
 	sessionPath?: string;
@@ -111,11 +117,45 @@ export interface ControlTab {
 	busySince?: number;
 }
 
+/** A saved session (stock's session index on this computer or a paired device), open in a tab or not. */
+export interface StoredSession {
+	/** Stock's session id. */
+	id: string;
+	path: string;
+	title: string;
+	firstMessage: string;
+	cwd: string;
+	/** ISO time of the last change. */
+	modified: string;
+	messages: number;
+	status: string;
+	/** This computer's user hid it from agents. */
+	hidden: boolean;
+	/** The paired host it is saved on; absent = this computer. */
+	device?: string;
+	deviceName?: string;
+	/** The tab of this app that has it open. */
+	tabId?: string;
+	/** Text around a search hit. */
+	snippet?: string;
+}
+
+/** A paired host this computer can run sessions on (Settings › Devices). */
+export interface ControlDevice {
+	id: string;
+	name: string;
+	state: "connecting" | "online" | "offline";
+}
+
 /** What `host.spawn` is asked for. */
 export interface SpawnRequest {
 	folder?: string;
 	/** A git worktree for the new session (`omp/agent/<slug>` branch off `base`, default the caller's HEAD). */
 	worktree?: { branch?: string; base?: string };
+	/** Where it runs: absent = the caller's machine, null = this computer, an id = that paired host. */
+	device?: string | null;
+	/** Open this saved session file instead of a new session. */
+	sessionPath?: string;
 	/** Who asked for the session (Autopilot passes "autopilot-child"); the host records the caller tab as parent. */
 	tag?: string;
 }
@@ -178,8 +218,14 @@ export interface AgentControlHost {
 	manageEnabled(): boolean;
 	/** Counter of the caller's turns (a new one each time its run starts); resets the per-turn budgets. */
 	turn(callerTabId: string): number;
-	/** The tabs of the window that owns `callerTabId`, in its order; null when that tab is gone. */
+	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
 	tabs(callerTabId: string): ControlTab[] | null;
+	/** The paired hosts (Settings › Devices). */
+	devices(): ControlDevice[];
+	/** Saved sessions on this computer (device undefined) or a paired host; `query` searches titles and conversations. */
+	stored(device: string | undefined, query?: string): Promise<StoredSession[]>;
+	/** A saved session's transcript, read-only (this computer's stock helper, or the paired host). */
+	storedMessages(session: StoredSession): Promise<AgentMessage[]>;
 	/** A command through the GUI's RPC dispatcher for `tabId` (local handlers, host link, quota). */
 	command(tabId: string, command: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 	/**
@@ -270,6 +316,7 @@ const TOOL_RESULT_CHARS = 300;
 const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
 const AUTO_CLOSE_WAIT_MS = 2_000;
+const LIST_DEFAULT_ROWS = 30;
 
 class ToolError extends Error {}
 
@@ -300,7 +347,9 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 }
 
 function label(tab: ControlTab): string {
-	return tab.hidden ? `${tab.tabId} (hidden from agents)` : tab.title ? `"${oneLine(tab.title, 80)}"` : "(untitled)";
+	if (tab.hidden) return `${tab.tabId} (hidden from agents)`;
+	const folder = tab.cwd.split(/[\\/]/).filter(Boolean).pop() ?? tab.cwd;
+	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
 }
 
 /** "every 30 min", "daily at 09:00", "Mon, Wed at 09:00". */
@@ -428,6 +477,117 @@ export function renderMessage(message: AgentMessage): string | null {
 	}
 }
 
+/** One compared session as the judge and the agent read it. */
+interface Evidence {
+	id: string;
+	/** The block the agent reads. */
+	text: string;
+	/** State, checks and diff lines without the answer (the judge gets the answer whole, separately). */
+	facts: string;
+	answer: string | null;
+}
+
+/** Newest transcript messages a compare reads from an open session for the checks it ran. */
+const EVIDENCE_MESSAGES = 200;
+/** The judge request's evidence, all sessions together. */
+const JUDGE_EVIDENCE_CHARS = 60_000;
+
+const JUDGE_SYSTEM = `You judge the work of several coding sessions against acceptance criteria, for the agent that started them.
+Use only the evidence given: each session's state, the checks it ran (command and outcome, read from its transcript), its git diff summary and its final answer.
+A claim in a final answer that no check or diff supports counts as "unknown", not "yes". A failed check counts against the criterion it covers. A session that is still running cannot be the winner.
+Answer with JSON only, no prose around it:
+{"ranking":[{"session":"<id>","score":<0-100>,"criteria":[{"criterion":"<text>","met":"yes|partly|no|unknown","why":"<short evidence>"}],"reasons":"<one or two sentences>"}],"winner":"<id or null>","why":"<why it wins, or why none does>"}
+Rank every session, best first. Pick a winner only if it meets every criterion at least partly and beats the others on the evidence.`;
+
+const verdictSchema = z.object({
+	ranking: z.array(
+		z.object({
+			session: z.string(),
+			score: z.number().min(0).max(100),
+			criteria: z
+				.array(
+					z.object({
+						criterion: z.string(),
+						met: z.enum(["yes", "partly", "no", "unknown"]),
+						why: z.string().optional().default(""),
+					}),
+				)
+				.default([]),
+			reasons: z.string().default(""),
+		}),
+	),
+	winner: z.string().nullable().default(null),
+	why: z.string().default(""),
+});
+
+export type Verdict = z.infer<typeof verdictSchema>;
+
+/** The judge's JSON, also when a model wraps it in a fence or a sentence; null when there is none. */
+export function parseVerdict(text: string): Verdict | null {
+	const start = text.indexOf("{");
+	const end = text.lastIndexOf("}");
+	if (start < 0 || end <= start) return null;
+	try {
+		const parsed = verdictSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+/** One transcript page for the agent: the newest messages that fit `READ_MAX_CHARS`, and the cursor to page back. */
+function renderPage(
+	title: string,
+	session: string,
+	messages: readonly AgentMessage[],
+	totalMessages: number,
+	prevCursor: string | null,
+): string {
+	const lines = messages.map(renderMessage).filter((line): line is string => line !== null);
+	let total = 0;
+	const kept: string[] = [];
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i] as string;
+		if (total + line.length > READ_MAX_CHARS && kept.length > 0) break;
+		total += line.length;
+		kept.unshift(line);
+	}
+	const omitted = lines.length - kept.length;
+	const head = `${title}: ${messages.length} message(s) of ${totalMessages}${omitted ? ` (${omitted} older ones of this page left out; use a smaller limit)` : ""}.`;
+	const more = prevCursor
+		? `\nEarlier messages: ompdesk_session_read {"session":"${session}","before":"${prevCursor}"}.`
+		: "";
+	return `${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
+}
+
+/** A command line that checks the work (tests, types, lint, build), as a compare reports it. */
+const CHECK_COMMAND =
+	/\b(test|tests|vitest|jest|pytest|mocha|playwright|tsc|typecheck|check|lint|biome|eslint|ruff|mypy|clippy|build|cargo (test|check|build)|go (test|vet|build)|gradle|mvn|make)\b/i;
+
+/** The checks a transcript ran, newest last: the command and whether it passed (exit 0 / no error). */
+export function checksRun(messages: readonly AgentMessage[]): { command: string; passed: boolean }[] {
+	const calls = new Map<string, string>();
+	const checks: { command: string; passed: boolean }[] = [];
+	for (const message of messages) {
+		if (message.role === "assistant" && Array.isArray(message.content)) {
+			for (const block of message.content)
+				if (block.type === "toolCall" && block.name === "bash") {
+					const command = (block.arguments as { command?: unknown } | undefined)?.command;
+					if (typeof command === "string" && CHECK_COMMAND.test(command)) calls.set(block.id, command);
+				}
+		} else if (message.role === "toolResult") {
+			const command = message.toolCallId ? calls.get(message.toolCallId) : undefined;
+			if (command === undefined) continue;
+			const text = contentText(message.content);
+			const exit = /exit(?:ed with)? (?:code )?(\d+)/i.exec(text);
+			checks.push({ command, passed: !message.isError && (exit ? exit[1] === "0" : true) });
+		} else if (message.role === "bashExecution" && CHECK_COMMAND.test(message.command ?? "")) {
+			checks.push({ command: message.command ?? "", passed: message.exitCode === 0 });
+		}
+	}
+	return checks;
+}
+
 /** What a session is doing right now, from the tail of its transcript: a tool call without a result yet. */
 export function currentStep(messages: readonly AgentMessage[]): string | null {
 	const answered = new Set(messages.filter(m => m.role === "toolResult").map(m => m.toolCallId));
@@ -468,6 +628,8 @@ export class AgentControl {
 	readonly #collected = new Set<string>();
 	/** Callers whose `autoClose` pass is in flight. */
 	readonly #sweeping = new Set<string>();
+	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
+	readonly #stored = new Map<string, StoredSession>();
 
 	readonly #app: AppControl | null;
 
@@ -536,7 +698,7 @@ export class AgentControl {
 		if (!caller) fail("This session's tab is gone.");
 		switch (tool) {
 			case T.list:
-				return this.#list(caller, tabs);
+				return this.#list(caller, tabs, ARGS[T.list].parse(raw ?? {}));
 			case T.open: {
 				const args = ARGS[T.open].parse(raw ?? {});
 				const { sessions, show, ...single } = args;
@@ -558,7 +720,8 @@ export class AgentControl {
 			}
 			case T.read: {
 				const args = ARGS[T.read].parse(raw);
-				return this.#read(this.#resolve(tabs, args.session, caller, "read"), args);
+				const target = await this.#resolveAny(tabs, args.session, caller, "read");
+				return "tabId" in target && "busy" in target ? this.#read(target, args) : this.#readStored(target, args);
 			}
 			case T.answer: {
 				const args = ARGS[T.answer].parse(raw);
@@ -582,7 +745,7 @@ export class AgentControl {
 			}
 			case T.compare: {
 				const args = ARGS[T.compare].parse(raw ?? {});
-				return this.#compare(caller, tabs, args.sessions);
+				return this.#compare(caller, tabs, args.sessions, args.criteria);
 			}
 			case T.merge: {
 				const args = ARGS[T.merge].parse(raw);
@@ -621,17 +784,13 @@ export class AgentControl {
 		return this.#app;
 	}
 
-	/** An id the list printed, or a unique prefix of one; never the caller itself where `self` is passed. */
+	/** An open session's id the list printed, or a unique prefix of one; never the caller itself where `self` is passed. */
 	#resolve(tabs: ControlTab[], session: string, self: ControlTab | null, verb: string): ControlTab {
-		const exact = tabs.find(tab => tab.tabId === session);
-		const matches = exact
-			? [exact]
-			: session.length >= SESSION_PREFIX_MIN
-				? tabs.filter(tab => tab.tabId.startsWith(session))
-				: [];
-		if (matches.length > 1) fail(`"${session}" matches several sessions; use the full id from ompdesk_sessions.`);
-		const target = matches[0];
-		if (!target) fail(`No session "${session}" in this window. Call ompdesk_sessions for the ids.`);
+		const target = this.#lookup(tabs, session);
+		if (!target)
+			fail(
+				`No session "${session}" open in this app. Call ompdesk_sessions (scope app for every window); a saved session must be opened again first (ompdesk_session_open reopen).`,
+			);
 		if (self && target.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
 		return target;
 	}
@@ -695,18 +854,67 @@ export class AgentControl {
 		return "idle";
 	}
 
-	async #list(caller: ControlTab, tabs: ControlTab[]): Promise<string> {
+	/** `"local"` is this computer (null); a paired host by id or name, else a readable failure naming them. */
+	#device(wanted: string): ControlDevice | null {
+		const lowered = wanted.toLowerCase();
+		if (lowered === "local" || lowered === "this computer") return null;
+		const devices = this.#host.devices();
+		const partial = devices.filter(device => device.name.toLowerCase().includes(lowered));
+		const found =
+			devices.find(device => device.id === wanted) ??
+			devices.find(device => device.name.toLowerCase() === lowered) ??
+			(partial.length === 1 ? partial[0] : undefined);
+		if (!found)
+			fail(
+				devices.length
+					? `No paired device "${wanted}". Paired: ${devices.map(device => `${device.name} (${device.id})`).join(", ")}; "local" is this computer.`
+					: `No paired device "${wanted}": this computer has none (Settings › Devices pairs one).`,
+			);
+		return found;
+	}
+
+	#online(device: ControlDevice): void {
+		if (device.state !== "online")
+			fail(`${device.name} is ${device.state}: it has to be on and reachable first (Settings › Devices).`);
+	}
+
+	#devicesLine(): string {
+		const devices = this.#host.devices();
+		return devices.length
+			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer.`
+			: "No paired devices.";
+	}
+
+	async #list(caller: ControlTab, tabs: ControlTab[], args: ListArgs): Promise<string> {
+		const device = args.device === undefined ? undefined : this.#device(args.device);
+		const limit = args.limit ?? LIST_DEFAULT_ROWS;
+		if (args.scope === "stored") return this.#listStored(caller, tabs, args, device, limit);
 		const opened = this.#openedBy(caller.tabId, tabs);
+		const query = args.query?.toLowerCase();
+		const app = args.scope === "app" || device !== undefined;
+		const candidates = tabs.filter(
+			tab =>
+				(app || tab.here) &&
+				(device === undefined || (device === null ? !tab.device : tab.device === device.id)) &&
+				(!args.folder || tab.cwd.includes(args.folder)) &&
+				(!args.mine || opened.has(tab.tabId)) &&
+				(!query || (!tab.hidden && tab.title.toLowerCase().includes(query))),
+		);
 		const rows = await Promise.all(
-			tabs.map(async tab => {
+			candidates.map(async tab => {
 				const marks = [
 					tab.tabId === caller.tabId ? "this session" : null,
 					opened.has(tab.tabId) ? "opened by you" : null,
+					tab.here ? null : "another window",
 				].filter(Boolean);
 				if (tab.hidden && tab.tabId !== caller.tabId)
-					return `- ${tab.tabId} (hidden from agents by the user)${marks.length ? ` [${marks.join(", ")}]` : ""}`;
+					return {
+						kind: "idle",
+						text: `- ${tab.tabId} (hidden from agents by the user)${marks.length ? ` [${marks.join(", ")}]` : ""}`,
+					};
 				const session = await this.#state(tab);
-				const parts = [this.#stateLine(tab, session), `folder ${tab.cwd}`];
+				const line = this.#stateLine(tab, session);
+				const parts = [line, `folder ${tab.cwd}`];
 				if (tab.worktree) parts.push(`worktree ${tab.worktree.branch}`);
 				if (tab.deviceName) parts.push(`on ${tab.deviceName}`);
 				const model = session.state?.model;
@@ -717,10 +925,60 @@ export class AgentControl {
 				if (todos) parts.push(todos);
 				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
-				return `${head}\n  ${parts.join("; ")}${answer}`;
+				const kind = tab.asks.length
+					? "waiting"
+					: line.startsWith("running") || line === "starting"
+						? "running"
+						: "idle";
+				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
 			}),
 		);
-		return `${tabs.length} session${tabs.length === 1 ? "" : "s"} in this window:\n${rows.join("\n")}`;
+		const kept = rows.filter(row => !args.status || row.kind === args.status);
+		const where = device
+			? `on ${device.name}`
+			: device === null
+				? "on this computer"
+				: app
+					? "in this app (every window)"
+					: "in this window";
+		const more =
+			kept.length > limit ? `\n… ${kept.length - limit} more; narrow with folder, status, query or limit.` : "";
+		const elsewhere = tabs.filter(tab => !tab.here).length;
+		const others = app
+			? ""
+			: `\n${elsewhere ? `${elsewhere} more open in other windows (scope app). ` : ""}Saved sessions, closed ones too: scope stored.`;
+		const shown = kept
+			.slice(0, limit)
+			.map(row => row.text)
+			.join("\n");
+		return `${kept.length} session${kept.length === 1 ? "" : "s"} ${where}:\n${shown}${more}${others}\n${this.#devicesLine()}`;
+	}
+
+	async #listStored(
+		caller: ControlTab,
+		tabs: ControlTab[],
+		args: ListArgs,
+		device: ControlDevice | null | undefined,
+		limit: number,
+	): Promise<string> {
+		if (device) this.#online(device);
+		if (args.status) fail("status filters open sessions; leave it out with scope stored.");
+		const opened = this.#openedBy(caller.tabId, tabs);
+		const mine = new Set(tabs.filter(tab => opened.has(tab.tabId)).flatMap(tab => tab.sessionPath ?? []));
+		const rows = (await this.#host.stored(device?.id, args.query))
+			.filter(row => (!args.folder || row.cwd.includes(args.folder)) && (!args.mine || mine.has(row.path)))
+			.sort((a, b) => b.modified.localeCompare(a.modified));
+		for (const row of rows) this.#stored.set(row.id, row);
+		const lines = rows.slice(0, limit).map(row => {
+			if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
+			const title = row.title || oneLine(row.firstMessage, 80) || "(untitled)";
+			const open = row.tabId ? `; open in tab ${row.tabId}` : "";
+			const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
+			return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
+		});
+		const where = device ? `saved on ${device.name}` : "saved on this computer";
+		const more = rows.length > limit ? `\n… ${rows.length - limit} more; narrow with folder, query or limit.` : "";
+		return `${rows.length} session${rows.length === 1 ? "" : "s"} ${where}${args.query ? ` matching "${args.query}"` : ""}:\n${lines.join("\n")}${more}\nRead one with ompdesk_session_read; open it again with ompdesk_session_open {"reopen":"<id>"}.\n${this.#devicesLine()}`;
 	}
 
 	async #whenReady(tabId: string, callerTabId: string): Promise<void> {
@@ -820,6 +1078,29 @@ export class AgentControl {
 		tag: string | undefined,
 	): Promise<OpenResult> {
 		const worktreeArg = args.worktree === true ? {} : args.worktree === false ? undefined : args.worktree;
+		let device: string | null | undefined;
+		if (args.device !== undefined) {
+			const found = this.#device(args.device);
+			if (found) this.#online(found);
+			device = found ? found.id : null;
+		}
+		let sessionPath: string | undefined;
+		if (args.reopen) {
+			const row =
+				(await this.#storedSession(args.reopen)) ??
+				fail(
+					`No saved session "${args.reopen}" here. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
+				);
+			if (row.hidden) fail("The user hid that session from other agents.");
+			if (row.tabId)
+				fail(
+					`That session is already open as ${row.tabId}: use it directly (ompdesk_session_send, ompdesk_session_read).`,
+				);
+			if (args.device !== undefined && (device ?? undefined) !== row.device)
+				fail("A saved session opens on the device it is saved on; leave device out with reopen.");
+			sessionPath = row.path;
+			device = row.device ?? null;
+		}
 		let tabId: string;
 		let worktree: IpcTabWorktree | undefined;
 		let prepared: string | undefined;
@@ -827,6 +1108,8 @@ export class AgentControl {
 			({ tabId, worktree, prepared } = await this.#host.spawn(caller.tabId, {
 				folder: args.folder,
 				worktree: worktreeArg,
+				...(device !== undefined ? { device } : {}),
+				...(sessionPath ? { sessionPath } : {}),
 				...(tag ? { tag } : {}),
 			}));
 		} finally {
@@ -834,17 +1117,22 @@ export class AgentControl {
 		}
 		opened.add(tabId);
 		// Its row reads as the work it was opened for at once, not "New session" until stock names it.
-		const task = args.message ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
+		const task = args.message && !sessionPath ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
 		if (task) this.#host.setTask(tabId, task);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
-			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
-			// first turn on, across relaunches; a session the user opened never carries it.
-			responseData(
-				await this.#host.command(tabId, { type: "agent_control_worker", from: caller.title || "another session" }),
-				"Marking the session as a worker",
-			);
 			const notes: string[] = [];
+			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
+			// first turn on, across relaunches; a session the user opened (and reopened here) never carries it.
+			if (sessionPath) notes.push("reopened");
+			else
+				responseData(
+					await this.#host.command(tabId, {
+						type: "agent_control_worker",
+						from: caller.title || "another session",
+					}),
+					"Marking the session as a worker",
+				);
 			if (args.model) {
 				const model = await this.#resolveModel(tabId, args.model);
 				responseData(
@@ -1030,22 +1318,69 @@ export class AgentControl {
 					"Reading the transcript",
 				),
 			) ?? fail("The transcript page came back empty.");
-		const lines = page.messages.map(renderMessage).filter((line): line is string => line !== null);
-		let total = 0;
-		const kept: string[] = [];
-		for (let i = lines.length - 1; i >= 0; i--) {
-			const line = lines[i] as string;
-			if (total + line.length > READ_MAX_CHARS && kept.length > 0) break;
-			total += line.length;
-			kept.unshift(line);
-		}
-		const omitted = lines.length - kept.length;
-		const head = `${label(target)}: ${page.messages.length} message(s) of ${page.totalMessages}${omitted ? ` (${omitted} older ones of this page left out; use a smaller limit)` : ""}.`;
-		const more = page.prevCursor
-			? `\nEarlier messages: ompdesk_session_read {"session":"${target.tabId}","before":"${page.prevCursor}"}.`
-			: "";
 		this.#collected.add(target.tabId);
-		return `${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
+		return renderPage(label(target), target.tabId, page.messages, page.totalMessages, page.prevCursor ?? null);
+	}
+
+	/** A saved session's transcript, paged from its end; the cursor is the index of the page's first message. */
+	async #readStored(row: StoredSession, args: { limit?: number; before?: string }): Promise<string> {
+		if (row.hidden) fail("The user hid this session from other agents.");
+		const messages = await this.#host.storedMessages(row);
+		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
+		const end = args.before === undefined ? messages.length : Number.parseInt(args.before, 10);
+		if (!Number.isInteger(end) || end < 0 || end > messages.length)
+			fail(`"${args.before}" is not a cursor of this session; use the one a previous page returned.`);
+		const start = Math.max(0, end - limit);
+		const title = `"${oneLine(row.title || row.firstMessage || "(untitled)", 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}${row.tabId ? `, open in tab ${row.tabId}` : ", not open"})`;
+		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
+	}
+
+	/** An open tab by id or unique prefix, undefined when none (an ambiguous prefix fails). */
+	#lookup(tabs: ControlTab[], session: string): ControlTab | undefined {
+		const exact = tabs.find(tab => tab.tabId === session);
+		if (exact) return exact;
+		if (session.length < SESSION_PREFIX_MIN) return undefined;
+		const matches = tabs.filter(tab => tab.tabId.startsWith(session));
+		if (matches.length > 1) fail(`"${session}" matches several sessions; use the full id from ompdesk_sessions.`);
+		return matches[0];
+	}
+
+	/** A saved session by stock id or unique prefix: the last stored lists first, then this computer's index. */
+	async #storedSession(session: string): Promise<StoredSession | undefined> {
+		const find = (): StoredSession | undefined => {
+			const exact = this.#stored.get(session);
+			if (exact) return exact;
+			if (session.length < SESSION_PREFIX_MIN) return undefined;
+			const matches = [...this.#stored.values()].filter(row => row.id.startsWith(session));
+			if (matches.length > 1) fail(`"${session}" matches several saved sessions; use the full id.`);
+			return matches[0];
+		};
+		const known = find();
+		if (known) return known;
+		for (const row of await this.#host.stored(undefined)) this.#stored.set(row.id, row);
+		return find();
+	}
+
+	/** An open session, or a saved one (open in a tab: that tab). */
+	async #resolveAny(
+		tabs: ControlTab[],
+		session: string,
+		self: ControlTab,
+		verb: string,
+	): Promise<ControlTab | StoredSession> {
+		const tab = this.#lookup(tabs, session);
+		if (tab) {
+			if (tab.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
+			return tab;
+		}
+		const row = await this.#storedSession(session);
+		if (!row)
+			fail(
+				`No session "${session}" open in this app or saved here. Call ompdesk_sessions (scope app, or scope stored with device for a paired device's).`,
+			);
+		const open = row.tabId ? tabs.find(entry => entry.tabId === row.tabId) : undefined;
+		if (open?.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
+		return open ?? row;
 	}
 
 	async #answer(caller: ControlTab, target: ControlTab, args: AnswerArgs): Promise<string> {
@@ -1142,47 +1477,141 @@ export class AgentControl {
 			: `Stopped ${label(target)}.`;
 	}
 
-	async #describe(caller: ControlTab, tab: ControlTab): Promise<string> {
-		this.#refuseHidden(tab, caller);
-		const session = await this.#state(tab);
-		const head = `- ${tab.tabId} ${label(tab)}: ${this.#stateLine(tab, session)}`;
-		const answer = session.last ? `final answer: ${oneLine(session.last, 700)}` : "final answer: (none yet)";
-		if (!tab.worktree) return `${head}\n  no worktree: nothing to compare as a branch.\n  ${answer}`;
-		if (tab.deviceName)
-			return `${head}\n  its worktree is on ${tab.deviceName}; comparing branches works on this computer's sessions only.\n  ${answer}`;
-		try {
-			const facts = await this.#host.branchFacts(tab.worktree);
-			const added = facts.files.reduce((sum, file) => sum + file.added, 0);
-			const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
-			const shown = facts.files
-				.slice(0, 12)
-				.map(file => `${file.path} +${file.added} −${file.removed}`)
-				.join(", ");
-			const more = facts.files.length > 12 ? `, … ${facts.files.length - 12} more` : "";
-			const problem = mergeProblem(tab.worktree, facts);
-			return [
-				head,
-				`  branch ${facts.branch} → ${facts.baseBranch ?? "(detached)"}: ${facts.commitsAhead} commit(s) ahead, ${facts.files.length} file(s) changed (+${added} −${removed})${facts.merged ? ", already merged" : ""}`,
-				`  uncommitted ${facts.uncommitted}, untracked ${facts.untracked}${shown ? `\n  files: ${shown}${more}` : ""}`,
-				`  ${problem ? `cannot merge yet: ${problem}` : "ready to merge with ompdesk_merge"}`,
-				`  ${answer}`,
-			].join("\n");
-		} catch (error) {
-			return `${head}\n  could not read its branch: ${error instanceof Error ? error.message : String(error)}\n  ${answer}`;
+	/** What a compare reads from one session: its final answer, the checks it ran and its worktree's diff. */
+	async #evidence(caller: ControlTab, target: ControlTab | StoredSession): Promise<Evidence> {
+		const open = "busy" in target;
+		if (open) this.#refuseHidden(target, caller);
+		else if (target.hidden) fail("The user hid a session you asked to compare from other agents.");
+		const id = open ? target.tabId : target.id;
+		const name = open
+			? label(target)
+			: `"${oneLine(target.title || target.firstMessage || "(untitled)", 80)}" (saved)`;
+		let messages: readonly AgentMessage[] = [];
+		let state = "saved, not open";
+		let answer: string | null = null;
+		if (open) {
+			const session = await this.#state(target);
+			state = this.#stateLine(target, session);
+			answer = session.last;
+			if (target.status === "ready" || target.status === "running")
+				messages =
+					transcriptPage(
+						await this.#host
+							.command(
+								target.tabId,
+								{ type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES },
+								30_000,
+							)
+							.then(response => (response.success ? response.data : null))
+							.catch(() => null),
+					)?.messages ?? [];
+		} else {
+			messages = await this.#host.storedMessages(target);
+			const last = [...messages].reverse().find(message => message.role === "assistant");
+			answer = last ? contentText(last.content).trim() || null : null;
 		}
+		const checks = checksRun(messages);
+		const checkLine = checks.length
+			? `checks run: ${checks
+					.slice(-8)
+					.map(check => `\`${oneLine(check.command, 100)}\` ${check.passed ? "passed" : "FAILED"}`)
+					.join("; ")}`
+			: "checks run: none seen in its transcript";
+		const lines = [`- ${id} ${name}: ${state}`, `  ${checkLine}`];
+		const worktree = open ? target.worktree : undefined;
+		if (!worktree) lines.push("  no worktree: no branch to diff");
+		else if (open && target.deviceName)
+			lines.push(
+				`  its worktree is on ${target.deviceName}; branch facts are read on this computer's sessions only`,
+			);
+		else
+			try {
+				const facts = await this.#host.branchFacts(worktree);
+				const added = facts.files.reduce((sum, file) => sum + file.added, 0);
+				const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
+				const shown = facts.files
+					.slice(0, 12)
+					.map(file => `${file.path} +${file.added} −${file.removed}`)
+					.join(", ");
+				const more = facts.files.length > 12 ? `, … ${facts.files.length - 12} more` : "";
+				const problem = mergeProblem(worktree, facts);
+				lines.push(
+					`  branch ${facts.branch} → ${facts.baseBranch ?? "(detached)"}: ${facts.commitsAhead} commit(s) ahead, ${facts.files.length} file(s) changed (+${added} −${removed})${facts.merged ? ", already merged" : ""}`,
+					`  uncommitted ${facts.uncommitted}, untracked ${facts.untracked}${shown ? `\n  files: ${shown}${more}` : ""}`,
+					`  ${problem ? `cannot merge yet: ${problem}` : "ready to merge with ompdesk_merge"}`,
+				);
+			} catch (error) {
+				lines.push(`  could not read its branch: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		const facts = lines.slice(1).join("\n");
+		lines.push(`  final answer: ${answer ? oneLine(answer, 700) : "(none yet)"}`);
+		return { id, text: lines.join("\n"), facts, answer };
 	}
 
-	/** Facts for each worktree session: diff stat, uncommitted work and the final answer. Runs no tests. */
-	async #compare(caller: ControlTab, tabs: ControlTab[], ids: string[] | undefined): Promise<string> {
+	/**
+	 * Each session's evidence (final answer, checks from its transcript, worktree diff); with criteria, one judge
+	 * request on the caller's `slow` role grades them and names a winner. Runs no tests.
+	 */
+	async #compare(
+		caller: ControlTab,
+		tabs: ControlTab[],
+		ids: string[] | undefined,
+		criteria: string[] | undefined,
+	): Promise<string> {
 		const own = this.#openedBy(caller.tabId, tabs);
 		const targets = ids
-			? ids.map(id => this.#resolve(tabs, id, caller, "compare"))
+			? await Promise.all(ids.map(id => this.#resolveAny(tabs, id, caller, "compare")))
 			: tabs.filter(tab => own.has(tab.tabId) && tab.worktree);
 		if (targets.length === 0)
 			fail("No worktree sessions to compare. Open sessions with worktree: true, or pass sessions.");
-		const blocks = await Promise.all(targets.map(tab => this.#describe(caller, tab)));
-		for (const tab of targets) this.#collected.add(tab.tabId);
-		return `${blocks.join("\n")}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer.`;
+		const evidence = await Promise.all(targets.map(target => this.#evidence(caller, target)));
+		for (const target of targets) if ("busy" in target) this.#collected.add(target.tabId);
+		const blocks = evidence.map(entry => entry.text).join("\n");
+		if (!criteria)
+			return `${blocks}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer. Pass criteria to have them judged.`;
+		const verdict = await this.#judge(caller, evidence, criteria);
+		return `${verdict}\n\nEvidence:\n${blocks}`;
+	}
+
+	async #judge(caller: ControlTab, evidence: Evidence[], criteria: string[]): Promise<string> {
+		const per = Math.floor(JUDGE_EVIDENCE_CHARS / evidence.length);
+		const user = [
+			"Acceptance criteria:",
+			...criteria.slice(0, JUDGE_MAX_CRITERIA).map((criterion, index) => `${index + 1}. ${criterion}`),
+			"",
+			...evidence.map(entry =>
+				[
+					`<session id="${entry.id}">`,
+					entry.facts,
+					"final answer:",
+					cut(entry.answer ?? "(none)", Math.max(500, per - entry.facts.length)),
+					"</session>",
+				].join("\n"),
+			),
+		].join("\n");
+		const reply = responseData<{ text?: string; model?: string; usd?: number }>(
+			await this.#host.command(caller.tabId, { type: "agent_control_judge", system: JUDGE_SYSTEM, user }, 180_000),
+			"Judging",
+		);
+		const parsed = parseVerdict(reply?.text ?? "");
+		const cost = `${reply?.model ? ` by ${reply.model}` : ""}${typeof reply?.usd === "number" ? `, $${reply.usd.toFixed(4)}` : ""}`;
+		if (!parsed) return `Judge${cost} (its answer was not the expected JSON):\n${cut(reply?.text ?? "", 4000)}`;
+		const known = new Set(evidence.map(entry => entry.id));
+		const ranking = parsed.ranking.filter(row => known.has(row.session)).sort((a, b) => b.score - a.score);
+		const lines = [`Verdict${cost}:`];
+		ranking.forEach((row, index) => {
+			lines.push(`${index + 1}. ${row.session}: ${row.score}/100. ${oneLine(row.reasons, 400)}`);
+			for (const item of row.criteria)
+				lines.push(
+					`   - ${item.met}: ${oneLine(item.criterion, 120)}${item.why ? ` (${oneLine(item.why, 200)})` : ""}`,
+				);
+		});
+		lines.push(
+			parsed.winner && known.has(parsed.winner)
+				? `Winner: ${parsed.winner}. ${oneLine(parsed.why, 500)}`
+				: `No winner: ${oneLine(parsed.why || "none meets the criteria", 500)}`,
+		);
+		return lines.join("\n");
 	}
 
 	/** Merge a worktree session's branch into the parent checkout: one card unless the user turned it off. */

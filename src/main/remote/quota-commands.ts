@@ -48,6 +48,8 @@ export const MODEL_COMMAND_TYPES = [
 	"regenerate_session_title",
 	// The automatic mode choice (bridge modes/auto-mode.ts): one cheap judge request on the host per typed prompt.
 	"auto_mode_decide",
+	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `slow` role model.
+	"agent_control_judge",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that call a model only for some arguments; `commandUsesModel` decides. */

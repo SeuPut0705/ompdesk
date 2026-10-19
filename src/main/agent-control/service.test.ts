@@ -24,14 +24,18 @@ import {
 	type AgentControlHost,
 	type AutopilotSource,
 	type ControlAsk,
+	type ControlDevice,
 	type ControlTab,
+	checksRun,
 	currentStep,
 	type OpenedChild,
+	parseVerdict,
 	renderMessage,
 	type ScheduleRow,
 	type ScheduleSource,
 	type ShipLevel,
 	type SpawnRequest,
+	type StoredSession,
 } from "./service";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
@@ -76,6 +80,7 @@ class FakeHost implements AgentControlHost {
 			busy: false,
 			asks: [],
 			hidden: false,
+			here: true,
 			...tab,
 		};
 		this.tabsById.set(full.tabId, full);
@@ -182,12 +187,27 @@ class FakeHost implements AgentControlHost {
 		return () => this.listeners.delete(listener);
 	};
 	text = (key: string, params: Record<string, string>) => `${key}:${params.caller}:${params.target}`;
+	deviceList: ControlDevice[] = [];
+	devices = () => this.deviceList;
+	storedRows: StoredSession[] = [];
+	storedQueries: { device: string | undefined; query: string | undefined }[] = [];
+	stored = async (device: string | undefined, query?: string) => {
+		this.storedQueries.push({ device, query });
+		return this.storedRows.filter(
+			row => row.device === device && (!query || `${row.title} ${row.snippet ?? ""}`.includes(query)),
+		);
+	};
+	storedTranscripts = new Map<string, AgentMessage[]>();
+	storedMessages = async (row: StoredSession) => this.storedTranscripts.get(row.path) ?? [];
+	judged: string[] = [];
+	judgeReply = "";
 
 	spawn = async (_caller: string, request: SpawnRequest) => {
 		this.spawned.push(request);
 		const tab = this.add({
 			title: "",
 			cwd: request.folder ?? "/repo",
+			...(typeof request.device === "string" ? { device: request.device, deviceName: "DESKTOP-PC" } : {}),
 			status: "ready",
 			...(request.worktree
 				? { worktree: { name: "w", branch: "omp/agent/w", baseCwd: "/repo", path: "/wt/w" } }
@@ -218,6 +238,9 @@ class FakeHost implements AgentControlHost {
 			case "prompt":
 				tab.busy = true;
 				return ok();
+			case "agent_control_judge":
+				this.judged.push(command.user);
+				return ok({ text: this.judgeReply, model: "anthropic/claude-slow", usd: 0.0123 });
 			default:
 				return ok();
 		}
@@ -1534,5 +1557,308 @@ describe("autoClose: opened sessions whose work landed", () => {
 		await service.autoClose("main0001");
 		expect(host.closedRecords).toEqual([]);
 		expect(host.removed).toEqual([]);
+	});
+});
+
+const desktop: ControlDevice = { id: "dev-win-1", name: "DESKTOP-91ID999", state: "online" };
+
+function storedRow(row: Partial<StoredSession>): StoredSession {
+	return {
+		id: "11111111-aaaa",
+		path: "/s/proj/one.jsonl",
+		title: "Old parser work",
+		firstMessage: "fix the parser",
+		cwd: "/repo",
+		modified: "2026-10-18T10:00:00.000Z",
+		messages: 4,
+		status: "complete",
+		hidden: false,
+		...row,
+	};
+}
+
+describe("ompdesk_sessions scopes", () => {
+	it("lists this window by default, every window with scope app, and one device's sessions with device", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "else0002", title: "Other window work", here: false },
+			{ tabId: "remo0003", title: "On the PC", here: false, device: desktop.id, deviceName: desktop.name },
+		);
+		host.deviceList = [desktop];
+		const service = control(host);
+		const window = (await service.run("main0001", T.list, {})).text;
+		expect(window).toContain("1 session in this window");
+		expect(window).not.toContain("else0002");
+		expect(window).toContain("2 more open in other windows (scope app)");
+		expect(window).toContain(`Paired devices: DESKTOP-91ID999 (id ${desktop.id}, online)`);
+		const app = (await service.run("main0001", T.list, { scope: "app" })).text;
+		expect(app).toContain("3 sessions in this app");
+		expect(app).toMatch(/else0002 "Other window work" \[another window\]/);
+		const onPc = (await service.run("main0001", T.list, { device: "desktop-91" })).text;
+		expect(onPc).toContain("1 session on DESKTOP-91ID999");
+		expect(onPc).toContain("remo0003");
+		expect(onPc).not.toContain("else0002");
+		const local = (await service.run("main0001", T.list, { device: "local", scope: "app" })).text;
+		expect(local).not.toContain("remo0003");
+		expect((await service.run("main0001", T.list, { device: "laptop" })).text).toMatch(/No paired device "laptop"/);
+	});
+
+	it("filters by status, folder, query and the sessions the caller opened", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "busy0002", title: "Runner", busy: true, cwd: "/repo/api" },
+			{ tabId: "ask00003", title: "Asker", asks: [select("Pick", ["A", "B"])] },
+		);
+		const service = control(host);
+		expect((await service.run("main0001", T.list, { status: "running" })).text).toMatch(/^1 session .*\n- busy0002/);
+		expect((await service.run("main0001", T.list, { status: "waiting" })).text).toContain("ask00003");
+		expect((await service.run("main0001", T.list, { folder: "/api" })).text).not.toContain("ask00003");
+		expect((await service.run("main0001", T.list, { query: "ask" })).text).toMatch(/^1 session/);
+		await service.run("main0001", T.open, { message: "child work" });
+		const mine = (await service.run("main0001", T.list, { mine: true })).text;
+		expect(mine).toMatch(/^1 session/);
+		expect(mine).toContain("opened by you");
+	});
+
+	it("lists saved sessions of this computer or an online device, with a search, and caches them for read", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop, { id: "dev-off", name: "Laptop", state: "offline" }];
+		host.storedRows = [
+			storedRow({}),
+			storedRow({ id: "22222222-bbbb", path: "/s/p/two.jsonl", title: "Secret", hidden: true }),
+			storedRow({ id: "33333333-cccc", path: "C:/s/three.jsonl", title: "PC refactor", device: desktop.id }),
+		];
+		const service = control(host);
+		const local = (await service.run("main0001", T.list, { scope: "stored" })).text;
+		expect(local).toContain("2 sessions saved on this computer");
+		expect(local).toContain('11111111-aaaa "Old parser work"');
+		expect(local).toContain("22222222-bbbb (hidden from agents by the user)");
+		expect(local).not.toContain("Secret");
+		const pc = (await service.run("main0001", T.list, { scope: "stored", device: "DESKTOP-91ID999", query: "PC" }))
+			.text;
+		expect(pc).toContain('1 session saved on DESKTOP-91ID999 matching "PC"');
+		expect(host.storedQueries.at(-1)).toEqual({ device: desktop.id, query: "PC" });
+		const off = await service.run("main0001", T.list, { scope: "stored", device: "Laptop" });
+		expect(off.isError).toBe(true);
+		expect(off.text).toContain("Laptop is offline");
+	});
+});
+
+describe("ompdesk_session_read of a saved session", () => {
+	const transcript: AgentMessage[] = Array.from({ length: 5 }, (_, index) => ({
+		role: index % 2 === 0 ? "user" : "assistant",
+		content: `message ${index}`,
+	})) as AgentMessage[];
+
+	it("pages a saved transcript from its end with an index cursor", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.storedRows = [storedRow({})];
+		host.storedTranscripts.set("/s/proj/one.jsonl", transcript);
+		const service = control(host);
+		const last = (await service.run("main0001", T.read, { session: "11111111", limit: 2 })).text;
+		expect(last).toContain('"Old parser work" (saved, not open): 2 message(s) of 5');
+		expect(last).toContain("message 4");
+		expect(last).not.toContain("message 2");
+		expect(last).toContain('{"session":"11111111-aaaa","before":"3"}');
+		const earlier = (await service.run("main0001", T.read, { session: "11111111-aaaa", before: "3", limit: 2 })).text;
+		expect(earlier).toContain("message 1");
+		expect(earlier).toContain("message 2");
+		expect((await service.run("main0001", T.read, { session: "11111111-aaaa", before: "99" })).isError).toBe(true);
+	});
+
+	it("refuses a hidden saved session and an unknown id", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.storedRows = [storedRow({ hidden: true })];
+		const service = control(host);
+		expect((await service.run("main0001", T.read, { session: "11111111-aaaa" })).text).toContain("hid this session");
+		expect((await service.run("main0001", T.read, { session: "nope9999" })).text).toContain("No session");
+	});
+
+	it("reads an open session's tab when the saved session is open", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "open0002", title: "Live", messages: [{ role: "user", content: "live text" } as AgentMessage] },
+		);
+		host.storedRows = [storedRow({ tabId: "open0002" })];
+		const text = (await control(host).run("main0001", T.read, { session: "11111111-aaaa" })).text;
+		expect(text).toContain('"Live"');
+		expect(text).toContain("live text");
+	});
+});
+
+describe("ompdesk_session_open on a device and reopen", () => {
+	it("opens a session on a paired device by name; an offline one is refused", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop, { id: "dev-off", name: "Laptop", state: "offline" }];
+		const service = control(host);
+		const opened = await service.run("main0001", T.open, {
+			message: "run the Windows build",
+			device: "DESKTOP-91ID999",
+			folder: "C:\\work\\app",
+		});
+		expect(opened.isError).toBe(false);
+		expect(host.spawned[0]).toMatchObject({ device: desktop.id, folder: "C:\\work\\app" });
+		expect(opened.text).toContain("on DESKTOP-PC");
+		const local = await service.run("main0001", T.open, { device: "local" });
+		expect(local.isError).toBe(false);
+		expect(host.spawned[1]?.device).toBeNull();
+		const off = await service.run("main0001", T.open, { device: "Laptop" });
+		expect(off.isError).toBe(true);
+		expect(off.text).toContain("Laptop is offline");
+		expect(host.spawned).toHaveLength(2);
+	});
+
+	it("reopens a saved session on the device it is saved on, without marking it a worker", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		host.storedRows = [storedRow({ device: desktop.id, path: "C:/s/one.jsonl" })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored", device: desktop.id });
+		const result = await service.run("main0001", T.open, { reopen: "11111111-aaaa", message: "continue please" });
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("reopened");
+		expect(host.spawned[0]).toMatchObject({ sessionPath: "C:/s/one.jsonl", device: desktop.id });
+		expect(host.sent.some(entry => entry.command.type === "agent_control_worker")).toBe(false);
+		const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
+		expect(prompts(host, child)).toEqual([wrapAgentMessage("continue please", "Boss")]);
+		expect(host.tasks.size).toBe(0);
+	});
+
+	it("refuses to reopen a session that is open, hidden, or with folder or worktree", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "open0002" });
+		host.storedRows = [storedRow({ tabId: "open0002" }), storedRow({ id: "44444444-dddd", hidden: true })];
+		const service = control(host);
+		expect((await service.run("main0001", T.open, { reopen: "11111111-aaaa" })).text).toContain(
+			"already open as open0002",
+		);
+		expect((await service.run("main0001", T.open, { reopen: "44444444-dddd" })).text).toContain("hid that session");
+		expect((await service.run("main0001", T.open, { reopen: "11111111-aaaa", worktree: true })).text).toContain(
+			"reopen opens a stored session as it was",
+		);
+		expect(host.spawned).toHaveLength(0);
+	});
+
+	it("names an opened session by its task, and an untitled one by its folder", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "bare0002", cwd: "/repo/tools" });
+		const text = (await control(host).run("main0001", T.result, { session: "bare0002" })).text;
+		expect(text).toContain("(untitled, in tools)");
+	});
+});
+
+describe("ompdesk_compare with criteria", () => {
+	const bashCheck = (id: string, command: string, output: string, isError = false): AgentMessage[] =>
+		[
+			{ role: "assistant", content: [{ type: "toolCall", id, name: "bash", arguments: { command } }] },
+			{ role: "toolResult", toolCallId: id, toolName: "bash", content: output, isError },
+		] as AgentMessage[];
+
+	it("reads each session's checks, diff and answer, asks the judge on the caller, and ranks with a winner", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{
+				tabId: "aaaa0002",
+				title: "Approach A",
+				last: "Done; tests pass.",
+				worktree: { name: "a", branch: "omp/agent/a", baseCwd: "/repo", path: "/wt/a" },
+				messages: bashCheck("c1", "bun run vitest", "12 passed\nexit code 0"),
+			},
+			{
+				tabId: "bbbb0003",
+				title: "Approach B",
+				last: "Done.",
+				messages: bashCheck("c2", "bunx tsc --noEmit", "error TS2322", true),
+			},
+		);
+		host.facts.set("omp/agent/a", {
+			branch: "omp/agent/a",
+			baseBranch: "main",
+			commitsAhead: 2,
+			files: [{ path: "src/x.ts", added: 10, removed: 2 }],
+			uncommitted: 0,
+			untracked: 0,
+			merged: false,
+		} as never);
+		host.judgeReply = `Here you go:\n\`\`\`json\n${JSON.stringify({
+			ranking: [
+				{
+					session: "bbbb0003",
+					score: 30,
+					criteria: [{ criterion: "types pass", met: "no", why: "tsc failed" }],
+					reasons: "type errors",
+				},
+				{
+					session: "aaaa0002",
+					score: 90,
+					criteria: [{ criterion: "types pass", met: "unknown", why: "not run" }],
+					reasons: "tests pass",
+				},
+			],
+			winner: "aaaa0002",
+			why: "only A has a passing check",
+		})}\n\`\`\``;
+		const result = await control(host).run("main0001", T.compare, {
+			sessions: ["aaaa0002", "bbbb0003"],
+			criteria: ["types pass", "tests pass"],
+		});
+		expect(result.isError).toBe(false);
+		expect(host.sent.find(entry => entry.command.type === "agent_control_judge")?.tabId).toBe("main0001");
+		const prompt = host.judged[0] ?? "";
+		expect(prompt).toContain("1. types pass");
+		expect(prompt).toContain("`bun run vitest` passed");
+		expect(prompt).toContain("`bunx tsc --noEmit` FAILED");
+		expect(prompt).toContain("1 file(s) changed (+10 −2)");
+		expect(result.text).toMatch(/Verdict by anthropic\/claude-slow, \$0\.0123:\n1\. aaaa0002: 90\/100/);
+		expect(result.text).toContain("2. bbbb0003: 30/100");
+		expect(result.text).toContain("   - no: types pass (tsc failed)");
+		expect(result.text).toContain("Winner: aaaa0002. only A has a passing check");
+		expect(result.text).toContain("Evidence:");
+	});
+
+	it("compares without a judge when no criteria are given, and shows a judge answer that is not JSON as is", async () => {
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "aaaa0002", last: "ok" });
+		host.storedRows = [storedRow({})];
+		host.storedTranscripts.set("/s/proj/one.jsonl", [
+			{ role: "assistant", content: "saved final answer" },
+		] as AgentMessage[]);
+		const service = control(host);
+		const plain = await service.run("main0001", T.compare, { sessions: ["aaaa0002", "11111111-aaaa"] });
+		expect(plain.text).toContain("final answer: saved final answer");
+		expect(plain.text).toContain("Pass criteria to have them judged");
+		expect(host.judged).toHaveLength(0);
+		host.judgeReply = "I cannot decide.";
+		const odd = await service.run("main0001", T.compare, { sessions: ["aaaa0002"], criteria: ["works"] });
+		expect(odd.text).toContain("its answer was not the expected JSON");
+		expect(odd.text).toContain("I cannot decide.");
+	});
+});
+
+describe("checksRun and parseVerdict", () => {
+	it("keeps check-like bash commands with their outcome and skips the rest", () => {
+		const messages = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "a", name: "bash", arguments: { command: "ls -la" } }],
+			},
+			{ role: "toolResult", toolCallId: "a", content: "x" },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "b", name: "bash", arguments: { command: "cargo test" } }],
+			},
+			{ role: "toolResult", toolCallId: "b", content: "test result: FAILED. exit code 101" },
+			{ role: "bashExecution", command: "bun run lint", exitCode: 0 },
+		] as AgentMessage[];
+		expect(checksRun(messages)).toEqual([
+			{ command: "cargo test", passed: false },
+			{ command: "bun run lint", passed: true },
+		]);
+	});
+
+	it("reads the verdict JSON out of prose and refuses a wrong shape", () => {
+		expect(parseVerdict('ok {"ranking":[{"session":"a","score":5}],"winner":null} done')).toMatchObject({
+			ranking: [{ session: "a", score: 5, criteria: [] }],
+			winner: null,
+		});
+		expect(parseVerdict('{"ranking":[{"session":"a","score":500}]}')).toBeNull();
+		expect(parseVerdict("no json")).toBeNull();
 	});
 });

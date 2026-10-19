@@ -5,24 +5,24 @@ description: Use when the user asks to split work across parallel OMPdesk sessio
 
 # OMPdesk sessions
 
-Each OMPdesk session is a tab in the user's window. These host tools let the main agent of a session see every open session, open and steer sessions, read and answer them, show them and notify the user. Subagents (`task`) do not have them. Reply to the user in their language.
+Each OMPdesk session is a tab in one of the user's windows, on this computer or on a paired device; saved sessions stay listed after their tab closes. These host tools let the main agent of a session see, open, reopen, steer, read, judge and answer sessions, show them and notify the user. Subagents (`task`) do not have them. Reply to the user in their language.
 
 ## Tools
 
-- `ompdesk_sessions` — every session in this window: state, current step, subagents, todos, your own marked.
-- `ompdesk_session_open` — `message`, `folder`, `model`, `mode`, `worktree`; `sessions` for up to 4 at once; `show`.
+- `ompdesk_sessions` — `scope` (`window` default, `app`, `stored`), `device`, `folder`, `status`, `mine`, `query`, `limit`: state, step, subagents, todos, your own marked, paired devices.
+- `ompdesk_session_open` — `message`, `folder`, `device`, `model`, `mode`, `worktree`, `reopen`; `sessions` for up to 4 at once; `show`.
 - `ompdesk_session_send` — `session`, `message`, `delivery` (`follow_up` default, `steer`).
-- `ompdesk_session_result` — `session` or `sessions`, `wait`, `until`, `timeout_seconds`.
-- `ompdesk_session_read` — `session`, `limit`, `before`: transcript pages, newest first.
+- `ompdesk_session_result` — `session` or `sessions`, `wait`, `until` (`all`, `any`), `timeout_seconds`.
+- `ompdesk_session_read` — `session` (open or saved), `limit`, `before`: transcript pages, newest first.
 - `ompdesk_session_answer` — `session`, `request`, `choice` / `approve` / `text` / `answers`.
 - `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`.
 - `ompdesk_session_stop` — `session`, `close`, `delete`.
-- `ompdesk_compare`, `ompdesk_merge` — worktree attempts: skill://ompdesk/references/worktrees-review.md
+- `ompdesk_compare` — `sessions`, `criteria`: evidence and a ranked verdict; `ompdesk_merge`: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — skill://ompdesk/references/schedules.md
 - `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md
 - `ompdesk_app_list`, `ompdesk_app` — change OMPdesk itself instead of asking the user to click: skill://ompdesk/references/app-control.md
 
-`session` is an id from `ompdesk_sessions`; a unique prefix is enough. Caps, confirmation cards and approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
+`session` is an id from `ompdesk_sessions`; a unique prefix is enough. Other windows, paired devices, saved sessions and judging: skill://ompdesk/references/across.md. Caps, cards, approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
 
 ## When to open a session
 

@@ -14,6 +14,7 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
+import { completeOnSmol } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
 
 /**
@@ -34,6 +35,8 @@ interface ControlEnv {
 type BridgeMethods = Record<string, (params: unknown, env: ControlEnv) => Promise<unknown>>;
 
 const TEXT_MAX = 2000;
+/** The judge's evidence is bounded in main; this is the last guard. */
+const JUDGE_INPUT_MAX = 120_000;
 export const AGENT_ANSWER_ENTRY = "ompdesk.agent-answer";
 export const WORKER_ENTRY = "ompdesk.worker";
 
@@ -86,5 +89,24 @@ export const methods: BridgeMethods = {
 		if (!manager.getBranch().some((entry: { customType?: unknown }) => entry.customType === WORKER_ENTRY))
 			manager.appendCustomEntry(WORKER_ENTRY, { from, at: Date.now() });
 		return {};
+	},
+	/**
+	 * `{system, user}` → `{text, model, usd?, tokens?}`: the control tools' judge (`ompdesk_compare` with criteria), one
+	 * request on stock's `slow` role (its fallbacks per `resolveRoleChain`), never the session's own model, journaled in
+	 * stock's usage ledger as `ompdesk-judge`. Main builds the prompt from the compared sessions' evidence.
+	 */
+	"agent_control.judge": async (params, env) => {
+		const record = (params ?? {}) as Record<string, unknown>;
+		const system = typeof record.system === "string" ? record.system : "";
+		const user = typeof record.user === "string" ? record.user : "";
+		if (!system.trim() || !user.trim()) throw new Error("agent_control.judge needs {system, user}");
+		return completeOnSmol(env.session() as never, {
+			system,
+			user: user.slice(0, JUDGE_INPUT_MAX),
+			maxTokens: 2_000,
+			temperature: 0,
+			purpose: "ompdesk-judge",
+			role: "slow",
+		});
 	},
 };

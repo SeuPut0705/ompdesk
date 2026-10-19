@@ -307,8 +307,21 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},
-	/** agent-control.ts: only the public extension context's `ui.confirm`; no internals to probe. */
-	agentControl: {},
+	/**
+	 * agent-control.ts: the public extension context's `ui.confirm`, and `agent_control.judge` (`ompdesk_compare` with
+	 * criteria): one request on stock's `slow` role through next-prompt-engine's `completeOnSmol` (`roleCandidatePool`,
+	 * `resolveRoleChain`, the session's credentials, `completeSimple`). Stored transcripts are read in the stock helper
+	 * (`loadSessionMessagesReadOnly`, `stock-helper/sessions.ts`).
+	 */
+	agentControl: {
+		session: ["settings", "sessionId", "modelRegistry.getApiKey()", "modelRegistry.resolver()"],
+		modules: {
+			"@oh-my-pi/pi-ai": ["completeSimple()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
+			[`${AGENT}/session/session-loader`]: ["loadSessionMessagesReadOnly()"],
+		},
+	},
 	/**
 	 * modes/autopilot.ts: the tool set (`ask`/`eval`/`debug` off, the `autopilot` tool on), the session-only
 	 * `tools.approvalMode` override, the cycle ledger in the journal, usage from the session stats, the todo

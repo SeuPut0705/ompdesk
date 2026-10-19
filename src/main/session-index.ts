@@ -7,6 +7,7 @@ import { lstat, open, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
+import type { AgentMessage } from "../shared/rpc-types";
 import { agentDir } from "./agent-paths";
 import { deletedSessions } from "./deleted-sessions";
 import { OmpUnavailableError } from "./omp-availability";
@@ -193,6 +194,16 @@ export class SessionIndex {
 		await this.#store.delete(target);
 		this.#textCache.delete(target);
 		this.#notifyChange();
+	}
+
+	/** A stored session's transcript, read-only (the control tools' `ompdesk_session_read` of a session no tab holds). */
+	async readMessages(sessionPath: string): Promise<AgentMessage[]> {
+		const target = resolve(sessionPath);
+		const root = `${resolve(this.#sessionsDir)}${sep}`;
+		if (!target.startsWith(root) || !target.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
+		return this.#store.messages(target);
 	}
 
 	/** Move a stored session to another project folder (stock `SessionManager.moveTo`); returns its new path. */
