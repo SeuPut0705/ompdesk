@@ -2,7 +2,9 @@
  * A session that works wears the composer's light on its card (`LiveEdge`): three tabs run on the fake omp while a
  * fourth sits idle in front. Their sidebar rows carry the light (two transform-only bars over a still 1 px accent
  * edge), the idle row does not; split with one of them, the running pane's header carries it and the idle pane's
- * does not; under reduced motion nothing moves and the still edge stays. `OMP_GUI_ROW_GLOW=<dir>` writes captures.
+ * does not; when that pane's turn ends while a subagent it started still works, its row and header keep the light in
+ * its fainter, slower form until the subagents finish; under reduced motion nothing moves and the still edge stays.
+ * `OMP_GUI_ROW_GLOW=<dir>` writes captures.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -129,6 +131,39 @@ test("three running tabs light their rows and a split's running pane header, the
 		await expect(header(running[0] ?? "").locator(".omp-live-edge[data-live-edge-inside]")).toHaveCount(1);
 		await expect(header(idle).locator(".omp-live-edge")).toHaveCount(0);
 		await captureTo(CAPTURES, page, "electron-split-header");
+
+		// The pane's turn ends while the subagents it started still work: its row and its header keep the light,
+		// fainter and half as fast; the subagents finishing put it out.
+		const behind = running[0] ?? "";
+		const fixture = (command: string) =>
+			page.evaluate(
+				([tabId, line]) => window.omp.rpc.commandForTab(tabId as string, { type: "bash", command: line as string }),
+				[behind, command],
+			);
+		await fixture("fixture:subagents");
+		await fixture("fixture:finish");
+		await expect(row(page, behind)).not.toHaveAttribute("data-signal", "running");
+		await expect(header(behind)).not.toHaveAttribute("data-pane-running", "true");
+		await expect(row(page, behind).locator('.omp-live-edge[data-live-edge="background"]')).toHaveCount(1);
+		await expect(header(behind).locator('.omp-live-edge[data-live-edge="background"]')).toHaveCount(1);
+		if (!software)
+			expect(
+				await row(page, behind)
+					.locator(".omp-live-edge")
+					.evaluate(element =>
+						element
+							.getAnimations({ subtree: true })
+							.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
+					),
+			).toEqual([16_000, 16_000]);
+		for (const theme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme: theme });
+			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+			await captureTo(CAPTURES, page, `electron-background-${theme}`);
+		}
+		for (const id of ["sa-explore", "sa-nested"]) await fixture(`fixture:subagents:finish:${id}`);
+		await expect(row(page, behind).locator(".omp-live-edge")).toHaveCount(0);
+		await expect(header(behind).locator(".omp-live-edge")).toHaveCount(0);
 
 		// Reduced motion: nothing moves in a row's or a header's light (the composer's own is pinned by
 		// composer-live.e2e.ts); the still edge stays.

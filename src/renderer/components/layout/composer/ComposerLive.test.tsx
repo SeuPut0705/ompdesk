@@ -9,7 +9,7 @@ import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
-import { composerLiveState, workingAgentCount } from "./composer-live";
+import { liveWorkState, workingAgentCount } from "../live-work";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -83,17 +83,17 @@ afterEach(async () => {
 	Reflect.set(document, "visibilityState", "visible");
 });
 
-describe("composerLiveState", () => {
+describe("liveWorkState", () => {
 	it("maps the run state, background work and a waiting question to one cue", () => {
 		const idle = { streaming: false, waiting: 0, background: 0 };
-		expect(composerLiveState(idle)).toBeNull();
-		expect(composerLiveState({ ...idle, streaming: true })).toBe("turn");
-		expect(composerLiveState({ ...idle, background: 2 })).toBe("background");
+		expect(liveWorkState(idle)).toBeNull();
+		expect(liveWorkState({ ...idle, streaming: true })).toBe("turn");
+		expect(liveWorkState({ ...idle, background: 2 })).toBe("background");
 		// A running turn outranks background work.
-		expect(composerLiveState({ streaming: true, waiting: 0, background: 2 })).toBe("turn");
+		expect(liveWorkState({ streaming: true, waiting: 0, background: 2 })).toBe("turn");
 		// A question or approval waiting on the user wins over both.
-		expect(composerLiveState({ streaming: true, waiting: 1, background: 0 })).toBeNull();
-		expect(composerLiveState({ streaming: false, waiting: 1, background: 3 })).toBeNull();
+		expect(liveWorkState({ streaming: true, waiting: 1, background: 0 })).toBeNull();
+		expect(liveWorkState({ streaming: false, waiting: 1, background: 3 })).toBeNull();
 	});
 
 	it("counts working subagents, not waiting or finished ones", () => {

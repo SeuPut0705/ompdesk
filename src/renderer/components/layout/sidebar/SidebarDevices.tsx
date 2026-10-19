@@ -39,6 +39,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
+import { SessionLiveEdge } from "../SessionLiveEdge";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -380,7 +381,14 @@ function DeviceSessions({
 				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 				key={session.path}
 				leading={leading}
-				live={signal?.running === true && tab?.awaitingInput === undefined}
+				live={
+					<SessionLiveEdge
+						opened={0}
+						running={signal?.running === true && tab?.awaitingInput === undefined}
+						tabId={tab?.id ?? null}
+						waiting={tab?.awaitingInput !== undefined}
+					/>
+				}
 				meta={
 					indexed ? (
 						<time className="text-(--sc-text-subtle)" dateTime={session.modified}>

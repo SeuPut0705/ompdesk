@@ -2,9 +2,10 @@
  * The running state's light on the sidebar's session rows and the phone drawer's, on the dev harness (the renderer
  * in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
  * a running row wears the shared light (`LiveEdge`, two bars running its top and bottom edge, transform only), an
- * idle one and one that waits for an answer wear none, the family chip's count and a running child's dot hold
- * still, and under reduced motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>`
- * also writes the captures (three frames of the light on the desktop, the phone drawer).
+ * idle one and one that waits for an answer wear none, a session whose turn ended while its subagents still work
+ * wears the fainter, slower form, the family chip's count and a running child's dot hold still, and under reduced
+ * motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>` also writes the captures
+ * (three frames of the light on the desktop, the phone drawer, the waiting and background states).
  */
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -193,6 +194,31 @@ for (const surface of SURFACES)
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge')).toHaveCount(1);
 			if (CAPTURES)
 				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-waiting.png`) });
+
+			// The open session's turn ends while its two subagents still work: its row keeps the light, fainter and
+			// half as fast, and says nothing is running in front.
+			await page.evaluate(() => {
+				const tabs = window.__stores?.tabs as unknown as {
+					getState(): { tabs: { id: string; status: string }[] };
+					setState(partial: unknown): void;
+				};
+				tabs.setState({
+					tabs: tabs.getState().tabs.map(tab => (tab.id === "tab-1" ? { ...tab, status: "ready" } : tab)),
+				});
+			});
+			const background = sidebar.locator('.omp-sidebar-session-row > .omp-live-edge[data-live-edge="background"]');
+			await expect(background).toHaveCount(1);
+			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"]')).toHaveCount(0);
+			const durations = await background.evaluate(element =>
+				element
+					.getAnimations({ subtree: true })
+					.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
+			);
+			expect(durations).toEqual([16_000, 16_000]);
+			// Fainter by colour, never by an opacity group (the card stays one cheap layer).
+			await expect(background).toHaveCSS("opacity", "1");
+			if (CAPTURES)
+				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-background.png`) });
 			await page.context().close();
 		});
 

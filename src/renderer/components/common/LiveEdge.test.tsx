@@ -17,7 +17,6 @@ Object.assign(globalThis as Record<string, unknown>, {
 // Imported after the DOM globals above exist (react-dom reads them when it loads).
 const { createRoot } = await import("react-dom/client");
 const { LiveEdge } = await import("./LiveEdge");
-const { ListRow } = await import("./ListRow");
 
 let container: HTMLElement;
 let root: Root;
@@ -49,20 +48,6 @@ describe("LiveEdge", () => {
 		Reflect.set(document, "visibilityState", "hidden");
 		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
 		expect(container.querySelector(".omp-live-edge")?.hasAttribute("data-paused")).toBe(true);
-	});
-});
-
-describe("a ListRow's light", () => {
-	it("is worn by a live row only", async () => {
-		await mount(
-			<>
-				<ListRow live title="running" />
-				<ListRow title="idle" />
-			</>,
-		);
-		const rows = [...container.querySelectorAll(".omp-list-row")];
-		expect(rows[0]?.querySelector(".omp-live-edge[data-live-edge='turn'][data-live-edge-inside]")).not.toBeNull();
-		expect(rows[1]?.querySelector(".omp-live-edge")).toBeNull();
 	});
 });
 

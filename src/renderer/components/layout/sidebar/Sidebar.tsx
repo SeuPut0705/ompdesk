@@ -126,6 +126,7 @@ import { SwapText } from "../../common/SwapText";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
+import { SessionLiveEdge } from "../SessionLiveEdge";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
@@ -1806,7 +1807,14 @@ export function Sidebar() {
 							toggleSidebarSubagents(session.path);
 						openSession(session);
 					}}
-					live={signal === "running"}
+					live={
+						<SessionLiveEdge
+							opened={opened.filter(child => child.status === "running").length}
+							running={signal === "running"}
+							tabId={openTabId ?? null}
+							waiting={signal === "waiting"}
+						/>
+					}
 					rowProps={{
 						draggable: openTabId !== undefined && !isCurrent,
 						onDragStart: event => {

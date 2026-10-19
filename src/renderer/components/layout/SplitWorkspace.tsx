@@ -3,6 +3,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo,
 import { createPortal } from "react-dom";
 import { worktreeLabel } from "../../../shared/project-origin";
 import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
+import { useOpenedChildren } from "../../hooks/use-opened-children";
 import { useSessionList } from "../../hooks/use-session-list";
 import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
@@ -15,10 +16,11 @@ import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, 
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
-import { IconButton, LiveEdge, Spinner } from "../common";
+import { IconButton, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./composer/InputArea";
+import { SessionLiveEdge } from "./SessionLiveEdge";
 import { SidecarBanner } from "./SidecarBanner";
 import { WorkBoardHost } from "./work-board/WorkBoard";
 
@@ -145,17 +147,19 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	);
 	const kindLabels = useWorktreeKindLabels();
 	const shown = tab.kind === "chat" || !tab.cwd ? null : projectNameOf(tab.cwd);
-	// A running session lights the header's border (the composer's light); a waiting one keeps its warning look
-	// elsewhere (the question card), so it never shows the light. Compacting and (re)starting keep the spinner.
+	// The header's border wears the session's light: its turn, or (fainter) its subagents, shells and opened sessions
+	// still working behind an idle turn. A waiting one keeps its warning look elsewhere (the question card), so it never
+	// shows the light. Compacting and (re)starting keep the spinner.
 	const running = tab.status === "running" && tab.awaitingInput === undefined;
 	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
 	const failed = tab.status === "error" || tab.status === "exited";
+	const opened = useOpenedChildren(tab.id).counts.running;
 	return (
 		<header
 			className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm"
 			data-pane-running={running || undefined}
 		>
-			{running && <LiveEdge inside />}
+			<SessionLiveEdge opened={opened} running={running} tabId={tab.id} waiting={tab.awaitingInput !== undefined} />
 			{busy ? (
 				<span aria-hidden className="inline-flex">
 					<Spinner size="sm" />

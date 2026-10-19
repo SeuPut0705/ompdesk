@@ -1704,6 +1704,29 @@ describe("Sidebar subagents", () => {
 		expect(disclosure()).toBeNull();
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 	});
+
+	it("keeps a faint light on the row while its turn is idle and a subagent still works, and none once it is done", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		await mount(<Sidebar />);
+		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+
+		// The turn ends; the subagent it started runs on: the same light, the background form.
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
+			}));
+		});
+		await flush();
+		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.hasAttribute("data-live-edge-inside")).toBe(true);
+
+		setSubagentStatus("aborted");
+		await flush();
+		expect(edge()).toBeNull();
+	});
 });
 
 describe("Sidebar families: the sessions an agent opened", () => {
@@ -2175,6 +2198,35 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
 		expect(rows.some(text => text.includes("Session /work/alpha/two"))).toBe(true);
 		expect(familyRows().length).toBe(2);
+	});
+
+	it("lights the idle boss's row faintly while a session it opened runs; a waiting one keeps its warning look", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		const boss = () => rowFor("Session /work/alpha/two");
+		const edge = () => boss().querySelector(".omp-live-edge");
+		const setTab = async (id: string, change: Record<string, unknown>) => {
+			await act(async () => {
+				useTabsStore.setState(state => ({
+					tabs: state.tabs.map(tab => (tab.id === id ? { ...tab, ...change } : tab)),
+				}));
+			});
+			await flush();
+		};
+		// The boss's own turn is idle; two sessions it opened run.
+		expect(boss().getAttribute("data-signal")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+
+		// One now waits for the person: its row keeps the warning look and no light; the other still runs.
+		await setTab("ta", { awaitingInput: "input" });
+		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
+		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
+		expect(waiting?.querySelector(".omp-live-edge")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+
+		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
+		await setTab("tc", { status: "ready" });
+		expect(edge()).toBeNull();
 	});
 });
 

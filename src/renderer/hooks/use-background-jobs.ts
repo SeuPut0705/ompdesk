@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { RpcAsyncJobItem, RpcJobsResult } from "../../shared/rpc-types";
 import { type TabRpc, useTabRpc } from "../lib/tab-rpc";
-import { TabPoll, useTabPoll, useTabPollKey } from "./use-tab-poll";
+import { TabPoll, useTabPoll, useTabPollKey, useTabPollPeek } from "./use-tab-poll";
 
 /** How often stock's background jobs are re-read while the page is visible. */
 const JOBS_POLL_MS = 3000;
@@ -84,6 +84,14 @@ export function useJobs<S>(select: (feed: JobsFeed) => S): S {
 /** This session's running background shells and evals ({@link JobsFeed.running}). */
 export function useBackgroundJobs(): RpcAsyncJobItem[] {
 	return useJobs(feed => feed.running);
+}
+
+/**
+ * How many background shells and evals `tabId` runs, as far as a surface of that tab polls them (its pane on screen);
+ * 0 otherwise. Starts no poll: the sidebar has one row per tab.
+ */
+export function useRunningJobsPeek(tabId: string): number {
+	return useTabPollPeek(jobsPoll, tabId, feed => feed.running.length);
 }
 
 /** One read of this tab's jobs outside the poll (after a cancel, a retry), shown by every surface of the tab. */
