@@ -10,6 +10,8 @@ import { FIRST_RUN_STEP_PREF, useFirstRunStore } from "../../stores/first-run";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
+import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { routeCommands } from "../../test-support/route-commands";
 import { FirstRunGate } from "./FirstRunGate";
@@ -196,6 +198,48 @@ describe("FirstRunGate", () => {
 		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: false });
 		expect(text()).toContain("Claude (Pro/Max)");
 		expect(document.querySelector('[data-provider-connect="openai-codex"]')).toBeNull();
+	});
+
+	it("a sign-in cancelled while omp still starts never reaches omp once it is ready", async () => {
+		catalog = { ...catalog, providers: [anthropic], models: [] };
+		// A login that does go out stays open, as stock's does while it waits for the browser.
+		const pendingLogin = Promise.withResolvers<RpcResponse>();
+		rpc.login.mockReturnValueOnce(pendingLogin.promise);
+		useMachineSetupStore.setState({ ompInstalled: true, takeover: false });
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "starting", kind: "agent", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		setFocusedSessionRuntime("t1");
+		try {
+			await mount(
+				<>
+					<FirstRunGate />
+					<FirstRunSetup />
+				</>,
+			);
+			await act(async () =>
+				document.querySelector<HTMLButtonElement>('[data-provider-connect="openai-codex"]')?.click(),
+			);
+			expect(document.querySelector("[data-login-progress]")).not.toBeNull();
+			await act(async () => button(translate("common.cancel"))?.click());
+
+			await act(async () => {
+				useTabsStore.setState(state => ({ tabs: state.tabs.map(tab => ({ ...tab, status: "ready" })) }));
+				useSessionStore.getState().setStatus("ready", "/tmp/project");
+				await delay(0);
+			});
+			await act(async () => delay(0));
+			expect(rpc.login).not.toHaveBeenCalled();
+			expect(document.querySelector("[data-login-progress]")).toBeNull();
+		} finally {
+			pendingLogin.resolve({ type: "response", command: "login", success: false, error: "cancelled" });
+			rpc.login.mockReset();
+			rpc.login.mockImplementation(async () => ok("login", {}));
+			setFocusedSessionRuntime(null);
+			useTabsStore.setState({ tabs: [], activeTabId: null });
+		}
 	});
 
 	it("closes a step opened ahead of the check when a provider serves after all", async () => {
