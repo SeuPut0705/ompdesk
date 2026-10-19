@@ -2116,7 +2116,6 @@ export function Sidebar() {
 											</Button>
 										}
 										className="omp-sidebar-empty"
-										description={t("sidebar.noMatchHint")}
 										icon={<SearchX />}
 										size="sm"
 										title={t("sidebar.noMatch")}

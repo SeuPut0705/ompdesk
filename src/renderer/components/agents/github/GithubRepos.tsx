@@ -180,7 +180,6 @@ function CreateDialog({
 				/>
 				{/* Visibility has no default: the user picks who can see the new repository. */}
 				<Select
-					hint={t("github.repos.visibilityHint")}
 					label={t("github.repos.visibility")}
 					onChange={event => setVisibility(event.target.value as GithubVisibility | "")}
 					options={[

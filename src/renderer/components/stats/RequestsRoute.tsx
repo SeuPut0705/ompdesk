@@ -203,8 +203,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 				onRowClick={setSelected}
 				rows={rows}
 			/>
-			<div className="mt-2 flex items-center justify-between">
-				<span className="text-sc-2xs text-(--sc-text-subtle)">{t("stats.requests.rowHint")}</span>
+			<div className="mt-2 flex items-center justify-end">
 				<div className="flex items-center gap-1.5">
 					<Button
 						disabled={page === 0 || isLoading}
