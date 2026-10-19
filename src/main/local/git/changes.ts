@@ -27,9 +27,9 @@ export async function repoRoot(cwd: string): Promise<string | null> {
 	return root ? path.resolve(root) : null;
 }
 
-/** Main checkout root shared by every linked worktree (`--git-common-dir`'s parent). */
+/** Main checkout root shared by every linked worktree (`--git-common-dir`'s parent), as a native path (git prints `C:/…` on Windows). */
 export async function primaryRoot(cwd: string): Promise<string> {
-	const common = (await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+	const common = path.resolve((await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
 	return path.basename(common) === ".git" ? path.dirname(common) : common;
 }
 
