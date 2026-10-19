@@ -9,8 +9,16 @@ import type { RpcClient } from "./rpc-client";
 import type { SidecarStartGate } from "./sidecar";
 
 /**
+ * Emitted by a hosted view (remote/hosted-view.ts: a window here showing the tab this computer runs for a
+ * paired device) when that device's tab ends (closed, deleted, revoked, its grace ran out): the window's tab
+ * closes quietly, as a viewer's does when its owner closes, never as an exited omp.
+ */
+export const VIEW_ENDED_EVENT = "viewEnded";
+
+/**
  * What the pool, ipc.ts and the host-tool executor need from a tab's sidecar:
- * the local SidecarManager, or a RemoteSidecar whose omp runs on a paired host.
+ * the local SidecarManager, a RemoteSidecar whose omp runs on a paired host, or a HostedTabView of the omp
+ * this computer runs for a paired device.
  * Events are SidecarManager's (see FRAME_EVENTS in sidecar.ts), re-emitted verbatim by remote ones, which
  * add `openAsks` (ExtensionUIRequest[]): every ask the host's omp holds, sent on each re-attach.
  */

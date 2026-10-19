@@ -65,7 +65,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
-import type { SessionInfo } from "../../../../shared/ipc-types";
+import type { IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
@@ -91,6 +91,7 @@ import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
+import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
 import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
@@ -540,6 +541,16 @@ export function Sidebar() {
 	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
 	const localTabs = useMemo(() => tabs.filter(tab => tab.device === undefined), [tabs]);
 	const activeTabRemote = activeTab?.device !== undefined;
+	// Sessions paired devices' tabs run on this computer: rows of this device's list with that tab's live state.
+	const hostedSessions = useHostedSessionsStore(s => s.sessions);
+	const hostedByKey = useMemo(() => {
+		const index = new Map<string, IpcHostedSession>();
+		for (const hosted of hostedSessions) {
+			index.set(hosted.sessionPath, hosted);
+			if (hosted.sessionId) index.set(hosted.sessionId, hosted);
+		}
+		return index;
+	}, [hostedSessions]);
 	const hosts = usePairedHosts();
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
@@ -638,12 +649,14 @@ export function Sidebar() {
 			if (tab.sessionPath) held.add(tab.sessionPath);
 			if (tab.sessionId) held.add(tab.sessionId);
 		}
+		// A paired device's tab here holds its session as an open tab does: never folded away or archived out.
+		for (const key of hostedByKey.keys()) held.add(key);
 		if (!activeTabRemote) {
 			if (sessionFile) held.add(sessionFile);
 			if (sessionId) held.add(sessionId);
 		}
 		return held;
-	}, [localTabs, activeTabRemote, sessionFile, sessionId]);
+	}, [localTabs, hostedByKey, activeTabRemote, sessionFile, sessionId]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
 	const listedSessions = useMemo(
 		() =>
@@ -668,7 +681,10 @@ export function Sidebar() {
 		const listedIds = new Set(listedSessions.map(session => session.id));
 		const listedPaths = new Set(listedSessions.map(session => session.path));
 		const since = liveSince.current;
-		const open = new Set(localTabs.map(tab => tab.id));
+		const open = new Set([
+			...localTabs.map(tab => tab.id),
+			...hostedSessions.map(hosted => `hosted:${hosted.sessionPath}`),
+		]);
 		for (const id of since.keys()) if (!open.has(id)) since.delete(id);
 		let stamp = Date.now();
 		const rows: SidebarSession[] = [];
@@ -699,8 +715,33 @@ export function Sidebar() {
 				liveTabId: tab.id,
 			});
 		}
+		// A paired device's tab here keeps its row too, before the index lists its session.
+		for (const hosted of hostedSessions) {
+			if (listedPaths.has(hosted.sessionPath) || (hosted.sessionId && listedIds.has(hosted.sessionId))) continue;
+			if (localTabs.some(tab => tab.sessionPath === hosted.sessionPath)) continue;
+			const key = `hosted:${hosted.sessionPath}`;
+			let created = since.get(key);
+			if (!created) {
+				created = new Date(stamp++).toISOString();
+				since.set(key, created);
+			}
+			rows.push({
+				path: hosted.sessionPath,
+				id: hosted.sessionId || key,
+				title: hosted.title || null,
+				cwd: hosted.cwd,
+				created,
+				modified: created,
+				messageCount: 0,
+				size: 0,
+				status: "unknown",
+				...(hosted.kind === "chat" ? { kind: "chat" as const } : {}),
+				firstMessage: "",
+				liveTabId: key,
+			});
+		}
 		return rows;
-	}, [listedSessions, localTabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	}, [listedSessions, localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
 	const allSessions = useMemo<SidebarSession[]>(
 		() => (liveSessions.length === 0 ? listedSessions : [...listedSessions, ...liveSessions]),
 		[listedSessions, liveSessions],
@@ -992,10 +1033,15 @@ export function Sidebar() {
 	const codeTotal = codeSessions.length;
 	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
 	const visibleGroups = mode === "code" && grouping === "projects" ? groups : [];
-	// Projects with an open tab start expanded so every open session is in view.
+	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
+	// in view.
 	const openTabCwds = useMemo(
-		() => new Set(localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)),
-		[localTabs],
+		() =>
+			new Set([
+				...localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd),
+				...hostedSessions.filter(hosted => hosted.kind !== "chat").map(hosted => hosted.cwd),
+			]),
+		[localTabs, hostedSessions],
 	);
 
 	const isCollapsed = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
@@ -1064,9 +1110,19 @@ export function Sidebar() {
 		localTabs.find(tab => tab.sessionPath === session.path) ??
 		localTabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
+	/** The paired device's tab on this computer that runs the session (its live state when no tab here shows it). */
+	const hostedFor = (session: SidebarSession) => hostedByKey.get(session.path) ?? hostedByKey.get(session.id);
 	const sessionTabSignal = (session: SidebarSession) => {
 		const tab = tabForSession(session);
-		return tab ? tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting)) : null;
+		if (tab) return tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting));
+		const hosted = hostedFor(session);
+		return hosted
+			? tabSignalPresentation({
+					status: hosted.status,
+					awaitingInput: hosted.awaitingInput ? "input" : undefined,
+					unreadDone: false,
+				})
+			: null;
 	};
 	const isSessionBusy = (session: SidebarSession) => {
 		if (isCurrentSession(session) && awaitedInput) return true;
@@ -1416,8 +1472,11 @@ export function Sidebar() {
 		const active = (isCurrent || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const tabSignal = sessionTabSignal(session);
-		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
-		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
+		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
+		// tab here that no tab of this window shows says it through its hosted state.
+		const hosted = tab === undefined ? hostedFor(session) : undefined;
+		const waiting =
+			(isCurrent ? awaitedInput : null) ?? tab?.awaitingInput ?? (hosted?.awaitingInput ? "input" : undefined);
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		const failed =
 			!waiting &&
@@ -1443,6 +1502,7 @@ export function Sidebar() {
 		return {
 			isCurrent,
 			tab,
+			hosted,
 			active,
 			indexed,
 			waiting,
@@ -1503,7 +1563,7 @@ export function Sidebar() {
 			finished:
 				lastRun !== undefined ||
 				closedTitleOf.has(child.path) ||
-				row.tab === undefined ||
+				(row.tab === undefined && row.hosted === undefined) ||
 				(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged:

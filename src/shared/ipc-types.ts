@@ -109,6 +109,8 @@ export const IPC_EVENTS = {
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
+	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
+	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Native application menu action */
@@ -182,6 +184,8 @@ export const IPC_COMMANDS = {
 	EXTENSION_UI_OPEN: "extension-ui:open",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
+	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
+	HOSTED_SESSIONS: "sessions:hosted",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
 	/** Rename a saved session without switching the active tab */
@@ -1400,6 +1404,30 @@ export interface IpcSessionOwner {
 	tabId: string;
 	/** Owner window's webContents.id. */
 	winId: number;
+	/**
+	 * A paired device's tab on this computer runs the session (no window here owns it; `tabId` is that tab's
+	 * resume id, `winId` 0): opening it here (`tabs.spawn`) views that tab instead of switching onto the file.
+	 */
+	hosted?: true;
+}
+
+/**
+ * A session a paired device's tab runs on this computer (LocalHostServices), for this computer's own
+ * sidebar: its row stays in its project group with the tab's live state, and opening it views that tab.
+ * Listed once the tab's omp reported its file.
+ */
+export interface IpcHostedSession {
+	sessionPath: string;
+	sessionId?: string;
+	title?: string;
+	cwd: string;
+	kind: SessionKind;
+	/** The tab's status, `running` while a turn runs. */
+	status: TabStatus;
+	/** An ask or approval of the omp waits for an answer (from the device or a window here). */
+	awaitingInput?: true;
+	/** The paired device's name. */
+	device: string;
 }
 
 export interface IpcSpawnTabResult {
@@ -1670,6 +1698,8 @@ export interface OmpApi {
 		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
+		/** The sessions paired devices' tabs run on this computer changed (the whole list). */
+		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
@@ -1834,6 +1864,8 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+		/** The sessions paired devices' tabs run on this computer, with their live state (`IpcHostedSession`). */
+		hosted(): Promise<IpcHostedSession[]>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

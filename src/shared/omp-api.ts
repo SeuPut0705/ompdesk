@@ -52,6 +52,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcModelSetupRunResult,
 	IpcNotifyKind,
@@ -317,6 +318,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 			onSessionsChanged: (callback: () => void) =>
 				subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
+			onHostedSessionsChanged: (callback: (sessions: IpcHostedSession[]) => void) =>
+				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
 			onTabBatch: (callback: (events: AgentSessionEvent[], tabId: string) => void) =>
 				subscribeTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
@@ -506,6 +509,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 				transport.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
 		},
 
 		tabs: {

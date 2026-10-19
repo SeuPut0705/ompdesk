@@ -117,7 +117,12 @@ interface ViewPayload {
 }
 
 /** Channels whose answer the renderer iterates: an empty list, not `undefined`. */
-const EMPTY_LISTS = [IPC_COMMANDS.EXTENSION_UI_OPEN, "worktree-lifecycle:prompts-get", "ssh-tools:prompts"];
+const EMPTY_LISTS = [
+	IPC_COMMANDS.EXTENSION_UI_OPEN,
+	IPC_COMMANDS.HOSTED_SESSIONS,
+	"worktree-lifecycle:prompts-get",
+	"ssh-tools:prompts",
+];
 
 /** A stock-shaped settings list (`get_settings_schema`): a few rows so a settings page shows its real layout. */
 const SETTINGS_SCHEMA: SettingsSchemaResult = {

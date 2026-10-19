@@ -18,6 +18,14 @@
  * A relaunched device reopens its tabs under new rtabs: the open takes over
  * the tab its previous connection left on that session instead of a second omp.
  *
+ * This computer's own windows see those tabs too: `hostedSessions` lists each
+ * session a tab runs with its live state (their sidebar rows), and
+ * `viewSession` hands a window a HostedTabView of the tab (hosted-view.ts), so
+ * opening the session there views the device's omp instead of starting a
+ * second one. The first answer to an ask, from the device or such a window,
+ * wins; the device's close, delete or revoke ends the views first, and a tab a
+ * window shows outlives the device's grace period.
+ *
  * Host-level calls: session listing/search/kind/delete/rename against this
  * machine's session index, the workspace fs reads (same confinement and caps
  * as the local handlers; the file viewer's `host.fs.readBinary` is capped to
@@ -34,6 +42,7 @@ import { z } from "zod";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
+import type { IpcHostedSession } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
@@ -44,6 +53,7 @@ import {
 	type PromptResultFrame,
 	type RpcCommand,
 	type RpcResponse,
+	type SessionInfoUpdateFrame,
 	type SidecarStatusPayload,
 } from "../../shared/rpc-types";
 import type { TerminalOperation } from "../../shared/terminal-types";
@@ -93,6 +103,7 @@ import {
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
+import { HostedTabView } from "./hosted-view";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -101,6 +112,8 @@ import { commandUsesModel } from "./quota-commands";
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
 /** Session-index changes come in bursts while an agent writes; one push per burst. */
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
+/** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
+const ANSWERED_KEPT = 256;
 
 export interface HostServicesDeps {
 	/**
@@ -166,6 +179,15 @@ interface HostTab extends RunTracking {
 	ompRestartPending?: boolean;
 	/** An extension update landed during a turn: applied one tick after it ends. */
 	extensionPending?: ExtensionApplyPlan;
+	/** The prompt origin its omp was spawned with: the device it serves and this computer's name. */
+	origin: PromptOriginEnv;
+	/** Windows of this computer that show the tab (`viewSession`). */
+	views: Set<HostedTabView>;
+	/** Asks answered, by request id → who answered first; the other side's late answer is refused. */
+	answered: Map<string, "device" | "host">;
+	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
+	sessionId?: string;
+	title?: string;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -266,6 +288,9 @@ export class LocalHostServices implements HostServices {
 	 */
 	readonly #exiting = new Map<string, Promise<void>>();
 	readonly #runningListeners = new Set<() => void>();
+	readonly #hostedListeners = new Set<() => void>();
+	/** `hostedSessions` as last announced: a listener hears only a real change. */
+	#hostedSnapshot = "[]";
 	#quota: PeerQuota | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 
@@ -330,6 +355,7 @@ export class LocalHostServices implements HostServices {
 		if (!tab || (tab.awaitingConnection === true) === awaiting) return;
 		tab.awaitingConnection = awaiting;
 		this.#emit(tab, "awaitingConnection", awaiting);
+		for (const view of tab.views) view.emit("awaitingConnection", awaiting);
 	}
 
 	/** Spawn a hosted tab's omp if it has not run yet (a revived tab); its sidecar, or null when it is gone. */
@@ -352,6 +378,98 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values())
 			if (tab.peerId === peerId && tab.sessionFile === sessionPath) return tab.resumeId;
 		return null;
+	}
+
+	/** The sessions the tabs here run for paired devices, with their live state: this computer's sidebar rows. */
+	hostedSessions(): IpcHostedSession[] {
+		const sessions: IpcHostedSession[] = [];
+		for (const tab of this.#tabs.values()) {
+			if (tab.sessionFile === undefined) continue;
+			const { sidecar } = tab;
+			const session: IpcHostedSession = {
+				sessionPath: tab.sessionFile,
+				cwd: sidecar.cwd,
+				kind: sidecar.kind,
+				status: tab.run.running && sidecar.status === "ready" ? "running" : sidecar.status,
+				device: tab.origin.name,
+			};
+			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
+			if (tab.title) session.title = tab.title;
+			if (tab.asks.size > 0) session.awaitingInput = true;
+			sessions.push(session);
+		}
+		return sessions;
+	}
+
+	/** Called whenever `hostedSessions` changed; returns the unsubscribe. */
+	onHostedSessionsChange(listener: () => void): () => void {
+		this.#hostedListeners.add(listener);
+		return () => {
+			this.#hostedListeners.delete(listener);
+		};
+	}
+
+	#hostedChanged(): void {
+		const snapshot = JSON.stringify(this.hostedSessions());
+		if (snapshot === this.#hostedSnapshot) return;
+		this.#hostedSnapshot = snapshot;
+		for (const listener of this.#hostedListeners) listener();
+	}
+
+	/**
+	 * A window of this computer opens `sessionPath`, which a paired device's tab here runs: the tab as that
+	 * window's sidecar (hosted-view.ts), so one omp serves both. Null when no tab here holds the session.
+	 */
+	viewSession(sessionPath: string): HostedTabView | null {
+		const tab = this.#holder(sessionPath);
+		if (!tab) return null;
+		const view: HostedTabView = new HostedTabView({
+			sidecar: tab.sidecar,
+			origin: tab.origin,
+			start: () => this.#start(tab),
+			answer: frame => this.#answer(tab, frame, "host", view),
+			stopped: () => this.noteStopped(tab.resumeId),
+			cancelWait: () => this.#resume?.cancelWait(tab.resumeId),
+			snapshot: () => ({
+				asks: [...tab.asks.values()],
+				...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
+				...(tab.title ? { title: tab.title } : {}),
+				...(tab.awaitingConnection ? { awaitingConnection: true } : {}),
+			}),
+			leave: left => {
+				tab.views.delete(left);
+			},
+		});
+		tab.views.add(view);
+		return view;
+	}
+
+	/**
+	 * Deliver a side-channel frame from the device or a window here. The first answer to an ask wins: the
+	 * other side's cards close as answered elsewhere (`answered:<id>`, the pool's synthetic cancel), and its
+	 * later answer is refused (`already_answered`) instead of reaching the omp.
+	 */
+	#answer(tab: HostTab, frame: { type?: unknown; id?: unknown }, side: "device" | "host", from?: HostedTabView): void {
+		const id = frame.type === "extension_ui_response" && typeof frame.id === "string" ? frame.id : undefined;
+		const first = id === undefined ? undefined : tab.answered.get(id);
+		if (first !== undefined && first !== side)
+			throw codedError("already_answered", "Another device already answered this request");
+		tab.sidecar.sendSideChannel(frame);
+		// An answer to an ask or approval: the turn no longer waits on a person.
+		if (id === undefined || !tab.asks.delete(id)) return;
+		tab.answered.set(id, side);
+		const oldest = tab.answered.keys().next().value;
+		if (tab.answered.size > ANSWERED_KEPT && oldest !== undefined) tab.answered.delete(oldest);
+		const cancel: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: `answered:${id}`,
+			method: "cancel",
+			targetId: id,
+		};
+		if (side === "host") this.#emit(tab, "extensionUi", cancel);
+		for (const view of tab.views) if (view !== from) view.emit("extensionUi", cancel);
+		this.#resume?.sync();
+		this.#hostedChanged();
 	}
 
 	/**
@@ -397,11 +515,7 @@ export class LocalHostServices implements HostServices {
 				return this.#command(peer, parse(CommandParams, method, params));
 			case "tab.sideChannel": {
 				const { rtab, frame } = parse(SideChannelParams, method, params);
-				const tab = this.#tab(peer, rtab);
-				tab.sidecar.sendSideChannel(frame);
-				// The device answered an ask or approval: the turn no longer waits on a person.
-				if (frame.type === "extension_ui_response" && typeof frame.id === "string" && tab.asks.delete(frame.id))
-					this.#resume?.sync();
+				this.#answer(this.#tab(peer, rtab), frame, "device");
 				return null;
 			}
 			case "tab.cancelWait":
@@ -654,14 +768,15 @@ export class LocalHostServices implements HostServices {
 
 	/**
 	 * The device is away: a grace period that runs out on an idle tab closes it. One that runs out during a
-	 * turn (a revived one, continued after this computer's crash or quit, included) or a hold for this
-	 * computer's connection starts another, so neither loses its work or its resume marker to the timer.
+	 * turn (a revived one, continued after this computer's crash or quit, included), a hold for this
+	 * computer's connection or while a window here shows the tab starts another, so none loses its work,
+	 * its resume marker or the person working in it at this computer to the timer.
 	 */
 	#startGrace(tab: HostTab): void {
 		tab.conn = null;
 		clearTimeout(tab.graceTimer);
 		tab.graceTimer = setTimeout(() => {
-			if (runBusy(tab.run) || tab.awaitingConnection) this.#startGrace(tab);
+			if (runBusy(tab.run) || tab.awaitingConnection || tab.views.size > 0) this.#startGrace(tab);
 			else this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		}, this.#graceMs);
 		tab.graceTimer.unref?.();
@@ -761,11 +876,8 @@ export class LocalHostServices implements HostServices {
 		sessionPath: string | undefined,
 		conn: HostConnection | null,
 	): HostTab {
-		const sidecar = this.#deps.createSidecar(cwd, kind, fresh, {
-			deviceId: peer.deviceId,
-			name: peer.name,
-			hostName: this.#deps.hostName(),
-		});
+		const origin: PromptOriginEnv = { deviceId: peer.deviceId, name: peer.name, hostName: this.#deps.hostName() };
+		const sidecar = this.#deps.createSidecar(cwd, kind, fresh, origin);
 		const tab: HostTab = {
 			peerId: peer.deviceId,
 			rtab,
@@ -777,13 +889,43 @@ export class LocalHostServices implements HostServices {
 			graceTimer: undefined,
 			run: idleRun(),
 			asks: new Map(),
+			origin,
+			views: new Set(),
+			answered: new Map(),
 		};
 		this.#tabs.set(this.#key(peer.deviceId, rtab), tab);
 		// The resume rules first: a failure they turn into a connection wait reaches the device
 		// already waiting, so it never shows there as a failure first.
 		this.#trackRun(tab);
 		this.#wire(tab);
+		this.#trackForWindows(tab);
 		return tab;
+	}
+
+	/**
+	 * What this computer's windows read of the tab (`hostedSessions`): its session's id and name, and a
+	 * change notice after the tab's own listeners above have updated its state.
+	 */
+	#trackForWindows(tab: HostTab): void {
+		const { sidecar } = tab;
+		sidecar.on("session", (identity: SidecarSessionIdentity) => {
+			if (identity.sessionId) tab.sessionId = identity.sessionId;
+			if (identity.sessionName !== undefined) tab.title = identity.sessionName;
+		});
+		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
+			if (typeof frame.sessionId === "string") tab.sessionId = frame.sessionId;
+			if (frame.title !== undefined) tab.title = frame.title ?? undefined;
+		});
+		for (const name of [
+			"status",
+			"session",
+			"sessionInfoUpdate",
+			"events",
+			"extensionUi",
+			"promptResult",
+			"sessionSettled",
+		])
+			sidecar.on(name, () => this.#hostedChanged());
 	}
 
 	#wire(tab: HostTab): void {
@@ -1115,6 +1257,8 @@ export class LocalHostServices implements HostServices {
 		this.#tabs.delete(key);
 		clearTimeout(tab.graceTimer);
 		tab.conn = null;
+		// The windows here that show it close their tab first, quietly, while its omp still runs.
+		for (const view of [...tab.views]) view.end();
 		tab.sidecar.removeAllListeners();
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = tab.sidecar.whenExited?.() ?? Promise.resolve();
@@ -1132,6 +1276,7 @@ export class LocalHostServices implements HostServices {
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
 		this.#resume?.sync();
+		this.#hostedChanged();
 	}
 }
 

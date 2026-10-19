@@ -92,6 +92,7 @@ import { selectFocusedTabProject } from "./lib/workspace-dirs";
 import { hydrateDesktopSlot } from "./stores/desktop-slot";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
+import { useHostedSessionsSync } from "./stores/hosted-sessions";
 import { useMachineSetupStore } from "./stores/machine-setup";
 import { useModelStore } from "./stores/model";
 import { usePreviewVisualEvents } from "./stores/preview-visuals";
@@ -228,6 +229,8 @@ export function App() {
 	useSessionTabs();
 	// Remote devices: the RemoteState snapshot + `remote:state` pushes.
 	useRemoteStateSync();
+	// The sessions paired devices' tabs run on this computer: sidebar rows with their live state.
+	useHostedSessionsSync();
 	// The agent's visuals (gui_visualize) bring the Preview forward for their tab.
 	usePreviewVisualEvents();
 	const theme = useUiStore(s => s.theme);

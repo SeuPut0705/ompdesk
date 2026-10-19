@@ -1235,6 +1235,7 @@ app.whenReady().then(() => {
 		logWatcher,
 		windowManager,
 		remoteDevices: devices,
+		hostedTabs: hostServices,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { controlToolCaller as caller, exitApp, launchApp, openedSessions as opened, readRecords } from "./harness";
 import { launchRemote, makeRemoteProfile, pair, type RemoteInstance } from "./remote-harness";
 
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
@@ -12,32 +12,6 @@ import { launchRemote, makeRemoteProfile, pair, type RemoteInstance } from "./re
 // a tool with `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge
 // (`agent_control.judge`) ranks the sessions in evidence order. The rules behind each answer are unit-tested in
 // src/main/agent-control/service.test.ts and host.test.ts.
-
-/** The main agent of `page`'s focused tab calls a control tool; resolves with the result the agent gets back. */
-async function caller(page: Page, record: string) {
-	const tabs = await page.evaluate(() => window.omp.tabs.list());
-	const main = tabs.find(tab => tab.active)?.tabId ?? "";
-	expect(main).not.toBe("");
-	const results = async () =>
-		(await readRecords(record))
-			.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
-			.map(frame => {
-				const result = frame.result as { content?: { text?: string }[] } | undefined;
-				return { text: result?.content?.[0]?.text ?? "", isError: frame.isError === true };
-			});
-	return async (name: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
-		const before = (await results()).length;
-		const response = await page.evaluate(
-			([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }),
-			[main, `fixture:host-tool:${name} ${JSON.stringify(args)}`] as const,
-		);
-		expect(response).toMatchObject({ success: true });
-		await expect.poll(async () => (await results()).length, { timeout: 90_000 }).toBe(before + 1);
-		return (await results())[before] as { text: string; isError: boolean };
-	};
-}
-
-const opened = (text: string): string[] => [...text.matchAll(/Opened session (\w+)/g)].map(match => match[1] ?? "");
 
 test.describe("on this computer", () => {
 	let app: ElectronApplication;

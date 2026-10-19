@@ -9,7 +9,7 @@ import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } f
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
-import type { SidecarLike } from "./sidecar-types";
+import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
 import type { ClientWindow } from "./web/client-window";
 
@@ -2695,5 +2695,62 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		pool.releaseTab("tab-a");
 		expect(pool.tabFacts("tab-a")).toBeNull();
 		expect(pool.tabFacts("nope")).toBeNull();
+	});
+});
+
+describe("SidecarPool hosted views (a window here showing a paired device's tab on this computer)", () => {
+	function hostedView() {
+		const { pool } = fakePool();
+		const desktop = fakeWindow(1);
+		const view = Object.assign(new FakeSidecar("/work"), { kind: "agent" as const });
+		view.currentStatus = "ready";
+		expect(pool.acquireHostedView(desktop.win, "tab-h", view as unknown as SidecarLike, "/s/x.jsonl")).toBe(true);
+		return { pool, desktop, view };
+	}
+
+	it("lists the view as a shared tab of its window and owns the session here, yet runs and restarts nothing", () => {
+		const { pool, desktop, view } = hostedView();
+		expect(pool.tabsForWindow(desktop.win)).toMatchObject([
+			{ tabId: "tab-h", shared: true, status: "ready", sessionPath: "/s/x.jsonl", active: true },
+		]);
+		expect(pool.sessionOwner("/s/x.jsonl")).toEqual({ tabId: "tab-h", winId: 1 });
+		expect(pool.isHostedView("tab-h")).toBe(true);
+		expect(view.started).toBe(false);
+		view.emitAgentEvents(["agent_start"]);
+		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-h", status: "running" });
+		// The device's tab is the resume coordinator's, the quit guard's and the updaters': a view is none of theirs,
+		// and a relaunch never reopens it as this computer's own omp.
+		expect(pool.resumeFacts()).toEqual([]);
+		expect(pool.tabInventory()).toEqual([]);
+		expect(pool.tabLayoutForWindow(desktop.win)).toBeNull();
+		expect(pool.workspaceDirs()).toEqual([]);
+		view.emitAgentEvents(["agent_end"]);
+		pool.restartOnNewOmp();
+		pool.applyExtensionUpdate({ reload: false, restart: true, reconnect: [] });
+		expect(view.restartArgs).toEqual([]);
+	});
+
+	it("closes the view without an error status when the device's tab ends, and the window's list drops it", () => {
+		const { pool, desktop, view } = hostedView();
+		desktop.sent.length = 0;
+		view.emit(VIEW_ENDED_EVENT);
+		expect(view.disposed).toBe(true);
+		expect(pool.sessionOwner("/s/x.jsonl")).toBeNull();
+		expect(pool.isHostedView("tab-h")).toBe(false);
+		expect(desktop.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({ tabs: [] });
+		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS)).toEqual([]);
+	});
+
+	it("marks the cancel of an ask the device answered first as answered elsewhere, never omp's own withdrawal", () => {
+		const { desktop, view } = hostedView();
+		view.emitExtensionUi("ask-1");
+		view.emitUiRequest({ id: "answered:ask-1", method: "cancel", targetId: "ask-1" });
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({
+			request: { method: "cancel", targetId: "ask-1" },
+			answeredElsewhere: true,
+		});
+		view.emitExtensionUi("ask-2");
+		view.emitUiRequest({ id: "c", method: "cancel", targetId: "ask-2" });
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).not.toHaveProperty("answeredElsewhere");
 	});
 });

@@ -146,6 +146,39 @@ export async function recordsOfType(file: string, type: string): Promise<Record<
 }
 
 /**
+ * The main agent of `page`'s focused tab calls an OMPdesk control tool (the fake omp runs
+ * `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets in `record`);
+ * resolves with the result the agent gets back.
+ */
+export async function controlToolCaller(page: Page, record: string) {
+	const tabs = await page.evaluate(() => window.omp.tabs.list());
+	const main = tabs.find(tab => tab.active)?.tabId ?? "";
+	expect(main).not.toBe("");
+	const results = async () =>
+		(await readRecords(record))
+			.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
+			.map(frame => {
+				const result = frame.result as { content?: { text?: string }[] } | undefined;
+				return { text: result?.content?.[0]?.text ?? "", isError: frame.isError === true };
+			});
+	return async (name: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
+		const before = (await results()).length;
+		const response = await page.evaluate(
+			([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }),
+			[main, `fixture:host-tool:${name} ${JSON.stringify(args)}`] as const,
+		);
+		expect(response).toMatchObject({ success: true });
+		await expect.poll(async () => (await results()).length, { timeout: 90_000 }).toBe(before + 1);
+		return (await results())[before] as { text: string; isError: boolean };
+	};
+}
+
+/** The session ids an `ompdesk_session_open` result names. */
+export function openedSessions(text: string): string[] {
+	return [...text.matchAll(/Opened session (\w+)/g)].map(match => match[1] ?? "");
+}
+
+/**
  * Press an app shortcut and wait for `target`. A key pressed while the renderer is still mounting has no listener
  * and is lost, so it is sent again, but only after a long wait: a slow runner may take seconds to show a page the
  * first press already opened, and a quick second press would toggle it shut again.

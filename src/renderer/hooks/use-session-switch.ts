@@ -19,7 +19,7 @@ import { useSubagentGraphStore } from "../stores/subagent-graph";
  * veto, hydrate, toasts — exists exactly once.
  */
 
-import type { IpcSessionOwner, SessionInfo } from "../../shared/ipc-types";
+import type { IpcSessionOwner, SessionInfo, SessionKind } from "../../shared/ipc-types";
 import { parseModelRestoreFailure, type SessionModelOverride } from "../../shared/model-restore";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
@@ -106,11 +106,18 @@ export async function newSessionNow(): Promise<RpcResponse> {
  * F-OWN: route the user to the tab/window already attached to a session file
  * instead of attaching a second sidecar to it. Owner lives in THIS window →
  * switchTab (which hydrates); a foreign window → openInNewWindow, which main
- * turns into a focus of the owner window for an owned path. Resolves with
- * openInNewWindow's result for the foreign case, true for the local switch.
+ * turns into a focus of the owner window for an owned path. A paired device's
+ * tab on this computer (`hosted`) → a tab of this window viewing it (`kind`
+ * the session's). Resolves with openInNewWindow's result for the foreign case,
+ * whether a tab opened for the hosted one, true for the local switch.
  */
-export async function routeToSessionOwner(owner: IpcSessionOwner, sessionPath: string): Promise<boolean> {
+export async function routeToSessionOwner(
+	owner: IpcSessionOwner,
+	sessionPath: string,
+	kind?: SessionKind,
+): Promise<boolean> {
 	const tabsStore = useTabsStore.getState();
+	if (owner.hosted) return (await tabsStore.openTab({ sessionPath, ...(kind ? { kind } : {}) })) !== null;
 	if (tabsStore.tabs.some(tab => tab.id === owner.tabId)) {
 		await tabsStore.switchTab(owner.tabId);
 		return true;
@@ -142,7 +149,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 		!runtime || (sessionRuntime(runtime.tabId) === runtime && originStore.getState().sessionId === originSessionId);
 	try {
 		const owner = await window.omp.tabs.getSessionOwner(session.path);
-		if (owner) return await routeToSessionOwner(owner, session.path);
+		if (owner) return await routeToSessionOwner(owner, session.path, session.kind === "chat" ? "chat" : "agent");
 	} catch {
 		// Pre-check best-effort — the main-process refusal is the backstop.
 	}
@@ -195,7 +202,10 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 			}
 			// Raced attach refused by main: route via the owner in the payload.
 			if (response.code === "session_owned_elsewhere") {
-				const data = response.data as { ownerTabId?: unknown; ownerWinId?: unknown } | undefined;
+				const data = response.data as { ownerTabId?: unknown; ownerWinId?: unknown; hosted?: unknown } | undefined;
+				const kind = session.kind === "chat" ? "chat" : "agent";
+				if (data?.hosted === true)
+					return await routeToSessionOwner({ tabId: "", winId: 0, hosted: true }, session.path, kind);
 				if (typeof data?.ownerTabId === "string" && typeof data.ownerWinId === "number") {
 					return await routeToSessionOwner({ tabId: data.ownerTabId, winId: data.ownerWinId }, session.path);
 				}

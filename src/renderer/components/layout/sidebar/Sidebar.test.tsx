@@ -23,6 +23,7 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
+import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
@@ -275,6 +276,7 @@ afterEach(async () => {
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
+	useHostedSessionsStore.setState({ sessions: [], revision: 0 });
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -813,6 +815,59 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(failed.textContent).toContain("Failed");
 		// Idle rows carry no edge state.
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
+	});
+
+	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {
+		// A paired device's agent opened it here (`ompdesk_session_open {device}`): its brief names a session on the
+		// device, which this computer never lists, and no tab of this window holds it.
+		const opened = session("/work/beta/opened.jsonl", "/work/beta", {
+			title: "Fix login",
+			firstMessage: wrapAgentMessage("Title: Fix login\nDetails.", "Mac session"),
+			created: "2026-01-04T00:00:00Z",
+			modified: "2026-01-04T00:00:00Z",
+		});
+		installMockOmp([...LIST, opened]);
+		seedStores();
+		const hosted = { sessionPath: opened.path, cwd: "/work/beta", kind: "agent" as const, device: "Mac" };
+		useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running" }] });
+		await mount(<Sidebar />);
+
+		const rows = () =>
+			[...container.querySelectorAll(".omp-sidebar-session-row")].filter(row =>
+				(row.textContent ?? "").includes("Fix login"),
+			);
+		expect(rows()).toHaveLength(1);
+		expect(rowFor("Fix login").closest('[data-session-group="/work/beta"]')).not.toBeNull();
+		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("running");
+
+		act(() => useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running", awaitingInput: true }] }));
+		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
+		expect(rowFor("Fix login").textContent).toContain("Needs input");
+
+		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
+		act(() => useHostedSessionsStore.setState({ sessions: [] }));
+		expect(rows()).toHaveLength(0);
+	});
+
+	it("lists a hosted session the index does not have yet, once, under its project", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useHostedSessionsStore.setState({
+			sessions: [
+				{
+					sessionPath: "/work/beta/new.jsonl",
+					sessionId: "new-id",
+					title: "Brand new",
+					cwd: "/work/beta",
+					kind: "agent",
+					status: "running",
+					device: "Mac",
+				},
+			],
+		});
+		await mount(<Sidebar />);
+		expect(rowFor("Brand new").closest('[data-session-group="/work/beta"]')).not.toBeNull();
+		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
 	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
