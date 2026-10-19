@@ -678,7 +678,7 @@ app.whenReady().then(() => {
 				check: checkForUpdate,
 				download: downloadUpdate,
 				restartable: restartableUpdate,
-				restart: restartIntoUpdate,
+				restart: () => restartIntoUpdate("user click"),
 			},
 			appearance: () => ({ themeName: prefsStore().get("themeName"), language: prefsStore().get("language") }),
 			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
@@ -1397,6 +1397,7 @@ app.whenReady().then(() => {
 		busy: () =>
 			sidecarPool.tabInventory().some(tab => tab.inFlight) ||
 			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.running || fact.awaitingUi),
+		asking: () => [...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
 	});
 });
 

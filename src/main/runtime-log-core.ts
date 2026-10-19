@@ -28,6 +28,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"background-task",
 	"startup-timing",
 	"turn-resume",
+	"app-update",
 	"ai-memory",
 	"main-thread-hang",
 	"web-reload",
