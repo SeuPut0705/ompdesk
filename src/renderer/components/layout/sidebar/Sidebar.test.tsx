@@ -740,12 +740,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
 		expect(activeRow().textContent).not.toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBeNull();
+		expect(activeRow().querySelector(".omp-live-edge")).toBeNull();
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
 		});
 		expect(activeRow().textContent).toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBe("running");
+		expect(activeRow().querySelector(".omp-live-edge")).not.toBeNull();
 		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
@@ -773,8 +775,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/beta/three");
 		expect(row.textContent).toContain("Running");
 		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
-		// The state is the row's edge bar, not a spinner; the word stays for screen readers.
+		// The state is the composer's travelling light on the row's border (`LiveEdge`), not a spinner or a bar;
+		// the word stays for screen readers.
 		expect(row.getAttribute("data-signal")).toBe("running");
+		expect(row.querySelector(".omp-live-edge[data-live-edge='turn'][data-live-edge-inside]")).not.toBeNull();
 		expect(row.querySelector('[role="status"], .omp-spinner')).toBeNull();
 		expect(row.querySelector("button")?.getAttribute("title")).toContain("Running");
 	});
@@ -813,8 +817,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
-		// Idle rows carry no edge state.
+		// Idle rows carry no edge state; a waiting or failed one keeps its bar and never wears the light.
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
+		for (const row of [waiting, failed, rowFor("Session /work/alpha/two")])
+			expect(row.querySelector(".omp-live-edge")).toBeNull();
 	});
 
 	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {

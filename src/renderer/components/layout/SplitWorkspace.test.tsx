@@ -20,14 +20,14 @@ const tab: SessionTab = {
 	unreadDone: false,
 };
 
-async function mount() {
+async function mount(shown: SessionTab = tab) {
 	container = document.createElement("div") as unknown as globalThis.HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container);
 	await act(async () => {
 		root?.render(
 			<I18nProvider>
-				<SplitPaneHeader tab={tab} label="메인" />
+				<SplitPaneHeader tab={shown} label="메인" />
 			</I18nProvider>,
 		);
 	});
@@ -59,5 +59,33 @@ describe("split pane breadcrumb", () => {
 		useSidebarPrefs.setState({ groupAliases: { [tab.cwd]: "My project" } });
 		await mount();
 		expect(container.querySelector(`[title="${tab.cwd}"]`)?.textContent).toBe("My project");
+	});
+});
+
+describe("split pane header light", () => {
+	const light = () => container.querySelector("header .omp-live-edge");
+
+	it("lights a running session's header with the shared light, and no spinner", async () => {
+		await mount({ ...tab, status: "running" });
+		expect(light()?.getAttribute("data-live-edge")).toBe("turn");
+		expect(light()?.hasAttribute("data-live-edge-inside")).toBe(true);
+		expect(container.querySelector("[role='status']")).toBeNull();
+		expect(container.querySelector("header")?.getAttribute("data-pane-running")).toBe("true");
+	});
+
+	it("leaves idle, waiting and failed headers unlit; starting keeps the spinner", async () => {
+		for (const state of [
+			{ ...tab, status: "ready" as const },
+			{ ...tab, status: "running" as const, awaitingInput: "input" as const },
+			{ ...tab, status: "error" as const },
+		]) {
+			await mount(state);
+			expect(light()).toBeNull();
+			await act(async () => root?.unmount());
+			container.remove();
+		}
+		await mount({ ...tab, status: "starting" });
+		expect(light()).toBeNull();
+		expect(container.querySelector("[role='status']")).not.toBeNull();
 	});
 });

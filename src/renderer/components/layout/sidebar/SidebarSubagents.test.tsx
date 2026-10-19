@@ -493,6 +493,10 @@ describe("a session's family: one-line rows", () => {
 		expect(row("r2").querySelector('[data-family-status="idle"]')).not.toBeNull();
 		expect(row("r1").getAttribute("data-signal")).toBe("running");
 		expect(row("r2").getAttribute("data-signal")).toBeNull();
+		// The running child wears the shared border light and a still dot; the parked one wears neither.
+		expect(first.querySelector(".omp-live-edge[data-live-edge-inside]")).not.toBeNull();
+		expect(first.querySelector('[data-family-status="running"] .omp-pulse-dot')).toBeNull();
+		expect(row("r2").querySelector(".omp-live-edge")).toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
 		// One age format across the sidebar: the session rows' own formatter.

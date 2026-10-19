@@ -293,19 +293,16 @@ function DeviceSessions({
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
-		const leading: ReactNode = signal?.running ? (
-			<span aria-hidden className="inline-flex">
-				<Spinner size="sm" />
-			</span>
-		) : session.kind === "chat" ? (
-			<MessageCircle aria-hidden />
-		) : (
-			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center">
-				{tab && !current && !inVisibleSplit && (
-					<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" />
-				)}
-			</span>
-		);
+		const leading: ReactNode =
+			session.kind === "chat" ? (
+				<MessageCircle aria-hidden />
+			) : (
+				<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center">
+					{tab && !current && !inVisibleSplit && (
+						<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" />
+					)}
+				</span>
+			);
 		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
 		const deletable = !session.path.startsWith("tab:") && !signal?.running;
 		return (
@@ -340,6 +337,7 @@ function DeviceSessions({
 				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 				key={session.path}
 				leading={leading}
+				live={signal?.running === true && tab?.awaitingInput === undefined}
 				meta={
 					indexed ? (
 						<time className="text-(--sc-text-subtle)" dateTime={session.modified}>

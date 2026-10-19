@@ -62,7 +62,6 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	useSyncExternalStore,
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
 import type { IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
@@ -429,11 +428,6 @@ function focusRovingItem(item: HTMLElement) {
 	(item.closest(".omp-sidebar-session-row") ?? item).scrollIntoView?.({ block: "nearest" });
 }
 
-function subscribeVisibility(listener: () => void): () => void {
-	document.addEventListener("visibilitychange", listener);
-	return () => document.removeEventListener("visibilitychange", listener);
-}
-
 /**
  * Sessions-first sidebar (design-spec §2.1) and the app's only session
  * navigator: Code/Work lanes, New session, a filter, sessions grouped by
@@ -506,12 +500,7 @@ export function Sidebar() {
 	// Under touch there is no hover to reveal a row's actions, so the open row would always show its rename,
 	// archive and delete buttons and the title would lose their width: one ⋯ opens the row's action sheet instead.
 	const touchInput = useShellInput() === "touch";
-	// Hidden window: the running rows' edge light rests (sidebar.css `[data-paused]`).
-	const windowVisible = useSyncExternalStore(
-		subscribeVisibility,
-		() => document.visibilityState !== "hidden",
-		() => true,
-	);
+
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
@@ -1817,6 +1806,7 @@ export function Sidebar() {
 							toggleSidebarSubagents(session.path);
 						openSession(session);
 					}}
+					live={signal === "running"}
 					rowProps={{
 						draggable: openTabId !== undefined && !isCurrent,
 						onDragStart: event => {
@@ -2028,7 +2018,6 @@ export function Sidebar() {
 			<aside
 				aria-label={t("sidebar.label")}
 				className="omp-session-sidebar relative flex h-full min-h-0 shrink-0 flex-col border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
-				data-paused={windowVisible ? undefined : ""}
 				style={{ width: sidebarWidth }}
 			>
 				{/* Traffic-light safe (global.css): on macOS the brand yields its

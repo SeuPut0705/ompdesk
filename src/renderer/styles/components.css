@@ -3889,11 +3889,18 @@ button.omp-file-chip-name:hover {
 	transform: translate(-50%, -50%);
 }
 
-/* Composer "work is going on" cue (layout/composer/ComposerLive.tsx). One accent light travels the box's border:
-   the 1px ring is a static mask over the box's own edge and only the gradient layer inside it turns, so the
-   compositor moves one layer (transform) and nothing repaints per frame. `turn` = the main turn runs;
-   `background` = idle with agents or shells still working: fainter and slower. */
-.omp-composer-live {
+/* "Work is going on" light (common/LiveEdge.tsx): ONE look, two forms of the same accent light, both slow,
+   one-directional and compositor-only (a transform; nothing repaints per frame, nothing breathes by opacity).
+   - The composer box (one per window): a 1px ring, a static mask over the box's own edge, with a conic gradient
+     turning inside it. `turn` = the main turn runs; `background` = idle with agents or shells still working:
+     fainter and slower.
+   - A contained card (`data-live-edge-inside`: a sidebar session row, a split pane's header; there can be a dozen
+     in view): measured on this build, a masked + clipped ring costs the GPU ~0.5 % of a core PER ROW (three rows
+     1.4 %, against 0.3 % for the old left-edge bar), almost all of it the mask and the clip. So a card keeps its
+     border as a plain still 1px accent line and two short gradient bars on its top and bottom edge run in
+     opposite directions (the light circles it clockwise): no mask, no clip, two tiny layers, 0.3 % for three
+     rows. Inside its box so a row's `content-visibility: auto` never cuts it. */
+.omp-live-edge {
 	position: absolute;
 	inset: -1px;
 	padding: 1px;
@@ -3907,7 +3914,7 @@ button.omp-file-chip-name:hover {
 	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 
-.omp-composer-live::before {
+.omp-live-edge::before {
 	content: "";
 	position: absolute;
 	top: 50%;
@@ -3922,26 +3929,62 @@ button.omp-file-chip-name:hover {
 		var(--sc-accent) 94%,
 		transparent 100%
 	);
-	animation: omp-composer-live-turn 8s linear infinite; /* motion-ok: working signal */
+	animation: omp-live-edge-turn 8s linear infinite; /* motion-ok: working signal */
 	will-change: transform;
 }
 
-.omp-composer-live[data-composer-live="background"] {
+.omp-live-edge[data-live-edge="background"] {
 	opacity: 0.45;
 }
 
-.omp-composer-live[data-composer-live="background"]::before {
+.omp-live-edge[data-live-edge="background"]::before {
 	animation-duration: 16s; /* motion-ok: working signal */
 }
 
+.omp-live-edge[data-live-edge-inside] {
+	inset: 0;
+	padding: 0;
+	overflow: visible;
+	-webkit-mask: none;
+	mask: none;
+	opacity: 1;
+	border: 1px solid color-mix(in srgb, var(--sc-accent) 30%, transparent);
+	box-sizing: border-box;
+}
+
+.omp-live-edge[data-live-edge-inside]::before,
+.omp-live-edge[data-live-edge-inside]::after {
+	content: "";
+	position: absolute;
+	top: auto;
+	left: 0;
+	width: 30%;
+	height: 1px;
+	aspect-ratio: auto;
+	translate: none;
+	background: linear-gradient(90deg, transparent, var(--sc-accent), transparent);
+	animation: omp-live-edge-run 8s linear infinite; /* motion-ok: working signal */
+	will-change: transform;
+}
+
+.omp-live-edge[data-live-edge-inside]::before {
+	top: -1px;
+}
+
+.omp-live-edge[data-live-edge-inside]::after {
+	bottom: -1px;
+	animation-direction: reverse;
+}
+
 /* Hidden window: the light rests (nothing animates for nobody). */
-.omp-composer-live[data-paused]::before {
+.omp-live-edge[data-paused]::before,
+.omp-live-edge[data-paused]::after {
 	animation-play-state: paused;
 }
 
 /* A draft quiets the cue: while the field holds one (focused or not), the border light fades to a faint trace and
    the Send ring steps out of the way (its tooltip still says that a send starts at once). */
-.omp-composer-box[data-composer-draft] .omp-composer-live {
+.omp-composer-box[data-composer-draft] .omp-live-edge {
 	opacity: 0.25;
 }
 
@@ -3950,13 +3993,20 @@ button.omp-file-chip-name:hover {
 	opacity: 0;
 }
 
-.omp-composer-region--expanded .omp-composer-live {
+.omp-composer-region--expanded .omp-live-edge {
 	display: none;
 }
 
-@keyframes omp-composer-live-turn {
+@keyframes omp-live-edge-turn {
 	to {
 		transform: rotate(360deg);
+	}
+}
+
+/* The card form's bars: each runs the width of its edge (30 % wide, so 233 % of itself is the other 70 %). */
+@keyframes omp-live-edge-run {
+	to {
+		transform: translateX(233.34%);
 	}
 }
 
@@ -3984,17 +4034,18 @@ button.omp-file-chip-name:hover {
 }
 
 /* Reduced motion: a still hint, not the permanent ring (which read like a focus ring and was louder than the
-   animation): one 1 px line on the box's top edge at ~40 %, ~25 % between turns, and a still send ring. */
+   animation): the composer box gets one 1 px line on its top edge at ~40 %, ~25 % between turns, and a still
+   send ring; a contained card gets its whole 1 px edge at 45 %. */
 @media (prefers-reduced-motion: reduce) {
-	.omp-composer-live {
+	.omp-live-edge {
 		opacity: 0.4;
 	}
 
-	.omp-composer-live[data-composer-live="background"] {
+	.omp-live-edge[data-live-edge="background"] {
 		opacity: 0.25;
 	}
 
-	.omp-composer-live::before {
+	.omp-live-edge::before {
 		inset: 0 0 auto 0;
 		width: auto;
 		height: 1px;
@@ -4005,6 +4056,17 @@ button.omp-file-chip-name:hover {
 		will-change: auto;
 	}
 
+	/* A contained card (a row, a pane header) keeps its still 1 px accent edge all round, a little stronger, and
+	   loses the running bars: a line on its top alone would read as a separator there. */
+	.omp-live-edge[data-live-edge-inside] {
+		border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+	}
+
+	.omp-live-edge[data-live-edge-inside]::before,
+	.omp-live-edge[data-live-edge-inside]::after {
+		display: none;
+	}
+
 	.omp-composer-send-live[data-composer-live]::after {
 		animation: none;
 	}
@@ -4012,15 +4074,15 @@ button.omp-file-chip-name:hover {
 
 /* Software compositing (`html[data-gpu="software"]`, set from main's `?gpu=software`: no GPU, a crash fallback,
    a CI runner): every animated frame costs real CPU there, so the cue takes the reduced-motion form. */
-html[data-gpu="software"] .omp-composer-live {
+html[data-gpu="software"] .omp-live-edge {
 	opacity: 0.4;
 }
 
-html[data-gpu="software"] .omp-composer-live[data-composer-live="background"] {
+html[data-gpu="software"] .omp-live-edge[data-live-edge="background"] {
 	opacity: 0.25;
 }
 
-html[data-gpu="software"] .omp-composer-live::before {
+html[data-gpu="software"] .omp-live-edge::before {
 	inset: 0 0 auto 0;
 	width: auto;
 	height: 1px;
@@ -4031,7 +4093,17 @@ html[data-gpu="software"] .omp-composer-live::before {
 	will-change: auto;
 }
 
-html[data-gpu="software"] .omp-composer-box[data-composer-draft] .omp-composer-live {
+html[data-gpu="software"] .omp-live-edge[data-live-edge-inside] {
+	opacity: 1;
+	border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+}
+
+html[data-gpu="software"] .omp-live-edge[data-live-edge-inside]::before,
+html[data-gpu="software"] .omp-live-edge[data-live-edge-inside]::after {
+	display: none;
+}
+
+html[data-gpu="software"] .omp-composer-box[data-composer-draft] .omp-live-edge {
 	opacity: 0.25;
 }
 
