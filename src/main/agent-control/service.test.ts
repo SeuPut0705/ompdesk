@@ -2516,14 +2516,15 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		expect(host.mails.map(mail => mail.details.text)).toEqual(["step 2", "finished"]);
 	});
 
-	it("holds progress for a busy opener's next turn", async () => {
+	it("sends progress to a busy opener as a no-turn report, never stock's hidden next-turn queue", async () => {
 		const { host, service, a, fire } = await family();
 		const boss = host.tabsById.get("boss0001");
 		if (boss) boss.busy = true;
 		await service.run(a, T.report, { kind: "progress", text: "halfway" });
 		fire();
 		await Promise.resolve();
-		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false, deliverAs: "nextTurn" });
+		// The opener's bridge holds it until the running turn ends; `nextTurn` stayed out of sight until a prompt.
+		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
 	});
 
 	it("lets a child write to a sibling as a note, never to an outsider, and refuses a session nobody opened", async () => {

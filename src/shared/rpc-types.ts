@@ -4,6 +4,7 @@
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
 
+import type { PendingMail } from "../../resources/gui-bridge/agent-control-contracts";
 import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { SkippedPreferred } from "../../resources/gui-bridge/model-role-contracts";
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
@@ -120,8 +121,11 @@ export type RpcCommand =
 			content: string;
 			details: Record<string, unknown>;
 			triggerTurn: boolean;
-			deliverAs?: "followUp" | "nextTurn" | "aside";
+			deliverAs?: "followUp" | "aside";
 	  }
+	// The reports a receiver's bridge holds until its running turn ends (gui-bridge agent-control.ts); `mail_pending`
+	// frames keep the list current
+	| { id?: string; type: "get_pending_mail" }
 	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp
 	| { id?: string; type: "agent_control_review" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
@@ -2670,6 +2674,8 @@ export type AgentSessionEvent =
 	| { type: "autopilot_update"; status: AutopilotStatus }
 	// Main's desktop slot changed (who drives the screen, who waits); app-wide, carried by the window's active tab.
 	| { type: "desktop_slot_update"; state: DesktopSlotState }
+	// The reports from other sessions the bridge holds until the running turn ends (gui-bridge agent-control.ts).
+	| { type: "mail_pending"; items: PendingMail[] }
 	| {
 			type: "plan_proposal";
 			planFilePath: string;

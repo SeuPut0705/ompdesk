@@ -784,13 +784,7 @@ export class AgentControl {
 			now: Date.now,
 			...timers,
 			deliver: async mail => {
-				const receiver = this.#host.tabs(mail.to)?.find(tab => tab.tabId === mail.to);
-				await this.#host.mail(
-					mail.to,
-					mailText(mail),
-					mailDetails(mail),
-					deliveryFor(mail.kind, receiver?.busy === true),
-				);
+				await this.#host.mail(mail.to, mailText(mail), mailDetails(mail), deliveryFor(mail.kind));
 				this.#host.reviewChanged?.(mail.to);
 			},
 		});
@@ -1894,15 +1888,10 @@ export class AgentControl {
 			label: "note",
 			text,
 		});
-		const quiet: MailDelivery = { triggerTurn: false };
+		const quiet = deliveryFor("note");
 		const closed = `${deleted ? "Deleted" : "Closed"} ${label(target)}${deleted ? "" : " (its session stays saved)"}.`;
 		await Promise.allSettled([
-			this.#host.mail(
-				caller.tabId,
-				closed,
-				line(caller, closed),
-				caller.busy ? { triggerTurn: false, deliverAs: "nextTurn" } : quiet,
-			),
+			this.#host.mail(caller.tabId, closed, line(caller, closed), quiet),
 			this.#host.mail(
 				target.tabId,
 				`${caller.title || "Another session"} closed this session's tab.`,

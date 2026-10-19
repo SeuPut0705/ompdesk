@@ -4741,6 +4741,7 @@ export const ko: Record<string, string> = {
 	"chat.custom.mail.checks": "검사",
 	"chat.custom.mail.passed": "통과",
 	"chat.custom.mail.failed": "실패",
+	"chat.custom.mail.pending": "이 턴이 끝나면 보여요",
 	"workBoard.opened.merge.unmerged": "병합 안 됨",
 	"workBoard.opened.merge.merged": "병합됨",
 	"workBoard.approve": "{tool} 실행을 허용할까요?",

@@ -13,6 +13,7 @@ import {
 	retryPendingTabs,
 	syncAutopilot,
 	syncGoal,
+	syncPendingMail,
 } from "./session-hydration";
 
 export * from "./session-hydration";
@@ -101,6 +102,8 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 	autopilot_update: true,
 	// The desktop slot is app-wide state main owns, not something a get_state snapshot reports.
 	desktop_slot_update: true,
+	// Held reports are the bridge's own feed (get_pending_mail), not something a get_state snapshot reports.
+	mail_pending: true,
 };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
@@ -612,6 +615,10 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useDesktopSlotStore.getState().apply(event.state);
 							break;
 						}
+						case "mail_pending": {
+							useSessionStore.setState({ pendingMail: event.items });
+							break;
+						}
 						case "goal_time_limit_reached": {
 							useToastStore.getState().push({
 								variant: "info",
@@ -770,6 +777,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								await Promise.allSettled([
 									syncGoal("", activeTabCommand, isCurrent),
 									syncAutopilot("", activeTabCommand, isCurrent),
+									syncPendingMail("", activeTabCommand, isCurrent),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),
 									useSettingsStore.getState().syncApproval(),

@@ -131,6 +131,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_context_report",
 	"get_copy_targets",
 	"get_autopilot",
+	// The reports a bridge holds until the running turn ends (bridge agent-control.ts): no model.
+	"get_pending_mail",
 	"autopilot_branch_status",
 	"get_desktop_slot",
 	"desktop_slot_stop",

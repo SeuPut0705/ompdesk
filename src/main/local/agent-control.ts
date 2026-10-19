@@ -15,7 +15,7 @@ const mailCommand = z.object({
 	content: z.string().min(1).max(200_000),
 	details: z.record(z.string(), z.unknown()),
 	triggerTurn: z.boolean(),
-	deliverAs: z.enum(["followUp", "nextTurn", "aside"]).optional(),
+	deliverAs: z.enum(["followUp", "aside"]).optional(),
 });
 
 export const handlers: Record<string, LocalHandler> = {
@@ -49,4 +49,6 @@ export const handlers: Record<string, LocalHandler> = {
 		await ctx.bridge.request("agent_control.mail", mail);
 		return {};
 	},
+	/** The no-turn reports this session's bridge holds until its running turn ends (the transcript's waiting lines). */
+	get_pending_mail: async (_command, ctx) => ctx.bridge.request("agent_control.mail_pending", {}),
 };

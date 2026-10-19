@@ -69,6 +69,7 @@ import {
 import { ExecutionGroup } from "./ExecutionGroup";
 import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
+import { PendingMailNotes } from "./PendingMailNotes";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
@@ -153,6 +154,7 @@ function SessionTranscript() {
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
+	const pendingMail = useSessionStore(s => s.pendingMail);
 	const awaitingConnection = useAwaitingConnection();
 	const resuming = useResuming();
 	const status = useSessionStore(s => s.status);
@@ -225,12 +227,14 @@ function SessionTranscript() {
 	// mirroring the TUI's loader line: auto-retry delay/attempt (warning),
 	// auto-compaction maintenance, or waiting on the model's first event.
 	// Priority matches the TUI, whose transient loaders replace the working
-	// loader; tool-execution windows show running tool cards instead.
+	// loader; tool-execution windows show running tool cards instead. The same
+	// row carries the reports the bridge holds until the turn ends.
 	const showStatusRow =
 		awaitingConnection !== null ||
 		resuming !== null ||
 		retryInfo != null ||
 		compactionInfo != null ||
+		pendingMail.length > 0 ||
 		(isStreaming && awaitingModelSince != null && !hasStreamedContent);
 	// While a turn runs, its work stays ONE disclosure: the latest finalized
 	// work row absorbs the streaming message's steps (and keeps the spinner
@@ -1056,7 +1060,10 @@ function SessionTranscript() {
 												})}
 											</Button>
 										) : (
-											<TurnStatusRow attached={liveTail} />
+											<>
+												<TurnStatusRow attached={liveTail} />
+												<PendingMailNotes />
+											</>
 										)}
 									</div>
 								</div>

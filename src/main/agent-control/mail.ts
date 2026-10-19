@@ -10,8 +10,9 @@
  *                       starts a turn on it. The receiver answers with `ompdesk_session_send` or asks the user;
  *                       nothing answers it on its own.
  *   done, review        `followUp` + `triggerTurn`: after the receiver's turn, or at once when it is idle.
- *   progress, note      no turn: shown at once when the receiver is idle (`triggerTurn: false`), otherwise held for
- *                       its next turn (`nextTurn`); progress from one sender is coalesced, the latest wins.
+ *   progress, note      no turn (`triggerTurn: false`): shown at once when the receiver is idle; while a turn runs the
+ *                       receiver's bridge holds it and shows it when the turn ends (the person sees it waiting
+ *                       meanwhile); progress from one sender is coalesced, the latest wins.
  *
  * Pure rules; the timers and delivery are injected (`host.ts` sends the mail through the receiver's omp).
  */
@@ -49,11 +50,11 @@ export interface Mail {
 
 export interface MailDelivery {
 	triggerTurn: boolean;
-	deliverAs?: "followUp" | "nextTurn" | "aside";
+	deliverAs?: "followUp" | "aside";
 }
 
-/** How stock delivers a report of this kind to a receiver that is (or is not) running a turn. */
-export function deliveryFor(kind: MailKind, receiverBusy: boolean): MailDelivery {
+/** How stock delivers a report of this kind (a no-turn one waits in the receiver's bridge while a turn runs). */
+export function deliveryFor(kind: MailKind): MailDelivery {
 	switch (kind) {
 		case "question":
 		case "blocked":
@@ -62,7 +63,7 @@ export function deliveryFor(kind: MailKind, receiverBusy: boolean): MailDelivery
 		case "review":
 			return { triggerTurn: true, deliverAs: "followUp" };
 		default:
-			return receiverBusy ? { triggerTurn: false, deliverAs: "nextTurn" } : { triggerTurn: false };
+			return { triggerTurn: false };
 	}
 }
 

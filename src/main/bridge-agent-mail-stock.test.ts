@@ -237,11 +237,11 @@ const shown = (frames: readonly Frame[], id: string) =>
 			frame.message.details?.id === id,
 	);
 
-function mail(kind: MailKind, id: string, receiverBusy: boolean) {
+function mail(kind: MailKind, id: string) {
 	return {
 		content: `<ompdesk-mail from="child" title="Child" kind="${kind}">\n${id}\n</ompdesk-mail>`,
 		details: { id, from: "child", fromTitle: "Child", kind, text: id },
-		...deliveryFor(kind, receiverBusy),
+		...deliveryFor(kind),
 	};
 }
 
@@ -252,10 +252,16 @@ describe.skipIf(!existsSync(omp))("a no-turn report on stock omp", () => {
 		const session = await startOmp(provider);
 		await session.send({ type: "prompt", message: HOLD });
 		await provider.held;
-		await session.bridge.request("agent_control.mail", mail("progress", "busy-progress", true));
-		await session.bridge.request("agent_control.mail", mail("note", "busy-note", true));
-		// Held while the turn runs: neither is in the transcript or the model's context yet.
+		await session.bridge.request("agent_control.mail", mail("progress", "busy-progress"));
+		await session.bridge.request("agent_control.mail", mail("note", "busy-note"));
+		// Held while the turn runs: neither is in the transcript or the model's context yet; the bridge lists both.
 		expect(shown(session.frames, "busy-progress")).toBe(false);
+		expect(await session.bridge.request("agent_control.mail_pending", {})).toEqual({
+			items: [
+				{ id: "busy-progress", from: "Child", kind: "progress" },
+				{ id: "busy-note", from: "Child", kind: "note" },
+			],
+		});
 		const turns = provider.turns;
 		provider.release();
 		await expect.poll(() => session.frames.some(frame => frame.type === "agent_end"), { timeout: 30_000 }).toBe(true);
@@ -264,6 +270,7 @@ describe.skipIf(!existsSync(omp))("a no-turn report on stock omp", () => {
 		await expect
 			.poll(() => journaledMail(session.isolated), { timeout: 3_000 })
 			.toEqual(["busy-progress", "busy-note"]);
+		expect(await session.bridge.request("agent_control.mail_pending", {})).toEqual({ items: [] });
 		// No turn was started for them.
 		expect(provider.turns).toBe(turns);
 	}, 180_000);
@@ -277,7 +284,7 @@ describe.skipIf(!existsSync(omp))("a no-turn report on stock omp", () => {
 		await session.send({ type: "prompt", message: "first" });
 		await expect.poll(() => session.frames.some(frame => frame.type === "agent_end"), { timeout: 30_000 }).toBe(true);
 		const turns = provider.turns;
-		await session.bridge.request("agent_control.mail", mail("progress", "idle-progress", false));
+		await session.bridge.request("agent_control.mail", mail("progress", "idle-progress"));
 		await expect.poll(() => shown(session.frames, "idle-progress"), { timeout: 3_000 }).toBe(true);
 		expect(journaledMail(session.isolated)).toEqual(["idle-progress"]);
 		expect(provider.turns).toBe(turns);

@@ -1,5 +1,6 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
+import type { PendingMail } from "../../../resources/gui-bridge/agent-control-contracts";
 import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { ContextUsage, RpcSessionState, SidecarRestartProgress, SidecarStatus } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
@@ -80,6 +81,9 @@ export interface SessionStore {
 	nextPrompt: NextPromptState | null;
 	/** Why the last suggestion request failed (next_prompt_update unavailable); cleared by the next ready. */
 	nextPromptUnavailable: { reason: NextPromptUnavailable; detail?: string } | null;
+	/** Reports from other sessions this tab's bridge holds until the running turn ends (`mail_pending` frames,
+	 * hydrated via get_pending_mail): drawn as waiting lines under the transcript until they land in it. */
+	pendingMail: PendingMail[];
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
 	setSidecarError: (error: string | null, restart?: SidecarRestartProgress | null) => void;
@@ -119,6 +123,7 @@ const initialState = {
 	goalState: null,
 	nextPrompt: null,
 	nextPromptUnavailable: null,
+	pendingMail: [] as PendingMail[],
 };
 
 /**
