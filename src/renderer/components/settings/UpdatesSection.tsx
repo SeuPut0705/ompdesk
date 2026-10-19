@@ -216,9 +216,7 @@ export function UpdatesSection() {
 					<UpdateFailureLines app={appError} core={coreError} />
 				) : status.state === "auth-required" ? (
 					t(ACCESS_MESSAGE[status.reason])
-				) : (
-					t("updates.deliveryNote")
-				)}
+				) : undefined}
 			</Banner>
 
 			<SettingsRow
@@ -254,7 +252,6 @@ export function UpdatesSection() {
 						<Spinner label={t("updates.checking")} size="sm" />
 					)
 				}
-				description={t("updates.gui.description")}
 				footer={
 					<>
 						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">

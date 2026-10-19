@@ -215,7 +215,7 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 	const [revoking, setRevoking] = useState<WebDeviceInfo | null>(null);
 	const limited = devices.find(device => device.id === limitsFor);
 	return (
-		<SettingsSection description={t("mobileWeb.devices.desc")} title={t("mobileWeb.devices.title")}>
+		<SettingsSection title={t("mobileWeb.devices.title")}>
 			{devices.length > 0 ? (
 				<div className="flex flex-col gap-px py-2" data-mobile-web-devices>
 					{devices.map(device => (

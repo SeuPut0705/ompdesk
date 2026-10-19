@@ -137,7 +137,6 @@ export function MachineSetupSection() {
 	if (state?.platform === "other") return null;
 	return (
 		<SettingsSection
-			description={t("machineSetup.settings.description")}
 			id="setting-machine-setup"
 			// Settings › Updates & about holds this computer's tools beside the host's omp.
 			scope="app"

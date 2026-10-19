@@ -163,7 +163,6 @@ function DeviceNameRow({ name }: { name: string }) {
 					value={draft}
 				/>
 			}
-			description={t("remote.host.nameDesc")}
 			htmlFor={inputId}
 			label={t("remote.host.name")}
 		/>
@@ -380,7 +379,6 @@ export function RemoteSection() {
 						{t("remote.hosts.connect")}
 					</Button>
 				}
-				description={t("remote.hosts.desc")}
 				title={t("remote.hosts.title")}
 			>
 				{hosts.length > 0 ? (
