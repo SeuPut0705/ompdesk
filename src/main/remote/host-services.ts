@@ -687,9 +687,10 @@ export class LocalHostServices implements HostServices {
 		const cwd = await directory(params.cwd);
 		const kind =
 			params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
-		// A concurrent open for the same rtab may have finished while this one awaited.
+		// A concurrent open for the same rtab, or for the same session under another rtab, may have
+		// finished while this one awaited: take that tab (or its refusal) instead of a second omp.
 		const raced = this.#tabs.get(key);
-		if (raced) return this.#open(peer, params, conn);
+		if (raced || (params.sessionPath && this.#holder(params.sessionPath))) return this.#open(peer, params, conn);
 		const tab = this.#createTab(peer, params.rtab, cwd, kind, params.fresh === true, params.sessionPath, conn);
 		// The device's sign-in state may come from a tab of this rtab that is gone (closed after its grace, or
 		// this computer restarted mid-login): a new omp runs none.
@@ -699,23 +700,53 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
-	 * A relaunched device reopens its tabs under new rtabs, each with the session it showed. The
-	 * tab an earlier connection of that device left on the session (running out its grace period,
-	 * or revived after this computer restarted) is that tab: it is taken over under the new rtab,
-	 * so no second omp starts on the same session file.
+	 * One session file, one host tab, one omp. A relaunched device reopens its tabs under new rtabs,
+	 * each with the session it showed: the tab an earlier connection of that device left on the
+	 * session (running out its grace period, or revived after this computer restarted) is taken
+	 * over under the new rtab. A tab this same connection still shows under another rtab, or
+	 * another device's tab, is refused `session_open_in_tab`: never a second omp on that file.
 	 */
 	#adopt(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): HostTab | undefined {
 		if (!params.sessionPath) return undefined;
-		for (const [key, tab] of this.#tabs) {
-			if (tab.peerId !== peer.deviceId || tab.conn === conn || tab.sessionFile !== params.sessionPath) continue;
-			this.#tabs.delete(key);
-			// Terminals are owned by rtab; the device lost the old one with its previous launch.
-			disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
-			tab.rtab = params.rtab;
-			this.#tabs.set(this.#key(peer.deviceId, params.rtab), tab);
-			return tab;
-		}
+		const tab = this.#holder(params.sessionPath);
+		if (!tab) return undefined;
+		if (tab.peerId !== peer.deviceId || tab.conn === conn)
+			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
+		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
+		// Terminals are owned by rtab; the device lost the old one with its previous launch.
+		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
+		tab.rtab = params.rtab;
+		this.#tabs.set(this.#key(peer.deviceId, params.rtab), tab);
+		return tab;
+	}
+
+	/** The host tab whose omp is on `sessionPath` (or will be, once started). */
+	#holder(sessionPath: string): HostTab | undefined {
+		for (const tab of this.#tabs.values()) if (tab.sessionFile === sessionPath) return tab;
 		return undefined;
+	}
+
+	/**
+	 * A tab's omp moved onto a file another host tab already holds (a switch, a restart onto that
+	 * session): two omps would append diverging turns to one conversation. The one running a turn
+	 * stays, else the one that just moved; the other's omp is stopped and its device sees it exited.
+	 */
+	#dedupe(tab: HostTab): void {
+		const file = tab.sessionFile;
+		if (file === undefined) return;
+		for (const [key, other] of this.#tabs) {
+			if (other === tab || other.sessionFile !== file) continue;
+			const loser = runBusy(other.run) && !runBusy(tab.run) ? tab : other;
+			this.#emit(loser, "status", {
+				status: "exited",
+				statusPayload: { message: "This session is open in another tab on the host" },
+				processAlive: false,
+				cwd: loser.sidecar.cwd,
+				kind: loser.sidecar.kind,
+			} satisfies TabStatusArg);
+			this.#closeTab(loser === tab ? this.#key(tab.peerId, tab.rtab) : key);
+			if (loser === tab) return;
+		}
 	}
 
 	#createTab(
@@ -767,6 +798,7 @@ export class LocalHostServices implements HostServices {
 						tab.sessionFile = identity.sessionFile;
 						if (changed && tab.run.running) this.#resume?.sync();
 						this.#emit(tab, name, identity);
+						if (changed) this.#dedupe(tab);
 					});
 					break;
 				case "bridge":
