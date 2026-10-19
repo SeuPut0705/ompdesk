@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 
 /**
@@ -101,13 +102,9 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 	for (const [key, value] of Object.entries(env)) {
 		if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") launchEnv[key] = value;
 	}
+	const entry = assertAppBuilt();
 	return electron.launch({
-		args: [
-			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
-			options.project,
-			`--user-data-dir=${options.desktop}`,
-			...(options.args ?? []),
-		],
+		args: [entry, options.project, `--user-data-dir=${options.desktop}`, ...(options.args ?? [])],
 		env: launchEnv,
 	});
 }

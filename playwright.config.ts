@@ -25,4 +25,5 @@ export default defineConfig({
 	expect: { timeout: 10_000 },
 	reporter: [["list"], ["html", { open: "never" }]],
 	use: { screenshot: "only-on-failure", trace: "retain-on-failure" },
+	globalSetup: "./e2e/global-setup.ts",
 });
