@@ -14,8 +14,11 @@ import {
 export const MIN_CLASSIFIED_CHARS = 12;
 /** A model answer below this probability counts as ambiguous. */
 export const MIN_PROBABILITY = 0.6;
-/** Plan takes over the whole next turn, so it needs a surer answer than Goal (and a stated probability). */
-export const MIN_PLAN_PROBABILITY = 0.75;
+/**
+ * Plan takes over the whole next turn, so it needs a surer answer than Goal (and a stated probability). 0.7 measured
+ * on Jev and Sonnet: no plan choice on a none- or goal-labelled prompt (bridge-auto-mode-core.test.ts).
+ */
+export const MIN_PLAN_PROBABILITY = 0.7;
 /** Longest goal objective (characters). */
 export const OBJECTIVE_MAX_CHARS = 300;
 /** Longest excerpt of the previous exchange the judge sees (characters, each side). */

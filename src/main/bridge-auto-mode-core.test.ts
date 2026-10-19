@@ -12,7 +12,6 @@ import {
 	autoModeSkip,
 	goalObjective,
 	MIN_CLASSIFIED_CHARS,
-	MIN_PLAN_PROBABILITY,
 	modeFromAnswer,
 	OBJECTIVE_MAX_CHARS,
 	PREVIOUS_MAX_CHARS,
@@ -132,13 +131,27 @@ describe("modeFromAnswer (classifier output parsing)", () => {
 		});
 	});
 
-	it("needs a stated probability of at least 0.75 for plan, which takes over the whole next turn", () => {
-		expect(MIN_PLAN_PROBABILITY).toBe(0.75);
-		for (const answer of [{ choice: "plan", probabilities: { plan: 0.7 } }, { choice: "plan" }]) {
+	it("needs a stated probability of at least 0.7 for plan, which takes over the whole next turn", () => {
+		// Real judge answers (/tmp/jev-bench, 19 Oct 2026, 139 calls each on Jev and Sonnet over 44 prompts): neither
+		// model ever chose plan for a none- or goal-labelled prompt; Jev's plan probabilities there peak at 0.04 and
+		// Sonnet's at 0. A Korean plan request ("이제 별개로 원격 세션 삭제 기능 새로 추가해줘…") came back at 0.73,
+		// which 0.75 dropped; a vaguer one ("빌드시간,최적화,릴리즈시간 전부 개선해…") at 0.57–0.64 stays none.
+		expect(modeFromAnswer({ choice: "plan", probabilities: { plan: 0.73, none: 0.27, goal: 0 } }, both)).toEqual({
+			mode: "plan",
+		});
+		for (const answer of [
+			{ choice: "plan", probabilities: { plan: 0.64, none: 0.22, goal: 0.14 } },
+			{ choice: "plan", probabilities: { plan: 0.69 } },
+			{ choice: "plan" },
+		]) {
 			expect(modeFromAnswer(answer, both)).toEqual({ mode: "none", reason: "ambiguous" });
 		}
-		expect(modeFromAnswer({ choice: "plan", probabilities: { plan: 0.75 } }, both)).toEqual({ mode: "plan" });
-		expect(modeFromAnswer({ choice: "goal", probabilities: { goal: 0.7 } }, both)).toEqual({ mode: "goal" });
+		expect(modeFromAnswer({ choice: "none", probabilities: { plan: 0.04, none: 0.92, goal: 0.04 } }, both)).toEqual({
+			mode: "none",
+			reason: "classified_none",
+		});
+		expect(modeFromAnswer({ choice: "plan", probabilities: { plan: 0.7 } }, both)).toEqual({ mode: "plan" });
+		expect(modeFromAnswer({ choice: "goal", probabilities: { goal: 0.62 } }, both)).toEqual({ mode: "goal" });
 	});
 
 	it("never returns a mode the session may not enter", () => {
