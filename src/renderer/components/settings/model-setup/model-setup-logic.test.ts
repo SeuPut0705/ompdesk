@@ -171,6 +171,7 @@ describe("model setup logic", () => {
 			role,
 			model,
 			manual: false,
+			follows: false,
 			checked: false,
 			reason: { rule: "chat" },
 		});
@@ -185,6 +186,7 @@ describe("model setup logic", () => {
 			role: "smol",
 			model: "anthropic/haiku",
 			manual: false,
+			follows: false,
 			checked: true,
 			reason: {
 				rule: "cheap",
@@ -235,6 +237,7 @@ describe("model setup logic", () => {
 			role: id,
 			model: null,
 			manual: false,
+			follows: false,
 			checked: false,
 			reason: { rule: "stock" },
 		}));
@@ -269,11 +272,19 @@ describe("model setup logic", () => {
 				model: "anthropic/opus",
 				current: "anthropic/opus",
 				manual: false,
+				follows: false,
 				checked: false,
 				reason: { rule: "default" },
 			},
-			{ role: "smol", model: "anthropic/haiku", manual: false, checked: true, reason: { rule: "cheap" } },
-			{ role: "image", model: null, manual: false, checked: false, reason: { rule: "stock" } },
+			{
+				role: "smol",
+				model: "anthropic/haiku",
+				manual: false,
+				follows: false,
+				checked: true,
+				reason: { rule: "cheap" },
+			},
+			{ role: "image", model: null, manual: false, follows: false, checked: false, reason: { rule: "stock" } },
 		];
 		const plan: ModelSetupPlan = {
 			assignments: [

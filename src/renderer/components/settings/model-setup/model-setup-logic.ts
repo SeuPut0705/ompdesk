@@ -92,6 +92,8 @@ export function planRoleInputs(roles: readonly ModelRoleEntry[]): PlanRoleInput[
 		...(role.hidden ? { hidden: true } : {}),
 		candidates: role.candidates.map(candidate => `${candidate.provider}/${candidate.id}`),
 		...(role.model ? { current: role.model } : {}),
+		...(role.defaults ? { defaults: role.defaults } : {}),
+		...(role.effective?.model ? { effective: role.effective.model } : {}),
 	}));
 }
 
@@ -120,9 +122,9 @@ export function distinctModels(rows: readonly PlanRow[]): string[] {
 	return [...new Set(rows.flatMap(row => (row.model ? [row.model] : [])))];
 }
 
-/** A row the apply can write: it names a model and the role is not on it already. */
+/** A row the apply can write: it names a model, the role is not on it already and its chain does not already give it. */
 export function writable(row: PlanRow): boolean {
-	return row.model !== null && baseSelector(row.current) !== row.model;
+	return row.model !== null && !row.follows && baseSelector(row.current) !== row.model;
 }
 
 // ── Reason sentences (behind each row's ⓘ) ─────────────────────────────────────────────────────────────────────
@@ -180,8 +182,13 @@ export function reasonText(
 	row: PlanRow,
 	options: { mode: PlanMode; keepsDefault: boolean; research?: string },
 ): string {
+	const follows = row.follows ? t("modelSetup.reason.follows") : "";
 	if (options.research !== undefined) {
-		return [options.research || t("modelSetup.reason.research"), billingSentence(t, row.reason, options.mode)]
+		return [
+			options.research || t("modelSetup.reason.research"),
+			billingSentence(t, row.reason, options.mode),
+			follows,
+		]
 			.filter(Boolean)
 			.join(" ");
 	}
@@ -222,7 +229,7 @@ export function reasonText(
 		reason.headroom !== undefined
 			? t("modelSetup.reason.headroom", { percent: Math.round(reason.headroom * 100) })
 			: "";
-	return [main, billingSentence(t, reason, options.mode), headroom].filter(Boolean).join(" ");
+	return [main, billingSentence(t, reason, options.mode), headroom, follows].filter(Boolean).join(" ");
 }
 
 /** "Subscription." / "Metered: billed through an API key." (the basis only in the picked mode, where metered is allowed). */
@@ -333,10 +340,13 @@ export function withResearch(
 		) {
 			return row;
 		}
+		const role = roles.find(entry => entry.id === row.role);
+		const follows = role?.current === undefined && baseSelector(role?.effective) === assignment.model;
 		return {
 			...row,
 			model: assignment.model,
-			checked: !row.manual && assignment.model !== baseSelector(row.current),
+			follows,
+			checked: !row.manual && !follows && assignment.model !== baseSelector(row.current),
 			research: assignment.reason,
 		};
 	});

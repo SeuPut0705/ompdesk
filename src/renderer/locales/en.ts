@@ -2555,6 +2555,8 @@ export const en: Record<string, string> = {
 	"modelSetup.reason.none.picked": "None of the picked models can serve this role.",
 	"modelSetup.reason.headroom": "About {percent}% of this account's usage is left.",
 	"modelSetup.reason.manual": "You set this role yourself (not an earlier setup): it is kept unless you tick it.",
+	"modelSetup.reason.follows":
+		"Its default chain already runs on this model, so nothing is written and the chain keeps deciding.",
 	"modelSetup.reason.research": "Picked after researching public benchmarks.",
 	"modelSetup.reason.billing.subscription": "Subscription",
 	"modelSetup.reason.billing.free": "Free (runs on this computer)",

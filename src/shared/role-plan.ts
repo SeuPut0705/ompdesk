@@ -28,6 +28,10 @@ export interface PlanRoleInput {
 	candidates: readonly string[];
 	/** What the role holds now (any thinking suffix). */
 	current?: string;
+	/** Stock's default chain for the role (`rolePriorityDefaults`, or an OMPdesk role's own), `@role` aliases included. */
+	defaults?: readonly string[];
+	/** `provider/id` the role resolves to now through its value or chain. */
+	effective?: string;
 }
 
 export interface RolePlanInput {
@@ -91,6 +95,8 @@ export interface PlanRow {
 	manual: boolean;
 	/** Ticked by default: something to write, not manual, not already that model. */
 	checked: boolean;
+	/** Unset, and its chain already resolves to the planned model: nothing is written, so the chain keeps deciding. */
+	follows: boolean;
 	reason: PlanReason;
 }
 
@@ -243,6 +249,20 @@ function pick(
 	}
 }
 
+/**
+ * The rule of a role these rules do not name: the first role its own default chain falls to whose rule is known
+ * (P5's `review`: `@review → @advisor → …` plans like the advisor, another family's strong model). A chain naming
+ * no such role (or none at all) leaves the role to the default's model.
+ */
+function chainTier(role: PlanRoleInput): Tier | undefined {
+	for (const entry of role.defaults ?? []) {
+		if (!entry.startsWith("@")) continue;
+		const tier = TIERS[entry.slice(1)];
+		if (tier !== undefined) return tier;
+	}
+	return undefined;
+}
+
 /** One row per listed role (stock's hidden ones left out), in `roles` order. */
 export function planRoles(input: RolePlanInput): PlanRow[] {
 	return input.roles
@@ -251,21 +271,23 @@ export function planRoles(input: RolePlanInput): PlanRow[] {
 			const persisted = input.facts.roles[role.id]?.persisted;
 			const manual =
 				persisted !== undefined && baseSelector(persisted) !== baseSelector(input.lastApplied?.[role.id]);
-			const base = { role: role.id, ...(role.current ? { current: role.current } : {}), manual };
+			const base = { role: role.id, ...(role.current ? { current: role.current } : {}), manual, follows: false };
 			if (role.section === "kind") {
 				return { ...base, model: null, checked: false, reason: { rule: "stock" as const } };
 			}
-			const tier = TIERS[role.id];
+			const tier = TIERS[role.id] ?? chainTier(role);
 			const pool = poolFor(input, role);
 			const { chosen, reason } = pick(input, role, tier ?? "default", pool);
 			if (!chosen) return { ...base, model: null, checked: false, reason: { rule: "no-candidate" as const } };
 			const provider = input.facts.providers[chosen.model.provider];
 			const headroom = input.headroom?.[chosen.model.provider];
 			const top = topInt(pool);
+			const follows = role.current === undefined && baseSelector(role.effective) === chosen.selector;
 			return {
 				...base,
 				model: chosen.selector,
-				checked: !manual && chosen.selector !== baseSelector(role.current),
+				follows,
+				checked: !manual && !follows && chosen.selector !== baseSelector(role.current),
 				reason: {
 					rule: tier ?? "chat",
 					billing: provider?.billing ?? "metered",

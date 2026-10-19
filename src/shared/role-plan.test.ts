@@ -157,6 +157,53 @@ describe("planRoles", () => {
 		expect(rows["future-kind"]).toMatchObject({ model: null, reason: { rule: "stock" } });
 	});
 
+	describe("a role with its own chain (an OMPdesk role such as review)", () => {
+		const REVIEW: PlanRoleInput = {
+			id: "review",
+			section: "chat",
+			candidates: CHAT,
+			defaults: ["@review", "@advisor", "@slow", "@task"],
+		};
+
+		it("takes the rule of the first role its chain names: another family's strong model, never the default's", () => {
+			const rows = plan({ roles: [...ROLES, REVIEW] });
+			expect(rows.review).toMatchObject({
+				model: "openai-codex/sol",
+				reason: { rule: "advisor", crossVendor: true },
+			});
+		});
+
+		it("says no other family qualifies when only the default's family is connected", () => {
+			const sameFamily = facts({
+				providers: { anthropic: { billing: "subscription", basis: "oauth" } },
+			});
+			const rows = plan({ roles: [...ROLES, REVIEW], facts: sameFamily });
+			expect(rows.review?.model).toMatch(/^anthropic\//);
+			expect(rows.review?.reason).toMatchObject({ rule: "advisor", crossVendor: false });
+			// The strongest of the one family (here only opus is within 85 % of the top).
+			expect(rows.review?.model).toBe("anthropic/opus");
+		});
+
+		it("falls back to the default's rule when its chain names no role with a rule", () => {
+			const rows = plan({ roles: [...ROLES, { ...REVIEW, defaults: ["@review", "acme/model"] }] });
+			expect(rows.review).toMatchObject({ model: "anthropic/opus", reason: { rule: "chat" } });
+		});
+	});
+
+	it("leaves an unset role unwritten when its chain already gives the planned model", () => {
+		const rows = plan({
+			roles: ROLES.map(role => (role.id === "smol" ? { ...role, effective: "anthropic/haiku" } : role)),
+		});
+		expect(rows.smol).toMatchObject({ model: "anthropic/haiku", follows: true, checked: false });
+		// A role that holds a value of its own is compared with that value, not its chain.
+		const held = plan({
+			roles: ROLES.map(role =>
+				role.id === "smol" ? { ...role, current: "anthropic/sonnet", effective: "anthropic/sonnet" } : role,
+			),
+		});
+		expect(held.smol).toMatchObject({ model: "anthropic/haiku", follows: false, checked: true });
+	});
+
 	it("uses a picked metered model in the picked mode", () => {
 		const rows = plan({ mode: "picked", picked: ["openrouter/fable", "anthropic/haiku"] });
 		expect(rows.slow?.model).toBe("openrouter/fable");

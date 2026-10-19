@@ -292,19 +292,21 @@ describe("ModelSetupDialog full auto", () => {
 		);
 	});
 
-	it("plans and lists a role this code has never heard of, like an OMPdesk-provided one", async () => {
+	it("plans and lists a role this code has never heard of from its own chain, like OMPdesk's review", async () => {
 		const review: ModelRoleEntry = {
 			id: "review",
 			name: "Review",
 			section: "chat",
 			source: "default",
+			defaults: ["@review", "@advisor", "@slow", "@task"],
 			candidates: POOL,
 		};
 		install({ roles: [...ROLES, review] });
 		await mount();
 
 		expect(rowIds()).toContain("review");
-		expect(rowModel("review")).toBe("Opus");
+		// Its chain falls to the advisor: another family's strong model, never the default's.
+		expect(rowModel("review")).toBe("GPT-5");
 		expect(
 			document.querySelector('[data-model-setup-group="agent"] [data-model-setup-role="review"]'),
 		).not.toBeNull();

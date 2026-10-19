@@ -2541,6 +2541,7 @@ export const ko: Record<string, string> = {
 	"modelSetup.reason.none.picked": "고른 모델 중에 이 역할을 맡을 수 있는 모델이 없어요.",
 	"modelSetup.reason.headroom": "이 계정의 사용량이 약 {percent}% 남아 있어요.",
 	"modelSetup.reason.manual": "이전 구성이 아니라 직접 지정한 역할이라, 체크하지 않으면 그대로 둬요.",
+	"modelSetup.reason.follows": "기본 체인이 이미 이 모델로 돌아서, 아무것도 쓰지 않고 체인에 맡겨요.",
 	"modelSetup.reason.research": "공개 벤치마크를 조사해서 골랐어요.",
 	"modelSetup.reason.billing.subscription": "구독",
 	"modelSetup.reason.billing.free": "무료 (이 컴퓨터에서 실행)",
