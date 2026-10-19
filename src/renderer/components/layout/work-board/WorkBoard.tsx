@@ -21,7 +21,7 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { isDrawerMode, useShellMode } from "../../../hooks/use-shell-mode";
 import { saveGuiPreference } from "../../../lib/display-preferences";
-import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
+import { cx, formatCost, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
@@ -49,6 +49,7 @@ import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panel
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
+import { childUsageText, subagentUsage } from "../sidebar/sidebar-family";
 import { WorkBoardChip } from "./WorkBoardChip";
 import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
 
@@ -320,7 +321,9 @@ function AgentRow({
 	const progress = agent.progress;
 	const step = progress?.currentToolIntent ?? progress?.lastIntent ?? progress?.currentTool ?? status;
 	const tokens = progress?.tokens ?? 0;
+	const cost = progress?.cost ?? 0;
 	const provider = providerOf(progress?.resolvedModel);
+	const usage = childUsageText(subagentUsage(agent));
 	return (
 		<BoardRow
 			exiting={exiting}
@@ -338,9 +341,14 @@ function AgentRow({
 							{t("workBoard.tokens", { tokens: formatTokens(tokens) })}
 						</span>
 					) : null}
+					{cost > 0 ? (
+						<span className="shrink-0 tabular-nums" data-board-agent-cost>
+							{formatCost(cost, 2)}
+						</span>
+					) : null}
 				</>
 			}
-			title={`${label}\n${status}${progress?.resolvedModel ? `\n${progress.resolvedModel}` : ""}`}
+			title={[label, status, usage].filter(Boolean).join("\n")}
 		/>
 	);
 }

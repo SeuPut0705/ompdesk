@@ -38,6 +38,9 @@ interface FakeTab extends ControlTab {
 	messages?: AgentMessage[];
 	subagents?: { id: string; status: string }[];
 	todos?: { name: string; tasks: { content: string; status: string }[] }[];
+	/** What the fake omp answers `get_state.model` and `get_session_stats.history.cost` with. */
+	model?: { provider: string; id: string };
+	cost?: number;
 }
 
 class FakeHost implements AgentControlHost {
@@ -253,7 +256,14 @@ class FakeHost implements AgentControlHost {
 		if (!tab) return bad("gone");
 		switch (command.type) {
 			case "get_state":
-				return ok({ isStreaming: tab.busy, todoPhases: tab.todos ?? [], planModeEnabled: false });
+				return ok({
+					isStreaming: tab.busy,
+					todoPhases: tab.todos ?? [],
+					planModeEnabled: false,
+					...(tab.model ? { model: tab.model } : {}),
+				});
+			case "get_session_stats":
+				return ok({ cost: 0.001, history: { cost: tab.cost ?? 0 } });
 			case "get_last_assistant_text":
 				return ok({ text: tab.last ?? null });
 			case "get_subagents":
@@ -1222,6 +1232,29 @@ describe("the review queue", () => {
 		(host.tabsById.get(ids[1]) as FakeTab).busy = false;
 		expect(await service.reviewItems("main0001")).toEqual([]);
 	});
+
+	it("tells what every opened session runs on and cost, a landed one without an item included", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		Object.assign(host.tabsById.get(ids[0]) as FakeTab, {
+			model: { provider: "anthropic", id: "claude-x" },
+			cost: 0.3,
+		});
+		Object.assign(host.tabsById.get(ids[1]) as FakeTab, { cost: 0.12 });
+		host.facts.set("omp/agent/a", {
+			...clean,
+			branch: "omp/agent/a",
+			commitsAhead: 0,
+			files: [],
+			untracked: 0,
+			merged: true,
+		});
+		const review = await service.review("main0001");
+		expect(review.items.map(item => item.tabId)).toEqual([ids[1]]);
+		expect(review.usage).toEqual([
+			{ tabId: ids[0], model: "anthropic/claude-x", cost: 0.3 },
+			{ tabId: ids[1], cost: 0.12 },
+		]);
+	});
 });
 
 describe("ompdesk_schedule", () => {
@@ -1713,6 +1746,8 @@ describe("autoClose: opened sessions whose work landed", () => {
 			autoClosable: true,
 			lastRun: { stopReason: "stop" },
 			last: "Done: parser fixed.\nResult: ok",
+			model: { provider: "openai", id: "gpt-z" },
+			cost: 0.42,
 			...options.patch,
 		});
 		return { host, service, child };
@@ -1731,6 +1766,8 @@ describe("autoClose: opened sessions whose work landed", () => {
 				title: "Fix the parser",
 				cwd: "/repo",
 				closedAt: expect.any(Number),
+				model: "openai/gpt-z",
+				cost: 0.42,
 			},
 		]);
 		expect(host.deleted).toEqual([]);

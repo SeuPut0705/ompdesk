@@ -3,13 +3,16 @@
  * report: the board's "Opened sessions" rows and the sidebar family read them. Main pushes the whole list for a
  * parent on every change (`onAgentControlReview`); the board asks once when it mounts through the
  * `agent_control_review` command. Nothing acts on them here: the opener's agent lands or discards its children.
+ * With the list comes what every session it opened runs on and has cost (`usage`), the landed ones included.
  */
 import { create } from "zustand";
-import type { AgentReviewEvent, AgentReviewItem, AgentReviewResult } from "../../shared/agent-control";
+import type { AgentChildUsage, AgentReviewEvent, AgentReviewItem, AgentReviewResult } from "../../shared/agent-control";
 
 interface AgentReviewStore {
 	/** Parent tab → the sessions it opened that still wait or run. */
 	byTab: Readonly<Record<string, readonly AgentReviewItem[]>>;
+	/** Child tab → what it runs on and has cost (from whichever parent's push named it last). */
+	usage: Readonly<Record<string, AgentChildUsage>>;
 	apply: (event: AgentReviewEvent) => void;
 	refresh: (tabId: string) => Promise<void>;
 	reset: () => void;
@@ -19,15 +22,22 @@ const NONE: readonly AgentReviewItem[] = [];
 
 export const useAgentReviewStore = create<AgentReviewStore>()((set, get) => ({
 	byTab: {},
-	apply: event => set(state => ({ byTab: { ...state.byTab, [event.tabId]: event.items } })),
+	usage: {},
+	apply: event =>
+		set(state => ({
+			byTab: { ...state.byTab, [event.tabId]: event.items },
+			usage: event.usage?.length
+				? { ...state.usage, ...Object.fromEntries(event.usage.map(row => [row.tabId, row])) }
+				: state.usage,
+		})),
 	refresh: async tabId => {
 		// A read that fails (a paired host's link down, a tab starting) keeps what is known; main's next push replaces it.
 		const response = await window.omp?.rpc
 			?.commandForTab?.(tabId, { type: "agent_control_review" })
 			.catch(() => undefined);
-		if (response?.success) get().apply({ tabId, items: (response.data as AgentReviewResult).items });
+		if (response?.success) get().apply({ tabId, ...(response.data as AgentReviewResult) });
 	},
-	reset: () => set({ byTab: {} }),
+	reset: () => set({ byTab: {}, usage: {} }),
 }));
 
 let subscribed = false;

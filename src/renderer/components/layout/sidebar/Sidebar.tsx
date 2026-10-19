@@ -143,6 +143,7 @@ import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import {
 	CHILD_TOKEN,
+	childUsageText,
 	isShownOpened,
 	openedChildStatus,
 	openerOfSessions,
@@ -818,6 +819,11 @@ export function Sidebar() {
 		[closedChildren],
 	);
 	const closedTitleOf = useMemo(() => new Map(closedChildren.map(row => [row.path, row.title])), [closedChildren]);
+	const closedUsageOf = useMemo(
+		() => new Map(closedChildren.map(row => [row.path, { model: row.model, cost: row.cost }] as const)),
+		[closedChildren],
+	);
+	const childUsage = useAgentReviewStore(s => s.usage);
 	const closedCwdOf = useMemo(
 		() => new Map(closedChildren.flatMap(row => (row.cwd ? [[row.path, row.cwd] as const] : []))),
 		[closedChildren],
@@ -1606,6 +1612,7 @@ export function Sidebar() {
 				: status === "done"
 					? t("tabs.done")
 					: (row.statusLabel ?? "");
+		const usage = (openTabId ? childUsage[openTabId] : undefined) ?? closedUsageOf.get(child.path);
 		return {
 			key: child.path,
 			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
@@ -1614,8 +1621,9 @@ export function Sidebar() {
 			stateLabel: statusLabel,
 			title,
 			age: row.indexed ? formatTimeAgo(child.modified) : undefined,
-			// The one line has no room for the status in words or the folder: they are the tooltip.
-			tooltip: [title, statusLabel, origin.tooltip].filter(Boolean).join("\n"),
+			usage,
+			// The one line has no room for the status in words, the folder or the model and cost: they are the tooltip.
+			tooltip: [title, statusLabel, origin.tooltip, usage && childUsageText(usage)].filter(Boolean).join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
 			renaming: renamingSessionPath === child.path ? renderRenameField(child, key, openTabId, "pl-3.5") : undefined,
@@ -1699,6 +1707,7 @@ export function Sidebar() {
 						: status === "done"
 							? t("tabs.done")
 							: t("sidebar.row.open");
+		const usage = childUsage[tab.id];
 		return {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
@@ -1707,7 +1716,10 @@ export function Sidebar() {
 			stateLabel: statusLabel,
 			title,
 			device,
-			tooltip: [title, statusLabel, `${device} · ${tab.cwd}`].filter(Boolean).join("\n"),
+			usage,
+			tooltip: [title, statusLabel, `${device} · ${tab.cwd}`, usage && childUsageText(usage)]
+				.filter(Boolean)
+				.join("\n"),
 			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
 			onOpen: () => void useTabsStore.getState().switchTab(tab.id),
 			buttonProps: { tabIndex: -1, "data-roving-item": key, onFocus: () => setFocusKey(key) },

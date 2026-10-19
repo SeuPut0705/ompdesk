@@ -305,9 +305,10 @@ export class AgentControlRuntime {
 		for (const [childId, parent] of this.#parents) if (this.#autoClosable(childId)) openers.add(parent.callerTabId);
 		for (const opener of openers) {
 			this.#sweepSoon(opener);
-			void this.control.reviewItems(opener).then(
-				items => {
-					if (JSON.stringify(items) !== (this.#reviewSent.get(opener) ?? "[]")) this.#sendReview(opener, items);
+			void this.control.review(opener).then(
+				review => {
+					const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: [] });
+					if (JSON.stringify(review) !== last) this.#sendReview(opener, review);
 				},
 				() => undefined,
 			);
@@ -344,8 +345,8 @@ export class AgentControlRuntime {
 	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
-		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
-		return { items: await this.control.reviewItems(callerTabId) };
+		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: [] };
+		return this.control.review(callerTabId);
 	}
 
 	/**
@@ -353,14 +354,14 @@ export class AgentControlRuntime {
 	 * children (they are tabs of the window that opened them), so these rows are all it knows of them: without
 	 * them its work strip said nothing while the children worked.
 	 */
-	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
-		this.#reviewSent.set(callerTabId, JSON.stringify(items));
+	#sendReview(callerTabId: string, review: AgentReviewResult): void {
+		this.#reviewSent.set(callerTabId, JSON.stringify(review));
 		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
 		const own = this.#win(callerTabId);
 		for (const win of own && !showing.includes(own) ? [own, ...showing] : showing)
 			if (!win.isDestroyed())
-				win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
-		this.#sendChildren(callerTabId, items);
+				win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, ...review } satisfies AgentReviewEvent);
+		this.#sendChildren(callerTabId, review.items);
 	}
 
 	/**
@@ -384,8 +385,8 @@ export class AgentControlRuntime {
 		clearTimeout(this.#reviewTimers.get(callerTabId));
 		const timer = setTimeout(() => {
 			this.#reviewTimers.delete(callerTabId);
-			void this.control.reviewItems(callerTabId).then(
-				items => this.#sendReview(callerTabId, items),
+			void this.control.review(callerTabId).then(
+				review => this.#sendReview(callerTabId, review),
 				() => undefined,
 			);
 		}, REVIEW_SETTLE_MS);

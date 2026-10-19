@@ -252,13 +252,14 @@ describe("AgentControlRuntime", () => {
 			await vi.advanceTimersByTimeAsync(60_000);
 			await opening;
 			let current: unknown[] = [{ tabId: "new00003" }];
-			vi.spyOn(runtime.control, "reviewItems").mockImplementation(async () => current as never);
+			const usage = [{ tabId: "new00003", cost: 0.25 }];
+			vi.spyOn(runtime.control, "review").mockImplementation(async () => ({ items: current, usage }) as never);
 			const frames = () =>
 				win.sent
 					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
 					.map(([, payload]) => JSON.stringify(payload));
 			await vi.advanceTimersByTimeAsync(200);
-			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [{ tabId: "new00003" }] }));
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [{ tabId: "new00003" }], usage }));
 			// Unchanged: the timer sends nothing more than it did.
 			const before = frames().length;
 			await vi.advanceTimersByTimeAsync(200);
@@ -266,7 +267,7 @@ describe("AgentControlRuntime", () => {
 			// A commit or push outside the app changed the list: the next sweep sends it.
 			current = [];
 			await vi.advanceTimersByTimeAsync(200);
-			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [] }));
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [], usage }));
 			expect(frames()).toHaveLength(before + 1);
 		} finally {
 			vi.useRealTimers();

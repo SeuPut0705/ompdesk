@@ -889,6 +889,7 @@ export const ko: Record<string, string> = {
 	"sidebar.family.sessions": "파생 세션 {count}개",
 	"sidebar.family.running": "실행 중 {count}개",
 	"sidebar.family.waiting": "답변 대기 {count}개",
+	"sidebar.family.cost": "{cost} 사용",
 	"sidebar.family.unmerged": "병합 안 된 작업",
 	"sidebar.family.kind.subagent": "서브에이전트",
 	"sidebar.family.kind.worktree": "워크트리 세션",

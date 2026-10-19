@@ -31,9 +31,11 @@ import type {
 import {
 	AGENT_CARD_PREFIX,
 	AGENT_SCHEDULE_PREFIX,
+	type AgentChildUsage,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
 	type AgentReviewItem,
+	type AgentReviewResult,
 	agentTaskTitle,
 	type ClosedChild,
 	parseAgentMessage,
@@ -2139,8 +2141,7 @@ export class AgentControl {
 	 * parent's branch or the upstream it tracks) with no uncommitted or untracked file, which ended well and waits on
 	 * no answer. A landed child with files left over lists only those files.
 	 */
-	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem | null> {
-		const session = await this.#state(tab);
+	async #reviewItem(tab: ControlTab, session: SessionState): Promise<AgentReviewItem | null> {
 		const running = tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running");
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
@@ -2192,12 +2193,47 @@ export class AgentControl {
 
 	/** The sessions `callerTabId` opened that wait for the person (or still run), for the work board. */
 	async reviewItems(callerTabId: string): Promise<AgentReviewItem[]> {
+		return (await this.review(callerTabId)).items;
+	}
+
+	/**
+	 * The work board's list (`reviewItems`) plus what every session `callerTabId` opened runs on and has cost, the
+	 * landed ones without an item included: the family's cost counts them all.
+	 */
+	async review(callerTabId: string): Promise<AgentReviewResult> {
 		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return [];
+		if (!tabs) return { items: [], usage: [] };
 		const own = this.#openedBy(callerTabId, tabs);
-		const children = tabs.filter(tab => own.has(tab.tabId) && !this.#reviewed.has(tab.tabId) && !tab.hidden);
-		const items = await Promise.all(children.map(tab => this.#reviewItem(tab)));
-		return items.filter(item => item !== null);
+		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
+		const rows = await Promise.all(
+			children.map(async tab => {
+				const [session, cost] = await Promise.all([this.#state(tab), this.#cost(tab)]);
+				const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
+				const model = session.state?.model;
+				const usage: AgentChildUsage = {
+					tabId: tab.tabId,
+					...(model ? { model: `${model.provider}/${model.id}` } : {}),
+					cost,
+				};
+				return { item, usage };
+			}),
+		);
+		return {
+			items: rows.flatMap(row => (row.item ? [row.item] : [])),
+			usage: rows.map(row => row.usage),
+		};
+	}
+
+	/** What a session has cost over its whole journal (the title bar's figure), 0 while its omp cannot say. */
+	async #cost(tab: ControlTab): Promise<number> {
+		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return 0;
+		const response = await this.#host
+			.command(tab.tabId, { type: "get_session_stats" }, STATE_TIMEOUT_MS)
+			.catch(() => null);
+		if (!response?.success) return 0;
+		const stats = response.data as { cost?: unknown; history?: { cost?: unknown } } | undefined;
+		const cost = typeof stats?.history?.cost === "number" ? stats.history.cost : stats?.cost;
+		return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? cost : 0;
 	}
 
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
@@ -2261,6 +2297,14 @@ export class AgentControl {
 	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
 		this.#closing.add(tab.tabId);
 		try {
+			// Read before the close: the closed record keeps them for the opener's family cost.
+			const [model, cost] = await Promise.all([
+				this.#host
+					.command(tab.tabId, { type: "get_state" }, STATE_TIMEOUT_MS)
+					.then(response => (response.success ? (response.data as RpcSessionState | undefined)?.model : null))
+					.catch(() => null),
+				this.#cost(tab),
+			]);
 			this.#host.view(caller.tabId, { tabId: tab.tabId, how: "close", auto: true });
 			await this.#whenGone(caller.tabId, tab.tabId, AUTO_CLOSE_WAIT_MS);
 			// The window kept it (the person came to it meanwhile): nothing else changes.
@@ -2275,6 +2319,8 @@ export class AgentControl {
 				title: tab.title || tab.task || "",
 				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
 				closedAt: Date.now(),
+				...(model ? { model: `${model.provider}/${model.id}` } : {}),
+				...(cost > 0 ? { cost } : {}),
 			});
 		} finally {
 			this.#closing.delete(tab.tabId);

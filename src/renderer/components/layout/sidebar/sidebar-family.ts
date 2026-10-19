@@ -6,6 +6,7 @@
 
 import { agentMessageSender } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { formatCost } from "../../../lib/format";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
@@ -176,6 +177,48 @@ export function familyCounts(
 		}
 	for (const child of opened) tally(child.state);
 	return counts;
+}
+
+/** What a child ran on and what it has cost (USD), as far as stock has said; any field may be missing. */
+export interface ChildUsage {
+	/** `provider/id` stock resolved, else the requested model or role. */
+	model?: string;
+	/** The model role a subagent's model came from (`@task` → "task"); sessions have none. */
+	role?: string;
+	cost?: number;
+}
+
+/** A subagent's model, role and cost from stock's progress (`AgentProgress`); nothing before its first frame. */
+export function subagentUsage(agent: SubagentSnapshot): ChildUsage {
+	const progress = agent.progress;
+	if (!progress) return {};
+	const override = Array.isArray(progress.modelOverride) ? progress.modelOverride[0] : progress.modelOverride;
+	const model = progress.resolvedModel || override;
+	return {
+		...(model ? { model } : {}),
+		...(progress.modelRole ? { role: progress.modelRole } : {}),
+		cost: progress.cost,
+	};
+}
+
+const usd = (cost: number | undefined): number => (typeof cost === "number" && cost > 0 ? cost : 0);
+
+/** The tooltip line a child's model, role and cost read as ("anthropic/claude-x · @task · $0.03"); "" when unknown. */
+export function childUsageText(usage: ChildUsage): string {
+	const cost = usd(usage.cost);
+	return [usage.model, usage.role && `@${usage.role}`, cost > 0 && formatCost(cost, 2)].filter(Boolean).join(" · ");
+}
+
+/**
+ * What the family has cost: every subagent of the roster and every session its agent opened, finished ones included
+ * (they are not listed, but what they spent stays spent, so the total never drops when a child ends). Each child's
+ * own cost as stock counts it (a subagent's progress, an opened session's session stats), so nothing is added twice.
+ */
+export function familyCost(subagents: Iterable<SubagentSnapshot>, opened: readonly { cost?: number }[]): number {
+	let total = 0;
+	for (const agent of subagents) total += usd(agent.progress?.cost);
+	for (const child of opened) total += usd(child.cost);
+	return total;
 }
 
 /** Live subagents in a roster. */

@@ -158,6 +158,9 @@ export interface ClosedChild {
 	/** The folder to open it in: its worktree while that exists, else the checkout it was made from. */
 	cwd: string;
 	closedAt: number;
+	/** What it ran on and had cost when main closed it (an opener's family cost keeps counting it). */
+	model?: string;
+	cost?: number;
 }
 
 /** The stored list, tolerating anything else a hand-edited prefs file holds. */
@@ -166,7 +169,7 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 	const rows: ClosedChild[] = [];
 	for (const entry of value) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, openedBySession, title, cwd, closedAt } = entry as Record<string, unknown>;
+		const { path, openedBySession, title, cwd, closedAt, model, cost } = entry as Record<string, unknown>;
 		if (typeof path !== "string" || !path || typeof openedBySession !== "string" || !openedBySession) continue;
 		rows.push({
 			path,
@@ -174,6 +177,8 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 			title: typeof title === "string" ? title : "",
 			cwd: typeof cwd === "string" ? cwd : "",
 			closedAt: typeof closedAt === "number" ? closedAt : 0,
+			...(typeof model === "string" && model ? { model } : {}),
+			...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { cost } : {}),
 		});
 	}
 	return rows.slice(-MAX_CLOSED_CHILDREN);
@@ -216,15 +221,29 @@ export interface AgentReviewItem {
 	waiting?: true;
 }
 
+/**
+ * What an opened session runs on and has cost so far: stock `get_state`'s model and `get_session_stats`' cost.
+ * One per session the parent opened that has a tab, listed on the board or not (a landed one counts in the family's
+ * cost too).
+ */
+export interface AgentChildUsage {
+	tabId: string;
+	/** `provider/id`; absent until its omp answered. */
+	model?: string;
+	cost: number;
+}
+
 export interface AgentReviewEvent {
 	/** The parent session whose board lists these. */
 	tabId: string;
 	items: AgentReviewItem[];
+	usage?: AgentChildUsage[];
 }
 
-/** What the `agent_control_review` command answers: the opened sessions' list. */
+/** What the `agent_control_review` command answers: the opened sessions' list and what each runs on and cost. */
 export interface AgentReviewResult {
 	items: AgentReviewItem[];
+	usage?: AgentChildUsage[];
 }
 
 /**

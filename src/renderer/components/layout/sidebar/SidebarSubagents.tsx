@@ -32,7 +32,7 @@ import {
 } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { cx, formatTimeAgo, formatTokens } from "../../../lib/format";
+import { cx, formatCost, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
@@ -60,12 +60,16 @@ import { FamilyRow, type FamilyRowProps } from "./SidebarFamilyRow";
 import {
 	buildSubagentFamilyRows,
 	type ChildStatus,
+	type ChildUsage,
+	childUsageText,
 	countLiveSubagents,
 	type FamilyCounts,
 	type FamilyState,
+	familyCost,
 	familyCounts,
 	isShownOpened,
 	subagentFamilyState,
+	subagentUsage,
 } from "./sidebar-family";
 
 /** A session the agent of this family's parent opened, as the sidebar prepared its row. */
@@ -81,6 +85,8 @@ export interface FamilyOpened {
 	stateLabel: string;
 	title: string;
 	age?: string;
+	/** What it runs on and has cost (the review push, or the closed record); its cost counts in the family's. */
+	usage?: ChildUsage;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
 	tooltip: string;
@@ -192,7 +198,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
-		progress?.resolvedModel,
+		childUsageText(subagentUsage(agent)),
 		usage,
 		note,
 	]
@@ -245,12 +251,12 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	);
 });
 
-/** The family's shown opened sessions and counts, as the chip and the open/closed rule read them. */
+/** The family's shown opened sessions, counts and cost, as the chip and the open/closed rule read them. */
 function useFamilyCounts(
 	sessionKey: string,
 	slice: AgentSlice,
 	opened: readonly FamilyOpened[],
-): { counts: FamilyCounts; hidden: boolean; kids: readonly FamilyOpened[] } {
+): { counts: FamilyCounts; cost: number; hidden: boolean; kids: readonly FamilyOpened[] } {
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	// A finished opened session that landed clean is not part of the family (see `isShownOpened`).
 	const kids = useMemo(() => opened.filter(isShownOpened), [opened]);
@@ -263,7 +269,16 @@ function useFamilyCounts(
 			),
 		[slice.subagents, kids, hidden],
 	);
-	return { counts, hidden, kids };
+	// What was spent stays spent: finished and hidden children count in the cost.
+	const cost = useMemo(
+		() =>
+			familyCost(
+				slice.subagents.values(),
+				opened.map(child => ({ cost: child.usage?.cost })),
+			),
+		[slice.subagents, opened],
+	);
+	return { counts, cost, hidden, kids };
 }
 
 /**
@@ -281,7 +296,7 @@ function FamilyChip({
 	opened: readonly FamilyOpened[];
 }) {
 	const t = useT();
-	const { counts } = useFamilyCounts(sessionKey, slice, opened);
+	const { counts, cost } = useFamilyCounts(sessionKey, slice, opened);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
 	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);
@@ -310,6 +325,7 @@ function FamilyChip({
 		counts.sessions > 0 ? t("sidebar.family.sessions", { count: counts.sessions }) : "",
 		counts.running > 0 ? t("sidebar.family.running", { count: counts.running }) : "",
 		counts.waiting > 0 ? t("sidebar.family.waiting", { count: counts.waiting }) : "",
+		cost > 0 ? t("sidebar.family.cost", { cost: formatCost(cost, 2) }) : "",
 	]
 		.filter(Boolean)
 		.join(", ");
@@ -365,6 +381,13 @@ function FamilyChip({
 							</span>
 						)}
 					</>
+				)}
+				{/* The family's cost, once: what every child spent, finished ones included. Not in the narrow pill. */}
+				{cost > 0 && !compact && (
+					<span className="inline-flex items-center gap-0.5" data-family-cost={cost.toFixed(4)}>
+						<span aria-hidden>·</span>
+						{formatCost(cost, 2)}
+					</span>
 				)}
 			</button>
 			{menuAt && (

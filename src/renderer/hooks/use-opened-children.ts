@@ -5,7 +5,7 @@ import {
 	openedChildCounts,
 	openedChildRows,
 } from "../components/layout/work-board/opened-children";
-import { ensureAgentReviewSubscription, useAgentReviewItems } from "../stores/agent-review";
+import { ensureAgentReviewSubscription, useAgentReviewItems, useAgentReviewStore } from "../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../stores/closed-children";
 import { useRemoteStore } from "../stores/remote";
 import { useTabsStore } from "../stores/tabs";
@@ -22,6 +22,7 @@ export function useOpenedChildren(tabId: string | null): {
 } {
 	const tabs = useTabsStore(state => state.tabs);
 	const review = useAgentReviewItems(tabId);
+	const usage = useAgentReviewStore(state => state.usage);
 	const closed = useClosedChildrenStore(state => state.rows);
 	const hosts = useRemoteStore(state => state.state?.hosts);
 	useEffect(() => {
@@ -35,10 +36,11 @@ export function useOpenedChildren(tabId: string | null): {
 					parent,
 					tabs,
 					review: new Map(review.map(item => [item.tabId, item])),
+					usage,
 					closed,
 					deviceName: id => hosts?.find(host => host.deviceId === id)?.name ?? id,
 				})
 			: NONE;
 		return { rows, counts: openedChildCounts(rows) };
-	}, [tabId, tabs, review, closed, hosts]);
+	}, [tabId, tabs, review, usage, closed, hosts]);
 }

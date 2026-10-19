@@ -4,7 +4,7 @@
  * by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
 import { Check, X } from "lucide-react";
-import { formatElapsed } from "../../../lib/format";
+import { formatCost, formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabsStore } from "../../../stores/tabs";
 import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
@@ -63,9 +63,21 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 						</span>
 					) : null}
 					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
+					{row.cost ? (
+						<span className="shrink-0 tabular-nums" data-board-opened-cost>
+							{formatCost(row.cost, 2)}
+						</span>
+					) : null}
 				</>
 			}
-			title={`${title}${row.device ? ` · ${row.device}` : ""}\n${statusLabel}${branch ? `\n${branch}` : ""}`}
+			title={[
+				`${title}${row.device ? ` · ${row.device}` : ""}`,
+				statusLabel,
+				branch,
+				[row.model, row.cost ? formatCost(row.cost, 2) : null].filter(Boolean).join(" · "),
+			]
+				.filter(Boolean)
+				.join("\n")}
 		/>
 	);
 }
