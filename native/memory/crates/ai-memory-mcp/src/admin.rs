@@ -8224,6 +8224,15 @@ struct WritePageAdminRequest {
     /// another of the person's computers.
     #[serde(default)]
     expires_at: Option<String>,
+    /// Write only while this is the page's latest version (the version the
+    /// writer read); else 409 and nothing is written. OMPdesk's sync writes a
+    /// copy this way, so a change made meanwhile (a retire) is never lost.
+    #[serde(default)]
+    expected_page_id: Option<String>,
+    /// Write only while nothing lives at the path; else 409. Not with
+    /// `expected_page_id`.
+    #[serde(default)]
+    create_only: bool,
 }
 
 const MAX_ORIGIN_DEVICE_LEN: usize = 200;
@@ -8290,6 +8299,34 @@ async fn handle_write_page(
             })),
         ));
     }
+    let precondition = match (
+        req.expected_page_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty()),
+        req.create_only,
+    ) {
+        (Some(_), true) => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": "expected_page_id and create_only cannot be combined"
+                })),
+            ));
+        }
+        (Some(id), false) => Some(ai_memory_store::PagePrecondition::Latest(
+            <ai_memory_core::PageId as std::str::FromStr>::from_str(id).map_err(|_| {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({
+                        "error": format!("expected_page_id {id:?} is not a page id")
+                    })),
+                )
+            })?,
+        )),
+        (None, true) => Some(ai_memory_store::PagePrecondition::Absent),
+        (None, false) => None,
+    };
     let tier: Tier = req.tier.parse().map_err(|_| {
         (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -8378,26 +8415,47 @@ async fn handle_write_page(
         None
     };
 
-    let page_id = state
-        .wiki
-        .write_page(WritePageRequest {
-            workspace_id: ws,
-            project_id: proj,
-            path: path.clone(),
-            frontmatter,
-            body: req.body,
-            tier,
-            pinned: req.pinned,
-            title: req.title,
-            admission_ctx,
-            author_id,
-            actor,
-            evidence: Vec::new(),
-        })
-        .await
-        .map_err(|e| {
-            with_manifest_warning(internal_err(e.to_string()), manifest_warning.as_ref())
-        })?;
+    let request = WritePageRequest {
+        workspace_id: ws,
+        project_id: proj,
+        path: path.clone(),
+        frontmatter,
+        body: req.body,
+        tier,
+        pinned: req.pinned,
+        title: req.title,
+        admission_ctx,
+        author_id,
+        actor,
+        evidence: Vec::new(),
+    };
+    let written = match precondition {
+        None => state
+            .wiki
+            .write_page(request)
+            .await
+            .map(ai_memory_wiki::ConditionalWrite::Written),
+        Some(precondition) => state.wiki.write_page_if(request, precondition).await,
+    }
+    .map_err(|e| with_manifest_warning(internal_err(e.to_string()), manifest_warning.as_ref()))?;
+    let page_id = match written {
+        ai_memory_wiki::ConditionalWrite::Written(page_id) => page_id,
+        ai_memory_wiki::ConditionalWrite::Mismatch { current } => {
+            let current = current.map(|id| id.to_string());
+            return Err((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "precondition failed for {}: latest is {}; nothing was changed",
+                        path.as_str(),
+                        current.as_deref().unwrap_or("no page")
+                    ),
+                    "reason": "precondition_failed",
+                    "current_page_id": current,
+                })),
+            ));
+        }
+    };
     let checkpoint = checkpoint_or_warn(
         &state.wiki,
         format!(

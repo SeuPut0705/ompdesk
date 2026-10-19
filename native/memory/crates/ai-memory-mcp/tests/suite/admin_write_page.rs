@@ -565,6 +565,74 @@ async fn write_page_expires_at_is_kept_and_hides_the_page() {
     );
 }
 
+/// A copy is written only over the version its writer read (`expected_page_id`)
+/// or only where nothing is yet (`create_only`): a page that changed in
+/// between (a retire) is never overwritten, answered 409 with nothing written.
+#[tokio::test]
+async fn write_page_conditional_refuses_a_page_that_moved_on() {
+    let tmp = TempDir::new().unwrap();
+    let state = make_state(&tmp).await;
+    let page = |body: &str| {
+        json!({
+            "workspace": "default", "project": "scratch", "path": "decisions/p.md",
+            "body": body, "kind": "decision"
+        })
+    };
+    let mut first = page("first");
+    first["create_only"] = json!(true);
+    let resp = post_json(state.clone(), "/admin/write-page", first.clone()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let first_id = body_json(resp).await["page_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Something lives there now: create_only refuses.
+    let resp = post_json(state.clone(), "/admin/write-page", first).await;
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+    let mut second = page("second");
+    second["expected_page_id"] = json!(first_id);
+    let resp = post_json(state.clone(), "/admin/write-page", second.clone()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    // The same expectation again: the page moved on, nothing is written.
+    let mut stale = page("stale");
+    stale["expected_page_id"] = json!(first_id);
+    let resp = post_json(state.clone(), "/admin/write-page", stale).await;
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    let body = body_json(resp).await;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("precondition failed"),
+        "{body}"
+    );
+    let ws = state
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let proj = state
+        .writer
+        .get_or_create_project(ws, "scratch", None)
+        .await
+        .unwrap();
+    let path = ai_memory_core::PagePath::new("decisions/p.md").unwrap();
+    assert_eq!(
+        state.wiki.read_page(ws, proj, &path).unwrap().body.trim(),
+        "second"
+    );
+
+    second["create_only"] = json!(true);
+    assert_eq!(
+        post_json(state.clone(), "/admin/write-page", second)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "expected_page_id and create_only cannot be combined"
+    );
+}
+
 #[tokio::test]
 async fn write_page_metadata_admin_legacy_kind_matches_base() {
     let tmp = TempDir::new().unwrap();
