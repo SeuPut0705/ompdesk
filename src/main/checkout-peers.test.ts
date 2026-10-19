@@ -20,7 +20,8 @@ let other: string;
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" });
 
 beforeAll(() => {
-	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-peers-")));
+	// Native realpath, as the coordinator's: Windows runners spell the temp dir with an 8.3 name the JS one keeps.
+	dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-peers-")));
 	main = path.join(dir, "app");
 	linked = path.join(dir, "app-feature");
 	other = path.join(dir, "other");

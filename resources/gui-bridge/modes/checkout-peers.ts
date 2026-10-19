@@ -24,7 +24,7 @@ import {
 import { canonicalPath, checkoutRefusal, checkoutSection, rememberFiles } from "./checkout-peers-core";
 
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
-const real = (path: string) => fs.realpathSync(path);
+const real = (path: string) => fs.realpathSync.native(path);
 
 let peers: CheckoutPeers | undefined;
 let ownFiles: string[] = [];

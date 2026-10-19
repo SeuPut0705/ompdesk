@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import type { CheckoutPeer, CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { canonicalPath, checkoutRefusal, checkoutSection } from "../../resources/gui-bridge/modes/checkout-peers-core";
 
@@ -130,17 +131,19 @@ describe("checkout guard: one worktree's files and index", () => {
 
 describe("checkout guard: a session whose folder runs through a symlink", () => {
 	it("judges git runs there against main's real path of the checkout (macOS /var is /private/var)", () => {
-		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-link-")));
+		const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-link-")));
 		try {
-			const real = path.join(dir, "real", "app");
-			fs.mkdirSync(path.join(real, "src"), { recursive: true });
-			fs.symlinkSync(path.join(dir, "real"), path.join(dir, "link"));
-			const linked = path.join(dir, "link", "app");
+			fs.mkdirSync(path.join(dir, "real", "app", "src"), { recursive: true });
+			// A junction needs no privilege on Windows; POSIX ignores the type.
+			fs.symlinkSync(path.join(dir, "real"), path.join(dir, "link"), "junction");
+			// Every path in the spelling the bridge keeps (`normalizePath`: forward slashes, lower-case drive).
+			const real = normalizePath(path.join(dir, "real", "app"), "/");
+			const linked = normalizePath(path.join(dir, "link", "app"), "/");
 			const peers: CheckoutPeers = { ...alone, toplevel: real, worktree: [peer({ files: [`${real}/src/b.ts`] })] };
-			const realpath = (p: string) => fs.realpathSync(p);
+			const realpath = (p: string) => fs.realpathSync.native(p);
 			// Main resolved the top level; the session's own cwd and its `cd` still name the link.
 			expect(checkoutRefusal("git add -A", canonicalPath(linked, realpath), peers, [], realpath)).toBeDefined();
-			expect(checkoutRefusal(`cd ${linked} && git stash`, "/", peers, [], realpath)).toBeDefined();
+			expect(checkoutRefusal(`cd "${linked}" && git stash`, "/", peers, [], realpath)).toBeDefined();
 			// A file a write is about to create gets the real spelling of its existing folder.
 			expect(canonicalPath(`${linked}/src/new.ts`, realpath)).toBe(`${real}/src/new.ts`);
 		} finally {
