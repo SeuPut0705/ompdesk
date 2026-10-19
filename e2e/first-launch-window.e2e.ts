@@ -290,17 +290,22 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 			)
 			.map(process => `${process.pid}@${process.created}`),
 	);
-	const after = windowsProcesses();
 	const lower = (text: string | null) => (text ?? "").toLowerCase();
-	const survivors = after.filter(
-		process =>
-			ownedKeys.has(`${process.pid}@${process.created}`) ||
-			lower(process.exe) === lower(exe) ||
-			lower(process.commandLine).includes(lower(profile)) ||
-			(/^ai-memory(\.exe)?$/i.test(process.name) &&
-				!isAiMemoryService(process) &&
-				!foreign.has(`${process.pid}@${process.created}`)),
-	);
+	const survivorsNow = () =>
+		windowsProcesses().filter(
+			process =>
+				ownedKeys.has(`${process.pid}@${process.created}`) ||
+				lower(process.exe) === lower(exe) ||
+				lower(process.commandLine).includes(lower(profile)) ||
+				(/^ai-memory(\.exe)?$/i.test(process.name) &&
+					!isAiMemoryService(process) &&
+					!foreign.has(`${process.pid}@${process.created}`)),
+		);
+	// The launcher's pipes close a moment before main and its Chromium children have exited (measured on Windows:
+	// ~0.1 s later, both quit paths). A child that outlived the app is still there after this bound.
+	let survivors = survivorsNow();
+	for (const deadline = Date.now() + 10_000; survivors.length > 0 && Date.now() < deadline; survivors = survivorsNow())
+		await new Promise(resolve => setTimeout(resolve, 250));
 	expect(survivors.map(describeProcess), `${how}: processes OMPdesk started outlived it`).toEqual([]);
 }
 
