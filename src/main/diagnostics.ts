@@ -6,8 +6,8 @@
  * Electron-free: the app's facts come in as `DiagnosticsSystem`, so tests need no app.
  */
 import { IPC_COMMANDS } from "../shared/ipc-types";
+import { redactDiagnosticsText } from "../shared/redactor";
 import type { SetupItemState, SetupPresence, SetupState } from "../shared/setup";
-import { redactDiagnosticsText } from "./redactor";
 import { tailLogLines } from "./runtime-log-core";
 import type { IpcRegistry } from "./web/ipc-registry";
 

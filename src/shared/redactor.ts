@@ -1,7 +1,9 @@
 /**
  * Redacts what a copied diagnostics report or a saved diagnostic bundle must not carry (Settings › Updates &
- * about › Copy diagnostics, `diagnostics.ts`; every member of the bundle zip, `local/session-dump.ts`). Pure
- * text in, text out; nothing is read or sent.
+ * about › Copy diagnostics, `diagnostics.ts`; every member of the bundle zip, `local/session-dump.ts`), and the
+ * conclusion of a turn memory keeps (`memory-prompt.ts` `conclusionExcerpt`). Pure text in, text out; nothing is
+ * read or sent. Import-free and free of names the generated omp memory extension declares: the ai-memory build
+ * embeds this file into it (`native/memory` `install_hooks.rs`, `include_str!`).
  *
  * Rule groups, applied in this order:
  *  1. credentials: URL userinfo, PEM blocks, JWTs, vendor tokens (`gh*_`, `github_pat_`, `sk-`, `xox*-`,
@@ -18,8 +20,8 @@
  * word, so a rule leans towards redacting; the tests pin both sides.
  */
 
-const SECRET = "<secret>";
-const TOKEN = "<token>";
+const REDACTED_SECRET = "<secret>";
+const REDACTED_TOKEN = "<token>";
 
 /** `//user:pass@host`: the password and the user both go. */
 const URL_USERINFO = /(\/\/)[^\s/:@]+:[^\s/@]+@/g;
@@ -81,14 +83,16 @@ function isInertValue(raw: string): boolean {
 
 export function redactDiagnosticsText(text: string): string {
 	return text
-		.replace(URL_USERINFO, `$1${SECRET}@`)
-		.replace(PEM, SECRET)
-		.replace(JWT, TOKEN)
-		.replace(VENDOR_TOKEN, TOKEN)
-		.replace(BEARER, `$1${TOKEN}`)
-		.replace(KEY_VALUE, (whole, key: string, value: string) => (isInertValue(value) ? whole : `${key}${SECRET}`))
-		.replace(LONG_HEX, TOKEN)
-		.replace(LONG_BASE64, run => (looksRandom(run) ? TOKEN : run))
+		.replace(URL_USERINFO, `$1${REDACTED_SECRET}@`)
+		.replace(PEM, REDACTED_SECRET)
+		.replace(JWT, REDACTED_TOKEN)
+		.replace(VENDOR_TOKEN, REDACTED_TOKEN)
+		.replace(BEARER, `$1${REDACTED_TOKEN}`)
+		.replace(KEY_VALUE, (whole, key: string, value: string) =>
+			isInertValue(value) ? whole : `${key}${REDACTED_SECRET}`,
+		)
+		.replace(LONG_HEX, REDACTED_TOKEN)
+		.replace(LONG_BASE64, run => (looksRandom(run) ? REDACTED_TOKEN : run))
 		.replace(EMAIL, email => (email.startsWith("git@") ? email : "<email>"))
 		.replace(TS_NET_HOST, "<tailnet-host>")
 		.replace(IPV4, (whole, a: string, b: string, c: string, d: string) => {
@@ -104,7 +108,8 @@ export function redactDiagnosticsText(text: string): string {
 
 /** A JSON value with every string redacted, and a string under a field that names a secret blanked whole. */
 function redactJsonValue(value: unknown, secretField: boolean): unknown {
-	if (typeof value === "string") return secretField && !isInertValue(value) ? SECRET : redactDiagnosticsText(value);
+	if (typeof value === "string")
+		return secretField && !isInertValue(value) ? REDACTED_SECRET : redactDiagnosticsText(value);
 	if (Array.isArray(value)) return value.map(item => redactJsonValue(item, secretField));
 	if (value === null || typeof value !== "object") return value;
 	return Object.fromEntries(

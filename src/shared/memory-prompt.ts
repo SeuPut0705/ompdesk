@@ -1,13 +1,15 @@
 /**
- * What the memory extension and the app both need to know about a session's prompts: what the session is about (the
- * title a session page is filed under) and whether the session is a child (a subagent, or a session another agent
- * opened) that must neither create nor consume a handoff.
+ * What the memory extension and the app both need to know about a session: what the session is about (the title a
+ * session page is filed under), whether the session is a child (a subagent, or a session another agent opened) that
+ * must neither create nor consume a handoff, and the conclusion a turn ended on.
  *
- * Dependency-free on purpose: the ai-memory build embeds this very file into the omp extension it generates
- * (`native/memory`, `include_str!`), main imports it for the one-time retitle of existing session pages, and the
- * tests import it. The wrapper tag, the `Title:` label and stock's subagent prefix are the same protocol lines
- * `agent-control.ts` and `subagent-title-contracts.ts` read; `memory-prompt.test.ts` keeps the three in step.
+ * Imports only `./redactor` on purpose: the ai-memory build embeds both files into the omp extension it generates
+ * (`native/memory` `install_hooks.rs`, `include_str!`; the extension drops this one import line, the redactor sits
+ * above it), main imports this file for the one-time retitle of existing session pages, and the tests import it. The
+ * wrapper tag, the `Title:` label and stock's subagent prefix are the same protocol lines `agent-control.ts` and
+ * `subagent-title-contracts.ts` read; `memory-prompt.test.ts` keeps the three in step.
  */
+import { redactDiagnosticsText } from "./redactor";
 
 const AGENT_MESSAGE_TAG = "ompdesk-agent-message";
 const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="[^"]*">[ \\t]*(?:\\r?\\n|$)`);
@@ -149,4 +151,43 @@ export function childMarker(agent: AgentIdentity | undefined, agentDriven: boole
 /** Whether a session is a child that must neither create nor consume a handoff. */
 export function isChildSession(agent: AgentIdentity | undefined, agentDriven: boolean): boolean {
 	return Object.keys(childMarker(agent, agentDriven)).length > 0;
+}
+
+/** A turn's stored conclusion is at most this many UTF-8 bytes (ai-memory's own Stop excerpt cap). */
+export const CONCLUSION_MAX_BYTES = 2000;
+
+function utf8Length(codePoint: number): number {
+	return codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+}
+
+/** `text` cut to at most `max` UTF-8 bytes, never inside a character. */
+function cutUtf8(text: string, max: number): string {
+	let bytes = 0;
+	let end = 0;
+	for (const char of text) {
+		bytes += utf8Length(char.codePointAt(0) ?? 0);
+		if (bytes > max) break;
+		end += char.length;
+	}
+	return text.slice(0, end);
+}
+
+/**
+ * What a turn ended on: the text parts of the last assistant message in `messages` (omp's `agent_end` messages; no
+ * thinking, no tool calls), redacted like a diagnostics report, trimmed and cut to `CONCLUSION_MAX_BYTES`. Undefined
+ * when that message says nothing in words.
+ */
+export function conclusionExcerpt(messages: readonly unknown[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index] as { role?: unknown; content?: unknown } | null;
+		if (message?.role !== "assistant") continue;
+		const parts = Array.isArray(message.content) ? message.content : [];
+		const text = parts
+			.map(part => (part?.type === "text" && typeof part.text === "string" ? part.text.trim() : ""))
+			.filter(Boolean)
+			.join("\n\n");
+		const excerpt = cutUtf8(redactDiagnosticsText(text).trim(), CONCLUSION_MAX_BYTES).trim();
+		return excerpt || undefined;
+	}
+	return undefined;
 }

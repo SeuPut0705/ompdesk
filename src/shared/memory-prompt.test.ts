@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { assignmentHeadline, assignmentTitle } from "../../resources/gui-bridge/modes/subagent-title-contracts";
 import { agentTaskTitle, wrapAgentMessage } from "./agent-control";
 import {
+	CONCLUSION_MAX_BYTES,
 	childMarker,
+	conclusionExcerpt,
 	firstMeaningfulLine,
 	isAgentPrompt,
 	isChildSession,
@@ -160,5 +162,50 @@ describe("child sessions", () => {
 	it("a first prompt typed by a person is main from the start", () => {
 		expect(nextAgentDriven(undefined, "안녕")).toBe(false);
 		expect(isAgentPrompt(stock("Title: x"))).toBe(true);
+	});
+});
+
+describe("conclusionExcerpt", () => {
+	const user = (text: string) => ({ role: "user", content: [{ type: "text", text }] });
+	const assistant = (...content: unknown[]) => ({ role: "assistant", content });
+	const text = (value: string) => ({ type: "text", text: value });
+
+	it("keeps only the text parts of the last assistant message", () => {
+		const messages = [
+			user("어떻게 됐어?"),
+			assistant(text("first answer")),
+			{ role: "toolResult", content: [text("tool output")] },
+			assistant(
+				{ type: "thinking", thinking: "private reasoning" },
+				text("Jev가 확실히 나아요."),
+				{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+				text("92.4% vs 74.2%"),
+			),
+		];
+		expect(conclusionExcerpt(messages)).toBe("Jev가 확실히 나아요.\n\n92.4% vs 74.2%");
+	});
+
+	it("is undefined without an assistant message or when its text is blank", () => {
+		expect(conclusionExcerpt([])).toBeUndefined();
+		expect(conclusionExcerpt([user("hi")])).toBeUndefined();
+		expect(conclusionExcerpt([assistant({ type: "toolCall", id: "c", name: "x", arguments: {} })])).toBeUndefined();
+		expect(conclusionExcerpt([assistant(text("  \n "))])).toBeUndefined();
+	});
+
+	it("redacts secrets and the home folder before storing", () => {
+		const token = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+		const excerpt = conclusionExcerpt([assistant(text(`Pushed with ${token} from /Users/jane/project.`))]);
+		expect(excerpt).not.toContain(token);
+		expect(excerpt).not.toContain("/Users/jane");
+		expect(excerpt).toContain("~/project");
+	});
+
+	it("is at most 2000 UTF-8 bytes, cut on a character boundary", () => {
+		const excerpt = conclusionExcerpt([assistant(text("결론".repeat(800)))]) ?? "";
+		expect(new TextEncoder().encode(excerpt).length).toBeLessThanOrEqual(CONCLUSION_MAX_BYTES);
+		expect(CONCLUSION_MAX_BYTES).toBe(2000);
+		expect(excerpt).not.toContain("\uFFFD");
+		expect(excerpt.startsWith("결론결론")).toBe(true);
+		expect(new TextEncoder().encode(excerpt).length).toBeGreaterThan(1990);
 	});
 });

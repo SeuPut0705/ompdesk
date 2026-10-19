@@ -15,7 +15,7 @@ import path from "node:path";
 import JSZip from "jszip";
 import { z } from "zod";
 import type { SessionArchive, SessionArchiveDiscard } from "../../shared/diagnostic-bundle";
-import { redactDiagnosticsFile } from "../redactor";
+import { redactDiagnosticsFile } from "../../shared/redactor";
 import { LocalCommandError, type LocalHandler } from "./types";
 
 /** Archives this process asked for and nobody deleted yet: the only files `discard_session_archive` removes. */

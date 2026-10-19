@@ -5656,6 +5656,9 @@ async function bootstrapMcpBridge(pi: any): Promise<void> {
 "#
 }
 
+/// The one import `src/shared/memory-prompt.ts` makes; the extension embeds the redactor above it instead.
+const OMP_SHARED_PROMPT_IMPORT: &str = "import { redactDiagnosticsText } from \"./redactor\";";
+
 fn build_omp_extension(
     server_url: &str,
     auth_token: Option<&str>,
@@ -5680,7 +5683,7 @@ import {{ closeSync, existsSync, opendirSync, openSync, readFileSync as readMark
 import {{ basename, dirname, join, resolve, sep }} from "node:path";
 import {{ homedir }} from "node:os";
 
-{memory_prompt}
+{shared_modules}
 
 const SERVER = {server_literal}.replace(/\/+$/, "");
 const AGENT = "omp";
@@ -5888,10 +5891,11 @@ function postPreCompact(ctx: any): void {{
   postHook("pre-compact", sessionPayload(ctx));
 }}
 
-function postHook(event: string, payload: Record<string, unknown>): void {{
+function postHook(event: string, payload: Record<string, unknown>, captureAssistant = false): void {{
   const url = new URL(`${{SERVER}}/hook`);
   url.searchParams.set("event", event);
   url.searchParams.set("agent", AGENT);
+  if (captureAssistant) url.searchParams.set("capture_assistant", "1");
   if (!applyMarkerParams(url, typeof payload.cwd === "string" ? payload.cwd : undefined)) return;
   const policy = capturePolicy(payload, typeof payload.cwd === "string" ? payload.cwd : undefined);
   if (policy.disposition === "drop") return;
@@ -5999,9 +6003,13 @@ export default function AiMemoryExtension(api: any): void {{
     postPreCompact(ctx);
   }});
 
-  api.on("agent_end", (_event: any, ctx: any) => {{
+  api.on("agent_end", (event: any, ctx: any) => {{
     startSession(ctx);
-    postHook("stop", sessionPayload(ctx));
+    // The turn's last reply, redacted and capped, is the conclusion a later session needs. A child sends its own
+    // too: its final answer is the most useful conclusion there is.
+    const excerpt = conclusionExcerpt(Array.isArray(event?.messages) ? event.messages : []);
+    const conclusion = excerpt ? {{ _ai_memory_assistant: {{ version: 1, excerpt }} }} : {{}};
+    postHook("stop", {{ ...sessionPayload(ctx), ...conclusion }}, !!excerpt);
   }});
 
   api.on("session_shutdown", async (_event: any, ctx: any) => {{
@@ -6013,11 +6021,27 @@ export default function AiMemoryExtension(api: any): void {{
 "#,
         server_literal = ts_string_literal(server_url),
         token_line = token_line,
-        memory_prompt = include_str!("../../../../../../src/shared/memory-prompt.ts"),
+        shared_modules = omp_shared_modules(),
     );
     // Anchors are compile-time constants over this same file's template;
     // a mismatch is a template edit that forgot the spool patch.
     add_hook_spooling(body).expect("generated TS integration lost its hook-spool anchors")
+}
+
+/// OMPdesk's own TypeScript the omp extension carries, in one module scope with the template: the shared redactor,
+/// then `src/shared/memory-prompt.ts` without its import of it.
+fn omp_shared_modules() -> String {
+    const REDACTOR: &str = include_str!("../../../../../../src/shared/redactor.ts");
+    const MEMORY_PROMPT: &str = include_str!("../../../../../../src/shared/memory-prompt.ts");
+    assert_eq!(
+        MEMORY_PROMPT.matches(OMP_SHARED_PROMPT_IMPORT).count(),
+        1,
+        "src/shared/memory-prompt.ts must import the redactor exactly once and nothing else"
+    );
+    format!(
+        "{REDACTOR}\n{}",
+        MEMORY_PROMPT.replacen(OMP_SHARED_PROMPT_IMPORT, "", 1)
+    )
 }
 
 fn render_agent(
@@ -12181,10 +12205,13 @@ model = "gpt-5"
     #[test]
     fn omp_extension_names_prompts_and_keeps_children_out_of_handoffs() {
         let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
-        // The shared module (src/shared/memory-prompt.ts) is embedded byte for byte.
-        assert!(extension.contains(include_str!(
-            "../../../../../../src/shared/memory-prompt.ts"
-        )));
+        // The shared module (src/shared/memory-prompt.ts) is embedded byte for byte but for its one import line.
+        let prompt = include_str!("../../../../../../src/shared/memory-prompt.ts").replacen(
+            OMP_SHARED_PROMPT_IMPORT,
+            "",
+            1,
+        );
+        assert!(extension.contains(&prompt));
         assert!(extension.contains("export function promptTitle("));
         // The first prompt of a session names it; every payload of a child carries its marker.
         assert!(extension.contains("...(title ? { promptTitle: title } : {}),"));
@@ -12197,6 +12224,68 @@ model = "gpt-5"
             .find("await fetchHandoff(ctx?.cwd ?? \"\", id)")
             .expect("a main session still fetches its handoff");
         assert!(guard < fetch);
+    }
+
+    #[test]
+    fn omp_extension_records_the_turn_conclusion() {
+        let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
+        // The shared redactor is embedded above memory-prompt.ts, whose import of it is gone.
+        let redactor = include_str!("../../../../../../src/shared/redactor.ts");
+        let at_redactor = extension.find(redactor).expect("the redactor is embedded");
+        let at_excerpt = extension
+            .find("export function conclusionExcerpt(")
+            .expect("conclusionExcerpt is embedded");
+        assert!(at_redactor < at_excerpt);
+        assert!(!extension.contains("from \"./redactor\""));
+        // agent_end sends the last reply as the opt-in Stop excerpt, flagged on the URL.
+        assert!(extension.contains(
+            "const excerpt = conclusionExcerpt(Array.isArray(event?.messages) ? event.messages : []);"
+        ));
+        assert!(extension.contains("_ai_memory_assistant: { version: 1, excerpt }"));
+        assert!(
+            extension.contains(
+                "if (captureAssistant) url.searchParams.set(\"capture_assistant\", \"1\");"
+            )
+        );
+        // A child's final answer is the most useful conclusion: no child guard before the Stop.
+        let stop = extension
+            .find("api.on(\"agent_end\"")
+            .expect("agent_end handler");
+        let stop_end = stop + extension[stop..].find("});").expect("handler end");
+        assert!(!extension[stop..stop_end].contains("isChildSession"));
+    }
+
+    #[test]
+    fn omp_extension_declares_each_top_level_name_once() {
+        // The embedded OMPdesk modules share one module scope with the template: a clash is a load error.
+        let extension =
+            build_omp_extension("http://127.0.0.1:49374", Some("tok"), None, "denylist");
+        let mut seen = std::collections::HashSet::new();
+        for line in extension.lines() {
+            let rest = line.strip_prefix("export ").unwrap_or(line);
+            let rest = rest.strip_prefix("async ").unwrap_or(rest);
+            let Some(rest) = [
+                "function ",
+                "const ",
+                "let ",
+                "class ",
+                "type ",
+                "interface ",
+            ]
+            .iter()
+            .find_map(|keyword| rest.strip_prefix(keyword)) else {
+                continue;
+            };
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                .collect();
+            assert!(!name.is_empty(), "{line}");
+            assert!(
+                seen.insert(name.clone()),
+                "`{name}` is declared twice at the top level"
+            );
+        }
     }
 
     #[test]
